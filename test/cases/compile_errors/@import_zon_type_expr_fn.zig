@@ -8,5 +8,5 @@ pub fn main() void {
 // output_mode=Exe
 // imports=zon/type_expr_fn.zon
 //
-// type_expr_fn.zon:1:15: error: expected type 'i32'
-// tmp.zig:2:28: note: imported here
+// type_expr_fn.zon:1:1: error: types are not available in ZON
+// type_expr_fn.zon:1:1: note: replace the type with '.'

@@ -3209,10 +3209,16 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             if (error_msg) |msg| {
                 try addModuleErrorMsg(zcu, &bundle, msg.*);
             } else {
-                // Must be ZIR errors. Note that this may include AST errors.
-                // addZirErrorMessages asserts that the tree is loaded.
-                _ = try file.getTree(gpa);
-                try addZirErrorMessages(&bundle, file);
+                // Must be ZIR or Zoir errors. Note that this may include AST errors.
+                _ = try file.getTree(gpa); // Tree must be loaded.
+                if (file.zir_loaded) {
+                    try addZirErrorMessages(&bundle, file);
+                } else if (file.zoir != null) {
+                    try addZoirErrorMessages(&bundle, file);
+                } else {
+                    // Either Zir or Zoir must have been loaded.
+                    unreachable;
+                }
             }
         }
         var sorted_failed_analysis: std.AutoArrayHashMapUnmanaged(InternPool.AnalUnit, *Zcu.ErrorMsg).DataList.Slice = s: {
@@ -3624,6 +3630,14 @@ pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Zcu.File) !void {
     const src_path = try file.fullPath(gpa);
     defer gpa.free(src_path);
     return eb.addZirErrorMessages(file.zir, file.tree, file.source, src_path);
+}
+
+pub fn addZoirErrorMessages(eb: *ErrorBundle.Wip, file: *Zcu.File) !void {
+    assert(file.source_loaded);
+    const gpa = eb.gpa;
+    const src_path = try file.fullPath(gpa);
+    defer gpa.free(src_path);
+    return eb.addZoirErrorMessages(file.zoir.?, file.tree, file.source, src_path);
 }
 
 pub fn performAllTheWork(

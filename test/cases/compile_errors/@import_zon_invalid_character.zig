@@ -9,4 +9,3 @@ pub fn main() void {
 // imports=zon/invalid_character.zon
 //
 // invalid_character.zon:1:3: error: invalid escape character: 'a'
-// tmp.zig:2:27: note: imported here

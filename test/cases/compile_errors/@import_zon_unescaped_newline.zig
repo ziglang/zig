@@ -9,4 +9,3 @@ pub fn main() void {
 // imports=zon/unescaped_newline.zon
 //
 // unescaped_newline.zon:1:1: error: expected expression, found 'invalid token'
-// unescaped_newline.zon:1:3: note: invalid byte: '\n'

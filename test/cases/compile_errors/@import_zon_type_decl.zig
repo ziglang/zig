@@ -8,5 +8,4 @@ pub fn main() void {
 // output_mode=Exe
 // imports=zon/type_decl.zon
 //
-// type_decl.zon:2:12: error: invalid ZON value
-// tmp.zig:2:45: note: imported here
+// type_decl.zon:2:12: error: types are not available in ZON

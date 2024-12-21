@@ -15,7 +15,6 @@ const Ref = std.zig.Zir.Inst.Ref;
 const NullTerminatedString = InternPool.NullTerminatedString;
 const NumberLiteralError = std.zig.number_literal.Error;
 const NodeIndex = std.zig.Ast.Node.Index;
-const ZonGen = std.zig.ZonGen;
 const Zoir = std.zig.Zoir;
 
 const LowerZon = @This();
@@ -24,7 +23,6 @@ sema: *Sema,
 file: *File,
 file_index: Zcu.File.Index,
 import_loc: LazySrcLoc,
-zoir: Zoir,
 
 /// Lowers the given file as ZON.
 pub fn lower(
@@ -34,15 +32,13 @@ pub fn lower(
     res_ty: Type,
     import_loc: LazySrcLoc,
 ) CompileError!InternPool.Index {
-    const ast = file.getTree(sema.gpa) catch unreachable; // Already validated
-    if (ast.errors.len != 0) {
-        return lowerAstErrors(file, sema, file_index);
-    }
+    assert(file.tree_loaded);
 
-    var zoir = try ZonGen.generate(sema.gpa, ast.*);
-    defer zoir.deinit(sema.gpa);
+    const zoir = try file.getZoir(sema.gpa);
+
     if (zoir.hasCompileErrors()) {
-        return lowerZoirErrors(file, zoir, sema, file_index);
+        try sema.pt.zcu.failed_files.putNoClobber(sema.gpa, file, null);
+        return error.AnalysisFail;
     }
 
     const lower_zon: LowerZon = .{
@@ -50,10 +46,9 @@ pub fn lower(
         .file = file,
         .file_index = file_index,
         .import_loc = import_loc,
-        .zoir = zoir,
     };
 
-    const data = ast.nodes.items(.data);
+    const data = file.tree.nodes.items(.data);
     const root = data[0].lhs;
     return lower_zon.lowerExpr(root, res_ty);
 }
@@ -81,85 +76,6 @@ fn fail(
     try self.sema.pt.zcu.errNote(self.import_loc, err_msg, "imported here", .{});
     try self.sema.pt.zcu.failed_files.putNoClobber(self.sema.pt.zcu.gpa, self.file, err_msg);
     return error.AnalysisFail;
-}
-
-fn lowerAstErrors(file: *File, sema: *Sema, file_index: Zcu.File.Index) CompileError {
-    const tree = file.tree;
-    assert(tree.errors.len > 0);
-
-    const gpa = sema.gpa;
-    const ip = &sema.pt.zcu.intern_pool;
-    const parse_err = tree.errors[0];
-
-    var buf: std.ArrayListUnmanaged(u8) = .{};
-    defer buf.deinit(gpa);
-
-    // Create the main error
-    buf.clearRetainingCapacity();
-    try tree.renderError(parse_err, buf.writer(gpa));
-    const err_msg = try Zcu.ErrorMsg.create(
-        gpa,
-        .{
-            .base_node_inst = try ip.trackZir(gpa, .main, .{
-                .file = file_index,
-                .inst = .main_struct_inst,
-            }),
-            .offset = .{ .token_abs = parse_err.token + @intFromBool(parse_err.token_is_prev) },
-        },
-        "{s}",
-        .{buf.items},
-    );
-
-    // Check for invalid bytes
-    const token_starts = tree.tokens.items(.start);
-    const token_tags = tree.tokens.items(.tag);
-    if (token_tags[parse_err.token + @intFromBool(parse_err.token_is_prev)] == .invalid) {
-        const bad_off: u32 = @intCast(tree.tokenSlice(parse_err.token + @intFromBool(parse_err.token_is_prev)).len);
-        const byte_abs = token_starts[parse_err.token + @intFromBool(parse_err.token_is_prev)] + bad_off;
-        try sema.pt.zcu.errNote(
-            .{
-                .base_node_inst = try ip.trackZir(gpa, .main, .{
-                    .file = file_index,
-                    .inst = .main_struct_inst,
-                }),
-                .offset = .{ .byte_abs = byte_abs },
-            },
-            err_msg,
-            "invalid byte: '{'}'",
-            .{std.zig.fmtEscapes(tree.source[byte_abs..][0..1])},
-        );
-    }
-
-    // Create the notes
-    for (tree.errors[1..]) |note| {
-        if (!note.is_note) break;
-
-        buf.clearRetainingCapacity();
-        try tree.renderError(note, buf.writer(gpa));
-        try sema.pt.zcu.errNote(
-            .{
-                .base_node_inst = try ip.trackZir(gpa, .main, .{
-                    .file = file_index,
-                    .inst = .main_struct_inst,
-                }),
-                .offset = .{ .token_abs = note.token + @intFromBool(note.token_is_prev) },
-            },
-            err_msg,
-            "{s}",
-            .{buf.items},
-        );
-    }
-
-    try sema.pt.zcu.failed_files.putNoClobber(gpa, file, err_msg);
-    return error.AnalysisFail;
-}
-
-fn lowerZoirErrors(file: *File, zoir: Zoir, sema: *Sema, file_index: Zcu.File.Index) CompileError {
-    _ = file;
-    _ = zoir;
-    _ = sema;
-    _ = file_index;
-    @panic("unimplemented");
 }
 
 const Ident = struct {

@@ -8,5 +8,4 @@ pub fn main() void {
 // output_mode=Exe
 // imports=zon/double_negation_float.zon
 //
-// double_negation_float.zon:1:1: error: invalid ZON value
-// tmp.zig:2:28: note: imported here
+// double_negation_float.zon:1:1: error: expected number or 'inf' after '-'

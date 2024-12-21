@@ -39,6 +39,8 @@ const AnalUnit = InternPool.AnalUnit;
 const BuiltinFn = std.zig.BuiltinFn;
 const LlvmObject = @import("codegen/llvm.zig").Object;
 const dev = @import("dev.zig");
+const Zoir = std.zig.Zoir;
+const ZonGen = std.zig.ZonGen;
 
 comptime {
     @setEvalBranchQuota(4000);
@@ -672,6 +674,8 @@ pub const File = struct {
     tree: Ast,
     /// Whether this is populated or not depends on `zir_loaded`.
     zir: Zir,
+    /// Cached Zoir, generated lazily.
+    zoir: ?Zoir = null,
     /// Module that this file is a part of, managed externally.
     mod: *Package.Module,
     /// Whether this file is a part of multiple packages. This is an error condition which will be reported after AstGen.
@@ -719,6 +723,7 @@ pub const File = struct {
     }
 
     pub fn unload(file: *File, gpa: Allocator) void {
+        if (file.zoir) |zoir| zoir.deinit(gpa);
         file.unloadTree(gpa);
         file.unloadSource(gpa);
         file.unloadZir(gpa);
@@ -795,6 +800,14 @@ pub const File = struct {
         file.tree = try Ast.parse(gpa, source.bytes, file.mode);
         file.tree_loaded = true;
         return &file.tree;
+    }
+
+    pub fn getZoir(file: *File, gpa: Allocator) !*const Zoir {
+        if (file.zoir) |*zoir| return zoir;
+        assert(file.tree_loaded);
+        assert(file.tree.mode == .zon);
+        file.zoir = try ZonGen.generate(gpa, file.tree);
+        return &file.zoir.?;
     }
 
     pub fn fullyQualifiedNameLen(file: File) usize {

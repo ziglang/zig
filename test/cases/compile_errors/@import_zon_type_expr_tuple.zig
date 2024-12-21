@@ -8,5 +8,5 @@ pub fn main() void {
 // output_mode=Exe
 // imports=zon/type_expr_tuple.zon
 //
-// type_expr_tuple.zon:1:1: error: ZON cannot contain type expressions
-// tmp.zig:2:44: note: imported here
+// type_expr_tuple.zon:1:1: error: types are not available in ZON
+// type_expr_tuple.zon:1:1: note: replace the type with '.'

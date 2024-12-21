@@ -8,5 +8,6 @@ pub fn main() void {
 // output_mode=Exe
 // imports=zon/unknown_ident.zon
 //
-// unknown_ident.zon:2:14: error: expected type 'bool'
-// tmp.zig:2:47: note: imported here
+// unknown_ident.zon:2:14: error: invalid expression
+// unknown_ident.zon:2:14: note: ZON allows identifiers 'true', 'false', 'null', 'inf', and 'nan'
+// unknown_ident.zon:2:14: note: precede identifier with '.' for an enum literal

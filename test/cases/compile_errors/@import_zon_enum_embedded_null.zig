@@ -11,4 +11,3 @@ pub fn main() void {
 // imports=zon/enum_embedded_null.zon
 //
 // enum_embedded_null.zon:2:6: error: identifier cannot contain null bytes
-// tmp.zig:4:40: note: imported here
