@@ -235,6 +235,10 @@ global_imports: std.AutoArrayHashMapUnmanaged(String, GlobalImportId) = .empty,
 tables: std.AutoArrayHashMapUnmanaged(TableImport.Resolution, void) = .empty,
 table_imports: std.AutoArrayHashMapUnmanaged(String, TableImport.Index) = .empty,
 
+/// All functions that have had their address taken and therefore might be
+/// called via a `call_indirect` function.
+indirect_function_table: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .empty,
+
 error_name_table_ref_count: u32 = 0,
 
 /// Set to true if any `GLOBAL_INDEX` relocation is encountered with
@@ -259,6 +263,11 @@ error_name_bytes: std.ArrayListUnmanaged(u8) = .empty,
 /// For each Zcu error, in order, offset into `error_name_bytes` where the name
 /// is stored. No need to serialize; trivially reconstructed.
 error_name_offs: std.ArrayListUnmanaged(u32) = .empty,
+
+/// Index into `Wasm.indirect_function_table`.
+pub const IndirectFunctionTableIndex = enum(u32) {
+    _,
+};
 
 pub const UavFixup = extern struct {
     uavs_exe_index: UavsExeIndex,
@@ -335,17 +344,24 @@ pub const OutputFunctionIndex = enum(u32) {
         return @enumFromInt(wasm.function_imports.entries.len + @intFromEnum(index));
     }
 
+    pub fn fromIpIndex(wasm: *const Wasm, ip_index: InternPool.Index) OutputFunctionIndex {
+        const zcu = wasm.base.comp.zcu.?;
+        const ip = &zcu.intern_pool;
+        return switch (ip.indexToKey(ip_index)) {
+            .@"extern" => |ext| {
+                const name = wasm.getExistingString(ext.name.toSlice(ip)).?;
+                if (wasm.function_imports.getIndex(name)) |i| return @enumFromInt(i);
+                return fromFunctionIndex(wasm, FunctionIndex.fromSymbolName(wasm, name).?);
+            },
+            else => fromResolution(wasm, .fromIpIndex(wasm, ip_index)).?,
+        };
+    }
+
     pub fn fromIpNav(wasm: *const Wasm, nav_index: InternPool.Nav.Index) OutputFunctionIndex {
         const zcu = wasm.base.comp.zcu.?;
         const ip = &zcu.intern_pool;
         const nav = ip.getNav(nav_index);
-        if (nav.toExtern(ip)) |ext| {
-            const name = wasm.getExistingString(ext.name.toSlice(ip)).?;
-            if (wasm.function_imports.getIndex(name)) |i| return @enumFromInt(i);
-            return fromFunctionIndex(wasm, FunctionIndex.fromSymbolName(wasm, name).?);
-        } else {
-            return fromFunctionIndex(wasm, FunctionIndex.fromIpNav(wasm, nav_index).?);
-        }
+        return fromIpIndex(wasm, nav.status.resolved.val);
     }
 
     pub fn fromTagNameType(wasm: *const Wasm, tag_type: InternPool.Index) OutputFunctionIndex {
@@ -894,11 +910,11 @@ pub const FunctionImport = extern struct {
         pub fn fromIpNav(wasm: *const Wasm, nav_index: InternPool.Nav.Index) Resolution {
             const zcu = wasm.base.comp.zcu.?;
             const ip = &zcu.intern_pool;
-            const nav = ip.getNav(nav_index);
-            //log.debug("Resolution.fromIpNav {}({})", .{ nav.fqn.fmt(ip), nav_index });
-            return pack(wasm, .{
-                .zcu_func = @enumFromInt(wasm.zcu_funcs.getIndex(nav.status.resolved.val).?),
-            });
+            return fromIpIndex(wasm, ip.getNav(nav_index).status.resolved.val);
+        }
+
+        pub fn fromIpIndex(wasm: *const Wasm, ip_index: InternPool.Index) Resolution {
+            return pack(wasm, .{ .zcu_func = @enumFromInt(wasm.zcu_funcs.getIndex(ip_index).?) });
         }
 
         pub fn isNavOrUnresolved(r: Resolution, wasm: *const Wasm) bool {
@@ -1168,7 +1184,7 @@ pub const TableImport = extern struct {
         pub fn refType(r: Resolution, wasm: *const Wasm) std.wasm.RefType {
             return switch (unpack(r)) {
                 .unresolved => unreachable,
-                .__indirect_function_table => @panic("TODO"),
+                .__indirect_function_table => .funcref,
                 .object_table => |i| i.ptr(wasm).flags.ref_type.to(),
             };
         }
@@ -1176,7 +1192,11 @@ pub const TableImport = extern struct {
         pub fn limits(r: Resolution, wasm: *const Wasm) std.wasm.Limits {
             return switch (unpack(r)) {
                 .unresolved => unreachable,
-                .__indirect_function_table => @panic("TODO"),
+                .__indirect_function_table => .{
+                    .flags = .{ .has_max = true, .is_shared = false },
+                    .min = @intCast(wasm.indirect_function_table.entries.len + 1),
+                    .max = @intCast(wasm.indirect_function_table.entries.len + 1),
+                },
                 .object_table => |i| i.ptr(wasm).limits(),
             };
         }
@@ -2370,10 +2390,12 @@ pub fn deinit(wasm: *Wasm) void {
     wasm.global_exports.deinit(gpa);
     wasm.global_imports.deinit(gpa);
     wasm.table_imports.deinit(gpa);
+    wasm.tables.deinit(gpa);
     wasm.symbol_table.deinit(gpa);
     wasm.out_relocs.deinit(gpa);
     wasm.uav_fixups.deinit(gpa);
     wasm.nav_fixups.deinit(gpa);
+    wasm.indirect_function_table.deinit(gpa);
 
     wasm.string_bytes.deinit(gpa);
     wasm.string_table.deinit(gpa);

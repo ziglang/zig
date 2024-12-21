@@ -65,9 +65,7 @@ pub const Inst = struct {
         /// Lowers to an i32_const (wasm32) or i64_const (wasm64) which is the
         /// memory address of a named constant.
         ///
-        /// When this refers to a function, this always lowers to an i32_const
-        /// which is the function index. When emitting an object file, this
-        /// adds a `Wasm.Relocation.Tag.TABLE_INDEX_SLEB` relocation.
+        /// May not refer to a function.
         ///
         /// Uses `nav_index`.
         nav_ref,
@@ -75,10 +73,15 @@ pub const Inst = struct {
         /// memory address of named constant, offset by an integer value.
         /// When emitting an object file, this adds a relocation.
         ///
-        /// This may not refer to a function.
+        /// May not refer to a function.
         ///
         /// Uses `payload` pointing to a `NavRefOff`.
         nav_ref_off,
+        /// Lowers to an i32_const which is the index of the function in the
+        /// table section.
+        ///
+        /// Uses `indirect_function_table_index`.
+        func_ref,
         /// Inserts debug information about the current line and column
         /// of the source code
         ///
@@ -88,12 +91,6 @@ pub const Inst = struct {
         /// names.
         /// Uses `tag`.
         errors_len,
-        /// Lowers to an i32_const (wasm32) or i64_const (wasm64) containing
-        /// the base address of the table of error code names, with each
-        /// element being a null-terminated slice.
-        ///
-        /// Uses `tag`.
-        error_name_table_ref,
         /// Represents the end of a function body or an initialization expression
         ///
         /// Uses `tag` (no additional data).
@@ -115,6 +112,12 @@ pub const Inst = struct {
         ///
         /// Uses `tag`.
         @"return" = 0x0F,
+        /// Lowers to an i32_const (wasm32) or i64_const (wasm64) containing
+        /// the base address of the table of error code names, with each
+        /// element being a null-terminated slice.
+        ///
+        /// Uses `tag`.
+        error_name_table_ref,
         /// Calls a function using `nav_index`.
         call_nav,
         /// Calls a function pointer by its function signature
@@ -612,6 +615,7 @@ pub const Inst = struct {
         intrinsic: Intrinsic,
         uav_obj: Wasm.UavsObjIndex,
         uav_exe: Wasm.UavsExeIndex,
+        indirect_function_table_index: Wasm.IndirectFunctionTableIndex,
 
         comptime {
             switch (builtin.mode) {

@@ -76,7 +76,16 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             inst += 1;
             continue :loop tags[inst];
         },
-
+        .func_ref => {
+            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
+            if (is_obj) {
+                @panic("TODO");
+            } else {
+                leb.writeUleb128(code.fixedWriter(), @intFromEnum(datas[inst].indirect_function_table_index)) catch unreachable;
+            }
+            inst += 1;
+            continue :loop tags[inst];
+        },
         .dbg_line => {
             inst += 1;
             continue :loop tags[inst];
@@ -938,40 +947,23 @@ fn navRefOff(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.NavRefOff
     const gpa = comp.gpa;
     const is_obj = comp.config.output_mode == .Obj;
     const nav_ty = ip.getNav(data.nav_index).typeOf(ip);
+    assert(!ip.isFunctionType(nav_ty));
 
     try code.ensureUnusedCapacity(gpa, 11);
 
-    if (ip.isFunctionType(nav_ty)) {
-        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
-        assert(data.offset == 0);
-        if (is_obj) {
-            try wasm.out_relocs.append(gpa, .{
-                .offset = @intCast(code.items.len),
-                .pointee = .{ .symbol_index = try wasm.navSymbolIndex(data.nav_index) },
-                .tag = .TABLE_INDEX_SLEB,
-                .addend = data.offset,
-            });
-            code.appendNTimesAssumeCapacity(0, 5);
-        } else {
-            const function_imports_len: u32 = @intCast(wasm.function_imports.entries.len);
-            const func_index = Wasm.FunctionIndex.fromIpNav(wasm, data.nav_index).?;
-            leb.writeUleb128(code.fixedWriter(), function_imports_len + @intFromEnum(func_index)) catch unreachable;
-        }
+    const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
+    code.appendAssumeCapacity(@intFromEnum(opcode));
+    if (is_obj) {
+        try wasm.out_relocs.append(gpa, .{
+            .offset = @intCast(code.items.len),
+            .pointee = .{ .symbol_index = try wasm.navSymbolIndex(data.nav_index) },
+            .tag = if (is_wasm32) .MEMORY_ADDR_LEB else .MEMORY_ADDR_LEB64,
+            .addend = data.offset,
+        });
+        code.appendNTimesAssumeCapacity(0, if (is_wasm32) 5 else 10);
     } else {
-        const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
-        code.appendAssumeCapacity(@intFromEnum(opcode));
-        if (is_obj) {
-            try wasm.out_relocs.append(gpa, .{
-                .offset = @intCast(code.items.len),
-                .pointee = .{ .symbol_index = try wasm.navSymbolIndex(data.nav_index) },
-                .tag = if (is_wasm32) .MEMORY_ADDR_LEB else .MEMORY_ADDR_LEB64,
-                .addend = data.offset,
-            });
-            code.appendNTimesAssumeCapacity(0, if (is_wasm32) 5 else 10);
-        } else {
-            const addr = wasm.navAddr(data.nav_index);
-            leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(@as(i64, addr) + data.offset))) catch unreachable;
-        }
+        const addr = wasm.navAddr(data.nav_index);
+        leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(@as(i64, addr) + data.offset))) catch unreachable;
     }
 }
 

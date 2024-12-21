@@ -1021,7 +1021,20 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
         .float32 => |val| try cg.addInst(.{ .tag = .f32_const, .data = .{ .float32 = val } }),
         .float64 => |val| try cg.addFloat64(val),
         .nav_ref => |nav_ref| {
-            if (nav_ref.offset == 0) {
+            const wasm = cg.wasm;
+            const comp = wasm.base.comp;
+            const zcu = comp.zcu.?;
+            const ip = &zcu.intern_pool;
+            const ip_index = ip.getNav(nav_ref.nav_index).status.resolved.val;
+            if (ip.isFunctionType(ip.typeOf(ip_index))) {
+                assert(nav_ref.offset == 0);
+                const gop = try wasm.indirect_function_table.getOrPut(comp.gpa, ip_index);
+                if (!gop.found_existing) gop.value_ptr.* = {};
+                try cg.addInst(.{
+                    .tag = .func_ref,
+                    .data = .{ .indirect_function_table_index = @enumFromInt(gop.index) },
+                });
+            } else if (nav_ref.offset == 0) {
                 try cg.addInst(.{ .tag = .nav_ref, .data = .{ .nav_index = nav_ref.nav_index } });
             } else {
                 try cg.addInst(.{
@@ -1037,8 +1050,19 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
         },
         .uav_ref => |uav| {
             const wasm = cg.wasm;
-            const is_obj = wasm.base.comp.config.output_mode == .Obj;
-            if (uav.offset == 0) {
+            const comp = wasm.base.comp;
+            const is_obj = comp.config.output_mode == .Obj;
+            const zcu = comp.zcu.?;
+            const ip = &zcu.intern_pool;
+            if (ip.isFunctionType(ip.typeOf(uav.ip_index))) {
+                assert(uav.offset == 0);
+                const gop = try wasm.indirect_function_table.getOrPut(comp.gpa, uav.ip_index);
+                if (!gop.found_existing) gop.value_ptr.* = {};
+                try cg.addInst(.{
+                    .tag = .func_ref,
+                    .data = .{ .indirect_function_table_index = @enumFromInt(gop.index) },
+                });
+            } else if (uav.offset == 0) {
                 try cg.addInst(.{
                     .tag = .uav_ref,
                     .data = if (is_obj) .{

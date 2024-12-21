@@ -33,8 +33,6 @@ missing_exports: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
 function_imports: std.AutoArrayHashMapUnmanaged(String, Wasm.FunctionImportId) = .empty,
 global_imports: std.AutoArrayHashMapUnmanaged(String, Wasm.GlobalImportId) = .empty,
 
-indirect_function_table: std.AutoArrayHashMapUnmanaged(Wasm.OutputFunctionIndex, u32) = .empty,
-
 /// For debug purposes only.
 memory_layout_finished: bool = false,
 
@@ -42,7 +40,6 @@ pub fn clear(f: *Flush) void {
     f.data_segments.clearRetainingCapacity();
     f.data_segment_groups.clearRetainingCapacity();
     f.binary_bytes.clearRetainingCapacity();
-    f.indirect_function_table.clearRetainingCapacity();
     f.memory_layout_finished = false;
 }
 
@@ -53,7 +50,6 @@ pub fn deinit(f: *Flush, gpa: Allocator) void {
     f.missing_exports.deinit(gpa);
     f.function_imports.deinit(gpa);
     f.global_imports.deinit(gpa);
-    f.indirect_function_table.deinit(gpa);
     f.* = undefined;
 }
 
@@ -72,10 +68,6 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     };
     const is_obj = comp.config.output_mode == .Obj;
     const allow_undefined = is_obj or wasm.import_symbols;
-    //const undef_byte: u8 = switch (comp.root_mod.optimize_mode) {
-    //    .Debug, .ReleaseSafe => 0xaa,
-    //    .ReleaseFast, .ReleaseSmall => 0x00,
-    //};
 
     if (comp.zcu) |zcu| {
         const ip: *const InternPool = &zcu.intern_pool; // No mutations allowed!
@@ -213,6 +205,12 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         // also notices threadlocal globals from Zcu code.
         if (wasm.any_tls_relocs) wasm.functions.putAssumeCapacity(.__wasm_apply_global_tls_relocs, {});
         wasm.functions.putAssumeCapacity(.__wasm_init_tls, {});
+    }
+
+    try wasm.tables.ensureUnusedCapacity(gpa, 1);
+
+    if (wasm.indirect_function_table.entries.len > 0) {
+        wasm.tables.putAssumeCapacity(.__indirect_function_table, {});
     }
 
     // Sort order:
@@ -642,34 +640,31 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         replaceVecSectionHeader(binary_bytes, header_offset, .start, @intFromEnum(func_index));
     }
 
-    // element section (function table)
-    if (f.indirect_function_table.count() > 0) {
-        @panic("TODO");
-        //const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
+    // element section
+    if (wasm.indirect_function_table.entries.len > 0) {
+        const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
 
-        //const table_loc = wasm.globals.get(wasm.preloaded_strings.__indirect_function_table).?;
-        //const table_sym = wasm.finalSymbolByLoc(table_loc);
+        // indirect function table elements
+        const table_index: u32 = @intCast(wasm.tables.getIndex(.__indirect_function_table).?);
+        // passive with implicit 0-index table or set table index manually
+        const flags: u32 = if (table_index == 0) 0x0 else 0x02;
+        try leb.writeUleb128(binary_writer, flags);
+        if (flags == 0x02) {
+            try leb.writeUleb128(binary_writer, table_index);
+        }
+        // We start at index 1, so unresolved function pointers are invalid
+        try emitInit(binary_writer, .{ .i32_const = 1 });
+        if (flags == 0x02) {
+            try leb.writeUleb128(binary_writer, @as(u8, 0)); // represents funcref
+        }
+        try leb.writeUleb128(binary_writer, @as(u32, @intCast(wasm.indirect_function_table.entries.len)));
+        for (wasm.indirect_function_table.keys()) |ip_index| {
+            const func_index: Wasm.OutputFunctionIndex = .fromIpIndex(wasm, ip_index);
+            try leb.writeUleb128(binary_writer, @intFromEnum(func_index));
+        }
 
-        //const flags: u32 = if (table_sym.index == 0) 0x0 else 0x02; // passive with implicit 0-index table or set table index manually
-        //try leb.writeUleb128(binary_writer, flags);
-        //if (flags == 0x02) {
-        //    try leb.writeUleb128(binary_writer, table_sym.index);
-        //}
-        //try emitInit(binary_writer, .{ .i32_const = 1 }); // We start at index 1, so unresolved function pointers are invalid
-        //if (flags == 0x02) {
-        //    try leb.writeUleb128(binary_writer, @as(u8, 0)); // represents funcref
-        //}
-        //try leb.writeUleb128(binary_writer, @as(u32, @intCast(f.indirect_function_table.count())));
-        //var symbol_it = f.indirect_function_table.keyIterator();
-        //while (symbol_it.next()) |symbol_loc_ptr| {
-        //    const sym = wasm.finalSymbolByLoc(symbol_loc_ptr.*);
-        //    assert(sym.flags.alive);
-        //    assert(sym.index < wasm.functions.count() + wasm.imported_functions_count);
-        //    try leb.writeUleb128(binary_writer, sym.index);
-        //}
-
-        //replaceVecSectionHeader(binary_bytes, header_offset, .element, 1);
-        //section_index += 1;
+        replaceVecSectionHeader(binary_bytes, header_offset, .element, 1);
+        section_index += 1;
     }
 
     // When the shared-memory option is enabled, we *must* emit the 'data count' section.
