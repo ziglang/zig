@@ -2128,6 +2128,10 @@ pub fn addSearchPrefix(b: *Build, search_prefix: []const u8) void {
     }) catch @panic("OOM");
 }
 
+pub fn addSearchPrefixExact(b: *Build, search_prefix_exact: SearchPrefix.Exact) void {
+    b.search_prefixes.append(b.allocator, .{ .exact = search_prefix_exact }) catch @panic("OOM");
+}
+
 pub fn getInstallPath(b: *Build, dir: InstallDir, dest_rel_path: []const u8) []const u8 {
     assert(!fs.path.isAbsolute(dest_rel_path)); // Install paths must be relative to the prefix
     const base_dir = switch (dir) {
