@@ -868,6 +868,7 @@ pub const DynamicBitSetUnmanaged = struct {
     /// Set all bits to 1.
     pub fn setAll(self: *Self) void {
         const masks_len = numMasks(self.bit_length);
+        // TODO doesn't seem like this keeps the last bits zero??
         @memset(self.masks[0..masks_len], std.math.maxInt(MaskInt));
     }
 
@@ -1119,6 +1120,16 @@ pub const DynamicBitSet = struct {
     /// Removes a specific bit from the bit set
     pub fn unset(self: *Self, index: usize) void {
         self.unmanaged.unset(index);
+    }
+
+    /// Set all bits to 0.
+    pub fn unsetAll(self: *Self) void {
+        self.unmanaged.unsetAll();
+    }
+
+    /// Set all bits to 1.
+    pub fn setAll(self: *Self) void {
+        self.unmanaged.setAll();
     }
 
     /// Flips a specific bit in the bit set
@@ -1759,6 +1770,11 @@ test DynamicBitSet {
 
         try testEql(tmp, b, size);
         try testBitSet(&a, &b, size);
+
+        b.unsetAll();
+        try testing.expectEqual(0, b.count());
+        b.setAll();
+        try testing.expectEqual(size, b.count());
     }
 }
 
