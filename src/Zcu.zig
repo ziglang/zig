@@ -689,7 +689,7 @@ pub const File = struct {
     /// successful, this field is unloaded.
     prev_zir: ?*Zir = null,
 
-    /// Whether the file is Zig or ZON. This filed is always populated.
+    /// Whether the file is Zig or ZON. This field is always populated.
     mode: Ast.Mode,
 
     pub const Status = enum {

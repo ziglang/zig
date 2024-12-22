@@ -58,82 +58,12 @@ pub const Error = union(enum) {
     invalid_exponent_sign: usize,
     /// Period comes directly after exponent.
     period_after_exponent: usize,
-
-    pub fn fmtWithSource(self: Error, bytes: []const u8) std.fmt.Formatter(formatErrorWithSource) {
-        return .{ .data = .{ .err = self, .bytes = bytes } };
-    }
-
-    pub fn noteWithSource(self: Error, bytes: []const u8) ?[]const u8 {
-        if (self == .leading_zero) {
-            const is_float = std.mem.indexOfScalar(u8, bytes, '.') != null;
-            if (!is_float) return "use '0o' prefix for octal literals";
-        }
-        return null;
-    }
-
-    pub fn offset(self: Error) usize {
-        return switch (self) {
-            .leading_zero => 0,
-            .digit_after_base => 0,
-            .upper_case_base => |i| i,
-            .invalid_float_base => |i| i,
-            .repeated_underscore => |i| i,
-            .invalid_underscore_after_special => |i| i,
-            .invalid_digit => |e| e.i,
-            .invalid_digit_exponent => |i| i,
-            .duplicate_period => 0,
-            .duplicate_exponent => |i| i,
-            .exponent_after_underscore => |i| i,
-            .special_after_underscore => |i| i,
-            .trailing_special => |i| i,
-            .trailing_underscore => |i| i,
-            .invalid_character => |i| i,
-            .invalid_exponent_sign => |i| i,
-            .period_after_exponent => |i| i,
-        };
-    }
 };
 
 const FormatWithSource = struct {
     bytes: []const u8,
     err: Error,
 };
-
-fn formatErrorWithSource(
-    self: FormatWithSource,
-    comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = fmt;
-    switch (self.err) {
-        .leading_zero => try writer.print("number '{s}' has leading zero", .{self.bytes}),
-        .digit_after_base => try writer.writeAll("expected a digit after base prefix"),
-        .upper_case_base => try writer.writeAll("base prefix must be lowercase"),
-        .invalid_float_base => try writer.writeAll("invalid base for float literal"),
-        .repeated_underscore => try writer.writeAll("repeated digit separator"),
-        .invalid_underscore_after_special => try writer.writeAll("expected digit before digit separator"),
-        .invalid_digit => |info| try writer.print("invalid digit '{c}' for {s} base", .{ self.bytes[info.i], @tagName(info.base) }),
-        .invalid_digit_exponent => |i| try writer.print("invalid digit '{c}' in exponent", .{self.bytes[i]}),
-        .duplicate_exponent => try writer.writeAll("duplicate exponent"),
-        .exponent_after_underscore => try writer.writeAll("expected digit before exponent"),
-        .special_after_underscore => |i| try writer.print("expected digit before '{c}'", .{self.bytes[i]}),
-        .trailing_special => |i| try writer.print("expected digit after '{c}'", .{self.bytes[i - 1]}),
-        .trailing_underscore => try writer.writeAll("trailing digit separator"),
-        .duplicate_period => try writer.writeAll("duplicate period"),
-        .invalid_character => try writer.writeAll("invalid character"),
-        .invalid_exponent_sign => |i| {
-            const hex = self.bytes.len >= 2 and self.bytes[0] == '0' and self.bytes[1] == 'x';
-            if (hex) {
-                try writer.print("sign '{c}' cannot follow digit '{c}' in hex base", .{ self.bytes[i], self.bytes[i - 1] });
-            } else {
-                try writer.print("sign '{c}' cannot follow digit '{c}' in current base", .{ self.bytes[i], self.bytes[i - 1] });
-            }
-        },
-        .period_after_exponent => try writer.writeAll("unexpected period after exponent"),
-    }
-}
 
 /// Parse Zig number literal accepted by fmt.parseInt, fmt.parseFloat and big_int.setString.
 /// Valid for any input.

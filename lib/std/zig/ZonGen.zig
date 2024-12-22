@@ -250,7 +250,21 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
         .block_two_semicolon,
         .block,
         .block_semicolon,
-        => try zg.addErrorNode(node, "blocks are not allowed in ZON", .{}),
+        => {
+            const size = switch (node_tags[node]) {
+                .block_two, .block_two_semicolon => @intFromBool(node_datas[node].lhs != 0) + @intFromBool(node_datas[node].rhs != 0),
+                .block, .block_semicolon => node_datas[node].rhs - node_datas[node].lhs,
+                else => unreachable,
+            };
+            if (size == 0) {
+                try zg.addErrorNodeNotes(node, "void literals are not available in ZON", .{}, &.{
+                    try zg.errNoteNode(node, "void union payloads can be represented by enum literals", .{}),
+                    try zg.errNoteNode(node, "for example, `.{{ .foo = {{}} }}` becomes `.foo`", .{}),
+                });
+            } else {
+                try zg.addErrorNode(node, "blocks are not allowed in ZON", .{});
+            }
+        },
 
         .array_init_one,
         .array_init_one_comma,

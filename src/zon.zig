@@ -69,20 +69,8 @@ fn fail(
     args: anytype,
 ) (Allocator.Error || error{AnalysisFail}) {
     @branchHint(.cold);
-    return self.failWithNote(loc, format, args, null);
-}
-
-fn failWithNote(
-    self: LowerZon,
-    loc: LazySrcLoc.Offset,
-    comptime format: []const u8,
-    args: anytype,
-    note: ?[]const u8,
-) (Allocator.Error || error{AnalysisFail}) {
-    @branchHint(.cold);
     const src_loc = try self.lazySrcLoc(loc);
     const err_msg = try Zcu.ErrorMsg.create(self.sema.pt.zcu.gpa, src_loc, format, args);
-    if (note) |n| try self.sema.pt.zcu.errNote(self.import_loc, err_msg, "{s}", .{n});
     try self.sema.pt.zcu.errNote(self.import_loc, err_msg, "imported here", .{});
     try self.sema.pt.zcu.failed_files.putNoClobber(self.sema.pt.zcu.gpa, self.file, err_msg);
     return error.AnalysisFail;
@@ -107,7 +95,7 @@ fn ident(self: LowerZon, token: Ast.TokenIndex) !Ident {
         const gpa = self.sema.gpa;
 
         const raw_string = bytes[1..bytes.len];
-        var parsed = std.ArrayListUnmanaged(u8){};
+        var parsed: std.ArrayListUnmanaged(u8) = .{};
         defer parsed.deinit(gpa);
 
         switch (try std.zig.string_literal.parseWrite(parsed.writer(gpa), raw_string)) {
@@ -910,14 +898,20 @@ fn lowerUnion(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.I
     } });
     const field_type = Type.fromInterned(union_info.field_types.get(ip)[name_index]);
     const val = if (maybe_field_node) |field_node| b: {
+        if (field_type.toIntern() == .void_type) {
+            return self.fail(
+                .{ .node_abs = field_node.getAstNode(self.file.zoir.?) },
+                "expected type 'void'",
+                .{},
+            );
+        }
         break :b try self.lowerExpr(field_node, field_type);
     } else b: {
         if (field_type.toIntern() != .void_type) {
-            return self.failWithNote(
+            return self.fail(
                 .{ .node_abs = node.getAstNode(self.file.zoir.?) },
                 "expected type '{}'",
-                .{field_type.fmt(self.sema.pt)},
-                "void is not available in ZON, but void union fields can be expressed as enum literals",
+                .{res_ty.fmt(self.sema.pt)},
             );
         }
         break :b .void_value;

@@ -1585,7 +1585,7 @@ test parseInt {
 }
 
 /// Like `parseIntWithGenericCharacter`, but with a sign argument.
-pub fn parseIntWithSign(
+fn parseIntWithSign(
     comptime Result: type,
     comptime Character: type,
     buf: []const Character,

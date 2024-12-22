@@ -9,17 +9,13 @@
 //! * number literals (including `nan` and `inf`)
 //! * character literals
 //! * enum literals
-//! * `null` and `void` literals
+//! * `null` literals
 //! * string literals
 //! * multiline string literals
 //!
-//! Supported Zig containers:
+//! Supported Zig container types:
 //! * anonymous struct literals
 //! * anonymous tuple literals
-//! * slices
-//!     * notated as a reference to a tuple literal
-//!     * this syntax will likely be removed in the future, at which point ZON will not distinguish
-//!       between slices and tuples
 //!
 //! Here is an example ZON object:
 //! ```zon
@@ -27,7 +23,7 @@
 //!     .a = 1.5,
 //!     .b = "hello, world!",
 //!     .c = .{ true, false },
-//!     .d = &.{ 1, 2, 3 },
+//!     .d = .{ 1, 2, 3 },
 //! }
 //! ```
 //!
@@ -36,25 +32,22 @@
 //! "This string is a valid ZON object."
 //! ```
 //!
-//! \* ZON is not currently a true subset of Zig, because it supports `nan` and
+//! * ZON is not currently a true subset of Zig, because it supports `nan` and
 //!    `inf` literals, which Zig does not.
 //!
 //! # Deserialization
 //!
-//! The simplest way to deserialize ZON at runtime is `parseFromSlice`. (For reading ZON at
+//! The simplest way to deserialize ZON at runtime is `parseFromSlice`. (For parsing ZON at
 //! comptime, you can use `@import`.)
 //!
-//! If you need lower level control, or more detailed diagnostics, you can generate the AST yourself
-//! with `std.zig.Ast.parse` and then deserialize it with:
-//! * `parseFromAst`
-//! * `parseFromAstNoAlloc`
-//!
-//! If you'd like to deserialize just part of an AST, you can use:
-//! * `parseFromAstNode`
-//! * `parseFromAstNodeNoAlloc`
+//! Parsing from individual Zoir nodes is also available:
+//! * `parseFromZoir`
+//! * `parseFromZoirNode`
+//! * `parseFromZoirNode`
+//! * `parseFromZoirNodeNoAlloc`
 //!
 //! If you need lower level control than provided by this module, you can operate directly on the
-//! results of `std.zig.Ast.parse`.
+//! results of `std.zig.Zoir` directly. This module is a good example of how that can be done.
 //!
 //!
 //! # Serialization
@@ -72,13 +65,13 @@
 //! Note that serializing floats with more than 64 bits may result in a loss of precision
 //! (see https://github.com/ziglang/zig/issues/1181).
 
-pub const ParseOptions = @import("zon/parse.zig").ParseOptions;
-pub const ParseStatus = @import("zon/parse.zig").ParseStatus;
+pub const ParseOptions = @import("zon/parse.zig").Options;
+pub const ParseStatus = @import("zon/parse.zig").Status;
 pub const parseFromSlice = @import("zon/parse.zig").parseFromSlice;
-pub const parseFromAst = @import("zon/parse.zig").parseFromAst;
-pub const parseFromAstNoAlloc = @import("zon/parse.zig").parseFromAstNoAlloc;
-pub const parseFromAstNode = @import("zon/parse.zig").parseFromAstNode;
-pub const parseFromAstNodeNoAlloc = @import("zon/parse.zig").parseFromAstNodeNoAlloc;
+pub const parseFromZoir = @import("zon/parse.zig").parseFromZoir;
+pub const parseFromZoirNoAlloc = @import("zon/parse.zig").parseFromZoirNoAlloc;
+pub const parseFromZoirNode = @import("zon/parse.zig").parseFromZoirNode;
+pub const parseFromZoirNodeNoAlloc = @import("zon/parse.zig").parseFromZoirNodeNoAlloc;
 pub const parseFree = @import("zon/parse.zig").parseFree;
 
 pub const StringifierOptions = @import("zon/stringify.zig").StringifierOptions;
