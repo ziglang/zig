@@ -753,7 +753,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 try leb.writeUleb128(binary_writer, @intFromEnum(flags));
                 // Passive segments are initialized at runtime.
                 if (flags != .passive) {
-                    try emitInit(binary_writer, .{ .i32_const = @as(i32, @bitCast(segment_offset)) });
+                    try emitInit(binary_writer, .{ .i32_const = @as(i32, @bitCast(group_start_addr)) });
                 }
                 try leb.writeUleb128(binary_writer, group_size);
             }
