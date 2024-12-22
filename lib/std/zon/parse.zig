@@ -25,168 +25,121 @@ pub const ParseOptions = struct {
     free_on_error: bool = true,
 };
 
-/// Information about the success or failure of a parse.
-pub const Status = struct {
-    pub const TypeCheckError = struct {
-        token: Ast.TokenIndex,
-        message: []const u8,
-    };
+pub const Error = union(enum) {
+    zoir: Zoir.CompileError,
+    type_check: TypeCheckFailure,
 
-    pub const Error = union(enum) {
-        pub const Severity = enum {
-            @"error",
-            note,
-        };
-        parse: struct {
-            ast: Ast,
-            err: Ast.Error,
-        },
-        zon_gen_err: struct {
-            zoir: Zoir,
-            err: Zoir.CompileError,
-            ast: Ast,
-        },
-        zon_gen_note: struct {
-            zoir: Zoir,
-            err: Zoir.CompileError.Note,
-            ast: Ast,
-        },
-        type_check: struct {
-            err: TypeCheckError,
-            ast: Ast,
-        },
+    pub const Note = union(enum) {
+        zoir: Zoir.CompileError.Note,
 
-        pub const Iterator = union(enum) {
-            parse: struct {
-                ast: Ast,
-                err_index: usize = 0,
-            },
-            zon_gen: struct {
-                zoir: Zoir,
-                ast: Ast,
-                err_index: usize = 0,
-                note_index: ?usize = null,
-            },
-            type_check: struct {
-                err: TypeCheckError,
-                err_index: usize = 0,
-                ast: Ast,
-            },
-            none,
+        pub const Iterator = struct {
+            index: usize = 0,
+            err: Error,
+            status: *const Status,
 
-            pub fn next(self: *@This()) ?Error {
-                switch (self.*) {
-                    .parse => |*iter| {
-                        if (iter.err_index >= iter.ast.errors.len) return null;
-                        const curr = iter.err_index;
-                        iter.err_index += 1;
-                        return .{ .parse = .{
-                            .ast = iter.ast,
-                            .err = iter.ast.errors[curr],
-                        } };
+            pub fn next(self: *@This()) ?Note {
+                switch (self.err) {
+                    .zoir => |err| {
+                        if (self.index >= err.note_count) return null;
+                        const zoir = self.status.zoir.?;
+                        const note = err.getNotes(zoir)[self.index];
+                        self.index += 1;
+                        return .{ .zoir = note };
                     },
-                    .zon_gen => |*iter| {
-                        if (iter.err_index >= iter.zoir.compile_errors.len) return null;
-                        const err = iter.zoir.compile_errors[iter.err_index];
-
-                        // If we're iterating notes for an error, try to return the next one. If
-                        // there are no more recurse and try the next error.
-                        if (iter.note_index) |*note_index| {
-                            if (note_index.* < err.note_count) {
-                                const note = err.getNotes(iter.zoir)[note_index.*];
-                                note_index.* += 1;
-                                return .{ .zon_gen_note = .{
-                                    .err = note,
-                                    .zoir = iter.zoir,
-                                    .ast = iter.ast,
-                                } };
-                            } else {
-                                iter.note_index = null;
-                                iter.err_index += 1;
-                                return self.next();
-                            }
-                        }
-
-                        // Return the next error, next time try returning notes.
-                        iter.note_index = 0;
-                        return .{ .zon_gen_err = .{
-                            .zoir = iter.zoir,
-                            .err = err,
-                            .ast = iter.ast,
-                        } };
-                    },
-                    .type_check => |*iter| {
-                        if (iter.err_index > 0) return null;
-                        iter.err_index += 1;
-                        return .{ .type_check = .{
-                            .err = iter.err,
-                            .ast = iter.ast,
-                        } };
-                    },
-                    .none => return null,
+                    .type_check => return null,
                 }
             }
         };
 
-        pub fn getSeverity(self: @This()) Severity {
-            return switch (self) {
-                .parse => |kind| if (kind.err.is_note) .note else .@"error",
-                .zon_gen_err => .@"error",
-                .zon_gen_note => .note,
-                .type_check => .@"error",
-            };
-        }
-
-        pub fn getLocation(self: @This()) Ast.Location {
+        pub fn getMessage(self: Note, status: *const Status) []const u8 {
             switch (self) {
-                .parse => |kind| {
-                    const offset = kind.ast.errorOffset(kind.err);
-                    return kind.ast.tokenLocation(offset, kind.err.token);
-                },
-                inline .zon_gen_err, .zon_gen_note => |kind| {
-                    if (kind.err.token == Zoir.CompileError.invalid_token) {
-                        const main_tokens = kind.ast.nodes.items(.main_token);
-                        const ast_node = kind.err.node_or_offset;
-                        const token = main_tokens[ast_node];
-                        return kind.ast.tokenLocation(0, token);
-                    } else {
-                        var location = kind.ast.tokenLocation(0, kind.err.token);
-                        location.column += kind.err.node_or_offset;
-                        return location;
-                    }
-                },
-                .type_check => |kind| return kind.ast.tokenLocation(0, kind.err.token),
+                .zoir => |note| return note.msg.get(status.zoir.?),
             }
         }
 
-        pub fn fmtMessage(self: @This()) std.fmt.Formatter(formatMessage) {
-            return .{ .data = self };
-        }
-
-        fn formatMessage(
-            self: @This(),
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = options;
-            _ = fmt;
+        pub fn getLocation(self: Note, status: *const Status) Ast.Location {
             switch (self) {
-                .parse => |kind| try kind.ast.renderError(kind.err, writer),
-                inline .zon_gen_err, .zon_gen_note => |kind| {
-                    try writer.writeAll(kind.err.msg.get(kind.zoir));
-                },
-                .type_check => |kind| try writer.writeAll(kind.err.message),
+                .zoir => |note| return zoirErrorLocation(
+                    status.ast.?,
+                    note.token,
+                    note.node_or_offset,
+                ),
             }
         }
     };
 
-    /// The AST, which may or may not contain errors.
+    pub const Iterator = struct {
+        index: usize = 0,
+        status: *const Status,
+
+        pub fn next(self: *@This()) ?Error {
+            const zoir = self.status.zoir orelse return null;
+
+            if (self.index < zoir.compile_errors.len) {
+                const result: Error = .{ .zoir = zoir.compile_errors[self.index] };
+                self.index += 1;
+                return result;
+            }
+
+            if (self.status.type_check) |err| {
+                if (self.index == zoir.compile_errors.len) {
+                    const result: Error = .{ .type_check = err };
+                    self.index += 1;
+                    return result;
+                }
+            }
+
+            return null;
+        }
+    };
+
+    const TypeCheckFailure = struct {
+        token: Ast.TokenIndex,
+        message: []const u8,
+    };
+
+    pub fn getMessage(self: @This(), status: *const Status) []const u8 {
+        return switch (self) {
+            .zoir => |err| err.msg.get(status.zoir.?),
+            .type_check => |err| err.message,
+        };
+    }
+
+    pub fn getLocation(self: @This(), status: *const Status) Ast.Location {
+        const ast = status.ast.?;
+        return switch (self) {
+            .zoir => |err| return zoirErrorLocation(
+                status.ast.?,
+                err.token,
+                err.node_or_offset,
+            ),
+            .type_check => |err| return ast.tokenLocation(0, err.token),
+        };
+    }
+
+    pub fn iterateNotes(self: @This(), status: *const Status) Note.Iterator {
+        return .{ .err = self, .status = status };
+    }
+
+    fn zoirErrorLocation(ast: Ast, maybe_token: Ast.TokenIndex, node_or_offset: u32) Ast.Location {
+        if (maybe_token == Zoir.CompileError.invalid_token) {
+            const main_tokens = ast.nodes.items(.main_token);
+            const ast_node = node_or_offset;
+            const token = main_tokens[ast_node];
+            return ast.tokenLocation(0, token);
+        } else {
+            var location = ast.tokenLocation(0, maybe_token);
+            location.column += node_or_offset;
+            return location;
+        }
+    }
+};
+
+/// Information about the success or failure of a parse.
+pub const Status = struct {
     ast: ?Ast = null,
-    /// The Zoir, which may or may not contain errors.
     zoir: ?Zoir = null,
-    /// The type check error if one occurred.
-    type_check: ?TypeCheckError = null,
+    type_check: ?Error.TypeCheckFailure = null,
 
     fn assertEmpty(self: Status) void {
         assert(self.ast == null);
@@ -201,31 +154,7 @@ pub const Status = struct {
     }
 
     pub fn iterateErrors(self: *const Status) Error.Iterator {
-        const ast = self.ast orelse return .none;
-
-        if (ast.errors.len > 0) {
-            return .{ .parse = .{
-                .ast = ast,
-            } };
-        }
-
-        if (self.zoir) |zoir| {
-            if (zoir.hasCompileErrors()) {
-                return .{ .zon_gen = .{
-                    .zoir = zoir,
-                    .ast = ast,
-                } };
-            }
-        }
-
-        if (self.type_check) |type_check| {
-            return .{ .type_check = .{
-                .err = type_check,
-                .ast = ast,
-            } };
-        }
-
-        return .none;
+        return .{ .status = self };
     }
 
     pub fn format(
@@ -236,19 +165,18 @@ pub const Status = struct {
     ) !void {
         _ = fmt;
         _ = options;
-
-        var first = true;
         var errors = self.iterateErrors();
         while (errors.next()) |err| {
-            if (!first) {
-                try writer.writeByte('\n');
-            } else {
-                first = false;
+            const loc = err.getLocation(self);
+            const msg = err.getMessage(self);
+            try writer.print("{}:{}: error: {s}\n", .{ loc.line + 1, loc.column + 1, msg });
+
+            var notes = err.iterateNotes(self);
+            while (notes.next()) |note| {
+                const note_loc = note.getLocation(self);
+                const note_msg = note.getMessage(self);
+                try writer.print("{}:{}: note: {s}\n", .{ note_loc.line + 1, note_loc.column + 1, note_msg });
             }
-            const loc = err.getLocation();
-            const msg = err.fmtMessage();
-            const severity = @tagName(err.getSeverity());
-            try writer.print("{}:{}: {s}: {}", .{ loc.line + 1, loc.column + 1, severity, msg });
         }
     }
 };
@@ -258,11 +186,11 @@ test "std.zon ast errors" {
     const gpa = std.testing.allocator;
     var status: Status = .{};
     defer status.deinit(gpa);
-    try std.testing.expectError(error.ParseZon, parseFromSlice(struct {}, gpa, ".{.x = 1 .y = 2}", &status, .{}));
-    try std.testing.expectFmt(
-        \\1:13: error: expected ',' after initializer
-        \\1:13: error: expected field initializer
-    , "{}", .{status});
+    try std.testing.expectError(
+        error.ParseZon,
+        parseFromSlice(struct {}, gpa, ".{.x = 1 .y = 2}", &status, .{}),
+    );
+    try std.testing.expectFmt("1:13: error: expected ',' after initializer\n", "{}", .{status});
 }
 
 test "std.zon comments" {
@@ -283,7 +211,7 @@ test "std.zon comments" {
             \\// comment
         , &status, .{}));
         try std.testing.expectFmt(
-            "1:1: error: expected expression, found 'a document comment'",
+            "1:1: error: expected expression, found 'a document comment'\n",
             "{}",
             .{status},
         );
@@ -337,7 +265,6 @@ pub fn parseFromSlice(
     var ast = try std.zig.Ast.parse(gpa, source, .zon);
     defer if (status == null) ast.deinit(gpa);
     if (status) |s| s.ast = ast;
-    if (ast.errors.len != 0) return error.ParseZon;
 
     var zoir = try ZonGen.generate(gpa, ast);
     defer if (status == null) zoir.deinit(gpa);
@@ -403,7 +330,7 @@ pub fn parseFromZoirNode(
         s.zoir = zoir;
     }
 
-    if (zoir.hasCompileErrors() or ast.errors.len > 0) {
+    if (zoir.hasCompileErrors()) {
         return error.ParseZon;
     }
 
@@ -724,7 +651,7 @@ test "std.zon unions" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Union, gpa, ".{.z=2.5}", &status, .{}));
-        try std.testing.expectFmt("1:4: error: unexpected field, supported fields: x, y", "{}", .{status});
+        try std.testing.expectFmt("1:4: error: unexpected field, supported fields: x, y\n", "{}", .{status});
     }
 
     // Explicit void field
@@ -733,7 +660,7 @@ test "std.zon unions" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Union, gpa, ".{.x=1}", &status, .{}));
-        try std.testing.expectFmt("1:6: error: void union field not expressed as enum literal", "{}", .{status});
+        try std.testing.expectFmt("1:6: error: void union field not expressed as enum literal\n", "{}", .{status});
     }
 
     // Extra field
@@ -742,7 +669,7 @@ test "std.zon unions" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Union, gpa, ".{.x = 1.5, .y = true}", &status, .{}));
-        try std.testing.expectFmt("1:2: error: expected union", "{}", .{status});
+        try std.testing.expectFmt("1:2: error: expected union\n", "{}", .{status});
     }
 
     // No fields
@@ -751,7 +678,7 @@ test "std.zon unions" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Union, gpa, ".{}", &status, .{}));
-        try std.testing.expectFmt("1:2: error: expected union", "{}", .{status});
+        try std.testing.expectFmt("1:2: error: expected union\n", "{}", .{status});
     }
 
     // Enum literals cannot coerce into untagged unions
@@ -760,7 +687,7 @@ test "std.zon unions" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Union, gpa, ".x", &status, .{}));
-        try std.testing.expectFmt("1:2: error: expected union", "{}", .{status});
+        try std.testing.expectFmt("1:2: error: expected union\n", "{}", .{status});
     }
 
     // Unknown field for enum literal coercion
@@ -769,7 +696,7 @@ test "std.zon unions" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Union, gpa, ".y", &status, .{}));
-        try std.testing.expectFmt("1:2: error: unexpected field, supported fields: x", "{}", .{status});
+        try std.testing.expectFmt("1:2: error: unexpected field, supported fields: x\n", "{}", .{status});
     }
 
     // Non void field for enum literal coercion
@@ -778,7 +705,7 @@ test "std.zon unions" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Union, gpa, ".x", &status, .{}));
-        try std.testing.expectFmt("1:2: error: expected union", "{}", .{status});
+        try std.testing.expectFmt("1:2: error: expected union\n", "{}", .{status});
     }
 }
 
@@ -910,7 +837,7 @@ test "std.zon structs" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Vec2, gpa, ".{.x=1.5, .z=2.5}", &status, .{}));
-        try std.testing.expectFmt("1:12: error: unexpected field, supported fields: x, y", "{}", .{status});
+        try std.testing.expectFmt("1:12: error: unexpected field, supported fields: x, y\n", "{}", .{status});
     }
 
     // Duplicate field
@@ -919,7 +846,7 @@ test "std.zon structs" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Vec2, gpa, ".{.x=1.5, .x=2.5}", &status, .{}));
-        try std.testing.expectFmt("1:12: error: duplicate field", "{}", .{status});
+        try std.testing.expectFmt("1:12: error: duplicate field\n", "{}", .{status});
     }
 
     // Ignore unknown fields
@@ -937,7 +864,7 @@ test "std.zon structs" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Vec2, gpa, ".{.x=1.5, .z=2.5}", &status, .{}));
-        try std.testing.expectFmt("1:4: error: unexpected field, no fields expected", "{}", .{status});
+        try std.testing.expectFmt("1:4: error: unexpected field, no fields expected\n", "{}", .{status});
     }
 
     // Missing field
@@ -946,7 +873,7 @@ test "std.zon structs" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Vec2, gpa, ".{.x=1.5}", &status, .{}));
-        try std.testing.expectFmt("1:2: error: missing required field y", "{}", .{status});
+        try std.testing.expectFmt("1:2: error: missing required field y\n", "{}", .{status});
     }
 
     // Default field
@@ -982,6 +909,7 @@ test "std.zon structs" {
             try std.testing.expectFmt(
                 \\1:1: error: types are not available in ZON
                 \\1:1: note: replace the type with '.'
+                \\
             , "{}", .{status});
         }
 
@@ -994,6 +922,7 @@ test "std.zon structs" {
             try std.testing.expectFmt(
                 \\1:1: error: types are not available in ZON
                 \\1:1: note: replace the type with '.'
+                \\
             , "{}", .{status});
         }
 
@@ -1006,6 +935,7 @@ test "std.zon structs" {
             try std.testing.expectFmt(
                 \\1:1: error: types are not available in ZON
                 \\1:1: note: replace the type with '.'
+                \\
             , "{}", .{status});
         }
 
@@ -1018,6 +948,7 @@ test "std.zon structs" {
             try std.testing.expectFmt(
                 \\1:1: error: types are not available in ZON
                 \\1:1: note: replace the type with '.'
+                \\
             , "{}", .{status});
         }
 
@@ -1030,6 +961,7 @@ test "std.zon structs" {
             try std.testing.expectFmt(
                 \\1:9: error: types are not available in ZON
                 \\1:9: note: replace the type with '.'
+                \\
             , "{}", .{status});
         }
     }
@@ -1106,7 +1038,7 @@ test "std.zon tuples" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Tuple, gpa, ".{0.5, true, 123}", &status, .{}));
-        try std.testing.expectFmt("1:2: error: expected tuple with 2 fields", "{}", .{status});
+        try std.testing.expectFmt("1:2: error: expected tuple with 2 fields\n", "{}", .{status});
     }
 
     // Extra field
@@ -1115,7 +1047,7 @@ test "std.zon tuples" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Tuple, gpa, ".{0.5}", &status, .{}));
-        try std.testing.expectFmt("1:2: error: expected tuple with 2 fields", "{}", .{status});
+        try std.testing.expectFmt("1:2: error: expected tuple with 2 fields\n", "{}", .{status});
     }
 
     // Tuple with unexpected field names
@@ -1124,7 +1056,7 @@ test "std.zon tuples" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Tuple, gpa, ".{.foo = 10.0}", &status, .{}));
-        try std.testing.expectFmt("1:2: error: expected tuple with 1 field", "{}", .{status});
+        try std.testing.expectFmt("1:2: error: expected tuple with 1 field\n", "{}", .{status});
     }
 
     // Struct with missing field names
@@ -1133,7 +1065,7 @@ test "std.zon tuples" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Struct, gpa, ".{10.0}", &status, .{}));
-        try std.testing.expectFmt("1:2: error: expected struct", "{}", .{status});
+        try std.testing.expectFmt("1:2: error: expected struct\n", "{}", .{status});
     }
 }
 
@@ -1275,7 +1207,7 @@ test "std.zon arrays and slices" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice([0]u8, gpa, ".{'a', 'b', 'c'}", &status, .{}));
-        try std.testing.expectFmt("1:2: error: expected tuple with 0 fields", "{}", .{status});
+        try std.testing.expectFmt("1:2: error: expected tuple with 0 fields\n", "{}", .{status});
     }
 
     // Expect 1 find 2
@@ -1283,7 +1215,7 @@ test "std.zon arrays and slices" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice([1]u8, gpa, ".{'a', 'b'}", &status, .{}));
-        try std.testing.expectFmt("1:2: error: expected tuple with 1 field", "{}", .{status});
+        try std.testing.expectFmt("1:2: error: expected tuple with 1 field\n", "{}", .{status});
     }
 
     // Expect 2 find 1
@@ -1291,7 +1223,7 @@ test "std.zon arrays and slices" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice([2]u8, gpa, ".{'a'}", &status, .{}));
-        try std.testing.expectFmt("1:2: error: expected tuple with 2 fields", "{}", .{status});
+        try std.testing.expectFmt("1:2: error: expected tuple with 2 fields\n", "{}", .{status});
     }
 
     // Expect 3 find 0
@@ -1299,7 +1231,7 @@ test "std.zon arrays and slices" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice([3]u8, gpa, ".{}", &status, .{}));
-        try std.testing.expectFmt("1:2: error: expected tuple with 3 fields", "{}", .{status});
+        try std.testing.expectFmt("1:2: error: expected tuple with 3 fields\n", "{}", .{status});
     }
 
     // Wrong inner type
@@ -1309,7 +1241,7 @@ test "std.zon arrays and slices" {
             var status: Status = .{};
             defer status.deinit(gpa);
             try std.testing.expectError(error.ParseZon, parseFromSlice([3]bool, gpa, ".{'a', 'b', 'c'}", &status, .{}));
-            try std.testing.expectFmt("1:3: error: expected bool", "{}", .{status});
+            try std.testing.expectFmt("1:3: error: expected bool\n", "{}", .{status});
         }
 
         // Slice
@@ -1317,7 +1249,7 @@ test "std.zon arrays and slices" {
             var status: Status = .{};
             defer status.deinit(gpa);
             try std.testing.expectError(error.ParseZon, parseFromSlice([]bool, gpa, ".{'a', 'b', 'c'}", &status, .{}));
-            try std.testing.expectFmt("1:3: error: expected bool", "{}", .{status});
+            try std.testing.expectFmt("1:3: error: expected bool\n", "{}", .{status});
         }
     }
 
@@ -1328,7 +1260,7 @@ test "std.zon arrays and slices" {
             var status: Status = .{};
             defer status.deinit(gpa);
             try std.testing.expectError(error.ParseZon, parseFromSlice([3]u8, gpa, "'a'", &status, .{}));
-            try std.testing.expectFmt("1:1: error: expected tuple with 3 fields", "{}", .{status});
+            try std.testing.expectFmt("1:1: error: expected tuple with 3 fields\n", "{}", .{status});
         }
 
         // Slice
@@ -1336,7 +1268,7 @@ test "std.zon arrays and slices" {
             var status: Status = .{};
             defer status.deinit(gpa);
             try std.testing.expectError(error.ParseZon, parseFromSlice([]u8, gpa, "'a'", &status, .{}));
-            try std.testing.expectFmt("1:1: error: expected tuple", "{}", .{status});
+            try std.testing.expectFmt("1:1: error: expected tuple\n", "{}", .{status});
         }
     }
 
@@ -1345,7 +1277,7 @@ test "std.zon arrays and slices" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice([]u8, gpa, "  &.{'a', 'b', 'c'}", &status, .{}));
-        try std.testing.expectFmt("1:3: error: pointers are not available in ZON", "{}", .{status});
+        try std.testing.expectFmt("1:3: error: pointers are not available in ZON\n", "{}", .{status});
     }
 }
 
@@ -1460,7 +1392,7 @@ test "std.zon string literal" {
                 error.ParseZon,
                 parseFromSlice([]u8, gpa, "\"abcd\"", &status, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected tuple", "{}", .{status});
+            try std.testing.expectFmt("1:1: error: expected tuple\n", "{}", .{status});
         }
 
         {
@@ -1470,7 +1402,7 @@ test "std.zon string literal" {
                 error.ParseZon,
                 parseFromSlice([]u8, gpa, "\\\\abcd", &status, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected tuple", "{}", .{status});
+            try std.testing.expectFmt("1:1: error: expected tuple\n", "{}", .{status});
         }
     }
 
@@ -1487,7 +1419,7 @@ test "std.zon string literal" {
                 error.ParseZon,
                 parseFromSlice([4:0]u8, gpa, "\"abcd\"", &status, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected tuple with 4 fields", "{}", .{status});
+            try std.testing.expectFmt("1:1: error: expected tuple with 4 fields\n", "{}", .{status});
         }
 
         {
@@ -1497,7 +1429,7 @@ test "std.zon string literal" {
                 error.ParseZon,
                 parseFromSlice([4:0]u8, gpa, "\\\\abcd", &status, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected tuple with 4 fields", "{}", .{status});
+            try std.testing.expectFmt("1:1: error: expected tuple with 4 fields\n", "{}", .{status});
         }
     }
 
@@ -1527,7 +1459,7 @@ test "std.zon string literal" {
                 error.ParseZon,
                 parseFromSlice([:1]const u8, gpa, "\"foo\"", &status, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected tuple", "{}", .{status});
+            try std.testing.expectFmt("1:1: error: expected tuple\n", "{}", .{status});
         }
 
         {
@@ -1537,7 +1469,7 @@ test "std.zon string literal" {
                 error.ParseZon,
                 parseFromSlice([:1]const u8, gpa, "\\\\foo", &status, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected tuple", "{}", .{status});
+            try std.testing.expectFmt("1:1: error: expected tuple\n", "{}", .{status});
         }
     }
 
@@ -1549,7 +1481,7 @@ test "std.zon string literal" {
             error.ParseZon,
             parseFromSlice([]const u8, gpa, "true", &status, .{}),
         );
-        try std.testing.expectFmt("1:1: error: expected string", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: expected string\n", "{}", .{status});
     }
 
     // Expecting string literal, getting an incompatible tuple
@@ -1560,7 +1492,7 @@ test "std.zon string literal" {
             error.ParseZon,
             parseFromSlice([]const u8, gpa, ".{false}", &status, .{}),
         );
-        try std.testing.expectFmt("1:3: error: expected u8", "{}", .{status});
+        try std.testing.expectFmt("1:3: error: expected u8\n", "{}", .{status});
     }
 
     // Invalid string literal
@@ -1571,7 +1503,7 @@ test "std.zon string literal" {
             error.ParseZon,
             parseFromSlice([]const i8, gpa, "\"\\a\"", &status, .{}),
         );
-        try std.testing.expectFmt("1:3: error: invalid escape character: 'a'", "{}", .{status});
+        try std.testing.expectFmt("1:3: error: invalid escape character: 'a'\n", "{}", .{status});
     }
 
     // Slice wrong child type
@@ -1580,14 +1512,14 @@ test "std.zon string literal" {
             var status: Status = .{};
             defer status.deinit(gpa);
             try std.testing.expectError(error.ParseZon, parseFromSlice([]const i8, gpa, "\"a\"", &status, .{}));
-            try std.testing.expectFmt("1:1: error: expected tuple", "{}", .{status});
+            try std.testing.expectFmt("1:1: error: expected tuple\n", "{}", .{status});
         }
 
         {
             var status: Status = .{};
             defer status.deinit(gpa);
             try std.testing.expectError(error.ParseZon, parseFromSlice([]const i8, gpa, "\\\\a", &status, .{}));
-            try std.testing.expectFmt("1:1: error: expected tuple", "{}", .{status});
+            try std.testing.expectFmt("1:1: error: expected tuple\n", "{}", .{status});
         }
     }
 
@@ -1597,14 +1529,14 @@ test "std.zon string literal" {
             var status: Status = .{};
             defer status.deinit(gpa);
             try std.testing.expectError(error.ParseZon, parseFromSlice([]align(2) const u8, gpa, "\"abc\"", &status, .{}));
-            try std.testing.expectFmt("1:1: error: expected tuple", "{}", .{status});
+            try std.testing.expectFmt("1:1: error: expected tuple\n", "{}", .{status});
         }
 
         {
             var status: Status = .{};
             defer status.deinit(gpa);
             try std.testing.expectError(error.ParseZon, parseFromSlice([]align(2) const u8, gpa, "\\\\abc", &status, .{}));
-            try std.testing.expectFmt("1:1: error: expected tuple", "{}", .{status});
+            try std.testing.expectFmt("1:1: error: expected tuple\n", "{}", .{status});
         }
     }
 
@@ -1684,7 +1616,7 @@ test "std.zon enum literals" {
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Enum, gpa, ".qux", &status, .{}));
         try std.testing.expectFmt(
-            "1:2: error: unexpected field, supported fields: foo, bar, baz, @\"ab\\nc\"",
+            "1:2: error: unexpected field, supported fields: foo, bar, baz, @\"ab\\nc\"\n",
             "{}",
             .{status},
         );
@@ -1696,7 +1628,7 @@ test "std.zon enum literals" {
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Enum, gpa, ".@\"foobarbaz\"", &status, .{}));
         try std.testing.expectFmt(
-            "1:2: error: unexpected field, supported fields: foo, bar, baz, @\"ab\\nc\"",
+            "1:2: error: unexpected field, supported fields: foo, bar, baz, @\"ab\\nc\"\n",
             "{}",
             .{status},
         );
@@ -1707,7 +1639,7 @@ test "std.zon enum literals" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Enum, gpa, "true", &status, .{}));
-        try std.testing.expectFmt("1:1: error: expected enum literal", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: expected enum literal\n", "{}", .{status});
     }
 
     // Test embedded nulls in an identifier
@@ -1718,7 +1650,7 @@ test "std.zon enum literals" {
             error.ParseZon,
             parseFromSlice(Enum, gpa, ".@\"\\x00\"", &status, .{}),
         );
-        try std.testing.expectFmt("1:2: error: identifier cannot contain null bytes", "{}", .{status});
+        try std.testing.expectFmt("1:2: error: identifier cannot contain null bytes\n", "{}", .{status});
     }
 }
 
@@ -1848,13 +1780,14 @@ test "std.zon parse bool" {
             \\1:2: error: invalid expression
             \\1:2: note: ZON allows identifiers 'true', 'false', 'null', 'inf', and 'nan'
             \\1:2: note: precede identifier with '.' for an enum literal
+            \\
         , "{}", .{status});
     }
     {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(bool, gpa, "123", &status, .{}));
-        try std.testing.expectFmt("1:1: error: expected bool", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: expected bool\n", "{}", .{status});
     }
 }
 
@@ -1994,13 +1927,13 @@ test "std.zon parse int" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(i66, gpa, "36893488147419103232", &status, .{}));
-        try std.testing.expectFmt("1:1: error: i66 cannot represent value", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: i66 cannot represent value\n", "{}", .{status});
     }
     {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(i66, gpa, "-36893488147419103233", &status, .{}));
-        try std.testing.expectFmt("1:1: error: i66 cannot represent value", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: i66 cannot represent value\n", "{}", .{status});
     }
 
     // Test parsing whole number floats as integers
@@ -2085,7 +2018,7 @@ test "std.zon parse int" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(u8, gpa, "32a32", &status, .{}));
-        try std.testing.expectFmt("1:3: error: invalid digit 'a' for decimal base", "{}", .{status});
+        try std.testing.expectFmt("1:3: error: invalid digit 'a' for decimal base\n", "{}", .{status});
     }
 
     // Failing to parse as int
@@ -2093,7 +2026,7 @@ test "std.zon parse int" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(u8, gpa, "true", &status, .{}));
-        try std.testing.expectFmt("1:1: error: expected u8", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: expected u8\n", "{}", .{status});
     }
 
     // Failing because an int is out of range
@@ -2101,7 +2034,7 @@ test "std.zon parse int" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(u8, gpa, "256", &status, .{}));
-        try std.testing.expectFmt("1:1: error: u8 cannot represent value", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: u8 cannot represent value\n", "{}", .{status});
     }
 
     // Failing because a negative int is out of range
@@ -2109,7 +2042,7 @@ test "std.zon parse int" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(i8, gpa, "-129", &status, .{}));
-        try std.testing.expectFmt("1:1: error: i8 cannot represent value", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: i8 cannot represent value\n", "{}", .{status});
     }
 
     // Failing because an unsigned int is negative
@@ -2117,7 +2050,7 @@ test "std.zon parse int" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(u8, gpa, "-1", &status, .{}));
-        try std.testing.expectFmt("1:1: error: u8 cannot represent value", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: u8 cannot represent value\n", "{}", .{status});
     }
 
     // Failing because a float is non-whole
@@ -2125,7 +2058,7 @@ test "std.zon parse int" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(u8, gpa, "1.5", &status, .{}));
-        try std.testing.expectFmt("1:1: error: u8 cannot represent value", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: u8 cannot represent value\n", "{}", .{status});
     }
 
     // Failing because a float is negative
@@ -2133,7 +2066,7 @@ test "std.zon parse int" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(u8, gpa, "-1.0", &status, .{}));
-        try std.testing.expectFmt("1:1: error: u8 cannot represent value", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: u8 cannot represent value\n", "{}", .{status});
     }
 
     // Negative integer zero
@@ -2145,6 +2078,7 @@ test "std.zon parse int" {
             \\1:2: error: integer literal '-0' is ambiguous
             \\1:2: note: use '0' for an integer zero
             \\1:2: note: use '-0.0' for a floating-point signed zero
+            \\
         , "{}", .{status});
     }
 
@@ -2157,6 +2091,7 @@ test "std.zon parse int" {
             \\1:2: error: integer literal '-0' is ambiguous
             \\1:2: note: use '0' for an integer zero
             \\1:2: note: use '-0.0' for a floating-point signed zero
+            \\
         , "{}", .{status});
     }
 
@@ -2169,14 +2104,14 @@ test "std.zon parse int" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(i8, gpa, "--2", &status, .{}));
-        try std.testing.expectFmt("1:1: error: expected number or 'inf' after '-'", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: expected number or 'inf' after '-'\n", "{}", .{status});
     }
 
     {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(f32, gpa, "--2.0", &status, .{}));
-        try std.testing.expectFmt("1:1: error: expected number or 'inf' after '-'", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: expected number or 'inf' after '-'\n", "{}", .{status});
     }
 
     // Invalid int literal
@@ -2184,7 +2119,7 @@ test "std.zon parse int" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(u8, gpa, "0xg", &status, .{}));
-        try std.testing.expectFmt("1:3: error: invalid digit 'g' for hex base", "{}", .{status});
+        try std.testing.expectFmt("1:3: error: invalid digit 'g' for hex base\n", "{}", .{status});
     }
 
     // Notes on invalid int literal
@@ -2195,6 +2130,7 @@ test "std.zon parse int" {
         try std.testing.expectFmt(
             \\1:1: error: number '0123' has leading zero
             \\1:1: note: use '0o' prefix for octal literals
+            \\
         , "{}", .{status});
     }
 }
@@ -2206,13 +2142,13 @@ test "std.zon negative char" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(f32, gpa, "-'a'", &status, .{}));
-        try std.testing.expectFmt("1:1: error: expected number or 'inf' after '-'", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: expected number or 'inf' after '-'\n", "{}", .{status});
     }
     {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(i16, gpa, "-'a'", &status, .{}));
-        try std.testing.expectFmt("1:1: error: expected number or 'inf' after '-'", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: expected number or 'inf' after '-'\n", "{}", .{status});
     }
 }
 
@@ -2280,7 +2216,7 @@ test "std.zon parse float" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(f32, gpa, "-nan", &status, .{}));
-        try std.testing.expectFmt("1:1: error: expected number or 'inf' after '-'", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: expected number or 'inf' after '-'\n", "{}", .{status});
     }
 
     // nan as int not allowed
@@ -2288,7 +2224,7 @@ test "std.zon parse float" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(i8, gpa, "nan", &status, .{}));
-        try std.testing.expectFmt("1:1: error: expected i8", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: expected i8\n", "{}", .{status});
     }
 
     // nan as int not allowed
@@ -2296,7 +2232,7 @@ test "std.zon parse float" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(i8, gpa, "nan", &status, .{}));
-        try std.testing.expectFmt("1:1: error: expected i8", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: expected i8\n", "{}", .{status});
     }
 
     // inf as int not allowed
@@ -2304,7 +2240,7 @@ test "std.zon parse float" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(i8, gpa, "inf", &status, .{}));
-        try std.testing.expectFmt("1:1: error: expected i8", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: expected i8\n", "{}", .{status});
     }
 
     // -inf as int not allowed
@@ -2312,7 +2248,7 @@ test "std.zon parse float" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(i8, gpa, "-inf", &status, .{}));
-        try std.testing.expectFmt("1:1: error: expected i8", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: expected i8\n", "{}", .{status});
     }
 
     // Bad identifier as float
@@ -2324,6 +2260,7 @@ test "std.zon parse float" {
             \\1:1: error: invalid expression
             \\1:1: note: ZON allows identifiers 'true', 'false', 'null', 'inf', and 'nan'
             \\1:1: note: precede identifier with '.' for an enum literal
+            \\
         , "{}", .{status});
     }
 
@@ -2331,7 +2268,7 @@ test "std.zon parse float" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(f32, gpa, "-foo", &status, .{}));
-        try std.testing.expectFmt("1:1: error: expected number or 'inf' after '-'", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: expected number or 'inf' after '-'\n", "{}", .{status});
     }
 
     // Non float as float
@@ -2339,7 +2276,7 @@ test "std.zon parse float" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(f32, gpa, "\"foo\"", &status, .{}));
-        try std.testing.expectFmt("1:1: error: expected f32", "{}", .{status});
+        try std.testing.expectFmt("1:1: error: expected f32\n", "{}", .{status});
     }
 }
 
