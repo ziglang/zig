@@ -1725,6 +1725,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         };
         comp.c_object_table.putAssumeCapacityNoClobber(c_object, {});
     }
+    comp.remaining_prelink_tasks += @intCast(comp.c_object_table.count());
 
     // Add a `Win32Resource` for each `rc_source_files` and one for `manifest_file`.
     const win32_resource_count =
@@ -1742,6 +1743,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             };
             comp.win32_resource_table.putAssumeCapacityNoClobber(win32_resource, {});
         }
+        comp.remaining_prelink_tasks += @intCast(comp.win32_resource_table.count());
+
         if (options.manifest_file) |manifest_path| {
             const win32_resource = try gpa.create(Win32Resource);
             errdefer gpa.destroy(win32_resource);
@@ -1751,6 +1754,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 .src = .{ .manifest = manifest_path },
             };
             comp.win32_resource_table.putAssumeCapacityNoClobber(win32_resource, {});
+            comp.remaining_prelink_tasks += 1;
         }
     }
 
