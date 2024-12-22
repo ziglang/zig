@@ -8,5 +8,5 @@ pub fn main() void {
 // output_mode=Exe
 // imports=zon/array.zon
 //
-// array.zon:1:2: error: ZON import cannot be coerced to non slice pointer
+// array.zon:1:2: error: non slice pointers are not available in ZON
 // tmp.zig:2:47: note: imported here

@@ -48,9 +48,7 @@ pub fn lower(
         .import_loc = import_loc,
     };
 
-    const data = file.tree.nodes.items(.data);
-    const root = data[0].lhs;
-    return lower_zon.lowerExpr(root, res_ty);
+    return lower_zon.lowerExpr(.root, res_ty);
 }
 
 fn lazySrcLoc(self: LowerZon, loc: LazySrcLoc.Offset) !LazySrcLoc {
@@ -71,8 +69,20 @@ fn fail(
     args: anytype,
 ) (Allocator.Error || error{AnalysisFail}) {
     @branchHint(.cold);
+    return self.failWithNote(loc, format, args, null);
+}
+
+fn failWithNote(
+    self: LowerZon,
+    loc: LazySrcLoc.Offset,
+    comptime format: []const u8,
+    args: anytype,
+    note: ?[]const u8,
+) (Allocator.Error || error{AnalysisFail}) {
+    @branchHint(.cold);
     const src_loc = try self.lazySrcLoc(loc);
     const err_msg = try Zcu.ErrorMsg.create(self.sema.pt.zcu.gpa, src_loc, format, args);
+    if (note) |n| try self.sema.pt.zcu.errNote(self.import_loc, err_msg, "{s}", .{n});
     try self.sema.pt.zcu.errNote(self.import_loc, err_msg, "imported here", .{});
     try self.sema.pt.zcu.failed_files.putNoClobber(self.sema.pt.zcu.gpa, self.file, err_msg);
     return error.AnalysisFail;
@@ -181,9 +191,8 @@ const FieldTypes = union(enum) {
     }
 };
 
-fn lowerExpr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) CompileError!InternPool.Index {
+fn lowerExpr(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) CompileError!InternPool.Index {
     switch (Type.zigTypeTag(res_ty, self.sema.pt.zcu)) {
-        .void => return self.lowerVoid(node),
         .bool => return self.lowerBool(node),
         .int, .comptime_int => return self.lowerInt(node, res_ty),
         .float, .comptime_float => return self.lowerFloat(node, res_ty),
@@ -206,408 +215,326 @@ fn lowerExpr(self: LowerZon, node: Ast.Node.Index, res_ty: Type) CompileError!In
         .frame,
         .@"anyframe",
         .vector,
-        => return self.fail(.{ .node_abs = node }, "invalid ZON value", .{}),
+        .void,
+        => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "type '{}' not available in ZON",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
     }
 }
 
-fn lowerVoid(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
-    const tags = self.file.tree.nodes.items(.tag);
-    const data = self.file.tree.nodes.items(.data);
-
-    if (tags[node] == .block_two and data[node].lhs == 0 and data[node].rhs == 0) {
-        return .void_value;
-    }
-
-    return self.fail(.{ .node_abs = node }, "expected type 'void'", .{});
-}
-
-fn lowerBool(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
-    const gpa = self.sema.gpa;
-    const tags = self.file.tree.nodes.items(.tag);
-    const main_tokens = self.file.tree.nodes.items(.main_token);
-
-    if (tags[node] == .identifier) {
-        const token = main_tokens[node];
-        var litIdent = try self.ident(token);
-        defer litIdent.deinit(gpa);
-
-        const BoolIdent = enum { true, false };
-        const values = std.StaticStringMap(BoolIdent).initComptime(.{
-            .{ "true", .true },
-            .{ "false", .false },
-        });
-        if (values.get(litIdent.bytes)) |value| {
-            return switch (value) {
-                .true => .bool_true,
-                .false => .bool_false,
-            };
-        }
-    }
-    return self.fail(.{ .node_abs = node }, "expected type 'bool'", .{});
+fn lowerBool(self: LowerZon, node: Zoir.Node.Index) !InternPool.Index {
+    return switch (node.get(self.file.zoir.?)) {
+        .true => .bool_true,
+        .false => .bool_false,
+        else => self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type 'bool'",
+            .{},
+        ),
+    };
 }
 
 fn lowerInt(
     self: LowerZon,
-    node: Ast.Node.Index,
+    node: Zoir.Node.Index,
     res_ty: Type,
 ) !InternPool.Index {
     @setFloatMode(.strict);
-
     const gpa = self.sema.gpa;
-    const tags = self.file.tree.nodes.items(.tag);
-    const main_tokens = self.file.tree.nodes.items(.main_token);
-    const num_lit_node, const is_negative = if (tags[node] == .negation) b: {
-        const data = self.file.tree.nodes.items(.data);
-        break :b .{
-            data[node].lhs,
-            node,
-        };
-    } else .{
-        node,
-        null,
-    };
-    switch (tags[num_lit_node]) {
-        .char_literal => {
-            const token = main_tokens[num_lit_node];
-            const token_bytes = self.file.tree.tokenSlice(token);
-            const char = switch (std.zig.string_literal.parseCharLiteral(token_bytes)) {
-                .success => |char| char,
-                .failure => |err| {
-                    const offset = self.file.tree.tokens.items(.start)[token];
-                    return self.fail(
-                        .{ .byte_abs = offset + @as(u32, @intCast(err.offset())) },
-                        "{}",
-                        .{err.fmtWithSource(token_bytes)},
+    return switch (node.get(self.file.zoir.?)) {
+        .int_literal => |int| switch (int) {
+            .small => |val| {
+                const rhs: i32 = val;
+
+                // If our result is a fixed size integer, check that our value is not out of bounds
+                if (Type.zigTypeTag(res_ty, self.sema.pt.zcu) == .int) {
+                    const lhs_info = res_ty.intInfo(self.sema.pt.zcu);
+
+                    // If lhs is unsigned and rhs is less than 0, we're out of bounds
+                    if (lhs_info.signedness == .unsigned and rhs < 0) return self.fail(
+                        .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                        "type '{}' cannot represent integer value '{}'",
+                        .{ res_ty.fmt(self.sema.pt), rhs },
                     );
-                },
-            };
-            return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{
-                .int = .{
-                    .ty = res_ty.toIntern(),
-                    .storage = .{ .i64 = if (is_negative == null) char else -@as(i64, char) },
-                },
-            });
-        },
-        .number_literal => {
-            const token = main_tokens[num_lit_node];
-            const token_bytes = self.file.tree.tokenSlice(token);
-            const parsed = std.zig.number_literal.parseNumberLiteral(token_bytes);
-            switch (parsed) {
-                .int => |unsigned| {
-                    if (is_negative) |negative_node| {
-                        if (unsigned == 0) {
-                            return self.fail(.{ .node_abs = negative_node }, "integer literal '-0' is ambiguous", .{});
-                        }
-                        const signed = std.math.negateCast(unsigned) catch {
-                            var result = try std.math.big.int.Managed.initSet(gpa, unsigned);
-                            defer result.deinit();
-                            result.negate();
 
-                            if (Type.zigTypeTag(res_ty, self.sema.pt.zcu) == .int) {
-                                const int_info = res_ty.intInfo(self.sema.pt.zcu);
-                                if (!result.fitsInTwosComp(int_info.signedness, int_info.bits)) {
-                                    return self.fail(
-                                        .{ .node_abs = num_lit_node },
-                                        "type '{}' cannot represent integer value '-{}'",
-                                        .{ res_ty.fmt(self.sema.pt), unsigned },
-                                    );
-                                }
-                            }
-
-                            return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{ .int = .{
-                                .ty = res_ty.toIntern(),
-                                .storage = .{ .big_int = result.toConst() },
-                            } });
+                    // If lhs has less than the 32 bits rhs can hold, we need to check the max and
+                    // min values
+                    if (std.math.cast(u5, lhs_info.bits)) |bits| {
+                        const min_int: i32 = if (lhs_info.signedness == .unsigned or bits == 0) b: {
+                            break :b 0;
+                        } else b: {
+                            break :b -(@as(i32, 1) << (bits - 1));
                         };
-
-                        if (Type.zigTypeTag(res_ty, self.sema.pt.zcu) == .int) {
-                            const int_info = res_ty.intInfo(self.sema.pt.zcu);
-                            if (std.math.cast(u6, int_info.bits)) |bits| {
-                                const min_int: i64 = if (int_info.signedness == .unsigned) 0 else -(@as(i64, 1) << (bits - 1));
-                                if (signed < min_int) {
-                                    return self.fail(
-                                        .{ .node_abs = num_lit_node },
-                                        "type '{}' cannot represent integer value '{}'",
-                                        .{ res_ty.fmt(self.sema.pt), unsigned },
-                                    );
-                                }
-                            }
-                        }
-
-                        return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{ .int = .{
-                            .ty = res_ty.toIntern(),
-                            .storage = .{ .i64 = signed },
-                        } });
-                    } else {
-                        if (Type.zigTypeTag(res_ty, self.sema.pt.zcu) == .int) {
-                            const int_info = res_ty.intInfo(self.sema.pt.zcu);
-                            if (std.math.cast(u6, int_info.bits)) |bits| {
-                                const max_int: u64 = (@as(u64, 1) << (bits - @intFromBool(int_info.signedness == .signed))) - 1;
-                                if (unsigned > max_int) {
-                                    return self.fail(
-                                        .{ .node_abs = num_lit_node },
-                                        "type '{}' cannot represent integer value '{}'",
-                                        .{ res_ty.fmt(self.sema.pt), unsigned },
-                                    );
-                                }
-                            }
-                        }
-                        return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{ .int = .{
-                            .ty = res_ty.toIntern(),
-                            .storage = .{ .u64 = unsigned },
-                        } });
-                    }
-                },
-                .big_int => |base| {
-                    var big_int = try std.math.big.int.Managed.init(gpa);
-                    defer big_int.deinit();
-
-                    const prefix_offset: usize = if (base == .decimal) 0 else 2;
-                    big_int.setString(@intFromEnum(base), token_bytes[prefix_offset..]) catch |err| switch (err) {
-                        error.InvalidCharacter => unreachable, // caught in `parseNumberLiteral`
-                        error.InvalidBase => unreachable, // we only pass 16, 8, 2, see above
-                        error.OutOfMemory => return error.OutOfMemory,
-                    };
-
-                    assert(big_int.isPositive());
-
-                    if (is_negative != null) big_int.negate();
-
-                    if (Type.zigTypeTag(res_ty, self.sema.pt.zcu) == .int) {
-                        const int_info = res_ty.intInfo(self.sema.pt.zcu);
-                        if (!big_int.fitsInTwosComp(int_info.signedness, int_info.bits)) {
+                        const max_int: i32 = if (bits == 0) b: {
+                            break :b 0;
+                        } else b: {
+                            break :b (@as(i32, 1) << (bits - @intFromBool(lhs_info.signedness == .signed))) - 1;
+                        };
+                        if (rhs < min_int or rhs > max_int) {
                             return self.fail(
-                                .{ .node_abs = num_lit_node },
+                                .{ .node_abs = node.getAstNode(self.file.zoir.?) },
                                 "type '{}' cannot represent integer value '{}'",
-                                .{ res_ty.fmt(self.sema.pt), big_int },
+                                .{ res_ty.fmt(self.sema.pt), rhs },
                             );
                         }
                     }
+                }
 
-                    return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{ .int = .{
-                        .ty = res_ty.toIntern(),
-                        .storage = .{ .big_int = big_int.toConst() },
-                    } });
-                },
-                .float => {
-                    const unsigned_float = std.fmt.parseFloat(f128, token_bytes) catch {
-                        // Validated by tokenizer
-                        unreachable;
-                    };
-                    const float = if (is_negative == null) unsigned_float else -unsigned_float;
-
-                    // Check for fractional components
-                    if (@rem(float, 1) != 0) {
-                        return self.fail(
-                            .{ .node_abs = num_lit_node },
-                            "fractional component prevents float value '{}' from coercion to type '{}'",
-                            .{ float, res_ty.fmt(self.sema.pt) },
-                        );
-                    }
-
-                    // Create a rational representation of the float
-                    var rational = try std.math.big.Rational.init(gpa);
-                    defer rational.deinit();
-                    rational.setFloat(f128, float) catch |err| switch (err) {
-                        error.NonFiniteFloat => unreachable,
-                        error.OutOfMemory => return error.OutOfMemory,
-                    };
-
-                    // The float is reduced in rational.setFloat, so we assert that denominator is equal to one
-                    const big_one = std.math.big.int.Const{ .limbs = &.{1}, .positive = true };
-                    assert(rational.q.toConst().eqlAbs(big_one));
-                    if (is_negative != null) rational.negate();
-
-                    // Check that the result is in range of the result type
+                return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{ .int = .{
+                    .ty = res_ty.toIntern(),
+                    .storage = .{ .i64 = rhs },
+                } });
+            },
+            .big => |val| {
+                if (Type.zigTypeTag(res_ty, self.sema.pt.zcu) == .int) {
                     const int_info = res_ty.intInfo(self.sema.pt.zcu);
-                    if (!rational.p.fitsInTwosComp(int_info.signedness, int_info.bits)) {
+                    if (!val.fitsInTwosComp(int_info.signedness, int_info.bits)) {
                         return self.fail(
-                            .{ .node_abs = num_lit_node },
-                            "float value '{}' cannot be stored in integer type '{}'",
-                            .{ float, res_ty.fmt(self.sema.pt) },
+                            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                            "type '{}' cannot represent integer value '{}'",
+                            .{ res_ty.fmt(self.sema.pt), val },
                         );
                     }
+                }
 
-                    return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{
-                        .int = .{
-                            .ty = res_ty.toIntern(),
-                            .storage = .{ .big_int = rational.p.toConst() },
-                        },
-                    });
-                },
-                .failure => |err| return self.failWithNumberError(token, err),
+                return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{ .int = .{
+                    .ty = res_ty.toIntern(),
+                    .storage = .{ .big_int = val },
+                } });
+            },
+        },
+        .float_literal => |val| {
+            // Check for fractional components
+            if (@rem(val, 1) != 0) {
+                return self.fail(
+                    .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                    "fractional component prevents float value '{}' from coercion to type '{}'",
+                    .{ val, res_ty.fmt(self.sema.pt) },
+                );
             }
+
+            // Create a rational representation of the float
+            var rational = try std.math.big.Rational.init(gpa);
+            defer rational.deinit();
+            rational.setFloat(f128, val) catch |err| switch (err) {
+                error.NonFiniteFloat => unreachable,
+                error.OutOfMemory => return error.OutOfMemory,
+            };
+
+            // The float is reduced in rational.setFloat, so we assert that denominator is equal to
+            // one
+            const big_one = std.math.big.int.Const{ .limbs = &.{1}, .positive = true };
+            assert(rational.q.toConst().eqlAbs(big_one));
+
+            // Check that the result is in range of the result type
+            const int_info = res_ty.intInfo(self.sema.pt.zcu);
+            if (!rational.p.fitsInTwosComp(int_info.signedness, int_info.bits)) {
+                return self.fail(
+                    .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                    "float value '{}' cannot be stored in integer type '{}'",
+                    .{ val, res_ty.fmt(self.sema.pt) },
+                );
+            }
+
+            return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{
+                .int = .{
+                    .ty = res_ty.toIntern(),
+                    .storage = .{ .big_int = rational.p.toConst() },
+                },
+            });
         },
-        .identifier => {
-            unreachable; // Decide what error to give here
+        .char_literal => |val| {
+            const rhs: u32 = val;
+            // If our result is a fixed size integer, check that our value is not out of bounds
+            if (Type.zigTypeTag(res_ty, self.sema.pt.zcu) == .int) {
+                const lhs_info = res_ty.intInfo(self.sema.pt.zcu);
+                // If lhs has less than 64 bits, we bounds check. We check at 64 instead of 32 in
+                // case LHS is signed.
+                if (std.math.cast(u6, lhs_info.bits)) |bits| {
+                    const max_int: i64 = if (bits == 0) b: {
+                        break :b 0;
+                    } else b: {
+                        break :b (@as(i64, 1) << (bits - @intFromBool(lhs_info.signedness == .signed))) - 1;
+                    };
+                    if (rhs > max_int) {
+                        return self.fail(
+                            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                            "type '{}' cannot represent integer value '{}'",
+                            .{ res_ty.fmt(self.sema.pt), rhs },
+                        );
+                    }
+                }
+            }
+            return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{
+                .int = .{
+                    .ty = res_ty.toIntern(),
+                    .storage = .{ .i64 = rhs },
+                },
+            });
         },
-        else => return self.fail(.{ .node_abs = node }, "expected type '{}'", .{res_ty.fmt(self.sema.pt)}),
-    }
+
+        else => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
+    };
 }
 
 fn lowerFloat(
     self: LowerZon,
-    node: Ast.Node.Index,
+    node: Zoir.Node.Index,
     res_ty: Type,
 ) !InternPool.Index {
     @setFloatMode(.strict);
-
-    const tags = self.file.tree.nodes.items(.tag);
-    const main_tokens = self.file.tree.nodes.items(.main_token);
-    const num_lit_node, const is_negative = if (tags[node] == .negation) b: {
-        const data = self.file.tree.nodes.items(.data);
-        break :b .{
-            data[node].lhs,
-            node,
-        };
-    } else .{
-        node,
-        null,
-    };
-    switch (tags[num_lit_node]) {
-        .char_literal => {
-            const token = main_tokens[num_lit_node];
-            const token_bytes = self.file.tree.tokenSlice(token);
-            var char: i64 = switch (std.zig.string_literal.parseCharLiteral(token_bytes)) {
-                .success => |char| char,
-                .failure => |err| {
-                    const offset = self.file.tree.tokens.items(.start)[token];
-                    return self.fail(
-                        .{ .byte_abs = offset + @as(u32, @intCast(err.offset())) },
-                        "{}",
-                        .{err.fmtWithSource(token_bytes)},
-                    );
-                },
-            };
-            if (is_negative != null) char = -char;
-            return self.sema.pt.intern(.{ .float = .{
+    switch (node.get(self.file.zoir.?)) {
+        .int_literal => |int| switch (int) {
+            .small => |val| return self.sema.pt.intern(.{ .float = .{
                 .ty = res_ty.toIntern(),
                 .storage = switch (res_ty.toIntern()) {
-                    .f16_type => .{ .f16 = @floatFromInt(char) },
-                    .f32_type => .{ .f32 = @floatFromInt(char) },
-                    .f64_type => .{ .f64 = @floatFromInt(char) },
-                    .f80_type => .{ .f80 = @floatFromInt(char) },
-                    .f128_type, .comptime_float_type => .{ .f128 = @floatFromInt(char) },
+                    .f16_type => .{ .f16 = @floatFromInt(val) },
+                    .f32_type => .{ .f32 = @floatFromInt(val) },
+                    .f64_type => .{ .f64 = @floatFromInt(val) },
+                    .f80_type => .{ .f80 = @floatFromInt(val) },
+                    .f128_type, .comptime_float_type => .{ .f128 = @floatFromInt(val) },
                     else => unreachable,
                 },
-            } });
-        },
-        .number_literal => {
-            const token = main_tokens[num_lit_node];
-            const token_bytes = self.file.tree.tokenSlice(token);
-
-            var float = std.fmt.parseFloat(f128, token_bytes) catch |err| switch (err) {
-                error.InvalidCharacter => return self.fail(.{ .node_abs = num_lit_node }, "invalid character", .{}),
-            };
-            if (is_negative != null) float = -float;
-
-            return self.sema.pt.intern(.{
-                .float = .{
+            } }),
+            .big => {
+                const main_tokens = self.file.tree.nodes.items(.main_token);
+                const tags = self.file.tree.nodes.items(.tag);
+                const data = self.file.tree.nodes.items(.data);
+                const ast_node = node.getAstNode(self.file.zoir.?);
+                const negative = tags[ast_node] == .negation;
+                const num_lit_node = if (negative) data[ast_node].lhs else ast_node;
+                const token = main_tokens[num_lit_node];
+                const bytes = self.file.tree.tokenSlice(token);
+                const val = std.fmt.parseFloat(f128, bytes) catch {
+                    // Bytes already validated by big int parser
+                    unreachable;
+                };
+                return self.sema.pt.intern(.{ .float = .{
                     .ty = res_ty.toIntern(),
                     .storage = switch (res_ty.toIntern()) {
-                        .f16_type => .{ .f16 = @floatCast(float) },
-                        .f32_type => .{ .f32 = @floatCast(float) },
-                        .f64_type => .{ .f64 = @floatCast(float) },
-                        .f80_type => .{ .f80 = @floatCast(float) },
-                        .f128_type, .comptime_float_type => .{ .f128 = float },
+                        .f16_type => .{ .f16 = @floatCast(val) },
+                        .f32_type => .{ .f32 = @floatCast(val) },
+                        .f64_type => .{ .f64 = @floatCast(val) },
+                        .f80_type => .{ .f80 = @floatCast(val) },
+                        .f128_type, .comptime_float_type => .{ .f128 = val },
                         else => unreachable,
                     },
-                },
-            });
+                } });
+            },
         },
-        .identifier => {
-            switch (Type.zigTypeTag(res_ty, self.sema.pt.zcu)) {
-                .float, .comptime_float => {},
-                else => return self.fail(.{ .node_abs = num_lit_node }, "invalid ZON value", .{}),
-            }
-            const token = main_tokens[num_lit_node];
-            const bytes = self.file.tree.tokenSlice(token);
-            const LitIdent = enum { nan, inf };
-            const values = std.StaticStringMap(LitIdent).initComptime(.{
-                .{ "nan", .nan },
-                .{ "inf", .inf },
-            });
-            if (values.get(bytes)) |value| {
-                return switch (value) {
-                    .nan => self.sema.pt.intern(.{
-                        .float = .{
-                            .ty = res_ty.toIntern(),
-                            .storage = switch (res_ty.toIntern()) {
-                                .f16_type => .{ .f16 = std.math.nan(f16) },
-                                .f32_type => .{ .f32 = std.math.nan(f32) },
-                                .f64_type => .{ .f64 = std.math.nan(f64) },
-                                .f80_type => .{ .f80 = std.math.nan(f80) },
-                                .f128_type, .comptime_float_type => .{ .f128 = std.math.nan(f128) },
-                                else => unreachable,
-                            },
-                        },
-                    }),
-                    .inf => self.sema.pt.intern(.{
-                        .float = .{
-                            .ty = res_ty.toIntern(),
-                            .storage = switch (res_ty.toIntern()) {
-                                .f16_type => .{ .f16 = if (is_negative == null) std.math.inf(f16) else -std.math.inf(f16) },
-                                .f32_type => .{ .f32 = if (is_negative == null) std.math.inf(f32) else -std.math.inf(f32) },
-                                .f64_type => .{ .f64 = if (is_negative == null) std.math.inf(f64) else -std.math.inf(f64) },
-                                .f80_type => .{ .f80 = if (is_negative == null) std.math.inf(f80) else -std.math.inf(f80) },
-                                .f128_type, .comptime_float_type => .{ .f128 = if (is_negative == null) std.math.inf(f128) else -std.math.inf(f128) },
-                                else => unreachable,
-                            },
-                        },
-                    }),
-                };
-            }
-            return self.fail(.{ .node_abs = num_lit_node }, "use of unknown identifier '{s}'", .{bytes});
-        },
-        else => return self.fail(.{ .node_abs = node }, "invalid ZON value", .{}),
+        .float_literal => |val| return self.sema.pt.intern(.{ .float = .{
+            .ty = res_ty.toIntern(),
+            .storage = switch (res_ty.toIntern()) {
+                .f16_type => .{ .f16 = @floatCast(val) },
+                .f32_type => .{ .f32 = @floatCast(val) },
+                .f64_type => .{ .f64 = @floatCast(val) },
+                .f80_type => .{ .f80 = @floatCast(val) },
+                .f128_type, .comptime_float_type => .{ .f128 = val },
+                else => unreachable,
+            },
+        } }),
+        .pos_inf => return self.sema.pt.intern(.{ .float = .{
+            .ty = res_ty.toIntern(),
+            .storage = switch (res_ty.toIntern()) {
+                .f16_type => .{ .f16 = std.math.inf(f16) },
+                .f32_type => .{ .f32 = std.math.inf(f32) },
+                .f64_type => .{ .f64 = std.math.inf(f64) },
+                .f80_type => .{ .f80 = std.math.inf(f80) },
+                .f128_type, .comptime_float_type => .{ .f128 = std.math.inf(f128) },
+                else => unreachable,
+            },
+        } }),
+        .neg_inf => return self.sema.pt.intern(.{ .float = .{
+            .ty = res_ty.toIntern(),
+            .storage = switch (res_ty.toIntern()) {
+                .f16_type => .{ .f16 = -std.math.inf(f16) },
+                .f32_type => .{ .f32 = -std.math.inf(f32) },
+                .f64_type => .{ .f64 = -std.math.inf(f64) },
+                .f80_type => .{ .f80 = -std.math.inf(f80) },
+                .f128_type, .comptime_float_type => .{ .f128 = -std.math.inf(f128) },
+                else => unreachable,
+            },
+        } }),
+        .nan => return self.sema.pt.intern(.{ .float = .{
+            .ty = res_ty.toIntern(),
+            .storage = switch (res_ty.toIntern()) {
+                .f16_type => .{ .f16 = std.math.nan(f16) },
+                .f32_type => .{ .f32 = std.math.nan(f32) },
+                .f64_type => .{ .f64 = std.math.nan(f64) },
+                .f80_type => .{ .f80 = std.math.nan(f80) },
+                .f128_type, .comptime_float_type => .{ .f128 = std.math.nan(f128) },
+                else => unreachable,
+            },
+        } }),
+        .char_literal => |val| return self.sema.pt.intern(.{ .float = .{
+            .ty = res_ty.toIntern(),
+            .storage = switch (res_ty.toIntern()) {
+                .f16_type => .{ .f16 = @floatFromInt(val) },
+                .f32_type => .{ .f32 = @floatFromInt(val) },
+                .f64_type => .{ .f64 = @floatFromInt(val) },
+                .f80_type => .{ .f80 = @floatFromInt(val) },
+                .f128_type, .comptime_float_type => .{ .f128 = @floatFromInt(val) },
+                else => unreachable,
+            },
+        } }),
+        else => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
     }
 }
 
-fn lowerOptional(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
-    const tags = self.file.tree.nodes.items(.tag);
-    const main_tokens = self.file.tree.nodes.items(.main_token);
-
-    if (tags[node] == .identifier) {
-        const token = main_tokens[node];
-        const bytes = self.file.tree.tokenSlice(token);
-        if (std.mem.eql(u8, bytes, "null")) return .null_value;
-    }
-
-    return self.sema.pt.intern(.{ .opt = .{
-        .ty = res_ty.toIntern(),
-        .val = try self.lowerExpr(node, res_ty.optionalChild(self.sema.pt.zcu)),
-    } });
+fn lowerOptional(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
+    return switch (node.get(self.file.zoir.?)) {
+        .null => .null_value,
+        else => try self.lowerExpr(node, res_ty.optionalChild(self.sema.pt.zcu)),
+    };
 }
 
-fn lowerNull(self: LowerZon, node: Ast.Node.Index) !InternPool.Index {
-    const tags = self.file.tree.nodes.items(.tag);
-    const main_tokens = self.file.tree.nodes.items(.main_token);
-
-    if (tags[node] == .identifier) {
-        const token = main_tokens[node];
-        const bytes = self.file.tree.tokenSlice(token);
-        if (std.mem.eql(u8, bytes, "null")) return .null_value;
+fn lowerNull(self: LowerZon, node: Zoir.Node.Index) !InternPool.Index {
+    switch (node.get(self.file.zoir.?)) {
+        .null => return .null_value,
+        else => return self.fail(.{ .node_abs = node.getAstNode(self.file.zoir.?) }, "expected null", .{}),
     }
-
-    return self.fail(.{ .node_abs = node }, "invalid ZON value", .{});
 }
 
-fn lowerArray(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+fn lowerArray(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
     const gpa = self.sema.gpa;
 
     const array_info = res_ty.arrayInfo(self.sema.pt.zcu);
-    var buf: [2]NodeIndex = undefined;
-    const elem_nodes = try self.elements(res_ty, &buf, node);
+    const nodes: Zoir.Node.Index.Range = switch (node.get(self.file.zoir.?)) {
+        .array_literal => |nodes| nodes,
+        .empty_literal => .{ .start = node, .len = 0 },
+        else => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
+    };
 
-    if (elem_nodes.len != array_info.len) {
-        return self.fail(.{ .node_abs = node }, "expected type '{}'", .{res_ty.fmt(self.sema.pt)});
+    if (nodes.len != array_info.len) {
+        return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        );
     }
 
-    const elems = try gpa.alloc(InternPool.Index, elem_nodes.len + @intFromBool(array_info.sentinel != null));
+    const elems = try gpa.alloc(
+        InternPool.Index,
+        nodes.len + @intFromBool(array_info.sentinel != null),
+    );
     defer gpa.free(elems);
 
-    for (elem_nodes, 0..) |elem_node, i| {
-        elems[i] = try self.lowerExpr(elem_node, array_info.elem_type);
+    for (0..nodes.len) |i| {
+        elems[i] = try self.lowerExpr(nodes.at(@intCast(i)), array_info.elem_type);
     }
 
     if (array_info.sentinel) |sentinel| {
@@ -620,76 +547,108 @@ fn lowerArray(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.In
     } });
 }
 
-fn lowerEnum(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
-    const main_tokens = self.file.tree.nodes.items(.main_token);
-    const tags = self.file.tree.nodes.items(.tag);
+fn lowerEnum(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
     const ip = &self.sema.pt.zcu.intern_pool;
+    switch (node.get(self.file.zoir.?)) {
+        .enum_literal => |field_name| {
+            const field_name_interned = try ip.getOrPutString(
+                self.sema.gpa,
+                self.sema.pt.tid,
+                field_name.get(self.file.zoir.?),
+                .no_embedded_nulls,
+            );
+            const field_index = res_ty.enumFieldIndex(field_name_interned, self.sema.pt.zcu) orelse {
+                return self.fail(
+                    .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                    "enum {} has no member named '{}'",
+                    .{
+                        res_ty.fmt(self.sema.pt),
+                        std.zig.fmtId(field_name.get(self.file.zoir.?)),
+                    },
+                );
+            };
 
-    if (tags[node] != .enum_literal) {
-        return self.fail(.{ .node_abs = node }, "expected type '{}'", .{res_ty.fmt(self.sema.pt)});
+            const value = try self.sema.pt.enumValueFieldIndex(res_ty, field_index);
+
+            return value.toIntern();
+        },
+        else => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
     }
-
-    const field_name = try self.identAsNullTerminatedString(main_tokens[node]);
-    const field_index = res_ty.enumFieldIndex(field_name, self.sema.pt.zcu) orelse {
-        return self.fail(.{ .node_abs = node }, "enum {} has no member named '{}'", .{
-            res_ty.fmt(self.sema.pt),
-            field_name.fmt(ip),
-        });
-    };
-
-    const value = try self.sema.pt.enumValueFieldIndex(res_ty, field_index);
-
-    return value.toIntern();
 }
 
-fn lowerEnumLiteral(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
-    const main_tokens = self.file.tree.nodes.items(.main_token);
-    const tags = self.file.tree.nodes.items(.tag);
+fn lowerEnumLiteral(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
     const ip = &self.sema.pt.zcu.intern_pool;
     const gpa = self.sema.gpa;
-
-    if (tags[node] != .enum_literal) {
-        return self.fail(.{ .node_abs = node }, "expected type '{}'", .{res_ty.fmt(self.sema.pt)});
+    switch (node.get(self.file.zoir.?)) {
+        .enum_literal => |field_name| {
+            const field_name_interned = try ip.getOrPutString(
+                self.sema.gpa,
+                self.sema.pt.tid,
+                field_name.get(self.file.zoir.?),
+                .no_embedded_nulls,
+            );
+            return ip.get(gpa, self.sema.pt.tid, .{ .enum_literal = field_name_interned });
+        },
+        else => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
     }
-
-    return ip.get(gpa, self.sema.pt.tid, .{
-        .enum_literal = try self.identAsNullTerminatedString(main_tokens[node]),
-    });
 }
 
-fn lowerStructOrTuple(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+fn lowerStructOrTuple(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
     const ip = &self.sema.pt.zcu.intern_pool;
     return switch (ip.indexToKey(res_ty.toIntern())) {
         .tuple_type => self.lowerTuple(node, res_ty),
         .struct_type => self.lowerStruct(node, res_ty),
-        else => self.fail(.{ .node_abs = node }, "expected type '{}'", .{res_ty.fmt(self.sema.pt)}),
+        else => unreachable,
     };
 }
 
-fn lowerTuple(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+fn lowerTuple(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
     const ip = &self.sema.pt.zcu.intern_pool;
     const gpa = self.sema.gpa;
 
     const tuple_info = ip.indexToKey(res_ty.toIntern()).tuple_type;
 
-    var buf: [2]Ast.Node.Index = undefined;
-    const elem_nodes = try self.elements(res_ty, &buf, node);
+    const elem_nodes: Zoir.Node.Index.Range = switch (node.get(self.file.zoir.?)) {
+        .array_literal => |nodes| nodes,
+        .empty_literal => .{ .start = node, .len = 0 },
+        else => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
+    };
 
     const field_types = tuple_info.types.get(ip);
     if (elem_nodes.len < field_types.len) {
-        return self.fail(.{ .node_abs = node }, "missing tuple field with index {}", .{elem_nodes.len});
+        return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "missing tuple field with index {}",
+            .{elem_nodes.len},
+        );
     } else if (elem_nodes.len > field_types.len) {
-        return self.fail(.{ .node_abs = node }, "index {} outside tuple of length {}", .{
-            field_types.len,
-            elem_nodes[field_types.len],
-        });
+        return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "index {} outside tuple of length {}",
+            .{
+                field_types.len,
+                elem_nodes.at(@intCast(field_types.len)),
+            },
+        );
     }
 
     const elems = try gpa.alloc(InternPool.Index, field_types.len);
     defer gpa.free(elems);
 
-    for (elems, elem_nodes, field_types) |*elem, elem_node, field_type| {
-        elem.* = try self.lowerExpr(elem_node, Type.fromInterned(field_type));
+    for (0..elem_nodes.len) |i| {
+        elems[i] = try self.lowerExpr(elem_nodes.at(@intCast(i)), Type.fromInterned(field_types[i]));
     }
 
     return self.sema.pt.intern(.{ .aggregate = .{
@@ -698,15 +657,22 @@ fn lowerTuple(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.In
     } });
 }
 
-fn lowerStruct(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
+fn lowerStruct(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
     const ip = &self.sema.pt.zcu.intern_pool;
     const gpa = self.sema.gpa;
 
     try res_ty.resolveFully(self.sema.pt);
     const struct_info = self.sema.pt.zcu.typeToStruct(res_ty).?;
 
-    var buf: [2]Ast.Node.Index = undefined;
-    const field_nodes = try self.fields(res_ty, &buf, node);
+    const fields: std.meta.fieldInfo(Zoir.Node, .struct_literal).type = switch (node.get(self.file.zoir.?)) {
+        .struct_literal => |fields| fields,
+        .empty_literal => .{ .names = &.{}, .vals = .{ .start = node, .len = 0 } },
+        else => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
+    };
 
     const field_values = try gpa.alloc(InternPool.Index, struct_info.field_names.len);
     defer gpa.free(field_values);
@@ -716,13 +682,20 @@ fn lowerStruct(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.I
         field_values[i] = if (i < field_defaults.len) field_defaults[i] else .none;
     }
 
-    for (field_nodes) |field_node| {
-        const field_name_token = self.file.tree.firstToken(field_node) - 2;
-        const field_name = try self.identAsNullTerminatedString(field_name_token);
+    for (0..fields.names.len) |i| {
+        const field_name = try ip.getOrPutString(
+            gpa,
+            self.sema.pt.tid,
+            fields.names[i].get(self.file.zoir.?),
+            .no_embedded_nulls,
+        );
+        const field_node = fields.vals.at(@intCast(i));
+        const field_node_ast = field_node.getAstNode(self.file.zoir.?);
+        const field_name_token = self.file.tree.firstToken(field_node_ast) - 2;
 
         const name_index = struct_info.nameIndex(ip, field_name) orelse {
             return self.fail(
-                .{ .node_abs = field_node },
+                .{ .node_abs = field_node.getAstNode(self.file.zoir.?) },
                 "unexpected field '{}'",
                 .{field_name.fmt(ip)},
             );
@@ -736,13 +709,14 @@ fn lowerStruct(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.I
                 .{field_name.fmt(ip)},
             );
         }
+
         field_values[name_index] = try self.lowerExpr(field_node, field_type);
     }
 
     const field_names = struct_info.field_names.get(ip);
     for (field_values, field_names) |*value, name| {
         if (value.* == .none) return self.fail(
-            .{ .node_abs = node },
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
             "missing field {}",
             .{name.fmt(ip)},
         );
@@ -753,8 +727,7 @@ fn lowerStruct(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.I
     } } });
 }
 
-fn lowerPointer(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
-    const tags = self.file.tree.nodes.items(.tag);
+fn lowerPointer(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
     const ip = &self.sema.pt.zcu.intern_pool;
     const gpa = self.sema.gpa;
 
@@ -762,8 +735,8 @@ fn lowerPointer(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.
 
     if (ptr_info.flags.size != .Slice) {
         return self.fail(
-            .{ .node_abs = node },
-            "ZON import cannot be coerced to non slice pointer",
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "non slice pointers are not available in ZON",
             .{},
         );
     }
@@ -772,20 +745,51 @@ fn lowerPointer(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.
     const string_alignment = ptr_info.flags.alignment == .none or ptr_info.flags.alignment == .@"1";
     const string_sentinel = ptr_info.sentinel == .none or ptr_info.sentinel == .zero_u8;
     if (string_alignment and ptr_info.child == .u8_type and string_sentinel) {
-        if (tags[node] == .string_literal or tags[node] == .multiline_string_literal) {
-            return self.lowerStringLiteral(node, res_ty);
+        switch (node.get(self.file.zoir.?)) {
+            .string_literal => |val| {
+                const string = try ip.getOrPutString(gpa, self.sema.pt.tid, val, .maybe_embedded_nulls);
+                const array_ty = try self.sema.pt.intern(.{ .array_type = .{
+                    .len = val.len,
+                    .sentinel = .zero_u8,
+                    .child = .u8_type,
+                } });
+                const array_val = try self.sema.pt.intern(.{ .aggregate = .{
+                    .ty = array_ty,
+                    .storage = .{ .bytes = string },
+                } });
+                return self.sema.pt.intern(.{ .slice = .{
+                    .ty = res_ty.toIntern(),
+                    .ptr = try self.sema.pt.intern(.{ .ptr = .{
+                        .ty = .manyptr_const_u8_sentinel_0_type,
+                        .base_addr = .{ .uav = .{
+                            .orig_ty = .slice_const_u8_sentinel_0_type,
+                            .val = array_val,
+                        } },
+                        .byte_offset = 0,
+                    } }),
+                    .len = (try self.sema.pt.intValue(Type.usize, val.len)).toIntern(),
+                } });
+            },
+            else => {},
         }
     }
 
     // Slice literals
-    var buf: [2]NodeIndex = undefined;
-    const elem_nodes = try self.elements(res_ty, &buf, node);
+    const elem_nodes: Zoir.Node.Index.Range = switch (node.get(self.file.zoir.?)) {
+        .array_literal => |nodes| nodes,
+        .empty_literal => .{ .start = node, .len = 0 },
+        else => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
+    };
 
     const elems = try gpa.alloc(InternPool.Index, elem_nodes.len + @intFromBool(ptr_info.sentinel != .none));
     defer gpa.free(elems);
 
-    for (elem_nodes, 0..) |elem_node, i| {
-        elems[i] = try self.lowerExpr(elem_node, Type.fromInterned(ptr_info.child));
+    for (0..elem_nodes.len) |i| {
+        elems[i] = try self.lowerExpr(elem_nodes.at(@intCast(i)), Type.fromInterned(ptr_info.child));
     }
 
     if (ptr_info.sentinel != .none) {
@@ -836,90 +840,59 @@ fn lowerPointer(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.
     } });
 }
 
-fn lowerStringLiteral(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
-    const gpa = self.sema.gpa;
+fn lowerUnion(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
     const ip = &self.sema.pt.zcu.intern_pool;
-    const main_tokens = self.file.tree.nodes.items(.main_token);
-    const tags = self.file.tree.nodes.items(.tag);
-    const data = self.file.tree.nodes.items(.data);
-
-    const token = main_tokens[node];
-    const raw_string = self.file.tree.tokenSlice(token);
-
-    var bytes = std.ArrayListUnmanaged(u8){};
-    defer bytes.deinit(gpa);
-    switch (tags[node]) {
-        .string_literal => switch (try std.zig.string_literal.parseWrite(bytes.writer(gpa), raw_string)) {
-            .success => {},
-            .failure => |err| {
-                const offset = self.file.tree.tokens.items(.start)[token];
-                return self.fail(
-                    .{ .byte_abs = offset + @as(u32, @intCast(err.offset())) },
-                    "{}",
-                    .{err.fmtWithSource(raw_string)},
-                );
-            },
-        },
-        .multiline_string_literal => {
-            var parser = std.zig.string_literal.multilineParser(bytes.writer(gpa));
-            var tok_i = data[node].lhs;
-            while (tok_i <= data[node].rhs) : (tok_i += 1) {
-                try parser.line(self.file.tree.tokenSlice(tok_i));
-            }
-        },
-        else => unreachable,
-    }
-
-    const string = try ip.getOrPutString(gpa, self.sema.pt.tid, bytes.items, .maybe_embedded_nulls);
-    const array_ty = try self.sema.pt.intern(.{ .array_type = .{
-        .len = bytes.items.len,
-        .sentinel = .zero_u8,
-        .child = .u8_type,
-    } });
-    const array_val = try self.sema.pt.intern(.{ .aggregate = .{
-        .ty = array_ty,
-        .storage = .{ .bytes = string },
-    } });
-    return self.sema.pt.intern(.{ .slice = .{
-        .ty = res_ty.toIntern(),
-        .ptr = try self.sema.pt.intern(.{ .ptr = .{
-            .ty = .manyptr_const_u8_sentinel_0_type,
-            .base_addr = .{ .uav = .{
-                .orig_ty = .slice_const_u8_sentinel_0_type,
-                .val = array_val,
-            } },
-            .byte_offset = 0,
-        } }),
-        .len = (try self.sema.pt.intValue(Type.usize, bytes.items.len)).toIntern(),
-    } });
-}
-
-fn lowerUnion(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.Index {
-    const tags = self.file.tree.nodes.items(.tag);
-    const ip = &self.sema.pt.zcu.intern_pool;
-    const main_tokens = self.file.tree.nodes.items(.main_token);
-
     try res_ty.resolveFully(self.sema.pt);
     const union_info = self.sema.pt.zcu.typeToUnion(res_ty).?;
     const enum_tag_info = union_info.loadTagType(ip);
 
-    const field_name, const maybe_field_node = if (tags[node] == .enum_literal) b: {
-        const field_name = try self.identAsNullTerminatedString(main_tokens[node]);
-        break :b .{ field_name, null };
-    } else b: {
-        var buf: [2]Ast.Node.Index = undefined;
-        const field_nodes = try self.fields(res_ty, &buf, node);
-        if (field_nodes.len > 1) {
-            return self.fail(.{ .node_abs = node }, "expected type '{}'", .{res_ty.fmt(self.sema.pt)});
-        }
-        const field_node = field_nodes[0];
-        const field_name_token = self.file.tree.firstToken(field_node) - 2;
-        const field_name = try self.identAsNullTerminatedString(field_name_token);
-        break :b .{ field_name, field_node };
+    const field_name, const maybe_field_node = switch (node.get(self.file.zoir.?)) {
+        .enum_literal => |name| b: {
+            const field_name = try ip.getOrPutString(
+                self.sema.gpa,
+                self.sema.pt.tid,
+                name.get(self.file.zoir.?),
+                .no_embedded_nulls,
+            );
+            break :b .{ field_name, null };
+        },
+        .struct_literal => b: {
+            const fields: std.meta.fieldInfo(Zoir.Node, .struct_literal).type = switch (node.get(self.file.zoir.?)) {
+                .struct_literal => |fields| fields,
+                else => return self.fail(
+                    .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                    "expected type '{}'",
+                    .{res_ty.fmt(self.sema.pt)},
+                ),
+            };
+            if (fields.names.len != 1) {
+                return self.fail(
+                    .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                    "expected type '{}'",
+                    .{res_ty.fmt(self.sema.pt)},
+                );
+            }
+            const field_name = try ip.getOrPutString(
+                self.sema.gpa,
+                self.sema.pt.tid,
+                fields.names[0].get(self.file.zoir.?),
+                .no_embedded_nulls,
+            );
+            break :b .{ field_name, fields.vals.at(0) };
+        },
+        else => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
     };
 
     const name_index = enum_tag_info.nameIndex(ip, field_name) orelse {
-        return self.fail(.{ .node_abs = node }, "expected type '{}'", .{res_ty.fmt(self.sema.pt)});
+        return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        );
     };
     const tag_int = if (enum_tag_info.values.len == 0) b: {
         // Auto numbered fields
@@ -940,7 +913,12 @@ fn lowerUnion(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.In
         break :b try self.lowerExpr(field_node, field_type);
     } else b: {
         if (field_type.toIntern() != .void_type) {
-            return self.fail(.{ .node_abs = node }, "expected type '{}'", .{field_type.fmt(self.sema.pt)});
+            return self.failWithNote(
+                .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                "expected type '{}'",
+                .{field_type.fmt(self.sema.pt)},
+                "void is not available in ZON, but void union fields can be expressed as enum literals",
+            );
         }
         break :b .void_value;
     };
@@ -949,77 +927,6 @@ fn lowerUnion(self: LowerZon, node: Ast.Node.Index, res_ty: Type) !InternPool.In
         .tag = tag,
         .val = val,
     });
-}
-
-fn fields(
-    self: LowerZon,
-    container: Type,
-    buf: *[2]NodeIndex,
-    node: NodeIndex,
-) ![]const NodeIndex {
-    if (self.file.tree.fullStructInit(buf, node)) |init| {
-        if (init.ast.type_expr != 0) {
-            return self.fail(
-                .{ .node_abs = init.ast.type_expr },
-                "ZON cannot contain type expressions",
-                .{},
-            );
-        }
-        return init.ast.fields;
-    }
-
-    if (self.file.tree.fullArrayInit(buf, node)) |init| {
-        if (init.ast.type_expr != 0) {
-            return self.fail(
-                .{ .node_abs = init.ast.type_expr },
-                "ZON cannot contain type expressions",
-                .{},
-            );
-        }
-        if (init.ast.elements.len != 0) {
-            return self.fail(
-                .{ .node_abs = node },
-                "expected type '{}'",
-                .{container.fmt(self.sema.pt)},
-            );
-        }
-        return init.ast.elements;
-    }
-
-    return self.fail(.{ .node_abs = node }, "expected type '{}'", .{container.fmt(self.sema.pt)});
-}
-
-fn elements(
-    self: LowerZon,
-    container: Type,
-    buf: *[2]NodeIndex,
-    node: NodeIndex,
-) ![]const NodeIndex {
-    if (self.file.tree.fullArrayInit(buf, node)) |init| {
-        if (init.ast.type_expr != 0) {
-            return self.fail(
-                .{ .node_abs = init.ast.type_expr },
-                "ZON cannot contain type expressions",
-                .{},
-            );
-        }
-        return init.ast.elements;
-    }
-
-    if (self.file.tree.fullStructInit(buf, node)) |init| {
-        if (init.ast.type_expr != 0) {
-            return self.fail(
-                .{ .node_abs = init.ast.type_expr },
-                "ZON cannot contain type expressions",
-                .{},
-            );
-        }
-        if (init.ast.fields.len == 0) {
-            return init.ast.fields;
-        }
-    }
-
-    return self.fail(.{ .node_abs = node }, "expected type '{}'", .{container.fmt(self.sema.pt)});
 }
 
 fn createErrorWithOptionalNote(
@@ -1048,22 +955,4 @@ fn createErrorWithOptionalNote(
     );
     err_msg.*.notes = notes;
     return err_msg;
-}
-
-fn failWithNumberError(
-    self: LowerZon,
-    token: Ast.TokenIndex,
-    err: NumberLiteralError,
-) (Allocator.Error || error{AnalysisFail}) {
-    const offset = self.file.tree.tokens.items(.start)[token];
-    const src_loc = try self.lazySrcLoc(.{ .byte_abs = offset + @as(u32, @intCast(err.offset())) });
-    const token_bytes = self.file.tree.tokenSlice(token);
-    const err_msg = try self.createErrorWithOptionalNote(
-        src_loc,
-        "{}",
-        .{err.fmtWithSource(token_bytes)},
-        err.noteWithSource(token_bytes),
-    );
-    try self.sema.pt.zcu.failed_files.putNoClobber(self.sema.pt.zcu.gpa, self.file, err_msg);
-    return error.AnalysisFail;
 }
