@@ -867,9 +867,13 @@ pub const DynamicBitSetUnmanaged = struct {
 
     /// Set all bits to 1.
     pub fn setAll(self: *Self) void {
-        const masks_len = numMasks(self.bit_length);
-        // TODO doesn't seem like this keeps the last bits zero??
-        @memset(self.masks[0..masks_len], std.math.maxInt(MaskInt));
+        const num_masks = numMasks(self.bit_length);
+        @memset(self.masks[0..num_masks], std.math.maxInt(MaskInt));
+        if (num_masks > 0) {
+            const padding_bits = num_masks * @bitSizeOf(MaskInt) - self.bit_length;
+            const last_item_mask = (~@as(MaskInt, 0)) >> @as(ShiftInt, @intCast(padding_bits));
+            self.masks[num_masks - 1] = last_item_mask;
+        }
     }
 
     /// Flips a specific bit in the bit set
