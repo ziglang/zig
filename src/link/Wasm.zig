@@ -2449,6 +2449,7 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const is_obj = comp.config.output_mode == .Obj;
+    const target = &comp.root_mod.resolved_target.result;
 
     const nav_init, const chased_nav_index = switch (ip.indexToKey(nav.status.resolved.val)) {
         .func => return, // global const which is a function alias
@@ -2465,6 +2466,9 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
                 try wasm.function_imports.ensureUnusedCapacity(gpa, 1);
                 const zcu_import = wasm.addZcuImportReserved(ext.owner_nav);
                 wasm.function_imports.putAssumeCapacity(name, .fromZcuImport(zcu_import, wasm));
+                // Ensure there is a corresponding function type table entry.
+                const fn_info = zcu.typeToFunc(.fromInterned(ext.ty)).?;
+                _ = try internFunctionType(wasm, fn_info.cc, fn_info.param_types.get(ip), .fromInterned(fn_info.return_type), target);
             } else {
                 @panic("TODO extern data");
             }
