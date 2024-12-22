@@ -192,7 +192,7 @@ compile_log_text: std.ArrayListUnmanaged(u8) = .empty,
 
 test_functions: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty,
 
-global_assembly: std.AutoArrayHashMapUnmanaged(InternPool.Cau.Index, []u8) = .empty,
+global_assembly: std.AutoArrayHashMapUnmanaged(AnalUnit, []u8) = .empty,
 
 /// Key is the `AnalUnit` *performing* the reference. This representation allows
 /// incremental updates to quickly delete references caused by a specific `AnalUnit`.
@@ -344,9 +344,12 @@ pub const Namespace = struct {
     pub_usingnamespace: std.ArrayListUnmanaged(InternPool.Nav.Index) = .empty,
     /// All `usingnamespace` declarations in this namespace which are *not* marked `pub`.
     priv_usingnamespace: std.ArrayListUnmanaged(InternPool.Nav.Index) = .empty,
-    /// All `comptime` and `test` declarations in this namespace. We store these purely so that
-    /// incremental compilation can re-use the existing `Cau`s when a namespace changes.
-    other_decls: std.ArrayListUnmanaged(InternPool.Cau.Index) = .empty,
+    /// All `comptime` declarations in this namespace. We store these purely so that incremental
+    /// compilation can re-use the existing `ComptimeUnit`s when a namespace changes.
+    comptime_decls: std.ArrayListUnmanaged(InternPool.ComptimeUnit.Id) = .empty,
+    /// All `test` declarations in this namespace. We store these purely so that incremental
+    /// compilation can re-use the existing `Nav`s when a namespace changes.
+    test_decls: std.ArrayListUnmanaged(InternPool.Nav.Index) = .empty,
 
     pub const Index = InternPool.NamespaceIndex;
     pub const OptionalIndex = InternPool.OptionalNamespaceIndex;
@@ -2436,11 +2439,9 @@ pub fn markPoDependeeUpToDate(zcu: *Zcu, dependee: InternPool.Dependee) !void {
         // If this is a Decl, we must recursively mark dependencies on its tyval
         // as no longer PO.
         switch (depender.unwrap()) {
-            .cau => |cau| switch (zcu.intern_pool.getCau(cau).owner.unwrap()) {
-                .nav => |nav| try zcu.markPoDependeeUpToDate(.{ .nav_val = nav }),
-                .type => |ty| try zcu.markPoDependeeUpToDate(.{ .interned = ty }),
-                .none => {},
-            },
+            .@"comptime" => {},
+            .nav_val => |nav| try zcu.markPoDependeeUpToDate(.{ .nav_val = nav }),
+            .type => |ty| try zcu.markPoDependeeUpToDate(.{ .interned = ty }),
             .func => |func| try zcu.markPoDependeeUpToDate(.{ .interned = func }),
         }
     }
@@ -2451,11 +2452,9 @@ pub fn markPoDependeeUpToDate(zcu: *Zcu, dependee: InternPool.Dependee) !void {
 fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: AnalUnit) !void {
     const ip = &zcu.intern_pool;
     const dependee: InternPool.Dependee = switch (maybe_outdated.unwrap()) {
-        .cau => |cau| switch (ip.getCau(cau).owner.unwrap()) {
-            .nav => |nav| .{ .nav_val = nav }, // TODO: also `nav_ref` deps when introduced
-            .type => |ty| .{ .interned = ty },
-            .none => return, // analysis of this `Cau` can't outdate any dependencies
-        },
+        .@"comptime" => return, // analysis of a comptime decl can't outdate any dependencies
+        .nav_val => |nav| .{ .nav_val = nav }, // TODO: also `nav_ref` deps when introduced
+        .type => |ty| .{ .interned = ty },
         .func => |func_index| .{ .interned = func_index }, // IES
     };
     log.debug("potentially outdated dependee: {}", .{zcu.fmtDependee(dependee)});
@@ -2512,14 +2511,14 @@ pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
     }
 
     // There is no single AnalUnit which is ready for re-analysis. Instead, we must assume that some
-    // Cau with PO dependencies is outdated -- e.g. in the above example we arbitrarily pick one of
-    // A or B. We should select a Cau, since a Cau is definitely responsible for the loop in the
-    // dependency graph (since IES dependencies can't have loops). We should also, of course, not
-    // select a Cau owned by a `comptime` declaration, since you can't depend on those!
+    // AnalUnit with PO dependencies is outdated -- e.g. in the above example we arbitrarily pick one of
+    // A or B. We should definitely not select a function, since a function can't be responsible for the
+    // loop (IES dependencies can't have loops). We should also, of course, not select a `comptime`
+    // declaration, since you can't depend on those!
 
-    // The choice of this Cau could have a big impact on how much total analysis we perform, since
+    // The choice of this unit could have a big impact on how much total analysis we perform, since
     // if analysis concludes any dependencies on its result are up-to-date, then other PO AnalUnit
-    // may be resolved as up-to-date. To hopefully avoid doing too much work, let's find a Decl
+    // may be resolved as up-to-date. To hopefully avoid doing too much work, let's find a unit
     // which the most things depend on - the idea is that this will resolve a lot of loops (but this
     // is only a heuristic).
 
@@ -2530,33 +2529,28 @@ pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
 
     const ip = &zcu.intern_pool;
 
-    var chosen_cau: ?InternPool.Cau.Index = null;
-    var chosen_cau_dependers: u32 = undefined;
+    var chosen_unit: ?AnalUnit = null;
+    var chosen_unit_dependers: u32 = undefined;
 
     inline for (.{ zcu.outdated.keys(), zcu.potentially_outdated.keys() }) |outdated_units| {
         for (outdated_units) |unit| {
-            const cau = switch (unit.unwrap()) {
-                .cau => |cau| cau,
-                .func => continue, // a `func` definitely can't be causing the loop so it is a bad choice
-            };
-            const cau_owner = ip.getCau(cau).owner;
-
             var n: u32 = 0;
-            var it = ip.dependencyIterator(switch (cau_owner.unwrap()) {
-                .none => continue, // there can be no dependencies on this `Cau` so it is a terrible choice
+            var it = ip.dependencyIterator(switch (unit.unwrap()) {
+                .func => continue, // a `func` definitely can't be causing the loop so it is a bad choice
+                .@"comptime" => continue, // a `comptime` block can't even be depended on so it is a terrible choice
                 .type => |ty| .{ .interned = ty },
-                .nav => |nav| .{ .nav_val = nav },
+                .nav_val => |nav| .{ .nav_val = nav },
             });
             while (it.next()) |_| n += 1;
 
-            if (chosen_cau == null or n > chosen_cau_dependers) {
-                chosen_cau = cau;
-                chosen_cau_dependers = n;
+            if (chosen_unit == null or n > chosen_unit_dependers) {
+                chosen_unit = unit;
+                chosen_unit_dependers = n;
             }
         }
     }
 
-    if (chosen_cau == null) {
+    if (chosen_unit == null) {
         for (zcu.outdated.keys(), zcu.outdated.values()) |o, opod| {
             const func = o.unwrap().func;
             const nav = zcu.funcInfo(func).owner_nav;
@@ -2570,11 +2564,11 @@ pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
     }
 
     log.debug("findOutdatedToAnalyze: heuristic returned '{}' ({d} dependers)", .{
-        zcu.fmtAnalUnit(AnalUnit.wrap(.{ .cau = chosen_cau.? })),
-        chosen_cau_dependers,
+        zcu.fmtAnalUnit(chosen_unit.?),
+        chosen_unit_dependers,
     });
 
-    return AnalUnit.wrap(.{ .cau = chosen_cau.? });
+    return chosen_unit.?;
 }
 
 /// During an incremental update, before semantic analysis, call this to flush all values from
@@ -3019,9 +3013,9 @@ pub fn handleUpdateExports(
     };
 }
 
-pub fn addGlobalAssembly(zcu: *Zcu, cau: InternPool.Cau.Index, source: []const u8) !void {
+pub fn addGlobalAssembly(zcu: *Zcu, unit: AnalUnit, source: []const u8) !void {
     const gpa = zcu.gpa;
-    const gop = try zcu.global_assembly.getOrPut(gpa, cau);
+    const gop = try zcu.global_assembly.getOrPut(gpa, unit);
     if (gop.found_existing) {
         const new_value = try std.fmt.allocPrint(gpa, "{s}\n{s}", .{ gop.value_ptr.*, source });
         gpa.free(gop.value_ptr.*);
@@ -3304,23 +3298,22 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
 
             log.debug("handle type '{}'", .{Type.fromInterned(ty).containerTypeName(ip).fmt(ip)});
 
-            // If this type has a `Cau` for resolution, it's automatically referenced.
-            const resolution_cau: InternPool.Cau.Index.Optional = switch (ip.indexToKey(ty)) {
-                .struct_type => ip.loadStructType(ty).cau.toOptional(),
-                .union_type => ip.loadUnionType(ty).cau.toOptional(),
-                .enum_type => ip.loadEnumType(ty).cau,
-                .opaque_type => .none,
+            // If this type undergoes type resolution, the corresponding `AnalUnit` is automatically referenced.
+            const has_resolution: bool = switch (ip.indexToKey(ty)) {
+                .struct_type, .union_type => true,
+                .enum_type => |k| k != .generated_tag,
+                .opaque_type => false,
                 else => unreachable,
             };
-            if (resolution_cau.unwrap()) |cau| {
+            if (has_resolution) {
                 // this should only be referenced by the type
-                const unit = AnalUnit.wrap(.{ .cau = cau });
+                const unit: AnalUnit = .wrap(.{ .type = ty });
                 assert(!result.contains(unit));
                 try unit_queue.putNoClobber(gpa, unit, referencer);
             }
 
             // If this is a union with a generated tag, its tag type is automatically referenced.
-            // We don't add this reference for non-generated tags, as those will already be referenced via the union's `Cau`, with a better source location.
+            // We don't add this reference for non-generated tags, as those will already be referenced via the union's type resolution, with a better source location.
             if (zcu.typeToUnion(Type.fromInterned(ty))) |union_obj| {
                 const tag_ty = union_obj.enum_tag_ty;
                 if (tag_ty != .none) {
@@ -3335,24 +3328,35 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
             // Queue any decls within this type which would be automatically analyzed.
             // Keep in sync with analysis queueing logic in `Zcu.PerThread.ScanDeclIter.scanDecl`.
             const ns = Type.fromInterned(ty).getNamespace(zcu).unwrap().?;
-            for (zcu.namespacePtr(ns).other_decls.items) |cau| {
-                // These are `comptime` and `test` declarations.
-                // `comptime` decls are always analyzed; `test` declarations are analyzed depending on the test filter.
-                const inst_info = ip.getCau(cau).zir_index.resolveFull(ip) orelse continue;
+            for (zcu.namespacePtr(ns).comptime_decls.items) |cu| {
+                // `comptime` decls are always analyzed.
+                const unit: AnalUnit = .wrap(.{ .@"comptime" = cu });
+                if (!result.contains(unit)) {
+                    log.debug("type '{}': ref comptime %{}", .{
+                        Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
+                        @intFromEnum(ip.getComptimeUnit(cu).zir_index.resolve(ip) orelse continue),
+                    });
+                    try unit_queue.put(gpa, unit, referencer);
+                }
+            }
+            for (zcu.namespacePtr(ns).test_decls.items) |nav_id| {
+                const nav = ip.getNav(nav_id);
+                // `test` declarations are analyzed depending on the test filter.
+                const inst_info = nav.analysis.?.zir_index.resolveFull(ip) orelse continue;
                 const file = zcu.fileByIndex(inst_info.file);
                 // If the file failed AstGen, the TrackedInst refers to the old ZIR.
                 const zir = if (file.status == .success_zir) file.zir else file.prev_zir.?.*;
                 const decl = zir.getDeclaration(inst_info.inst);
+
+                if (!comp.config.is_test or file.mod != zcu.main_mod) continue;
+
                 const want_analysis = switch (decl.kind) {
                     .@"usingnamespace" => unreachable,
                     .@"const", .@"var" => unreachable,
-                    .@"comptime" => true,
-                    .unnamed_test => comp.config.is_test and file.mod == zcu.main_mod,
+                    .@"comptime" => unreachable,
+                    .unnamed_test => true,
                     .@"test", .decltest => a: {
-                        if (!comp.config.is_test) break :a false;
-                        if (file.mod != zcu.main_mod) break :a false;
-                        const nav = ip.getCau(cau).owner.unwrap().nav;
-                        const fqn_slice = ip.getNav(nav).fqn.toSlice(ip);
+                        const fqn_slice = nav.fqn.toSlice(ip);
                         for (comp.test_filters) |test_filter| {
                             if (std.mem.indexOf(u8, fqn_slice, test_filter) != null) break;
                         } else break :a false;
@@ -3360,28 +3364,25 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                     },
                 };
                 if (want_analysis) {
-                    const unit = AnalUnit.wrap(.{ .cau = cau });
-                    if (!result.contains(unit)) {
-                        log.debug("type '{}': ref cau %{}", .{
-                            Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
-                            @intFromEnum(inst_info.inst),
-                        });
-                        try unit_queue.put(gpa, unit, referencer);
-                    }
+                    log.debug("type '{}': ref test %{}", .{
+                        Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
+                        @intFromEnum(inst_info.inst),
+                    });
+                    const unit: AnalUnit = .wrap(.{ .nav_val = nav_id });
+                    try unit_queue.put(gpa, unit, referencer);
                 }
             }
             for (zcu.namespacePtr(ns).pub_decls.keys()) |nav| {
                 // These are named declarations. They are analyzed only if marked `export`.
-                const cau = ip.getNav(nav).analysis_owner.unwrap().?;
-                const inst_info = ip.getCau(cau).zir_index.resolveFull(ip) orelse continue;
+                const inst_info = ip.getNav(nav).analysis.?.zir_index.resolveFull(ip) orelse continue;
                 const file = zcu.fileByIndex(inst_info.file);
                 // If the file failed AstGen, the TrackedInst refers to the old ZIR.
                 const zir = if (file.status == .success_zir) file.zir else file.prev_zir.?.*;
                 const decl = zir.getDeclaration(inst_info.inst);
                 if (decl.linkage == .@"export") {
-                    const unit = AnalUnit.wrap(.{ .cau = cau });
+                    const unit: AnalUnit = .wrap(.{ .nav_val = nav });
                     if (!result.contains(unit)) {
-                        log.debug("type '{}': ref cau %{}", .{
+                        log.debug("type '{}': ref named %{}", .{
                             Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                             @intFromEnum(inst_info.inst),
                         });
@@ -3391,16 +3392,15 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
             }
             for (zcu.namespacePtr(ns).priv_decls.keys()) |nav| {
                 // These are named declarations. They are analyzed only if marked `export`.
-                const cau = ip.getNav(nav).analysis_owner.unwrap().?;
-                const inst_info = ip.getCau(cau).zir_index.resolveFull(ip) orelse continue;
+                const inst_info = ip.getNav(nav).analysis.?.zir_index.resolveFull(ip) orelse continue;
                 const file = zcu.fileByIndex(inst_info.file);
                 // If the file failed AstGen, the TrackedInst refers to the old ZIR.
                 const zir = if (file.status == .success_zir) file.zir else file.prev_zir.?.*;
                 const decl = zir.getDeclaration(inst_info.inst);
                 if (decl.linkage == .@"export") {
-                    const unit = AnalUnit.wrap(.{ .cau = cau });
+                    const unit: AnalUnit = .wrap(.{ .nav_val = nav });
                     if (!result.contains(unit)) {
-                        log.debug("type '{}': ref cau %{}", .{
+                        log.debug("type '{}': ref named %{}", .{
                             Type.fromInterned(ty).containerTypeName(ip).fmt(ip),
                             @intFromEnum(inst_info.inst),
                         });
@@ -3411,13 +3411,11 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
             // Incremental compilation does not support `usingnamespace`.
             // These are only included to keep good reference traces in non-incremental updates.
             for (zcu.namespacePtr(ns).pub_usingnamespace.items) |nav| {
-                const cau = ip.getNav(nav).analysis_owner.unwrap().?;
-                const unit = AnalUnit.wrap(.{ .cau = cau });
+                const unit: AnalUnit = .wrap(.{ .nav_val = nav });
                 if (!result.contains(unit)) try unit_queue.put(gpa, unit, referencer);
             }
             for (zcu.namespacePtr(ns).priv_usingnamespace.items) |nav| {
-                const cau = ip.getNav(nav).analysis_owner.unwrap().?;
-                const unit = AnalUnit.wrap(.{ .cau = cau });
+                const unit: AnalUnit = .wrap(.{ .nav_val = nav });
                 if (!result.contains(unit)) try unit_queue.put(gpa, unit, referencer);
             }
             continue;
@@ -3527,12 +3525,6 @@ pub fn navFileScope(zcu: *Zcu, nav: InternPool.Nav.Index) *File {
     return zcu.fileByIndex(zcu.navFileScopeIndex(nav));
 }
 
-pub fn cauFileScope(zcu: *Zcu, cau: InternPool.Cau.Index) *File {
-    const ip = &zcu.intern_pool;
-    const file_index = ip.getCau(cau).zir_index.resolveFile(ip);
-    return zcu.fileByIndex(file_index);
-}
-
 pub fn fmtAnalUnit(zcu: *Zcu, unit: AnalUnit) std.fmt.Formatter(formatAnalUnit) {
     return .{ .data = .{ .unit = unit, .zcu = zcu } };
 }
@@ -3545,19 +3537,17 @@ fn formatAnalUnit(data: struct { unit: AnalUnit, zcu: *Zcu }, comptime fmt: []co
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
     switch (data.unit.unwrap()) {
-        .cau => |cau_index| {
-            const cau = ip.getCau(cau_index);
-            switch (cau.owner.unwrap()) {
-                .nav => |nav| return writer.print("cau(decl='{}')", .{ip.getNav(nav).fqn.fmt(ip)}),
-                .type => |ty| return writer.print("cau(ty='{}')", .{Type.fromInterned(ty).containerTypeName(ip).fmt(ip)}),
-                .none => if (cau.zir_index.resolveFull(ip)) |resolved| {
-                    const file_path = zcu.fileByIndex(resolved.file).sub_file_path;
-                    return writer.print("cau(inst=('{s}', %{}))", .{ file_path, @intFromEnum(resolved.inst) });
-                } else {
-                    return writer.writeAll("cau(inst=<lost>)");
-                },
+        .@"comptime" => |cu_id| {
+            const cu = ip.getComptimeUnit(cu_id);
+            if (cu.zir_index.resolveFull(ip)) |resolved| {
+                const file_path = zcu.fileByIndex(resolved.file).sub_file_path;
+                return writer.print("comptime(inst=('{s}', %{}))", .{ file_path, @intFromEnum(resolved.inst) });
+            } else {
+                return writer.writeAll("comptime(inst=<list>)");
             }
         },
+        .nav_val => |nav| return writer.print("nav_val('{}')", .{ip.getNav(nav).fqn.fmt(ip)}),
+        .type => |ty| return writer.print("ty('{}')", .{Type.fromInterned(ty).containerTypeName(ip).fmt(ip)}),
         .func => |func| {
             const nav = zcu.funcInfo(func).owner_nav;
             return writer.print("func('{}')", .{ip.getNav(nav).fqn.fmt(ip)});

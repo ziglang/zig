@@ -2870,7 +2870,7 @@ fn zirStructDecl(
     };
     const wip_ty = switch (try ip.getStructType(gpa, pt.tid, struct_init, false)) {
         .existing => |ty| {
-            const new_ty = try pt.ensureTypeUpToDate(ty, false);
+            const new_ty = try pt.ensureTypeUpToDate(ty);
 
             // Make sure we update the namespace if the declaration is re-analyzed, to pick
             // up on e.g. changed comptime decls.
@@ -2900,12 +2900,10 @@ fn zirStructDecl(
     });
     errdefer pt.destroyNamespace(new_namespace_index);
 
-    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip_ty.index);
-
     if (pt.zcu.comp.incremental) {
         try ip.addDependency(
             sema.gpa,
-            AnalUnit.wrap(.{ .cau = new_cau_index }),
+            AnalUnit.wrap(.{ .type = wip_ty.index }),
             .{ .src_hash = tracked_inst },
         );
     }
@@ -2922,7 +2920,7 @@ fn zirStructDecl(
     }
     try sema.declareDependency(.{ .interned = wip_ty.index });
     try sema.addTypeReferenceEntry(src, wip_ty.index);
-    return Air.internedToRef(wip_ty.finish(ip, new_cau_index.toOptional(), new_namespace_index));
+    return Air.internedToRef(wip_ty.finish(ip, new_namespace_index));
 }
 
 fn createTypeName(
@@ -3100,7 +3098,7 @@ fn zirEnumDecl(
     };
     const wip_ty = switch (try ip.getEnumType(gpa, pt.tid, enum_init, false)) {
         .existing => |ty| {
-            const new_ty = try pt.ensureTypeUpToDate(ty, false);
+            const new_ty = try pt.ensureTypeUpToDate(ty);
 
             // Make sure we update the namespace if the declaration is re-analyzed, to pick
             // up on e.g. changed comptime decls.
@@ -3136,16 +3134,14 @@ fn zirEnumDecl(
     });
     errdefer if (!done) pt.destroyNamespace(new_namespace_index);
 
-    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip_ty.index);
-
     try pt.scanNamespace(new_namespace_index, decls);
 
     try sema.declareDependency(.{ .interned = wip_ty.index });
     try sema.addTypeReferenceEntry(src, wip_ty.index);
 
     // We've finished the initial construction of this type, and are about to perform analysis.
-    // Set the Cau and namespace appropriately, and don't destroy anything on failure.
-    wip_ty.prepare(ip, new_cau_index, new_namespace_index);
+    // Set the namespace appropriately, and don't destroy anything on failure.
+    wip_ty.prepare(ip, new_namespace_index);
     done = true;
 
     try Sema.resolveDeclaredEnum(
@@ -3155,7 +3151,6 @@ fn zirEnumDecl(
         tracked_inst,
         new_namespace_index,
         type_name,
-        new_cau_index,
         small,
         body,
         tag_type_ref,
@@ -3245,7 +3240,7 @@ fn zirUnionDecl(
     };
     const wip_ty = switch (try ip.getUnionType(gpa, pt.tid, union_init, false)) {
         .existing => |ty| {
-            const new_ty = try pt.ensureTypeUpToDate(ty, false);
+            const new_ty = try pt.ensureTypeUpToDate(ty);
 
             // Make sure we update the namespace if the declaration is re-analyzed, to pick
             // up on e.g. changed comptime decls.
@@ -3275,12 +3270,10 @@ fn zirUnionDecl(
     });
     errdefer pt.destroyNamespace(new_namespace_index);
 
-    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip_ty.index);
-
     if (pt.zcu.comp.incremental) {
         try zcu.intern_pool.addDependency(
             gpa,
-            AnalUnit.wrap(.{ .cau = new_cau_index }),
+            AnalUnit.wrap(.{ .type = wip_ty.index }),
             .{ .src_hash = tracked_inst },
         );
     }
@@ -3297,7 +3290,7 @@ fn zirUnionDecl(
     }
     try sema.declareDependency(.{ .interned = wip_ty.index });
     try sema.addTypeReferenceEntry(src, wip_ty.index);
-    return Air.internedToRef(wip_ty.finish(ip, new_cau_index.toOptional(), new_namespace_index));
+    return Air.internedToRef(wip_ty.finish(ip, new_namespace_index));
 }
 
 fn zirOpaqueDecl(
@@ -3382,7 +3375,7 @@ fn zirOpaqueDecl(
         try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }
     try sema.addTypeReferenceEntry(src, wip_ty.index);
-    return Air.internedToRef(wip_ty.finish(ip, .none, new_namespace_index));
+    return Air.internedToRef(wip_ty.finish(ip, new_namespace_index));
 }
 
 fn zirErrorSetDecl(
@@ -6547,7 +6540,10 @@ fn zirDisableInstrumentation(sema: *Sema) CompileError!void {
     const ip = &zcu.intern_pool;
     const func = switch (sema.owner.unwrap()) {
         .func => |func| func,
-        .cau => return, // does nothing outside a function
+        .@"comptime",
+        .nav_val,
+        .type,
+        => return, // does nothing outside a function
     };
     ip.funcSetDisableInstrumentation(func);
     sema.allow_memoize = false;
@@ -6868,11 +6864,8 @@ fn lookupInNamespace(
 
         ignore_self: {
             const skip_nav = switch (sema.owner.unwrap()) {
-                .func => break :ignore_self,
-                .cau => |cau| switch (ip.getCau(cau).owner.unwrap()) {
-                    .none, .type => break :ignore_self,
-                    .nav => |nav| nav,
-                },
+                .@"comptime", .type, .func => break :ignore_self,
+                .nav_val => |nav| nav,
             };
             var i: usize = 0;
             while (i < candidates.items.len) {
@@ -7132,7 +7125,7 @@ fn zirCall(
     const call_inst = try sema.analyzeCall(block, func, func_ty, callee_src, call_src, modifier, ensure_result_used, args_info, call_dbg_node, .call);
 
     switch (sema.owner.unwrap()) {
-        .cau => input_is_error = false,
+        .@"comptime", .type, .nav_val => input_is_error = false,
         .func => |owner_func| if (!zcu.intern_pool.funcAnalysisUnordered(owner_func).calls_or_awaits_errorable_fn) {
             // No errorable fn actually called; we have no error return trace
             input_is_error = false;
@@ -7747,11 +7740,9 @@ fn analyzeCall(
         // The call site definitely depends on the function's signature.
         try sema.declareDependency(.{ .src_hash = module_fn.zir_body_inst });
 
-        // This is not a function instance, so the function's `Nav` has a
-        // `Cau` -- we don't need to check `generic_owner`.
+        // This is not a function instance, so the function's `Nav` has analysis
+        // state -- we don't need to check `generic_owner`.
         const fn_nav = ip.getNav(module_fn.owner_nav);
-        const fn_cau_index = fn_nav.analysis_owner.unwrap().?;
-        const fn_cau = ip.getCau(fn_cau_index);
 
         // We effectively want a child Sema here, but can't literally do that, because we need AIR
         // to be shared. InlineCallSema is a wrapper which handles this for us. While `ics` is in
@@ -7759,7 +7750,7 @@ fn analyzeCall(
         // whenever performing an operation where the difference matters.
         var ics = InlineCallSema.init(
             sema,
-            zcu.cauFileScope(fn_cau_index).zir,
+            zcu.navFileScope(module_fn.owner_nav).zir,
             module_fn_index,
             block.error_return_trace_index,
         );
@@ -7769,7 +7760,7 @@ fn analyzeCall(
             .parent = null,
             .sema = sema,
             // The function body exists in the same namespace as the corresponding function declaration.
-            .namespace = fn_cau.namespace,
+            .namespace = fn_nav.analysis.?.namespace,
             .instructions = .{},
             .label = null,
             .inlining = &inlining,
@@ -7780,7 +7771,7 @@ fn analyzeCall(
             .runtime_cond = block.runtime_cond,
             .runtime_loop = block.runtime_loop,
             .runtime_index = block.runtime_index,
-            .src_base_inst = fn_cau.zir_index,
+            .src_base_inst = fn_nav.analysis.?.zir_index,
             .type_name_ctx = fn_nav.fqn,
         };
 
@@ -7795,7 +7786,7 @@ fn analyzeCall(
         // mutate comptime state.
         // TODO: comptime call memoization is currently not supported under incremental compilation
         // since dependencies are not marked on callers. If we want to keep this around (we should
-        // check that it's worthwhile first!), each memoized call needs a `Cau`.
+        // check that it's worthwhile first!), each memoized call needs an `AnalUnit`.
         var should_memoize = !zcu.comp.incremental;
 
         // If it's a comptime function call, we need to memoize it as long as no external
@@ -7904,7 +7895,7 @@ fn analyzeCall(
 
         // Since we're doing an inline call, we depend on the source code of the whole
         // function declaration.
-        try sema.declareDependency(.{ .src_hash = fn_cau.zir_index });
+        try sema.declareDependency(.{ .src_hash = fn_nav.analysis.?.zir_index });
 
         new_fn_info.return_type = sema.fn_ret_ty.toIntern();
         if (!is_comptime_call and !block.is_typeof) {
@@ -8016,7 +8007,7 @@ fn analyzeCall(
         if (call_dbg_node) |some| try sema.zirDbgStmt(block, some);
 
         switch (sema.owner.unwrap()) {
-            .cau => {},
+            .@"comptime", .nav_val, .type => {},
             .func => |owner_func| if (Type.fromInterned(func_ty_info.return_type).isError(zcu)) {
                 ip.funcSetCallsOrAwaitsErrorableFn(owner_func);
             },
@@ -8268,10 +8259,9 @@ fn instantiateGenericCall(
     // The actual monomorphization happens via adding `func_instance` to
     // `InternPool`.
 
-    // Since we are looking at the generic owner here, it has a `Cau`.
+    // Since we are looking at the generic owner here, it has analysis state.
     const fn_nav = ip.getNav(generic_owner_func.owner_nav);
-    const fn_cau = ip.getCau(fn_nav.analysis_owner.unwrap().?);
-    const fn_zir = zcu.namespacePtr(fn_cau.namespace).fileScope(zcu).zir;
+    const fn_zir = zcu.navFileScope(generic_owner_func.owner_nav).zir;
     const fn_info = fn_zir.getFnInfo(generic_owner_func.zir_body_inst.resolve(ip) orelse return error.AnalysisFail);
 
     const comptime_args = try sema.arena.alloc(InternPool.Index, args_info.count());
@@ -8312,11 +8302,11 @@ fn instantiateGenericCall(
     var child_block: Block = .{
         .parent = null,
         .sema = &child_sema,
-        .namespace = fn_cau.namespace,
+        .namespace = fn_nav.analysis.?.namespace,
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
-        .src_base_inst = fn_cau.zir_index,
+        .src_base_inst = fn_nav.analysis.?.zir_index,
         .type_name_ctx = fn_nav.fqn,
     };
     defer child_block.instructions.deinit(gpa);
@@ -8481,7 +8471,7 @@ fn instantiateGenericCall(
     if (call_dbg_node) |some| try sema.zirDbgStmt(block, some);
 
     switch (sema.owner.unwrap()) {
-        .cau => {},
+        .@"comptime", .nav_val, .type => {},
         .func => |owner_func| if (Type.fromInterned(func_ty_info.return_type).isError(zcu)) {
             ip.funcSetCallsOrAwaitsErrorableFn(owner_func);
         },
@@ -9510,14 +9500,11 @@ fn zirFunc(
     // the callconv based on whether it is exported. Otherwise, the callconv defaults
     // to `.auto`.
     const cc: std.builtin.CallingConvention = if (has_body) cc: {
-        const func_decl_cau = if (sema.generic_owner != .none) cau: {
-            const generic_owner_fn = zcu.funcInfo(sema.generic_owner);
-            // The generic owner definitely has a `Cau` for the corresponding function declaration.
-            const generic_owner_nav = ip.getNav(generic_owner_fn.owner_nav);
-            break :cau generic_owner_nav.analysis_owner.unwrap().?;
-        } else sema.owner.unwrap().cau;
+        const func_decl_nav = if (sema.generic_owner != .none) nav: {
+            break :nav zcu.funcInfo(sema.generic_owner).owner_nav;
+        } else sema.owner.unwrap().nav_val;
         const fn_is_exported = exported: {
-            const decl_inst = ip.getCau(func_decl_cau).zir_index.resolve(ip) orelse return error.AnalysisFail;
+            const decl_inst = ip.getNav(func_decl_nav).analysis.?.zir_index.resolve(ip) orelse return error.AnalysisFail;
             const zir_decl = sema.code.getDeclaration(decl_inst);
             break :exported zir_decl.linkage == .@"export";
         };
@@ -9991,7 +9978,7 @@ fn funcCommon(
         if (!ret_poison)
             try sema.validateErrorUnionPayloadType(block, bare_return_type, ret_ty_src);
         const func_index = try ip.getFuncDeclIes(gpa, pt.tid, .{
-            .owner_nav = sema.getOwnerCauNav(),
+            .owner_nav = sema.owner.unwrap().nav_val,
 
             .param_types = param_types,
             .noalias_bits = noalias_bits,
@@ -10040,7 +10027,7 @@ fn funcCommon(
 
     if (has_body) {
         const func_index = try ip.getFuncDecl(gpa, pt.tid, .{
-            .owner_nav = sema.getOwnerCauNav(),
+            .owner_nav = sema.owner.unwrap().nav_val,
             .ty = func_ty,
             .cc = cc,
             .is_noinline = is_noinline,
@@ -17664,7 +17651,7 @@ fn zirAsm(
         if (is_volatile) {
             return sema.fail(block, src, "volatile keyword is redundant on module-level assembly", .{});
         }
-        try zcu.addGlobalAssembly(sema.owner.unwrap().cau, asm_source);
+        try zcu.addGlobalAssembly(sema.owner, asm_source);
         return .void_value;
     }
 
@@ -18155,7 +18142,7 @@ fn zirThis(
     _ = extended;
     const pt = sema.pt;
     const namespace = pt.zcu.namespacePtr(block.namespace);
-    const new_ty = try pt.ensureTypeUpToDate(namespace.owner_type, false);
+    const new_ty = try pt.ensureTypeUpToDate(namespace.owner_type);
     switch (pt.zcu.intern_pool.indexToKey(new_ty)) {
         .struct_type, .union_type, .enum_type => try sema.declareDependency(.{ .interned = new_ty }),
         .opaque_type => {},
@@ -19321,10 +19308,8 @@ fn typeInfoNamespaceDecls(
     }
 
     for (namespace.pub_usingnamespace.items) |nav| {
-        if (ip.getNav(nav).analysis_owner.unwrap()) |cau| {
-            if (zcu.analysis_in_progress.contains(AnalUnit.wrap(.{ .cau = cau }))) {
-                continue;
-            }
+        if (zcu.analysis_in_progress.contains(.wrap(.{ .nav_val = nav }))) {
+            continue;
         }
         try sema.ensureNavResolved(src, nav);
         const namespace_ty = Type.fromInterned(ip.getNav(nav).status.resolved.val);
@@ -21187,14 +21172,13 @@ fn structInitAnon(
                 .file_scope = block.getFileScopeIndex(zcu),
                 .generation = zcu.generation,
             });
-            const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip.index);
             try zcu.comp.queueJob(.{ .resolve_type_fully = wip.index });
             codegen_type: {
                 if (zcu.comp.config.use_llvm) break :codegen_type;
                 if (block.ownerModule().strip) break :codegen_type;
                 try zcu.comp.queueJob(.{ .codegen_type = wip.index });
             }
-            break :ty wip.finish(ip, new_cau_index.toOptional(), new_namespace_index);
+            break :ty wip.finish(ip, new_namespace_index);
         },
         .existing => |ty| ty,
     };
@@ -21618,7 +21602,7 @@ fn getErrorReturnTrace(sema: *Sema, block: *Block) CompileError!Air.Inst.Ref {
         .func => |func| if (ip.funcAnalysisUnordered(func).calls_or_awaits_errorable_fn and block.ownerModule().error_tracing) {
             return block.addTy(.err_return_trace, opt_ptr_stack_trace_ty);
         },
-        .cau => {},
+        .@"comptime", .nav_val, .type => {},
     }
     return Air.internedToRef(try pt.intern(.{ .opt = .{
         .ty = opt_ptr_stack_trace_ty.toIntern(),
@@ -22296,7 +22280,7 @@ fn zirReify(
             });
 
             try sema.addTypeReferenceEntry(src, wip_ty.index);
-            return Air.internedToRef(wip_ty.finish(ip, .none, new_namespace_index));
+            return Air.internedToRef(wip_ty.finish(ip, new_namespace_index));
         },
         .@"union" => {
             const struct_type = ip.loadStructType(ip.typeOf(union_val.val));
@@ -22505,11 +22489,9 @@ fn reifyEnum(
         .generation = zcu.generation,
     });
 
-    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip_ty.index);
-
     try sema.declareDependency(.{ .interned = wip_ty.index });
     try sema.addTypeReferenceEntry(src, wip_ty.index);
-    wip_ty.prepare(ip, new_cau_index, new_namespace_index);
+    wip_ty.prepare(ip, new_namespace_index);
     wip_ty.setTagTy(ip, tag_ty.toIntern());
     done = true;
 
@@ -22811,8 +22793,6 @@ fn reifyUnion(
         .generation = zcu.generation,
     });
 
-    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip_ty.index);
-
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     codegen_type: {
         if (zcu.comp.config.use_llvm) break :codegen_type;
@@ -22822,7 +22802,7 @@ fn reifyUnion(
     }
     try sema.declareDependency(.{ .interned = wip_ty.index });
     try sema.addTypeReferenceEntry(src, wip_ty.index);
-    return Air.internedToRef(wip_ty.finish(ip, new_cau_index.toOptional(), new_namespace_index));
+    return Air.internedToRef(wip_ty.finish(ip, new_namespace_index));
 }
 
 fn reifyTuple(
@@ -23170,8 +23150,6 @@ fn reifyStruct(
         .generation = zcu.generation,
     });
 
-    const new_cau_index = try ip.createTypeCau(gpa, pt.tid, tracked_inst, new_namespace_index, wip_ty.index);
-
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     codegen_type: {
         if (zcu.comp.config.use_llvm) break :codegen_type;
@@ -23181,7 +23159,7 @@ fn reifyStruct(
     }
     try sema.declareDependency(.{ .interned = wip_ty.index });
     try sema.addTypeReferenceEntry(src, wip_ty.index);
-    return Air.internedToRef(wip_ty.finish(ip, new_cau_index.toOptional(), new_namespace_index));
+    return Air.internedToRef(wip_ty.finish(ip, new_namespace_index));
 }
 
 fn resolveVaListRef(sema: *Sema, block: *Block, src: LazySrcLoc, zir_ref: Zir.Inst.Ref) CompileError!Air.Inst.Ref {
@@ -26713,15 +26691,13 @@ fn zirFuncFancy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         break :blk try sema.analyzeValueAsCallconv(block, cc_src, cc_val);
     } else cc: {
         if (has_body) {
-            const decl_inst = if (sema.generic_owner != .none) decl_inst: {
+            const func_decl_nav = if (sema.generic_owner != .none) nav: {
                 // Generic instance -- use the original function declaration to
                 // look for the `export` syntax.
-                const nav = zcu.intern_pool.getNav(zcu.funcInfo(sema.generic_owner).owner_nav);
-                const cau = zcu.intern_pool.getCau(nav.analysis_owner.unwrap().?);
-                break :decl_inst cau.zir_index;
-            } else sema.getOwnerCauDeclInst(); // not an instantiation so we're analyzing a function declaration Cau
-
-            const zir_decl = sema.code.getDeclaration(decl_inst.resolve(&zcu.intern_pool) orelse return error.AnalysisFail);
+                break :nav zcu.funcInfo(sema.generic_owner).owner_nav;
+            } else sema.owner.unwrap().nav_val;
+            const func_decl_inst = ip.getNav(func_decl_nav).analysis.?.zir_index.resolve(&zcu.intern_pool) orelse return error.AnalysisFail;
+            const zir_decl = sema.code.getDeclaration(func_decl_inst);
             if (zir_decl.linkage == .@"export") {
                 break :cc target.cCallingConvention() orelse {
                     // This target has no default C calling convention. We sometimes trigger a similar
@@ -27108,8 +27084,16 @@ fn zirBuiltinExtern(
         // `builtin_extern` doesn't provide enough information, and isn't currently tracked.
         // So, for now, just use our containing `declaration`.
         .zir_index = switch (sema.owner.unwrap()) {
-            .cau => sema.getOwnerCauDeclInst(),
-            .func => sema.getOwnerFuncDeclInst(),
+            .@"comptime" => |cu| ip.getComptimeUnit(cu).zir_index,
+            .type => |owner_ty| Type.fromInterned(owner_ty).typeDeclInst(zcu).?,
+            .nav_val => |nav| ip.getNav(nav).analysis.?.zir_index,
+            .func => |func| zir_index: {
+                const func_info = zcu.funcInfo(func);
+                const owner_func_info = if (func_info.generic_owner != .none) owner: {
+                    break :owner zcu.funcInfo(func_info.generic_owner);
+                } else func_info;
+                break :zir_index ip.getNav(owner_func_info.owner_nav).analysis.?.zir_index;
+            },
         },
         .owner_nav = undefined, // ignored by `getExtern`
     });
@@ -32670,28 +32654,25 @@ pub fn ensureNavResolved(sema: *Sema, src: LazySrcLoc, nav_index: InternPool.Nav
     const ip = &zcu.intern_pool;
 
     const nav = ip.getNav(nav_index);
-
-    const cau_index = nav.analysis_owner.unwrap() orelse {
+    if (nav.analysis == null) {
         assert(nav.status == .resolved);
         return;
-    };
+    }
 
-    // Note that even if `nav.status == .resolved`, we must still trigger `ensureCauAnalyzed`
+    // Note that even if `nav.status == .resolved`, we must still trigger `ensureNavValUpToDate`
     // to make sure the value is up-to-date on incremental updates.
 
-    assert(ip.getCau(cau_index).owner.unwrap().nav == nav_index);
-
-    const anal_unit = AnalUnit.wrap(.{ .cau = cau_index });
+    const anal_unit: AnalUnit = .wrap(.{ .nav_val = nav_index });
     try sema.addReferenceEntry(src, anal_unit);
 
     if (zcu.analysis_in_progress.contains(anal_unit)) {
         return sema.failWithOwnedErrorMsg(null, try sema.errMsg(.{
-            .base_node_inst = ip.getCau(cau_index).zir_index,
+            .base_node_inst = nav.analysis.?.zir_index,
             .offset = LazySrcLoc.Offset.nodeOffset(0),
         }, "dependency loop detected", .{}));
     }
 
-    return pt.ensureCauAnalyzed(cau_index);
+    return pt.ensureNavValUpToDate(nav_index);
 }
 
 fn optRefValue(sema: *Sema, opt_val: ?Value) !Value {
@@ -35641,7 +35622,7 @@ pub fn resolveStructAlignment(
     const ip = &zcu.intern_pool;
     const target = zcu.getTarget();
 
-    assert(sema.owner.unwrap().cau == struct_type.cau);
+    assert(sema.owner.unwrap().type == ty);
 
     assert(struct_type.layout != .@"packed");
     assert(struct_type.flagsUnordered(ip).alignment == .none);
@@ -35684,7 +35665,7 @@ pub fn resolveStructLayout(sema: *Sema, ty: Type) SemaError!void {
     const ip = &zcu.intern_pool;
     const struct_type = zcu.typeToStruct(ty) orelse return;
 
-    assert(sema.owner.unwrap().cau == struct_type.cau);
+    assert(sema.owner.unwrap().type == ty.toIntern());
 
     if (struct_type.haveLayout(ip))
         return;
@@ -35831,15 +35812,13 @@ fn backingIntType(
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
 
-    const cau_index = struct_type.cau;
-
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
     var block: Block = .{
         .parent = null,
         .sema = sema,
-        .namespace = ip.getCau(cau_index).namespace,
+        .namespace = struct_type.namespace,
         .instructions = .{},
         .inlining = null,
         .is_comptime = true,
@@ -35971,7 +35950,7 @@ pub fn resolveUnionAlignment(
     const ip = &zcu.intern_pool;
     const target = zcu.getTarget();
 
-    assert(sema.owner.unwrap().cau == union_type.cau);
+    assert(sema.owner.unwrap().type == ty.toIntern());
 
     assert(!union_type.haveLayout(ip));
 
@@ -36011,7 +35990,7 @@ pub fn resolveUnionLayout(sema: *Sema, ty: Type) SemaError!void {
     // Load again, since the tag type might have changed due to resolution.
     const union_type = ip.loadUnionType(ty.ip_index);
 
-    assert(sema.owner.unwrap().cau == union_type.cau);
+    assert(sema.owner.unwrap().type == ty.toIntern());
 
     const old_flags = union_type.flagsUnordered(ip);
     switch (old_flags.status) {
@@ -36126,7 +36105,7 @@ pub fn resolveStructFully(sema: *Sema, ty: Type) SemaError!void {
     const ip = &zcu.intern_pool;
     const struct_type = zcu.typeToStruct(ty).?;
 
-    assert(sema.owner.unwrap().cau == struct_type.cau);
+    assert(sema.owner.unwrap().type == ty.toIntern());
 
     if (struct_type.setFullyResolved(ip)) return;
     errdefer struct_type.clearFullyResolved(ip);
@@ -36149,7 +36128,7 @@ pub fn resolveUnionFully(sema: *Sema, ty: Type) SemaError!void {
     const ip = &zcu.intern_pool;
     const union_obj = zcu.typeToUnion(ty).?;
 
-    assert(sema.owner.unwrap().cau == union_obj.cau);
+    assert(sema.owner.unwrap().type == ty.toIntern());
 
     switch (union_obj.flagsUnordered(ip).status) {
         .none, .have_field_types, .field_types_wip, .layout_wip, .have_layout => {},
@@ -36184,7 +36163,7 @@ pub fn resolveStructFieldTypes(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
-    assert(sema.owner.unwrap().cau == struct_type.cau);
+    assert(sema.owner.unwrap().type == ty);
 
     if (struct_type.haveFieldTypes(ip)) return;
 
@@ -36210,7 +36189,7 @@ pub fn resolveStructFieldInits(sema: *Sema, ty: Type) SemaError!void {
     const ip = &zcu.intern_pool;
     const struct_type = zcu.typeToStruct(ty) orelse return;
 
-    assert(sema.owner.unwrap().cau == struct_type.cau);
+    assert(sema.owner.unwrap().type == ty.toIntern());
 
     // Inits can start as resolved
     if (struct_type.haveFieldInits(ip)) return;
@@ -36239,7 +36218,7 @@ pub fn resolveUnionFieldTypes(sema: *Sema, ty: Type, union_type: InternPool.Load
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
-    assert(sema.owner.unwrap().cau == union_type.cau);
+    assert(sema.owner.unwrap().type == ty.toIntern());
 
     switch (union_type.flagsUnordered(ip).status) {
         .none => {},
@@ -36315,7 +36294,7 @@ fn resolveInferredErrorSet(
         // In this case we are dealing with the actual InferredErrorSet object that
         // corresponds to the function, not one created to track an inline/comptime call.
         try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .func = func_index }));
-        try pt.ensureFuncBodyAnalyzed(func_index);
+        try pt.ensureFuncBodyUpToDate(func_index);
     }
 
     // This will now have been resolved by the logic at the end of `Zcu.analyzeFnBody`
@@ -36472,8 +36451,7 @@ fn structFields(
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
-    const cau_index = struct_type.cau;
-    const namespace_index = ip.getCau(cau_index).namespace;
+    const namespace_index = struct_type.namespace;
     const zir = zcu.namespacePtr(namespace_index).fileScope(zcu).zir;
     const zir_index = struct_type.zir_index.resolve(ip) orelse return error.AnalysisFail;
 
@@ -36671,8 +36649,7 @@ fn structFieldInits(
 
     assert(!struct_type.haveFieldInits(ip));
 
-    const cau_index = struct_type.cau;
-    const namespace_index = ip.getCau(cau_index).namespace;
+    const namespace_index = struct_type.namespace;
     const zir = zcu.namespacePtr(namespace_index).fileScope(zcu).zir;
     const zir_index = struct_type.zir_index.resolve(ip) orelse return error.AnalysisFail;
     const fields_len, _, var extra_index = structZirInfo(zir, zir_index);
@@ -38474,13 +38451,11 @@ pub fn declareDependency(sema: *Sema, dependee: InternPool.Dependee) !void {
     // just result in over-analysis since `Zcu.findOutdatedToAnalyze` would never be able to resolve
     // the loop.
     switch (sema.owner.unwrap()) {
-        .cau => |cau| switch (dependee) {
-            .nav_val => |nav| if (zcu.intern_pool.getNav(nav).analysis_owner == cau.toOptional()) {
-                return;
-            },
+        .nav_val => |this_nav| switch (dependee) {
+            .nav_val => |other_nav| if (this_nav == other_nav) return,
             else => {},
         },
-        .func => {},
+        else => {},
     }
 
     try zcu.intern_pool.addDependency(sema.gpa, sema.owner, dependee);
@@ -38659,38 +38634,6 @@ pub fn flushExports(sema: *Sema) !void {
     }
 }
 
-/// Given that this `Sema` is owned by the `Cau` of a `declaration`, fetches
-/// the corresponding `Nav`.
-fn getOwnerCauNav(sema: *Sema) InternPool.Nav.Index {
-    const cau = sema.owner.unwrap().cau;
-    return sema.pt.zcu.intern_pool.getCau(cau).owner.unwrap().nav;
-}
-
-/// Given that this `Sema` is owned by the `Cau` of a `declaration`, fetches
-/// the `TrackedInst` corresponding to this `declaration` instruction.
-fn getOwnerCauDeclInst(sema: *Sema) InternPool.TrackedInst.Index {
-    const ip = &sema.pt.zcu.intern_pool;
-    const cau = ip.getCau(sema.owner.unwrap().cau);
-    assert(cau.owner.unwrap() == .nav);
-    return cau.zir_index;
-}
-
-/// Given that this `Sema` is owned by a runtime function, fetches the
-/// `TrackedInst` corresponding to its `declaration` instruction.
-fn getOwnerFuncDeclInst(sema: *Sema) InternPool.TrackedInst.Index {
-    const zcu = sema.pt.zcu;
-    const ip = &zcu.intern_pool;
-    const func = sema.owner.unwrap().func;
-    const func_info = zcu.funcInfo(func);
-    const cau = if (func_info.generic_owner == .none) cau: {
-        break :cau ip.getNav(func_info.owner_nav).analysis_owner.unwrap().?;
-    } else cau: {
-        const generic_owner = zcu.funcInfo(func_info.generic_owner);
-        break :cau ip.getNav(generic_owner.owner_nav).analysis_owner.unwrap().?;
-    };
-    return ip.getCau(cau).zir_index;
-}
-
 /// Called as soon as a `declared` enum type is created.
 /// Resolves the tag type and field inits.
 /// Marks the `src_inst` dependency on the enum's declaration, so call sites need not do this.
@@ -38701,7 +38644,6 @@ pub fn resolveDeclaredEnum(
     tracked_inst: InternPool.TrackedInst.Index,
     namespace: InternPool.NamespaceIndex,
     type_name: InternPool.NullTerminatedString,
-    enum_cau: InternPool.Cau.Index,
     small: Zir.Inst.EnumDecl.Small,
     body: []const Zir.Inst.Index,
     tag_type_ref: Zir.Inst.Ref,
@@ -38719,7 +38661,7 @@ pub fn resolveDeclaredEnum(
     const src: LazySrcLoc = .{ .base_node_inst = tracked_inst, .offset = LazySrcLoc.Offset.nodeOffset(0) };
     const tag_ty_src: LazySrcLoc = .{ .base_node_inst = tracked_inst, .offset = .{ .node_offset_container_tag = 0 } };
 
-    const anal_unit = AnalUnit.wrap(.{ .cau = enum_cau });
+    const anal_unit = AnalUnit.wrap(.{ .type = wip_ty.index });
 
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
@@ -38943,6 +38885,6 @@ fn getBuiltin(sema: *Sema, name: []const u8) SemaError!Air.Inst.Ref {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav = try pt.getBuiltinNav(name);
-    try pt.ensureCauAnalyzed(ip.getNav(nav).analysis_owner.unwrap().?);
+    try pt.ensureNavValUpToDate(nav);
     return Air.internedToRef(ip.getNav(nav).status.resolved.val);
 }

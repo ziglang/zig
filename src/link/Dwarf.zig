@@ -2261,8 +2261,8 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             assert(file.zir_loaded);
             const decl = file.zir.getDeclaration(inst_info.inst);
 
-            const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
-                const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
+            const parent_type, const accessibility: u8 = if (nav.analysis) |a| parent: {
+                const parent_namespace_ptr = ip.namespacePtr(a.namespace);
                 break :parent .{
                     parent_namespace_ptr.owner_type,
                     if (decl.is_pub) DW.ACCESS.public else DW.ACCESS.private,
@@ -2292,8 +2292,8 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             assert(file.zir_loaded);
             const decl = file.zir.getDeclaration(inst_info.inst);
 
-            const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
-                const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
+            const parent_type, const accessibility: u8 = if (nav.analysis) |a| parent: {
+                const parent_namespace_ptr = ip.namespacePtr(a.namespace);
                 break :parent .{
                     parent_namespace_ptr.owner_type,
                     if (decl.is_pub) DW.ACCESS.public else DW.ACCESS.private,
@@ -2321,8 +2321,8 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             assert(file.zir_loaded);
             const decl = file.zir.getDeclaration(inst_info.inst);
 
-            const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
-                const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
+            const parent_type, const accessibility: u8 = if (nav.analysis) |a| parent: {
+                const parent_namespace_ptr = ip.namespacePtr(a.namespace);
                 break :parent .{
                     parent_namespace_ptr.owner_type,
                     if (decl.is_pub) DW.ACCESS.public else DW.ACCESS.private,
@@ -2563,8 +2563,8 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
         return;
     }
 
-    const parent_type, const accessibility: u8 = if (nav.analysis_owner.unwrap()) |cau| parent: {
-        const parent_namespace_ptr = ip.namespacePtr(ip.getCau(cau).namespace);
+    const parent_type, const accessibility: u8 = if (nav.analysis) |a| parent: {
+        const parent_namespace_ptr = ip.namespacePtr(a.namespace);
         break :parent .{
             parent_namespace_ptr.owner_type,
             if (decl.is_pub) DW.ACCESS.public else DW.ACCESS.private,

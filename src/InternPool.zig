@@ -363,33 +363,53 @@ pub fn rehashTrackedInsts(
 }
 
 /// Analysis Unit. Represents a single entity which undergoes semantic analysis.
-/// This is either a `Cau` or a runtime function.
-/// The LSB is used as a tag bit.
 /// This is the "source" of an incremental dependency edge.
-pub const AnalUnit = packed struct(u32) {
-    kind: enum(u1) { cau, func },
-    index: u31,
-    pub const Unwrapped = union(enum) {
-        cau: Cau.Index,
+pub const AnalUnit = packed struct(u64) {
+    kind: Kind,
+    id: u32,
+
+    pub const Kind = enum(u32) {
+        @"comptime",
+        nav_val,
+        type,
+        func,
+    };
+
+    pub const Unwrapped = union(Kind) {
+        /// This `AnalUnit` analyzes the body of the given `comptime` declaration.
+        @"comptime": ComptimeUnit.Id,
+        /// This `AnalUnit` resolves the value of the given `Nav`.
+        nav_val: Nav.Index,
+        /// This `AnalUnit` resolves the given `struct`/`union`/`enum` type.
+        /// Generated tag enums are never used here (they do not undergo type resolution).
+        type: InternPool.Index,
+        /// This `AnalUnit` analyzes the body of the given runtime function.
         func: InternPool.Index,
     };
-    pub fn unwrap(as: AnalUnit) Unwrapped {
-        return switch (as.kind) {
-            .cau => .{ .cau = @enumFromInt(as.index) },
-            .func => .{ .func = @enumFromInt(as.index) },
+
+    pub fn unwrap(au: AnalUnit) Unwrapped {
+        return switch (au.kind) {
+            inline else => |tag| @unionInit(
+                Unwrapped,
+                @tagName(tag),
+                @enumFromInt(au.id),
+            ),
         };
     }
     pub fn wrap(raw: Unwrapped) AnalUnit {
         return switch (raw) {
-            .cau => |cau| .{ .kind = .cau, .index = @intCast(@intFromEnum(cau)) },
-            .func => |func| .{ .kind = .func, .index = @intCast(@intFromEnum(func)) },
+            inline else => |id, tag| .{
+                .kind = tag,
+                .id = @intFromEnum(id),
+            },
         };
     }
+
     pub fn toOptional(as: AnalUnit) Optional {
-        return @enumFromInt(@as(u32, @bitCast(as)));
+        return @enumFromInt(@as(u64, @bitCast(as)));
     }
-    pub const Optional = enum(u32) {
-        none = std.math.maxInt(u32),
+    pub const Optional = enum(u64) {
+        none = std.math.maxInt(u64),
         _,
         pub fn unwrap(opt: Optional) ?AnalUnit {
             return switch (opt) {
@@ -400,97 +420,30 @@ pub const AnalUnit = packed struct(u32) {
     };
 };
 
-/// Comptime Analysis Unit. This is the "subject" of semantic analysis where the root context is
-/// comptime; every `Sema` is owned by either a `Cau` or a runtime function (see `AnalUnit`).
-/// The state stored here is immutable.
-///
-/// * Every ZIR `declaration` has a `Cau` (post-instantiation) to analyze the declaration body.
-/// * Every `struct`, `union`, and `enum` has a `Cau` for type resolution.
-///
-/// The analysis status of a `Cau` is known only from state in `Zcu`.
-/// An entry in `Zcu.failed_analysis` indicates an analysis failure with associated error message.
-/// An entry in `Zcu.transitive_failed_analysis` indicates a transitive analysis failure.
-///
-/// 12 bytes.
-pub const Cau = struct {
-    /// The `declaration`, `struct_decl`, `enum_decl`, or `union_decl` instruction which this `Cau` analyzes.
+pub const ComptimeUnit = extern struct {
     zir_index: TrackedInst.Index,
-    /// The namespace which this `Cau` should be analyzed within.
     namespace: NamespaceIndex,
-    /// This field essentially tells us what to do with the information resulting from
-    /// semantic analysis. See `Owner.Unwrapped` for details.
-    owner: Owner,
 
-    /// See `Owner.Unwrapped` for details. In terms of representation, the `InternPool.Index`
-    /// or `Nav.Index` is cast to a `u31` and stored in `index`. As a special case, if
-    /// `@as(u32, @bitCast(owner)) == 0xFFFF_FFFF`, then the value is treated as `.none`.
-    pub const Owner = packed struct(u32) {
-        kind: enum(u1) { type, nav },
-        index: u31,
+    comptime {
+        assert(std.meta.hasUniqueRepresentation(ComptimeUnit));
+    }
 
-        pub const Unwrapped = union(enum) {
-            /// This `Cau` exists in isolation. It is a global `comptime` declaration, or (TODO ANYTHING ELSE?).
-            /// After semantic analysis completes, the result is discarded.
-            none,
-            /// This `Cau` is owned by the given type for type resolution.
-            /// This is a `struct`, `union`, or `enum` type.
-            type: InternPool.Index,
-            /// This `Cau` is owned by the given `Nav` to resolve its value.
-            /// When analyzing the `Cau`, the resulting value is stored as the value of this `Nav`.
-            nav: Nav.Index,
-        };
-
-        pub fn unwrap(owner: Owner) Unwrapped {
-            if (@as(u32, @bitCast(owner)) == std.math.maxInt(u32)) {
-                return .none;
-            }
-            return switch (owner.kind) {
-                .type => .{ .type = @enumFromInt(owner.index) },
-                .nav => .{ .nav = @enumFromInt(owner.index) },
-            };
-        }
-
-        fn wrap(raw: Unwrapped) Owner {
-            return switch (raw) {
-                .none => @bitCast(@as(u32, std.math.maxInt(u32))),
-                .type => |ty| .{ .kind = .type, .index = @intCast(@intFromEnum(ty)) },
-                .nav => |nav| .{ .kind = .nav, .index = @intCast(@intFromEnum(nav)) },
-            };
-        }
-    };
-
-    pub const Index = enum(u32) {
+    pub const Id = enum(u32) {
         _,
-        pub const Optional = enum(u32) {
-            none = std.math.maxInt(u32),
-            _,
-            pub fn unwrap(opt: Optional) ?Cau.Index {
-                return switch (opt) {
-                    .none => null,
-                    _ => @enumFromInt(@intFromEnum(opt)),
-                };
-            }
-
-            const debug_state = InternPool.debug_state;
-        };
-        pub fn toOptional(i: Cau.Index) Optional {
-            return @enumFromInt(@intFromEnum(i));
-        }
         const Unwrapped = struct {
             tid: Zcu.PerThread.Id,
             index: u32,
-
-            fn wrap(unwrapped: Unwrapped, ip: *const InternPool) Cau.Index {
+            fn wrap(unwrapped: Unwrapped, ip: *const InternPool) ComptimeUnit.Id {
                 assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
-                assert(unwrapped.index <= ip.getIndexMask(u31));
-                return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_31 |
+                assert(unwrapped.index <= ip.getIndexMask(u32));
+                return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 |
                     unwrapped.index);
             }
         };
-        fn unwrap(cau_index: Cau.Index, ip: *const InternPool) Unwrapped {
+        fn unwrap(id: Id, ip: *const InternPool) Unwrapped {
             return .{
-                .tid = @enumFromInt(@intFromEnum(cau_index) >> ip.tid_shift_31 & ip.getTidMask()),
-                .index = @intFromEnum(cau_index) & ip.getIndexMask(u31),
+                .tid = @enumFromInt(@intFromEnum(id) >> ip.tid_shift_32 & ip.getTidMask()),
+                .index = @intFromEnum(id) & ip.getIndexMask(u31),
             };
         }
 
@@ -507,6 +460,11 @@ pub const Cau = struct {
 /// * Generic instances have a `Nav` corresponding to the instantiated function.
 /// * `@extern` calls create a `Nav` whose value is a `.@"extern"`.
 ///
+/// This data structure is optimized for the `analysis_info != null` case, because this is much more
+/// common in practice; the other case is used only for externs and for generic instances. At the time
+/// of writing, in the compiler itself, around 74% of all `Nav`s have `analysis_info != null`.
+/// (Specifically, 104225 / 140923)
+///
 /// `Nav.Repr` is the in-memory representation.
 pub const Nav = struct {
     /// The unqualified name of this `Nav`. Namespace lookups use this name, and error messages may use it.
@@ -514,13 +472,16 @@ pub const Nav = struct {
     name: NullTerminatedString,
     /// The fully-qualified name of this `Nav`.
     fqn: NullTerminatedString,
-    /// If the value of this `Nav` is resolved by semantic analysis, it is within this `Cau`.
-    /// If this is `.none`, then `status == .resolved` always.
-    analysis_owner: Cau.Index.Optional,
+    /// This field is populated iff this `Nav` is resolved by semantic analysis.
+    /// If this is `null`, then `status == .resolved` always.
+    analysis: ?struct {
+        namespace: NamespaceIndex,
+        zir_index: TrackedInst.Index,
+    },
     /// TODO: this is a hack! If #20663 isn't accepted, let's figure out something a bit better.
     is_usingnamespace: bool,
     status: union(enum) {
-        /// This `Nav` is pending semantic analysis through `analysis_owner`.
+        /// This `Nav` is pending semantic analysis.
         unresolved,
         /// The value of this `Nav` is resolved.
         resolved: struct {
@@ -544,17 +505,16 @@ pub const Nav = struct {
     /// Get the ZIR instruction corresponding to this `Nav`, used to resolve source locations.
     /// This is a `declaration`.
     pub fn srcInst(nav: Nav, ip: *const InternPool) TrackedInst.Index {
-        if (nav.analysis_owner.unwrap()) |cau| {
-            return ip.getCau(cau).zir_index;
+        if (nav.analysis) |a| {
+            return a.zir_index;
         }
-        // A `Nav` with no corresponding `Cau` always has a resolved value.
+        // A `Nav` which does not undergo analysis always has a resolved value.
         return switch (ip.indexToKey(nav.status.resolved.val)) {
             .func => |func| {
-                // Since there was no `analysis_owner`, this must be an instantiation.
-                // Go up to the generic owner and consult *its* `analysis_owner`.
+                // Since `analysis` was not populated, this must be an instantiation.
+                // Go up to the generic owner and consult *its* `analysis` field.
                 const go_nav = ip.getNav(ip.indexToKey(func.generic_owner).func.owner_nav);
-                const go_cau = ip.getCau(go_nav.analysis_owner.unwrap().?);
-                return go_cau.zir_index;
+                return go_nav.analysis.?.zir_index;
             },
             .@"extern" => |@"extern"| @"extern".zir_index, // extern / @extern
             else => unreachable,
@@ -600,11 +560,13 @@ pub const Nav = struct {
     };
 
     /// The compact in-memory representation of a `Nav`.
-    /// 18 bytes.
+    /// 26 bytes.
     const Repr = struct {
         name: NullTerminatedString,
         fqn: NullTerminatedString,
-        analysis_owner: Cau.Index.Optional,
+        // The following 1 fields are either both populated, or both `.none`.
+        analysis_namespace: OptionalNamespaceIndex,
+        analysis_zir_index: TrackedInst.Index.Optional,
         /// Populated only if `bits.status == .resolved`.
         val: InternPool.Index,
         /// Populated only if `bits.status == .resolved`.
@@ -625,7 +587,13 @@ pub const Nav = struct {
             return .{
                 .name = repr.name,
                 .fqn = repr.fqn,
-                .analysis_owner = repr.analysis_owner,
+                .analysis = if (repr.analysis_namespace.unwrap()) |namespace| .{
+                    .namespace = namespace,
+                    .zir_index = repr.analysis_zir_index.unwrap().?,
+                } else a: {
+                    assert(repr.analysis_zir_index == .none);
+                    break :a null;
+                },
                 .is_usingnamespace = repr.bits.is_usingnamespace,
                 .status = switch (repr.bits.status) {
                     .unresolved => .unresolved,
@@ -646,7 +614,8 @@ pub const Nav = struct {
         return .{
             .name = nav.name,
             .fqn = nav.fqn,
-            .analysis_owner = nav.analysis_owner,
+            .analysis_namespace = if (nav.analysis) |a| a.namespace.toOptional() else .none,
+            .analysis_zir_index = if (nav.analysis) |a| a.zir_index.toOptional() else .none,
             .val = switch (nav.status) {
                 .unresolved => .none,
                 .resolved => |r| r.val,
@@ -862,8 +831,8 @@ const Local = struct {
         tracked_insts: ListMutate,
         files: ListMutate,
         maps: ListMutate,
-        caus: ListMutate,
         navs: ListMutate,
+        comptime_units: ListMutate,
 
         namespaces: BucketListMutate,
     } align(std.atomic.cache_line),
@@ -876,8 +845,8 @@ const Local = struct {
         tracked_insts: TrackedInsts,
         files: List(File),
         maps: Maps,
-        caus: Caus,
         navs: Navs,
+        comptime_units: ComptimeUnits,
 
         namespaces: Namespaces,
 
@@ -899,8 +868,8 @@ const Local = struct {
     const Strings = List(struct { u8 });
     const TrackedInsts = List(struct { TrackedInst.MaybeLost });
     const Maps = List(struct { FieldMap });
-    const Caus = List(struct { Cau });
     const Navs = List(Nav.Repr);
+    const ComptimeUnits = List(struct { ComptimeUnit });
 
     const namespaces_bucket_width = 8;
     const namespaces_bucket_mask = (1 << namespaces_bucket_width) - 1;
@@ -1275,21 +1244,21 @@ const Local = struct {
         };
     }
 
-    pub fn getMutableCaus(local: *Local, gpa: Allocator) Caus.Mutable {
-        return .{
-            .gpa = gpa,
-            .arena = &local.mutate.arena,
-            .mutate = &local.mutate.caus,
-            .list = &local.shared.caus,
-        };
-    }
-
     pub fn getMutableNavs(local: *Local, gpa: Allocator) Navs.Mutable {
         return .{
             .gpa = gpa,
             .arena = &local.mutate.arena,
             .mutate = &local.mutate.navs,
             .list = &local.shared.navs,
+        };
+    }
+
+    pub fn getMutableComptimeUnits(local: *Local, gpa: Allocator) ComptimeUnits.Mutable {
+        return .{
+            .gpa = gpa,
+            .arena = &local.mutate.arena,
+            .mutate = &local.mutate.comptime_units,
+            .list = &local.shared.comptime_units,
         };
     }
 
@@ -3052,8 +3021,6 @@ pub const LoadedUnionType = struct {
     // TODO: the non-fqn will be needed by the new dwarf structure
     /// The name of this union type.
     name: NullTerminatedString,
-    /// The `Cau` within which type resolution occurs.
-    cau: Cau.Index,
     /// Represents the declarations inside this union.
     namespace: NamespaceIndex,
     /// The enum tag type.
@@ -3370,7 +3337,6 @@ pub fn loadUnionType(ip: *const InternPool, index: Index) LoadedUnionType {
         .tid = unwrapped_index.tid,
         .extra_index = data,
         .name = type_union.data.name,
-        .cau = type_union.data.cau,
         .namespace = type_union.data.namespace,
         .enum_tag_ty = type_union.data.tag_ty,
         .field_types = field_types,
@@ -3387,8 +3353,6 @@ pub const LoadedStructType = struct {
     // TODO: the non-fqn will be needed by the new dwarf structure
     /// The name of this struct type.
     name: NullTerminatedString,
-    /// The `Cau` within which type resolution occurs.
-    cau: Cau.Index,
     namespace: NamespaceIndex,
     /// Index of the `struct_decl` or `reify` ZIR instruction.
     zir_index: TrackedInst.Index,
@@ -3979,7 +3943,6 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
     switch (item.tag) {
         .type_struct => {
             const name: NullTerminatedString = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "name").?]);
-            const cau: Cau.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "cau").?]);
             const namespace: NamespaceIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "namespace").?]);
             const zir_index: TrackedInst.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "zir_index").?]);
             const fields_len = extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "fields_len").?];
@@ -4066,7 +4029,6 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .tid = unwrapped_index.tid,
                 .extra_index = item.data,
                 .name = name,
-                .cau = cau,
                 .namespace = namespace,
                 .zir_index = zir_index,
                 .layout = if (flags.is_extern) .@"extern" else .auto,
@@ -4083,7 +4045,6 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
         },
         .type_struct_packed, .type_struct_packed_inits => {
             const name: NullTerminatedString = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "name").?]);
-            const cau: Cau.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "cau").?]);
             const zir_index: TrackedInst.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "zir_index").?]);
             const fields_len = extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "fields_len").?];
             const namespace: NamespaceIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "namespace").?]);
@@ -4130,7 +4091,6 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .tid = unwrapped_index.tid,
                 .extra_index = item.data,
                 .name = name,
-                .cau = cau,
                 .namespace = namespace,
                 .zir_index = zir_index,
                 .layout = .@"packed",
@@ -4153,9 +4113,6 @@ pub const LoadedEnumType = struct {
     // TODO: the non-fqn will be needed by the new dwarf structure
     /// The name of this enum type.
     name: NullTerminatedString,
-    /// The `Cau` within which type resolution occurs.
-    /// `null` if this is a generated tag type.
-    cau: Cau.Index.Optional,
     /// Represents the declarations inside this enum.
     namespace: NamespaceIndex,
     /// An integer type which is used for the numerical value of the enum.
@@ -4232,21 +4189,15 @@ pub fn loadEnumType(ip: *const InternPool, index: Index) LoadedEnumType {
         .type_enum_auto => {
             const extra = extraDataTrail(extra_list, EnumAuto, item.data);
             var extra_index: u32 = @intCast(extra.end);
-            const cau: Cau.Index.Optional = if (extra.data.zir_index == .none) cau: {
+            if (extra.data.zir_index == .none) {
                 extra_index += 1; // owner_union
-                break :cau .none;
-            } else cau: {
-                const cau: Cau.Index = @enumFromInt(extra_list.view().items(.@"0")[extra_index]);
-                extra_index += 1; // cau
-                break :cau cau.toOptional();
-            };
+            }
             const captures_len = if (extra.data.captures_len == std.math.maxInt(u32)) c: {
                 extra_index += 2; // type_hash: PackedU64
                 break :c 0;
             } else extra.data.captures_len;
             return .{
                 .name = extra.data.name,
-                .cau = cau,
                 .namespace = extra.data.namespace,
                 .tag_ty = extra.data.int_tag_type,
                 .names = .{
@@ -4272,21 +4223,15 @@ pub fn loadEnumType(ip: *const InternPool, index: Index) LoadedEnumType {
     };
     const extra = extraDataTrail(extra_list, EnumExplicit, item.data);
     var extra_index: u32 = @intCast(extra.end);
-    const cau: Cau.Index.Optional = if (extra.data.zir_index == .none) cau: {
+    if (extra.data.zir_index == .none) {
         extra_index += 1; // owner_union
-        break :cau .none;
-    } else cau: {
-        const cau: Cau.Index = @enumFromInt(extra_list.view().items(.@"0")[extra_index]);
-        extra_index += 1; // cau
-        break :cau cau.toOptional();
-    };
+    }
     const captures_len = if (extra.data.captures_len == std.math.maxInt(u32)) c: {
         extra_index += 2; // type_hash: PackedU64
         break :c 0;
     } else extra.data.captures_len;
     return .{
         .name = extra.data.name,
-        .cau = cau,
         .namespace = extra.data.namespace,
         .tag_ty = extra.data.int_tag_type,
         .names = .{
@@ -5256,7 +5201,6 @@ pub const Tag = enum(u8) {
         .payload = EnumExplicit,
         .trailing = struct {
             owner_union: Index,
-            cau: ?Cau.Index,
             captures: ?[]CaptureValue,
             type_hash: ?u64,
             field_names: []NullTerminatedString,
@@ -5302,7 +5246,6 @@ pub const Tag = enum(u8) {
             .payload = EnumAuto,
             .trailing = struct {
                 owner_union: ?Index,
-                cau: ?Cau.Index,
                 captures: ?[]CaptureValue,
                 type_hash: ?u64,
                 field_names: []NullTerminatedString,
@@ -5679,7 +5622,6 @@ pub const Tag = enum(u8) {
         size: u32,
         /// Only valid after .have_layout
         padding: u32,
-        cau: Cau.Index,
         namespace: NamespaceIndex,
         /// The enum that provides the list of field names and values.
         tag_ty: Index,
@@ -5710,7 +5652,6 @@ pub const Tag = enum(u8) {
     /// 5. init: Index for each fields_len // if tag is type_struct_packed_inits
     pub const TypeStructPacked = struct {
         name: NullTerminatedString,
-        cau: Cau.Index,
         zir_index: TrackedInst.Index,
         fields_len: u32,
         namespace: NamespaceIndex,
@@ -5758,7 +5699,6 @@ pub const Tag = enum(u8) {
     /// 8. field_offset: u32 // for each field in declared order, undef until layout_resolved
     pub const TypeStruct = struct {
         name: NullTerminatedString,
-        cau: Cau.Index,
         zir_index: TrackedInst.Index,
         namespace: NamespaceIndex,
         fields_len: u32,
@@ -6088,11 +6028,10 @@ pub const Array = struct {
 
 /// Trailing:
 /// 0. owner_union: Index // if `zir_index == .none`
-/// 1. cau: Cau.Index // if `zir_index != .none`
-/// 2. capture: CaptureValue // for each `captures_len`
-/// 3. type_hash: PackedU64 // if reified (`captures_len == std.math.maxInt(u32)`)
-/// 4. field name: NullTerminatedString for each fields_len; declaration order
-/// 5. tag value: Index for each fields_len; declaration order
+/// 1. capture: CaptureValue // for each `captures_len`
+/// 2. type_hash: PackedU64 // if reified (`captures_len == std.math.maxInt(u32)`)
+/// 3. field name: NullTerminatedString for each fields_len; declaration order
+/// 4. tag value: Index for each fields_len; declaration order
 pub const EnumExplicit = struct {
     name: NullTerminatedString,
     /// `std.math.maxInt(u32)` indicates this type is reified.
@@ -6115,10 +6054,9 @@ pub const EnumExplicit = struct {
 
 /// Trailing:
 /// 0. owner_union: Index // if `zir_index == .none`
-/// 1. cau: Cau.Index // if `zir_index != .none`
-/// 2. capture: CaptureValue // for each `captures_len`
-/// 3. type_hash: PackedU64 // if reified (`captures_len == std.math.maxInt(u32)`)
-/// 4. field name: NullTerminatedString for each fields_len; declaration order
+/// 1. capture: CaptureValue // for each `captures_len`
+/// 2. type_hash: PackedU64 // if reified (`captures_len == std.math.maxInt(u32)`)
+/// 3. field name: NullTerminatedString for each fields_len; declaration order
 pub const EnumAuto = struct {
     name: NullTerminatedString,
     /// `std.math.maxInt(u32)` indicates this type is reified.
@@ -6408,32 +6346,32 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
     ip.locals = try gpa.alloc(Local, used_threads);
     @memset(ip.locals, .{
         .shared = .{
-            .items = Local.List(Item).empty,
-            .extra = Local.Extra.empty,
-            .limbs = Local.Limbs.empty,
-            .strings = Local.Strings.empty,
-            .tracked_insts = Local.TrackedInsts.empty,
-            .files = Local.List(File).empty,
-            .maps = Local.Maps.empty,
-            .caus = Local.Caus.empty,
-            .navs = Local.Navs.empty,
+            .items = .empty,
+            .extra = .empty,
+            .limbs = .empty,
+            .strings = .empty,
+            .tracked_insts = .empty,
+            .files = .empty,
+            .maps = .empty,
+            .navs = .empty,
+            .comptime_units = .empty,
 
-            .namespaces = Local.Namespaces.empty,
+            .namespaces = .empty,
         },
         .mutate = .{
             .arena = .{},
 
-            .items = Local.ListMutate.empty,
-            .extra = Local.ListMutate.empty,
-            .limbs = Local.ListMutate.empty,
-            .strings = Local.ListMutate.empty,
-            .tracked_insts = Local.ListMutate.empty,
-            .files = Local.ListMutate.empty,
-            .maps = Local.ListMutate.empty,
-            .caus = Local.ListMutate.empty,
-            .navs = Local.ListMutate.empty,
+            .items = .empty,
+            .extra = .empty,
+            .limbs = .empty,
+            .strings = .empty,
+            .tracked_insts = .empty,
+            .files = .empty,
+            .maps = .empty,
+            .navs = .empty,
+            .comptime_units = .empty,
 
-            .namespaces = Local.BucketListMutate.empty,
+            .namespaces = .empty,
         },
     });
 
@@ -6506,7 +6444,8 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
                 namespace.priv_decls.deinit(gpa);
                 namespace.pub_usingnamespace.deinit(gpa);
                 namespace.priv_usingnamespace.deinit(gpa);
-                namespace.other_decls.deinit(gpa);
+                namespace.comptime_decls.deinit(gpa);
+                namespace.test_decls.deinit(gpa);
             }
         };
         const maps = local.getMutableMaps(gpa);
@@ -6525,8 +6464,6 @@ pub fn activate(ip: *const InternPool) void {
     _ = OptionalString.debug_state;
     _ = NullTerminatedString.debug_state;
     _ = OptionalNullTerminatedString.debug_state;
-    _ = Cau.Index.debug_state;
-    _ = Cau.Index.Optional.debug_state;
     _ = Nav.Index.debug_state;
     _ = Nav.Index.Optional.debug_state;
     std.debug.assert(debug_state.intern_pool == null);
@@ -6711,14 +6648,14 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             if (extra.data.captures_len == std.math.maxInt(u32)) {
                 break :ns .{ .reified = .{
                     .zir_index = zir_index,
-                    .type_hash = extraData(extra_list, PackedU64, extra.end + 1).get(),
+                    .type_hash = extraData(extra_list, PackedU64, extra.end).get(),
                 } };
             }
             break :ns .{ .declared = .{
                 .zir_index = zir_index,
                 .captures = .{ .owned = .{
                     .tid = unwrapped_index.tid,
-                    .start = extra.end + 1,
+                    .start = extra.end,
                     .len = extra.data.captures_len,
                 } },
             } };
@@ -6735,14 +6672,14 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             if (extra.data.captures_len == std.math.maxInt(u32)) {
                 break :ns .{ .reified = .{
                     .zir_index = zir_index,
-                    .type_hash = extraData(extra_list, PackedU64, extra.end + 1).get(),
+                    .type_hash = extraData(extra_list, PackedU64, extra.end).get(),
                 } };
             }
             break :ns .{ .declared = .{
                 .zir_index = zir_index,
                 .captures = .{ .owned = .{
                     .tid = unwrapped_index.tid,
-                    .start = extra.end + 1,
+                    .start = extra.end,
                     .len = extra.data.captures_len,
                 } },
             } };
@@ -8323,7 +8260,6 @@ pub fn getUnionType(
         .size = std.math.maxInt(u32),
         .padding = std.math.maxInt(u32),
         .name = undefined, // set by `finish`
-        .cau = undefined, // set by `finish`
         .namespace = undefined, // set by `finish`
         .tag_ty = ini.enum_tag_ty,
         .zir_index = switch (ini.key) {
@@ -8375,7 +8311,6 @@ pub fn getUnionType(
         .tid = tid,
         .index = gop.put(),
         .type_name_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeUnion, "name").?,
-        .cau_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeUnion, "cau").?,
         .namespace_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeUnion, "namespace").?,
     } };
 }
@@ -8384,7 +8319,6 @@ pub const WipNamespaceType = struct {
     tid: Zcu.PerThread.Id,
     index: Index,
     type_name_extra_index: u32,
-    cau_extra_index: ?u32,
     namespace_extra_index: u32,
 
     pub fn setName(
@@ -8400,17 +8334,10 @@ pub const WipNamespaceType = struct {
     pub fn finish(
         wip: WipNamespaceType,
         ip: *InternPool,
-        analysis_owner: Cau.Index.Optional,
         namespace: NamespaceIndex,
     ) Index {
         const extra = ip.getLocalShared(wip.tid).extra.acquire();
         const extra_items = extra.view().items(.@"0");
-
-        if (wip.cau_extra_index) |i| {
-            extra_items[i] = @intFromEnum(analysis_owner.unwrap().?);
-        } else {
-            assert(analysis_owner == .none);
-        }
 
         extra_items[wip.namespace_extra_index] = @intFromEnum(namespace);
 
@@ -8510,7 +8437,6 @@ pub fn getStructType(
                 ini.fields_len); // inits
             const extra_index = addExtraAssumeCapacity(extra, Tag.TypeStructPacked{
                 .name = undefined, // set by `finish`
-                .cau = undefined, // set by `finish`
                 .zir_index = zir_index,
                 .fields_len = ini.fields_len,
                 .namespace = undefined, // set by `finish`
@@ -8555,7 +8481,6 @@ pub fn getStructType(
                 .tid = tid,
                 .index = gop.put(),
                 .type_name_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStructPacked, "name").?,
-                .cau_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStructPacked, "cau").?,
                 .namespace_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStructPacked, "namespace").?,
             } };
         },
@@ -8578,7 +8503,6 @@ pub fn getStructType(
         1); // names_map
     const extra_index = addExtraAssumeCapacity(extra, Tag.TypeStruct{
         .name = undefined, // set by `finish`
-        .cau = undefined, // set by `finish`
         .zir_index = zir_index,
         .namespace = undefined, // set by `finish`
         .fields_len = ini.fields_len,
@@ -8647,7 +8571,6 @@ pub fn getStructType(
         .tid = tid,
         .index = gop.put(),
         .type_name_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStruct, "name").?,
-        .cau_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStruct, "cau").?,
         .namespace_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStruct, "namespace").?,
     } };
 }
@@ -9383,7 +9306,7 @@ fn finishFuncInstance(
     func_extra_index: u32,
 ) Allocator.Error!void {
     const fn_owner_nav = ip.getNav(ip.funcDeclInfo(generic_owner).owner_nav);
-    const fn_namespace = ip.getCau(fn_owner_nav.analysis_owner.unwrap().?).namespace;
+    const fn_namespace = fn_owner_nav.analysis.?.namespace;
 
     // TODO: improve this name
     const nav_name = try ip.getOrPutStringFmt(gpa, tid, "{}__anon_{d}", .{
@@ -9429,7 +9352,6 @@ pub const WipEnumType = struct {
     index: Index,
     tag_ty_index: u32,
     type_name_extra_index: u32,
-    cau_extra_index: u32,
     namespace_extra_index: u32,
     names_map: MapIndex,
     names_start: u32,
@@ -9449,13 +9371,11 @@ pub const WipEnumType = struct {
     pub fn prepare(
         wip: WipEnumType,
         ip: *InternPool,
-        analysis_owner: Cau.Index,
         namespace: NamespaceIndex,
     ) void {
         const extra = ip.getLocalShared(wip.tid).extra.acquire();
         const extra_items = extra.view().items(.@"0");
 
-        extra_items[wip.cau_extra_index] = @intFromEnum(analysis_owner);
         extra_items[wip.namespace_extra_index] = @intFromEnum(namespace);
     }
 
@@ -9556,7 +9476,6 @@ pub fn getEnumType(
                     .reified => 2, // type_hash: PackedU64
                 } +
                 // zig fmt: on
-                1 + // cau
                 ini.fields_len); // field types
 
             const extra_index = addExtraAssumeCapacity(extra, EnumAuto{
@@ -9577,8 +9496,6 @@ pub fn getEnumType(
                 .tag = .type_enum_auto,
                 .data = extra_index,
             });
-            const cau_extra_index = extra.view().len;
-            extra.appendAssumeCapacity(undefined); // `cau` will be set by `finish`
             switch (ini.key) {
                 .declared => |d| extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures)}),
                 .declared_owned_captures => |d| extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures.get(ip))}),
@@ -9591,7 +9508,6 @@ pub fn getEnumType(
                 .index = gop.put(),
                 .tag_ty_index = extra_index + std.meta.fieldIndex(EnumAuto, "int_tag_type").?,
                 .type_name_extra_index = extra_index + std.meta.fieldIndex(EnumAuto, "name").?,
-                .cau_extra_index = @intCast(cau_extra_index),
                 .namespace_extra_index = extra_index + std.meta.fieldIndex(EnumAuto, "namespace").?,
                 .names_map = names_map,
                 .names_start = @intCast(names_start),
@@ -9616,7 +9532,6 @@ pub fn getEnumType(
                     .reified => 2, // type_hash: PackedU64
                 } +
                 // zig fmt: on
-                1 + // cau
                 ini.fields_len + // field types
                 ini.fields_len * @intFromBool(ini.has_values)); // field values
 
@@ -9643,8 +9558,6 @@ pub fn getEnumType(
                 },
                 .data = extra_index,
             });
-            const cau_extra_index = extra.view().len;
-            extra.appendAssumeCapacity(undefined); // `cau` will be set by `finish`
             switch (ini.key) {
                 .declared => |d| extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures)}),
                 .declared_owned_captures => |d| extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures.get(ip))}),
@@ -9661,7 +9574,6 @@ pub fn getEnumType(
                 .index = gop.put(),
                 .tag_ty_index = extra_index + std.meta.fieldIndex(EnumExplicit, "int_tag_type").?,
                 .type_name_extra_index = extra_index + std.meta.fieldIndex(EnumExplicit, "name").?,
-                .cau_extra_index = @intCast(cau_extra_index),
                 .namespace_extra_index = extra_index + std.meta.fieldIndex(EnumExplicit, "namespace").?,
                 .names_map = names_map,
                 .names_start = @intCast(names_start),
@@ -9858,7 +9770,6 @@ pub fn getOpaqueType(
             .tid = tid,
             .index = gop.put(),
             .type_name_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeOpaque, "name").?,
-            .cau_extra_index = null, // opaques do not undergo type resolution
             .namespace_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeOpaque, "namespace").?,
         },
     };
@@ -9974,7 +9885,6 @@ fn addExtraAssumeCapacity(extra: Local.Extra.Mutable, item: anytype) u32 {
     inline for (@typeInfo(@TypeOf(item)).@"struct".fields) |field| {
         extra.appendAssumeCapacity(.{switch (field.type) {
             Index,
-            Cau.Index,
             Nav.Index,
             NamespaceIndex,
             OptionalNamespaceIndex,
@@ -10037,7 +9947,6 @@ fn extraDataTrail(extra: Local.Extra, comptime T: type, index: u32) struct { dat
         const extra_item = extra_items[extra_index];
         @field(result, field.name) = switch (field.type) {
             Index,
-            Cau.Index,
             Nav.Index,
             NamespaceIndex,
             OptionalNamespaceIndex,
@@ -11058,12 +10967,6 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     try bw.flush();
 }
 
-pub fn getCau(ip: *const InternPool, index: Cau.Index) Cau {
-    const unwrapped = index.unwrap(ip);
-    const caus = ip.getLocalShared(unwrapped.tid).caus.acquire();
-    return caus.view().items(.@"0")[unwrapped.index];
-}
-
 pub fn getNav(ip: *const InternPool, index: Nav.Index) Nav {
     const unwrapped = index.unwrap(ip);
     const navs = ip.getLocalShared(unwrapped.tid).navs.acquire();
@@ -11077,51 +10980,34 @@ pub fn namespacePtr(ip: *InternPool, namespace_index: NamespaceIndex) *Zcu.Names
     return &namespaces_bucket[unwrapped_namespace_index.index];
 }
 
-/// Create a `Cau` associated with the type at the given `InternPool.Index`.
-pub fn createTypeCau(
+/// Create a `ComptimeUnit`, forming an `AnalUnit` for a `comptime` declaration.
+pub fn createComptimeUnit(
     ip: *InternPool,
     gpa: Allocator,
     tid: Zcu.PerThread.Id,
     zir_index: TrackedInst.Index,
     namespace: NamespaceIndex,
-    owner_type: InternPool.Index,
-) Allocator.Error!Cau.Index {
-    const caus = ip.getLocal(tid).getMutableCaus(gpa);
-    const index_unwrapped: Cau.Index.Unwrapped = .{
+) Allocator.Error!ComptimeUnit.Id {
+    const comptime_units = ip.getLocal(tid).getMutableComptimeUnits(gpa);
+    const id_unwrapped: ComptimeUnit.Id.Unwrapped = .{
         .tid = tid,
-        .index = caus.mutate.len,
+        .index = comptime_units.mutate.len,
     };
-    try caus.append(.{.{
+    try comptime_units.append(.{.{
         .zir_index = zir_index,
         .namespace = namespace,
-        .owner = Cau.Owner.wrap(.{ .type = owner_type }),
     }});
-    return index_unwrapped.wrap(ip);
+    return id_unwrapped.wrap(ip);
 }
 
-/// Create a `Cau` for a `comptime` declaration.
-pub fn createComptimeCau(
-    ip: *InternPool,
-    gpa: Allocator,
-    tid: Zcu.PerThread.Id,
-    zir_index: TrackedInst.Index,
-    namespace: NamespaceIndex,
-) Allocator.Error!Cau.Index {
-    const caus = ip.getLocal(tid).getMutableCaus(gpa);
-    const index_unwrapped: Cau.Index.Unwrapped = .{
-        .tid = tid,
-        .index = caus.mutate.len,
-    };
-    try caus.append(.{.{
-        .zir_index = zir_index,
-        .namespace = namespace,
-        .owner = Cau.Owner.wrap(.none),
-    }});
-    return index_unwrapped.wrap(ip);
+pub fn getComptimeUnit(ip: *const InternPool, id: ComptimeUnit.Id) ComptimeUnit {
+    const unwrapped = id.unwrap(ip);
+    const comptime_units = ip.getLocalShared(unwrapped.tid).comptime_units.acquire();
+    return comptime_units.view().items(.@"0")[unwrapped.index];
 }
 
-/// Create a `Nav` not associated with any `Cau`.
-/// Since there is no analysis owner, the `Nav`'s value must be known at creation time.
+/// Create a `Nav` which does not undergo semantic analysis.
+/// Since it is never analyzed, the `Nav`'s value must be known at creation time.
 pub fn createNav(
     ip: *InternPool,
     gpa: Allocator,
@@ -11143,7 +11029,7 @@ pub fn createNav(
     try navs.append(Nav.pack(.{
         .name = opts.name,
         .fqn = opts.fqn,
-        .analysis_owner = .none,
+        .analysis = null,
         .status = .{ .resolved = .{
             .val = opts.val,
             .alignment = opts.alignment,
@@ -11155,10 +11041,9 @@ pub fn createNav(
     return index_unwrapped.wrap(ip);
 }
 
-/// Create a `Cau` and `Nav` which are paired. The value of the `Nav` is
-/// determined by semantic analysis of the `Cau`. The value of the `Nav`
-/// is initially unresolved.
-pub fn createPairedCauNav(
+/// Create a `Nav` which undergoes semantic analysis because it corresponds to a source declaration.
+/// The value of the `Nav` is initially unresolved.
+pub fn createDeclNav(
     ip: *InternPool,
     gpa: Allocator,
     tid: Zcu.PerThread.Id,
@@ -11168,36 +11053,28 @@ pub fn createPairedCauNav(
     namespace: NamespaceIndex,
     /// TODO: this is hacky! See `Nav.is_usingnamespace`.
     is_usingnamespace: bool,
-) Allocator.Error!struct { Cau.Index, Nav.Index } {
-    const caus = ip.getLocal(tid).getMutableCaus(gpa);
+) Allocator.Error!Nav.Index {
     const navs = ip.getLocal(tid).getMutableNavs(gpa);
 
-    try caus.ensureUnusedCapacity(1);
     try navs.ensureUnusedCapacity(1);
 
-    const cau = Cau.Index.Unwrapped.wrap(.{
-        .tid = tid,
-        .index = caus.mutate.len,
-    }, ip);
     const nav = Nav.Index.Unwrapped.wrap(.{
         .tid = tid,
         .index = navs.mutate.len,
     }, ip);
 
-    caus.appendAssumeCapacity(.{.{
-        .zir_index = zir_index,
-        .namespace = namespace,
-        .owner = Cau.Owner.wrap(.{ .nav = nav }),
-    }});
     navs.appendAssumeCapacity(Nav.pack(.{
         .name = name,
         .fqn = fqn,
-        .analysis_owner = cau.toOptional(),
+        .analysis = .{
+            .namespace = namespace,
+            .zir_index = zir_index,
+        },
         .status = .unresolved,
         .is_usingnamespace = is_usingnamespace,
     }));
 
-    return .{ cau, nav };
+    return nav;
 }
 
 /// Resolve the value of a `Nav` with an analysis owner.
@@ -11220,12 +11097,14 @@ pub fn resolveNavValue(
 
     const navs = local.shared.navs.view();
 
-    const nav_analysis_owners = navs.items(.analysis_owner);
+    const nav_analysis_namespace = navs.items(.analysis_namespace);
+    const nav_analysis_zir_index = navs.items(.analysis_zir_index);
     const nav_vals = navs.items(.val);
     const nav_linksections = navs.items(.@"linksection");
     const nav_bits = navs.items(.bits);
 
-    assert(nav_analysis_owners[unwrapped.index] != .none);
+    assert(nav_analysis_namespace[unwrapped.index] != .none);
+    assert(nav_analysis_zir_index[unwrapped.index] != .none);
 
     @atomicStore(InternPool.Index, &nav_vals[unwrapped.index], resolved.val, .release);
     @atomicStore(OptionalNullTerminatedString, &nav_linksections[unwrapped.index], resolved.@"linksection", .release);

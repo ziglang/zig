@@ -348,12 +348,15 @@ const Job = union(enum) {
     /// Corresponds to the task in `link.Task`.
     /// Only needed for backends that haven't yet been updated to not race against Sema.
     codegen_type: InternPool.Index,
-    /// The `Cau` must be semantically analyzed (and possibly export itself).
+    /// The `AnalUnit`, which is *not* a `func`, must be semantically analyzed.
     /// This may be its first time being analyzed, or it may be outdated.
-    analyze_cau: InternPool.Cau.Index,
-    /// Analyze the body of a runtime function.
+    /// If the unit is a function, a `codegen_func` job will then be queued.
+    analyze_comptime_unit: InternPool.AnalUnit,
+    /// This function must be semantically analyzed.
+    /// This may be its first time being analyzed, or it may be outdated.
     /// After analysis, a `codegen_func` job will be queued.
     /// These must be separate jobs to ensure any needed type resolution occurs *before* codegen.
+    /// This job is separate from `analyze_comptime_unit` because it has a different priority.
     analyze_func: InternPool.Index,
     /// The main source file for the module needs to be analyzed.
     analyze_mod: *Package.Module,
@@ -3141,8 +3144,10 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             }
 
             const file_index = switch (anal_unit.unwrap()) {
-                .cau => |cau| zcu.namespacePtr(ip.getCau(cau).namespace).file_scope,
-                .func => |ip_index| (zcu.funcInfo(ip_index).zir_body_inst.resolveFull(ip) orelse continue).file,
+                .@"comptime" => |cu| ip.getComptimeUnit(cu).zir_index.resolveFile(ip),
+                .nav_val => |nav| ip.getNav(nav).analysis.?.zir_index.resolveFile(ip),
+                .type => |ty| Type.fromInterned(ty).typeDeclInst(zcu).?.resolveFile(ip),
+                .func => |ip_index| zcu.funcInfo(ip_index).zir_body_inst.resolveFile(ip),
             };
 
             // Skip errors for AnalUnits within files that had a parse failure.
@@ -3374,11 +3379,9 @@ pub fn addModuleErrorMsg(
                 const rt_file_path = try src.file_scope.fullPath(gpa);
                 defer gpa.free(rt_file_path);
                 const name = switch (ref.referencer.unwrap()) {
-                    .cau => |cau| switch (ip.getCau(cau).owner.unwrap()) {
-                        .nav => |nav| ip.getNav(nav).name.toSlice(ip),
-                        .type => |ty| Type.fromInterned(ty).containerTypeName(ip).toSlice(ip),
-                        .none => "comptime",
-                    },
+                    .@"comptime" => "comptime",
+                    .nav_val => |nav| ip.getNav(nav).name.toSlice(ip),
+                    .type => |ty| Type.fromInterned(ty).containerTypeName(ip).toSlice(ip),
                     .func => |f| ip.getNav(zcu.funcInfo(f).owner_nav).name.toSlice(ip),
                 };
                 try ref_traces.append(gpa, .{
@@ -3641,10 +3644,13 @@ fn performAllTheWorkInner(
             // If there's no work queued, check if there's anything outdated
             // which we need to work on, and queue it if so.
             if (try zcu.findOutdatedToAnalyze()) |outdated| {
-                switch (outdated.unwrap()) {
-                    .cau => |cau| try comp.queueJob(.{ .analyze_cau = cau }),
-                    .func => |func| try comp.queueJob(.{ .analyze_func = func }),
-                }
+                try comp.queueJob(switch (outdated.unwrap()) {
+                    .func => |f| .{ .analyze_func = f },
+                    .@"comptime",
+                    .nav_val,
+                    .type,
+                    => .{ .analyze_comptime_unit = outdated },
+                });
                 continue;
             }
         }
@@ -3667,8 +3673,8 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
         .codegen_nav => |nav_index| {
             const zcu = comp.zcu.?;
             const nav = zcu.intern_pool.getNav(nav_index);
-            if (nav.analysis_owner.unwrap()) |cau| {
-                const unit = InternPool.AnalUnit.wrap(.{ .cau = cau });
+            if (nav.analysis != null) {
+                const unit: InternPool.AnalUnit = .wrap(.{ .nav_val = nav_index });
                 if (zcu.failed_analysis.contains(unit) or zcu.transitive_failed_analysis.contains(unit)) {
                     return;
                 }
@@ -3688,36 +3694,47 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
 
             const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
             defer pt.deactivate();
-            pt.ensureFuncBodyAnalyzed(func) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
+
+            pt.ensureFuncBodyUpToDate(func) catch |err| switch (err) {
+                error.OutOfMemory => |e| return e,
                 error.AnalysisFail => return,
             };
         },
-        .analyze_cau => |cau_index| {
+        .analyze_comptime_unit => |unit| {
+            const named_frame = tracy.namedFrame("analyze_comptime_unit");
+            defer named_frame.end();
+
             const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
             defer pt.deactivate();
-            pt.ensureCauAnalyzed(cau_index) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
+
+            const maybe_err: Zcu.SemaError!void = switch (unit.unwrap()) {
+                .@"comptime" => |cu| pt.ensureComptimeUnitUpToDate(cu),
+                .nav_val => |nav| pt.ensureNavValUpToDate(nav),
+                .type => |ty| if (pt.ensureTypeUpToDate(ty)) |_| {} else |err| err,
+                .func => unreachable,
+            };
+            maybe_err catch |err| switch (err) {
+                error.OutOfMemory => |e| return e,
                 error.AnalysisFail => return,
             };
+
             queue_test_analysis: {
                 if (!comp.config.is_test) break :queue_test_analysis;
+                const nav = switch (unit.unwrap()) {
+                    .nav_val => |nav| nav,
+                    else => break :queue_test_analysis,
+                };
 
                 // Check if this is a test function.
                 const ip = &pt.zcu.intern_pool;
-                const cau = ip.getCau(cau_index);
-                const nav_index = switch (cau.owner.unwrap()) {
-                    .none, .type => break :queue_test_analysis,
-                    .nav => |nav| nav,
-                };
-                if (!pt.zcu.test_functions.contains(nav_index)) {
+                if (!pt.zcu.test_functions.contains(nav)) {
                     break :queue_test_analysis;
                 }
 
                 // Tests are always emitted in test binaries. The decl_refs are created by
                 // Zcu.populateTestFunctions, but this will not queue body analysis, so do
                 // that now.
-                try pt.zcu.ensureFuncBodyAnalysisQueued(ip.getNav(nav_index).status.resolved.val);
+                try pt.zcu.ensureFuncBodyAnalysisQueued(ip.getNav(nav).status.resolved.val);
             }
         },
         .resolve_type_fully => |ty| {
