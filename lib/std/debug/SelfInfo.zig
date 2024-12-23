@@ -1651,18 +1651,19 @@ pub fn unwindFrameDwarf(
             break :blk .{ cie, fde };
         }
 
-        const index = std.sort.binarySearch(Dwarf.FrameDescriptionEntry, di.fde_list.items, context.pc, struct {
-            pub fn compareFn(pc: usize, item: Dwarf.FrameDescriptionEntry) std.math.Order {
-                if (pc < item.pc_begin) return .lt;
-
-                const range_end = item.pc_begin + item.pc_range;
-                if (pc < range_end) return .eq;
-
-                return .gt;
+        const index, const found = std.sort.binarySearch(Dwarf.FrameDescriptionEntry, di.fde_list.items, context.pc, struct {
+            pub fn order(probed: Dwarf.FrameDescriptionEntry, pc: usize) std.math.Order {
+                return if (probed.pc_begin > pc) // start of range too great
+                    .gt
+                else if (probed.pc_begin + probed.pc_range > pc) // target within range
+                    .eq
+                else // end of range too little
+                    .lt;
             }
-        }.compareFn);
+        }.order);
 
-        const fde = if (index) |i| di.fde_list.items[i] else return error.MissingFDE;
+        if (!found) return error.MissingFDE;
+        const fde = di.fde_list.items[index];
         const cie = di.cie_map.get(fde.cie_length_offset) orelse return error.MissingCIE;
 
         break :blk .{ cie, fde };
