@@ -2242,7 +2242,7 @@ or
       {#code|test_aligned_struct_fields.zig#}
 
       <p>
-      Equating packed structs results in a comparison of the backing integer, 
+      Equating packed structs results in a comparison of the backing integer,
       and only works for the `==` and `!=` operators.
       </p>
       {#code|test_packed_struct_equality.zig#}
@@ -5596,7 +5596,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@floor#}
       <pre>{#syntax#}@floor(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
-      Returns the largest integral value not greater than the given floating point number.
+      Returns the largest integer value less than or equal to the given floating point number.
       Uses a dedicated hardware instruction when available.
       </p>
       <p>
@@ -5606,7 +5606,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@ceil#}
       <pre>{#syntax#}@ceil(value: anytype) @TypeOf(value){#endsyntax#}</pre>
       <p>
-      Returns the smallest integral value not less than the given floating point number.
+      Returns the smallest integer value greater than or equal to the given floating point number.
       Uses a dedicated hardware instruction when available.
       </p>
       <p>
