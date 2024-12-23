@@ -589,7 +589,8 @@ fn populateErrorNameTable(zig_object: *ZigObject, wasm: *Wasm, tid: Zcu.PerThrea
 
     // Addend for each relocation to the table
     var addend: u32 = 0;
-    const pt: Zcu.PerThread = .{ .zcu = wasm.base.comp.zcu.?, .tid = tid };
+    const pt: Zcu.PerThread = .activate(wasm.base.comp.zcu.?, tid);
+    defer pt.deactivate();
     const slice_ty = Type.slice_const_u8_sentinel_0;
     const atom = wasm.getAtomPtr(atom_index);
     {

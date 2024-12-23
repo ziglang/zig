@@ -35,6 +35,15 @@ tid: Id,
 pub const IdBacking = u7;
 pub const Id = if (InternPool.single_threaded) enum { main } else enum(IdBacking) { main, _ };
 
+pub fn activate(zcu: *Zcu, tid: Id) Zcu.PerThread {
+    zcu.intern_pool.activate();
+    return .{ .zcu = zcu, .tid = tid };
+}
+
+pub fn deactivate(pt: Zcu.PerThread) void {
+    pt.zcu.intern_pool.deactivate();
+}
+
 fn deinitFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;

@@ -891,7 +891,7 @@ pub const ResolveStratLazy = enum {
 };
 
 /// The chosen strategy can be easily optimized away in release builds.
-/// However, in debug builds, it helps to avoid acceidentally resolving types in backends.
+/// However, in debug builds, it helps to avoid accidentally resolving types in backends.
 pub const ResolveStrat = enum {
     /// Assert that all necessary resolution is completed.
     /// Backends should typically use this, since they must not perform type resolution.

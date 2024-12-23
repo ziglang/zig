@@ -267,7 +267,8 @@ pub fn deinit(self: *ZigObject, allocator: Allocator) void {
 pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
     // Handle any lazy symbols that were emitted by incremental compilation.
     if (self.lazy_syms.getPtr(.anyerror_type)) |metadata| {
-        const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.zcu.?, .tid = tid };
+        const pt: Zcu.PerThread = .activate(elf_file.base.comp.zcu.?, tid);
+        defer pt.deactivate();
 
         // Most lazy symbols can be updated on first use, but
         // anyerror needs to wait for everything to be flushed.
@@ -296,7 +297,8 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
     }
 
     if (build_options.enable_logging) {
-        const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.zcu.?, .tid = tid };
+        const pt: Zcu.PerThread = .activate(elf_file.base.comp.zcu.?, tid);
+        defer pt.deactivate();
         for (self.navs.keys(), self.navs.values()) |nav_index, meta| {
             checkNavAllocated(pt, nav_index, meta);
         }
@@ -306,7 +308,8 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
     }
 
     if (self.dwarf) |*dwarf| {
-        const pt: Zcu.PerThread = .{ .zcu = elf_file.base.comp.zcu.?, .tid = tid };
+        const pt: Zcu.PerThread = .activate(elf_file.base.comp.zcu.?, tid);
+        defer pt.deactivate();
         try dwarf.flushModule(pt);
 
         const gpa = elf_file.base.comp.gpa;
