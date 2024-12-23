@@ -140,7 +140,7 @@ pub const ScratchSpace = struct {
     const FuncImportIndex = enum(u32) {
         _,
 
-        fn ptr(index: FunctionImport, ss: *const ScratchSpace) *FunctionImport {
+        fn ptr(index: FuncImportIndex, ss: *const ScratchSpace) *FunctionImport {
             return &ss.func_imports.items[@intFromEnum(index)];
         }
     };
@@ -351,10 +351,13 @@ pub fn parse(
                                         .function => {
                                             const local_index, pos = readLeb(u32, bytes, pos);
                                             if (symbol.flags.undefined) {
-                                                symbol.pointee = .{ .function_import = @enumFromInt(local_index) };
+                                                const function_import: ScratchSpace.FuncImportIndex = @enumFromInt(local_index);
+                                                symbol.pointee = .{ .function_import = function_import };
                                                 if (symbol.flags.explicit_name) {
                                                     const name, pos = readBytes(bytes, pos);
                                                     symbol.name = (try wasm.internString(name)).toOptional();
+                                                } else {
+                                                    symbol.name = function_import.ptr(ss).name.toOptional();
                                                 }
                                             } else {
                                                 symbol.pointee = .{ .function = @enumFromInt(functions_start + local_index) };
@@ -365,10 +368,13 @@ pub fn parse(
                                         .global => {
                                             const local_index, pos = readLeb(u32, bytes, pos);
                                             if (symbol.flags.undefined) {
-                                                symbol.pointee = .{ .global_import = @enumFromInt(global_imports_start + local_index) };
+                                                const global_import: Wasm.GlobalImport.Index = @enumFromInt(global_imports_start + local_index);
+                                                symbol.pointee = .{ .global_import = global_import };
                                                 if (symbol.flags.explicit_name) {
                                                     const name, pos = readBytes(bytes, pos);
                                                     symbol.name = (try wasm.internString(name)).toOptional();
+                                                } else {
+                                                    symbol.name = global_import.key(wasm).toOptional();
                                                 }
                                             } else {
                                                 symbol.pointee = .{ .global = @enumFromInt(globals_start + local_index) };
@@ -380,10 +386,13 @@ pub fn parse(
                                             table_count += 1;
                                             const local_index, pos = readLeb(u32, bytes, pos);
                                             if (symbol.flags.undefined) {
-                                                symbol.pointee = .{ .table_import = @enumFromInt(table_imports_start + local_index) };
+                                                const table_import: Wasm.TableImport.Index = @enumFromInt(table_imports_start + local_index);
+                                                symbol.pointee = .{ .table_import = table_import };
                                                 if (symbol.flags.explicit_name) {
                                                     const name, pos = readBytes(bytes, pos);
                                                     symbol.name = (try wasm.internString(name)).toOptional();
+                                                } else {
+                                                    symbol.name = table_import.key(wasm).toOptional();
                                                 }
                                             } else {
                                                 symbol.pointee = .{ .table = @enumFromInt(tables_start + local_index) };
@@ -439,10 +448,39 @@ pub fn parse(
                             .MEMORY_ADDR_TLS_SLEB,
                             .MEMORY_ADDR_LOCREL_I32,
                             .MEMORY_ADDR_TLS_SLEB64,
+                            => {
+                                const addend: i32, pos = readLeb(i32, bytes, pos);
+                                const sym_section = ss.symbol_table.items[index].pointee.data;
+                                if (sym_section.segment_offset != 0) {
+                                    return diags.failParse(path, "data symbol {d} has nonzero offset {d}", .{
+                                        index, sym_section.segment_offset,
+                                    });
+                                }
+                                const seg_size = sym_section.segment_index.ptr(wasm).payload.len;
+                                if (sym_section.size != seg_size) {
+                                    return diags.failParse(path, "data symbol {d} has size {d}, inequal to corresponding data segment {d} size {d}", .{
+                                        index, sym_section.size, @intFromEnum(sym_section.segment_index), seg_size,
+                                    });
+                                }
+                                wasm.object_relocations.appendAssumeCapacity(.{
+                                    .tag = tag,
+                                    .offset = offset,
+                                    .pointee = .{ .data_segment = sym_section.segment_index },
+                                    .addend = addend,
+                                });
+                            },
                             .FUNCTION_OFFSET_I32,
-                            .SECTION_OFFSET_I32,
                             .FUNCTION_OFFSET_I64,
                             => {
+                                const addend: i32, pos = readLeb(i32, bytes, pos);
+                                wasm.object_relocations.appendAssumeCapacity(.{
+                                    .tag = tag,
+                                    .offset = offset,
+                                    .pointee = .{ .function = ss.symbol_table.items[index].pointee.function },
+                                    .addend = addend,
+                                });
+                            },
+                            .SECTION_OFFSET_I32 => {
                                 const addend: i32, pos = readLeb(i32, bytes, pos);
                                 wasm.object_relocations.appendAssumeCapacity(.{
                                     .tag = tag,

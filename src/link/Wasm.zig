@@ -1955,6 +1955,8 @@ pub const ObjectRelocation = struct {
         symbol_name: String,
         type_index: FunctionType.Index,
         section: ObjectSectionIndex,
+        data_segment: ObjectDataSegmentIndex,
+        function: Wasm.ObjectFunctionIndex,
     };
 
     pub const Slice = extern struct {
@@ -1968,14 +1970,17 @@ pub const ObjectRelocation = struct {
     };
 
     pub const Tag = enum(u8) {
-        /// Uses `symbol_name`.
+        /// Uses `function`.
         FUNCTION_INDEX_LEB = 0,
         /// Uses `table_index`.
         TABLE_INDEX_SLEB = 1,
         /// Uses `table_index`.
         TABLE_INDEX_I32 = 2,
+        /// Uses `data_segment`.
         MEMORY_ADDR_LEB = 3,
+        /// Uses `data_segment`.
         MEMORY_ADDR_SLEB = 4,
+        /// Uses `data_segment`.
         MEMORY_ADDR_I32 = 5,
         /// Uses `type_index`.
         TYPE_INDEX_LEB = 6,
@@ -1984,23 +1989,31 @@ pub const ObjectRelocation = struct {
         FUNCTION_OFFSET_I32 = 8,
         SECTION_OFFSET_I32 = 9,
         TAG_INDEX_LEB = 10,
+        /// Uses `data_segment`.
         MEMORY_ADDR_REL_SLEB = 11,
         TABLE_INDEX_REL_SLEB = 12,
         /// Uses `symbol_name`.
         GLOBAL_INDEX_I32 = 13,
+        /// Uses `data_segment`.
         MEMORY_ADDR_LEB64 = 14,
+        /// Uses `data_segment`.
         MEMORY_ADDR_SLEB64 = 15,
+        /// Uses `data_segment`.
         MEMORY_ADDR_I64 = 16,
+        /// Uses `data_segment`.
         MEMORY_ADDR_REL_SLEB64 = 17,
         /// Uses `table_index`.
         TABLE_INDEX_SLEB64 = 18,
         /// Uses `table_index`.
         TABLE_INDEX_I64 = 19,
         TABLE_NUMBER_LEB = 20,
+        /// Uses `data_segment`.
         MEMORY_ADDR_TLS_SLEB = 21,
         FUNCTION_OFFSET_I64 = 22,
+        /// Uses `data_segment`.
         MEMORY_ADDR_LOCREL_I32 = 23,
         TABLE_INDEX_REL_SLEB64 = 24,
+        /// Uses `data_segment`.
         MEMORY_ADDR_TLS_SLEB64 = 25,
         /// Uses `symbol_name`.
         FUNCTION_INDEX_I32 = 26,
@@ -2282,6 +2295,7 @@ fn openParseObjectReportingFailure(wasm: *Wasm, path: Path) void {
 }
 
 fn parseObject(wasm: *Wasm, obj: link.Input.Object) !void {
+    log.debug("parseObject {}", .{obj.path});
     const gpa = wasm.base.comp.gpa;
     const gc_sections = wasm.base.gc_sections;
 
@@ -2305,6 +2319,7 @@ fn parseObject(wasm: *Wasm, obj: link.Input.Object) !void {
 }
 
 fn parseArchive(wasm: *Wasm, obj: link.Input.Object) !void {
+    log.debug("parseArchive {}", .{obj.path});
     const gpa = wasm.base.comp.gpa;
     const gc_sections = wasm.base.gc_sections;
 
@@ -2567,7 +2582,9 @@ pub fn loadInput(wasm: *Wasm, input: link.Input) !void {
             .res => unreachable,
             .dso_exact => unreachable,
             .dso => unreachable,
-            .object, .archive => |obj| try argv.append(gpa, try obj.path.toString(comp.arena)),
+            .object, .archive => |obj| {
+                try argv.append(gpa, try obj.path.toString(comp.arena));
+            },
         }
     }
 
