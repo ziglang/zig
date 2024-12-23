@@ -834,7 +834,7 @@ add_custom_command(
   OUTPUT "${ZIG1_C_SOURCE}"
   COMMAND zig-wasm2c "${ZIG1_WASM_MODULE}" "${ZIG1_C_SOURCE}"
   DEPENDS zig-wasm2c "${ZIG1_WASM_MODULE}"
-  COMMENT STATUS "Converting ${ZIG1_WASM_MODULE} to ${ZIG1_C_SOURCE}"
+  COMMENT "Converting ${ZIG1_WASM_MODULE} to ${ZIG1_C_SOURCE}"
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
 )
 
@@ -867,7 +867,7 @@ add_custom_command(
   OUTPUT "${ZIG2_C_SOURCE}"
   COMMAND zig1 ${BUILD_ZIG2_ARGS}
   DEPENDS zig1 "${ZIG_STAGE2_SOURCES}"
-  COMMENT STATUS "Running zig1.wasm to produce ${ZIG2_C_SOURCE}"
+  COMMENT "Running zig1.wasm to produce ${ZIG2_C_SOURCE}"
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
 )
 
@@ -884,7 +884,7 @@ add_custom_command(
   OUTPUT "${ZIG_COMPILER_RT_C_SOURCE}"
   COMMAND zig1 ${BUILD_COMPILER_RT_ARGS}
   DEPENDS zig1 "${ZIG_STAGE2_SOURCES}"
-  COMMENT STATUS "Running zig1.wasm to produce ${ZIG_COMPILER_RT_C_SOURCE}"
+  COMMENT "Running zig1.wasm to produce ${ZIG_COMPILER_RT_C_SOURCE}"
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
 )
 
@@ -980,7 +980,7 @@ set(ZIG2_WORKING_DIR "${PROJECT_SOURCE_DIR}")
 add_custom_command(
   OUTPUT "${PROJECT_BINARY_DIR}/stage3/bin/zig"
   COMMAND zig2 build --prefix "${PROJECT_BINARY_DIR}/stage3" ${ZIG_BUILD_ARGS}
-  COMMENT STATUS "Building stage3"
+  COMMENT "Building stage3"
   WORKING_DIRECTORY "${ZIG2_WORKING_DIR}"
 )
 
