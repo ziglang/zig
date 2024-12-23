@@ -1251,6 +1251,8 @@ pub const table = [_]Entry{
 
     .{ .pmulld, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x38, 0x40 }, 0, .none, .sse4_1 },
 
+    .{ .ptest, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x38, 0x17 }, 0, .none, .sse4_1 },
+
     .{ .roundpd, .rmi, &.{ .xmm, .xmm_m128, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x09 }, 0, .none, .sse4_1 },
 
     .{ .roundps, .rmi, &.{ .xmm, .xmm_m128, .imm8 }, &.{ 0x66, 0x0f, 0x3a, 0x08 }, 0, .none, .sse4_1 },
@@ -1676,6 +1678,9 @@ pub const table = [_]Entry{
     .{ .vpsubusb, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0xd8 }, 0, .vex_128_wig, .avx },
     .{ .vpsubusw, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0xd9 }, 0, .vex_128_wig, .avx },
 
+    .{ .vptest, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x38, 0x17 }, 0, .vex_128_wig, .avx },
+    .{ .vptest, .rm, &.{ .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x38, 0x17 }, 0, .vex_256_wig, .avx },
+
     .{ .vpunpckhbw,  .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x68 }, 0, .vex_128_wig, .avx },
     .{ .vpunpckhwd,  .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x69 }, 0, .vex_128_wig, .avx },
     .{ .vpunpckhdq,  .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x6a }, 0, .vex_128_wig, .avx },
@@ -1725,6 +1730,11 @@ pub const table = [_]Entry{
     .{ .vsubsd, .rvm, &.{ .xmm, .xmm, .xmm_m64 }, &.{ 0xf2, 0x0f, 0x5c }, 0, .vex_lig_wig, .avx },
 
     .{ .vsubss, .rvm, &.{ .xmm, .xmm, .xmm_m32 }, &.{ 0xf3, 0x0f, 0x5c }, 0, .vex_lig_wig, .avx },
+
+    .{ .vtestps, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x38, 0x0e }, 0, .vex_128_w0, .avx },
+    .{ .vtestps, .rm, &.{ .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x38, 0x0e }, 0, .vex_256_w0, .avx },
+    .{ .vtestpd, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x38, 0x0f }, 0, .vex_128_w0, .avx },
+    .{ .vtestpd, .rm, &.{ .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x38, 0x0f }, 0, .vex_256_w0, .avx },
 
     .{ .vxorpd, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x57 }, 0, .vex_128_wig, .avx },
     .{ .vxorpd, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x57 }, 0, .vex_256_wig, .avx },

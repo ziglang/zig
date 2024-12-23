@@ -353,6 +353,7 @@ pub const Mnemonic = enum {
     pmovsxbd, pmovsxbq, pmovsxbw, pmovsxdq, pmovsxwd, pmovsxwq,
     pmovzxbd, pmovzxbq, pmovzxbw, pmovzxdq, pmovzxwd, pmovzxwq,
     pmulld,
+    ptest,
     roundpd, roundps, roundsd, roundss,
     // SSE4.2
     pcmpgtq,
@@ -413,6 +414,7 @@ pub const Mnemonic = enum {
     vpsrad, vpsraq, vpsraw,
     vpsrld, vpsrldq, vpsrlq, vpsrlw,
     vpsubb, vpsubd, vpsubq, vpsubsb, vpsubsw, vpsubusb, vpsubusw, vpsubw,
+    vptest,
     vpunpckhbw, vpunpckhdq, vpunpckhqdq, vpunpckhwd,
     vpunpcklbw, vpunpckldq, vpunpcklqdq, vpunpcklwd,
     vpxor,
@@ -421,6 +423,7 @@ pub const Mnemonic = enum {
     vsqrtpd, vsqrtps, vsqrtsd, vsqrtss,
     vstmxcsr,
     vsubpd, vsubps, vsubsd, vsubss,
+    vtestpd, vtestps,
     vxorpd, vxorps,
     // F16C
     vcvtph2ps, vcvtps2ph,

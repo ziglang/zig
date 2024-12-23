@@ -263,6 +263,12 @@ fn testBinary(comptime op: anytype) !void {
         0xbfd88aee1d82ed32, 0x20e91c15b701059a,
         0xed533d18f8657f3f, 0x1ddd7cd7f6bab957,
     });
+
+    if (false) try testType(@Vector(1, u128), .{
+        0x5f11e16b0ca3392f907a857881455d2e,
+    }, .{
+        0xf9142d73b408fd6955922f9fc147f7d7,
+    });
 }
 
 inline fn bitAnd(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs & rhs) {

@@ -150,6 +150,31 @@ pub const Condition = enum(u5) {
             .nz_or_p => .z_and_np,
         };
     }
+
+    /// Returns the equivalent condition when the operands are swapped.
+    pub fn commute(cond: Condition) Condition {
+        return switch (cond) {
+            else => cond,
+            .a => .b,
+            .ae => .be,
+            .b => .a,
+            .be => .ae,
+            .c => .a,
+            .g => .l,
+            .ge => .le,
+            .l => .g,
+            .le => .ge,
+            .na => .nb,
+            .nae => .nbe,
+            .nb => .na,
+            .nbe => .nae,
+            .nc => .na,
+            .ng => .nl,
+            .nge => .nle,
+            .nl => .ng,
+            .nle => .nge,
+        };
+    }
 };
 
 pub const Register = enum(u7) {
