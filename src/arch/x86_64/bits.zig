@@ -479,8 +479,8 @@ pub const RegisterOffset = struct { reg: Register, off: i32 = 0 };
 pub const SymbolOffset = struct { sym_index: u32, off: i32 = 0 };
 
 pub const Memory = struct {
-    base: Base,
-    mod: Mod,
+    base: Base = .none,
+    mod: Mod = .{ .rm = .{} },
 
     pub const Base = union(enum(u2)) {
         none,
@@ -503,7 +503,7 @@ pub const Memory = struct {
         off: u64,
 
         pub const Rm = struct {
-            size: Size,
+            size: Size = .none,
             index: Register = .none,
             scale: Scale = .@"1",
             disp: i32 = 0,
@@ -512,6 +512,7 @@ pub const Memory = struct {
 
     pub const Size = enum(u4) {
         none,
+        ptr,
         byte,
         word,
         dword,
@@ -548,9 +549,10 @@ pub const Memory = struct {
             };
         }
 
-        pub fn bitSize(s: Size) u64 {
+        pub fn bitSize(s: Size, target: *const std.Target) u64 {
             return switch (s) {
                 .none => 0,
+                .ptr => target.ptrBitWidth(),
                 .byte => 8,
                 .word => 16,
                 .dword => 32,
@@ -569,8 +571,11 @@ pub const Memory = struct {
             writer: anytype,
         ) @TypeOf(writer).Error!void {
             if (s == .none) return;
-            try writer.writeAll(@tagName(s));
-            try writer.writeAll(" ptr");
+            if (s != .ptr) {
+                try writer.writeAll(@tagName(s));
+                try writer.writeByte(' ');
+            }
+            try writer.writeAll("ptr");
         }
     };
 

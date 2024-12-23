@@ -167,11 +167,11 @@ pub const Instruction = struct {
             };
         }
 
-        pub fn bitSize(mem: Memory) u64 {
+        pub fn bitSize(mem: Memory, target: *const std.Target) u64 {
             return switch (mem) {
-                .rip => |r| r.ptr_size.bitSize(),
-                .sib => |s| s.ptr_size.bitSize(),
-                .moffs => 64,
+                .rip => |r| r.ptr_size.bitSize(target),
+                .sib => |s| s.ptr_size.bitSize(target),
+                .moffs => target.ptrBitWidth(),
             };
         }
     };
@@ -314,16 +314,21 @@ pub const Instruction = struct {
         }
     };
 
-    pub fn new(prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand) !Instruction {
+    pub fn new(
+        prefix: Prefix,
+        mnemonic: Mnemonic,
+        ops: []const Operand,
+        target: *const std.Target,
+    ) !Instruction {
         const encoding: Encoding = switch (prefix) {
-            else => (try Encoding.findByMnemonic(prefix, mnemonic, ops)) orelse {
+            else => (try Encoding.findByMnemonic(prefix, mnemonic, ops, target)) orelse {
                 log.err("no encoding found for: {s} {s} {s} {s} {s} {s}", .{
                     @tagName(prefix),
                     @tagName(mnemonic),
-                    @tagName(if (ops.len > 0) Encoding.Op.fromOperand(ops[0]) else .none),
-                    @tagName(if (ops.len > 1) Encoding.Op.fromOperand(ops[1]) else .none),
-                    @tagName(if (ops.len > 2) Encoding.Op.fromOperand(ops[2]) else .none),
-                    @tagName(if (ops.len > 3) Encoding.Op.fromOperand(ops[3]) else .none),
+                    @tagName(if (ops.len > 0) Encoding.Op.fromOperand(ops[0], target) else .none),
+                    @tagName(if (ops.len > 1) Encoding.Op.fromOperand(ops[1], target) else .none),
+                    @tagName(if (ops.len > 2) Encoding.Op.fromOperand(ops[2], target) else .none),
+                    @tagName(if (ops.len > 3) Encoding.Op.fromOperand(ops[3], target) else .none),
                 });
                 return error.InvalidInstruction;
             },
@@ -332,10 +337,10 @@ pub const Instruction = struct {
                 .data = .{
                     .op_en = .zo,
                     .ops = .{
-                        if (ops.len > 0) Encoding.Op.fromOperand(ops[0]) else .none,
-                        if (ops.len > 1) Encoding.Op.fromOperand(ops[1]) else .none,
-                        if (ops.len > 2) Encoding.Op.fromOperand(ops[2]) else .none,
-                        if (ops.len > 3) Encoding.Op.fromOperand(ops[3]) else .none,
+                        if (ops.len > 0) Encoding.Op.fromOperand(ops[0], target) else .none,
+                        if (ops.len > 1) Encoding.Op.fromOperand(ops[1], target) else .none,
+                        if (ops.len > 2) Encoding.Op.fromOperand(ops[2], target) else .none,
+                        if (ops.len > 3) Encoding.Op.fromOperand(ops[3], target) else .none,
                     },
                     .opc_len = 0,
                     .opc = undefined,

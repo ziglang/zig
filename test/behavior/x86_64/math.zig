@@ -264,10 +264,47 @@ fn testBinary(comptime op: anytype) !void {
         0xed533d18f8657f3f, 0x1ddd7cd7f6bab957,
     });
 
-    if (false) try testType(@Vector(1, u128), .{
+    try testType(@Vector(1, u128), .{
         0x5f11e16b0ca3392f907a857881455d2e,
     }, .{
         0xf9142d73b408fd6955922f9fc147f7d7,
+    });
+    try testType(@Vector(2, u128), .{
+        0xee0fb41fabd805923fb21b5c658e3a87,
+        0x2352e74aad6c58b3255ff0bba5aa6552,
+    }, .{
+        0x8d822f9fdd9cb9a5b43513b14419b224,
+        0x1aef2a02704379e38ead4d53d69e4cc4,
+    });
+    try testType(@Vector(4, u128), .{
+        0xc74437a4ea3bbbb193dbf0ea2f0c5281,
+        0x039e4b1640868248780db1834a0027eb,
+        0xb9e8bb34155b2b238da20331d08ff85b,
+        0x863802d34a54c2e6aa71dd0f067c4904,
+    }, .{
+        0x7471bae24ff7b84ab107f86ba2b7d1e7,
+        0x8f34c449d0576e682c20bda74aa6b6c9,
+        0x1f34c3efa167b61c48c9d5ec01a1a93f,
+        0x71c8318fcf3ddc7be058c73a52dce9e3,
+    });
+    try testType(@Vector(8, u128), .{
+        0xbf2db71463037f55ee338431f902a906,
+        0xb7ad317626655f38ab25ae30d8a1aa67,
+        0x7d3c5a3ffaa607b5560d69ae3fcf7863,
+        0x009a39a8badf8b628c686dc176aa1273,
+        0x49dba3744c91304cc7bbbdab61b6c969,
+        0x6ec664b624f7acf79ce69d80ed7bc85c,
+        0xe02d7a303c0f00c39010f3b815547f1c,
+        0xb13e1ee914616f58cffe6acd33d9b5c8,
+    }, .{
+        0x2f2d355a071942a7384f82ba72a945b8,
+        0x61f151b3afec8cb7664f813cecf581d1,
+        0x5bfbf5484f3a07f0eacc4739ff48af80,
+        0x59c0abbf8d829cf525a87d5c9c41a38a,
+        0xdad8b18eb680f0520ca49ebfb5842e22,
+        0xa05adcaedd9057480b3ba0413d003cec,
+        0x8b0b4a27fc94a0e90652d19bc755b63d,
+        0xa858bce5ad0e48c13588a4e170e8667c,
     });
 }
 

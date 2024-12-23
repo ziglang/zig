@@ -976,6 +976,7 @@ const x86_64 = struct {
         it: *RelocsIterator,
     ) !void {
         dev.check(.x86_64_backend);
+        const t = &elf_file.base.comp.root_mod.resolved_target.result;
         const is_static = elf_file.base.isStatic();
         const is_dyn_lib = elf_file.isEffectivelyDynLib();
 
@@ -1046,7 +1047,7 @@ const x86_64 = struct {
             .GOTTPOFF => {
                 const should_relax = blk: {
                     if (is_dyn_lib or symbol.flags.import) break :blk false;
-                    if (!x86_64.canRelaxGotTpOff(code.?[r_offset - 3 ..])) break :blk false;
+                    if (!x86_64.canRelaxGotTpOff(code.?[r_offset - 3 ..], t)) break :blk false;
                     break :blk true;
                 };
                 if (!should_relax) {
@@ -1090,6 +1091,7 @@ const x86_64 = struct {
         stream: anytype,
     ) (error{ InvalidInstruction, CannotEncode } || RelocError)!void {
         dev.check(.x86_64_backend);
+        const t = &elf_file.base.comp.root_mod.resolved_target.result;
         const diags = &elf_file.base.comp.link_diags;
         const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
@@ -1120,7 +1122,7 @@ const x86_64 = struct {
 
             .GOTPCRELX => {
                 if (!target.flags.import and !target.isIFunc(elf_file) and !target.isAbs(elf_file)) blk: {
-                    x86_64.relaxGotpcrelx(code[r_offset - 2 ..]) catch break :blk;
+                    x86_64.relaxGotpcrelx(code[r_offset - 2 ..], t) catch break :blk;
                     try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little);
                     return;
                 }
@@ -1129,7 +1131,7 @@ const x86_64 = struct {
 
             .REX_GOTPCRELX => {
                 if (!target.flags.import and !target.isIFunc(elf_file) and !target.isAbs(elf_file)) blk: {
-                    x86_64.relaxRexGotpcrelx(code[r_offset - 3 ..]) catch break :blk;
+                    x86_64.relaxRexGotpcrelx(code[r_offset - 3 ..], t) catch break :blk;
                     try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little);
                     return;
                 }
@@ -1184,7 +1186,7 @@ const x86_64 = struct {
                     const S_ = target.tlsDescAddress(elf_file);
                     try cwriter.writeInt(i32, @as(i32, @intCast(S_ + A - P)), .little);
                 } else {
-                    x86_64.relaxGotPcTlsDesc(code[r_offset - 3 ..]) catch {
+                    x86_64.relaxGotPcTlsDesc(code[r_offset - 3 ..], t) catch {
                         var err = try diags.addErrorWithNotes(1);
                         try err.addMsg("could not relax {s}", .{@tagName(r_type)});
                         err.addNote("in {}:{s} at offset 0x{x}", .{
@@ -1208,7 +1210,7 @@ const x86_64 = struct {
                     const S_ = target.gotTpAddress(elf_file);
                     try cwriter.writeInt(i32, @as(i32, @intCast(S_ + A - P)), .little);
                 } else {
-                    x86_64.relaxGotTpOff(code[r_offset - 3 ..]);
+                    x86_64.relaxGotTpOff(code[r_offset - 3 ..], t);
                     try cwriter.writeInt(i32, @as(i32, @intCast(S - TP)), .little);
                 }
             },
@@ -1269,31 +1271,31 @@ const x86_64 = struct {
         }
     }
 
-    fn relaxGotpcrelx(code: []u8) !void {
+    fn relaxGotpcrelx(code: []u8, t: *const std.Target) !void {
         dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return error.RelaxFailure;
         const inst = switch (old_inst.encoding.mnemonic) {
             .call => try Instruction.new(old_inst.prefix, .call, &.{
                 // TODO: hack to force imm32s in the assembler
                 .{ .imm = Immediate.s(-129) },
-            }),
+            }, t),
             .jmp => try Instruction.new(old_inst.prefix, .jmp, &.{
                 // TODO: hack to force imm32s in the assembler
                 .{ .imm = Immediate.s(-129) },
-            }),
+            }, t),
             else => return error.RelaxFailure,
         };
         relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
-        const nop = try Instruction.new(.none, .nop, &.{});
+        const nop = try Instruction.new(.none, .nop, &.{}, t);
         try encode(&.{ nop, inst }, code);
     }
 
-    fn relaxRexGotpcrelx(code: []u8) !void {
+    fn relaxRexGotpcrelx(code: []u8, t: *const std.Target) !void {
         dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return error.RelaxFailure;
         switch (old_inst.encoding.mnemonic) {
             .mov => {
-                const inst = try Instruction.new(old_inst.prefix, .lea, &old_inst.ops);
+                const inst = try Instruction.new(old_inst.prefix, .lea, &old_inst.ops, t);
                 relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
                 try encode(&.{inst}, code);
             },
@@ -1398,7 +1400,7 @@ const x86_64 = struct {
         }
     }
 
-    fn canRelaxGotTpOff(code: []const u8) bool {
+    fn canRelaxGotTpOff(code: []const u8, t: *const std.Target) bool {
         dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return false;
         switch (old_inst.encoding.mnemonic) {
@@ -1406,7 +1408,7 @@ const x86_64 = struct {
                 old_inst.ops[0],
                 // TODO: hack to force imm32s in the assembler
                 .{ .imm = Immediate.s(-129) },
-            })) |inst| {
+            }, t)) |inst| {
                 inst.encode(std.io.null_writer, .{}) catch return false;
                 return true;
             } else |_| return false,
@@ -1414,7 +1416,7 @@ const x86_64 = struct {
         }
     }
 
-    fn relaxGotTpOff(code: []u8) void {
+    fn relaxGotTpOff(code: []u8, t: *const std.Target) void {
         dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse unreachable;
         switch (old_inst.encoding.mnemonic) {
@@ -1423,7 +1425,7 @@ const x86_64 = struct {
                     old_inst.ops[0],
                     // TODO: hack to force imm32s in the assembler
                     .{ .imm = Immediate.s(-129) },
-                }) catch unreachable;
+                }, t) catch unreachable;
                 relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
                 encode(&.{inst}, code) catch unreachable;
             },
@@ -1431,7 +1433,7 @@ const x86_64 = struct {
         }
     }
 
-    fn relaxGotPcTlsDesc(code: []u8) !void {
+    fn relaxGotPcTlsDesc(code: []u8, target: *const std.Target) !void {
         dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return error.RelaxFailure;
         switch (old_inst.encoding.mnemonic) {
@@ -1440,7 +1442,7 @@ const x86_64 = struct {
                     old_inst.ops[0],
                     // TODO: hack to force imm32s in the assembler
                     .{ .imm = Immediate.s(-129) },
-                });
+                }, target);
                 relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
                 try encode(&.{inst}, code);
             },

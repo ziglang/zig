@@ -30,9 +30,10 @@ pub fn findByMnemonic(
     prefix: Instruction.Prefix,
     mnemonic: Mnemonic,
     ops: []const Instruction.Operand,
+    target: *const std.Target,
 ) !?Encoding {
-    var input_ops = [1]Op{.none} ** 4;
-    for (input_ops[0..ops.len], ops) |*input_op, op| input_op.* = Op.fromOperand(op);
+    var input_ops: [4]Op = @splat(.none);
+    for (input_ops[0..ops.len], ops) |*input_op, op| input_op.* = Op.fromOperand(op, target);
 
     const rex_required = for (ops) |op| switch (op) {
         .reg => |r| switch (r) {
@@ -57,6 +58,16 @@ pub fn findByMnemonic(
     var shortest_enc: ?Encoding = null;
     var shortest_len: ?usize = null;
     next: for (mnemonic_to_encodings_map[@intFromEnum(mnemonic)]) |data| {
+        if (!switch (data.feature) {
+            .none => true,
+            inline else => |tag| has_features: {
+                comptime var feature_it = std.mem.splitScalar(u8, @tagName(tag), ' ');
+                comptime var features: []const std.Target.x86.Feature = &.{};
+                inline while (comptime feature_it.next()) |feature| features = features ++ .{@field(std.Target.x86.Feature, feature)};
+                break :has_features std.Target.x86.featureSetHasAll(target.cpu.features, features[0..features.len].*);
+            },
+        }) continue;
+
         switch (data.mode) {
             .none, .short => if (rex_required) continue,
             .rex, .rex_short => if (!rex_required) continue,
@@ -64,7 +75,7 @@ pub fn findByMnemonic(
         }
         for (input_ops, data.ops) |input_op, data_op| if (!input_op.isSubset(data_op)) continue :next;
 
-        const enc = Encoding{ .mnemonic = mnemonic, .data = data };
+        const enc: Encoding = .{ .mnemonic = mnemonic, .data = data };
         if (shortest_enc) |previous_shortest_enc| {
             const len = estimateInstructionLength(prefix, enc, ops);
             const previous_shortest_len = shortest_len orelse
@@ -474,7 +485,7 @@ pub const Op = enum {
     ymm, ymm_m256,
     // zig fmt: on
 
-    pub fn fromOperand(operand: Instruction.Operand) Op {
+    pub fn fromOperand(operand: Instruction.Operand, target: *const std.Target) Op {
         return switch (operand) {
             .none => .none,
 
@@ -516,7 +527,7 @@ pub const Op = enum {
 
             .mem => |mem| switch (mem) {
                 .moffs => .moffs,
-                .sib, .rip => switch (mem.bitSize()) {
+                .sib, .rip => switch (mem.bitSize(target)) {
                     0 => .m,
                     8 => .m8,
                     16 => .m16,
@@ -835,7 +846,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
     var inst = Instruction{
         .prefix = prefix,
         .encoding = encoding,
-        .ops = [1]Operand{.none} ** 4,
+        .ops = @splat(.none),
     };
     @memcpy(inst.ops[0..ops.len], ops);
 
@@ -850,7 +861,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
 const mnemonic_to_encodings_map = init: {
     @setEvalBranchQuota(5_000);
     const mnemonic_count = @typeInfo(Mnemonic).@"enum".fields.len;
-    var mnemonic_map: [mnemonic_count][]Data = .{&.{}} ** mnemonic_count;
+    var mnemonic_map: [mnemonic_count][]Data = @splat(&.{});
     const encodings = @import("encodings.zig");
     for (encodings.table) |entry| mnemonic_map[@intFromEnum(entry[0])].len += 1;
     var data_storage: [encodings.table.len]Data = undefined;
@@ -859,7 +870,7 @@ const mnemonic_to_encodings_map = init: {
         value.ptr = data_storage[storage_i..].ptr;
         storage_i += value.len;
     }
-    var mnemonic_i: [mnemonic_count]usize = .{0} ** mnemonic_count;
+    var mnemonic_i: [mnemonic_count]usize = @splat(0);
     const ops_len = @typeInfo(std.meta.FieldType(Data, .ops)).array.len;
     const opc_len = @typeInfo(std.meta.FieldType(Data, .opc)).array.len;
     for (encodings.table) |entry| {
@@ -876,7 +887,7 @@ const mnemonic_to_encodings_map = init: {
         i.* += 1;
     }
     const final_storage = data_storage;
-    var final_map: [mnemonic_count][]const Data = .{&.{}} ** mnemonic_count;
+    var final_map: [mnemonic_count][]const Data = @splat(&.{});
     storage_i = 0;
     for (&final_map, mnemonic_map) |*final_value, value| {
         final_value.* = final_storage[storage_i..][0..value.len];

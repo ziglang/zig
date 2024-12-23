@@ -214,6 +214,10 @@ pub const Inst = struct {
         p_q,
         /// Packed ___ Double Quadword
         p_dq,
+        /// ___ Aligned Packed Integer Values
+        _dqa,
+        /// ___ Unaligned Packed Integer Values
+        _dqu,
 
         /// ___ Scalar Single-Precision Values
         _ss,
@@ -234,6 +238,10 @@ pub const Inst = struct {
         v_d,
         /// VEX-Encoded ___ QuadWord
         v_q,
+        /// VEX-Encoded ___ Aligned Packed Integer Values
+        v_dqa,
+        /// VEX-Encoded ___ Unaligned Packed Integer Values
+        v_dqu,
         /// VEX-Encoded ___ Integer Data
         v_i128,
         /// VEX-Encoded Packed ___
@@ -362,6 +370,8 @@ pub const Inst = struct {
         /// Move scalar double-precision floating-point value
         /// Move doubleword
         /// Move quadword
+        /// Move aligned packed integer values
+        /// Move unaligned packed integer values
         mov,
         /// Move data after swapping bytes
         movbe,
@@ -609,10 +619,6 @@ pub const Inst = struct {
         cvttps2dq,
         /// Convert with truncation scalar double-precision floating-point value to doubleword integer
         cvttsd2si,
-        /// Move aligned packed integer values
-        movdqa,
-        /// Move unaligned packed integer values
-        movdqu,
         /// Packed interleave shuffle of quadruplets of single-precision floating-point values
         /// Packed interleave shuffle of pairs of double-precision floating-point values
         /// Shuffle packed doublewords
