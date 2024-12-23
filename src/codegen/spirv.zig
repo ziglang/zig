@@ -268,7 +268,7 @@ pub const Object = struct {
             // TODO: Extern fn?
             const kind: SpvModule.Decl.Kind = if (ip.isFunctionType(nav.typeOf(ip)))
                 .func
-            else switch (nav.status.resolved.@"addrspace") {
+            else switch (nav.getAddrspace()) {
                 .generic => .invocation_global,
                 else => .global,
             };
@@ -1279,17 +1279,20 @@ const NavGen = struct {
         const ip = &zcu.intern_pool;
         const ty_id = try self.resolveType(ty, .direct);
         const nav = ip.getNav(nav_index);
-        const nav_val = zcu.navValue(nav_index);
-        const nav_ty = nav_val.typeOf(zcu);
+        const nav_ty: Type = .fromInterned(nav.typeOf(ip));
 
-        switch (ip.indexToKey(nav_val.toIntern())) {
-            .func => {
-                // TODO: Properly lower function pointers. For now we are going to hack around it and
-                // just generate an empty pointer. Function pointers are represented by a pointer to usize.
-                return try self.spv.constUndef(ty_id);
+        switch (nav.status) {
+            .unresolved => unreachable,
+            .type_resolved => {}, // this is not a function or extern
+            .fully_resolved => |r| switch (ip.indexToKey(r.val)) {
+                .func => {
+                    // TODO: Properly lower function pointers. For now we are going to hack around it and
+                    // just generate an empty pointer. Function pointers are represented by a pointer to usize.
+                    return try self.spv.constUndef(ty_id);
+                },
+                .@"extern" => if (ip.isFunctionType(nav_ty.toIntern())) @panic("TODO"),
+                else => {},
             },
-            .@"extern" => assert(!ip.isFunctionType(nav_ty.toIntern())), // TODO
-            else => {},
         }
 
         if (!nav_ty.isFnOrHasRuntimeBitsIgnoreComptime(zcu)) {
@@ -1305,7 +1308,7 @@ const NavGen = struct {
             .global, .invocation_global => spv_decl.result_id,
         };
 
-        const storage_class = self.spvStorageClass(nav.status.resolved.@"addrspace");
+        const storage_class = self.spvStorageClass(nav.getAddrspace());
         try self.addFunctionDep(spv_decl_index, storage_class);
 
         const decl_ptr_ty_id = try self.ptrType(nav_ty, storage_class);
@@ -3182,7 +3185,7 @@ const NavGen = struct {
                 };
                 assert(maybe_init_val == null); // TODO
 
-                const storage_class = self.spvStorageClass(nav.status.resolved.@"addrspace");
+                const storage_class = self.spvStorageClass(nav.getAddrspace());
                 assert(storage_class != .Generic); // These should be instance globals
 
                 const ptr_ty_id = try self.ptrType(ty, storage_class);

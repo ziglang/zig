@@ -608,14 +608,11 @@ pub fn getNavVAddr(
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
     log.debug("getNavVAddr {}({d})", .{ nav.fqn.fmt(ip), nav_index });
-    const sym_index = switch (ip.indexToKey(nav.status.resolved.val)) {
-        .@"extern" => |@"extern"| try self.getGlobalSymbol(
-            macho_file,
-            nav.name.toSlice(ip),
-            @"extern".lib_name.toSlice(ip),
-        ),
-        else => try self.getOrCreateMetadataForNav(macho_file, nav_index),
-    };
+    const sym_index = if (nav.getExtern(ip)) |@"extern"| try self.getGlobalSymbol(
+        macho_file,
+        nav.name.toSlice(ip),
+        @"extern".lib_name.toSlice(ip),
+    ) else try self.getOrCreateMetadataForNav(macho_file, nav_index);
     const sym = self.symbols.items[sym_index];
     const vaddr = sym.getAddress(.{}, macho_file);
     switch (reloc_info.parent) {
@@ -882,7 +879,7 @@ pub fn updateNav(
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
 
-    const nav_init = switch (ip.indexToKey(nav.status.resolved.val)) {
+    const nav_init = switch (ip.indexToKey(nav.status.fully_resolved.val)) {
         .func => .none,
         .variable => |variable| variable.init,
         .@"extern" => |@"extern"| {
@@ -895,7 +892,7 @@ pub fn updateNav(
             sym.flags.is_extern_ptr = true;
             return;
         },
-        else => nav.status.resolved.val,
+        else => nav.status.fully_resolved.val,
     };
 
     if (nav_init != .none and Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(zcu)) {
@@ -1561,11 +1558,7 @@ fn isThreadlocal(macho_file: *MachO, nav_index: InternPool.Nav.Index) bool {
     if (!macho_file.base.comp.config.any_non_single_threaded)
         return false;
     const ip = &macho_file.base.comp.zcu.?.intern_pool;
-    return switch (ip.indexToKey(ip.getNav(nav_index).status.resolved.val)) {
-        .variable => |variable| variable.is_threadlocal,
-        .@"extern" => |@"extern"| @"extern".is_threadlocal,
-        else => false,
-    };
+    return ip.getNav(nav_index).isThreadlocal(ip);
 }
 
 fn addAtom(self: *ZigObject, allocator: Allocator) !Atom.Index {

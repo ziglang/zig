@@ -2281,7 +2281,7 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             const nav_ty = nav_val.typeOf(zcu);
             const nav_ty_reloc_index = try wip_nav.refForward();
             try wip_nav.infoExprloc(.{ .addr = .{ .sym = sym_index } });
-            try uleb128(diw, nav.status.resolved.alignment.toByteUnits() orelse
+            try uleb128(diw, nav.status.fully_resolved.alignment.toByteUnits() orelse
                 nav_ty.abiAlignment(zcu).toByteUnits().?);
             try diw.writeByte(@intFromBool(false));
             wip_nav.finishForward(nav_ty_reloc_index);
@@ -2313,7 +2313,7 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             try wip_nav.refType(ty);
             const addr: Loc = .{ .addr = .{ .sym = sym_index } };
             try wip_nav.infoExprloc(if (variable.is_threadlocal) .{ .form_tls_address = &addr } else addr);
-            try uleb128(diw, nav.status.resolved.alignment.toByteUnits() orelse
+            try uleb128(diw, nav.status.fully_resolved.alignment.toByteUnits() orelse
                 ty.abiAlignment(zcu).toByteUnits().?);
             try diw.writeByte(@intFromBool(false));
         },
@@ -2388,7 +2388,7 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             wip_nav.func_high_pc = @intCast(wip_nav.debug_info.items.len);
             try diw.writeInt(u32, 0, dwarf.endian);
             const target = file.mod.resolved_target.result;
-            try uleb128(diw, switch (nav.status.resolved.alignment) {
+            try uleb128(diw, switch (nav.status.fully_resolved.alignment) {
                 .none => target_info.defaultFunctionAlignment(target),
                 else => |a| a.maxStrict(target_info.minFunctionAlignment(target)),
             }.toByteUnits().?);
@@ -2952,7 +2952,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
             const nav_ty = nav_val.typeOf(zcu);
             try wip_nav.refType(nav_ty);
             try wip_nav.blockValue(nav_src_loc, nav_val);
-            try uleb128(diw, nav.status.resolved.alignment.toByteUnits() orelse
+            try uleb128(diw, nav.status.fully_resolved.alignment.toByteUnits() orelse
                 nav_ty.abiAlignment(zcu).toByteUnits().?);
             try diw.writeByte(@intFromBool(false));
         },
@@ -2977,7 +2977,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
             try wip_nav.strp(nav.name.toSlice(ip));
             try wip_nav.strp(nav.fqn.toSlice(ip));
             const nav_ty_reloc_index = try wip_nav.refForward();
-            try uleb128(diw, nav.status.resolved.alignment.toByteUnits() orelse
+            try uleb128(diw, nav.status.fully_resolved.alignment.toByteUnits() orelse
                 nav_ty.abiAlignment(zcu).toByteUnits().?);
             try diw.writeByte(@intFromBool(false));
             if (has_runtime_bits) try wip_nav.blockValue(nav_src_loc, nav_val);

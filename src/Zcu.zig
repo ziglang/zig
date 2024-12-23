@@ -170,6 +170,9 @@ outdated_ready: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .empty,
 /// it as outdated.
 retryable_failures: std.ArrayListUnmanaged(AnalUnit) = .empty,
 
+func_body_analysis_queued: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .empty,
+nav_val_analysis_queued: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty,
+
 /// These are the modules which we initially queue for analysis in `Compilation.update`.
 /// `resolveReferences` will use these as the root of its reachability traversal.
 analysis_roots: std.BoundedArray(*Package.Module, 3) = .{},
@@ -282,7 +285,11 @@ pub const Exported = union(enum) {
 
     pub fn getAlign(exported: Exported, zcu: *Zcu) Alignment {
         return switch (exported) {
-            .nav => |nav| zcu.intern_pool.getNav(nav).status.resolved.alignment,
+            .nav => |nav| switch (zcu.intern_pool.getNav(nav).status) {
+                .unresolved => unreachable,
+                .type_resolved => |r| r.alignment,
+                .fully_resolved => |r| r.alignment,
+            },
             .uav => .none,
         };
     }
@@ -2241,6 +2248,9 @@ pub fn deinit(zcu: *Zcu) void {
         zcu.outdated_ready.deinit(gpa);
         zcu.retryable_failures.deinit(gpa);
 
+        zcu.func_body_analysis_queued.deinit(gpa);
+        zcu.nav_val_analysis_queued.deinit(gpa);
+
         zcu.test_functions.deinit(gpa);
 
         for (zcu.global_assembly.values()) |s| {
@@ -2441,6 +2451,7 @@ pub fn markPoDependeeUpToDate(zcu: *Zcu, dependee: InternPool.Dependee) !void {
         switch (depender.unwrap()) {
             .@"comptime" => {},
             .nav_val => |nav| try zcu.markPoDependeeUpToDate(.{ .nav_val = nav }),
+            .nav_ty => |nav| try zcu.markPoDependeeUpToDate(.{ .nav_ty = nav }),
             .type => |ty| try zcu.markPoDependeeUpToDate(.{ .interned = ty }),
             .func => |func| try zcu.markPoDependeeUpToDate(.{ .interned = func }),
         }
@@ -2453,7 +2464,8 @@ fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: AnalUni
     const ip = &zcu.intern_pool;
     const dependee: InternPool.Dependee = switch (maybe_outdated.unwrap()) {
         .@"comptime" => return, // analysis of a comptime decl can't outdate any dependencies
-        .nav_val => |nav| .{ .nav_val = nav }, // TODO: also `nav_ref` deps when introduced
+        .nav_val => |nav| .{ .nav_val = nav },
+        .nav_ty => |nav| .{ .nav_ty = nav },
         .type => |ty| .{ .interned = ty },
         .func => |func_index| .{ .interned = func_index }, // IES
     };
@@ -2540,6 +2552,7 @@ pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
                 .@"comptime" => continue, // a `comptime` block can't even be depended on so it is a terrible choice
                 .type => |ty| .{ .interned = ty },
                 .nav_val => |nav| .{ .nav_val = nav },
+                .nav_ty => |nav| .{ .nav_ty = nav },
             });
             while (it.next()) |_| n += 1;
 
@@ -2780,14 +2793,39 @@ pub fn ensureFuncBodyAnalysisQueued(zcu: *Zcu, func_index: InternPool.Index) !vo
     const ip = &zcu.intern_pool;
     const func = zcu.funcInfo(func_index);
 
-    switch (func.analysisUnordered(ip).state) {
-        .unreferenced => {}, // We're the first reference!
-        .queued => return, // Analysis is already queued.
-        .analyzed => return, // Analysis is complete; if it's out-of-date, it'll be re-analyzed later this update.
+    if (zcu.func_body_analysis_queued.contains(func_index)) return;
+
+    if (func.analysisUnordered(ip).is_analyzed) {
+        if (!zcu.outdated.contains(.wrap(.{ .func = func_index })) and
+            !zcu.potentially_outdated.contains(.wrap(.{ .func = func_index })))
+        {
+            // This function has been analyzed before and is definitely up-to-date.
+            return;
+        }
     }
 
+    try zcu.func_body_analysis_queued.ensureUnusedCapacity(zcu.gpa, 1);
     try zcu.comp.queueJob(.{ .analyze_func = func_index });
-    func.setAnalysisState(ip, .queued);
+    zcu.func_body_analysis_queued.putAssumeCapacityNoClobber(func_index, {});
+}
+
+pub fn ensureNavValAnalysisQueued(zcu: *Zcu, nav_id: InternPool.Nav.Index) !void {
+    const ip = &zcu.intern_pool;
+
+    if (zcu.nav_val_analysis_queued.contains(nav_id)) return;
+
+    if (ip.getNav(nav_id).status == .fully_resolved) {
+        if (!zcu.outdated.contains(.wrap(.{ .nav_val = nav_id })) and
+            !zcu.potentially_outdated.contains(.wrap(.{ .nav_val = nav_id })))
+        {
+            // This `Nav` has been analyzed before and is definitely up-to-date.
+            return;
+        }
+    }
+
+    try zcu.nav_val_analysis_queued.ensureUnusedCapacity(zcu.gpa, 1);
+    try zcu.comp.queueJob(.{ .analyze_comptime_unit = .wrap(.{ .nav_val = nav_id }) });
+    zcu.nav_val_analysis_queued.putAssumeCapacityNoClobber(nav_id, {});
 }
 
 pub const ImportFileResult = struct {
@@ -3424,6 +3462,17 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
             const unit = kv.key;
             try result.putNoClobber(gpa, unit, kv.value);
 
+            // `nav_val` and `nav_ty` reference each other *implicitly* to save memory.
+            queue_paired: {
+                const other: AnalUnit = .wrap(switch (unit.unwrap()) {
+                    .nav_val => |n| .{ .nav_ty = n },
+                    .nav_ty => |n| .{ .nav_val = n },
+                    .@"comptime", .type, .func => break :queue_paired,
+                });
+                if (result.contains(other)) break :queue_paired;
+                try unit_queue.put(gpa, other, kv.value); // same reference location
+            }
+
             log.debug("handle unit '{}'", .{zcu.fmtAnalUnit(unit)});
 
             if (zcu.reference_table.get(unit)) |first_ref_idx| {
@@ -3513,7 +3562,7 @@ pub fn navSrcLine(zcu: *Zcu, nav_index: InternPool.Nav.Index) u32 {
 }
 
 pub fn navValue(zcu: *const Zcu, nav_index: InternPool.Nav.Index) Value {
-    return Value.fromInterned(zcu.intern_pool.getNav(nav_index).status.resolved.val);
+    return Value.fromInterned(zcu.intern_pool.getNav(nav_index).status.fully_resolved.val);
 }
 
 pub fn navFileScopeIndex(zcu: *Zcu, nav: InternPool.Nav.Index) File.Index {
@@ -3547,6 +3596,7 @@ fn formatAnalUnit(data: struct { unit: AnalUnit, zcu: *Zcu }, comptime fmt: []co
             }
         },
         .nav_val => |nav| return writer.print("nav_val('{}')", .{ip.getNav(nav).fqn.fmt(ip)}),
+        .nav_ty => |nav| return writer.print("nav_ty('{}')", .{ip.getNav(nav).fqn.fmt(ip)}),
         .type => |ty| return writer.print("ty('{}')", .{Type.fromInterned(ty).containerTypeName(ip).fmt(ip)}),
         .func => |func| {
             const nav = zcu.funcInfo(func).owner_nav;
@@ -3572,7 +3622,11 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
         },
         .nav_val => |nav| {
             const fqn = ip.getNav(nav).fqn;
-            return writer.print("nav('{}')", .{fqn.fmt(ip)});
+            return writer.print("nav_val('{}')", .{fqn.fmt(ip)});
+        },
+        .nav_ty => |nav| {
+            const fqn = ip.getNav(nav).fqn;
+            return writer.print("nav_ty('{}')", .{fqn.fmt(ip)});
         },
         .interned => |ip_index| switch (ip.indexToKey(ip_index)) {
             .struct_type, .union_type, .enum_type => return writer.print("type('{}')", .{Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip)}),
@@ -3748,4 +3802,13 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
     };
     if (!backend_ok) return .{ .bad_backend = backend };
     return .ok;
+}
+
+/// Given that a `Nav` has value `val`, determine if a ref of that `Nav` gives a `const` pointer.
+pub fn navValIsConst(zcu: *const Zcu, val: InternPool.Index) bool {
+    return switch (zcu.intern_pool.indexToKey(val)) {
+        .variable => false,
+        .@"extern" => |e| e.is_const,
+        else => true,
+    };
 }

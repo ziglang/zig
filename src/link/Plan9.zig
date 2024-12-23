@@ -1021,7 +1021,7 @@ pub fn seeNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) 
     const atom_idx = gop.value_ptr.index;
     // handle externs here because they might not get updateDecl called on them
     const nav = ip.getNav(nav_index);
-    if (ip.indexToKey(nav.status.resolved.val) == .@"extern") {
+    if (nav.getExtern(ip) != null) {
         // this is a "phantom atom" - it is never actually written to disk, just convenient for us to store stuff about externs
         if (nav.name.eqlSlice("etext", ip)) {
             self.etext_edata_end_atom_indices[0] = atom_idx;
@@ -1370,7 +1370,7 @@ pub fn getNavVAddr(
     const ip = &pt.zcu.intern_pool;
     const nav = ip.getNav(nav_index);
     log.debug("getDeclVAddr for {}", .{nav.name.fmt(ip)});
-    if (ip.indexToKey(nav.status.resolved.val) == .@"extern") {
+    if (nav.getExtern(ip) != null) {
         if (nav.name.eqlSlice("etext", ip)) {
             try self.addReloc(reloc_info.parent.atom_index, .{
                 .target = undefined,

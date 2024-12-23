@@ -34,6 +34,9 @@ src_hash_deps: std.AutoArrayHashMapUnmanaged(TrackedInst.Index, DepEntry.Index),
 /// Dependencies on the value of a Nav.
 /// Value is index into `dep_entries` of the first dependency on this Nav value.
 nav_val_deps: std.AutoArrayHashMapUnmanaged(Nav.Index, DepEntry.Index),
+/// Dependencies on the type of a Nav.
+/// Value is index into `dep_entries` of the first dependency on this Nav value.
+nav_ty_deps: std.AutoArrayHashMapUnmanaged(Nav.Index, DepEntry.Index),
 /// Dependencies on an interned value, either:
 /// * a runtime function (invalidated when its IES changes)
 /// * a container type requiring resolution (invalidated when the type must be recreated at a new index)
@@ -80,6 +83,7 @@ pub const empty: InternPool = .{
     .file_deps = .empty,
     .src_hash_deps = .empty,
     .nav_val_deps = .empty,
+    .nav_ty_deps = .empty,
     .interned_deps = .empty,
     .namespace_deps = .empty,
     .namespace_name_deps = .empty,
@@ -371,6 +375,7 @@ pub const AnalUnit = packed struct(u64) {
     pub const Kind = enum(u32) {
         @"comptime",
         nav_val,
+        nav_ty,
         type,
         func,
     };
@@ -380,6 +385,8 @@ pub const AnalUnit = packed struct(u64) {
         @"comptime": ComptimeUnit.Id,
         /// This `AnalUnit` resolves the value of the given `Nav`.
         nav_val: Nav.Index,
+        /// This `AnalUnit` resolves the type of the given `Nav`.
+        nav_ty: Nav.Index,
         /// This `AnalUnit` resolves the given `struct`/`union`/`enum` type.
         /// Generated tag enums are never used here (they do not undergo type resolution).
         type: InternPool.Index,
@@ -483,8 +490,20 @@ pub const Nav = struct {
     status: union(enum) {
         /// This `Nav` is pending semantic analysis.
         unresolved,
+        /// The type of this `Nav` is resolved; the value is queued for resolution.
+        type_resolved: struct {
+            type: InternPool.Index,
+            alignment: Alignment,
+            @"linksection": OptionalNullTerminatedString,
+            @"addrspace": std.builtin.AddressSpace,
+            is_const: bool,
+            is_threadlocal: bool,
+            /// This field is whether this `Nav` is a literal `extern` definition.
+            /// It does *not* tell you whether this might alias an extern fn (see #21027).
+            is_extern_decl: bool,
+        },
         /// The value of this `Nav` is resolved.
-        resolved: struct {
+        fully_resolved: struct {
             val: InternPool.Index,
             alignment: Alignment,
             @"linksection": OptionalNullTerminatedString,
@@ -492,14 +511,81 @@ pub const Nav = struct {
         },
     },
 
-    /// Asserts that `status == .resolved`.
+    /// Asserts that `status != .unresolved`.
     pub fn typeOf(nav: Nav, ip: *const InternPool) InternPool.Index {
-        return ip.typeOf(nav.status.resolved.val);
+        return switch (nav.status) {
+            .unresolved => unreachable,
+            .type_resolved => |r| r.type,
+            .fully_resolved => |r| ip.typeOf(r.val),
+        };
     }
 
-    /// Asserts that `status == .resolved`.
-    pub fn isExtern(nav: Nav, ip: *const InternPool) bool {
-        return ip.indexToKey(nav.status.resolved.val) == .@"extern";
+    /// Always returns `null` for `status == .type_resolved`. This function is inteded
+    /// to be used by code generation, since semantic analysis will ensure that any `Nav`
+    /// which is potentially `extern` is fully resolved.
+    /// Asserts that `status != .unresolved`.
+    pub fn getExtern(nav: Nav, ip: *const InternPool) ?Key.Extern {
+        return switch (nav.status) {
+            .unresolved => unreachable,
+            .type_resolved => null,
+            .fully_resolved => |r| switch (ip.indexToKey(r.val)) {
+                .@"extern" => |e| e,
+                else => null,
+            },
+        };
+    }
+
+    /// Asserts that `status != .unresolved`.
+    pub fn getAddrspace(nav: Nav) std.builtin.AddressSpace {
+        return switch (nav.status) {
+            .unresolved => unreachable,
+            .type_resolved => |r| r.@"addrspace",
+            .fully_resolved => |r| r.@"addrspace",
+        };
+    }
+
+    /// Asserts that `status != .unresolved`.
+    pub fn getAlignment(nav: Nav) Alignment {
+        return switch (nav.status) {
+            .unresolved => unreachable,
+            .type_resolved => |r| r.alignment,
+            .fully_resolved => |r| r.alignment,
+        };
+    }
+
+    /// Asserts that `status != .unresolved`.
+    pub fn isThreadlocal(nav: Nav, ip: *const InternPool) bool {
+        return switch (nav.status) {
+            .unresolved => unreachable,
+            .type_resolved => |r| r.is_threadlocal,
+            .fully_resolved => |r| switch (ip.indexToKey(r.val)) {
+                .@"extern" => |e| e.is_threadlocal,
+                .variable => |v| v.is_threadlocal,
+                else => false,
+            },
+        };
+    }
+
+    /// If this returns `true`, then a pointer to this `Nav` might actually be encoded as a pointer
+    /// to some other `Nav` due to an extern definition or extern alias (see #21027).
+    /// This query is valid on `Nav`s for whom only the type is resolved.
+    /// Asserts that `status != .unresolved`.
+    pub fn isExternOrFn(nav: Nav, ip: *const InternPool) bool {
+        return switch (nav.status) {
+            .unresolved => unreachable,
+            .type_resolved => |r| {
+                if (r.is_extern_decl) return true;
+                const tag = ip.zigTypeTagOrPoison(r.type) catch unreachable;
+                if (tag == .@"fn") return true;
+                return false;
+            },
+            .fully_resolved => |r| {
+                if (ip.indexToKey(r.val) == .@"extern") return true;
+                const tag = ip.zigTypeTagOrPoison(ip.typeOf(r.val)) catch unreachable;
+                if (tag == .@"fn") return true;
+                return false;
+            },
+        };
     }
 
     /// Get the ZIR instruction corresponding to this `Nav`, used to resolve source locations.
@@ -509,7 +595,7 @@ pub const Nav = struct {
             return a.zir_index;
         }
         // A `Nav` which does not undergo analysis always has a resolved value.
-        return switch (ip.indexToKey(nav.status.resolved.val)) {
+        return switch (ip.indexToKey(nav.status.fully_resolved.val)) {
             .func => |func| {
                 // Since `analysis` was not populated, this must be an instantiation.
                 // Go up to the generic owner and consult *its* `analysis` field.
@@ -567,19 +653,22 @@ pub const Nav = struct {
         // The following 1 fields are either both populated, or both `.none`.
         analysis_namespace: OptionalNamespaceIndex,
         analysis_zir_index: TrackedInst.Index.Optional,
-        /// Populated only if `bits.status == .resolved`.
-        val: InternPool.Index,
-        /// Populated only if `bits.status == .resolved`.
+        /// Populated only if `bits.status != .unresolved`.
+        type_or_val: InternPool.Index,
+        /// Populated only if `bits.status != .unresolved`.
         @"linksection": OptionalNullTerminatedString,
         bits: Bits,
 
         const Bits = packed struct(u16) {
-            status: enum(u1) { unresolved, resolved },
-            /// Populated only if `bits.status == .resolved`.
+            status: enum(u2) { unresolved, type_resolved, fully_resolved, type_resolved_extern_decl },
+            /// Populated only if `bits.status != .unresolved`.
             alignment: Alignment,
-            /// Populated only if `bits.status == .resolved`.
+            /// Populated only if `bits.status != .unresolved`.
             @"addrspace": std.builtin.AddressSpace,
-            _: u3 = 0,
+            /// Populated only if `bits.status == .type_resolved`.
+            is_const: bool,
+            /// Populated only if `bits.status == .type_resolved`.
+            is_threadlocal: bool,
             is_usingnamespace: bool,
         };
 
@@ -597,8 +686,17 @@ pub const Nav = struct {
                 .is_usingnamespace = repr.bits.is_usingnamespace,
                 .status = switch (repr.bits.status) {
                     .unresolved => .unresolved,
-                    .resolved => .{ .resolved = .{
-                        .val = repr.val,
+                    .type_resolved, .type_resolved_extern_decl => .{ .type_resolved = .{
+                        .type = repr.type_or_val,
+                        .alignment = repr.bits.alignment,
+                        .@"linksection" = repr.@"linksection",
+                        .@"addrspace" = repr.bits.@"addrspace",
+                        .is_const = repr.bits.is_const,
+                        .is_threadlocal = repr.bits.is_threadlocal,
+                        .is_extern_decl = repr.bits.status == .type_resolved_extern_decl,
+                    } },
+                    .fully_resolved => .{ .fully_resolved = .{
+                        .val = repr.type_or_val,
                         .alignment = repr.bits.alignment,
                         .@"linksection" = repr.@"linksection",
                         .@"addrspace" = repr.bits.@"addrspace",
@@ -616,13 +714,15 @@ pub const Nav = struct {
             .fqn = nav.fqn,
             .analysis_namespace = if (nav.analysis) |a| a.namespace.toOptional() else .none,
             .analysis_zir_index = if (nav.analysis) |a| a.zir_index.toOptional() else .none,
-            .val = switch (nav.status) {
+            .type_or_val = switch (nav.status) {
                 .unresolved => .none,
-                .resolved => |r| r.val,
+                .type_resolved => |r| r.type,
+                .fully_resolved => |r| r.val,
             },
             .@"linksection" = switch (nav.status) {
                 .unresolved => .none,
-                .resolved => |r| r.@"linksection",
+                .type_resolved => |r| r.@"linksection",
+                .fully_resolved => |r| r.@"linksection",
             },
             .bits = switch (nav.status) {
                 .unresolved => .{
@@ -630,12 +730,24 @@ pub const Nav = struct {
                     .alignment = .none,
                     .@"addrspace" = .generic,
                     .is_usingnamespace = nav.is_usingnamespace,
+                    .is_const = false,
+                    .is_threadlocal = false,
                 },
-                .resolved => |r| .{
-                    .status = .resolved,
+                .type_resolved => |r| .{
+                    .status = if (r.is_extern_decl) .type_resolved_extern_decl else .type_resolved,
                     .alignment = r.alignment,
                     .@"addrspace" = r.@"addrspace",
                     .is_usingnamespace = nav.is_usingnamespace,
+                    .is_const = r.is_const,
+                    .is_threadlocal = r.is_threadlocal,
+                },
+                .fully_resolved => |r| .{
+                    .status = .fully_resolved,
+                    .alignment = r.alignment,
+                    .@"addrspace" = r.@"addrspace",
+                    .is_usingnamespace = nav.is_usingnamespace,
+                    .is_const = false,
+                    .is_threadlocal = false,
                 },
             },
         };
@@ -646,6 +758,7 @@ pub const Dependee = union(enum) {
     file: FileIndex,
     src_hash: TrackedInst.Index,
     nav_val: Nav.Index,
+    nav_ty: Nav.Index,
     interned: Index,
     namespace: TrackedInst.Index,
     namespace_name: NamespaceNameKey,
@@ -695,6 +808,7 @@ pub fn dependencyIterator(ip: *const InternPool, dependee: Dependee) DependencyI
         .file => |x| ip.file_deps.get(x),
         .src_hash => |x| ip.src_hash_deps.get(x),
         .nav_val => |x| ip.nav_val_deps.get(x),
+        .nav_ty => |x| ip.nav_ty_deps.get(x),
         .interned => |x| ip.interned_deps.get(x),
         .namespace => |x| ip.namespace_deps.get(x),
         .namespace_name => |x| ip.namespace_name_deps.get(x),
@@ -732,6 +846,7 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: AnalUnit, depend
                 .file => ip.file_deps,
                 .src_hash => ip.src_hash_deps,
                 .nav_val => ip.nav_val_deps,
+                .nav_ty => ip.nav_ty_deps,
                 .interned => ip.interned_deps,
                 .namespace => ip.namespace_deps,
                 .namespace_name => ip.namespace_name_deps,
@@ -2079,17 +2194,6 @@ pub const Key = union(enum) {
             return @atomicLoad(FuncAnalysis, func.analysisPtr(ip), .unordered);
         }
 
-        pub fn setAnalysisState(func: Func, ip: *InternPool, state: FuncAnalysis.State) void {
-            const extra_mutex = &ip.getLocal(func.tid).mutate.extra.mutex;
-            extra_mutex.lock();
-            defer extra_mutex.unlock();
-
-            const analysis_ptr = func.analysisPtr(ip);
-            var analysis = analysis_ptr.*;
-            analysis.state = state;
-            @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
-        }
-
         pub fn setCallsOrAwaitsErrorableFn(func: Func, ip: *InternPool, value: bool) void {
             const extra_mutex = &ip.getLocal(func.tid).mutate.extra.mutex;
             extra_mutex.lock();
@@ -2109,6 +2213,17 @@ pub const Key = union(enum) {
             const analysis_ptr = func.analysisPtr(ip);
             var analysis = analysis_ptr.*;
             analysis.branch_hint = hint;
+            @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
+        }
+
+        pub fn setAnalyzed(func: Func, ip: *InternPool) void {
+            const extra_mutex = &ip.getLocal(func.tid).mutate.extra.mutex;
+            extra_mutex.lock();
+            defer extra_mutex.unlock();
+
+            const analysis_ptr = func.analysisPtr(ip);
+            var analysis = analysis_ptr.*;
+            analysis.is_analyzed = true;
             @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
         }
 
@@ -5755,7 +5870,7 @@ pub const Tag = enum(u8) {
 /// equality or hashing, except for `inferred_error_set` which is considered
 /// to be part of the type of the function.
 pub const FuncAnalysis = packed struct(u32) {
-    state: State,
+    is_analyzed: bool,
     branch_hint: std.builtin.BranchHint,
     is_noinline: bool,
     calls_or_awaits_errorable_fn: bool,
@@ -5763,20 +5878,7 @@ pub const FuncAnalysis = packed struct(u32) {
     inferred_error_set: bool,
     disable_instrumentation: bool,
 
-    _: u23 = 0,
-
-    pub const State = enum(u2) {
-        /// The runtime function has never been referenced.
-        /// As such, it has never been analyzed, nor is it queued for analysis.
-        unreferenced,
-        /// The runtime function has been referenced, but has not yet been analyzed.
-        /// Its semantic analysis is queued.
-        queued,
-        /// The runtime function has been (or is currently being) semantically analyzed.
-        /// To know if analysis succeeded, consult `zcu.[transitive_]failed_analysis`.
-        /// To know if analysis is up-to-date, consult `zcu.[potentially_]outdated`.
-        analyzed,
-    };
+    _: u24 = 0,
 };
 
 pub const Bytes = struct {
@@ -6419,6 +6521,7 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.file_deps.deinit(gpa);
     ip.src_hash_deps.deinit(gpa);
     ip.nav_val_deps.deinit(gpa);
+    ip.nav_ty_deps.deinit(gpa);
     ip.interned_deps.deinit(gpa);
     ip.namespace_deps.deinit(gpa);
     ip.namespace_name_deps.deinit(gpa);
@@ -6875,8 +6978,8 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .is_threadlocal = extra.flags.is_threadlocal,
                 .is_weak_linkage = extra.flags.is_weak_linkage,
                 .is_dll_import = extra.flags.is_dll_import,
-                .alignment = nav.status.resolved.alignment,
-                .@"addrspace" = nav.status.resolved.@"addrspace",
+                .alignment = nav.status.fully_resolved.alignment,
+                .@"addrspace" = nav.status.fully_resolved.@"addrspace",
                 .zir_index = extra.zir_index,
                 .owner_nav = extra.owner_nav,
             } };
@@ -8794,7 +8897,7 @@ pub fn getFuncDecl(
 
     const func_decl_extra_index = addExtraAssumeCapacity(extra, Tag.FuncDecl{
         .analysis = .{
-            .state = .unreferenced,
+            .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = key.is_noinline,
             .calls_or_awaits_errorable_fn = false,
@@ -8903,7 +9006,7 @@ pub fn getFuncDeclIes(
 
     const func_decl_extra_index = addExtraAssumeCapacity(extra, Tag.FuncDecl{
         .analysis = .{
-            .state = .unreferenced,
+            .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = key.is_noinline,
             .calls_or_awaits_errorable_fn = false,
@@ -9099,7 +9202,7 @@ pub fn getFuncInstance(
 
     const func_extra_index = addExtraAssumeCapacity(extra, Tag.FuncInstance{
         .analysis = .{
-            .state = .unreferenced,
+            .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = arg.is_noinline,
             .calls_or_awaits_errorable_fn = false,
@@ -9197,7 +9300,7 @@ pub fn getFuncInstanceIes(
 
     const func_extra_index = addExtraAssumeCapacity(extra, Tag.FuncInstance{
         .analysis = .{
-            .state = .unreferenced,
+            .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = arg.is_noinline,
             .calls_or_awaits_errorable_fn = false,
@@ -9316,9 +9419,9 @@ fn finishFuncInstance(
         .name = nav_name,
         .fqn = try ip.namespacePtr(fn_namespace).internFullyQualifiedName(ip, gpa, tid, nav_name),
         .val = func_index,
-        .alignment = fn_owner_nav.status.resolved.alignment,
-        .@"linksection" = fn_owner_nav.status.resolved.@"linksection",
-        .@"addrspace" = fn_owner_nav.status.resolved.@"addrspace",
+        .alignment = fn_owner_nav.status.fully_resolved.alignment,
+        .@"linksection" = fn_owner_nav.status.fully_resolved.@"linksection",
+        .@"addrspace" = fn_owner_nav.status.fully_resolved.@"addrspace",
     });
 
     // Populate the owner_nav field which was left undefined until now.
@@ -11030,7 +11133,7 @@ pub fn createNav(
         .name = opts.name,
         .fqn = opts.fqn,
         .analysis = null,
-        .status = .{ .resolved = .{
+        .status = .{ .fully_resolved = .{
             .val = opts.val,
             .alignment = opts.alignment,
             .@"linksection" = opts.@"linksection",
@@ -11077,6 +11180,50 @@ pub fn createDeclNav(
     return nav;
 }
 
+/// Resolve the type of a `Nav` with an analysis owner.
+/// If its status is already `resolved`, the old value is discarded.
+pub fn resolveNavType(
+    ip: *InternPool,
+    nav: Nav.Index,
+    resolved: struct {
+        type: InternPool.Index,
+        alignment: Alignment,
+        @"linksection": OptionalNullTerminatedString,
+        @"addrspace": std.builtin.AddressSpace,
+        is_const: bool,
+        is_threadlocal: bool,
+        is_extern_decl: bool,
+    },
+) void {
+    const unwrapped = nav.unwrap(ip);
+
+    const local = ip.getLocal(unwrapped.tid);
+    local.mutate.extra.mutex.lock();
+    defer local.mutate.extra.mutex.unlock();
+
+    const navs = local.shared.navs.view();
+
+    const nav_analysis_namespace = navs.items(.analysis_namespace);
+    const nav_analysis_zir_index = navs.items(.analysis_zir_index);
+    const nav_types = navs.items(.type_or_val);
+    const nav_linksections = navs.items(.@"linksection");
+    const nav_bits = navs.items(.bits);
+
+    assert(nav_analysis_namespace[unwrapped.index] != .none);
+    assert(nav_analysis_zir_index[unwrapped.index] != .none);
+
+    @atomicStore(InternPool.Index, &nav_types[unwrapped.index], resolved.type, .release);
+    @atomicStore(OptionalNullTerminatedString, &nav_linksections[unwrapped.index], resolved.@"linksection", .release);
+
+    var bits = nav_bits[unwrapped.index];
+    bits.status = if (resolved.is_extern_decl) .type_resolved_extern_decl else .type_resolved;
+    bits.alignment = resolved.alignment;
+    bits.@"addrspace" = resolved.@"addrspace";
+    bits.is_const = resolved.is_const;
+    bits.is_threadlocal = resolved.is_threadlocal;
+    @atomicStore(Nav.Repr.Bits, &nav_bits[unwrapped.index], bits, .release);
+}
+
 /// Resolve the value of a `Nav` with an analysis owner.
 /// If its status is already `resolved`, the old value is discarded.
 pub fn resolveNavValue(
@@ -11099,7 +11246,7 @@ pub fn resolveNavValue(
 
     const nav_analysis_namespace = navs.items(.analysis_namespace);
     const nav_analysis_zir_index = navs.items(.analysis_zir_index);
-    const nav_vals = navs.items(.val);
+    const nav_vals = navs.items(.type_or_val);
     const nav_linksections = navs.items(.@"linksection");
     const nav_bits = navs.items(.bits);
 
@@ -11110,7 +11257,7 @@ pub fn resolveNavValue(
     @atomicStore(OptionalNullTerminatedString, &nav_linksections[unwrapped.index], resolved.@"linksection", .release);
 
     var bits = nav_bits[unwrapped.index];
-    bits.status = .resolved;
+    bits.status = .fully_resolved;
     bits.alignment = resolved.alignment;
     bits.@"addrspace" = resolved.@"addrspace";
     @atomicStore(Nav.Repr.Bits, &nav_bits[unwrapped.index], bits, .release);

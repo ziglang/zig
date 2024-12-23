@@ -3218,15 +3218,7 @@ fn lowerNavRef(func: *CodeGen, nav_index: InternPool.Nav.Index, offset: u32) Inn
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
-    // check if decl is an alias to a function, in which case we
-    // want to lower the actual decl, rather than the alias itself.
-    const owner_nav = switch (ip.indexToKey(zcu.navValue(nav_index).toIntern())) {
-        .func => |function| function.owner_nav,
-        .variable => |variable| variable.owner_nav,
-        .@"extern" => |@"extern"| @"extern".owner_nav,
-        else => nav_index,
-    };
-    const nav_ty = ip.getNav(owner_nav).typeOf(ip);
+    const nav_ty = ip.getNav(nav_index).typeOf(ip);
     if (!ip.isFunctionType(nav_ty) and !Type.fromInterned(nav_ty).hasRuntimeBitsIgnoreComptime(zcu)) {
         return .{ .imm32 = 0xaaaaaaaa };
     }

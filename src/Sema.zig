@@ -6495,9 +6495,9 @@ pub fn analyzeExport(
     if (options.linkage == .internal)
         return;
 
-    try sema.ensureNavResolved(src, orig_nav_index);
+    try sema.ensureNavResolved(src, orig_nav_index, .fully);
 
-    const exported_nav_index = switch (ip.indexToKey(ip.getNav(orig_nav_index).status.resolved.val)) {
+    const exported_nav_index = switch (ip.indexToKey(ip.getNav(orig_nav_index).status.fully_resolved.val)) {
         .variable => |v| v.owner_nav,
         .@"extern" => |e| e.owner_nav,
         .func => |f| f.owner_nav,
@@ -6520,7 +6520,7 @@ pub fn analyzeExport(
     }
 
     // TODO: some backends might support re-exporting extern decls
-    if (exported_nav.isExtern(ip)) {
+    if (exported_nav.getExtern(ip) != null) {
         return sema.fail(block, src, "export target cannot be extern", .{});
     }
 
@@ -6542,6 +6542,7 @@ fn zirDisableInstrumentation(sema: *Sema) CompileError!void {
         .func => |func| func,
         .@"comptime",
         .nav_val,
+        .nav_ty,
         .type,
         => return, // does nothing outside a function
     };
@@ -6854,8 +6855,8 @@ fn lookupInNamespace(
                 }
 
                 for (usingnamespaces.items) |sub_ns_nav| {
-                    try sema.ensureNavResolved(src, sub_ns_nav);
-                    const sub_ns_ty = Type.fromInterned(ip.getNav(sub_ns_nav).status.resolved.val);
+                    try sema.ensureNavResolved(src, sub_ns_nav, .fully);
+                    const sub_ns_ty = Type.fromInterned(ip.getNav(sub_ns_nav).status.fully_resolved.val);
                     const sub_ns = zcu.namespacePtr(sub_ns_ty.getNamespaceIndex(zcu));
                     try checked_namespaces.put(gpa, sub_ns, {});
                 }
@@ -6865,7 +6866,7 @@ fn lookupInNamespace(
         ignore_self: {
             const skip_nav = switch (sema.owner.unwrap()) {
                 .@"comptime", .type, .func => break :ignore_self,
-                .nav_val => |nav| nav,
+                .nav_ty, .nav_val => |nav| nav,
             };
             var i: usize = 0;
             while (i < candidates.items.len) {
@@ -7125,7 +7126,7 @@ fn zirCall(
     const call_inst = try sema.analyzeCall(block, func, func_ty, callee_src, call_src, modifier, ensure_result_used, args_info, call_dbg_node, .call);
 
     switch (sema.owner.unwrap()) {
-        .@"comptime", .type, .nav_val => input_is_error = false,
+        .@"comptime", .type, .nav_ty, .nav_val => input_is_error = false,
         .func => |owner_func| if (!zcu.intern_pool.funcAnalysisUnordered(owner_func).calls_or_awaits_errorable_fn) {
             // No errorable fn actually called; we have no error return trace
             input_is_error = false;
@@ -7686,12 +7687,13 @@ fn analyzeCall(
             .ptr => |ptr| blk: {
                 switch (ptr.base_addr) {
                     .nav => |nav_index| if (ptr.byte_offset == 0) {
+                        try sema.ensureNavResolved(call_src, nav_index, .fully);
                         const nav = ip.getNav(nav_index);
-                        if (nav.isExtern(ip))
+                        if (nav.getExtern(ip) != null)
                             return sema.fail(block, call_src, "{s} call of extern function pointer", .{
                                 if (is_comptime_call) "comptime" else "inline",
                             });
-                        break :blk nav.status.resolved.val;
+                        break :blk nav.status.fully_resolved.val;
                     },
                     else => {},
                 }
@@ -8007,7 +8009,7 @@ fn analyzeCall(
         if (call_dbg_node) |some| try sema.zirDbgStmt(block, some);
 
         switch (sema.owner.unwrap()) {
-            .@"comptime", .nav_val, .type => {},
+            .@"comptime", .nav_ty, .nav_val, .type => {},
             .func => |owner_func| if (Type.fromInterned(func_ty_info.return_type).isError(zcu)) {
                 ip.funcSetCallsOrAwaitsErrorableFn(owner_func);
             },
@@ -8046,7 +8048,10 @@ fn analyzeCall(
                 switch (zcu.intern_pool.indexToKey(func_val.toIntern())) {
                     .func => break :skip_safety,
                     .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
-                        .nav => |nav| if (!ip.getNav(nav).isExtern(ip)) break :skip_safety,
+                        .nav => |nav| {
+                            try sema.ensureNavResolved(call_src, nav, .fully);
+                            if (ip.getNav(nav).getExtern(ip) == null) break :skip_safety;
+                        },
                         else => {},
                     },
                     else => {},
@@ -8243,7 +8248,7 @@ fn instantiateGenericCall(
     });
     const generic_owner = switch (zcu.intern_pool.indexToKey(func_val.toIntern())) {
         .func => func_val.toIntern(),
-        .ptr => |ptr| ip.getNav(ptr.base_addr.nav).status.resolved.val,
+        .ptr => |ptr| ip.getNav(ptr.base_addr.nav).status.fully_resolved.val,
         else => unreachable,
     };
     const generic_owner_func = zcu.intern_pool.indexToKey(generic_owner).func;
@@ -8471,7 +8476,7 @@ fn instantiateGenericCall(
     if (call_dbg_node) |some| try sema.zirDbgStmt(block, some);
 
     switch (sema.owner.unwrap()) {
-        .@"comptime", .nav_val, .type => {},
+        .@"comptime", .nav_ty, .nav_val, .type => {},
         .func => |owner_func| if (Type.fromInterned(func_ty_info.return_type).isError(zcu)) {
             ip.funcSetCallsOrAwaitsErrorableFn(owner_func);
         },
@@ -19311,8 +19316,8 @@ fn typeInfoNamespaceDecls(
         if (zcu.analysis_in_progress.contains(.wrap(.{ .nav_val = nav }))) {
             continue;
         }
-        try sema.ensureNavResolved(src, nav);
-        const namespace_ty = Type.fromInterned(ip.getNav(nav).status.resolved.val);
+        try sema.ensureNavResolved(src, nav, .fully);
+        const namespace_ty = Type.fromInterned(ip.getNav(nav).status.fully_resolved.val);
         try sema.typeInfoNamespaceDecls(block, src, namespace_ty.getNamespaceIndex(zcu).toOptional(), declaration_ty, decl_vals, seen_namespaces);
     }
 }
@@ -21602,7 +21607,7 @@ fn getErrorReturnTrace(sema: *Sema, block: *Block) CompileError!Air.Inst.Ref {
         .func => |func| if (ip.funcAnalysisUnordered(func).calls_or_awaits_errorable_fn and block.ownerModule().error_tracing) {
             return block.addTy(.err_return_trace, opt_ptr_stack_trace_ty);
         },
-        .@"comptime", .nav_val, .type => {},
+        .@"comptime", .nav_ty, .nav_val, .type => {},
     }
     return Air.internedToRef(try pt.intern(.{ .opt = .{
         .ty = opt_ptr_stack_trace_ty.toIntern(),
@@ -27086,7 +27091,7 @@ fn zirBuiltinExtern(
         .zir_index = switch (sema.owner.unwrap()) {
             .@"comptime" => |cu| ip.getComptimeUnit(cu).zir_index,
             .type => |owner_ty| Type.fromInterned(owner_ty).typeDeclInst(zcu).?,
-            .nav_val => |nav| ip.getNav(nav).analysis.?.zir_index,
+            .nav_ty, .nav_val => |nav| ip.getNav(nav).analysis.?.zir_index,
             .func => |func| zir_index: {
                 const func_info = zcu.funcInfo(func);
                 const owner_func_info = if (func_info.generic_owner != .none) owner: {
@@ -27741,7 +27746,7 @@ fn preparePanicId(sema: *Sema, block: *Block, src: LazySrcLoc, panic_id: Zcu.Pan
         error.GenericPoison, error.ComptimeReturn, error.ComptimeBreak => unreachable,
         error.OutOfMemory => |e| return e,
     }).?;
-    try sema.ensureNavResolved(src, msg_nav_index);
+    try sema.ensureNavResolved(src, msg_nav_index, .fully);
     zcu.panic_messages[@intFromEnum(panic_id)] = msg_nav_index.toOptional();
     return msg_nav_index;
 }
@@ -32648,21 +32653,29 @@ fn addTypeReferenceEntry(
     try zcu.addTypeReference(sema.owner, referenced_type, src);
 }
 
-pub fn ensureNavResolved(sema: *Sema, src: LazySrcLoc, nav_index: InternPool.Nav.Index) CompileError!void {
+pub fn ensureNavResolved(sema: *Sema, src: LazySrcLoc, nav_index: InternPool.Nav.Index, kind: enum { type, fully }) CompileError!void {
     const pt = sema.pt;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
     const nav = ip.getNav(nav_index);
     if (nav.analysis == null) {
-        assert(nav.status == .resolved);
+        assert(nav.status == .fully_resolved);
         return;
     }
+
+    try sema.declareDependency(switch (kind) {
+        .type => .{ .nav_ty = nav_index },
+        .fully => .{ .nav_val = nav_index },
+    });
 
     // Note that even if `nav.status == .resolved`, we must still trigger `ensureNavValUpToDate`
     // to make sure the value is up-to-date on incremental updates.
 
-    const anal_unit: AnalUnit = .wrap(.{ .nav_val = nav_index });
+    const anal_unit: AnalUnit = .wrap(switch (kind) {
+        .type => .{ .nav_ty = nav_index },
+        .fully => .{ .nav_val = nav_index },
+    });
     try sema.addReferenceEntry(src, anal_unit);
 
     if (zcu.analysis_in_progress.contains(anal_unit)) {
@@ -32672,7 +32685,13 @@ pub fn ensureNavResolved(sema: *Sema, src: LazySrcLoc, nav_index: InternPool.Nav
         }, "dependency loop detected", .{}));
     }
 
-    return pt.ensureNavValUpToDate(nav_index);
+    switch (kind) {
+        .type => {
+            try zcu.ensureNavValAnalysisQueued(nav_index);
+            return pt.ensureNavTypeUpToDate(nav_index);
+        },
+        .fully => return pt.ensureNavValUpToDate(nav_index),
+    }
 }
 
 fn optRefValue(sema: *Sema, opt_val: ?Value) !Value {
@@ -32691,36 +32710,44 @@ fn analyzeNavRef(sema: *Sema, src: LazySrcLoc, nav_index: InternPool.Nav.Index) 
     return sema.analyzeNavRefInner(src, nav_index, true);
 }
 
-/// Analyze a reference to the `Nav` at the given index. Ensures the underlying `Nav` is analyzed, but
-/// only triggers analysis for function bodies if `analyze_fn_body` is true. If it's possible for a
-/// decl_ref to end up in runtime code, the function body must be analyzed: `analyzeNavRef` wraps
-/// this function with `analyze_fn_body` set to true.
-fn analyzeNavRefInner(sema: *Sema, src: LazySrcLoc, orig_nav_index: InternPool.Nav.Index, analyze_fn_body: bool) CompileError!Air.Inst.Ref {
+/// Analyze a reference to the `Nav` at the given index. Ensures the underlying `Nav` is analyzed.
+/// If this pointer will be used directly, `is_ref` must be `true`.
+/// If this pointer will be immediately loaded (i.e. a `decl_val` instruction), `is_ref` must be `false`.
+fn analyzeNavRefInner(sema: *Sema, src: LazySrcLoc, orig_nav_index: InternPool.Nav.Index, is_ref: bool) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
-    // TODO: if this is a `decl_ref` of a non-variable Nav, only depend on Nav type
-    try sema.declareDependency(.{ .nav_val = orig_nav_index });
-    try sema.ensureNavResolved(src, orig_nav_index);
+    try sema.ensureNavResolved(src, orig_nav_index, if (is_ref) .type else .fully);
 
-    const nav_val = zcu.navValue(orig_nav_index);
-    const nav_index, const is_const = switch (ip.indexToKey(nav_val.toIntern())) {
-        .variable => |v| .{ v.owner_nav, false },
-        .func => |f| .{ f.owner_nav, true },
-        .@"extern" => |e| .{ e.owner_nav, e.is_const },
-        else => .{ orig_nav_index, true },
+    const nav_index = nav: {
+        if (ip.getNav(orig_nav_index).isExternOrFn(ip)) {
+            // Getting a pointer to this `Nav` might mean we actually get a pointer to something else!
+            // We need to resolve the value to know for sure.
+            if (is_ref) try sema.ensureNavResolved(src, orig_nav_index, .fully);
+            switch (ip.indexToKey(ip.getNav(orig_nav_index).status.fully_resolved.val)) {
+                .func => |f| break :nav f.owner_nav,
+                .@"extern" => |e| break :nav e.owner_nav,
+                else => {},
+            }
+        }
+        break :nav orig_nav_index;
     };
-    const nav_info = ip.getNav(nav_index).status.resolved;
+
+    const ty, const alignment, const @"addrspace", const is_const = switch (ip.getNav(nav_index).status) {
+        .unresolved => unreachable,
+        .type_resolved => |r| .{ r.type, r.alignment, r.@"addrspace", r.is_const },
+        .fully_resolved => |r| .{ ip.typeOf(r.val), r.alignment, r.@"addrspace", zcu.navValIsConst(r.val) },
+    };
     const ptr_ty = try pt.ptrTypeSema(.{
-        .child = nav_val.typeOf(zcu).toIntern(),
+        .child = ty,
         .flags = .{
-            .alignment = nav_info.alignment,
+            .alignment = alignment,
             .is_const = is_const,
-            .address_space = nav_info.@"addrspace",
+            .address_space = @"addrspace",
         },
     });
-    if (analyze_fn_body) {
+    if (is_ref) {
         try sema.maybeQueueFuncBodyAnalysis(src, nav_index);
     }
     return Air.internedToRef((try pt.intern(.{ .ptr = .{
@@ -32731,11 +32758,22 @@ fn analyzeNavRefInner(sema: *Sema, src: LazySrcLoc, orig_nav_index: InternPool.N
 }
 
 fn maybeQueueFuncBodyAnalysis(sema: *Sema, src: LazySrcLoc, nav_index: InternPool.Nav.Index) !void {
-    const zcu = sema.pt.zcu;
+    const pt = sema.pt;
+    const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
+
+    // To avoid forcing too much resolution, let's first resolve the type, and check if it's a function.
+    // If it is, we can resolve the *value*, and queue analysis as needed.
+
+    try sema.ensureNavResolved(src, nav_index, .type);
+    const nav_ty: Type = .fromInterned(ip.getNav(nav_index).typeOf(ip));
+    if (nav_ty.zigTypeTag(zcu) != .@"fn") return;
+    if (!try nav_ty.fnHasRuntimeBitsSema(pt)) return;
+
+    try sema.ensureNavResolved(src, nav_index, .fully);
     const nav_val = zcu.navValue(nav_index);
     if (!ip.isFuncBody(nav_val.toIntern())) return;
-    if (!try nav_val.typeOf(zcu).fnHasRuntimeBitsSema(sema.pt)) return;
+
     try sema.addReferenceEntry(src, AnalUnit.wrap(.{ .func = nav_val.toIntern() }));
     try zcu.ensureFuncBodyAnalysisQueued(nav_val.toIntern());
 }
@@ -38450,9 +38488,14 @@ pub fn declareDependency(sema: *Sema, dependee: InternPool.Dependee) !void {
     // of a type and they use `@This()`. This dependency would be unnecessary, and in fact would
     // just result in over-analysis since `Zcu.findOutdatedToAnalyze` would never be able to resolve
     // the loop.
+    // Note that this also disallows a `nav_val`
     switch (sema.owner.unwrap()) {
         .nav_val => |this_nav| switch (dependee) {
             .nav_val => |other_nav| if (this_nav == other_nav) return,
+            else => {},
+        },
+        .nav_ty => |this_nav| switch (dependee) {
+            .nav_ty => |other_nav| if (this_nav == other_nav) return,
             else => {},
         },
         else => {},
@@ -38873,8 +38916,8 @@ fn getBuiltinInnerType(
     const nav = opt_nav orelse return sema.fail(block, src, "std.builtin.{s} missing {s}", .{
         compile_error_parent_name, inner_name,
     });
-    try sema.ensureNavResolved(src, nav);
-    const val = Value.fromInterned(ip.getNav(nav).status.resolved.val);
+    try sema.ensureNavResolved(src, nav, .fully);
+    const val = Value.fromInterned(ip.getNav(nav).status.fully_resolved.val);
     const ty = val.toType();
     try ty.resolveFully(pt);
     return ty;
@@ -38886,5 +38929,73 @@ fn getBuiltin(sema: *Sema, name: []const u8) SemaError!Air.Inst.Ref {
     const ip = &zcu.intern_pool;
     const nav = try pt.getBuiltinNav(name);
     try pt.ensureNavValUpToDate(nav);
-    return Air.internedToRef(ip.getNav(nav).status.resolved.val);
+    return Air.internedToRef(ip.getNav(nav).status.fully_resolved.val);
+}
+
+pub const NavPtrModifiers = struct {
+    alignment: Alignment,
+    @"linksection": InternPool.OptionalNullTerminatedString,
+    @"addrspace": std.builtin.AddressSpace,
+};
+
+pub fn resolveNavPtrModifiers(
+    sema: *Sema,
+    block: *Block,
+    zir_decl: Zir.Inst.Declaration.Unwrapped,
+    decl_inst: Zir.Inst.Index,
+    nav_ty: Type,
+) CompileError!NavPtrModifiers {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
+
+    const align_src = block.src(.{ .node_offset_var_decl_align = 0 });
+    const section_src = block.src(.{ .node_offset_var_decl_section = 0 });
+    const addrspace_src = block.src(.{ .node_offset_var_decl_addrspace = 0 });
+
+    const alignment: InternPool.Alignment = a: {
+        const align_body = zir_decl.align_body orelse break :a .none;
+        const align_ref = try sema.resolveInlineBody(block, align_body, decl_inst);
+        break :a try sema.analyzeAsAlign(block, align_src, align_ref);
+    };
+
+    const @"linksection": InternPool.OptionalNullTerminatedString = ls: {
+        const linksection_body = zir_decl.linksection_body orelse break :ls .none;
+        const linksection_ref = try sema.resolveInlineBody(block, linksection_body, decl_inst);
+        const bytes = try sema.toConstString(block, section_src, linksection_ref, .{
+            .needed_comptime_reason = "linksection must be comptime-known",
+        });
+        if (std.mem.indexOfScalar(u8, bytes, 0) != null) {
+            return sema.fail(block, section_src, "linksection cannot contain null bytes", .{});
+        } else if (bytes.len == 0) {
+            return sema.fail(block, section_src, "linksection cannot be empty", .{});
+        }
+        break :ls try ip.getOrPutStringOpt(gpa, pt.tid, bytes, .no_embedded_nulls);
+    };
+
+    const @"addrspace": std.builtin.AddressSpace = as: {
+        const addrspace_ctx: Sema.AddressSpaceContext = switch (zir_decl.kind) {
+            .@"var" => .variable,
+            else => switch (nav_ty.zigTypeTag(zcu)) {
+                .@"fn" => .function,
+                else => .constant,
+            },
+        };
+        const target = zcu.getTarget();
+        const addrspace_body = zir_decl.addrspace_body orelse break :as switch (addrspace_ctx) {
+            .function => target_util.defaultAddressSpace(target, .function),
+            .variable => target_util.defaultAddressSpace(target, .global_mutable),
+            .constant => target_util.defaultAddressSpace(target, .global_constant),
+            else => unreachable,
+        };
+        const addrspace_ref = try sema.resolveInlineBody(block, addrspace_body, decl_inst);
+        break :as try sema.analyzeAsAddressSpace(block, addrspace_src, addrspace_ref, addrspace_ctx);
+    };
+
+    return .{
+        .alignment = alignment,
+        .@"linksection" = @"linksection",
+        .@"addrspace" = @"addrspace",
+    };
 }

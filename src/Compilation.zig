@@ -2906,6 +2906,7 @@ const Header = extern struct {
         file_deps_len: u32,
         src_hash_deps_len: u32,
         nav_val_deps_len: u32,
+        nav_ty_deps_len: u32,
         namespace_deps_len: u32,
         namespace_name_deps_len: u32,
         first_dependency_len: u32,
@@ -2949,6 +2950,7 @@ pub fn saveState(comp: *Compilation) !void {
                 .file_deps_len = @intCast(ip.file_deps.count()),
                 .src_hash_deps_len = @intCast(ip.src_hash_deps.count()),
                 .nav_val_deps_len = @intCast(ip.nav_val_deps.count()),
+                .nav_ty_deps_len = @intCast(ip.nav_ty_deps.count()),
                 .namespace_deps_len = @intCast(ip.namespace_deps.count()),
                 .namespace_name_deps_len = @intCast(ip.namespace_name_deps.count()),
                 .first_dependency_len = @intCast(ip.first_dependency.count()),
@@ -2979,6 +2981,8 @@ pub fn saveState(comp: *Compilation) !void {
         addBuf(&bufs, mem.sliceAsBytes(ip.src_hash_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.nav_val_deps.keys()));
         addBuf(&bufs, mem.sliceAsBytes(ip.nav_val_deps.values()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.nav_ty_deps.keys()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.nav_ty_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.namespace_deps.keys()));
         addBuf(&bufs, mem.sliceAsBytes(ip.namespace_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.namespace_name_deps.keys()));
@@ -3145,7 +3149,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
 
             const file_index = switch (anal_unit.unwrap()) {
                 .@"comptime" => |cu| ip.getComptimeUnit(cu).zir_index.resolveFile(ip),
-                .nav_val => |nav| ip.getNav(nav).analysis.?.zir_index.resolveFile(ip),
+                .nav_val, .nav_ty => |nav| ip.getNav(nav).analysis.?.zir_index.resolveFile(ip),
                 .type => |ty| Type.fromInterned(ty).typeDeclInst(zcu).?.resolveFile(ip),
                 .func => |ip_index| zcu.funcInfo(ip_index).zir_body_inst.resolveFile(ip),
             };
@@ -3380,7 +3384,7 @@ pub fn addModuleErrorMsg(
                 defer gpa.free(rt_file_path);
                 const name = switch (ref.referencer.unwrap()) {
                     .@"comptime" => "comptime",
-                    .nav_val => |nav| ip.getNav(nav).name.toSlice(ip),
+                    .nav_val, .nav_ty => |nav| ip.getNav(nav).name.toSlice(ip),
                     .type => |ty| Type.fromInterned(ty).containerTypeName(ip).toSlice(ip),
                     .func => |f| ip.getNav(zcu.funcInfo(f).owner_nav).name.toSlice(ip),
                 };
@@ -3647,6 +3651,7 @@ fn performAllTheWorkInner(
                 try comp.queueJob(switch (outdated.unwrap()) {
                     .func => |f| .{ .analyze_func = f },
                     .@"comptime",
+                    .nav_ty,
                     .nav_val,
                     .type,
                     => .{ .analyze_comptime_unit = outdated },
@@ -3679,7 +3684,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
                     return;
                 }
             }
-            assert(nav.status == .resolved);
+            assert(nav.status == .fully_resolved);
             comp.dispatchCodegenTask(tid, .{ .codegen_nav = nav_index });
         },
         .codegen_func => |func| {
@@ -3709,6 +3714,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
 
             const maybe_err: Zcu.SemaError!void = switch (unit.unwrap()) {
                 .@"comptime" => |cu| pt.ensureComptimeUnitUpToDate(cu),
+                .nav_ty => |nav| pt.ensureNavTypeUpToDate(nav),
                 .nav_val => |nav| pt.ensureNavValUpToDate(nav),
                 .type => |ty| if (pt.ensureTypeUpToDate(ty)) |_| {} else |err| err,
                 .func => unreachable,
@@ -3734,7 +3740,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
                 // Tests are always emitted in test binaries. The decl_refs are created by
                 // Zcu.populateTestFunctions, but this will not queue body analysis, so do
                 // that now.
-                try pt.zcu.ensureFuncBodyAnalysisQueued(ip.getNav(nav).status.resolved.val);
+                try pt.zcu.ensureFuncBodyAnalysisQueued(ip.getNav(nav).status.fully_resolved.val);
             }
         },
         .resolve_type_fully => |ty| {
