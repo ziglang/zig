@@ -549,7 +549,8 @@ pub fn getInputSection(self: ZigObject, atom: Atom, macho_file: *MachO) macho.se
 pub fn flushModule(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) !void {
     // Handle any lazy symbols that were emitted by incremental compilation.
     if (self.lazy_syms.getPtr(.anyerror_type)) |metadata| {
-        const pt: Zcu.PerThread = .{ .zcu = macho_file.base.comp.zcu.?, .tid = tid };
+        const pt: Zcu.PerThread = .activate(macho_file.base.comp.zcu.?, tid);
+        defer pt.deactivate();
 
         // Most lazy symbols can be updated on first use, but
         // anyerror needs to wait for everything to be flushed.
@@ -578,7 +579,8 @@ pub fn flushModule(self: *ZigObject, macho_file: *MachO, tid: Zcu.PerThread.Id) 
     }
 
     if (self.dwarf) |*dwarf| {
-        const pt: Zcu.PerThread = .{ .zcu = macho_file.base.comp.zcu.?, .tid = tid };
+        const pt: Zcu.PerThread = .activate(macho_file.base.comp.zcu.?, tid);
+        defer pt.deactivate();
         try dwarf.flushModule(pt);
 
         self.debug_abbrev_dirty = false;

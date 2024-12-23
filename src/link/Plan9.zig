@@ -604,10 +604,11 @@ pub fn flushModule(self: *Plan9, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
 
     defer assert(self.hdr.entry != 0x0);
 
-    const pt: Zcu.PerThread = .{
-        .zcu = self.base.comp.zcu orelse return error.LinkingWithoutZigSourceUnimplemented,
-        .tid = tid,
-    };
+    const pt: Zcu.PerThread = .activate(
+        self.base.comp.zcu orelse return error.LinkingWithoutZigSourceUnimplemented,
+        tid,
+    );
+    defer pt.deactivate();
 
     // finish up the lazy syms
     if (self.lazy_syms.getPtr(.none)) |metadata| {

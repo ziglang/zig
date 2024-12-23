@@ -2687,23 +2687,19 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                                 },
                             };
                             try wip_nav.abbrevCode(if (is_comptime)
-                                if (has_runtime_bits and has_comptime_state)
-                                    .struct_field_comptime_runtime_bits_comptime_state
-                                else if (has_comptime_state)
+                                if (has_comptime_state)
                                     .struct_field_comptime_comptime_state
                                 else if (has_runtime_bits)
                                     .struct_field_comptime_runtime_bits
                                 else
                                     .struct_field_comptime
                             else if (field_init != .none)
-                                if (has_runtime_bits and has_comptime_state)
-                                    .struct_field_default_runtime_bits_comptime_state
-                                else if (has_comptime_state)
+                                if (has_comptime_state)
                                     .struct_field_default_comptime_state
                                 else if (has_runtime_bits)
                                     .struct_field_default_runtime_bits
                                 else
-                                    .struct_field_default
+                                    .struct_field
                             else
                                 .struct_field);
                             if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
@@ -2717,8 +2713,10 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                                 try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
                                     field_type.abiAlignment(zcu).toByteUnits().?);
                             }
-                            if (has_runtime_bits) try wip_nav.blockValue(nav_src_loc, .fromInterned(field_init));
-                            if (has_comptime_state) try wip_nav.refValue(.fromInterned(field_init));
+                            if (has_comptime_state)
+                                try wip_nav.refValue(.fromInterned(field_init))
+                            else if (has_runtime_bits)
+                                try wip_nav.blockValue(nav_src_loc, .fromInterned(field_init));
                         }
                         try uleb128(diw, @intFromEnum(AbbrevCode.null));
                     }
@@ -3363,9 +3361,7 @@ fn updateLazyType(
                         field_type.comptimeOnly(zcu) and try field_type.onePossibleValue(pt) == null,
                     },
                 };
-                try wip_nav.abbrevCode(if (has_runtime_bits and has_comptime_state)
-                    .struct_field_comptime_runtime_bits_comptime_state
-                else if (has_comptime_state)
+                try wip_nav.abbrevCode(if (has_comptime_state)
                     .struct_field_comptime_comptime_state
                 else if (has_runtime_bits)
                     .struct_field_comptime_runtime_bits
@@ -3386,8 +3382,10 @@ fn updateLazyType(
                     try uleb128(diw, field_type.abiAlignment(zcu).toByteUnits().?);
                     field_byte_offset += field_type.abiSize(zcu);
                 }
-                if (has_runtime_bits) try wip_nav.blockValue(src_loc, .fromInterned(comptime_value));
-                if (has_comptime_state) try wip_nav.refValue(.fromInterned(comptime_value));
+                if (has_comptime_state)
+                    try wip_nav.refValue(.fromInterned(comptime_value))
+                else if (has_runtime_bits)
+                    try wip_nav.blockValue(src_loc, .fromInterned(comptime_value));
             }
             try uleb128(diw, @intFromEnum(AbbrevCode.null));
         },
@@ -3956,23 +3954,19 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                     },
                 };
                 try wip_nav.abbrevCode(if (is_comptime)
-                    if (has_runtime_bits and has_comptime_state)
-                        .struct_field_comptime_runtime_bits_comptime_state
-                    else if (has_comptime_state)
+                    if (has_comptime_state)
                         .struct_field_comptime_comptime_state
                     else if (has_runtime_bits)
                         .struct_field_comptime_runtime_bits
                     else
                         .struct_field_comptime
                 else if (field_init != .none)
-                    if (has_runtime_bits and has_comptime_state)
-                        .struct_field_default_runtime_bits_comptime_state
-                    else if (has_comptime_state)
+                    if (has_comptime_state)
                         .struct_field_default_comptime_state
                     else if (has_runtime_bits)
                         .struct_field_default_runtime_bits
                     else
-                        .struct_field_default
+                        .struct_field
                 else
                     .struct_field);
                 if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
@@ -3986,8 +3980,10 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                     try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
                         field_type.abiAlignment(zcu).toByteUnits().?);
                 }
-                if (has_runtime_bits) try wip_nav.blockValue(ty_src_loc, .fromInterned(field_init));
-                if (has_comptime_state) try wip_nav.refValue(.fromInterned(field_init));
+                if (has_comptime_state)
+                    try wip_nav.refValue(.fromInterned(field_init))
+                else if (has_runtime_bits)
+                    try wip_nav.blockValue(ty_src_loc, .fromInterned(field_init));
             }
             try uleb128(diw, @intFromEnum(AbbrevCode.null));
         }
@@ -4064,23 +4060,19 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                                     },
                                 };
                                 try wip_nav.abbrevCode(if (is_comptime)
-                                    if (has_runtime_bits and has_comptime_state)
-                                        .struct_field_comptime_runtime_bits_comptime_state
-                                    else if (has_comptime_state)
+                                    if (has_comptime_state)
                                         .struct_field_comptime_comptime_state
                                     else if (has_runtime_bits)
                                         .struct_field_comptime_runtime_bits
                                     else
                                         .struct_field_comptime
                                 else if (field_init != .none)
-                                    if (has_runtime_bits and has_comptime_state)
-                                        .struct_field_default_runtime_bits_comptime_state
-                                    else if (has_comptime_state)
+                                    if (has_comptime_state)
                                         .struct_field_default_comptime_state
                                     else if (has_runtime_bits)
                                         .struct_field_default_runtime_bits
                                     else
-                                        .struct_field_default
+                                        .struct_field
                                 else
                                     .struct_field);
                                 if (loaded_struct.fieldName(ip, field_index).unwrap()) |field_name| try wip_nav.strp(field_name.toSlice(ip)) else {
@@ -4094,8 +4086,10 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
                                     try uleb128(diw, loaded_struct.fieldAlign(ip, field_index).toByteUnits() orelse
                                         field_type.abiAlignment(zcu).toByteUnits().?);
                                 }
-                                if (has_runtime_bits) try wip_nav.blockValue(ty_src_loc, .fromInterned(field_init));
-                                if (has_comptime_state) try wip_nav.refValue(.fromInterned(field_init));
+                                if (has_comptime_state)
+                                    try wip_nav.refValue(.fromInterned(field_init))
+                                else if (has_runtime_bits)
+                                    try wip_nav.blockValue(ty_src_loc, .fromInterned(field_init));
                             }
                             try uleb128(diw, @intFromEnum(AbbrevCode.null));
                         }
@@ -4680,14 +4674,11 @@ const AbbrevCode = enum {
     big_enum_field,
     generated_field,
     struct_field,
-    struct_field_default,
     struct_field_default_runtime_bits,
     struct_field_default_comptime_state,
-    struct_field_default_runtime_bits_comptime_state,
     struct_field_comptime,
     struct_field_comptime_runtime_bits,
     struct_field_comptime_comptime_state,
-    struct_field_comptime_runtime_bits_comptime_state,
     packed_struct_field,
     untagged_union_field,
     tagged_union,
@@ -4980,15 +4971,6 @@ const AbbrevCode = enum {
                 .{ .alignment, .udata },
             },
         },
-        .struct_field_default = .{
-            .tag = .member,
-            .attrs = &.{
-                .{ .name, .strp },
-                .{ .type, .ref_addr },
-                .{ .data_member_location, .udata },
-                .{ .alignment, .udata },
-            },
-        },
         .struct_field_default_runtime_bits = .{
             .tag = .member,
             .attrs = &.{
@@ -5006,18 +4988,7 @@ const AbbrevCode = enum {
                 .{ .type, .ref_addr },
                 .{ .data_member_location, .udata },
                 .{ .alignment, .udata },
-                .{ .ZIG_comptime_default_value, .ref_addr },
-            },
-        },
-        .struct_field_default_runtime_bits_comptime_state = .{
-            .tag = .member,
-            .attrs = &.{
-                .{ .name, .strp },
-                .{ .type, .ref_addr },
-                .{ .data_member_location, .udata },
-                .{ .alignment, .udata },
-                .{ .default_value, .block },
-                .{ .ZIG_comptime_default_value, .ref_addr },
+                .{ .ZIG_comptime_value, .ref_addr },
             },
         },
         .struct_field_comptime = .{
@@ -5043,16 +5014,6 @@ const AbbrevCode = enum {
                 .{ .const_expr, .flag_present },
                 .{ .name, .strp },
                 .{ .type, .ref_addr },
-                .{ .ZIG_comptime_value, .ref_addr },
-            },
-        },
-        .struct_field_comptime_runtime_bits_comptime_state = .{
-            .tag = .member,
-            .attrs = &.{
-                .{ .const_expr, .flag_present },
-                .{ .name, .strp },
-                .{ .type, .ref_addr },
-                .{ .const_value, .block },
                 .{ .ZIG_comptime_value, .ref_addr },
             },
         },
