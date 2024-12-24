@@ -1612,11 +1612,30 @@ fn analyzeBodyInner(
 
             .block => if (block.is_comptime) {
                 continue :inst .block_inline;
-            } else try sema.zirBlock(block, inst, false),
+            } else try sema.zirBlock(block, inst),
 
             .block_comptime => if (block.is_comptime) {
                 continue :inst .block_inline;
-            } else try sema.zirBlock(block, inst, true),
+            } else {
+                const pl_node = datas[@intFromEnum(inst)].pl_node;
+                const src = block.nodeOffset(pl_node.src_node);
+                const extra = sema.code.extraData(Zir.Inst.Block, pl_node.payload_index);
+                const block_body = sema.code.bodySlice(extra.end, extra.data.body_len);
+
+                var child_block = block.makeSubBlock();
+                defer child_block.instructions.deinit(sema.gpa);
+                child_block.is_comptime = true;
+
+                const result = try sema.resolveInlineBody(&child_block, block_body, inst);
+
+                if (!try sema.isComptimeKnown(result)) {
+                    // TODO: encode the reason for this comptime block in ZIR, then we
+                    // can use `failWithNeededComptime` for a better error message.
+                    return sema.fail(block, src, "unable to resolve comptime value", .{});
+                }
+
+                break :inst result;
+            },
 
             .block_inline => blk: {
                 // Directly analyze the block body without introducing a new block.
@@ -6087,7 +6106,7 @@ fn zirSuspendBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) Comp
     return sema.failWithUseOfAsync(parent_block, src);
 }
 
-fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index, force_comptime: bool) CompileError!Air.Inst.Ref {
+fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -6123,7 +6142,7 @@ fn zirBlock(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index, force_compt
         .instructions = .{},
         .label = &label,
         .inlining = parent_block.inlining,
-        .is_comptime = parent_block.is_comptime or force_comptime,
+        .is_comptime = parent_block.is_comptime,
         .comptime_reason = parent_block.comptime_reason,
         .is_typeof = parent_block.is_typeof,
         .want_safety = parent_block.want_safety,
