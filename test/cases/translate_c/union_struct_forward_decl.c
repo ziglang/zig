@@ -19,7 +19,7 @@ struct Foo {
 
 
 // translate-c
-// c_frontend=aro,clang
+// c_frontend=clang
 //
 // pub const struct_A = extern struct {
 //     x: c_short = @import("std").mem.zeroes(c_short),

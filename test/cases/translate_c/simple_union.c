@@ -3,7 +3,7 @@ union Foo {
 };
 
 // translate-c
-// c_frontend=aro,clang
+// c_frontend=clang
 //
 // pub const union_Foo = extern union {
 //     x: c_int,

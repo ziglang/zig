@@ -4356,7 +4356,6 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
 
     man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
     man.hash.addBytes(c_src);
-    man.hash.add(comp.config.c_frontend);
 
     // If the previous invocation resulted in clang errors, we will see a hit
     // here with 0 files in the manifest, in which case it is actually a miss.
@@ -4393,7 +4392,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
         var argv = std.ArrayList([]const u8).init(comp.gpa);
         defer argv.deinit();
 
-        try argv.append(@tagName(comp.config.c_frontend)); // argv[0] is program name, actual args start at [1]
+        try argv.append("clang"); // argv[0] is program name, actual args start at [1]
         try comp.addTranslateCCArgs(arena, &argv, .c, out_dep_path, owner_mod);
 
         try argv.append(out_h_path);
@@ -4401,43 +4400,37 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
         if (comp.verbose_cc) {
             dump_argv(argv.items);
         }
-        var tree = switch (comp.config.c_frontend) {
-            .aro => tree: {
-                if (true) @panic("TODO");
-                break :tree undefined;
-            },
-            .clang => tree: {
-                if (!build_options.have_llvm) unreachable;
-                const translate_c = @import("translate_c.zig");
+        var tree = tree: {
+            if (!build_options.have_llvm) unreachable;
+            const translate_c = @import("translate_c.zig");
 
-                // Convert to null terminated args.
-                const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, argv.items.len + 1);
-                new_argv_with_sentinel[argv.items.len] = null;
-                const new_argv = new_argv_with_sentinel[0..argv.items.len :null];
-                for (argv.items, 0..) |arg, i| {
-                    new_argv[i] = try arena.dupeZ(u8, arg);
-                }
+            // Convert to null terminated args.
+            const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, argv.items.len + 1);
+            new_argv_with_sentinel[argv.items.len] = null;
+            const new_argv = new_argv_with_sentinel[0..argv.items.len :null];
+            for (argv.items, 0..) |arg, i| {
+                new_argv[i] = try arena.dupeZ(u8, arg);
+            }
 
-                const c_headers_dir_path_z = try comp.zig_lib_directory.joinZ(arena, &[_][]const u8{"include"});
-                var errors = std.zig.ErrorBundle.empty;
-                errdefer errors.deinit(comp.gpa);
-                break :tree translate_c.translate(
-                    comp.gpa,
-                    new_argv.ptr,
-                    new_argv.ptr + new_argv.len,
-                    &errors,
-                    c_headers_dir_path_z,
-                ) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.SemanticAnalyzeFail => {
-                        return CImportResult{
-                            .digest = undefined,
-                            .cache_hit = actual_hit,
-                            .errors = errors,
-                        };
-                    },
-                };
-            },
+            const c_headers_dir_path_z = try comp.zig_lib_directory.joinZ(arena, &[_][]const u8{"include"});
+            var errors = std.zig.ErrorBundle.empty;
+            errdefer errors.deinit(comp.gpa);
+            break :tree translate_c.translate(
+                comp.gpa,
+                new_argv.ptr,
+                new_argv.ptr + new_argv.len,
+                &errors,
+                c_headers_dir_path_z,
+            ) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.SemanticAnalyzeFail => {
+                    return CImportResult{
+                        .digest = undefined,
+                        .cache_hit = actual_hit,
+                        .errors = errors,
+                    };
+                },
+            };
         };
         defer tree.deinit(comp.gpa);
 
@@ -4616,9 +4609,6 @@ fn reportRetryableEmbedFileError(
 }
 
 fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Progress.Node) !void {
-    if (comp.config.c_frontend == .aro) {
-        return comp.failCObj(c_object, "aro does not support compiling C objects yet", .{});
-    }
     if (!build_options.have_llvm) {
         return comp.failCObj(c_object, "clang not available: compiler built without LLVM extensions", .{});
     }

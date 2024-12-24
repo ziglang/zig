@@ -668,18 +668,6 @@ fn addCompilerStep(b: *std.Build, options: AddCompilerStepOptions) *std.Build.St
         .valgrind = options.valgrind,
     });
 
-    const aro_mod = b.createModule(.{
-        .root_source_file = b.path("lib/compiler/aro/aro.zig"),
-    });
-
-    const aro_translate_c_mod = b.createModule(.{
-        .root_source_file = b.path("lib/compiler/aro_translate_c.zig"),
-    });
-
-    aro_translate_c_mod.addImport("aro", aro_mod);
-    compiler_mod.addImport("aro", aro_mod);
-    compiler_mod.addImport("aro_translate_c", aro_translate_c_mod);
-
     const exe = b.addExecutable(.{
         .name = "zig",
         .max_rss = 7_800_000_000,

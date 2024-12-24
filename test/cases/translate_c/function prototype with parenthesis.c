@@ -3,7 +3,7 @@ void ((f1)) (void *L);
 void (((f2))) (void *L);
 
 // translate-c
-// c_frontend=clang,aro
+// c_frontend=clang
 //
 // pub extern fn f0(L: ?*anyopaque) void;
 // pub extern fn f1(L: ?*anyopaque) void;

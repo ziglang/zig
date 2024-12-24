@@ -47,7 +47,6 @@ use_lib_llvm: bool,
 /// objects. Otherwise (depending on `use_llvm`) linker code directly outputs
 /// and updates the final binary.
 use_lld: bool,
-c_frontend: CFrontend,
 lto: bool,
 /// WASI-only. Type of WASI execution model ("command" or "reactor").
 /// Always set to `command` for non-WASI targets.
@@ -270,18 +269,6 @@ pub fn resolve(options: Options) ResolveError!Config {
 
         if (options.use_lld) |x| break :b x;
         break :b true;
-    };
-
-    // Make a decision on whether to use Clang or Aro for translate-c and compiling C files.
-    const c_frontend: CFrontend = b: {
-        if (!build_options.have_llvm) {
-            if (options.use_clang == true) return error.ClangUnavailable;
-            break :b .aro;
-        }
-        if (options.use_clang) |clang| {
-            break :b if (clang) .clang else .aro;
-        }
-        break :b .clang;
     };
 
     const lto = b: {
@@ -507,7 +494,6 @@ pub fn resolve(options: Options) ResolveError!Config {
         .import_memory = import_memory,
         .export_memory = export_memory,
         .shared_memory = shared_memory,
-        .c_frontend = c_frontend,
         .use_llvm = use_llvm,
         .use_lib_llvm = use_lib_llvm,
         .use_lld = use_lld,

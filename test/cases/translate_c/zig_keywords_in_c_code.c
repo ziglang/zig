@@ -3,7 +3,7 @@ struct comptime {
 };
 
 // translate-c
-// c_frontend=aro,clang
+// c_frontend=clang
 //
 // pub const struct_comptime = extern struct {
 //     @"defer": c_int = @import("std").mem.zeroes(c_int),

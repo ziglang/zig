@@ -3,7 +3,7 @@ struct Foo {
 };
 
 // translate-c
-// c_frontend=aro,clang
+// c_frontend=clang
 //
 // const struct_Foo = extern struct {
 //     x: c_int = @import("std").mem.zeroes(c_int),

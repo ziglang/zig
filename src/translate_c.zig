@@ -5,22 +5,22 @@ const mem = std.mem;
 const math = std.math;
 const meta = std.meta;
 const clang = @import("clang.zig");
-const aro = @import("aro");
-const CToken = aro.Tokenizer.Token;
+const ast = @import("translate_c/ast.zig");
 const Node = ast.Node;
 const Tag = Node.Tag;
-const common = @import("aro_translate_c");
-const ast = common.ast;
-const Error = common.Error;
-const MacroProcessingError = common.MacroProcessingError;
-const TypeError = common.TypeError;
-const TransError = common.TransError;
-const SymbolTable = common.SymbolTable;
-const AliasList = common.AliasList;
-const ResultUsed = common.ResultUsed;
-const Scope = common.ScopeExtra(Context, clang.QualType);
-const PatternList = common.PatternList;
-const MacroSlicer = common.MacroSlicer;
+
+const aro = @import("translate_c/aro.zig");
+const CToken = aro.Tokenizer.Token;
+const Error = aro.Error;
+const MacroProcessingError = aro.MacroProcessingError;
+const TypeError = aro.TypeError;
+const TransError = aro.TransError;
+const SymbolTable = aro.SymbolTable;
+const AliasList = aro.AliasList;
+const ResultUsed = aro.ResultUsed;
+const Scope = aro.ScopeExtra(Context, clang.QualType);
+const PatternList = aro.PatternList;
+const MacroSlicer = aro.MacroSlicer;
 
 pub const Context = struct {
     gpa: mem.Allocator,
@@ -5299,7 +5299,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
 
                 const source = try getMacroText(unit, c, macro);
 
-                try common.tokenizeMacro(source, &tok_list);
+                try aro.tokenizeMacro(source, &tok_list);
 
                 var macro_ctx = MacroCtx{
                     .source = source,

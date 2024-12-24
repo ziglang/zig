@@ -532,13 +532,13 @@ set(ZIG_STAGE2_SOURCES
     src/arch/arm/Mir.zig
     src/arch/arm/abi.zig
     src/arch/arm/bits.zig
-    src/arch/riscv64/abi.zig
-    src/arch/riscv64/bits.zig
     src/arch/riscv64/CodeGen.zig
     src/arch/riscv64/Emit.zig
-    src/arch/riscv64/encoding.zig
     src/arch/riscv64/Lower.zig
     src/arch/riscv64/Mir.zig
+    src/arch/riscv64/abi.zig
+    src/arch/riscv64/bits.zig
+    src/arch/riscv64/encoding.zig
     src/arch/riscv64/mnem.zig
     src/arch/sparc64/CodeGen.zig
     src/arch/sparc64/Emit.zig
@@ -617,6 +617,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/Object.zig
     src/link/MachO/Relocation.zig
     src/link/MachO/Symbol.zig
+    src/link/MachO/Thunk.zig
     src/link/MachO/UnwindInfo.zig
     src/link/MachO/ZigObject.zig
     src/link/MachO/dead_strip.zig
@@ -630,7 +631,6 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/load_commands.zig
     src/link/MachO/relocatable.zig
     src/link/MachO/synthetic.zig
-    src/link/MachO/Thunk.zig
     src/link/MachO/uuid.zig
     src/link/NvPtx.zig
     src/link/Plan9.zig
@@ -668,6 +668,9 @@ set(ZIG_STAGE2_SOURCES
     src/target.zig
     src/tracy.zig
     src/translate_c.zig
+    src/translate_c/Tokenizer.zig
+    src/translate_c/aro.zig
+    src/translate_c/ast.zig
     src/wasi_libc.zig
 )
 
@@ -857,10 +860,8 @@ set(BUILD_ZIG2_ARGS
   -femit-bin="${ZIG2_C_SOURCE}"
   -target "${ZIG_HOST_TARGET_TRIPLE}"
   --dep "build_options"
-  --dep "aro"
   "-Mroot=src/main.zig"
   "-Mbuild_options=${ZIG_CONFIG_ZIG_OUT}"
-  "-Maro=lib/compiler/aro/aro.zig"
 )
 
 add_custom_command(

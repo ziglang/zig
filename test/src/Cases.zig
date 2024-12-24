@@ -62,11 +62,6 @@ pub const Backend = enum {
     llvm,
 };
 
-pub const CFrontend = enum {
-    clang,
-    aro,
-};
-
 /// A `Case` consists of a list of `Update`. The same `Compilation` is used for each
 /// update, so each update's source is treated as a single file being
 /// updated by the test harness and incrementally compiled.
@@ -159,7 +154,6 @@ pub const Translate = struct {
     input: [:0]const u8,
     target: std.Build.ResolvedTarget,
     link_libc: bool,
-    c_frontend: CFrontend,
     kind: union(enum) {
         /// Translate the input, run it and check that it
         /// outputs the expected text.
@@ -407,7 +401,6 @@ fn addFromDirInner(
 
         const backends = try manifest.getConfigForKeyAlloc(ctx.arena, "backend", Backend);
         const targets = try manifest.getConfigForKeyAlloc(ctx.arena, "target", std.Target.Query);
-        const c_frontends = try manifest.getConfigForKeyAlloc(ctx.arena, "c_frontend", CFrontend);
         const is_test = try manifest.getConfigForKeyAssertSingle("is_test", bool);
         const link_libc = try manifest.getConfigForKeyAssertSingle("link_libc", bool);
         const output_mode = try manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
@@ -416,34 +409,28 @@ fn addFromDirInner(
         const emit_bin = try manifest.getConfigForKeyAssertSingle("emit_bin", bool);
 
         if (manifest.type == .translate_c) {
-            for (c_frontends) |c_frontend| {
-                for (targets) |target_query| {
-                    const output = try manifest.trailingLinesSplit(ctx.arena);
-                    try ctx.translate.append(.{
-                        .name = std.fs.path.stem(filename),
-                        .c_frontend = c_frontend,
-                        .target = b.resolveTargetQuery(target_query),
-                        .link_libc = link_libc,
-                        .input = src,
-                        .kind = .{ .translate = output },
-                    });
-                }
+            for (targets) |target_query| {
+                const output = try manifest.trailingLinesSplit(ctx.arena);
+                try ctx.translate.append(.{
+                    .name = std.fs.path.stem(filename),
+                    .target = b.resolveTargetQuery(target_query),
+                    .link_libc = link_libc,
+                    .input = src,
+                    .kind = .{ .translate = output },
+                });
             }
             continue;
         }
         if (manifest.type == .run_translated_c) {
-            for (c_frontends) |c_frontend| {
-                for (targets) |target_query| {
-                    const output = try manifest.trailingSplit(ctx.arena);
-                    try ctx.translate.append(.{
-                        .name = std.fs.path.stem(filename),
-                        .c_frontend = c_frontend,
-                        .target = b.resolveTargetQuery(target_query),
-                        .link_libc = link_libc,
-                        .input = src,
-                        .kind = .{ .run = output },
-                    });
-                }
+            for (targets) |target_query| {
+                const output = try manifest.trailingSplit(ctx.arena);
+                try ctx.translate.append(.{
+                    .name = std.fs.path.stem(filename),
+                    .target = b.resolveTargetQuery(target_query),
+                    .link_libc = link_libc,
+                    .input = src,
+                    .kind = .{ .run = output },
+                });
             }
             continue;
         }
@@ -568,7 +555,7 @@ pub fn lowerToTranslateCSteps(
                 .optimize = .Debug,
                 .target = case.target,
                 .link_libc = case.link_libc,
-                .use_clang = case.c_frontend == .clang,
+                .use_clang = true,
             });
             translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
 
@@ -600,7 +587,7 @@ pub fn lowerToTranslateCSteps(
                 .optimize = .Debug,
                 .target = case.target,
                 .link_libc = case.link_libc,
-                .use_clang = case.c_frontend == .clang,
+                .use_clang = true,
             });
             translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
 
@@ -956,8 +943,6 @@ const TestManifestConfigDefaults = struct {
             return "false";
         } else if (std.mem.eql(u8, key, "link_libc")) {
             return "false";
-        } else if (std.mem.eql(u8, key, "c_frontend")) {
-            return "clang";
         } else if (std.mem.eql(u8, key, "pic")) {
             return "null";
         } else if (std.mem.eql(u8, key, "pie")) {
@@ -993,7 +978,6 @@ const TestManifest = struct {
         .{ "is_test", {} },
         .{ "output_mode", {} },
         .{ "target", {} },
-        .{ "c_frontend", {} },
         .{ "link_libc", {} },
         .{ "backend", {} },
         .{ "pic", {} },

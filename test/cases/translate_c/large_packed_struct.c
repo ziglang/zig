@@ -8,7 +8,7 @@ struct __attribute__((packed)) bar {
 };
 
 // translate-c
-// c_frontend=aro,clang
+// c_frontend=clang
 //
 // pub const struct_bar = extern struct {
 //     a: c_short align(1) = @import("std").mem.zeroes(c_short),

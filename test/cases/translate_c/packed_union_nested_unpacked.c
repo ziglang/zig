@@ -10,7 +10,7 @@ union Foo{
 } __attribute__((packed));
 
 // translate-c
-// c_frontend=aro,clang
+// c_frontend=clang
 //
 // const struct_unnamed_1 = extern struct {
 //     b: c_int = @import("std").mem.zeroes(c_int),

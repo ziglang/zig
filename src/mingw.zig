@@ -282,9 +282,33 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     defer o_dir.close();
 
     const final_def_basename = try std.fmt.allocPrint(arena, "{s}.def", .{lib_name});
-    const def_final_path = try comp.global_cache_directory.join(arena, &[_][]const u8{
-        "o", &digest, final_def_basename,
-    });
+    const def_final_path: Cache.Path = .{
+        .root_dir = comp.global_cache_directory,
+        .sub_path = try std.fs.path.join(arena, &.{ "o", &digest, final_def_basename }),
+    };
+
+    var preprocessor: std.zig.Preprocessor = .{
+        .linemarkers = .none,
+        .preserve_whitespace = true,
+    };
+
+    const include_path: Cache.Path = .{
+        .root_dir = comp.zig_lib_directory,
+        .sub_path = try std.fs.path.join(arena, &.{ "libc", "mingw", "def-include" }),
+    };
+
+    if (comp.verbose_cc) print: {
+        std.debug.lockStdErr();
+        defer std.debug.unlockStdErr();
+        const stderr = std.io.getStdErr().writer();
+        nosuspend stderr.print("def file: {s}\n", .{def_file_path}) catch break :print;
+        nosuspend stderr.print("include path: {}\n", .{include_path}) catch break :print;
+        nosuspend stderr.print("output path: {}\n", .{def_final_path}) catch break :print;
+    }
+
+    try preprocessor.addIncludeDirectory(arena, include_path);
+
+    const builtin_macros = try preprocessor.generateBuiltinMacros(.include_system_defines);
 
     const target_defines = switch (target.cpu.arch) {
         .thumb => "#define DEF_ARM32\n",
@@ -293,39 +317,16 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         .x86_64 => "#define DEF_X64\n",
         else => unreachable,
     };
+    const user_macros = try preprocessor.addSourceFromBuffer("<command line>", target_defines);
+    const def_file_source = try preprocessor.addSourceFromPath(def_file_path);
 
-    const aro = @import("aro");
-    var aro_comp = aro.Compilation.init(gpa, std.fs.cwd());
-    defer aro_comp.deinit();
+    try preprocessor.preprocessSources(&.{ def_file_source, builtin_macros, user_macros });
 
-    const include_dir = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "mingw", "def-include" });
-
-    if (comp.verbose_cc) print: {
-        std.debug.lockStdErr();
-        defer std.debug.unlockStdErr();
-        const stderr = std.io.getStdErr().writer();
-        nosuspend stderr.print("def file: {s}\n", .{def_file_path}) catch break :print;
-        nosuspend stderr.print("include dir: {s}\n", .{include_dir}) catch break :print;
-        nosuspend stderr.print("output path: {s}\n", .{def_final_path}) catch break :print;
-    }
-
-    try aro_comp.include_dirs.append(gpa, include_dir);
-
-    const builtin_macros = try aro_comp.generateBuiltinMacros(.include_system_defines);
-    const user_macros = try aro_comp.addSourceFromBuffer("<command line>", target_defines);
-    const def_file_source = try aro_comp.addSourceFromPath(def_file_path);
-
-    var pp = aro.Preprocessor.init(&aro_comp);
-    defer pp.deinit();
-    pp.linemarkers = .none;
-    pp.preserve_whitespace = true;
-
-    try pp.preprocessSources(&.{ def_file_source, builtin_macros, user_macros });
-
-    for (aro_comp.diagnostics.list.items) |diagnostic| {
+    for (preprocessor.diagnostics.list.items) |diagnostic| {
         if (diagnostic.kind == .@"fatal error" or diagnostic.kind == .@"error") {
-            aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(std.io.getStdErr()));
-            return error.AroPreprocessorFailed;
+            // TODO report this instead of printing to stderr
+            preprocessor.renderDiagnostics(std.io.tty.detectConfig(std.io.getStdErr()));
+            return error.PreprocessorFailed;
         }
     }
 
@@ -333,7 +334,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         // new scope to ensure definition file is written before passing the path to WriteImportLibrary
         const def_final_file = try o_dir.createFile(final_def_basename, .{ .truncate = true });
         defer def_final_file.close();
-        try pp.prettyPrintTokens(def_final_file.writer(), .result_only);
+        try preprocessor.prettyPrintTokens(def_final_file.writer(), .result_only);
     }
 
     const lib_final_path = try std.fs.path.join(gpa, &.{ "o", &digest, final_lib_basename });

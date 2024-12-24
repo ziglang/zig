@@ -255,8 +255,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     };
 
     const stack_protector: u32 = sp: {
-        const use_zig_backend = options.global.have_zcu or
-            (options.global.any_c_source_files and options.global.c_frontend == .aro);
+        const use_zig_backend = options.global.have_zcu;
         if (use_zig_backend and !target_util.supportsStackProtector(target, zig_backend)) {
             if (options.inherited.stack_protector) |x| {
                 if (x > 0) return error.StackProtectorUnsupportedByTarget;
@@ -264,9 +263,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             break :sp 0;
         }
 
-        if (options.global.any_c_source_files and options.global.c_frontend == .clang and
-            !target_util.clangSupportsStackProtector(target))
-        {
+        if (options.global.any_c_source_files and !target_util.clangSupportsStackProtector(target)) {
             if (options.inherited.stack_protector) |x| {
                 if (x > 0) return error.StackProtectorUnsupportedByTarget;
             }

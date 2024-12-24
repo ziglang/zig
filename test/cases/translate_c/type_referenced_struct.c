@@ -8,7 +8,7 @@ struct Foo {
 };
 
 // translate-c
-// c_frontend=aro,clang
+// c_frontend=clang
 // target=x86_64-linux-gnu
 //
 // pub const struct_Bar_1 = extern struct {

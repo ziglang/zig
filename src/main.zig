@@ -4468,6 +4468,7 @@ fn cmdTranslateC(
     file_system_inputs: ?*std.ArrayListUnmanaged(u8),
     prog_node: std.Progress.Node,
 ) !void {
+    _ = prog_node;
     dev.check(.translate_c_command);
 
     const color: Color = .auto;
@@ -4481,7 +4482,6 @@ fn cmdTranslateC(
     defer man.deinit();
 
     man.hash.add(@as(u16, 0xb945)); // Random number to distinguish translate-c from compiling C objects
-    man.hash.add(comp.config.c_frontend);
     Compilation.cache_helpers.hashCSource(&man, c_source_file) catch |err| {
         fatal("unable to process '{s}': {s}", .{ c_source_file.src_path, @errorName(err) });
     };
@@ -4495,20 +4495,14 @@ fn cmdTranslateC(
     } else digest: {
         if (fancy_output) |p| p.cache_hit = false;
         var argv = std.ArrayList([]const u8).init(arena);
-        switch (comp.config.c_frontend) {
-            .aro => {},
-            .clang => {
-                // argv[0] is program name, actual args start at [1]
-                try argv.append(@tagName(comp.config.c_frontend));
-            },
-        }
+        try argv.append("clang"); // argv[0] is program name, actual args start at [1]
 
         var zig_cache_tmp_dir = try comp.local_cache_directory.handle.makeOpenPath("tmp", .{});
         defer zig_cache_tmp_dir.close();
 
         const ext = Compilation.classifyFileExt(c_source_file.src_path);
         const out_dep_path: ?[]const u8 = blk: {
-            if (comp.config.c_frontend == .aro or comp.disable_c_depfile or !ext.clangSupportsDepFile())
+            if (comp.disable_c_depfile or !ext.clangSupportsDepFile())
                 break :blk null;
 
             const c_src_basename = fs.path.basename(c_source_file.src_path);
@@ -4517,9 +4511,7 @@ fn cmdTranslateC(
             break :blk out_dep_path;
         };
 
-        // TODO
-        if (comp.config.c_frontend != .aro)
-            try comp.addTranslateCCArgs(arena, &argv, ext, out_dep_path, comp.root_mod);
+        try comp.addTranslateCCArgs(arena, &argv, ext, out_dep_path, comp.root_mod);
         try argv.append(c_source_file.src_path);
 
         if (comp.verbose_cc) {
@@ -4531,49 +4523,36 @@ fn cmdTranslateC(
             error_bundle: std.zig.ErrorBundle,
         };
 
-        const result: Result = switch (comp.config.c_frontend) {
-            .aro => f: {
-                var stdout: []u8 = undefined;
-                try jitCmd(comp.gpa, arena, argv.items, .{
-                    .cmd_name = "aro_translate_c",
-                    .root_src_path = "aro_translate_c.zig",
-                    .depend_on_aro = true,
-                    .capture = &stdout,
-                    .progress_node = prog_node,
-                });
-                break :f .{ .success = stdout };
-            },
-            .clang => f: {
-                if (!build_options.have_llvm) unreachable;
-                const translate_c = @import("translate_c.zig");
+        const result: Result = f: {
+            if (!build_options.have_llvm) unreachable;
+            const translate_c = @import("translate_c.zig");
 
-                // Convert to null terminated args.
-                const clang_args_len = argv.items.len + c_source_file.extra_flags.len;
-                const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, clang_args_len + 1);
-                new_argv_with_sentinel[clang_args_len] = null;
-                const new_argv = new_argv_with_sentinel[0..clang_args_len :null];
-                for (argv.items, 0..) |arg, i| {
-                    new_argv[i] = try arena.dupeZ(u8, arg);
-                }
-                for (c_source_file.extra_flags, 0..) |arg, i| {
-                    new_argv[argv.items.len + i] = try arena.dupeZ(u8, arg);
-                }
+            // Convert to null terminated args.
+            const clang_args_len = argv.items.len + c_source_file.extra_flags.len;
+            const new_argv_with_sentinel = try arena.alloc(?[*:0]const u8, clang_args_len + 1);
+            new_argv_with_sentinel[clang_args_len] = null;
+            const new_argv = new_argv_with_sentinel[0..clang_args_len :null];
+            for (argv.items, 0..) |arg, i| {
+                new_argv[i] = try arena.dupeZ(u8, arg);
+            }
+            for (c_source_file.extra_flags, 0..) |arg, i| {
+                new_argv[argv.items.len + i] = try arena.dupeZ(u8, arg);
+            }
 
-                const c_headers_dir_path_z = try comp.zig_lib_directory.joinZ(arena, &[_][]const u8{"include"});
-                var errors = std.zig.ErrorBundle.empty;
-                var tree = translate_c.translate(
-                    comp.gpa,
-                    new_argv.ptr,
-                    new_argv.ptr + new_argv.len,
-                    &errors,
-                    c_headers_dir_path_z,
-                ) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    error.SemanticAnalyzeFail => break :f .{ .error_bundle = errors },
-                };
-                defer tree.deinit(comp.gpa);
-                break :f .{ .success = try tree.render(arena) };
-            },
+            const c_headers_dir_path_z = try comp.zig_lib_directory.joinZ(arena, &[_][]const u8{"include"});
+            var errors = std.zig.ErrorBundle.empty;
+            var tree = translate_c.translate(
+                comp.gpa,
+                new_argv.ptr,
+                new_argv.ptr + new_argv.len,
+                &errors,
+                c_headers_dir_path_z,
+            ) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.SemanticAnalyzeFail => break :f .{ .error_bundle = errors },
+            };
+            defer tree.deinit(comp.gpa);
+            break :f .{ .success = try tree.render(arena) };
         };
 
         if (out_dep_path) |dep_file_path| add_deps: {

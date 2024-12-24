@@ -6,7 +6,7 @@ enum Foo {
 
 // translate-c
 // target=x86_64-linux
-// c_frontend=clang,aro
+// c_frontend=clang
 //
 // pub const FooA: c_int = 2;
 // pub const FooB: c_int = 5;
