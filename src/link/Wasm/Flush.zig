@@ -69,6 +69,8 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     const is_obj = comp.config.output_mode == .Obj;
     const allow_undefined = is_obj or wasm.import_symbols;
 
+    const entry_name = if (wasm.entry_resolution.isNavOrUnresolved(wasm)) wasm.entry_name else .none;
+
     if (comp.zcu) |zcu| {
         const ip: *const InternPool = &zcu.intern_pool; // No mutations allowed!
 
@@ -87,8 +89,6 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 try wasm.error_name_bytes.appendSlice(gpa, s[0 .. s.len + 1]);
             }
         }
-
-        const entry_name = if (wasm.entry_resolution.isNavOrUnresolved(wasm)) wasm.entry_name else .none;
 
         for (wasm.nav_exports.keys()) |*nav_export| {
             if (ip.isFunctionType(ip.getNav(nav_export.nav_index).typeOf(ip))) {
@@ -115,13 +115,13 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         for (f.missing_exports.keys()) |exp_name| {
             diags.addError("manually specified export name '{s}' undefined", .{exp_name.slice(wasm)});
         }
+    }
 
-        if (entry_name.unwrap()) |name| {
-            if (wasm.entry_resolution == .unresolved) {
-                var err = try diags.addErrorWithNotes(1);
-                try err.addMsg("entry symbol '{s}' missing", .{name.slice(wasm)});
-                err.addNote("'-fno-entry' suppresses this error", .{});
-            }
+    if (entry_name.unwrap()) |name| {
+        if (wasm.entry_resolution == .unresolved) {
+            var err = try diags.addErrorWithNotes(1);
+            try err.addMsg("entry symbol '{s}' missing", .{name.slice(wasm)});
+            err.addNote("'-fno-entry' suppresses this error", .{});
         }
     }
 
