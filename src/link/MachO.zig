@@ -1572,21 +1572,21 @@ fn reportUndefs(self: *MachO) !void {
         try err.addMsg("undefined symbol: {s}", .{undef_sym.getName(self)});
 
         switch (notes) {
-            .force_undefined => try err.addNote("referenced with linker flag -u", .{}),
-            .entry => try err.addNote("referenced with linker flag -e", .{}),
-            .dyld_stub_binder, .objc_msgsend => try err.addNote("referenced implicitly", .{}),
+            .force_undefined => err.addNote("referenced with linker flag -u", .{}),
+            .entry => err.addNote("referenced with linker flag -e", .{}),
+            .dyld_stub_binder, .objc_msgsend => err.addNote("referenced implicitly", .{}),
             .refs => |refs| {
                 var inote: usize = 0;
                 while (inote < @min(refs.items.len, max_notes)) : (inote += 1) {
                     const ref = refs.items[inote];
                     const file = self.getFile(ref.file).?;
                     const atom = ref.getAtom(self).?;
-                    try err.addNote("referenced by {}:{s}", .{ file.fmtPath(), atom.getName(self) });
+                    err.addNote("referenced by {}:{s}", .{ file.fmtPath(), atom.getName(self) });
                 }
 
                 if (refs.items.len > max_notes) {
                     const remaining = refs.items.len - max_notes;
-                    try err.addNote("referenced {d} more times", .{remaining});
+                    err.addNote("referenced {d} more times", .{remaining});
                 }
             },
         }
@@ -3473,8 +3473,8 @@ fn growSectionNonRelocatable(self: *MachO, sect_index: u8, needed_size: u64) !vo
             seg_id,
             seg.segName(),
         });
-        try err.addNote("TODO: emit relocations to memory locations in self-hosted backends", .{});
-        try err.addNote("as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
+        err.addNote("TODO: emit relocations to memory locations in self-hosted backends", .{});
+        err.addNote("as a workaround, try increasing pre-allocated virtual memory of each segment", .{});
     }
 
     seg.vmsize = needed_size;
@@ -3776,7 +3776,7 @@ pub fn reportParseError2(
     const diags = &self.base.comp.link_diags;
     var err = try diags.addErrorWithNotes(1);
     try err.addMsg(format, args);
-    try err.addNote("while parsing {}", .{self.getFile(file_index).?.fmtPath()});
+    err.addNote("while parsing {}", .{self.getFile(file_index).?.fmtPath()});
 }
 
 fn reportMissingDependencyError(
@@ -3790,10 +3790,10 @@ fn reportMissingDependencyError(
     const diags = &self.base.comp.link_diags;
     var err = try diags.addErrorWithNotes(2 + checked_paths.len);
     try err.addMsg(format, args);
-    try err.addNote("while resolving {s}", .{path});
-    try err.addNote("a dependency of {}", .{self.getFile(parent).?.fmtPath()});
+    err.addNote("while resolving {s}", .{path});
+    err.addNote("a dependency of {}", .{self.getFile(parent).?.fmtPath()});
     for (checked_paths) |p| {
-        try err.addNote("tried {s}", .{p});
+        err.addNote("tried {s}", .{p});
     }
 }
 
@@ -3807,8 +3807,8 @@ fn reportDependencyError(
     const diags = &self.base.comp.link_diags;
     var err = try diags.addErrorWithNotes(2);
     try err.addMsg(format, args);
-    try err.addNote("while parsing {s}", .{path});
-    try err.addNote("a dependency of {}", .{self.getFile(parent).?.fmtPath()});
+    err.addNote("while parsing {s}", .{path});
+    err.addNote("a dependency of {}", .{self.getFile(parent).?.fmtPath()});
 }
 
 fn reportDuplicates(self: *MachO) error{ HasDuplicates, OutOfMemory }!void {
@@ -3838,17 +3838,17 @@ fn reportDuplicates(self: *MachO) error{ HasDuplicates, OutOfMemory }!void {
 
         var err = try diags.addErrorWithNotes(nnotes + 1);
         try err.addMsg("duplicate symbol definition: {s}", .{sym.getName(self)});
-        try err.addNote("defined by {}", .{sym.getFile(self).?.fmtPath()});
+        err.addNote("defined by {}", .{sym.getFile(self).?.fmtPath()});
 
         var inote: usize = 0;
         while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
             const file = self.getFile(notes.items[inote]).?;
-            try err.addNote("defined by {}", .{file.fmtPath()});
+            err.addNote("defined by {}", .{file.fmtPath()});
         }
 
         if (notes.items.len > max_notes) {
             const remaining = notes.items.len - max_notes;
-            try err.addNote("defined {d} more times", .{remaining});
+            err.addNote("defined {d} more times", .{remaining});
         }
     }
     return error.HasDuplicates;

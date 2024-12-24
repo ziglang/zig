@@ -909,8 +909,8 @@ const x86_64 = struct {
                     rel.offset,
                     rel.fmtPretty(.x86_64),
                 });
-                try err.addNote("expected .mov instruction but found .{s}", .{@tagName(x)});
-                try err.addNote("while parsing {}", .{self.getFile(macho_file).fmtPath()});
+                err.addNote("expected .mov instruction but found .{s}", .{@tagName(x)});
+                err.addNote("while parsing {}", .{self.getFile(macho_file).fmtPath()});
                 return error.RelaxFailUnexpectedInstruction;
             },
         }

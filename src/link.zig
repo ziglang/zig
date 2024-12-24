@@ -97,15 +97,12 @@ pub const Diags = struct {
             err_msg.msg = try std.fmt.allocPrint(gpa, format, args);
         }
 
-        pub fn addNote(
-            err: *ErrorWithNotes,
-            comptime format: []const u8,
-            args: anytype,
-        ) error{OutOfMemory}!void {
+        pub fn addNote(err: *ErrorWithNotes, comptime format: []const u8, args: anytype) void {
             const gpa = err.diags.gpa;
+            const msg = std.fmt.allocPrint(gpa, format, args) catch return err.diags.setAllocFailure();
             const err_msg = &err.diags.msgs.items[err.index];
             assert(err.note_slot < err_msg.notes.len);
-            err_msg.notes[err.note_slot] = .{ .msg = try std.fmt.allocPrint(gpa, format, args) };
+            err_msg.notes[err.note_slot] = .{ .msg = msg };
             err.note_slot += 1;
         }
     };

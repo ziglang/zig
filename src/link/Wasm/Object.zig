@@ -102,11 +102,7 @@ pub const Symbol = struct {
     const Pointee = union(enum) {
         function: Wasm.ObjectFunctionIndex,
         function_import: ScratchSpace.FuncImportIndex,
-        data: struct {
-            segment_index: Wasm.ObjectDataSegmentIndex,
-            segment_offset: u32,
-            size: u32,
-        },
+        data: Wasm.ObjectData.Index,
         data_import: void,
         global: Wasm.ObjectGlobalIndex,
         global_import: Wasm.GlobalImport.Index,
@@ -131,7 +127,7 @@ pub const ScratchSpace = struct {
         const Pointee = union(std.wasm.ExternalKind) {
             function: Wasm.ObjectFunctionIndex,
             table: Wasm.ObjectTableIndex,
-            memory: Wasm.ObjectMemoryIndex,
+            memory: Wasm.ObjectMemory.Index,
             global: Wasm.ObjectGlobalIndex,
         };
     };
@@ -184,8 +180,9 @@ pub fn parse(
     must_link: bool,
     gc_sections: bool,
 ) anyerror!Object {
-    const gpa = wasm.base.comp.gpa;
-    const diags = &wasm.base.comp.link_diags;
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const diags = &comp.link_diags;
 
     var pos: usize = 0;
 
@@ -334,12 +331,16 @@ pub fn parse(
                                                 const segment_index, pos = readLeb(u32, bytes, pos);
                                                 const segment_offset, pos = readLeb(u32, bytes, pos);
                                                 const size, pos = readLeb(u32, bytes, pos);
-
-                                                symbol.pointee = .{ .data = .{
-                                                    .segment_index = @enumFromInt(data_segment_start + segment_index),
-                                                    .segment_offset = segment_offset,
+                                                try wasm.object_datas.append(gpa, .{
+                                                    .segment = @enumFromInt(data_segment_start + segment_index),
+                                                    .offset = segment_offset,
                                                     .size = size,
-                                                } };
+                                                    .name = symbol.name,
+                                                    .flags = symbol.flags,
+                                                });
+                                                symbol.pointee = .{
+                                                    .data = @enumFromInt(wasm.object_datas.items.len - 1),
+                                                };
                                             }
                                         },
                                         .section => {
@@ -405,7 +406,6 @@ pub fn parse(
                                             return error.UnrecognizedSymbolType;
                                         },
                                     }
-                                    log.debug("found symbol: {}", .{symbol});
                                 }
                             },
                         }
@@ -450,22 +450,10 @@ pub fn parse(
                             .MEMORY_ADDR_TLS_SLEB64,
                             => {
                                 const addend: i32, pos = readLeb(i32, bytes, pos);
-                                const sym_section = ss.symbol_table.items[index].pointee.data;
-                                if (sym_section.segment_offset != 0) {
-                                    return diags.failParse(path, "data symbol {d} has nonzero offset {d}", .{
-                                        index, sym_section.segment_offset,
-                                    });
-                                }
-                                const seg_size = sym_section.segment_index.ptr(wasm).payload.len;
-                                if (sym_section.size != seg_size) {
-                                    return diags.failParse(path, "data symbol {d} has size {d}, inequal to corresponding data segment {d} size {d}", .{
-                                        index, sym_section.size, @intFromEnum(sym_section.segment_index), seg_size,
-                                    });
-                                }
                                 wasm.object_relocations.appendAssumeCapacity(.{
                                     .tag = tag,
                                     .offset = offset,
-                                    .pointee = .{ .data_segment = sym_section.segment_index },
+                                    .pointee = .{ .data = ss.symbol_table.items[index].pointee.data },
                                     .addend = addend,
                                 });
                             },
@@ -651,7 +639,15 @@ pub fn parse(
                 const memories_len, pos = readLeb(u32, bytes, pos);
                 for (try wasm.object_memories.addManyAsSlice(gpa, memories_len)) |*memory| {
                     const limits, pos = readLimits(bytes, pos);
-                    memory.* = .{ .limits = limits };
+                    memory.* = .{
+                        .name = .none,
+                        .flags = .{
+                            .limits_has_max = limits.flags.has_max,
+                            .limits_is_shared = limits.flags.is_shared,
+                        },
+                        .limits_min = limits.min,
+                        .limits_max = limits.max,
+                    };
                 }
             },
             .global => {
@@ -722,7 +718,6 @@ pub fn parse(
                 }
             },
             .data => {
-                const start = pos;
                 const count, pos = readLeb(u32, bytes, pos);
                 for (try wasm.object_data_segments.addManyAsSlice(gpa, count)) |*elem| {
                     const flags, pos = readEnum(DataSegmentFlags, bytes, pos);
@@ -733,13 +728,10 @@ pub fn parse(
                     //const expr, pos = if (flags != .passive) try readInit(wasm, bytes, pos) else .{ .none, pos };
                     if (flags != .passive) pos = try skipInit(bytes, pos);
                     const data_len, pos = readLeb(u32, bytes, pos);
-                    const segment_offset: u32 = @intCast(pos - start);
                     const payload = try wasm.addRelocatableDataPayload(bytes[pos..][0..data_len]);
                     pos += data_len;
                     elem.* = .{
                         .payload = payload,
-                        .segment_offset = segment_offset,
-                        .section_index = section_index,
                         .name = .none, // Populated from symbol table
                         .flags = .{}, // Populated from symbol table and segment_info
                     };
@@ -751,20 +743,56 @@ pub fn parse(
     }
     if (!saw_linking_section) return error.MissingLinkingSection;
 
+    const target_features = comp.root_mod.resolved_target.result.cpu.features;
+
     if (has_tls) {
-        const cpu_features = wasm.base.comp.root_mod.resolved_target.result.cpu.features;
-        if (!std.Target.wasm.featureSetHas(cpu_features, .atomics))
+        if (!std.Target.wasm.featureSetHas(target_features, .atomics))
             return diags.failParse(path, "object has TLS segment but target CPU feature atomics is disabled", .{});
-        if (!std.Target.wasm.featureSetHas(cpu_features, .bulk_memory))
+        if (!std.Target.wasm.featureSetHas(target_features, .bulk_memory))
             return diags.failParse(path, "object has TLS segment but target CPU feature bulk_memory is disabled", .{});
     }
 
     const features = opt_features orelse return error.MissingFeatures;
-    if (true) @panic("iterate features, match against target features");
+    for (features.slice(wasm)) |feat| {
+        log.debug("feature: {s}{s}", .{ @tagName(feat.prefix), @tagName(feat.tag) });
+        switch (feat.prefix) {
+            .invalid => unreachable,
+            .@"-" => switch (feat.tag) {
+                .@"shared-mem" => if (comp.config.shared_memory) {
+                    return diags.failParse(path, "object forbids shared-mem but compilation enables it", .{});
+                },
+                else => {
+                    const f = feat.tag.toCpuFeature().?;
+                    if (std.Target.wasm.featureSetHas(target_features, f)) {
+                        return diags.failParse(
+                            path,
+                            "object forbids {s} but specified target features include {s}",
+                            .{ @tagName(feat.tag), @tagName(f) },
+                        );
+                    }
+                },
+            },
+            .@"+", .@"=" => switch (feat.tag) {
+                .@"shared-mem" => if (!comp.config.shared_memory) {
+                    return diags.failParse(path, "object requires shared-mem but compilation disables it", .{});
+                },
+                else => {
+                    const f = feat.tag.toCpuFeature().?;
+                    if (!std.Target.wasm.featureSetHas(target_features, f)) {
+                        return diags.failParse(
+                            path,
+                            "object requires {s} but specified target features exclude {s}",
+                            .{ @tagName(feat.tag), @tagName(f) },
+                        );
+                    }
+                },
+            },
+        }
+    }
 
     // Apply function type information.
-    for (ss.func_types.items, wasm.object_functions.items[functions_start..]) |func_type, *func| {
-        func.type_index = func_type;
+    for (ss.func_type_indexes.items, wasm.object_functions.items[functions_start..]) |func_type, *func| {
+        func.type_index = func_type.ptr(ss).*;
     }
 
     // Apply symbol table information.
@@ -782,15 +810,21 @@ pub fn parse(
                 if (gop.value_ptr.type != fn_ty_index) {
                     var err = try diags.addErrorWithNotes(2);
                     try err.addMsg("symbol '{s}' mismatching function signatures", .{name.slice(wasm)});
-                    try err.addSrcNote(gop.value_ptr.source_location, "imported as {} here", .{gop.value_ptr.type.fmt(wasm)});
-                    try err.addSrcNote(source_location, "imported as {} here", .{fn_ty_index.fmt(wasm)});
+                    gop.value_ptr.source_location.addNote(wasm, &err, "imported as {} here", .{
+                        gop.value_ptr.type.fmt(wasm),
+                    });
+                    source_location.addNote(wasm, &err, "imported as {} here", .{fn_ty_index.fmt(wasm)});
                     continue;
                 }
-                if (gop.value_ptr.module_name != ptr.module_name) {
+                if (gop.value_ptr.module_name != ptr.module_name.toOptional()) {
                     var err = try diags.addErrorWithNotes(2);
                     try err.addMsg("symbol '{s}' mismatching module names", .{name.slice(wasm)});
-                    try err.addSrcNote(gop.value_ptr.source_location, "module '{s}' here", .{gop.value_ptr.module_name.slice(wasm)});
-                    try err.addSrcNote(source_location, "module '{s}' here", .{ptr.module_name.slice(wasm)});
+                    if (gop.value_ptr.module_name.slice(wasm)) |module_name| {
+                        gop.value_ptr.source_location.addNote(wasm, &err, "module '{s}' here", .{module_name});
+                    } else {
+                        gop.value_ptr.source_location.addNote(wasm, &err, "no module here", .{});
+                    }
+                    source_location.addNote(wasm, &err, "module '{s}' here", .{ptr.module_name.slice(wasm)});
                     continue;
                 }
                 if (symbol.flags.binding == .strong) gop.value_ptr.flags.binding = .strong;
@@ -799,7 +833,7 @@ pub fn parse(
             } else {
                 gop.value_ptr.* = .{
                     .flags = symbol.flags,
-                    .module_name = ptr.module_name,
+                    .module_name = ptr.module_name.toOptional(),
                     .source_location = source_location,
                     .resolution = .unresolved,
                     .type = fn_ty_index,
@@ -808,7 +842,7 @@ pub fn parse(
         },
         .function => |index| {
             assert(!symbol.flags.undefined);
-            const ptr = index.ptr();
+            const ptr = index.ptr(wasm);
             ptr.name = symbol.name;
             ptr.flags = symbol.flags;
             if (symbol.flags.binding == .local) continue; // No participation in symbol resolution.
@@ -818,35 +852,46 @@ pub fn parse(
                 if (gop.value_ptr.type != ptr.type_index) {
                     var err = try diags.addErrorWithNotes(2);
                     try err.addMsg("function signature mismatch: {s}", .{name.slice(wasm)});
-                    try err.addSrcNote(gop.value_ptr.source_location, "exported as {} here", .{ptr.type_index.fmt(wasm)});
-                    const word = if (gop.value_ptr.resolution == .none) "imported" else "exported";
-                    try err.addSrcNote(source_location, "{s} as {} here", .{ word, gop.value_ptr.type.fmt(wasm) });
+                    gop.value_ptr.source_location.addNote(wasm, &err, "exported as {} here", .{
+                        ptr.type_index.fmt(wasm),
+                    });
+                    const word = if (gop.value_ptr.resolution == .unresolved) "imported" else "exported";
+                    source_location.addNote(wasm, &err, "{s} as {} here", .{ word, gop.value_ptr.type.fmt(wasm) });
                     continue;
                 }
-                if (gop.value_ptr.resolution == .none or gop.value_ptr.flags.binding == .weak) {
+                if (gop.value_ptr.resolution == .unresolved or gop.value_ptr.flags.binding == .weak) {
                     // Intentional: if they're both weak, take the last one.
                     gop.value_ptr.source_location = source_location;
                     gop.value_ptr.module_name = host_name;
-                    gop.value_ptr.resolution = .fromObjectFunction(index);
+                    gop.value_ptr.resolution = .fromObjectFunction(wasm, index);
                     continue;
                 }
                 var err = try diags.addErrorWithNotes(2);
                 try err.addMsg("symbol collision: {s}", .{name.slice(wasm)});
-                try err.addSrcNote(gop.value_ptr.source_location, "exported as {} here", .{ptr.type_index.fmt(wasm)});
-                try err.addSrcNote(source_location, "exported as {} here", .{gop.value_ptr.type.fmt(wasm)});
+                gop.value_ptr.source_location.addNote(wasm, &err, "exported as {} here", .{ptr.type_index.fmt(wasm)});
+                source_location.addNote(wasm, &err, "exported as {} here", .{gop.value_ptr.type.fmt(wasm)});
                 continue;
             } else {
                 gop.value_ptr.* = .{
                     .flags = symbol.flags,
                     .module_name = host_name,
                     .source_location = source_location,
-                    .resolution = .fromObjectFunction(index),
+                    .resolution = .fromObjectFunction(wasm, index),
                     .type = ptr.type_index,
                 };
             }
         },
 
-        inline .global, .global_import, .table, .table_import => |i| {
+        inline .global_import, .table_import => |i| {
+            const ptr = i.value(wasm);
+            assert(i.key(wasm).toOptional() == symbol.name); // TODO
+            ptr.flags = symbol.flags;
+            if (symbol.flags.undefined and symbol.flags.binding == .local) {
+                const name = i.key(wasm).slice(wasm);
+                diags.addParseError(path, "local symbol '{s}' references import", .{name});
+            }
+        },
+        inline .global, .table => |i| {
             const ptr = i.ptr(wasm);
             ptr.name = symbol.name;
             ptr.flags = symbol.flags;
@@ -857,10 +902,11 @@ pub fn parse(
         },
         .section => |i| {
             // Name is provided by the section directly; symbol table does not have it.
-            const ptr = i.ptr(wasm);
-            ptr.flags = symbol.flags;
+            //const ptr = i.ptr(wasm);
+            //ptr.flags = symbol.flags;
+            _ = i;
             if (symbol.flags.undefined and symbol.flags.binding == .local) {
-                const name = ptr.name.slice(wasm);
+                const name = symbol.name.slice(wasm).?;
                 diags.addParseError(path, "local symbol '{s}' references import", .{name});
             }
         },
@@ -868,15 +914,7 @@ pub fn parse(
             const name = symbol.name.unwrap().?;
             log.warn("TODO data import '{s}'", .{name.slice(wasm)});
         },
-        .data => |data| {
-            const ptr = data.ptr(wasm);
-            const is_passive = ptr.flags.is_passive;
-            ptr.name = symbol.name;
-            ptr.flags = symbol.flags;
-            ptr.flags.is_passive = is_passive;
-            ptr.offset = data.segment_offset;
-            ptr.size = data.size;
-        },
+        .data => continue, // `wasm.object_datas` has already been populated.
     };
 
     // Apply export section info. This is done after the symbol table above so
@@ -957,18 +995,6 @@ pub fn parse(
             .off = functions_start,
             .len = @intCast(wasm.object_functions.items.len - functions_start),
         },
-        .globals = .{
-            .off = globals_start,
-            .len = @intCast(wasm.object_globals.items.len - globals_start),
-        },
-        .tables = .{
-            .off = tables_start,
-            .len = @intCast(wasm.object_tables.items.len - tables_start),
-        },
-        .memories = .{
-            .off = memories_start,
-            .len = @intCast(wasm.object_memories.items.len - memories_start),
-        },
         .function_imports = .{
             .off = function_imports_start,
             .len = @intCast(wasm.object_function_imports.entries.len - function_imports_start),
@@ -979,7 +1005,7 @@ pub fn parse(
         },
         .table_imports = .{
             .off = table_imports_start,
-            .len = @intCast(wasm.object_table_imports.items.len - table_imports_start),
+            .len = @intCast(wasm.object_table_imports.entries.len - table_imports_start),
         },
         .init_funcs = .{
             .off = init_funcs_start,

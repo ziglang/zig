@@ -3394,7 +3394,7 @@ fn allocatePhdrTable(self: *Elf) error{OutOfMemory}!void {
         // TODO verify `getMaxNumberOfPhdrs()` is accurate and convert this into no-op
         var err = try diags.addErrorWithNotes(1);
         try err.addMsg("fatal linker error: not enough space reserved for EHDR and PHDR table", .{});
-        try err.addNote("required 0x{x}, available 0x{x}", .{ needed_size, available_space });
+        err.addNote("required 0x{x}, available 0x{x}", .{ needed_size, available_space });
     }
 
     phdr_table_load.p_filesz = needed_size + ehsize;
@@ -4545,12 +4545,12 @@ fn reportUndefinedSymbols(self: *Elf, undefs: anytype) !void {
         for (refs.items[0..nrefs]) |ref| {
             const atom_ptr = self.atom(ref).?;
             const file_ptr = atom_ptr.file(self).?;
-            try err.addNote("referenced by {s}:{s}", .{ file_ptr.fmtPath(), atom_ptr.name(self) });
+            err.addNote("referenced by {s}:{s}", .{ file_ptr.fmtPath(), atom_ptr.name(self) });
         }
 
         if (refs.items.len > max_notes) {
             const remaining = refs.items.len - max_notes;
-            try err.addNote("referenced {d} more times", .{remaining});
+            err.addNote("referenced {d} more times", .{remaining});
         }
     }
 }
@@ -4567,17 +4567,17 @@ fn reportDuplicates(self: *Elf, dupes: anytype) error{ HasDuplicates, OutOfMemor
 
         var err = try diags.addErrorWithNotes(nnotes + 1);
         try err.addMsg("duplicate symbol definition: {s}", .{sym.name(self)});
-        try err.addNote("defined by {}", .{sym.file(self).?.fmtPath()});
+        err.addNote("defined by {}", .{sym.file(self).?.fmtPath()});
 
         var inote: usize = 0;
         while (inote < @min(notes.items.len, max_notes)) : (inote += 1) {
             const file_ptr = self.file(notes.items[inote]).?;
-            try err.addNote("defined by {}", .{file_ptr.fmtPath()});
+            err.addNote("defined by {}", .{file_ptr.fmtPath()});
         }
 
         if (notes.items.len > max_notes) {
             const remaining = notes.items.len - max_notes;
-            try err.addNote("defined {d} more times", .{remaining});
+            err.addNote("defined {d} more times", .{remaining});
         }
     }
 
@@ -4601,7 +4601,7 @@ pub fn addFileError(
     const diags = &self.base.comp.link_diags;
     var err = try diags.addErrorWithNotes(1);
     try err.addMsg(format, args);
-    try err.addNote("while parsing {}", .{self.file(file_index).?.fmtPath()});
+    err.addNote("while parsing {}", .{self.file(file_index).?.fmtPath()});
 }
 
 pub fn failFile(
