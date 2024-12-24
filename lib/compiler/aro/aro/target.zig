@@ -719,7 +719,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
 test "alignment functions - smoke test" {
     var target: std.Target = undefined;
     const x86 = std.Target.Cpu.Arch.x86_64;
-    target.os = std.Target.Os.Tag.defaultVersionRange(.linux, x86);
+    target.os = std.Target.Os.Tag.defaultVersionRange(.linux, x86, .none);
     target.cpu = std.Target.Cpu.baseline(x86, target.os);
     target.abi = std.Target.Abi.default(x86, target.os);
 
@@ -732,7 +732,7 @@ test "alignment functions - smoke test" {
     try std.testing.expect(systemCompiler(target) == .gcc);
 
     const arm = std.Target.Cpu.Arch.arm;
-    target.os = std.Target.Os.Tag.defaultVersionRange(.ios, arm);
+    target.os = std.Target.Os.Tag.defaultVersionRange(.ios, arm, .none);
     target.cpu = std.Target.Cpu.baseline(arm, target.os);
     target.abi = std.Target.Abi.default(arm, target.os);
 
@@ -751,7 +751,7 @@ test "target size/align tests" {
     const x86 = std.Target.Cpu.Arch.x86;
     comp.target.cpu.arch = x86;
     comp.target.cpu.model = &std.Target.x86.cpu.i586;
-    comp.target.os = std.Target.Os.Tag.defaultVersionRange(.linux, x86);
+    comp.target.os = std.Target.Os.Tag.defaultVersionRange(.linux, x86, .none);
     comp.target.abi = std.Target.Abi.gnu;
 
     const tt: Type = .{
@@ -763,7 +763,7 @@ test "target size/align tests" {
 
     const arm = std.Target.Cpu.Arch.arm;
     comp.target.cpu = std.Target.Cpu.Model.toCpu(&std.Target.arm.cpu.cortex_r4, arm);
-    comp.target.os = std.Target.Os.Tag.defaultVersionRange(.ios, arm);
+    comp.target.os = std.Target.Os.Tag.defaultVersionRange(.ios, arm, .none);
     comp.target.abi = std.Target.Abi.none;
 
     const ct: Type = .{

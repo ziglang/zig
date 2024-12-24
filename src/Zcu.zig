@@ -2169,90 +2169,92 @@ pub fn init(zcu: *Zcu, thread_count: usize) !void {
 }
 
 pub fn deinit(zcu: *Zcu) void {
-    const pt: Zcu.PerThread = .{ .tid = .main, .zcu = zcu };
     const gpa = zcu.gpa;
+    {
+        const pt: Zcu.PerThread = .activate(zcu, .main);
+        defer pt.deactivate();
 
-    if (zcu.llvm_object) |llvm_object| llvm_object.deinit();
+        if (zcu.llvm_object) |llvm_object| llvm_object.deinit();
 
-    for (zcu.import_table.keys()) |key| {
-        gpa.free(key);
+        for (zcu.import_table.keys()) |key| {
+            gpa.free(key);
+        }
+        for (zcu.import_table.values()) |file_index| {
+            pt.destroyFile(file_index);
+        }
+        zcu.import_table.deinit(gpa);
+
+        for (zcu.embed_table.keys(), zcu.embed_table.values()) |path, embed_file| {
+            gpa.free(path);
+            gpa.destroy(embed_file);
+        }
+        zcu.embed_table.deinit(gpa);
+
+        zcu.compile_log_text.deinit(gpa);
+
+        zcu.local_zir_cache.handle.close();
+        zcu.global_zir_cache.handle.close();
+
+        for (zcu.failed_analysis.values()) |value| {
+            value.destroy(gpa);
+        }
+        for (zcu.failed_codegen.values()) |value| {
+            value.destroy(gpa);
+        }
+        zcu.analysis_in_progress.deinit(gpa);
+        zcu.failed_analysis.deinit(gpa);
+        zcu.transitive_failed_analysis.deinit(gpa);
+        zcu.failed_codegen.deinit(gpa);
+
+        for (zcu.failed_files.values()) |value| {
+            if (value) |msg| msg.destroy(gpa);
+        }
+        zcu.failed_files.deinit(gpa);
+
+        for (zcu.failed_embed_files.values()) |msg| {
+            msg.destroy(gpa);
+        }
+        zcu.failed_embed_files.deinit(gpa);
+
+        for (zcu.failed_exports.values()) |value| {
+            value.destroy(gpa);
+        }
+        zcu.failed_exports.deinit(gpa);
+
+        for (zcu.cimport_errors.values()) |*errs| {
+            errs.deinit(gpa);
+        }
+        zcu.cimport_errors.deinit(gpa);
+
+        zcu.compile_log_sources.deinit(gpa);
+
+        zcu.all_exports.deinit(gpa);
+        zcu.free_exports.deinit(gpa);
+        zcu.single_exports.deinit(gpa);
+        zcu.multi_exports.deinit(gpa);
+
+        zcu.potentially_outdated.deinit(gpa);
+        zcu.outdated.deinit(gpa);
+        zcu.outdated_ready.deinit(gpa);
+        zcu.retryable_failures.deinit(gpa);
+
+        zcu.test_functions.deinit(gpa);
+
+        for (zcu.global_assembly.values()) |s| {
+            gpa.free(s);
+        }
+        zcu.global_assembly.deinit(gpa);
+
+        zcu.reference_table.deinit(gpa);
+        zcu.all_references.deinit(gpa);
+        zcu.free_references.deinit(gpa);
+
+        zcu.type_reference_table.deinit(gpa);
+        zcu.all_type_references.deinit(gpa);
+        zcu.free_type_references.deinit(gpa);
+
+        if (zcu.resolved_references) |*r| r.deinit(gpa);
     }
-    for (zcu.import_table.values()) |file_index| {
-        pt.destroyFile(file_index);
-    }
-    zcu.import_table.deinit(gpa);
-
-    for (zcu.embed_table.keys(), zcu.embed_table.values()) |path, embed_file| {
-        gpa.free(path);
-        gpa.destroy(embed_file);
-    }
-    zcu.embed_table.deinit(gpa);
-
-    zcu.compile_log_text.deinit(gpa);
-
-    zcu.local_zir_cache.handle.close();
-    zcu.global_zir_cache.handle.close();
-
-    for (zcu.failed_analysis.values()) |value| {
-        value.destroy(gpa);
-    }
-    for (zcu.failed_codegen.values()) |value| {
-        value.destroy(gpa);
-    }
-    zcu.analysis_in_progress.deinit(gpa);
-    zcu.failed_analysis.deinit(gpa);
-    zcu.transitive_failed_analysis.deinit(gpa);
-    zcu.failed_codegen.deinit(gpa);
-
-    for (zcu.failed_files.values()) |value| {
-        if (value) |msg| msg.destroy(gpa);
-    }
-    zcu.failed_files.deinit(gpa);
-
-    for (zcu.failed_embed_files.values()) |msg| {
-        msg.destroy(gpa);
-    }
-    zcu.failed_embed_files.deinit(gpa);
-
-    for (zcu.failed_exports.values()) |value| {
-        value.destroy(gpa);
-    }
-    zcu.failed_exports.deinit(gpa);
-
-    for (zcu.cimport_errors.values()) |*errs| {
-        errs.deinit(gpa);
-    }
-    zcu.cimport_errors.deinit(gpa);
-
-    zcu.compile_log_sources.deinit(gpa);
-
-    zcu.all_exports.deinit(gpa);
-    zcu.free_exports.deinit(gpa);
-    zcu.single_exports.deinit(gpa);
-    zcu.multi_exports.deinit(gpa);
-
-    zcu.potentially_outdated.deinit(gpa);
-    zcu.outdated.deinit(gpa);
-    zcu.outdated_ready.deinit(gpa);
-    zcu.retryable_failures.deinit(gpa);
-
-    zcu.test_functions.deinit(gpa);
-
-    for (zcu.global_assembly.values()) |s| {
-        gpa.free(s);
-    }
-    zcu.global_assembly.deinit(gpa);
-
-    zcu.reference_table.deinit(gpa);
-    zcu.all_references.deinit(gpa);
-    zcu.free_references.deinit(gpa);
-
-    zcu.type_reference_table.deinit(gpa);
-    zcu.all_type_references.deinit(gpa);
-    zcu.free_type_references.deinit(gpa);
-
-    if (zcu.resolved_references) |*r| r.deinit(gpa);
-
     zcu.intern_pool.deinit(gpa);
 }
 

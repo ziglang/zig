@@ -470,6 +470,8 @@ pub const Cau = struct {
                     _ => @enumFromInt(@intFromEnum(opt)),
                 };
             }
+
+            const debug_state = InternPool.debug_state;
         };
         pub fn toOptional(i: Cau.Index) Optional {
             return @enumFromInt(@intFromEnum(i));
@@ -491,6 +493,8 @@ pub const Cau = struct {
                 .index = @intFromEnum(cau_index) & ip.getIndexMask(u31),
             };
         }
+
+        const debug_state = InternPool.debug_state;
     };
 };
 
@@ -568,6 +572,8 @@ pub const Nav = struct {
                     _ => @enumFromInt(@intFromEnum(opt)),
                 };
             }
+
+            const debug_state = InternPool.debug_state;
         };
         pub fn toOptional(i: Nav.Index) Optional {
             return @enumFromInt(@intFromEnum(i));
@@ -589,6 +595,8 @@ pub const Nav = struct {
                 .index = @intFromEnum(nav_index) & ip.getIndexMask(u32),
             };
         }
+
+        const debug_state = InternPool.debug_state;
     };
 
     /// The compact in-memory representation of a `Nav`.
@@ -1580,6 +1588,8 @@ pub const String = enum(u32) {
         const strings = ip.getLocalShared(unwrapped_string.tid).strings.acquire();
         return strings.view().items(.@"0")[unwrapped_string.index..];
     }
+
+    const debug_state = InternPool.debug_state;
 };
 
 /// An index into `strings` which might be `none`.
@@ -1596,6 +1606,8 @@ pub const OptionalString = enum(u32) {
     pub fn toSlice(string: OptionalString, len: u64, ip: *const InternPool) ?[]const u8 {
         return (string.unwrap() orelse return null).toSlice(len, ip);
     }
+
+    const debug_state = InternPool.debug_state;
 };
 
 /// An index into `strings`.
@@ -1692,6 +1704,8 @@ pub const NullTerminatedString = enum(u32) {
     pub fn fmt(string: NullTerminatedString, ip: *const InternPool) std.fmt.Formatter(format) {
         return .{ .data = .{ .string = string, .ip = ip } };
     }
+
+    const debug_state = InternPool.debug_state;
 };
 
 /// An index into `strings` which might be `none`.
@@ -1708,6 +1722,8 @@ pub const OptionalNullTerminatedString = enum(u32) {
     pub fn toSlice(string: OptionalNullTerminatedString, ip: *const InternPool) ?[:0]const u8 {
         return (string.unwrap() orelse return null).toSlice(ip);
     }
+
+    const debug_state = InternPool.debug_state;
 };
 
 /// A single value captured in the closure of a namespace type. This is not a plain
@@ -4519,6 +4535,8 @@ pub const Index = enum(u32) {
                 .data_ptr = &slice.items(.data)[unwrapped.index],
             };
         }
+
+        const debug_state = InternPool.debug_state;
     };
     pub fn unwrap(index: Index, ip: *const InternPool) Unwrapped {
         return if (single_threaded) .{
@@ -4532,7 +4550,6 @@ pub const Index = enum(u32) {
 
     /// This function is used in the debugger pretty formatters in tools/ to fetch the
     /// Tag to encoding mapping to facilitate fancy debug printing for this type.
-    /// TODO merge this with `Tag.Payload`.
     fn dbHelper(self: *Index, tag_to_encoding_map: *struct {
         const DataIsIndex = struct { data: Index };
         const DataIsExtraIndexOfEnumExplicit = struct {
@@ -4689,44 +4706,38 @@ pub const Index = enum(u32) {
             }
         }
     }
-
     comptime {
         if (!builtin.strip_debug_info) switch (builtin.zig_backend) {
             .stage2_llvm => _ = &dbHelper,
-            .stage2_x86_64 => {
-                for (@typeInfo(Tag).@"enum".fields) |tag| {
-                    if (!@hasField(@TypeOf(Tag.encodings), tag.name)) {
-                        if (false) @compileLog("missing: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name);
-                        continue;
-                    }
-                    const encoding = @field(Tag.encodings, tag.name);
-                    for (@typeInfo(encoding.trailing).@"struct".fields) |field| {
-                        struct {
-                            fn checkConfig(name: []const u8) void {
-                                if (!@hasField(@TypeOf(encoding.config), name)) @compileError("missing field: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name ++ ".config.@\"" ++ name ++ "\"");
-                                const FieldType = @TypeOf(@field(encoding.config, name));
-                                if (@typeInfo(FieldType) != .enum_literal) @compileError("expected enum literal: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name ++ ".config.@\"" ++ name ++ "\": " ++ @typeName(FieldType));
+            .stage2_x86_64 => for (@typeInfo(Tag).@"enum".fields) |tag| {
+                if (!@hasField(@TypeOf(Tag.encodings), tag.name)) @compileLog("missing: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name);
+                const encoding = @field(Tag.encodings, tag.name);
+                if (@hasField(@TypeOf(encoding), "trailing")) for (@typeInfo(encoding.trailing).@"struct".fields) |field| {
+                    struct {
+                        fn checkConfig(name: []const u8) void {
+                            if (!@hasField(@TypeOf(encoding.config), name)) @compileError("missing field: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name ++ ".config.@\"" ++ name ++ "\"");
+                            const FieldType = @TypeOf(@field(encoding.config, name));
+                            if (@typeInfo(FieldType) != .enum_literal) @compileError("expected enum literal: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name ++ ".config.@\"" ++ name ++ "\": " ++ @typeName(FieldType));
+                        }
+                        fn checkField(name: []const u8, Type: type) void {
+                            switch (@typeInfo(Type)) {
+                                .int => {},
+                                .@"enum" => {},
+                                .@"struct" => |info| assert(info.layout == .@"packed"),
+                                .optional => |info| {
+                                    checkConfig(name ++ ".?");
+                                    checkField(name ++ ".?", info.child);
+                                },
+                                .pointer => |info| {
+                                    assert(info.size == .Slice);
+                                    checkConfig(name ++ ".len");
+                                    checkField(name ++ "[0]", info.child);
+                                },
+                                else => @compileError("unsupported type: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name ++ "." ++ name ++ ": " ++ @typeName(Type)),
                             }
-                            fn checkField(name: []const u8, Type: type) void {
-                                switch (@typeInfo(Type)) {
-                                    .int => {},
-                                    .@"enum" => {},
-                                    .@"struct" => |info| assert(info.layout == .@"packed"),
-                                    .optional => |info| {
-                                        checkConfig(name ++ ".?");
-                                        checkField(name ++ ".?", info.child);
-                                    },
-                                    .pointer => |info| {
-                                        assert(info.size == .Slice);
-                                        checkConfig(name ++ ".len");
-                                        checkField(name ++ "[0]", info.child);
-                                    },
-                                    else => @compileError("unsupported type: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name ++ "." ++ name ++ ": " ++ @typeName(Type)),
-                                }
-                            }
-                        }.checkField("trailing." ++ field.name, field.type);
-                    }
-                }
+                        }
+                    }.checkField("trailing." ++ field.name, field.type);
+                };
             },
             else => {},
         };
@@ -5035,7 +5046,6 @@ pub const Tag = enum(u8) {
     /// data is payload index to `EnumExplicit`.
     type_enum_nonexhaustive,
     /// A type that can be represented with only an enum tag.
-    /// data is SimpleType enum value.
     simple_type,
     /// An opaque type.
     /// data is index of Tag.TypeOpaque in extra.
@@ -5064,7 +5074,6 @@ pub const Tag = enum(u8) {
     /// Untyped `undefined` is stored instead via `simple_value`.
     undef,
     /// A value that can be represented with only an enum tag.
-    /// data is SimpleValue enum value.
     simple_value,
     /// A pointer to a `Nav`.
     /// data is extra index of `PtrNav`, which contains the type and address.
@@ -5244,95 +5253,90 @@ pub const Tag = enum(u8) {
     const Union = Key.Union;
     const TypePointer = Key.PtrType;
 
-    fn Payload(comptime tag: Tag) type {
-        return switch (tag) {
-            .removed => unreachable,
-            .type_int_signed => unreachable,
-            .type_int_unsigned => unreachable,
-            .type_array_big => Array,
-            .type_array_small => Vector,
-            .type_vector => Vector,
-            .type_pointer => TypePointer,
-            .type_slice => unreachable,
-            .type_optional => unreachable,
-            .type_anyframe => unreachable,
-            .type_error_union => ErrorUnionType,
-            .type_anyerror_union => unreachable,
-            .type_error_set => ErrorSet,
-            .type_inferred_error_set => unreachable,
-            .type_enum_auto => EnumAuto,
-            .type_enum_explicit => EnumExplicit,
-            .type_enum_nonexhaustive => EnumExplicit,
-            .simple_type => unreachable,
-            .type_opaque => TypeOpaque,
-            .type_struct => TypeStruct,
-            .type_struct_packed, .type_struct_packed_inits => TypeStructPacked,
-            .type_tuple => TypeTuple,
-            .type_union => TypeUnion,
-            .type_function => TypeFunction,
-
-            .undef => unreachable,
-            .simple_value => unreachable,
-            .ptr_nav => PtrNav,
-            .ptr_comptime_alloc => PtrComptimeAlloc,
-            .ptr_uav => PtrUav,
-            .ptr_uav_aligned => PtrUavAligned,
-            .ptr_comptime_field => PtrComptimeField,
-            .ptr_int => PtrInt,
-            .ptr_eu_payload => PtrBase,
-            .ptr_opt_payload => PtrBase,
-            .ptr_elem => PtrBaseIndex,
-            .ptr_field => PtrBaseIndex,
-            .ptr_slice => PtrSlice,
-            .opt_payload => TypeValue,
-            .opt_null => unreachable,
-            .int_u8 => unreachable,
-            .int_u16 => unreachable,
-            .int_u32 => unreachable,
-            .int_i32 => unreachable,
-            .int_usize => unreachable,
-            .int_comptime_int_u32 => unreachable,
-            .int_comptime_int_i32 => unreachable,
-            .int_small => IntSmall,
-            .int_positive => unreachable,
-            .int_negative => unreachable,
-            .int_lazy_align => IntLazy,
-            .int_lazy_size => IntLazy,
-            .error_set_error => Error,
-            .error_union_error => Error,
-            .error_union_payload => TypeValue,
-            .enum_literal => unreachable,
-            .enum_tag => EnumTag,
-            .float_f16 => unreachable,
-            .float_f32 => unreachable,
-            .float_f64 => unreachable,
-            .float_f80 => unreachable,
-            .float_f128 => unreachable,
-            .float_c_longdouble_f80 => unreachable,
-            .float_c_longdouble_f128 => unreachable,
-            .float_comptime_float => unreachable,
-            .variable => Variable,
-            .@"extern" => Extern,
-            .func_decl => FuncDecl,
-            .func_instance => FuncInstance,
-            .func_coerced => FuncCoerced,
-            .only_possible_value => unreachable,
-            .union_value => Union,
-            .bytes => Bytes,
-            .aggregate => Aggregate,
-            .repeated => Repeated,
-            .memoized_call => MemoizedCall,
-        };
-    }
-
+    const enum_explicit_encoding = .{
+        .summary = .@"{.payload.name%summary#\"}",
+        .payload = EnumExplicit,
+        .trailing = struct {
+            owner_union: Index,
+            cau: ?Cau.Index,
+            captures: ?[]CaptureValue,
+            type_hash: ?u64,
+            field_names: []NullTerminatedString,
+            tag_values: []Index,
+        },
+        .config = .{
+            .@"trailing.owner_union.?" = .@"payload.zir_index == .none",
+            .@"trailing.cau.?" = .@"payload.zir_index != .none",
+            .@"trailing.captures.?" = .@"payload.captures_len < 0xffffffff",
+            .@"trailing.captures.?.len" = .@"payload.captures_len",
+            .@"trailing.type_hash.?" = .@"payload.captures_len == 0xffffffff",
+            .@"trailing.field_names.len" = .@"payload.fields_len",
+            .@"trailing.tag_values.len" = .@"payload.fields_len",
+        },
+    };
     const encodings = .{
+        .removed = .{},
+
+        .type_int_signed = .{ .summary = .@"i{.data%value}", .data = u32 },
+        .type_int_unsigned = .{ .summary = .@"u{.data%value}", .data = u32 },
+        .type_array_big = .{
+            .summary = .@"[{.payload.len1%value} << 32 | {.payload.len0%value}:{.payload.sentinel%summary}]{.payload.child%summary}",
+            .payload = Array,
+        },
+        .type_array_small = .{ .summary = .@"[{.payload.len%value}]{.payload.child%summary}", .payload = Vector },
+        .type_vector = .{ .summary = .@"@Vector({.payload.len%value}, {.payload.child%summary})", .payload = Vector },
+        .type_pointer = .{ .summary = .@"*... {.payload.child%summary}", .payload = TypePointer },
+        .type_slice = .{ .summary = .@"[]... {.data.unwrapped.payload.child%summary}", .data = Index },
+        .type_optional = .{ .summary = .@"?{.data%summary}", .data = Index },
+        .type_anyframe = .{ .summary = .@"anyframe->{.data%summary}", .data = Index },
+        .type_error_union = .{
+            .summary = .@"{.payload.error_set_type%summary}!{.payload.payload_type%summary}",
+            .payload = ErrorUnionType,
+        },
+        .type_anyerror_union = .{ .summary = .@"anyerror!{.data%summary}", .data = Index },
+        .type_error_set = .{ .summary = .@"error{...}", .payload = ErrorSet },
+        .type_inferred_error_set = .{
+            .summary = .@"@typeInfo(@typeInfo(@TypeOf({.data%summary})).@\"fn\".return_type.?).error_union.error_set",
+            .data = Index,
+        },
+        .type_enum_auto = .{
+            .summary = .@"{.payload.name%summary#\"}",
+            .payload = EnumAuto,
+            .trailing = struct {
+                owner_union: ?Index,
+                cau: ?Cau.Index,
+                captures: ?[]CaptureValue,
+                type_hash: ?u64,
+                field_names: []NullTerminatedString,
+            },
+            .config = .{
+                .@"trailing.owner_union.?" = .@"payload.zir_index == .none",
+                .@"trailing.cau.?" = .@"payload.zir_index != .none",
+                .@"trailing.captures.?" = .@"payload.captures_len < 0xffffffff",
+                .@"trailing.captures.?.len" = .@"payload.captures_len",
+                .@"trailing.type_hash.?" = .@"payload.captures_len == 0xffffffff",
+                .@"trailing.field_names.len" = .@"payload.fields_len",
+            },
+        },
+        .type_enum_explicit = enum_explicit_encoding,
+        .type_enum_nonexhaustive = enum_explicit_encoding,
+        .simple_type = .{ .summary = .@"{.index%value#.}", .index = SimpleType },
+        .type_opaque = .{
+            .summary = .@"{.payload.name%summary#\"}",
+            .payload = TypeOpaque,
+            .trailing = struct { captures: []CaptureValue },
+            .config = .{ .@"trailing.captures.len" = .@"payload.captures_len" },
+        },
         .type_struct = .{
+            .summary = .@"{.payload.name%summary#\"}",
             .payload = TypeStruct,
             .trailing = struct {
                 captures_len: ?u32,
                 captures: ?[]CaptureValue,
                 type_hash: ?u64,
                 field_types: []Index,
+                field_names_map: OptionalMapIndex,
+                field_names: []NullTerminatedString,
                 field_inits: ?[]Index,
                 field_aligns: ?[]Alignment,
                 field_is_comptime_bits: ?[]u32,
@@ -5342,9 +5346,10 @@ pub const Tag = enum(u8) {
             .config = .{
                 .@"trailing.captures_len.?" = .@"payload.flags.any_captures",
                 .@"trailing.captures.?" = .@"payload.flags.any_captures",
-                .@"trailing.captures.?.len" = .@"trailing.captures_len",
+                .@"trailing.captures.?.len" = .@"trailing.captures_len.?",
                 .@"trailing.type_hash.?" = .@"payload.flags.is_reified",
                 .@"trailing.field_types.len" = .@"payload.fields_len",
+                .@"trailing.field_names.len" = .@"payload.fields_len",
                 .@"trailing.field_inits.?" = .@"payload.flags.any_default_inits",
                 .@"trailing.field_inits.?.len" = .@"payload.fields_len",
                 .@"trailing.field_aligns.?" = .@"payload.flags.any_aligned_fields",
@@ -5356,7 +5361,212 @@ pub const Tag = enum(u8) {
                 .@"trailing.field_offset.len" = .@"payload.fields_len",
             },
         },
+        .type_struct_packed = .{
+            .summary = .@"{.payload.name%summary#\"}",
+            .payload = TypeStructPacked,
+            .trailing = struct {
+                captures_len: ?u32,
+                captures: ?[]CaptureValue,
+                type_hash: ?u64,
+                field_types: []Index,
+                field_names: []NullTerminatedString,
+            },
+            .config = .{
+                .@"trailing.captures_len.?" = .@"payload.flags.any_captures",
+                .@"trailing.captures.?" = .@"payload.flags.any_captures",
+                .@"trailing.captures.?.len" = .@"trailing.captures_len.?",
+                .@"trailing.type_hash.?" = .@"payload.is_flags.is_reified",
+                .@"trailing.field_types.len" = .@"payload.fields_len",
+                .@"trailing.field_names.len" = .@"payload.fields_len",
+            },
+        },
+        .type_struct_packed_inits = .{
+            .summary = .@"{.payload.name%summary#\"}",
+            .payload = TypeStructPacked,
+            .trailing = struct {
+                captures_len: ?u32,
+                captures: ?[]CaptureValue,
+                type_hash: ?u64,
+                field_types: []Index,
+                field_names: []NullTerminatedString,
+                field_inits: []Index,
+            },
+            .config = .{
+                .@"trailing.captures_len.?" = .@"payload.flags.any_captures",
+                .@"trailing.captures.?" = .@"payload.flags.any_captures",
+                .@"trailing.captures.?.len" = .@"trailing.captures_len.?",
+                .@"trailing.type_hash.?" = .@"payload.is_flags.is_reified",
+                .@"trailing.field_types.len" = .@"payload.fields_len",
+                .@"trailing.field_names.len" = .@"payload.fields_len",
+                .@"trailing.field_inits.len" = .@"payload.fields_len",
+            },
+        },
+        .type_tuple = .{
+            .summary = .@"struct {...}",
+            .payload = TypeTuple,
+            .trailing = struct {
+                field_types: []Index,
+                field_values: []Index,
+            },
+            .config = .{
+                .@"trailing.field_types.len" = .@"payload.fields_len",
+                .@"trailing.field_values.len" = .@"payload.fields_len",
+            },
+        },
+        .type_union = .{
+            .summary = .@"{.payload.name%summary#\"#\"}",
+            .payload = TypeUnion,
+            .trailing = struct {
+                captures_len: ?u32,
+                captures: ?[]CaptureValue,
+                type_hash: ?u64,
+                field_types: []Index,
+                field_aligns: []Alignment,
+            },
+            .config = .{
+                .@"trailing.captures_len.?" = .@"payload.flags.any_captures",
+                .@"trailing.captures.?" = .@"payload.flags.any_captures",
+                .@"trailing.captures.?.len" = .@"trailing.captures_len.?",
+                .@"trailing.type_hash.?" = .@"payload.is_flags.is_reified",
+                .@"trailing.field_types.len" = .@"payload.fields_len",
+                .@"trailing.field_aligns.len" = .@"payload.fields_len",
+            },
+        },
+        .type_function = .{
+            .summary = .@"fn (...) ... {.payload.return_type%summary}",
+            .payload = TypeFunction,
+            .trailing = struct {
+                param_comptime_bits: ?[]u32,
+                param_noalias_bits: ?[]u32,
+                param_type: []Index,
+            },
+            .config = .{
+                .@"trailing.param_comptime_bits.?" = .@"payload.flags.has_comptime_bits",
+                .@"trailing.param_comptime_bits.?.len" = .@"(payload.params_len + 31) / 32",
+                .@"trailing.param_noalias_bits.?" = .@"payload.flags.has_noalias_bits",
+                .@"trailing.param_noalias_bits.?.len" = .@"(payload.params_len + 31) / 32",
+                .@"trailing.param_type.len" = .@"payload.params_len",
+            },
+        },
+
+        .undef = .{ .summary = .@"@as({.data%summary}, undefined)", .data = Index },
+        .simple_value = .{ .summary = .@"{.index%value#.}", .index = SimpleValue },
+        .ptr_nav = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&{.payload.nav.fqn%summary#\"}) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrNav,
+        },
+        .ptr_comptime_alloc = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&comptime_allocs[{.payload.index%summary}]) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrComptimeAlloc,
+        },
+        .ptr_uav = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&{.payload.val%summary}) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrUav,
+        },
+        .ptr_uav_aligned = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(@as({.payload.orig_ty%summary}, &{.payload.val%summary})) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrUavAligned,
+        },
+        .ptr_comptime_field = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&{.payload.field_val%summary}) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrComptimeField,
+        },
+        .ptr_int = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value}))",
+            .payload = PtrInt,
+        },
+        .ptr_eu_payload = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&({.payload.base%summary} catch unreachable)) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrBase,
+        },
+        .ptr_opt_payload = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&{.payload.base%summary}.?) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrBase,
+        },
+        .ptr_elem = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&{.payload.base%summary}[{.payload.index%summary}]) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrBaseIndex,
+        },
+        .ptr_field = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&{.payload.base%summary}[{.payload.index%summary}]) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrBaseIndex,
+        },
+        .ptr_slice = .{
+            .summary = .@"{.payload.ptr%summary}[0..{.payload.len%summary}]",
+            .payload = PtrSlice,
+        },
+        .opt_payload = .{ .summary = .@"@as({.payload.ty%summary}, {.payload.val%summary})", .payload = TypeValue },
+        .opt_null = .{ .summary = .@"@as({.data%summary}, null)", .data = Index },
+        .int_u8 = .{ .summary = .@"@as(u8, {.data%value})", .data = u8 },
+        .int_u16 = .{ .summary = .@"@as(u16, {.data%value})", .data = u16 },
+        .int_u32 = .{ .summary = .@"@as(u32, {.data%value})", .data = u32 },
+        .int_i32 = .{ .summary = .@"@as(i32, {.data%value})", .data = i32 },
+        .int_usize = .{ .summary = .@"@as(usize, {.data%value})", .data = u32 },
+        .int_comptime_int_u32 = .{ .summary = .@"{.data%value}", .data = u32 },
+        .int_comptime_int_i32 = .{ .summary = .@"{.data%value}", .data = i32 },
+        .int_small = .{ .summary = .@"@as({.payload.ty%summary}, {.payload.value%value})", .payload = IntSmall },
+        .int_positive = .{},
+        .int_negative = .{},
+        .int_lazy_align = .{ .summary = .@"@as({.payload.ty%summary}, @alignOf({.payload.lazy_ty%summary}))", .payload = IntLazy },
+        .int_lazy_size = .{ .summary = .@"@as({.payload.ty%summary}, @sizeOf({.payload.lazy_ty%summary}))", .payload = IntLazy },
+        .error_set_error = .{ .summary = .@"@as({.payload.ty%summary}, error.@{.payload.name%summary})", .payload = Error },
+        .error_union_error = .{ .summary = .@"@as({.payload.ty%summary}, error.@{.payload.name%summary})", .payload = Error },
+        .error_union_payload = .{ .summary = .@"@as({.payload.ty%summary}, {.payload.val%summary})", .payload = TypeValue },
+        .enum_literal = .{ .summary = .@".@{.data%summary}", .data = NullTerminatedString },
+        .enum_tag = .{ .summary = .@"@as({.payload.ty%summary}, @enumFromInt({.payload.int%summary}))", .payload = EnumTag },
+        .float_f16 = .{ .summary = .@"@as(f16, {.data%value})", .data = f16 },
+        .float_f32 = .{ .summary = .@"@as(f32, {.data%value})", .data = f32 },
+        .float_f64 = .{ .summary = .@"@as(f64, {.payload%value})", .payload = f64 },
+        .float_f80 = .{ .summary = .@"@as(f80, {.payload%value})", .payload = f80 },
+        .float_f128 = .{ .summary = .@"@as(f128, {.payload%value})", .payload = f128 },
+        .float_c_longdouble_f80 = .{ .summary = .@"@as(c_longdouble, {.payload%value})", .payload = f80 },
+        .float_c_longdouble_f128 = .{ .summary = .@"@as(c_longdouble, {.payload%value})", .payload = f128 },
+        .float_comptime_float = .{ .summary = .@"{.payload%value}", .payload = f128 },
+        .variable = .{ .summary = .@"{.payload.owner_nav.fqn%summary#\"}", .payload = Variable },
+        .@"extern" = .{ .summary = .@"{.payload.owner_nav.fqn%summary#\"}", .payload = Extern },
+        .func_decl = .{
+            .summary = .@"{.payload.owner_nav.fqn%summary#\"}",
+            .payload = FuncDecl,
+            .trailing = struct { inferred_error_set: ?Index },
+            .config = .{ .@"trailing.inferred_error_set.?" = .@"payload.analysis.inferred_error_set" },
+        },
+        .func_instance = .{
+            .summary = .@"{.payload.owner_nav.fqn%summary#\"}",
+            .payload = FuncInstance,
+            .trailing = struct {
+                inferred_error_set: ?Index,
+                param_values: []Index,
+            },
+            .config = .{
+                .@"trailing.inferred_error_set.?" = .@"payload.analysis.inferred_error_set",
+                .@"trailing.param_values.len" = .@"payload.ty.payload.params_len",
+            },
+        },
+        .func_coerced = .{
+            .summary = .@"@as(*const {.payload.ty%summary}, @ptrCast(&{.payload.func%summary})).*",
+            .payload = FuncCoerced,
+        },
+        .only_possible_value = .{ .summary = .@"@as({.data%summary}, undefined)", .data = Index },
+        .union_value = .{ .summary = .@"@as({.payload.ty%summary}, {})", .payload = Union },
+        .bytes = .{ .summary = .@"@as({.payload.ty%summary}, {.payload.bytes%summary}.*)", .payload = Bytes },
+        .aggregate = .{
+            .summary = .@"@as({.payload.ty%summary}, .{...})",
+            .payload = Aggregate,
+            .trailing = struct { elements: []Index },
+            .config = .{ .@"trailing.elements.len" = .@"payload.ty.payload.fields_len" },
+        },
+        .repeated = .{ .summary = .@"@as({.payload.ty%summary}, @splat({.payload.elem_val%summary}))", .payload = Repeated },
+
+        .memoized_call = .{
+            .summary = .@"@memoize({.payload.func%summary})",
+            .payload = MemoizedCall,
+            .trailing = struct { arg_values: []Index },
+            .config = .{ .@"trailing.arg_values.len" = .@"payload.args_len" },
+        },
     };
+    fn Payload(comptime tag: Tag) type {
+        return @field(encodings, @tagName(tag)).payload;
+    }
 
     pub const Variable = struct {
         ty: Index,
@@ -6271,6 +6481,8 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
 }
 
 pub fn deinit(ip: *InternPool, gpa: Allocator) void {
+    if (!builtin.strip_debug_info) std.debug.assert(debug_state.intern_pool == null);
+
     ip.file_deps.deinit(gpa);
     ip.src_hash_deps.deinit(gpa);
     ip.nav_val_deps.deinit(gpa);
@@ -6310,6 +6522,32 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
 
     ip.* = undefined;
 }
+
+pub fn activate(ip: *const InternPool) void {
+    if (builtin.strip_debug_info) return;
+    _ = Index.Unwrapped.debug_state;
+    _ = String.debug_state;
+    _ = OptionalString.debug_state;
+    _ = NullTerminatedString.debug_state;
+    _ = OptionalNullTerminatedString.debug_state;
+    _ = Cau.Index.debug_state;
+    _ = Cau.Index.Optional.debug_state;
+    _ = Nav.Index.debug_state;
+    _ = Nav.Index.Optional.debug_state;
+    std.debug.assert(debug_state.intern_pool == null);
+    debug_state.intern_pool = ip;
+}
+
+pub fn deactivate(ip: *const InternPool) void {
+    if (builtin.strip_debug_info) return;
+    std.debug.assert(debug_state.intern_pool == ip);
+    debug_state.intern_pool = null;
+}
+
+/// For debugger access only.
+const debug_state = struct {
+    threadlocal var intern_pool: ?*const InternPool = null;
+};
 
 pub fn indexToKey(ip: *const InternPool, index: Index) Key {
     assert(index != .none);
