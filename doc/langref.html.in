@@ -4532,9 +4532,8 @@ comptime {
       {#header_open|@cmpxchgStrong#}
       <pre>{#syntax#}@cmpxchgStrong(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
       <p>
-      This function performs a strong atomic compare-and-exchange operation, returning {#syntax#}null{#endsyntax#}
-      if the current value is not the given expected value. It's the equivalent of this code,
-      except atomic:
+      This function performs a strong atomic compare-and-exchange operation, returning {#syntax#}null{#endsyntax#} on success.
+      It's the equivalent of this code, except atomic:
       </p>
       {#code|not_atomic_cmpxchgStrong.zig#}
 
@@ -4554,9 +4553,8 @@ comptime {
       {#header_open|@cmpxchgWeak#}
       <pre>{#syntax#}@cmpxchgWeak(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
       <p>
-      This function performs a weak atomic compare-and-exchange operation, returning {#syntax#}null{#endsyntax#}
-      if the current value is not the given expected value. It's the equivalent of this code,
-      except atomic:
+      This function performs a weak atomic compare-and-exchange operation, returning {#syntax#}null{#endsyntax#} on success.
+      It's the equivalent of this code, except atomic:
       </p>
       {#syntax_block|zig|cmpxchgWeakButNotAtomic#}
 fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_value: T) ?T {
