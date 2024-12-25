@@ -377,6 +377,32 @@ test "Type.Enum" {
     try testing.expectEqual(@as(u32, 1), @intFromEnum(Bar.a));
     try testing.expectEqual(@as(u32, 5), @intFromEnum(Bar.b));
     try testing.expectEqual(@as(u32, 6), @intFromEnum(@as(Bar, @enumFromInt(6))));
+
+    { // from https://github.com/ziglang/zig/issues/19985
+        { // enum with single field can be initialized.
+            const E = @Type(.{ .@"enum" = .{
+                .tag_type = u0,
+                .is_exhaustive = true,
+                .fields = &.{.{ .name = "foo", .value = 0 }},
+                .decls = &.{},
+            } });
+            const s: struct { E } = .{.foo};
+            try testing.expectEqual(.foo, s[0]);
+        }
+
+        { // meta.FieldEnum() with single field
+            const S = struct { foo: u8 };
+            const Fe = std.meta.FieldEnum(S);
+            var s: S = undefined;
+            const fe = std.meta.stringToEnum(Fe, "foo") orelse return error.InvalidField;
+            switch (fe) {
+                inline else => |tag| {
+                    @field(s, @tagName(tag)) = 42;
+                },
+            }
+            try testing.expectEqual(42, s.foo);
+        }
+    }
 }
 
 test "Type.Union" {
