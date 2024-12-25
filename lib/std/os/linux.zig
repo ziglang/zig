@@ -1674,7 +1674,7 @@ pub fn setpgid(pid: pid_t, pgid: pid_t) usize {
     return syscall2(.setpgid, @intCast(pid), @intCast(pgid));
 }
 
-pub fn getgroups(size: usize, list: *gid_t) usize {
+pub fn getgroups(size: usize, list: ?*gid_t) usize {
     if (@hasField(SYS, "getgroups32")) {
         return syscall2(.getgroups32, size, @intFromPtr(list));
     } else {

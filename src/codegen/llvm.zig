@@ -1476,7 +1476,7 @@ pub const Object = struct {
             } }, &o.builder);
         }
 
-        if (nav.status.resolved.@"linksection".toSlice(ip)) |section|
+        if (nav.status.fully_resolved.@"linksection".toSlice(ip)) |section|
             function_index.setSection(try o.builder.string(section), &o.builder);
 
         var deinit_wip = true;
@@ -1684,7 +1684,7 @@ pub const Object = struct {
             const file = try o.getDebugFile(file_scope);
 
             const line_number = zcu.navSrcLine(func.owner_nav) + 1;
-            const is_internal_linkage = ip.indexToKey(nav.status.resolved.val) != .@"extern";
+            const is_internal_linkage = ip.indexToKey(nav.status.fully_resolved.val) != .@"extern";
             const debug_decl_type = try o.lowerDebugType(fn_ty);
 
             const subprogram = try o.builder.debugSubprogram(
@@ -2928,9 +2928,7 @@ pub const Object = struct {
         const gpa = o.gpa;
         const nav = ip.getNav(nav_index);
         const owner_mod = zcu.navFileScope(nav_index).mod;
-        const resolved = nav.status.resolved;
-        const val = Value.fromInterned(resolved.val);
-        const ty = val.typeOf(zcu);
+        const ty: Type = .fromInterned(nav.typeOf(ip));
         const gop = try o.nav_map.getOrPut(gpa, nav_index);
         if (gop.found_existing) return gop.value_ptr.ptr(&o.builder).kind.function;
 
@@ -2938,15 +2936,14 @@ pub const Object = struct {
         const target = owner_mod.resolved_target.result;
         const sret = firstParamSRet(fn_info, zcu, target);
 
-        const is_extern, const lib_name = switch (ip.indexToKey(val.toIntern())) {
-            .variable => |variable| .{ false, variable.lib_name },
-            .@"extern" => |@"extern"| .{ true, @"extern".lib_name },
-            else => .{ false, .none },
-        };
+        const is_extern, const lib_name = if (nav.getExtern(ip)) |@"extern"|
+            .{ true, @"extern".lib_name }
+        else
+            .{ false, .none };
         const function_index = try o.builder.addFunction(
             try o.lowerType(ty),
             try o.builder.strtabString((if (is_extern) nav.name else nav.fqn).toSlice(ip)),
-            toLlvmAddressSpace(resolved.@"addrspace", target),
+            toLlvmAddressSpace(nav.getAddrspace(), target),
         );
         gop.value_ptr.* = function_index.ptrConst(&o.builder).global;
 
@@ -3064,8 +3061,8 @@ pub const Object = struct {
             }
         }
 
-        if (resolved.alignment != .none)
-            function_index.setAlignment(resolved.alignment.toLlvm(), &o.builder);
+        if (nav.getAlignment() != .none)
+            function_index.setAlignment(nav.getAlignment().toLlvm(), &o.builder);
 
         // Function attributes that are independent of analysis results of the function body.
         try o.addCommonFnAttributes(
@@ -3250,17 +3247,21 @@ pub const Object = struct {
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
         const nav = ip.getNav(nav_index);
-        const resolved = nav.status.resolved;
-        const is_extern, const is_threadlocal, const is_weak_linkage, const is_dll_import = switch (ip.indexToKey(resolved.val)) {
-            .variable => |variable| .{ false, variable.is_threadlocal, variable.is_weak_linkage, false },
-            .@"extern" => |@"extern"| .{ true, @"extern".is_threadlocal, @"extern".is_weak_linkage, @"extern".is_dll_import },
-            else => .{ false, false, false, false },
+        const is_extern, const is_threadlocal, const is_weak_linkage, const is_dll_import = switch (nav.status) {
+            .unresolved => unreachable,
+            .fully_resolved => |r| switch (ip.indexToKey(r.val)) {
+                .variable => |variable| .{ false, variable.is_threadlocal, variable.is_weak_linkage, false },
+                .@"extern" => |@"extern"| .{ true, @"extern".is_threadlocal, @"extern".is_weak_linkage, @"extern".is_dll_import },
+                else => .{ false, false, false, false },
+            },
+            // This means it's a source declaration which is not `extern`!
+            .type_resolved => |r| .{ false, r.is_threadlocal, false, false },
         };
 
         const variable_index = try o.builder.addVariable(
             try o.builder.strtabString((if (is_extern) nav.name else nav.fqn).toSlice(ip)),
             try o.lowerType(Type.fromInterned(nav.typeOf(ip))),
-            toLlvmGlobalAddressSpace(resolved.@"addrspace", zcu.getTarget()),
+            toLlvmGlobalAddressSpace(nav.getAddrspace(), zcu.getTarget()),
         );
         gop.value_ptr.* = variable_index.ptrConst(&o.builder).global;
 
@@ -4529,20 +4530,10 @@ pub const Object = struct {
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
 
-        // In the case of something like:
-        // fn foo() void {}
-        // const bar = foo;
-        // ... &bar;
-        // `bar` is just an alias and we actually want to lower a reference to `foo`.
-        const owner_nav_index = switch (ip.indexToKey(zcu.navValue(nav_index).toIntern())) {
-            .func => |func| func.owner_nav,
-            .@"extern" => |@"extern"| @"extern".owner_nav,
-            else => nav_index,
-        };
-        const owner_nav = ip.getNav(owner_nav_index);
+        const nav = ip.getNav(nav_index);
 
-        const nav_ty = Type.fromInterned(owner_nav.typeOf(ip));
-        const ptr_ty = try pt.navPtrType(owner_nav_index);
+        const nav_ty = Type.fromInterned(nav.typeOf(ip));
+        const ptr_ty = try pt.navPtrType(nav_index);
 
         const is_fn_body = nav_ty.zigTypeTag(zcu) == .@"fn";
         if ((!is_fn_body and !nav_ty.hasRuntimeBits(zcu)) or
@@ -4552,13 +4543,13 @@ pub const Object = struct {
         }
 
         const llvm_global = if (is_fn_body)
-            (try o.resolveLlvmFunction(owner_nav_index)).ptrConst(&o.builder).global
+            (try o.resolveLlvmFunction(nav_index)).ptrConst(&o.builder).global
         else
-            (try o.resolveGlobalNav(owner_nav_index)).ptrConst(&o.builder).global;
+            (try o.resolveGlobalNav(nav_index)).ptrConst(&o.builder).global;
 
         const llvm_val = try o.builder.convConst(
             llvm_global.toConst(),
-            try o.builder.ptrType(toLlvmAddressSpace(owner_nav.status.resolved.@"addrspace", zcu.getTarget())),
+            try o.builder.ptrType(toLlvmAddressSpace(nav.getAddrspace(), zcu.getTarget())),
         );
 
         return o.builder.convConst(llvm_val, try o.lowerType(ptr_ty));
@@ -4800,10 +4791,10 @@ pub const NavGen = struct {
         const ip = &zcu.intern_pool;
         const nav_index = ng.nav_index;
         const nav = ip.getNav(nav_index);
-        const resolved = nav.status.resolved;
+        const resolved = nav.status.fully_resolved;
 
         const is_extern, const lib_name, const is_threadlocal, const is_weak_linkage, const is_dll_import, const is_const, const init_val, const owner_nav = switch (ip.indexToKey(resolved.val)) {
-            .variable => |variable| .{ false, variable.lib_name, variable.is_threadlocal, variable.is_weak_linkage, false, false, variable.init, variable.owner_nav },
+            .variable => |variable| .{ false, .none, variable.is_threadlocal, variable.is_weak_linkage, false, false, variable.init, variable.owner_nav },
             .@"extern" => |@"extern"| .{ true, @"extern".lib_name, @"extern".is_threadlocal, @"extern".is_weak_linkage, @"extern".is_dll_import, @"extern".is_const, .none, @"extern".owner_nav },
             else => .{ false, .none, false, false, false, true, resolved.val, nav_index },
         };
@@ -5766,7 +5757,7 @@ pub const FuncGen = struct {
         const msg_nav_index = zcu.panic_messages[@intFromEnum(panic_id)].unwrap().?;
         const msg_nav = ip.getNav(msg_nav_index);
         const msg_len = Type.fromInterned(msg_nav.typeOf(ip)).childType(zcu).arrayLen(zcu);
-        const msg_ptr = try o.lowerValue(msg_nav.status.resolved.val);
+        const msg_ptr = try o.lowerValue(msg_nav.status.fully_resolved.val);
         const null_opt_addr_global = try fg.resolveNullOptUsize();
         const target = zcu.getTarget();
         const llvm_usize = try o.lowerType(Type.usize);

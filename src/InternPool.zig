@@ -34,6 +34,9 @@ src_hash_deps: std.AutoArrayHashMapUnmanaged(TrackedInst.Index, DepEntry.Index),
 /// Dependencies on the value of a Nav.
 /// Value is index into `dep_entries` of the first dependency on this Nav value.
 nav_val_deps: std.AutoArrayHashMapUnmanaged(Nav.Index, DepEntry.Index),
+/// Dependencies on the type of a Nav.
+/// Value is index into `dep_entries` of the first dependency on this Nav value.
+nav_ty_deps: std.AutoArrayHashMapUnmanaged(Nav.Index, DepEntry.Index),
 /// Dependencies on an interned value, either:
 /// * a runtime function (invalidated when its IES changes)
 /// * a container type requiring resolution (invalidated when the type must be recreated at a new index)
@@ -80,6 +83,7 @@ pub const empty: InternPool = .{
     .file_deps = .empty,
     .src_hash_deps = .empty,
     .nav_val_deps = .empty,
+    .nav_ty_deps = .empty,
     .interned_deps = .empty,
     .namespace_deps = .empty,
     .namespace_name_deps = .empty,
@@ -363,33 +367,56 @@ pub fn rehashTrackedInsts(
 }
 
 /// Analysis Unit. Represents a single entity which undergoes semantic analysis.
-/// This is either a `Cau` or a runtime function.
-/// The LSB is used as a tag bit.
 /// This is the "source" of an incremental dependency edge.
-pub const AnalUnit = packed struct(u32) {
-    kind: enum(u1) { cau, func },
-    index: u31,
-    pub const Unwrapped = union(enum) {
-        cau: Cau.Index,
+pub const AnalUnit = packed struct(u64) {
+    kind: Kind,
+    id: u32,
+
+    pub const Kind = enum(u32) {
+        @"comptime",
+        nav_val,
+        nav_ty,
+        type,
+        func,
+    };
+
+    pub const Unwrapped = union(Kind) {
+        /// This `AnalUnit` analyzes the body of the given `comptime` declaration.
+        @"comptime": ComptimeUnit.Id,
+        /// This `AnalUnit` resolves the value of the given `Nav`.
+        nav_val: Nav.Index,
+        /// This `AnalUnit` resolves the type of the given `Nav`.
+        nav_ty: Nav.Index,
+        /// This `AnalUnit` resolves the given `struct`/`union`/`enum` type.
+        /// Generated tag enums are never used here (they do not undergo type resolution).
+        type: InternPool.Index,
+        /// This `AnalUnit` analyzes the body of the given runtime function.
         func: InternPool.Index,
     };
-    pub fn unwrap(as: AnalUnit) Unwrapped {
-        return switch (as.kind) {
-            .cau => .{ .cau = @enumFromInt(as.index) },
-            .func => .{ .func = @enumFromInt(as.index) },
+
+    pub fn unwrap(au: AnalUnit) Unwrapped {
+        return switch (au.kind) {
+            inline else => |tag| @unionInit(
+                Unwrapped,
+                @tagName(tag),
+                @enumFromInt(au.id),
+            ),
         };
     }
     pub fn wrap(raw: Unwrapped) AnalUnit {
         return switch (raw) {
-            .cau => |cau| .{ .kind = .cau, .index = @intCast(@intFromEnum(cau)) },
-            .func => |func| .{ .kind = .func, .index = @intCast(@intFromEnum(func)) },
+            inline else => |id, tag| .{
+                .kind = tag,
+                .id = @intFromEnum(id),
+            },
         };
     }
+
     pub fn toOptional(as: AnalUnit) Optional {
-        return @enumFromInt(@as(u32, @bitCast(as)));
+        return @enumFromInt(@as(u64, @bitCast(as)));
     }
-    pub const Optional = enum(u32) {
-        none = std.math.maxInt(u32),
+    pub const Optional = enum(u64) {
+        none = std.math.maxInt(u64),
         _,
         pub fn unwrap(opt: Optional) ?AnalUnit {
             return switch (opt) {
@@ -400,97 +427,34 @@ pub const AnalUnit = packed struct(u32) {
     };
 };
 
-/// Comptime Analysis Unit. This is the "subject" of semantic analysis where the root context is
-/// comptime; every `Sema` is owned by either a `Cau` or a runtime function (see `AnalUnit`).
-/// The state stored here is immutable.
-///
-/// * Every ZIR `declaration` has a `Cau` (post-instantiation) to analyze the declaration body.
-/// * Every `struct`, `union`, and `enum` has a `Cau` for type resolution.
-///
-/// The analysis status of a `Cau` is known only from state in `Zcu`.
-/// An entry in `Zcu.failed_analysis` indicates an analysis failure with associated error message.
-/// An entry in `Zcu.transitive_failed_analysis` indicates a transitive analysis failure.
-///
-/// 12 bytes.
-pub const Cau = struct {
-    /// The `declaration`, `struct_decl`, `enum_decl`, or `union_decl` instruction which this `Cau` analyzes.
+pub const ComptimeUnit = extern struct {
     zir_index: TrackedInst.Index,
-    /// The namespace which this `Cau` should be analyzed within.
     namespace: NamespaceIndex,
-    /// This field essentially tells us what to do with the information resulting from
-    /// semantic analysis. See `Owner.Unwrapped` for details.
-    owner: Owner,
 
-    /// See `Owner.Unwrapped` for details. In terms of representation, the `InternPool.Index`
-    /// or `Nav.Index` is cast to a `u31` and stored in `index`. As a special case, if
-    /// `@as(u32, @bitCast(owner)) == 0xFFFF_FFFF`, then the value is treated as `.none`.
-    pub const Owner = packed struct(u32) {
-        kind: enum(u1) { type, nav },
-        index: u31,
+    comptime {
+        assert(std.meta.hasUniqueRepresentation(ComptimeUnit));
+    }
 
-        pub const Unwrapped = union(enum) {
-            /// This `Cau` exists in isolation. It is a global `comptime` declaration, or (TODO ANYTHING ELSE?).
-            /// After semantic analysis completes, the result is discarded.
-            none,
-            /// This `Cau` is owned by the given type for type resolution.
-            /// This is a `struct`, `union`, or `enum` type.
-            type: InternPool.Index,
-            /// This `Cau` is owned by the given `Nav` to resolve its value.
-            /// When analyzing the `Cau`, the resulting value is stored as the value of this `Nav`.
-            nav: Nav.Index,
-        };
-
-        pub fn unwrap(owner: Owner) Unwrapped {
-            if (@as(u32, @bitCast(owner)) == std.math.maxInt(u32)) {
-                return .none;
-            }
-            return switch (owner.kind) {
-                .type => .{ .type = @enumFromInt(owner.index) },
-                .nav => .{ .nav = @enumFromInt(owner.index) },
-            };
-        }
-
-        fn wrap(raw: Unwrapped) Owner {
-            return switch (raw) {
-                .none => @bitCast(@as(u32, std.math.maxInt(u32))),
-                .type => |ty| .{ .kind = .type, .index = @intCast(@intFromEnum(ty)) },
-                .nav => |nav| .{ .kind = .nav, .index = @intCast(@intFromEnum(nav)) },
-            };
-        }
-    };
-
-    pub const Index = enum(u32) {
+    pub const Id = enum(u32) {
         _,
-        pub const Optional = enum(u32) {
-            none = std.math.maxInt(u32),
-            _,
-            pub fn unwrap(opt: Optional) ?Cau.Index {
-                return switch (opt) {
-                    .none => null,
-                    _ => @enumFromInt(@intFromEnum(opt)),
-                };
-            }
-        };
-        pub fn toOptional(i: Cau.Index) Optional {
-            return @enumFromInt(@intFromEnum(i));
-        }
         const Unwrapped = struct {
             tid: Zcu.PerThread.Id,
             index: u32,
-
-            fn wrap(unwrapped: Unwrapped, ip: *const InternPool) Cau.Index {
+            fn wrap(unwrapped: Unwrapped, ip: *const InternPool) ComptimeUnit.Id {
                 assert(@intFromEnum(unwrapped.tid) <= ip.getTidMask());
-                assert(unwrapped.index <= ip.getIndexMask(u31));
-                return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_31 |
+                assert(unwrapped.index <= ip.getIndexMask(u32));
+                return @enumFromInt(@as(u32, @intFromEnum(unwrapped.tid)) << ip.tid_shift_32 |
                     unwrapped.index);
             }
         };
-        fn unwrap(cau_index: Cau.Index, ip: *const InternPool) Unwrapped {
+        fn unwrap(id: Id, ip: *const InternPool) Unwrapped {
             return .{
-                .tid = @enumFromInt(@intFromEnum(cau_index) >> ip.tid_shift_31 & ip.getTidMask()),
-                .index = @intFromEnum(cau_index) & ip.getIndexMask(u31),
+                .tid = @enumFromInt(@intFromEnum(id) >> ip.tid_shift_32 & ip.getTidMask()),
+                .index = @intFromEnum(id) & ip.getIndexMask(u31),
             };
         }
+
+        const debug_state = InternPool.debug_state;
     };
 };
 
@@ -503,6 +467,11 @@ pub const Cau = struct {
 /// * Generic instances have a `Nav` corresponding to the instantiated function.
 /// * `@extern` calls create a `Nav` whose value is a `.@"extern"`.
 ///
+/// This data structure is optimized for the `analysis_info != null` case, because this is much more
+/// common in practice; the other case is used only for externs and for generic instances. At the time
+/// of writing, in the compiler itself, around 74% of all `Nav`s have `analysis_info != null`.
+/// (Specifically, 104225 / 140923)
+///
 /// `Nav.Repr` is the in-memory representation.
 pub const Nav = struct {
     /// The unqualified name of this `Nav`. Namespace lookups use this name, and error messages may use it.
@@ -510,16 +479,31 @@ pub const Nav = struct {
     name: NullTerminatedString,
     /// The fully-qualified name of this `Nav`.
     fqn: NullTerminatedString,
-    /// If the value of this `Nav` is resolved by semantic analysis, it is within this `Cau`.
-    /// If this is `.none`, then `status == .resolved` always.
-    analysis_owner: Cau.Index.Optional,
+    /// This field is populated iff this `Nav` is resolved by semantic analysis.
+    /// If this is `null`, then `status == .resolved` always.
+    analysis: ?struct {
+        namespace: NamespaceIndex,
+        zir_index: TrackedInst.Index,
+    },
     /// TODO: this is a hack! If #20663 isn't accepted, let's figure out something a bit better.
     is_usingnamespace: bool,
     status: union(enum) {
-        /// This `Nav` is pending semantic analysis through `analysis_owner`.
+        /// This `Nav` is pending semantic analysis.
         unresolved,
+        /// The type of this `Nav` is resolved; the value is queued for resolution.
+        type_resolved: struct {
+            type: InternPool.Index,
+            alignment: Alignment,
+            @"linksection": OptionalNullTerminatedString,
+            @"addrspace": std.builtin.AddressSpace,
+            is_const: bool,
+            is_threadlocal: bool,
+            /// This field is whether this `Nav` is a literal `extern` definition.
+            /// It does *not* tell you whether this might alias an extern fn (see #21027).
+            is_extern_decl: bool,
+        },
         /// The value of this `Nav` is resolved.
-        resolved: struct {
+        fully_resolved: struct {
             val: InternPool.Index,
             alignment: Alignment,
             @"linksection": OptionalNullTerminatedString,
@@ -527,30 +511,96 @@ pub const Nav = struct {
         },
     },
 
-    /// Asserts that `status == .resolved`.
+    /// Asserts that `status != .unresolved`.
     pub fn typeOf(nav: Nav, ip: *const InternPool) InternPool.Index {
-        return ip.typeOf(nav.status.resolved.val);
+        return switch (nav.status) {
+            .unresolved => unreachable,
+            .type_resolved => |r| r.type,
+            .fully_resolved => |r| ip.typeOf(r.val),
+        };
     }
 
-    /// Asserts that `status == .resolved`.
-    pub fn isExtern(nav: Nav, ip: *const InternPool) bool {
-        return ip.indexToKey(nav.status.resolved.val) == .@"extern";
+    /// Always returns `null` for `status == .type_resolved`. This function is inteded
+    /// to be used by code generation, since semantic analysis will ensure that any `Nav`
+    /// which is potentially `extern` is fully resolved.
+    /// Asserts that `status != .unresolved`.
+    pub fn getExtern(nav: Nav, ip: *const InternPool) ?Key.Extern {
+        return switch (nav.status) {
+            .unresolved => unreachable,
+            .type_resolved => null,
+            .fully_resolved => |r| switch (ip.indexToKey(r.val)) {
+                .@"extern" => |e| e,
+                else => null,
+            },
+        };
+    }
+
+    /// Asserts that `status != .unresolved`.
+    pub fn getAddrspace(nav: Nav) std.builtin.AddressSpace {
+        return switch (nav.status) {
+            .unresolved => unreachable,
+            .type_resolved => |r| r.@"addrspace",
+            .fully_resolved => |r| r.@"addrspace",
+        };
+    }
+
+    /// Asserts that `status != .unresolved`.
+    pub fn getAlignment(nav: Nav) Alignment {
+        return switch (nav.status) {
+            .unresolved => unreachable,
+            .type_resolved => |r| r.alignment,
+            .fully_resolved => |r| r.alignment,
+        };
+    }
+
+    /// Asserts that `status != .unresolved`.
+    pub fn isThreadlocal(nav: Nav, ip: *const InternPool) bool {
+        return switch (nav.status) {
+            .unresolved => unreachable,
+            .type_resolved => |r| r.is_threadlocal,
+            .fully_resolved => |r| switch (ip.indexToKey(r.val)) {
+                .@"extern" => |e| e.is_threadlocal,
+                .variable => |v| v.is_threadlocal,
+                else => false,
+            },
+        };
+    }
+
+    /// If this returns `true`, then a pointer to this `Nav` might actually be encoded as a pointer
+    /// to some other `Nav` due to an extern definition or extern alias (see #21027).
+    /// This query is valid on `Nav`s for whom only the type is resolved.
+    /// Asserts that `status != .unresolved`.
+    pub fn isExternOrFn(nav: Nav, ip: *const InternPool) bool {
+        return switch (nav.status) {
+            .unresolved => unreachable,
+            .type_resolved => |r| {
+                if (r.is_extern_decl) return true;
+                const tag = ip.zigTypeTagOrPoison(r.type) catch unreachable;
+                if (tag == .@"fn") return true;
+                return false;
+            },
+            .fully_resolved => |r| {
+                if (ip.indexToKey(r.val) == .@"extern") return true;
+                const tag = ip.zigTypeTagOrPoison(ip.typeOf(r.val)) catch unreachable;
+                if (tag == .@"fn") return true;
+                return false;
+            },
+        };
     }
 
     /// Get the ZIR instruction corresponding to this `Nav`, used to resolve source locations.
     /// This is a `declaration`.
     pub fn srcInst(nav: Nav, ip: *const InternPool) TrackedInst.Index {
-        if (nav.analysis_owner.unwrap()) |cau| {
-            return ip.getCau(cau).zir_index;
+        if (nav.analysis) |a| {
+            return a.zir_index;
         }
-        // A `Nav` with no corresponding `Cau` always has a resolved value.
-        return switch (ip.indexToKey(nav.status.resolved.val)) {
+        // A `Nav` which does not undergo analysis always has a resolved value.
+        return switch (ip.indexToKey(nav.status.fully_resolved.val)) {
             .func => |func| {
-                // Since there was no `analysis_owner`, this must be an instantiation.
-                // Go up to the generic owner and consult *its* `analysis_owner`.
+                // Since `analysis` was not populated, this must be an instantiation.
+                // Go up to the generic owner and consult *its* `analysis` field.
                 const go_nav = ip.getNav(ip.indexToKey(func.generic_owner).func.owner_nav);
-                const go_cau = ip.getCau(go_nav.analysis_owner.unwrap().?);
-                return go_cau.zir_index;
+                return go_nav.analysis.?.zir_index;
             },
             .@"extern" => |@"extern"| @"extern".zir_index, // extern / @extern
             else => unreachable,
@@ -568,6 +618,8 @@ pub const Nav = struct {
                     _ => @enumFromInt(@intFromEnum(opt)),
                 };
             }
+
+            const debug_state = InternPool.debug_state;
         };
         pub fn toOptional(i: Nav.Index) Optional {
             return @enumFromInt(@intFromEnum(i));
@@ -589,27 +641,34 @@ pub const Nav = struct {
                 .index = @intFromEnum(nav_index) & ip.getIndexMask(u32),
             };
         }
+
+        const debug_state = InternPool.debug_state;
     };
 
     /// The compact in-memory representation of a `Nav`.
-    /// 18 bytes.
+    /// 26 bytes.
     const Repr = struct {
         name: NullTerminatedString,
         fqn: NullTerminatedString,
-        analysis_owner: Cau.Index.Optional,
-        /// Populated only if `bits.status == .resolved`.
-        val: InternPool.Index,
-        /// Populated only if `bits.status == .resolved`.
+        // The following 1 fields are either both populated, or both `.none`.
+        analysis_namespace: OptionalNamespaceIndex,
+        analysis_zir_index: TrackedInst.Index.Optional,
+        /// Populated only if `bits.status != .unresolved`.
+        type_or_val: InternPool.Index,
+        /// Populated only if `bits.status != .unresolved`.
         @"linksection": OptionalNullTerminatedString,
         bits: Bits,
 
         const Bits = packed struct(u16) {
-            status: enum(u1) { unresolved, resolved },
-            /// Populated only if `bits.status == .resolved`.
+            status: enum(u2) { unresolved, type_resolved, fully_resolved, type_resolved_extern_decl },
+            /// Populated only if `bits.status != .unresolved`.
             alignment: Alignment,
-            /// Populated only if `bits.status == .resolved`.
+            /// Populated only if `bits.status != .unresolved`.
             @"addrspace": std.builtin.AddressSpace,
-            _: u3 = 0,
+            /// Populated only if `bits.status == .type_resolved`.
+            is_const: bool,
+            /// Populated only if `bits.status == .type_resolved`.
+            is_threadlocal: bool,
             is_usingnamespace: bool,
         };
 
@@ -617,12 +676,27 @@ pub const Nav = struct {
             return .{
                 .name = repr.name,
                 .fqn = repr.fqn,
-                .analysis_owner = repr.analysis_owner,
+                .analysis = if (repr.analysis_namespace.unwrap()) |namespace| .{
+                    .namespace = namespace,
+                    .zir_index = repr.analysis_zir_index.unwrap().?,
+                } else a: {
+                    assert(repr.analysis_zir_index == .none);
+                    break :a null;
+                },
                 .is_usingnamespace = repr.bits.is_usingnamespace,
                 .status = switch (repr.bits.status) {
                     .unresolved => .unresolved,
-                    .resolved => .{ .resolved = .{
-                        .val = repr.val,
+                    .type_resolved, .type_resolved_extern_decl => .{ .type_resolved = .{
+                        .type = repr.type_or_val,
+                        .alignment = repr.bits.alignment,
+                        .@"linksection" = repr.@"linksection",
+                        .@"addrspace" = repr.bits.@"addrspace",
+                        .is_const = repr.bits.is_const,
+                        .is_threadlocal = repr.bits.is_threadlocal,
+                        .is_extern_decl = repr.bits.status == .type_resolved_extern_decl,
+                    } },
+                    .fully_resolved => .{ .fully_resolved = .{
+                        .val = repr.type_or_val,
                         .alignment = repr.bits.alignment,
                         .@"linksection" = repr.@"linksection",
                         .@"addrspace" = repr.bits.@"addrspace",
@@ -638,14 +712,17 @@ pub const Nav = struct {
         return .{
             .name = nav.name,
             .fqn = nav.fqn,
-            .analysis_owner = nav.analysis_owner,
-            .val = switch (nav.status) {
+            .analysis_namespace = if (nav.analysis) |a| a.namespace.toOptional() else .none,
+            .analysis_zir_index = if (nav.analysis) |a| a.zir_index.toOptional() else .none,
+            .type_or_val = switch (nav.status) {
                 .unresolved => .none,
-                .resolved => |r| r.val,
+                .type_resolved => |r| r.type,
+                .fully_resolved => |r| r.val,
             },
             .@"linksection" = switch (nav.status) {
                 .unresolved => .none,
-                .resolved => |r| r.@"linksection",
+                .type_resolved => |r| r.@"linksection",
+                .fully_resolved => |r| r.@"linksection",
             },
             .bits = switch (nav.status) {
                 .unresolved => .{
@@ -653,12 +730,24 @@ pub const Nav = struct {
                     .alignment = .none,
                     .@"addrspace" = .generic,
                     .is_usingnamespace = nav.is_usingnamespace,
+                    .is_const = false,
+                    .is_threadlocal = false,
                 },
-                .resolved => |r| .{
-                    .status = .resolved,
+                .type_resolved => |r| .{
+                    .status = if (r.is_extern_decl) .type_resolved_extern_decl else .type_resolved,
                     .alignment = r.alignment,
                     .@"addrspace" = r.@"addrspace",
                     .is_usingnamespace = nav.is_usingnamespace,
+                    .is_const = r.is_const,
+                    .is_threadlocal = r.is_threadlocal,
+                },
+                .fully_resolved => |r| .{
+                    .status = .fully_resolved,
+                    .alignment = r.alignment,
+                    .@"addrspace" = r.@"addrspace",
+                    .is_usingnamespace = nav.is_usingnamespace,
+                    .is_const = false,
+                    .is_threadlocal = false,
                 },
             },
         };
@@ -669,6 +758,7 @@ pub const Dependee = union(enum) {
     file: FileIndex,
     src_hash: TrackedInst.Index,
     nav_val: Nav.Index,
+    nav_ty: Nav.Index,
     interned: Index,
     namespace: TrackedInst.Index,
     namespace_name: NamespaceNameKey,
@@ -718,6 +808,7 @@ pub fn dependencyIterator(ip: *const InternPool, dependee: Dependee) DependencyI
         .file => |x| ip.file_deps.get(x),
         .src_hash => |x| ip.src_hash_deps.get(x),
         .nav_val => |x| ip.nav_val_deps.get(x),
+        .nav_ty => |x| ip.nav_ty_deps.get(x),
         .interned => |x| ip.interned_deps.get(x),
         .namespace => |x| ip.namespace_deps.get(x),
         .namespace_name => |x| ip.namespace_name_deps.get(x),
@@ -755,6 +846,7 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: AnalUnit, depend
                 .file => ip.file_deps,
                 .src_hash => ip.src_hash_deps,
                 .nav_val => ip.nav_val_deps,
+                .nav_ty => ip.nav_ty_deps,
                 .interned => ip.interned_deps,
                 .namespace => ip.namespace_deps,
                 .namespace_name => ip.namespace_name_deps,
@@ -854,8 +946,8 @@ const Local = struct {
         tracked_insts: ListMutate,
         files: ListMutate,
         maps: ListMutate,
-        caus: ListMutate,
         navs: ListMutate,
+        comptime_units: ListMutate,
 
         namespaces: BucketListMutate,
     } align(std.atomic.cache_line),
@@ -868,8 +960,8 @@ const Local = struct {
         tracked_insts: TrackedInsts,
         files: List(File),
         maps: Maps,
-        caus: Caus,
         navs: Navs,
+        comptime_units: ComptimeUnits,
 
         namespaces: Namespaces,
 
@@ -891,8 +983,8 @@ const Local = struct {
     const Strings = List(struct { u8 });
     const TrackedInsts = List(struct { TrackedInst.MaybeLost });
     const Maps = List(struct { FieldMap });
-    const Caus = List(struct { Cau });
     const Navs = List(Nav.Repr);
+    const ComptimeUnits = List(struct { ComptimeUnit });
 
     const namespaces_bucket_width = 8;
     const namespaces_bucket_mask = (1 << namespaces_bucket_width) - 1;
@@ -1267,21 +1359,21 @@ const Local = struct {
         };
     }
 
-    pub fn getMutableCaus(local: *Local, gpa: Allocator) Caus.Mutable {
-        return .{
-            .gpa = gpa,
-            .arena = &local.mutate.arena,
-            .mutate = &local.mutate.caus,
-            .list = &local.shared.caus,
-        };
-    }
-
     pub fn getMutableNavs(local: *Local, gpa: Allocator) Navs.Mutable {
         return .{
             .gpa = gpa,
             .arena = &local.mutate.arena,
             .mutate = &local.mutate.navs,
             .list = &local.shared.navs,
+        };
+    }
+
+    pub fn getMutableComptimeUnits(local: *Local, gpa: Allocator) ComptimeUnits.Mutable {
+        return .{
+            .gpa = gpa,
+            .arena = &local.mutate.arena,
+            .mutate = &local.mutate.comptime_units,
+            .list = &local.shared.comptime_units,
         };
     }
 
@@ -1580,6 +1672,8 @@ pub const String = enum(u32) {
         const strings = ip.getLocalShared(unwrapped_string.tid).strings.acquire();
         return strings.view().items(.@"0")[unwrapped_string.index..];
     }
+
+    const debug_state = InternPool.debug_state;
 };
 
 /// An index into `strings` which might be `none`.
@@ -1596,6 +1690,8 @@ pub const OptionalString = enum(u32) {
     pub fn toSlice(string: OptionalString, len: u64, ip: *const InternPool) ?[]const u8 {
         return (string.unwrap() orelse return null).toSlice(len, ip);
     }
+
+    const debug_state = InternPool.debug_state;
 };
 
 /// An index into `strings`.
@@ -1692,6 +1788,8 @@ pub const NullTerminatedString = enum(u32) {
     pub fn fmt(string: NullTerminatedString, ip: *const InternPool) std.fmt.Formatter(format) {
         return .{ .data = .{ .string = string, .ip = ip } };
     }
+
+    const debug_state = InternPool.debug_state;
 };
 
 /// An index into `strings` which might be `none`.
@@ -1708,6 +1806,8 @@ pub const OptionalNullTerminatedString = enum(u32) {
     pub fn toSlice(string: OptionalNullTerminatedString, ip: *const InternPool) ?[:0]const u8 {
         return (string.unwrap() orelse return null).toSlice(ip);
     }
+
+    const debug_state = InternPool.debug_state;
 };
 
 /// A single value captured in the closure of a namespace type. This is not a plain
@@ -2002,7 +2102,6 @@ pub const Key = union(enum) {
         ty: Index,
         init: Index,
         owner_nav: Nav.Index,
-        lib_name: OptionalNullTerminatedString,
         is_threadlocal: bool,
         is_weak_linkage: bool,
     };
@@ -2095,17 +2194,6 @@ pub const Key = union(enum) {
             return @atomicLoad(FuncAnalysis, func.analysisPtr(ip), .unordered);
         }
 
-        pub fn setAnalysisState(func: Func, ip: *InternPool, state: FuncAnalysis.State) void {
-            const extra_mutex = &ip.getLocal(func.tid).mutate.extra.mutex;
-            extra_mutex.lock();
-            defer extra_mutex.unlock();
-
-            const analysis_ptr = func.analysisPtr(ip);
-            var analysis = analysis_ptr.*;
-            analysis.state = state;
-            @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
-        }
-
         pub fn setCallsOrAwaitsErrorableFn(func: Func, ip: *InternPool, value: bool) void {
             const extra_mutex = &ip.getLocal(func.tid).mutate.extra.mutex;
             extra_mutex.lock();
@@ -2125,6 +2213,17 @@ pub const Key = union(enum) {
             const analysis_ptr = func.analysisPtr(ip);
             var analysis = analysis_ptr.*;
             analysis.branch_hint = hint;
+            @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
+        }
+
+        pub fn setAnalyzed(func: Func, ip: *InternPool) void {
+            const extra_mutex = &ip.getLocal(func.tid).mutate.extra.mutex;
+            extra_mutex.lock();
+            defer extra_mutex.unlock();
+
+            const analysis_ptr = func.analysisPtr(ip);
+            var analysis = analysis_ptr.*;
+            analysis.is_analyzed = true;
             @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
         }
 
@@ -2725,7 +2824,6 @@ pub const Key = union(enum) {
                 return a_info.owner_nav == b_info.owner_nav and
                     a_info.ty == b_info.ty and
                     a_info.init == b_info.init and
-                    a_info.lib_name == b_info.lib_name and
                     a_info.is_threadlocal == b_info.is_threadlocal and
                     a_info.is_weak_linkage == b_info.is_weak_linkage;
             },
@@ -3038,8 +3136,6 @@ pub const LoadedUnionType = struct {
     // TODO: the non-fqn will be needed by the new dwarf structure
     /// The name of this union type.
     name: NullTerminatedString,
-    /// The `Cau` within which type resolution occurs.
-    cau: Cau.Index,
     /// Represents the declarations inside this union.
     namespace: NamespaceIndex,
     /// The enum tag type.
@@ -3356,7 +3452,6 @@ pub fn loadUnionType(ip: *const InternPool, index: Index) LoadedUnionType {
         .tid = unwrapped_index.tid,
         .extra_index = data,
         .name = type_union.data.name,
-        .cau = type_union.data.cau,
         .namespace = type_union.data.namespace,
         .enum_tag_ty = type_union.data.tag_ty,
         .field_types = field_types,
@@ -3373,8 +3468,6 @@ pub const LoadedStructType = struct {
     // TODO: the non-fqn will be needed by the new dwarf structure
     /// The name of this struct type.
     name: NullTerminatedString,
-    /// The `Cau` within which type resolution occurs.
-    cau: Cau.Index,
     namespace: NamespaceIndex,
     /// Index of the `struct_decl` or `reify` ZIR instruction.
     zir_index: TrackedInst.Index,
@@ -3965,7 +4058,6 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
     switch (item.tag) {
         .type_struct => {
             const name: NullTerminatedString = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "name").?]);
-            const cau: Cau.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "cau").?]);
             const namespace: NamespaceIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "namespace").?]);
             const zir_index: TrackedInst.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "zir_index").?]);
             const fields_len = extra_items[item.data + std.meta.fieldIndex(Tag.TypeStruct, "fields_len").?];
@@ -4052,7 +4144,6 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .tid = unwrapped_index.tid,
                 .extra_index = item.data,
                 .name = name,
-                .cau = cau,
                 .namespace = namespace,
                 .zir_index = zir_index,
                 .layout = if (flags.is_extern) .@"extern" else .auto,
@@ -4069,7 +4160,6 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
         },
         .type_struct_packed, .type_struct_packed_inits => {
             const name: NullTerminatedString = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "name").?]);
-            const cau: Cau.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "cau").?]);
             const zir_index: TrackedInst.Index = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "zir_index").?]);
             const fields_len = extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "fields_len").?];
             const namespace: NamespaceIndex = @enumFromInt(extra_items[item.data + std.meta.fieldIndex(Tag.TypeStructPacked, "namespace").?]);
@@ -4116,7 +4206,6 @@ pub fn loadStructType(ip: *const InternPool, index: Index) LoadedStructType {
                 .tid = unwrapped_index.tid,
                 .extra_index = item.data,
                 .name = name,
-                .cau = cau,
                 .namespace = namespace,
                 .zir_index = zir_index,
                 .layout = .@"packed",
@@ -4139,9 +4228,6 @@ pub const LoadedEnumType = struct {
     // TODO: the non-fqn will be needed by the new dwarf structure
     /// The name of this enum type.
     name: NullTerminatedString,
-    /// The `Cau` within which type resolution occurs.
-    /// `null` if this is a generated tag type.
-    cau: Cau.Index.Optional,
     /// Represents the declarations inside this enum.
     namespace: NamespaceIndex,
     /// An integer type which is used for the numerical value of the enum.
@@ -4218,21 +4304,15 @@ pub fn loadEnumType(ip: *const InternPool, index: Index) LoadedEnumType {
         .type_enum_auto => {
             const extra = extraDataTrail(extra_list, EnumAuto, item.data);
             var extra_index: u32 = @intCast(extra.end);
-            const cau: Cau.Index.Optional = if (extra.data.zir_index == .none) cau: {
+            if (extra.data.zir_index == .none) {
                 extra_index += 1; // owner_union
-                break :cau .none;
-            } else cau: {
-                const cau: Cau.Index = @enumFromInt(extra_list.view().items(.@"0")[extra_index]);
-                extra_index += 1; // cau
-                break :cau cau.toOptional();
-            };
+            }
             const captures_len = if (extra.data.captures_len == std.math.maxInt(u32)) c: {
                 extra_index += 2; // type_hash: PackedU64
                 break :c 0;
             } else extra.data.captures_len;
             return .{
                 .name = extra.data.name,
-                .cau = cau,
                 .namespace = extra.data.namespace,
                 .tag_ty = extra.data.int_tag_type,
                 .names = .{
@@ -4258,21 +4338,15 @@ pub fn loadEnumType(ip: *const InternPool, index: Index) LoadedEnumType {
     };
     const extra = extraDataTrail(extra_list, EnumExplicit, item.data);
     var extra_index: u32 = @intCast(extra.end);
-    const cau: Cau.Index.Optional = if (extra.data.zir_index == .none) cau: {
+    if (extra.data.zir_index == .none) {
         extra_index += 1; // owner_union
-        break :cau .none;
-    } else cau: {
-        const cau: Cau.Index = @enumFromInt(extra_list.view().items(.@"0")[extra_index]);
-        extra_index += 1; // cau
-        break :cau cau.toOptional();
-    };
+    }
     const captures_len = if (extra.data.captures_len == std.math.maxInt(u32)) c: {
         extra_index += 2; // type_hash: PackedU64
         break :c 0;
     } else extra.data.captures_len;
     return .{
         .name = extra.data.name,
-        .cau = cau,
         .namespace = extra.data.namespace,
         .tag_ty = extra.data.int_tag_type,
         .names = .{
@@ -4519,6 +4593,8 @@ pub const Index = enum(u32) {
                 .data_ptr = &slice.items(.data)[unwrapped.index],
             };
         }
+
+        const debug_state = InternPool.debug_state;
     };
     pub fn unwrap(index: Index, ip: *const InternPool) Unwrapped {
         return if (single_threaded) .{
@@ -4532,7 +4608,6 @@ pub const Index = enum(u32) {
 
     /// This function is used in the debugger pretty formatters in tools/ to fetch the
     /// Tag to encoding mapping to facilitate fancy debug printing for this type.
-    /// TODO merge this with `Tag.Payload`.
     fn dbHelper(self: *Index, tag_to_encoding_map: *struct {
         const DataIsIndex = struct { data: Index };
         const DataIsExtraIndexOfEnumExplicit = struct {
@@ -4689,44 +4764,38 @@ pub const Index = enum(u32) {
             }
         }
     }
-
     comptime {
         if (!builtin.strip_debug_info) switch (builtin.zig_backend) {
             .stage2_llvm => _ = &dbHelper,
-            .stage2_x86_64 => {
-                for (@typeInfo(Tag).@"enum".fields) |tag| {
-                    if (!@hasField(@TypeOf(Tag.encodings), tag.name)) {
-                        if (false) @compileLog("missing: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name);
-                        continue;
-                    }
-                    const encoding = @field(Tag.encodings, tag.name);
-                    for (@typeInfo(encoding.trailing).@"struct".fields) |field| {
-                        struct {
-                            fn checkConfig(name: []const u8) void {
-                                if (!@hasField(@TypeOf(encoding.config), name)) @compileError("missing field: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name ++ ".config.@\"" ++ name ++ "\"");
-                                const FieldType = @TypeOf(@field(encoding.config, name));
-                                if (@typeInfo(FieldType) != .enum_literal) @compileError("expected enum literal: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name ++ ".config.@\"" ++ name ++ "\": " ++ @typeName(FieldType));
+            .stage2_x86_64 => for (@typeInfo(Tag).@"enum".fields) |tag| {
+                if (!@hasField(@TypeOf(Tag.encodings), tag.name)) @compileLog("missing: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name);
+                const encoding = @field(Tag.encodings, tag.name);
+                if (@hasField(@TypeOf(encoding), "trailing")) for (@typeInfo(encoding.trailing).@"struct".fields) |field| {
+                    struct {
+                        fn checkConfig(name: []const u8) void {
+                            if (!@hasField(@TypeOf(encoding.config), name)) @compileError("missing field: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name ++ ".config.@\"" ++ name ++ "\"");
+                            const FieldType = @TypeOf(@field(encoding.config, name));
+                            if (@typeInfo(FieldType) != .enum_literal) @compileError("expected enum literal: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name ++ ".config.@\"" ++ name ++ "\": " ++ @typeName(FieldType));
+                        }
+                        fn checkField(name: []const u8, Type: type) void {
+                            switch (@typeInfo(Type)) {
+                                .int => {},
+                                .@"enum" => {},
+                                .@"struct" => |info| assert(info.layout == .@"packed"),
+                                .optional => |info| {
+                                    checkConfig(name ++ ".?");
+                                    checkField(name ++ ".?", info.child);
+                                },
+                                .pointer => |info| {
+                                    assert(info.size == .Slice);
+                                    checkConfig(name ++ ".len");
+                                    checkField(name ++ "[0]", info.child);
+                                },
+                                else => @compileError("unsupported type: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name ++ "." ++ name ++ ": " ++ @typeName(Type)),
                             }
-                            fn checkField(name: []const u8, Type: type) void {
-                                switch (@typeInfo(Type)) {
-                                    .int => {},
-                                    .@"enum" => {},
-                                    .@"struct" => |info| assert(info.layout == .@"packed"),
-                                    .optional => |info| {
-                                        checkConfig(name ++ ".?");
-                                        checkField(name ++ ".?", info.child);
-                                    },
-                                    .pointer => |info| {
-                                        assert(info.size == .Slice);
-                                        checkConfig(name ++ ".len");
-                                        checkField(name ++ "[0]", info.child);
-                                    },
-                                    else => @compileError("unsupported type: " ++ @typeName(Tag) ++ ".encodings." ++ tag.name ++ "." ++ name ++ ": " ++ @typeName(Type)),
-                                }
-                            }
-                        }.checkField("trailing." ++ field.name, field.type);
-                    }
-                }
+                        }
+                    }.checkField("trailing." ++ field.name, field.type);
+                };
             },
             else => {},
         };
@@ -5035,7 +5104,6 @@ pub const Tag = enum(u8) {
     /// data is payload index to `EnumExplicit`.
     type_enum_nonexhaustive,
     /// A type that can be represented with only an enum tag.
-    /// data is SimpleType enum value.
     simple_type,
     /// An opaque type.
     /// data is index of Tag.TypeOpaque in extra.
@@ -5064,7 +5132,6 @@ pub const Tag = enum(u8) {
     /// Untyped `undefined` is stored instead via `simple_value`.
     undef,
     /// A value that can be represented with only an enum tag.
-    /// data is SimpleValue enum value.
     simple_value,
     /// A pointer to a `Nav`.
     /// data is extra index of `PtrNav`, which contains the type and address.
@@ -5244,95 +5311,88 @@ pub const Tag = enum(u8) {
     const Union = Key.Union;
     const TypePointer = Key.PtrType;
 
-    fn Payload(comptime tag: Tag) type {
-        return switch (tag) {
-            .removed => unreachable,
-            .type_int_signed => unreachable,
-            .type_int_unsigned => unreachable,
-            .type_array_big => Array,
-            .type_array_small => Vector,
-            .type_vector => Vector,
-            .type_pointer => TypePointer,
-            .type_slice => unreachable,
-            .type_optional => unreachable,
-            .type_anyframe => unreachable,
-            .type_error_union => ErrorUnionType,
-            .type_anyerror_union => unreachable,
-            .type_error_set => ErrorSet,
-            .type_inferred_error_set => unreachable,
-            .type_enum_auto => EnumAuto,
-            .type_enum_explicit => EnumExplicit,
-            .type_enum_nonexhaustive => EnumExplicit,
-            .simple_type => unreachable,
-            .type_opaque => TypeOpaque,
-            .type_struct => TypeStruct,
-            .type_struct_packed, .type_struct_packed_inits => TypeStructPacked,
-            .type_tuple => TypeTuple,
-            .type_union => TypeUnion,
-            .type_function => TypeFunction,
-
-            .undef => unreachable,
-            .simple_value => unreachable,
-            .ptr_nav => PtrNav,
-            .ptr_comptime_alloc => PtrComptimeAlloc,
-            .ptr_uav => PtrUav,
-            .ptr_uav_aligned => PtrUavAligned,
-            .ptr_comptime_field => PtrComptimeField,
-            .ptr_int => PtrInt,
-            .ptr_eu_payload => PtrBase,
-            .ptr_opt_payload => PtrBase,
-            .ptr_elem => PtrBaseIndex,
-            .ptr_field => PtrBaseIndex,
-            .ptr_slice => PtrSlice,
-            .opt_payload => TypeValue,
-            .opt_null => unreachable,
-            .int_u8 => unreachable,
-            .int_u16 => unreachable,
-            .int_u32 => unreachable,
-            .int_i32 => unreachable,
-            .int_usize => unreachable,
-            .int_comptime_int_u32 => unreachable,
-            .int_comptime_int_i32 => unreachable,
-            .int_small => IntSmall,
-            .int_positive => unreachable,
-            .int_negative => unreachable,
-            .int_lazy_align => IntLazy,
-            .int_lazy_size => IntLazy,
-            .error_set_error => Error,
-            .error_union_error => Error,
-            .error_union_payload => TypeValue,
-            .enum_literal => unreachable,
-            .enum_tag => EnumTag,
-            .float_f16 => unreachable,
-            .float_f32 => unreachable,
-            .float_f64 => unreachable,
-            .float_f80 => unreachable,
-            .float_f128 => unreachable,
-            .float_c_longdouble_f80 => unreachable,
-            .float_c_longdouble_f128 => unreachable,
-            .float_comptime_float => unreachable,
-            .variable => Variable,
-            .@"extern" => Extern,
-            .func_decl => FuncDecl,
-            .func_instance => FuncInstance,
-            .func_coerced => FuncCoerced,
-            .only_possible_value => unreachable,
-            .union_value => Union,
-            .bytes => Bytes,
-            .aggregate => Aggregate,
-            .repeated => Repeated,
-            .memoized_call => MemoizedCall,
-        };
-    }
-
+    const enum_explicit_encoding = .{
+        .summary = .@"{.payload.name%summary#\"}",
+        .payload = EnumExplicit,
+        .trailing = struct {
+            owner_union: Index,
+            captures: ?[]CaptureValue,
+            type_hash: ?u64,
+            field_names: []NullTerminatedString,
+            tag_values: []Index,
+        },
+        .config = .{
+            .@"trailing.owner_union.?" = .@"payload.zir_index == .none",
+            .@"trailing.cau.?" = .@"payload.zir_index != .none",
+            .@"trailing.captures.?" = .@"payload.captures_len < 0xffffffff",
+            .@"trailing.captures.?.len" = .@"payload.captures_len",
+            .@"trailing.type_hash.?" = .@"payload.captures_len == 0xffffffff",
+            .@"trailing.field_names.len" = .@"payload.fields_len",
+            .@"trailing.tag_values.len" = .@"payload.fields_len",
+        },
+    };
     const encodings = .{
+        .removed = .{},
+
+        .type_int_signed = .{ .summary = .@"i{.data%value}", .data = u32 },
+        .type_int_unsigned = .{ .summary = .@"u{.data%value}", .data = u32 },
+        .type_array_big = .{
+            .summary = .@"[{.payload.len1%value} << 32 | {.payload.len0%value}:{.payload.sentinel%summary}]{.payload.child%summary}",
+            .payload = Array,
+        },
+        .type_array_small = .{ .summary = .@"[{.payload.len%value}]{.payload.child%summary}", .payload = Vector },
+        .type_vector = .{ .summary = .@"@Vector({.payload.len%value}, {.payload.child%summary})", .payload = Vector },
+        .type_pointer = .{ .summary = .@"*... {.payload.child%summary}", .payload = TypePointer },
+        .type_slice = .{ .summary = .@"[]... {.data.unwrapped.payload.child%summary}", .data = Index },
+        .type_optional = .{ .summary = .@"?{.data%summary}", .data = Index },
+        .type_anyframe = .{ .summary = .@"anyframe->{.data%summary}", .data = Index },
+        .type_error_union = .{
+            .summary = .@"{.payload.error_set_type%summary}!{.payload.payload_type%summary}",
+            .payload = ErrorUnionType,
+        },
+        .type_anyerror_union = .{ .summary = .@"anyerror!{.data%summary}", .data = Index },
+        .type_error_set = .{ .summary = .@"error{...}", .payload = ErrorSet },
+        .type_inferred_error_set = .{
+            .summary = .@"@typeInfo(@typeInfo(@TypeOf({.data%summary})).@\"fn\".return_type.?).error_union.error_set",
+            .data = Index,
+        },
+        .type_enum_auto = .{
+            .summary = .@"{.payload.name%summary#\"}",
+            .payload = EnumAuto,
+            .trailing = struct {
+                owner_union: ?Index,
+                captures: ?[]CaptureValue,
+                type_hash: ?u64,
+                field_names: []NullTerminatedString,
+            },
+            .config = .{
+                .@"trailing.owner_union.?" = .@"payload.zir_index == .none",
+                .@"trailing.cau.?" = .@"payload.zir_index != .none",
+                .@"trailing.captures.?" = .@"payload.captures_len < 0xffffffff",
+                .@"trailing.captures.?.len" = .@"payload.captures_len",
+                .@"trailing.type_hash.?" = .@"payload.captures_len == 0xffffffff",
+                .@"trailing.field_names.len" = .@"payload.fields_len",
+            },
+        },
+        .type_enum_explicit = enum_explicit_encoding,
+        .type_enum_nonexhaustive = enum_explicit_encoding,
+        .simple_type = .{ .summary = .@"{.index%value#.}", .index = SimpleType },
+        .type_opaque = .{
+            .summary = .@"{.payload.name%summary#\"}",
+            .payload = TypeOpaque,
+            .trailing = struct { captures: []CaptureValue },
+            .config = .{ .@"trailing.captures.len" = .@"payload.captures_len" },
+        },
         .type_struct = .{
+            .summary = .@"{.payload.name%summary#\"}",
             .payload = TypeStruct,
             .trailing = struct {
                 captures_len: ?u32,
                 captures: ?[]CaptureValue,
                 type_hash: ?u64,
                 field_types: []Index,
+                field_names_map: OptionalMapIndex,
+                field_names: []NullTerminatedString,
                 field_inits: ?[]Index,
                 field_aligns: ?[]Alignment,
                 field_is_comptime_bits: ?[]u32,
@@ -5342,9 +5402,10 @@ pub const Tag = enum(u8) {
             .config = .{
                 .@"trailing.captures_len.?" = .@"payload.flags.any_captures",
                 .@"trailing.captures.?" = .@"payload.flags.any_captures",
-                .@"trailing.captures.?.len" = .@"trailing.captures_len",
+                .@"trailing.captures.?.len" = .@"trailing.captures_len.?",
                 .@"trailing.type_hash.?" = .@"payload.flags.is_reified",
                 .@"trailing.field_types.len" = .@"payload.fields_len",
+                .@"trailing.field_names.len" = .@"payload.fields_len",
                 .@"trailing.field_inits.?" = .@"payload.flags.any_default_inits",
                 .@"trailing.field_inits.?.len" = .@"payload.fields_len",
                 .@"trailing.field_aligns.?" = .@"payload.flags.any_aligned_fields",
@@ -5356,16 +5417,218 @@ pub const Tag = enum(u8) {
                 .@"trailing.field_offset.len" = .@"payload.fields_len",
             },
         },
+        .type_struct_packed = .{
+            .summary = .@"{.payload.name%summary#\"}",
+            .payload = TypeStructPacked,
+            .trailing = struct {
+                captures_len: ?u32,
+                captures: ?[]CaptureValue,
+                type_hash: ?u64,
+                field_types: []Index,
+                field_names: []NullTerminatedString,
+            },
+            .config = .{
+                .@"trailing.captures_len.?" = .@"payload.flags.any_captures",
+                .@"trailing.captures.?" = .@"payload.flags.any_captures",
+                .@"trailing.captures.?.len" = .@"trailing.captures_len.?",
+                .@"trailing.type_hash.?" = .@"payload.is_flags.is_reified",
+                .@"trailing.field_types.len" = .@"payload.fields_len",
+                .@"trailing.field_names.len" = .@"payload.fields_len",
+            },
+        },
+        .type_struct_packed_inits = .{
+            .summary = .@"{.payload.name%summary#\"}",
+            .payload = TypeStructPacked,
+            .trailing = struct {
+                captures_len: ?u32,
+                captures: ?[]CaptureValue,
+                type_hash: ?u64,
+                field_types: []Index,
+                field_names: []NullTerminatedString,
+                field_inits: []Index,
+            },
+            .config = .{
+                .@"trailing.captures_len.?" = .@"payload.flags.any_captures",
+                .@"trailing.captures.?" = .@"payload.flags.any_captures",
+                .@"trailing.captures.?.len" = .@"trailing.captures_len.?",
+                .@"trailing.type_hash.?" = .@"payload.is_flags.is_reified",
+                .@"trailing.field_types.len" = .@"payload.fields_len",
+                .@"trailing.field_names.len" = .@"payload.fields_len",
+                .@"trailing.field_inits.len" = .@"payload.fields_len",
+            },
+        },
+        .type_tuple = .{
+            .summary = .@"struct {...}",
+            .payload = TypeTuple,
+            .trailing = struct {
+                field_types: []Index,
+                field_values: []Index,
+            },
+            .config = .{
+                .@"trailing.field_types.len" = .@"payload.fields_len",
+                .@"trailing.field_values.len" = .@"payload.fields_len",
+            },
+        },
+        .type_union = .{
+            .summary = .@"{.payload.name%summary#\"#\"}",
+            .payload = TypeUnion,
+            .trailing = struct {
+                captures_len: ?u32,
+                captures: ?[]CaptureValue,
+                type_hash: ?u64,
+                field_types: []Index,
+                field_aligns: []Alignment,
+            },
+            .config = .{
+                .@"trailing.captures_len.?" = .@"payload.flags.any_captures",
+                .@"trailing.captures.?" = .@"payload.flags.any_captures",
+                .@"trailing.captures.?.len" = .@"trailing.captures_len.?",
+                .@"trailing.type_hash.?" = .@"payload.is_flags.is_reified",
+                .@"trailing.field_types.len" = .@"payload.fields_len",
+                .@"trailing.field_aligns.len" = .@"payload.fields_len",
+            },
+        },
+        .type_function = .{
+            .summary = .@"fn (...) ... {.payload.return_type%summary}",
+            .payload = TypeFunction,
+            .trailing = struct {
+                param_comptime_bits: ?[]u32,
+                param_noalias_bits: ?[]u32,
+                param_type: []Index,
+            },
+            .config = .{
+                .@"trailing.param_comptime_bits.?" = .@"payload.flags.has_comptime_bits",
+                .@"trailing.param_comptime_bits.?.len" = .@"(payload.params_len + 31) / 32",
+                .@"trailing.param_noalias_bits.?" = .@"payload.flags.has_noalias_bits",
+                .@"trailing.param_noalias_bits.?.len" = .@"(payload.params_len + 31) / 32",
+                .@"trailing.param_type.len" = .@"payload.params_len",
+            },
+        },
+
+        .undef = .{ .summary = .@"@as({.data%summary}, undefined)", .data = Index },
+        .simple_value = .{ .summary = .@"{.index%value#.}", .index = SimpleValue },
+        .ptr_nav = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&{.payload.nav.fqn%summary#\"}) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrNav,
+        },
+        .ptr_comptime_alloc = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&comptime_allocs[{.payload.index%summary}]) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrComptimeAlloc,
+        },
+        .ptr_uav = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&{.payload.val%summary}) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrUav,
+        },
+        .ptr_uav_aligned = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(@as({.payload.orig_ty%summary}, &{.payload.val%summary})) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrUavAligned,
+        },
+        .ptr_comptime_field = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&{.payload.field_val%summary}) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrComptimeField,
+        },
+        .ptr_int = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value}))",
+            .payload = PtrInt,
+        },
+        .ptr_eu_payload = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&({.payload.base%summary} catch unreachable)) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrBase,
+        },
+        .ptr_opt_payload = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&{.payload.base%summary}.?) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrBase,
+        },
+        .ptr_elem = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&{.payload.base%summary}[{.payload.index%summary}]) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrBaseIndex,
+        },
+        .ptr_field = .{
+            .summary = .@"@as({.payload.ty%summary}, @ptrFromInt(@intFromPtr(&{.payload.base%summary}[{.payload.index%summary}]) + ({.payload.byte_offset_a%value} << 32 | {.payload.byte_offset_b%value})))",
+            .payload = PtrBaseIndex,
+        },
+        .ptr_slice = .{
+            .summary = .@"{.payload.ptr%summary}[0..{.payload.len%summary}]",
+            .payload = PtrSlice,
+        },
+        .opt_payload = .{ .summary = .@"@as({.payload.ty%summary}, {.payload.val%summary})", .payload = TypeValue },
+        .opt_null = .{ .summary = .@"@as({.data%summary}, null)", .data = Index },
+        .int_u8 = .{ .summary = .@"@as(u8, {.data%value})", .data = u8 },
+        .int_u16 = .{ .summary = .@"@as(u16, {.data%value})", .data = u16 },
+        .int_u32 = .{ .summary = .@"@as(u32, {.data%value})", .data = u32 },
+        .int_i32 = .{ .summary = .@"@as(i32, {.data%value})", .data = i32 },
+        .int_usize = .{ .summary = .@"@as(usize, {.data%value})", .data = u32 },
+        .int_comptime_int_u32 = .{ .summary = .@"{.data%value}", .data = u32 },
+        .int_comptime_int_i32 = .{ .summary = .@"{.data%value}", .data = i32 },
+        .int_small = .{ .summary = .@"@as({.payload.ty%summary}, {.payload.value%value})", .payload = IntSmall },
+        .int_positive = .{},
+        .int_negative = .{},
+        .int_lazy_align = .{ .summary = .@"@as({.payload.ty%summary}, @alignOf({.payload.lazy_ty%summary}))", .payload = IntLazy },
+        .int_lazy_size = .{ .summary = .@"@as({.payload.ty%summary}, @sizeOf({.payload.lazy_ty%summary}))", .payload = IntLazy },
+        .error_set_error = .{ .summary = .@"@as({.payload.ty%summary}, error.@{.payload.name%summary})", .payload = Error },
+        .error_union_error = .{ .summary = .@"@as({.payload.ty%summary}, error.@{.payload.name%summary})", .payload = Error },
+        .error_union_payload = .{ .summary = .@"@as({.payload.ty%summary}, {.payload.val%summary})", .payload = TypeValue },
+        .enum_literal = .{ .summary = .@".@{.data%summary}", .data = NullTerminatedString },
+        .enum_tag = .{ .summary = .@"@as({.payload.ty%summary}, @enumFromInt({.payload.int%summary}))", .payload = EnumTag },
+        .float_f16 = .{ .summary = .@"@as(f16, {.data%value})", .data = f16 },
+        .float_f32 = .{ .summary = .@"@as(f32, {.data%value})", .data = f32 },
+        .float_f64 = .{ .summary = .@"@as(f64, {.payload%value})", .payload = f64 },
+        .float_f80 = .{ .summary = .@"@as(f80, {.payload%value})", .payload = f80 },
+        .float_f128 = .{ .summary = .@"@as(f128, {.payload%value})", .payload = f128 },
+        .float_c_longdouble_f80 = .{ .summary = .@"@as(c_longdouble, {.payload%value})", .payload = f80 },
+        .float_c_longdouble_f128 = .{ .summary = .@"@as(c_longdouble, {.payload%value})", .payload = f128 },
+        .float_comptime_float = .{ .summary = .@"{.payload%value}", .payload = f128 },
+        .variable = .{ .summary = .@"{.payload.owner_nav.fqn%summary#\"}", .payload = Variable },
+        .@"extern" = .{ .summary = .@"{.payload.owner_nav.fqn%summary#\"}", .payload = Extern },
+        .func_decl = .{
+            .summary = .@"{.payload.owner_nav.fqn%summary#\"}",
+            .payload = FuncDecl,
+            .trailing = struct { inferred_error_set: ?Index },
+            .config = .{ .@"trailing.inferred_error_set.?" = .@"payload.analysis.inferred_error_set" },
+        },
+        .func_instance = .{
+            .summary = .@"{.payload.owner_nav.fqn%summary#\"}",
+            .payload = FuncInstance,
+            .trailing = struct {
+                inferred_error_set: ?Index,
+                param_values: []Index,
+            },
+            .config = .{
+                .@"trailing.inferred_error_set.?" = .@"payload.analysis.inferred_error_set",
+                .@"trailing.param_values.len" = .@"payload.ty.payload.params_len",
+            },
+        },
+        .func_coerced = .{
+            .summary = .@"@as(*const {.payload.ty%summary}, @ptrCast(&{.payload.func%summary})).*",
+            .payload = FuncCoerced,
+        },
+        .only_possible_value = .{ .summary = .@"@as({.data%summary}, undefined)", .data = Index },
+        .union_value = .{ .summary = .@"@as({.payload.ty%summary}, {})", .payload = Union },
+        .bytes = .{ .summary = .@"@as({.payload.ty%summary}, {.payload.bytes%summary}.*)", .payload = Bytes },
+        .aggregate = .{
+            .summary = .@"@as({.payload.ty%summary}, .{...})",
+            .payload = Aggregate,
+            .trailing = struct { elements: []Index },
+            .config = .{ .@"trailing.elements.len" = .@"payload.ty.payload.fields_len" },
+        },
+        .repeated = .{ .summary = .@"@as({.payload.ty%summary}, @splat({.payload.elem_val%summary}))", .payload = Repeated },
+
+        .memoized_call = .{
+            .summary = .@"@memoize({.payload.func%summary})",
+            .payload = MemoizedCall,
+            .trailing = struct { arg_values: []Index },
+            .config = .{ .@"trailing.arg_values.len" = .@"payload.args_len" },
+        },
     };
+    fn Payload(comptime tag: Tag) type {
+        return @field(encodings, @tagName(tag)).payload;
+    }
 
     pub const Variable = struct {
         ty: Index,
         /// May be `none`.
         init: Index,
         owner_nav: Nav.Index,
-        /// Library name if specified.
-        /// For example `extern "c" var stderrp = ...` would have 'c' as library name.
-        lib_name: OptionalNullTerminatedString,
         flags: Flags,
 
         pub const Flags = packed struct(u32) {
@@ -5474,7 +5737,6 @@ pub const Tag = enum(u8) {
         size: u32,
         /// Only valid after .have_layout
         padding: u32,
-        cau: Cau.Index,
         namespace: NamespaceIndex,
         /// The enum that provides the list of field names and values.
         tag_ty: Index,
@@ -5505,7 +5767,6 @@ pub const Tag = enum(u8) {
     /// 5. init: Index for each fields_len // if tag is type_struct_packed_inits
     pub const TypeStructPacked = struct {
         name: NullTerminatedString,
-        cau: Cau.Index,
         zir_index: TrackedInst.Index,
         fields_len: u32,
         namespace: NamespaceIndex,
@@ -5553,7 +5814,6 @@ pub const Tag = enum(u8) {
     /// 8. field_offset: u32 // for each field in declared order, undef until layout_resolved
     pub const TypeStruct = struct {
         name: NullTerminatedString,
-        cau: Cau.Index,
         zir_index: TrackedInst.Index,
         namespace: NamespaceIndex,
         fields_len: u32,
@@ -5610,7 +5870,7 @@ pub const Tag = enum(u8) {
 /// equality or hashing, except for `inferred_error_set` which is considered
 /// to be part of the type of the function.
 pub const FuncAnalysis = packed struct(u32) {
-    state: State,
+    is_analyzed: bool,
     branch_hint: std.builtin.BranchHint,
     is_noinline: bool,
     calls_or_awaits_errorable_fn: bool,
@@ -5618,20 +5878,7 @@ pub const FuncAnalysis = packed struct(u32) {
     inferred_error_set: bool,
     disable_instrumentation: bool,
 
-    _: u23 = 0,
-
-    pub const State = enum(u2) {
-        /// The runtime function has never been referenced.
-        /// As such, it has never been analyzed, nor is it queued for analysis.
-        unreferenced,
-        /// The runtime function has been referenced, but has not yet been analyzed.
-        /// Its semantic analysis is queued.
-        queued,
-        /// The runtime function has been (or is currently being) semantically analyzed.
-        /// To know if analysis succeeded, consult `zcu.[transitive_]failed_analysis`.
-        /// To know if analysis is up-to-date, consult `zcu.[potentially_]outdated`.
-        analyzed,
-    };
+    _: u24 = 0,
 };
 
 pub const Bytes = struct {
@@ -5883,11 +6130,10 @@ pub const Array = struct {
 
 /// Trailing:
 /// 0. owner_union: Index // if `zir_index == .none`
-/// 1. cau: Cau.Index // if `zir_index != .none`
-/// 2. capture: CaptureValue // for each `captures_len`
-/// 3. type_hash: PackedU64 // if reified (`captures_len == std.math.maxInt(u32)`)
-/// 4. field name: NullTerminatedString for each fields_len; declaration order
-/// 5. tag value: Index for each fields_len; declaration order
+/// 1. capture: CaptureValue // for each `captures_len`
+/// 2. type_hash: PackedU64 // if reified (`captures_len == std.math.maxInt(u32)`)
+/// 3. field name: NullTerminatedString for each fields_len; declaration order
+/// 4. tag value: Index for each fields_len; declaration order
 pub const EnumExplicit = struct {
     name: NullTerminatedString,
     /// `std.math.maxInt(u32)` indicates this type is reified.
@@ -5910,10 +6156,9 @@ pub const EnumExplicit = struct {
 
 /// Trailing:
 /// 0. owner_union: Index // if `zir_index == .none`
-/// 1. cau: Cau.Index // if `zir_index != .none`
-/// 2. capture: CaptureValue // for each `captures_len`
-/// 3. type_hash: PackedU64 // if reified (`captures_len == std.math.maxInt(u32)`)
-/// 4. field name: NullTerminatedString for each fields_len; declaration order
+/// 1. capture: CaptureValue // for each `captures_len`
+/// 2. type_hash: PackedU64 // if reified (`captures_len == std.math.maxInt(u32)`)
+/// 3. field name: NullTerminatedString for each fields_len; declaration order
 pub const EnumAuto = struct {
     name: NullTerminatedString,
     /// `std.math.maxInt(u32)` indicates this type is reified.
@@ -6203,32 +6448,32 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
     ip.locals = try gpa.alloc(Local, used_threads);
     @memset(ip.locals, .{
         .shared = .{
-            .items = Local.List(Item).empty,
-            .extra = Local.Extra.empty,
-            .limbs = Local.Limbs.empty,
-            .strings = Local.Strings.empty,
-            .tracked_insts = Local.TrackedInsts.empty,
-            .files = Local.List(File).empty,
-            .maps = Local.Maps.empty,
-            .caus = Local.Caus.empty,
-            .navs = Local.Navs.empty,
+            .items = .empty,
+            .extra = .empty,
+            .limbs = .empty,
+            .strings = .empty,
+            .tracked_insts = .empty,
+            .files = .empty,
+            .maps = .empty,
+            .navs = .empty,
+            .comptime_units = .empty,
 
-            .namespaces = Local.Namespaces.empty,
+            .namespaces = .empty,
         },
         .mutate = .{
             .arena = .{},
 
-            .items = Local.ListMutate.empty,
-            .extra = Local.ListMutate.empty,
-            .limbs = Local.ListMutate.empty,
-            .strings = Local.ListMutate.empty,
-            .tracked_insts = Local.ListMutate.empty,
-            .files = Local.ListMutate.empty,
-            .maps = Local.ListMutate.empty,
-            .caus = Local.ListMutate.empty,
-            .navs = Local.ListMutate.empty,
+            .items = .empty,
+            .extra = .empty,
+            .limbs = .empty,
+            .strings = .empty,
+            .tracked_insts = .empty,
+            .files = .empty,
+            .maps = .empty,
+            .navs = .empty,
+            .comptime_units = .empty,
 
-            .namespaces = Local.BucketListMutate.empty,
+            .namespaces = .empty,
         },
     });
 
@@ -6271,9 +6516,12 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
 }
 
 pub fn deinit(ip: *InternPool, gpa: Allocator) void {
+    if (!builtin.strip_debug_info) std.debug.assert(debug_state.intern_pool == null);
+
     ip.file_deps.deinit(gpa);
     ip.src_hash_deps.deinit(gpa);
     ip.nav_val_deps.deinit(gpa);
+    ip.nav_ty_deps.deinit(gpa);
     ip.interned_deps.deinit(gpa);
     ip.namespace_deps.deinit(gpa);
     ip.namespace_name_deps.deinit(gpa);
@@ -6299,7 +6547,8 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
                 namespace.priv_decls.deinit(gpa);
                 namespace.pub_usingnamespace.deinit(gpa);
                 namespace.priv_usingnamespace.deinit(gpa);
-                namespace.other_decls.deinit(gpa);
+                namespace.comptime_decls.deinit(gpa);
+                namespace.test_decls.deinit(gpa);
             }
         };
         const maps = local.getMutableMaps(gpa);
@@ -6310,6 +6559,30 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
 
     ip.* = undefined;
 }
+
+pub fn activate(ip: *const InternPool) void {
+    if (builtin.strip_debug_info) return;
+    _ = Index.Unwrapped.debug_state;
+    _ = String.debug_state;
+    _ = OptionalString.debug_state;
+    _ = NullTerminatedString.debug_state;
+    _ = OptionalNullTerminatedString.debug_state;
+    _ = Nav.Index.debug_state;
+    _ = Nav.Index.Optional.debug_state;
+    std.debug.assert(debug_state.intern_pool == null);
+    debug_state.intern_pool = ip;
+}
+
+pub fn deactivate(ip: *const InternPool) void {
+    if (builtin.strip_debug_info) return;
+    std.debug.assert(debug_state.intern_pool == ip);
+    debug_state.intern_pool = null;
+}
+
+/// For debugger access only.
+const debug_state = struct {
+    threadlocal var intern_pool: ?*const InternPool = null;
+};
 
 pub fn indexToKey(ip: *const InternPool, index: Index) Key {
     assert(index != .none);
@@ -6478,14 +6751,14 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             if (extra.data.captures_len == std.math.maxInt(u32)) {
                 break :ns .{ .reified = .{
                     .zir_index = zir_index,
-                    .type_hash = extraData(extra_list, PackedU64, extra.end + 1).get(),
+                    .type_hash = extraData(extra_list, PackedU64, extra.end).get(),
                 } };
             }
             break :ns .{ .declared = .{
                 .zir_index = zir_index,
                 .captures = .{ .owned = .{
                     .tid = unwrapped_index.tid,
-                    .start = extra.end + 1,
+                    .start = extra.end,
                     .len = extra.data.captures_len,
                 } },
             } };
@@ -6502,14 +6775,14 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             if (extra.data.captures_len == std.math.maxInt(u32)) {
                 break :ns .{ .reified = .{
                     .zir_index = zir_index,
-                    .type_hash = extraData(extra_list, PackedU64, extra.end + 1).get(),
+                    .type_hash = extraData(extra_list, PackedU64, extra.end).get(),
                 } };
             }
             break :ns .{ .declared = .{
                 .zir_index = zir_index,
                 .captures = .{ .owned = .{
                     .tid = unwrapped_index.tid,
-                    .start = extra.end + 1,
+                    .start = extra.end,
                     .len = extra.data.captures_len,
                 } },
             } };
@@ -6690,7 +6963,6 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .ty = extra.ty,
                 .init = extra.init,
                 .owner_nav = extra.owner_nav,
-                .lib_name = extra.lib_name,
                 .is_threadlocal = extra.flags.is_threadlocal,
                 .is_weak_linkage = extra.flags.is_weak_linkage,
             } };
@@ -6706,8 +6978,8 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .is_threadlocal = extra.flags.is_threadlocal,
                 .is_weak_linkage = extra.flags.is_weak_linkage,
                 .is_dll_import = extra.flags.is_dll_import,
-                .alignment = nav.status.resolved.alignment,
-                .@"addrspace" = nav.status.resolved.@"addrspace",
+                .alignment = nav.status.fully_resolved.alignment,
+                .@"addrspace" = nav.status.fully_resolved.@"addrspace",
                 .zir_index = extra.zir_index,
                 .owner_nav = extra.owner_nav,
             } };
@@ -7337,7 +7609,6 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                     .ty = variable.ty,
                     .init = variable.init,
                     .owner_nav = variable.owner_nav,
-                    .lib_name = variable.lib_name,
                     .flags = .{
                         .is_const = false,
                         .is_threadlocal = variable.is_threadlocal,
@@ -8092,7 +8363,6 @@ pub fn getUnionType(
         .size = std.math.maxInt(u32),
         .padding = std.math.maxInt(u32),
         .name = undefined, // set by `finish`
-        .cau = undefined, // set by `finish`
         .namespace = undefined, // set by `finish`
         .tag_ty = ini.enum_tag_ty,
         .zir_index = switch (ini.key) {
@@ -8144,7 +8414,6 @@ pub fn getUnionType(
         .tid = tid,
         .index = gop.put(),
         .type_name_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeUnion, "name").?,
-        .cau_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeUnion, "cau").?,
         .namespace_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeUnion, "namespace").?,
     } };
 }
@@ -8153,7 +8422,6 @@ pub const WipNamespaceType = struct {
     tid: Zcu.PerThread.Id,
     index: Index,
     type_name_extra_index: u32,
-    cau_extra_index: ?u32,
     namespace_extra_index: u32,
 
     pub fn setName(
@@ -8169,17 +8437,10 @@ pub const WipNamespaceType = struct {
     pub fn finish(
         wip: WipNamespaceType,
         ip: *InternPool,
-        analysis_owner: Cau.Index.Optional,
         namespace: NamespaceIndex,
     ) Index {
         const extra = ip.getLocalShared(wip.tid).extra.acquire();
         const extra_items = extra.view().items(.@"0");
-
-        if (wip.cau_extra_index) |i| {
-            extra_items[i] = @intFromEnum(analysis_owner.unwrap().?);
-        } else {
-            assert(analysis_owner == .none);
-        }
 
         extra_items[wip.namespace_extra_index] = @intFromEnum(namespace);
 
@@ -8279,7 +8540,6 @@ pub fn getStructType(
                 ini.fields_len); // inits
             const extra_index = addExtraAssumeCapacity(extra, Tag.TypeStructPacked{
                 .name = undefined, // set by `finish`
-                .cau = undefined, // set by `finish`
                 .zir_index = zir_index,
                 .fields_len = ini.fields_len,
                 .namespace = undefined, // set by `finish`
@@ -8324,7 +8584,6 @@ pub fn getStructType(
                 .tid = tid,
                 .index = gop.put(),
                 .type_name_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStructPacked, "name").?,
-                .cau_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStructPacked, "cau").?,
                 .namespace_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStructPacked, "namespace").?,
             } };
         },
@@ -8347,7 +8606,6 @@ pub fn getStructType(
         1); // names_map
     const extra_index = addExtraAssumeCapacity(extra, Tag.TypeStruct{
         .name = undefined, // set by `finish`
-        .cau = undefined, // set by `finish`
         .zir_index = zir_index,
         .namespace = undefined, // set by `finish`
         .fields_len = ini.fields_len,
@@ -8416,7 +8674,6 @@ pub fn getStructType(
         .tid = tid,
         .index = gop.put(),
         .type_name_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStruct, "name").?,
-        .cau_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStruct, "cau").?,
         .namespace_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeStruct, "namespace").?,
     } };
 }
@@ -8640,7 +8897,7 @@ pub fn getFuncDecl(
 
     const func_decl_extra_index = addExtraAssumeCapacity(extra, Tag.FuncDecl{
         .analysis = .{
-            .state = .unreferenced,
+            .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = key.is_noinline,
             .calls_or_awaits_errorable_fn = false,
@@ -8749,7 +9006,7 @@ pub fn getFuncDeclIes(
 
     const func_decl_extra_index = addExtraAssumeCapacity(extra, Tag.FuncDecl{
         .analysis = .{
-            .state = .unreferenced,
+            .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = key.is_noinline,
             .calls_or_awaits_errorable_fn = false,
@@ -8945,7 +9202,7 @@ pub fn getFuncInstance(
 
     const func_extra_index = addExtraAssumeCapacity(extra, Tag.FuncInstance{
         .analysis = .{
-            .state = .unreferenced,
+            .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = arg.is_noinline,
             .calls_or_awaits_errorable_fn = false,
@@ -9043,7 +9300,7 @@ pub fn getFuncInstanceIes(
 
     const func_extra_index = addExtraAssumeCapacity(extra, Tag.FuncInstance{
         .analysis = .{
-            .state = .unreferenced,
+            .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = arg.is_noinline,
             .calls_or_awaits_errorable_fn = false,
@@ -9152,7 +9409,7 @@ fn finishFuncInstance(
     func_extra_index: u32,
 ) Allocator.Error!void {
     const fn_owner_nav = ip.getNav(ip.funcDeclInfo(generic_owner).owner_nav);
-    const fn_namespace = ip.getCau(fn_owner_nav.analysis_owner.unwrap().?).namespace;
+    const fn_namespace = fn_owner_nav.analysis.?.namespace;
 
     // TODO: improve this name
     const nav_name = try ip.getOrPutStringFmt(gpa, tid, "{}__anon_{d}", .{
@@ -9162,9 +9419,9 @@ fn finishFuncInstance(
         .name = nav_name,
         .fqn = try ip.namespacePtr(fn_namespace).internFullyQualifiedName(ip, gpa, tid, nav_name),
         .val = func_index,
-        .alignment = fn_owner_nav.status.resolved.alignment,
-        .@"linksection" = fn_owner_nav.status.resolved.@"linksection",
-        .@"addrspace" = fn_owner_nav.status.resolved.@"addrspace",
+        .alignment = fn_owner_nav.status.fully_resolved.alignment,
+        .@"linksection" = fn_owner_nav.status.fully_resolved.@"linksection",
+        .@"addrspace" = fn_owner_nav.status.fully_resolved.@"addrspace",
     });
 
     // Populate the owner_nav field which was left undefined until now.
@@ -9198,7 +9455,6 @@ pub const WipEnumType = struct {
     index: Index,
     tag_ty_index: u32,
     type_name_extra_index: u32,
-    cau_extra_index: u32,
     namespace_extra_index: u32,
     names_map: MapIndex,
     names_start: u32,
@@ -9218,13 +9474,11 @@ pub const WipEnumType = struct {
     pub fn prepare(
         wip: WipEnumType,
         ip: *InternPool,
-        analysis_owner: Cau.Index,
         namespace: NamespaceIndex,
     ) void {
         const extra = ip.getLocalShared(wip.tid).extra.acquire();
         const extra_items = extra.view().items(.@"0");
 
-        extra_items[wip.cau_extra_index] = @intFromEnum(analysis_owner);
         extra_items[wip.namespace_extra_index] = @intFromEnum(namespace);
     }
 
@@ -9325,7 +9579,6 @@ pub fn getEnumType(
                     .reified => 2, // type_hash: PackedU64
                 } +
                 // zig fmt: on
-                1 + // cau
                 ini.fields_len); // field types
 
             const extra_index = addExtraAssumeCapacity(extra, EnumAuto{
@@ -9346,8 +9599,6 @@ pub fn getEnumType(
                 .tag = .type_enum_auto,
                 .data = extra_index,
             });
-            const cau_extra_index = extra.view().len;
-            extra.appendAssumeCapacity(undefined); // `cau` will be set by `finish`
             switch (ini.key) {
                 .declared => |d| extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures)}),
                 .declared_owned_captures => |d| extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures.get(ip))}),
@@ -9360,7 +9611,6 @@ pub fn getEnumType(
                 .index = gop.put(),
                 .tag_ty_index = extra_index + std.meta.fieldIndex(EnumAuto, "int_tag_type").?,
                 .type_name_extra_index = extra_index + std.meta.fieldIndex(EnumAuto, "name").?,
-                .cau_extra_index = @intCast(cau_extra_index),
                 .namespace_extra_index = extra_index + std.meta.fieldIndex(EnumAuto, "namespace").?,
                 .names_map = names_map,
                 .names_start = @intCast(names_start),
@@ -9385,7 +9635,6 @@ pub fn getEnumType(
                     .reified => 2, // type_hash: PackedU64
                 } +
                 // zig fmt: on
-                1 + // cau
                 ini.fields_len + // field types
                 ini.fields_len * @intFromBool(ini.has_values)); // field values
 
@@ -9412,8 +9661,6 @@ pub fn getEnumType(
                 },
                 .data = extra_index,
             });
-            const cau_extra_index = extra.view().len;
-            extra.appendAssumeCapacity(undefined); // `cau` will be set by `finish`
             switch (ini.key) {
                 .declared => |d| extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures)}),
                 .declared_owned_captures => |d| extra.appendSliceAssumeCapacity(.{@ptrCast(d.captures.get(ip))}),
@@ -9430,7 +9677,6 @@ pub fn getEnumType(
                 .index = gop.put(),
                 .tag_ty_index = extra_index + std.meta.fieldIndex(EnumExplicit, "int_tag_type").?,
                 .type_name_extra_index = extra_index + std.meta.fieldIndex(EnumExplicit, "name").?,
-                .cau_extra_index = @intCast(cau_extra_index),
                 .namespace_extra_index = extra_index + std.meta.fieldIndex(EnumExplicit, "namespace").?,
                 .names_map = names_map,
                 .names_start = @intCast(names_start),
@@ -9627,7 +9873,6 @@ pub fn getOpaqueType(
             .tid = tid,
             .index = gop.put(),
             .type_name_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeOpaque, "name").?,
-            .cau_extra_index = null, // opaques do not undergo type resolution
             .namespace_extra_index = extra_index + std.meta.fieldIndex(Tag.TypeOpaque, "namespace").?,
         },
     };
@@ -9743,7 +9988,6 @@ fn addExtraAssumeCapacity(extra: Local.Extra.Mutable, item: anytype) u32 {
     inline for (@typeInfo(@TypeOf(item)).@"struct".fields) |field| {
         extra.appendAssumeCapacity(.{switch (field.type) {
             Index,
-            Cau.Index,
             Nav.Index,
             NamespaceIndex,
             OptionalNamespaceIndex,
@@ -9806,7 +10050,6 @@ fn extraDataTrail(extra: Local.Extra, comptime T: type, index: u32) struct { dat
         const extra_item = extra_items[extra_index];
         @field(result, field.name) = switch (field.type) {
             Index,
-            Cau.Index,
             Nav.Index,
             NamespaceIndex,
             OptionalNamespaceIndex,
@@ -10827,12 +11070,6 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     try bw.flush();
 }
 
-pub fn getCau(ip: *const InternPool, index: Cau.Index) Cau {
-    const unwrapped = index.unwrap(ip);
-    const caus = ip.getLocalShared(unwrapped.tid).caus.acquire();
-    return caus.view().items(.@"0")[unwrapped.index];
-}
-
 pub fn getNav(ip: *const InternPool, index: Nav.Index) Nav {
     const unwrapped = index.unwrap(ip);
     const navs = ip.getLocalShared(unwrapped.tid).navs.acquire();
@@ -10846,51 +11083,34 @@ pub fn namespacePtr(ip: *InternPool, namespace_index: NamespaceIndex) *Zcu.Names
     return &namespaces_bucket[unwrapped_namespace_index.index];
 }
 
-/// Create a `Cau` associated with the type at the given `InternPool.Index`.
-pub fn createTypeCau(
+/// Create a `ComptimeUnit`, forming an `AnalUnit` for a `comptime` declaration.
+pub fn createComptimeUnit(
     ip: *InternPool,
     gpa: Allocator,
     tid: Zcu.PerThread.Id,
     zir_index: TrackedInst.Index,
     namespace: NamespaceIndex,
-    owner_type: InternPool.Index,
-) Allocator.Error!Cau.Index {
-    const caus = ip.getLocal(tid).getMutableCaus(gpa);
-    const index_unwrapped: Cau.Index.Unwrapped = .{
+) Allocator.Error!ComptimeUnit.Id {
+    const comptime_units = ip.getLocal(tid).getMutableComptimeUnits(gpa);
+    const id_unwrapped: ComptimeUnit.Id.Unwrapped = .{
         .tid = tid,
-        .index = caus.mutate.len,
+        .index = comptime_units.mutate.len,
     };
-    try caus.append(.{.{
+    try comptime_units.append(.{.{
         .zir_index = zir_index,
         .namespace = namespace,
-        .owner = Cau.Owner.wrap(.{ .type = owner_type }),
     }});
-    return index_unwrapped.wrap(ip);
+    return id_unwrapped.wrap(ip);
 }
 
-/// Create a `Cau` for a `comptime` declaration.
-pub fn createComptimeCau(
-    ip: *InternPool,
-    gpa: Allocator,
-    tid: Zcu.PerThread.Id,
-    zir_index: TrackedInst.Index,
-    namespace: NamespaceIndex,
-) Allocator.Error!Cau.Index {
-    const caus = ip.getLocal(tid).getMutableCaus(gpa);
-    const index_unwrapped: Cau.Index.Unwrapped = .{
-        .tid = tid,
-        .index = caus.mutate.len,
-    };
-    try caus.append(.{.{
-        .zir_index = zir_index,
-        .namespace = namespace,
-        .owner = Cau.Owner.wrap(.none),
-    }});
-    return index_unwrapped.wrap(ip);
+pub fn getComptimeUnit(ip: *const InternPool, id: ComptimeUnit.Id) ComptimeUnit {
+    const unwrapped = id.unwrap(ip);
+    const comptime_units = ip.getLocalShared(unwrapped.tid).comptime_units.acquire();
+    return comptime_units.view().items(.@"0")[unwrapped.index];
 }
 
-/// Create a `Nav` not associated with any `Cau`.
-/// Since there is no analysis owner, the `Nav`'s value must be known at creation time.
+/// Create a `Nav` which does not undergo semantic analysis.
+/// Since it is never analyzed, the `Nav`'s value must be known at creation time.
 pub fn createNav(
     ip: *InternPool,
     gpa: Allocator,
@@ -10912,8 +11132,8 @@ pub fn createNav(
     try navs.append(Nav.pack(.{
         .name = opts.name,
         .fqn = opts.fqn,
-        .analysis_owner = .none,
-        .status = .{ .resolved = .{
+        .analysis = null,
+        .status = .{ .fully_resolved = .{
             .val = opts.val,
             .alignment = opts.alignment,
             .@"linksection" = opts.@"linksection",
@@ -10924,10 +11144,9 @@ pub fn createNav(
     return index_unwrapped.wrap(ip);
 }
 
-/// Create a `Cau` and `Nav` which are paired. The value of the `Nav` is
-/// determined by semantic analysis of the `Cau`. The value of the `Nav`
-/// is initially unresolved.
-pub fn createPairedCauNav(
+/// Create a `Nav` which undergoes semantic analysis because it corresponds to a source declaration.
+/// The value of the `Nav` is initially unresolved.
+pub fn createDeclNav(
     ip: *InternPool,
     gpa: Allocator,
     tid: Zcu.PerThread.Id,
@@ -10937,36 +11156,72 @@ pub fn createPairedCauNav(
     namespace: NamespaceIndex,
     /// TODO: this is hacky! See `Nav.is_usingnamespace`.
     is_usingnamespace: bool,
-) Allocator.Error!struct { Cau.Index, Nav.Index } {
-    const caus = ip.getLocal(tid).getMutableCaus(gpa);
+) Allocator.Error!Nav.Index {
     const navs = ip.getLocal(tid).getMutableNavs(gpa);
 
-    try caus.ensureUnusedCapacity(1);
     try navs.ensureUnusedCapacity(1);
 
-    const cau = Cau.Index.Unwrapped.wrap(.{
-        .tid = tid,
-        .index = caus.mutate.len,
-    }, ip);
     const nav = Nav.Index.Unwrapped.wrap(.{
         .tid = tid,
         .index = navs.mutate.len,
     }, ip);
 
-    caus.appendAssumeCapacity(.{.{
-        .zir_index = zir_index,
-        .namespace = namespace,
-        .owner = Cau.Owner.wrap(.{ .nav = nav }),
-    }});
     navs.appendAssumeCapacity(Nav.pack(.{
         .name = name,
         .fqn = fqn,
-        .analysis_owner = cau.toOptional(),
+        .analysis = .{
+            .namespace = namespace,
+            .zir_index = zir_index,
+        },
         .status = .unresolved,
         .is_usingnamespace = is_usingnamespace,
     }));
 
-    return .{ cau, nav };
+    return nav;
+}
+
+/// Resolve the type of a `Nav` with an analysis owner.
+/// If its status is already `resolved`, the old value is discarded.
+pub fn resolveNavType(
+    ip: *InternPool,
+    nav: Nav.Index,
+    resolved: struct {
+        type: InternPool.Index,
+        alignment: Alignment,
+        @"linksection": OptionalNullTerminatedString,
+        @"addrspace": std.builtin.AddressSpace,
+        is_const: bool,
+        is_threadlocal: bool,
+        is_extern_decl: bool,
+    },
+) void {
+    const unwrapped = nav.unwrap(ip);
+
+    const local = ip.getLocal(unwrapped.tid);
+    local.mutate.extra.mutex.lock();
+    defer local.mutate.extra.mutex.unlock();
+
+    const navs = local.shared.navs.view();
+
+    const nav_analysis_namespace = navs.items(.analysis_namespace);
+    const nav_analysis_zir_index = navs.items(.analysis_zir_index);
+    const nav_types = navs.items(.type_or_val);
+    const nav_linksections = navs.items(.@"linksection");
+    const nav_bits = navs.items(.bits);
+
+    assert(nav_analysis_namespace[unwrapped.index] != .none);
+    assert(nav_analysis_zir_index[unwrapped.index] != .none);
+
+    @atomicStore(InternPool.Index, &nav_types[unwrapped.index], resolved.type, .release);
+    @atomicStore(OptionalNullTerminatedString, &nav_linksections[unwrapped.index], resolved.@"linksection", .release);
+
+    var bits = nav_bits[unwrapped.index];
+    bits.status = if (resolved.is_extern_decl) .type_resolved_extern_decl else .type_resolved;
+    bits.alignment = resolved.alignment;
+    bits.@"addrspace" = resolved.@"addrspace";
+    bits.is_const = resolved.is_const;
+    bits.is_threadlocal = resolved.is_threadlocal;
+    @atomicStore(Nav.Repr.Bits, &nav_bits[unwrapped.index], bits, .release);
 }
 
 /// Resolve the value of a `Nav` with an analysis owner.
@@ -10989,18 +11244,20 @@ pub fn resolveNavValue(
 
     const navs = local.shared.navs.view();
 
-    const nav_analysis_owners = navs.items(.analysis_owner);
-    const nav_vals = navs.items(.val);
+    const nav_analysis_namespace = navs.items(.analysis_namespace);
+    const nav_analysis_zir_index = navs.items(.analysis_zir_index);
+    const nav_vals = navs.items(.type_or_val);
     const nav_linksections = navs.items(.@"linksection");
     const nav_bits = navs.items(.bits);
 
-    assert(nav_analysis_owners[unwrapped.index] != .none);
+    assert(nav_analysis_namespace[unwrapped.index] != .none);
+    assert(nav_analysis_zir_index[unwrapped.index] != .none);
 
     @atomicStore(InternPool.Index, &nav_vals[unwrapped.index], resolved.val, .release);
     @atomicStore(OptionalNullTerminatedString, &nav_linksections[unwrapped.index], resolved.@"linksection", .release);
 
     var bits = nav_bits[unwrapped.index];
-    bits.status = .resolved;
+    bits.status = .fully_resolved;
     bits.alignment = resolved.alignment;
     bits.@"addrspace" = resolved.@"addrspace";
     @atomicStore(Nav.Repr.Bits, &nav_bits[unwrapped.index], bits, .release);
