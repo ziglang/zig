@@ -319,11 +319,18 @@ pub fn rehashTrackedInsts(
     // We know how big each shard must be, so ensure we have the capacity we need.
     for (ip.shards) |*shard| {
         const want_capacity = if (shard.mutate.tracked_inst_map.len == 0) 0 else cap: {
-            break :cap std.math.ceilPowerOfTwo(u32, shard.mutate.tracked_inst_map.len * 5 / 3) catch unreachable;
+            // We need to return a capacity of at least 2 to make sure we don't have the `Map(...).empty` value.
+            // For this reason, note the `+ 1` in the below expression. This matches the behavior of `trackZir`.
+            break :cap std.math.ceilPowerOfTwo(u32, shard.mutate.tracked_inst_map.len * 5 / 3 + 1) catch unreachable;
         };
         const have_capacity = shard.shared.tracked_inst_map.header().capacity; // no acquire because we hold the mutex
         if (have_capacity >= want_capacity) {
-            @memset(shard.shared.tracked_inst_map.entries[0..have_capacity], .{ .value = .none, .hash = undefined });
+            if (have_capacity == 1) {
+                // The map is `.empty` -- we can't memset the entries, or we'll segfault, because
+                // the buffer is secretly constant.
+            } else {
+                @memset(shard.shared.tracked_inst_map.entries[0..have_capacity], .{ .value = .none, .hash = undefined });
+            }
             continue;
         }
         var arena = arena_state.promote(gpa);
