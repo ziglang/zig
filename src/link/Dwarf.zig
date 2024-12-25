@@ -2358,7 +2358,9 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
     const nav_val = zcu.navValue(nav_index);
     const nav_key = ip.indexToKey(nav_val.toIntern());
     switch (nav_key) {
-        .@"extern" => return null,
+        // Ignore @extern
+        .@"extern" => |@"extern"| if (decl.linkage != .@"extern" or
+            !@"extern".name.eqlSlice(file.zir.nullTerminatedString(decl.name), ip)) return null,
         else => {},
     }
 
