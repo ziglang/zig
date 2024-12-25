@@ -817,7 +817,7 @@ fn genNavRef(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     val: Value,
-    ref_nav_index: InternPool.Nav.Index,
+    nav_index: InternPool.Nav.Index,
     target: std.Target,
 ) CodeGenError!GenResult {
     const zcu = pt.zcu;
@@ -851,14 +851,15 @@ fn genNavRef(
         }
     }
 
-    const nav_index, const is_extern, const lib_name, const is_threadlocal = switch (ip.indexToKey(zcu.navValue(ref_nav_index).toIntern())) {
-        .func => |func| .{ func.owner_nav, false, .none, false },
-        .variable => |variable| .{ variable.owner_nav, false, variable.lib_name, variable.is_threadlocal },
-        .@"extern" => |@"extern"| .{ @"extern".owner_nav, true, @"extern".lib_name, @"extern".is_threadlocal },
-        else => .{ ref_nav_index, false, .none, false },
-    };
+    const nav = ip.getNav(nav_index);
+
+    const is_extern, const lib_name, const is_threadlocal = if (nav.getExtern(ip)) |e|
+        .{ true, e.lib_name, e.is_threadlocal }
+    else
+        .{ false, .none, nav.isThreadlocal(ip) };
+
     const single_threaded = zcu.navFileScope(nav_index).mod.single_threaded;
-    const name = ip.getNav(nav_index).name;
+    const name = nav.name;
     if (lf.cast(.elf)) |elf_file| {
         const zo = elf_file.zigObjectPtr().?;
         if (is_extern) {

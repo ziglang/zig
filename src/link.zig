@@ -692,7 +692,7 @@ pub const File = struct {
     /// May be called before or after updateExports for any given Nav.
     pub fn updateNav(base: *File, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) UpdateNavError!void {
         const nav = pt.zcu.intern_pool.getNav(nav_index);
-        assert(nav.status == .resolved);
+        assert(nav.status == .fully_resolved);
         switch (base.tag) {
             inline else => |tag| {
                 dev.check(tag.devFeature());

@@ -3851,7 +3851,7 @@ fn resolveStructInner(
     const gpa = zcu.gpa;
 
     const struct_obj = zcu.typeToStruct(ty).?;
-    const owner = InternPool.AnalUnit.wrap(.{ .cau = struct_obj.cau });
+    const owner: InternPool.AnalUnit = .wrap(.{ .type = ty.toIntern() });
 
     if (zcu.failed_analysis.contains(owner) or zcu.transitive_failed_analysis.contains(owner)) {
         return error.AnalysisFail;
@@ -3905,7 +3905,7 @@ fn resolveUnionInner(
     const gpa = zcu.gpa;
 
     const union_obj = zcu.typeToUnion(ty).?;
-    const owner = InternPool.AnalUnit.wrap(.{ .cau = union_obj.cau });
+    const owner: InternPool.AnalUnit = .wrap(.{ .type = ty.toIntern() });
 
     if (zcu.failed_analysis.contains(owner) or zcu.transitive_failed_analysis.contains(owner)) {
         return error.AnalysisFail;

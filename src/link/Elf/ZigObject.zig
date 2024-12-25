@@ -925,14 +925,11 @@ pub fn getNavVAddr(
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
     log.debug("getNavVAddr {}({d})", .{ nav.fqn.fmt(ip), nav_index });
-    const this_sym_index = switch (ip.indexToKey(nav.status.resolved.val)) {
-        .@"extern" => |@"extern"| try self.getGlobalSymbol(
-            elf_file,
-            nav.name.toSlice(ip),
-            @"extern".lib_name.toSlice(ip),
-        ),
-        else => try self.getOrCreateMetadataForNav(zcu, nav_index),
-    };
+    const this_sym_index = if (nav.getExtern(ip)) |@"extern"| try self.getGlobalSymbol(
+        elf_file,
+        nav.name.toSlice(ip),
+        @"extern".lib_name.toSlice(ip),
+    ) else try self.getOrCreateMetadataForNav(zcu, nav_index);
     const this_sym = self.symbol(this_sym_index);
     const vaddr = this_sym.address(.{}, elf_file);
     switch (reloc_info.parent) {
@@ -1107,15 +1104,13 @@ pub fn freeNav(self: *ZigObject, elf_file: *Elf, nav_index: InternPool.Nav.Index
 
 pub fn getOrCreateMetadataForNav(self: *ZigObject, zcu: *Zcu, nav_index: InternPool.Nav.Index) !Symbol.Index {
     const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
     const gop = try self.navs.getOrPut(gpa, nav_index);
     if (!gop.found_existing) {
         const symbol_index = try self.newSymbolWithAtom(gpa, 0);
-        const nav_val = Value.fromInterned(zcu.intern_pool.getNav(nav_index).status.resolved.val);
         const sym = self.symbol(symbol_index);
-        if (nav_val.getVariable(zcu)) |variable| {
-            if (variable.is_threadlocal and zcu.comp.config.any_non_single_threaded) {
-                sym.flags.is_tls = true;
-            }
+        if (ip.getNav(nav_index).isThreadlocal(ip) and zcu.comp.config.any_non_single_threaded) {
+            sym.flags.is_tls = true;
         }
         gop.value_ptr.* = .{ .symbol_index = symbol_index };
     }
@@ -1547,7 +1542,7 @@ pub fn updateNav(
 
     log.debug("updateNav {}({d})", .{ nav.fqn.fmt(ip), nav_index });
 
-    const nav_init = switch (ip.indexToKey(nav.status.resolved.val)) {
+    const nav_init = switch (ip.indexToKey(nav.status.fully_resolved.val)) {
         .func => .none,
         .variable => |variable| variable.init,
         .@"extern" => |@"extern"| {
@@ -1560,7 +1555,7 @@ pub fn updateNav(
             self.symbol(sym_index).flags.is_extern_ptr = true;
             return;
         },
-        else => nav.status.resolved.val,
+        else => nav.status.fully_resolved.val,
     };
 
     if (nav_init != .none and Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(zcu)) {
