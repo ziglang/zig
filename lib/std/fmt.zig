@@ -316,7 +316,6 @@ pub const Specifier = union(enum) {
 /// Allows to implement formatters compatible with std.fmt without replicating
 /// the standard library behavior.
 pub const Parser = struct {
-    pos: usize = 0,
     iter: std.unicode.Utf8Iterator,
 
     // Returns a decimal number or null if the current character is not a
@@ -342,13 +341,13 @@ pub const Parser = struct {
     // Returns a substring of the input starting from the current position
     // and ending where `ch` is found or until the end if not found
     pub fn until(self: *@This(), ch: u21) []const u8 {
-        var result: []const u8 = &[_]u8{};
+        const start = self.iter.i;
         while (self.peek(0)) |code_point| {
             if (code_point == ch)
                 break;
-            result = result ++ (self.iter.nextCodepointSlice() orelse &[_]u8{});
+            _ = self.iter.nextCodepoint();
         }
-        return result;
+        return self.iter.bytes[start..self.iter.i];
     }
 
     // Returns the character pointed to by the iterator if available, or
@@ -2768,10 +2767,54 @@ test hex {
     }
 }
 
+test "parser until" {
+    { // return substring till ':'
+        var parser: Parser = .{
+            .iter = .{ .bytes = "abc:1234", .i = 0 },
+        };
+        try testing.expectEqualStrings("abc", parser.until(':'));
+    }
+
+    { // return the entire string - `ch` not found
+        var parser: Parser = .{
+            .iter = .{ .bytes = "abc1234", .i = 0 },
+        };
+        try testing.expectEqualStrings("abc1234", parser.until(':'));
+    }
+
+    { // substring is empty - `ch` is the only character
+        var parser: Parser = .{
+            .iter = .{ .bytes = ":", .i = 0 },
+        };
+        try testing.expectEqualStrings("", parser.until(':'));
+    }
+
+    { // empty string and `ch` not found
+        var parser: Parser = .{
+            .iter = .{ .bytes = "", .i = 0 },
+        };
+        try testing.expectEqualStrings("", parser.until(':'));
+    }
+
+    { // substring starts at index 2 and goes upto `ch`
+        var parser: Parser = .{
+            .iter = .{ .bytes = "abc:1234", .i = 2 },
+        };
+        try testing.expectEqualStrings("c", parser.until(':'));
+    }
+
+    { // substring starts at index 4 and goes upto the end - `ch` not found
+        var parser: Parser = .{
+            .iter = .{ .bytes = "abc1234", .i = 4 },
+        };
+        try testing.expectEqualStrings("234", parser.until(':'));
+    }
+}
+
 test "parser peek" {
     { // start iteration from the first index
         var parser: Parser = .{
-            .iter = .{.bytes = "hello world", .i = 0},
+            .iter = .{ .bytes = "hello world", .i = 0 },
         };
 
         try testing.expectEqual('h', parser.peek(0));
@@ -2783,7 +2826,7 @@ test "parser peek" {
 
     { // start iteration from the second last index
         var parser: Parser = .{
-            .iter = .{.bytes = "hello world!", .i = 10},
+            .iter = .{ .bytes = "hello world!", .i = 10 },
         };
 
         try testing.expectEqual('d', parser.peek(0));
@@ -2793,7 +2836,7 @@ test "parser peek" {
 
     { // start iteration beyond the length of the string
         var parser: Parser = .{
-            .iter = .{.bytes = "hello", .i = 5},
+            .iter = .{ .bytes = "hello", .i = 5 },
         };
 
         try testing.expectEqual(null, parser.peek(0));
@@ -2802,7 +2845,7 @@ test "parser peek" {
 
     { // empty string
         var parser: Parser = .{
-            .iter = .{.bytes = "", .i = 0},
+            .iter = .{ .bytes = "", .i = 0 },
         };
 
         try testing.expectEqual(null, parser.peek(0));
@@ -2812,148 +2855,148 @@ test "parser peek" {
 
 test "parser char" {
     // character exists - iterator at 0
-    var parser: Parser = .{.iter = .{.bytes = "~~hello", .i = 0}};
+    var parser: Parser = .{ .iter = .{ .bytes = "~~hello", .i = 0 } };
     try testing.expectEqual('~', parser.char());
 
     // character exists - iterator in the middle
-    parser = .{.iter = .{.bytes = "~~hello", .i = 3}};
+    parser = .{ .iter = .{ .bytes = "~~hello", .i = 3 } };
     try testing.expectEqual('e', parser.char());
 
     // character exists - iterator at the end
-    parser = .{.iter = .{.bytes = "~~hello", .i = 6}};
+    parser = .{ .iter = .{ .bytes = "~~hello", .i = 6 } };
     try testing.expectEqual('o', parser.char());
 
     // character doesn't exist - iterator beyond the length of the string
-    parser = .{.iter = .{.bytes = "~~hello", .i = 7}};
+    parser = .{ .iter = .{ .bytes = "~~hello", .i = 7 } };
     try testing.expectEqual(null, parser.char());
 }
 
 test "parser maybe" {
     // character exists - iterator at 0
-    var parser: Parser = .{.iter = .{.bytes = "hello world", .i = 0}};
+    var parser: Parser = .{ .iter = .{ .bytes = "hello world", .i = 0 } };
     try testing.expect(parser.maybe('h'));
 
     // character exists - iterator at space
-    parser = .{.iter = .{.bytes = "hello world", .i = 5}};
+    parser = .{ .iter = .{ .bytes = "hello world", .i = 5 } };
     try testing.expect(parser.maybe(' '));
 
     // character exists - iterator at the end
-    parser = .{.iter = .{.bytes = "hello world", .i = 10}};
+    parser = .{ .iter = .{ .bytes = "hello world", .i = 10 } };
     try testing.expect(parser.maybe('d'));
 
     // character doesn't exist - iterator beyond the length of the string
-    parser = .{.iter = .{.bytes = "hello world", .i = 11}};
+    parser = .{ .iter = .{ .bytes = "hello world", .i = 11 } };
     try testing.expect(!parser.maybe('e'));
 }
 
 test "parser number" {
     // input is a single digit natural number - iterator at 0
-    var parser: Parser = .{.iter = .{.bytes = "7", .i = 0}};
+    var parser: Parser = .{ .iter = .{ .bytes = "7", .i = 0 } };
     try testing.expect(7 == parser.number());
 
     // input is a two digit natural number - iterator at 1
-    parser = .{.iter = .{.bytes = "29", .i = 1}};
+    parser = .{ .iter = .{ .bytes = "29", .i = 1 } };
     try testing.expect(9 == parser.number());
 
     // input is a two digit natural number - iterator beyond the length of the string
-    parser = .{.iter = .{.bytes = "32", .i = 2}};
+    parser = .{ .iter = .{ .bytes = "32", .i = 2 } };
     try testing.expectEqual(null, parser.number());
 
     // input is an integer
-    parser = .{.iter = .{.bytes = "0", .i = 0}};
+    parser = .{ .iter = .{ .bytes = "0", .i = 0 } };
     try testing.expect(0 == parser.number());
 
     // input is a negative integer
-    parser = .{.iter = .{.bytes = "-2", .i = 0}};
+    parser = .{ .iter = .{ .bytes = "-2", .i = 0 } };
     try testing.expectEqual(null, parser.number());
 
     // input is a string
-    parser = .{.iter = .{.bytes = "no_number", .i = 2}};
+    parser = .{ .iter = .{ .bytes = "no_number", .i = 2 } };
     try testing.expectEqual(null, parser.number());
 
     // input is a single character string
-    parser = .{.iter = .{.bytes = "n", .i = 0}};
+    parser = .{ .iter = .{ .bytes = "n", .i = 0 } };
     try testing.expectEqual(null, parser.number());
 
     // input is an empty string
-    parser = .{.iter = .{.bytes = "", .i = 0}};
+    parser = .{ .iter = .{ .bytes = "", .i = 0 } };
     try testing.expectEqual(null, parser.number());
 }
 
 test "parser specifier" {
     { // input string is a digit; iterator at 0
-        const expected: Specifier = Specifier{.number = 1};
-        var parser: Parser = .{.iter = .{.bytes = "1", .i = 0}};
+        const expected: Specifier = Specifier{ .number = 1 };
+        var parser: Parser = .{ .iter = .{ .bytes = "1", .i = 0 } };
 
         const result = try parser.specifier();
         try testing.expect(expected.number == result.number);
     }
 
     { // input string is a two digit number; iterator at 0
-        const digit: Specifier = Specifier{.number = 42};
-        var parser: Parser = .{.iter = .{.bytes = "42", .i = 0}};
+        const digit: Specifier = Specifier{ .number = 42 };
+        var parser: Parser = .{ .iter = .{ .bytes = "42", .i = 0 } };
 
         const result = try parser.specifier();
         try testing.expect(digit.number == result.number);
     }
 
     { // input string is a two digit number digit; iterator at 1
-        const digit: Specifier = Specifier{.number = 8};
-        var parser: Parser = .{.iter = .{.bytes = "28", .i = 1}};
+        const digit: Specifier = Specifier{ .number = 8 };
+        var parser: Parser = .{ .iter = .{ .bytes = "28", .i = 1 } };
 
         const result = try parser.specifier();
         try testing.expect(digit.number == result.number);
     }
 
     { // input string is a two digit number with square brackets; iterator at 0
-        const digit: Specifier = Specifier{.named = "15"};
-        var parser: Parser = .{.iter = .{.bytes = "[15]", .i = 0}};
+        const digit: Specifier = Specifier{ .named = "15" };
+        var parser: Parser = .{ .iter = .{ .bytes = "[15]", .i = 0 } };
 
         const result = try parser.specifier();
         try testing.expectEqualStrings(digit.named, result.named);
     }
 
     { // input string is not a number and contains square brackets; iterator at 0
-        const digit: Specifier = Specifier{.named = "hello"};
-        var parser: Parser = .{.iter = .{.bytes = "[hello]", .i = 0}};
+        const digit: Specifier = Specifier{ .named = "hello" };
+        var parser: Parser = .{ .iter = .{ .bytes = "[hello]", .i = 0 } };
 
         const result = try parser.specifier();
         try testing.expectEqualStrings(digit.named, result.named);
     }
 
     { // input string is not a number and doesn't contain closing square bracket; iterator at 0
-        var parser: Parser = .{.iter = .{.bytes = "[hello", .i = 0}};
+        var parser: Parser = .{ .iter = .{ .bytes = "[hello", .i = 0 } };
 
         const result = parser.specifier();
         try testing.expectError(@field(anyerror, "Expected closing ]"), result);
     }
 
     { // input string is not a number and doesn't contain closing square bracket; iterator at 2
-        var parser: Parser = .{.iter = .{.bytes = "[[[[hello", .i = 2}};
+        var parser: Parser = .{ .iter = .{ .bytes = "[[[[hello", .i = 2 } };
 
         const result = parser.specifier();
         try testing.expectError(@field(anyerror, "Expected closing ]"), result);
     }
 
     { // input string is not a number and contains unbalanced square brackets; iterator at 0
-        const digit: Specifier = Specifier{.named = "[[hello"};
-        var parser: Parser = .{.iter = .{.bytes = "[[[hello]", .i = 0}};
+        const digit: Specifier = Specifier{ .named = "[[hello" };
+        var parser: Parser = .{ .iter = .{ .bytes = "[[[hello]", .i = 0 } };
 
         const result = try parser.specifier();
         try testing.expectEqualStrings(digit.named, result.named);
     }
 
     { // input string is not a number and contains unbalanced square brackets; iterator at 1
-        const digit: Specifier = Specifier{.named = "[[hello"};
-        var parser: Parser = .{.iter = .{.bytes = "[[[[hello]]]]]", .i = 1}};
+        const digit: Specifier = Specifier{ .named = "[[hello" };
+        var parser: Parser = .{ .iter = .{ .bytes = "[[[[hello]]]]]", .i = 1 } };
 
         const result = try parser.specifier();
         try testing.expectEqualStrings(digit.named, result.named);
     }
 
     { // input string is neither a digit nor a named argument
-        const char: Specifier = Specifier{.none = {}};
-        var parser: Parser = .{.iter = .{.bytes = "hello", .i = 0}};
+        const char: Specifier = Specifier{ .none = {} };
+        var parser: Parser = .{ .iter = .{ .bytes = "hello", .i = 0 } };
 
         const result = try parser.specifier();
         try testing.expectEqual(char.none, result.none);
