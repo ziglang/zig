@@ -656,10 +656,17 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             .{
                 .path = "storage.zig",
                 .source =
+                \\comptime {
+                \\    _ = @import("externs.zig");
+                \\}
                 \\const global_const: u64 = 0x19e50dc8d6002077;
                 \\var global_var: u64 = 0xcc423cec08622e32;
                 \\threadlocal var global_threadlocal1: u64 = 0xb4d643528c042121;
                 \\threadlocal var global_threadlocal2: u64 = 0x43faea1cf5ad7a22;
+                \\extern const extern_const: u64;
+                \\extern var extern_var: u64;
+                \\extern threadlocal var extern_threadlocal1: u64;
+                \\extern threadlocal var extern_threadlocal2: u64;
                 \\fn testStorage(
                 \\    param1: u64,
                 \\    param2: u64,
@@ -673,6 +680,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
                 \\    const local_comptime_val: u64 = global_const *% global_const;
                 \\    const local_comptime_ptr: struct { u64 } = .{ local_comptime_val *% local_comptime_val };
                 \\    const local_const: u64 = global_var ^ global_threadlocal1 ^ global_threadlocal2 ^
+                \\        extern_const ^ extern_var ^ extern_threadlocal1 ^ extern_threadlocal2 ^
                 \\        param1 ^ param2 ^ param3 ^ param4 ^ param5 ^ param6 ^ param7 ^ param8;
                 \\    var local_var: u64 = local_comptime_ptr[0] ^ local_const;
                 \\    local_var = local_var;
@@ -692,19 +700,37 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
                 \\
                 ,
             },
+            .{
+                .path = "externs.zig",
+                .source =
+                \\export const extern_const: u64 = 0x1b0c91ea0470b0b2;
+                \\export var extern_var: u64 = 0x19bc17b3f0b61ebc;
+                \\export threadlocal var extern_threadlocal1: u64 = 0x3034c4ce967ed64d;
+                \\export threadlocal var extern_threadlocal2: u64 = 0xfd330ab00b4bc5eb;
+                \\
+                ,
+            },
         },
         \\breakpoint set --file storage.zig --source-pattern-regexp 'local_var = local_var;'
         \\process launch
-        \\target variable --show-types --format hex -- global_const global_var global_threadlocal1 global_threadlocal2
+        \\target variable --show-types --format hex -- global_const global_var global_threadlocal1 global_threadlocal2 extern_const extern_var extern_threadlocal1 extern_threadlocal2
         \\frame variable --show-types --format hex -- param1 param2 param3 param4 param5 param6 param7 param8 local_comptime_val local_comptime_ptr.0 local_const local_var
         \\breakpoint delete --force 1
     ,
         &.{
-            \\(lldb) target variable --show-types --format hex -- global_const global_var global_threadlocal1 global_threadlocal2
+            \\(lldb) target variable --show-types --format hex -- global_const global_var global_threadlocal1 global_threadlocal2 extern_const extern_var extern_threadlocal1 extern_threadlocal2
             \\(u64) global_const = 0x19e50dc8d6002077
             \\(u64) global_var = 0xcc423cec08622e32
             \\(u64) global_threadlocal1 = 0xb4d643528c042121
             \\(u64) global_threadlocal2 = 0x43faea1cf5ad7a22
+            \\(u64) extern_const = 0x1b0c91ea0470b0b2
+            \\(u64) extern_const = 0x1b0c91ea0470b0b2
+            \\(u64) extern_var = 0x19bc17b3f0b61ebc
+            \\(u64) extern_var = 0x19bc17b3f0b61ebc
+            \\(u64) extern_threadlocal1 = 0x3034c4ce967ed64d
+            \\(u64) extern_threadlocal1 = 0x3034c4ce967ed64d
+            \\(u64) extern_threadlocal2 = 0xfd330ab00b4bc5eb
+            \\(u64) extern_threadlocal2 = 0xfd330ab00b4bc5eb
             \\(lldb) frame variable --show-types --format hex -- param1 param2 param3 param4 param5 param6 param7 param8 local_comptime_val local_comptime_ptr.0 local_const local_var
             \\(u64) param1 = 0x6a607e08125c7e00
             \\(u64) param2 = 0x98944cb2a45a8b51
@@ -716,8 +742,8 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\(u64) param8 = 0xc88533722601e481
             \\(u64) local_comptime_val = 0x69490636f81df751
             \\(u64) local_comptime_ptr.0 = 0x82e834dae74767a1
-            \\(u64) local_const = 0xdffceb8b2f41e205
-            \\(u64) local_var = 0x5d14df51c80685a4
+            \\(u64) local_const = 0x104ba3ac46b25fad
+            \\(u64) local_var = 0x92a39776a1f5380c
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
