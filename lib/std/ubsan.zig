@@ -140,7 +140,7 @@ fn overflowHandler(
             data: *OverflowData,
             lhs_handle: ValueHandle,
             rhs_handle: ValueHandle,
-        ) callconv(.C) noreturn {
+        ) callconv(.c) noreturn {
             const lhs = lhs_handle.getValue(data);
             const rhs = rhs_handle.getValue(data);
 
@@ -163,7 +163,7 @@ fn overflowHandler(
 fn negationHandler(
     data: *const OverflowData,
     old_value_handle: ValueHandle,
-) callconv(.C) noreturn {
+) callconv(.c) noreturn {
     const old_value = old_value_handle.getValue(data);
     logMessage(
         "negation of {} cannot be represented in type {s}",
@@ -175,7 +175,7 @@ fn divRemHandler(
     data: *const OverflowData,
     lhs_handle: ValueHandle,
     rhs_handle: ValueHandle,
-) callconv(.C) noreturn {
+) callconv(.c) noreturn {
     const is_signed = data.type_descriptor.isSigned();
     const lhs = lhs_handle.getValue(data);
     const rhs = rhs_handle.getValue(data);
@@ -199,7 +199,7 @@ fn alignmentAssumptionHandler(
     pointer: ValueHandle,
     alignment: ValueHandle,
     maybe_offset: ?ValueHandle,
-) callconv(.C) noreturn {
+) callconv(.c) noreturn {
     _ = pointer;
     // TODO: add the hint here?
     // const real_pointer = @intFromPtr(pointer) - @intFromPtr(maybe_offset);
@@ -233,7 +233,7 @@ fn shiftOob(
     data: *const ShiftOobData,
     lhs_handle: ValueHandle,
     rhs_handle: ValueHandle,
-) callconv(.C) noreturn {
+) callconv(.c) noreturn {
     const lhs: Value = .{ .handle = lhs_handle, .type_descriptor = data.lhs_type };
     const rhs: Value = .{ .handle = rhs_handle, .type_descriptor = data.rhs_type };
 
@@ -266,7 +266,7 @@ const OutOfBoundsData = extern struct {
     index_type: *const TypeDescriptor,
 };
 
-fn outOfBounds(data: *const OutOfBoundsData, index_handle: ValueHandle) callconv(.C) noreturn {
+fn outOfBounds(data: *const OutOfBoundsData, index_handle: ValueHandle) callconv(.c) noreturn {
     const index: Value = .{ .handle = index_handle, .type_descriptor = data.index_type };
     logMessage(
         "index {} out of bounds for type {s}",
@@ -282,7 +282,7 @@ fn pointerOverflow(
     _: *const PointerOverflowData,
     base: usize,
     result: usize,
-) callconv(.C) noreturn {
+) callconv(.c) noreturn {
     if (base == 0) {
         if (result == 0) {
             logMessage("applying zero offset to null pointer", .{});
@@ -318,12 +318,100 @@ const TypeMismatchData = extern struct {
         upcast_to_virtual_base,
         nonnull_assign,
         dynamic_operation,
+
+        fn getName(kind: @This()) []const u8 {
+            return switch (kind) {
+                .load => "load of",
+                .store => "store of",
+                .reference_binding => "reference binding to",
+                .member_access => "member access within",
+                .member_call => "member call on",
+                .constructor_call => "constructor call on",
+                .downcast_pointer, .downcast_reference => "downcast of",
+                .upcast => "upcast of",
+                .upcast_to_virtual_base => "cast to virtual base of",
+                .nonnull_assign => "_Nonnull binding to",
+                .dynamic_operation => "dynamic operation on",
+            };
+        }
     },
 };
 
+fn typeMismatch(
+    data: *const TypeMismatchData,
+    pointer: ?ValueHandle,
+) callconv(.c) noreturn {
+    const alignment = @as(usize, 1) << @intCast(data.log_alignment);
+    const handle: usize = @intFromPtr(pointer);
+
+    if (pointer == null) {
+        logMessage(
+            "{s} null pointer of type {s}",
+            .{ data.kind.getName(), data.type_descriptor.getName() },
+        );
+    } else if (!std.mem.isAligned(handle, alignment)) {
+        logMessage(
+            "{s} misaligned address 0x{x} for type {s}, which requires {} byte alignment",
+            .{ data.kind.getName(), handle, data.type_descriptor.getName(), alignment },
+        );
+    } else {
+        logMessage(
+            "{s} address 0x{x} with insufficient space for an object of type {s}",
+            .{ data.kind.getName(), handle, data.type_descriptor.getName() },
+        );
+    }
+}
+
+const UnreachableData = extern struct {
+    loc: SourceLocation,
+};
+
+fn builtinUnreachable(_: *const UnreachableData) callconv(.c) noreturn {
+    logMessage("execution reached an unreachable program point", .{});
+}
+
+fn missingReturn(_: *const UnreachableData) callconv(.c) noreturn {
+    logMessage("execution reached the end of a value-returning function without returning a value", .{});
+}
+
+const NonNullReturnData = extern struct {
+    attribute_loc: SourceLocation,
+};
+
+fn nonNullReturn(_: *const NonNullReturnData) callconv(.c) noreturn {
+    logMessage("null pointer returned from function declared to never return null", .{});
+}
+
+const NonNullArgData = extern struct {
+    loc: SourceLocation,
+    attribute_loc: SourceLocation,
+    arg_index: i32,
+};
+
+fn nonNullArg(data: *const NonNullArgData) callconv(.c) noreturn {
+    logMessage(
+        "null pointer passed as argument {}, which is declared to never be null",
+        .{data.arg_index},
+    );
+}
+
+const InvalidValueData = extern struct {
+    loc: SourceLocation,
+    type_descriptor: *const TypeDescriptor,
+};
+
+fn loadInvalidValue(
+    data: *const InvalidValueData,
+    value_handle: ValueHandle,
+) callconv(.c) noreturn {
+    logMessage("load of value {}, which is not valid for type {s}", .{
+        value_handle.getValue(data), data.type_descriptor.getName(),
+    });
+}
+
 fn SimpleHandler(comptime error_name: []const u8) type {
     return struct {
-        fn handler() callconv(.C) noreturn {
+        fn handler() callconv(.c) noreturn {
             logMessage("{s}", .{error_name});
         }
     };
@@ -350,10 +438,11 @@ fn exportHandler(
 }
 
 fn exportMinimal(
-    handler: anytype,
+    err_name: anytype,
     comptime sym_name: []const u8,
     comptime abort: bool,
 ) void {
+    const handler = &SimpleHandler(err_name).handler;
     const linkage = if (builtin.is_test) .internal else .weak;
     {
         const N = "__ubsan_handle_" ++ sym_name ++ "_minimal";
@@ -371,7 +460,7 @@ fn exportHelper(
     comptime abort: bool,
 ) void {
     exportHandler(&SimpleHandler(err_name).handler, sym_name, abort);
-    exportMinimal(&SimpleHandler(err_name).handler, sym_name, abort);
+    exportMinimal(err_name, sym_name, abort);
 }
 
 comptime {
@@ -384,7 +473,24 @@ comptime {
     exportHandler(&shiftOob, "shift_out_of_bounds", true);
     exportHandler(&outOfBounds, "out_of_bounds", true);
     exportHandler(&pointerOverflow, "pointer_overflow", true);
+    exportHandler(&typeMismatch, "type_mismatch_v1", true);
+    exportHandler(&builtinUnreachable, "builtin_unreachable", false);
+    exportHandler(&missingReturn, "missing_return", false);
+    exportHandler(&nonNullReturn, "nonnull_return_v1", true);
+    exportHandler(&nonNullArg, "nonnull_arg", true);
+    exportHandler(&loadInvalidValue, "load_invalid_value", true);
 
+    exportHelper("vla-bound-not-positive", "vla_bound_not_positive", true);
+    exportHelper("float-cast-overflow", "float_cast_overflow", true);
+    exportHelper("invalid-builtin", "invalid_builtin", true);
+    exportHelper("function-type-mismatch", "function_type_mismatch", true);
+    exportHelper("implicit-conversion", "implicit_conversion", true);
+    exportHelper("nullability-arg", "nullability_arg", true);
+    exportHelper("nullability-return", "nullability_return", true);
+    exportHelper("cfi-check-fail", "cfi_check_fail", true);
+    exportHelper("function-type-mismatch-v1", "function_type_mismatch_v1", true);
+
+    exportMinimal("builtin-unreachable", "builtin_unreachable", false);
     exportMinimal("add-overflow", "add_overflow", true);
     exportMinimal("sub-overflow", "sub_overflow", true);
     exportMinimal("mul-overflow", "mul_overflow", true);
@@ -394,24 +500,7 @@ comptime {
     exportMinimal("shift-oob", "shift_out_of_bounds", true);
     exportMinimal("out-of-bounds", "out_of_bounds", true);
     exportMinimal("pointer-overflow", "pointer_overflow", true);
-
-    exportHandler(&SimpleHandler("type-mismatch-v1").handler, "type_mismatch_v1", true);
-    exportMinimal(&SimpleHandler("type-mismatch").handler, "type_mismatch", true);
-
-    exportHelper("builtin-unreachable", "builtin_unreachable", true);
-    exportHelper("missing-return", "missing_return", false);
-    exportHelper("vla-bound-not-positive", "vla_bound_not_positive", true);
-    exportHelper("float-cast-overflow", "float_cast_overflow", true);
-    exportHelper("load-invalid-value", "load_invalid_value", true);
-    exportHelper("invalid-builtin", "invalid_builtin", true);
-    exportHelper("function-type-mismatch", "function_type_mismatch", true);
-    exportHelper("implicit-conversion", "implicit_conversion", true);
-    exportHelper("nonnull-arg", "nonnull_arg", true);
-    exportHelper("nonnull-return", "nonnull_return", true);
-    exportHelper("nullability-arg", "nullability_arg", true);
-    exportHelper("nullability-return", "nullability_return", true);
-    exportHelper("cfi-check-fail", "cfi_check_fail", true);
-    exportHelper("function-type-mismatch-v1", "function_type_mismatch_v1", true);
+    exportMinimal("type-mismatch", "type_mismatch", true);
 
     // these checks are nearly impossible to duplicate in zig, as they rely on nuances
     // in the Itanium C++ ABI.
