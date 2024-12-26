@@ -213,25 +213,34 @@ fn alignmentAssumptionHandler(
     alignment: ValueHandle,
     maybe_offset: ?ValueHandle,
 ) callconv(.c) noreturn {
-    _ = pointer;
-    // TODO: add the hint here?
-    // const real_pointer = @intFromPtr(pointer) - @intFromPtr(maybe_offset);
-    // const lsb = @ctz(real_pointer);
-    // const actual_alignment = @as(u64, 1) << @intCast(lsb);
-    // const mask = @intFromPtr(alignment) - 1;
-    // const misalignment_offset = real_pointer & mask;
-    // _ = actual_alignment;
-    // _ = misalignment_offset;
+    const real_pointer = @intFromPtr(pointer) - @intFromPtr(maybe_offset);
+    const lsb = @ctz(real_pointer);
+    const actual_alignment = @as(u64, 1) << @intCast(lsb);
+    const mask = @intFromPtr(alignment) - 1;
+    const misalignment_offset = real_pointer & mask;
 
     if (maybe_offset) |offset| {
         logMessage(
-            "assumption of {} byte alignment (with offset of {} byte) for pointer of type {s} failed",
-            .{ alignment.getValue(data), @intFromPtr(offset), data.type_descriptor.getName() },
+            "assumption of {} byte alignment (with offset of {} byte) for pointer of type {s} failed\n" ++
+                "offset address is {} aligned, misalignment offset is {} bytes",
+            .{
+                alignment.getValue(data),
+                @intFromPtr(offset),
+                data.type_descriptor.getName(),
+                actual_alignment,
+                misalignment_offset,
+            },
         );
     } else {
         logMessage(
-            "assumption of {} byte alignment for pointer of type {s} failed",
-            .{ alignment.getValue(data), data.type_descriptor.getName() },
+            "assumption of {} byte alignment for pointer of type {s} failed\n" ++
+                "address is {} aligned, misalignment offset is {} bytes",
+            .{
+                alignment.getValue(data),
+                data.type_descriptor.getName(),
+                actual_alignment,
+                misalignment_offset,
+            },
         );
     }
 }
@@ -309,7 +318,26 @@ fn pointerOverflow(
                 .{base},
             );
         } else {
-            @panic("TODO");
+            const signed_base: isize = @bitCast(base);
+            const signed_result: isize = @bitCast(result);
+            if ((signed_base >= 0) == (signed_result >= 0)) {
+                if (base > result) {
+                    logMessage(
+                        "addition of unsigned offset to 0x{x} overflowed to 0x{x}",
+                        .{ base, result },
+                    );
+                } else {
+                    logMessage(
+                        "subtraction of unsigned offset to 0x{x} overflowed to 0x{x}",
+                        .{ base, result },
+                    );
+                }
+            } else {
+                logMessage(
+                    "pointer index expression with base 0x{x} overflowed to 0x{x}",
+                    .{ base, result },
+                );
+            }
         }
     }
 }
