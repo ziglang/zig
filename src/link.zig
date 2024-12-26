@@ -1106,6 +1106,11 @@ pub const File = struct {
         else
             null;
 
+        const ubsan_rt_path: ?Path = if (comp.include_ubsan_rt)
+            comp.ubsan_rt_obj.?.full_object_path
+        else
+            null;
+
         // This function follows the same pattern as link.Elf.linkWithLLD so if you want some
         // insight as to what's going on here you can read that function body which is more
         // well-commented.
@@ -1135,6 +1140,7 @@ pub const File = struct {
             }
             try man.addOptionalFile(zcu_obj_path);
             try man.addOptionalFilePath(compiler_rt_path);
+            try man.addOptionalFilePath(ubsan_rt_path);
 
             // We don't actually care whether it's a cache hit or miss; we just need the digest and the lock.
             _ = try man.hit();
@@ -1180,6 +1186,7 @@ pub const File = struct {
         }
         if (zcu_obj_path) |p| object_files.appendAssumeCapacity(try arena.dupeZ(u8, p));
         if (compiler_rt_path) |p| object_files.appendAssumeCapacity(try p.toStringZ(arena));
+        if (ubsan_rt_path) |p| object_files.appendAssumeCapacity(try p.toStringZ(arena));
 
         if (comp.verbose_link) {
             std.debug.print("ar rcs {s}", .{full_out_path_z});

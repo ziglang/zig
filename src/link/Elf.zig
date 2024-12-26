@@ -1541,6 +1541,11 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
         break :blk null;
     };
+    const ubsan_rt_path: ?Path = blk: {
+        if (comp.ubsan_rt_lib) |x| break :blk x.full_object_path;
+        if (comp.ubsan_rt_obj) |x| break :blk x.full_object_path;
+        break :blk null;
+    };
 
     // Here we want to determine whether we can save time by not invoking LLD when the
     // output is unchanged. None of the linker options or the object files that are being
@@ -1575,6 +1580,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         }
         try man.addOptionalFile(module_obj_path);
         try man.addOptionalFilePath(compiler_rt_path);
+        try man.addOptionalFilePath(ubsan_rt_path);
         try man.addOptionalFilePath(if (comp.tsan_lib) |l| l.full_object_path else null);
         try man.addOptionalFilePath(if (comp.fuzzer_lib) |l| l.full_object_path else null);
 
@@ -1972,6 +1978,10 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         if (comp.fuzzer_lib) |lib| {
             assert(comp.config.any_fuzz);
             try argv.append(try lib.full_object_path.toString(arena));
+        }
+
+        if (ubsan_rt_path) |p| {
+            try argv.append(try p.toString(arena));
         }
 
         // libc
