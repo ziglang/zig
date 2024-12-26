@@ -157,7 +157,23 @@ test "resolve DNS" {
         // so some of these errors we must accept and skip the test.
         const result = net.getAddressList(testing.allocator, "example.com", 80) catch |err| switch (err) {
             error.UnknownHostName => return error.SkipZigTest,
+            // comment when testing with internet
             error.TemporaryNameServerFailure => return error.SkipZigTest,
+            // uncomment when testing with internet
+            // error.TemporaryNameServerFailure => @panic("temporary name server failure"),
+            else => return err,
+        };
+        result.deinit();
+    }
+
+    {
+        // The tests are required to work even when there is no Internet connection,
+        // so some of these errors we must accept and skip the test.
+        const result = net.getAddressList(testing.allocator, "example1111.com", 80) catch |err| switch (err) {
+            error.UnknownHostName => return error.SkipZigTest,
+            error.TemporaryNameServerFailure => return error.SkipZigTest,
+            // uncomment when testing with internet
+            // error.TemporaryNameServerFailure => @panic("temporary name server failure"),
             else => return err,
         };
         result.deinit();
