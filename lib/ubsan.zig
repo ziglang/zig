@@ -484,14 +484,6 @@ fn floatCastOverflow(
     }
 }
 
-fn SimpleHandler(comptime error_name: []const u8) type {
-    return struct {
-        fn handler() callconv(.c) noreturn {
-            logMessage("{s}", .{error_name});
-        }
-    };
-}
-
 inline fn logMessage(comptime fmt: []const u8, args: anytype) noreturn {
     std.debug.panicExtra(null, @returnAddress(), fmt, args);
 }
@@ -513,72 +505,70 @@ fn exportHandler(
 }
 
 fn exportMinimal(
-    err_name: anytype,
-    comptime sym_name: []const u8,
-    comptime abort: bool,
-) void {
-    const handler = &SimpleHandler(err_name).handler;
-    const linkage = if (builtin.is_test) .internal else .weak;
-    {
-        const N = "__ubsan_handle_" ++ sym_name ++ "_minimal";
-        @export(handler, .{ .name = N, .linkage = linkage });
-    }
-    if (abort) {
-        const N = "__ubsan_handle_" ++ sym_name ++ "_minimal_abort";
-        @export(handler, .{ .name = N, .linkage = linkage });
-    }
-}
-
-fn exportHelper(
     comptime err_name: []const u8,
     comptime sym_name: []const u8,
     comptime abort: bool,
 ) void {
-    exportHandler(&SimpleHandler(err_name).handler, sym_name, abort);
-    exportMinimal(err_name, sym_name, abort);
+    const S = struct {
+        fn handler() callconv(.c) noreturn {
+            logMessage("{s}", .{err_name});
+        }
+    };
+    const linkage = if (builtin.is_test) .internal else .weak;
+    {
+        const N = "__ubsan_handle_" ++ sym_name ++ "_minimal";
+        @export(&S.handler, .{ .name = N, .linkage = linkage });
+    }
+    if (abort) {
+        const N = "__ubsan_handle_" ++ sym_name ++ "_minimal_abort";
+        @export(&S.handler, .{ .name = N, .linkage = linkage });
+    }
 }
 
 comptime {
     overflowHandler("add_overflow", "+");
-    overflowHandler("sub_overflow", "-");
     overflowHandler("mul_overflow", "*");
-    exportHandler(&negationHandler, "negate_overflow", true);
-    exportHandler(&divRemHandler, "divrem_overflow", true);
+    overflowHandler("sub_overflow", "-");
     exportHandler(&alignmentAssumptionHandler, "alignment_assumption", true);
-    exportHandler(&shiftOob, "shift_out_of_bounds", true);
+    exportHandler(&builtinUnreachable, "builtin_unreachable", false);
+    exportHandler(&divRemHandler, "divrem_overflow", true);
+    exportHandler(&floatCastOverflow, "float_cast_overflow", true);
+    exportHandler(&invalidBuiltin, "invalid_builtin", true);
+    exportHandler(&loadInvalidValue, "load_invalid_value", true);
+    exportHandler(&missingReturn, "missing_return", false);
+    exportHandler(&negationHandler, "negate_overflow", true);
+    exportHandler(&nonNullArg, "nonnull_arg", true);
+    exportHandler(&nonNullReturn, "nonnull_return_v1", true);
     exportHandler(&outOfBounds, "out_of_bounds", true);
     exportHandler(&pointerOverflow, "pointer_overflow", true);
+    exportHandler(&shiftOob, "shift_out_of_bounds", true);
     exportHandler(&typeMismatch, "type_mismatch_v1", true);
-    exportHandler(&builtinUnreachable, "builtin_unreachable", false);
-    exportHandler(&missingReturn, "missing_return", false);
-    exportHandler(&nonNullReturn, "nonnull_return_v1", true);
-    exportHandler(&nonNullArg, "nonnull_arg", true);
-    exportHandler(&loadInvalidValue, "load_invalid_value", true);
-    exportHandler(&invalidBuiltin, "invalid_builtin", true);
     exportHandler(&vlaBoundNotPositive, "vla_bound_not_positive", true);
-    exportHandler(&floatCastOverflow, "float_cast_overflow", true);
 
-    exportHelper("function-type-mismatch", "function_type_mismatch", true);
-    exportHelper("implicit-conversion", "implicit_conversion", true);
-    exportHelper("nullability-arg", "nullability_arg", true);
-    exportHelper("nullability-return", "nullability_return", true);
-    exportHelper("cfi-check-fail", "cfi_check_fail", true);
-    exportHelper("function-type-mismatch-v1", "function_type_mismatch_v1", true);
-
-    exportMinimal("builtin-unreachable", "builtin_unreachable", false);
     exportMinimal("add-overflow", "add_overflow", true);
     exportMinimal("sub-overflow", "sub_overflow", true);
     exportMinimal("mul-overflow", "mul_overflow", true);
-    exportMinimal("negation-handler", "negate_overflow", true);
-    exportMinimal("divrem-handler", "divrem_overflow", true);
     exportMinimal("alignment-assumption-handler", "alignment_assumption", true);
-    exportMinimal("shift-oob", "shift_out_of_bounds", true);
+    exportMinimal("builtin-unreachable", "builtin_unreachable", false);
+    exportMinimal("divrem-handler", "divrem_overflow", true);
+    exportMinimal("float-cast-overflow", "float_cast_overflow", true);
+    exportMinimal("invalid-builtin", "invalid_builtin", true);
+    exportMinimal("load-invalid-value", "load_invalid_value", true);
+    exportMinimal("missing-return", "missing_return", true);
+    exportMinimal("negation-handler", "negate_overflow", true);
+    exportMinimal("nonnull-arg", "nonnull_arg", true);
     exportMinimal("out-of-bounds", "out_of_bounds", true);
     exportMinimal("pointer-overflow", "pointer_overflow", true);
+    exportMinimal("shift-oob", "shift_out_of_bounds", true);
     exportMinimal("type-mismatch", "type_mismatch", true);
+    exportMinimal("vla-bound-not-positive", "vla_bound_not_positive", true);
 
     // these checks are nearly impossible to duplicate in zig, as they rely on nuances
     // in the Itanium C++ ABI.
     // exportHelper("dynamic_type_cache_miss", "dynamic-type-cache-miss", true);
     // exportHelper("vptr_type_cache", "vptr-type-cache", true);
+
+    // we disable -fsanitize=function for reasons explained in src/Compilation.zig
+    // exportHelper("function-type-mismatch", "function_type_mismatch", true);
+    // exportHelper("function-type-mismatch-v1", "function_type_mismatch_v1", true);
 }
