@@ -692,7 +692,7 @@ pub const File = struct {
     /// May be called before or after updateExports for any given Nav.
     pub fn updateNav(base: *File, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) UpdateNavError!void {
         const nav = pt.zcu.intern_pool.getNav(nav_index);
-        assert(nav.status == .resolved);
+        assert(nav.status == .fully_resolved);
         switch (base.tag) {
             inline else => |tag| {
                 dev.check(tag.devFeature());
@@ -1537,20 +1537,23 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             };
         },
         .codegen_nav => |nav_index| {
-            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
+            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+            defer pt.deactivate();
             pt.linkerUpdateNav(nav_index) catch |err| switch (err) {
                 error.OutOfMemory => diags.setAllocFailure(),
             };
         },
         .codegen_func => |func| {
-            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
+            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+            defer pt.deactivate();
             // This call takes ownership of `func.air`.
             pt.linkerUpdateFunc(func.func, func.air) catch |err| switch (err) {
                 error.OutOfMemory => diags.setAllocFailure(),
             };
         },
         .codegen_type => |ty| {
-            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
+            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+            defer pt.deactivate();
             pt.linkerUpdateContainerType(ty) catch |err| switch (err) {
                 error.OutOfMemory => diags.setAllocFailure(),
             };

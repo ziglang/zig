@@ -148,10 +148,10 @@ pub const Os = struct {
             return (tag == .hurd or tag == .linux) and abi.isGnu();
         }
 
-        pub fn defaultVersionRange(tag: Tag, arch: Cpu.Arch) Os {
+        pub fn defaultVersionRange(tag: Tag, arch: Cpu.Arch, abi: Abi) Os {
             return .{
                 .tag = tag,
-                .version_range = VersionRange.default(tag, arch),
+                .version_range = .default(arch, tag, abi),
             };
         }
 
@@ -416,7 +416,7 @@ pub const Os = struct {
 
         /// The default `VersionRange` represents the range that the Zig Standard Library
         /// bases its abstractions on.
-        pub fn default(tag: Tag, arch: Cpu.Arch) VersionRange {
+        pub fn default(arch: Cpu.Arch, tag: Tag, abi: Abi) VersionRange {
             return switch (tag) {
                 .freestanding,
                 .other,
@@ -475,16 +475,26 @@ pub const Os = struct {
                 .linux => .{
                     .linux = .{
                         .range = .{
-                            .min = .{ .major = 4, .minor = 19, .patch = 0 },
+                            .min = blk: {
+                                const default_min: std.SemanticVersion = .{ .major = 4, .minor = 19, .patch = 0 };
+
+                                for (std.zig.target.available_libcs) |libc| {
+                                    if (libc.arch != arch or libc.os != tag or libc.abi != abi) continue;
+
+                                    if (libc.os_ver) |min| {
+                                        if (min.order(default_min) == .gt) break :blk min;
+                                    }
+                                }
+
+                                break :blk default_min;
+                            },
                             .max = .{ .major = 6, .minor = 11, .patch = 5 },
                         },
                         .glibc = blk: {
                             const default_min: std.SemanticVersion = .{ .major = 2, .minor = 28, .patch = 0 };
 
                             for (std.zig.target.available_libcs) |libc| {
-                                // We don't know the ABI here. We can get away with not checking it
-                                // for now, but that may not always remain true.
-                                if (libc.os != tag or libc.arch != arch) continue;
+                                if (libc.os != tag or libc.arch != arch or libc.abi != abi) continue;
 
                                 if (libc.glibc_min) |min| {
                                     if (min.order(default_min) == .gt) break :blk min;
@@ -815,7 +825,7 @@ pub const Abi = enum {
     // - vertex
 
     pub fn default(arch: Cpu.Arch, os: Os) Abi {
-        return if (arch.isWasm()) .musl else switch (os.tag) {
+        return switch (os.tag) {
             .freestanding, .other => switch (arch) {
                 // Soft float is usually a sane default for freestanding.
                 .arm,

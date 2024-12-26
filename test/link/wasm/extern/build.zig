@@ -15,9 +15,11 @@ pub fn build(b: *std.Build) void {
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const exe = b.addExecutable(.{
         .name = "extern",
-        .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
-        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .wasi }),
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .optimize = optimize,
+            .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .wasi }),
+        }),
     });
     exe.addCSourceFile(.{ .file = b.path("foo.c"), .flags = &.{} });
     exe.use_llvm = false;

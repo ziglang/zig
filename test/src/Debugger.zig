@@ -2414,8 +2414,8 @@ fn addTest(
         } else return;
     }
     const files_wf = db.b.addWriteFiles();
-    const exe = db.b.addExecutable(.{
-        .name = name,
+
+    const mod = db.b.createModule(.{
         .target = target.resolved,
         .root_source_file = files_wf.add(files[0].path, files[0].source),
         .optimize = target.optimize_mode,
@@ -2423,15 +2423,21 @@ fn addTest(
         .single_threaded = target.single_threaded,
         .pic = target.pic,
         .strip = false,
-        .use_llvm = false,
-        .use_lld = false,
     });
     for (files[1..]) |file| {
         const path = files_wf.add(file.path, file.source);
-        if (file.import) |import| exe.root_module.addImport(import, db.b.createModule(.{
+        if (file.import) |import| mod.addImport(import, db.b.createModule(.{
             .root_source_file = path,
         }));
     }
+
+    const exe = db.b.addExecutable(.{
+        .name = name,
+        .root_module = mod,
+        .use_llvm = false,
+        .use_lld = false,
+    });
+
     const commands_wf = db.b.addWriteFiles();
     const run = std.Build.Step.Run.create(db.b, db.b.fmt("run {s} {s}", .{ name, target.test_name_suffix }));
     run.addArgs(db_argv1);

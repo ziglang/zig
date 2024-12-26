@@ -361,47 +361,6 @@ fn simple4() align(4) i32 {
     return 0x19;
 }
 
-test "function align expression depends on generic parameter" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
-    // function alignment is a compile error on wasm32/wasm64
-    if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
-    if (native_arch == .thumb) return error.SkipZigTest;
-
-    const S = struct {
-        fn doTheTest() !void {
-            try expect(foobar(1) == 2);
-            try expect(foobar(4) == 5);
-            try expect(foobar(8) == 9);
-        }
-
-        fn foobar(comptime align_bytes: u8) align(align_bytes) u8 {
-            return align_bytes + 1;
-        }
-    };
-    try S.doTheTest();
-    try comptime S.doTheTest();
-}
-
-test "function callconv expression depends on generic parameter" {
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
-    const S = struct {
-        fn doTheTest() !void {
-            try expect(foobar(.C, 1) == 2);
-            try expect(foobar(.Unspecified, 2) == 3);
-        }
-
-        fn foobar(comptime cc: std.builtin.CallingConvention, arg: u8) callconv(cc) u8 {
-            return arg + 1;
-        }
-    };
-    try S.doTheTest();
-    try comptime S.doTheTest();
-}
-
 test "runtime-known array index has best alignment possible" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 

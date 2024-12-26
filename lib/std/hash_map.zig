@@ -1187,17 +1187,13 @@ pub fn HashMapUnmanaged(
         }
 
         /// Find the index containing the data for the given key.
-        /// Whether this function returns null is almost always
-        /// branched on after this function returns, and this function
-        /// returns null/not null from separate code paths.  We
-        /// want the optimizer to remove that branch and instead directly
-        /// fuse the basic blocks after the branch to the basic blocks
-        /// from this function.  To encourage that, this function is
-        /// marked as inline.
-        inline fn getIndex(self: Self, key: anytype, ctx: anytype) ?usize {
+        fn getIndex(self: Self, key: anytype, ctx: anytype) ?usize {
             comptime verifyContext(@TypeOf(ctx), @TypeOf(key), K, Hash, false);
 
             if (self.size == 0) {
+                // We use cold instead of unlikely to force a jump to this case,
+                // no matter the weight of the opposing side.
+                @branchHint(.cold);
                 return null;
             }
 

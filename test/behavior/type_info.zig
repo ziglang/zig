@@ -373,6 +373,17 @@ fn testFunction() !void {
     try expect(!foo_ptr_fn_info.pointer.is_allowzero);
     try expect(foo_ptr_fn_info.pointer.sentinel == null);
 
+    // Avoid looking at `typeInfoFooAligned` on targets which don't support function alignment.
+    switch (builtin.target.cpu.arch) {
+        .spirv,
+        .spirv32,
+        .spirv64,
+        .wasm32,
+        .wasm64,
+        => return,
+        else => {},
+    }
+
     const aligned_foo_fn_type = @TypeOf(typeInfoFooAligned);
     const aligned_foo_fn_info = @typeInfo(aligned_foo_fn_type);
     try expect(aligned_foo_fn_info.@"fn".calling_convention.eql(.c));
