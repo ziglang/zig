@@ -561,6 +561,8 @@ const usage_build_generic =
     \\  -fno-lld                       Prevent using LLD as the linker
     \\  -fcompiler-rt                  Always include compiler-rt symbols in output
     \\  -fno-compiler-rt               Prevent including compiler-rt symbols in output
+    \\  -fubsan-rt                     Always include ubsan-rt symbols in the output
+    \\  -fno-ubsan-rt                  Prevent including ubsan-rt symbols in the output
     \\  -rdynamic                      Add all symbols to the dynamic symbol table
     \\  -feach-lib-rpath               Ensure adding rpath for each used dynamic library
     \\  -fno-each-lib-rpath            Prevent adding rpath for each used dynamic library
