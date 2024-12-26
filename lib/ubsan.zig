@@ -26,6 +26,7 @@ const TypeDescriptor = extern struct {
             signed: bool,
             bit_width: u15,
         },
+        float: u16,
     };
 
     fn getIntegerSize(desc: TypeDescriptor) u64 {
@@ -80,8 +81,23 @@ const Value = extern struct {
         return switch (size) {
             64 => @as(*const i64, @alignCast(@ptrCast(value.handle))).*,
             128 => @as(*const i128, @alignCast(@ptrCast(value.handle))).*,
-            else => unreachable,
+            else => @trap(),
         };
+    }
+
+    fn getFloat(value: Value) c_longdouble {
+        assert(value.type_descriptor.kind == .float);
+        const size = value.type_descriptor.info.float;
+        const max_inline_size = @bitSizeOf(ValueHandle);
+        if (size <= max_inline_size) {
+            return @bitCast(@intFromPtr(value.handle));
+        }
+        return @floatCast(switch (size) {
+            64 => @as(*const f64, @alignCast(@ptrCast(value.handle))).*,
+            80 => @as(*const f80, @alignCast(@ptrCast(value.handle))).*,
+            128 => @as(*const f128, @alignCast(@ptrCast(value.handle))).*,
+            else => @trap(),
+        });
     }
 
     fn isMinusOne(value: Value) bool {
@@ -120,7 +136,7 @@ const Value = extern struct {
                     try writer.print("{}", .{value.getUnsignedInteger()});
                 }
             },
-            .float => @panic("TODO: write float"),
+            .float => try writer.print("{}", .{value.getFloat()}),
             .unknown => try writer.writeAll("(unknown)"),
         }
     }
@@ -176,11 +192,10 @@ fn divRemHandler(
     lhs_handle: ValueHandle,
     rhs_handle: ValueHandle,
 ) callconv(.c) noreturn {
-    const is_signed = data.type_descriptor.isSigned();
     const lhs = lhs_handle.getValue(data);
     const rhs = rhs_handle.getValue(data);
 
-    if (is_signed and rhs.getSignedInteger() == -1) {
+    if (rhs.isMinusOne()) {
         logMessage(
             "division of {} by -1 cannot be represented in type {s}",
             .{ lhs, data.type_descriptor.getName() },
@@ -409,6 +424,68 @@ fn loadInvalidValue(
     });
 }
 
+const InvalidBuiltinData = extern struct {
+    loc: SourceLocation,
+    kind: enum(u8) {
+        ctz,
+        clz,
+    },
+};
+
+fn invalidBuiltin(data: *const InvalidBuiltinData) callconv(.c) noreturn {
+    logMessage(
+        "passing zero to {s}(), which is not a valid argument",
+        .{@tagName(data.kind)},
+    );
+}
+
+const VlaBoundNotPositive = extern struct {
+    loc: SourceLocation,
+    type_descriptor: *const TypeDescriptor,
+};
+
+fn vlaBoundNotPositive(
+    data: *const VlaBoundNotPositive,
+    bound_handle: ValueHandle,
+) callconv(.c) noreturn {
+    logMessage("variable length array bound evaluates to non-positive value {}", .{
+        bound_handle.getValue(data),
+    });
+}
+
+const FloatCastOverflowData = extern struct {
+    from: *const TypeDescriptor,
+    to: *const TypeDescriptor,
+};
+
+const FloatCastOverflowDataV2 = extern struct {
+    loc: SourceLocation,
+    from: *const TypeDescriptor,
+    to: *const TypeDescriptor,
+};
+
+fn floatCastOverflow(
+    data_handle: *align(8) const anyopaque,
+    from_handle: ValueHandle,
+) callconv(.c) noreturn {
+    // See: https://github.com/llvm/llvm-project/blob/release/19.x/compiler-rt/lib/ubsan/ubsan_handlers.cpp#L463
+    // for more information on this check.
+    const ptr: [*]const u8 = @ptrCast(data_handle);
+    if (ptr[0] + ptr[1] < 2 or ptr[0] == 0xFF or ptr[1] == 0xFF) {
+        const data: *const FloatCastOverflowData = @ptrCast(data_handle);
+        const from_value: Value = .{ .handle = from_handle, .type_descriptor = data.from };
+        logMessage("{} is outside the range of representable values of type {s}", .{
+            from_value, data.to.getName(),
+        });
+    } else {
+        const data: *const FloatCastOverflowDataV2 = @ptrCast(data_handle);
+        const from_value: Value = .{ .handle = from_handle, .type_descriptor = data.from };
+        logMessage("{} is outside the range of representable values of type {s}", .{
+            from_value, data.to.getName(),
+        });
+    }
+}
+
 fn SimpleHandler(comptime error_name: []const u8) type {
     return struct {
         fn handler() callconv(.c) noreturn {
@@ -479,10 +556,10 @@ comptime {
     exportHandler(&nonNullReturn, "nonnull_return_v1", true);
     exportHandler(&nonNullArg, "nonnull_arg", true);
     exportHandler(&loadInvalidValue, "load_invalid_value", true);
+    exportHandler(&invalidBuiltin, "invalid_builtin", true);
+    exportHandler(&vlaBoundNotPositive, "vla_bound_not_positive", true);
+    exportHandler(&floatCastOverflow, "float_cast_overflow", true);
 
-    exportHelper("vla-bound-not-positive", "vla_bound_not_positive", true);
-    exportHelper("float-cast-overflow", "float_cast_overflow", true);
-    exportHelper("invalid-builtin", "invalid_builtin", true);
     exportHelper("function-type-mismatch", "function_type_mismatch", true);
     exportHelper("implicit-conversion", "implicit_conversion", true);
     exportHelper("nullability-arg", "nullability_arg", true);
