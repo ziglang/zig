@@ -1309,7 +1309,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             (!options.skip_linker_dependencies and is_exe_or_dyn_lib);
 
         const include_ubsan_rt = options.want_ubsan_rt orelse
-            (!options.skip_linker_dependencies and is_exe_or_dyn_lib);
+            (!options.skip_linker_dependencies and is_exe_or_dyn_lib and !have_zcu);
 
         if (include_compiler_rt and output_mode == .Obj) {
             // For objects, this mechanism relies on essentially `_ = @import("compiler-rt");`
@@ -1337,7 +1337,10 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             try options.root_mod.deps.putNoClobber(arena, "compiler_rt", compiler_rt_mod);
         }
 
-        if (include_ubsan_rt and output_mode == .Obj) {
+        // unlike compiler_rt, we always want to go through the `_ = @import("ubsan-rt")`
+        // approach, since the ubsan runtime uses quite a lot of the standard library
+        // and this reduces unnecessary bloat.
+        if (!options.skip_linker_dependencies and have_zcu) {
             const ubsan_rt_mod = try Package.Module.create(arena, .{
                 .global_cache_directory = options.global_cache_directory,
                 .paths = .{
