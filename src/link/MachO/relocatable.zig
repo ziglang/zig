@@ -97,6 +97,10 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
         try positionals.append(try link.openObjectInput(diags, comp.compiler_rt_obj.?.full_object_path));
     }
 
+    if (comp.include_ubsan_rt) {
+        try positionals.append(try link.openObjectInput(diags, comp.ubsan_rt_obj.?.full_object_path));
+    }
+
     for (positionals.items) |link_input| {
         macho_file.classifyInputFile(link_input) catch |err|
             diags.addParseError(link_input.path().?, "failed to read input file: {s}", .{@errorName(err)});
