@@ -1,5 +1,3 @@
-//! Minimal UBSan Runtime
-
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
@@ -471,7 +469,7 @@ fn floatCastOverflow(
     // See: https://github.com/llvm/llvm-project/blob/release/19.x/compiler-rt/lib/ubsan/ubsan_handlers.cpp#L463
     // for more information on this check.
     const ptr: [*]const u8 = @ptrCast(data_handle);
-    if (ptr[0] + ptr[1] < 2 or ptr[0] == 0xFF or ptr[1] == 0xFF) {
+    if (@as(u16, ptr[0]) + @as(u16, ptr[1]) < 2 or ptr[0] == 0xFF or ptr[1] == 0xFF) {
         const data: *const FloatCastOverflowData = @ptrCast(data_handle);
         const from_value: Value = .{ .handle = from_handle, .type_descriptor = data.from };
         logMessage("{} is outside the range of representable values of type {s}", .{
