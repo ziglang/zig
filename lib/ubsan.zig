@@ -73,8 +73,8 @@ const Value = extern struct {
         const size = value.type_descriptor.getIntegerSize();
         const max_inline_size = @bitSizeOf(ValueHandle);
         if (size <= max_inline_size) {
-            const extra_bits: u6 = @intCast(max_inline_size - size);
-            const handle: i64 = @bitCast(@intFromPtr(value.handle));
+            const extra_bits: std.math.Log2Int(usize) = @intCast(max_inline_size - size);
+            const handle: isize = @bitCast(@intFromPtr(value.handle));
             return (handle << extra_bits) >> extra_bits;
         }
         return switch (size) {
@@ -137,7 +137,7 @@ fn overflowHandler(
 ) void {
     const S = struct {
         fn handler(
-            data: *OverflowData,
+            data: *const OverflowData,
             lhs_handle: ValueHandle,
             rhs_handle: ValueHandle,
         ) callconv(.c) noreturn {
