@@ -552,6 +552,15 @@ pub const Nav = struct {
         };
     }
 
+    /// This function is intended to be used by code generation, since semantic
+    /// analysis will ensure that any `Nav` which is potentially `extern` is
+    /// fully resolved.
+    /// Asserts that `status == .fully_resolved`.
+    pub fn getResolvedExtern(nav: Nav, ip: *const InternPool) ?Key.Extern {
+        assert(nav.status == .fully_resolved);
+        return nav.getExtern(ip);
+    }
+
     /// Always returns `null` for `status == .type_resolved`. This function is inteded
     /// to be used by code generation, since semantic analysis will ensure that any `Nav`
     /// which is potentially `extern` is fully resolved.
@@ -582,6 +591,15 @@ pub const Nav = struct {
             .unresolved => unreachable,
             .type_resolved => |r| r.alignment,
             .fully_resolved => |r| r.alignment,
+        };
+    }
+
+    /// Asserts that `status != .unresolved`.
+    pub fn getLinkSection(nav: Nav) OptionalNullTerminatedString {
+        return switch (nav.status) {
+            .unresolved => unreachable,
+            .type_resolved => |r| r.@"linksection",
+            .fully_resolved => |r| r.@"linksection",
         };
     }
 
@@ -618,21 +636,6 @@ pub const Nav = struct {
                 return false;
             },
         };
-    }
-
-    /// Asserts that `status == .resolved`.
-    pub fn toExtern(nav: *const Nav, ip: *const InternPool) ?Key.Extern {
-        return switch (ip.indexToKey(nav.status.resolved.val)) {
-            .@"extern" => |ext| ext,
-            else => null,
-        };
-    }
-
-    /// Asserts that `status == .resolved`.
-    pub fn isThreadLocal(nav: Nav, ip: *const InternPool) bool {
-        const val = nav.status.resolved.val;
-        if (!isVariable(ip, val)) return false;
-        return ip.indexToKey(val).variable.is_threadlocal;
     }
 
     /// Get the ZIR instruction corresponding to this `Nav`, used to resolve source locations.

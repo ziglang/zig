@@ -1025,7 +1025,7 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
             const comp = wasm.base.comp;
             const zcu = comp.zcu.?;
             const ip = &zcu.intern_pool;
-            const ip_index = ip.getNav(nav_ref.nav_index).status.resolved.val;
+            const ip_index = ip.getNav(nav_ref.nav_index).status.fully_resolved.val;
             if (ip.isFunctionType(ip.typeOf(ip_index))) {
                 assert(nav_ref.offset == 0);
                 const gop = try wasm.indirect_function_table.getOrPut(comp.gpa, ip_index);

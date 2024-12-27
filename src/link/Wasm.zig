@@ -366,7 +366,7 @@ pub const OutputFunctionIndex = enum(u32) {
         const zcu = wasm.base.comp.zcu.?;
         const ip = &zcu.intern_pool;
         const nav = ip.getNav(nav_index);
-        return fromIpIndex(wasm, nav.status.resolved.val);
+        return fromIpIndex(wasm, nav.status.fully_resolved.val);
     }
 
     pub fn fromTagNameType(wasm: *const Wasm, tag_type: InternPool.Index) OutputFunctionIndex {
@@ -758,9 +758,9 @@ const ZcuDataStarts = struct {
         while (true) {
             while (navs_i < wasm.navs_obj.entries.len) : (navs_i += 1) {
                 const elem_nav = ip.getNav(wasm.navs_obj.keys()[navs_i]);
-                const elem_nav_init = switch (ip.indexToKey(elem_nav.status.resolved.val)) {
+                const elem_nav_init = switch (ip.indexToKey(elem_nav.status.fully_resolved.val)) {
                     .variable => |variable| variable.init,
-                    else => elem_nav.status.resolved.val,
+                    else => elem_nav.status.fully_resolved.val,
                 };
                 // Call to `lowerZcuData` here possibly creates more entries in these tables.
                 wasm.navs_obj.values()[navs_i] = try lowerZcuData(wasm, pt, elem_nav_init);
@@ -781,9 +781,9 @@ const ZcuDataStarts = struct {
         while (true) {
             while (navs_i < wasm.navs_exe.entries.len) : (navs_i += 1) {
                 const elem_nav = ip.getNav(wasm.navs_exe.keys()[navs_i]);
-                const elem_nav_init = switch (ip.indexToKey(elem_nav.status.resolved.val)) {
+                const elem_nav_init = switch (ip.indexToKey(elem_nav.status.fully_resolved.val)) {
                     .variable => |variable| variable.init,
-                    else => elem_nav.status.resolved.val,
+                    else => elem_nav.status.fully_resolved.val,
                 };
                 // Call to `lowerZcuData` here possibly creates more entries in these tables.
                 const zcu_data = try lowerZcuData(wasm, pt, elem_nav_init);
@@ -930,7 +930,7 @@ pub const FunctionImport = extern struct {
         pub fn fromIpNav(wasm: *const Wasm, nav_index: InternPool.Nav.Index) Resolution {
             const zcu = wasm.base.comp.zcu.?;
             const ip = &zcu.intern_pool;
-            return fromIpIndex(wasm, ip.getNav(nav_index).status.resolved.val);
+            return fromIpIndex(wasm, ip.getNav(nav_index).status.fully_resolved.val);
         }
 
         pub fn fromIpIndex(wasm: *const Wasm, ip_index: InternPool.Index) Resolution {
@@ -1507,7 +1507,7 @@ pub const DataId = enum(u32) {
                 const zcu = wasm.base.comp.zcu.?;
                 const ip = &zcu.intern_pool;
                 const nav = ip.getNav(i.key(wasm).*);
-                if (nav.isThreadLocal(ip)) return .tls;
+                if (nav.isThreadlocal(ip)) return .tls;
                 const code = i.value(wasm).code;
                 return if (code.off == .none) .zero else .data;
             },
@@ -1523,7 +1523,7 @@ pub const DataId = enum(u32) {
                 const zcu = wasm.base.comp.zcu.?;
                 const ip = &zcu.intern_pool;
                 const nav = ip.getNav(i.key(wasm).*);
-                return nav.isThreadLocal(ip);
+                return nav.isThreadlocal(ip);
             },
         };
     }
@@ -1540,7 +1540,7 @@ pub const DataId = enum(u32) {
                 const zcu = wasm.base.comp.zcu.?;
                 const ip = &zcu.intern_pool;
                 const nav = ip.getNav(i.key(wasm).*);
-                return nav.status.resolved.@"linksection".toSlice(ip) orelse ".data";
+                return nav.getLinkSection().toSlice(ip) orelse ".data";
             },
         };
     }
@@ -1563,7 +1563,7 @@ pub const DataId = enum(u32) {
                 const zcu = wasm.base.comp.zcu.?;
                 const ip = &zcu.intern_pool;
                 const nav = ip.getNav(i.key(wasm).*);
-                const explicit = nav.status.resolved.alignment;
+                const explicit = nav.getAlignment();
                 if (explicit != .none) return explicit;
                 const ty: ZcuType = .fromInterned(nav.typeOf(ip));
                 const result = ty.abiAlignment(zcu);
@@ -1820,11 +1820,7 @@ pub const ZcuImportIndex = enum(u32) {
         const zcu = wasm.base.comp.zcu.?;
         const ip = &zcu.intern_pool;
         const nav_index = index.ptr(wasm).*;
-        const nav = ip.getNav(nav_index);
-        const ext = switch (ip.indexToKey(nav.status.resolved.val)) {
-            .@"extern" => |*ext| ext,
-            else => unreachable,
-        };
+        const ext = ip.getNav(nav_index).getResolvedExtern(ip).?;
         const name_slice = ext.name.toSlice(ip);
         return wasm.getExistingString(name_slice).?;
     }
@@ -1833,11 +1829,7 @@ pub const ZcuImportIndex = enum(u32) {
         const zcu = wasm.base.comp.zcu.?;
         const ip = &zcu.intern_pool;
         const nav_index = index.ptr(wasm).*;
-        const nav = ip.getNav(nav_index);
-        const ext = switch (ip.indexToKey(nav.status.resolved.val)) {
-            .@"extern" => |*ext| ext,
-            else => unreachable,
-        };
+        const ext = ip.getNav(nav_index).getResolvedExtern(ip).?;
         const lib_name = ext.lib_name.toSlice(ip) orelse return .none;
         return wasm.getExistingString(lib_name).?.toOptional();
     }
@@ -1848,11 +1840,7 @@ pub const ZcuImportIndex = enum(u32) {
         const zcu = comp.zcu.?;
         const ip = &zcu.intern_pool;
         const nav_index = index.ptr(wasm).*;
-        const nav = ip.getNav(nav_index);
-        const ext = switch (ip.indexToKey(nav.status.resolved.val)) {
-            .@"extern" => |*ext| ext,
-            else => unreachable,
-        };
+        const ext = ip.getNav(nav_index).getResolvedExtern(ip).?;
         const fn_info = zcu.typeToFunc(.fromInterned(ext.ty)).?;
         return getExistingFunctionType(wasm, fn_info.cc, fn_info.param_types.get(ip), .fromInterned(fn_info.return_type), target).?;
     }
@@ -1944,7 +1932,7 @@ pub const FunctionImportId = enum(u32) {
             .zcu_import => |i| {
                 const zcu = wasm.base.comp.zcu.?;
                 const ip = &zcu.intern_pool;
-                const ext = ip.getNav(i.ptr(wasm).*).toExtern(ip).?;
+                const ext = ip.getNav(i.ptr(wasm).*).getResolvedExtern(ip).?;
                 return !ext.is_weak_linkage and ext.lib_name != .none;
             },
         };
@@ -2588,7 +2576,7 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
     const is_obj = comp.config.output_mode == .Obj;
     const target = &comp.root_mod.resolved_target.result;
 
-    const nav_init, const chased_nav_index = switch (ip.indexToKey(nav.status.resolved.val)) {
+    const nav_init, const chased_nav_index = switch (ip.indexToKey(nav.status.fully_resolved.val)) {
         .func => return, // global const which is a function alias
         .@"extern" => |ext| {
             if (is_obj) {
@@ -2612,7 +2600,7 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
             return;
         },
         .variable => |variable| .{ variable.init, variable.owner_nav },
-        else => .{ nav.status.resolved.val, nav_index },
+        else => .{ nav.status.fully_resolved.val, nav_index },
     };
     //log.debug("updateNav {} {}", .{ nav.fqn.fmt(ip), chased_nav_index });
     assert(!wasm.imports.contains(chased_nav_index));
