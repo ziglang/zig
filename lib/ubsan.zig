@@ -42,19 +42,15 @@ const TypeDescriptor = extern struct {
     }
 };
 
-const ValueHandle = *const opaque {
-    fn getValue(handle: ValueHandle, data: anytype) Value {
-        return .{ .handle = handle, .type_descriptor = data.type_descriptor };
-    }
-};
+const ValueHandle = *const opaque {};
 
 const Value = extern struct {
-    type_descriptor: *const TypeDescriptor,
+    td: *const TypeDescriptor,
     handle: ValueHandle,
 
     fn getUnsignedInteger(value: Value) u128 {
-        assert(!value.type_descriptor.isSigned());
-        const size = value.type_descriptor.getIntegerSize();
+        assert(!value.td.isSigned());
+        const size = value.td.getIntegerSize();
         const max_inline_size = @bitSizeOf(ValueHandle);
         if (size <= max_inline_size) {
             return @intFromPtr(value.handle);
@@ -68,8 +64,8 @@ const Value = extern struct {
     }
 
     fn getSignedInteger(value: Value) i128 {
-        assert(value.type_descriptor.isSigned());
-        const size = value.type_descriptor.getIntegerSize();
+        assert(value.td.isSigned());
+        const size = value.td.getIntegerSize();
         const max_inline_size = @bitSizeOf(ValueHandle);
         if (size <= max_inline_size) {
             const extra_bits: std.math.Log2Int(usize) = @intCast(max_inline_size - size);
@@ -84,8 +80,8 @@ const Value = extern struct {
     }
 
     fn getFloat(value: Value) c_longdouble {
-        assert(value.type_descriptor.kind == .float);
-        const size = value.type_descriptor.info.float;
+        assert(value.td.kind == .float);
+        const size = value.td.info.float;
         const max_inline_size = @bitSizeOf(ValueHandle);
         if (size <= max_inline_size) {
             return @bitCast(@intFromPtr(value.handle));
@@ -99,17 +95,17 @@ const Value = extern struct {
     }
 
     fn isMinusOne(value: Value) bool {
-        return value.type_descriptor.isSigned() and
+        return value.td.isSigned() and
             value.getSignedInteger() == -1;
     }
 
     fn isNegative(value: Value) bool {
-        return value.type_descriptor.isSigned() and
+        return value.td.isSigned() and
             value.getSignedInteger() < 0;
     }
 
     fn getPositiveInteger(value: Value) u128 {
-        if (value.type_descriptor.isSigned()) {
+        if (value.td.isSigned()) {
             const signed = value.getSignedInteger();
             assert(signed >= 0);
             return @intCast(signed);
@@ -126,9 +122,9 @@ const Value = extern struct {
     ) !void {
         comptime assert(fmt.len == 0);
 
-        switch (value.type_descriptor.kind) {
+        switch (value.td.kind) {
             .integer => {
-                if (value.type_descriptor.isSigned()) {
+                if (value.td.isSigned()) {
                     try writer.print("{}", .{value.getSignedInteger()});
                 } else {
                     try writer.print("{}", .{value.getUnsignedInteger()});
@@ -142,7 +138,7 @@ const Value = extern struct {
 
 const OverflowData = extern struct {
     loc: SourceLocation,
-    type_descriptor: *const TypeDescriptor,
+    td: *const TypeDescriptor,
 };
 
 fn overflowHandler(
@@ -155,10 +151,10 @@ fn overflowHandler(
             lhs_handle: ValueHandle,
             rhs_handle: ValueHandle,
         ) callconv(.c) noreturn {
-            const lhs = lhs_handle.getValue(data);
-            const rhs = rhs_handle.getValue(data);
+            const lhs: Value = .{ .handle = lhs_handle, .td = data.td };
+            const rhs: Value = .{ .handle = rhs_handle, .td = data.td };
 
-            const is_signed = data.type_descriptor.isSigned();
+            const is_signed = data.td.isSigned();
             const fmt = "{s} integer overflow: " ++ "{} " ++
                 operator ++ " {} cannot be represented in type {s}";
 
@@ -166,7 +162,7 @@ fn overflowHandler(
                 if (is_signed) "signed" else "unsigned",
                 lhs,
                 rhs,
-                data.type_descriptor.getName(),
+                data.td.getName(),
             });
         }
     };
@@ -176,12 +172,12 @@ fn overflowHandler(
 
 fn negationHandler(
     data: *const OverflowData,
-    old_value_handle: ValueHandle,
+    value_handle: ValueHandle,
 ) callconv(.c) noreturn {
-    const old_value = old_value_handle.getValue(data);
+    const value: Value = .{ .handle = value_handle, .td = data.td };
     logMessage(
         "negation of {} cannot be represented in type {s}",
-        .{ old_value, data.type_descriptor.getName() },
+        .{ value, data.td.getName() },
     );
 }
 
@@ -190,13 +186,13 @@ fn divRemHandler(
     lhs_handle: ValueHandle,
     rhs_handle: ValueHandle,
 ) callconv(.c) noreturn {
-    const lhs = lhs_handle.getValue(data);
-    const rhs = rhs_handle.getValue(data);
+    const lhs: Value = .{ .handle = lhs_handle, .td = data.lhs_type };
+    const rhs: Value = .{ .handle = rhs_handle, .td = data.rhs_type };
 
     if (rhs.isMinusOne()) {
         logMessage(
             "division of {} by -1 cannot be represented in type {s}",
-            .{ lhs, data.type_descriptor.getName() },
+            .{ lhs, data.td.getName() },
         );
     } else logMessage("division by zero", .{});
 }
@@ -204,29 +200,30 @@ fn divRemHandler(
 const AlignmentAssumptionData = extern struct {
     loc: SourceLocation,
     assumption_loc: SourceLocation,
-    type_descriptor: *const TypeDescriptor,
+    td: *const TypeDescriptor,
 };
 
 fn alignmentAssumptionHandler(
     data: *const AlignmentAssumptionData,
     pointer: ValueHandle,
-    alignment: ValueHandle,
+    alignment_handle: ValueHandle,
     maybe_offset: ?ValueHandle,
 ) callconv(.c) noreturn {
     const real_pointer = @intFromPtr(pointer) - @intFromPtr(maybe_offset);
     const lsb = @ctz(real_pointer);
     const actual_alignment = @as(u64, 1) << @intCast(lsb);
-    const mask = @intFromPtr(alignment) - 1;
+    const mask = @intFromPtr(alignment_handle) - 1;
     const misalignment_offset = real_pointer & mask;
+    const alignment: Value = .{ .handle = alignment_handle, .td = data.td };
 
     if (maybe_offset) |offset| {
         logMessage(
             "assumption of {} byte alignment (with offset of {} byte) for pointer of type {s} failed\n" ++
                 "offset address is {} aligned, misalignment offset is {} bytes",
             .{
-                alignment.getValue(data),
+                alignment,
                 @intFromPtr(offset),
-                data.type_descriptor.getName(),
+                data.td.getName(),
                 actual_alignment,
                 misalignment_offset,
             },
@@ -236,8 +233,8 @@ fn alignmentAssumptionHandler(
             "assumption of {} byte alignment for pointer of type {s} failed\n" ++
                 "address is {} aligned, misalignment offset is {} bytes",
             .{
-                alignment.getValue(data),
-                data.type_descriptor.getName(),
+                alignment,
+                data.td.getName(),
                 actual_alignment,
                 misalignment_offset,
             },
@@ -256,8 +253,8 @@ fn shiftOob(
     lhs_handle: ValueHandle,
     rhs_handle: ValueHandle,
 ) callconv(.c) noreturn {
-    const lhs: Value = .{ .handle = lhs_handle, .type_descriptor = data.lhs_type };
-    const rhs: Value = .{ .handle = rhs_handle, .type_descriptor = data.rhs_type };
+    const lhs: Value = .{ .handle = lhs_handle, .td = data.lhs_type };
+    const rhs: Value = .{ .handle = rhs_handle, .td = data.rhs_type };
 
     if (rhs.isNegative() or
         rhs.getPositiveInteger() >= data.lhs_type.getIntegerSize())
@@ -289,7 +286,7 @@ const OutOfBoundsData = extern struct {
 };
 
 fn outOfBounds(data: *const OutOfBoundsData, index_handle: ValueHandle) callconv(.c) noreturn {
-    const index: Value = .{ .handle = index_handle, .type_descriptor = data.index_type };
+    const index: Value = .{ .handle = index_handle, .td = data.index_type };
     logMessage(
         "index {} out of bounds for type {s}",
         .{ index, data.array_type.getName() },
@@ -344,7 +341,7 @@ fn pointerOverflow(
 
 const TypeMismatchData = extern struct {
     loc: SourceLocation,
-    type_descriptor: *const TypeDescriptor,
+    td: *const TypeDescriptor,
     log_alignment: u8,
     kind: enum(u8) {
         load,
@@ -388,17 +385,17 @@ fn typeMismatch(
     if (pointer == null) {
         logMessage(
             "{s} null pointer of type {s}",
-            .{ data.kind.getName(), data.type_descriptor.getName() },
+            .{ data.kind.getName(), data.td.getName() },
         );
     } else if (!std.mem.isAligned(handle, alignment)) {
         logMessage(
             "{s} misaligned address 0x{x} for type {s}, which requires {} byte alignment",
-            .{ data.kind.getName(), handle, data.type_descriptor.getName(), alignment },
+            .{ data.kind.getName(), handle, data.td.getName(), alignment },
         );
     } else {
         logMessage(
             "{s} address 0x{x} with insufficient space for an object of type {s}",
-            .{ data.kind.getName(), handle, data.type_descriptor.getName() },
+            .{ data.kind.getName(), handle, data.td.getName() },
         );
     }
 }
@@ -438,16 +435,18 @@ fn nonNullArg(data: *const NonNullArgData) callconv(.c) noreturn {
 
 const InvalidValueData = extern struct {
     loc: SourceLocation,
-    type_descriptor: *const TypeDescriptor,
+    td: *const TypeDescriptor,
 };
 
 fn loadInvalidValue(
     data: *const InvalidValueData,
     value_handle: ValueHandle,
 ) callconv(.c) noreturn {
-    logMessage("load of value {}, which is not valid for type {s}", .{
-        value_handle.getValue(data), data.type_descriptor.getName(),
-    });
+    const value: Value = .{ .handle = value_handle, .td = data.td };
+    logMessage(
+        "load of value {}, which is not valid for type {s}",
+        .{ value, data.td.getName() },
+    );
 }
 
 const InvalidBuiltinData = extern struct {
@@ -467,16 +466,18 @@ fn invalidBuiltin(data: *const InvalidBuiltinData) callconv(.c) noreturn {
 
 const VlaBoundNotPositive = extern struct {
     loc: SourceLocation,
-    type_descriptor: *const TypeDescriptor,
+    td: *const TypeDescriptor,
 };
 
 fn vlaBoundNotPositive(
     data: *const VlaBoundNotPositive,
     bound_handle: ValueHandle,
 ) callconv(.c) noreturn {
-    logMessage("variable length array bound evaluates to non-positive value {}", .{
-        bound_handle.getValue(data),
-    });
+    const bound: Value = .{ .handle = bound_handle, .td = data.td };
+    logMessage(
+        "variable length array bound evaluates to non-positive value {}",
+        .{bound},
+    );
 }
 
 const FloatCastOverflowData = extern struct {
@@ -499,13 +500,13 @@ fn floatCastOverflow(
     const ptr: [*]const u8 = @ptrCast(data_handle);
     if (@as(u16, ptr[0]) + @as(u16, ptr[1]) < 2 or ptr[0] == 0xFF or ptr[1] == 0xFF) {
         const data: *const FloatCastOverflowData = @ptrCast(data_handle);
-        const from_value: Value = .{ .handle = from_handle, .type_descriptor = data.from };
+        const from_value: Value = .{ .handle = from_handle, .td = data.from };
         logMessage("{} is outside the range of representable values of type {s}", .{
             from_value, data.to.getName(),
         });
     } else {
         const data: *const FloatCastOverflowDataV2 = @ptrCast(data_handle);
-        const from_value: Value = .{ .handle = from_handle, .type_descriptor = data.from };
+        const from_value: Value = .{ .handle = from_handle, .td = data.from };
         logMessage("{} is outside the range of representable values of type {s}", .{
             from_value, data.to.getName(),
         });
