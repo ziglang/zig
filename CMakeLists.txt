@@ -500,6 +500,8 @@ set(ZIG_STAGE2_SOURCES
     lib/std/zig/system/NativePaths.zig
     lib/std/zig/system/x86.zig
     lib/std/zig/tokenizer.zig
+    lib/std/zig/Manifest.zig
+    lib/std/zig/introspect.zig
     src/Air.zig
     src/Builtin.zig
     src/Compilation.zig
@@ -511,7 +513,6 @@ set(ZIG_STAGE2_SOURCES
     src/Package.zig
     src/Package/Fetch.zig
     src/Package/Fetch/git.zig
-    src/Package/Manifest.zig
     src/Package/Module.zig
     src/RangeSet.zig
     src/Sema.zig
@@ -580,7 +581,6 @@ set(ZIG_STAGE2_SOURCES
     src/crash_report.zig
     src/dev.zig
     src/glibc.zig
-    src/introspect.zig
     src/libcxx.zig
     src/libtsan.zig
     src/libunwind.zig
