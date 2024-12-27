@@ -2669,7 +2669,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
                         .extra_temps = .{
-                            .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                            .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                             .{ .kind = .{ .rc = .sse } },
                             .unused,
                             .unused,
@@ -2677,13 +2677,13 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .unused,
                         },
                         .dst_temps = .{.mem},
-                        .each = .{ .limb = .{
-                            .of = .src0y,
-                            .body = &.{
-                                .{ ._, .v_dqu, .mov, .tmp1y, .limb(.src0y), ._, ._ },
-                                .{ ._, .vp_, mir_tag, .tmp1y, .tmp1y, .limb(.src1y), ._ },
-                                .{ ._, .v_dqu, .mov, .limb(.dst0y), .tmp1y, ._, ._ },
-                            },
+                        .each = .{ .once = &.{
+                            .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                            .{ .@"0:", .v_dqu, .mov, .tmp1y, .memia(.src0y, .tmp0, .add_size), ._, ._ },
+                            .{ ._, .vp_, mir_tag, .tmp1y, .tmp1y, .memia(.src1y, .tmp0, .add_size), ._ },
+                            .{ ._, .v_dqu, .mov, .memia(.dst0y, .tmp0, .add_size), .tmp1y, ._, ._ },
+                            .{ ._, ._, .add, .tmp0p, .i(32), ._, ._ },
+                            .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
                         } },
                     }, .{
                         .required_features = .{ .avx, null },
@@ -2691,7 +2691,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
                         .extra_temps = .{
-                            .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                            .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                             .{ .kind = .{ .rc = .sse } },
                             .unused,
                             .unused,
@@ -2699,13 +2699,13 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .unused,
                         },
                         .dst_temps = .{.mem},
-                        .each = .{ .limb = .{
-                            .of = .src0y,
-                            .body = &.{
-                                .{ ._, .v_pd, .movu, .tmp1y, .limb(.src0y), ._, ._ },
-                                .{ ._, .v_pd, mir_tag, .tmp1y, .tmp1y, .limb(.src1y), ._ },
-                                .{ ._, .v_pd, .movu, .limb(.dst0y), .tmp1y, ._, ._ },
-                            },
+                        .each = .{ .once = &.{
+                            .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                            .{ .@"0:", .v_pd, .movu, .tmp1y, .memia(.src0y, .tmp0, .add_size), ._, ._ },
+                            .{ ._, .v_pd, mir_tag, .tmp1y, .tmp1y, .memia(.src1y, .tmp0, .add_size), ._ },
+                            .{ ._, .v_pd, .movu, .memia(.dst0y, .tmp0, .add_size), .tmp1y, ._, ._ },
+                            .{ ._, ._, .add, .tmp0p, .i(32), ._, ._ },
+                            .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
                         } },
                     }, .{
                         .required_features = .{ .avx, null },
@@ -2713,7 +2713,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
                         .extra_temps = .{
-                            .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                            .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                             .{ .kind = .{ .rc = .sse } },
                             .unused,
                             .unused,
@@ -2721,13 +2721,13 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .unused,
                         },
                         .dst_temps = .{.mem},
-                        .each = .{ .limb = .{
-                            .of = .src0x,
-                            .body = &.{
-                                .{ ._, .v_dqu, .mov, .tmp1x, .limb(.src0x), ._, ._ },
-                                .{ ._, .vp_, mir_tag, .tmp1x, .tmp1x, .limb(.src1x), ._ },
-                                .{ ._, .v_dqu, .mov, .limb(.dst0x), .tmp1x, ._, ._ },
-                            },
+                        .each = .{ .once = &.{
+                            .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                            .{ .@"0:", .v_dqu, .mov, .tmp1x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                            .{ ._, .vp_, mir_tag, .tmp1x, .tmp1x, .memia(.src1x, .tmp0, .add_size), ._ },
+                            .{ ._, .v_dqu, .mov, .memia(.dst0x, .tmp0, .add_size), .tmp1x, ._, ._ },
+                            .{ ._, ._, .add, .tmp0p, .i(16), ._, ._ },
+                            .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
                         } },
                     }, .{
                         .required_features = .{ .sse2, null },
@@ -2735,7 +2735,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
                         .extra_temps = .{
-                            .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                            .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                             .{ .kind = .{ .rc = .sse } },
                             .unused,
                             .unused,
@@ -2743,13 +2743,13 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .unused,
                         },
                         .dst_temps = .{.mem},
-                        .each = .{ .limb = .{
-                            .of = .src0x,
-                            .body = &.{
-                                .{ ._, ._dqu, .mov, .tmp1x, .limb(.src0x), ._, ._ },
-                                .{ ._, .p_, mir_tag, .tmp1x, .limb(.src1x), ._, ._ },
-                                .{ ._, ._dqu, .mov, .limb(.dst0x), .tmp1x, ._, ._ },
-                            },
+                        .each = .{ .once = &.{
+                            .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                            .{ .@"0:", ._dqu, .mov, .tmp1x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                            .{ ._, .p_, mir_tag, .tmp1x, .memia(.src1x, .tmp0, .add_size), ._, ._ },
+                            .{ ._, ._dqu, .mov, .memia(.dst0x, .tmp0, .add_size), .tmp1x, ._, ._ },
+                            .{ ._, ._, .add, .tmp0p, .i(16), ._, ._ },
+                            .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
                         } },
                     }, .{
                         .required_features = .{ .sse, null },
@@ -2757,7 +2757,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
                         .extra_temps = .{
-                            .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                            .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                             .{ .kind = .{ .rc = .sse } },
                             .unused,
                             .unused,
@@ -2765,13 +2765,13 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .unused,
                         },
                         .dst_temps = .{.mem},
-                        .each = .{ .limb = .{
-                            .of = .src0x,
-                            .body = &.{
-                                .{ ._, ._ps, .movu, .tmp1x, .limb(.src0x), ._, ._ },
-                                .{ ._, ._ps, mir_tag, .tmp1x, .limb(.src1x), ._, ._ },
-                                .{ ._, ._ps, .movu, .limb(.dst0x), .tmp1x, ._, ._ },
-                            },
+                        .each = .{ .once = &.{
+                            .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                            .{ .@"0:", ._ps, .movu, .tmp1x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                            .{ ._, ._ps, mir_tag, .tmp1x, .memia(.src1x, .tmp0, .add_size), ._, ._ },
+                            .{ ._, ._ps, .movu, .memia(.dst0x, .tmp0, .add_size), .tmp1x, ._, ._ },
+                            .{ ._, ._, .add, .tmp0p, .i(16), ._, ._ },
+                            .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
                         } },
                     }, .{
                         .required_features = .{ .mmx, null },
@@ -2779,7 +2779,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
                         .extra_temps = .{
-                            .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                            .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                             .{ .kind = .{ .rc = .mmx } },
                             .unused,
                             .unused,
@@ -2787,20 +2787,20 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .unused,
                         },
                         .dst_temps = .{.mem},
-                        .each = .{ .limb = .{
-                            .of = .src0q,
-                            .body = &.{
-                                .{ ._, ._q, .mov, .tmp1q, .limb(.src0q), ._, ._ },
-                                .{ ._, .p_, mir_tag, .tmp1q, .limb(.src1q), ._, ._ },
-                                .{ ._, ._q, .mov, .limb(.dst0q), .tmp1q, ._, ._ },
-                            },
+                        .each = .{ .once = &.{
+                            .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                            .{ .@"0:", ._q, .mov, .tmp1q, .memia(.src0q, .tmp0, .add_size), ._, ._ },
+                            .{ ._, .p_, mir_tag, .tmp1q, .memia(.src1q, .tmp0, .add_size), ._, ._ },
+                            .{ ._, ._q, .mov, .memia(.dst0q, .tmp0, .add_size), .tmp1q, ._, ._ },
+                            .{ ._, ._, .add, .tmp0p, .i(8), ._, ._ },
+                            .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
                         } },
                     }, .{
                         .patterns = &.{
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
                         .extra_temps = .{
-                            .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                            .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                             .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                             .unused,
                             .unused,
@@ -2808,13 +2808,13 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .unused,
                         },
                         .dst_temps = .{.mem},
-                        .each = .{ .limb = .{
-                            .of = .src0p,
-                            .body = &.{
-                                .{ ._, ._, .mov, .tmp1p, .limb(.src0p), ._, ._ },
-                                .{ ._, ._, mir_tag, .tmp1p, .limb(.src1p), ._, ._ },
-                                .{ ._, ._, .mov, .limb(.dst0p), .tmp1p, ._, ._ },
-                            },
+                        .each = .{ .once = &.{
+                            .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                            .{ .@"0:", ._, .mov, .tmp1p, .memia(.src0p, .tmp0, .add_size), ._, ._ },
+                            .{ ._, ._, mir_tag, .tmp1p, .memia(.src1p, .tmp0, .add_size), ._, ._ },
+                            .{ ._, ._, .mov, .memia(.dst0p, .tmp0, .add_size), .tmp1p, ._, ._ },
+                            .{ ._, ._, .add, .tmp0p, .a(.tmp1, .add_size), ._, ._ },
+                            .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
                         } },
                     } },
                 }) catch |err2| switch (err2) {
@@ -3306,7 +3306,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             },
                             .clobbers = .{ .eflags = true },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                                 .unused,
                                 .unused,
@@ -3341,32 +3341,38 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
                                 .{ .kind = .{ .rc = .sse } },
                                 .unused,
                                 .unused,
                             },
                             .dst_temps = .{.mem},
-                            .each = .{ .limb_and_mask_limb = .{
-                                .of = .src0y,
-                                .of_mask = .dst0b,
-                                .body = switch (cc) {
-                                    else => unreachable,
-                                    .e => &.{
-                                        .{ ._, .v_dqu, .mov, .tmp3y, .limb(.src0y), ._, ._ },
-                                        .{ ._, .vp_b, .cmpeq, .tmp3y, .tmp3y, .limb(.src1y), ._ },
-                                        .{ ._, .vp_b, .movmsk, .tmp2d, .tmp3y, ._, ._ },
-                                        .{ ._, ._, .mov, .maskLimb(.dst0d), .tmp2d, ._, ._ },
-                                    },
-                                    .ne => &.{
-                                        .{ ._, .v_dqu, .mov, .tmp3y, .limb(.src0y), ._, ._ },
-                                        .{ ._, .vp_b, .cmpeq, .tmp3y, .tmp3y, .limb(.src1y), ._ },
-                                        .{ ._, .vp_b, .movmsk, .tmp2d, .tmp3y, ._, ._ },
-                                        .{ ._, ._, .not, .tmp2d, ._, ._, ._ },
-                                        .{ ._, ._, .mov, .maskLimb(.dst0d), .tmp2d, ._, ._ },
-                                    },
+                            .each = .{ .once = switch (cc) {
+                                else => unreachable,
+                                .e => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ .@"0:", .v_dqu, .mov, .tmp3y, .memia(.src0y, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .vp_b, .cmpeq, .tmp3y, .tmp3y, .memia(.src1y, .tmp0, .add_size), ._ },
+                                    .{ ._, .vp_b, .movmsk, .tmp2d, .tmp3y, ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0d, .tmp1), .tmp2d, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 4), ._, ._ },
+                                    .{ ._, ._, .add, .tmp0p, .i(32), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                },
+                                .ne => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ .@"0:", .v_dqu, .mov, .tmp3y, .memia(.src0y, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .vp_b, .cmpeq, .tmp3y, .tmp3y, .memia(.src1y, .tmp0, .add_size), ._ },
+                                    .{ ._, .vp_b, .movmsk, .tmp2d, .tmp3y, ._, ._ },
+                                    .{ ._, ._, .not, .tmp2d, ._, ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0d, .tmp1), .tmp2d, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 4), ._, ._ },
+                                    .{ ._, ._, .add, .tmp0p, .i(32), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
                                 },
                             } },
                         }, .{
@@ -3376,34 +3382,40 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u16, .kind = .{ .rc = .general_purpose } },
                                 .{ .kind = .{ .rc = .sse } },
                                 .unused,
                                 .unused,
                             },
                             .dst_temps = .{.mem},
-                            .each = .{ .limb_and_mask_limb = .{
-                                .of = .src0y,
-                                .of_mask = .dst0w,
-                                .body = switch (cc) {
-                                    else => unreachable,
-                                    .e => &.{
-                                        .{ ._, .v_dqu, .mov, .tmp3y, .limb(.src0y), ._, ._ },
-                                        .{ ._, .vp_w, .cmpeq, .tmp3y, .tmp3y, .limb(.src1y), ._ },
-                                        .{ ._, .vp_b, .ackssw, .tmp3y, .tmp3y, .tmp3y, ._ },
-                                        .{ ._, .vp_b, .movmsk, .tmp2d, .tmp3y, ._, ._ },
-                                        .{ ._, ._, .mov, .maskLimb(.dst0w), .tmp2w, ._, ._ },
-                                    },
-                                    .ne => &.{
-                                        .{ ._, .v_dqu, .mov, .tmp3y, .limb(.src0y), ._, ._ },
-                                        .{ ._, .vp_w, .cmpeq, .tmp3y, .tmp3y, .limb(.src1y), ._ },
-                                        .{ ._, .vp_b, .ackssw, .tmp3y, .tmp3y, .tmp3y, ._ },
-                                        .{ ._, .vp_b, .movmsk, .tmp2d, .tmp3y, ._, ._ },
-                                        .{ ._, ._, .not, .tmp2w, ._, ._, ._ },
-                                        .{ ._, ._, .mov, .maskLimb(.dst0w), .tmp2w, ._, ._ },
-                                    },
+                            .each = .{ .once = switch (cc) {
+                                else => unreachable,
+                                .e => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ .@"0:", .v_dqu, .mov, .tmp3y, .memia(.src0y, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .vp_w, .cmpeq, .tmp3y, .tmp3y, .memia(.src1y, .tmp0, .add_size), ._ },
+                                    .{ ._, .vp_b, .ackssw, .tmp3y, .tmp3y, .tmp3y, ._ },
+                                    .{ ._, .vp_b, .movmsk, .tmp2d, .tmp3y, ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0w, .tmp1), .tmp2w, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 2), ._, ._ },
+                                    .{ ._, ._, .add, .tmp0p, .i(32), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                },
+                                .ne => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ .@"0:", .v_dqu, .mov, .tmp3y, .memia(.src0y, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .vp_w, .cmpeq, .tmp3y, .tmp3y, .memia(.src1y, .tmp0, .add_size), ._ },
+                                    .{ ._, .vp_b, .ackssw, .tmp3y, .tmp3y, .tmp3y, ._ },
+                                    .{ ._, .vp_b, .movmsk, .tmp2d, .tmp3y, ._, ._ },
+                                    .{ ._, ._, .not, .tmp2d, ._, ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0w, .tmp1), .tmp2w, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 2), ._, ._ },
+                                    .{ ._, ._, .add, .tmp0p, .i(32), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
                                 },
                             } },
                         }, .{
@@ -3413,32 +3425,38 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
                                 .{ .kind = .{ .rc = .sse } },
                                 .unused,
                                 .unused,
                             },
                             .dst_temps = .{.mem},
-                            .each = .{ .limb_and_mask_limb = .{
-                                .of = .src0y,
-                                .of_mask = .dst0d,
-                                .body = switch (cc) {
-                                    else => unreachable,
-                                    .e => &.{
-                                        .{ ._, .v_dqu, .mov, .tmp3y, .limb(.src0y), ._, ._ },
-                                        .{ ._, .vp_d, .cmpeq, .tmp3y, .tmp3y, .limb(.src1y), ._ },
-                                        .{ ._, .v_ps, .movmsk, .tmp2d, .tmp3y, ._, ._ },
-                                        .{ ._, ._, .mov, .maskLimb(.dst0b), .tmp2b, ._, ._ },
-                                    },
-                                    .ne => &.{
-                                        .{ ._, .v_dqu, .mov, .tmp3y, .limb(.src0y), ._, ._ },
-                                        .{ ._, .vp_d, .cmpeq, .tmp3y, .tmp3y, .limb(.src1y), ._ },
-                                        .{ ._, .v_ps, .movmsk, .tmp2d, .tmp3y, ._, ._ },
-                                        .{ ._, ._, .not, .tmp2b, ._, ._, ._ },
-                                        .{ ._, ._, .mov, .maskLimb(.dst0b), .tmp2b, ._, ._ },
-                                    },
+                            .each = .{ .once = switch (cc) {
+                                else => unreachable,
+                                .e => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ .@"0:", .v_dqu, .mov, .tmp3y, .memia(.src0y, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .vp_d, .cmpeq, .tmp3y, .tmp3y, .memia(.src1y, .tmp0, .add_size), ._ },
+                                    .{ ._, .v_ps, .movmsk, .tmp2d, .tmp3y, ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 1), ._, ._ },
+                                    .{ ._, ._, .add, .tmp0p, .i(32), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                },
+                                .ne => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ .@"0:", .v_dqu, .mov, .tmp3y, .memia(.src0y, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .vp_d, .cmpeq, .tmp3y, .tmp3y, .memia(.src1y, .tmp0, .add_size), ._ },
+                                    .{ ._, .v_ps, .movmsk, .tmp2d, .tmp3y, ._, ._ },
+                                    .{ ._, ._, .not, .tmp2b, ._, ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 1), ._, ._ },
+                                    .{ ._, ._, .add, .tmp0p, .i(32), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
                                 },
                             } },
                         }, .{
@@ -3448,34 +3466,64 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .reg = .rcx } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u32, .kind = .{ .reg = .rcx } },
+                                .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
                                 .{ .kind = .{ .rc = .sse } },
                                 .unused,
                             },
                             .dst_temps = .{.mem},
-                            .each = .{ .limb_and_mask_limb = .{
-                                .of = .src0y,
-                                .of_mask = .dst0q,
-                                .body = switch (cc) {
-                                    else => unreachable,
-                                    .e => &.{
-                                        .{ ._, .v_dqu, .mov, .tmp4y, .limb(.src0y), ._, ._ },
-                                        .{ ._, .vp_q, .cmpeq, .tmp4y, .tmp4y, .limb(.src1y), ._ },
-                                        .{ ._, .v_pd, .movmsk, .tmp3d, .tmp4y, ._, ._ },
-                                        .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
-                                        .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
-                                    },
-                                    .ne => &.{
-                                        .{ ._, .v_dqu, .mov, .tmp4y, .limb(.src0y), ._, ._ },
-                                        .{ ._, .vp_q, .cmpeq, .tmp4y, .tmp4y, .limb(.src1y), ._ },
-                                        .{ ._, .v_pd, .movmsk, .tmp3d, .tmp4y, ._, ._ },
-                                        .{ ._, ._, .xor, .tmp3b, .i(0b1111), ._, ._ },
-                                        .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
-                                        .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
-                                    },
+                            .each = .{ .once = switch (cc) {
+                                else => unreachable,
+                                .e => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"0:", .v_dqu, .mov, .tmp4y, .memia(.src0y, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .vp_q, .cmpeq, .tmp4y, .tmp4y, .memia(.src1y, .tmp0, .add_size), ._ },
+                                    .{ ._, .v_pd, .movmsk, .tmp3d, .tmp4y, ._, ._ },
+                                    .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
+                                    .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 4), ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._nz, .j, .@"1f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memid(.dst0b, .tmp3, -1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"1:", ._, .add, .tmp0p, .i(32), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._z, .j, .@"0f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp3), .tmp2b, ._, ._ },
+                                },
+                                .ne => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"0:", .v_dqu, .mov, .tmp4y, .memia(.src0y, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .vp_q, .cmpeq, .tmp4y, .tmp4y, .memia(.src1y, .tmp0, .add_size), ._ },
+                                    .{ ._, .v_pd, .movmsk, .tmp3d, .tmp4y, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp3b, .i(0b1111), ._, ._ },
+                                    .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
+                                    .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 4), ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._nz, .j, .@"1f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memid(.dst0b, .tmp3, -1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"1:", ._, .add, .tmp0p, .i(32), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._z, .j, .@"0f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp3), .tmp2b, ._, ._ },
                                 },
                             } },
                         }, .{
@@ -3485,32 +3533,38 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u16, .kind = .{ .rc = .general_purpose } },
                                 .{ .kind = .{ .rc = .sse } },
                                 .unused,
                                 .unused,
                             },
                             .dst_temps = .{.mem},
-                            .each = .{ .limb_and_mask_limb = .{
-                                .of = .src0x,
-                                .of_mask = .dst0b,
-                                .body = switch (cc) {
-                                    else => unreachable,
-                                    .e => &.{
-                                        .{ ._, .v_dqu, .mov, .tmp3x, .limb(.src0x), ._, ._ },
-                                        .{ ._, .vp_b, .cmpeq, .tmp3x, .tmp3x, .limb(.src1x), ._ },
-                                        .{ ._, .vp_b, .movmsk, .tmp2d, .tmp3x, ._, ._ },
-                                        .{ ._, ._, .mov, .maskLimb(.dst0w), .tmp2w, ._, ._ },
-                                    },
-                                    .ne => &.{
-                                        .{ ._, .v_dqu, .mov, .tmp3x, .limb(.src0x), ._, ._ },
-                                        .{ ._, .vp_b, .cmpeq, .tmp3x, .tmp3x, .limb(.src1x), ._ },
-                                        .{ ._, .vp_b, .movmsk, .tmp2d, .tmp3x, ._, ._ },
-                                        .{ ._, ._, .not, .tmp2w, ._, ._, ._ },
-                                        .{ ._, ._, .mov, .maskLimb(.dst0w), .tmp2w, ._, ._ },
-                                    },
+                            .each = .{ .once = switch (cc) {
+                                else => unreachable,
+                                .e => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ .@"0:", .v_dqu, .mov, .tmp3x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .vp_b, .cmpeq, .tmp3x, .tmp3x, .memia(.src1x, .tmp0, .add_size), ._ },
+                                    .{ ._, .vp_b, .movmsk, .tmp2d, .tmp3x, ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0w, .tmp1), .tmp2w, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 2), ._, ._ },
+                                    .{ ._, ._, .add, .tmp0p, .i(16), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                },
+                                .ne => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ .@"0:", .v_dqu, .mov, .tmp3x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .vp_b, .cmpeq, .tmp3x, .tmp3x, .memia(.src1x, .tmp0, .add_size), ._ },
+                                    .{ ._, .vp_b, .movmsk, .tmp2d, .tmp3x, ._, ._ },
+                                    .{ ._, ._, .not, .tmp2d, ._, ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0w, .tmp1), .tmp2w, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 2), ._, ._ },
+                                    .{ ._, ._, .add, .tmp0p, .i(16), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
                                 },
                             } },
                         }, .{
@@ -3520,34 +3574,40 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
                                 .{ .kind = .{ .rc = .sse } },
                                 .unused,
                                 .unused,
                             },
                             .dst_temps = .{.mem},
-                            .each = .{ .limb_and_mask_limb = .{
-                                .of = .src0x,
-                                .of_mask = .dst0w,
-                                .body = switch (cc) {
-                                    else => unreachable,
-                                    .e => &.{
-                                        .{ ._, .v_dqu, .mov, .tmp3x, .limb(.src0x), ._, ._ },
-                                        .{ ._, .vp_w, .cmpeq, .tmp3x, .tmp3x, .limb(.src1x), ._ },
-                                        .{ ._, .vp_b, .ackssw, .tmp3x, .tmp3x, .tmp3x, ._ },
-                                        .{ ._, .vp_b, .movmsk, .tmp2d, .tmp3x, ._, ._ },
-                                        .{ ._, ._, .mov, .maskLimb(.dst0w), .tmp2b, ._, ._ },
-                                    },
-                                    .ne => &.{
-                                        .{ ._, .v_dqu, .mov, .tmp3x, .limb(.src0x), ._, ._ },
-                                        .{ ._, .vp_w, .cmpeq, .tmp3x, .tmp3x, .limb(.src1x), ._ },
-                                        .{ ._, .vp_b, .ackssw, .tmp3x, .tmp3x, .tmp3x, ._ },
-                                        .{ ._, .vp_b, .movmsk, .tmp2d, .tmp3x, ._, ._ },
-                                        .{ ._, ._, .not, .tmp2b, ._, ._, ._ },
-                                        .{ ._, ._, .mov, .maskLimb(.dst0w), .tmp2b, ._, ._ },
-                                    },
+                            .each = .{ .once = switch (cc) {
+                                else => unreachable,
+                                .e => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ .@"0:", .v_dqu, .mov, .tmp3x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .vp_w, .cmpeq, .tmp3x, .tmp3x, .memia(.src1x, .tmp0, .add_size), ._ },
+                                    .{ ._, .vp_b, .ackssw, .tmp3x, .tmp3x, .tmp3x, ._ },
+                                    .{ ._, .vp_b, .movmsk, .tmp2d, .tmp3x, ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 1), ._, ._ },
+                                    .{ ._, ._, .add, .tmp0p, .i(16), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                },
+                                .ne => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ .@"0:", .v_dqu, .mov, .tmp3x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .vp_w, .cmpeq, .tmp3x, .tmp3x, .memia(.src1x, .tmp0, .add_size), ._ },
+                                    .{ ._, .vp_b, .ackssw, .tmp3x, .tmp3x, .tmp3x, ._ },
+                                    .{ ._, .vp_b, .movmsk, .tmp2d, .tmp3x, ._, ._ },
+                                    .{ ._, ._, .not, .tmp2b, ._, ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 1), ._, ._ },
+                                    .{ ._, ._, .add, .tmp0p, .i(16), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
                                 },
                             } },
                         }, .{
@@ -3557,34 +3617,64 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .reg = .rcx } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u32, .kind = .{ .reg = .rcx } },
+                                .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
                                 .{ .kind = .{ .rc = .sse } },
                                 .unused,
                             },
                             .dst_temps = .{.mem},
-                            .each = .{ .limb_and_mask_limb = .{
-                                .of = .src0x,
-                                .of_mask = .dst0d,
-                                .body = switch (cc) {
-                                    else => unreachable,
-                                    .e => &.{
-                                        .{ ._, .v_dqu, .mov, .tmp4x, .limb(.src0x), ._, ._ },
-                                        .{ ._, .vp_q, .cmpeq, .tmp4x, .tmp4x, .limb(.src1x), ._ },
-                                        .{ ._, .v_ps, .movmsk, .tmp3d, .tmp4x, ._, ._ },
-                                        .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
-                                        .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
-                                    },
-                                    .ne => &.{
-                                        .{ ._, .v_dqu, .mov, .tmp4x, .limb(.src0x), ._, ._ },
-                                        .{ ._, .vp_q, .cmpeq, .tmp4x, .tmp4x, .limb(.src1x), ._ },
-                                        .{ ._, .v_ps, .movmsk, .tmp3d, .tmp4x, ._, ._ },
-                                        .{ ._, ._, .xor, .tmp3b, .i(0b1111), ._, ._ },
-                                        .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
-                                        .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
-                                    },
+                            .each = .{ .once = switch (cc) {
+                                else => unreachable,
+                                .e => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"0:", .v_dqu, .mov, .tmp4x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .vp_d, .cmpeq, .tmp4x, .tmp4x, .memia(.src1x, .tmp0, .add_size), ._ },
+                                    .{ ._, .v_ps, .movmsk, .tmp3d, .tmp4x, ._, ._ },
+                                    .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
+                                    .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 4), ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._nz, .j, .@"1f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memid(.dst0b, .tmp3, -1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"1:", ._, .add, .tmp0p, .i(16), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._z, .j, .@"0f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp3), .tmp2b, ._, ._ },
+                                },
+                                .ne => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"0:", .v_dqu, .mov, .tmp4x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .vp_d, .cmpeq, .tmp4x, .tmp4x, .memia(.src1x, .tmp0, .add_size), ._ },
+                                    .{ ._, .v_ps, .movmsk, .tmp3d, .tmp4x, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp3b, .i(0b1111), ._, ._ },
+                                    .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
+                                    .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 4), ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._nz, .j, .@"1f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memid(.dst0b, .tmp3, -1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"1:", ._, .add, .tmp0p, .i(16), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._z, .j, .@"0f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp3), .tmp2b, ._, ._ },
                                 },
                             } },
                         }, .{
@@ -3594,34 +3684,64 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .reg = .rcx } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u32, .kind = .{ .reg = .rcx } },
+                                .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
                                 .{ .kind = .{ .rc = .sse } },
                                 .unused,
                             },
                             .dst_temps = .{.mem},
-                            .each = .{ .limb_and_mask_limb = .{
-                                .of = .src0x,
-                                .of_mask = .dst0q,
-                                .body = switch (cc) {
-                                    else => unreachable,
-                                    .e => &.{
-                                        .{ ._, .v_dqu, .mov, .tmp4x, .limb(.src0x), ._, ._ },
-                                        .{ ._, .vp_q, .cmpeq, .tmp4x, .tmp4x, .limb(.src1x), ._ },
-                                        .{ ._, .v_pd, .movmsk, .tmp3d, .tmp4x, ._, ._ },
-                                        .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
-                                        .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
-                                    },
-                                    .ne => &.{
-                                        .{ ._, .v_dqu, .mov, .tmp4x, .limb(.src0x), ._, ._ },
-                                        .{ ._, .vp_q, .cmpeq, .tmp4x, .tmp4x, .limb(.src1x), ._ },
-                                        .{ ._, .v_pd, .movmsk, .tmp3d, .tmp4x, ._, ._ },
-                                        .{ ._, ._, .xor, .tmp3b, .i(0b11), ._, ._ },
-                                        .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
-                                        .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
-                                    },
+                            .each = .{ .once = switch (cc) {
+                                else => unreachable,
+                                .e => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"0:", .v_dqu, .mov, .tmp4x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .vp_q, .cmpeq, .tmp4x, .tmp4x, .memia(.src1x, .tmp0, .add_size), ._ },
+                                    .{ ._, .v_pd, .movmsk, .tmp3d, .tmp4x, ._, ._ },
+                                    .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
+                                    .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 2), ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._nz, .j, .@"1f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memid(.dst0b, .tmp3, -1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"1:", ._, .add, .tmp0p, .i(16), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._z, .j, .@"0f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp3), .tmp2b, ._, ._ },
+                                },
+                                .ne => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"0:", .v_dqu, .mov, .tmp4x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .vp_q, .cmpeq, .tmp4x, .tmp4x, .memia(.src1x, .tmp0, .add_size), ._ },
+                                    .{ ._, .v_pd, .movmsk, .tmp3d, .tmp4x, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp3b, .i(0b11), ._, ._ },
+                                    .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
+                                    .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 2), ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._nz, .j, .@"1f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memid(.dst0b, .tmp3, -1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"1:", ._, .add, .tmp0p, .i(16), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._z, .j, .@"0f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp3), .tmp2b, ._, ._ },
                                 },
                             } },
                         }, .{
@@ -3631,32 +3751,38 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u16, .kind = .{ .rc = .general_purpose } },
                                 .{ .kind = .{ .rc = .sse } },
                                 .unused,
                                 .unused,
                             },
                             .dst_temps = .{.mem},
-                            .each = .{ .limb_and_mask_limb = .{
-                                .of = .src0x,
-                                .of_mask = .dst0b,
-                                .body = switch (cc) {
-                                    else => unreachable,
-                                    .e => &.{
-                                        .{ ._, ._dqu, .mov, .tmp3x, .limb(.src0x), ._, ._ },
-                                        .{ ._, .p_b, .cmpeq, .tmp3x, .limb(.src1x), ._, ._ },
-                                        .{ ._, .p_b, .movmsk, .tmp2d, .tmp3x, ._, ._ },
-                                        .{ ._, ._, .mov, .maskLimb(.dst0w), .tmp2w, ._, ._ },
-                                    },
-                                    .ne => &.{
-                                        .{ ._, ._dqu, .mov, .tmp3x, .limb(.src0x), ._, ._ },
-                                        .{ ._, .p_b, .cmpeq, .tmp3x, .limb(.src1x), ._, ._ },
-                                        .{ ._, .p_b, .movmsk, .tmp2d, .tmp3x, ._, ._ },
-                                        .{ ._, ._, .not, .tmp2w, ._, ._, ._ },
-                                        .{ ._, ._, .mov, .maskLimb(.dst0w), .tmp2w, ._, ._ },
-                                    },
+                            .each = .{ .once = switch (cc) {
+                                else => unreachable,
+                                .e => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ .@"0:", ._dqu, .mov, .tmp3x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_b, .cmpeq, .tmp3x, .memia(.src1x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_b, .movmsk, .tmp2d, .tmp3x, ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0w, .tmp1), .tmp2w, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 2), ._, ._ },
+                                    .{ ._, ._, .add, .tmp0p, .i(16), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                },
+                                .ne => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ .@"0:", ._dqu, .mov, .tmp3x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_b, .cmpeq, .tmp3x, .memia(.src1x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_b, .movmsk, .tmp2d, .tmp3x, ._, ._ },
+                                    .{ ._, ._, .not, .tmp2d, ._, ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0w, .tmp1), .tmp2w, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 2), ._, ._ },
+                                    .{ ._, ._, .add, .tmp0p, .i(16), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
                                 },
                             } },
                         }, .{
@@ -3666,34 +3792,40 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
                                 .{ .kind = .{ .rc = .sse } },
                                 .unused,
                                 .unused,
                             },
                             .dst_temps = .{.mem},
-                            .each = .{ .limb_and_mask_limb = .{
-                                .of = .src0x,
-                                .of_mask = .dst0w,
-                                .body = switch (cc) {
-                                    else => unreachable,
-                                    .e => &.{
-                                        .{ ._, ._dqu, .mov, .tmp3x, .limb(.src0x), ._, ._ },
-                                        .{ ._, .p_w, .cmpeq, .tmp3x, .limb(.src1x), ._, ._ },
-                                        .{ ._, .p_b, .ackssw, .tmp3x, .tmp3x, ._, ._ },
-                                        .{ ._, .p_b, .movmsk, .tmp2d, .tmp3x, ._, ._ },
-                                        .{ ._, ._, .mov, .maskLimb(.dst0w), .tmp2b, ._, ._ },
-                                    },
-                                    .ne => &.{
-                                        .{ ._, ._dqu, .mov, .tmp3x, .limb(.src0x), ._, ._ },
-                                        .{ ._, .p_w, .cmpeq, .tmp3x, .limb(.src1x), ._, ._ },
-                                        .{ ._, .p_b, .ackssw, .tmp3x, .tmp3x, ._, ._ },
-                                        .{ ._, .p_b, .movmsk, .tmp2d, .tmp3x, ._, ._ },
-                                        .{ ._, ._, .not, .tmp2b, ._, ._, ._ },
-                                        .{ ._, ._, .mov, .maskLimb(.dst0w), .tmp2b, ._, ._ },
-                                    },
+                            .each = .{ .once = switch (cc) {
+                                else => unreachable,
+                                .e => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ .@"0:", ._dqu, .mov, .tmp3x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_w, .cmpeq, .tmp3x, .memia(.src1x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_b, .ackssw, .tmp3x, .tmp3x, ._, ._ },
+                                    .{ ._, .p_b, .movmsk, .tmp2d, .tmp3x, ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 1), ._, ._ },
+                                    .{ ._, ._, .add, .tmp0p, .i(16), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                },
+                                .ne => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ .@"0:", ._dqu, .mov, .tmp3x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_w, .cmpeq, .tmp3x, .memia(.src1x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_b, .ackssw, .tmp3x, .tmp3x, ._, ._ },
+                                    .{ ._, .p_b, .movmsk, .tmp2d, .tmp3x, ._, ._ },
+                                    .{ ._, ._, .not, .tmp2b, ._, ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 1), ._, ._ },
+                                    .{ ._, ._, .add, .tmp0p, .i(16), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
                                 },
                             } },
                         }, .{
@@ -3703,34 +3835,64 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .reg = .rcx } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u32, .kind = .{ .reg = .rcx } },
+                                .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
                                 .{ .kind = .{ .rc = .sse } },
                                 .unused,
                             },
                             .dst_temps = .{.mem},
-                            .each = .{ .limb_and_mask_limb = .{
-                                .of = .src0x,
-                                .of_mask = .dst0d,
-                                .body = switch (cc) {
-                                    else => unreachable,
-                                    .e => &.{
-                                        .{ ._, ._dqu, .mov, .tmp4x, .limb(.src0x), ._, ._ },
-                                        .{ ._, .p_q, .cmpeq, .tmp4x, .limb(.src1x), ._, ._ },
-                                        .{ ._, ._ps, .movmsk, .tmp3d, .tmp4x, ._, ._ },
-                                        .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
-                                        .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
-                                    },
-                                    .ne => &.{
-                                        .{ ._, ._dqu, .mov, .tmp4x, .limb(.src0x), ._, ._ },
-                                        .{ ._, .p_d, .cmpeq, .tmp4x, .limb(.src1x), ._, ._ },
-                                        .{ ._, ._ps, .movmsk, .tmp3d, .tmp4x, ._, ._ },
-                                        .{ ._, ._, .xor, .tmp3b, .i(0b1111), ._, ._ },
-                                        .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
-                                        .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
-                                    },
+                            .each = .{ .once = switch (cc) {
+                                else => unreachable,
+                                .e => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"0:", ._dqu, .mov, .tmp4x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_d, .cmpeq, .tmp4x, .memia(.src1x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, ._ps, .movmsk, .tmp3d, .tmp4x, ._, ._ },
+                                    .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
+                                    .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 4), ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._nz, .j, .@"1f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memid(.dst0b, .tmp3, -1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"1:", ._, .add, .tmp0p, .i(16), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._z, .j, .@"0f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp3), .tmp2b, ._, ._ },
+                                },
+                                .ne => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"0:", ._dqu, .mov, .tmp4x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_d, .cmpeq, .tmp4x, .memia(.src1x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, ._ps, .movmsk, .tmp3d, .tmp4x, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp3b, .i(0b1111), ._, ._ },
+                                    .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
+                                    .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 4), ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._nz, .j, .@"1f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memid(.dst0b, .tmp3, -1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"1:", ._, .add, .tmp0p, .i(16), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._z, .j, .@"0f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp3), .tmp2b, ._, ._ },
                                 },
                             } },
                         }, .{
@@ -3740,143 +3902,249 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .reg = .rcx } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u32, .kind = .{ .reg = .rcx } },
+                                .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
                                 .{ .kind = .{ .rc = .sse } },
                                 .unused,
                             },
                             .dst_temps = .{.mem},
-                            .each = .{ .limb_and_mask_limb = .{
-                                .of = .src0x,
-                                .of_mask = .dst0q,
-                                .body = switch (cc) {
-                                    else => unreachable,
-                                    .e => &.{
-                                        .{ ._, ._dqu, .mov, .tmp4x, .limb(.src0x), ._, ._ },
-                                        .{ ._, .p_q, .cmpeq, .tmp4x, .limb(.src1x), ._, ._ },
-                                        .{ ._, ._pd, .movmsk, .tmp3d, .tmp4x, ._, ._ },
-                                        .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
-                                        .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
-                                    },
-                                    .ne => &.{
-                                        .{ ._, ._dqu, .mov, .tmp4x, .limb(.src0x), ._, ._ },
-                                        .{ ._, .p_q, .cmpeq, .tmp4x, .limb(.src1x), ._, ._ },
-                                        .{ ._, ._pd, .movmsk, .tmp3d, .tmp4x, ._, ._ },
-                                        .{ ._, ._, .xor, .tmp3b, .i(0b11), ._, ._ },
-                                        .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
-                                        .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
-                                    },
+                            .each = .{ .once = switch (cc) {
+                                else => unreachable,
+                                .e => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"0:", ._dqu, .mov, .tmp4x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_q, .cmpeq, .tmp4x, .memia(.src1x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, ._pd, .movmsk, .tmp3d, .tmp4x, ._, ._ },
+                                    .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
+                                    .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 2), ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._nz, .j, .@"1f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memid(.dst0b, .tmp3, -1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"1:", ._, .add, .tmp0p, .i(16), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._z, .j, .@"0f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp3), .tmp2b, ._, ._ },
+                                },
+                                .ne => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"0:", ._dqu, .mov, .tmp4x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_q, .cmpeq, .tmp4x, .memia(.src1x, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, ._pd, .movmsk, .tmp3d, .tmp4x, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp3b, .i(0b11), ._, ._ },
+                                    .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
+                                    .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 2), ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._nz, .j, .@"1f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memid(.dst0b, .tmp3, -1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"1:", ._, .add, .tmp0p, .i(16), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._z, .j, .@"0f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp3), .tmp2b, ._, ._ },
                                 },
                             } },
                         }, .{
-                            .required_features = .{ .mmx, null },
+                            .required_features = .{ .sse, .mmx },
                             .src_constraints = .{ .{ .int = .byte }, .{ .int = .byte } },
                             .patterns = &.{
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .u16, .kind = .{ .rc = .general_purpose } },
-                                .{ .kind = .{ .rc = .mmx } },
-                                .unused,
-                                .unused,
-                            },
-                            .dst_temps = .{.mem},
-                            .each = .{ .limb_and_mask_limb = .{
-                                .of = .src0q,
-                                .of_mask = .dst0b,
-                                .body = switch (cc) {
-                                    else => unreachable,
-                                    .e => &.{
-                                        .{ ._, ._dqu, .mov, .tmp3q, .limb(.src0q), ._, ._ },
-                                        .{ ._, .p_b, .cmpeq, .tmp3q, .limb(.src1q), ._, ._ },
-                                        .{ ._, .p_b, .movmsk, .tmp2d, .tmp3q, ._, ._ },
-                                        .{ ._, ._, .mov, .maskLimb(.dst0w), .tmp2w, ._, ._ },
-                                    },
-                                    .ne => &.{
-                                        .{ ._, ._dqu, .mov, .tmp3q, .limb(.src0q), ._, ._ },
-                                        .{ ._, .p_b, .cmpeq, .tmp3q, .limb(.src1q), ._, ._ },
-                                        .{ ._, .p_b, .movmsk, .tmp2d, .tmp3q, ._, ._ },
-                                        .{ ._, ._, .not, .tmp2w, ._, ._, ._ },
-                                        .{ ._, ._, .mov, .maskLimb(.dst0w), .tmp2w, ._, ._ },
-                                    },
-                                },
-                            } },
-                        }, .{
-                            .required_features = .{ .mmx, null },
-                            .src_constraints = .{ .{ .int = .word }, .{ .int = .word } },
-                            .patterns = &.{
-                                .{ .src = .{ .to_mem, .to_mem } },
-                            },
-                            .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
                                 .{ .kind = .{ .rc = .mmx } },
                                 .unused,
                                 .unused,
                             },
                             .dst_temps = .{.mem},
-                            .each = .{ .limb_and_mask_limb = .{
-                                .of = .src0q,
-                                .of_mask = .dst0w,
-                                .body = switch (cc) {
-                                    else => unreachable,
-                                    .e => &.{
-                                        .{ ._, ._dqu, .mov, .tmp3q, .limb(.src0q), ._, ._ },
-                                        .{ ._, .p_w, .cmpeq, .tmp3q, .limb(.src1q), ._, ._ },
-                                        .{ ._, .p_b, .ackssw, .tmp3q, .tmp3q, ._, ._ },
-                                        .{ ._, .p_b, .movmsk, .tmp2d, .tmp3q, ._, ._ },
-                                        .{ ._, ._, .mov, .maskLimb(.dst0w), .tmp2b, ._, ._ },
-                                    },
-                                    .ne => &.{
-                                        .{ ._, ._dqu, .mov, .tmp3q, .limb(.src0q), ._, ._ },
-                                        .{ ._, .p_w, .cmpeq, .tmp3q, .limb(.src1q), ._, ._ },
-                                        .{ ._, .p_b, .ackssw, .tmp3q, .tmp3q, ._, ._ },
-                                        .{ ._, .p_b, .movmsk, .tmp2d, .tmp3q, ._, ._ },
-                                        .{ ._, ._, .not, .tmp2b, ._, ._, ._ },
-                                        .{ ._, ._, .mov, .maskLimb(.dst0w), .tmp2b, ._, ._ },
-                                    },
+                            .each = .{ .once = switch (cc) {
+                                else => unreachable,
+                                .e => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ .@"0:", ._q, .mov, .tmp3q, .memia(.src0q, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_b, .cmpeq, .tmp3q, .memia(.src1q, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_b, .movmsk, .tmp2d, .tmp3q, ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 1), ._, ._ },
+                                    .{ ._, ._, .add, .tmp0p, .i(8), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                },
+                                .ne => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ .@"0:", ._q, .mov, .tmp3q, .memia(.src0q, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_b, .cmpeq, .tmp3q, .memia(.src1q, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_b, .movmsk, .tmp2d, .tmp3q, ._, ._ },
+                                    .{ ._, ._, .not, .tmp2b, ._, ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 1), ._, ._ },
+                                    .{ ._, ._, .add, .tmp0p, .i(8), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
                                 },
                             } },
                         }, .{
-                            .required_features = .{ .mmx, null },
+                            .required_features = .{ .sse, .mmx },
+                            .src_constraints = .{ .{ .int = .word }, .{ .int = .word } },
+                            .patterns = &.{
+                                .{ .src = .{ .to_mem, .to_mem } },
+                            },
+                            .extra_temps = .{
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
+                                .{ .kind = .{ .rc = .mmx } },
+                                .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
+                                .{ .kind = .{ .rc = .mmx } },
+                            },
+                            .dst_temps = .{.mem},
+                            .each = .{ .once = switch (cc) {
+                                else => unreachable,
+                                .e => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ ._, .p_, .xor, .tmp3q, .tmp3q, ._, ._ },
+                                    .{ .@"0:", ._q, .mov, .tmp5q, .memia(.src0q, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_w, .cmpeq, .tmp5q, .memia(.src1q, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_b, .ackssw, .tmp5q, .tmp3q, ._, ._ },
+                                    .{ ._, .p_b, .movmsk, .tmp4d, .tmp5q, ._, ._ },
+                                    .{ ._, ._l, .ro, .tmp4b, .tmp1b, ._, ._ },
+                                    .{ ._, ._, .@"or", .tmp2b, .tmp4b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 4), ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._nz, .j, .@"1f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp4d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp4d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memid(.dst0b, .tmp4, -1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"1:", ._, .add, .tmp0p, .i(8), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._z, .j, .@"0f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp4d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp4d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp4), .tmp2b, ._, ._ },
+                                },
+                                .ne => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ ._, .p_, .xor, .tmp3q, .tmp3q, ._, ._ },
+                                    .{ .@"0:", ._q, .mov, .tmp5q, .memia(.src0q, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_w, .cmpeq, .tmp5q, .memia(.src1q, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_b, .ackssw, .tmp5q, .tmp3q, ._, ._ },
+                                    .{ ._, .p_b, .movmsk, .tmp4d, .tmp5q, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp4b, .i(0b1111), ._, ._ },
+                                    .{ ._, ._l, .ro, .tmp4b, .tmp1b, ._, ._ },
+                                    .{ ._, ._, .@"or", .tmp2b, .tmp4b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 4), ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._nz, .j, .@"1f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp4d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp4d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memid(.dst0b, .tmp4, -1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"1:", ._, .add, .tmp0p, .i(8), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._z, .j, .@"0f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp4d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp4d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp4), .tmp2b, ._, ._ },
+                                },
+                            } },
+                        }, .{
+                            .required_features = .{ .sse, .mmx },
                             .src_constraints = .{ .{ .int = .dword }, .{ .int = .dword } },
                             .patterns = &.{
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .reg = .rcx } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .u32, .kind = .{ .reg = .rcx } },
+                                .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
                                 .{ .kind = .{ .rc = .mmx } },
-                                .unused,
+                                .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
+                                .{ .kind = .{ .rc = .mmx } },
                             },
                             .dst_temps = .{.mem},
-                            .each = .{ .limb_and_mask_limb = .{
-                                .of = .src0q,
-                                .of_mask = .dst0d,
-                                .body = switch (cc) {
-                                    else => unreachable,
-                                    .e => &.{
-                                        .{ ._, ._dqu, .mov, .tmp4q, .limb(.src0q), ._, ._ },
-                                        .{ ._, .p_q, .cmpeq, .tmp4q, .limb(.src1q), ._, ._ },
-                                        .{ ._, ._ps, .movmsk, .tmp3d, .tmp4q, ._, ._ },
-                                        .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
-                                        .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
-                                    },
-                                    .ne => &.{
-                                        .{ ._, ._dqu, .mov, .tmp4q, .limb(.src0q), ._, ._ },
-                                        .{ ._, .p_q, .cmpeq, .tmp4q, .limb(.src1q), ._, ._ },
-                                        .{ ._, ._ps, .movmsk, .tmp3d, .tmp4q, ._, ._ },
-                                        .{ ._, ._, .xor, .tmp3b, .i(0b1111), ._, ._ },
-                                        .{ ._, ._l, .ro, .tmp3b, .tmp1b, ._, ._ },
-                                        .{ ._, ._, .@"or", .tmp2b, .tmp3b, ._, ._ },
-                                    },
+                            .each = .{ .once = switch (cc) {
+                                else => unreachable,
+                                .e => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ ._, .p_, .xor, .tmp3q, .tmp3q, ._, ._ },
+                                    .{ .@"0:", ._q, .mov, .tmp5q, .memia(.src0q, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_d, .cmpeq, .tmp5q, .memia(.src1q, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_w, .ackssd, .tmp5q, .tmp3q, ._, ._ },
+                                    .{ ._, .p_b, .ackssw, .tmp5q, .tmp3q, ._, ._ },
+                                    .{ ._, .p_b, .movmsk, .tmp4d, .tmp5q, ._, ._ },
+                                    .{ ._, ._l, .ro, .tmp4b, .tmp1b, ._, ._ },
+                                    .{ ._, ._, .@"or", .tmp2b, .tmp4b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 2), ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._nz, .j, .@"1f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp4d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp4d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memid(.dst0b, .tmp4, -1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"1:", ._, .add, .tmp0p, .i(8), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._z, .j, .@"0f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp4d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp4d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp4), .tmp2b, ._, ._ },
+                                },
+                                .ne => &.{
+                                    .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                                    .{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ ._, .p_, .xor, .tmp3q, .tmp3q, ._, ._ },
+                                    .{ .@"0:", ._q, .mov, .tmp5q, .memia(.src0q, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_d, .cmpeq, .tmp5q, .memia(.src1q, .tmp0, .add_size), ._, ._ },
+                                    .{ ._, .p_w, .ackssd, .tmp5q, .tmp3q, ._, ._ },
+                                    .{ ._, .p_b, .ackssw, .tmp5q, .tmp3q, ._, ._ },
+                                    .{ ._, .p_b, .movmsk, .tmp4d, .tmp5q, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp4b, .i(0b11), ._, ._ },
+                                    .{ ._, ._l, .ro, .tmp4b, .tmp1b, ._, ._ },
+                                    .{ ._, ._, .@"or", .tmp2b, .tmp4b, ._, ._ },
+                                    .{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, 2), ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._nz, .j, .@"1f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp4d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp4d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memid(.dst0b, .tmp4, -1), .tmp2b, ._, ._ },
+                                    .{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ },
+                                    .{ .@"1:", ._, .add, .tmp0p, .i(8), ._, ._ },
+                                    .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                                    .{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ },
+                                    .{ ._, ._z, .j, .@"0f", ._, ._, ._ },
+                                    .{ ._, ._, .mov, .tmp4d, .tmp1d, ._, ._ },
+                                    .{ ._, ._r, .sh, .tmp4d, .i(3), ._, ._ },
+                                    .{ ._, ._, .mov, .memi(.dst0b, .tmp4), .tmp2b, ._, ._ },
                                 },
                             } },
                         }, .{
@@ -3887,7 +4155,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
                                 .unused,
@@ -3915,7 +4183,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
                                 .unused,
@@ -3944,7 +4212,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u16, .kind = .{ .rc = .general_purpose } },
                                 .unused,
@@ -3972,7 +4240,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u16, .kind = .{ .rc = .general_purpose } },
                                 .unused,
@@ -4001,7 +4269,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
                                 .unused,
@@ -4029,7 +4297,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
                                 .unused,
@@ -4058,7 +4326,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u64, .kind = .{ .rc = .general_purpose } },
                                 .unused,
@@ -4087,7 +4355,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u64, .kind = .{ .rc = .general_purpose } },
                                 .unused,
@@ -4185,7 +4453,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
@@ -4214,7 +4482,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
@@ -4244,7 +4512,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u16, .kind = .{ .rc = .general_purpose } },
@@ -4273,7 +4541,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u16, .kind = .{ .rc = .general_purpose } },
@@ -4303,7 +4571,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
@@ -4332,7 +4600,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
@@ -4362,7 +4630,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u64, .kind = .{ .rc = .general_purpose } },
@@ -4392,7 +4660,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u64, .kind = .{ .rc = .general_purpose } },
@@ -4493,7 +4761,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u64, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
@@ -4523,7 +4791,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u64, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .rc = .general_purpose } },
@@ -4553,7 +4821,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u64, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u16, .kind = .{ .rc = .general_purpose } },
@@ -4582,7 +4850,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u64, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u16, .kind = .{ .rc = .general_purpose } },
@@ -4612,7 +4880,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u64, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
@@ -4642,7 +4910,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u64, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
@@ -4672,7 +4940,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u64, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u64, .kind = .{ .rc = .general_purpose } },
@@ -4702,7 +4970,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u8, .kind = .{ .reg = .cl } },
                                 .{ .type = .u64, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u64, .kind = .{ .rc = .general_purpose } },
@@ -4803,7 +5071,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u32, .kind = .{ .reg = .ecx } },
                                 .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
@@ -4822,15 +5090,15 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ ._, ._l, .sh, .tmp3p, .tmp1b, ._, ._ },
                                 .{ ._, ._, .@"or", .tmp2p, .tmp3p, ._, ._ },
                                 .{ ._, ._, .add, .tmp1d, .i(1), ._, ._ },
-                                .{ ._, ._, .@"test", .tmp1d, .ia(-1, .tmp2, .add_bit_size), ._, ._ },
+                                .{ ._, ._, .@"test", .tmp1d, .ia(-1, .none, .add_ptr_bit_size), ._, ._ },
                                 .{ ._, ._nz, .j, .@"1f", ._, ._, ._ },
                                 .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
                                 .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
-                                .{ ._, ._, .mov, .memia(.dst0p, .tmp3, .sub_access_size), .tmp2p, ._, ._ },
+                                .{ ._, ._, .mov, .memia(.dst0p, .tmp3, .sub_ptr_size), .tmp2p, ._, ._ },
                                 .{ ._, ._, .xor, .tmp2d, .tmp2d, ._, ._ },
                                 .{ .@"1:", ._, .add, .tmp0p, .i(1), ._, ._ },
                                 .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
-                                .{ ._, ._, .@"test", .tmp1d, .ia(-1, .tmp2, .add_bit_size), ._, ._ },
+                                .{ ._, ._, .@"test", .tmp1d, .ia(-1, .none, .add_ptr_bit_size), ._, ._ },
                                 .{ ._, ._z, .j, .@"0f", ._, ._, ._ },
                                 .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
                                 .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
@@ -4842,7 +5110,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
                             .extra_temps = .{
-                                .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                                .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .u32, .kind = .{ .reg = .ecx } },
                                 .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                                 .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
@@ -4861,15 +5129,15 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ ._, ._l, .sh, .tmp3p, .tmp1b, ._, ._ },
                                 .{ ._, ._, .@"or", .tmp2p, .tmp3p, ._, ._ },
                                 .{ ._, ._, .inc, .tmp1d, ._, ._, ._ },
-                                .{ ._, ._, .@"test", .tmp1d, .ia(-1, .tmp2, .add_bit_size), ._, ._ },
+                                .{ ._, ._, .@"test", .tmp1d, .ia(-1, .none, .add_ptr_bit_size), ._, ._ },
                                 .{ ._, ._nz, .j, .@"1f", ._, ._, ._ },
                                 .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
                                 .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
-                                .{ ._, ._, .mov, .memia(.dst0p, .tmp3, .sub_access_size), .tmp2p, ._, ._ },
+                                .{ ._, ._, .mov, .memia(.dst0p, .tmp3, .sub_ptr_size), .tmp2p, ._, ._ },
                                 .{ ._, ._, .xor, .tmp2d, .tmp2d, ._, ._ },
                                 .{ .@"1:", ._, .inc, .tmp0p, ._, ._, ._ },
                                 .{ ._, ._nz, .j, .@"0b", ._, ._, ._ },
-                                .{ ._, ._, .@"test", .tmp1d, .ia(-1, .tmp2, .add_bit_size), ._, ._ },
+                                .{ ._, ._, .@"test", .tmp1d, .ia(-1, .none, .add_ptr_bit_size), ._, ._ },
                                 .{ ._, ._z, .j, .@"0f", ._, ._, ._ },
                                 .{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ },
                                 .{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ },
@@ -5040,8 +5308,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
                         .extra_temps = .{
+                            .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                             .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                            .{ .type = .bool, .kind = .{ .rc = .general_purpose } },
                             .unused,
                             .unused,
                             .unused,
@@ -5049,18 +5317,16 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         },
                         .clobbers = .{ .eflags = true },
                         .dst_temps = .{.{ .rc = .general_purpose }},
-                        .each = .{ .limb = .{
-                            .of = .src0p,
-                            .header = &.{
-                                .{ ._, ._, .xor, .tmp1b, .tmp1b, ._, ._ },
-                            },
-                            .body = &.{
-                                .{ ._, ._, .mov, .tmp0p, .limb(.src0p), ._, ._ },
-                                .{ ._, ._r, .sh, .tmp1b, .i(1), ._, ._ },
-                                .{ ._, ._, .sbb, .tmp0p, .limb(.src1p), ._, ._ },
-                                .{ ._, ._c, .set, .tmp1b, ._, ._, ._ },
-                                .{ ._, .fromCondition(cc), .set, .dst0b, ._, ._, ._ },
-                            },
+                        .each = .{ .once = &.{
+                            .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                            .{ ._, ._, .xor, .tmp1b, .tmp1b, ._, ._ },
+                            .{ .@"0:", ._r, .sh, .tmp1b, .i(1), ._, ._ },
+                            .{ ._, ._, .mov, .tmp1p, .memia(.src0p, .tmp0, .add_size), ._, ._ },
+                            .{ ._, ._, .sbb, .tmp1p, .memia(.src1p, .tmp0, .add_size), ._, ._ },
+                            .{ ._, ._c, .set, .tmp1b, ._, ._, ._ },
+                            .{ ._, .fromCondition(cc), .set, .dst0b, ._, ._, ._ },
+                            .{ ._, ._, .add, .tmp0p, .a(.tmp1, .add_size), ._, ._ },
+                            .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
                         } },
                     } },
                 }) catch |err| switch (err) {
@@ -5296,7 +5562,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
                         .extra_temps = .{
-                            .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                            .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                             .{ .kind = .{ .rc = .sse } },
                             .{ .kind = .{ .rc = .sse } },
                             .unused,
@@ -5304,19 +5570,15 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .unused,
                         },
                         .dst_temps = .{.{ .cc = cc }},
-                        .each = .{ .limb = .{
-                            .of = .src0y,
-                            .header = &.{
-                                .{ ._, .vp_, .xor, .tmp2y, .tmp2y, .tmp2y, ._ },
-                            },
-                            .body = &.{
-                                .{ ._, .v_dqu, .mov, .tmp1y, .limb(.src0y), ._, ._ },
-                                .{ ._, .vp_, .xor, .tmp1y, .tmp1y, .limb(.src1y), ._ },
-                                .{ ._, .vp_, .@"or", .tmp2y, .tmp2y, .tmp1y, ._ },
-                            },
-                            .trailer = &.{
-                                .{ ._, .vp_, .@"test", .tmp2y, .tmp2y, ._, ._ },
-                            },
+                        .each = .{ .once = &.{
+                            .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                            .{ ._, .vp_, .xor, .tmp1y, .tmp1y, .tmp1y, ._ },
+                            .{ .@"0:", .v_dqu, .mov, .tmp2y, .memia(.src0y, .tmp0, .add_size), ._, ._ },
+                            .{ ._, .vp_, .xor, .tmp2y, .tmp2y, .memia(.src1y, .tmp0, .add_size), ._ },
+                            .{ ._, .vp_, .@"or", .tmp1y, .tmp1y, .tmp2y, ._ },
+                            .{ ._, ._, .add, .tmp0p, .i(32), ._, ._ },
+                            .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                            .{ ._, .vp_, .@"test", .tmp1y, .tmp1y, ._, ._ },
                         } },
                     }, .{
                         .required_features = .{ .avx, null },
@@ -5324,7 +5586,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
                         .extra_temps = .{
-                            .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                            .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                             .{ .kind = .{ .rc = .sse } },
                             .{ .kind = .{ .rc = .sse } },
                             .unused,
@@ -5332,19 +5594,15 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .unused,
                         },
                         .dst_temps = .{.{ .cc = cc }},
-                        .each = .{ .limb = .{
-                            .of = .src0y,
-                            .header = &.{
-                                .{ ._, .v_pd, .xor, .tmp2y, .tmp2y, .tmp2y, ._ },
-                            },
-                            .body = &.{
-                                .{ ._, .v_pd, .movu, .tmp1y, .limb(.src0y), ._, ._ },
-                                .{ ._, .v_pd, .xor, .tmp1y, .tmp1y, .limb(.src1y), ._ },
-                                .{ ._, .v_pd, .@"or", .tmp2y, .tmp2y, .tmp1y, ._ },
-                            },
-                            .trailer = &.{
-                                .{ ._, .vp_, .@"test", .tmp2y, .tmp2y, ._, ._ },
-                            },
+                        .each = .{ .once = &.{
+                            .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                            .{ ._, .v_pd, .xor, .tmp1y, .tmp1y, .tmp1y, ._ },
+                            .{ .@"0:", .v_pd, .movu, .tmp2y, .memia(.src0y, .tmp0, .add_size), ._, ._ },
+                            .{ ._, .v_pd, .xor, .tmp2y, .tmp2y, .memia(.src1y, .tmp0, .add_size), ._ },
+                            .{ ._, .v_pd, .@"or", .tmp1y, .tmp1y, .tmp2y, ._ },
+                            .{ ._, ._, .add, .tmp0p, .i(32), ._, ._ },
+                            .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                            .{ ._, .vp_, .@"test", .tmp1y, .tmp1y, ._, ._ },
                         } },
                     }, .{
                         .required_features = .{ .avx, null },
@@ -5352,7 +5610,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
                         .extra_temps = .{
-                            .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                            .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                             .{ .kind = .{ .rc = .sse } },
                             .{ .kind = .{ .rc = .sse } },
                             .unused,
@@ -5360,47 +5618,15 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .unused,
                         },
                         .dst_temps = .{.{ .cc = cc }},
-                        .each = .{ .limb = .{
-                            .of = .src0x,
-                            .header = &.{
-                                .{ ._, .vp_, .xor, .tmp2x, .tmp2x, .tmp2x, ._ },
-                            },
-                            .body = &.{
-                                .{ ._, .v_dqu, .mov, .tmp1x, .limb(.src0x), ._, ._ },
-                                .{ ._, .vp_, .xor, .tmp1x, .tmp1x, .limb(.src1x), ._ },
-                                .{ ._, .vp_, .@"or", .tmp2x, .tmp2x, .tmp1x, ._ },
-                            },
-                            .trailer = &.{
-                                .{ ._, .vp_, .@"test", .tmp2x, .tmp2x, ._, ._ },
-                            },
-                        } },
-                    }, .{
-                        .required_features = .{ .avx, null },
-                        .patterns = &.{
-                            .{ .src = .{ .to_mem, .to_mem } },
-                        },
-                        .extra_temps = .{
-                            .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
-                            .{ .kind = .{ .rc = .sse } },
-                            .{ .kind = .{ .rc = .sse } },
-                            .unused,
-                            .unused,
-                            .unused,
-                        },
-                        .dst_temps = .{.{ .cc = cc }},
-                        .each = .{ .limb = .{
-                            .of = .src0x,
-                            .header = &.{
-                                .{ ._, .vp_, .xor, .tmp2x, .tmp2x, .tmp2x, ._ },
-                            },
-                            .body = &.{
-                                .{ ._, .v_dqu, .mov, .tmp1x, .limb(.src0x), ._, ._ },
-                                .{ ._, .vp_, .xor, .tmp1x, .tmp1x, .limb(.src1x), ._ },
-                                .{ ._, .vp_, .@"or", .tmp2x, .tmp2x, .tmp1x, ._ },
-                            },
-                            .trailer = &.{
-                                .{ ._, .vp_, .@"test", .tmp2x, .tmp2x, ._, ._ },
-                            },
+                        .each = .{ .once = &.{
+                            .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                            .{ ._, .vp_, .xor, .tmp1x, .tmp1x, .tmp1x, ._ },
+                            .{ .@"0:", .v_dqu, .mov, .tmp2x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                            .{ ._, .vp_, .xor, .tmp2x, .tmp2x, .memia(.src1x, .tmp0, .add_size), ._ },
+                            .{ ._, .vp_, .@"or", .tmp1x, .tmp1x, .tmp2x, ._ },
+                            .{ ._, ._, .add, .tmp0p, .i(16), ._, ._ },
+                            .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                            .{ ._, .vp_, .@"test", .tmp1x, .tmp1x, ._, ._ },
                         } },
                     }, .{
                         .required_features = .{ .sse4_1, null },
@@ -5408,7 +5634,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
                         .extra_temps = .{
-                            .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                            .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                             .{ .kind = .{ .rc = .sse } },
                             .{ .kind = .{ .rc = .sse } },
                             .unused,
@@ -5416,19 +5642,15 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .unused,
                         },
                         .dst_temps = .{.{ .cc = cc }},
-                        .each = .{ .limb = .{
-                            .of = .src0x,
-                            .header = &.{
-                                .{ ._, .p_, .xor, .tmp2x, .tmp2x, ._, ._ },
-                            },
-                            .body = &.{
-                                .{ ._, ._dqu, .mov, .tmp1x, .limb(.src0x), ._, ._ },
-                                .{ ._, .p_, .xor, .tmp1x, .limb(.src1x), ._, ._ },
-                                .{ ._, .p_, .@"or", .tmp2x, .tmp1x, ._, ._ },
-                            },
-                            .trailer = &.{
-                                .{ ._, .p_, .@"test", .tmp2x, .tmp2x, ._, ._ },
-                            },
+                        .each = .{ .once = &.{
+                            .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                            .{ ._, .p_, .xor, .tmp1x, .tmp1x, ._, ._ },
+                            .{ .@"0:", ._dqu, .mov, .tmp2x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                            .{ ._, .p_, .xor, .tmp2x, .memia(.src1x, .tmp0, .add_size), ._, ._ },
+                            .{ ._, .p_, .@"or", .tmp1x, .tmp2x, ._, ._ },
+                            .{ ._, ._, .add, .tmp0p, .i(16), ._, ._ },
+                            .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                            .{ ._, .p_, .@"test", .tmp1x, .tmp1x, ._, ._ },
                         } },
                     }, .{
                         .required_features = .{ .sse2, null },
@@ -5436,7 +5658,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
                         .extra_temps = .{
-                            .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                            .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                             .{ .kind = .{ .rc = .sse } },
                             .{ .kind = .{ .rc = .sse } },
                             .unused,
@@ -5444,22 +5666,18 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .unused,
                         },
                         .dst_temps = .{.{ .cc = cc }},
-                        .each = .{ .limb = .{
-                            .of = .src0x,
-                            .header = &.{
-                                .{ ._, .p_, .xor, .tmp2x, .tmp2x, ._, ._ },
-                            },
-                            .body = &.{
-                                .{ ._, ._dqu, .mov, .tmp1x, .limb(.src0x), ._, ._ },
-                                .{ ._, .p_, .xor, .tmp1x, .limb(.src1x), ._, ._ },
-                                .{ ._, .p_, .@"or", .tmp2x, .tmp1x, ._, ._ },
-                            },
-                            .trailer = &.{
-                                .{ ._, .p_, .xor, .tmp1x, .tmp1x, ._, ._ },
-                                .{ ._, .p_b, .cmpeq, .tmp2x, .tmp1x, ._, ._ },
-                                .{ ._, .p_b, .movmsk, .tmp0d, .tmp2x, ._, ._ },
-                                .{ ._, ._, .xor, .tmp0d, .i(0xffff), ._, ._ },
-                            },
+                        .each = .{ .once = &.{
+                            .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                            .{ ._, .p_, .xor, .tmp1x, .tmp1x, ._, ._ },
+                            .{ .@"0:", ._dqu, .mov, .tmp2x, .memia(.src0x, .tmp0, .add_size), ._, ._ },
+                            .{ ._, .p_, .xor, .tmp2x, .memia(.src1x, .tmp0, .add_size), ._, ._ },
+                            .{ ._, .p_, .@"or", .tmp1x, .tmp2x, ._, ._ },
+                            .{ ._, ._, .add, .tmp0p, .i(16), ._, ._ },
+                            .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                            .{ ._, .p_, .xor, .tmp2x, .tmp2x, ._, ._ },
+                            .{ ._, .p_b, .cmpeq, .tmp1x, .tmp2x, ._, ._ },
+                            .{ ._, .p_b, .movmsk, .tmp0d, .tmp1x, ._, ._ },
+                            .{ ._, ._, .cmp, .tmp0d, .i(0xffff), ._, ._ },
                         } },
                     }, .{
                         .required_features = .{ .sse, .mmx },
@@ -5467,7 +5685,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
                         .extra_temps = .{
-                            .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                            .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                             .{ .kind = .{ .rc = .mmx } },
                             .{ .kind = .{ .rc = .mmx } },
                             .unused,
@@ -5475,29 +5693,25 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .unused,
                         },
                         .dst_temps = .{.{ .cc = cc }},
-                        .each = .{ .limb = .{
-                            .of = .src0q,
-                            .header = &.{
-                                .{ ._, .p_, .xor, .tmp2q, .tmp2q, ._, ._ },
-                            },
-                            .body = &.{
-                                .{ ._, ._q, .mov, .tmp1q, .limb(.src0q), ._, ._ },
-                                .{ ._, .p_, .xor, .tmp1q, .limb(.src1q), ._, ._ },
-                                .{ ._, .p_, .@"or", .tmp2q, .tmp1q, ._, ._ },
-                            },
-                            .trailer = &.{
-                                .{ ._, .p_, .xor, .tmp1q, .tmp1q, ._, ._ },
-                                .{ ._, .p_b, .cmpeq, .tmp2q, .tmp1q, ._, ._ },
-                                .{ ._, .p_b, .movmsk, .tmp0d, .tmp2q, ._, ._ },
-                                .{ ._, ._, .xor, .tmp0d, .i(0xff), ._, ._ },
-                            },
+                        .each = .{ .once = &.{
+                            .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                            .{ ._, .p_, .xor, .tmp1q, .tmp1q, ._, ._ },
+                            .{ .@"0:", ._q, .mov, .tmp2q, .memia(.src0q, .tmp0, .add_size), ._, ._ },
+                            .{ ._, .p_, .xor, .tmp2q, .memia(.src1q, .tmp0, .add_size), ._, ._ },
+                            .{ ._, .p_, .@"or", .tmp1q, .tmp2q, ._, ._ },
+                            .{ ._, ._, .add, .tmp0p, .i(8), ._, ._ },
+                            .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                            .{ ._, .p_, .xor, .tmp2q, .tmp2q, ._, ._ },
+                            .{ ._, .p_b, .cmpeq, .tmp1q, .tmp2q, ._, ._ },
+                            .{ ._, .p_b, .movmsk, .tmp0d, .tmp1q, ._, ._ },
+                            .{ ._, ._, .cmp, .tmp0d, .i(0xff), ._, ._ },
                         } },
                     }, .{
                         .patterns = &.{
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
                         .extra_temps = .{
-                            .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
+                            .{ .type = .isize, .kind = .{ .rc = .general_purpose } },
                             .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                             .{ .type = .usize, .kind = .{ .rc = .general_purpose } },
                             .unused,
@@ -5505,19 +5719,15 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .unused,
                         },
                         .dst_temps = .{.{ .cc = cc }},
-                        .each = .{ .limb = .{
-                            .of = .src0p,
-                            .header = &.{
-                                .{ ._, ._, .xor, .tmp2p, .tmp2p, ._, ._ },
-                            },
-                            .body = &.{
-                                .{ ._, ._, .mov, .tmp1p, .limb(.src0p), ._, ._ },
-                                .{ ._, ._, .xor, .tmp1p, .limb(.src1p), ._, ._ },
-                                .{ ._, ._, .@"or", .tmp2p, .tmp1p, ._, ._ },
-                            },
-                            .trailer = &.{
-                                .{ ._, ._, .@"test", .tmp2p, .tmp2p, ._, ._ },
-                            },
+                        .each = .{ .once = &.{
+                            .{ ._, ._, .mov, .tmp0p, .a(.src0, .sub_size), ._, ._ },
+                            .{ ._, ._, .xor, .tmp1p, .tmp1p, ._, ._ },
+                            .{ .@"0:", ._, .mov, .tmp2p, .memia(.src0p, .tmp0, .add_size), ._, ._ },
+                            .{ ._, ._, .xor, .tmp2p, .memia(.src1p, .tmp0, .add_size), ._, ._ },
+                            .{ ._, ._, .@"or", .tmp1p, .tmp2p, ._, ._ },
+                            .{ ._, ._, .add, .tmp0p, .a(.tmp2, .add_size), ._, ._ },
+                            .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
+                            .{ ._, ._, .@"test", .tmp1p, .tmp1p, ._, ._ },
                         } },
                     } },
                 }) catch |err| switch (err) {
@@ -24063,8 +24273,6 @@ const Select = struct {
         backward: ?Mir.Inst.Index,
         forward: [1]?Mir.Inst.Index,
     },
-    limb: Memory.Mod.Rm,
-    mask_limb: Memory.Mod.Rm,
 
     fn emitLabel(s: *Select, label_index: Label) void {
         if (label_index == ._) return;
@@ -24112,23 +24320,6 @@ const Select = struct {
         dst_temps: [@intFromEnum(Select.Operand.Ref.src0) - @intFromEnum(Select.Operand.Ref.dst0)]TempSpec.Kind = @splat(.unused),
         each: union(enum) {
             once: []const Instruction,
-            limb: struct {
-                of: Select.Operand.Ref.Sized,
-                header: []const Instruction = &.{},
-                first: ?[]const Instruction = null,
-                body: []const Instruction,
-                last: ?[]const Instruction = null,
-                trailer: []const Instruction = &.{},
-            },
-            limb_and_mask_limb: struct {
-                of: Select.Operand.Ref.Sized,
-                of_mask: Select.Operand.Ref.Sized,
-                header: []const Instruction = &.{},
-                first: ?[]const Instruction = null,
-                body: []const Instruction,
-                last: ?[]const Instruction = null,
-                trailer: []const Instruction = &.{},
-            },
         },
     };
 
@@ -24349,26 +24540,20 @@ const Select = struct {
             backward_label,
             forward_label,
             ref,
-            limb,
-            mask_limb,
             simm,
             lea,
             mem,
         };
         const Adjust = enum {
             none,
-            add_access_size,
-            sub_access_size,
+            add_ptr_size,
+            sub_ptr_size,
+            add_ptr_bit_size,
+            sub_ptr_bit_size,
             add_size,
             sub_size,
-            add_bit_size,
-            sub_bit_size,
-            add_limbs,
-            sub_limbs,
             add_len,
             sub_len,
-            add_elem_size,
-            sub_elem_size,
             add_elem_limbs,
             sub_elem_limbs,
         };
@@ -24434,6 +24619,15 @@ const Select = struct {
                 const tmp4q: Sized = .{ .ref = .tmp4, .size = .qword };
                 const tmp4x: Sized = .{ .ref = .tmp4, .size = .xword };
                 const tmp4y: Sized = .{ .ref = .tmp4, .size = .yword };
+
+                const tmp5: Sized = .{ .ref = .tmp5, .size = .none };
+                const tmp5b: Sized = .{ .ref = .tmp5, .size = .byte };
+                const tmp5w: Sized = .{ .ref = .tmp5, .size = .word };
+                const tmp5d: Sized = .{ .ref = .tmp5, .size = .dword };
+                const tmp5p: Sized = .{ .ref = .tmp5, .size = .ptr };
+                const tmp5q: Sized = .{ .ref = .tmp5, .size = .qword };
+                const tmp5x: Sized = .{ .ref = .tmp5, .size = .xword };
+                const tmp5y: Sized = .{ .ref = .tmp5, .size = .yword };
 
                 const dst0: Sized = .{ .ref = .dst0, .size = .none };
                 const dst0b: Sized = .{ .ref = .dst0, .size = .byte };
@@ -24515,6 +24709,14 @@ const Select = struct {
         const tmp4x: Select.Operand = .{ .tag = .ref, .base = .tmp4x };
         const tmp4y: Select.Operand = .{ .tag = .ref, .base = .tmp4y };
 
+        const tmp5b: Select.Operand = .{ .tag = .ref, .base = .tmp5b };
+        const tmp5w: Select.Operand = .{ .tag = .ref, .base = .tmp5w };
+        const tmp5d: Select.Operand = .{ .tag = .ref, .base = .tmp5d };
+        const tmp5p: Select.Operand = .{ .tag = .ref, .base = .tmp5p };
+        const tmp5q: Select.Operand = .{ .tag = .ref, .base = .tmp5q };
+        const tmp5x: Select.Operand = .{ .tag = .ref, .base = .tmp5x };
+        const tmp5y: Select.Operand = .{ .tag = .ref, .base = .tmp5y };
+
         const dst0b: Select.Operand = .{ .tag = .ref, .base = .dst0b };
         const dst0w: Select.Operand = .{ .tag = .ref, .base = .dst0w };
         const dst0d: Select.Operand = .{ .tag = .ref, .base = .dst0d };
@@ -24538,13 +24740,6 @@ const Select = struct {
         const src1q: Select.Operand = .{ .tag = .ref, .base = .src1q };
         const src1x: Select.Operand = .{ .tag = .ref, .base = .src1x };
         const src1y: Select.Operand = .{ .tag = .ref, .base = .src1y };
-
-        fn limb(ref: Ref.Sized) Select.Operand {
-            return .{ .tag = .limb, .base = ref };
-        }
-        fn maskLimb(ref: Ref.Sized) Select.Operand {
-            return .{ .tag = .mask_limb, .base = ref };
-        }
 
         fn i(imm: i32) Select.Operand {
             return .{ .tag = .simm, .imm = imm };
@@ -24673,28 +24868,14 @@ const Select = struct {
         fn adjustedImm(op: Select.Operand, s: *const Select) i32 {
             return switch (op.adjust) {
                 .none => op.imm,
-                .add_access_size => op.imm + @as(i32, @intCast(@divExact(op.base.size.bitSize(s.cg.target), 8))),
-                .sub_access_size => op.imm - @as(i32, @intCast(@divExact(op.base.size.bitSize(s.cg.target), 8))),
+                .add_ptr_size => op.imm + @divExact(s.cg.target.ptrBitWidth(), 8),
+                .sub_ptr_size => op.imm - @divExact(s.cg.target.ptrBitWidth(), 8),
+                .add_ptr_bit_size => op.imm + s.cg.target.ptrBitWidth(),
+                .sub_ptr_bit_size => op.imm - s.cg.target.ptrBitWidth(),
                 .add_size => op.imm + @as(i32, @intCast(op.base.ref.deref(s).typeOf(s.cg).abiSize(s.cg.pt.zcu))),
                 .sub_size => op.imm - @as(i32, @intCast(op.base.ref.deref(s).typeOf(s.cg).abiSize(s.cg.pt.zcu))),
-                .add_bit_size => op.imm + @as(i32, @intCast(op.base.ref.deref(s).typeOf(s.cg).bitSize(s.cg.pt.zcu))),
-                .sub_bit_size => op.imm - @as(i32, @intCast(op.base.ref.deref(s).typeOf(s.cg).bitSize(s.cg.pt.zcu))),
-                .add_limbs => op.imm + @as(i32, @intCast(@divExact(
-                    op.base.ref.deref(s).typeOf(s.cg).abiSize(s.cg.pt.zcu),
-                    @divExact(op.base.size.bitSize(s.cg.target), 8),
-                ))),
-                .sub_limbs => op.imm + @as(i32, @intCast(@divExact(
-                    op.base.ref.deref(s).typeOf(s.cg).abiSize(s.cg.pt.zcu),
-                    @divExact(op.base.size.bitSize(s.cg.target), 8),
-                ))),
                 .add_len => op.imm + @as(i32, @intCast(op.base.ref.deref(s).typeOf(s.cg).vectorLen(s.cg.pt.zcu))),
                 .sub_len => op.imm - @as(i32, @intCast(op.base.ref.deref(s).typeOf(s.cg).vectorLen(s.cg.pt.zcu))),
-                .add_elem_size => op.imm + @as(i32, @intCast(
-                    op.base.ref.deref(s).typeOf(s.cg).scalarType(s.cg.pt.zcu).abiSize(s.cg.pt.zcu),
-                )),
-                .sub_elem_size => op.imm - @as(i32, @intCast(
-                    op.base.ref.deref(s).typeOf(s.cg).scalarType(s.cg.pt.zcu).abiSize(s.cg.pt.zcu),
-                )),
                 .add_elem_limbs => op.imm + @as(i32, @intCast(@divExact(
                     op.base.ref.deref(s).typeOf(s.cg).scalarType(s.cg.pt.zcu).abiSize(s.cg.pt.zcu),
                     @divExact(op.base.size.bitSize(s.cg.target), 8),
@@ -24726,7 +24907,6 @@ const Select = struct {
                     else => |mcv| .{ .mem = try mcv.mem(s.cg, .{ .size = op.base.size }) },
                     .register => |reg| .{ .reg = registerAlias(reg, @intCast(@divExact(op.base.size.bitSize(s.cg.target), 8))) },
                 },
-                inline .limb, .mask_limb => |kind| .{ .mem = try op.base.ref.deref(s).tracking(s.cg).short.mem(s.cg, @field(s, @tagName(kind))) },
                 .simm => .{ .imm = .s(op.adjustedImm(s)) },
                 .lea => .{ .mem = .{
                     .base = .{ .reg = registerAlias(op.base.ref.deref(s).tracking(s.cg).short.register, @divExact(s.cg.target.ptrBitWidth(), 8)) },
@@ -24775,8 +24955,6 @@ fn select(
                 .cg = cg,
                 .temps = undefined,
                 .labels = @splat(.{ .forward = @splat(null), .backward = null }),
-                .limb = undefined,
-                .mask_limb = undefined,
             };
             const tmp_slots = s.temps[@intFromEnum(Select.Operand.Ref.tmp0)..@intFromEnum(Select.Operand.Ref.dst0)];
             const dst_slots = s.temps[@intFromEnum(Select.Operand.Ref.dst0)..@intFromEnum(Select.Operand.Ref.src0)];
@@ -24797,74 +24975,11 @@ fn select(
             @memcpy(dst_slots[0..dst_temps.len], dst_temps);
 
             switch (case.each) {
-                .once => |body| for (body) |inst| try s.emit(inst),
-                .limb => |limb| {
-                    const limb_of_size: i32 = @intCast(limb.of.ref.deref(&s).typeOf(cg).abiSize(cg.pt.zcu));
-                    s.limb = .{
-                        .size = limb.of.size,
-                        .index = (try Select.Operand.tmp0p.lower(&s)).reg,
-                        .disp = limb_of_size,
-                    };
-                    for (limb.header) |inst| try s.emit(inst);
-                    try s.emit(.{ ._, ._, .mov, .tmp0p, .i(-limb_of_size), ._, ._ });
-                    assert(s.labels[0].backward == null);
-                    s.labels[0].backward = @intCast(cg.mir_instructions.len);
-                    for (limb.body) |inst| try s.emit(inst);
-                    try s.emit(.{ ._, ._, .add, .tmp0p, .i(@intCast(@divExact(limb.of.size.bitSize(cg.target), 8))), ._, ._ });
-                    try s.emit(.{ ._, ._nc, .j, .@"0b", ._, ._, ._ });
-                    for (limb.trailer) |inst| try s.emit(inst);
-                },
-                .limb_and_mask_limb => |limb| {
-                    const limb_of_size: i32 = @intCast(limb.of.ref.deref(&s).typeOf(cg).abiSize(cg.pt.zcu));
-                    s.limb = .{
-                        .size = limb.of.size,
-                        .index = (try Select.Operand.tmp0p.lower(&s)).reg,
-                        .disp = limb_of_size,
-                    };
-                    const mask_limb_bit_size: u31 = @intCast(@divExact(
-                        limb.of.size.bitSize(cg.target),
-                        limb.of_mask.size.bitSize(cg.target),
-                    ));
-                    if (mask_limb_bit_size >= 8) {
-                        s.mask_limb = .{
-                            .size = .fromBitSize(mask_limb_bit_size),
-                            .index = (try Select.Operand.tmp1p.lower(&s)).reg,
-                        };
-                        for (limb.header) |inst| try s.emit(inst);
-                        try s.emit(.{ ._, ._, .mov, .tmp0p, .i(-limb_of_size), ._, ._ });
-                        try s.emit(.{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ });
-                        assert(s.labels[0].backward == null);
-                        s.labels[0].backward = @intCast(cg.mir_instructions.len);
-                        for (limb.body) |inst| try s.emit(inst);
-                        try s.emit(.{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, @divExact(mask_limb_bit_size, 8)), ._, ._ });
-                        try s.emit(.{ ._, ._, .add, .tmp0p, .i(@intCast(@divExact(limb.of.size.bitSize(cg.target), 8))), ._, ._ });
-                        try s.emit(.{ ._, ._nc, .j, .@"0b", ._, ._, ._ });
-                        for (limb.trailer) |inst| try s.emit(inst);
-                    } else {
-                        for (limb.header) |inst| try s.emit(inst);
-                        try s.emit(.{ ._, ._, .mov, .tmp0p, .i(-limb_of_size), ._, ._ });
-                        try s.emit(.{ ._, ._, .xor, .tmp1d, .tmp1d, ._, ._ });
-                        try s.emit(.{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ });
-                        assert(s.labels[0].backward == null);
-                        s.labels[0].backward = @intCast(cg.mir_instructions.len);
-                        for (limb.body) |inst| try s.emit(inst);
-                        try s.emit(.{ ._, ._, .lea, .tmp1d, .lead(.none, .tmp1, mask_limb_bit_size), ._, ._ });
-                        try s.emit(.{ ._, ._, .@"test", .tmp1d, .i(0b111), ._, ._ });
-                        try s.emit(.{ ._, ._nz, .j, .@"1f", ._, ._, ._ });
-                        try s.emit(.{ ._, ._, .mov, .tmp3d, .tmp1d, ._, ._ });
-                        try s.emit(.{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ });
-                        try s.emit(.{ ._, ._, .mov, .memid(.{ .ref = limb.of_mask.ref, .size = .byte }, .tmp3, -1), .tmp2b, ._, ._ });
-                        try s.emit(.{ ._, ._, .xor, .tmp2b, .tmp2b, ._, ._ });
-                        try s.emit(.{ .@"1:", ._, .add, .tmp0p, .i(@intCast(@divExact(limb.of.size.bitSize(cg.target), 8))), ._, ._ });
-                        try s.emit(.{ ._, ._nc, .j, .@"0b", ._, ._, ._ });
-                        try s.emit(.{ ._, ._, .lea, .tmp3d, .lead(.none, .tmp1, -1), ._, ._ });
-                        try s.emit(.{ ._, ._r, .sh, .tmp3d, .i(3), ._, ._ });
-                        try s.emit(.{ ._, ._, .mov, .memi(.{ .ref = limb.of_mask.ref, .size = .byte }, .tmp3), .tmp2b, ._, ._ });
-                        for (limb.trailer) |inst| try s.emit(inst);
-                    }
+                .once => |body| {
+                    for (body) |inst| try s.emit(inst);
+                    s.emitLabel(.@"0:");
                 },
             }
-            s.emitLabel(.@"0:");
 
             for (dst_temps, case.dst_temps[0..dst_temps.len]) |dst_temp, dst_kind| dst_kind.finish(dst_temp, &s);
             for (case.extra_temps, tmp_slots) |spec, temp| if (spec.kind != .unused) try temp.die(cg);
