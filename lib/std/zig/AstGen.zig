@@ -4228,7 +4228,7 @@ fn fnDecl(
     if (fn_proto.ast.addrspace_expr != 0) {
         astgen.restoreSourceCursor(saved_cursor);
         const addrspace_ty = try addrspace_gz.addBuiltinValue(fn_proto.ast.addrspace_expr, .address_space);
-        const inst = try expr(&addrspace_gz, &addrspace_gz.base, .{ .rl = .{ .coerced_ty = addrspace_ty } }, fn_proto.ast.section_expr);
+        const inst = try expr(&addrspace_gz, &addrspace_gz.base, .{ .rl = .{ .coerced_ty = addrspace_ty } }, fn_proto.ast.addrspace_expr);
         _ = try addrspace_gz.addBreakWithSrcNode(.break_inline, decl_inst, inst, decl_node);
     }
 
