@@ -241,7 +241,7 @@ pub fn updateNav(
 
     const nav_val = zcu.navValue(nav_index);
     const is_extern, const lib_name, const nav_init = switch (ip.indexToKey(nav_val.toIntern())) {
-        .variable => |variable| .{ false, variable.lib_name, Value.fromInterned(variable.init) },
+        .variable => |variable| .{ false, .none, Value.fromInterned(variable.init) },
         .func => return,
         .@"extern" => |@"extern"| if (ip.isFunctionType(nav.typeOf(ip)))
             return
@@ -734,15 +734,14 @@ pub fn getNavVAddr(
     const target_atom_index = try zig_object.getOrCreateAtomForNav(wasm, pt, nav_index);
     const target_atom = wasm.getAtom(target_atom_index);
     const target_symbol_index = @intFromEnum(target_atom.sym_index);
-    switch (ip.indexToKey(nav.status.resolved.val)) {
-        .@"extern" => |@"extern"| try zig_object.addOrUpdateImport(
+    if (nav.getExtern(ip)) |@"extern"| {
+        try zig_object.addOrUpdateImport(
             wasm,
             nav.name.toSlice(ip),
             target_atom.sym_index,
             @"extern".lib_name.toSlice(ip),
             null,
-        ),
-        else => {},
+        );
     }
 
     std.debug.assert(reloc_info.parent.atom_index != 0);
@@ -945,8 +944,8 @@ pub fn freeNav(zig_object: *ZigObject, wasm: *Wasm, nav_index: InternPool.Nav.In
         segment.name = &.{}; // Ensure no accidental double free
     }
 
-    const nav_val = zcu.navValue(nav_index).toIntern();
-    if (ip.indexToKey(nav_val) == .@"extern") {
+    const nav = ip.getNav(nav_index);
+    if (nav.getExtern(ip) != null) {
         std.debug.assert(zig_object.imports.remove(atom.sym_index));
     }
     std.debug.assert(wasm.symbol_atom.remove(atom.symbolLoc()));
@@ -960,7 +959,7 @@ pub fn freeNav(zig_object: *ZigObject, wasm: *Wasm, nav_index: InternPool.Nav.In
     if (sym.isGlobal()) {
         std.debug.assert(zig_object.global_syms.remove(atom.sym_index));
     }
-    if (ip.isFunctionType(ip.typeOf(nav_val))) {
+    if (ip.isFunctionType(nav.typeOf(ip))) {
         zig_object.functions_free_list.append(gpa, sym.index) catch {};
         std.debug.assert(zig_object.atom_types.remove(atom_index));
     } else {

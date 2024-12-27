@@ -770,11 +770,14 @@ pub const DeclGen = struct {
         const ctype_pool = &dg.ctype_pool;
 
         // Chase function values in order to be able to reference the original function.
-        const owner_nav = switch (ip.indexToKey(zcu.navValue(nav_index).toIntern())) {
-            .variable => |variable| variable.owner_nav,
-            .func => |func| func.owner_nav,
-            .@"extern" => |@"extern"| @"extern".owner_nav,
-            else => nav_index,
+        const owner_nav = switch (ip.getNav(nav_index).status) {
+            .unresolved => unreachable,
+            .type_resolved => nav_index, // this can't be an extern or a function
+            .fully_resolved => |r| switch (ip.indexToKey(r.val)) {
+                .func => |f| f.owner_nav,
+                .@"extern" => |e| e.owner_nav,
+                else => nav_index,
+            },
         };
 
         // Render an undefined pointer if we have a pointer to a zero-bit or comptime type.
@@ -2237,7 +2240,7 @@ pub const DeclGen = struct {
             Type.fromInterned(nav.typeOf(ip)),
             .{ .nav = nav_index },
             CQualifiers.init(.{ .@"const" = flags.is_const }),
-            nav.status.resolved.alignment,
+            nav.getAlignment(),
             .complete,
         );
         try fwd.writeAll(";\n");
@@ -2246,19 +2249,19 @@ pub const DeclGen = struct {
     fn renderNavName(dg: *DeclGen, writer: anytype, nav_index: InternPool.Nav.Index) !void {
         const zcu = dg.pt.zcu;
         const ip = &zcu.intern_pool;
-        switch (ip.indexToKey(zcu.navValue(nav_index).toIntern())) {
-            .@"extern" => |@"extern"| try writer.print("{ }", .{
+        const nav = ip.getNav(nav_index);
+        if (nav.getExtern(ip)) |@"extern"| {
+            try writer.print("{ }", .{
                 fmtIdent(ip.getNav(@"extern".owner_nav).name.toSlice(ip)),
-            }),
-            else => {
-                // MSVC has a limit of 4095 character token length limit, and fmtIdent can (worst case),
-                // expand to 3x the length of its input, but let's cut it off at a much shorter limit.
-                const fqn_slice = ip.getNav(nav_index).fqn.toSlice(ip);
-                try writer.print("{}__{d}", .{
-                    fmtIdent(fqn_slice[0..@min(fqn_slice.len, 100)]),
-                    @intFromEnum(nav_index),
-                });
-            },
+            });
+        } else {
+            // MSVC has a limit of 4095 character token length limit, and fmtIdent can (worst case),
+            // expand to 3x the length of its input, but let's cut it off at a much shorter limit.
+            const fqn_slice = ip.getNav(nav_index).fqn.toSlice(ip);
+            try writer.print("{}__{d}", .{
+                fmtIdent(fqn_slice[0..@min(fqn_slice.len, 100)]),
+                @intFromEnum(nav_index),
+            });
         }
     }
 
@@ -2826,7 +2829,7 @@ pub fn genLazyFn(o: *Object, lazy_ctype_pool: *const CType.Pool, lazy_fn: LazyFn
 
             const fwd = o.dg.fwdDeclWriter();
             try fwd.print("static zig_{s} ", .{@tagName(key)});
-            try o.dg.renderFunctionSignature(fwd, fn_val, ip.getNav(fn_nav_index).status.resolved.alignment, .forward, .{
+            try o.dg.renderFunctionSignature(fwd, fn_val, ip.getNav(fn_nav_index).getAlignment(), .forward, .{
                 .fmt_ctype_pool_string = fn_name,
             });
             try fwd.writeAll(";\n");
@@ -2867,13 +2870,13 @@ pub fn genFunc(f: *Function) !void {
     try o.dg.renderFunctionSignature(
         fwd,
         nav_val,
-        nav.status.resolved.alignment,
+        nav.status.fully_resolved.alignment,
         .forward,
         .{ .nav = nav_index },
     );
     try fwd.writeAll(";\n");
 
-    if (nav.status.resolved.@"linksection".toSlice(ip)) |s|
+    if (nav.status.fully_resolved.@"linksection".toSlice(ip)) |s|
         try o.writer().print("zig_linksection_fn({s}) ", .{fmtStringLiteral(s, null)});
     try o.dg.renderFunctionSignature(
         o.writer(),
@@ -2952,7 +2955,7 @@ pub fn genDecl(o: *Object) !void {
     const nav_ty = Type.fromInterned(nav.typeOf(ip));
 
     if (!nav_ty.isFnOrHasRuntimeBitsIgnoreComptime(zcu)) return;
-    switch (ip.indexToKey(nav.status.resolved.val)) {
+    switch (ip.indexToKey(nav.status.fully_resolved.val)) {
         .@"extern" => |@"extern"| {
             if (!ip.isFunctionType(nav_ty.toIntern())) return o.dg.renderFwdDecl(o.dg.pass.nav, .{
                 .is_extern = true,
@@ -2965,8 +2968,8 @@ pub fn genDecl(o: *Object) !void {
             try fwd.writeAll("zig_extern ");
             try o.dg.renderFunctionSignature(
                 fwd,
-                Value.fromInterned(nav.status.resolved.val),
-                nav.status.resolved.alignment,
+                Value.fromInterned(nav.status.fully_resolved.val),
+                nav.status.fully_resolved.alignment,
                 .forward,
                 .{ .@"export" = .{
                     .main_name = nav.name,
@@ -2985,14 +2988,14 @@ pub fn genDecl(o: *Object) !void {
             const w = o.writer();
             if (variable.is_weak_linkage) try w.writeAll("zig_weak_linkage ");
             if (variable.is_threadlocal and !o.dg.mod.single_threaded) try w.writeAll("zig_threadlocal ");
-            if (nav.status.resolved.@"linksection".toSlice(&zcu.intern_pool)) |s|
+            if (nav.status.fully_resolved.@"linksection".toSlice(&zcu.intern_pool)) |s|
                 try w.print("zig_linksection({s}) ", .{fmtStringLiteral(s, null)});
             try o.dg.renderTypeAndName(
                 w,
                 nav_ty,
                 .{ .nav = o.dg.pass.nav },
                 .{},
-                nav.status.resolved.alignment,
+                nav.status.fully_resolved.alignment,
                 .complete,
             );
             try w.writeAll(" = ");
@@ -3002,10 +3005,10 @@ pub fn genDecl(o: *Object) !void {
         },
         else => try genDeclValue(
             o,
-            Value.fromInterned(nav.status.resolved.val),
+            Value.fromInterned(nav.status.fully_resolved.val),
             .{ .nav = o.dg.pass.nav },
-            nav.status.resolved.alignment,
-            nav.status.resolved.@"linksection",
+            nav.status.fully_resolved.alignment,
+            nav.status.fully_resolved.@"linksection",
         ),
     }
 }
