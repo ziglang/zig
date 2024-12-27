@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 
 test {
+    _ = @import("behavior/addrspace_and_linksection.zig");
     _ = @import("behavior/align.zig");
     _ = @import("behavior/alignof.zig");
     _ = @import("behavior/array.zig");
@@ -100,7 +101,6 @@ test {
     _ = @import("behavior/tuple_declarations.zig");
     _ = @import("behavior/type.zig");
     _ = @import("behavior/type_info.zig");
-    _ = @import("behavior/type_info_mul_linksection_addrspace_decls.zig");
     _ = @import("behavior/typename.zig");
     _ = @import("behavior/undefined.zig");
     _ = @import("behavior/underscore.zig");
