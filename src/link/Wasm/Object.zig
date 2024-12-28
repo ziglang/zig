@@ -75,6 +75,13 @@ pub const FunctionImport = struct {
     function_index: ScratchSpace.FuncTypeIndex,
 };
 
+pub const GlobalImport = struct {
+    module_name: Wasm.String,
+    name: Wasm.String,
+    valtype: std.wasm.Valtype,
+    mutable: bool,
+};
+
 pub const DataSegmentFlags = enum(u32) { active, passive, active_memidx };
 
 pub const SubsectionType = enum(u8) {
@@ -105,7 +112,7 @@ pub const Symbol = struct {
         data: Wasm.ObjectData.Index,
         data_import: void,
         global: Wasm.ObjectGlobalIndex,
-        global_import: Wasm.GlobalImport.Index,
+        global_import: ScratchSpace.GlobalImportIndex,
         section: Wasm.ObjectSectionIndex,
         table: Wasm.ObjectTableIndex,
         table_import: Wasm.TableImport.Index,
@@ -116,6 +123,7 @@ pub const ScratchSpace = struct {
     func_types: std.ArrayListUnmanaged(Wasm.FunctionType.Index) = .empty,
     func_type_indexes: std.ArrayListUnmanaged(FuncTypeIndex) = .empty,
     func_imports: std.ArrayListUnmanaged(FunctionImport) = .empty,
+    global_imports: std.ArrayListUnmanaged(GlobalImport) = .empty,
     symbol_table: std.ArrayListUnmanaged(Symbol) = .empty,
     segment_info: std.ArrayListUnmanaged(SegmentInfo) = .empty,
     exports: std.ArrayListUnmanaged(Export) = .empty,
@@ -141,6 +149,15 @@ pub const ScratchSpace = struct {
         }
     };
 
+    /// Index into `global_imports`.
+    const GlobalImportIndex = enum(u32) {
+        _,
+
+        fn ptr(index: GlobalImportIndex, ss: *const ScratchSpace) *GlobalImport {
+            return &ss.global_imports.items[@intFromEnum(index)];
+        }
+    };
+
     /// Index into `func_types`.
     const FuncTypeIndex = enum(u32) {
         _,
@@ -155,6 +172,7 @@ pub const ScratchSpace = struct {
         ss.func_types.deinit(gpa);
         ss.func_type_indexes.deinit(gpa);
         ss.func_imports.deinit(gpa);
+        ss.global_imports.deinit(gpa);
         ss.symbol_table.deinit(gpa);
         ss.segment_info.deinit(gpa);
         ss.* = undefined;
@@ -165,6 +183,7 @@ pub const ScratchSpace = struct {
         ss.func_types.clearRetainingCapacity();
         ss.func_type_indexes.clearRetainingCapacity();
         ss.func_imports.clearRetainingCapacity();
+        ss.global_imports.clearRetainingCapacity();
         ss.symbol_table.clearRetainingCapacity();
         ss.segment_info.clearRetainingCapacity();
     }
@@ -361,7 +380,7 @@ pub fn parse(
                                                     symbol.name = function_import.ptr(ss).name.toOptional();
                                                 }
                                             } else {
-                                                symbol.pointee = .{ .function = @enumFromInt(functions_start + local_index) };
+                                                symbol.pointee = .{ .function = @enumFromInt(functions_start + (local_index - ss.func_imports.items.len)) };
                                                 const name, pos = readBytes(bytes, pos);
                                                 symbol.name = (try wasm.internString(name)).toOptional();
                                             }
@@ -369,16 +388,16 @@ pub fn parse(
                                         .global => {
                                             const local_index, pos = readLeb(u32, bytes, pos);
                                             if (symbol.flags.undefined) {
-                                                const global_import: Wasm.GlobalImport.Index = @enumFromInt(global_imports_start + local_index);
+                                                const global_import: ScratchSpace.GlobalImportIndex = @enumFromInt(local_index);
                                                 symbol.pointee = .{ .global_import = global_import };
                                                 if (symbol.flags.explicit_name) {
                                                     const name, pos = readBytes(bytes, pos);
                                                     symbol.name = (try wasm.internString(name)).toOptional();
                                                 } else {
-                                                    symbol.name = global_import.key(wasm).toOptional();
+                                                    symbol.name = global_import.ptr(ss).name.toOptional();
                                                 }
                                             } else {
-                                                symbol.pointee = .{ .global = @enumFromInt(globals_start + local_index) };
+                                                symbol.pointee = .{ .global = @enumFromInt(globals_start + (local_index - ss.global_imports.items.len)) };
                                                 const name, pos = readBytes(bytes, pos);
                                                 symbol.name = (try wasm.internString(name)).toOptional();
                                             }
@@ -579,16 +598,11 @@ pub fn parse(
                             const valtype, pos = readEnum(std.wasm.Valtype, bytes, pos);
                             const mutable = bytes[pos] == 0x01;
                             pos += 1;
-                            try wasm.object_global_imports.put(gpa, interned_name, .{
-                                .flags = .{
-                                    .global_type = .{
-                                        .valtype = .from(valtype),
-                                        .mutable = mutable,
-                                    },
-                                },
-                                .module_name = interned_module_name.toOptional(),
-                                .source_location = source_location,
-                                .resolution = .unresolved,
+                            try ss.global_imports.append(gpa, .{
+                                .name = interned_name,
+                                .valtype = valtype,
+                                .mutable = mutable,
+                                .module_name = interned_module_name,
                             });
                         },
                         .table => {
@@ -840,6 +854,61 @@ pub fn parse(
                 };
             }
         },
+        .global_import => |index| {
+            const ptr = index.ptr(ss);
+            const name = symbol.name.unwrap().?;
+            if (symbol.flags.binding == .local) {
+                diags.addParseError(path, "local symbol '{s}' references import", .{name.slice(wasm)});
+                continue;
+            }
+            const gop = try wasm.object_global_imports.getOrPut(gpa, name);
+            if (gop.found_existing) {
+                const existing_ty = gop.value_ptr.flags.global_type.to();
+                if (ptr.valtype != existing_ty.valtype) {
+                    var err = try diags.addErrorWithNotes(2);
+                    try err.addMsg("symbol '{s}' mismatching global types", .{name.slice(wasm)});
+                    gop.value_ptr.source_location.addNote(wasm, &err, "type {s} here", .{@tagName(existing_ty.valtype)});
+                    source_location.addNote(wasm, &err, "type {s} here", .{@tagName(ptr.valtype)});
+                    continue;
+                }
+                if (ptr.mutable != existing_ty.mutable) {
+                    var err = try diags.addErrorWithNotes(2);
+                    try err.addMsg("symbol '{s}' mismatching global mutability", .{name.slice(wasm)});
+                    gop.value_ptr.source_location.addNote(wasm, &err, "{s} here", .{
+                        if (existing_ty.mutable) "mutable" else "not mutable",
+                    });
+                    source_location.addNote(wasm, &err, "{s} here", .{
+                        if (ptr.mutable) "mutable" else "not mutable",
+                    });
+                    continue;
+                }
+                if (gop.value_ptr.module_name != ptr.module_name.toOptional()) {
+                    var err = try diags.addErrorWithNotes(2);
+                    try err.addMsg("function symbol '{s}' mismatching module names", .{name.slice(wasm)});
+                    if (gop.value_ptr.module_name.slice(wasm)) |module_name| {
+                        gop.value_ptr.source_location.addNote(wasm, &err, "module '{s}' here", .{module_name});
+                    } else {
+                        gop.value_ptr.source_location.addNote(wasm, &err, "no module here", .{});
+                    }
+                    source_location.addNote(wasm, &err, "module '{s}' here", .{ptr.module_name.slice(wasm)});
+                    continue;
+                }
+                if (symbol.flags.binding == .strong) gop.value_ptr.flags.binding = .strong;
+                if (!symbol.flags.visibility_hidden) gop.value_ptr.flags.visibility_hidden = false;
+                if (symbol.flags.no_strip) gop.value_ptr.flags.no_strip = true;
+            } else {
+                gop.value_ptr.* = .{
+                    .flags = symbol.flags,
+                    .module_name = ptr.module_name.toOptional(),
+                    .source_location = source_location,
+                    .resolution = .unresolved,
+                };
+                gop.value_ptr.flags.global_type = .{
+                    .valtype = .from(ptr.valtype),
+                    .mutable = ptr.mutable,
+                };
+            }
+        },
         .function => |index| {
             assert(!symbol.flags.undefined);
             const ptr = index.ptr(wasm);
@@ -882,7 +951,7 @@ pub fn parse(
             }
         },
 
-        inline .global_import, .table_import => |i| {
+        .table_import => |i| {
             const ptr = i.value(wasm);
             assert(i.key(wasm).toOptional() == symbol.name); // TODO
             ptr.flags = symbol.flags;
