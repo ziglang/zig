@@ -720,15 +720,8 @@ pub fn raise(sig: u8) RaiseError!void {
     }
 
     if (native_os == .linux) {
-        var set: sigset_t = undefined;
-        // block application signals
-        sigprocmask(SIG.BLOCK, &linux.app_mask, &set);
-
         const tid = linux.gettid();
         const rc = linux.tkill(tid, sig);
-
-        // restore signal mask
-        sigprocmask(SIG.SETMASK, &set, null);
 
         switch (errno(rc)) {
             .SUCCESS => return,
