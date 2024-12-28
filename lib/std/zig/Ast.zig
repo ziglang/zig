@@ -800,7 +800,6 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
     const tags = tree.nodes.items(.tag);
     const datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
-    const token_starts = tree.tokens.items(.start);
     const token_tags = tree.tokens.items(.tag);
     var n = node;
     var end_offset: TokenIndex = 0;
@@ -816,6 +815,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
         .@"try",
         .@"await",
         .optional_type,
+        .@"suspend",
         .@"resume",
         .@"nosuspend",
         .@"comptime",
@@ -880,6 +880,9 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
         .for_simple,
         .fn_proto_simple,
         .fn_proto_multi,
+        .fn_proto_one,
+        .fn_proto,
+        .fn_decl,
         .ptr_type_aligned,
         .ptr_type_sentinel,
         .ptr_type,
@@ -928,9 +931,7 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
         .call, .async_call => {
             end_offset += 1; // for the rparen
             const params = tree.extraData(datas[n].rhs, Node.SubRange);
-            if (params.end - params.start == 0) {
-                return main_tokens[n] + end_offset;
-            }
+            assert(params.end - params.start > 0);
             n = tree.extra_data[params.end - 1]; // last parameter
         },
         .tagged_union_enum_tag => {
@@ -1122,48 +1123,28 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
                 n = datas[n].rhs;
             } else {
                 const extra = tree.extraData(datas[n].lhs, Node.LocalVarDecl);
-                if (extra.align_node != 0) {
-                    end_offset += 1; // for the rparen
-                    n = extra.align_node;
-                } else if (extra.type_node != 0) {
-                    n = extra.type_node;
-                } else {
-                    end_offset += 1; // from mut token to name
-                    return main_tokens[n] + end_offset;
-                }
+                assert(extra.align_node != 0);
+                end_offset += 1; // for the rparen
+                n = extra.align_node;
             }
         },
         .container_field_init => {
             if (datas[n].rhs != 0) {
                 n = datas[n].rhs;
-            } else if (datas[n].lhs != 0) {
-                n = datas[n].lhs;
             } else {
-                return main_tokens[n] + end_offset;
+                assert(datas[n].lhs != 0);
+                n = datas[n].lhs;
             }
         },
         .container_field_align => {
-            if (datas[n].rhs != 0) {
-                end_offset += 1; // for the rparen
-                n = datas[n].rhs;
-            } else if (datas[n].lhs != 0) {
-                n = datas[n].lhs;
-            } else {
-                return main_tokens[n] + end_offset;
-            }
+            assert(datas[n].rhs != 0);
+            end_offset += 1; // for the rparen
+            n = datas[n].rhs;
         },
         .container_field => {
             const extra = tree.extraData(datas[n].rhs, Node.ContainerField);
-            if (extra.value_expr != 0) {
-                n = extra.value_expr;
-            } else if (extra.align_expr != 0) {
-                end_offset += 1; // for the rparen
-                n = extra.align_expr;
-            } else if (datas[n].lhs != 0) {
-                n = datas[n].lhs;
-            } else {
-                return main_tokens[n] + end_offset;
-            }
+            assert(extra.value_expr != 0);
+            n = extra.value_expr;
         },
 
         .array_init_one,
@@ -1208,97 +1189,6 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
                 return main_tokens[n] + end_offset;
             }
         },
-        .fn_decl => {
-            if (datas[n].rhs != 0) {
-                n = datas[n].rhs;
-            } else {
-                n = datas[n].lhs;
-            }
-        },
-        .fn_proto_one => {
-            const extra = tree.extraData(datas[n].lhs, Node.FnProtoOne);
-            // addrspace, linksection, callconv, align can appear in any order, so we
-            // find the last one here.
-            var max_node: Node.Index = datas[n].rhs;
-            var max_start = token_starts[main_tokens[max_node]];
-            var max_offset: TokenIndex = 0;
-            if (extra.align_expr != 0) {
-                const start = token_starts[main_tokens[extra.align_expr]];
-                if (start > max_start) {
-                    max_node = extra.align_expr;
-                    max_start = start;
-                    max_offset = 1; // for the rparen
-                }
-            }
-            if (extra.addrspace_expr != 0) {
-                const start = token_starts[main_tokens[extra.addrspace_expr]];
-                if (start > max_start) {
-                    max_node = extra.addrspace_expr;
-                    max_start = start;
-                    max_offset = 1; // for the rparen
-                }
-            }
-            if (extra.section_expr != 0) {
-                const start = token_starts[main_tokens[extra.section_expr]];
-                if (start > max_start) {
-                    max_node = extra.section_expr;
-                    max_start = start;
-                    max_offset = 1; // for the rparen
-                }
-            }
-            if (extra.callconv_expr != 0) {
-                const start = token_starts[main_tokens[extra.callconv_expr]];
-                if (start > max_start) {
-                    max_node = extra.callconv_expr;
-                    max_start = start;
-                    max_offset = 1; // for the rparen
-                }
-            }
-            n = max_node;
-            end_offset += max_offset;
-        },
-        .fn_proto => {
-            const extra = tree.extraData(datas[n].lhs, Node.FnProto);
-            // addrspace, linksection, callconv, align can appear in any order, so we
-            // find the last one here.
-            var max_node: Node.Index = datas[n].rhs;
-            var max_start = token_starts[main_tokens[max_node]];
-            var max_offset: TokenIndex = 0;
-            if (extra.align_expr != 0) {
-                const start = token_starts[main_tokens[extra.align_expr]];
-                if (start > max_start) {
-                    max_node = extra.align_expr;
-                    max_start = start;
-                    max_offset = 1; // for the rparen
-                }
-            }
-            if (extra.addrspace_expr != 0) {
-                const start = token_starts[main_tokens[extra.addrspace_expr]];
-                if (start > max_start) {
-                    max_node = extra.addrspace_expr;
-                    max_start = start;
-                    max_offset = 1; // for the rparen
-                }
-            }
-            if (extra.section_expr != 0) {
-                const start = token_starts[main_tokens[extra.section_expr]];
-                if (start > max_start) {
-                    max_node = extra.section_expr;
-                    max_start = start;
-                    max_offset = 1; // for the rparen
-                }
-            }
-            if (extra.callconv_expr != 0) {
-                const start = token_starts[main_tokens[extra.callconv_expr]];
-                if (start > max_start) {
-                    max_node = extra.callconv_expr;
-                    max_start = start;
-                    max_offset = 1; // for the rparen
-                }
-            }
-            n = max_node;
-            end_offset += max_offset;
-        },
         .while_cont => {
             const extra = tree.extraData(datas[n].rhs, Node.WhileCont);
             assert(extra.then_expr != 0);
@@ -1317,13 +1207,6 @@ pub fn lastToken(tree: Ast, node: Node.Index) TokenIndex {
         .@"for" => {
             const extra = @as(Node.For, @bitCast(datas[n].rhs));
             n = tree.extra_data[datas[n].lhs + extra.inputs + @intFromBool(extra.has_else)];
-        },
-        .@"suspend" => {
-            if (datas[n].lhs != 0) {
-                n = datas[n].lhs;
-            } else {
-                return main_tokens[n] + end_offset;
-            }
         },
         .array_type_sentinel => {
             const extra = tree.extraData(datas[n].rhs, Node.ArrayTypeSentinel);
