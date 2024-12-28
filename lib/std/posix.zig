@@ -4276,6 +4276,34 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
     }
 }
 
+pub const GetSockOptError = error{
+    /// The option is not supported by the protocol.
+    InvalidProtocolOption,
+
+    /// Insufficient resources are available in the system to complete the call.
+    SystemResources,
+
+    /// The file descriptor is not valid.
+    FileDescriptorNotValid,
+
+    // The file descriptor is not a socket.
+    FileDescriptorNotASocket,
+} || UnexpectedError;
+
+pub fn getsockopt(fd: socket_t, level: i32, optname: u32, noalias optval: ?*anyopaque, noalias optlen: *socklen_t) GetSockOptError!void {
+    switch (errno(system.getsockopt(fd, level, optname, optval, optlen))) {
+        .SUCCESS => {},
+        .BADF => return error.FileDescriptorNotValid,
+        .NOTSOCK => return error.FileDescriptorNotASocket,
+        .INVAL => return error.InvalidProtocolOption,
+        .FAULT => return error.InvalidProtocolOption,
+        .NOPROTOOPT => return error.InvalidProtocolOption,
+        .NOMEM => return error.SystemResources,
+        .NOBUFS => return error.SystemResources,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
 pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
     var err_code: i32 = undefined;
     var size: u32 = @sizeOf(u32);
