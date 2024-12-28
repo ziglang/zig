@@ -255,7 +255,7 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
         .unwrap_optional => try zg.addErrorTok(main_tokens[node], "optionals are not available in ZON", .{}),
         .error_value => try zg.addErrorNode(node, "errors are not available in ZON", .{}),
 
-        .array_access => try zg.addErrorTok(node, "array indexing is not allowed in ZON", .{}),
+        .array_access => try zg.addErrorNode(node, "array indexing is not allowed in ZON", .{}),
 
         .block_two,
         .block_two_semicolon,
