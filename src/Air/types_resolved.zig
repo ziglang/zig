@@ -330,6 +330,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .call_always_tail,
             .call_never_tail,
             .call_never_inline,
+            .call_never_intrinsify,
             => {
                 const extra = air.extraData(Air.Call, data.pl_op.payload);
                 const args: []const Air.Inst.Ref = @ptrCast(air.extra[extra.end..][0..extra.data.args_len]);

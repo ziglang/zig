@@ -59,15 +59,15 @@ extern fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) ?[*]u8;
 
 pub fn __aeabi_memcpy(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
-    _ = memcpy(dest, src, n);
+    _ = @call(.never_intrinsify, memcpy, .{ dest, src, n });
 }
 pub fn __aeabi_memcpy4(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
-    _ = memcpy(dest, src, n);
+    _ = @call(.never_intrinsify, memcpy, .{ dest, src, n });
 }
 pub fn __aeabi_memcpy8(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void {
     @setRuntimeSafety(false);
-    _ = memcpy(dest, src, n);
+    _ = @call(.never_intrinsify, memcpy, .{ dest, src, n });
 }
 
 pub fn __aeabi_memmove(dest: [*]u8, src: [*]u8, n: usize) callconv(.AAPCS) void {
