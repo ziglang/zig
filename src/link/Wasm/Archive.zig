@@ -146,13 +146,14 @@ pub fn parseObject(
     archive: Archive,
     wasm: *Wasm,
     file_contents: []const u8,
+    object_offset: u32,
     path: Path,
     host_name: Wasm.OptionalString,
     scratch_space: *Object.ScratchSpace,
     must_link: bool,
     gc_sections: bool,
 ) !Object {
-    const header = mem.bytesAsValue(Header, file_contents[0..@sizeOf(Header)]);
+    const header = mem.bytesAsValue(Header, file_contents[object_offset..][0..@sizeOf(Header)]);
     if (!mem.eql(u8, &header.fmag, ARFMAG)) return error.BadHeaderDelimiter;
 
     const name_or_index = try header.nameOrIndex();
@@ -166,7 +167,7 @@ pub fn parseObject(
     };
 
     const object_file_size = try header.parsedSize();
-    const contents = file_contents[@sizeOf(Header)..][0..object_file_size];
+    const contents = file_contents[object_offset + @sizeOf(Header) ..][0..object_file_size];
 
     return Object.parse(wasm, contents, path, object_name, host_name, scratch_space, must_link, gc_sections);
 }

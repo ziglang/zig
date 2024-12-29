@@ -2462,8 +2462,7 @@ fn parseArchive(wasm: *Wasm, obj: link.Input.Object) !void {
 
     try wasm.objects.ensureUnusedCapacity(gpa, offsets.count());
     for (offsets.keys()) |file_offset| {
-        const contents = file_contents[file_offset..];
-        const object = try archive.parseObject(wasm, contents, obj.path, wasm.object_host_name, &ss, obj.must_link, gc_sections);
+        const object = try archive.parseObject(wasm, file_contents, file_offset, obj.path, wasm.object_host_name, &ss, obj.must_link, gc_sections);
         wasm.objects.appendAssumeCapacity(object);
     }
 }
