@@ -64,7 +64,7 @@ pub fn findByMnemonic(
                 comptime var feature_it = std.mem.splitScalar(u8, @tagName(tag), ' ');
                 comptime var features: []const std.Target.x86.Feature = &.{};
                 inline while (comptime feature_it.next()) |feature| features = features ++ .{@field(std.Target.x86.Feature, feature)};
-                break :has_features std.Target.x86.featureSetHasAll(target.cpu.features, features[0..features.len].*);
+                break :has_features std.Target.x86.featureSetHasAll(target.cpu.features, features[0..].*);
             },
         }) continue;
 
@@ -250,7 +250,8 @@ pub const Mnemonic = enum {
     // General-purpose
     adc, add, @"and",
     bsf, bsr, bswap, bt, btc, btr, bts,
-    call, cbw, cdq, cdqe, clflush,
+    call, cbw, cdq, cdqe,
+    clac, clc, cld, clflush, cli, clts, clui,
     cmova, cmovae, cmovb, cmovbe, cmovc, cmove, cmovg, cmovge, cmovl, cmovle, cmovna,
     cmovnae, cmovnb, cmovnbe, cmovnc, cmovne, cmovng, cmovnge, cmovnl, cmovnle, cmovno,
     cmovnp, cmovns, cmovnz, cmovo, cmovp, cmovpe, cmovpo, cmovs, cmovz,
@@ -274,7 +275,9 @@ pub const Mnemonic = enum {
     rcl, rcr, ret, rol, ror, rorx,
     sal, sar, sarx, sbb,
     scas, scasb, scasd, scasq, scasw,
-    shl, shld, shlx, shr, shrd, shrx, sub, syscall,
+    shl, shld, shlx, shr, shrd, shrx,
+    stac, stc, std, sti, stui,
+    sub, syscall,
     seta, setae, setb, setbe, setc, sete, setg, setge, setl, setle, setna, setnae,
     setnb, setnbe, setnc, setne, setng, setnge, setnl, setnle, setno, setnp, setns,
     setnz, seto, setp, setpe, setpo, sets, setz,
@@ -307,7 +310,7 @@ pub const Mnemonic = enum {
     ldmxcsr,
     maxps, maxss,
     minps, minss,
-    movaps, movhlps, movlhps,
+    movaps, movhlps, movhps, movlhps, movlps,
     movmskps,
     movss, movups,
     mulps, mulss,
@@ -333,6 +336,7 @@ pub const Mnemonic = enum {
     minpd, minsd,
     movapd,
     movdqa, movdqu,
+    movhpd, movlpd,
     movmskpd,
     //movsd,
     movupd,
@@ -395,7 +399,7 @@ pub const Mnemonic = enum {
     vmovd,
     vmovddup,
     vmovdqa, vmovdqu,
-    vmovhlps, vmovlhps,
+    vmovhlps, vmovhpd, vmovhps, vmovlhps, vmovlpd, vmovlps,
     vmovmskpd, vmovmskps,
     vmovq,
     vmovsd,
@@ -823,6 +827,7 @@ pub const Feature = enum {
     avx2,
     bmi,
     bmi2,
+    cmov,
     f16c,
     fma,
     lzcnt,
@@ -830,6 +835,7 @@ pub const Feature = enum {
     pclmul,
     @"pclmul avx",
     popcnt,
+    smap,
     sse,
     sse2,
     sse3,
@@ -837,6 +843,7 @@ pub const Feature = enum {
     sse4_2,
     ssse3,
     sha,
+    uintr,
     vaes,
     vpclmulqdq,
     x87,

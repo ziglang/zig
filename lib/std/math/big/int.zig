@@ -2520,12 +2520,13 @@ pub const Const = struct {
         return order(a, b) == .eq;
     }
 
+    /// Returns the number of leading zeros in twos-complement form.
     pub fn clz(a: Const, bits: Limb) Limb {
-        // Limbs are stored in little-endian order but we need
-        // to iterate big-endian.
+        // Limbs are stored in little-endian order but we need to iterate big-endian.
+        if (!a.positive) return 0;
         var total_limb_lz: Limb = 0;
         var i: usize = a.limbs.len;
-        const bits_per_limb = @sizeOf(Limb) * 8;
+        const bits_per_limb = @bitSizeOf(Limb);
         while (i != 0) {
             i -= 1;
             const limb = a.limbs[i];
@@ -2537,13 +2538,15 @@ pub const Const = struct {
         return total_limb_lz + bits - total_limb_bits;
     }
 
+    /// Returns the number of trailing zeros in twos-complement form.
     pub fn ctz(a: Const, bits: Limb) Limb {
-        // Limbs are stored in little-endian order.
+        // Limbs are stored in little-endian order. Converting a negative number to twos-complement
+        // flips all bits above the lowest set bit, which does not affect the trailing zero count.
         var result: Limb = 0;
         for (a.limbs) |limb| {
             const limb_tz = @ctz(limb);
             result += limb_tz;
-            if (limb_tz != @sizeOf(Limb) * 8) break;
+            if (limb_tz != @bitSizeOf(Limb)) break;
         }
         return @min(result, bits);
     }

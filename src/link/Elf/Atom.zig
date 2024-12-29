@@ -1274,19 +1274,19 @@ const x86_64 = struct {
     fn relaxGotpcrelx(code: []u8, t: *const std.Target) !void {
         dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return error.RelaxFailure;
-        const inst = switch (old_inst.encoding.mnemonic) {
-            .call => try Instruction.new(old_inst.prefix, .call, &.{
+        const inst: Instruction = switch (old_inst.encoding.mnemonic) {
+            .call => try .new(old_inst.prefix, .call, &.{
                 // TODO: hack to force imm32s in the assembler
-                .{ .imm = Immediate.s(-129) },
+                .{ .imm = .s(-129) },
             }, t),
-            .jmp => try Instruction.new(old_inst.prefix, .jmp, &.{
+            .jmp => try .new(old_inst.prefix, .jmp, &.{
                 // TODO: hack to force imm32s in the assembler
-                .{ .imm = Immediate.s(-129) },
+                .{ .imm = .s(-129) },
             }, t),
             else => return error.RelaxFailure,
         };
         relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
-        const nop = try Instruction.new(.none, .nop, &.{}, t);
+        const nop: Instruction = try .new(.none, .nop, &.{}, t);
         try encode(&.{ nop, inst }, code);
     }
 
@@ -1295,7 +1295,7 @@ const x86_64 = struct {
         const old_inst = disassemble(code) orelse return error.RelaxFailure;
         switch (old_inst.encoding.mnemonic) {
             .mov => {
-                const inst = try Instruction.new(old_inst.prefix, .lea, &old_inst.ops, t);
+                const inst: Instruction = try .new(old_inst.prefix, .lea, &old_inst.ops, t);
                 relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
                 try encode(&.{inst}, code);
             },
@@ -1404,14 +1404,15 @@ const x86_64 = struct {
         dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return false;
         switch (old_inst.encoding.mnemonic) {
-            .mov => if (Instruction.new(old_inst.prefix, .mov, &.{
-                old_inst.ops[0],
-                // TODO: hack to force imm32s in the assembler
-                .{ .imm = Immediate.s(-129) },
-            }, t)) |inst| {
+            .mov => {
+                const inst = Instruction.new(old_inst.prefix, .mov, &.{
+                    old_inst.ops[0],
+                    // TODO: hack to force imm32s in the assembler
+                    .{ .imm = .s(-129) },
+                }, t) catch return false;
                 inst.encode(std.io.null_writer, .{}) catch return false;
                 return true;
-            } else |_| return false,
+            },
             else => return false,
         }
     }
@@ -1424,7 +1425,7 @@ const x86_64 = struct {
                 const inst = Instruction.new(old_inst.prefix, .mov, &.{
                     old_inst.ops[0],
                     // TODO: hack to force imm32s in the assembler
-                    .{ .imm = Immediate.s(-129) },
+                    .{ .imm = .s(-129) },
                 }, t) catch unreachable;
                 relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
                 encode(&.{inst}, code) catch unreachable;
@@ -1438,10 +1439,10 @@ const x86_64 = struct {
         const old_inst = disassemble(code) orelse return error.RelaxFailure;
         switch (old_inst.encoding.mnemonic) {
             .lea => {
-                const inst = try Instruction.new(old_inst.prefix, .mov, &.{
+                const inst: Instruction = try .new(old_inst.prefix, .mov, &.{
                     old_inst.ops[0],
                     // TODO: hack to force imm32s in the assembler
-                    .{ .imm = Immediate.s(-129) },
+                    .{ .imm = .s(-129) },
                 }, target);
                 relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
                 try encode(&.{inst}, code);
@@ -1781,7 +1782,7 @@ const aarch64 = struct {
                     const off: u12 = @truncate(@as(u64, @bitCast(S_ + A)));
                     aarch64_util.writeAddImmInst(off, code);
                 } else {
-                    const old_inst = Instruction{
+                    const old_inst: Instruction = .{
                         .add_subtract_immediate = mem.bytesToValue(std.meta.TagPayload(
                             Instruction,
                             Instruction.add_subtract_immediate,
@@ -1795,7 +1796,7 @@ const aarch64 = struct {
             },
 
             .TLSDESC_CALL => if (!target.flags.has_tlsdesc) {
-                const old_inst = Instruction{
+                const old_inst: Instruction = .{
                     .unconditional_branch_register = mem.bytesToValue(std.meta.TagPayload(
                         Instruction,
                         Instruction.unconditional_branch_register,

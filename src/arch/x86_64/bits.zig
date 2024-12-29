@@ -571,11 +571,15 @@ pub const Memory = struct {
             writer: anytype,
         ) @TypeOf(writer).Error!void {
             if (s == .none) return;
-            if (s != .ptr) {
-                try writer.writeAll(@tagName(s));
-                try writer.writeByte(' ');
+            try writer.writeAll(@tagName(s));
+            switch (s) {
+                .none => unreachable,
+                .ptr => {},
+                else => {
+                    try writer.writeByte(' ');
+                    try writer.writeAll("ptr");
+                },
             }
-            try writer.writeAll("ptr");
         }
     };
 

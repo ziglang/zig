@@ -418,8 +418,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 // Here, we currently assume local dynamic TLS vars, and so
                                 // we emit LD model.
                                 _ = lower.reloc(.{ .linker_tlsld = sym_index }, 0);
-                                lower.result_insts[lower.result_insts_len] =
-                                    try Instruction.new(.none, .lea, &[_]Operand{
+                                lower.result_insts[lower.result_insts_len] = try .new(.none, .lea, &.{
                                     .{ .reg = .rdi },
                                     .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) },
                                 }, lower.target);
@@ -427,8 +426,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 _ = lower.reloc(.{
                                     .linker_extern_fn = try elf_file.getGlobalSymbol("__tls_get_addr", null),
                                 }, 0);
-                                lower.result_insts[lower.result_insts_len] =
-                                    try Instruction.new(.none, .call, &[_]Operand{
+                                lower.result_insts[lower.result_insts_len] = try .new(.none, .call, &.{
                                     .{ .imm = .s(0) },
                                 }, lower.target);
                                 lower.result_insts_len += 1;
@@ -440,8 +438,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 }) };
                             } else {
                                 // Since we are linking statically, we emit LE model directly.
-                                lower.result_insts[lower.result_insts_len] =
-                                    try Instruction.new(.none, .mov, &[_]Operand{
+                                lower.result_insts[lower.result_insts_len] = try .new(.none, .mov, &.{
                                     .{ .reg = .rax },
                                     .{ .mem = Memory.initSib(.qword, .{ .base = .{ .reg = .fs } }) },
                                 }, lower.target);
@@ -464,8 +461,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             .mov => {
                                 if (elf_sym.flags.is_extern_ptr) {
                                     const reg = ops[0].reg;
-                                    lower.result_insts[lower.result_insts_len] =
-                                        try Instruction.new(.none, .mov, &[_]Operand{
+                                    lower.result_insts[lower.result_insts_len] = try .new(.none, .mov, &.{
                                         .{ .reg = reg.to64() },
                                         .{ .mem = Memory.initRip(.qword, 0) },
                                     }, lower.target);
@@ -496,16 +492,14 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
 
                         if (macho_sym.flags.tlv) {
                             _ = lower.reloc(.{ .linker_reloc = sym_index }, 0);
-                            lower.result_insts[lower.result_insts_len] =
-                                try Instruction.new(.none, .mov, &[_]Operand{
+                            lower.result_insts[lower.result_insts_len] = try .new(.none, .mov, &.{
                                 .{ .reg = .rdi },
                                 .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) },
-                            });
+                            }, lower.target);
                             lower.result_insts_len += 1;
-                            lower.result_insts[lower.result_insts_len] =
-                                try Instruction.new(.none, .call, &[_]Operand{
+                            lower.result_insts[lower.result_insts_len] = try .new(.none, .call, &.{
                                 .{ .mem = Memory.initSib(.qword, .{ .base = .{ .reg = .rdi } }) },
-                            });
+                            }, lower.target);
                             lower.result_insts_len += 1;
                             emit_mnemonic = .mov;
                             break :op .{ .reg = .rax };
@@ -520,11 +514,10 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             .mov => {
                                 if (macho_sym.flags.is_extern_ptr) {
                                     const reg = ops[0].reg;
-                                    lower.result_insts[lower.result_insts_len] =
-                                        try Instruction.new(.none, .mov, &[_]Operand{
+                                    lower.result_insts[lower.result_insts_len] = try .new(.none, .mov, &.{
                                         .{ .reg = reg.to64() },
                                         .{ .mem = Memory.initRip(.qword, 0) },
-                                    });
+                                    }, lower.target);
                                     lower.result_insts_len += 1;
                                     break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{ .base = .{
                                         .reg = reg.to64(),
@@ -541,8 +534,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
             },
         };
     }
-    lower.result_insts[lower.result_insts_len] =
-        try Instruction.new(emit_prefix, emit_mnemonic, emit_ops, lower.target);
+    lower.result_insts[lower.result_insts_len] = try .new(emit_prefix, emit_mnemonic, emit_ops, lower.target);
     lower.result_insts_len += 1;
 }
 

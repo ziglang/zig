@@ -1,3 +1,709 @@
+fn testUnary(comptime op: anytype) !void {
+    const testType = struct {
+        fn testType(comptime Type: type, comptime imm_arg: Type) !void {
+            const expected = op(Type, imm_arg);
+            try struct {
+                fn testOne(actual: @TypeOf(expected)) !void {
+                    if (switch (@typeInfo(@TypeOf(expected))) {
+                        else => actual != expected,
+                        .vector => @reduce(.Or, actual != expected),
+                    }) return error.Unexpected;
+                }
+                noinline fn testOps(mem_arg: Type) !void {
+                    var reg_arg = mem_arg;
+                    _ = .{&reg_arg};
+                    try testOne(op(Type, reg_arg));
+                    try testOne(op(Type, mem_arg));
+                    try testOne(op(Type, imm_arg));
+                }
+            }.testOps(imm_arg);
+        }
+    }.testType;
+
+    try testType(i0, 0);
+    try testType(u0, 0);
+
+    try testType(i1, -1);
+    try testType(i1, 0);
+    try testType(u1, 0);
+    try testType(u1, 1 << 0);
+
+    try testType(i2, -1 << 1);
+    try testType(i2, -1);
+    try testType(i2, 0);
+    try testType(u2, 0);
+    try testType(u2, 1 << 0);
+    try testType(u2, 1 << 1);
+
+    try testType(i3, -1 << 2);
+    try testType(i3, -1);
+    try testType(i3, 0);
+    try testType(u3, 0);
+    try testType(u3, 1 << 0);
+    try testType(u3, 1 << 1);
+    try testType(u3, 1 << 2);
+
+    try testType(i4, -1 << 3);
+    try testType(i4, -1);
+    try testType(i4, 0);
+    try testType(u4, 0);
+    try testType(u4, 1 << 0);
+    try testType(u4, 1 << 1);
+    try testType(u4, 1 << 2);
+    try testType(u4, 1 << 3);
+
+    try testType(i5, -1 << 4);
+    try testType(i5, -1);
+    try testType(i5, 0);
+    try testType(u5, 0);
+    try testType(u5, 1 << 0);
+    try testType(u5, 1 << 1);
+    try testType(u5, 1 << 3);
+    try testType(u5, 1 << 4);
+
+    try testType(i7, -1 << 6);
+    try testType(i7, -1);
+    try testType(i7, 0);
+    try testType(u7, 0);
+    try testType(u7, 1 << 0);
+    try testType(u7, 1 << 1);
+    try testType(u7, 1 << 5);
+    try testType(u7, 1 << 6);
+
+    try testType(i8, -1 << 7);
+    try testType(i8, -1);
+    try testType(i8, 0);
+    try testType(u8, 0);
+    try testType(u8, 1 << 0);
+    try testType(u8, 1 << 1);
+    try testType(u8, 1 << 6);
+    try testType(u8, 1 << 7);
+
+    try testType(i9, -1 << 8);
+    try testType(i9, -1);
+    try testType(i9, 0);
+    try testType(u9, 0);
+    try testType(u9, 1 << 0);
+    try testType(u9, 1 << 1);
+    try testType(u9, 1 << 7);
+    try testType(u9, 1 << 8);
+
+    try testType(i15, -1 << 14);
+    try testType(i15, -1);
+    try testType(i15, 0);
+    try testType(u15, 0);
+    try testType(u15, 1 << 0);
+    try testType(u15, 1 << 1);
+    try testType(u15, 1 << 13);
+    try testType(u15, 1 << 14);
+
+    try testType(i16, -1 << 15);
+    try testType(i16, -1);
+    try testType(i16, 0);
+    try testType(u16, 0);
+    try testType(u16, 1 << 0);
+    try testType(u16, 1 << 1);
+    try testType(u16, 1 << 14);
+    try testType(u16, 1 << 15);
+
+    try testType(i17, -1 << 16);
+    try testType(i17, -1);
+    try testType(i17, 0);
+    try testType(u17, 0);
+    try testType(u17, 1 << 0);
+    try testType(u17, 1 << 1);
+    try testType(u17, 1 << 15);
+    try testType(u17, 1 << 16);
+
+    try testType(i31, -1 << 30);
+    try testType(i31, -1);
+    try testType(i31, 0);
+    try testType(u31, 0);
+    try testType(u31, 1 << 0);
+    try testType(u31, 1 << 1);
+    try testType(u31, 1 << 29);
+    try testType(u31, 1 << 30);
+
+    try testType(i32, -1 << 31);
+    try testType(i32, -1);
+    try testType(i32, 0);
+    try testType(u32, 0);
+    try testType(u32, 1 << 0);
+    try testType(u32, 1 << 1);
+    try testType(u32, 1 << 30);
+    try testType(u32, 1 << 31);
+
+    try testType(i33, -1 << 32);
+    try testType(i33, -1);
+    try testType(i33, 0);
+    try testType(u33, 0);
+    try testType(u33, 1 << 0);
+    try testType(u33, 1 << 1);
+    try testType(u33, 1 << 31);
+    try testType(u33, 1 << 32);
+
+    try testType(i63, -1 << 62);
+    try testType(i63, -1);
+    try testType(i63, 0);
+    try testType(u63, 0);
+    try testType(u63, 1 << 0);
+    try testType(u63, 1 << 1);
+    try testType(u63, 1 << 61);
+    try testType(u63, 1 << 62);
+
+    try testType(i64, -1 << 63);
+    try testType(i64, -1);
+    try testType(i64, 0);
+    try testType(u64, 0);
+    try testType(u64, 1 << 0);
+    try testType(u64, 1 << 1);
+    try testType(u64, 1 << 62);
+    try testType(u64, 1 << 63);
+
+    try testType(i65, -1 << 64);
+    try testType(i65, -1);
+    try testType(i65, 0);
+    try testType(u65, 0);
+    try testType(u65, 1 << 0);
+    try testType(u65, 1 << 1);
+    try testType(u65, 1 << 63);
+    try testType(u65, 1 << 64);
+
+    try testType(i95, -1 << 94);
+    try testType(i95, -1);
+    try testType(i95, 0);
+    try testType(u95, 0);
+    try testType(u95, 1 << 0);
+    try testType(u95, 1 << 1);
+    try testType(u95, 1 << 93);
+    try testType(u95, 1 << 94);
+
+    try testType(i96, -1 << 95);
+    try testType(i96, -1);
+    try testType(i96, 0);
+    try testType(u96, 0);
+    try testType(u96, 1 << 0);
+    try testType(u96, 1 << 1);
+    try testType(u96, 1 << 94);
+    try testType(u96, 1 << 95);
+
+    try testType(i97, -1 << 96);
+    try testType(i97, -1);
+    try testType(i97, 0);
+    try testType(u97, 0);
+    try testType(u97, 1 << 0);
+    try testType(u97, 1 << 1);
+    try testType(u97, 1 << 95);
+    try testType(u97, 1 << 96);
+
+    try testType(i127, -1 << 126);
+    try testType(i127, -1);
+    try testType(i127, 0);
+    try testType(u127, 0);
+    try testType(u127, 1 << 0);
+    try testType(u127, 1 << 1);
+    try testType(u127, 1 << 125);
+    try testType(u127, 1 << 126);
+
+    try testType(i128, -1 << 127);
+    try testType(i128, -1);
+    try testType(i128, 0);
+    try testType(u128, 0);
+    try testType(u128, 1 << 0);
+    try testType(u128, 1 << 1);
+    try testType(u128, 1 << 126);
+    try testType(u128, 1 << 127);
+
+    try testType(i129, -1 << 128);
+    try testType(i129, -1);
+    try testType(i129, 0);
+    try testType(u129, 0);
+    try testType(u129, 1 << 0);
+    try testType(u129, 1 << 1);
+    try testType(u129, 1 << 127);
+    try testType(u129, 1 << 128);
+
+    try testType(i159, -1 << 158);
+    try testType(i159, -1);
+    try testType(i159, 0);
+    try testType(u159, 0);
+    try testType(u159, 1 << 0);
+    try testType(u159, 1 << 1);
+    try testType(u159, 1 << 157);
+    try testType(u159, 1 << 158);
+
+    try testType(i160, -1 << 159);
+    try testType(i160, -1);
+    try testType(i160, 0);
+    try testType(u160, 0);
+    try testType(u160, 1 << 0);
+    try testType(u160, 1 << 1);
+    try testType(u160, 1 << 158);
+    try testType(u160, 1 << 159);
+
+    try testType(i161, -1 << 160);
+    try testType(i161, -1);
+    try testType(i161, 0);
+    try testType(u161, 0);
+    try testType(u161, 1 << 0);
+    try testType(u161, 1 << 1);
+    try testType(u161, 1 << 159);
+    try testType(u161, 1 << 160);
+
+    try testType(i191, -1 << 190);
+    try testType(i191, -1);
+    try testType(i191, 0);
+    try testType(u191, 0);
+    try testType(u191, 1 << 0);
+    try testType(u191, 1 << 1);
+    try testType(u191, 1 << 189);
+    try testType(u191, 1 << 190);
+
+    try testType(i192, -1 << 191);
+    try testType(i192, -1);
+    try testType(i192, 0);
+    try testType(u192, 0);
+    try testType(u192, 1 << 0);
+    try testType(u192, 1 << 1);
+    try testType(u192, 1 << 190);
+    try testType(u192, 1 << 191);
+
+    try testType(i193, -1 << 192);
+    try testType(i193, -1);
+    try testType(i193, 0);
+    try testType(u193, 0);
+    try testType(u193, 1 << 0);
+    try testType(u193, 1 << 1);
+    try testType(u193, 1 << 191);
+    try testType(u193, 1 << 192);
+
+    try testType(i223, -1 << 222);
+    try testType(i223, -1);
+    try testType(i223, 0);
+    try testType(u223, 0);
+    try testType(u223, 1 << 0);
+    try testType(u223, 1 << 1);
+    try testType(u223, 1 << 221);
+    try testType(u223, 1 << 222);
+
+    try testType(i224, -1 << 223);
+    try testType(i224, -1);
+    try testType(i224, 0);
+    try testType(u224, 0);
+    try testType(u224, 1 << 0);
+    try testType(u224, 1 << 1);
+    try testType(u224, 1 << 222);
+    try testType(u224, 1 << 223);
+
+    try testType(i225, -1 << 224);
+    try testType(i225, -1);
+    try testType(i225, 0);
+    try testType(u225, 0);
+    try testType(u225, 1 << 0);
+    try testType(u225, 1 << 1);
+    try testType(u225, 1 << 223);
+    try testType(u225, 1 << 224);
+
+    try testType(i255, -1 << 254);
+    try testType(i255, -1);
+    try testType(i255, 0);
+    try testType(u255, 0);
+    try testType(u255, 1 << 0);
+    try testType(u255, 1 << 1);
+    try testType(u255, 1 << 253);
+    try testType(u255, 1 << 254);
+
+    try testType(i256, -1 << 255);
+    try testType(i256, -1);
+    try testType(i256, 0);
+    try testType(u256, 0);
+    try testType(u256, 1 << 0);
+    try testType(u256, 1 << 1);
+    try testType(u256, 1 << 254);
+    try testType(u256, 1 << 255);
+
+    try testType(i257, -1 << 256);
+    try testType(i257, -1);
+    try testType(i257, 0);
+    try testType(u257, 0);
+    try testType(u257, 1 << 0);
+    try testType(u257, 1 << 1);
+    try testType(u257, 1 << 255);
+    try testType(u257, 1 << 256);
+
+    try testType(i511, -1 << 510);
+    try testType(i511, -1);
+    try testType(i511, 0);
+    try testType(u511, 0);
+    try testType(u511, 1 << 0);
+    try testType(u511, 1 << 1);
+    try testType(u511, 1 << 509);
+    try testType(u511, 1 << 510);
+
+    try testType(i512, -1 << 511);
+    try testType(i512, -1);
+    try testType(i512, 0);
+    try testType(u512, 0);
+    try testType(u512, 1 << 0);
+    try testType(u512, 1 << 1);
+    try testType(u512, 1 << 510);
+    try testType(u512, 1 << 511);
+
+    try testType(i513, -1 << 512);
+    try testType(i513, -1);
+    try testType(i513, 0);
+    try testType(u513, 0);
+    try testType(u513, 1 << 0);
+    try testType(u513, 1 << 1);
+    try testType(u513, 1 << 511);
+    try testType(u513, 1 << 512);
+
+    try testType(i1023, -1 << 1022);
+    try testType(i1023, -1);
+    try testType(i1023, 0);
+    try testType(u1023, 0);
+    try testType(u1023, 1 << 0);
+    try testType(u1023, 1 << 1);
+    try testType(u1023, 1 << 1021);
+    try testType(u1023, 1 << 1022);
+
+    try testType(i1024, -1 << 1023);
+    try testType(i1024, -1);
+    try testType(i1024, 0);
+    try testType(u1024, 0);
+    try testType(u1024, 1 << 0);
+    try testType(u1024, 1 << 1);
+    try testType(u1024, 1 << 1022);
+    try testType(u1024, 1 << 1023);
+
+    try testType(i1025, -1 << 1024);
+    try testType(i1025, -1);
+    try testType(i1025, 0);
+    try testType(u1025, 0);
+    try testType(u1025, 1 << 0);
+    try testType(u1025, 1 << 1);
+    try testType(u1025, 1 << 1023);
+    try testType(u1025, 1 << 1024);
+
+    try testType(@Vector(3, i0), .{ 0 << 0, 0, 0 });
+    try testType(@Vector(3, u0), .{ 0, 0, 0 << 0 });
+
+    try testType(@Vector(3, i1), .{ -1 << 0, -1, 0 });
+    try testType(@Vector(3, u1), .{ 0, 1, 1 << 0 });
+
+    try testType(@Vector(3, i2), .{ -1 << 1, -1, 0 });
+    try testType(@Vector(3, u2), .{ 0, 1, 1 << 1 });
+
+    try testType(@Vector(3, i3), .{ -1 << 2, -1, 0 });
+    try testType(@Vector(3, u3), .{ 0, 1, 1 << 2 });
+
+    try testType(@Vector(3, i4), .{ -1 << 3, -1, 0 });
+    try testType(@Vector(3, u4), .{ 0, 1, 1 << 3 });
+    try testType(@Vector(1, u4), .{
+        0xb,
+    });
+    try testType(@Vector(2, u4), .{
+        0x3, 0x4,
+    });
+    try testType(@Vector(4, u4), .{
+        0x9, 0x2, 0xf, 0xe,
+    });
+    try testType(@Vector(8, u4), .{
+        0x8, 0x1, 0xb, 0x1, 0xf, 0x5, 0x9, 0x6,
+    });
+    try testType(@Vector(16, u4), .{
+        0xb, 0x6, 0x0, 0x7, 0x8, 0x5, 0x6, 0x9, 0xe, 0xb, 0x3, 0xa, 0xb, 0x5, 0x8, 0xc,
+    });
+    try testType(@Vector(32, u4), .{
+        0xe, 0x6, 0xe, 0xa, 0xb, 0x4, 0xa, 0xb, 0x1, 0x3, 0xb, 0xc, 0x0, 0xb, 0x9, 0x4, 0xd, 0xa, 0xd, 0xd, 0x4, 0x8, 0x8, 0x6, 0xb, 0xe, 0x9, 0x6, 0xc, 0xd, 0x5, 0xd,
+    });
+    try testType(@Vector(64, u4), .{
+        0x1, 0xc, 0xe, 0x9, 0x9, 0xf, 0x3, 0xf, 0x9, 0x9, 0x5, 0x3, 0xb, 0xd, 0xd, 0xf, 0x1, 0x2, 0xf, 0x9, 0x4, 0x4, 0x8, 0x9, 0x2, 0x9, 0x8, 0xe, 0x8, 0xa, 0x4, 0x3,
+        0x4, 0xc, 0xb, 0x6, 0x4, 0x0, 0xa, 0x5, 0x1, 0xa, 0x4, 0xe, 0xa, 0x7, 0xd, 0x0, 0x4, 0xe, 0xe, 0x7, 0x7, 0xa, 0x4, 0x5, 0x6, 0xc, 0x6, 0x2, 0x6, 0xa, 0xe, 0xa,
+    });
+    try testType(@Vector(128, u4), .{
+        0xd, 0x5, 0x6, 0xe, 0x3, 0x3, 0x3, 0xe, 0xd, 0xd, 0x9, 0x0, 0x0, 0xe, 0xa, 0x9, 0x8, 0x7, 0xb, 0x5, 0x7, 0xf, 0xb, 0x8, 0x0, 0xf, 0xb, 0x3, 0xa, 0x2, 0xb, 0xc,
+        0x1, 0x1, 0xc, 0x8, 0x8, 0x6, 0x9, 0x1, 0xb, 0x0, 0x2, 0xb, 0x2, 0x2, 0x7, 0x6, 0x1, 0x1, 0xb, 0x4, 0x6, 0x4, 0x7, 0xc, 0xd, 0xc, 0xa, 0x8, 0x1, 0x7, 0x8, 0xa,
+        0x9, 0xa, 0x1, 0x8, 0x1, 0x7, 0x9, 0x4, 0x5, 0x9, 0xd, 0x0, 0xa, 0xf, 0x3, 0x3, 0x9, 0x2, 0xf, 0x5, 0xb, 0x8, 0x6, 0xb, 0xf, 0x5, 0x8, 0x3, 0x9, 0xf, 0x6, 0x8,
+        0xc, 0x8, 0x3, 0x4, 0xa, 0xe, 0xc, 0x1, 0xe, 0x9, 0x1, 0x8, 0xf, 0x6, 0xc, 0xc, 0x6, 0xf, 0x6, 0xd, 0xb, 0x9, 0xc, 0x3, 0xd, 0xa, 0x6, 0x8, 0x4, 0xa, 0x6, 0x9,
+    });
+    try testType(@Vector(256, u4), .{
+        0x6, 0xc, 0xe, 0x3, 0x8, 0x2, 0xb, 0xd, 0x3, 0xa, 0x3, 0x8, 0xb, 0x8, 0x3, 0x0, 0xb, 0x5, 0x1, 0x3, 0x2, 0x2, 0xf, 0xc, 0x5, 0x1, 0x3, 0xb, 0x1, 0xc, 0x2, 0xd,
+        0xa, 0x8, 0x1, 0xc, 0xb, 0xa, 0x3, 0x1, 0xe, 0x4, 0xf, 0xb, 0xd, 0x8, 0xf, 0xa, 0xc, 0xb, 0xb, 0x0, 0xa, 0xc, 0xf, 0xe, 0x8, 0xd, 0x9, 0x3, 0xa, 0xe, 0x8, 0x7,
+        0x5, 0xa, 0x0, 0xe, 0x0, 0xd, 0x2, 0x2, 0x9, 0x4, 0x8, 0x9, 0x0, 0x4, 0x4, 0x8, 0xe, 0x1, 0xf, 0x1, 0x9, 0x3, 0xf, 0xc, 0xa, 0x0, 0x3, 0x2, 0x4, 0x1, 0x2, 0x3,
+        0xf, 0x2, 0x7, 0xb, 0x5, 0x0, 0xd, 0x3, 0x4, 0xf, 0xa, 0x3, 0xc, 0x2, 0x5, 0xe, 0x7, 0x5, 0xd, 0x7, 0x9, 0x0, 0xd, 0x7, 0x9, 0xd, 0x5, 0x7, 0xf, 0xd, 0xb, 0x4,
+        0x9, 0x6, 0xf, 0xb, 0x1, 0xb, 0x6, 0xb, 0xf, 0x7, 0xf, 0x0, 0x4, 0x7, 0x5, 0xa, 0x8, 0x1, 0xf, 0x9, 0x9, 0x0, 0x6, 0xb, 0x1, 0x2, 0x4, 0x3, 0x2, 0x0, 0x7, 0x0,
+        0x6, 0x7, 0xf, 0x1, 0xe, 0xa, 0x8, 0x2, 0x9, 0xc, 0x1, 0x5, 0x7, 0x1, 0xb, 0x0, 0x1, 0x3, 0xd, 0x3, 0x0, 0x1, 0xa, 0x0, 0x3, 0x7, 0x1, 0x2, 0xb, 0xc, 0x2, 0x9,
+        0x8, 0x8, 0x7, 0x0, 0xd, 0x5, 0x1, 0x5, 0x7, 0x7, 0x2, 0x3, 0x8, 0x7, 0xc, 0x8, 0xf, 0xa, 0xf, 0xf, 0x3, 0x2, 0x0, 0x4, 0x7, 0x5, 0x6, 0xd, 0x6, 0x3, 0xa, 0x4,
+        0x1, 0x1, 0x2, 0xc, 0x3, 0xe, 0x2, 0xc, 0x7, 0x6, 0xe, 0xf, 0xb, 0x8, 0x6, 0x6, 0x9, 0x0, 0x4, 0xb, 0xe, 0x4, 0x2, 0x7, 0xf, 0xc, 0x0, 0x6, 0xd, 0xa, 0xe, 0xc,
+    });
+
+    try testType(@Vector(3, i5), .{ -1 << 4, -1, 0 });
+    try testType(@Vector(3, u5), .{ 0, 1, 1 << 4 });
+
+    try testType(@Vector(3, i7), .{ -1 << 6, -1, 0 });
+    try testType(@Vector(3, u7), .{ 0, 1, 1 << 6 });
+
+    try testType(@Vector(3, i8), .{ -1 << 7, -1, 0 });
+    try testType(@Vector(3, u8), .{ 0, 1, 1 << 7 });
+    try testType(@Vector(1, u8), .{
+        0x33,
+    });
+    try testType(@Vector(2, u8), .{
+        0x66, 0x87,
+    });
+    try testType(@Vector(4, u8), .{
+        0x9d, 0xcb, 0x30, 0x7b,
+    });
+    try testType(@Vector(8, u8), .{
+        0x4b, 0x35, 0x3f, 0x5c, 0xa5, 0x91, 0x23, 0x6d,
+    });
+    try testType(@Vector(16, u8), .{
+        0xb7, 0x57, 0x27, 0x29, 0x58, 0xf8, 0xc9, 0x6c, 0xbe, 0x41, 0xf4, 0xd7, 0x4d, 0x01, 0xf0, 0x37,
+    });
+    try testType(@Vector(32, u8), .{
+        0x5f, 0x61, 0x34, 0xe8, 0x37, 0x12, 0xba, 0x5a, 0x85, 0xf3, 0x3e, 0xa2, 0x0f, 0xd0, 0x65, 0xae,
+        0xed, 0xf5, 0xe8, 0x65, 0x61, 0x28, 0x4a, 0x27, 0x2e, 0x01, 0x40, 0x8c, 0xe3, 0x36, 0x5d, 0xb6,
+    });
+    try testType(@Vector(64, u8), .{
+        0xb0, 0x19, 0x5c, 0xc2, 0x3b, 0x16, 0x70, 0xad, 0x26, 0x45, 0xf2, 0xe1, 0x4f, 0x0f, 0x01, 0x72,
+        0x7f, 0x1f, 0x07, 0x9e, 0xee, 0x9b, 0xb3, 0x38, 0x50, 0xf3, 0x56, 0x73, 0xd0, 0xd1, 0xee, 0xe3,
+        0xeb, 0xf3, 0x1b, 0xe0, 0x77, 0x78, 0x75, 0xc6, 0x19, 0xe4, 0x69, 0xaa, 0x73, 0x08, 0xcd, 0x0c,
+        0xf9, 0xed, 0x94, 0xf8, 0x79, 0x86, 0x63, 0x31, 0xbf, 0xd1, 0xe3, 0x17, 0x2b, 0xb9, 0xa1, 0x72,
+    });
+    try testType(@Vector(128, u8), .{
+        0x2e, 0x93, 0x87, 0x09, 0x4f, 0x68, 0x14, 0xab, 0x3f, 0x04, 0x86, 0xc1, 0x95, 0xe8, 0x74, 0x11,
+        0x57, 0x25, 0xe1, 0x88, 0xc0, 0x96, 0x33, 0x99, 0x15, 0x86, 0x2c, 0x84, 0x2e, 0xd7, 0x57, 0x21,
+        0xd3, 0x18, 0xd5, 0x0e, 0xb4, 0x60, 0xe2, 0x08, 0xce, 0xbc, 0xd5, 0x4d, 0x8f, 0x59, 0x01, 0x67,
+        0x71, 0x0a, 0x74, 0x48, 0xef, 0x39, 0x49, 0x7e, 0xa8, 0x39, 0x34, 0x75, 0x95, 0x3b, 0x38, 0xea,
+        0x60, 0xd7, 0xed, 0x8f, 0xbb, 0xc0, 0x7d, 0xc2, 0x79, 0x2d, 0xbf, 0xa5, 0x64, 0xf4, 0x09, 0x86,
+        0xfb, 0x29, 0xfe, 0xc7, 0xff, 0x62, 0x1a, 0x6f, 0xf8, 0xbd, 0xfe, 0xa4, 0xac, 0x24, 0xcf, 0x56,
+        0x82, 0x69, 0x81, 0x0d, 0xc1, 0x51, 0x8d, 0x85, 0xf4, 0x00, 0xe7, 0x25, 0xab, 0xa5, 0x33, 0x45,
+        0x66, 0x2e, 0x33, 0xc8, 0xf3, 0x35, 0x16, 0x7d, 0x1f, 0xc9, 0xf7, 0x44, 0xab, 0x66, 0x28, 0x0d,
+    });
+
+    try testType(@Vector(3, i9), .{ -1 << 8, -1, 0 });
+    try testType(@Vector(3, u9), .{ 0, 1, 1 << 8 });
+
+    try testType(@Vector(3, i15), .{ -1 << 14, -1, 0 });
+    try testType(@Vector(3, u15), .{ 0, 1, 1 << 14 });
+
+    try testType(@Vector(3, i16), .{ -1 << 15, -1, 0 });
+    try testType(@Vector(3, u16), .{ 0, 1, 1 << 15 });
+    try testType(@Vector(1, u16), .{
+        0x4da6,
+    });
+    try testType(@Vector(2, u16), .{
+        0x04d7, 0x50c6,
+    });
+    try testType(@Vector(4, u16), .{
+        0x4c06, 0xd71f, 0x4d8f, 0xe0a4,
+    });
+    try testType(@Vector(8, u16), .{
+        0xee9a, 0x881d, 0x31fb, 0xd3f7, 0x2c74, 0x6949, 0x4e04, 0x53d7,
+    });
+    try testType(@Vector(16, u16), .{
+        0xeafe, 0x9a7b, 0x0d6f, 0x18cb, 0xaf8f, 0x8ee4, 0xa47e, 0xd39a,
+        0x6572, 0x9c53, 0xf36e, 0x982e, 0x41c1, 0x8682, 0xf5dc, 0x7e01,
+    });
+    try testType(@Vector(32, u16), .{
+        0xdfb3, 0x7de6, 0xd9ed, 0xb42e, 0x95ac, 0x9b5b, 0x0422, 0xdfcd,
+        0x6196, 0x4dbe, 0x1818, 0x8816, 0x75e7, 0xc9b0, 0x92f7, 0x1f71,
+        0xe584, 0x576c, 0x043a, 0x0f31, 0xfc4c, 0x2c87, 0x6b02, 0x0229,
+        0x25b7, 0x53cd, 0x9bab, 0x866b, 0x9008, 0xf0f3, 0xeb21, 0x88e2,
+    });
+    try testType(@Vector(64, u16), .{
+        0x084c, 0x445f, 0xce89, 0xd3ee, 0xb399, 0x315d, 0x8ef8, 0x4f6f,
+        0xf9af, 0xcbc4, 0x0332, 0xcd55, 0xa4dc, 0xbc38, 0x6e33, 0x8ead,
+        0xd15a, 0x5057, 0x58ef, 0x657a, 0xe9f0, 0x1418, 0x2b62, 0x3387,
+        0x1c15, 0x04e1, 0x0276, 0x3783, 0xad9c, 0xea9a, 0x0e5e, 0xe803,
+        0x2ee7, 0x0cf1, 0x30f1, 0xb12a, 0x381b, 0x353d, 0xf637, 0xf853,
+        0x2ac1, 0x7ce8, 0x6a50, 0xcbb8, 0xc9b8, 0x9b25, 0xd1e9, 0xeff0,
+        0xc0a2, 0x8e51, 0xde7a, 0x4e58, 0x5685, 0xeb3f, 0xd29b, 0x66ed,
+        0x3dd5, 0xcb59, 0x6003, 0xf710, 0x943a, 0x7276, 0xe547, 0xe48f,
+    });
+
+    try testType(@Vector(3, i17), .{ -1 << 16, -1, 0 });
+    try testType(@Vector(3, u17), .{ 0, 1, 1 << 16 });
+
+    try testType(@Vector(3, i31), .{ -1 << 30, -1, 0 });
+    try testType(@Vector(3, u31), .{ 0, 1, 1 << 30 });
+
+    try testType(@Vector(3, i32), .{ -1 << 31, -1, 0 });
+    try testType(@Vector(3, u32), .{ 0, 1, 1 << 31 });
+    try testType(@Vector(1, u32), .{
+        0x17e2805c,
+    });
+    try testType(@Vector(2, u32), .{
+        0xdb6aadc5, 0xb1ff3754,
+    });
+    try testType(@Vector(4, u32), .{
+        0xf7897b31, 0x342e1af9, 0x190fd76b, 0x283b5374,
+    });
+    try testType(@Vector(8, u32), .{
+        0x81a0bd16, 0xc55da94e, 0x910f7e7c, 0x078d5ef7,
+        0x0bdb1e4a, 0xf1a96e99, 0xcdd729b5, 0xe6966a1c,
+    });
+    try testType(@Vector(16, u32), .{
+        0xfee812db, 0x29eacbed, 0xaed48136, 0x3053de13,
+        0xbbda20df, 0x6faa274a, 0xe0b5ec3a, 0x1878b0dc,
+        0x98204475, 0x810d8d05, 0x1e6996b6, 0xc543826a,
+        0x53b47d8c, 0xc72c3142, 0x12f7e1f9, 0xf6782e54,
+    });
+    try testType(@Vector(32, u32), .{
+        0xf0cf30d3, 0xe3c587b8, 0xcee44739, 0xe4a0bd72,
+        0x41d44cce, 0x6d7c4259, 0xd85580a5, 0xec4b02d7,
+        0xa366483d, 0x2d7b59d4, 0xe9c0ace4, 0x82cb441c,
+        0xa23958ba, 0x04a70148, 0x3f0d20a3, 0xf9e21e37,
+        0x009fce8b, 0x4a34a229, 0xf09c35cf, 0xc0977d4d,
+        0xcc4d4647, 0xa30f1363, 0x27a65b14, 0xe572c785,
+        0x8f42e320, 0x2b2cdeca, 0x11205bd4, 0x739d26aa,
+        0xcbcc2df0, 0x5f7a3649, 0xbde1b7aa, 0x180a169f,
+    });
+
+    try testType(@Vector(3, i33), .{ -1 << 32, -1, 0 });
+    try testType(@Vector(3, u33), .{ 0, 1, 1 << 32 });
+
+    try testType(@Vector(3, i63), .{ -1 << 62, -1, 0 });
+    try testType(@Vector(3, u63), .{ 0, 1, 1 << 62 });
+
+    try testType(@Vector(3, i64), .{ -1 << 63, -1, 0 });
+    try testType(@Vector(3, u64), .{ 0, 1, 1 << 63 });
+    try testType(@Vector(1, u64), .{
+        0x7d2e439abb0edba7,
+    });
+    try testType(@Vector(2, u64), .{
+        0x3749ee5a2d237b9f, 0x6d8f4c3e1378f389,
+    });
+    try testType(@Vector(4, u64), .{
+        0x03c127040e10d52b, 0xa86fe019072e27eb,
+        0x0a554a47b709cdba, 0xf4342cc597e196c3,
+    });
+    try testType(@Vector(8, u64), .{
+        0xea455c104375a055, 0x5c35d9d945edb2fa,
+        0xc11b73d9d9d546fc, 0x2a9d63aae838dd5b,
+        0xed6603f1f5d574b3, 0x2f37b354c81c1e56,
+        0xbe7f5e2476bc76bd, 0xb0c88eacfffa9a8f,
+    });
+    try testType(@Vector(16, u64), .{
+        0x2258fc04b31f8dbe, 0x3a2e5483003a10d8,
+        0xebf24b31c0460510, 0x15d5b4c09b53ffa5,
+        0x05abf6e744b17cc6, 0x9747b483f2d159fe,
+        0x4616d8b2c8673125, 0x8ae3f91d422447eb,
+        0x18da2f101a9e9776, 0x77a1197fb0441007,
+        0x4ba480c8ec2dd10b, 0xeb99b9c0a1725278,
+        0xd9d0acc5084ecdf0, 0xa0a23317fff4f515,
+        0x0901c59a9a6a408b, 0x7c77ca72e25df033,
+    });
+
+    try testType(@Vector(3, i65), .{ -1 << 64, -1, 0 });
+    try testType(@Vector(3, u65), .{ 0, 1, 1 << 64 });
+
+    try testType(@Vector(3, i127), .{ -1 << 126, -1, 0 });
+    try testType(@Vector(3, u127), .{ 0, 1, 1 << 126 });
+
+    try testType(@Vector(3, i128), .{ -1 << 127, -1, 0 });
+    try testType(@Vector(3, u128), .{ 0, 1, 1 << 127 });
+    try testType(@Vector(1, u128), .{
+        0x809f29e7fbafadc01145e1732590e7d9,
+    });
+    try testType(@Vector(2, u128), .{
+        0x5150ac3438aacd0d51132cc2723b2995,
+        0x151be9c47ad29cf719cf8358dd40165c,
+    });
+    try testType(@Vector(4, u128), .{
+        0x4bae22df929f2f7cb9bd84deaad3e7a8,
+        0x1ed46b2d6e1f3569f56b2ac33d8bc1cb,
+        0xae93ea459d2ccfd5fb794e6d5c31aabb,
+        0xb1177136acf099f550b70949ac202ec4,
+    });
+    try testType(@Vector(8, u128), .{
+        0x7cd78db6baed6bfdf8c5265136c4e0fd,
+        0xa41b8984c6bbde84640068194b7eba98,
+        0xd33102778f2ae1a48d1e9bf8801bbbf0,
+        0x0d59f6de003513a60055c86cbce2c200,
+        0x825579d90012afddfbf04851c0748561,
+        0xc2647c885e9d6f0ee1f5fac5da8ef7f5,
+        0xcb4bbc1f81aa8ee68aa4dc140745687b,
+        0x4ff10f914f74b46c694407f5bf7c7836,
+    });
+
+    try testType(@Vector(3, i129), .{ -1 << 128, -1, 0 });
+    try testType(@Vector(3, u129), .{ 0, 1, 1 << 128 });
+
+    try testType(@Vector(3, i191), .{ -1 << 190, -1, 0 });
+    try testType(@Vector(3, u191), .{ 0, 1, 1 << 190 });
+
+    try testType(@Vector(3, i192), .{ -1 << 191, -1, 0 });
+    try testType(@Vector(3, u192), .{ 0, 1, 1 << 191 });
+    try testType(@Vector(1, u192), .{
+        0xe7baafcb9781626a77571b0539b9471a60c97d6c02106c8b,
+    });
+    try testType(@Vector(2, u192), .{
+        0xbc9510913ed09e2c2aa50ffab9f1bc7b303a87f36e232a83,
+        0x1f37bee446d7712d1ad457c47a66812cb926198d052aee65,
+    });
+    try testType(@Vector(4, u192), .{
+        0xdca6a7cfc19c69efc34022062a8ca36f2569ab3dce001202,
+        0xd25a4529e621c9084181fdb6917c6a32eccc58b63601b35d,
+        0x0a258afd6debbaf8c158f1caa61fed63b31871d13f51b43d,
+        0x6b40a178674fcb82c623ac322f851623d5e993dac97a219a,
+    });
+
+    try testType(@Vector(3, i193), .{ -1 << 192, -1, 0 });
+    try testType(@Vector(3, u193), .{ 0, 1, 1 << 192 });
+
+    try testType(@Vector(3, i255), .{ -1 << 254, -1, 0 });
+    try testType(@Vector(3, u255), .{ 0, 1, 1 << 254 });
+
+    try testType(@Vector(3, i256), .{ -1 << 255, -1, 0 });
+    try testType(@Vector(3, u256), .{ 0, 1, 1 << 255 });
+    try testType(@Vector(1, u256), .{
+        0x230413bb481fa3a997796acf282010c560d1942e7339fd584a0f15a90c83fbda,
+    });
+    try testType(@Vector(2, u256), .{
+        0x3ad569f8d91fdbc9da8ec0e933565919f2feb90b996c90c352b461aa0908e62d,
+        0x0f109696d64647983f1f757042515510729ad1350e862cbf38cb73b5cf99f0f7,
+    });
+    try testType(@Vector(4, u256), .{
+        0x1717c6ded4ac6de282d59f75f068da47d5a47a30f2c5053d2d59e715f9d28b97,
+        0x3087189ce7540e2e0028b80af571ebc6353a00b2917f243a869ed29ecca0adaa,
+        0x1507c6a9d104684bf503cdb08841cf91adab4644306bd67aafff5326604833ce,
+        0x857e134ff9179733c871295b25f824bd3eb562977bad30890964fa0cdc15bb07,
+    });
+
+    try testType(@Vector(3, i257), .{ -1 << 256, -1, 0 });
+    try testType(@Vector(3, u257), .{ 0, 1, 1 << 256 });
+
+    try testType(@Vector(3, i511), .{ -1 << 510, -1, 0 });
+    try testType(@Vector(3, u511), .{ 0, 1, 1 << 510 });
+
+    try testType(@Vector(3, i512), .{ -1 << 511, -1, 0 });
+    try testType(@Vector(3, u512), .{ 0, 1, 1 << 511 });
+    try testType(@Vector(1, u512), .{
+        0xa3ff51a609f1370e5eeb96b05169bf7469e465cf76ac5b4ea8ffd166c1ba3cd94f2dedf0d647a1fe424f3a06e6d7940f03e257f28100970b00bd5528c52b9ae6,
+    });
+    try testType(@Vector(2, u512), .{
+        0xc6d43cd46ae31ab71f9468a895c83bf17516c6b2f1c9b04b9aa113bf7fe1b789eb7d95fcf951f12a9a6f2124589551efdd8c00f528b366a7bfb852faf8f3da53,
+        0xc9099d2bdf8d1a0d30485ec6db4a24cbc0d89a863de30e18313ee1d66f71dd2d26235caaa703286cf4a2b51e1a12ef96d2d944c66c0bd3f0d72dd4cf0fc8100e,
+    });
+
+    try testType(@Vector(3, i513), .{ -1 << 512, -1, 0 });
+    try testType(@Vector(3, u513), .{ 0, 1, 1 << 512 });
+
+    try testType(@Vector(3, i1023), .{ -1 << 1022, -1, 0 });
+    try testType(@Vector(3, u1023), .{ 0, 1, 1 << 1022 });
+
+    try testType(@Vector(3, i1024), .{ -1 << 1023, -1, 0 });
+    try testType(@Vector(3, u1024), .{ 0, 1, 1 << 1023 });
+    try testType(@Vector(1, u1024), .{
+        0xc6cfaa6571139552e1f067402dfc131d9b9a58aafda97198a78764b05138fb68cf26f085b7652f3d5ae0e56aa21732f296a581bb411d4a73795c213de793489fa49b173b9f5c089aa6295ff1fcdc14d491a05035b45d08fc35cd67a83d887a02b8db512f07518132e0ba56533c7d6fbe958255eddf5649bd8aba288c0dd84a25,
+    });
+
+    try testType(@Vector(3, i1025), .{ -1 << 1024, -1, 0 });
+    try testType(@Vector(3, u1025), .{ 0, 1, 1 << 1024 });
+}
+
 fn testBinary(comptime op: anytype) !void {
     const testType = struct {
         fn testType(comptime Type: type, comptime imm_lhs: Type, comptime imm_rhs: Type) !void {
@@ -306,6 +1012,63 @@ fn testBinary(comptime op: anytype) !void {
         0x8b0b4a27fc94a0e90652d19bc755b63d,
         0xa858bce5ad0e48c13588a4e170e8667c,
     });
+
+    try testType(@Vector(1, u256), .{
+        0x28df37e1f57a56133ba3f5b5b2164ce24eb6c29a8973a597fd91fbee8ab4bafb,
+    }, .{
+        0x63f725028cab082b5b1e6cb474428c8c3655cf438f3bb05c7a87f8270198f357,
+    });
+    try testType(@Vector(2, u256), .{
+        0xcc79740b85597ef411e6d7e92049dfaa2328781ea4911540a3dcb512b71c7f3c,
+        0x51ae46d2f93cbecff1578481f6ddc633dacee94ecaf81597c752c5c5db0ae766,
+    }, .{
+        0x257f0107305cb71cef582a9a58612a019f335e390d7998f51f5898f245874a6e,
+        0x0a95a17323a4d16a715720f122b752785e9877e3dd3d3f9b72cdac3d1139a81f,
+    });
+    try testType(@Vector(4, u256), .{
+        0x19667a6e269342cba437a8904c7ba42a762358d32723723ae2637b01124e63c5,
+        0x14f7d3599a7edc7bcc46874f68d4291793e6ef72bd1f3763bc5e923f54f2f781,
+        0x1c939de0ae980b80de773a04088ba45813441336cdfdc281ee356c98d71f653b,
+        0x39f5d755965382fe13d1b1d6690b8e3827f153f8166768c4ad8a28a963b781f2,
+    }, .{
+        0xbe03de37cdcb8126083b4e86cd8a9803121d31b186fd5ce555ad77ce624dd6c7,
+        0xa0c0730f0d7f141cc959849d09730b049f00693361539f1bc4758270554a60c1,
+        0x2664bdba8de4eaa36ecee72f6bfec5b4daa6b4e00272d8116f2cc532c29490cc,
+        0xe47a122bd45d5e7d69722d864a6b795ddee965a0993094f8791dd309d692de8b,
+    });
+
+    try testType(@Vector(1, u512), .{
+        0x651058c1d89a8f34cfc5e66b6d25294eecfcc4a7e1e4a356eb51ee7d7b2db25378e4afee51b7d18d16e520772a60c50a02d7966f40ced1870b32c658e5821397,
+    }, .{
+        0xd726e265ec80cb99510ba4f480ca64e959de5c528a7f54c386ecad22eeeefa845f0fd44b1bd64258a5f868197ee2d8fed59df9c9f0b72e74051a7ff20230880e,
+    });
+    try testType(@Vector(2, u512), .{
+        0x22c8183c95cca8b09fdf541e431b73e9e4a1a5a00dff12381937fab52681d09d38ea25727d7025a2be08942cfa01535759e1644792e347c7901ec94b343c6337,
+        0x292fdf644e75927e1aea9465ae2f60fb27550cd095f1afdea2cf7855286d26fbeed1c0b9c0474b73cb6b75621f7eadaa2f94ec358179ce2aaa0766df20da1ef3,
+    }, .{
+        0xe1cd8c0ca244c6626d4415e10b4ac43fa69e454c529c24fec4b13e6b945684d4ea833709c16c636ca78cffa5c5bf0fe945cd714a9ad695184a6bdad31dec9e31,
+        0x8fa3d86099e9e2789d72f8e792290356d659ab20ac0414ff94745984c6ae7d986082197bb849889f912e896670aa2c1a11bd7e66e3f650710b0f0a18a1533f90,
+    });
+
+    try testType(@Vector(1, u1024), .{
+        0x0ca1a0dfaf8bb1da714b457d23c71aef948e66c7cd45c0aa941498a796fb18502ec32f34e885d0a107d44ae81595f8b52c2f0fb38e584b7139903a0e8a823ae20d01ca0662722dd474e7efc40f32d74cc065d97d8a09d0447f1ab6107fa0a57f3f8c866ae872506627ce82f18add79cee8dc69837f4ead3ca770c4d622d7e544,
+    }, .{
+        0xf1e3bbe031d59351770a7a501b6e969b2c00d144f17648db3f944b69dfeb7be72e5ff933a061eba4eaa422f8ca09e5a97d0b0dd740fd4076eba8c72d7a278523f399202dc2d043c4e0eb58a2bcd4066e2146e321810b1ee4d3afdddb4f026bcc7905ce17e033a7727b4e08f33b53c63d8c9f763fc6c31d0523eb38c30d5e40bc,
+    });
+}
+
+inline fn bitNot(comptime Type: type, rhs: Type) @TypeOf(~rhs) {
+    return ~rhs;
+}
+test bitNot {
+    try testUnary(bitNot);
+}
+
+inline fn clz(comptime Type: type, rhs: Type) @TypeOf(@clz(rhs)) {
+    return @clz(rhs);
+}
+test clz {
+    try testUnary(clz);
 }
 
 inline fn bitAnd(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs & rhs) {

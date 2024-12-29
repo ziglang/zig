@@ -38,6 +38,11 @@ pub const Inst = struct {
         /// ___ Right Without Affecting Flags
         _rx,
 
+        /// ___ Forward
+        _f,
+        /// ___ Reverse
+        //_r,
+
         /// ___ Above
         _a,
         /// ___ Above Or Equal
@@ -47,6 +52,7 @@ pub const Inst = struct {
         /// ___ Below Or Equal
         _be,
         /// ___ Carry
+        /// ___ Carry Flag
         _c,
         /// ___ Equal
         _e,
@@ -98,6 +104,14 @@ pub const Inst = struct {
         _s,
         /// ___ Zero
         _z,
+        /// ___ Alignment Check Flag
+        _ac,
+        /// ___ Direction Flag
+        //_d,
+        /// ___ Interrupt Flag
+        _i,
+        /// ___ User Interrupt Flag
+        _ui,
 
         /// ___ Byte
         //_b,
@@ -299,9 +313,8 @@ pub const Inst = struct {
         /// Bitwise logical and of packed double-precision floating-point values
         @"and",
         /// Bit scan forward
-        bsf,
         /// Bit scan reverse
-        bsr,
+        bs,
         /// Byte swap
         bswap,
         /// Bit test
@@ -317,6 +330,10 @@ pub const Inst = struct {
         cdq,
         /// Convert doubleword to quadword
         cdqe,
+        /// Clear carry flag
+        /// Clear direction flag
+        /// Clear interrupt flag
+        cl,
         /// Flush cache line
         clflush,
         /// Conditional move
@@ -443,6 +460,11 @@ pub const Inst = struct {
         /// Subtract packed double-precision floating-point values
         /// Subtract scalar double-precision floating-point values
         sub,
+        /// Set carry flag
+        /// Set direction flag
+        /// Set interrupt flag
+        /// Store floating-point value
+        st,
         /// Store string
         sto,
         /// Syscall
@@ -478,8 +500,6 @@ pub const Inst = struct {
         ldenv,
         /// Store x87 FPU environment
         nstenv,
-        /// Store floating-point value
-        st,
         /// Store x87 FPU environment
         stenv,
 
@@ -560,8 +580,14 @@ pub const Inst = struct {
         /// Move aligned packed single-precision floating-point values
         /// Move aligned packed double-precision floating-point values
         mova,
+        /// Move high packed single-precision floating-point values
+        /// Move high packed double-precision floating-point values
+        movh,
         /// Move packed single-precision floating-point values high to low
         movhl,
+        /// Move low packed single-precision floating-point values
+        /// Move low packed double-precision floating-point values
+        movl,
         /// Move packed single-precision floating-point values low to high
         movlh,
         /// Move unaligned packed single-precision floating-point values

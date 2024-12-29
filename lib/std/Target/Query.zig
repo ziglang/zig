@@ -6,13 +6,13 @@
 /// `null` means native.
 cpu_arch: ?Target.Cpu.Arch = null,
 
-cpu_model: CpuModel = CpuModel.determined_by_arch_os,
+cpu_model: CpuModel = .determined_by_arch_os,
 
 /// Sparse set of CPU features to add to the set from `cpu_model`.
-cpu_features_add: Target.Cpu.Feature.Set = Target.Cpu.Feature.Set.empty,
+cpu_features_add: Target.Cpu.Feature.Set = .empty,
 
 /// Sparse set of CPU features to remove from the set from `cpu_model`.
-cpu_features_sub: Target.Cpu.Feature.Set = Target.Cpu.Feature.Set.empty,
+cpu_features_sub: Target.Cpu.Feature.Set = .empty,
 
 /// `null` means native.
 os_tag: ?Target.Os.Tag = null,
@@ -38,7 +38,7 @@ abi: ?Target.Abi = null,
 
 /// When `os_tag` is `null`, then `null` means native. Otherwise it means the standard path
 /// based on the `os_tag`.
-dynamic_linker: Target.DynamicLinker = Target.DynamicLinker.none,
+dynamic_linker: Target.DynamicLinker = .none,
 
 /// `null` means default for the cpu/arch/os combo.
 ofmt: ?Target.ObjectFormat = null,
