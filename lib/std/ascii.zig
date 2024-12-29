@@ -338,8 +338,8 @@ test allocUpperString {
 /// Compares strings `a` and `b` case-insensitively and returns whether they are equal.
 pub fn eqlIgnoreCase(a: []const u8, b: []const u8) bool {
     if (a.len != b.len) return false;
-    for (a, 0..) |a_c, i| {
-        if (toLower(a_c) != toLower(b[i])) return false;
+    for (a, b) |a_c, b_c| {
+        if (toLower(a_c) != toLower(b_c)) return false;
     }
     return true;
 }
