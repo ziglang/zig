@@ -1502,6 +1502,11 @@ fn analyzeBodyInner(
                 i += 1;
                 continue;
             },
+            .validate_const => {
+                try sema.zirValidateConst(block, inst);
+                i += 1;
+                continue;
+            },
             .@"export" => {
                 try sema.zirExport(block, inst);
                 i += 1;
@@ -4611,6 +4616,17 @@ fn zirValidateRefTy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
             try sema.errNote(src, msg, "address-of operator always returns a pointer", .{});
             break :msg msg;
         });
+    }
+}
+
+fn zirValidateConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+    if (!block.isComptime()) return;
+
+    const un_node = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
+    const src = block.nodeOffset(un_node.src_node);
+    const init_ref = try sema.resolveInst(un_node.operand);
+    if (!try sema.isComptimeKnown(init_ref)) {
+        return sema.failWithNeededComptime(block, src, null);
     }
 }
 

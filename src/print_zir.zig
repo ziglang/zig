@@ -273,6 +273,7 @@ const Writer = struct {
             .@"await",
             .make_ptr_const,
             .validate_deref,
+            .validate_const,
             .check_comptime_control_flow,
             .opt_eu_base_ptr_init,
             .restore_err_ret_index_unconditional,

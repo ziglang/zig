@@ -2963,6 +2963,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .validate_array_init_result_ty,
             .validate_ptr_array_init,
             .validate_ref_ty,
+            .validate_const,
             .try_operand_ty,
             .try_ref_operand_ty,
             => break :b true,
@@ -3280,6 +3281,7 @@ fn varDecl(
                 const init_inst = try reachableExprComptime(gz, scope, result_info, var_decl.ast.init_node, node, if (force_comptime) .comptime_keyword else null);
                 gz.anon_name_strategy = prev_anon_name_strategy;
 
+                _ = try gz.addUnNode(.validate_const, init_inst, var_decl.ast.init_node);
                 try gz.addDbgVar(.dbg_var_val, ident_name, init_inst);
 
                 // The const init expression may have modified the error return trace, so signal

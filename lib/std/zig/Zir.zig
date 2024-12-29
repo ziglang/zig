@@ -711,6 +711,12 @@ pub const Inst = struct {
         /// operator. Emit a compile error if not.
         /// Uses the `un_tok` union field. Token is the `&` operator. Operand is the type.
         validate_ref_ty,
+        /// Given a value, check whether it is a valid local constant in this scope.
+        /// In a runtime scope, this is always a nop.
+        /// In a comptime scope, raises a compile error if the value is runtime-known.
+        /// Result is always void.
+        /// Uses the `un_node` union field. Node is the initializer. Operand is the initializer value.
+        validate_const,
         /// Given a type `T`, construct the type `E!T`, where `E` is this function's error set, to be used
         /// as the result type of a `try` operand. Generic poison is propagated.
         /// Uses the `un_node` union field. Node is the `try` expression. Operand is the type `T`.
@@ -1293,6 +1299,7 @@ pub const Inst = struct {
                 .array_init_elem_type,
                 .array_init_elem_ptr,
                 .validate_ref_ty,
+                .validate_const,
                 .try_operand_ty,
                 .try_ref_operand_ty,
                 .restore_err_ret_index_unconditional,
@@ -1353,6 +1360,7 @@ pub const Inst = struct {
                 .validate_array_init_result_ty,
                 .validate_ptr_array_init,
                 .validate_ref_ty,
+                .validate_const,
                 .try_operand_ty,
                 .try_ref_operand_ty,
                 => true,
@@ -1736,6 +1744,7 @@ pub const Inst = struct {
                 .opt_eu_base_ptr_init = .un_node,
                 .coerce_ptr_elem_ty = .pl_node,
                 .validate_ref_ty = .un_tok,
+                .validate_const = .un_node,
                 .try_operand_ty = .un_node,
                 .try_ref_operand_ty = .un_node,
 
@@ -4143,6 +4152,7 @@ fn findTrackableInner(
         .opt_eu_base_ptr_init,
         .coerce_ptr_elem_ty,
         .validate_ref_ty,
+        .validate_const,
         .try_operand_ty,
         .try_ref_operand_ty,
         .struct_init_empty,
