@@ -696,10 +696,10 @@ pub fn parse(
                     exp.* = .{
                         .name = try wasm.internString(name),
                         .pointee = switch (kind) {
-                            .function => .{ .function = @enumFromInt(functions_start + index) },
+                            .function => .{ .function = @enumFromInt(functions_start + (index - ss.func_imports.items.len)) },
                             .table => .{ .table = @enumFromInt(tables_start + index) },
                             .memory => .{ .memory = @enumFromInt(memories_start + index) },
-                            .global => .{ .global = @enumFromInt(globals_start + index) },
+                            .global => .{ .global = @enumFromInt(globals_start + (index - ss.global_imports.items.len)) },
                         },
                     };
                 }
@@ -827,7 +827,7 @@ pub fn parse(
                     gop.value_ptr.source_location.addNote(wasm, &err, "imported as {} here", .{
                         gop.value_ptr.type.fmt(wasm),
                     });
-                    source_location.addNote(wasm, &err, "imported as {} here", .{fn_ty_index.fmt(wasm)});
+                    err.addNote("{}: imported as {} here", .{ path, fn_ty_index.fmt(wasm) });
                     continue;
                 }
                 if (gop.value_ptr.module_name != ptr.module_name.toOptional()) {
@@ -838,7 +838,7 @@ pub fn parse(
                     } else {
                         gop.value_ptr.source_location.addNote(wasm, &err, "no module here", .{});
                     }
-                    source_location.addNote(wasm, &err, "module '{s}' here", .{ptr.module_name.slice(wasm)});
+                    err.addNote("{}: module '{s}' here", .{ path, ptr.module_name.slice(wasm) });
                     continue;
                 }
                 if (symbol.flags.binding == .strong) gop.value_ptr.flags.binding = .strong;
@@ -868,7 +868,7 @@ pub fn parse(
                     var err = try diags.addErrorWithNotes(2);
                     try err.addMsg("symbol '{s}' mismatching global types", .{name.slice(wasm)});
                     gop.value_ptr.source_location.addNote(wasm, &err, "type {s} here", .{@tagName(existing_ty.valtype)});
-                    source_location.addNote(wasm, &err, "type {s} here", .{@tagName(ptr.valtype)});
+                    err.addNote("{}: type {s} here", .{ path, @tagName(ptr.valtype) });
                     continue;
                 }
                 if (ptr.mutable != existing_ty.mutable) {
@@ -877,8 +877,8 @@ pub fn parse(
                     gop.value_ptr.source_location.addNote(wasm, &err, "{s} here", .{
                         if (existing_ty.mutable) "mutable" else "not mutable",
                     });
-                    source_location.addNote(wasm, &err, "{s} here", .{
-                        if (ptr.mutable) "mutable" else "not mutable",
+                    err.addNote("{}: {s} here", .{
+                        path, if (ptr.mutable) "mutable" else "not mutable",
                     });
                     continue;
                 }
@@ -890,7 +890,7 @@ pub fn parse(
                     } else {
                         gop.value_ptr.source_location.addNote(wasm, &err, "no module here", .{});
                     }
-                    source_location.addNote(wasm, &err, "module '{s}' here", .{ptr.module_name.slice(wasm)});
+                    err.addNote("{}: module '{s}' here", .{ path, ptr.module_name.slice(wasm) });
                     continue;
                 }
                 if (symbol.flags.binding == .strong) gop.value_ptr.flags.binding = .strong;
@@ -925,7 +925,7 @@ pub fn parse(
                         ptr.type_index.fmt(wasm),
                     });
                     const word = if (gop.value_ptr.resolution == .unresolved) "imported" else "exported";
-                    source_location.addNote(wasm, &err, "{s} as {} here", .{ word, gop.value_ptr.type.fmt(wasm) });
+                    err.addNote("{}: {s} as {} here", .{ path, word, gop.value_ptr.type.fmt(wasm) });
                     continue;
                 }
                 if (gop.value_ptr.resolution == .unresolved or gop.value_ptr.flags.binding == .weak) {
@@ -938,7 +938,7 @@ pub fn parse(
                 var err = try diags.addErrorWithNotes(2);
                 try err.addMsg("symbol collision: {s}", .{name.slice(wasm)});
                 gop.value_ptr.source_location.addNote(wasm, &err, "exported as {} here", .{ptr.type_index.fmt(wasm)});
-                source_location.addNote(wasm, &err, "exported as {} here", .{gop.value_ptr.type.fmt(wasm)});
+                err.addNote("{}: exported as {} here", .{ path, gop.value_ptr.type.fmt(wasm) });
                 continue;
             } else {
                 gop.value_ptr.* = .{
@@ -993,7 +993,7 @@ pub fn parse(
             inline .function, .table, .memory, .global => |index| {
                 const ptr = index.ptr(wasm);
                 if (ptr.name == .none) {
-                    // Missng symbol table entry; use defaults for exported things.
+                    // Missing symbol table entry; use defaults for exported things.
                     ptr.name = exp.name.toOptional();
                     ptr.flags.exported = true;
                 }
