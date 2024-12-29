@@ -885,7 +885,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
             const lhs_is_slice_sentinel = lhs_tag == .slice_sentinel;
             const lhs_is_open_slice = lhs_tag == .slice_open or
                 (lhs_is_slice_sentinel and tree.fullSlice(full.ast.sliced).?.ast.end == 0);
-            if (node_tags[node] != .slice_open and
+            if (full.ast.end != 0 and
                 lhs_is_open_slice and
                 nodeIsTriviallyZero(tree, full.ast.start))
             {
@@ -897,7 +897,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
                 } else try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_datas[full.ast.sliced].rhs);
 
                 const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
-                const len = if (full.ast.end != 0) try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, full.ast.end) else .none;
+                const len = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, full.ast.end);
                 const sentinel = if (full.ast.sentinel != 0) try expr(gz, scope, .{ .rl = .none }, full.ast.sentinel) else .none;
                 try emitDbgStmt(gz, cursor);
                 const result = try gz.addPlNode(.slice_length, node, Zir.Inst.SliceLength{
