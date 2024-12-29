@@ -267,7 +267,7 @@ test "ASCII character classes" {
 
 /// Writes a lower case copy of `ascii_string` to `output`.
 /// Asserts `output.len >= ascii_string.len`.
-/// `output` and `ascii_string` may alias.
+/// `output` and `ascii_string` may be the same.
 pub fn lowerString(output: []u8, ascii_string: []const u8) []u8 {
     const real_output = output[0..ascii_string.len];
     for (real_output, ascii_string) |*o, c| {
@@ -302,7 +302,7 @@ test allocLowerString {
 
 /// Writes an upper case copy of `ascii_string` to `output`.
 /// Asserts `output.len >= ascii_string.len`.
-/// `output` and `ascii_string` may alias.
+/// `output` and `ascii_string` may be the same.
 pub fn upperString(output: []u8, ascii_string: []const u8) []u8 {
     const real_output = output[0..ascii_string.len];
     for (real_output, ascii_string) |*o, c| {
