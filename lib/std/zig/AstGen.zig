@@ -881,21 +881,14 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .slice_sentinel,
         => {
             const full = tree.fullSlice(node).?;
-            const lhs_tag = node_tags[full.ast.sliced];
-            const lhs_is_slice_sentinel = lhs_tag == .slice_sentinel;
-            const lhs_is_open_slice = lhs_tag == .slice_open or
-                (lhs_is_slice_sentinel and tree.fullSlice(full.ast.sliced).?.ast.end == 0);
             if (full.ast.end != 0 and
-                lhs_is_open_slice and
+                node_tags[full.ast.sliced] == .slice_open and
                 nodeIsTriviallyZero(tree, full.ast.start))
             {
-                const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[full.ast.sliced].lhs);
+                const lhs_extra = tree.sliceOpen(full.ast.sliced).ast;
 
-                const start = if (lhs_is_slice_sentinel) start: {
-                    const lhs_extra = tree.extraData(node_datas[full.ast.sliced].rhs, Ast.Node.SliceSentinel);
-                    break :start try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, lhs_extra.start);
-                } else try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_datas[full.ast.sliced].rhs);
-
+                const lhs = try expr(gz, scope, .{ .rl = .ref }, lhs_extra.sliced);
+                const start = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, lhs_extra.start);
                 const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
                 const len = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, full.ast.end);
                 const sentinel = if (full.ast.sentinel != 0) try expr(gz, scope, .{ .rl = .none }, full.ast.sentinel) else .none;
