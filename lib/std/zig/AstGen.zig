@@ -876,100 +876,61 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
 
         .for_simple, .@"for" => return forExpr(gz, scope, ri.br(), node, tree.fullFor(node).?, false),
 
-        .slice_open => {
-            const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
+        .slice_open,
+        .slice,
+        .slice_sentinel,
+        => {
+            const full = tree.fullSlice(node).?;
+            if (full.ast.end != 0 and
+                node_tags[full.ast.sliced] == .slice_open and
+                nodeIsTriviallyZero(tree, full.ast.start))
+            {
+                const lhs_extra = tree.sliceOpen(full.ast.sliced).ast;
 
-            const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
-            const start = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_datas[node].rhs);
-            try emitDbgStmt(gz, cursor);
-            const result = try gz.addPlNode(.slice_start, node, Zir.Inst.SliceStart{
-                .lhs = lhs,
-                .start = start,
-            });
-            return rvalue(gz, ri, result, node);
-        },
-        .slice => {
-            const extra = tree.extraData(node_datas[node].rhs, Ast.Node.Slice);
-            const lhs_node = node_datas[node].lhs;
-            const lhs_tag = node_tags[lhs_node];
-            const lhs_is_slice_sentinel = lhs_tag == .slice_sentinel;
-            const lhs_is_open_slice = lhs_tag == .slice_open or
-                (lhs_is_slice_sentinel and tree.extraData(node_datas[lhs_node].rhs, Ast.Node.SliceSentinel).end == 0);
-            if (lhs_is_open_slice and nodeIsTriviallyZero(tree, extra.start)) {
-                const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[lhs_node].lhs);
-
-                const start = if (lhs_is_slice_sentinel) start: {
-                    const lhs_extra = tree.extraData(node_datas[lhs_node].rhs, Ast.Node.SliceSentinel);
-                    break :start try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, lhs_extra.start);
-                } else try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_datas[lhs_node].rhs);
-
+                const lhs = try expr(gz, scope, .{ .rl = .ref }, lhs_extra.sliced);
+                const start = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, lhs_extra.start);
                 const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
-                const len = if (extra.end != 0) try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.end) else .none;
+                const len = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, full.ast.end);
+                const sentinel = if (full.ast.sentinel != 0) try expr(gz, scope, .{ .rl = .none }, full.ast.sentinel) else .none;
                 try emitDbgStmt(gz, cursor);
                 const result = try gz.addPlNode(.slice_length, node, Zir.Inst.SliceLength{
                     .lhs = lhs,
                     .start = start,
                     .len = len,
-                    .start_src_node_offset = gz.nodeIndexToRelative(lhs_node),
-                    .sentinel = .none,
-                });
-                return rvalue(gz, ri, result, node);
-            }
-            const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
-
-            const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
-            const start = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.start);
-            const end = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.end);
-            try emitDbgStmt(gz, cursor);
-            const result = try gz.addPlNode(.slice_end, node, Zir.Inst.SliceEnd{
-                .lhs = lhs,
-                .start = start,
-                .end = end,
-            });
-            return rvalue(gz, ri, result, node);
-        },
-        .slice_sentinel => {
-            const extra = tree.extraData(node_datas[node].rhs, Ast.Node.SliceSentinel);
-            const lhs_node = node_datas[node].lhs;
-            const lhs_tag = node_tags[lhs_node];
-            const lhs_is_slice_sentinel = lhs_tag == .slice_sentinel;
-            const lhs_is_open_slice = lhs_tag == .slice_open or
-                (lhs_is_slice_sentinel and tree.extraData(node_datas[lhs_node].rhs, Ast.Node.SliceSentinel).end == 0);
-            if (lhs_is_open_slice and nodeIsTriviallyZero(tree, extra.start)) {
-                const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[lhs_node].lhs);
-
-                const start = if (lhs_is_slice_sentinel) start: {
-                    const lhs_extra = tree.extraData(node_datas[lhs_node].rhs, Ast.Node.SliceSentinel);
-                    break :start try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, lhs_extra.start);
-                } else try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, node_datas[lhs_node].rhs);
-
-                const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
-                const len = if (extra.end != 0) try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.end) else .none;
-                const sentinel = try expr(gz, scope, .{ .rl = .none }, extra.sentinel);
-                try emitDbgStmt(gz, cursor);
-                const result = try gz.addPlNode(.slice_length, node, Zir.Inst.SliceLength{
-                    .lhs = lhs,
-                    .start = start,
-                    .len = len,
-                    .start_src_node_offset = gz.nodeIndexToRelative(lhs_node),
+                    .start_src_node_offset = gz.nodeIndexToRelative(full.ast.sliced),
                     .sentinel = sentinel,
                 });
                 return rvalue(gz, ri, result, node);
             }
-            const lhs = try expr(gz, scope, .{ .rl = .ref }, node_datas[node].lhs);
+            const lhs = try expr(gz, scope, .{ .rl = .ref }, full.ast.sliced);
 
             const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
-            const start = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.start);
-            const end = if (extra.end != 0) try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, extra.end) else .none;
-            const sentinel = try expr(gz, scope, .{ .rl = .none }, extra.sentinel);
+            const start = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, full.ast.start);
+            const end = if (full.ast.end != 0) try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, full.ast.end) else .none;
+            const sentinel = if (full.ast.sentinel != 0) try expr(gz, scope, .{ .rl = .none }, full.ast.sentinel) else .none;
             try emitDbgStmt(gz, cursor);
-            const result = try gz.addPlNode(.slice_sentinel, node, Zir.Inst.SliceSentinel{
-                .lhs = lhs,
-                .start = start,
-                .end = end,
-                .sentinel = sentinel,
-            });
-            return rvalue(gz, ri, result, node);
+            if (sentinel != .none) {
+                const result = try gz.addPlNode(.slice_sentinel, node, Zir.Inst.SliceSentinel{
+                    .lhs = lhs,
+                    .start = start,
+                    .end = end,
+                    .sentinel = sentinel,
+                });
+                return rvalue(gz, ri, result, node);
+            } else if (end != .none) {
+                const result = try gz.addPlNode(.slice_end, node, Zir.Inst.SliceEnd{
+                    .lhs = lhs,
+                    .start = start,
+                    .end = end,
+                });
+                return rvalue(gz, ri, result, node);
+            } else {
+                const result = try gz.addPlNode(.slice_start, node, Zir.Inst.SliceStart{
+                    .lhs = lhs,
+                    .start = start,
+                });
+                return rvalue(gz, ri, result, node);
+            }
         },
 
         .deref => {
