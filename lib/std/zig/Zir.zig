@@ -78,6 +78,7 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
             Inst.Ref,
             Inst.Index,
             Inst.Declaration.Name,
+            std.zig.SimpleComptimeReason,
             NullTerminatedString,
             => @enumFromInt(code.extra[i]),
 
@@ -291,7 +292,8 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field. Payload is `Block`.
         block,
         /// Like `block`, but forces full evaluation of its contents at compile-time.
-        /// Uses the `pl_node` union field. Payload is `Block`.
+        /// Exited with `break_inline`.
+        /// Uses the `pl_node` union field. Payload is `BlockComptime`.
         block_comptime,
         /// A list of instructions which are analyzed in the parent context, without
         /// generating a runtime block. Must terminate with an "inline" variant of
@@ -2549,6 +2551,13 @@ pub const Inst = struct {
 
     /// Trailing:
     /// * inst: Index // for each `body_len`
+    pub const BlockComptime = struct {
+        reason: std.zig.SimpleComptimeReason,
+        body_len: u32,
+    };
+
+    /// Trailing:
+    /// * inst: Index // for each `body_len`
     pub const BoolBr = struct {
         lhs: Ref,
         body_len: u32,
@@ -4517,7 +4526,6 @@ fn findTrackableInner(
         // Block instructions, recurse over the bodies.
 
         .block,
-        .block_comptime,
         .block_inline,
         .c_import,
         .typeof_builtin,
@@ -4525,6 +4533,12 @@ fn findTrackableInner(
         => {
             const inst_data = datas[@intFromEnum(inst)].pl_node;
             const extra = zir.extraData(Inst.Block, inst_data.payload_index);
+            const body = zir.bodySlice(extra.end, extra.data.body_len);
+            return zir.findTrackableBody(gpa, contents, defers, body);
+        },
+        .block_comptime => {
+            const inst_data = datas[@intFromEnum(inst)].pl_node;
+            const extra = zir.extraData(Inst.BlockComptime, inst_data.payload_index);
             const body = zir.bodySlice(extra.end, extra.data.body_len);
             return zir.findTrackableBody(gpa, contents, defers, body);
         },

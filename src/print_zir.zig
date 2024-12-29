@@ -437,13 +437,14 @@ const Writer = struct {
             .field_call => try self.writeCall(stream, inst, .field),
 
             .block,
-            .block_comptime,
             .block_inline,
             .suspend_block,
             .loop,
             .c_import,
             .typeof_builtin,
             => try self.writeBlock(stream, inst),
+
+            .block_comptime => try self.writeBlockComptime(stream, inst),
 
             .condbr,
             .condbr_inline,
@@ -1343,16 +1344,21 @@ const Writer = struct {
 
     fn writeBlock(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-        try self.writePlNodeBlockWithoutSrc(stream, inst);
-        try self.writeSrcNode(stream, inst_data.src_node);
-    }
-
-    fn writePlNodeBlockWithoutSrc(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
-        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
         const extra = self.code.extraData(Zir.Inst.Block, inst_data.payload_index);
         const body = self.code.bodySlice(extra.end, extra.data.body_len);
         try self.writeBracedBody(stream, body);
         try stream.writeAll(") ");
+        try self.writeSrcNode(stream, inst_data.src_node);
+    }
+
+    fn writeBlockComptime(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+        const extra = self.code.extraData(Zir.Inst.BlockComptime, inst_data.payload_index);
+        const body = self.code.bodySlice(extra.end, extra.data.body_len);
+        try stream.print("reason={s}, ", .{@tagName(extra.data.reason)});
+        try self.writeBracedBody(stream, body);
+        try stream.writeAll(") ");
+        try self.writeSrcNode(stream, inst_data.src_node);
     }
 
     fn writeCondBr(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
