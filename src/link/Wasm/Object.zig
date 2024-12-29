@@ -82,6 +82,16 @@ pub const GlobalImport = struct {
     mutable: bool,
 };
 
+pub const TableImport = struct {
+    module_name: Wasm.String,
+    name: Wasm.String,
+    limits_min: u32,
+    limits_max: u32,
+    limits_has_max: bool,
+    limits_is_shared: bool,
+    ref_type: std.wasm.RefType,
+};
+
 pub const DataSegmentFlags = enum(u32) { active, passive, active_memidx };
 
 pub const SubsectionType = enum(u8) {
@@ -115,7 +125,7 @@ pub const Symbol = struct {
         global_import: ScratchSpace.GlobalImportIndex,
         section: Wasm.ObjectSectionIndex,
         table: Wasm.ObjectTableIndex,
-        table_import: Wasm.TableImport.Index,
+        table_import: ScratchSpace.TableImportIndex,
     };
 };
 
@@ -124,6 +134,7 @@ pub const ScratchSpace = struct {
     func_type_indexes: std.ArrayListUnmanaged(FuncTypeIndex) = .empty,
     func_imports: std.ArrayListUnmanaged(FunctionImport) = .empty,
     global_imports: std.ArrayListUnmanaged(GlobalImport) = .empty,
+    table_imports: std.ArrayListUnmanaged(TableImport) = .empty,
     symbol_table: std.ArrayListUnmanaged(Symbol) = .empty,
     segment_info: std.ArrayListUnmanaged(SegmentInfo) = .empty,
     exports: std.ArrayListUnmanaged(Export) = .empty,
@@ -158,6 +169,15 @@ pub const ScratchSpace = struct {
         }
     };
 
+    /// Index into `table_imports`.
+    const TableImportIndex = enum(u32) {
+        _,
+
+        fn ptr(index: TableImportIndex, ss: *const ScratchSpace) *TableImport {
+            return &ss.table_imports.items[@intFromEnum(index)];
+        }
+    };
+
     /// Index into `func_types`.
     const FuncTypeIndex = enum(u32) {
         _,
@@ -173,6 +193,7 @@ pub const ScratchSpace = struct {
         ss.func_type_indexes.deinit(gpa);
         ss.func_imports.deinit(gpa);
         ss.global_imports.deinit(gpa);
+        ss.table_imports.deinit(gpa);
         ss.symbol_table.deinit(gpa);
         ss.segment_info.deinit(gpa);
         ss.* = undefined;
@@ -184,6 +205,7 @@ pub const ScratchSpace = struct {
         ss.func_type_indexes.clearRetainingCapacity();
         ss.func_imports.clearRetainingCapacity();
         ss.global_imports.clearRetainingCapacity();
+        ss.table_imports.clearRetainingCapacity();
         ss.symbol_table.clearRetainingCapacity();
         ss.segment_info.clearRetainingCapacity();
     }
@@ -231,7 +253,7 @@ pub fn parse(
     var opt_features: ?Wasm.Feature.Set = null;
     var saw_linking_section = false;
     var has_tls = false;
-    var table_count: usize = 0;
+    var table_import_symbol_count: usize = 0;
     while (pos < bytes.len) : (wasm.object_total_sections += 1) {
         const section_index: Wasm.ObjectSectionIndex = @enumFromInt(wasm.object_total_sections);
 
@@ -403,19 +425,19 @@ pub fn parse(
                                             }
                                         },
                                         .table => {
-                                            table_count += 1;
                                             const local_index, pos = readLeb(u32, bytes, pos);
                                             if (symbol.flags.undefined) {
-                                                const table_import: Wasm.TableImport.Index = @enumFromInt(table_imports_start + local_index);
+                                                table_import_symbol_count += 1;
+                                                const table_import: ScratchSpace.TableImportIndex = @enumFromInt(local_index);
                                                 symbol.pointee = .{ .table_import = table_import };
                                                 if (symbol.flags.explicit_name) {
                                                     const name, pos = readBytes(bytes, pos);
                                                     symbol.name = (try wasm.internString(name)).toOptional();
                                                 } else {
-                                                    symbol.name = table_import.key(wasm).toOptional();
+                                                    symbol.name = table_import.ptr(ss).name.toOptional();
                                                 }
                                             } else {
-                                                symbol.pointee = .{ .table = @enumFromInt(tables_start + local_index) };
+                                                symbol.pointee = .{ .table = @enumFromInt(tables_start + (local_index - ss.table_imports.items.len)) };
                                                 const name, pos = readBytes(bytes, pos);
                                                 symbol.name = (try wasm.internString(name)).toOptional();
                                             }
@@ -608,17 +630,14 @@ pub fn parse(
                         .table => {
                             const ref_type, pos = readEnum(std.wasm.RefType, bytes, pos);
                             const limits, pos = readLimits(bytes, pos);
-                            try wasm.object_table_imports.put(gpa, interned_name, .{
-                                .flags = .{
-                                    .limits_has_max = limits.flags.has_max,
-                                    .limits_is_shared = limits.flags.is_shared,
-                                    .ref_type = .from(ref_type),
-                                },
+                            try ss.table_imports.append(gpa, .{
+                                .name = interned_name,
                                 .module_name = interned_module_name,
-                                .source_location = source_location,
-                                .resolution = .unresolved,
                                 .limits_min = limits.min,
                                 .limits_max = limits.max,
+                                .limits_has_max = limits.flags.has_max,
+                                .limits_is_shared = limits.flags.is_shared,
+                                .ref_type = ref_type,
                             });
                         },
                     }
@@ -697,7 +716,7 @@ pub fn parse(
                         .name = try wasm.internString(name),
                         .pointee = switch (kind) {
                             .function => .{ .function = @enumFromInt(functions_start + (index - ss.func_imports.items.len)) },
-                            .table => .{ .table = @enumFromInt(tables_start + index) },
+                            .table => .{ .table = @enumFromInt(tables_start + (index - ss.table_imports.items.len)) },
                             .memory => .{ .memory = @enumFromInt(memories_start + index) },
                             .global => .{ .global = @enumFromInt(globals_start + (index - ss.global_imports.items.len)) },
                         },
@@ -884,7 +903,7 @@ pub fn parse(
                 }
                 if (gop.value_ptr.module_name != ptr.module_name.toOptional()) {
                     var err = try diags.addErrorWithNotes(2);
-                    try err.addMsg("function symbol '{s}' mismatching module names", .{name.slice(wasm)});
+                    try err.addMsg("symbol '{s}' mismatching module names", .{name.slice(wasm)});
                     if (gop.value_ptr.module_name.slice(wasm)) |module_name| {
                         gop.value_ptr.source_location.addNote(wasm, &err, "module '{s}' here", .{module_name});
                     } else {
@@ -907,6 +926,49 @@ pub fn parse(
                     .valtype = .from(ptr.valtype),
                     .mutable = ptr.mutable,
                 };
+            }
+        },
+        .table_import => |index| {
+            const ptr = index.ptr(ss);
+            const name = symbol.name.unwrap().?;
+            if (symbol.flags.binding == .local) {
+                diags.addParseError(path, "local symbol '{s}' references import", .{name.slice(wasm)});
+                continue;
+            }
+            const gop = try wasm.object_table_imports.getOrPut(gpa, name);
+            if (gop.found_existing) {
+                const existing_reftype = gop.value_ptr.flags.ref_type.to();
+                if (ptr.ref_type != existing_reftype) {
+                    var err = try diags.addErrorWithNotes(2);
+                    try err.addMsg("symbol '{s}' mismatching table reftypes", .{name.slice(wasm)});
+                    gop.value_ptr.source_location.addNote(wasm, &err, "{s} here", .{@tagName(existing_reftype)});
+                    err.addNote("{}: {s} here", .{ path, @tagName(ptr.ref_type) });
+                    continue;
+                }
+                if (gop.value_ptr.module_name != ptr.module_name) {
+                    var err = try diags.addErrorWithNotes(2);
+                    try err.addMsg("symbol '{s}' mismatching module names", .{name.slice(wasm)});
+                    gop.value_ptr.source_location.addNote(wasm, &err, "module '{s}' here", .{
+                        gop.value_ptr.module_name.slice(wasm),
+                    });
+                    err.addNote("{}: module '{s}' here", .{ path, ptr.module_name.slice(wasm) });
+                    continue;
+                }
+                if (symbol.flags.binding == .strong) gop.value_ptr.flags.binding = .strong;
+                if (!symbol.flags.visibility_hidden) gop.value_ptr.flags.visibility_hidden = false;
+                if (symbol.flags.no_strip) gop.value_ptr.flags.no_strip = true;
+            } else {
+                gop.value_ptr.* = .{
+                    .flags = symbol.flags,
+                    .module_name = ptr.module_name,
+                    .source_location = source_location,
+                    .resolution = .unresolved,
+                    .limits_min = ptr.limits_min,
+                    .limits_max = ptr.limits_max,
+                };
+                gop.value_ptr.flags.limits_has_max = ptr.limits_has_max;
+                gop.value_ptr.flags.limits_is_shared = ptr.limits_is_shared;
+                gop.value_ptr.flags.ref_type = .from(ptr.ref_type);
             }
         },
         .function => |index| {
@@ -951,15 +1013,6 @@ pub fn parse(
             }
         },
 
-        .table_import => |i| {
-            const ptr = i.value(wasm);
-            assert(i.key(wasm).toOptional() == symbol.name); // TODO
-            ptr.flags = symbol.flags;
-            if (symbol.flags.undefined and symbol.flags.binding == .local) {
-                const name = i.key(wasm).slice(wasm);
-                diags.addParseError(path, "local symbol '{s}' references import", .{name});
-            }
-        },
         inline .global, .table => |i| {
             const ptr = i.ptr(wasm);
             ptr.name = symbol.name;
@@ -1016,31 +1069,30 @@ pub fn parse(
 
     // Check for indirect function table in case of an MVP object file.
     legacy_indirect_function_table: {
-        const table_import_names = wasm.object_table_imports.keys()[table_imports_start..];
-        const table_import_values = wasm.object_table_imports.values()[table_imports_start..];
         // If there is a symbol for each import table, this is not a legacy object file.
-        if (table_import_names.len == table_count) break :legacy_indirect_function_table;
-        if (table_count != 0) {
+        if (ss.table_imports.items.len == table_import_symbol_count) break :legacy_indirect_function_table;
+        if (table_import_symbol_count != 0) {
             return diags.failParse(path, "expected a table entry symbol for each of the {d} table(s), but instead got {d} symbols.", .{
-                table_import_names.len, table_count,
+                ss.table_imports.items.len, table_import_symbol_count,
             });
         }
-        // MVP object files cannot have any table definitions, only
-        // imports (for the indirect function table).
+        // MVP object files cannot have any table definitions, only imports
+        // (for the indirect function table).
         const tables = wasm.object_tables.items[tables_start..];
         if (tables.len > 0) {
             return diags.failParse(path, "table definition without representing table symbols", .{});
         }
-        if (table_import_names.len != 1) {
+        if (ss.table_imports.items.len != 1) {
             return diags.failParse(path, "found more than one table import, but no representing table symbols", .{});
         }
-        const table_import_name = table_import_names[0];
+        const table_import_name = ss.table_imports.items[0].name;
         if (table_import_name != wasm.preloaded_strings.__indirect_function_table) {
             return diags.failParse(path, "non-indirect function table import '{s}' is missing a corresponding symbol", .{
                 table_import_name.slice(wasm),
             });
         }
-        table_import_values[0].flags = .{
+        const ptr = wasm.object_table_imports.getPtr(table_import_name).?;
+        ptr.flags = .{
             .undefined = true,
             .no_strip = true,
         };
