@@ -789,8 +789,17 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
             return rvalue(gz, ri, result, node);
         },
 
-        .error_union      => return simpleBinOp(gz, scope, ri, node, .error_union_type),
-        .merge_error_sets => return simpleBinOp(gz, scope, ri, node, .merge_error_sets),
+        .error_union, .merge_error_sets => |tag| {
+            const inst_tag: Zir.Inst.Tag = switch (tag) {
+                .error_union => .error_union_type,
+                .merge_error_sets => .merge_error_sets,
+                else => unreachable,
+            };
+            const lhs = try reachableTypeExpr(gz, scope, node_datas[node].lhs, node);
+            const rhs = try reachableTypeExpr(gz, scope, node_datas[node].rhs, node);
+            const result = try gz.addPlNode(inst_tag, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
+            return rvalue(gz, ri, result, node);
+        },
 
         .bool_and => return boolBinOp(gz, scope, ri, node, .bool_br_and),
         .bool_or  => return boolBinOp(gz, scope, ri, node, .bool_br_or),
@@ -1366,6 +1375,7 @@ fn fnProtoExprInner(
                 assert(param_type_node != 0);
                 var param_gz = block_scope.makeSubBlock(scope);
                 defer param_gz.unstack();
+                param_gz.is_comptime = true;
                 const param_type = try fullBodyExpr(&param_gz, scope, coerced_type_ri, param_type_node, .normal);
                 const param_inst_expected: Zir.Inst.Index = @enumFromInt(astgen.instructions.len + 1);
                 _ = try param_gz.addBreakWithSrcNode(.break_inline, param_inst_expected, param_type, param_type_node);
@@ -1382,18 +1392,19 @@ fn fnProtoExprInner(
     };
 
     const cc: Zir.Inst.Ref = if (fn_proto.ast.callconv_expr != 0)
-        try expr(
+        try comptimeExpr(
             &block_scope,
             scope,
             .{ .rl = .{ .coerced_ty = try block_scope.addBuiltinValue(fn_proto.ast.callconv_expr, .calling_convention) } },
             fn_proto.ast.callconv_expr,
+            .@"callconv",
         )
     else if (implicit_ccc)
         try block_scope.addBuiltinValue(node, .calling_convention_c)
     else
         .none;
 
-    const ret_ty = try expr(&block_scope, scope, coerced_type_ri, fn_proto.ast.return_type);
+    const ret_ty = try comptimeExpr(&block_scope, scope, coerced_type_ri, fn_proto.ast.return_type, .function_ret_ty);
 
     const result = try block_scope.addFunc(.{
         .src_node = fn_proto.ast.proto_node,
@@ -3916,7 +3927,7 @@ fn ptrType(
         gz.astgen.source_column = source_column;
 
         const addrspace_ty = try gz.addBuiltinValue(ptr_info.ast.addrspace_node, .address_space);
-        addrspace_ref = try expr(gz, scope, .{ .rl = .{ .coerced_ty = addrspace_ty } }, ptr_info.ast.addrspace_node);
+        addrspace_ref = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = addrspace_ty } }, ptr_info.ast.addrspace_node, .@"addrspace");
         trailing_count += 1;
     }
     if (ptr_info.ast.align_node != 0) {
@@ -3924,13 +3935,13 @@ fn ptrType(
         gz.astgen.source_line = source_line;
         gz.astgen.source_column = source_column;
 
-        align_ref = try expr(gz, scope, coerced_align_ri, ptr_info.ast.align_node);
+        align_ref = try comptimeExpr(gz, scope, coerced_align_ri, ptr_info.ast.align_node, .@"align");
         trailing_count += 1;
     }
     if (ptr_info.ast.bit_range_start != 0) {
         assert(ptr_info.ast.bit_range_end != 0);
-        bit_start_ref = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .u16_type } }, ptr_info.ast.bit_range_start);
-        bit_end_ref = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .u16_type } }, ptr_info.ast.bit_range_end);
+        bit_start_ref = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u16_type } }, ptr_info.ast.bit_range_start, .type);
+        bit_end_ref = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .u16_type } }, ptr_info.ast.bit_range_end, .type);
         trailing_count += 2;
     }
 
