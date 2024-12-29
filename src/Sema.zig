@@ -14626,7 +14626,7 @@ fn zirShl(
                     }),
                 } },
             });
-            const ov_bit = try sema.tupleFieldValByIndex(block, src, op_ov, 1, op_ov_tuple_ty);
+            const ov_bit = try sema.tupleFieldValByIndex(block, op_ov, 1, op_ov_tuple_ty);
             const any_ov_bit = if (lhs_ty.zigTypeTag(zcu) == .vector)
                 try block.addInst(.{
                     .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
@@ -14641,7 +14641,7 @@ fn zirShl(
             const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
 
             try sema.addSafetyCheck(block, src, no_ov, .shl_overflow);
-            return sema.tupleFieldValByIndex(block, src, op_ov, 0, op_ov_tuple_ty);
+            return sema.tupleFieldValByIndex(block, op_ov, 0, op_ov_tuple_ty);
         }
     }
     return block.addBinOp(air_tag, lhs, new_rhs);
@@ -14969,20 +14969,12 @@ fn analyzeTupleCat(
     const element_refs = try sema.arena.alloc(Air.Inst.Ref, final_len);
     var i: u32 = 0;
     while (i < lhs_len) : (i += 1) {
-        const operand_src = block.src(.{ .array_cat_lhs = .{
-            .array_cat_offset = src_node,
-            .elem_index = i,
-        } });
-        element_refs[i] = try sema.tupleFieldValByIndex(block, operand_src, lhs, i, lhs_ty);
+        element_refs[i] = try sema.tupleFieldValByIndex(block, lhs, i, lhs_ty);
     }
     i = 0;
     while (i < rhs_len) : (i += 1) {
-        const operand_src = block.src(.{ .array_cat_rhs = .{
-            .array_cat_offset = src_node,
-            .elem_index = i,
-        } });
         element_refs[i + lhs_len] =
-            try sema.tupleFieldValByIndex(block, operand_src, rhs, i, rhs_ty);
+            try sema.tupleFieldValByIndex(block, rhs, i, rhs_ty);
     }
 
     return block.addAggregateInit(Type.fromInterned(tuple_ty), element_refs);
@@ -15400,11 +15392,7 @@ fn analyzeTupleMul(
     const element_refs = try sema.arena.alloc(Air.Inst.Ref, final_len);
     var i: u32 = 0;
     while (i < tuple_len) : (i += 1) {
-        const operand_src = block.src(.{ .array_cat_lhs = .{
-            .array_cat_offset = src_node,
-            .elem_index = i,
-        } });
-        element_refs[i] = try sema.tupleFieldValByIndex(block, operand_src, operand, @intCast(i), operand_ty);
+        element_refs[i] = try sema.tupleFieldValByIndex(block, operand, @intCast(i), operand_ty);
     }
     i = 1;
     while (i < factor) : (i += 1) {
@@ -17502,7 +17490,7 @@ fn analyzeArithmetic(
                         }),
                     } },
                 });
-                const ov_bit = try sema.tupleFieldValByIndex(block, src, op_ov, 1, op_ov_tuple_ty);
+                const ov_bit = try sema.tupleFieldValByIndex(block, op_ov, 1, op_ov_tuple_ty);
                 const any_ov_bit = if (resolved_type.zigTypeTag(zcu) == .vector)
                     try block.addInst(.{
                         .tag = if (block.float_mode == .optimized) .reduce_optimized else .reduce,
@@ -17517,7 +17505,7 @@ fn analyzeArithmetic(
                 const no_ov = try block.addBinOp(.cmp_eq, any_ov_bit, zero_ov);
 
                 try sema.addSafetyCheck(block, src, no_ov, .integer_overflow);
-                return sema.tupleFieldValByIndex(block, src, op_ov, 0, op_ov_tuple_ty);
+                return sema.tupleFieldValByIndex(block, op_ov, 0, op_ov_tuple_ty);
             }
         }
     }
@@ -25725,7 +25713,7 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
 
     const resolved_args: []Air.Inst.Ref = try sema.arena.alloc(Air.Inst.Ref, args_ty.structFieldCount(zcu));
     for (resolved_args, 0..) |*resolved, i| {
-        resolved.* = try sema.tupleFieldValByIndex(block, args_src, args, @intCast(i), args_ty);
+        resolved.* = try sema.tupleFieldValByIndex(block, args, @intCast(i), args_ty);
     }
 
     const callee_ty = sema.typeOf(func);
@@ -28113,7 +28101,7 @@ fn fieldVal(
             const field_ptr = try sema.structFieldPtr(block, src, object, field_name, field_name_src, inner_ty, false);
             return sema.analyzeLoad(block, src, field_ptr, object_src);
         } else {
-            return sema.structFieldVal(block, src, object, field_name, field_name_src, inner_ty);
+            return sema.structFieldVal(block, object, field_name, field_name_src, inner_ty);
         },
         .@"union" => if (is_pointer_to) {
             // Avoid loading the entire union by fetching a pointer and loading that
@@ -28733,14 +28721,12 @@ fn structFieldPtrByIndex(
         return Air.internedToRef(val);
     }
 
-    try sema.requireRuntimeBlock(block, src, null);
     return block.addStructFieldPtr(struct_ptr, field_index, ptr_field_ty);
 }
 
 fn structFieldVal(
     sema: *Sema,
     block: *Block,
-    src: LazySrcLoc,
     struct_byval: Air.Inst.Ref,
     field_name: InternPool.NullTerminatedString,
     field_name_src: LazySrcLoc,
@@ -28776,12 +28762,11 @@ fn structFieldVal(
                 return Air.internedToRef((try struct_val.fieldValue(pt, field_index)).toIntern());
             }
 
-            try sema.requireRuntimeBlock(block, src, null);
             try field_ty.resolveLayout(pt);
             return block.addStructFieldVal(struct_byval, field_index, field_ty);
         },
         .tuple_type => {
-            return sema.tupleFieldVal(block, src, struct_byval, field_name, field_name_src, struct_ty);
+            return sema.tupleFieldVal(block, struct_byval, field_name, field_name_src, struct_ty);
         },
         else => unreachable,
     }
@@ -28790,7 +28775,6 @@ fn structFieldVal(
 fn tupleFieldVal(
     sema: *Sema,
     block: *Block,
-    src: LazySrcLoc,
     tuple_byval: Air.Inst.Ref,
     field_name: InternPool.NullTerminatedString,
     field_name_src: LazySrcLoc,
@@ -28802,7 +28786,7 @@ fn tupleFieldVal(
         return pt.intRef(Type.usize, tuple_ty.structFieldCount(zcu));
     }
     const field_index = try sema.tupleFieldIndex(block, tuple_ty, field_name, field_name_src);
-    return sema.tupleFieldValByIndex(block, src, tuple_byval, field_index, tuple_ty);
+    return sema.tupleFieldValByIndex(block, tuple_byval, field_index, tuple_ty);
 }
 
 /// Asserts that `field_name` is not "len".
@@ -28831,7 +28815,6 @@ fn tupleFieldIndex(
 fn tupleFieldValByIndex(
     sema: *Sema,
     block: *Block,
-    src: LazySrcLoc,
     tuple_byval: Air.Inst.Ref,
     field_index: u32,
     tuple_ty: Type,
@@ -28861,7 +28844,6 @@ fn tupleFieldValByIndex(
         };
     }
 
-    try sema.requireRuntimeBlock(block, src, null);
     try field_ty.resolveLayout(pt);
     return block.addStructFieldVal(tuple_byval, field_index, field_ty);
 }
@@ -28959,7 +28941,6 @@ fn unionFieldPtr(
         return Air.internedToRef(field_ptr_val.toIntern());
     }
 
-    try sema.requireRuntimeBlock(block, src, null);
     if (!initializing and union_obj.flagsUnordered(ip).layout == .auto and block.wantSafety() and
         union_ty.unionTagTypeSafety(zcu) != null and union_obj.field_types.len > 1)
     {
@@ -29036,7 +29017,6 @@ fn unionFieldVal(
         }
     }
 
-    try sema.requireRuntimeBlock(block, src, null);
     if (union_obj.flagsUnordered(ip).layout == .auto and block.wantSafety() and
         union_ty.unionTagTypeSafety(zcu) != null and union_obj.field_types.len > 1)
     {
@@ -29115,16 +29095,15 @@ fn elemPtrOneLayerOnly(
         .Many, .C => {
             const maybe_ptr_val = try sema.resolveDefinedValue(block, indexable_src, indexable);
             const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
-            const runtime_src = rs: {
-                const ptr_val = maybe_ptr_val orelse break :rs indexable_src;
-                const index_val = maybe_index_val orelse break :rs elem_index_src;
+            ct: {
+                const ptr_val = maybe_ptr_val orelse break :ct;
+                const index_val = maybe_index_val orelse break :ct;
                 const index: usize = @intCast(try index_val.toUnsignedIntSema(pt));
                 const elem_ptr = try ptr_val.ptrElem(index, pt);
                 return Air.internedToRef(elem_ptr.toIntern());
-            };
+            }
             const result_ty = try indexable_ty.elemPtrType(null, pt);
 
-            try sema.requireRuntimeBlock(block, src, runtime_src);
             return block.addPtrElemPtr(indexable, elem_index, result_ty);
         },
         .One => {
@@ -29172,22 +29151,19 @@ fn elemVal(
                 const maybe_indexable_val = try sema.resolveDefinedValue(block, indexable_src, indexable);
                 const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
 
-                const runtime_src = rs: {
-                    const indexable_val = maybe_indexable_val orelse break :rs indexable_src;
-                    const index_val = maybe_index_val orelse break :rs elem_index_src;
+                ct: {
+                    const indexable_val = maybe_indexable_val orelse break :ct;
+                    const index_val = maybe_index_val orelse break :ct;
                     const index: usize = @intCast(try index_val.toUnsignedIntSema(pt));
                     const elem_ty = indexable_ty.elemType2(zcu);
                     const many_ptr_ty = try pt.manyConstPtrType(elem_ty);
                     const many_ptr_val = try pt.getCoerced(indexable_val, many_ptr_ty);
                     const elem_ptr_ty = try pt.singleConstPtrType(elem_ty);
                     const elem_ptr_val = try many_ptr_val.ptrElem(index, pt);
-                    if (try sema.pointerDeref(block, indexable_src, elem_ptr_val, elem_ptr_ty)) |elem_val| {
-                        return Air.internedToRef((try pt.getCoerced(elem_val, elem_ty)).toIntern());
-                    }
-                    break :rs indexable_src;
-                };
+                    const elem_val = try sema.pointerDeref(block, indexable_src, elem_ptr_val, elem_ptr_ty) orelse break :ct;
+                    return Air.internedToRef((try pt.getCoerced(elem_val, elem_ty)).toIntern());
+                }
 
-                try sema.requireRuntimeBlock(block, src, runtime_src);
                 return block.addBinOp(.ptr_elem_val, indexable, elem_index);
             },
             .One => {
@@ -29300,7 +29276,6 @@ fn tupleFieldPtr(
         try sema.validateRuntimeElemAccess(block, field_index_src, field_ty, tuple_ty, tuple_ptr_src);
     }
 
-    try sema.requireRuntimeBlock(block, tuple_ptr_src, null);
     return block.addStructFieldPtr(tuple_ptr, field_index, ptr_field_ty);
 }
 
@@ -29343,7 +29318,6 @@ fn tupleField(
 
     try sema.validateRuntimeElemAccess(block, field_index_src, field_ty, tuple_ty, tuple_src);
 
-    try sema.requireRuntimeBlock(block, tuple_src, null);
     try field_ty.resolveLayout(pt);
     return block.addStructFieldVal(tuple, field_index, field_ty);
 }
@@ -29399,7 +29373,6 @@ fn elemValArray(
 
     try sema.validateRuntimeElemAccess(block, elem_index_src, elem_ty, array_ty, array_src);
 
-    const runtime_src = if (maybe_undef_array_val != null) elem_index_src else array_src;
     if (oob_safety and block.wantSafety()) {
         // Runtime check is only needed if unable to comptime check.
         if (maybe_index_val == null) {
@@ -29412,7 +29385,6 @@ fn elemValArray(
     if (try sema.typeHasOnePossibleValue(elem_ty)) |elem_val|
         return Air.internedToRef(elem_val.toIntern());
 
-    try sema.requireRuntimeBlock(block, src, runtime_src);
     return block.addBinOp(.array_elem_val, array, elem_index);
 }
 
@@ -29465,9 +29437,6 @@ fn elemPtrArray(
     if (!init) {
         try sema.validateRuntimeElemAccess(block, elem_index_src, array_ty.elemType2(zcu), array_ty, array_ptr_src);
     }
-
-    const runtime_src = if (maybe_undef_array_ptr_val != null) elem_index_src else array_ptr_src;
-    try sema.requireRuntimeBlock(block, src, runtime_src);
 
     // Runtime check is only needed if unable to comptime check.
     if (oob_safety and block.wantSafety() and offset == null) {
@@ -29525,7 +29494,6 @@ fn elemValSlice(
 
     try sema.validateRuntimeElemAccess(block, elem_index_src, elem_ty, slice_ty, slice_src);
 
-    try sema.requireRuntimeBlock(block, src, runtime_src);
     if (oob_safety and block.wantSafety()) {
         const len_inst = if (maybe_slice_val) |slice_val|
             try pt.intRef(Type.usize, try slice_val.sliceLen(pt))
@@ -29582,8 +29550,6 @@ fn elemPtrSlice(
 
     try sema.validateRuntimeElemAccess(block, elem_index_src, elem_ptr_ty, slice_ty, slice_src);
 
-    const runtime_src = if (maybe_undef_slice_val != null) elem_index_src else slice_src;
-    try sema.requireRuntimeBlock(block, src, runtime_src);
     if (oob_safety and block.wantSafety()) {
         const len_inst = len: {
             if (maybe_undef_slice_val) |slice_val|
