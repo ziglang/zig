@@ -267,18 +267,24 @@ test "ASCII character classes" {
 
 /// Writes a lower case copy of `ascii_string` to `output`.
 /// Asserts `output.len >= ascii_string.len`.
+/// `output` and `ascii_string` may alias.
 pub fn lowerString(output: []u8, ascii_string: []const u8) []u8 {
-    std.debug.assert(output.len >= ascii_string.len);
-    for (ascii_string, 0..) |c, i| {
-        output[i] = toLower(c);
+    const real_output = output[0..ascii_string.len];
+    for (real_output, ascii_string) |*o, c| {
+        o.* = toLower(c);
     }
-    return output[0..ascii_string.len];
+    return real_output;
 }
 
 test lowerString {
     var buf: [1024]u8 = undefined;
     const result = lowerString(&buf, "aBcDeFgHiJkLmNOPqrst0234+💩!");
     try std.testing.expectEqualStrings("abcdefghijklmnopqrst0234+💩!", result);
+
+    var string_data = "Hello World!".*;
+    const string: []u8 = &string_data;
+    try std.testing.expectEqual(string, lowerString(string, string));
+    try std.testing.expectEqualStrings("hello world!", string);
 }
 
 /// Allocates a lower case copy of `ascii_string`.
@@ -296,18 +302,24 @@ test allocLowerString {
 
 /// Writes an upper case copy of `ascii_string` to `output`.
 /// Asserts `output.len >= ascii_string.len`.
+/// `output` and `ascii_string` may alias.
 pub fn upperString(output: []u8, ascii_string: []const u8) []u8 {
-    std.debug.assert(output.len >= ascii_string.len);
-    for (ascii_string, 0..) |c, i| {
-        output[i] = toUpper(c);
+    const real_output = output[0..ascii_string.len];
+    for (real_output, ascii_string) |*o, c| {
+        o.* = toUpper(c);
     }
-    return output[0..ascii_string.len];
+    return real_output;
 }
 
 test upperString {
     var buf: [1024]u8 = undefined;
     const result = upperString(&buf, "aBcDeFgHiJkLmNOPqrst0234+💩!");
     try std.testing.expectEqualStrings("ABCDEFGHIJKLMNOPQRST0234+💩!", result);
+
+    var string_data = "Hello World!".*;
+    const string: []u8 = &string_data;
+    try std.testing.expectEqual(string, upperString(string, string));
+    try std.testing.expectEqualStrings("HELLO WORLD!", string);
 }
 
 /// Allocates an upper case copy of `ascii_string`.
