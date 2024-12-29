@@ -810,7 +810,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .negation      => return   negation(gz, scope, ri, node),
         .negation_wrap => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none }, node_datas[node].lhs, .negate_wrap),
 
-        .identifier => return identifier(gz, scope, ri, node),
+        .identifier => return identifier(gz, scope, ri, node, null),
 
         .asm_simple,
         .@"asm",
@@ -2006,19 +2006,50 @@ fn comptimeExpr2(
     const main_tokens = tree.nodes.items(.main_token);
     const node_tags = tree.nodes.items(.tag);
     switch (node_tags[node]) {
-        // Any identifier in `primitive_instrs` is trivially comptime. In particular, this includes
-        // some common types, so we can elide `block_comptime` for a few common type annotations.
         .identifier => {
-            const ident_token = main_tokens[node];
-            const ident_name_raw = tree.tokenSlice(ident_token);
-            if (primitive_instrs.get(ident_name_raw)) |zir_const_ref| {
-                // No need to worry about result location here, we're not creating a comptime block!
-                return rvalue(gz, ri, zir_const_ref, node);
-            }
+            // Many identifiers can be handled without a `block_comptime`, so `AstGen.identifier` has
+            // special handling for this case.
+            return identifier(gz, scope, ri, node, .{ .src_node = src_node, .reason = reason });
         },
 
-        // We can also avoid the block for a few trivial AST tags which are always comptime-known.
-        .number_literal, .string_literal, .multiline_string_literal, .enum_literal, .error_value => {
+        // These are leaf nodes which are always comptime-known.
+        .number_literal,
+        .char_literal,
+        .string_literal,
+        .multiline_string_literal,
+        .enum_literal,
+        .error_value,
+        .anyframe_literal,
+        .error_set_decl,
+        // These nodes are not leaves, but will force comptime evaluation of all sub-expressions, and
+        // hence behave the same regardless of whether they're in a comptime scope.
+        .error_union,
+        .merge_error_sets,
+        .optional_type,
+        .anyframe_type,
+        .ptr_type_aligned,
+        .ptr_type_sentinel,
+        .ptr_type,
+        .ptr_type_bit_range,
+        .array_type,
+        .array_type_sentinel,
+        .fn_proto_simple,
+        .fn_proto_multi,
+        .fn_proto_one,
+        .fn_proto,
+        .container_decl,
+        .container_decl_trailing,
+        .container_decl_arg,
+        .container_decl_arg_trailing,
+        .container_decl_two,
+        .container_decl_two_trailing,
+        .tagged_union,
+        .tagged_union_trailing,
+        .tagged_union_enum_tag,
+        .tagged_union_enum_tag_trailing,
+        .tagged_union_two,
+        .tagged_union_two_trailing,
+        => {
             // No need to worry about result location here, we're not creating a comptime block!
             return expr(gz, scope, ri, node);
         },
@@ -8390,11 +8421,17 @@ fn parseBitCount(buf: []const u8) std.fmt.ParseIntError!u16 {
     return x;
 }
 
+const ComptimeBlockInfo = struct {
+    src_node: Ast.Node.Index,
+    reason: std.zig.SimpleComptimeReason,
+};
+
 fn identifier(
     gz: *GenZir,
     scope: *Scope,
     ri: ResultInfo,
     ident: Ast.Node.Index,
+    force_comptime: ?ComptimeBlockInfo,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
@@ -8413,6 +8450,7 @@ fn identifier(
         }
 
         if (ident_name_raw.len >= 2) integer: {
+            // Keep in sync with logic in `comptimeExpr2`.
             const first_c = ident_name_raw[0];
             if (first_c == 'i' or first_c == 'u') {
                 const signedness: std.builtin.Signedness = switch (first_c == 'i') {
@@ -8447,8 +8485,31 @@ fn identifier(
         }
     }
 
-    // Local variables, including function parameters.
-    return localVarRef(gz, scope, ri, ident, ident_token);
+    // Local variables, including function parameters, and container-level declarations.
+
+    if (force_comptime) |fc| {
+        // Mirrors the logic at the end of `comptimeExpr2`.
+        const block_inst = try gz.makeBlockInst(.block_comptime, fc.src_node);
+
+        var comptime_gz = gz.makeSubBlock(scope);
+        comptime_gz.is_comptime = true;
+        defer comptime_gz.unstack();
+
+        const sub_ri: ResultInfo = .{
+            .ctx = ri.ctx,
+            .rl = .none, // no point providing a result type, it won't change anything
+        };
+        const block_result = try localVarRef(&comptime_gz, scope, sub_ri, ident, ident_token);
+        assert(!comptime_gz.endsWithNoReturn());
+        _ = try comptime_gz.addBreak(.break_inline, block_inst, block_result);
+
+        try comptime_gz.setBlockComptimeBody(block_inst, fc.reason);
+        try gz.instructions.append(astgen.gpa, block_inst);
+
+        return rvalue(gz, ri, block_inst.toRef(), fc.src_node);
+    } else {
+        return localVarRef(gz, scope, ri, ident, ident_token);
+    }
 }
 
 fn localVarRef(
