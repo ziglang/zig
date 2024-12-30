@@ -361,7 +361,7 @@
         visit the link above.
       </p>
       <p>
-        The Zig Standard Library documentation is also provided with each zig distribution. It can be rendered via a local webserver with:
+        Alternatively, the Zig Standard Library documentation is provided with each Zig distribution. It can be rendered via a local webserver with:
       </p>
       {#shell_samp#}zig std{#end_shell_samp#}
       {#header_close#}
