@@ -982,9 +982,6 @@ pub fn parse(
                     source_location.addNote(&err, "module '{s}' here", .{ptr.module_name.slice(wasm)});
                     continue;
                 }
-                if (symbol.flags.binding == .strong) gop.value_ptr.flags.binding = .strong;
-                if (!symbol.flags.visibility_hidden) gop.value_ptr.flags.visibility_hidden = false;
-                if (symbol.flags.no_strip) gop.value_ptr.flags.no_strip = true;
             } else {
                 gop.value_ptr.* = .{
                     .flags = symbol.flags,
@@ -1004,7 +1001,7 @@ pub fn parse(
             }
             const gop = try wasm.object_global_imports.getOrPut(gpa, name);
             if (gop.found_existing) {
-                const existing_ty = gop.value_ptr.flags.global_type.to();
+                const existing_ty = gop.value_ptr.type();
                 if (ptr.valtype != existing_ty.valtype) {
                     var err = try diags.addErrorWithNotes(2);
                     try err.addMsg("symbol '{s}' mismatching global types", .{name.slice(wasm)});
@@ -1034,9 +1031,6 @@ pub fn parse(
                     source_location.addNote(&err, "module '{s}' here", .{ptr.module_name.slice(wasm)});
                     continue;
                 }
-                if (symbol.flags.binding == .strong) gop.value_ptr.flags.binding = .strong;
-                if (!symbol.flags.visibility_hidden) gop.value_ptr.flags.visibility_hidden = false;
-                if (symbol.flags.no_strip) gop.value_ptr.flags.no_strip = true;
             } else {
                 gop.value_ptr.* = .{
                     .flags = symbol.flags,
@@ -1117,6 +1111,11 @@ pub fn parse(
                     gop.value_ptr.source_location = source_location;
                     gop.value_ptr.module_name = host_name;
                     gop.value_ptr.resolution = .fromObjectFunction(wasm, index);
+                    gop.value_ptr.flags = symbol.flags;
+                    continue;
+                }
+                if (ptr.flags.binding == .weak) {
+                    // Keep the existing one.
                     continue;
                 }
                 var err = try diags.addErrorWithNotes(2);
@@ -1134,8 +1133,65 @@ pub fn parse(
                 };
             }
         },
-
-        inline .global, .table => |i| {
+        .global => |index| {
+            const ptr = index.ptr(wasm);
+            ptr.name = symbol.name;
+            ptr.flags = symbol.flags;
+            if (symbol.flags.binding == .local) continue; // No participation in symbol resolution.
+            const new_ty = ptr.type();
+            const name = symbol.name.unwrap().?;
+            const gop = try wasm.object_global_imports.getOrPut(gpa, name);
+            if (gop.found_existing) {
+                const existing_ty = gop.value_ptr.type();
+                if (new_ty.valtype != existing_ty.valtype) {
+                    var err = try diags.addErrorWithNotes(2);
+                    try err.addMsg("symbol '{s}' mismatching global types", .{name.slice(wasm)});
+                    gop.value_ptr.source_location.addNote(&err, "type {s} here", .{@tagName(existing_ty.valtype)});
+                    source_location.addNote(&err, "type {s} here", .{@tagName(new_ty.valtype)});
+                    continue;
+                }
+                if (new_ty.mutable != existing_ty.mutable) {
+                    var err = try diags.addErrorWithNotes(2);
+                    try err.addMsg("symbol '{s}' mismatching global mutability", .{name.slice(wasm)});
+                    gop.value_ptr.source_location.addNote(&err, "{s} here", .{
+                        if (existing_ty.mutable) "mutable" else "not mutable",
+                    });
+                    source_location.addNote(&err, "{s} here", .{
+                        if (new_ty.mutable) "mutable" else "not mutable",
+                    });
+                    continue;
+                }
+                if (gop.value_ptr.resolution == .unresolved or gop.value_ptr.flags.binding == .weak) {
+                    // Intentional: if they're both weak, take the last one.
+                    gop.value_ptr.source_location = source_location;
+                    gop.value_ptr.module_name = host_name;
+                    gop.value_ptr.resolution = .fromObjectGlobal(wasm, index);
+                    gop.value_ptr.flags = symbol.flags;
+                    continue;
+                }
+                if (ptr.flags.binding == .weak) {
+                    // Keep the existing one.
+                    continue;
+                }
+                var err = try diags.addErrorWithNotes(2);
+                try err.addMsg("symbol collision: {s}", .{name.slice(wasm)});
+                gop.value_ptr.source_location.addNote(&err, "exported as {s} here", .{@tagName(existing_ty.valtype)});
+                source_location.addNote(&err, "exported as {s} here", .{@tagName(new_ty.valtype)});
+                continue;
+            } else {
+                gop.value_ptr.* = .{
+                    .flags = symbol.flags,
+                    .module_name = .none,
+                    .source_location = source_location,
+                    .resolution = .unresolved,
+                };
+                gop.value_ptr.flags.global_type = .{
+                    .valtype = .from(new_ty.valtype),
+                    .mutable = new_ty.mutable,
+                };
+            }
+        },
+        .table => |i| {
             const ptr = i.ptr(wasm);
             ptr.name = symbol.name;
             ptr.flags = symbol.flags;

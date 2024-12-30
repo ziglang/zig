@@ -1596,7 +1596,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .pdb_source_path = options.pdb_source_path,
             .pdb_out_path = options.pdb_out_path,
             .entry_addr = null, // CLI does not expose this option (yet?)
-            .object_host_name = null, // TODO expose in the CLI
+            .object_host_name = "env",
         };
 
         switch (options.cache_mode) {

@@ -1113,7 +1113,7 @@ pub const GlobalImport = extern struct {
             });
         }
 
-        fn fromObjectGlobal(wasm: *const Wasm, object_global: ObjectGlobalIndex) Resolution {
+        pub fn fromObjectGlobal(wasm: *const Wasm, object_global: ObjectGlobalIndex) Resolution {
             return pack(wasm, .{ .object_global = object_global });
         }
 
@@ -1154,9 +1154,13 @@ pub const GlobalImport = extern struct {
         }
 
         pub fn globalType(index: Index, wasm: *const Wasm) ObjectGlobal.Type {
-            return value(index, wasm).flags.global_type.to();
+            return value(index, wasm).type();
         }
     };
+
+    pub fn @"type"(gi: *const GlobalImport) ObjectGlobal.Type {
+        return gi.flags.global_type.to();
+    }
 };
 
 pub const ObjectGlobal = extern struct {
@@ -1168,6 +1172,10 @@ pub const ObjectGlobal = extern struct {
     object_index: ObjectIndex,
     offset: u32,
     size: u32,
+
+    pub fn @"type"(og: *const ObjectGlobal) Type {
+        return og.flags.global_type.to();
+    }
 
     pub const Type = struct {
         valtype: std.wasm.Valtype,
