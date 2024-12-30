@@ -61,7 +61,8 @@
 _start:
 	cfi_startproc
 	/* Mark r14 as undefined in order to stop unwinding here!  */
-	cfi_undefined (r14)
+	/* zig patch: r14 -> %r14. revert with llvm 20. */
+	cfi_undefined (%r14)
 
 	/* Check if the kernel provides highgprs facility if needed by
 	   the binary.  */

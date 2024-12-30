@@ -5,11 +5,12 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const Air = @import("Air.zig");
 const StaticBitSet = std.bit_set.StaticBitSet;
-const Type = @import("type.zig").Type;
-const Module = @import("Module.zig");
+const Type = @import("Type.zig");
+const Zcu = @import("Zcu.zig");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const expectEqualSlices = std.testing.expectEqualSlices;
+const link = @import("link.zig");
 
 const log = std.log.scoped(.register_manager);
 
@@ -25,7 +26,7 @@ pub const AllocateRegistersError = error{
     /// Can happen when spilling an instruction triggers a codegen
     /// error, so we propagate that error
     CodegenFail,
-};
+} || link.File.UpdateDebugInfoError;
 
 pub fn RegisterManager(
     comptime Function: type,
@@ -92,6 +93,8 @@ pub fn RegisterManager(
             comptime set: []const Register,
             reg: Register,
         ) ?std.math.IntFittingRange(0, set.len - 1) {
+            @setEvalBranchQuota(3000);
+
             const Id = @TypeOf(reg.id());
             comptime var min_id: Id = std.math.maxInt(Id);
             comptime var max_id: Id = std.math.minInt(Id);
@@ -513,7 +516,7 @@ fn MockFunction(comptime Register: type) type {
     return struct {
         allocator: Allocator,
         register_manager: Register.RM = .{},
-        spilled: std.ArrayListUnmanaged(Register) = .{},
+        spilled: std.ArrayListUnmanaged(Register) = .empty,
 
         const Self = @This();
 

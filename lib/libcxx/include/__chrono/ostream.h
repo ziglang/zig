@@ -15,20 +15,23 @@
 #include <__chrono/duration.h>
 #include <__chrono/file_clock.h>
 #include <__chrono/hh_mm_ss.h>
+#include <__chrono/local_info.h>
 #include <__chrono/month.h>
 #include <__chrono/month_weekday.h>
 #include <__chrono/monthday.h>
 #include <__chrono/statically_widen.h>
+#include <__chrono/sys_info.h>
 #include <__chrono/system_clock.h>
 #include <__chrono/weekday.h>
 #include <__chrono/year.h>
 #include <__chrono/year_month.h>
 #include <__chrono/year_month_day.h>
 #include <__chrono/year_month_weekday.h>
+#include <__chrono/zoned_time.h>
 #include <__concepts/same_as.h>
 #include <__config>
 #include <__format/format_functions.h>
-#include <ostream>
+#include <__fwd/ostream.h>
 #include <ratio>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -261,6 +264,54 @@ _LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
 operator<<(basic_ostream<_CharT, _Traits>& __os, const hh_mm_ss<_Duration> __hms) {
   return __os << std::format(__os.getloc(), _LIBCPP_STATICALLY_WIDEN(_CharT, "{:L%T}"), __hms);
 }
+
+#  if !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_TZDB)
+
+template <class _CharT, class _Traits>
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
+operator<<(basic_ostream<_CharT, _Traits>& __os, const sys_info& __info) {
+  // __info.abbrev is always std::basic_string<char>.
+  // Since these strings typically are short the conversion should be cheap.
+  std::basic_string<_CharT> __abbrev{__info.abbrev.begin(), __info.abbrev.end()};
+  return __os << std::format(
+             _LIBCPP_STATICALLY_WIDEN(_CharT, "[{:%F %T}, {:%F %T}) {:%T} {:%Q%q} \"{}\""),
+             __info.begin,
+             __info.end,
+             hh_mm_ss{__info.offset},
+             __info.save,
+             __abbrev);
+}
+
+template <class _CharT, class _Traits>
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
+operator<<(basic_ostream<_CharT, _Traits>& __os, const local_info& __info) {
+  auto __result = [&]() -> basic_string<_CharT> {
+    switch (__info.result) {
+    case local_info::unique:
+      return _LIBCPP_STATICALLY_WIDEN(_CharT, "unique");
+    case local_info::nonexistent:
+      return _LIBCPP_STATICALLY_WIDEN(_CharT, "non-existent");
+    case local_info::ambiguous:
+      return _LIBCPP_STATICALLY_WIDEN(_CharT, "ambiguous");
+
+    default:
+      return std::format(_LIBCPP_STATICALLY_WIDEN(_CharT, "unspecified result ({})"), __info.result);
+    };
+  };
+
+  return __os << std::format(
+             _LIBCPP_STATICALLY_WIDEN(_CharT, "{}: {{{}, {}}}"), __result(), __info.first, __info.second);
+}
+
+#    if !defined(_LIBCPP_HAS_NO_TIME_ZONE_DATABASE) && !defined(_LIBCPP_HAS_NO_FILESYSTEM) &&                          \
+        !defined(_LIBCPP_HAS_NO_LOCALIZATION)
+template <class _CharT, class _Traits, class _Duration, class _TimeZonePtr>
+_LIBCPP_HIDE_FROM_ABI basic_ostream<_CharT, _Traits>&
+operator<<(basic_ostream<_CharT, _Traits>& __os, const zoned_time<_Duration, _TimeZonePtr>& __tp) {
+  return __os << std::format(__os.getloc(), _LIBCPP_STATICALLY_WIDEN(_CharT, "{:L%F %T %Z}"), __tp);
+}
+#    endif
+#  endif // !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_TZDB)
 
 } // namespace chrono
 

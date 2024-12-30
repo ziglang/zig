@@ -187,7 +187,7 @@ FTSENT	*fts_read (FTS *);
 int	 fts_set (FTS *, FTSENT *, int) __THROW;
 #else
 # ifdef __REDIRECT
-#  ifndef __USE_TIME_BITS64
+#  ifndef __USE_TIME64_REDIRECTS
 FTSENT	*__REDIRECT (fts_children, (FTS *, int), fts64_children);
 int	 __REDIRECT (fts_close, (FTS *), fts64_close);
 FTS	*__REDIRECT (fts_open, (char * const *, int,
@@ -206,7 +206,7 @@ int	 __REDIRECT_NTH (fts_set, (FTS *, FTSENT *, int),
 			 __fts64_set_time64);
 #  endif
 # else
-#  ifndef __USE_TIME_BITS64
+#  ifndef __USE_TIME64_REDIRECTS
 #   define fts_children fts64_children
 #   define fts_close fts64_close
 #   define fts_open fts64_open
@@ -217,7 +217,7 @@ int	 __REDIRECT_NTH (fts_set, (FTS *, FTSENT *, int),
 # endif
 #endif
 #ifdef __USE_LARGEFILE64
-# ifndef __USE_TIME_BITS64
+# ifndef __USE_TIME64_REDIRECTS
 FTSENT64 *fts64_children (FTS64 *, int);
 int	  fts64_close (FTS64 *);
 FTS64	 *fts64_open (char * const *, int,

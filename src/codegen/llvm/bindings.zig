@@ -51,21 +51,21 @@ pub const Context = opaque {
 pub const Module = opaque {
     pub const dispose = LLVMDisposeModule;
     extern fn LLVMDisposeModule(*Module) void;
-
-    pub const setModulePICLevel = ZigLLVMSetModulePICLevel;
-    extern fn ZigLLVMSetModulePICLevel(module: *Module) void;
-
-    pub const setModulePIELevel = ZigLLVMSetModulePIELevel;
-    extern fn ZigLLVMSetModulePIELevel(module: *Module) void;
-
-    pub const setModuleCodeModel = ZigLLVMSetModuleCodeModel;
-    extern fn ZigLLVMSetModuleCodeModel(module: *Module, code_model: CodeModel) void;
 };
 
 pub const disposeMessage = LLVMDisposeMessage;
 extern fn LLVMDisposeMessage(Message: [*:0]const u8) void;
 
 pub const TargetMachine = opaque {
+    pub const FloatABI = enum(c_int) {
+        /// Target-specific (either soft or hard depending on triple, etc).
+        Default,
+        /// Soft float.
+        Soft,
+        // Hard float.
+        Hard,
+    };
+
     pub const create = ZigLLVMCreateTargetMachine;
     extern fn ZigLLVMCreateTargetMachine(
         T: *Target,
@@ -77,27 +77,61 @@ pub const TargetMachine = opaque {
         CodeModel: CodeModel,
         function_sections: bool,
         data_sections: bool,
-        float_abi: ABIType,
+        float_abi: FloatABI,
         abi_name: ?[*:0]const u8,
     ) *TargetMachine;
 
     pub const dispose = LLVMDisposeTargetMachine;
     extern fn LLVMDisposeTargetMachine(T: *TargetMachine) void;
 
+    pub const EmitOptions = extern struct {
+        is_debug: bool,
+        is_small: bool,
+        time_report: bool,
+        tsan: bool,
+        sancov: bool,
+        lto: bool,
+        allow_fast_isel: bool,
+        asm_filename: ?[*:0]const u8,
+        bin_filename: ?[*:0]const u8,
+        llvm_ir_filename: ?[*:0]const u8,
+        bitcode_filename: ?[*:0]const u8,
+        coverage: Coverage,
+
+        pub const Coverage = extern struct {
+            CoverageType: Coverage.Type,
+            IndirectCalls: bool,
+            TraceBB: bool,
+            TraceCmp: bool,
+            TraceDiv: bool,
+            TraceGep: bool,
+            Use8bitCounters: bool,
+            TracePC: bool,
+            TracePCGuard: bool,
+            Inline8bitCounters: bool,
+            InlineBoolFlag: bool,
+            PCTable: bool,
+            NoPrune: bool,
+            StackDepth: bool,
+            TraceLoads: bool,
+            TraceStores: bool,
+            CollectControlFlow: bool,
+
+            pub const Type = enum(c_int) {
+                None = 0,
+                Function,
+                BB,
+                Edge,
+            };
+        };
+    };
+
     pub const emitToFile = ZigLLVMTargetMachineEmitToFile;
     extern fn ZigLLVMTargetMachineEmitToFile(
         T: *TargetMachine,
         M: *Module,
         ErrorMessage: *[*:0]const u8,
-        is_debug: bool,
-        is_small: bool,
-        time_report: bool,
-        tsan: bool,
-        lto: bool,
-        asm_filename: ?[*:0]const u8,
-        bin_filename: ?[*:0]const u8,
-        llvm_ir_filename: ?[*:0]const u8,
-        bitcode_filename: ?[*:0]const u8,
+        options: *const EmitOptions,
     ) bool;
 
     pub const createTargetDataLayout = LLVMCreateTargetDataLayout;
@@ -139,15 +173,6 @@ pub const RelocMode = enum(c_int) {
     ROPI,
     RWPI,
     ROPI_RWPI,
-};
-
-pub const ABIType = enum(c_int) {
-    /// Target-specific (either soft or hard depending on triple, etc).
-    Default,
-    /// Soft float.
-    Soft,
-    // Hard float.
-    Hard,
 };
 
 pub const Target = opaque {
@@ -278,16 +303,14 @@ pub const LinkCOFF = ZigLLDLinkCOFF;
 pub const LinkELF = ZigLLDLinkELF;
 pub const LinkWasm = ZigLLDLinkWasm;
 
-pub const ObjectFormatType = enum(c_int) {
-    Unknown,
+pub const ArchiveKind = enum(c_int) {
+    GNU,
+    GNU64,
+    BSD,
+    DARWIN,
+    DARWIN64,
     COFF,
-    DXContainer,
-    ELF,
-    GOFF,
-    MachO,
-    SPIRV,
-    Wasm,
-    XCOFF,
+    AIXBIG,
 };
 
 pub const WriteArchive = ZigLLVMWriteArchive;
@@ -295,116 +318,8 @@ extern fn ZigLLVMWriteArchive(
     archive_name: [*:0]const u8,
     file_names_ptr: [*]const [*:0]const u8,
     file_names_len: usize,
-    os_type: OSType,
+    archive_kind: ArchiveKind,
 ) bool;
-
-pub const OSType = enum(c_int) {
-    UnknownOS,
-    Darwin,
-    DragonFly,
-    FreeBSD,
-    Fuchsia,
-    IOS,
-    KFreeBSD,
-    Linux,
-    Lv2,
-    MacOSX,
-    NetBSD,
-    OpenBSD,
-    Solaris,
-    UEFI,
-    Win32,
-    ZOS,
-    Haiku,
-    RTEMS,
-    NaCl,
-    AIX,
-    CUDA,
-    NVCL,
-    AMDHSA,
-    PS4,
-    PS5,
-    ELFIAMCU,
-    TvOS,
-    WatchOS,
-    DriverKit,
-    XROS,
-    Mesa3D,
-    AMDPAL,
-    HermitCore,
-    Hurd,
-    WASI,
-    Emscripten,
-    ShaderModel,
-    LiteOS,
-    Serenity,
-    Vulkan,
-};
-
-pub const ArchType = enum(c_int) {
-    UnknownArch,
-    arm,
-    armeb,
-    aarch64,
-    aarch64_be,
-    aarch64_32,
-    arc,
-    avr,
-    bpfel,
-    bpfeb,
-    csky,
-    dxil,
-    hexagon,
-    loongarch32,
-    loongarch64,
-    m68k,
-    mips,
-    mipsel,
-    mips64,
-    mips64el,
-    msp430,
-    ppc,
-    ppcle,
-    ppc64,
-    ppc64le,
-    r600,
-    amdgcn,
-    riscv32,
-    riscv64,
-    sparc,
-    sparcv9,
-    sparcel,
-    systemz,
-    tce,
-    tcele,
-    thumb,
-    thumbeb,
-    x86,
-    x86_64,
-    xcore,
-    xtensa,
-    nvptx,
-    nvptx64,
-    le32,
-    le64,
-    amdil,
-    amdil64,
-    hsail,
-    hsail64,
-    spir,
-    spir64,
-    spirv,
-    spirv32,
-    spirv64,
-    kalimba,
-    shave,
-    lanai,
-    wasm32,
-    wasm64,
-    renderscript32,
-    renderscript64,
-    ve,
-};
 
 pub const ParseCommandLineOptions = ZigLLVMParseCommandLineOptions;
 extern fn ZigLLVMParseCommandLineOptions(argc: usize, argv: [*]const [*:0]const u8) void;
@@ -412,7 +327,7 @@ extern fn ZigLLVMParseCommandLineOptions(argc: usize, argv: [*]const [*:0]const 
 pub const WriteImportLibrary = ZigLLVMWriteImportLibrary;
 extern fn ZigLLVMWriteImportLibrary(
     def_path: [*:0]const u8,
-    arch: ArchType,
+    coff_machine: c_uint,
     output_lib_path: [*:0]const u8,
     kill_at: bool,
 ) bool;

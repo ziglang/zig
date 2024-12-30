@@ -550,21 +550,22 @@ pub fn checkComputeCompare(
     check_object.checks.append(check) catch @panic("OOM");
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
-    _ = prog_node;
+fn make(step: *Step, make_options: Step.MakeOptions) !void {
+    _ = make_options;
     const b = step.owner;
     const gpa = b.allocator;
     const check_object: *CheckObject = @fieldParentPtr("step", step);
+    try step.singleUnchangingWatchInput(check_object.source);
 
-    const src_path = check_object.source.getPath2(b, step);
-    const contents = fs.cwd().readFileAllocOptions(
+    const src_path = check_object.source.getPath3(b, step);
+    const contents = src_path.root_dir.handle.readFileAllocOptions(
         gpa,
-        src_path,
+        src_path.sub_path,
         check_object.max_bytes,
         null,
         @alignOf(u64),
         null,
-    ) catch |err| return step.fail("unable to read '{s}': {s}", .{ src_path, @errorName(err) });
+    ) catch |err| return step.fail("unable to read '{'}': {s}", .{ src_path, @errorName(err) });
 
     var vars = std.StringHashMap(u64).init(gpa);
     for (check_object.checks.items) |chk| {
@@ -639,8 +640,13 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
                             \\{s}
                             \\========= but parsed file does not contain it: =======
                             \\{s}
-                            \\======================================================
-                        , .{ fmtMessageString(chk.kind, act.phrase.resolve(b, step)), fmtMessageString(chk.kind, output) });
+                            \\========= file path: =================================
+                            \\{}
+                        , .{
+                            fmtMessageString(chk.kind, act.phrase.resolve(b, step)),
+                            fmtMessageString(chk.kind, output),
+                            src_path,
+                        });
                     }
                 },
 
@@ -654,8 +660,13 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
                             \\*{s}*
                             \\========= but parsed file does not contain it: =======
                             \\{s}
-                            \\======================================================
-                        , .{ fmtMessageString(chk.kind, act.phrase.resolve(b, step)), fmtMessageString(chk.kind, output) });
+                            \\========= file path: =================================
+                            \\{}
+                        , .{
+                            fmtMessageString(chk.kind, act.phrase.resolve(b, step)),
+                            fmtMessageString(chk.kind, output),
+                            src_path,
+                        });
                     }
                 },
 
@@ -668,8 +679,13 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
                             \\{s}
                             \\========= but parsed file does contain it: ========
                             \\{s}
-                            \\===================================================
-                        , .{ fmtMessageString(chk.kind, act.phrase.resolve(b, step)), fmtMessageString(chk.kind, output) });
+                            \\========= file path: ==============================
+                            \\{}
+                        , .{
+                            fmtMessageString(chk.kind, act.phrase.resolve(b, step)),
+                            fmtMessageString(chk.kind, output),
+                            src_path,
+                        });
                     }
                 },
 
@@ -683,8 +699,13 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
                             \\{s}
                             \\========= but parsed file does not contain it: =======
                             \\{s}
-                            \\======================================================
-                        , .{ act.phrase.resolve(b, step), fmtMessageString(chk.kind, output) });
+                            \\========= file path: ==============================
+                            \\{}
+                        , .{
+                            act.phrase.resolve(b, step),
+                            fmtMessageString(chk.kind, output),
+                            src_path,
+                        });
                     }
                 },
 
@@ -712,12 +733,12 @@ const MachODumper = struct {
         gpa: Allocator,
         data: []const u8,
         header: macho.mach_header_64,
-        segments: std.ArrayListUnmanaged(macho.segment_command_64) = .{},
-        sections: std.ArrayListUnmanaged(macho.section_64) = .{},
-        symtab: std.ArrayListUnmanaged(macho.nlist_64) = .{},
-        strtab: std.ArrayListUnmanaged(u8) = .{},
-        indsymtab: std.ArrayListUnmanaged(u32) = .{},
-        imports: std.ArrayListUnmanaged([]const u8) = .{},
+        segments: std.ArrayListUnmanaged(macho.segment_command_64) = .empty,
+        sections: std.ArrayListUnmanaged(macho.section_64) = .empty,
+        symtab: std.ArrayListUnmanaged(macho.nlist_64) = .empty,
+        strtab: std.ArrayListUnmanaged(u8) = .empty,
+        indsymtab: std.ArrayListUnmanaged(u32) = .empty,
+        imports: std.ArrayListUnmanaged([]const u8) = .empty,
 
         fn parse(ctx: *ObjectContext) !void {
             var it = ctx.getLoadCommandIterator();
@@ -1229,17 +1250,17 @@ const MachODumper = struct {
                     macho.REBASE_OPCODE_SET_TYPE_IMM => {},
                     macho.REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
                         seg_id = imm;
-                        offset = try std.leb.readULEB128(u64, reader);
+                        offset = try std.leb.readUleb128(u64, reader);
                     },
                     macho.REBASE_OPCODE_ADD_ADDR_IMM_SCALED => {
                         offset += imm * @sizeOf(u64);
                     },
                     macho.REBASE_OPCODE_ADD_ADDR_ULEB => {
-                        const addend = try std.leb.readULEB128(u64, reader);
+                        const addend = try std.leb.readUleb128(u64, reader);
                         offset += addend;
                     },
                     macho.REBASE_OPCODE_DO_REBASE_ADD_ADDR_ULEB => {
-                        const addend = try std.leb.readULEB128(u64, reader);
+                        const addend = try std.leb.readUleb128(u64, reader);
                         const seg = ctx.segments.items[seg_id.?];
                         const addr = seg.vmaddr + offset;
                         try rebases.append(addr);
@@ -1256,11 +1277,11 @@ const MachODumper = struct {
                                 ntimes = imm;
                             },
                             macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES => {
-                                ntimes = try std.leb.readULEB128(u64, reader);
+                                ntimes = try std.leb.readUleb128(u64, reader);
                             },
                             macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB => {
-                                ntimes = try std.leb.readULEB128(u64, reader);
-                                skip = try std.leb.readULEB128(u64, reader);
+                                ntimes = try std.leb.readUleb128(u64, reader);
+                                skip = try std.leb.readUleb128(u64, reader);
                             },
                             else => unreachable,
                         }
@@ -1361,7 +1382,7 @@ const MachODumper = struct {
                     },
                     macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
                         seg_id = imm;
-                        offset = try std.leb.readULEB128(u64, reader);
+                        offset = try std.leb.readUleb128(u64, reader);
                     },
                     macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
                         name_buf.clearRetainingCapacity();
@@ -1369,10 +1390,10 @@ const MachODumper = struct {
                         try name_buf.append(0);
                     },
                     macho.BIND_OPCODE_SET_ADDEND_SLEB => {
-                        addend = try std.leb.readILEB128(i64, reader);
+                        addend = try std.leb.readIleb128(i64, reader);
                     },
                     macho.BIND_OPCODE_ADD_ADDR_ULEB => {
-                        const x = try std.leb.readULEB128(u64, reader);
+                        const x = try std.leb.readUleb128(u64, reader);
                         offset = @intCast(@as(i64, @intCast(offset)) + @as(i64, @bitCast(x)));
                     },
                     macho.BIND_OPCODE_DO_BIND,
@@ -1387,14 +1408,14 @@ const MachODumper = struct {
                         switch (opc) {
                             macho.BIND_OPCODE_DO_BIND => {},
                             macho.BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB => {
-                                add_addr = try std.leb.readULEB128(u64, reader);
+                                add_addr = try std.leb.readUleb128(u64, reader);
                             },
                             macho.BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED => {
                                 add_addr = imm * @sizeOf(u64);
                             },
                             macho.BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB => {
-                                count = try std.leb.readULEB128(u64, reader);
-                                skip = try std.leb.readULEB128(u64, reader);
+                                count = try std.leb.readUleb128(u64, reader);
+                                skip = try std.leb.readUleb128(u64, reader);
                             },
                             else => unreachable,
                         }
@@ -1463,11 +1484,11 @@ const MachODumper = struct {
                 return std.io.fixedBufferStream(it.data[it.pos..]);
             }
 
-            fn readULEB128(it: *TrieIterator) !u64 {
+            fn readUleb128(it: *TrieIterator) !u64 {
                 var stream = it.getStream();
                 var creader = std.io.countingReader(stream.reader());
                 const reader = creader.reader();
-                const value = try std.leb.readULEB128(u64, reader);
+                const value = try std.leb.readUleb128(u64, reader);
                 it.pos += creader.bytes_read;
                 return value;
             }
@@ -1538,12 +1559,12 @@ const MachODumper = struct {
             prefix: []const u8,
             exports: *std.ArrayList(Export),
         ) !void {
-            const size = try it.readULEB128();
+            const size = try it.readUleb128();
             if (size > 0) {
-                const flags = try it.readULEB128();
+                const flags = try it.readUleb128();
                 switch (flags) {
                     macho.EXPORT_SYMBOL_FLAGS_REEXPORT => {
-                        const ord = try it.readULEB128();
+                        const ord = try it.readUleb128();
                         const name = try arena.dupe(u8, try it.readString());
                         try exports.append(.{
                             .name = if (name.len > 0) name else prefix,
@@ -1552,8 +1573,8 @@ const MachODumper = struct {
                         });
                     },
                     macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER => {
-                        const stub_offset = try it.readULEB128();
-                        const resolver_offset = try it.readULEB128();
+                        const stub_offset = try it.readUleb128();
+                        const resolver_offset = try it.readUleb128();
                         try exports.append(.{
                             .name = prefix,
                             .tag = .stub_resolver,
@@ -1564,7 +1585,7 @@ const MachODumper = struct {
                         });
                     },
                     else => {
-                        const vmoff = try it.readULEB128();
+                        const vmoff = try it.readUleb128();
                         try exports.append(.{
                             .name = prefix,
                             .tag = .@"export",
@@ -1586,7 +1607,7 @@ const MachODumper = struct {
             const nedges = try it.readByte();
             for (0..nedges) |_| {
                 const label = try it.readString();
-                const off = try it.readULEB128();
+                const off = try it.readUleb128();
                 const prefix_label = try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, label });
                 const curr = it.pos;
                 it.pos = off;
@@ -1796,9 +1817,9 @@ const ElfDumper = struct {
     const ArchiveContext = struct {
         gpa: Allocator,
         data: []const u8,
-        symtab: std.ArrayListUnmanaged(ArSymtabEntry) = .{},
+        symtab: std.ArrayListUnmanaged(ArSymtabEntry) = .empty,
         strtab: []const u8,
-        objects: std.ArrayListUnmanaged(struct { name: []const u8, off: usize, len: usize }) = .{},
+        objects: std.ArrayListUnmanaged(struct { name: []const u8, off: usize, len: usize }) = .empty,
 
         fn parseSymtab(ctx: *ArchiveContext, raw: []const u8, ptr_width: enum { p32, p64 }) !void {
             var stream = std.io.fixedBufferStream(raw);
@@ -2413,7 +2434,7 @@ const WasmDumper = struct {
                         return step.fail("Found invalid section id '{d}'", .{current_byte});
                     };
 
-                    const section_length = try std.leb.readULEB128(u32, reader);
+                    const section_length = try std.leb.readUleb128(u32, reader);
                     try parseAndDumpSection(step, section, bytes[fbs.pos..][0..section_length], writer);
                     fbs.pos += section_length;
                 } else |_| {} // reached end of stream
@@ -2451,12 +2472,12 @@ const WasmDumper = struct {
             .code,
             .data,
             => {
-                const entries = try std.leb.readULEB128(u32, reader);
+                const entries = try std.leb.readUleb128(u32, reader);
                 try writer.print("\nentries {d}\n", .{entries});
                 try parseSection(step, section, data[fbs.pos..], entries, writer);
             },
             .custom => {
-                const name_length = try std.leb.readULEB128(u32, reader);
+                const name_length = try std.leb.readUleb128(u32, reader);
                 const name = data[fbs.pos..][0..name_length];
                 fbs.pos += name_length;
                 try writer.print("\nname {s}\n", .{name});
@@ -2471,11 +2492,11 @@ const WasmDumper = struct {
                 // TODO: Implement parsing and dumping other custom sections (such as relocations)
             },
             .start => {
-                const start = try std.leb.readULEB128(u32, reader);
+                const start = try std.leb.readUleb128(u32, reader);
                 try writer.print("\nstart {d}\n", .{start});
             },
             .data_count => {
-                const count = try std.leb.readULEB128(u32, reader);
+                const count = try std.leb.readUleb128(u32, reader);
                 try writer.print("\ncount {d}\n", .{count});
             },
             else => {}, // skip unknown sections
@@ -2494,13 +2515,13 @@ const WasmDumper = struct {
                     if (func_type != std.wasm.function_type) {
                         return step.fail("expected function type, found byte '{d}'", .{func_type});
                     }
-                    const params = try std.leb.readULEB128(u32, reader);
+                    const params = try std.leb.readUleb128(u32, reader);
                     try writer.print("params {d}\n", .{params});
                     var index: u32 = 0;
                     while (index < params) : (index += 1) {
                         _ = try parseDumpType(step, std.wasm.Valtype, reader, writer);
                     } else index = 0;
-                    const returns = try std.leb.readULEB128(u32, reader);
+                    const returns = try std.leb.readUleb128(u32, reader);
                     try writer.print("returns {d}\n", .{returns});
                     while (index < returns) : (index += 1) {
                         _ = try parseDumpType(step, std.wasm.Valtype, reader, writer);
@@ -2510,10 +2531,10 @@ const WasmDumper = struct {
             .import => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    const module_name_len = try std.leb.readULEB128(u32, reader);
+                    const module_name_len = try std.leb.readUleb128(u32, reader);
                     const module_name = data[fbs.pos..][0..module_name_len];
                     fbs.pos += module_name_len;
-                    const name_len = try std.leb.readULEB128(u32, reader);
+                    const name_len = try std.leb.readUleb128(u32, reader);
                     const name = data[fbs.pos..][0..name_len];
                     fbs.pos += name_len;
 
@@ -2529,14 +2550,14 @@ const WasmDumper = struct {
                     try writer.writeByte('\n');
                     switch (kind) {
                         .function => {
-                            try writer.print("index {d}\n", .{try std.leb.readULEB128(u32, reader)});
+                            try writer.print("index {d}\n", .{try std.leb.readUleb128(u32, reader)});
                         },
                         .memory => {
                             try parseDumpLimits(reader, writer);
                         },
                         .global => {
                             _ = try parseDumpType(step, std.wasm.Valtype, reader, writer);
-                            try writer.print("mutable {}\n", .{0x01 == try std.leb.readULEB128(u32, reader)});
+                            try writer.print("mutable {}\n", .{0x01 == try std.leb.readUleb128(u32, reader)});
                         },
                         .table => {
                             _ = try parseDumpType(step, std.wasm.RefType, reader, writer);
@@ -2548,7 +2569,7 @@ const WasmDumper = struct {
             .function => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    try writer.print("index {d}\n", .{try std.leb.readULEB128(u32, reader)});
+                    try writer.print("index {d}\n", .{try std.leb.readUleb128(u32, reader)});
                 }
             },
             .table => {
@@ -2568,21 +2589,21 @@ const WasmDumper = struct {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
                     _ = try parseDumpType(step, std.wasm.Valtype, reader, writer);
-                    try writer.print("mutable {}\n", .{0x01 == try std.leb.readULEB128(u1, reader)});
+                    try writer.print("mutable {}\n", .{0x01 == try std.leb.readUleb128(u1, reader)});
                     try parseDumpInit(step, reader, writer);
                 }
             },
             .@"export" => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    const name_len = try std.leb.readULEB128(u32, reader);
+                    const name_len = try std.leb.readUleb128(u32, reader);
                     const name = data[fbs.pos..][0..name_len];
                     fbs.pos += name_len;
-                    const kind_byte = try std.leb.readULEB128(u8, reader);
+                    const kind_byte = try std.leb.readUleb128(u8, reader);
                     const kind = std.meta.intToEnum(std.wasm.ExternalKind, kind_byte) catch {
                         return step.fail("invalid export kind value '{d}'", .{kind_byte});
                     };
-                    const index = try std.leb.readULEB128(u32, reader);
+                    const index = try std.leb.readUleb128(u32, reader);
                     try writer.print(
                         \\name {s}
                         \\kind {s}
@@ -2594,14 +2615,14 @@ const WasmDumper = struct {
             .element => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    try writer.print("table index {d}\n", .{try std.leb.readULEB128(u32, reader)});
+                    try writer.print("table index {d}\n", .{try std.leb.readUleb128(u32, reader)});
                     try parseDumpInit(step, reader, writer);
 
-                    const function_indexes = try std.leb.readULEB128(u32, reader);
+                    const function_indexes = try std.leb.readUleb128(u32, reader);
                     var function_index: u32 = 0;
                     try writer.print("indexes {d}\n", .{function_indexes});
                     while (function_index < function_indexes) : (function_index += 1) {
-                        try writer.print("index {d}\n", .{try std.leb.readULEB128(u32, reader)});
+                        try writer.print("index {d}\n", .{try std.leb.readUleb128(u32, reader)});
                     }
                 }
             },
@@ -2609,9 +2630,9 @@ const WasmDumper = struct {
             .data => {
                 var i: u32 = 0;
                 while (i < entries) : (i += 1) {
-                    const flags = try std.leb.readULEB128(u32, reader);
+                    const flags = try std.leb.readUleb128(u32, reader);
                     const index = if (flags & 0x02 != 0)
-                        try std.leb.readULEB128(u32, reader)
+                        try std.leb.readUleb128(u32, reader)
                     else
                         0;
                     try writer.print("memory index 0x{x}\n", .{index});
@@ -2619,7 +2640,7 @@ const WasmDumper = struct {
                         try parseDumpInit(step, reader, writer);
                     }
 
-                    const size = try std.leb.readULEB128(u32, reader);
+                    const size = try std.leb.readUleb128(u32, reader);
                     try writer.print("size {d}\n", .{size});
                     try reader.skipBytes(size, .{}); // we do not care about the content of the segments
                 }
@@ -2638,12 +2659,12 @@ const WasmDumper = struct {
     }
 
     fn parseDumpLimits(reader: anytype, writer: anytype) !void {
-        const flags = try std.leb.readULEB128(u8, reader);
-        const min = try std.leb.readULEB128(u32, reader);
+        const flags = try std.leb.readUleb128(u8, reader);
+        const min = try std.leb.readUleb128(u32, reader);
 
         try writer.print("min {x}\n", .{min});
         if (flags != 0) {
-            try writer.print("max {x}\n", .{try std.leb.readULEB128(u32, reader)});
+            try writer.print("max {x}\n", .{try std.leb.readUleb128(u32, reader)});
         }
     }
 
@@ -2653,14 +2674,14 @@ const WasmDumper = struct {
             return step.fail("invalid wasm opcode '{d}'", .{byte});
         };
         switch (opcode) {
-            .i32_const => try writer.print("i32.const {x}\n", .{try std.leb.readILEB128(i32, reader)}),
-            .i64_const => try writer.print("i64.const {x}\n", .{try std.leb.readILEB128(i64, reader)}),
+            .i32_const => try writer.print("i32.const {x}\n", .{try std.leb.readIleb128(i32, reader)}),
+            .i64_const => try writer.print("i64.const {x}\n", .{try std.leb.readIleb128(i64, reader)}),
             .f32_const => try writer.print("f32.const {x}\n", .{@as(f32, @bitCast(try reader.readInt(u32, .little)))}),
             .f64_const => try writer.print("f64.const {x}\n", .{@as(f64, @bitCast(try reader.readInt(u64, .little)))}),
-            .global_get => try writer.print("global.get {x}\n", .{try std.leb.readULEB128(u32, reader)}),
+            .global_get => try writer.print("global.get {x}\n", .{try std.leb.readUleb128(u32, reader)}),
             else => unreachable,
         }
-        const end_opcode = try std.leb.readULEB128(u8, reader);
+        const end_opcode = try std.leb.readUleb128(u8, reader);
         if (end_opcode != std.wasm.opcode(.end)) {
             return step.fail("expected 'end' opcode in init expression", .{});
         }
@@ -2673,8 +2694,8 @@ const WasmDumper = struct {
                 // The module name subsection ... consists of a single name
                 // that is assigned to the module itself.
                 .module => {
-                    const size = try std.leb.readULEB128(u32, reader);
-                    const name_len = try std.leb.readULEB128(u32, reader);
+                    const size = try std.leb.readUleb128(u32, reader);
+                    const name_len = try std.leb.readUleb128(u32, reader);
                     if (size != name_len + 1) return error.BadSubsectionSize;
                     if (reader.context.pos + name_len > data.len) return error.UnexpectedEndOfStream;
                     try writer.print("name {s}\n", .{data[reader.context.pos..][0..name_len]});
@@ -2684,16 +2705,16 @@ const WasmDumper = struct {
                 // The function name subsection ... consists of a name map
                 // assigning function names to function indices.
                 .function, .global, .data_segment => {
-                    const size = try std.leb.readULEB128(u32, reader);
-                    const entries = try std.leb.readULEB128(u32, reader);
+                    const size = try std.leb.readUleb128(u32, reader);
+                    const entries = try std.leb.readUleb128(u32, reader);
                     try writer.print(
                         \\size {d}
                         \\names {d}
                         \\
                     , .{ size, entries });
                     for (0..entries) |_| {
-                        const index = try std.leb.readULEB128(u32, reader);
-                        const name_len = try std.leb.readULEB128(u32, reader);
+                        const index = try std.leb.readUleb128(u32, reader);
+                        const name_len = try std.leb.readUleb128(u32, reader);
                         if (reader.context.pos + name_len > data.len) return error.UnexpectedEndOfStream;
                         const name = data[reader.context.pos..][0..name_len];
                         reader.context.pos += name.len;
@@ -2719,15 +2740,15 @@ const WasmDumper = struct {
     }
 
     fn parseDumpProducers(reader: anytype, writer: anytype, data: []const u8) !void {
-        const field_count = try std.leb.readULEB128(u32, reader);
+        const field_count = try std.leb.readUleb128(u32, reader);
         try writer.print("fields {d}\n", .{field_count});
         var current_field: u32 = 0;
         while (current_field < field_count) : (current_field += 1) {
-            const field_name_length = try std.leb.readULEB128(u32, reader);
+            const field_name_length = try std.leb.readUleb128(u32, reader);
             const field_name = data[reader.context.pos..][0..field_name_length];
             reader.context.pos += field_name_length;
 
-            const value_count = try std.leb.readULEB128(u32, reader);
+            const value_count = try std.leb.readUleb128(u32, reader);
             try writer.print(
                 \\field_name {s}
                 \\values {d}
@@ -2735,11 +2756,11 @@ const WasmDumper = struct {
             try writer.writeByte('\n');
             var current_value: u32 = 0;
             while (current_value < value_count) : (current_value += 1) {
-                const value_length = try std.leb.readULEB128(u32, reader);
+                const value_length = try std.leb.readUleb128(u32, reader);
                 const value = data[reader.context.pos..][0..value_length];
                 reader.context.pos += value_length;
 
-                const version_length = try std.leb.readULEB128(u32, reader);
+                const version_length = try std.leb.readUleb128(u32, reader);
                 const version = data[reader.context.pos..][0..version_length];
                 reader.context.pos += version_length;
 
@@ -2753,13 +2774,13 @@ const WasmDumper = struct {
     }
 
     fn parseDumpFeatures(reader: anytype, writer: anytype, data: []const u8) !void {
-        const feature_count = try std.leb.readULEB128(u32, reader);
+        const feature_count = try std.leb.readUleb128(u32, reader);
         try writer.print("features {d}\n", .{feature_count});
 
         var index: u32 = 0;
         while (index < feature_count) : (index += 1) {
-            const prefix_byte = try std.leb.readULEB128(u8, reader);
-            const name_length = try std.leb.readULEB128(u32, reader);
+            const prefix_byte = try std.leb.readUleb128(u8, reader);
+            const name_length = try std.leb.readUleb128(u32, reader);
             const feature_name = data[reader.context.pos..][0..name_length];
             reader.context.pos += name_length;
 

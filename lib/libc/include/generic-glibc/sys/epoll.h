@@ -19,6 +19,7 @@
 #define	_SYS_EPOLL_H	1
 
 #include <stdint.h>
+#include <sys/ioctl.h>
 #include <sys/types.h>
 
 #include <bits/types/sigset_t.h>
@@ -87,6 +88,19 @@ struct epoll_event
   epoll_data_t data;	/* User data variable */
 } __EPOLL_PACKED;
 
+struct epoll_params
+{
+  uint32_t busy_poll_usecs;
+  uint16_t busy_poll_budget;
+  uint8_t prefer_busy_poll;
+
+  /* pad the struct to a multiple of 64bits */
+  uint8_t __pad;
+};
+
+#define EPOLL_IOC_TYPE 0x8A
+#define EPIOCSPARAMS _IOW(EPOLL_IOC_TYPE, 0x01, struct epoll_params)
+#define EPIOCGPARAMS _IOR(EPOLL_IOC_TYPE, 0x02, struct epoll_params)
 
 __BEGIN_DECLS
 
@@ -140,7 +154,7 @@ extern int epoll_pwait (int __epfd, struct epoll_event *__events,
 
    This function is a cancellation point and therefore not marked with
    __THROW.  */
-#ifndef __USE_TIME_BITS64
+#ifndef __USE_TIME64_REDIRECTS
 extern int epoll_pwait2 (int __epfd, struct epoll_event *__events,
 			 int __maxevents, const struct timespec *__timeout,
 			 const __sigset_t *__ss)

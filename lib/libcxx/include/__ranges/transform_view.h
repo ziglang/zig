@@ -326,13 +326,6 @@ public:
   {
     return __x.__current_ - __y.__current_;
   }
-
-  _LIBCPP_HIDE_FROM_ABI friend constexpr decltype(auto) iter_move(const __iterator& __i) noexcept(noexcept(*__i)) {
-    if constexpr (is_lvalue_reference_v<decltype(*__i)>)
-      return std::move(*__i);
-    else
-      return *__i;
-  }
 };
 
 #  if _LIBCPP_STD_VER >= 23

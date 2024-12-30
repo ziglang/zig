@@ -701,7 +701,7 @@ extern int getaddrinfo_a (int __mode, struct gaicb *__list[__restrict_arr],
 extern int gai_suspend (const struct gaicb *const __list[], int __ent,
 			const struct timespec *__timeout);
 
-# ifdef __USE_TIME_BITS64
+# ifdef __USE_TIME64_REDIRECTS
 #  if defined(__REDIRECT)
 extern int __REDIRECT (gai_suspend, (const struct gaicb *const __list[],
                                      int __ent,

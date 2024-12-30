@@ -22,13 +22,13 @@ test "comptime_int set" {
     var a = try Managed.initSet(testing.allocator, s);
     defer a.deinit();
 
-    const s_limb_count = 128 / @typeInfo(Limb).Int.bits;
+    const s_limb_count = 128 / @typeInfo(Limb).int.bits;
 
     comptime var i: usize = 0;
     inline while (i < s_limb_count) : (i += 1) {
         const result = @as(Limb, s & maxInt(Limb));
-        s >>= @typeInfo(Limb).Int.bits / 2;
-        s >>= @typeInfo(Limb).Int.bits / 2;
+        s >>= @typeInfo(Limb).int.bits / 2;
+        s >>= @typeInfo(Limb).int.bits / 2;
         try testing.expect(a.limbs[i] == result);
     }
 }
@@ -299,7 +299,7 @@ test "twos complement limit set" {
 }
 
 fn testTwosComplementLimit(comptime T: type) !void {
-    const int_info = @typeInfo(T).Int;
+    const int_info = @typeInfo(T).int;
 
     var a = try Managed.init(testing.allocator);
     defer a.deinit();
@@ -1893,7 +1893,7 @@ test "truncate multi to single signed" {
 }
 
 test "truncate multi to multi unsigned" {
-    const bits = @typeInfo(SignedDoubleLimb).Int.bits;
+    const bits = @typeInfo(SignedDoubleLimb).int.bits;
     const Int = std.meta.Int(.unsigned, bits - 1);
 
     var a = try Managed.initSet(testing.allocator, maxInt(SignedDoubleLimb));
@@ -2066,6 +2066,32 @@ test "shift-right negative" {
     defer arg3.deinit();
     try a.shiftRight(&arg3, 1232);
     try testing.expect((try a.to(i32)) == -1); // -10 >> 1232 == -1
+
+    var arg4 = try Managed.initSet(testing.allocator, -5);
+    defer arg4.deinit();
+    try a.shiftRight(&arg4, 2);
+    try testing.expect(try a.to(i32) == -2); // -5 >> 2 == -2
+
+    var arg5 = try Managed.initSet(testing.allocator, -0xffff0000eeee1111dddd2222cccc3333);
+    defer arg5.deinit();
+    try a.shiftRight(&arg5, 67);
+    try testing.expect(try a.to(i64) == -0x1fffe0001dddc223);
+
+    var arg6 = try Managed.initSet(testing.allocator, -0x1ffffffffffffffff);
+    defer arg6.deinit();
+    try a.shiftRight(&arg6, 1);
+    try a.shiftRight(&a, 1);
+    a.setSign(true);
+    try testing.expect(try a.to(u64) == 0x8000000000000000);
+
+    var arg7 = try Managed.initSet(testing.allocator, -32767);
+    defer arg7.deinit();
+    a.setSign(false);
+    try a.shiftRight(&arg7, 4);
+    try testing.expect(try a.to(i16) == -2048);
+    a.setSign(true);
+    try a.shiftRight(&arg7, 4);
+    try testing.expect(try a.to(i16) == -2048);
 }
 
 test "sat shift-left simple unsigned" {
@@ -2222,11 +2248,11 @@ test "bitNotWrap more than two limbs" {
     const bits = @bitSizeOf(Limb) * 4 + 2;
 
     try res.bitNotWrap(&a, .unsigned, bits);
-    const Unsigned = @Type(.{ .Int = .{ .signedness = .unsigned, .bits = bits } });
+    const Unsigned = @Type(.{ .int = .{ .signedness = .unsigned, .bits = bits } });
     try testing.expectEqual((try res.to(Unsigned)), ~@as(Unsigned, maxInt(Limb)));
 
     try res.bitNotWrap(&a, .signed, bits);
-    const Signed = @Type(.{ .Int = .{ .signedness = .signed, .bits = bits } });
+    const Signed = @Type(.{ .int = .{ .signedness = .signed, .bits = bits } });
     try testing.expectEqual((try res.to(Signed)), ~@as(Signed, maxInt(Limb)));
 }
 
@@ -3020,8 +3046,8 @@ test "big int conversion write twos complement zero" {
 }
 
 fn bitReverseTest(comptime T: type, comptime input: comptime_int, comptime expected_output: comptime_int) !void {
-    const bit_count = @typeInfo(T).Int.bits;
-    const signedness = @typeInfo(T).Int.signedness;
+    const bit_count = @typeInfo(T).int.bits;
+    const signedness = @typeInfo(T).int.signedness;
 
     var a = try Managed.initSet(testing.allocator, input);
     defer a.deinit();
@@ -3067,8 +3093,8 @@ test "big int bit reverse" {
 }
 
 fn byteSwapTest(comptime T: type, comptime input: comptime_int, comptime expected_output: comptime_int) !void {
-    const byte_count = @typeInfo(T).Int.bits / 8;
-    const signedness = @typeInfo(T).Int.signedness;
+    const byte_count = @typeInfo(T).int.bits / 8;
+    const signedness = @typeInfo(T).int.signedness;
 
     var a = try Managed.initSet(testing.allocator, input);
     defer a.deinit();
@@ -3134,7 +3160,7 @@ test "mul multi-multi alias r with a and b" {
 
     try testing.expect(a.eql(want));
 
-    if (@typeInfo(Limb).Int.bits == 64) {
+    if (@typeInfo(Limb).int.bits == 64) {
         try testing.expectEqual(@as(usize, 5), a.limbs.len);
     }
 }
@@ -3150,7 +3176,7 @@ test "sqr multi alias r with a" {
 
     try testing.expect(a.eql(want));
 
-    if (@typeInfo(Limb).Int.bits == 64) {
+    if (@typeInfo(Limb).int.bits == 64) {
         try testing.expectEqual(@as(usize, 5), a.limbs.len);
     }
 }

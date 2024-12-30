@@ -15,7 +15,7 @@
 #include <__algorithm/swap_ranges.h>
 #include <__config>
 #include <__iterator/iterator_traits.h>
-#include <__type_traits/is_trivially_move_assignable.h>
+#include <__type_traits/is_trivially_assignable.h>
 #include <__utility/move.h>
 #include <__utility/pair.h>
 

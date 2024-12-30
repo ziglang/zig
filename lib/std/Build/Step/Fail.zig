@@ -24,8 +24,8 @@ pub fn create(owner: *std.Build, error_msg: []const u8) *Fail {
     return fail;
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
-    _ = prog_node; // No progress to report.
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    _ = options; // No progress to report.
 
     const fail: *Fail = @fieldParentPtr("step", step);
 

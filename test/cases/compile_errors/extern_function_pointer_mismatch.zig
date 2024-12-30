@@ -14,8 +14,7 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
+// target=x86_64-linux
 //
-// :1:38: error: expected type 'fn (i32) i32', found 'fn (i32) callconv(.C) i32'
-// :1:38: note: calling convention 'C' cannot cast into calling convention 'Unspecified'
+// :1:38: error: expected type 'fn (i32) i32', found 'fn (i32) callconv(.c) i32'
+// :1:38: note: calling convention 'x86_64_sysv' cannot cast into calling convention 'auto'

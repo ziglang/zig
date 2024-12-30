@@ -72,7 +72,7 @@ pub const max_path_bytes = switch (native_os) {
 /// On Windows, `[]u8` file name components are encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, file name components are encoded as valid UTF-8.
 /// On other platforms, `[]u8` components are an opaque sequence of bytes with no particular encoding.
-pub const MAX_NAME_BYTES = switch (native_os) {
+pub const max_name_bytes = switch (native_os) {
     .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .solaris, .illumos => posix.NAME_MAX,
     // Haiku's NAME_MAX includes the null terminator, so subtract one.
     .haiku => posix.NAME_MAX - 1,
@@ -81,7 +81,7 @@ pub const MAX_NAME_BYTES = switch (native_os) {
     // pair in the WTF-16LE, and we (over)account 3 bytes for it that way.
     .windows => windows.NAME_MAX * 3,
     // For WASI, the MAX_NAME will depend on the host OS, so it needs to be
-    // as large as the largest MAX_NAME_BYTES (Windows) in order to work on any host OS.
+    // as large as the largest max_name_bytes (Windows) in order to work on any host OS.
     // TODO determine if this is a reasonable approach
     .wasi => windows.NAME_MAX * 3,
     else => if (@hasDecl(root, "os") and @hasDecl(root.os, "NAME_MAX"))
@@ -89,6 +89,9 @@ pub const MAX_NAME_BYTES = switch (native_os) {
     else
         @compileError("NAME_MAX not implemented for " ++ @tagName(native_os)),
 };
+
+/// Deprecated: use `max_name_bytes`
+pub const MAX_NAME_BYTES = max_name_bytes;
 
 pub const base64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".*;
 
@@ -98,37 +101,9 @@ pub const base64_encoder = base64.Base64Encoder.init(base64_alphabet, null);
 /// Base64 decoder, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.
 pub const base64_decoder = base64.Base64Decoder.init(base64_alphabet, null);
 
-/// TODO remove the allocator requirement from this API
-/// TODO move to Dir
-/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-/// On WASI, both paths should be encoded as valid UTF-8.
-/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
-pub fn atomicSymLink(allocator: Allocator, existing_path: []const u8, new_path: []const u8) !void {
-    if (cwd().symLink(existing_path, new_path, .{})) {
-        return;
-    } else |err| switch (err) {
-        error.PathAlreadyExists => {},
-        else => return err, // TODO zig should know this set does not include PathAlreadyExists
-    }
-
-    const dirname = path.dirname(new_path) orelse ".";
-
-    var rand_buf: [AtomicFile.random_bytes_len]u8 = undefined;
-    const tmp_path = try allocator.alloc(u8, dirname.len + 1 + base64_encoder.calcSize(rand_buf.len));
-    defer allocator.free(tmp_path);
-    @memcpy(tmp_path[0..dirname.len], dirname);
-    tmp_path[dirname.len] = path.sep;
-    while (true) {
-        crypto.random.bytes(rand_buf[0..]);
-        _ = base64_encoder.encode(tmp_path[dirname.len + 1 ..], &rand_buf);
-
-        if (cwd().symLink(existing_path, tmp_path, .{})) {
-            return cwd().rename(tmp_path, new_path);
-        } else |err| switch (err) {
-            error.PathAlreadyExists => continue,
-            else => return err, // TODO zig should know this set does not include PathAlreadyExists
-        }
-    }
+/// Deprecated. Use `cwd().atomicSymLink()` instead.
+pub fn atomicSymLink(_: Allocator, existing_path: []const u8, new_path: []const u8) !void {
+    try cwd().atomicSymLink(existing_path, new_path, .{});
 }
 
 /// Same as `Dir.updateFile`, except asserts that both `source_path` and `dest_path`
@@ -185,7 +160,7 @@ pub fn makeDirAbsoluteZ(absolute_path_z: [*:0]const u8) !void {
 /// Same as `makeDirAbsolute` except the parameter is a null-terminated WTF-16 LE-encoded string.
 pub fn makeDirAbsoluteW(absolute_path_w: [*:0]const u16) !void {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
-    return posix.mkdirW(absolute_path_w, Dir.default_mode);
+    return posix.mkdirW(mem.span(absolute_path_w), Dir.default_mode);
 }
 
 /// Same as `Dir.deleteDir` except the path is absolute.
@@ -206,7 +181,7 @@ pub fn deleteDirAbsoluteZ(dir_path: [*:0]const u8) !void {
 /// Same as `deleteDirAbsolute` except the path parameter is WTF-16 and target OS is assumed Windows.
 pub fn deleteDirAbsoluteW(dir_path: [*:0]const u16) !void {
     assert(path.isAbsoluteWindowsW(dir_path));
-    return posix.rmdirW(dir_path);
+    return posix.rmdirW(mem.span(dir_path));
 }
 
 /// Same as `Dir.rename` except the paths are absolute.
@@ -246,7 +221,7 @@ pub fn renameZ(old_dir: Dir, old_sub_path_z: [*:0]const u8, new_dir: Dir, new_su
 /// Same as `rename` except the parameters are WTF16LE, NT prefixed.
 /// This function is Windows-only.
 pub fn renameW(old_dir: Dir, old_sub_path_w: []const u16, new_dir: Dir, new_sub_path_w: []const u16) !void {
-    return posix.renameatW(old_dir.fd, old_sub_path_w, new_dir.fd, new_sub_path_w);
+    return posix.renameatW(old_dir.fd, old_sub_path_w, new_dir.fd, new_sub_path_w, windows.TRUE);
 }
 
 /// Returns a handle to the current working directory. It is not opened with iteration capability.
@@ -275,18 +250,18 @@ pub fn defaultWasiCwd() std.os.wasi.fd_t {
 /// On Windows, `absolute_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `absolute_path` should be encoded as valid UTF-8.
 /// On other platforms, `absolute_path` is an opaque sequence of bytes with no particular encoding.
-pub fn openDirAbsolute(absolute_path: []const u8, flags: Dir.OpenDirOptions) File.OpenError!Dir {
+pub fn openDirAbsolute(absolute_path: []const u8, flags: Dir.OpenOptions) File.OpenError!Dir {
     assert(path.isAbsolute(absolute_path));
     return cwd().openDir(absolute_path, flags);
 }
 
 /// Same as `openDirAbsolute` but the path parameter is null-terminated.
-pub fn openDirAbsoluteZ(absolute_path_c: [*:0]const u8, flags: Dir.OpenDirOptions) File.OpenError!Dir {
+pub fn openDirAbsoluteZ(absolute_path_c: [*:0]const u8, flags: Dir.OpenOptions) File.OpenError!Dir {
     assert(path.isAbsoluteZ(absolute_path_c));
     return cwd().openDirZ(absolute_path_c, flags);
 }
 /// Same as `openDirAbsolute` but the path parameter is null-terminated.
-pub fn openDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.OpenDirOptions) File.OpenError!Dir {
+pub fn openDirAbsoluteW(absolute_path_c: [*:0]const u16, flags: Dir.OpenOptions) File.OpenError!Dir {
     assert(path.isAbsoluteWindowsW(absolute_path_c));
     return cwd().openDirW(absolute_path_c, flags);
 }
@@ -363,7 +338,7 @@ pub fn createFileAbsoluteZ(absolute_path_c: [*:0]const u8, flags: File.CreateFla
 /// Same as `createFileAbsolute` but the path parameter is WTF-16 encoded.
 pub fn createFileAbsoluteW(absolute_path_w: [*:0]const u16, flags: File.CreateFlags) File.OpenError!File {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
-    return cwd().createFileW(absolute_path_w, flags);
+    return cwd().createFileW(mem.span(absolute_path_w), flags);
 }
 
 /// Delete a file name and possibly the file it refers to, based on an absolute path.
@@ -387,7 +362,7 @@ pub fn deleteFileAbsoluteZ(absolute_path_c: [*:0]const u8) Dir.DeleteFileError!v
 /// Same as `deleteFileAbsolute` except the parameter is WTF-16 encoded.
 pub fn deleteFileAbsoluteW(absolute_path_w: [*:0]const u16) Dir.DeleteFileError!void {
     assert(path.isAbsoluteWindowsW(absolute_path_w));
-    return cwd().deleteFileW(absolute_path_w);
+    return cwd().deleteFileW(mem.span(absolute_path_w));
 }
 
 /// Removes a symlink, file, or directory.
@@ -425,7 +400,7 @@ pub fn readLinkAbsolute(pathname: []const u8, buffer: *[max_path_bytes]u8) ![]u8
 /// encoded.
 pub fn readlinkAbsoluteW(pathname_w: [*:0]const u16, buffer: *[max_path_bytes]u8) ![]u8 {
     assert(path.isAbsoluteWindowsW(pathname_w));
-    return posix.readlinkW(pathname_w, buffer);
+    return posix.readlinkW(mem.span(pathname_w), buffer);
 }
 
 /// Same as `readLink`, except the path parameter is null-terminated.
@@ -462,13 +437,13 @@ pub fn symLinkAbsolute(
 /// like to create a symbolic link to a directory, specify this with `SymLinkFlags{ .is_directory = true }`.
 /// See also `symLinkAbsolute`, `symLinkAbsoluteZ`.
 pub fn symLinkAbsoluteW(
-    target_path_w: []const u16,
-    sym_link_path_w: []const u16,
+    target_path_w: [*:0]const u16,
+    sym_link_path_w: [*:0]const u16,
     flags: Dir.SymLinkFlags,
 ) !void {
-    assert(path.isAbsoluteWindowsWTF16(target_path_w));
-    assert(path.isAbsoluteWindowsWTF16(sym_link_path_w));
-    return windows.CreateSymbolicLink(null, sym_link_path_w, target_path_w, flags.is_directory);
+    assert(path.isAbsoluteWindowsW(target_path_w));
+    assert(path.isAbsoluteWindowsW(sym_link_path_w));
+    return windows.CreateSymbolicLink(null, mem.span(sym_link_path_w), mem.span(target_path_w), flags.is_directory);
 }
 
 /// Same as `symLinkAbsolute` except the parameters are null-terminated pointers.

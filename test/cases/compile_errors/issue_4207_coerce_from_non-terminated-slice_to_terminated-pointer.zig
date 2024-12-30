@@ -9,4 +9,4 @@ export fn foo() [*:0]const u8 {
 //
 // :3:18: error: expected type '[*:0]const u8', found '*[64]u8'
 // :3:18: note: destination pointer requires '0' sentinel
-// :1:18: note: function return type declared here
+// :1:17: note: function return type declared here

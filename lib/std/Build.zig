@@ -20,6 +20,8 @@ const Build = @This();
 pub const Cache = @import("Build/Cache.zig");
 pub const Step = @import("Build/Step.zig");
 pub const Module = @import("Build/Module.zig");
+pub const Watch = @import("Build/Watch.zig");
+pub const Fuzz = @import("Build/Fuzz.zig");
 
 /// Shared state among all Build instances.
 graph: *Graph,
@@ -50,13 +52,11 @@ install_path: []const u8,
 sysroot: ?[]const u8 = null,
 search_prefixes: std.ArrayListUnmanaged([]const u8),
 libc_file: ?[]const u8 = null,
-installed_files: ArrayList(InstalledFile),
 /// Path to the directory containing build.zig.
 build_root: Cache.Directory,
 cache_root: Cache.Directory,
-zig_lib_dir: ?LazyPath,
 pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
-args: ?[][]const u8 = null,
+args: ?[]const []const u8 = null,
 debug_log_scopes: []const []const u8 = &.{},
 debug_compile_errors: bool = false,
 debug_pkg_config: bool = false,
@@ -81,17 +81,12 @@ enable_wine: bool = false,
 /// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
 glibc_runtimes_dir: ?[]const u8 = null,
 
-/// Deprecated. Use `b.graph.host`.
-host: ResolvedTarget,
-
 dep_prefix: []const u8 = "",
 
 modules: std.StringArrayHashMap(*Module),
 
 named_writefiles: std.StringArrayHashMap(*Step.WriteFile),
-/// A map from build root dirs to the corresponding `*Dependency`. This is shared with all child
-/// `Build`s.
-initialized_deps: *InitializedDepMap,
+named_lazy_paths: std.StringArrayHashMap(LazyPath),
 /// The hash of this instance's package. `""` means that this is the root package.
 pkg_hash: []const u8,
 /// A mapping from dependency names to package hashes.
@@ -111,15 +106,21 @@ pub const ReleaseMode = enum {
 /// Settings that are here rather than in Build are not configurable per-package.
 pub const Graph = struct {
     arena: Allocator,
-    system_library_options: std.StringArrayHashMapUnmanaged(SystemLibraryMode) = .{},
+    system_library_options: std.StringArrayHashMapUnmanaged(SystemLibraryMode) = .empty,
     system_package_mode: bool = false,
+    debug_compiler_runtime_libs: bool = false,
     cache: Cache,
     zig_exe: [:0]const u8,
     env_map: EnvMap,
     global_cache_root: Cache.Directory,
-    needed_lazy_dependencies: std.StringArrayHashMapUnmanaged(void) = .{},
+    zig_lib_directory: Cache.Directory,
+    needed_lazy_dependencies: std.StringArrayHashMapUnmanaged(void) = .empty,
     /// Information about the native target. Computed before build() is invoked.
     host: ResolvedTarget,
+    incremental: ?bool = null,
+    random_seed: u32 = 0,
+    dependency_cache: InitializedDepMap = .empty,
+    allow_so_scripts: ?bool = null,
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };
@@ -139,7 +140,7 @@ const SystemLibraryMode = enum {
     declared_enabled,
 };
 
-const InitializedDepMap = std.HashMap(InitializedDepKey, *Dependency, InitializedDepContext, std.hash_map.default_max_load_percentage);
+const InitializedDepMap = std.HashMapUnmanaged(InitializedDepKey, *Dependency, InitializedDepContext, std.hash_map.default_max_load_percentage);
 const InitializedDepKey = struct {
     build_root_string: []const u8,
     user_input_options: UserInputOptionsMap,
@@ -214,6 +215,8 @@ const UserValue = union(enum) {
     scalar: []const u8,
     list: ArrayList([]const u8),
     map: StringHashMap(*const UserValue),
+    lazy_path: LazyPath,
+    lazy_path_list: ArrayList(LazyPath),
 };
 
 const TypeId = enum {
@@ -225,6 +228,8 @@ const TypeId = enum {
     string,
     list,
     build_id,
+    lazy_path,
+    lazy_path_list,
 };
 
 const TopLevelStep = struct {
@@ -247,8 +252,6 @@ pub fn create(
     available_deps: AvailableDeps,
 ) !*Build {
     const arena = graph.arena;
-    const initialized_deps = try arena.create(InitializedDepMap);
-    initialized_deps.* = InitializedDepMap.initContext(arena, .{ .allocator = arena });
 
     const b = try arena.create(Build);
     b.* = .{
@@ -276,7 +279,6 @@ pub fn create(
         .exe_dir = undefined,
         .h_dir = undefined,
         .dest_dir = graph.env_map.get("DESTDIR"),
-        .installed_files = ArrayList(InstalledFile).init(arena),
         .install_tls = .{
             .step = Step.init(.{
                 .id = TopLevelStep.base_id,
@@ -294,13 +296,11 @@ pub fn create(
             }),
             .description = "Remove build artifacts from prefix path",
         },
-        .zig_lib_dir = null,
         .install_path = undefined,
         .args = null,
-        .host = graph.host,
-        .modules = std.StringArrayHashMap(*Module).init(arena),
-        .named_writefiles = std.StringArrayHashMap(*Step.WriteFile).init(arena),
-        .initialized_deps = initialized_deps,
+        .modules = .init(arena),
+        .named_writefiles = .init(arena),
+        .named_lazy_paths = .init(arena),
         .pkg_hash = "",
         .available_deps = available_deps,
         .release_mode = .off,
@@ -378,10 +378,8 @@ fn createChildOnly(
         .sysroot = parent.sysroot,
         .search_prefixes = parent.search_prefixes,
         .libc_file = parent.libc_file,
-        .installed_files = ArrayList(InstalledFile).init(allocator),
         .build_root = build_root,
         .cache_root = parent.cache_root,
-        .zig_lib_dir = parent.zig_lib_dir,
         .debug_log_scopes = parent.debug_log_scopes,
         .debug_compile_errors = parent.debug_compile_errors,
         .debug_pkg_config = parent.debug_pkg_config,
@@ -391,11 +389,10 @@ fn createChildOnly(
         .enable_wasmtime = parent.enable_wasmtime,
         .enable_wine = parent.enable_wine,
         .glibc_runtimes_dir = parent.glibc_runtimes_dir,
-        .host = parent.host,
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
-        .modules = std.StringArrayHashMap(*Module).init(allocator),
-        .named_writefiles = std.StringArrayHashMap(*Step.WriteFile).init(allocator),
-        .initialized_deps = parent.initialized_deps,
+        .modules = .init(allocator),
+        .named_writefiles = .init(allocator),
+        .named_lazy_paths = .init(allocator),
         .pkg_hash = pkg_hash,
         .available_deps = pkg_deps,
         .release_mode = parent.release_mode,
@@ -408,7 +405,7 @@ fn createChildOnly(
 
 fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOptionsMap {
     var user_input_options = UserInputOptionsMap.init(allocator);
-    inline for (@typeInfo(@TypeOf(args)).Struct.fields) |field| {
+    inline for (@typeInfo(@TypeOf(args)).@"struct".fields) |field| {
         const v = @field(args, field.name);
         const T = @TypeOf(v);
         switch (T) {
@@ -436,6 +433,22 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
                     .used = false,
                 }) catch @panic("OOM");
             },
+            LazyPath => {
+                user_input_options.put(field.name, .{
+                    .name = field.name,
+                    .value = .{ .lazy_path = v.dupeInner(allocator) },
+                    .used = false,
+                }) catch @panic("OOM");
+            },
+            []const LazyPath => {
+                var list = ArrayList(LazyPath).initCapacity(allocator, v.len) catch @panic("OOM");
+                for (v) |lp| list.appendAssumeCapacity(lp.dupeInner(allocator));
+                user_input_options.put(field.name, .{
+                    .name = field.name,
+                    .value = .{ .lazy_path_list = list },
+                    .used = false,
+                }) catch @panic("OOM");
+            },
             []const u8 => {
                 user_input_options.put(field.name, .{
                     .name = field.name,
@@ -454,24 +467,31 @@ fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOption
                 }) catch @panic("OOM");
             },
             else => switch (@typeInfo(T)) {
-                .Bool => {
+                .bool => {
                     user_input_options.put(field.name, .{
                         .name = field.name,
                         .value = .{ .scalar = if (v) "true" else "false" },
                         .used = false,
                     }) catch @panic("OOM");
                 },
-                .Enum, .EnumLiteral => {
+                .@"enum", .enum_literal => {
                     user_input_options.put(field.name, .{
                         .name = field.name,
                         .value = .{ .scalar = @tagName(v) },
                         .used = false,
                     }) catch @panic("OOM");
                 },
-                .Int => {
+                .comptime_int, .int => {
                     user_input_options.put(field.name, .{
                         .name = field.name,
                         .value = .{ .scalar = std.fmt.allocPrint(allocator, "{d}", .{v}) catch @panic("OOM") },
+                        .used = false,
+                    }) catch @panic("OOM");
+                },
+                .comptime_float, .float => {
+                    user_input_options.put(field.name, .{
+                        .name = field.name,
+                        .value = .{ .scalar = std.fmt.allocPrint(allocator, "{e}", .{v}) catch @panic("OOM") },
                         .used = false,
                     }) catch @panic("OOM");
                 },
@@ -488,6 +508,8 @@ const OrderedUserValue = union(enum) {
     scalar: []const u8,
     list: ArrayList([]const u8),
     map: ArrayList(Pair),
+    lazy_path: LazyPath,
+    lazy_path_list: ArrayList(LazyPath),
 
     const Pair = struct {
         name: []const u8,
@@ -498,6 +520,7 @@ const OrderedUserValue = union(enum) {
     };
 
     fn hash(val: OrderedUserValue, hasher: *std.hash.Wyhash) void {
+        hasher.update(&std.mem.toBytes(std.meta.activeTag(val)));
         switch (val) {
             .flag => {},
             .scalar => |scalar| hasher.update(scalar),
@@ -507,6 +530,31 @@ const OrderedUserValue = union(enum) {
             .map => |map| for (map.items) |map_entry| {
                 hasher.update(map_entry.name);
                 map_entry.value.hash(hasher);
+            },
+            .lazy_path => |lp| hashLazyPath(lp, hasher),
+            .lazy_path_list => |lp_list| for (lp_list.items) |lp| {
+                hashLazyPath(lp, hasher);
+            },
+        }
+    }
+
+    fn hashLazyPath(lp: LazyPath, hasher: *std.hash.Wyhash) void {
+        switch (lp) {
+            .src_path => |sp| {
+                hasher.update(sp.owner.pkg_hash);
+                hasher.update(sp.sub_path);
+            },
+            .generated => |gen| {
+                hasher.update(gen.file.step.owner.pkg_hash);
+                hasher.update(std.mem.asBytes(&gen.up));
+                hasher.update(gen.sub_path);
+            },
+            .cwd_relative => |rel_path| {
+                hasher.update(rel_path);
+            },
+            .dependency => |dep| {
+                hasher.update(dep.dependency.builder.pkg_hash);
+                hasher.update(dep.sub_path);
             },
         }
     }
@@ -531,6 +579,8 @@ const OrderedUserValue = union(enum) {
             .scalar => |scalar| .{ .scalar = scalar },
             .list => |list| .{ .list = list },
             .map => |map| .{ .map = OrderedUserValue.mapFromUnordered(allocator, map) },
+            .lazy_path => |lp| .{ .lazy_path = lp },
+            .lazy_path_list => |list| .{ .lazy_path_list = list },
         };
     }
 };
@@ -637,24 +687,9 @@ pub fn addOptions(b: *Build) *Step.Options {
 
 pub const ExecutableOptions = struct {
     name: []const u8,
-    /// If you want the executable to run on the same computer as the one
-    /// building the package, pass the `host` field of the package's `Build`
-    /// instance.
-    target: ResolvedTarget,
-    root_source_file: ?LazyPath = null,
     version: ?std.SemanticVersion = null,
-    optimize: std.builtin.OptimizeMode = .Debug,
-    code_model: std.builtin.CodeModel = .default,
     linkage: ?std.builtin.LinkMode = null,
     max_rss: usize = 0,
-    link_libc: ?bool = null,
-    single_threaded: ?bool = null,
-    pic: ?bool = null,
-    strip: ?bool = null,
-    unwind_tables: ?bool = null,
-    omit_frame_pointer: ?bool = null,
-    sanitize_thread: ?bool = null,
-    error_tracing: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -664,14 +699,47 @@ pub const ExecutableOptions = struct {
     /// Can be set regardless of target. The `.manifest` file will be ignored
     /// if the target object format does not support embedded manifests.
     win32_manifest: ?LazyPath = null,
+
+    /// Prefer populating this field (using e.g. `createModule`) instead of populating
+    /// the following fields (`root_source_file` etc). In a future release, those fields
+    /// will be removed, and this field will become non-optional.
+    root_module: ?*Module = null,
+
+    /// Deprecated; prefer populating `root_module`.
+    root_source_file: ?LazyPath = null,
+    /// Deprecated; prefer populating `root_module`.
+    target: ?ResolvedTarget = null,
+    /// Deprecated; prefer populating `root_module`.
+    optimize: std.builtin.OptimizeMode = .Debug,
+    /// Deprecated; prefer populating `root_module`.
+    code_model: std.builtin.CodeModel = .default,
+    /// Deprecated; prefer populating `root_module`.
+    link_libc: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    single_threaded: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    pic: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    strip: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    unwind_tables: ?std.builtin.UnwindTables = null,
+    /// Deprecated; prefer populating `root_module`.
+    omit_frame_pointer: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    sanitize_thread: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    error_tracing: ?bool = null,
 };
 
 pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
+    if (options.root_module != null and options.target != null) {
+        @panic("`root_module` and `target` cannot both be populated");
+    }
+    return .create(b, .{
         .name = options.name,
-        .root_module = .{
+        .root_module = options.root_module orelse b.createModule(.{
             .root_source_file = options.root_source_file,
-            .target = options.target,
+            .target = options.target orelse @panic("`root_module` and `target` cannot both be null"),
             .optimize = options.optimize,
             .link_libc = options.link_libc,
             .single_threaded = options.single_threaded,
@@ -682,46 +750,65 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
             .code_model = options.code_model,
-        },
+        }),
         .version = options.version,
         .kind = .exe,
         .linkage = options.linkage,
         .max_rss = options.max_rss,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
-        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .zig_lib_dir = options.zig_lib_dir,
         .win32_manifest = options.win32_manifest,
     });
 }
 
 pub const ObjectOptions = struct {
     name: []const u8,
-    root_source_file: ?LazyPath = null,
-    /// To choose the same computer as the one building the package, pass the
-    /// `host` field of the package's `Build` instance.
-    target: ResolvedTarget,
-    code_model: std.builtin.CodeModel = .default,
-    optimize: std.builtin.OptimizeMode,
     max_rss: usize = 0,
-    link_libc: ?bool = null,
-    single_threaded: ?bool = null,
-    pic: ?bool = null,
-    strip: ?bool = null,
-    unwind_tables: ?bool = null,
-    omit_frame_pointer: ?bool = null,
-    sanitize_thread: ?bool = null,
-    error_tracing: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+
+    /// Prefer populating this field (using e.g. `createModule`) instead of populating
+    /// the following fields (`root_source_file` etc). In a future release, those fields
+    /// will be removed, and this field will become non-optional.
+    root_module: ?*Module = null,
+
+    /// Deprecated; prefer populating `root_module`.
+    root_source_file: ?LazyPath = null,
+    /// Deprecated; prefer populating `root_module`.
+    target: ?ResolvedTarget = null,
+    /// Deprecated; prefer populating `root_module`.
+    optimize: std.builtin.OptimizeMode = .Debug,
+    /// Deprecated; prefer populating `root_module`.
+    code_model: std.builtin.CodeModel = .default,
+    /// Deprecated; prefer populating `root_module`.
+    link_libc: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    single_threaded: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    pic: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    strip: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    unwind_tables: ?std.builtin.UnwindTables = null,
+    /// Deprecated; prefer populating `root_module`.
+    omit_frame_pointer: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    sanitize_thread: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    error_tracing: ?bool = null,
 };
 
 pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
+    if (options.root_module != null and options.target != null) {
+        @panic("`root_module` and `target` cannot both be populated");
+    }
+    return .create(b, .{
         .name = options.name,
-        .root_module = .{
+        .root_module = options.root_module orelse b.createModule(.{
             .root_source_file = options.root_source_file,
-            .target = options.target,
+            .target = options.target orelse @panic("`root_module` and `target` cannot both be null"),
             .optimize = options.optimize,
             .link_libc = options.link_libc,
             .single_threaded = options.single_threaded,
@@ -732,33 +819,19 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
             .code_model = options.code_model,
-        },
+        }),
         .kind = .obj,
         .max_rss = options.max_rss,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
-        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .zig_lib_dir = options.zig_lib_dir,
     });
 }
 
 pub const SharedLibraryOptions = struct {
     name: []const u8,
-    /// To choose the same computer as the one building the package, pass the
-    /// `host` field of the package's `Build` instance.
-    target: ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    code_model: std.builtin.CodeModel = .default,
-    root_source_file: ?LazyPath = null,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
-    link_libc: ?bool = null,
-    single_threaded: ?bool = null,
-    pic: ?bool = null,
-    strip: ?bool = null,
-    unwind_tables: ?bool = null,
-    omit_frame_pointer: ?bool = null,
-    sanitize_thread: ?bool = null,
-    error_tracing: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -768,13 +841,46 @@ pub const SharedLibraryOptions = struct {
     /// Can be set regardless of target. The `.manifest` file will be ignored
     /// if the target object format does not support embedded manifests.
     win32_manifest: ?LazyPath = null,
+
+    /// Prefer populating this field (using e.g. `createModule`) instead of populating
+    /// the following fields (`root_source_file` etc). In a future release, those fields
+    /// will be removed, and this field will become non-optional.
+    root_module: ?*Module = null,
+
+    /// Deprecated; prefer populating `root_module`.
+    root_source_file: ?LazyPath = null,
+    /// Deprecated; prefer populating `root_module`.
+    target: ?ResolvedTarget = null,
+    /// Deprecated; prefer populating `root_module`.
+    optimize: std.builtin.OptimizeMode = .Debug,
+    /// Deprecated; prefer populating `root_module`.
+    code_model: std.builtin.CodeModel = .default,
+    /// Deprecated; prefer populating `root_module`.
+    link_libc: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    single_threaded: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    pic: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    strip: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    unwind_tables: ?std.builtin.UnwindTables = null,
+    /// Deprecated; prefer populating `root_module`.
+    omit_frame_pointer: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    sanitize_thread: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    error_tracing: ?bool = null,
 };
 
 pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
+    if (options.root_module != null and options.target != null) {
+        @panic("`root_module` and `target` cannot both be populated");
+    }
+    return .create(b, .{
         .name = options.name,
-        .root_module = .{
-            .target = options.target,
+        .root_module = options.root_module orelse b.createModule(.{
+            .target = options.target orelse @panic("`root_module` and `target` cannot both be null"),
             .optimize = options.optimize,
             .root_source_file = options.root_source_file,
             .link_libc = options.link_libc,
@@ -786,46 +892,65 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
             .code_model = options.code_model,
-        },
+        }),
         .kind = .lib,
         .linkage = .dynamic,
         .version = options.version,
         .max_rss = options.max_rss,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
-        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .zig_lib_dir = options.zig_lib_dir,
         .win32_manifest = options.win32_manifest,
     });
 }
 
 pub const StaticLibraryOptions = struct {
     name: []const u8,
-    root_source_file: ?LazyPath = null,
-    /// To choose the same computer as the one building the package, pass the
-    /// `host` field of the package's `Build` instance.
-    target: ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    code_model: std.builtin.CodeModel = .default,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
-    link_libc: ?bool = null,
-    single_threaded: ?bool = null,
-    pic: ?bool = null,
-    strip: ?bool = null,
-    unwind_tables: ?bool = null,
-    omit_frame_pointer: ?bool = null,
-    sanitize_thread: ?bool = null,
-    error_tracing: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+
+    /// Prefer populating this field (using e.g. `createModule`) instead of populating
+    /// the following fields (`root_source_file` etc). In a future release, those fields
+    /// will be removed, and this field will become non-optional.
+    root_module: ?*Module = null,
+
+    /// Deprecated; prefer populating `root_module`.
+    root_source_file: ?LazyPath = null,
+    /// Deprecated; prefer populating `root_module`.
+    target: ?ResolvedTarget = null,
+    /// Deprecated; prefer populating `root_module`.
+    optimize: std.builtin.OptimizeMode = .Debug,
+    /// Deprecated; prefer populating `root_module`.
+    code_model: std.builtin.CodeModel = .default,
+    /// Deprecated; prefer populating `root_module`.
+    link_libc: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    single_threaded: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    pic: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    strip: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    unwind_tables: ?std.builtin.UnwindTables = null,
+    /// Deprecated; prefer populating `root_module`.
+    omit_frame_pointer: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    sanitize_thread: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    error_tracing: ?bool = null,
 };
 
 pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
+    if (options.root_module != null and options.target != null) {
+        @panic("`root_module` and `target` cannot both be populated");
+    }
+    return .create(b, .{
         .name = options.name,
-        .root_module = .{
-            .target = options.target,
+        .root_module = options.root_module orelse b.createModule(.{
+            .target = options.target orelse @panic("`root_module` and `target` cannot both be null"),
             .optimize = options.optimize,
             .root_source_file = options.root_source_file,
             .link_libc = options.link_libc,
@@ -837,39 +962,59 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile 
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
             .code_model = options.code_model,
-        },
+        }),
         .kind = .lib,
         .linkage = .static,
         .version = options.version,
         .max_rss = options.max_rss,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
-        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .zig_lib_dir = options.zig_lib_dir,
     });
 }
 
 pub const TestOptions = struct {
     name: []const u8 = "test",
-    root_source_file: LazyPath,
-    target: ?ResolvedTarget = null,
-    optimize: std.builtin.OptimizeMode = .Debug,
-    version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
-    /// deprecated: use `.filters = &.{filter}` instead of `.filter = filter`.
+    /// Deprecated; use `.filters = &.{filter}` instead of `.filter = filter`.
     filter: ?[]const u8 = null,
     filters: []const []const u8 = &.{},
     test_runner: ?LazyPath = null,
-    link_libc: ?bool = null,
-    single_threaded: ?bool = null,
-    pic: ?bool = null,
-    strip: ?bool = null,
-    unwind_tables: ?bool = null,
-    omit_frame_pointer: ?bool = null,
-    sanitize_thread: ?bool = null,
-    error_tracing: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+
+    /// Prefer populating this field (using e.g. `createModule`) instead of populating
+    /// the following fields (`root_source_file` etc). In a future release, those fields
+    /// will be removed, and this field will become non-optional.
+    root_module: ?*Module = null,
+
+    /// Deprecated; prefer populating `root_module`.
+    root_source_file: ?LazyPath = null,
+    /// Deprecated; prefer populating `root_module`.
+    target: ?ResolvedTarget = null,
+    /// Deprecated; prefer populating `root_module`.
+    optimize: std.builtin.OptimizeMode = .Debug,
+    /// Deprecated; prefer populating `root_module`.
+    version: ?std.SemanticVersion = null,
+    /// Deprecated; prefer populating `root_module`.
+    link_libc: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    link_libcpp: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    single_threaded: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    pic: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    strip: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    unwind_tables: ?std.builtin.UnwindTables = null,
+    /// Deprecated; prefer populating `root_module`.
+    omit_frame_pointer: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    sanitize_thread: ?bool = null,
+    /// Deprecated; prefer populating `root_module`.
+    error_tracing: ?bool = null,
 };
 
 /// Creates an executable containing unit tests.
@@ -881,14 +1026,18 @@ pub const TestOptions = struct {
 /// two steps are separated because they are independently configured and
 /// cached.
 pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
+    if (options.root_module != null and options.root_source_file != null) {
+        @panic("`root_module` and `root_source_file` cannot both be populated");
+    }
+    return .create(b, .{
         .name = options.name,
         .kind = .@"test",
-        .root_module = .{
-            .root_source_file = options.root_source_file,
+        .root_module = options.root_module orelse b.createModule(.{
+            .root_source_file = options.root_source_file orelse @panic("`root_module` and `root_source_file` cannot both be null"),
             .target = options.target orelse b.graph.host,
             .optimize = options.optimize,
             .link_libc = options.link_libc,
+            .link_libcpp = options.link_libcpp,
             .single_threaded = options.single_threaded,
             .pic = options.pic,
             .strip = options.strip,
@@ -896,7 +1045,7 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
             .omit_frame_pointer = options.omit_frame_pointer,
             .sanitize_thread = options.sanitize_thread,
             .error_tracing = options.error_tracing,
-        },
+        }),
         .max_rss = options.max_rss,
         .filters = if (options.filter != null and options.filters.len > 0) filters: {
             const filters = b.allocator.alloc([]const u8, 1 + options.filters.len) catch @panic("OOM");
@@ -907,7 +1056,7 @@ pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
         .test_runner = options.test_runner,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
-        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+        .zig_lib_dir = options.zig_lib_dir,
     });
 }
 
@@ -922,19 +1071,20 @@ pub const AssemblyOptions = struct {
     zig_lib_dir: ?LazyPath = null,
 };
 
+/// Deprecated; prefer using `addObject` where the `root_module` has an empty
+/// `root_source_file` and contains an assembly file via `Module.addAssemblyFile`.
 pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
-    const obj_step = Step.Compile.create(b, .{
-        .name = options.name,
-        .kind = .obj,
-        .root_module = .{
-            .target = options.target,
-            .optimize = options.optimize,
-        },
-        .max_rss = options.max_rss,
-        .zig_lib_dir = options.zig_lib_dir orelse b.zig_lib_dir,
+    const root_module = b.createModule(.{
+        .target = options.target,
+        .optimize = options.optimize,
     });
-    obj_step.addAssemblyFile(options.source_file);
-    return obj_step;
+    root_module.addAssemblyFile(options.source_file);
+    return b.addObject(.{
+        .name = options.name,
+        .max_rss = options.max_rss,
+        .zig_lib_dir = options.zig_lib_dir,
+        .root_module = root_module,
+    });
 }
 
 /// This function creates a module and adds it to the package's module set, making
@@ -972,6 +1122,7 @@ pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
     // Consider that this is declarative; the run step may not be run unless a user
     // option is supplied.
     const run_step = Step.Run.create(b, b.fmt("run {s}", .{exe.name}));
+    run_step.producer = exe;
     if (exe.kind == .@"test") {
         if (exe.exec_cmd_args) |exec_cmd_args| {
             for (exec_cmd_args) |cmd_arg| {
@@ -1016,7 +1167,11 @@ pub fn addConfigHeader(
 
 /// Allocator.dupe without the need to handle out of memory.
 pub fn dupe(b: *Build, bytes: []const u8) []u8 {
-    return b.allocator.dupe(u8, bytes) catch @panic("OOM");
+    return dupeInner(b.allocator, bytes);
+}
+
+pub fn dupeInner(allocator: std.mem.Allocator, bytes: []const u8) []u8 {
+    return allocator.dupe(u8, bytes) catch @panic("OOM");
 }
 
 /// Duplicates an array of strings without the need to handle out of memory.
@@ -1028,7 +1183,11 @@ pub fn dupeStrings(b: *Build, strings: []const []const u8) [][]u8 {
 
 /// Duplicates a path and converts all slashes to the OS's canonical path separator.
 pub fn dupePath(b: *Build, bytes: []const u8) []u8 {
-    const the_copy = b.dupe(bytes);
+    return dupePathInner(b.allocator, bytes);
+}
+
+fn dupePathInner(allocator: std.mem.Allocator, bytes: []const u8) []u8 {
+    const the_copy = dupeInner(allocator, bytes);
     for (the_copy) |*byte| {
         switch (byte.*) {
             '/', '\\' => byte.* = fs.path.sep,
@@ -1050,11 +1209,19 @@ pub fn addNamedWriteFiles(b: *Build, name: []const u8) *Step.WriteFile {
     return wf;
 }
 
+pub fn addNamedLazyPath(b: *Build, name: []const u8, lp: LazyPath) void {
+    b.named_lazy_paths.put(b.dupe(name), lp.dupe(b)) catch @panic("OOM");
+}
+
 pub fn addWriteFiles(b: *Build) *Step.WriteFile {
     return Step.WriteFile.create(b);
 }
 
-pub fn addRemoveDirTree(b: *Build, dir_path: []const u8) *Step.RemoveDir {
+pub fn addUpdateSourceFiles(b: *Build) *Step.UpdateSourceFiles {
+    return Step.UpdateSourceFiles.create(b);
+}
+
+pub fn addRemoveDirTree(b: *Build, dir_path: LazyPath) *Step.RemoveDir {
     return Step.RemoveDir.create(b, dir_path);
 }
 
@@ -1078,20 +1245,13 @@ pub fn getUninstallStep(b: *Build) *Step {
     return &b.uninstall_tls.step;
 }
 
-fn makeUninstall(uninstall_step: *Step, prog_node: std.Progress.Node) anyerror!void {
-    _ = prog_node;
+fn makeUninstall(uninstall_step: *Step, options: Step.MakeOptions) anyerror!void {
+    _ = options;
     const uninstall_tls: *TopLevelStep = @fieldParentPtr("step", uninstall_step);
     const b: *Build = @fieldParentPtr("uninstall_tls", uninstall_tls);
 
-    for (b.installed_files.items) |installed_file| {
-        const full_path = b.getInstallPath(installed_file.dir, installed_file.path);
-        if (b.verbose) {
-            log.info("rm {s}", .{full_path});
-        }
-        fs.cwd().deleteTree(full_path) catch {};
-    }
-
-    // TODO remove empty directories
+    _ = b;
+    @panic("TODO implement https://github.com/ziglang/zig/issues/14943");
 }
 
 /// Creates a configuration option to be passed to the build.zig script.
@@ -1104,7 +1264,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
     const description = b.dupe(description_raw);
     const type_id = comptime typeToEnum(T);
     const enum_options = if (type_id == .@"enum" or type_id == .enum_list) blk: {
-        const EnumType = if (type_id == .enum_list) @typeInfo(T).Pointer.child else T;
+        const EnumType = if (type_id == .enum_list) @typeInfo(T).pointer.child else T;
         const fields = comptime std.meta.fields(EnumType);
         var options = ArrayList([]const u8).initCapacity(b.allocator, fields.len) catch @panic("OOM");
 
@@ -1141,7 +1301,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
                     return null;
                 }
             },
-            .list, .map => {
+            .list, .map, .lazy_path, .lazy_path_list => {
                 log.err("Expected -D{s} to be a boolean, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
@@ -1150,7 +1310,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
             },
         },
         .int => switch (option_ptr.value) {
-            .flag, .list, .map => {
+            .flag, .list, .map, .lazy_path, .lazy_path_list => {
                 log.err("Expected -D{s} to be an integer, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
@@ -1174,7 +1334,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
             },
         },
         .float => switch (option_ptr.value) {
-            .flag, .map, .list => {
+            .flag, .map, .list, .lazy_path, .lazy_path_list => {
                 log.err("Expected -D{s} to be a float, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
@@ -1191,7 +1351,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
             },
         },
         .@"enum" => switch (option_ptr.value) {
-            .flag, .map, .list => {
+            .flag, .map, .list, .lazy_path, .lazy_path_list => {
                 log.err("Expected -D{s} to be an enum, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
@@ -1209,7 +1369,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
             },
         },
         .string => switch (option_ptr.value) {
-            .flag, .list, .map => {
+            .flag, .list, .map, .lazy_path, .lazy_path_list => {
                 log.err("Expected -D{s} to be a string, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
@@ -1219,7 +1379,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
             .scalar => |s| return s,
         },
         .build_id => switch (option_ptr.value) {
-            .flag, .map, .list => {
+            .flag, .map, .list, .lazy_path, .lazy_path_list => {
                 log.err("Expected -D{s} to be an enum, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
@@ -1237,7 +1397,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
             },
         },
         .list => switch (option_ptr.value) {
-            .flag, .map => {
+            .flag, .map, .lazy_path, .lazy_path_list => {
                 log.err("Expected -D{s} to be a list, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
@@ -1250,7 +1410,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
             .list => |lst| return lst.items,
         },
         .enum_list => switch (option_ptr.value) {
-            .flag, .map => {
+            .flag, .map, .lazy_path, .lazy_path_list => {
                 log.err("Expected -D{s} to be a list, but received a {s}.", .{
                     name, @tagName(option_ptr.value),
                 });
@@ -1258,7 +1418,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
                 return null;
             },
             .scalar => |s| {
-                const Child = @typeInfo(T).Pointer.child;
+                const Child = @typeInfo(T).pointer.child;
                 const value = std.meta.stringToEnum(Child, s) orelse {
                     log.err("Expected -D{s} to be of type {s}.", .{ name, @typeName(Child) });
                     b.markInvalidUserInput();
@@ -1267,18 +1427,47 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
                 return b.allocator.dupe(Child, &[_]Child{value}) catch @panic("OOM");
             },
             .list => |lst| {
-                const Child = @typeInfo(T).Pointer.child;
-                var new_list = b.allocator.alloc(Child, lst.items.len) catch @panic("OOM");
-                for (lst.items, 0..) |str, i| {
-                    const value = std.meta.stringToEnum(Child, str) orelse {
+                const Child = @typeInfo(T).pointer.child;
+                const new_list = b.allocator.alloc(Child, lst.items.len) catch @panic("OOM");
+                for (new_list, lst.items) |*new_item, str| {
+                    new_item.* = std.meta.stringToEnum(Child, str) orelse {
                         log.err("Expected -D{s} to be of type {s}.", .{ name, @typeName(Child) });
                         b.markInvalidUserInput();
                         b.allocator.free(new_list);
                         return null;
                     };
-                    new_list[i] = value;
                 }
                 return new_list;
+            },
+        },
+        .lazy_path => switch (option_ptr.value) {
+            .scalar => |s| return .{ .cwd_relative = s },
+            .lazy_path => |lp| return lp,
+            .flag, .map, .list, .lazy_path_list => {
+                log.err("Expected -D{s} to be a path, but received a {s}.", .{
+                    name, @tagName(option_ptr.value),
+                });
+                b.markInvalidUserInput();
+                return null;
+            },
+        },
+        .lazy_path_list => switch (option_ptr.value) {
+            .scalar => |s| return b.allocator.dupe(LazyPath, &[_]LazyPath{.{ .cwd_relative = s }}) catch @panic("OOM"),
+            .lazy_path => |lp| return b.allocator.dupe(LazyPath, &[_]LazyPath{lp}) catch @panic("OOM"),
+            .list => |lst| {
+                const new_list = b.allocator.alloc(LazyPath, lst.items.len) catch @panic("OOM");
+                for (new_list, lst.items) |*new_item, str| {
+                    new_item.* = .{ .cwd_relative = str };
+                }
+                return new_list;
+            },
+            .lazy_path_list => |lp_list| return lp_list.items,
+            .flag, .map => {
+                log.err("Expected -D{s} to be a path, but received a {s}.", .{
+                    name, @tagName(option_ptr.value),
+                });
+                b.markInvalidUserInput();
+                return null;
             },
         },
     }
@@ -1500,6 +1689,10 @@ pub fn addUserInputOption(b: *Build, name_raw: []const u8, value_raw: []const u8
             log.warn("TODO maps as command line arguments is not implemented yet.", .{});
             return true;
         },
+        .lazy_path, .lazy_path_list => {
+            log.warn("the lazy path value type isn't added from the CLI, but somehow '{s}' is a .{}", .{ name, std.zig.fmtId(@tagName(gop.value_ptr.value)) });
+            return true;
+        },
     }
     return false;
 }
@@ -1522,10 +1715,15 @@ pub fn addUserInputFlag(b: *Build, name_raw: []const u8) !bool {
             log.err("Flag '-D{s}' conflicts with option '-D{s}={s}'.", .{ name, name, s });
             return true;
         },
-        .list, .map => {
+        .list, .map, .lazy_path_list => {
             log.err("Flag '-D{s}' conflicts with multiple options of the same name.", .{name});
             return true;
         },
+        .lazy_path => |lp| {
+            log.err("Flag '-D{s}' conflicts with option '-D{s}={s}'.", .{ name, name, lp.getDisplayName() });
+            return true;
+        },
+
         .flag => {},
     }
     return false;
@@ -1534,16 +1732,18 @@ pub fn addUserInputFlag(b: *Build, name_raw: []const u8) !bool {
 fn typeToEnum(comptime T: type) TypeId {
     return switch (T) {
         std.zig.BuildId => .build_id,
+        LazyPath => .lazy_path,
         else => return switch (@typeInfo(T)) {
-            .Int => .int,
-            .Float => .float,
-            .Bool => .bool,
-            .Enum => .@"enum",
-            .Pointer => |pointer| switch (pointer.child) {
+            .int => .int,
+            .float => .float,
+            .bool => .bool,
+            .@"enum" => .@"enum",
+            .pointer => |pointer| switch (pointer.child) {
                 u8 => .string,
                 []const u8 => .list,
+                LazyPath => .lazy_path_list,
                 else => switch (@typeInfo(pointer.child)) {
-                    .Enum => .enum_list,
+                    .@"enum" => .enum_list,
                     else => @compileError("Unsupported type: " ++ @typeName(T)),
                 },
             },
@@ -1664,15 +1864,6 @@ pub fn addCheckFile(
     return Step.CheckFile.create(b, file_source, options);
 }
 
-/// deprecated: https://github.com/ziglang/zig/issues/14943
-pub fn pushInstalledFile(b: *Build, dir: InstallDir, dest_rel_path: []const u8) void {
-    const file = InstalledFile{
-        .dir = dir,
-        .path = dest_rel_path,
-    };
-    b.installed_files.append(file.dupe(b)) catch @panic("OOM");
-}
-
 pub fn truncateFile(b: *Build, dest_path: []const u8) !void {
     if (b.verbose) {
         log.info("truncate {s}", .{dest_path});
@@ -1727,20 +1918,47 @@ pub fn fmt(b: *Build, comptime format: []const u8, args: anytype) []u8 {
     return std.fmt.allocPrint(b.allocator, format, args) catch @panic("OOM");
 }
 
+fn supportedWindowsProgramExtension(ext: []const u8) bool {
+    inline for (@typeInfo(std.process.Child.WindowsExtension).@"enum".fields) |field| {
+        if (std.ascii.eqlIgnoreCase(ext, "." ++ field.name)) return true;
+    }
+    return false;
+}
+
+fn tryFindProgram(b: *Build, full_path: []const u8) ?[]const u8 {
+    if (fs.realpathAlloc(b.allocator, full_path)) |p| {
+        return p;
+    } else |err| switch (err) {
+        error.OutOfMemory => @panic("OOM"),
+        else => {},
+    }
+
+    if (builtin.os.tag == .windows) {
+        if (b.graph.env_map.get("PATHEXT")) |PATHEXT| {
+            var it = mem.tokenizeScalar(u8, PATHEXT, fs.path.delimiter);
+
+            while (it.next()) |ext| {
+                if (!supportedWindowsProgramExtension(ext)) continue;
+
+                return fs.realpathAlloc(b.allocator, b.fmt("{s}{s}", .{ full_path, ext })) catch |err| switch (err) {
+                    error.OutOfMemory => @panic("OOM"),
+                    else => continue,
+                };
+            }
+        }
+    }
+
+    return null;
+}
+
 pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const u8) ![]const u8 {
     // TODO report error for ambiguous situations
-    const exe_extension = b.graph.host.result.exeFileExt();
     for (b.search_prefixes.items) |search_prefix| {
         for (names) |name| {
             if (fs.path.isAbsolute(name)) {
                 return name;
             }
-            const full_path = b.pathJoin(&.{
-                search_prefix,
-                "bin",
-                b.fmt("{s}{s}", .{ name, exe_extension }),
-            });
-            return fs.realpathAlloc(b.allocator, full_path) catch continue;
+            return tryFindProgram(b, b.pathJoin(&.{ search_prefix, "bin", name })) orelse continue;
         }
     }
     if (b.graph.env_map.get("PATH")) |PATH| {
@@ -1750,10 +1968,7 @@ pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const 
             }
             var it = mem.tokenizeScalar(u8, PATH, fs.path.delimiter);
             while (it.next()) |p| {
-                const full_path = b.pathJoin(&.{
-                    p, b.fmt("{s}{s}", .{ name, exe_extension }),
-                });
-                return fs.realpathAlloc(b.allocator, full_path) catch continue;
+                return tryFindProgram(b, b.pathJoin(&.{ p, name })) orelse continue;
             }
         }
     }
@@ -1762,10 +1977,7 @@ pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const 
             return name;
         }
         for (paths) |p| {
-            const full_path = b.pathJoin(&.{
-                p, b.fmt("{s}{s}", .{ name, exe_extension }),
-            });
-            return fs.realpathAlloc(b.allocator, full_path) catch continue;
+            return tryFindProgram(b, b.pathJoin(&.{ p, name })) orelse continue;
         }
     }
     return error.FileNotFound;
@@ -1789,6 +2001,7 @@ pub fn runAllowFail(
     child.stderr_behavior = stderr_behavior;
     child.env_map = &b.graph.env_map;
 
+    try Step.handleVerbose2(b, null, child.env_map, argv);
     try child.spawn();
 
     const stdout = child.stdout.?.reader().readAllAlloc(b.allocator, max_output_size) catch {
@@ -1882,6 +2095,12 @@ pub const Dependency = struct {
         };
     }
 
+    pub fn namedLazyPath(d: *Dependency, name: []const u8) LazyPath {
+        return d.builder.named_lazy_paths.get(name) orelse {
+            panic("unable to find named lazypath '{s}'", .{name});
+        };
+    }
+
     pub fn path(d: *Dependency, sub_path: []const u8) LazyPath {
         return .{
             .dependency = .{
@@ -1905,7 +2124,7 @@ inline fn findImportPkgHashOrFatal(b: *Build, comptime asking_build_zig: type, c
     const build_runner = @import("root");
     const deps = build_runner.dependencies;
 
-    const b_pkg_hash, const b_pkg_deps = comptime for (@typeInfo(deps.packages).Struct.decls) |decl| {
+    const b_pkg_hash, const b_pkg_deps = comptime for (@typeInfo(deps.packages).@"struct".decls) |decl| {
         const pkg_hash = decl.name;
         const pkg = @field(deps.packages, pkg_hash);
         if (@hasDecl(pkg, "build_zig") and pkg.build_zig == asking_build_zig) break .{ pkg_hash, pkg.deps };
@@ -1943,7 +2162,7 @@ pub fn lazyDependency(b: *Build, name: []const u8, args: anytype) ?*Dependency {
     const deps = build_runner.dependencies;
     const pkg_hash = findPkgHashOrFatal(b, name);
 
-    inline for (@typeInfo(deps.packages).Struct.decls) |decl| {
+    inline for (@typeInfo(deps.packages).@"struct".decls) |decl| {
         if (mem.eql(u8, decl.name, pkg_hash)) {
             const pkg = @field(deps.packages, decl.name);
             const available = !@hasDecl(pkg, "available") or pkg.available;
@@ -1963,7 +2182,7 @@ pub fn dependency(b: *Build, name: []const u8, args: anytype) *Dependency {
     const deps = build_runner.dependencies;
     const pkg_hash = findPkgHashOrFatal(b, name);
 
-    inline for (@typeInfo(deps.packages).Struct.decls) |decl| {
+    inline for (@typeInfo(deps.packages).@"struct".decls) |decl| {
         if (mem.eql(u8, decl.name, pkg_hash)) {
             const pkg = @field(deps.packages, decl.name);
             if (@hasDecl(pkg, "available")) {
@@ -1993,7 +2212,7 @@ pub inline fn lazyImport(
     const deps = build_runner.dependencies;
     const pkg_hash = findImportPkgHashOrFatal(b, asking_build_zig, dep_name);
 
-    inline for (@typeInfo(deps.packages).Struct.decls) |decl| {
+    inline for (@typeInfo(deps.packages).@"struct".decls) |decl| {
         if (comptime mem.eql(u8, decl.name, pkg_hash)) {
             const pkg = @field(deps.packages, decl.name);
             const available = !@hasDecl(pkg, "available") or pkg.available;
@@ -2022,7 +2241,7 @@ pub fn dependencyFromBuildZig(
     const deps = build_runner.dependencies;
 
     find_dep: {
-        const pkg, const pkg_hash = inline for (@typeInfo(deps.packages).Struct.decls) |decl| {
+        const pkg, const pkg_hash = inline for (@typeInfo(deps.packages).@"struct".decls) |decl| {
             const pkg_hash = decl.name;
             const pkg = @field(deps.packages, pkg_hash);
             if (@hasDecl(pkg, "build_zig") and pkg.build_zig == build_zig) break .{ pkg, pkg_hash };
@@ -2034,26 +2253,21 @@ pub fn dependencyFromBuildZig(
     }
 
     const full_path = b.pathFromRoot("build.zig.zon");
-    debug.panic("'{}' is not a build.zig struct of a dependecy in '{s}'", .{ build_zig, full_path });
+    debug.panic("'{}' is not a build.zig struct of a dependency in '{s}'", .{ build_zig, full_path });
 }
 
 fn userValuesAreSame(lhs: UserValue, rhs: UserValue) bool {
+    if (std.meta.activeTag(lhs) != rhs) return false;
     switch (lhs) {
         .flag => {},
         .scalar => |lhs_scalar| {
-            const rhs_scalar = switch (rhs) {
-                .scalar => |scalar| scalar,
-                else => return false,
-            };
+            const rhs_scalar = rhs.scalar;
 
             if (!std.mem.eql(u8, lhs_scalar, rhs_scalar))
                 return false;
         },
         .list => |lhs_list| {
-            const rhs_list = switch (rhs) {
-                .list => |list| list,
-                else => return false,
-            };
+            const rhs_list = rhs.list;
 
             if (lhs_list.items.len != rhs_list.items.len)
                 return false;
@@ -2064,10 +2278,7 @@ fn userValuesAreSame(lhs: UserValue, rhs: UserValue) bool {
             }
         },
         .map => |lhs_map| {
-            const rhs_map = switch (rhs) {
-                .map => |map| map,
-                else => return false,
-            };
+            const rhs_map = rhs.map;
 
             if (lhs_map.count() != rhs_map.count())
                 return false;
@@ -2079,8 +2290,51 @@ fn userValuesAreSame(lhs: UserValue, rhs: UserValue) bool {
                     return false;
             }
         },
+        .lazy_path => |lhs_lp| {
+            const rhs_lp = rhs.lazy_path;
+            return userLazyPathsAreTheSame(lhs_lp, rhs_lp);
+        },
+        .lazy_path_list => |lhs_lp_list| {
+            const rhs_lp_list = rhs.lazy_path_list;
+            if (lhs_lp_list.items.len != rhs_lp_list.items.len) return false;
+            for (lhs_lp_list.items, rhs_lp_list.items) |lhs_lp, rhs_lp| {
+                if (!userLazyPathsAreTheSame(lhs_lp, rhs_lp)) return false;
+            }
+            return true;
+        },
     }
 
+    return true;
+}
+
+fn userLazyPathsAreTheSame(lhs_lp: LazyPath, rhs_lp: LazyPath) bool {
+    if (std.meta.activeTag(lhs_lp) != rhs_lp) return false;
+    switch (lhs_lp) {
+        .src_path => |lhs_sp| {
+            const rhs_sp = rhs_lp.src_path;
+
+            if (lhs_sp.owner != rhs_sp.owner) return false;
+            if (std.mem.eql(u8, lhs_sp.sub_path, rhs_sp.sub_path)) return false;
+        },
+        .generated => |lhs_gen| {
+            const rhs_gen = rhs_lp.generated;
+
+            if (lhs_gen.file != rhs_gen.file) return false;
+            if (lhs_gen.up != rhs_gen.up) return false;
+            if (std.mem.eql(u8, lhs_gen.sub_path, rhs_gen.sub_path)) return false;
+        },
+        .cwd_relative => |lhs_rel_path| {
+            const rhs_rel_path = rhs_lp.cwd_relative;
+
+            if (!std.mem.eql(u8, lhs_rel_path, rhs_rel_path)) return false;
+        },
+        .dependency => |lhs_dep| {
+            const rhs_dep = rhs_lp.dependency;
+
+            if (lhs_dep.dependency != rhs_dep.dependency) return false;
+            if (!std.mem.eql(u8, lhs_dep.sub_path, rhs_dep.sub_path)) return false;
+        },
+    }
     return true;
 }
 
@@ -2094,10 +2348,10 @@ fn dependencyInner(
     args: anytype,
 ) *Dependency {
     const user_input_options = userInputOptionsFromArgs(b.allocator, args);
-    if (b.initialized_deps.get(.{
+    if (b.graph.dependency_cache.getContext(.{
         .build_root_string = build_root_string,
         .user_input_options = user_input_options,
-    })) |dep|
+    }, .{ .allocator = b.graph.arena })) |dep|
         return dep;
 
     const build_root: std.Build.Cache.Directory = .{
@@ -2122,17 +2376,17 @@ fn dependencyInner(
     const dep = b.allocator.create(Dependency) catch @panic("OOM");
     dep.* = .{ .builder = sub_builder };
 
-    b.initialized_deps.put(.{
+    b.graph.dependency_cache.putContext(b.graph.arena, .{
         .build_root_string = build_root_string,
         .user_input_options = user_input_options,
-    }, dep) catch @panic("OOM");
+    }, dep, .{ .allocator = b.graph.arena }) catch @panic("OOM");
     return dep;
 }
 
 pub fn runBuild(b: *Build, build_zig: anytype) anyerror!void {
-    switch (@typeInfo(@typeInfo(@TypeOf(build_zig.build)).Fn.return_type.?)) {
-        .Void => build_zig.build(b),
-        .ErrorUnion => try build_zig.build(b),
+    switch (@typeInfo(@typeInfo(@TypeOf(build_zig.build)).@"fn".return_type.?)) {
+        .void => build_zig.build(b),
+        .error_union => try build_zig.build(b),
         else => @compileError("expected return type of build to be 'void' or '!void'"),
     }
 }
@@ -2281,22 +2535,26 @@ pub const LazyPath = union(enum) {
     }
 
     pub fn path(lazy_path: LazyPath, b: *Build, sub_path: []const u8) LazyPath {
+        return lazy_path.join(b.allocator, sub_path) catch @panic("OOM");
+    }
+
+    pub fn join(lazy_path: LazyPath, arena: Allocator, sub_path: []const u8) Allocator.Error!LazyPath {
         return switch (lazy_path) {
             .src_path => |src| .{ .src_path = .{
                 .owner = src.owner,
-                .sub_path = b.pathResolve(&.{ src.sub_path, sub_path }),
+                .sub_path = try fs.path.resolve(arena, &.{ src.sub_path, sub_path }),
             } },
             .generated => |gen| .{ .generated = .{
                 .file = gen.file,
                 .up = gen.up,
-                .sub_path = b.pathResolve(&.{ gen.sub_path, sub_path }),
+                .sub_path = try fs.path.resolve(arena, &.{ gen.sub_path, sub_path }),
             } },
             .cwd_relative => |cwd_relative| .{
-                .cwd_relative = b.pathResolve(&.{ cwd_relative, sub_path }),
+                .cwd_relative = try fs.path.resolve(arena, &.{ cwd_relative, sub_path }),
             },
             .dependency => |dep| .{ .dependency = .{
                 .dependency = dep.dependency,
-                .sub_path = b.pathResolve(&.{ dep.sub_path, sub_path }),
+                .sub_path = try fs.path.resolve(arena, &.{ dep.sub_path, sub_path }),
             } },
         };
     }
@@ -2320,36 +2578,52 @@ pub const LazyPath = union(enum) {
         }
     }
 
-    /// Returns an absolute path.
-    /// Intended to be used during the make phase only.
+    /// Deprecated, see `getPath3`.
     pub fn getPath(lazy_path: LazyPath, src_builder: *Build) []const u8 {
         return getPath2(lazy_path, src_builder, null);
     }
 
-    /// Returns an absolute path.
+    /// Deprecated, see `getPath3`.
+    pub fn getPath2(lazy_path: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
+        const p = getPath3(lazy_path, src_builder, asking_step);
+        return src_builder.pathResolve(&.{ p.root_dir.path orelse ".", p.sub_path });
+    }
+
     /// Intended to be used during the make phase only.
     ///
     /// `asking_step` is only used for debugging purposes; it's the step being
     /// run that is asking for the path.
-    pub fn getPath2(lazy_path: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
+    pub fn getPath3(lazy_path: LazyPath, src_builder: *Build, asking_step: ?*Step) Cache.Path {
         switch (lazy_path) {
-            .src_path => |sp| return sp.owner.pathFromRoot(sp.sub_path),
-            .cwd_relative => |p| return src_builder.pathFromCwd(p),
+            .src_path => |sp| return .{
+                .root_dir = sp.owner.build_root,
+                .sub_path = sp.sub_path,
+            },
+            .cwd_relative => |sub_path| return .{
+                .root_dir = Cache.Directory.cwd(),
+                .sub_path = sub_path,
+            },
             .generated => |gen| {
-                var file_path: []const u8 = gen.file.step.owner.pathFromRoot(gen.file.path orelse {
-                    std.debug.lockStdErr();
-                    const stderr = std.io.getStdErr();
-                    dumpBadGetPathHelp(gen.file.step, stderr, src_builder, asking_step) catch {};
-                    std.debug.unlockStdErr();
-                    @panic("misconfigured build script");
-                });
+                // TODO make gen.file.path not be absolute and use that as the
+                // basis for not traversing up too many directories.
+
+                var file_path: Cache.Path = .{
+                    .root_dir = Cache.Directory.cwd(),
+                    .sub_path = gen.file.path orelse {
+                        std.debug.lockStdErr();
+                        const stderr = std.io.getStdErr();
+                        dumpBadGetPathHelp(gen.file.step, stderr, src_builder, asking_step) catch {};
+                        std.debug.unlockStdErr();
+                        @panic("misconfigured build script");
+                    },
+                };
 
                 if (gen.up > 0) {
                     const cache_root_path = src_builder.cache_root.path orelse
                         (src_builder.cache_root.join(src_builder.allocator, &.{"."}) catch @panic("OOM"));
 
                     for (0..gen.up) |_| {
-                        if (mem.eql(u8, file_path, cache_root_path)) {
+                        if (mem.eql(u8, file_path.sub_path, cache_root_path)) {
                             // If we hit the cache root and there's still more to go,
                             // the script attempted to go too far.
                             dumpBadDirnameHelp(gen.file.step, asking_step,
@@ -2363,7 +2637,7 @@ pub const LazyPath = union(enum) {
                         // path is absolute.
                         // dirname will return null only if we're at root.
                         // Typically, we'll stop well before that at the cache root.
-                        file_path = fs.path.dirname(file_path) orelse {
+                        file_path.sub_path = fs.path.dirname(file_path.sub_path) orelse {
                             dumpBadDirnameHelp(gen.file.step, asking_step,
                                 \\dirname() reached root.
                                 \\No more directories left to go up.
@@ -2374,9 +2648,12 @@ pub const LazyPath = union(enum) {
                     }
                 }
 
-                return src_builder.pathResolve(&.{ file_path, gen.sub_path });
+                return file_path.join(src_builder.allocator, gen.sub_path) catch @panic("OOM");
             },
-            .dependency => |dep| return dep.dependency.builder.pathFromRoot(dep.sub_path),
+            .dependency => |dep| return .{
+                .root_dir = dep.dependency.builder.build_root,
+                .sub_path = dep.sub_path,
+            },
         }
     }
 
@@ -2385,16 +2662,20 @@ pub const LazyPath = union(enum) {
     /// The `b` parameter is only used for its allocator. All *Build instances
     /// share the same allocator.
     pub fn dupe(lazy_path: LazyPath, b: *Build) LazyPath {
+        return lazy_path.dupeInner(b.allocator);
+    }
+
+    fn dupeInner(lazy_path: LazyPath, allocator: std.mem.Allocator) LazyPath {
         return switch (lazy_path) {
             .src_path => |sp| .{ .src_path = .{
                 .owner = sp.owner,
                 .sub_path = sp.owner.dupePath(sp.sub_path),
             } },
-            .cwd_relative => |p| .{ .cwd_relative = b.dupePath(p) },
+            .cwd_relative => |p| .{ .cwd_relative = dupePathInner(allocator, p) },
             .generated => |gen| .{ .generated = .{
                 .file = gen.file,
                 .up = gen.up,
-                .sub_path = b.dupePath(gen.sub_path),
+                .sub_path = dupePathInner(allocator, gen.sub_path),
             } },
             .dependency => |dep| .{ .dependency = dep },
         };
@@ -2491,26 +2772,13 @@ pub const InstallDir = union(enum) {
     }
 };
 
-pub const InstalledFile = struct {
-    dir: InstallDir,
-    path: []const u8,
-
-    /// Duplicates the installed file path and directory.
-    pub fn dupe(file: InstalledFile, builder: *Build) InstalledFile {
-        return .{
-            .dir = file.dir.dupe(builder),
-            .path = builder.dupe(file.path),
-        };
-    }
-};
-
 /// This function is intended to be called in the `configure` phase only.
 /// It returns an absolute directory path, which is potentially going to be a
 /// source of API breakage in the future, so keep that in mind when using this
 /// function.
 pub fn makeTempPath(b: *Build) []const u8 {
     const rand_int = std.crypto.random.int(u64);
-    const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ hex64(rand_int);
+    const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
     const result_path = b.cache_root.join(b.allocator, &.{tmp_dir_sub_path}) catch @panic("OOM");
     b.cache_root.handle.makePath(tmp_dir_sub_path) catch |err| {
         std.debug.print("unable to make tmp path '{s}': {s}\n", .{
@@ -2520,18 +2788,9 @@ pub fn makeTempPath(b: *Build) []const u8 {
     return result_path;
 }
 
-/// There are a few copies of this function in miscellaneous places. Would be nice to find
-/// a home for them.
+/// Deprecated; use `std.fmt.hex` instead.
 pub fn hex64(x: u64) [16]u8 {
-    const hex_charset = "0123456789abcdef";
-    var result: [16]u8 = undefined;
-    var i: usize = 0;
-    while (i < 8) : (i += 1) {
-        const byte: u8 = @truncate(x >> @as(u6, @intCast(8 * i)));
-        result[i * 2 + 0] = hex_charset[byte >> 4];
-        result[i * 2 + 1] = hex_charset[byte & 15];
-    }
-    return result;
+    return std.fmt.hex(x);
 }
 
 /// A pair of target query and fully resolved target.

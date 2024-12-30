@@ -27,7 +27,8 @@
         //.example = .{
         //    // When updating this field to a new URL, be sure to delete the corresponding
         //    // `hash`, otherwise you are communicating that you expect to find the old hash at
-        //    // the new URL.
+        //    // the new URL. If the contents of a URL change this will result in a hash mismatch
+        //    // which will prevent zig from using it.
         //    .url = "https://example.com/foo.tar.gz",
         //
         //    // This is computed from the file contents of the directory of files that is
@@ -45,7 +46,7 @@
         //    // build root. In this case the package's hash is irrelevant and therefore not
         //    // computed. This field and `url` are mutually exclusive.
         //    .path = "foo",
-
+        //
         //    // When this is set to `true`, a package is declared to be lazily
         //    // fetched. This makes the dependency only get fetched if it is
         //    // actually used.

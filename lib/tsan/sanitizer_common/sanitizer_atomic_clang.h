@@ -14,60 +14,63 @@
 #ifndef SANITIZER_ATOMIC_CLANG_H
 #define SANITIZER_ATOMIC_CLANG_H
 
-#if defined(__i386__) || defined(__x86_64__)
-# include "sanitizer_atomic_clang_x86.h"
-#else
-# include "sanitizer_atomic_clang_other.h"
-#endif
-
 namespace __sanitizer {
 
-// We would like to just use compiler builtin atomic operations
-// for loads and stores, but they are mostly broken in clang:
-// - they lead to vastly inefficient code generation
-// (http://llvm.org/bugs/show_bug.cgi?id=17281)
-// - 64-bit atomic operations are not implemented on x86_32
-// (http://llvm.org/bugs/show_bug.cgi?id=15034)
-// - they are not implemented on ARM
-// error: undefined reference to '__atomic_load_4'
+// We use the compiler builtin atomic operations for loads and stores, which
+// generates correct code for all architectures, but may require libatomic
+// on platforms where e.g. 64-bit atomics are not supported natively.
 
 // See http://www.cl.cam.ac.uk/~pes20/cpp/cpp0xmappings.html
 // for mappings of the memory model to different processors.
 
-inline void atomic_signal_fence(memory_order) {
+inline void atomic_signal_fence(memory_order mo) { __atomic_signal_fence(mo); }
+
+inline void atomic_thread_fence(memory_order mo) { __atomic_thread_fence(mo); }
+
+inline void proc_yield(int cnt) {
   __asm__ __volatile__("" ::: "memory");
+#if defined(__i386__) || defined(__x86_64__)
+  for (int i = 0; i < cnt; i++) __asm__ __volatile__("pause");
+  __asm__ __volatile__("" ::: "memory");
+#endif
 }
 
-inline void atomic_thread_fence(memory_order) {
-  __sync_synchronize();
+template <typename T>
+inline typename T::Type atomic_load(const volatile T *a, memory_order mo) {
+  DCHECK(mo == memory_order_relaxed || mo == memory_order_consume ||
+         mo == memory_order_acquire || mo == memory_order_seq_cst);
+  DCHECK(!((uptr)a % sizeof(*a)));
+  return __atomic_load_n(&a->val_dont_use, mo);
 }
 
-template<typename T>
-inline typename T::Type atomic_fetch_add(volatile T *a,
-    typename T::Type v, memory_order mo) {
+template <typename T>
+inline void atomic_store(volatile T *a, typename T::Type v, memory_order mo) {
+  DCHECK(mo == memory_order_relaxed || mo == memory_order_release ||
+         mo == memory_order_seq_cst);
+  DCHECK(!((uptr)a % sizeof(*a)));
+  __atomic_store_n(&a->val_dont_use, v, mo);
+}
+
+template <typename T>
+inline typename T::Type atomic_fetch_add(volatile T *a, typename T::Type v,
+                                         memory_order mo) {
+  DCHECK(!((uptr)a % sizeof(*a)));
+  return __atomic_fetch_add(&a->val_dont_use, v, mo);
+}
+
+template <typename T>
+inline typename T::Type atomic_fetch_sub(volatile T *a, typename T::Type v,
+                                         memory_order mo) {
   (void)mo;
   DCHECK(!((uptr)a % sizeof(*a)));
-  return __sync_fetch_and_add(&a->val_dont_use, v);
+  return __atomic_fetch_sub(&a->val_dont_use, v, mo);
 }
 
-template<typename T>
-inline typename T::Type atomic_fetch_sub(volatile T *a,
-    typename T::Type v, memory_order mo) {
-  (void)mo;
+template <typename T>
+inline typename T::Type atomic_exchange(volatile T *a, typename T::Type v,
+                                        memory_order mo) {
   DCHECK(!((uptr)a % sizeof(*a)));
-  return __sync_fetch_and_add(&a->val_dont_use, -v);
-}
-
-template<typename T>
-inline typename T::Type atomic_exchange(volatile T *a,
-    typename T::Type v, memory_order mo) {
-  DCHECK(!((uptr)a % sizeof(*a)));
-  if (mo & (memory_order_release | memory_order_acq_rel | memory_order_seq_cst))
-    __sync_synchronize();
-  v = __sync_lock_test_and_set(&a->val_dont_use, v);
-  if (mo == memory_order_seq_cst)
-    __sync_synchronize();
-  return v;
+  return __atomic_exchange_n(&a->val_dont_use, v, mo);
 }
 
 template <typename T>
@@ -82,22 +85,14 @@ inline bool atomic_compare_exchange_strong(volatile T *a, typename T::Type *cmp,
                                    __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
 }
 
-template<typename T>
-inline bool atomic_compare_exchange_weak(volatile T *a,
-                                         typename T::Type *cmp,
+template <typename T>
+inline bool atomic_compare_exchange_weak(volatile T *a, typename T::Type *cmp,
                                          typename T::Type xchg,
                                          memory_order mo) {
   return atomic_compare_exchange_strong(a, cmp, xchg, mo);
 }
 
 }  // namespace __sanitizer
-
-// This include provides explicit template instantiations for atomic_uint64_t
-// on MIPS32, which does not directly support 8 byte atomics. It has to
-// proceed the template definitions above.
-#if defined(_MIPS_SIM) && defined(_ABIO32) && _MIPS_SIM == _ABIO32
-#  include "sanitizer_atomic_clang_mips.h"
-#endif
 
 #undef ATOMIC_ORDER
 

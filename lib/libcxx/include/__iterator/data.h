@@ -23,12 +23,12 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 17
 
 template <class _Cont>
-constexpr _LIBCPP_HIDE_FROM_ABI auto data(_Cont& __c) _NOEXCEPT_(noexcept(__c.data())) -> decltype(__c.data()) {
+constexpr _LIBCPP_HIDE_FROM_ABI auto data(_Cont& __c) noexcept(noexcept(__c.data())) -> decltype(__c.data()) {
   return __c.data();
 }
 
 template <class _Cont>
-constexpr _LIBCPP_HIDE_FROM_ABI auto data(const _Cont& __c) _NOEXCEPT_(noexcept(__c.data())) -> decltype(__c.data()) {
+constexpr _LIBCPP_HIDE_FROM_ABI auto data(const _Cont& __c) noexcept(noexcept(__c.data())) -> decltype(__c.data()) {
   return __c.data();
 }
 

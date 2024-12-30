@@ -75,7 +75,7 @@ pub const Config = union(enum) {
         conf: Config,
         writer: anytype,
         color: Color,
-    ) (@typeInfo(@TypeOf(writer.writeAll(""))).ErrorUnion.error_set ||
+    ) (@typeInfo(@TypeOf(writer.writeAll(""))).error_union.error_set ||
         windows.SetConsoleTextAttributeError)!void {
         nosuspend switch (conf) {
             .no_color => return,

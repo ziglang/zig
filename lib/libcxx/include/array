@@ -116,20 +116,21 @@ template <size_t I, class T, size_t N> const T&& get(const array<T, N>&&) noexce
 #include <__algorithm/lexicographical_compare.h>
 #include <__algorithm/lexicographical_compare_three_way.h>
 #include <__algorithm/swap_ranges.h>
-#include <__assert> // all public C++ headers provide the assertion handler
+#include <__assert>
 #include <__config>
 #include <__fwd/array.h>
 #include <__iterator/reverse_iterator.h>
+#include <__iterator/wrap_iter.h>
 #include <__tuple/sfinae_helpers.h>
 #include <__type_traits/conditional.h>
+#include <__type_traits/conjunction.h>
 #include <__type_traits/is_array.h>
 #include <__type_traits/is_const.h>
 #include <__type_traits/is_constructible.h>
-#include <__type_traits/is_move_constructible.h>
 #include <__type_traits/is_nothrow_constructible.h>
-#include <__type_traits/is_nothrow_move_constructible.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/is_swappable.h>
+#include <__type_traits/is_trivially_relocatable.h>
 #include <__type_traits/remove_cv.h>
 #include <__utility/empty.h>
 #include <__utility/integer_sequence.h>
@@ -166,15 +167,22 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp, size_t _Size>
 struct _LIBCPP_TEMPLATE_VIS array {
+  using __trivially_relocatable = __conditional_t<__libcpp_is_trivially_relocatable<_Tp>::value, array, void>;
+
   // types:
-  using __self                 = array;
-  using value_type             = _Tp;
-  using reference              = value_type&;
-  using const_reference        = const value_type&;
-  using iterator               = value_type*;
-  using const_iterator         = const value_type*;
-  using pointer                = value_type*;
-  using const_pointer          = const value_type*;
+  using __self          = array;
+  using value_type      = _Tp;
+  using reference       = value_type&;
+  using const_reference = const value_type&;
+  using pointer         = value_type*;
+  using const_pointer   = const value_type*;
+#if defined(_LIBCPP_ABI_USE_WRAP_ITER_IN_STD_ARRAY)
+  using iterator       = __wrap_iter<pointer>;
+  using const_iterator = __wrap_iter<const_pointer>;
+#else
+  using iterator       = pointer;
+  using const_iterator = const_pointer;
+#endif
   using size_type              = size_t;
   using difference_type        = ptrdiff_t;
   using reverse_iterator       = std::reverse_iterator<iterator>;
@@ -187,8 +195,7 @@ struct _LIBCPP_TEMPLATE_VIS array {
     std::fill_n(data(), _Size, __u);
   }
 
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void swap(array& __a)
-      _NOEXCEPT_(__is_nothrow_swappable<_Tp>::value) {
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void swap(array& __a) _NOEXCEPT_(__is_nothrow_swappable_v<_Tp>) {
     std::swap_ranges(data(), data() + _Size, __a.data());
   }
 
@@ -225,9 +232,7 @@ struct _LIBCPP_TEMPLATE_VIS array {
   // capacity:
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR size_type size() const _NOEXCEPT { return _Size; }
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR size_type max_size() const _NOEXCEPT { return _Size; }
-  _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool empty() const _NOEXCEPT {
-    return _Size == 0;
-  }
+  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool empty() const _NOEXCEPT { return _Size == 0; }
 
   // element access:
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 reference operator[](size_type __n) _NOEXCEPT {
@@ -330,7 +335,7 @@ struct _LIBCPP_TEMPLATE_VIS array<_Tp, 0> {
   // capacity:
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR size_type size() const _NOEXCEPT { return 0; }
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR size_type max_size() const _NOEXCEPT { return 0; }
-  _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool empty() const _NOEXCEPT { return true; }
+  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool empty() const _NOEXCEPT { return true; }
 
   // element access:
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 reference operator[](size_type) _NOEXCEPT {
@@ -418,12 +423,12 @@ template <class _Tp, size_t _Size>
 _LIBCPP_HIDE_FROM_ABI constexpr __synth_three_way_result<_Tp>
 operator<=>(const array<_Tp, _Size>& __x, const array<_Tp, _Size>& __y) {
   return std::lexicographical_compare_three_way(
-      __x.begin(), __x.end(), __y.begin(), __y.end(), std::__synth_three_way<_Tp, _Tp>);
+      __x.begin(), __x.end(), __y.begin(), __y.end(), std::__synth_three_way);
 }
 
 #endif // _LIBCPP_STD_VER <= 17
 
-template <class _Tp, size_t _Size, __enable_if_t<_Size == 0 || __is_swappable<_Tp>::value, int> = 0>
+template <class _Tp, size_t _Size, __enable_if_t<_Size == 0 || __is_swappable_v<_Tp>, int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void swap(array<_Tp, _Size>& __x, array<_Tp, _Size>& __y)
     _NOEXCEPT_(noexcept(__x.swap(__y))) {
   __x.swap(__y);

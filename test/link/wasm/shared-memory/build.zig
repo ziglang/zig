@@ -13,16 +13,18 @@ pub fn build(b: *std.Build) void {
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.OptimizeMode) void {
     const exe = b.addExecutable(.{
         .name = "lib",
-        .root_source_file = b.path("lib.zig"),
-        .target = b.resolveTargetQuery(.{
-            .cpu_arch = .wasm32,
-            .cpu_model = .{ .explicit = &std.Target.wasm.cpu.mvp },
-            .cpu_features_add = std.Target.wasm.featureSet(&.{ .atomics, .bulk_memory }),
-            .os_tag = .freestanding,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("lib.zig"),
+            .target = b.resolveTargetQuery(.{
+                .cpu_arch = .wasm32,
+                .cpu_model = .{ .explicit = &std.Target.wasm.cpu.mvp },
+                .cpu_features_add = std.Target.wasm.featureSet(&.{ .atomics, .bulk_memory }),
+                .os_tag = .freestanding,
+            }),
+            .optimize = optimize_mode,
+            .strip = false,
+            .single_threaded = false,
         }),
-        .optimize = optimize_mode,
-        .strip = false,
-        .single_threaded = false,
     });
     exe.entry = .disabled;
     exe.use_lld = false;

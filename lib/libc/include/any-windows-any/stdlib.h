@@ -108,15 +108,7 @@ extern "C" {
 #ifndef MB_CUR_MAX
 #define MB_CUR_MAX ___mb_cur_max_func()
 #ifndef __mb_cur_max
-#ifdef _MSVCRT_
-  extern int __mb_cur_max;
-#define __mb_cur_max	__mb_cur_max
-#else
-#ifndef _UCRT
-  extern int * __MINGW_IMP_SYMBOL(__mb_cur_max);
-#endif
 #define __mb_cur_max	(___mb_cur_max_func())
-#endif
 #endif
 _CRTIMP int __cdecl ___mb_cur_max_func(void);
 #endif
@@ -160,33 +152,17 @@ _CRTIMP int __cdecl ___mb_cur_max_func(void);
 #define _doserrno (*__doserrno())
   errno_t __cdecl _set_doserrno(unsigned long _Value);
   errno_t __cdecl _get_doserrno(unsigned long *_Value);
-#ifdef _MSVCRT_
-  extern char *_sys_errlist[];
-  extern int _sys_nerr;
-#else
-#ifdef _UCRT
   _CRTIMP char **__cdecl __sys_errlist(void);
   _CRTIMP int *__cdecl __sys_nerr(void);
 #define _sys_nerr (*__sys_nerr())
 #define _sys_errlist (__sys_errlist())
-#else
-  extern __declspec(dllimport) char *_sys_errlist[1];
-  extern __declspec(dllimport) int _sys_nerr;
-#endif /* !_UCRT */
-#endif
 
-  /* We have a fallback definition of __p___argv and __p__fmode for
-     msvcrt versions that lack it. */
   _CRTIMP char ***__cdecl __p___argv(void);
   _CRTIMP int *__cdecl __p__fmode(void);
-#if (defined(_X86_) && !defined(__x86_64)) || defined(_UCRT)
   _CRTIMP int *__cdecl __p___argc(void);
   _CRTIMP wchar_t ***__cdecl __p___wargv(void);
-  _CRTIMP char ***__cdecl __p__environ(void);
-  _CRTIMP wchar_t ***__cdecl __p__wenviron(void);
   _CRTIMP char **__cdecl __p__pgmptr(void);
   _CRTIMP wchar_t **__cdecl __p__wpgmptr(void);
-#endif
 
   errno_t __cdecl _get_pgmptr(char **_Value);
   errno_t __cdecl _get_wpgmptr(wchar_t **_Value);
@@ -196,57 +172,6 @@ _CRTIMP int __cdecl ___mb_cur_max_func(void);
 #ifndef _fmode
 #define _fmode (* __p__fmode())
 #endif
-
-#ifdef _MSVCRT_
-
-#ifndef __argc
-  extern int __argc;
-#endif
-#ifndef __argv
-  extern char **__argv;
-#endif
-#ifndef __wargv
-  extern wchar_t **__wargv;
-#endif
-
-#ifndef _POSIX_
-#ifndef _environ
-  extern char **_environ;
-#endif
-#ifndef _wenviron
-  extern wchar_t **_wenviron;
-#endif
-#endif /* !_POSIX_ */
-
-#ifndef _pgmptr
-  extern char *_pgmptr;
-#endif
-
-#ifndef _wpgmptr
-  extern wchar_t *_wpgmptr;
-#endif
-
-#ifndef _osplatform
-  extern unsigned int _osplatform;
-#endif
-
-#ifndef _osver
-  extern unsigned int _osver;
-#endif
-
-#ifndef _winver
-  extern unsigned int _winver;
-#endif
-
-#ifndef _winmajor
-  extern unsigned int _winmajor;
-#endif
-
-#ifndef _winminor
-  extern unsigned int _winminor;
-#endif
-
-#elif defined(_UCRT)
 
 #ifndef __argc
 #define __argc (* __p___argc())
@@ -258,16 +183,6 @@ _CRTIMP int __cdecl ___mb_cur_max_func(void);
 #define __wargv (* __p___wargv())
 #endif
 
-#ifndef _POSIX_
-#ifndef _environ
-#define _environ (* __p__environ())
-#endif
-
-#ifndef _wenviron
-#define _wenviron (* __p__wenviron())
-#endif
-#endif /* !_POSIX_ */
-
 #ifndef _pgmptr
 #define _pgmptr (* __p__pgmptr())
 #endif
@@ -276,24 +191,9 @@ _CRTIMP int __cdecl ___mb_cur_max_func(void);
 #define _wpgmptr (* __p__wpgmptr())
 #endif
 
-#else /* _UCRT */
-
-#ifndef __argc
-  extern int * __MINGW_IMP_SYMBOL(__argc);
-#define __argc (* __MINGW_IMP_SYMBOL(__argc))
-#endif
-#ifndef __argv
-  extern char *** __MINGW_IMP_SYMBOL(__argv);
-#define __argv	(* __p___argv())
-#endif
-#ifndef __wargv
-  extern wchar_t *** __MINGW_IMP_SYMBOL(__wargv);
-#define __wargv (* __MINGW_IMP_SYMBOL(__wargv))
-#endif
-
 #ifndef _POSIX_
-#if (defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__))
-  /* The plain msvcrt.dll for arm/aarch64 (and msvcr120_app.dll for arm) lacks
+#if (defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__)) && !defined(_UCRT)
+  /* The plain msvcrt.dll for arm/aarch64 lacks
    * _environ/_wenviron, but has these functions instead. */
   _CRTIMP void __cdecl _get_environ(char ***);
   _CRTIMP void __cdecl _get_wenviron(wchar_t ***);
@@ -317,55 +217,41 @@ _CRTIMP int __cdecl ___mb_cur_max_func(void);
 #ifndef _wenviron
 #define _wenviron (__get_wenviron_ptr())
 #endif
-#else /* ARM/ARM64 */
+#else /* UCRT or non-ARM/ARM64 msvcrt */
+  _CRTIMP char ***__cdecl __p__environ(void);
+  _CRTIMP wchar_t ***__cdecl __p__wenviron(void);
+
 #ifndef _environ
-  extern char *** __MINGW_IMP_SYMBOL(_environ);
-#define _environ (* __MINGW_IMP_SYMBOL(_environ))
+#define _environ (* __p__environ())
 #endif
 
 #ifndef _wenviron
-  extern wchar_t *** __MINGW_IMP_SYMBOL(_wenviron);
-#define _wenviron (* __MINGW_IMP_SYMBOL(_wenviron))
+#define _wenviron (* __p__wenviron())
 #endif
-#endif /* !ARM/ARM64 */
+#endif
 #endif /* !_POSIX_ */
 
-#ifndef _pgmptr
-  extern char ** __MINGW_IMP_SYMBOL(_pgmptr);
-#define _pgmptr	(* __MINGW_IMP_SYMBOL(_pgmptr))
-#endif
-
-#ifndef _wpgmptr
-  extern wchar_t ** __MINGW_IMP_SYMBOL(_wpgmptr);
-#define _wpgmptr (* __MINGW_IMP_SYMBOL(_wpgmptr))
-#endif
+  _CRTIMP unsigned int *__cdecl __p__osplatform(void);
+  _CRTIMP unsigned int *__cdecl __p__osver(void);
+  _CRTIMP unsigned int *__cdecl __p__winver(void);
+  _CRTIMP unsigned int *__cdecl __p__winmajor(void);
+  _CRTIMP unsigned int *__cdecl __p__winminor(void);
 
 #ifndef _osplatform
-  extern unsigned int * __MINGW_IMP_SYMBOL(_osplatform);
-#define _osplatform (* __MINGW_IMP_SYMBOL(_osplatform))
+#define _osplatform (* __p__osplatform())
 #endif
-
 #ifndef _osver
-  extern unsigned int * __MINGW_IMP_SYMBOL(_osver);
-#define _osver	(* __MINGW_IMP_SYMBOL(_osver))
+#define _osver (* __p__osver())
 #endif
-
 #ifndef _winver
-  extern unsigned int * __MINGW_IMP_SYMBOL(_winver);
-#define _winver	(* __MINGW_IMP_SYMBOL(_winver))
+#define _winver (* __p__winver())
 #endif
-
 #ifndef _winmajor
-  extern unsigned int * __MINGW_IMP_SYMBOL(_winmajor);
-#define _winmajor (* __MINGW_IMP_SYMBOL(_winmajor))
+#define _winmajor (*__p__winmajor())
 #endif
-
 #ifndef _winminor
-  extern unsigned int * __MINGW_IMP_SYMBOL(_winminor);
-#define _winminor (* __MINGW_IMP_SYMBOL(_winminor))
+#define _winminor (*__p__winminor())
 #endif
-
-#endif /* !_MSVCRT_ && !_UCRT */
 
   errno_t __cdecl _get_osplatform(unsigned int *_Value);
   errno_t __cdecl _get_osver(unsigned int *_Value);

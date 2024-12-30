@@ -54,7 +54,7 @@ struct ntptimeval
 
 __BEGIN_DECLS
 
-#ifndef __USE_TIME_BITS64
+#ifndef __USE_TIME64_REDIRECTS
 extern int adjtimex (struct timex *__ntx) __THROW __nonnull ((1));
 extern int ntp_gettimex (struct ntptimeval *__ntv) __THROW __nonnull ((1));
 

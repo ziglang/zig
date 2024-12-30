@@ -16,22 +16,22 @@ const Context = @This();
 
 gpa: mem.Allocator,
 arena: mem.Allocator,
-decl_table: std.AutoArrayHashMapUnmanaged(usize, []const u8) = .{},
+decl_table: std.AutoArrayHashMapUnmanaged(usize, []const u8) = .empty,
 alias_list: AliasList,
 global_scope: *Scope.Root,
 mangle_count: u32 = 0,
 /// Table of record decls that have been demoted to opaques.
-opaque_demotes: std.AutoHashMapUnmanaged(usize, void) = .{},
+opaque_demotes: std.AutoHashMapUnmanaged(usize, void) = .empty,
 /// Table of unnamed enums and records that are child types of typedefs.
-unnamed_typedefs: std.AutoHashMapUnmanaged(usize, []const u8) = .{},
+unnamed_typedefs: std.AutoHashMapUnmanaged(usize, []const u8) = .empty,
 /// Needed to decide if we are parsing a typename
-typedefs: std.StringArrayHashMapUnmanaged(void) = .{},
+typedefs: std.StringArrayHashMapUnmanaged(void) = .empty,
 
 /// This one is different than the root scope's name table. This contains
 /// a list of names that we found by visiting all the top level decls without
 /// translating them. The other maps are updated as we translate; this one is updated
 /// up front in a pre-processing step.
-global_names: std.StringArrayHashMapUnmanaged(void) = .{},
+global_names: std.StringArrayHashMapUnmanaged(void) = .empty,
 
 /// This is similar to `global_names`, but contains names which we would
 /// *like* to use, but do not strictly *have* to if they are unavailable.
@@ -40,7 +40,7 @@ global_names: std.StringArrayHashMapUnmanaged(void) = .{},
 /// may be mangled.
 /// This is distinct from `global_names` so we can detect at a type
 /// declaration whether or not the name is available.
-weak_global_names: std.StringArrayHashMapUnmanaged(void) = .{},
+weak_global_names: std.StringArrayHashMapUnmanaged(void) = .empty,
 
 pattern_list: PatternList,
 tree: Tree,
@@ -76,6 +76,17 @@ fn addTopLevelDecl(c: *Context, name: []const u8, decl_node: ZigNode) !void {
         gop.value_ptr.* = decl_node;
         try c.global_scope.nodes.append(decl_node);
     }
+}
+
+fn fail(
+    c: *Context,
+    err: anytype,
+    source_loc: TokenIndex,
+    comptime format: []const u8,
+    args: anytype,
+) (@TypeOf(err) || error{OutOfMemory}) {
+    try warn(c, &c.global_scope.base, source_loc, format, args);
+    return err;
 }
 
 fn failDecl(c: *Context, loc: TokenIndex, name: []const u8, comptime format: []const u8, args: anytype) Error!void {
@@ -123,8 +134,9 @@ pub fn translate(
     var tree = try pp.parse();
     defer tree.deinit();
 
-    if (driver.comp.diagnostics.errors != 0) {
-        return error.SemanticAnalyzeFail;
+    // Workaround for https://github.com/Vexu/arocc/issues/603
+    for (comp.diagnostics.list.items) |msg| {
+        if (msg.kind == .@"error" or msg.kind == .@"fatal error") return error.ParsingFailed;
     }
 
     const mapper = tree.comp.string_interner.getFastTypeMapper(tree.comp.gpa) catch tree.comp.string_interner.getSlowTypeMapper();
@@ -156,7 +168,7 @@ pub fn translate(
         context.pattern_list.deinit(gpa);
     }
 
-    inline for (@typeInfo(std.zig.c_builtins).Struct.decls) |decl| {
+    inline for (@typeInfo(std.zig.c_builtins).@"struct".decls) |decl| {
         const builtin_fn = try ZigTag.pub_var_simple.create(arena, .{
             .name = decl.name,
             .init = try ZigTag.import_c_builtin.create(arena, decl.name),
@@ -184,7 +196,7 @@ fn prepopulateGlobalNameTable(c: *Context) !void {
     for (c.tree.root_decls) |node| {
         const data = node_data[@intFromEnum(node)];
         switch (node_tags[@intFromEnum(node)]) {
-            .typedef => @panic("TODO"),
+            .typedef => {},
 
             .struct_decl_two,
             .union_decl_two,
@@ -227,6 +239,7 @@ fn prepopulateGlobalNameTable(c: *Context) !void {
                 const decl_name = c.tree.tokSlice(data.decl.name);
                 try c.global_names.put(c.gpa, decl_name, {});
             },
+            .static_assert => {},
             else => unreachable,
         }
     }
@@ -241,6 +254,7 @@ fn transTopLevelDecls(c: *Context) !void {
 fn transDecl(c: *Context, scope: *Scope, decl: NodeIndex) !void {
     const node_tags = c.tree.nodes.items(.tag);
     const node_data = c.tree.nodes.items(.data);
+    const node_ty = c.tree.nodes.items(.ty);
     const data = node_data[@intFromEnum(decl)];
     switch (node_tags[@intFromEnum(decl)]) {
         .typedef => {
@@ -250,17 +264,12 @@ fn transDecl(c: *Context, scope: *Scope, decl: NodeIndex) !void {
         .struct_decl_two,
         .union_decl_two,
         => {
-            var fields = [2]NodeIndex{ data.bin.lhs, data.bin.rhs };
-            var field_count: u2 = 0;
-            if (fields[0] != .none) field_count += 1;
-            if (fields[1] != .none) field_count += 1;
-            try transRecordDecl(c, scope, decl, fields[0..field_count]);
+            try transRecordDecl(c, scope, node_ty[@intFromEnum(decl)]);
         },
         .struct_decl,
         .union_decl,
         => {
-            const fields = c.tree.data[data.range.start..data.range.end];
-            try transRecordDecl(c, scope, decl, fields);
+            try transRecordDecl(c, scope, node_ty[@intFromEnum(decl)]);
         },
 
         .enum_decl_two => {
@@ -268,11 +277,13 @@ fn transDecl(c: *Context, scope: *Scope, decl: NodeIndex) !void {
             var field_count: u8 = 0;
             if (fields[0] != .none) field_count += 1;
             if (fields[1] != .none) field_count += 1;
-            try transEnumDecl(c, scope, decl, fields[0..field_count]);
+            const enum_decl = node_ty[@intFromEnum(decl)].canonicalize(.standard).data.@"enum";
+            try transEnumDecl(c, scope, enum_decl, fields[0..field_count]);
         },
         .enum_decl => {
             const fields = c.tree.data[data.range.start..data.range.end];
-            try transEnumDecl(c, scope, decl, fields);
+            const enum_decl = node_ty[@intFromEnum(decl)].canonicalize(.standard).data.@"enum";
+            try transEnumDecl(c, scope, enum_decl, fields);
         },
 
         .enum_field_decl,
@@ -292,7 +303,7 @@ fn transDecl(c: *Context, scope: *Scope, decl: NodeIndex) !void {
         .inline_fn_def,
         .inline_static_fn_def,
         => {
-            try transFnDecl(c, decl);
+            try transFnDecl(c, decl, true);
         },
 
         .@"var",
@@ -302,14 +313,51 @@ fn transDecl(c: *Context, scope: *Scope, decl: NodeIndex) !void {
         .threadlocal_extern_var,
         .threadlocal_static_var,
         => {
-            try transVarDecl(c, decl, null);
+            try transVarDecl(c, decl);
         },
+        .static_assert => try warn(c, &c.global_scope.base, 0, "ignoring _Static_assert declaration", .{}),
         else => unreachable,
     }
 }
 
-fn transTypeDef(_: *Context, _: *Scope, _: NodeIndex) Error!void {
-    @panic("TODO");
+fn transTypeDef(c: *Context, scope: *Scope, typedef_decl: NodeIndex) Error!void {
+    const ty = c.tree.nodes.items(.ty)[@intFromEnum(typedef_decl)];
+    const data = c.tree.nodes.items(.data)[@intFromEnum(typedef_decl)];
+
+    const toplevel = scope.id == .root;
+    const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
+
+    var name: []const u8 = c.tree.tokSlice(data.decl.name);
+    try c.typedefs.put(c.gpa, name, {});
+
+    if (!toplevel) name = try bs.makeMangledName(c, name);
+
+    const typedef_loc = data.decl.name;
+    const init_node = transType(c, scope, ty, .standard, typedef_loc) catch |err| switch (err) {
+        error.UnsupportedType => {
+            return failDecl(c, typedef_loc, name, "unable to resolve typedef child type", .{});
+        },
+        error.OutOfMemory => |e| return e,
+    };
+
+    const payload = try c.arena.create(ast.Payload.SimpleVarDecl);
+    payload.* = .{
+        .base = .{ .tag = ([2]ZigTag{ .var_simple, .pub_var_simple })[@intFromBool(toplevel)] },
+        .data = .{
+            .name = name,
+            .init = init_node,
+        },
+    };
+    const node = ZigNode.initPayload(&payload.base);
+
+    if (toplevel) {
+        try addTopLevelDecl(c, name, node);
+    } else {
+        try scope.appendNode(node);
+        if (node.tag() != .pub_var_simple) {
+            try bs.discardVariable(c, name);
+        }
+    }
 }
 
 fn mangleWeakGlobalName(c: *Context, want_name: []const u8) ![]const u8 {
@@ -327,16 +375,14 @@ fn mangleWeakGlobalName(c: *Context, want_name: []const u8) ![]const u8 {
     return cur_name;
 }
 
-fn transRecordDecl(c: *Context, scope: *Scope, record_node: NodeIndex, field_nodes: []const NodeIndex) Error!void {
-    const node_types = c.tree.nodes.items(.ty);
-    const raw_record_ty = node_types[@intFromEnum(record_node)];
-    const record_decl = raw_record_ty.getRecord().?;
+fn transRecordDecl(c: *Context, scope: *Scope, record_ty: Type) Error!void {
+    const record_decl = record_ty.getRecord().?;
     if (c.decl_table.get(@intFromPtr(record_decl))) |_|
         return; // Avoid processing this decl twice
     const toplevel = scope.id == .root;
     const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
 
-    const container_kind: ZigTag = if (raw_record_ty.is(.@"union")) .@"union" else .@"struct";
+    const container_kind: ZigTag = if (record_ty.is(.@"union")) .@"union" else .@"struct";
     const container_kind_name: []const u8 = @tagName(container_kind);
 
     var is_unnamed = false;
@@ -347,7 +393,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_node: NodeIndex, field_nod
         bare_name = typedef_name;
         name = typedef_name;
     } else {
-        if (raw_record_ty.isAnonymousRecord(c.comp)) {
+        if (record_ty.isAnonymousRecord(c.comp)) {
             bare_name = try std.fmt.allocPrint(c.arena, "unnamed_{d}", .{c.getMangle()});
             is_unnamed = true;
         }
@@ -361,6 +407,11 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_node: NodeIndex, field_nod
 
     const is_pub = toplevel and !is_unnamed;
     const init_node = blk: {
+        if (record_decl.isIncomplete()) {
+            try c.opaque_demotes.put(c.gpa, @intFromPtr(record_decl), {});
+            break :blk ZigTag.opaque_literal.init();
+        }
+
         var fields = try std.ArrayList(ast.Payload.Record.Field).initCapacity(c.gpa, record_decl.fields.len);
         defer fields.deinit();
 
@@ -374,16 +425,9 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_node: NodeIndex, field_nod
         // layout, then we can just use a simple `extern` type. If it does have attributes,
         // then we need to inspect the layout and assign an `align` value for each field.
         const has_alignment_attributes = record_decl.field_attributes != null or
-            raw_record_ty.hasAttribute(.@"packed") or
-            raw_record_ty.hasAttribute(.aligned);
+            record_ty.hasAttribute(.@"packed") or
+            record_ty.hasAttribute(.aligned);
         const head_field_alignment: ?c_uint = if (has_alignment_attributes) headFieldAlignment(record_decl) else null;
-
-        // Iterate over field nodes so that we translate any type decls included in this record decl.
-        // TODO: Move this logic into `fn transType()` instead of handling decl translation here.
-        for (field_nodes) |field_node| {
-            const field_raw_ty = node_types[@intFromEnum(field_node)];
-            if (field_raw_ty.isEnumOrRecord()) try transDecl(c, scope, field_node);
-        }
 
         for (record_decl.fields, 0..) |field, field_index| {
             const field_loc = field.name_tok;
@@ -470,7 +514,7 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_node: NodeIndex, field_nod
     }
 }
 
-fn transFnDecl(c: *Context, fn_decl: NodeIndex) Error!void {
+fn transFnDecl(c: *Context, fn_decl: NodeIndex, is_pub: bool) Error!void {
     const raw_ty = c.tree.nodes.items(.ty)[@intFromEnum(fn_decl)];
     const fn_ty = raw_ty.canonicalize(.standard);
     const node_data = c.tree.nodes.items(.data)[@intFromEnum(fn_decl)];
@@ -495,6 +539,7 @@ fn transFnDecl(c: *Context, fn_decl: NodeIndex) Error!void {
 
             else => unreachable,
         },
+        .is_pub = is_pub,
     };
 
     const proto_node = transFnType(c, &c.global_scope.base, raw_ty, fn_ty, fn_decl_loc, proto_ctx) catch |err| switch (err) {
@@ -563,22 +608,22 @@ fn transFnDecl(c: *Context, fn_decl: NodeIndex) Error!void {
     return addTopLevelDecl(c, fn_name, proto_node);
 }
 
-fn transVarDecl(_: *Context, _: NodeIndex, _: ?usize) Error!void {
-    @panic("TODO");
+fn transVarDecl(c: *Context, node: NodeIndex) Error!void {
+    const data = c.tree.nodes.items(.data)[@intFromEnum(node)];
+    const name = c.tree.tokSlice(data.decl.name);
+    return failDecl(c, data.decl.name, name, "unable to translate variable declaration", .{});
 }
 
-fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: NodeIndex, field_nodes: []const NodeIndex) Error!void {
-    const node_types = c.tree.nodes.items(.ty);
-    const ty = node_types[@intFromEnum(enum_decl)];
-    if (c.decl_table.get(@intFromPtr(ty.data.@"enum"))) |_|
+fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const Type.Enum, field_nodes: []const NodeIndex) Error!void {
+    if (c.decl_table.get(@intFromPtr(enum_decl))) |_|
         return; // Avoid processing this decl twice
     const toplevel = scope.id == .root;
     const bs: *Scope.Block = if (!toplevel) try scope.findBlockScope(c) else undefined;
 
     var is_unnamed = false;
-    var bare_name: []const u8 = c.mapper.lookup(ty.data.@"enum".name);
+    var bare_name: []const u8 = c.mapper.lookup(enum_decl.name);
     var name = bare_name;
-    if (c.unnamed_typedefs.get(@intFromPtr(ty.data.@"enum"))) |typedef_name| {
+    if (c.unnamed_typedefs.get(@intFromPtr(enum_decl))) |typedef_name| {
         bare_name = typedef_name;
         name = typedef_name;
     } else {
@@ -589,10 +634,10 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: NodeIndex, field_nodes: 
         name = try std.fmt.allocPrint(c.arena, "enum_{s}", .{bare_name});
     }
     if (!toplevel) name = try bs.makeMangledName(c, name);
-    try c.decl_table.putNoClobber(c.gpa, @intFromPtr(ty.data.@"enum"), name);
+    try c.decl_table.putNoClobber(c.gpa, @intFromPtr(enum_decl), name);
 
-    const enum_type_node = if (!ty.data.@"enum".isIncomplete()) blk: {
-        for (ty.data.@"enum".fields, field_nodes) |field, field_node| {
+    const enum_type_node = if (!enum_decl.isIncomplete()) blk: {
+        for (enum_decl.fields, field_nodes) |field, field_node| {
             var enum_val_name: []const u8 = c.mapper.lookup(field.name);
             if (!toplevel) {
                 enum_val_name = try bs.makeMangledName(c, enum_val_name);
@@ -618,14 +663,14 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: NodeIndex, field_nodes: 
             }
         }
 
-        break :blk transType(c, scope, ty.data.@"enum".tag_ty, .standard, 0) catch |err| switch (err) {
+        break :blk transType(c, scope, enum_decl.tag_ty, .standard, 0) catch |err| switch (err) {
             error.UnsupportedType => {
                 return failDecl(c, 0, name, "unable to translate enum integer type", .{});
             },
             else => |e| return e,
         };
     } else blk: {
-        try c.opaque_demotes.put(c.gpa, @intFromPtr(ty.data.@"enum"), {});
+        try c.opaque_demotes.put(c.gpa, @intFromPtr(enum_decl), {});
         break :blk ZigTag.opaque_literal.init();
     };
 
@@ -651,8 +696,21 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: NodeIndex, field_nodes: 
     }
 }
 
+fn getTypeStr(c: *Context, ty: Type) ![]const u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer buf.deinit(c.gpa);
+    const w = buf.writer(c.gpa);
+    try ty.print(c.mapper, c.comp.langopts, w);
+    return c.arena.dupe(u8, buf.items);
+}
+
 fn transType(c: *Context, scope: *Scope, raw_ty: Type, qual_handling: Type.QualHandling, source_loc: TokenIndex) TypeError!ZigNode {
     const ty = raw_ty.canonicalize(qual_handling);
+    if (ty.qual.atomic) {
+        const type_name = try getTypeStr(c, ty);
+        return fail(c, error.UnsupportedType, source_loc, "unsupported type: '{s}'", .{type_name});
+    }
+
     switch (ty.specifier) {
         .void => return ZigTag.type.create(c.arena, "anyopaque"),
         .bool => return ZigTag.type.create(c.arena, "bool"),
@@ -673,15 +731,54 @@ fn transType(c: *Context, scope: *Scope, raw_ty: Type, qual_handling: Type.QualH
         .float => return ZigTag.type.create(c.arena, "f32"),
         .double => return ZigTag.type.create(c.arena, "f64"),
         .long_double => return ZigTag.type.create(c.arena, "c_longdouble"),
-        .float80 => return ZigTag.type.create(c.arena, "f80"),
         .float128 => return ZigTag.type.create(c.arena, "f128"),
-        .@"enum" => @panic("TODO"),
-        .pointer,
-        .unspecified_variable_len_array,
+        .@"enum" => {
+            const enum_decl = ty.data.@"enum";
+            var trans_scope = scope;
+            if (enum_decl.name != .empty) {
+                const decl_name = c.mapper.lookup(enum_decl.name);
+                if (c.weak_global_names.contains(decl_name)) trans_scope = &c.global_scope.base;
+            }
+            try transEnumDecl(c, trans_scope, enum_decl, &.{});
+            return ZigTag.identifier.create(c.arena, c.decl_table.get(@intFromPtr(enum_decl)).?);
+        },
+        .pointer => {
+            const child_type = ty.elemType();
+
+            const is_fn_proto = child_type.isFunc();
+            const is_const = is_fn_proto or child_type.isConst();
+            const is_volatile = child_type.qual.@"volatile";
+            const elem_type = try transType(c, scope, child_type, qual_handling, source_loc);
+            const ptr_info: @FieldType(ast.Payload.Pointer, "data") = .{
+                .is_const = is_const,
+                .is_volatile = is_volatile,
+                .elem_type = elem_type,
+            };
+            if (is_fn_proto or
+                typeIsOpaque(c, child_type) or
+                typeWasDemotedToOpaque(c, child_type))
+            {
+                const ptr = try ZigTag.single_pointer.create(c.arena, ptr_info);
+                return ZigTag.optional_type.create(c.arena, ptr);
+            }
+
+            return ZigTag.c_pointer.create(c.arena, ptr_info);
+        },
+        .unspecified_variable_len_array, .incomplete_array => {
+            const child_type = ty.elemType();
+            const is_const = child_type.qual.@"const";
+            const is_volatile = child_type.qual.@"volatile";
+            const elem_type = try transType(c, scope, child_type, qual_handling, source_loc);
+
+            return ZigTag.c_pointer.create(c.arena, .{ .is_const = is_const, .is_volatile = is_volatile, .elem_type = elem_type });
+        },
         .array,
         .static_array,
-        .incomplete_array,
-        => @panic("TODO"),
+        => {
+            const size = ty.arrayLen().?;
+            const elem_type = try transType(c, scope, ty.elemType(), qual_handling, source_loc);
+            return ZigTag.array_type.create(c.arena, .{ .len = size, .elem_type = elem_type });
+        },
         .func,
         .var_args_func,
         .old_style_func,
@@ -695,6 +792,7 @@ fn transType(c: *Context, scope: *Scope, raw_ty: Type, qual_handling: Type.QualH
                 const name_id = c.mapper.lookup(record_decl.name);
                 if (c.weak_global_names.contains(name_id)) trans_scope = &c.global_scope.base;
             }
+            try transRecordDecl(c, trans_scope, ty);
             const name = c.decl_table.get(@intFromPtr(ty.data.record)).?;
             return ZigTag.identifier.create(c.arena, name);
         },
@@ -924,7 +1022,9 @@ fn transFnType(
 }
 
 fn transStmt(c: *Context, node: NodeIndex) TransError!ZigNode {
-    return transExpr(c, node, .unused);
+    _ = c;
+    _ = node;
+    return error.UnsupportedTranslation;
 }
 
 fn transCompoundStmtInline(c: *Context, compound: NodeIndex, block: *Scope.Block) TransError!void {
@@ -946,6 +1046,45 @@ fn transCompoundStmtInline(c: *Context, compound: NodeIndex, block: *Scope.Block
             .declaration, .empty_block => {},
             else => try block.statements.append(result),
         }
+    }
+}
+
+fn recordHasBitfield(record: *const Type.Record) bool {
+    if (record.isIncomplete()) return false;
+    for (record.fields) |field| {
+        if (!field.isRegularField()) return true;
+    }
+    return false;
+}
+
+fn typeIsOpaque(c: *Context, ty: Type) bool {
+    return switch (ty.specifier) {
+        .void => true,
+        .@"struct", .@"union" => recordHasBitfield(ty.getRecord().?),
+        .typeof_type => typeIsOpaque(c, ty.data.sub_type.*),
+        .typeof_expr => typeIsOpaque(c, ty.data.expr.ty),
+        .attributed => typeIsOpaque(c, ty.data.attributed.base),
+        else => false,
+    };
+}
+
+fn typeWasDemotedToOpaque(c: *Context, ty: Type) bool {
+    switch (ty.specifier) {
+        .@"struct", .@"union" => {
+            const record = ty.getRecord().?;
+            if (c.opaque_demotes.contains(@intFromPtr(record))) return true;
+            for (record.fields) |field| {
+                if (typeWasDemotedToOpaque(c, field.ty)) return true;
+            }
+            return false;
+        },
+
+        .@"enum" => return c.opaque_demotes.contains(@intFromPtr(ty.data.@"enum")),
+
+        .typeof_type => return typeWasDemotedToOpaque(c, ty.data.sub_type.*),
+        .typeof_expr => return typeWasDemotedToOpaque(c, ty.data.expr.ty),
+        .attributed => return typeWasDemotedToOpaque(c, ty.data.attributed.base),
+        else => return false,
     }
 }
 
@@ -1277,6 +1416,12 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
             /// struct itself is given this name.
             pub const static_inner_name = "static";
 
+            /// C extern variables declared within a block are wrapped in a block-local
+            /// struct. The struct is named ExternLocal_[variable_name], the Zig variable
+            /// within the struct itself is [variable_name] by neccessity since it's an
+            /// extern reference to an existing symbol.
+            pub const extern_inner_prepend = "ExternLocal";
+
             pub fn init(c: *ScopeExtraContext, parent: *ScopeExtraScope, labeled: bool) !Block {
                 var blk = Block{
                     .base = .{
@@ -1354,6 +1499,24 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                         return p.alias;
                 }
                 return scope.base.parent.?.getAlias(name);
+            }
+
+            /// Finds the (potentially) mangled struct name for a locally scoped extern variable given the original declaration name.
+            ///
+            /// Block scoped extern declarations translate to:
+            ///     const MangledStructName = struct {extern [qualifiers] original_extern_variable_name: [type]};
+            /// This finds MangledStructName given original_extern_variable_name for referencing correctly in transDeclRefExpr()
+            pub fn getLocalExternAlias(scope: *Block, name: []const u8) ?[]const u8 {
+                for (scope.statements.items) |node| {
+                    if (node.tag() == .extern_local_var) {
+                        const parent_node = node.castTag(.extern_local_var).?;
+                        const init_node = parent_node.data.init.castTag(.var_decl).?;
+                        if (std.mem.eql(u8, init_node.data.name, name)) {
+                            return parent_node.data.name;
+                        }
+                    }
+                }
+                return null;
             }
 
             pub fn localContains(scope: *Block, name: []const u8) bool {
@@ -1445,9 +1608,20 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
 
         pub fn getAlias(scope: *ScopeExtraScope, name: []const u8) []const u8 {
             return switch (scope.id) {
-                .root => return name,
+                .root => name,
                 .block => @as(*Block, @fieldParentPtr("base", scope)).getAlias(name),
                 .loop, .do_loop, .condition => scope.parent.?.getAlias(name),
+            };
+        }
+
+        pub fn getLocalExternAlias(scope: *ScopeExtraScope, name: []const u8) ?[]const u8 {
+            return switch (scope.id) {
+                .root => null,
+                .block => ret: {
+                    const block = @as(*Block, @fieldParentPtr("base", scope));
+                    break :ret block.getLocalExternAlias(name);
+                },
+                .loop, .do_loop, .condition => scope.parent.?.getLocalExternAlias(name),
             };
         }
 
@@ -1587,26 +1761,50 @@ test "Macro matching" {
     try helper.checkMacro(allocator, pattern_list, "IGNORE_ME(X) ((volatile const void)(X))", "DISCARD");
 }
 
+/// Renders errors and fatal errors + associated notes (e.g. "expanded from here"); does not render warnings or associated notes
+/// Terminates with exit code 1
+fn renderErrorsAndExit(comp: *aro.Compilation) noreturn {
+    defer std.process.exit(1);
+
+    var writer = aro.Diagnostics.defaultMsgWriter(std.io.tty.detectConfig(std.io.getStdErr()));
+    defer writer.deinit(); // writer deinit must run *before* exit so that stderr is flushed
+
+    var saw_error = false;
+    for (comp.diagnostics.list.items) |msg| {
+        switch (msg.kind) {
+            .@"error", .@"fatal error" => {
+                saw_error = true;
+                aro.Diagnostics.renderMessage(comp, &writer, msg);
+            },
+            .warning => saw_error = false,
+            .note => {
+                if (saw_error) {
+                    aro.Diagnostics.renderMessage(comp, &writer, msg);
+                }
+            },
+            .off => {},
+            .default => unreachable,
+        }
+    }
+}
+
 pub fn main() !void {
     var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .{};
+    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
     const gpa = general_purpose_allocator.allocator();
 
     const args = try std.process.argsAlloc(arena);
 
-    var aro_comp = aro.Compilation.init(gpa);
+    var aro_comp = aro.Compilation.init(gpa, std.fs.cwd());
     defer aro_comp.deinit();
 
     var tree = translate(gpa, &aro_comp, args) catch |err| switch (err) {
-        error.SemanticAnalyzeFail, error.FatalError => {
-            aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(std.io.getStdErr()));
-            std.process.exit(1);
-        },
+        error.ParsingFailed, error.FatalError => renderErrorsAndExit(&aro_comp),
         error.OutOfMemory => return error.OutOfMemory,
-        error.StreamTooLong => std.zig.fatal("StreamTooLong?", .{}),
+        error.StreamTooLong => std.zig.fatal("An input file was larger than 4GiB", .{}),
     };
     defer tree.deinit(gpa);
 

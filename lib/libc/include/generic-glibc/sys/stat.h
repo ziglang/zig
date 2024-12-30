@@ -209,7 +209,7 @@ extern int stat (const char *__restrict __file,
    that file descriptor FD is open on and put them in BUF.  */
 extern int fstat (int __fd, struct stat *__buf) __THROW __nonnull ((2));
 #else
-# ifdef __USE_TIME_BITS64
+# ifdef __USE_TIME64_REDIRECTS
 #  ifdef __REDIRECT_NTH
 extern int __REDIRECT_NTH (stat, (const char *__restrict __file,
 				  struct stat *__restrict __buf),
@@ -236,7 +236,7 @@ extern int __REDIRECT_NTH (fstat, (int __fd, struct stat *__buf), fstat64)
 # endif
 #endif
 #ifdef __USE_LARGEFILE64
-# ifndef __USE_TIME_BITS64
+# ifndef __USE_TIME64_REDIRECTS
 extern int stat64 (const char *__restrict __file,
 		   struct stat64 *__restrict __buf) __THROW __nonnull ((1, 2));
 extern int fstat64 (int __fd, struct stat64 *__buf) __THROW __nonnull ((2));
@@ -265,7 +265,7 @@ extern int fstatat (int __fd, const char *__restrict __file,
 		    struct stat *__restrict __buf, int __flag)
      __THROW __nonnull ((2, 3));
 # else
-#  ifdef __USE_TIME_BITS64
+#  ifdef __USE_TIME64_REDIRECTS
 #   ifdef __REDIRECT_NTH
 extern int __REDIRECT_NTH (fstatat, (int __fd, const char *__restrict __file,
 				     struct stat *__restrict __buf,
@@ -287,7 +287,7 @@ extern int __REDIRECT_NTH (fstatat, (int __fd, const char *__restrict __file,
 # endif
 
 # ifdef __USE_LARGEFILE64
-#  ifndef __USE_TIME_BITS64
+#  ifndef __USE_TIME64_REDIRECTS
 extern int fstatat64 (int __fd, const char *__restrict __file,
 		      struct stat64 *__restrict __buf, int __flag)
      __THROW __nonnull ((2, 3));
@@ -313,7 +313,7 @@ extern int __REDIRECT_NTH (fstatat64, (int __fd,
 extern int lstat (const char *__restrict __file,
 		  struct stat *__restrict __buf) __THROW __nonnull ((1, 2));
 # else
-#  ifdef __USE_TIME_BITS64
+#  ifdef __USE_TIME64_REDIRECTS
 #   ifdef __REDIRECT_NTH
 extern int __REDIRECT_NTH (lstat,
 			   (const char *__restrict __file,
@@ -334,7 +334,7 @@ extern int __REDIRECT_NTH (lstat,
 #  endif
 # endif
 # ifdef __USE_LARGEFILE64
-#  ifndef __USE_TIME_BITS64
+#  ifndef __USE_TIME64_REDIRECTS
 extern int lstat64 (const char *__restrict __file,
 		    struct stat64 *__restrict __buf)
      __THROW __nonnull ((1, 2));
@@ -427,7 +427,7 @@ extern int mkfifoat (int __fd, const char *__path, __mode_t __mode)
 #endif
 
 #ifdef __USE_ATFILE
-# ifndef __USE_TIME_BITS64
+# ifndef __USE_TIME64_REDIRECTS
 /* Set file access and modification times relative to directory file
    descriptor.  */
 extern int utimensat (int __fd, const char *__path,
@@ -447,7 +447,7 @@ extern int __REDIRECT_NTH (utimensat, (int fd, const char *__path,
 #endif
 
 #ifdef __USE_XOPEN2K8
-# ifndef __USE_TIME_BITS64
+# ifndef __USE_TIME64_REDIRECTS
 /* Set file access and modification times of the file associated with FD.  */
 extern int futimens (int __fd, const struct timespec __times[2]) __THROW;
 

@@ -139,7 +139,7 @@ typedef __fpos64_t fpos64_t;
 #define FOPEN_MAX 16
 
 
-#if __GLIBC_USE (ISOC2X)
+#if __GLIBC_USE (ISOC23)
 /* Maximum length of printf output for a NaN.  */
 # define _PRINTF_NAN_LEN_MAX 4
 #endif
@@ -437,7 +437,7 @@ extern int sscanf (const char *__restrict __s,
 #include <bits/floatn.h>
 #if !__GLIBC_USE (DEPRECATED_SCANF) && !defined __LDBL_COMPAT \
     && __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 0
-# if __GLIBC_USE (C2X_STRTOL)
+# if __GLIBC_USE (C23_STRTOL)
 #  ifdef __REDIRECT
 extern int __REDIRECT (fscanf, (FILE *__restrict __stream,
 				const char *__restrict __format, ...),
@@ -505,7 +505,7 @@ extern int vsscanf (const char *__restrict __s,
 
 /* Same redirection as above for the v*scanf family.  */
 # if !__GLIBC_USE (DEPRECATED_SCANF)
-#  if __GLIBC_USE (C2X_STRTOL)
+#  if __GLIBC_USE (C23_STRTOL)
 #   if defined __REDIRECT && !defined __LDBL_COMPAT	\
       && __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 0
 extern int __REDIRECT (vfscanf,
@@ -685,12 +685,7 @@ extern char *fgets_unlocked (char *__restrict __s, int __n,
    (and null-terminate it). *LINEPTR is a pointer returned from malloc (or
    NULL), pointing to *N characters of space.  It is realloc'd as
    necessary.  Returns the number of characters read (not including the
-   null terminator), or -1 on error or EOF.
-
-   These functions are not part of POSIX and therefore no official
-   cancellation point.  But due to similarity with an POSIX interface
-   or due to the implementation they are cancellation points and
-   therefore not marked with __THROW.  */
+   null terminator), or -1 on error or EOF.  */
 extern __ssize_t __getdelim (char **__restrict __lineptr,
                              size_t *__restrict __n, int __delimiter,
                              FILE *__restrict __stream) __wur __nonnull ((4));
@@ -698,12 +693,7 @@ extern __ssize_t getdelim (char **__restrict __lineptr,
                            size_t *__restrict __n, int __delimiter,
                            FILE *__restrict __stream) __wur __nonnull ((4));
 
-/* Like `getdelim', but reads up to a newline.
-
-   This function is not part of POSIX and therefore no official
-   cancellation point.  But due to similarity with an POSIX interface
-   or due to the implementation it is a cancellation point and
-   therefore not marked with __THROW.  */
+/* Like `getdelim', but reads up to a newline.  */
 extern __ssize_t getline (char **__restrict __lineptr,
                           size_t *__restrict __n,
                           FILE *__restrict __stream) __wur __nonnull ((3));

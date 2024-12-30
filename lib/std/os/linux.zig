@@ -13,13 +13,14 @@ const elf = std.elf;
 const vdso = @import("linux/vdso.zig");
 const dl = @import("../dynamic_library.zig");
 const native_arch = builtin.cpu.arch;
+const native_abi = builtin.abi;
 const native_endian = native_arch.endian();
 const is_mips = native_arch.isMIPS();
-const is_ppc = native_arch.isPPC();
-const is_ppc64 = native_arch.isPPC64();
+const is_ppc = native_arch.isPowerPC();
 const is_sparc = native_arch.isSPARC();
 const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
+const winsize = std.posix.winsize;
 const ACCMODE = std.posix.ACCMODE;
 
 test {
@@ -28,24 +29,29 @@ test {
     }
 }
 
-const syscall_bits = switch (native_arch) {
-    .thumb => @import("linux/thumb.zig"),
-    else => arch_bits,
-};
-
 const arch_bits = switch (native_arch) {
     .x86 => @import("linux/x86.zig"),
     .x86_64 => @import("linux/x86_64.zig"),
-    .aarch64, .aarch64_be => @import("linux/arm64.zig"),
-    .arm, .thumb => @import("linux/arm-eabi.zig"),
+    .aarch64, .aarch64_be => @import("linux/aarch64.zig"),
+    .arm, .armeb, .thumb, .thumbeb => @import("linux/arm.zig"),
+    .hexagon => @import("linux/hexagon.zig"),
+    .riscv32 => @import("linux/riscv32.zig"),
     .riscv64 => @import("linux/riscv64.zig"),
     .sparc64 => @import("linux/sparc64.zig"),
+    .loongarch64 => @import("linux/loongarch64.zig"),
     .mips, .mipsel => @import("linux/mips.zig"),
     .mips64, .mips64el => @import("linux/mips64.zig"),
     .powerpc, .powerpcle => @import("linux/powerpc.zig"),
     .powerpc64, .powerpc64le => @import("linux/powerpc64.zig"),
-    else => struct {},
+    .s390x => @import("linux/s390x.zig"),
+    else => struct {
+        pub const ucontext_t = void;
+        pub const getcontext = {};
+    },
 };
+
+const syscall_bits = if (native_arch.isThumb()) @import("linux/thumb.zig") else arch_bits;
+
 pub const syscall0 = syscall_bits.syscall0;
 pub const syscall1 = syscall_bits.syscall1;
 pub const syscall2 = syscall_bits.syscall2;
@@ -60,12 +66,32 @@ pub const socketcall = syscall_bits.socketcall;
 pub const syscall_pipe = syscall_bits.syscall_pipe;
 pub const syscall_fork = syscall_bits.syscall_fork;
 
+pub fn clone(
+    func: *const fn (arg: usize) callconv(.C) u8,
+    stack: usize,
+    flags: u32,
+    arg: usize,
+    ptid: *i32,
+    tp: usize, // aka tls
+    ctid: *i32,
+) usize {
+    // Can't directly call a naked function; cast to C calling convention first.
+    return @as(*const fn (
+        *const fn (arg: usize) callconv(.C) u8,
+        usize,
+        u32,
+        usize,
+        *i32,
+        usize,
+        *i32,
+    ) callconv(.C) usize, @ptrCast(&syscall_bits.clone))(func, stack, flags, arg, ptid, tp, ctid);
+}
+
 pub const ARCH = arch_bits.ARCH;
 pub const Elf_Symndx = arch_bits.Elf_Symndx;
 pub const F = arch_bits.F;
 pub const Flock = arch_bits.Flock;
 pub const HWCAP = arch_bits.HWCAP;
-pub const LOCK = arch_bits.LOCK;
 pub const MMAP2_UNIT = arch_bits.MMAP2_UNIT;
 pub const REG = arch_bits.REG;
 pub const SC = arch_bits.SC;
@@ -73,7 +99,6 @@ pub const Stat = arch_bits.Stat;
 pub const VDSO = arch_bits.VDSO;
 pub const blkcnt_t = arch_bits.blkcnt_t;
 pub const blksize_t = arch_bits.blksize_t;
-pub const clone = arch_bits.clone;
 pub const dev_t = arch_bits.dev_t;
 pub const ino_t = arch_bits.ino_t;
 pub const mcontext_t = arch_bits.mcontext_t;
@@ -90,23 +115,38 @@ pub const user_desc = arch_bits.user_desc;
 pub const getcontext = arch_bits.getcontext;
 
 pub const tls = @import("linux/tls.zig");
-pub const pie = @import("linux/start_pie.zig");
+pub const pie = @import("linux/pie.zig");
 pub const BPF = @import("linux/bpf.zig");
 pub const IOCTL = @import("linux/ioctl.zig");
 pub const SECCOMP = @import("linux/seccomp.zig");
 
 pub const syscalls = @import("linux/syscalls.zig");
 pub const SYS = switch (@import("builtin").cpu.arch) {
-    .x86 => syscalls.X86,
-    .x86_64 => syscalls.X64,
+    .arc => syscalls.Arc,
+    .arm, .armeb, .thumb, .thumbeb => syscalls.Arm,
     .aarch64, .aarch64_be => syscalls.Arm64,
-    .arm, .thumb => syscalls.Arm,
+    .csky => syscalls.CSky,
+    .hexagon => syscalls.Hexagon,
+    .loongarch64 => syscalls.LoongArch64,
+    .m68k => syscalls.M68k,
+    .mips, .mipsel => syscalls.MipsO32,
+    .mips64, .mips64el => switch (builtin.abi) {
+        .gnuabin32, .muslabin32 => syscalls.MipsN32,
+        else => syscalls.MipsN64,
+    },
+    .riscv32 => syscalls.RiscV32,
     .riscv64 => syscalls.RiscV64,
+    .s390x => syscalls.S390x,
+    .sparc => syscalls.Sparc,
     .sparc64 => syscalls.Sparc64,
-    .mips, .mipsel => syscalls.Mips,
-    .mips64, .mips64el => syscalls.Mips64,
     .powerpc, .powerpcle => syscalls.PowerPC,
     .powerpc64, .powerpc64le => syscalls.PowerPC64,
+    .x86 => syscalls.X86,
+    .x86_64 => switch (builtin.abi) {
+        .gnux32, .muslx32 => syscalls.X32,
+        else => syscalls.X64,
+    },
+    .xtensa => syscalls.Xtensa,
     else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
 };
 
@@ -139,7 +179,7 @@ pub const MAP = switch (native_arch) {
         UNINITIALIZED: bool = false,
         _: u5 = 0,
     },
-    .aarch64, .aarch64_be, .arm, .thumb => packed struct(u32) {
+    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb => packed struct(u32) {
         TYPE: MAP_TYPE,
         FIXED: bool = false,
         ANONYMOUS: bool = false,
@@ -160,7 +200,7 @@ pub const MAP = switch (native_arch) {
         UNINITIALIZED: bool = false,
         _: u5 = 0,
     },
-    .riscv64 => packed struct(u32) {
+    .riscv32, .riscv64, .loongarch64 => packed struct(u32) {
         TYPE: MAP_TYPE,
         FIXED: bool = false,
         ANONYMOUS: bool = false,
@@ -239,6 +279,29 @@ pub const MAP = switch (native_arch) {
         UNINITIALIZED: bool = false,
         _: u5 = 0,
     },
+    .hexagon, .s390x => packed struct(u32) {
+        TYPE: MAP_TYPE,
+        FIXED: bool = false,
+        ANONYMOUS: bool = false,
+        _4: u1 = 0,
+        _5: u1 = 0,
+        GROWSDOWN: bool = false,
+        _7: u1 = 0,
+        _8: u1 = 0,
+        DENYWRITE: bool = false,
+        EXECUTABLE: bool = false,
+        LOCKED: bool = false,
+        NORESERVE: bool = false,
+        POPULATE: bool = false,
+        NONBLOCK: bool = false,
+        STACK: bool = false,
+        HUGETLB: bool = false,
+        SYNC: bool = false,
+        FIXED_NOREPLACE: bool = false,
+        _19: u5 = 0,
+        UNINITIALIZED: bool = false,
+        _: u5 = 0,
+    },
     else => @compileError("missing std.os.linux.MAP constants for this architecture"),
 };
 
@@ -265,7 +328,7 @@ pub const O = switch (native_arch) {
         TMPFILE: bool = false,
         _: u9 = 0,
     },
-    .x86, .riscv64 => packed struct(u32) {
+    .x86, .riscv32, .riscv64, .loongarch64 => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
         _2: u4 = 0,
         CREAT: bool = false,
@@ -287,7 +350,7 @@ pub const O = switch (native_arch) {
         TMPFILE: bool = false,
         _: u9 = 0,
     },
-    .aarch64, .aarch64_be, .arm, .thumb => packed struct(u32) {
+    .aarch64, .aarch64_be, .arm, .armeb, .thumb, .thumbeb => packed struct(u32) {
         ACCMODE: ACCMODE = .RDONLY,
         _2: u4 = 0,
         CREAT: bool = false,
@@ -380,6 +443,32 @@ pub const O = switch (native_arch) {
         TMPFILE: bool = false,
         _: u9 = 0,
     },
+    .hexagon, .s390x => packed struct(u32) {
+        ACCMODE: ACCMODE = .RDONLY,
+        _2: u4 = 0,
+        CREAT: bool = false,
+        EXCL: bool = false,
+        NOCTTY: bool = false,
+        TRUNC: bool = false,
+        APPEND: bool = false,
+        NONBLOCK: bool = false,
+        DSYNC: bool = false,
+        ASYNC: bool = false,
+        DIRECT: bool = false,
+        LARGEFILE: bool = false,
+        DIRECTORY: bool = false,
+        NOFOLLOW: bool = false,
+        NOATIME: bool = false,
+        CLOEXEC: bool = false,
+        _17: u1 = 0,
+        PATH: bool = false,
+        _: u10 = 0,
+
+        // #define O_RSYNC    04010000
+        // #define O_SYNC     04010000
+        // #define O_TMPFILE 020200000
+        // #define O_NDELAY O_NONBLOCK
+    },
     else => @compileError("missing std.os.linux.O constants for this architecture"),
 };
 
@@ -393,8 +482,11 @@ const extern_getauxval = switch (builtin.zig_backend) {
 };
 
 comptime {
-    if (extern_getauxval) {
-        @export(getauxvalImpl, .{ .name = "getauxval", .linkage = .weak });
+    const root = @import("root");
+    // Export this only when building executable, otherwise it is overriding
+    // the libc implementation
+    if (extern_getauxval and (builtin.output_mode == .Exe or @hasDecl(root, "main"))) {
+        @export(&getauxvalImpl, .{ .name = "getauxval", .linkage = .weak });
     }
 }
 
@@ -415,10 +507,9 @@ fn getauxvalImpl(index: usize) callconv(.C) usize {
 // Some architectures (and some syscalls) require 64bit parameters to be passed
 // in a even-aligned register pair.
 const require_aligned_register_pair =
-    builtin.cpu.arch.isPPC() or
-    builtin.cpu.arch.isMIPS() or
-    builtin.cpu.arch.isARM() or
-    builtin.cpu.arch.isThumb();
+    builtin.cpu.arch.isPowerPC32() or
+    builtin.cpu.arch.isMIPS32() or
+    builtin.cpu.arch.isArm();
 
 // Split a 64bit value into a {LSB,MSB} pair.
 // The LE/BE variants specify the endianness to assume.
@@ -468,7 +559,7 @@ pub fn dup2(old: i32, new: i32) usize {
     } else {
         if (old == new) {
             if (std.debug.runtime_safety) {
-                const rc = syscall2(.fcntl, @as(usize, @bitCast(@as(isize, old))), F.GETFD);
+                const rc = fcntl(F.GETFD, @as(fd_t, old), 0);
                 if (@as(isize, @bitCast(rc)) < 0) return rc;
             }
             return @as(usize, @intCast(old));
@@ -570,7 +661,7 @@ pub fn futex_wake(uaddr: *const i32, futex_op: u32, val: i32) usize {
 /// Returns the array index of one of the woken futexes.
 /// No further information is provided: any number of other futexes may also
 /// have been woken by the same event, and if more than one futex was woken,
-/// the retrned index may refer to any one of them.
+/// the returned index may refer to any one of them.
 /// (It is not necessaryily the futex with the smallest index, nor the one
 /// most recently woken, nor...)
 pub fn futex2_waitv(
@@ -583,7 +674,7 @@ pub fn futex2_waitv(
     /// Optional absolute timeout.
     timeout: ?*const timespec,
     /// Clock to be used for the timeout, realtime or monotonic.
-    clockid: i32,
+    clockid: clockid_t,
 ) usize {
     return syscall5(
         .futex_waitv,
@@ -591,12 +682,13 @@ pub fn futex2_waitv(
         nr_futexes,
         flags,
         @intFromPtr(timeout),
-        @bitCast(@as(isize, clockid)),
+        @bitCast(@as(isize, @intFromEnum(clockid))),
     );
 }
 
 /// Wait on a futex.
-/// Identical to `FUTEX.WAIT`, except it is part of the futex2 family of calls.
+/// Identical to the traditional `FUTEX.FUTEX_WAIT_BITSET` op, except it is part of the
+/// futex2 familiy of calls.
 pub fn futex2_wait(
     /// Address of the futex to wait on.
     uaddr: *const anyopaque,
@@ -607,9 +699,9 @@ pub fn futex2_wait(
     /// `FUTEX2` flags.
     flags: u32,
     /// Optional absolute timeout.
-    timeout: *const timespec,
+    timeout: ?*const timespec,
     /// Clock to be used for the timeout, realtime or monotonic.
-    clockid: i32,
+    clockid: clockid_t,
 ) usize {
     return syscall6(
         .futex_wait,
@@ -618,15 +710,16 @@ pub fn futex2_wait(
         mask,
         flags,
         @intFromPtr(timeout),
-        @bitCast(@as(isize, clockid)),
+        @bitCast(@as(isize, @intFromEnum(clockid))),
     );
 }
 
 /// Wake a number of futexes.
-/// Identical to `FUTEX.WAKE`, except it is part of the futex2 family of calls.
+/// Identical to the traditional `FUTEX.FUTEX_WAIT_BITSET` op, except it is part of the
+/// futex2 family of calls.
 pub fn futex2_wake(
     /// Address of the futex(es) to wake.
-    uaddr: [*]const anyopaque,
+    uaddr: *const anyopaque,
     /// Bitmask
     mask: usize,
     /// Number of the futexes to wake.
@@ -648,7 +741,7 @@ pub fn futex2_wake(
 pub fn futex2_requeue(
     /// Array describing the source and destination futex.
     waiters: [*]futex_waitv,
-    /// Unsed.
+    /// Unused.
     flags: u32,
     /// Number of futexes to wake.
     nr_wake: i32,
@@ -698,12 +791,55 @@ pub fn inotify_rm_watch(fd: i32, wd: i32) usize {
     return syscall2(.inotify_rm_watch, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, wd))));
 }
 
-pub fn fanotify_init(flags: u32, event_f_flags: u32) usize {
-    return syscall2(.fanotify_init, flags, event_f_flags);
+pub fn fanotify_init(flags: fanotify.InitFlags, event_f_flags: u32) usize {
+    return syscall2(.fanotify_init, @as(u32, @bitCast(flags)), event_f_flags);
 }
 
-pub fn fanotify_mark(fd: i32, flags: u32, mask: u64, dirfd: i32, pathname: ?[*:0]const u8) usize {
-    return syscall5(.fanotify_mark, @as(usize, @bitCast(@as(isize, fd))), flags, mask, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(pathname));
+pub fn fanotify_mark(
+    fd: fd_t,
+    flags: fanotify.MarkFlags,
+    mask: fanotify.MarkMask,
+    dirfd: fd_t,
+    pathname: ?[*:0]const u8,
+) usize {
+    if (usize_bits < 64) {
+        const mask_halves = splitValue64(@bitCast(mask));
+        return syscall6(
+            .fanotify_mark,
+            @bitCast(@as(isize, fd)),
+            @as(u32, @bitCast(flags)),
+            mask_halves[0],
+            mask_halves[1],
+            @bitCast(@as(isize, dirfd)),
+            @intFromPtr(pathname),
+        );
+    } else {
+        return syscall5(
+            .fanotify_mark,
+            @bitCast(@as(isize, fd)),
+            @as(u32, @bitCast(flags)),
+            @bitCast(mask),
+            @bitCast(@as(isize, dirfd)),
+            @intFromPtr(pathname),
+        );
+    }
+}
+
+pub fn name_to_handle_at(
+    dirfd: fd_t,
+    pathname: [*:0]const u8,
+    handle: *std.os.linux.file_handle,
+    mount_id: *i32,
+    flags: u32,
+) usize {
+    return syscall5(
+        .name_to_handle_at,
+        @as(u32, @bitCast(dirfd)),
+        @intFromPtr(pathname),
+        @intFromPtr(handle),
+        @intFromPtr(mount_id),
+        flags,
+    );
 }
 
 pub fn readlink(noalias path: [*:0]const u8, noalias buf_ptr: [*]u8, buf_len: usize) usize {
@@ -770,7 +906,19 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, of
             @truncate(@as(u64, @bitCast(offset)) / MMAP2_UNIT),
         );
     } else {
-        return syscall6(
+        // The s390x mmap() syscall existed before Linux supported syscalls with 5+ parameters, so
+        // it takes a single pointer to an array of arguments instead.
+        return if (native_arch == .s390x) syscall1(
+            .mmap,
+            @intFromPtr(&[_]usize{
+                @intFromPtr(address),
+                length,
+                prot,
+                @as(u32, @bitCast(flags)),
+                @bitCast(@as(isize, fd)),
+                @as(u64, @bitCast(offset)),
+            }),
+        ) else syscall6(
             .mmap,
             @intFromPtr(address),
             length,
@@ -792,6 +940,11 @@ pub const MSF = struct {
     pub const SYNC = 4;
 };
 
+/// Can only be called on 64 bit systems.
+pub fn mseal(address: [*]const u8, length: usize, flags: usize) usize {
+    return syscall3(.mseal, @intFromPtr(address), length, flags);
+}
+
 pub fn msync(address: [*]const u8, length: usize, flags: i32) usize {
     return syscall3(.msync, @intFromPtr(address), length, @as(u32, @bitCast(flags)));
 }
@@ -810,8 +963,8 @@ pub fn poll(fds: [*]pollfd, n: nfds_t, timeout: i32) usize {
             n,
             @intFromPtr(if (timeout >= 0)
                 &timespec{
-                    .tv_sec = @divTrunc(timeout, 1000),
-                    .tv_nsec = @rem(timeout, 1000) * 1000000,
+                    .sec = @divTrunc(timeout, 1000),
+                    .nsec = @rem(timeout, 1000) * 1000000,
                 }
             else
                 null),
@@ -1162,7 +1315,7 @@ pub fn llseek(fd: i32, offset: u64, result: ?*u64, whence: usize) usize {
     // NOTE: The offset parameter splitting is independent from the target
     // endianness.
     return syscall5(
-        ._llseek,
+        .llseek,
         @as(usize, @bitCast(@as(isize, fd))),
         @as(usize, @truncate(offset >> 32)),
         @as(usize, @truncate(offset)),
@@ -1259,13 +1412,12 @@ pub fn tgkill(tgid: pid_t, tid: pid_t, sig: i32) usize {
     return syscall3(.tgkill, @as(usize, @bitCast(@as(isize, tgid))), @as(usize, @bitCast(@as(isize, tid))), @as(usize, @bitCast(@as(isize, sig))));
 }
 
-pub fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) usize {
+pub fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8) usize {
     if (@hasField(SYS, "link")) {
-        return syscall3(
+        return syscall2(
             .link,
             @intFromPtr(oldpath),
             @intFromPtr(newpath),
-            @as(usize, @bitCast(@as(isize, flags))),
         );
     } else {
         return syscall5(
@@ -1274,7 +1426,7 @@ pub fn link(oldpath: [*:0]const u8, newpath: [*:0]const u8, flags: i32) usize {
             @intFromPtr(oldpath),
             @as(usize, @bitCast(@as(isize, AT.FDCWD))),
             @intFromPtr(newpath),
-            @as(usize, @bitCast(@as(isize, flags))),
+            0,
         );
     }
 }
@@ -1321,7 +1473,11 @@ pub fn waitid(id_type: P, id: i32, infop: *siginfo_t, flags: u32) usize {
 }
 
 pub fn fcntl(fd: fd_t, cmd: i32, arg: usize) usize {
-    return syscall3(.fcntl, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, cmd))), arg);
+    if (@hasField(SYS, "fcntl64")) {
+        return syscall3(.fcntl64, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, cmd))), arg);
+    } else {
+        return syscall3(.fcntl, @as(usize, @bitCast(@as(isize, fd))), @as(usize, @bitCast(@as(isize, cmd))), arg);
+    }
 }
 
 pub fn flock(fd: fd_t, operation: i32) usize {
@@ -1329,11 +1485,11 @@ pub fn flock(fd: fd_t, operation: i32) usize {
 }
 
 // We must follow the C calling convention when we call into the VDSO
-const VdsoClockGettime = *align(1) const fn (i32, *timespec) callconv(.C) usize;
+const VdsoClockGettime = *align(1) const fn (clockid_t, *timespec) callconv(.C) usize;
 var vdso_clock_gettime: ?VdsoClockGettime = &init_vdso_clock_gettime;
 
-pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
-    if (@hasDecl(VDSO, "CGT_SYM")) {
+pub fn clock_gettime(clk_id: clockid_t, tp: *timespec) usize {
+    if (VDSO != void) {
         const ptr = @atomicLoad(?VdsoClockGettime, &vdso_clock_gettime, .unordered);
         if (ptr) |f| {
             const rc = f(clk_id, tp);
@@ -1343,10 +1499,10 @@ pub fn clock_gettime(clk_id: i32, tp: *timespec) usize {
             }
         }
     }
-    return syscall2(.clock_gettime, @as(usize, @bitCast(@as(isize, clk_id))), @intFromPtr(tp));
+    return syscall2(.clock_gettime, @intFromEnum(clk_id), @intFromPtr(tp));
 }
 
-fn init_vdso_clock_gettime(clk: i32, ts: *timespec) callconv(.C) usize {
+fn init_vdso_clock_gettime(clk: clockid_t, ts: *timespec) callconv(.C) usize {
     const ptr: ?VdsoClockGettime = @ptrFromInt(vdso.lookup(VDSO.CGT_VER, VDSO.CGT_SYM));
     // Note that we may not have a VDSO at all, update the stub address anyway
     // so that clock_gettime will fall back on the good old (and slow) syscall
@@ -1364,6 +1520,16 @@ pub fn clock_settime(clk_id: i32, tp: *const timespec) usize {
     return syscall2(.clock_settime, @as(usize, @bitCast(@as(isize, clk_id))), @intFromPtr(tp));
 }
 
+pub fn clock_nanosleep(clockid: clockid_t, flags: TIMER, request: *const timespec, remain: ?*timespec) usize {
+    return syscall4(
+        .clock_nanosleep,
+        @intFromEnum(clockid),
+        @as(u32, @bitCast(flags)),
+        @intFromPtr(request),
+        @intFromPtr(remain),
+    );
+}
+
 pub fn gettimeofday(tv: ?*timeval, tz: ?*timezone) usize {
     return syscall2(.gettimeofday, @intFromPtr(tv), @intFromPtr(tz));
 }
@@ -1373,7 +1539,9 @@ pub fn settimeofday(tv: *const timeval, tz: *const timezone) usize {
 }
 
 pub fn nanosleep(req: *const timespec, rem: ?*timespec) usize {
-    return syscall2(.nanosleep, @intFromPtr(req), @intFromPtr(rem));
+    if (native_arch == .riscv32) {
+        @compileError("No nanosleep syscall on this architecture.");
+    } else return syscall2(.nanosleep, @intFromPtr(req), @intFromPtr(rem));
 }
 
 pub fn pause() usize {
@@ -1455,7 +1623,7 @@ pub fn seteuid(euid: uid_t) usize {
     // The setresuid(2) man page says that if -1 is passed the corresponding
     // id will not be changed. Since uid_t is unsigned, this wraps around to the
     // max value in C.
-    comptime assert(@typeInfo(uid_t) == .Int and @typeInfo(uid_t).Int.signedness == .unsigned);
+    comptime assert(@typeInfo(uid_t) == .int and @typeInfo(uid_t).int.signedness == .unsigned);
     return setresuid(std.math.maxInt(uid_t), euid, std.math.maxInt(uid_t));
 }
 
@@ -1466,7 +1634,7 @@ pub fn setegid(egid: gid_t) usize {
     // The setresgid(2) man page says that if -1 is passed the corresponding
     // id will not be changed. Since gid_t is unsigned, this wraps around to the
     // max value in C.
-    comptime assert(@typeInfo(uid_t) == .Int and @typeInfo(uid_t).Int.signedness == .unsigned);
+    comptime assert(@typeInfo(uid_t) == .int and @typeInfo(uid_t).int.signedness == .unsigned);
     return setresgid(std.math.maxInt(gid_t), egid, std.math.maxInt(gid_t));
 }
 
@@ -1502,7 +1670,11 @@ pub fn setresgid(rgid: gid_t, egid: gid_t, sgid: gid_t) usize {
     }
 }
 
-pub fn getgroups(size: usize, list: *gid_t) usize {
+pub fn setpgid(pid: pid_t, pgid: pid_t) usize {
+    return syscall2(.setpgid, @intCast(pid), @intCast(pgid));
+}
+
+pub fn getgroups(size: usize, list: ?*gid_t) usize {
     if (@hasField(SYS, "getgroups32")) {
         return syscall2(.getgroups32, size, @intFromPtr(list));
     } else {
@@ -1519,15 +1691,19 @@ pub fn setgroups(size: usize, list: [*]const gid_t) usize {
 }
 
 pub fn setsid() pid_t {
-    return @as(pid_t, @bitCast(@as(u32, @truncate(syscall0(.setsid)))));
+    return @bitCast(@as(u32, @truncate(syscall0(.setsid))));
 }
 
 pub fn getpid() pid_t {
-    return @as(pid_t, @bitCast(@as(u32, @truncate(syscall0(.getpid)))));
+    return @bitCast(@as(u32, @truncate(syscall0(.getpid))));
+}
+
+pub fn getppid() pid_t {
+    return @bitCast(@as(u32, @truncate(syscall0(.getppid))));
 }
 
 pub fn gettid() pid_t {
-    return @as(pid_t, @bitCast(@as(u32, @truncate(syscall0(.gettid)))));
+    return @bitCast(@as(u32, @truncate(syscall0(.gettid))));
 }
 
 pub fn sigprocmask(flags: u32, noalias set: ?*const sigset_t, noalias oldset: ?*sigset_t) usize {
@@ -1573,7 +1749,7 @@ pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigact
     return 0;
 }
 
-const usize_bits = @typeInfo(usize).Int.bits;
+const usize_bits = @typeInfo(usize).int.bits;
 
 pub fn sigaddset(set: *sigset_t, sig: u6) void {
     const s = sig - 1;
@@ -1585,7 +1761,7 @@ pub fn sigaddset(set: *sigset_t, sig: u6) void {
 
 pub fn sigismember(set: *const sigset_t, sig: u6) bool {
     const s = sig - 1;
-    return ((set.*)[@as(usize, @intCast(s)) / usize_bits] & (@as(usize, @intCast(1)) << (s & (usize_bits - 1)))) != 0;
+    return ((set.*)[@as(usize, @intCast(s)) / usize_bits] & (@as(usize, @intCast(1)) << @intCast(s & (usize_bits - 1)))) != 0;
 }
 
 pub fn getsockname(fd: i32, noalias addr: *sockaddr, noalias len: *socklen_t) usize {
@@ -1634,7 +1810,7 @@ pub fn sendmsg(fd: i32, msg: *const msghdr_const, flags: u32) usize {
 }
 
 pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize {
-    if (@typeInfo(usize).Int.bits > @typeInfo(@typeInfo(mmsghdr).Struct.fields[1].type).Int.bits) {
+    if (@typeInfo(usize).int.bits > @typeInfo(@typeInfo(mmsghdr).@"struct".fields[1].type).int.bits) {
         // workaround kernel brokenness:
         // if adding up all iov_len overflows a i32 then split into multiple calls
         // see https://www.openwall.com/lists/musl/2014/06/07/5
@@ -1642,31 +1818,31 @@ pub fn sendmmsg(fd: i32, msgvec: [*]mmsghdr_const, vlen: u32, flags: u32) usize 
         var next_unsent: usize = 0;
         for (msgvec[0..kvlen], 0..) |*msg, i| {
             var size: i32 = 0;
-            const msg_iovlen = @as(usize, @intCast(msg.msg_hdr.msg_iovlen)); // kernel side this is treated as unsigned
-            for (msg.msg_hdr.msg_iov[0..msg_iovlen]) |iov| {
+            const msg_iovlen = @as(usize, @intCast(msg.hdr.iovlen)); // kernel side this is treated as unsigned
+            for (msg.hdr.iov[0..msg_iovlen]) |iov| {
                 if (iov.len > std.math.maxInt(i32) or @addWithOverflow(size, @as(i32, @intCast(iov.len)))[1] != 0) {
                     // batch-send all messages up to the current message
                     if (next_unsent < i) {
                         const batch_size = i - next_unsent;
                         const r = syscall4(.sendmmsg, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(&msgvec[next_unsent]), batch_size, flags);
-                        if (E.init(r) != 0) return next_unsent;
+                        if (E.init(r) != .SUCCESS) return next_unsent;
                         if (r < batch_size) return next_unsent + r;
                     }
                     // send current message as own packet
-                    const r = sendmsg(fd, &msg.msg_hdr, flags);
-                    if (E.init(r) != 0) return r;
+                    const r = sendmsg(fd, &msg.hdr, flags);
+                    if (E.init(r) != .SUCCESS) return r;
                     // Linux limits the total bytes sent by sendmsg to INT_MAX, so this cast is safe.
-                    msg.msg_len = @as(u32, @intCast(r));
+                    msg.len = @as(u32, @intCast(r));
                     next_unsent = i + 1;
                     break;
                 }
-                size += iov.len;
+                size += @intCast(iov.len);
             }
         }
         if (next_unsent < kvlen or next_unsent == 0) { // want to make sure at least one syscall occurs (e.g. to trigger MSG.EOR)
             const batch_size = kvlen - next_unsent;
             const r = syscall4(.sendmmsg, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(&msgvec[next_unsent]), batch_size, flags);
-            if (E.init(r) != 0) return r;
+            if (E.init(r) != .SUCCESS) return r;
             return next_unsent + r;
         }
         return kvlen;
@@ -1783,7 +1959,11 @@ pub fn accept4(fd: i32, noalias addr: ?*sockaddr, noalias len: ?*socklen_t, flag
 }
 
 pub fn fstat(fd: i32, stat_buf: *Stat) usize {
-    if (@hasField(SYS, "fstat64")) {
+    if (native_arch == .riscv32) {
+        // riscv32 has made the interesting decision to not implement some of
+        // the older stat syscalls, including this one.
+        @compileError("No fstat syscall on this architecture.");
+    } else if (@hasField(SYS, "fstat64")) {
         return syscall2(.fstat64, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(stat_buf));
     } else {
         return syscall2(.fstat, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(stat_buf));
@@ -1791,7 +1971,11 @@ pub fn fstat(fd: i32, stat_buf: *Stat) usize {
 }
 
 pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (@hasField(SYS, "stat64")) {
+    if (native_arch == .riscv32) {
+        // riscv32 has made the interesting decision to not implement some of
+        // the older stat syscalls, including this one.
+        @compileError("No stat syscall on this architecture.");
+    } else if (@hasField(SYS, "stat64")) {
         return syscall2(.stat64, @intFromPtr(pathname), @intFromPtr(statbuf));
     } else {
         return syscall2(.stat, @intFromPtr(pathname), @intFromPtr(statbuf));
@@ -1799,7 +1983,11 @@ pub fn stat(pathname: [*:0]const u8, statbuf: *Stat) usize {
 }
 
 pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
-    if (@hasField(SYS, "lstat64")) {
+    if (native_arch == .riscv32) {
+        // riscv32 has made the interesting decision to not implement some of
+        // the older stat syscalls, including this one.
+        @compileError("No lstat syscall on this architecture.");
+    } else if (@hasField(SYS, "lstat64")) {
         return syscall2(.lstat64, @intFromPtr(pathname), @intFromPtr(statbuf));
     } else {
         return syscall2(.lstat, @intFromPtr(pathname), @intFromPtr(statbuf));
@@ -1807,7 +1995,11 @@ pub fn lstat(pathname: [*:0]const u8, statbuf: *Stat) usize {
 }
 
 pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usize {
-    if (@hasField(SYS, "fstatat64")) {
+    if (native_arch == .riscv32) {
+        // riscv32 has made the interesting decision to not implement some of
+        // the older stat syscalls, including this one.
+        @compileError("No fstatat syscall on this architecture.");
+    } else if (@hasField(SYS, "fstatat64")) {
         return syscall4(.fstatat64, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
     } else {
         return syscall4(.fstatat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(stat_buf), flags);
@@ -1815,17 +2007,14 @@ pub fn fstatat(dirfd: i32, path: [*:0]const u8, stat_buf: *Stat, flags: u32) usi
 }
 
 pub fn statx(dirfd: i32, path: [*:0]const u8, flags: u32, mask: u32, statx_buf: *Statx) usize {
-    if (@hasField(SYS, "statx")) {
-        return syscall5(
-            .statx,
-            @as(usize, @bitCast(@as(isize, dirfd))),
-            @intFromPtr(path),
-            flags,
-            mask,
-            @intFromPtr(statx_buf),
-        );
-    }
-    return @as(usize, @bitCast(-@as(isize, @intFromEnum(E.NOSYS))));
+    return syscall5(
+        .statx,
+        @as(usize, @bitCast(@as(isize, dirfd))),
+        @intFromPtr(path),
+        flags,
+        mask,
+        @intFromPtr(statx_buf),
+    );
 }
 
 pub fn listxattr(path: [*:0]const u8, list: [*]u8, size: usize) usize {
@@ -1836,8 +2025,8 @@ pub fn llistxattr(path: [*:0]const u8, list: [*]u8, size: usize) usize {
     return syscall3(.llistxattr, @intFromPtr(path), @intFromPtr(list), size);
 }
 
-pub fn flistxattr(fd: usize, list: [*]u8, size: usize) usize {
-    return syscall3(.flistxattr, fd, @intFromPtr(list), size);
+pub fn flistxattr(fd: fd_t, list: [*]u8, size: usize) usize {
+    return syscall3(.flistxattr, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(list), size);
 }
 
 pub fn getxattr(path: [*:0]const u8, name: [*:0]const u8, value: [*]u8, size: usize) usize {
@@ -1848,20 +2037,20 @@ pub fn lgetxattr(path: [*:0]const u8, name: [*:0]const u8, value: [*]u8, size: u
     return syscall4(.lgetxattr, @intFromPtr(path), @intFromPtr(name), @intFromPtr(value), size);
 }
 
-pub fn fgetxattr(fd: usize, name: [*:0]const u8, value: [*]u8, size: usize) usize {
-    return syscall4(.lgetxattr, fd, @intFromPtr(name), @intFromPtr(value), size);
+pub fn fgetxattr(fd: fd_t, name: [*:0]const u8, value: [*]u8, size: usize) usize {
+    return syscall4(.fgetxattr, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(name), @intFromPtr(value), size);
 }
 
-pub fn setxattr(path: [*:0]const u8, name: [*:0]const u8, value: *const void, size: usize, flags: usize) usize {
+pub fn setxattr(path: [*:0]const u8, name: [*:0]const u8, value: [*]const u8, size: usize, flags: usize) usize {
     return syscall5(.setxattr, @intFromPtr(path), @intFromPtr(name), @intFromPtr(value), size, flags);
 }
 
-pub fn lsetxattr(path: [*:0]const u8, name: [*:0]const u8, value: *const void, size: usize, flags: usize) usize {
+pub fn lsetxattr(path: [*:0]const u8, name: [*:0]const u8, value: [*]const u8, size: usize, flags: usize) usize {
     return syscall5(.lsetxattr, @intFromPtr(path), @intFromPtr(name), @intFromPtr(value), size, flags);
 }
 
-pub fn fsetxattr(fd: usize, name: [*:0]const u8, value: *const void, size: usize, flags: usize) usize {
-    return syscall5(.fsetxattr, fd, @intFromPtr(name), @intFromPtr(value), size, flags);
+pub fn fsetxattr(fd: fd_t, name: [*:0]const u8, value: [*]const u8, size: usize, flags: usize) usize {
+    return syscall5(.fsetxattr, @as(usize, @bitCast(@as(isize, fd))), @intFromPtr(name), @intFromPtr(value), size, flags);
 }
 
 pub fn removexattr(path: [*:0]const u8, name: [*:0]const u8) usize {
@@ -1874,6 +2063,84 @@ pub fn lremovexattr(path: [*:0]const u8, name: [*:0]const u8) usize {
 
 pub fn fremovexattr(fd: usize, name: [*:0]const u8) usize {
     return syscall2(.fremovexattr, fd, @intFromPtr(name));
+}
+
+pub const sched_param = extern struct {
+    priority: i32,
+};
+
+pub const SCHED = packed struct(i32) {
+    pub const Mode = enum(u3) {
+        /// normal multi-user scheduling
+        NORMAL = 0,
+        /// FIFO realtime scheduling
+        FIFO = 1,
+        /// Round-robin realtime scheduling
+        RR = 2,
+        /// For "batch" style execution of processes
+        BATCH = 3,
+        /// Low latency scheduling
+        IDLE = 5,
+        /// Sporadic task model deadline scheduling
+        DEADLINE = 6,
+    };
+    mode: Mode, //bits [0, 2]
+    _3: u27 = 0, //bits [3, 29]
+    /// set to true to stop children from inheriting policies
+    RESET_ON_FORK: bool = false, //bit 30
+    _31: u1 = 0, //bit 31
+};
+
+pub fn sched_setparam(pid: pid_t, param: *const sched_param) usize {
+    return syscall2(.sched_setparam, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(param));
+}
+
+pub fn sched_getparam(pid: pid_t, param: *sched_param) usize {
+    return syscall2(.sched_getparam, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(param));
+}
+
+pub fn sched_setscheduler(pid: pid_t, policy: SCHED, param: *const sched_param) usize {
+    return syscall3(.sched_setscheduler, @as(usize, @bitCast(@as(isize, pid))), @intCast(@as(u32, @bitCast(policy))), @intFromPtr(param));
+}
+
+pub fn sched_getscheduler(pid: pid_t) usize {
+    return syscall1(.sched_getscheduler, @as(usize, @bitCast(@as(isize, pid))));
+}
+
+pub fn sched_get_priority_max(policy: SCHED) usize {
+    return syscall1(.sched_get_priority_max, @intCast(@as(u32, @bitCast(policy))));
+}
+
+pub fn sched_get_priority_min(policy: SCHED) usize {
+    return syscall1(.sched_get_priority_min, @intCast(@as(u32, @bitCast(policy))));
+}
+
+pub fn getcpu(cpu: ?*usize, node: ?*usize) usize {
+    return syscall2(.getcpu, @intFromPtr(cpu), @intFromPtr(node));
+}
+
+pub const sched_attr = extern struct {
+    size: u32 = 48, // Size of this structure
+    policy: u32 = 0, // Policy (SCHED_*)
+    flags: u64 = 0, // Flags
+    nice: u32 = 0, // Nice value (SCHED_OTHER, SCHED_BATCH)
+    priority: u32 = 0, // Static priority (SCHED_FIFO, SCHED_RR)
+    // Remaining fields are for SCHED_DEADLINE
+    runtime: u64 = 0,
+    deadline: u64 = 0,
+    period: u64 = 0,
+};
+
+pub fn sched_setattr(pid: pid_t, attr: *const sched_attr, flags: usize) usize {
+    return syscall3(.sched_setattr, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(attr), flags);
+}
+
+pub fn sched_getattr(pid: pid_t, attr: *sched_attr, size: usize, flags: usize) usize {
+    return syscall4(.sched_getattr, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(attr), size, flags);
+}
+
+pub fn sched_rr_get_interval(pid: pid_t, tp: *timespec) usize {
+    return syscall2(.sched_rr_get_interval, @as(usize, @bitCast(@as(isize, pid))), @intFromPtr(tp));
 }
 
 pub fn sched_yield() usize {
@@ -1891,7 +2158,7 @@ pub fn sched_setaffinity(pid: pid_t, set: *const cpu_set_t) !void {
     const size = @sizeOf(cpu_set_t);
     const rc = syscall3(.sched_setaffinity, @as(usize, @bitCast(@as(isize, pid))), size, @intFromPtr(set));
 
-    switch (std.os.errno(rc)) {
+    switch (E.init(rc)) {
         .SUCCESS => return,
         else => |err| return std.posix.unexpectedErrno(err),
     }
@@ -1929,8 +2196,12 @@ pub fn eventfd(count: u32, flags: u32) usize {
     return syscall2(.eventfd2, count, flags);
 }
 
-pub fn timerfd_create(clockid: i32, flags: TFD) usize {
-    return syscall2(.timerfd_create, @bitCast(@as(isize, clockid)), @as(u32, @bitCast(flags)));
+pub fn timerfd_create(clockid: clockid_t, flags: TFD) usize {
+    return syscall2(
+        .timerfd_create,
+        @intFromEnum(clockid),
+        @as(u32, @bitCast(flags)),
+    );
 }
 
 pub const itimerspec = extern struct {
@@ -2116,7 +2387,7 @@ pub fn pidfd_send_signal(pidfd: fd_t, sig: i32, info: ?*siginfo_t, flags: u32) u
     );
 }
 
-pub fn process_vm_readv(pid: pid_t, local: []iovec, remote: []const iovec_const, flags: usize) usize {
+pub fn process_vm_readv(pid: pid_t, local: []const iovec, remote: []const iovec_const, flags: usize) usize {
     return syscall6(
         .process_vm_readv,
         @as(usize, @bitCast(@as(isize, pid))),
@@ -2141,8 +2412,24 @@ pub fn process_vm_writev(pid: pid_t, local: []const iovec_const, remote: []const
 }
 
 pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
-    if (comptime builtin.cpu.arch.isMIPS()) {
-        // MIPS requires a 7 argument syscall
+    if (comptime native_arch.isArm() or native_arch.isPowerPC32()) {
+        // These architectures reorder the arguments so that a register is not skipped to align the
+        // register number that `offset` is passed in.
+
+        const offset_halves = splitValue64(offset);
+        const length_halves = splitValue64(len);
+
+        return syscall6(
+            .fadvise64_64,
+            @as(usize, @bitCast(@as(isize, fd))),
+            advice,
+            offset_halves[0],
+            offset_halves[1],
+            length_halves[0],
+            length_halves[1],
+        );
+    } else if (native_arch.isMIPS32()) {
+        // MIPS O32 does not deal with the register alignment issue, so pass a dummy value.
 
         const offset_halves = splitValue64(offset);
         const length_halves = splitValue64(len);
@@ -2157,30 +2444,17 @@ pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
             length_halves[1],
             advice,
         );
-    } else if (comptime builtin.cpu.arch.isARM()) {
-        // ARM reorders the arguments
+    } else if (comptime usize_bits < 64) {
+        // Other 32-bit architectures do not require register alignment.
 
         const offset_halves = splitValue64(offset);
         const length_halves = splitValue64(len);
 
         return syscall6(
-            .fadvise64_64,
-            @as(usize, @bitCast(@as(isize, fd))),
-            advice,
-            offset_halves[0],
-            offset_halves[1],
-            length_halves[0],
-            length_halves[1],
-        );
-    } else if (@hasField(SYS, "fadvise64_64") and usize_bits != 64) {
-        // The extra usize check is needed to avoid SPARC64 because it provides both
-        // fadvise64 and fadvise64_64 but the latter behaves differently than other platforms.
-
-        const offset_halves = splitValue64(offset);
-        const length_halves = splitValue64(len);
-
-        return syscall6(
-            .fadvise64_64,
+            switch (builtin.abi) {
+                .gnuabin32, .gnux32, .muslabin32, .muslx32 => .fadvise64,
+                else => .fadvise64_64,
+            },
             @as(usize, @bitCast(@as(isize, fd))),
             offset_halves[0],
             offset_halves[1],
@@ -2189,8 +2463,11 @@ pub fn fadvise(fd: fd_t, offset: i64, len: i64, advice: usize) usize {
             advice,
         );
     } else {
+        // On 64-bit architectures, fadvise64_64 and fadvise64 are the same. Generally, older ports
+        // call it fadvise64 (x86, PowerPC, etc), while newer ports call it fadvise64_64 (RISC-V,
+        // LoongArch, etc). SPARC is the odd one out because it has both.
         return syscall4(
-            .fadvise64,
+            if (@hasField(SYS, "fadvise64_64")) .fadvise64_64 else .fadvise64,
             @as(usize, @bitCast(@as(isize, fd))),
             @as(usize, @bitCast(offset)),
             @as(usize, @bitCast(len)),
@@ -2264,7 +2541,7 @@ pub fn map_shadow_stack(addr: u64, size: u64, flags: u32) usize {
 }
 
 pub const E = switch (native_arch) {
-    .mips, .mipsel => enum(u16) {
+    .mips, .mipsel, .mips64, .mips64el => enum(u16) {
         /// No error occurred.
         SUCCESS = 0,
 
@@ -2406,7 +2683,7 @@ pub const E = switch (native_arch) {
 
         pub const init = errnoFromSyscall;
     },
-    .sparc, .sparcel, .sparc64 => enum(u16) {
+    .sparc, .sparc64 => enum(u16) {
         /// No error occurred.
         SUCCESS = 0,
 
@@ -2916,6 +3193,8 @@ pub const AT = struct {
 
     /// Apply to the entire subtree
     pub const RECURSIVE = 0x8000;
+
+    pub const HANDLE_FID = REMOVEDIR;
 };
 
 pub const FALLOC = struct {
@@ -3483,7 +3762,7 @@ pub const SO = if (is_mips) struct {
     pub const RCVTIMEO_NEW = 66;
     pub const SNDTIMEO_NEW = 67;
     pub const DETACH_REUSEPORT_BPF = 68;
-} else if (is_ppc or is_ppc64) struct {
+} else if (is_ppc) struct {
     pub const DEBUG = 1;
     pub const REUSEADDR = 2;
     pub const TYPE = 3;
@@ -3912,50 +4191,354 @@ pub const DT = struct {
     pub const WHT = 14;
 };
 
-pub const T = struct {
-    pub const CGETS = if (is_mips) 0x540D else 0x5401;
-    pub const CSETS = if (is_mips) 0x540e else 0x5402;
-    pub const CSETSW = if (is_mips) 0x540f else 0x5403;
-    pub const CSETSF = if (is_mips) 0x5410 else 0x5404;
-    pub const CGETA = if (is_mips) 0x5401 else 0x5405;
-    pub const CSETA = if (is_mips) 0x5402 else 0x5406;
-    pub const CSETAW = if (is_mips) 0x5403 else 0x5407;
-    pub const CSETAF = if (is_mips) 0x5404 else 0x5408;
-    pub const CSBRK = if (is_mips) 0x5405 else 0x5409;
-    pub const CXONC = if (is_mips) 0x5406 else 0x540A;
-    pub const CFLSH = if (is_mips) 0x5407 else 0x540B;
-    pub const IOCEXCL = if (is_mips) 0x740d else 0x540C;
-    pub const IOCNXCL = if (is_mips) 0x740e else 0x540D;
-    pub const IOCSCTTY = if (is_mips) 0x7472 else 0x540E;
-    pub const IOCGPGRP = if (is_mips) 0x5472 else 0x540F;
-    pub const IOCSPGRP = if (is_mips) 0x741d else 0x5410;
-    pub const IOCOUTQ = if (is_mips) 0x7472 else 0x5411;
-    pub const IOCSTI = if (is_mips) 0x5472 else 0x5412;
-    pub const IOCGWINSZ = if (is_mips or is_ppc64) 0x40087468 else 0x5413;
-    pub const IOCSWINSZ = if (is_mips or is_ppc64) 0x80087467 else 0x5414;
-    pub const IOCMGET = if (is_mips) 0x741d else 0x5415;
-    pub const IOCMBIS = if (is_mips) 0x741b else 0x5416;
-    pub const IOCMBIC = if (is_mips) 0x741c else 0x5417;
-    pub const IOCMSET = if (is_mips) 0x741a else 0x5418;
-    pub const IOCGSOFTCAR = if (is_mips) 0x5481 else 0x5419;
-    pub const IOCSSOFTCAR = if (is_mips) 0x5482 else 0x541A;
-    pub const FIONREAD = if (is_mips) 0x467F else 0x541B;
+pub const T = if (is_mips) struct {
+    pub const CGETA = 0x5401;
+    pub const CSETA = 0x5402;
+    pub const CSETAW = 0x5403;
+    pub const CSETAF = 0x5404;
+
+    pub const CSBRK = 0x5405;
+    pub const CXONC = 0x5406;
+    pub const CFLSH = 0x5407;
+
+    pub const CGETS = 0x540d;
+    pub const CSETS = 0x540e;
+    pub const CSETSW = 0x540f;
+    pub const CSETSF = 0x5410;
+
+    pub const IOCEXCL = 0x740d;
+    pub const IOCNXCL = 0x740e;
+    pub const IOCOUTQ = 0x7472;
+    pub const IOCSTI = 0x5472;
+    pub const IOCMGET = 0x741d;
+    pub const IOCMBIS = 0x741b;
+    pub const IOCMBIC = 0x741c;
+    pub const IOCMSET = 0x741a;
+    pub const IOCPKT = 0x5470;
+    pub const IOCPKT_DATA = 0x00;
+    pub const IOCPKT_FLUSHREAD = 0x01;
+    pub const IOCPKT_FLUSHWRITE = 0x02;
+    pub const IOCPKT_STOP = 0x04;
+    pub const IOCPKT_START = 0x08;
+    pub const IOCPKT_NOSTOP = 0x10;
+    pub const IOCPKT_DOSTOP = 0x20;
+    pub const IOCPKT_IOCTL = 0x40;
+    pub const IOCSWINSZ = IOCTL.IOW('t', 103, winsize);
+    pub const IOCGWINSZ = IOCTL.IOR('t', 104, winsize);
+    pub const IOCNOTTY = 0x5471;
+    pub const IOCSETD = 0x7401;
+    pub const IOCGETD = 0x7400;
+
+    pub const FIOCLEX = 0x6601;
+    pub const FIONCLEX = 0x6602;
+    pub const FIOASYNC = 0x667d;
+    pub const FIONBIO = 0x667e;
+    pub const FIOQSIZE = 0x667f;
+
+    pub const IOCGLTC = 0x7474;
+    pub const IOCSLTC = 0x7475;
+    pub const IOCSPGRP = IOCTL.IOW('t', 118, c_int);
+    pub const IOCGPGRP = IOCTL.IOR('t', 119, c_int);
+    pub const IOCCONS = IOCTL.IOW('t', 120, c_int);
+
+    pub const FIONREAD = 0x467f;
     pub const IOCINQ = FIONREAD;
-    pub const IOCLINUX = if (is_mips) 0x5483 else 0x541C;
-    pub const IOCCONS = if (is_mips) IOCTL.IOW('t', 120, c_int) else 0x541D;
-    pub const IOCGSERIAL = if (is_mips) 0x5484 else 0x541E;
-    pub const IOCSSERIAL = if (is_mips) 0x5485 else 0x541F;
-    pub const IOCPKT = if (is_mips) 0x5470 else 0x5420;
-    pub const FIONBIO = if (is_mips) 0x667e else 0x5421;
-    pub const IOCNOTTY = if (is_mips) 0x5471 else 0x5422;
-    pub const IOCSETD = if (is_mips) 0x7401 else 0x5423;
-    pub const IOCGETD = if (is_mips) 0x7400 else 0x5424;
-    pub const CSBRKP = if (is_mips) 0x5486 else 0x5425;
+
+    pub const IOCGETP = 0x7408;
+    pub const IOCSETP = 0x7409;
+    pub const IOCSETN = 0x740a;
+
     pub const IOCSBRK = 0x5427;
     pub const IOCCBRK = 0x5428;
-    pub const IOCGSID = if (is_mips) 0x7416 else 0x5429;
-    pub const IOCGRS485 = 0x542E;
-    pub const IOCSRS485 = 0x542F;
+    pub const IOCGSID = 0x7416;
+    pub const CGETS2 = IOCTL.IOR('T', 0x2a, termios2);
+    pub const CSETS2 = IOCTL.IOW('T', 0x2b, termios2);
+    pub const CSETSW2 = IOCTL.IOW('T', 0x2c, termios2);
+    pub const CSETSF2 = IOCTL.IOW('T', 0x2d, termios2);
+    pub const IOCGRS485 = IOCTL.IOR('T', 0x2e, serial_rs485);
+    pub const IOCSRS485 = IOCTL.IOWR('T', 0x2f, serial_rs485);
+    pub const IOCGPTN = IOCTL.IOR('T', 0x30, c_uint);
+    pub const IOCSPTLCK = IOCTL.IOW('T', 0x31, c_int);
+    pub const IOCGDEV = IOCTL.IOR('T', 0x32, c_uint);
+    pub const IOCSIG = IOCTL.IOW('T', 0x36, c_int);
+    pub const IOCVHANGUP = 0x5437;
+    pub const IOCGPKT = IOCTL.IOR('T', 0x38, c_int);
+    pub const IOCGPTLCK = IOCTL.IOR('T', 0x39, c_int);
+    pub const IOCGEXCL = IOCTL.IOR('T', 0x40, c_int);
+    pub const IOCGPTPEER = IOCTL.IO('T', 0x41);
+    pub const IOCGISO7816 = IOCTL.IOR('T', 0x42, serial_iso7816);
+    pub const IOCSISO7816 = IOCTL.IOWR('T', 0x43, serial_iso7816);
+
+    pub const IOCSCTTY = 0x5480;
+    pub const IOCGSOFTCAR = 0x5481;
+    pub const IOCSSOFTCAR = 0x5482;
+    pub const IOCLINUX = 0x5483;
+    pub const IOCGSERIAL = 0x5484;
+    pub const IOCSSERIAL = 0x5485;
+    pub const CSBRKP = 0x5486;
+    pub const IOCSERCONFIG = 0x5488;
+    pub const IOCSERGWILD = 0x5489;
+    pub const IOCSERSWILD = 0x548a;
+    pub const IOCGLCKTRMIOS = 0x548b;
+    pub const IOCSLCKTRMIOS = 0x548c;
+    pub const IOCSERGSTRUCT = 0x548d;
+    pub const IOCSERGETLSR = 0x548e;
+    pub const IOCSERGETMULTI = 0x548f;
+    pub const IOCSERSETMULTI = 0x5490;
+    pub const IOCMIWAIT = 0x5491;
+    pub const IOCGICOUNT = 0x5492;
+} else if (is_ppc) struct {
+    pub const FIOCLEX = IOCTL.IO('f', 1);
+    pub const FIONCLEX = IOCTL.IO('f', 2);
+    pub const FIOASYNC = IOCTL.IOW('f', 125, c_int);
+    pub const FIONBIO = IOCTL.IOW('f', 126, c_int);
+    pub const FIONREAD = IOCTL.IOR('f', 127, c_int);
+    pub const IOCINQ = FIONREAD;
+    pub const FIOQSIZE = IOCTL.IOR('f', 128, c_longlong); // loff_t -> __kernel_loff_t -> long long
+
+    pub const IOCGETP = IOCTL.IOR('t', 8, sgttyb);
+    pub const IOCSETP = IOCTL.IOW('t', 9, sgttyb);
+    pub const IOCSETN = IOCTL.IOW('t', 10, sgttyb);
+
+    pub const IOCSETC = IOCTL.IOW('t', 17, tchars);
+    pub const IOCGETC = IOCTL.IOR('t', 18, tchars);
+    pub const CGETS = IOCTL.IOR('t', 19, termios);
+    pub const CSETS = IOCTL.IOW('t', 20, termios);
+    pub const CSETSW = IOCTL.IOW('t', 21, termios);
+    pub const CSETSF = IOCTL.IOW('t', 22, termios);
+
+    pub const CGETA = IOCTL.IOR('t', 23, termio);
+    pub const CSETA = IOCTL.IOW('t', 24, termio);
+    pub const CSETAW = IOCTL.IOW('t', 25, termio);
+    pub const CSETAF = IOCTL.IOW('t', 28, termio);
+
+    pub const CSBRK = IOCTL.IO('t', 29);
+    pub const CXONC = IOCTL.IO('t', 30);
+    pub const CFLSH = IOCTL.IO('t', 31);
+
+    pub const IOCSWINSZ = IOCTL.IOW('t', 103, winsize);
+    pub const IOCGWINSZ = IOCTL.IOR('t', 104, winsize);
+    pub const IOCSTART = IOCTL.IO('t', 110);
+    pub const IOCSTOP = IOCTL.IO('t', 111);
+    pub const IOCOUTQ = IOCTL.IOR('t', 115, c_int);
+
+    pub const IOCGLTC = IOCTL.IOR('t', 116, ltchars);
+    pub const IOCSLTC = IOCTL.IOW('t', 117, ltchars);
+    pub const IOCSPGRP = IOCTL.IOW('t', 118, c_int);
+    pub const IOCGPGRP = IOCTL.IOR('t', 119, c_int);
+
+    pub const IOCEXCL = 0x540c;
+    pub const IOCNXCL = 0x540d;
+    pub const IOCSCTTY = 0x540e;
+
+    pub const IOCSTI = 0x5412;
+    pub const IOCMGET = 0x5415;
+    pub const IOCMBIS = 0x5416;
+    pub const IOCMBIC = 0x5417;
+    pub const IOCMSET = 0x5418;
+    pub const IOCM_LE = 0x001;
+    pub const IOCM_DTR = 0x002;
+    pub const IOCM_RTS = 0x004;
+    pub const IOCM_ST = 0x008;
+    pub const IOCM_SR = 0x010;
+    pub const IOCM_CTS = 0x020;
+    pub const IOCM_CAR = 0x040;
+    pub const IOCM_RNG = 0x080;
+    pub const IOCM_DSR = 0x100;
+    pub const IOCM_CD = IOCM_CAR;
+    pub const IOCM_RI = IOCM_RNG;
+    pub const IOCM_OUT1 = 0x2000;
+    pub const IOCM_OUT2 = 0x4000;
+    pub const IOCM_LOOP = 0x8000;
+
+    pub const IOCGSOFTCAR = 0x5419;
+    pub const IOCSSOFTCAR = 0x541a;
+    pub const IOCLINUX = 0x541c;
+    pub const IOCCONS = 0x541d;
+    pub const IOCGSERIAL = 0x541e;
+    pub const IOCSSERIAL = 0x541f;
+    pub const IOCPKT = 0x5420;
+    pub const IOCPKT_DATA = 0;
+    pub const IOCPKT_FLUSHREAD = 1;
+    pub const IOCPKT_FLUSHWRITE = 2;
+    pub const IOCPKT_STOP = 4;
+    pub const IOCPKT_START = 8;
+    pub const IOCPKT_NOSTOP = 16;
+    pub const IOCPKT_DOSTOP = 32;
+    pub const IOCPKT_IOCTL = 64;
+
+    pub const IOCNOTTY = 0x5422;
+    pub const IOCSETD = 0x5423;
+    pub const IOCGETD = 0x5424;
+    pub const CSBRKP = 0x5425;
+    pub const IOCSBRK = 0x5427;
+    pub const IOCCBRK = 0x5428;
+    pub const IOCGSID = 0x5429;
+    pub const IOCGRS485 = 0x542e;
+    pub const IOCSRS485 = 0x542f;
+    pub const IOCGPTN = IOCTL.IOR('T', 0x30, c_uint);
+    pub const IOCSPTLCK = IOCTL.IOW('T', 0x31, c_int);
+    pub const IOCGDEV = IOCTL.IOR('T', 0x32, c_uint);
+    pub const IOCSIG = IOCTL.IOW('T', 0x36, c_int);
+    pub const IOCVHANGUP = 0x5437;
+    pub const IOCGPKT = IOCTL.IOR('T', 0x38, c_int);
+    pub const IOCGPTLCK = IOCTL.IOR('T', 0x39, c_int);
+    pub const IOCGEXCL = IOCTL.IOR('T', 0x40, c_int);
+    pub const IOCGPTPEER = IOCTL.IO('T', 0x41);
+    pub const IOCGISO7816 = IOCTL.IOR('T', 0x42, serial_iso7816);
+    pub const IOCSISO7816 = IOCTL.IOWR('T', 0x43, serial_iso7816);
+
+    pub const IOCSERCONFIG = 0x5453;
+    pub const IOCSERGWILD = 0x5454;
+    pub const IOCSERSWILD = 0x5455;
+    pub const IOCGLCKTRMIOS = 0x5456;
+    pub const IOCSLCKTRMIOS = 0x5457;
+    pub const IOCSERGSTRUCT = 0x5458;
+    pub const IOCSERGETLSR = 0x5459;
+    pub const IOCSER_TEMT = 0x01;
+    pub const IOCSERGETMULTI = 0x545a;
+    pub const IOCSERSETMULTI = 0x545b;
+
+    pub const IOCMIWAIT = 0x545c;
+    pub const IOCGICOUNT = 0x545d;
+} else if (is_sparc) struct {
+    // Entries with double-underscore prefix have not been translated as they are unsupported.
+
+    pub const CGETA = IOCTL.IOR('T', 1, termio);
+    pub const CSETA = IOCTL.IOW('T', 2, termio);
+    pub const CSETAW = IOCTL.IOW('T', 3, termio);
+    pub const CSETAF = IOCTL.IOW('T', 4, termio);
+    pub const CSBRK = IOCTL.IO('T', 5);
+    pub const CXONC = IOCTL.IO('T', 6);
+    pub const CFLSH = IOCTL.IO('T', 7);
+    pub const CGETS = IOCTL.IOR('T', 8, termios);
+    pub const CSETS = IOCTL.IOW('T', 9, termios);
+    pub const CSETSW = IOCTL.IOW('T', 10, termios);
+    pub const CSETSF = IOCTL.IOW('T', 11, termios);
+    pub const CGETS2 = IOCTL.IOR('T', 12, termios2);
+    pub const CSETS2 = IOCTL.IOW('T', 13, termios2);
+    pub const CSETSW2 = IOCTL.IOW('T', 14, termios2);
+    pub const CSETSF2 = IOCTL.IOW('T', 15, termios2);
+    pub const IOCGDEV = IOCTL.IOR('T', 0x32, c_uint);
+    pub const IOCVHANGUP = IOCTL.IO('T', 0x37);
+    pub const IOCGPKT = IOCTL.IOR('T', 0x38, c_int);
+    pub const IOCGPTLCK = IOCTL.IOR('T', 0x39, c_int);
+    pub const IOCGEXCL = IOCTL.IOR('T', 0x40, c_int);
+    pub const IOCGRS485 = IOCTL.IOR('T', 0x41, serial_rs485);
+    pub const IOCSRS485 = IOCTL.IOWR('T', 0x42, serial_rs485);
+    pub const IOCGISO7816 = IOCTL.IOR('T', 0x43, serial_iso7816);
+    pub const IOCSISO7816 = IOCTL.IOWR('T', 0x44, serial_iso7816);
+
+    pub const IOCGETD = IOCTL.IOR('t', 0, c_int);
+    pub const IOCSETD = IOCTL.IOW('t', 1, c_int);
+    pub const IOCEXCL = IOCTL.IO('t', 13);
+    pub const IOCNXCL = IOCTL.IO('t', 14);
+    pub const IOCCONS = IOCTL.IO('t', 36);
+    pub const IOCGSOFTCAR = IOCTL.IOR('t', 100, c_int);
+    pub const IOCSSOFTCAR = IOCTL.IOW('t', 101, c_int);
+    pub const IOCSWINSZ = IOCTL.IOW('t', 103, winsize);
+    pub const IOCGWINSZ = IOCTL.IOR('t', 104, winsize);
+    pub const IOCMGET = IOCTL.IOR('t', 106, c_int);
+    pub const IOCMBIC = IOCTL.IOW('t', 107, c_int);
+    pub const IOCMBIS = IOCTL.IOW('t', 108, c_int);
+    pub const IOCMSET = IOCTL.IOW('t', 109, c_int);
+    pub const IOCSTART = IOCTL.IO('t', 110);
+    pub const IOCSTOP = IOCTL.IO('t', 111);
+    pub const IOCPKT = IOCTL.IOW('t', 112, c_int);
+    pub const IOCNOTTY = IOCTL.IO('t', 113);
+    pub const IOCSTI = IOCTL.IOW('t', 114, c_char);
+    pub const IOCOUTQ = IOCTL.IOR('t', 115, c_int);
+    pub const IOCCBRK = IOCTL.IO('t', 122);
+    pub const IOCSBRK = IOCTL.IO('t', 123);
+    pub const IOCSPGRP = IOCTL.IOW('t', 130, c_int);
+    pub const IOCGPGRP = IOCTL.IOR('t', 131, c_int);
+    pub const IOCSCTTY = IOCTL.IO('t', 132);
+    pub const IOCGSID = IOCTL.IOR('t', 133, c_int);
+    pub const IOCGPTN = IOCTL.IOR('t', 134, c_uint);
+    pub const IOCSPTLCK = IOCTL.IOW('t', 135, c_int);
+    pub const IOCSIG = IOCTL.IOW('t', 136, c_int);
+    pub const IOCGPTPEER = IOCTL.IO('t', 137);
+
+    pub const FIOCLEX = IOCTL.IO('f', 1);
+    pub const FIONCLEX = IOCTL.IO('f', 2);
+    pub const FIOASYNC = IOCTL.IOW('f', 125, c_int);
+    pub const FIONBIO = IOCTL.IOW('f', 126, c_int);
+    pub const FIONREAD = IOCTL.IOR('f', 127, c_int);
+    pub const IOCINQ = FIONREAD;
+    pub const FIOQSIZE = IOCTL.IOR('f', 128, c_longlong); // loff_t -> __kernel_loff_t -> long long
+
+    pub const IOCLINUX = 0x541c;
+    pub const IOCGSERIAL = 0x541e;
+    pub const IOCSSERIAL = 0x541f;
+    pub const CSBRKP = 0x5425;
+    pub const IOCSERCONFIG = 0x5453;
+    pub const IOCSERGWILD = 0x5454;
+    pub const IOCSERSWILD = 0x5455;
+    pub const IOCGLCKTRMIOS = 0x5456;
+    pub const IOCSLCKTRMIOS = 0x5457;
+    pub const IOCSERGSTRUCT = 0x5458;
+    pub const IOCSERGETLSR = 0x5459;
+    pub const IOCSERGETMULTI = 0x545a;
+    pub const IOCSERSETMULTI = 0x545b;
+    pub const IOCMIWAIT = 0x545c;
+    pub const IOCGICOUNT = 0x545d;
+
+    pub const IOCPKT_DATA = 0;
+    pub const IOCPKT_FLUSHREAD = 1;
+    pub const IOCPKT_FLUSHWRITE = 2;
+    pub const IOCPKT_STOP = 4;
+    pub const IOCPKT_START = 8;
+    pub const IOCPKT_NOSTOP = 16;
+    pub const IOCPKT_DOSTOP = 32;
+    pub const IOCPKT_IOCTL = 64;
+} else struct {
+    pub const CGETS = 0x5401;
+    pub const CSETS = 0x5402;
+    pub const CSETSW = 0x5403;
+    pub const CSETSF = 0x5404;
+    pub const CGETA = 0x5405;
+    pub const CSETA = 0x5406;
+    pub const CSETAW = 0x5407;
+    pub const CSETAF = 0x5408;
+    pub const CSBRK = 0x5409;
+    pub const CXONC = 0x540a;
+    pub const CFLSH = 0x540b;
+    pub const IOCEXCL = 0x540c;
+    pub const IOCNXCL = 0x540d;
+    pub const IOCSCTTY = 0x540e;
+    pub const IOCGPGRP = 0x540f;
+    pub const IOCSPGRP = 0x5410;
+    pub const IOCOUTQ = 0x5411;
+    pub const IOCSTI = 0x5412;
+    pub const IOCGWINSZ = 0x5413;
+    pub const IOCSWINSZ = 0x5414;
+    pub const IOCMGET = 0x5415;
+    pub const IOCMBIS = 0x5416;
+    pub const IOCMBIC = 0x5417;
+    pub const IOCMSET = 0x5418;
+    pub const IOCGSOFTCAR = 0x5419;
+    pub const IOCSSOFTCAR = 0x541a;
+    pub const FIONREAD = 0x541b;
+    pub const IOCINQ = FIONREAD;
+    pub const IOCLINUX = 0x541c;
+    pub const IOCCONS = 0x541d;
+    pub const IOCGSERIAL = 0x541e;
+    pub const IOCSSERIAL = 0x541f;
+    pub const IOCPKT = 0x5420;
+    pub const FIONBIO = 0x5421;
+    pub const IOCNOTTY = 0x5422;
+    pub const IOCSETD = 0x5423;
+    pub const IOCGETD = 0x5424;
+    pub const CSBRKP = 0x5425;
+    pub const IOCSBRK = 0x5427;
+    pub const IOCCBRK = 0x5428;
+    pub const IOCGSID = 0x5429;
+    pub const CGETS2 = IOCTL.IOR('T', 0x2a, termios2);
+    pub const CSETS2 = IOCTL.IOW('T', 0x2b, termios2);
+    pub const CSETSW2 = IOCTL.IOW('T', 0x2c, termios2);
+    pub const CSETSF2 = IOCTL.IOW('T', 0x2d, termios2);
+    pub const IOCGRS485 = 0x542e;
+    pub const IOCSRS485 = 0x542f;
     pub const IOCGPTN = IOCTL.IOR('T', 0x30, c_uint);
     pub const IOCSPTLCK = IOCTL.IOW('T', 0x31, c_int);
     pub const IOCGDEV = IOCTL.IOR('T', 0x32, c_uint);
@@ -3968,6 +4551,93 @@ pub const T = struct {
     pub const IOCGPKT = IOCTL.IOR('T', 0x38, c_int);
     pub const IOCGPTLCK = IOCTL.IOR('T', 0x39, c_int);
     pub const IOCGEXCL = IOCTL.IOR('T', 0x40, c_int);
+    pub const IOCGPTPEER = IOCTL.IO('T', 0x41);
+    pub const IOCGISO7816 = IOCTL.IOR('T', 0x42, serial_iso7816);
+    pub const IOCSISO7816 = IOCTL.IOWR('T', 0x43, serial_iso7816);
+
+    pub const FIONCLEX = 0x5450;
+    pub const FIOCLEX = 0x5451;
+    pub const FIOASYNC = 0x5452;
+    pub const IOCSERCONFIG = 0x5453;
+    pub const IOCSERGWILD = 0x5454;
+    pub const IOCSERSWILD = 0x5455;
+    pub const IOCGLCKTRMIOS = 0x5456;
+    pub const IOCSLCKTRMIOS = 0x5457;
+    pub const IOCSERGSTRUCT = 0x5458;
+    pub const IOCSERGETLSR = 0x5459;
+    pub const IOCSERGETMULTI = 0x545a;
+    pub const IOCSERSETMULTI = 0x545b;
+
+    pub const IOCMIWAIT = 0x545c;
+    pub const IOCGICOUNT = 0x545d;
+
+    pub const FIOQSIZE = switch (native_arch) {
+        .arm,
+        .armeb,
+        .thumb,
+        .thumbeb,
+        .m68k,
+        .s390x,
+        => 0x545e,
+        else => 0x5460,
+    };
+
+    pub const IOCPKT_DATA = 0;
+    pub const IOCPKT_FLUSHREAD = 1;
+    pub const IOCPKT_FLUSHWRITE = 2;
+    pub const IOCPKT_STOP = 4;
+    pub const IOCPKT_START = 8;
+    pub const IOCPKT_NOSTOP = 16;
+    pub const IOCPKT_DOSTOP = 32;
+    pub const IOCPKT_IOCTL = 64;
+
+    pub const IOCSER_TEMT = 0x01;
+};
+
+pub const serial_rs485 = extern struct {
+    flags: u32,
+    delay_rts_before_send: u32,
+    delay_rts_after_send: u32,
+    extra: extern union {
+        _pad1: [5]u32,
+        s: extern struct {
+            addr_recv: u8,
+            addr_dest: u8,
+            _pad2: [2]u8,
+            _pad3: [4]u32,
+        },
+    },
+};
+
+pub const serial_iso7816 = extern struct {
+    flags: u32,
+    tg: u32,
+    sc_fi: u32,
+    sc_di: u32,
+    clk: u32,
+    _reserved: [5]u32,
+};
+
+pub const SER = struct {
+    pub const RS485 = struct {
+        pub const ENABLED = 1 << 0;
+        pub const RTS_ON_SEND = 1 << 1;
+        pub const RTS_AFTER_SEND = 1 << 2;
+        pub const RX_DURING_TX = 1 << 4;
+        pub const TERMINATE_BUS = 1 << 5;
+        pub const ADDRB = 1 << 6;
+        pub const ADDR_RECV = 1 << 7;
+        pub const ADDR_DEST = 1 << 8;
+    };
+
+    pub const ISO7816 = struct {
+        pub const ENABLED = 1 << 0;
+        pub const T_PARAM = 0x0f << 4;
+
+        pub fn T(t: anytype) @TypeOf(t) {
+            return (t & 0x0f) << 4;
+        }
+    };
 };
 
 pub const EPOLL = struct {
@@ -3994,19 +4664,27 @@ pub const EPOLL = struct {
     pub const ET = (@as(u32, 1) << 31);
 };
 
-pub const CLOCK = struct {
-    pub const REALTIME = 0;
-    pub const MONOTONIC = 1;
-    pub const PROCESS_CPUTIME_ID = 2;
-    pub const THREAD_CPUTIME_ID = 3;
-    pub const MONOTONIC_RAW = 4;
-    pub const REALTIME_COARSE = 5;
-    pub const MONOTONIC_COARSE = 6;
-    pub const BOOTTIME = 7;
-    pub const REALTIME_ALARM = 8;
-    pub const BOOTTIME_ALARM = 9;
-    pub const SGI_CYCLE = 10;
-    pub const TAI = 11;
+pub const CLOCK = clockid_t;
+
+pub const clockid_t = enum(u32) {
+    REALTIME = 0,
+    MONOTONIC = 1,
+    PROCESS_CPUTIME_ID = 2,
+    THREAD_CPUTIME_ID = 3,
+    MONOTONIC_RAW = 4,
+    REALTIME_COARSE = 5,
+    MONOTONIC_COARSE = 6,
+    BOOTTIME = 7,
+    REALTIME_ALARM = 8,
+    BOOTTIME_ALARM = 9,
+    SGI_CYCLE = 10,
+    TAI = 11,
+    _,
+};
+
+pub const TIMER = packed struct(u32) {
+    ABSTIME: bool,
+    _: u31 = 0,
 };
 
 pub const CSIGNAL = 0x000000ff;
@@ -4135,57 +4813,155 @@ pub const IN = struct {
     pub const ONESHOT = 0x80000000;
 };
 
-pub const FAN = struct {
-    pub const ACCESS = 0x00000001;
-    pub const MODIFY = 0x00000002;
-    pub const CLOSE_WRITE = 0x00000008;
-    pub const CLOSE_NOWRITE = 0x00000010;
-    pub const OPEN = 0x00000020;
-    pub const Q_OVERFLOW = 0x00004000;
-    pub const OPEN_PERM = 0x00010000;
-    pub const ACCESS_PERM = 0x00020000;
-    pub const ONDIR = 0x40000000;
-    pub const EVENT_ON_CHILD = 0x08000000;
-    pub const CLOSE = CLOSE_WRITE | CLOSE_NOWRITE;
-    pub const CLOEXEC = 0x00000001;
-    pub const NONBLOCK = 0x00000002;
-    pub const CLASS_NOTIF = 0x00000000;
-    pub const CLASS_CONTENT = 0x00000004;
-    pub const CLASS_PRE_CONTENT = 0x00000008;
-    pub const ALL_CLASS_BITS = CLASS_NOTIF | CLASS_CONTENT | CLASS_PRE_CONTENT;
-    pub const UNLIMITED_QUEUE = 0x00000010;
-    pub const UNLIMITED_MARKS = 0x00000020;
-    pub const ALL_INIT_FLAGS = CLOEXEC | NONBLOCK | ALL_CLASS_BITS | UNLIMITED_QUEUE | UNLIMITED_MARKS;
-    pub const MARK_ADD = 0x00000001;
-    pub const MARK_REMOVE = 0x00000002;
-    pub const MARK_DONT_FOLLOW = 0x00000004;
-    pub const MARK_ONLYDIR = 0x00000008;
-    pub const MARK_MOUNT = 0x00000010;
-    pub const MARK_IGNORED_MASK = 0x00000020;
-    pub const MARK_IGNORED_SURV_MODIFY = 0x00000040;
-    pub const MARK_FLUSH = 0x00000080;
-    pub const ALL_MARK_FLAGS = MARK_ADD | MARK_REMOVE | MARK_DONT_FOLLOW | MARK_ONLYDIR | MARK_MOUNT | MARK_IGNORED_MASK | MARK_IGNORED_SURV_MODIFY | MARK_FLUSH;
-    pub const ALL_EVENTS = ACCESS | MODIFY | CLOSE | OPEN;
-    pub const ALL_PERM_EVENTS = OPEN_PERM | ACCESS_PERM;
-    pub const ALL_OUTGOING_EVENTS = ALL_EVENTS | ALL_PERM_EVENTS | Q_OVERFLOW;
-    pub const ALLOW = 0x01;
-    pub const DENY = 0x02;
+pub const fanotify = struct {
+    pub const InitFlags = packed struct(u32) {
+        CLOEXEC: bool = false,
+        NONBLOCK: bool = false,
+        CLASS: enum(u2) {
+            NOTIF = 0,
+            CONTENT = 1,
+            PRE_CONTENT = 2,
+        } = .NOTIF,
+        UNLIMITED_QUEUE: bool = false,
+        UNLIMITED_MARKS: bool = false,
+        ENABLE_AUDIT: bool = false,
+        REPORT_PIDFD: bool = false,
+        REPORT_TID: bool = false,
+        REPORT_FID: bool = false,
+        REPORT_DIR_FID: bool = false,
+        REPORT_NAME: bool = false,
+        REPORT_TARGET_FID: bool = false,
+        _: u19 = 0,
+    };
+
+    pub const MarkFlags = packed struct(u32) {
+        ADD: bool = false,
+        REMOVE: bool = false,
+        DONT_FOLLOW: bool = false,
+        ONLYDIR: bool = false,
+        MOUNT: bool = false,
+        /// Mutually exclusive with `IGNORE`
+        IGNORED_MASK: bool = false,
+        IGNORED_SURV_MODIFY: bool = false,
+        FLUSH: bool = false,
+        FILESYSTEM: bool = false,
+        EVICTABLE: bool = false,
+        /// Mutually exclusive with `IGNORED_MASK`
+        IGNORE: bool = false,
+        _: u21 = 0,
+    };
+
+    pub const MarkMask = packed struct(u64) {
+        /// File was accessed
+        ACCESS: bool = false,
+        /// File was modified
+        MODIFY: bool = false,
+        /// Metadata changed
+        ATTRIB: bool = false,
+        /// Writtable file closed
+        CLOSE_WRITE: bool = false,
+        /// Unwrittable file closed
+        CLOSE_NOWRITE: bool = false,
+        /// File was opened
+        OPEN: bool = false,
+        /// File was moved from X
+        MOVED_FROM: bool = false,
+        /// File was moved to Y
+        MOVED_TO: bool = false,
+
+        /// Subfile was created
+        CREATE: bool = false,
+        /// Subfile was deleted
+        DELETE: bool = false,
+        /// Self was deleted
+        DELETE_SELF: bool = false,
+        /// Self was moved
+        MOVE_SELF: bool = false,
+        /// File was opened for exec
+        OPEN_EXEC: bool = false,
+        reserved13: u1 = 0,
+        /// Event queued overflowed
+        Q_OVERFLOW: bool = false,
+        /// Filesystem error
+        FS_ERROR: bool = false,
+
+        /// File open in perm check
+        OPEN_PERM: bool = false,
+        /// File accessed in perm check
+        ACCESS_PERM: bool = false,
+        /// File open/exec in perm check
+        OPEN_EXEC_PERM: bool = false,
+        reserved19: u8 = 0,
+        /// Interested in child events
+        EVENT_ON_CHILD: bool = false,
+        /// File was renamed
+        RENAME: bool = false,
+        reserved30: u1 = 0,
+        /// Event occurred against dir
+        ONDIR: bool = false,
+        reserved31: u33 = 0,
+    };
+
+    pub const event_metadata = extern struct {
+        event_len: u32,
+        vers: u8,
+        reserved: u8,
+        metadata_len: u16,
+        mask: MarkMask align(8),
+        fd: i32,
+        pid: i32,
+
+        pub const VERSION = 3;
+    };
+
+    pub const response = extern struct {
+        fd: i32,
+        response: u32,
+    };
+
+    /// Unique file identifier info record.
+    ///
+    /// This structure is used for records of types `EVENT_INFO_TYPE.FID`.
+    /// `EVENT_INFO_TYPE.DFID` and `EVENT_INFO_TYPE.DFID_NAME`.
+    ///
+    /// For `EVENT_INFO_TYPE.DFID_NAME` there is additionally a null terminated
+    /// name immediately after the file handle.
+    pub const event_info_fid = extern struct {
+        hdr: event_info_header,
+        fsid: kernel_fsid_t,
+        /// Following is an opaque struct file_handle that can be passed as
+        /// an argument to open_by_handle_at(2).
+        handle: [0]u8,
+    };
+
+    /// Variable length info record following event metadata.
+    pub const event_info_header = extern struct {
+        info_type: EVENT_INFO_TYPE,
+        pad: u8,
+        len: u16,
+    };
+
+    pub const EVENT_INFO_TYPE = enum(u8) {
+        FID = 1,
+        DFID_NAME = 2,
+        DFID = 3,
+        PIDFD = 4,
+        ERROR = 5,
+        OLD_DFID_NAME = 10,
+        OLD_DFID = 11,
+        NEW_DFID_NAME = 12,
+        NEW_DFID = 13,
+    };
 };
 
-pub const fanotify_event_metadata = extern struct {
-    event_len: u32,
-    vers: u8,
-    reserved: u8,
-    metadata_len: u16,
-    mask: u64 align(8),
-    fd: i32,
-    pid: i32,
+pub const file_handle = extern struct {
+    handle_bytes: u32,
+    handle_type: i32,
+    f_handle: [0]u8,
 };
 
-pub const fanotify_response = extern struct {
-    fd: i32,
-    response: u32,
-};
+pub const kernel_fsid_t = fsid_t;
+pub const fsid_t = [2]i32;
 
 pub const S = struct {
     pub const IFMT = 0o170000;
@@ -4284,20 +5060,13 @@ pub const TFD = switch (native_arch) {
     },
 };
 
-pub const winsize = extern struct {
-    ws_row: u16,
-    ws_col: u16,
-    ws_xpixel: u16,
-    ws_ypixel: u16,
-};
-
 /// NSIG is the total number of signals defined.
 /// As signal numbers are sequential, NSIG is one greater than the largest defined signal number.
 pub const NSIG = if (is_mips) 128 else 65;
 
 pub const sigset_t = [1024 / 32]u32;
 
-pub const all_mask: sigset_t = [_]u32{0xffffffff} ** @typeInfo(sigset_t).Array.len;
+pub const all_mask: sigset_t = [_]u32{0xffffffff} ** @typeInfo(sigset_t).array.len;
 pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
 
 const k_sigaction_funcs = struct {
@@ -4340,7 +5109,7 @@ pub const Sigaction = extern struct {
     restorer: ?*const fn () callconv(.C) void = null,
 };
 
-const sigset_len = @typeInfo(sigset_t).Array.len;
+const sigset_len = @typeInfo(sigset_t).array.len;
 pub const empty_sigset = [_]u32{0} ** sigset_len;
 pub const filled_sigset = [_]u32{(1 << (31 & (usize_bits - 1))) - 1} ++ [_]u32{0} ** (sigset_len - 1);
 
@@ -4464,13 +5233,13 @@ pub const sockaddr = extern struct {
 };
 
 pub const mmsghdr = extern struct {
-    msg_hdr: msghdr,
-    msg_len: u32,
+    hdr: msghdr,
+    len: u32,
 };
 
 pub const mmsghdr_const = extern struct {
-    msg_hdr: msghdr_const,
-    msg_len: u32,
+    hdr: msghdr_const,
+    len: u32,
 };
 
 pub const epoll_data = extern union {
@@ -4490,7 +5259,7 @@ pub const epoll_event = extern struct {
 
 pub const VFS_CAP_REVISION_MASK = 0xFF000000;
 pub const VFS_CAP_REVISION_SHIFT = 24;
-pub const VFS_CAP_FLAGS_MASK = ~VFS_CAP_REVISION_MASK;
+pub const VFS_CAP_FLAGS_MASK = ~@as(u32, VFS_CAP_REVISION_MASK);
 pub const VFS_CAP_FLAGS_EFFECTIVE = 0x000001;
 
 pub const VFS_CAP_REVISION_1 = 0x01000000;
@@ -4508,7 +5277,7 @@ pub const VFS_CAP_REVISION = VFS_CAP_REVISION_2;
 pub const vfs_cap_data = extern struct {
     //all of these are mandated as little endian
     //when on disk.
-    const Data = struct {
+    const Data = extern struct {
         permitted: u32,
         inheritable: u32,
     };
@@ -4615,10 +5384,10 @@ pub const dirent64 = extern struct {
 };
 
 pub const dl_phdr_info = extern struct {
-    dlpi_addr: usize,
-    dlpi_name: ?[*:0]const u8,
-    dlpi_phdr: [*]std.elf.Phdr,
-    dlpi_phnum: u16,
+    addr: usize,
+    name: ?[*:0]const u8,
+    phdr: [*]std.elf.Phdr,
+    phnum: u16,
 };
 
 pub const CPU_SETSIZE = 128;
@@ -4634,19 +5403,78 @@ pub fn CPU_COUNT(set: cpu_set_t) cpu_count_t {
 }
 
 pub const MINSIGSTKSZ = switch (native_arch) {
-    .x86, .x86_64, .arm, .mipsel => 2048,
-    .aarch64 => 5120,
+    .arc,
+    .arm,
+    .armeb,
+    .csky,
+    .hexagon,
+    .m68k,
+    .mips,
+    .mipsel,
+    .mips64,
+    .mips64el,
+    .powerpc,
+    .powerpcle,
+    .riscv32,
+    .riscv64,
+    .s390x,
+    .thumb,
+    .thumbeb,
+    .x86,
+    .x86_64,
+    .xtensa,
+    => 2048,
+    .loongarch64,
+    .sparc,
+    .sparc64,
+    => 4096,
+    .aarch64,
+    .aarch64_be,
+    => 5120,
+    .powerpc64,
+    .powerpc64le,
+    => 8192,
     else => @compileError("MINSIGSTKSZ not defined for this architecture"),
 };
 pub const SIGSTKSZ = switch (native_arch) {
-    .x86, .x86_64, .arm, .mipsel => 8192,
-    .aarch64 => 16384,
+    .arc,
+    .arm,
+    .armeb,
+    .csky,
+    .hexagon,
+    .m68k,
+    .mips,
+    .mipsel,
+    .mips64,
+    .mips64el,
+    .powerpc,
+    .powerpcle,
+    .riscv32,
+    .riscv64,
+    .s390x,
+    .thumb,
+    .thumbeb,
+    .x86,
+    .x86_64,
+    .xtensa,
+    => 8192,
+    .aarch64,
+    .aarch64_be,
+    .loongarch64,
+    .sparc,
+    .sparc64,
+    => 16384,
+    .powerpc64,
+    .powerpc64le,
+    => 32768,
     else => @compileError("SIGSTKSZ not defined for this architecture"),
 };
 
-pub const SS_ONSTACK = 1;
-pub const SS_DISABLE = 2;
-pub const SS_AUTODISARM = 1 << 31;
+pub const SS = struct {
+    pub const ONSTACK = 1;
+    pub const DISABLE = 2;
+    pub const AUTODISARM = 1 << 31;
+};
 
 pub const stack_t = if (is_mips)
     // IRIX compatible stack_t
@@ -4776,6 +5604,17 @@ pub const IORING_SETUP_SINGLE_ISSUER = 1 << 12;
 /// Rather than running bits of task work whenever the task transitions
 /// try to do it just before it is needed.
 pub const IORING_SETUP_DEFER_TASKRUN = 1 << 13;
+
+/// Application provides ring memory
+pub const IORING_SETUP_NO_MMAP = 1 << 14;
+
+/// Register the ring fd in itself for use with
+/// IORING_REGISTER_USE_REGISTERED_RING; return a registered fd index rather
+/// than an fd.
+pub const IORING_SETUP_REGISTERED_FD_ONLY = 1 << 15;
+
+/// Removes indirection through the SQ index array.
+pub const IORING_SETUP_NO_SQARRAY = 1 << 16;
 
 /// IO submission data structure (Submission Queue Entry)
 pub const io_uring_sqe = @import("linux/io_uring_sqe.zig").io_uring_sqe;
@@ -5349,8 +6188,8 @@ pub const STATX_ATTR_ENCRYPTED = 0x0800;
 pub const STATX_ATTR_AUTOMOUNT = 0x1000;
 
 pub const statx_timestamp = extern struct {
-    tv_sec: i64,
-    tv_nsec: u32,
+    sec: i64,
+    nsec: u32,
     __pad1: u32,
 };
 
@@ -5418,7 +6257,7 @@ pub const Statx = extern struct {
 };
 
 pub const addrinfo = extern struct {
-    flags: i32,
+    flags: AI,
     family: i32,
     socktype: i32,
     protocol: i32,
@@ -5426,6 +6265,18 @@ pub const addrinfo = extern struct {
     addr: ?*sockaddr,
     canonname: ?[*:0]u8,
     next: ?*addrinfo,
+};
+
+pub const AI = packed struct(u32) {
+    PASSIVE: bool = false,
+    CANONNAME: bool = false,
+    NUMERICHOST: bool = false,
+    V4MAPPED: bool = false,
+    ALL: bool = false,
+    ADDRCONFIG: bool = false,
+    _6: u4 = 0,
+    NUMERICSERV: bool = false,
+    _: u21 = 0,
 };
 
 pub const IPPORT_RESERVED = 1024;
@@ -5594,328 +6445,775 @@ pub const rusage = extern struct {
     pub const THREAD = 1;
 };
 
-pub const NCCS = switch (native_arch) {
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => 19,
-    else => 32,
+pub const NCC = if (is_ppc) 10 else 8;
+pub const NCCS = if (is_mips) 32 else if (is_ppc) 19 else if (is_sparc) 17 else 32;
+
+pub const speed_t = if (is_ppc) enum(c_uint) {
+    B0 = 0x0000000,
+    B50 = 0x0000001,
+    B75 = 0x0000002,
+    B110 = 0x0000003,
+    B134 = 0x0000004,
+    B150 = 0x0000005,
+    B200 = 0x0000006,
+    B300 = 0x0000007,
+    B600 = 0x0000008,
+    B1200 = 0x0000009,
+    B1800 = 0x000000a,
+    B2400 = 0x000000b,
+    B4800 = 0x000000c,
+    B9600 = 0x000000d,
+    B19200 = 0x000000e,
+    B38400 = 0x000000f,
+
+    B57600 = 0x00000010,
+    B115200 = 0x00000011,
+    B230400 = 0x00000012,
+    B460800 = 0x00000013,
+    B500000 = 0x00000014,
+    B576000 = 0x00000015,
+    B921600 = 0x00000016,
+    B1000000 = 0x00000017,
+    B1152000 = 0x00000018,
+    B1500000 = 0x00000019,
+    B2000000 = 0x0000001a,
+    B2500000 = 0x0000001b,
+    B3000000 = 0x0000001c,
+    B3500000 = 0x0000001d,
+    B4000000 = 0x0000001e,
+
+    pub const EXTA = speed_t.B19200;
+    pub const EXTB = speed_t.B38400;
+} else if (is_sparc) enum(c_uint) {
+    B0 = 0x0000000,
+    B50 = 0x0000001,
+    B75 = 0x0000002,
+    B110 = 0x0000003,
+    B134 = 0x0000004,
+    B150 = 0x0000005,
+    B200 = 0x0000006,
+    B300 = 0x0000007,
+    B600 = 0x0000008,
+    B1200 = 0x0000009,
+    B1800 = 0x000000a,
+    B2400 = 0x000000b,
+    B4800 = 0x000000c,
+    B9600 = 0x000000d,
+    B19200 = 0x000000e,
+    B38400 = 0x000000f,
+
+    B57600 = 0x00001001,
+    B115200 = 0x00001002,
+    B230400 = 0x00001003,
+    B460800 = 0x00001004,
+    B76800 = 0x00001005,
+    B153600 = 0x00001006,
+    B307200 = 0x00001007,
+    B614400 = 0x00001008,
+    B921600 = 0x00001009,
+    B500000 = 0x0000100a,
+    B576000 = 0x0000100b,
+    B1000000 = 0x0000100c,
+    B1152000 = 0x0000100d,
+    B1500000 = 0x0000100e,
+    B2000000 = 0x0000100f,
+
+    pub const EXTA = speed_t.B19200;
+    pub const EXTB = speed_t.B38400;
+} else enum(c_uint) {
+    B0 = 0x0000000,
+    B50 = 0x0000001,
+    B75 = 0x0000002,
+    B110 = 0x0000003,
+    B134 = 0x0000004,
+    B150 = 0x0000005,
+    B200 = 0x0000006,
+    B300 = 0x0000007,
+    B600 = 0x0000008,
+    B1200 = 0x0000009,
+    B1800 = 0x000000a,
+    B2400 = 0x000000b,
+    B4800 = 0x000000c,
+    B9600 = 0x000000d,
+    B19200 = 0x000000e,
+    B38400 = 0x000000f,
+
+    B57600 = 0x00001001,
+    B115200 = 0x00001002,
+    B230400 = 0x00001003,
+    B460800 = 0x00001004,
+    B500000 = 0x00001005,
+    B576000 = 0x00001006,
+    B921600 = 0x00001007,
+    B1000000 = 0x00001008,
+    B1152000 = 0x00001009,
+    B1500000 = 0x0000100a,
+    B2000000 = 0x0000100b,
+    B2500000 = 0x0000100c,
+    B3000000 = 0x0000100d,
+    B3500000 = 0x0000100e,
+    B4000000 = 0x0000100f,
+
+    pub const EXTA = speed_t.B19200;
+    pub const EXTB = speed_t.B38400;
 };
 
-pub const speed_t = switch (native_arch) {
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => enum(u32) {
-        B0 = 0o0000000,
-        B50 = 0o0000001,
-        B75 = 0o0000002,
-        B110 = 0o0000003,
-        B134 = 0o0000004,
-        B150 = 0o0000005,
-        B200 = 0o0000006,
-        B300 = 0o0000007,
-        B600 = 0o0000010,
-        B1200 = 0o0000011,
-        B1800 = 0o0000012,
-        B2400 = 0o0000013,
-        B4800 = 0o0000014,
-        B9600 = 0o0000015,
-        B19200 = 0o0000016,
-        B38400 = 0o0000017,
+pub const tcflag_t = if (native_arch == .sparc) c_ulong else c_uint;
 
-        B57600 = 0o00020,
-        B115200 = 0o00021,
-        B230400 = 0o00022,
-        B460800 = 0o00023,
-        B500000 = 0o00024,
-        B576000 = 0o00025,
-        B921600 = 0o00026,
-        B1000000 = 0o00027,
-        B1152000 = 0o00030,
-        B1500000 = 0o00031,
-        B2000000 = 0o00032,
-        B2500000 = 0o00033,
-        B3000000 = 0o00034,
-        B3500000 = 0o00035,
-        B4000000 = 0o00036,
-    },
-    else => enum(u32) {
-        B0 = 0o0000000,
-        B50 = 0o0000001,
-        B75 = 0o0000002,
-        B110 = 0o0000003,
-        B134 = 0o0000004,
-        B150 = 0o0000005,
-        B200 = 0o0000006,
-        B300 = 0o0000007,
-        B600 = 0o0000010,
-        B1200 = 0o0000011,
-        B1800 = 0o0000012,
-        B2400 = 0o0000013,
-        B4800 = 0o0000014,
-        B9600 = 0o0000015,
-        B19200 = 0o0000016,
-        B38400 = 0o0000017,
-
-        B57600 = 0o0010001,
-        B115200 = 0o0010002,
-        B230400 = 0o0010003,
-        B460800 = 0o0010004,
-        B500000 = 0o0010005,
-        B576000 = 0o0010006,
-        B921600 = 0o0010007,
-        B1000000 = 0o0010010,
-        B1152000 = 0o0010011,
-        B1500000 = 0o0010012,
-        B2000000 = 0o0010013,
-        B2500000 = 0o0010014,
-        B3000000 = 0o0010015,
-        B3500000 = 0o0010016,
-        B4000000 = 0o0010017,
-    },
+pub const tc_iflag_t = if (is_ppc) packed struct(tcflag_t) {
+    IGNBRK: bool = false,
+    BRKINT: bool = false,
+    IGNPAR: bool = false,
+    PARMRK: bool = false,
+    INPCK: bool = false,
+    ISTRIP: bool = false,
+    INLCR: bool = false,
+    IGNCR: bool = false,
+    ICRNL: bool = false,
+    IXON: bool = false,
+    IXOFF: bool = false,
+    IXANY: bool = false,
+    IUCLC: bool = false,
+    IMAXBEL: bool = false,
+    IUTF8: bool = false,
+    _15: u17 = 0,
+} else packed struct(tcflag_t) {
+    IGNBRK: bool = false,
+    BRKINT: bool = false,
+    IGNPAR: bool = false,
+    PARMRK: bool = false,
+    INPCK: bool = false,
+    ISTRIP: bool = false,
+    INLCR: bool = false,
+    IGNCR: bool = false,
+    ICRNL: bool = false,
+    IUCLC: bool = false,
+    IXON: bool = false,
+    IXANY: bool = false,
+    IXOFF: bool = false,
+    IMAXBEL: bool = false,
+    IUTF8: bool = false,
+    _15: u17 = 0,
 };
 
-pub const tc_iflag_t = switch (native_arch) {
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
-        IGNBRK: bool = false,
-        BRKINT: bool = false,
-        IGNPAR: bool = false,
-        PARMRK: bool = false,
-        INPCK: bool = false,
-        ISTRIP: bool = false,
-        INLCR: bool = false,
-        IGNCR: bool = false,
-        ICRNL: bool = false,
-        IXON: bool = false,
-        IXOFF: bool = false,
-        IXANY: bool = false,
-        IUCLC: bool = false,
-        IMAXBEL: bool = false,
-        IUTF8: bool = false,
-        _: u17 = 0,
-    },
-    else => packed struct(u32) {
-        IGNBRK: bool = false,
-        BRKINT: bool = false,
-        IGNPAR: bool = false,
-        PARMRK: bool = false,
-        INPCK: bool = false,
-        ISTRIP: bool = false,
-        INLCR: bool = false,
-        IGNCR: bool = false,
-        ICRNL: bool = false,
-        IUCLC: bool = false,
-        IXON: bool = false,
-        IXANY: bool = false,
-        IXOFF: bool = false,
-        IMAXBEL: bool = false,
-        IUTF8: bool = false,
-        _: u17 = 0,
-    },
+pub const NLDLY = if (is_ppc) enum(u2) {
+    NL0 = 0,
+    NL1 = 1,
+    NL2 = 2,
+    NL3 = 3,
+} else enum(u1) {
+    NL0 = 0,
+    NL1 = 1,
 };
 
-pub const tc_oflag_t = switch (native_arch) {
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
-        OPOST: bool = false,
-        ONLCR: bool = false,
-        OLCUC: bool = false,
-        OCRNL: bool = false,
-        ONOCR: bool = false,
-        ONLRET: bool = false,
-        OFILL: bool = false,
-        OFDEL: bool = false,
-        NLDLY: u2 = 0,
-        TABDLY: u2 = 0,
-        CRDLY: u2 = 0,
-        FFDLY: u1 = 0,
-        BSDLY: u1 = 0,
-        VTDLY: u1 = 0,
-        _: u15 = 0,
-    },
-    else => packed struct(u32) {
-        OPOST: bool = false,
-        OLCUC: bool = false,
-        ONLCR: bool = false,
-        OCRNL: bool = false,
-        ONOCR: bool = false,
-        ONLRET: bool = false,
-        OFILL: bool = false,
-        OFDEL: bool = false,
-        NLDLY: u1 = 0,
-        CRDLY: u2 = 0,
-        TABDLY: u2 = 0,
-        BSDLY: u1 = 0,
-        VTDLY: u1 = 0,
-        FFDLY: u1 = 0,
-        _: u16 = 0,
-    },
+pub const CRDLY = enum(u2) {
+    CR0 = 0,
+    CR1 = 1,
+    CR2 = 2,
+    CR3 = 3,
 };
 
-pub const CSIZE = enum(u2) { CS5, CS6, CS7, CS8 };
+pub const TABDLY = enum(u2) {
+    TAB0 = 0,
+    TAB1 = 1,
+    TAB2 = 2,
+    TAB3 = 3,
 
-pub const tc_cflag_t = switch (native_arch) {
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
-        _0: u8 = 0,
-        CSIZE: CSIZE = .CS5,
-        CSTOPB: bool = false,
-        CREAD: bool = false,
-        PARENB: bool = false,
-        PARODD: bool = false,
-        HUPCL: bool = false,
-        CLOCAL: bool = false,
-        _: u16 = 0,
-    },
-    else => packed struct(u32) {
-        _0: u4 = 0,
-        CSIZE: CSIZE = .CS5,
-        CSTOPB: bool = false,
-        CREAD: bool = false,
-        PARENB: bool = false,
-        PARODD: bool = false,
-        HUPCL: bool = false,
-        CLOCAL: bool = false,
-        _: u20 = 0,
-    },
+    pub const XTABS = TABDLY.TAB3;
 };
 
-pub const tc_lflag_t = switch (native_arch) {
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => packed struct(u32) {
-        _0: u1 = 0,
-        ECHOE: bool = false,
-        ECHOK: bool = false,
-        ECHO: bool = false,
-        ECHONL: bool = false,
-        _5: u2 = 0,
-        ISIG: bool = false,
-        ICANON: bool = false,
-        _9: u1 = 0,
-        IEXTEN: bool = false,
-        _11: u11 = 0,
-        TOSTOP: bool = false,
-        _23: u8 = 0,
-        NOFLSH: bool = false,
-    },
-    .mips, .mipsel, .mips64, .mips64el => packed struct(u32) {
-        ISIG: bool = false,
-        ICANON: bool = false,
-        _2: u1 = 0,
-        ECHO: bool = false,
-        ECHOE: bool = false,
-        ECHOK: bool = false,
-        ECHONL: bool = false,
-        NOFLSH: bool = false,
-        IEXTEN: bool = false,
-        _9: u6 = 0,
-        TOSTOP: bool = false,
-        _: u16 = 0,
-    },
-    else => packed struct(u32) {
-        ISIG: bool = false,
-        ICANON: bool = false,
-        _2: u1 = 0,
-        ECHO: bool = false,
-        ECHOE: bool = false,
-        ECHOK: bool = false,
-        ECHONL: bool = false,
-        NOFLSH: bool = false,
-        TOSTOP: bool = false,
-        _9: u6 = 0,
-        IEXTEN: bool = false,
-        _: u16 = 0,
-    },
+pub const BSDLY = enum(u1) {
+    BS0 = 0,
+    BS1 = 1,
+};
+
+pub const VTDLY = enum(u1) {
+    VT0 = 0,
+    VT1 = 1,
+};
+
+pub const FFDLY = enum(u1) {
+    FF0 = 0,
+    FF1 = 1,
+};
+
+pub const tc_oflag_t = if (is_ppc) packed struct(tcflag_t) {
+    OPOST: bool = false,
+    ONLCR: bool = false,
+    OLCUC: bool = false,
+    OCRNL: bool = false,
+    ONOCR: bool = false,
+    ONLRET: bool = false,
+    OFILL: bool = false,
+    OFDEL: bool = false,
+    NLDLY: NLDLY = .NL0,
+    TABDLY: TABDLY = .TAB0,
+    CRDLY: CRDLY = .CR0,
+    FFDLY: FFDLY = .FF0,
+    BSDLY: BSDLY = .BS0,
+    VTDLY: VTDLY = .VT0,
+    _17: u15 = 0,
+} else if (is_sparc) packed struct(tcflag_t) {
+    OPOST: bool = false,
+    OLCUC: bool = false,
+    ONLCR: bool = false,
+    OCRNL: bool = false,
+    ONOCR: bool = false,
+    ONLRET: bool = false,
+    OFILL: bool = false,
+    OFDEL: bool = false,
+    NLDLY: NLDLY = .NL0,
+    CRDLY: CRDLY = .CR0,
+    TABDLY: TABDLY = .TAB0,
+    BSDLY: BSDLY = .BS0,
+    VTDLY: VTDLY = .VT0,
+    FFDLY: FFDLY = .FF0,
+    PAGEOUT: bool = false,
+    WRAP: bool = false,
+    _18: u14 = 0,
+} else packed struct(tcflag_t) {
+    OPOST: bool = false,
+    OLCUC: bool = false,
+    ONLCR: bool = false,
+    OCRNL: bool = false,
+    ONOCR: bool = false,
+    ONLRET: bool = false,
+    OFILL: bool = false,
+    OFDEL: bool = false,
+    NLDLY: NLDLY = .NL0,
+    CRDLY: CRDLY = .CR0,
+    TABDLY: TABDLY = .TAB0,
+    BSDLY: BSDLY = .BS0,
+    VTDLY: VTDLY = .VT0,
+    FFDLY: FFDLY = .FF0,
+    _16: u16 = 0,
+};
+
+pub const CSIZE = enum(u2) {
+    CS5 = 0,
+    CS6 = 1,
+    CS7 = 2,
+    CS8 = 3,
+};
+
+pub const tc_cflag_t = if (is_ppc) packed struct(tcflag_t) {
+    _0: u8 = 0,
+    CSIZE: CSIZE = .CS5,
+    CSTOPB: bool = false,
+    CREAD: bool = false,
+    PARENB: bool = false,
+    PARODD: bool = false,
+    HUPCL: bool = false,
+    CLOCAL: bool = false,
+    _16: u13 = 0,
+    ADDRB: bool = false,
+    CMSPAR: bool = false,
+    CRTSCTS: bool = false,
+} else packed struct(tcflag_t) {
+    _0: u4 = 0,
+    CSIZE: CSIZE = .CS5,
+    CSTOPB: bool = false,
+    CREAD: bool = false,
+    PARENB: bool = false,
+    PARODD: bool = false,
+    HUPCL: bool = false,
+    CLOCAL: bool = false,
+    _12: u17 = 0,
+    ADDRB: bool = false,
+    CMSPAR: bool = false,
+    CRTSCTS: bool = false,
+};
+
+pub const tc_lflag_t = if (is_mips) packed struct(tcflag_t) {
+    ISIG: bool = false,
+    ICANON: bool = false,
+    XCASE: bool = false,
+    ECHO: bool = false,
+    ECHOE: bool = false,
+    ECHOK: bool = false,
+    ECHONL: bool = false,
+    NOFLSH: bool = false,
+    IEXTEN: bool = false,
+    ECHOCTL: bool = false,
+    ECHOPRT: bool = false,
+    ECHOKE: bool = false,
+    _12: u1 = 0,
+    FLUSHO: bool = false,
+    PENDIN: bool = false,
+    TOSTOP: bool = false,
+    EXTPROC: bool = false,
+    _17: u15 = 0,
+} else if (is_ppc) packed struct(tcflag_t) {
+    ECHOKE: bool = false,
+    ECHOE: bool = false,
+    ECHOK: bool = false,
+    ECHO: bool = false,
+    ECHONL: bool = false,
+    ECHOPRT: bool = false,
+    ECHOCTL: bool = false,
+    ISIG: bool = false,
+    ICANON: bool = false,
+    _9: u1 = 0,
+    IEXTEN: bool = false,
+    _11: u3 = 0,
+    XCASE: bool = false,
+    _15: u7 = 0,
+    TOSTOP: bool = false,
+    FLUSHO: bool = false,
+    _24: u4 = 0,
+    EXTPROC: bool = false,
+    PENDIN: bool = false,
+    _30: u1 = 0,
+    NOFLSH: bool = false,
+} else if (is_sparc) packed struct(tcflag_t) {
+    ISIG: bool = false,
+    ICANON: bool = false,
+    XCASE: bool = false,
+    ECHO: bool = false,
+    ECHOE: bool = false,
+    ECHOK: bool = false,
+    ECHONL: bool = false,
+    NOFLSH: bool = false,
+    TOSTOP: bool = false,
+    ECHOCTL: bool = false,
+    ECHOPRT: bool = false,
+    ECHOKE: bool = false,
+    DEFECHO: bool = false,
+    FLUSHO: bool = false,
+    PENDIN: bool = false,
+    IEXTEN: bool = false,
+    EXTPROC: bool = false,
+    _17: u15 = 0,
+} else packed struct(tcflag_t) {
+    ISIG: bool = false,
+    ICANON: bool = false,
+    XCASE: bool = false,
+    ECHO: bool = false,
+    ECHOE: bool = false,
+    ECHOK: bool = false,
+    ECHONL: bool = false,
+    NOFLSH: bool = false,
+    TOSTOP: bool = false,
+    ECHOCTL: bool = false,
+    ECHOPRT: bool = false,
+    ECHOKE: bool = false,
+    FLUSHO: bool = false,
+    _13: u1 = 0,
+    PENDIN: bool = false,
+    IEXTEN: bool = false,
+    EXTPROC: bool = false,
+    _17: u15 = 0,
 };
 
 pub const cc_t = u8;
 
 /// Indices into the `cc` array in the `termios` struct.
-pub const V = switch (native_arch) {
-    .mips, .mipsel, .mips64, .mips64el => enum {
-        INTR,
-        QUIT,
-        ERASE,
-        KILL,
-        MIN,
-        TIME,
-        EOL2,
-        SWTC,
-        START,
-        STOP,
-        SUSP,
-        reserved,
-        REPRINT,
-        DISCARD,
-        WERASE,
-        LNEXT,
-        EOF,
-        EOL,
-    },
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => enum {
-        INTR,
-        QUIT,
-        ERASE,
-        KILL,
-        EOF,
-        MIN,
-        EOL,
-        TIME,
-        EOL2,
-        SWTC,
-        WERASE,
-        REPRINT,
-        SUSP,
-        START,
-        STOP,
-        LNEXT,
-        DISCARD,
-    },
-    else => enum {
-        INTR,
-        QUIT,
-        ERASE,
-        KILL,
-        EOF,
-        TIME,
-        MIN,
-        SWTC,
-        START,
-        STOP,
-        SUSP,
-        EOL,
-        REPRINT,
-        DISCARD,
-        WERASE,
-        LNEXT,
-        EOL2,
-    },
+pub const V = if (is_mips) enum(u32) {
+    INTR = 0,
+    QUIT = 1,
+    ERASE = 2,
+    KILL = 3,
+    MIN = 4,
+    TIME = 5,
+    EOL2 = 6,
+    SWTC = 7,
+    START = 8,
+    STOP = 9,
+    SUSP = 10,
+    REPRINT = 12,
+    DISCARD = 13,
+    WERASE = 14,
+    LNEXT = 15,
+    EOF = 16,
+    EOL = 17,
+} else if (is_ppc) enum(u32) {
+    INTR = 0,
+    QUIT = 1,
+    ERASE = 2,
+    KILL = 3,
+    EOF = 4,
+    MIN = 5,
+    EOL = 6,
+    TIME = 7,
+    EOL2 = 8,
+    SWTC = 9,
+    WERASE = 10,
+    REPRINT = 11,
+    SUSP = 12,
+    START = 13,
+    STOP = 14,
+    LNEXT = 15,
+    DISCARD = 16,
+} else enum(u32) {
+    INTR = 0,
+    QUIT = 1,
+    ERASE = 2,
+    KILL = 3,
+    EOF = 4,
+    TIME = 5,
+    MIN = 6,
+    SWTC = 7,
+    START = 8,
+    STOP = 9,
+    SUSP = 10,
+    EOL = 11,
+    REPRINT = 12,
+    DISCARD = 13,
+    WERASE = 14,
+    LNEXT = 15,
+    EOL2 = 16,
 };
 
-pub const TCSA = enum(c_uint) {
-    NOW,
-    DRAIN,
-    FLUSH,
-    _,
+pub const TCSA = std.posix.TCSA;
+
+pub const sgttyb = if (is_mips or is_ppc or is_sparc) extern struct {
+    ispeed: c_char,
+    ospeed: c_char,
+    erase: c_char,
+    kill: c_char,
+    flags: if (is_mips) c_int else c_short,
+} else void;
+
+pub const tchars = if (is_mips or is_ppc or is_sparc) extern struct {
+    intrc: c_char,
+    quitc: c_char,
+    startc: c_char,
+    stopc: c_char,
+    eofc: c_char,
+    brkc: c_char,
+} else void;
+
+pub const ltchars = if (is_mips or is_ppc or is_sparc) extern struct {
+    suspc: c_char,
+    dsuspc: c_char,
+    rprntc: c_char,
+    flushc: c_char,
+    werasc: c_char,
+    lnextc: c_char,
+} else void;
+
+pub const termio = extern struct {
+    iflag: c_ushort,
+    oflag: c_ushort,
+    cflag: c_ushort,
+    lflag: c_ushort,
+    line: if (is_mips) c_char else u8,
+    cc: [if (is_mips) NCCS else NCC]u8,
 };
 
-pub const termios = switch (native_arch) {
-    .powerpc, .powerpcle, .powerpc64, .powerpc64le => extern struct {
-        iflag: tc_iflag_t,
-        oflag: tc_oflag_t,
-        cflag: tc_cflag_t,
-        lflag: tc_lflag_t,
-        cc: [NCCS]cc_t,
-        line: cc_t,
-        ispeed: speed_t,
-        ospeed: speed_t,
-    },
-    else => extern struct {
-        iflag: tc_iflag_t,
-        oflag: tc_oflag_t,
-        cflag: tc_cflag_t,
-        lflag: tc_lflag_t,
-        line: cc_t,
-        cc: [NCCS]cc_t,
-        ispeed: speed_t,
-        ospeed: speed_t,
-    },
+pub const termios = if (is_mips or is_sparc) extern struct {
+    iflag: tc_iflag_t,
+    oflag: tc_oflag_t,
+    cflag: tc_cflag_t,
+    lflag: tc_lflag_t,
+    line: cc_t,
+    cc: [NCCS]cc_t,
+} else if (is_ppc) extern struct {
+    iflag: tc_iflag_t,
+    oflag: tc_oflag_t,
+    cflag: tc_cflag_t,
+    lflag: tc_lflag_t,
+    cc: [NCCS]cc_t,
+    line: cc_t,
+    ispeed: speed_t,
+    ospeed: speed_t,
+} else extern struct {
+    iflag: tc_iflag_t,
+    oflag: tc_oflag_t,
+    cflag: tc_cflag_t,
+    lflag: tc_lflag_t,
+    line: cc_t,
+    cc: [NCCS]cc_t,
+    ispeed: speed_t,
+    ospeed: speed_t,
 };
 
+pub const termios2 = if (is_mips) extern struct {
+    iflag: tc_iflag_t,
+    oflag: tc_oflag_t,
+    cflag: tc_cflag_t,
+    lflag: tc_lflag_t,
+    cc: [NCCS]cc_t,
+    line: cc_t,
+    ispeed: speed_t,
+    ospeed: speed_t,
+} else extern struct {
+    iflag: tc_iflag_t,
+    oflag: tc_oflag_t,
+    cflag: tc_cflag_t,
+    lflag: tc_lflag_t,
+    line: cc_t,
+    cc: [NCCS + if (is_sparc) 2 else 0]cc_t,
+    ispeed: speed_t,
+    ospeed: speed_t,
+};
+
+/// Linux-specific socket ioctls
+pub const SIOCINQ = T.FIONREAD;
+
+/// Linux-specific socket ioctls
+/// output queue size (not sent + not acked)
+pub const SIOCOUTQ = T.IOCOUTQ;
+
+pub const SOCK_IOC_TYPE = 0x89;
+
+pub const SIOCGSTAMP_NEW = IOCTL.IOR(SOCK_IOC_TYPE, 0x06, i64[2]);
+pub const SIOCGSTAMP_OLD = IOCTL.IOR('s', 100, timeval);
+
+/// Get stamp (timeval)
+pub const SIOCGSTAMP = if (native_arch == .x86_64 or @sizeOf(timeval) == 8) SIOCGSTAMP_OLD else SIOCGSTAMP_NEW;
+
+pub const SIOCGSTAMPNS_NEW = IOCTL.IOR(SOCK_IOC_TYPE, 0x07, i64[2]);
+pub const SIOCGSTAMPNS_OLD = IOCTL.IOR('s', 101, kernel_timespec);
+
+/// Get stamp (timespec)
+pub const SIOCGSTAMPNS = if (native_arch == .x86_64 or @sizeOf(timespec) == 8) SIOCGSTAMPNS_OLD else SIOCGSTAMPNS_NEW;
+
+// Routing table calls.
+/// Add routing table entry
+pub const SIOCADDRT = 0x890B;
+
+/// Delete routing table entry
+pub const SIOCDELRT = 0x890C;
+
+/// Unused
+pub const SIOCRTMSG = 0x890D;
+
+// Socket configuration controls.
+/// Get iface name
+pub const SIOCGIFNAME = 0x8910;
+
+/// Set iface channel
+pub const SIOCSIFLINK = 0x8911;
+
+/// Get iface list
+pub const SIOCGIFCONF = 0x8912;
+
+/// Get flags
+pub const SIOCGIFFLAGS = 0x8913;
+
+/// Set flags
+pub const SIOCSIFFLAGS = 0x8914;
+
+/// Get PA address
+pub const SIOCGIFADDR = 0x8915;
+
+/// Set PA address
+pub const SIOCSIFADDR = 0x8916;
+
+/// Get remote PA address
+pub const SIOCGIFDSTADDR = 0x8917;
+
+/// Set remote PA address
+pub const SIOCSIFDSTADDR = 0x8918;
+
+/// Get broadcast PA address
+pub const SIOCGIFBRDADDR = 0x8919;
+
+/// Set broadcast PA address
+pub const SIOCSIFBRDADDR = 0x891a;
+
+/// Get network PA mask
+pub const SIOCGIFNETMASK = 0x891b;
+
+/// Set network PA mask
+pub const SIOCSIFNETMASK = 0x891c;
+
+/// Get metric
+pub const SIOCGIFMETRIC = 0x891d;
+
+/// Set metric
+pub const SIOCSIFMETRIC = 0x891e;
+
+/// Get memory address (BSD)
+pub const SIOCGIFMEM = 0x891f;
+
+/// Set memory address (BSD)
+pub const SIOCSIFMEM = 0x8920;
+
+/// Get MTU size
+pub const SIOCGIFMTU = 0x8921;
+
+/// Set MTU size
+pub const SIOCSIFMTU = 0x8922;
+
+/// Set interface name
+pub const SIOCSIFNAME = 0x8923;
+
+/// Set hardware address
+pub const SIOCSIFHWADDR = 0x8924;
+
+/// Get encapsulations
+pub const SIOCGIFENCAP = 0x8925;
+
+/// Set encapsulations
+pub const SIOCSIFENCAP = 0x8926;
+
+/// Get hardware address
+pub const SIOCGIFHWADDR = 0x8927;
+
+/// Driver slaving support
+pub const SIOCGIFSLAVE = 0x8929;
+
+/// Driver slaving support
+pub const SIOCSIFSLAVE = 0x8930;
+
+/// Add to Multicast address lists
+pub const SIOCADDMULTI = 0x8931;
+
+/// Delete from Multicast address lists
+pub const SIOCDELMULTI = 0x8932;
+
+/// name -> if_index mapping
 pub const SIOCGIFINDEX = 0x8933;
+
+/// Set extended flags set
+pub const SIOCSIFPFLAGS = 0x8934;
+
+/// Get extended flags set
+pub const SIOCGIFPFLAGS = 0x8935;
+
+/// Delete PA address
+pub const SIOCDIFADDR = 0x8936;
+
+/// Set hardware broadcast addr
+pub const SIOCSIFHWBROADCAST = 0x8937;
+
+/// Get number of devices
+pub const SIOCGIFCOUNT = 0x8938;
+
+/// Bridging support
+pub const SIOCGIFBR = 0x8940;
+
+/// Set bridging options
+pub const SIOCSIFBR = 0x8941;
+
+/// Get the tx queue length
+pub const SIOCGIFTXQLEN = 0x8942;
+
+/// Set the tx queue length
+pub const SIOCSIFTXQLEN = 0x8943;
+
+/// Ethtool interface
+pub const SIOCETHTOOL = 0x8946;
+
+/// Get address of MII PHY in use.
+pub const SIOCGMIIPHY = 0x8947;
+
+/// Read MII PHY register.
+pub const SIOCGMIIREG = 0x8948;
+
+/// Write MII PHY register.
+pub const SIOCSMIIREG = 0x8949;
+
+/// Get / Set netdev parameters
+pub const SIOCWANDEV = 0x894A;
+
+/// Output queue size (not sent only)
+pub const SIOCOUTQNSD = 0x894B;
+
+/// Get socket network namespace
+pub const SIOCGSKNS = 0x894C;
+
+// ARP cache control calls.
+//  0x8950 - 0x8952 obsolete calls.
+/// Delete ARP table entry
+pub const SIOCDARP = 0x8953;
+
+/// Get ARP table entry
+pub const SIOCGARP = 0x8954;
+
+/// Set ARP table entry
+pub const SIOCSARP = 0x8955;
+
+// RARP cache control calls.
+/// Delete RARP table entry
+pub const SIOCDRARP = 0x8960;
+
+/// Get RARP table entry
+pub const SIOCGRARP = 0x8961;
+
+/// Set RARP table entry
+pub const SIOCSRARP = 0x8962;
+
+// Driver configuration calls
+/// Get device parameters
+pub const SIOCGIFMAP = 0x8970;
+
+/// Set device parameters
+pub const SIOCSIFMAP = 0x8971;
+
+// DLCI configuration calls
+/// Create new DLCI device
+pub const SIOCADDDLCI = 0x8980;
+
+/// Delete DLCI device
+pub const SIOCDELDLCI = 0x8981;
+
+/// 802.1Q VLAN support
+pub const SIOCGIFVLAN = 0x8982;
+
+/// Set 802.1Q VLAN options
+pub const SIOCSIFVLAN = 0x8983;
+
+// bonding calls
+/// Enslave a device to the bond
+pub const SIOCBONDENSLAVE = 0x8990;
+
+/// Release a slave from the bond
+pub const SIOCBONDRELEASE = 0x8991;
+
+/// Set the hw addr of the bond
+pub const SIOCBONDSETHWADDR = 0x8992;
+
+/// rtn info about slave state
+pub const SIOCBONDSLAVEINFOQUERY = 0x8993;
+
+/// rtn info about bond state
+pub const SIOCBONDINFOQUERY = 0x8994;
+
+/// Update to a new active slave
+pub const SIOCBONDCHANGEACTIVE = 0x8995;
+
+// Bridge calls
+/// Create new bridge device
+pub const SIOCBRADDBR = 0x89a0;
+
+/// Remove bridge device
+pub const SIOCBRDELBR = 0x89a1;
+
+/// Add interface to bridge
+pub const SIOCBRADDIF = 0x89a2;
+
+/// Remove interface from bridge
+pub const SIOCBRDELIF = 0x89a3;
+
+/// Get hardware time stamp config
+pub const SIOCSHWTSTAMP = 0x89b0;
+
+/// Set hardware time stamp config
+pub const SIOCGHWTSTAMP = 0x89b1;
+
+/// Device private ioctl calls
+pub const SIOCDEVPRIVATE = 0x89F0;
+
+/// These 16 ioctl calls are protocol private
+pub const SIOCPROTOPRIVATE = 0x89E0;
+
 pub const IFNAMESIZE = 16;
+
+pub const IFF = packed struct(u16) {
+    UP: bool = false,
+    BROADCAST: bool = false,
+    DEBUG: bool = false,
+    LOOPBACK: bool = false,
+    POINTOPOINT: bool = false,
+    NOTRAILERS: bool = false,
+    RUNNING: bool = false,
+    NOARP: bool = false,
+    PROMISC: bool = false,
+    _9: u7 = 0,
+};
 
 pub const ifmap = extern struct {
     mem_start: usize,
@@ -5936,7 +7234,7 @@ pub const ifreq = extern struct {
         broadaddr: sockaddr,
         netmask: sockaddr,
         hwaddr: sockaddr,
-        flags: i16,
+        flags: IFF,
         ivalue: i32,
         mtu: i32,
         map: ifmap,
@@ -5946,69 +7244,314 @@ pub const ifreq = extern struct {
     },
 };
 
+pub const PACKET = struct {
+    pub const HOST = 0;
+    pub const BROADCAST = 1;
+    pub const MULTICAST = 2;
+    pub const OTHERHOST = 3;
+    pub const OUTGOING = 4;
+    pub const LOOPBACK = 5;
+    pub const USER = 6;
+    pub const KERNEL = 7;
+
+    pub const ADD_MEMBERSHIP = 1;
+    pub const DROP_MEMBERSHIP = 2;
+    pub const RECV_OUTPUT = 3;
+    pub const RX_RING = 5;
+    pub const STATISTICS = 6;
+    pub const COPY_THRESH = 7;
+    pub const AUXDATA = 8;
+    pub const ORIGDEV = 9;
+    pub const VERSION = 10;
+    pub const HDRLEN = 11;
+    pub const RESERVE = 12;
+    pub const TX_RING = 13;
+    pub const LOSS = 14;
+    pub const VNET_HDR = 15;
+    pub const TX_TIMESTAMP = 16;
+    pub const TIMESTAMP = 17;
+    pub const FANOUT = 18;
+    pub const TX_HAS_OFF = 19;
+    pub const QDISC_BYPASS = 20;
+    pub const ROLLOVER_STATS = 21;
+    pub const FANOUT_DATA = 22;
+    pub const IGNORE_OUTGOING = 23;
+    pub const VNET_HDR_SZ = 24;
+
+    pub const FANOUT_HASH = 0;
+    pub const FANOUT_LB = 1;
+    pub const FANOUT_CPU = 2;
+    pub const FANOUT_ROLLOVER = 3;
+    pub const FANOUT_RND = 4;
+    pub const FANOUT_QM = 5;
+    pub const FANOUT_CBPF = 6;
+    pub const FANOUT_EBPF = 7;
+    pub const FANOUT_FLAG_ROLLOVER = 0x1000;
+    pub const FANOUT_FLAG_UNIQUEID = 0x2000;
+    pub const FANOUT_FLAG_IGNORE_OUTGOING = 0x4000;
+    pub const FANOUT_FLAG_DEFRAG = 0x8000;
+};
+
+pub const tpacket_versions = enum(u32) {
+    V1 = 0,
+    V2 = 1,
+    V3 = 2,
+};
+
+pub const tpacket_req3 = extern struct {
+    block_size: c_uint, // Minimal size of contiguous block
+    block_nr: c_uint, // Number of blocks
+    frame_size: c_uint, // Size of frame
+    frame_nr: c_uint, // Total number of frames
+    retire_blk_tov: c_uint, // Timeout in msecs
+    sizeof_priv: c_uint, // Offset to private data area
+    feature_req_word: c_uint,
+};
+
+pub const tpacket_bd_ts = extern struct {
+    sec: c_uint,
+    frac: extern union {
+        usec: c_uint,
+        nsec: c_uint,
+    },
+};
+
+pub const TP_STATUS = extern union {
+    rx: packed struct(u32) {
+        USER: bool,
+        COPY: bool,
+        LOSING: bool,
+        CSUMNOTREADY: bool,
+        VLAN_VALID: bool,
+        BLK_TMO: bool,
+        VLAN_TPID_VALID: bool,
+        CSUM_VALID: bool,
+        GSO_TCP: bool,
+        _: u20,
+        TS_SOFTWARE: bool,
+        TS_SYS_HARDWARE: bool,
+        TS_RAW_HARDWARE: bool,
+    },
+    tx: packed struct(u32) {
+        SEND_REQUEST: bool,
+        SENDING: bool,
+        WRONG_FORMAT: bool,
+        _: u26,
+        TS_SOFTWARE: bool,
+        TS_SYS_HARDWARE: bool,
+        TS_RAW_HARDWARE: bool,
+    },
+};
+
+pub const tpacket_hdr_v1 = extern struct {
+    block_status: TP_STATUS,
+    num_pkts: u32,
+    offset_to_first_pkt: u32,
+    blk_len: u32,
+    seq_num: u64 align(8),
+    ts_first_pkt: tpacket_bd_ts,
+    ts_last_pkt: tpacket_bd_ts,
+};
+
+pub const tpacket_bd_header_u = extern union {
+    bh1: tpacket_hdr_v1,
+};
+
+pub const tpacket_block_desc = extern struct {
+    version: u32,
+    offset_to_priv: u32,
+    hdr: tpacket_bd_header_u,
+};
+
+pub const tpacket_hdr_variant1 = extern struct {
+    rxhash: u32,
+    vlan_tci: u32,
+    vlan_tpid: u16,
+    padding: u16,
+};
+
+pub const tpacket3_hdr = extern struct {
+    next_offset: u32,
+    sec: u32,
+    nsec: u32,
+    snaplen: u32,
+    len: u32,
+    status: u32,
+    mac: u16,
+    net: u16,
+    variant: extern union {
+        hv1: tpacket_hdr_variant1,
+    },
+    padding: [8]u8,
+};
+
+pub const tpacket_stats_v3 = extern struct {
+    packets: c_uint,
+    drops: c_uint,
+    freeze_q_cnt: c_uint,
+};
+
 // doc comments copied from musl
-pub const rlimit_resource = if (native_arch.isMIPS() or native_arch.isSPARC())
-    arch_bits.rlimit_resource
-else
-    enum(c_int) {
-        /// Per-process CPU limit, in seconds.
-        CPU,
+pub const rlimit_resource = if (native_arch.isMIPS()) enum(c_int) {
+    /// Per-process CPU limit, in seconds.
+    CPU = 0,
 
-        /// Largest file that can be created, in bytes.
-        FSIZE,
+    /// Largest file that can be created, in bytes.
+    FSIZE = 1,
 
-        /// Maximum size of data segment, in bytes.
-        DATA,
+    /// Maximum size of data segment, in bytes.
+    DATA = 2,
 
-        /// Maximum size of stack segment, in bytes.
-        STACK,
+    /// Maximum size of stack segment, in bytes.
+    STACK = 3,
 
-        /// Largest core file that can be created, in bytes.
-        CORE,
+    /// Largest core file that can be created, in bytes.
+    CORE = 4,
 
-        /// Largest resident set size, in bytes.
-        /// This affects swapping; processes that are exceeding their
-        /// resident set size will be more likely to have physical memory
-        /// taken from them.
-        RSS,
+    /// Number of open files.
+    NOFILE = 5,
 
-        /// Number of processes.
-        NPROC,
+    /// Address space limit.
+    AS = 6,
 
-        /// Number of open files.
-        NOFILE,
+    /// Largest resident set size, in bytes.
+    /// This affects swapping; processes that are exceeding their
+    /// resident set size will be more likely to have physical memory
+    /// taken from them.
+    RSS = 7,
 
-        /// Locked-in-memory address space.
-        MEMLOCK,
+    /// Number of processes.
+    NPROC = 8,
 
-        /// Address space limit.
-        AS,
+    /// Locked-in-memory address space.
+    MEMLOCK = 9,
 
-        /// Maximum number of file locks.
-        LOCKS,
+    /// Maximum number of file locks.
+    LOCKS = 10,
 
-        /// Maximum number of pending signals.
-        SIGPENDING,
+    /// Maximum number of pending signals.
+    SIGPENDING = 11,
 
-        /// Maximum bytes in POSIX message queues.
-        MSGQUEUE,
+    /// Maximum bytes in POSIX message queues.
+    MSGQUEUE = 12,
 
-        /// Maximum nice priority allowed to raise to.
-        /// Nice levels 19 .. -20 correspond to 0 .. 39
-        /// values of this resource limit.
-        NICE,
+    /// Maximum nice priority allowed to raise to.
+    /// Nice levels 19 .. -20 correspond to 0 .. 39
+    /// values of this resource limit.
+    NICE = 13,
 
-        /// Maximum realtime priority allowed for non-priviledged
-        /// processes.
-        RTPRIO,
+    /// Maximum realtime priority allowed for non-privileged
+    /// processes.
+    RTPRIO = 14,
 
-        /// Maximum CPU time in µs that a process scheduled under a real-time
-        /// scheduling policy may consume without making a blocking system
-        /// call before being forcibly descheduled.
-        RTTIME,
+    /// Maximum CPU time in µs that a process scheduled under a real-time
+    /// scheduling policy may consume without making a blocking system
+    /// call before being forcibly descheduled.
+    RTTIME = 15,
 
-        _,
-    };
+    _,
+} else if (native_arch.isSPARC()) enum(c_int) {
+    /// Per-process CPU limit, in seconds.
+    CPU = 0,
+
+    /// Largest file that can be created, in bytes.
+    FSIZE = 1,
+
+    /// Maximum size of data segment, in bytes.
+    DATA = 2,
+
+    /// Maximum size of stack segment, in bytes.
+    STACK = 3,
+
+    /// Largest core file that can be created, in bytes.
+    CORE = 4,
+
+    /// Largest resident set size, in bytes.
+    /// This affects swapping; processes that are exceeding their
+    /// resident set size will be more likely to have physical memory
+    /// taken from them.
+    RSS = 5,
+
+    /// Number of open files.
+    NOFILE = 6,
+
+    /// Number of processes.
+    NPROC = 7,
+
+    /// Locked-in-memory address space.
+    MEMLOCK = 8,
+
+    /// Address space limit.
+    AS = 9,
+
+    /// Maximum number of file locks.
+    LOCKS = 10,
+
+    /// Maximum number of pending signals.
+    SIGPENDING = 11,
+
+    /// Maximum bytes in POSIX message queues.
+    MSGQUEUE = 12,
+
+    /// Maximum nice priority allowed to raise to.
+    /// Nice levels 19 .. -20 correspond to 0 .. 39
+    /// values of this resource limit.
+    NICE = 13,
+
+    /// Maximum realtime priority allowed for non-privileged
+    /// processes.
+    RTPRIO = 14,
+
+    /// Maximum CPU time in µs that a process scheduled under a real-time
+    /// scheduling policy may consume without making a blocking system
+    /// call before being forcibly descheduled.
+    RTTIME = 15,
+
+    _,
+} else enum(c_int) {
+    /// Per-process CPU limit, in seconds.
+    CPU = 0,
+    /// Largest file that can be created, in bytes.
+    FSIZE = 1,
+    /// Maximum size of data segment, in bytes.
+    DATA = 2,
+    /// Maximum size of stack segment, in bytes.
+    STACK = 3,
+    /// Largest core file that can be created, in bytes.
+    CORE = 4,
+    /// Largest resident set size, in bytes.
+    /// This affects swapping; processes that are exceeding their
+    /// resident set size will be more likely to have physical memory
+    /// taken from them.
+    RSS = 5,
+    /// Number of processes.
+    NPROC = 6,
+    /// Number of open files.
+    NOFILE = 7,
+    /// Locked-in-memory address space.
+    MEMLOCK = 8,
+    /// Address space limit.
+    AS = 9,
+    /// Maximum number of file locks.
+    LOCKS = 10,
+    /// Maximum number of pending signals.
+    SIGPENDING = 11,
+    /// Maximum bytes in POSIX message queues.
+    MSGQUEUE = 12,
+    /// Maximum nice priority allowed to raise to.
+    /// Nice levels 19 .. -20 correspond to 0 .. 39
+    /// values of this resource limit.
+    NICE = 13,
+    /// Maximum realtime priority allowed for non-privileged
+    /// processes.
+    RTPRIO = 14,
+    /// Maximum CPU time in µs that a process scheduled under a real-time
+    /// scheduling policy may consume without making a blocking system
+    /// call before being forcibly descheduled.
+    RTTIME = 15,
+
+    _,
+};
 
 pub const rlim_t = u64;
 
@@ -6052,7 +7595,7 @@ pub const MADV = struct {
 };
 
 pub const POSIX_FADV = switch (native_arch) {
-    .s390x => if (@typeInfo(usize).Int.bits == 64) struct {
+    .s390x => if (@typeInfo(usize).int.bits == 64) struct {
         pub const NORMAL = 0;
         pub const RANDOM = 1;
         pub const SEQUENTIAL = 2;
@@ -6078,14 +7621,15 @@ pub const POSIX_FADV = switch (native_arch) {
 };
 
 /// The timespec struct used by the kernel.
-pub const kernel_timespec = if (@sizeOf(usize) >= 8) timespec else extern struct {
-    tv_sec: i64,
-    tv_nsec: i64,
+pub const kernel_timespec = extern struct {
+    sec: i64,
+    nsec: i64,
 };
 
-pub const timespec = extern struct {
-    tv_sec: isize,
-    tv_nsec: isize,
+// https://github.com/ziglang/zig/issues/4726#issuecomment-2190337877
+pub const timespec = if (native_arch == .riscv32) kernel_timespec else extern struct {
+    sec: isize,
+    nsec: isize,
 };
 
 pub const XDP = struct {
@@ -6628,9 +8172,31 @@ pub const rtattr = extern struct {
     len: c_ushort,
 
     /// Type of option
-    type: IFLA,
+    type: extern union {
+        /// IFLA_* from linux/if_link.h
+        link: IFLA,
+        /// IFA_* from linux/if_addr.h
+        addr: IFA,
+    },
 
     pub const ALIGNTO = 4;
+};
+
+pub const IFA = enum(c_ushort) {
+    UNSPEC,
+    ADDRESS,
+    LOCAL,
+    LABEL,
+    BROADCAST,
+    ANYCAST,
+    CACHEINFO,
+    MULTICAST,
+    FLAGS,
+    RT_PRIORITY,
+    TARGET_NETNSID,
+    PROTO,
+
+    _,
 };
 
 pub const IFLA = enum(c_ushort) {
@@ -6958,7 +8524,7 @@ pub const perf_event_attr = extern struct {
     /// Defines size of the user stack to dump on samples.
     sample_stack_user: u32 = 0,
 
-    clockid: i32 = 0,
+    clockid: clockid_t = .REALTIME,
     /// Defines set of regs to dump for each sample
     /// state captured on:
     ///  - precise = 0: PMU interrupt
@@ -7113,62 +8679,101 @@ pub const PERF = struct {
 // TODO: Add the rest of the AUDIT defines?
 pub const AUDIT = struct {
     pub const ARCH = enum(u32) {
+        const CONVENTION_MIPS64_N32 = 0x20000000;
         const @"64BIT" = 0x80000000;
         const LE = 0x40000000;
 
+        AARCH64 = toAudit(.AARCH64, @"64BIT" | LE),
+        ALPHA = toAudit(.ALPHA, @"64BIT" | LE),
+        ARCOMPACT = toAudit(.ARC_COMPACT, LE),
+        ARCOMPACTBE = toAudit(.ARC_COMPACT, 0),
+        ARCV2 = toAudit(.ARC_COMPACT2, LE),
+        ARCV2BE = toAudit(.ARC_COMPACT2, 0),
+        ARM = toAudit(.ARM, LE),
+        ARMEB = toAudit(.ARM, 0),
+        C6X = toAudit(.TI_C6000, LE),
+        C6XBE = toAudit(.TI_C6000, 0),
+        CRIS = toAudit(.CRIS, LE),
+        CSKY = toAudit(.CSKY, LE),
+        FRV = toAudit(.FRV, 0),
+        H8300 = toAudit(.H8_300, 0),
+        HEXAGON = toAudit(.HEXAGON, 0),
+        I386 = toAudit(.@"386", LE),
+        IA64 = toAudit(.IA_64, @"64BIT" | LE),
+        M32R = toAudit(.M32R, 0),
+        M68K = toAudit(.@"68K", 0),
+        MICROBLAZE = toAudit(.MICROBLAZE, 0),
+        MIPS = toAudit(.MIPS, 0),
+        MIPSEL = toAudit(.MIPS, LE),
+        MIPS64 = toAudit(.MIPS, @"64BIT"),
+        MIPS64N32 = toAudit(.MIPS, @"64BIT" | CONVENTION_MIPS64_N32),
+        MIPSEL64 = toAudit(.MIPS, @"64BIT" | LE),
+        MIPSEL64N32 = toAudit(.MIPS, @"64BIT" | LE | CONVENTION_MIPS64_N32),
+        NDS32 = toAudit(.NDS32, LE),
+        NDS32BE = toAudit(.NDS32, 0),
+        NIOS2 = toAudit(.ALTERA_NIOS2, LE),
+        OPENRISC = toAudit(.OPENRISC, 0),
+        PARISC = toAudit(.PARISC, 0),
+        PARISC64 = toAudit(.PARISC, @"64BIT"),
+        PPC = toAudit(.PPC, 0),
+        PPC64 = toAudit(.PPC64, @"64BIT"),
+        PPC64LE = toAudit(.PPC64, @"64BIT" | LE),
+        RISCV32 = toAudit(.RISCV, LE),
+        RISCV64 = toAudit(.RISCV, @"64BIT" | LE),
+        S390 = toAudit(.S390, 0),
+        S390X = toAudit(.S390, @"64BIT"),
+        SH = toAudit(.SH, 0),
+        SHEL = toAudit(.SH, LE),
+        SH64 = toAudit(.SH, @"64BIT"),
+        SHEL64 = toAudit(.SH, @"64BIT" | LE),
+        SPARC = toAudit(.SPARC, 0),
+        SPARC64 = toAudit(.SPARCV9, @"64BIT"),
+        TILEGX = toAudit(.TILEGX, @"64BIT" | LE),
+        TILEGX32 = toAudit(.TILEGX, LE),
+        TILEPRO = toAudit(.TILEPRO, LE),
+        UNICORE = toAudit(.UNICORE, LE),
+        X86_64 = toAudit(.X86_64, @"64BIT" | LE),
+        XTENSA = toAudit(.XTENSA, 0),
+        LOONGARCH32 = toAudit(.LOONGARCH, LE),
+        LOONGARCH64 = toAudit(.LOONGARCH, @"64BIT" | LE),
+
+        fn toAudit(em: elf.EM, flags: u32) u32 {
+            return @intFromEnum(em) | flags;
+        }
+
         pub const current: AUDIT.ARCH = switch (native_arch) {
-            .x86 => .X86,
-            .x86_64 => .X86_64,
-            .aarch64 => .AARCH64,
             .arm, .thumb => .ARM,
-            .riscv64 => .RISCV64,
-            .sparc64 => .SPARC64,
+            .armeb, .thumbeb => .ARMEB,
+            .aarch64 => .AARCH64,
+            .arc => .ARCV2,
+            .csky => .CSKY,
+            .hexagon => .HEXAGON,
+            .loongarch32 => .LOONGARCH32,
+            .loongarch64 => .LOONGARCH64,
+            .m68k => .M68K,
             .mips => .MIPS,
             .mipsel => .MIPSEL,
+            .mips64 => switch (native_abi) {
+                .gnuabin32, .muslabin32 => .MIPS64N32,
+                else => .MIPS64,
+            },
+            .mips64el => switch (native_abi) {
+                .gnuabin32, .muslabin32 => .MIPSEL64N32,
+                else => .MIPSEL64,
+            },
             .powerpc => .PPC,
             .powerpc64 => .PPC64,
             .powerpc64le => .PPC64LE,
+            .riscv32 => .RISCV32,
+            .riscv64 => .RISCV64,
+            .sparc => .SPARC,
+            .sparc64 => .SPARC64,
+            .s390x => .S390X,
+            .x86 => .I386,
+            .x86_64 => .X86_64,
+            .xtensa => .XTENSA,
             else => @compileError("unsupported architecture"),
         };
-
-        AARCH64 = toAudit(.aarch64),
-        ARM = toAudit(.arm),
-        ARMEB = toAudit(.armeb),
-        CSKY = toAudit(.csky),
-        HEXAGON = @intFromEnum(std.elf.EM.HEXAGON),
-        X86 = toAudit(.x86),
-        M68K = toAudit(.m68k),
-        MIPS = toAudit(.mips),
-        MIPSEL = toAudit(.mips) | LE,
-        MIPS64 = toAudit(.mips64),
-        MIPSEL64 = toAudit(.mips64) | LE,
-        PPC = toAudit(.powerpc),
-        PPC64 = toAudit(.powerpc64),
-        PPC64LE = toAudit(.powerpc64le),
-        RISCV32 = toAudit(.riscv32),
-        RISCV64 = toAudit(.riscv64),
-        S390X = toAudit(.s390x),
-        SPARC = toAudit(.sparc),
-        SPARC64 = toAudit(.sparc64),
-        X86_64 = toAudit(.x86_64),
-
-        fn toAudit(arch: std.Target.Cpu.Arch) u32 {
-            var res: u32 = @intFromEnum(arch.toElfMachine());
-            if (arch.endian() == .little) res |= LE;
-            switch (arch) {
-                .aarch64,
-                .mips64,
-                .mips64el,
-                .powerpc64,
-                .powerpc64le,
-                .riscv64,
-                .sparc64,
-                .x86_64,
-                => res |= @"64BIT",
-                else => {},
-            }
-            return res;
-        }
     };
 };
 
@@ -7217,7 +8822,7 @@ pub const futex_waitv = extern struct {
     uaddr: u64,
     /// Flags for this waiter.
     flags: u32,
-    /// Reserved memeber to preserve alignment.
+    /// Reserved member to preserve alignment.
     /// Should be 0.
     __reserved: u32,
 };

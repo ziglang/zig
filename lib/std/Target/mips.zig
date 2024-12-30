@@ -51,6 +51,7 @@ pub const Feature = enum {
     ptr64,
     single_float,
     soft_float,
+    strict_align,
     sym32,
     use_indirect_jump_hazard,
     use_tcc_in_div,
@@ -59,13 +60,13 @@ pub const Feature = enum {
     xgot,
 };
 
-pub const featureSet = CpuFeature.feature_set_fns(Feature).featureSet;
-pub const featureSetHas = CpuFeature.feature_set_fns(Feature).featureSetHas;
-pub const featureSetHasAny = CpuFeature.feature_set_fns(Feature).featureSetHasAny;
-pub const featureSetHasAll = CpuFeature.feature_set_fns(Feature).featureSetHasAll;
+pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
+pub const featureSetHas = CpuFeature.FeatureSetFns(Feature).featureSetHas;
+pub const featureSetHasAny = CpuFeature.FeatureSetFns(Feature).featureSetHasAny;
+pub const featureSetHasAll = CpuFeature.FeatureSetFns(Feature).featureSetHasAll;
 
 pub const all_features = blk: {
-    const len = @typeInfo(Feature).Enum.fields.len;
+    const len = @typeInfo(Feature).@"enum".fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.abs2008)] = .{
@@ -356,6 +357,11 @@ pub const all_features = blk: {
         .description = "Does not support floating point instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.strict_align)] = .{
+        .llvm_name = "strict-align",
+        .description = "Disable unaligned load store for r6",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.sym32)] = .{
         .llvm_name = "sym32",
         .description = "Symbols are 32 bit on Mips64",
@@ -389,139 +395,139 @@ pub const all_features = blk: {
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
-        elem.name = ti.Enum.fields[i].name;
+        elem.name = ti.@"enum".fields[i].name;
     }
     break :blk result;
 };
 
 pub const cpu = struct {
-    pub const generic = CpuModel{
+    pub const generic: CpuModel = .{
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{
             .mips32,
         }),
     };
-    pub const mips1 = CpuModel{
+    pub const mips1: CpuModel = .{
         .name = "mips1",
         .llvm_name = "mips1",
         .features = featureSet(&[_]Feature{
             .mips1,
         }),
     };
-    pub const mips2 = CpuModel{
+    pub const mips2: CpuModel = .{
         .name = "mips2",
         .llvm_name = "mips2",
         .features = featureSet(&[_]Feature{
             .mips2,
         }),
     };
-    pub const mips3 = CpuModel{
+    pub const mips3: CpuModel = .{
         .name = "mips3",
         .llvm_name = "mips3",
         .features = featureSet(&[_]Feature{
             .mips3,
         }),
     };
-    pub const mips32 = CpuModel{
+    pub const mips32: CpuModel = .{
         .name = "mips32",
         .llvm_name = "mips32",
         .features = featureSet(&[_]Feature{
             .mips32,
         }),
     };
-    pub const mips32r2 = CpuModel{
+    pub const mips32r2: CpuModel = .{
         .name = "mips32r2",
         .llvm_name = "mips32r2",
         .features = featureSet(&[_]Feature{
             .mips32r2,
         }),
     };
-    pub const mips32r3 = CpuModel{
+    pub const mips32r3: CpuModel = .{
         .name = "mips32r3",
         .llvm_name = "mips32r3",
         .features = featureSet(&[_]Feature{
             .mips32r3,
         }),
     };
-    pub const mips32r5 = CpuModel{
+    pub const mips32r5: CpuModel = .{
         .name = "mips32r5",
         .llvm_name = "mips32r5",
         .features = featureSet(&[_]Feature{
             .mips32r5,
         }),
     };
-    pub const mips32r6 = CpuModel{
+    pub const mips32r6: CpuModel = .{
         .name = "mips32r6",
         .llvm_name = "mips32r6",
         .features = featureSet(&[_]Feature{
             .mips32r6,
         }),
     };
-    pub const mips4 = CpuModel{
+    pub const mips4: CpuModel = .{
         .name = "mips4",
         .llvm_name = "mips4",
         .features = featureSet(&[_]Feature{
             .mips4,
         }),
     };
-    pub const mips5 = CpuModel{
+    pub const mips5: CpuModel = .{
         .name = "mips5",
         .llvm_name = "mips5",
         .features = featureSet(&[_]Feature{
             .mips5,
         }),
     };
-    pub const mips64 = CpuModel{
+    pub const mips64: CpuModel = .{
         .name = "mips64",
         .llvm_name = "mips64",
         .features = featureSet(&[_]Feature{
             .mips64,
         }),
     };
-    pub const mips64r2 = CpuModel{
+    pub const mips64r2: CpuModel = .{
         .name = "mips64r2",
         .llvm_name = "mips64r2",
         .features = featureSet(&[_]Feature{
             .mips64r2,
         }),
     };
-    pub const mips64r3 = CpuModel{
+    pub const mips64r3: CpuModel = .{
         .name = "mips64r3",
         .llvm_name = "mips64r3",
         .features = featureSet(&[_]Feature{
             .mips64r3,
         }),
     };
-    pub const mips64r5 = CpuModel{
+    pub const mips64r5: CpuModel = .{
         .name = "mips64r5",
         .llvm_name = "mips64r5",
         .features = featureSet(&[_]Feature{
             .mips64r5,
         }),
     };
-    pub const mips64r6 = CpuModel{
+    pub const mips64r6: CpuModel = .{
         .name = "mips64r6",
         .llvm_name = "mips64r6",
         .features = featureSet(&[_]Feature{
             .mips64r6,
         }),
     };
-    pub const octeon = CpuModel{
+    pub const octeon: CpuModel = .{
         .name = "octeon",
         .llvm_name = "octeon",
         .features = featureSet(&[_]Feature{
             .cnmips,
         }),
     };
-    pub const @"octeon+" = CpuModel{
+    pub const @"octeon+": CpuModel = .{
         .name = "octeon+",
         .llvm_name = "octeon+",
         .features = featureSet(&[_]Feature{
             .cnmipsp,
         }),
     };
-    pub const p5600 = CpuModel{
+    pub const p5600: CpuModel = .{
         .name = "p5600",
         .llvm_name = "p5600",
         .features = featureSet(&[_]Feature{

@@ -25,21 +25,21 @@ pub export fn entry3() void {
     const U = struct {
         comptime foo: u32 = 1,
         bar: u32,
-        fn foo(x: @This()) void {
+        fn qux(x: @This()) void {
             _ = x;
         }
     };
-    _ = U.foo(U{ .foo = 2, .bar = 2 });
+    _ = U.qux(U{ .foo = 2, .bar = 2 });
 }
 pub export fn entry4() void {
     const U = struct {
         comptime foo: u32 = 1,
         bar: u32,
-        fn foo(x: @This()) void {
+        fn qux(x: @This()) void {
             _ = x;
         }
     };
-    _ = U.foo(.{ .foo = 2, .bar = 2 });
+    _ = U.qux(.{ .foo = 2, .bar = 2 });
 }
 pub export fn entry5() void {
     comptime var y = .{ 1, 2 };
@@ -82,6 +82,6 @@ pub export fn entry8() void {
 // :36:29: note: default value set here
 // :46:12: error: value stored in comptime field does not match the default value of the field
 // :55:25: error: value stored in comptime field does not match the default value of the field
-// :68:36: error: value stored in comptime field does not match the default value of the field
 // :61:30: error: value stored in comptime field does not match the default value of the field
 // :59:29: note: default value set here
+// :68:36: error: value stored in comptime field does not match the default value of the field

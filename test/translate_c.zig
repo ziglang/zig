@@ -133,20 +133,20 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
 
     cases.add("scoped typedef",
         \\void foo() {
-        \\	typedef union {
-        \\		int A;
-        \\		int B;
-        \\		int C;
-        \\	} Foo;
-        \\	Foo a = {0};
-        \\	{
-        \\		typedef union {
-        \\			int A;
-        \\			int B;
-        \\			int C;
-        \\		} Foo;
-        \\		Foo a = {0};
-        \\	}
+        \\ typedef union {
+        \\  int A;
+        \\  int B;
+        \\  int C;
+        \\ } Foo;
+        \\ Foo a = {0};
+        \\ {
+        \\  typedef union {
+        \\   int A;
+        \\   int B;
+        \\   int C;
+        \\  } Foo;
+        \\  Foo a = {0};
+        \\ }
         \\}
     , &[_][]const u8{
         \\pub export fn foo() void {
@@ -484,24 +484,14 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    fnptr_attr_ty qux;
         \\};
     , &[_][]const u8{
-        \\pub const fnptr_ty = ?*const fn () callconv(.C) void;
-        \\pub const fnptr_attr_ty = ?*const fn () callconv(.C) void;
+        \\pub const fnptr_ty = ?*const fn () callconv(.c) void;
+        \\pub const fnptr_attr_ty = ?*const fn () callconv(.c) void;
         \\pub const struct_foo = extern struct {
-        \\    foo: ?*const fn () callconv(.C) void = @import("std").mem.zeroes(?*const fn () callconv(.C) void),
-        \\    bar: ?*const fn () callconv(.C) void = @import("std").mem.zeroes(?*const fn () callconv(.C) void),
+        \\    foo: ?*const fn () callconv(.c) void = @import("std").mem.zeroes(?*const fn () callconv(.c) void),
+        \\    bar: ?*const fn () callconv(.c) void = @import("std").mem.zeroes(?*const fn () callconv(.c) void),
         \\    baz: fnptr_ty = @import("std").mem.zeroes(fnptr_ty),
         \\    qux: fnptr_attr_ty = @import("std").mem.zeroes(fnptr_attr_ty),
         \\};
-    });
-
-    cases.add("function prototype with parenthesis",
-        \\void (f0) (void *L);
-        \\void ((f1)) (void *L);
-        \\void (((f2))) (void *L);
-    , &[_][]const u8{
-        \\pub extern fn f0(L: ?*anyopaque) void;
-        \\pub extern fn f1(L: ?*anyopaque) void;
-        \\pub extern fn f2(L: ?*anyopaque) void;
     });
 
     cases.add("array initializer w/ typedef",
@@ -528,10 +518,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    0,
         \\};
     });
-
-    cases.add("empty declaration",
-        \\;
-    , &[_][]const u8{""});
 
     cases.add("#define hex literal with capital X",
         \\#define VAL 0XF00D
@@ -658,14 +644,6 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn my_fn() linksection("NEAR,.data") void {}
     });
 
-    cases.add("simple function prototypes",
-        \\void __attribute__((noreturn)) foo(void);
-        \\int bar(void);
-    , &[_][]const u8{
-        \\pub extern fn foo() noreturn;
-        \\pub extern fn bar() c_int;
-    });
-
     cases.add("simple var decls",
         \\void foo(void) {
         \\    int a;
@@ -757,7 +735,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\static void bar(void) {}
     , &[_][]const u8{
         \\pub export fn foo() void {}
-        \\pub fn bar() callconv(.C) void {}
+        \\pub fn bar() callconv(.c) void {}
     });
 
     cases.add("typedef void",
@@ -791,15 +769,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn bar() void {
         \\    var func_ptr: ?*anyopaque = @as(?*anyopaque, @ptrCast(&foo));
         \\    _ = &func_ptr;
-        \\    var typed_func_ptr: ?*const fn () callconv(.C) void = @as(?*const fn () callconv(.C) void, @ptrFromInt(@as(c_ulong, @intCast(@intFromPtr(func_ptr)))));
+        \\    var typed_func_ptr: ?*const fn () callconv(.c) void = @as(?*const fn () callconv(.c) void, @ptrFromInt(@as(c_ulong, @intCast(@intFromPtr(func_ptr)))));
         \\    _ = &typed_func_ptr;
         \\}
-    });
-
-    cases.add("noreturn attribute",
-        \\void foo(void) __attribute__((noreturn));
-    , &[_][]const u8{
-        \\pub extern fn foo() noreturn;
     });
 
     cases.add("always_inline attribute",
@@ -867,9 +839,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    lws_callback_function *callback_http;
         \\};
     , &[_][]const u8{
-        \\pub const lws_callback_function = fn () callconv(.C) void;
+        \\pub const lws_callback_function = fn () callconv(.c) void;
         \\pub const struct_Foo = extern struct {
-        \\    func: ?*const fn () callconv(.C) void = @import("std").mem.zeroes(?*const fn () callconv(.C) void),
+        \\    func: ?*const fn () callconv(.c) void = @import("std").mem.zeroes(?*const fn () callconv(.c) void),
         \\    callback_http: ?*const lws_callback_function = @import("std").mem.zeroes(?*const lws_callback_function),
         \\};
     });
@@ -895,19 +867,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\};
     , &[_][]const u8{
         \\pub const struct_Foo = extern struct {
-        \\    derp: ?*const fn ([*c]struct_Foo) callconv(.C) void = @import("std").mem.zeroes(?*const fn ([*c]struct_Foo) callconv(.C) void),
+        \\    derp: ?*const fn ([*c]struct_Foo) callconv(.c) void = @import("std").mem.zeroes(?*const fn ([*c]struct_Foo) callconv(.c) void),
         \\};
-        ,
-        \\pub const Foo = struct_Foo;
-    });
-
-    cases.add("struct prototype used in func",
-        \\struct Foo;
-        \\struct Foo *some_func(struct Foo *foo, int x);
-    , &[_][]const u8{
-        \\pub const struct_Foo = opaque {};
-        ,
-        \\pub extern fn some_func(foo: ?*struct_Foo, x: c_int) ?*struct_Foo;
         ,
         \\pub const Foo = struct_Foo;
     });
@@ -1150,7 +1111,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     cases.add("__cdecl doesn't mess up function pointers",
         \\void foo(void (__cdecl *fn_ptr)(void));
     , &[_][]const u8{
-        \\pub extern fn foo(fn_ptr: ?*const fn () callconv(.C) void) void;
+        \\pub extern fn foo(fn_ptr: ?*const fn () callconv(.c) void) void;
     });
 
     cases.add("void cast",
@@ -1516,8 +1477,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\typedef void (*fn0)();
         \\typedef void (*fn1)(char);
     , &[_][]const u8{
-        \\pub const fn0 = ?*const fn (...) callconv(.C) void;
-        \\pub const fn1 = ?*const fn (u8) callconv(.C) void;
+        \\pub const fn0 = ?*const fn (...) callconv(.c) void;
+        \\pub const fn1 = ?*const fn (u8) callconv(.c) void;
     });
 
     cases.addWithTarget("Calling convention", .{
@@ -1531,11 +1492,11 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\void __attribute__((cdecl)) foo4(float *a);
         \\void __attribute__((thiscall)) foo5(float *a);
     , &[_][]const u8{
-        \\pub extern fn foo1(a: [*c]f32) callconv(.Fastcall) void;
-        \\pub extern fn foo2(a: [*c]f32) callconv(.Stdcall) void;
-        \\pub extern fn foo3(a: [*c]f32) callconv(.Vectorcall) void;
+        \\pub extern fn foo1(a: [*c]f32) callconv(.{ .x86_fastcall = .{} }) void;
+        \\pub extern fn foo2(a: [*c]f32) callconv(.{ .x86_stdcall = .{} }) void;
+        \\pub extern fn foo3(a: [*c]f32) callconv(.{ .x86_vectorcall = .{} }) void;
         \\pub extern fn foo4(a: [*c]f32) void;
-        \\pub extern fn foo5(a: [*c]f32) callconv(.Thiscall) void;
+        \\pub extern fn foo5(a: [*c]f32) callconv(.{ .x86_thiscall = .{} }) void;
     });
 
     cases.addWithTarget("Calling convention", std.Target.Query.parse(.{
@@ -1545,8 +1506,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\void __attribute__((pcs("aapcs"))) foo1(float *a);
         \\void __attribute__((pcs("aapcs-vfp"))) foo2(float *a);
     , &[_][]const u8{
-        \\pub extern fn foo1(a: [*c]f32) callconv(.AAPCS) void;
-        \\pub extern fn foo2(a: [*c]f32) callconv(.AAPCSVFP) void;
+        \\pub extern fn foo1(a: [*c]f32) callconv(.{ .arm_aapcs = .{} }) void;
+        \\pub extern fn foo2(a: [*c]f32) callconv(.{ .arm_aapcs_vfp = .{} }) void;
     });
 
     cases.addWithTarget("Calling convention", std.Target.Query.parse(.{
@@ -1555,7 +1516,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
     }) catch unreachable,
         \\void __attribute__((aarch64_vector_pcs)) foo1(float *a);
     , &[_][]const u8{
-        \\pub extern fn foo1(a: [*c]f32) callconv(.Vectorcall) void;
+        \\pub extern fn foo1(a: [*c]f32) callconv(.{ .aarch64_vfabi = .{} }) void;
     });
 
     cases.add("Parameterless function prototypes",
@@ -1572,8 +1533,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\pub export fn b() void {}
         \\pub extern fn c(...) void;
         \\pub extern fn d() void;
-        \\pub fn e() callconv(.C) void {}
-        \\pub fn f() callconv(.C) void {}
+        \\pub fn e() callconv(.c) void {}
+        \\pub fn f() callconv(.c) void {}
         \\pub extern fn g() void;
         \\pub extern fn h() void;
     });
@@ -1594,7 +1555,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    char *arr1[10] ={0};
         \\}
     , &[_][]const u8{
-        \\pub fn foo() callconv(.C) void {
+        \\pub fn foo() callconv(.c) void {
         \\    var arr: [10]u8 = [1]u8{
         \\        1,
         \\    } ++ [1]u8{0} ** 9;
@@ -1725,13 +1686,13 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\extern char (*fn_ptr2)(int, float);
         \\#define bar fn_ptr2
     , &[_][]const u8{
-        \\pub extern var fn_ptr: ?*const fn () callconv(.C) void;
+        \\pub extern var fn_ptr: ?*const fn () callconv(.c) void;
         ,
         \\pub inline fn foo() void {
         \\    return fn_ptr.?();
         \\}
         ,
-        \\pub extern var fn_ptr2: ?*const fn (c_int, f32) callconv(.C) u8;
+        \\pub extern var fn_ptr2: ?*const fn (c_int, f32) callconv(.c) u8;
         ,
         \\pub inline fn bar(arg_1: c_int, arg_2: f32) u8 {
         \\    return fn_ptr2.?(arg_1, arg_2);
@@ -1753,8 +1714,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\#define glClearPFN PFNGLCLEARPROC
     , &[_][]const u8{
         \\pub const GLbitfield = c_uint;
-        \\pub const PFNGLCLEARPROC = ?*const fn (GLbitfield) callconv(.C) void;
-        \\pub const OpenGLProc = ?*const fn () callconv(.C) void;
+        \\pub const PFNGLCLEARPROC = ?*const fn (GLbitfield) callconv(.c) void;
+        \\pub const OpenGLProc = ?*const fn () callconv(.c) void;
         \\const struct_unnamed_1 = extern struct {
         \\    Clear: PFNGLCLEARPROC = @import("std").mem.zeroes(PFNGLCLEARPROC),
         \\};
@@ -2043,18 +2004,18 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\           break;
         \\        }
         \\        case 4:
-        \\		case 5:
+        \\        case 5:
         \\            res = 69;
         \\        {
         \\            res = 5;
-        \\			  return;
+        \\            return;
         \\        }
         \\        case 6:
         \\            switch (res) {
         \\                case 9: break;
         \\            }
         \\            res = 1;
-        \\			  return;
+        \\            return;
         \\    }
         \\}
     , &[_][]const u8{
@@ -2730,9 +2691,9 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    return 0;
         \\}
         \\pub export fn bar() void {
-        \\    var f: ?*const fn () callconv(.C) void = &foo;
+        \\    var f: ?*const fn () callconv(.c) void = &foo;
         \\    _ = &f;
-        \\    var b: ?*const fn () callconv(.C) c_int = &baz;
+        \\    var b: ?*const fn () callconv(.c) c_int = &baz;
         \\    _ = &b;
         \\    f.?();
         \\    f.?();
@@ -3087,8 +3048,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\    baz();
         \\}
     , &[_][]const u8{
-        \\pub fn bar() callconv(.C) void {}
-        \\pub export fn foo(arg_baz: ?*const fn () callconv(.C) [*c]c_int) void {
+        \\pub fn bar() callconv(.c) void {}
+        \\pub export fn foo(arg_baz: ?*const fn () callconv(.c) [*c]c_int) void {
         \\    var baz = arg_baz;
         \\    _ = &baz;
         \\    bar();
@@ -3151,7 +3112,7 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\        do {} while (0);
         \\}
     , &[_][]const u8{
-        \\pub fn foo() callconv(.C) void {
+        \\pub fn foo() callconv(.c) void {
         \\    if (true) while (true) {
         \\        if (!false) break;
         \\    };
@@ -3251,10 +3212,10 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\void c(void) {}
         \\static void foo() {}
     , &[_][]const u8{
-        \\pub fn a() callconv(.C) void {}
-        \\pub fn b() callconv(.C) void {}
+        \\pub fn a() callconv(.c) void {}
+        \\pub fn b() callconv(.c) void {}
         \\pub export fn c() void {}
-        \\pub fn foo() callconv(.C) void {}
+        \\pub fn foo() callconv(.c) void {}
     });
 
     cases.add("casting away const and volatile",

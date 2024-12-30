@@ -45,9 +45,9 @@ extern "C" {
     FARPROC pfAddress;
   } WSPIAPI_FUNCTION;
 
-#define WSPIAPI_FUNCTION_ARRAY { { "getaddrinfo",(FARPROC) WspiapiLegacyGetAddrInfo }, \
-  { "getnameinfo",(FARPROC) WspiapiLegacyGetNameInfo }, \
-  { "freeaddrinfo",(FARPROC) WspiapiLegacyFreeAddrInfo } }
+#define WSPIAPI_FUNCTION_ARRAY { { "getaddrinfo",(FARPROC)(void(*)(void)) WspiapiLegacyGetAddrInfo }, \
+  { "getnameinfo",(FARPROC)(void(*)(void)) WspiapiLegacyGetNameInfo }, \
+  { "freeaddrinfo",(FARPROC)(void(*)(void)) WspiapiLegacyFreeAddrInfo } }
 
   char *WINAPI WspiapiStrdup (const char *pszString);
   WINBOOL WINAPI WspiapiParseV4Address (const char *pszAddress,PDWORD pdwAddress);

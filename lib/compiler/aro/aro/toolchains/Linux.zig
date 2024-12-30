@@ -11,7 +11,7 @@ const system_defaults = @import("system_defaults");
 const Linux = @This();
 
 distro: Distro.Tag = .unknown,
-extra_opts: std.ArrayListUnmanaged([]const u8) = .{},
+extra_opts: std.ArrayListUnmanaged([]const u8) = .empty,
 gcc_detector: GCCDetector = .{},
 
 pub fn discover(self: *Linux, tc: *Toolchain) !void {
@@ -40,7 +40,7 @@ fn buildExtraOpts(self: *Linux, tc: *const Toolchain) !void {
         self.extra_opts.appendAssumeCapacity("relro");
     }
 
-    if (target.cpu.arch.isARM() or target.cpu.arch.isAARCH64() or is_android) {
+    if ((target.cpu.arch.isArm() and !target.cpu.arch.isThumb()) or target.cpu.arch.isAARCH64() or is_android) {
         try self.extra_opts.ensureUnusedCapacity(gpa, 2);
         self.extra_opts.appendAssumeCapacity("-z");
         self.extra_opts.appendAssumeCapacity("max-page-size=4096");
@@ -357,7 +357,6 @@ fn getOSLibDir(target: std.Target) []const u8 {
         .powerpc,
         .powerpcle,
         .sparc,
-        .sparcel,
         => return "lib32",
         else => {},
     }
@@ -424,7 +423,7 @@ test Linux {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    var comp = Compilation.init(std.testing.allocator);
+    var comp = Compilation.init(std.testing.allocator, std.fs.cwd());
     defer comp.deinit();
     comp.environment = .{
         .path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",

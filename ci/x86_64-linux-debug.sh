@@ -8,11 +8,11 @@ set -e
 ARCH="$(uname -m)"
 TARGET="$ARCH-linux-musl"
 MCPU="baseline"
-CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.13.0-dev.130+98a30acad"
+CACHE_BASENAME="zig+llvm+lld+clang-$TARGET-0.14.0-dev.1622+2ac543388"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
 
-export PATH="$HOME/deps/wasmtime-v10.0.2-$ARCH-linux:$HOME/deps/qemu-linux-x86_64-8.2.1/bin:$PATH"
+export PATH="$HOME/deps/wasmtime-v10.0.2-$ARCH-linux:$HOME/deps/qemu-linux-x86_64-9.2.0-rc1/bin:$HOME/local/bin:$PATH"
 
 # Make the `zig version` number consistent.
 # This will affect the cmake command below.
@@ -64,13 +64,14 @@ stage3-debug/bin/zig build \
 
 stage3-debug/bin/zig build test docs \
   --maxrss 21000000000 \
+  -Dlldb=$HOME/deps/lldb-zig/Debug-bfeada333/bin/lldb \
   -fqemu \
   -fwasmtime \
   -Dstatic-llvm \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
-  -Denable-tidy
+  -Denable-superhtml
 
 # Ensure that updating the wasm binary from this commit will result in a viable build.
 stage3-debug/bin/zig build update-zig1

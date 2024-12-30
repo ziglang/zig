@@ -126,10 +126,71 @@ pub fn syscall6(
     );
 }
 
-const CloneFn = *const fn (arg: usize) callconv(.C) u8;
-
-/// This matches the libc clone function.
-pub extern fn clone(func: CloneFn, stack: usize, flags: usize, arg: usize, ptid: *i32, tls: usize, ctid: *i32) usize;
+pub fn clone() callconv(.Naked) usize {
+    // __clone(func, stack, flags, arg, ptid, tls, ctid)
+    //         3,    4,     5,     6,   7,    8,   9
+    //
+    // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
+    //         0          3,     4,     5,    6,   7
+    asm volatile (
+        \\ # store non-volatile regs r29, r30 on stack in order to put our
+        \\ # start func and its arg there
+        \\ stwu 29, -16(1)
+        \\ stw 30, 4(1)
+        \\
+        \\ # save r3 (func) into r29, and r6(arg) into r30
+        \\ mr 29, 3
+        \\ mr 30, 6
+        \\
+        \\ # create initial stack frame for new thread
+        \\ clrrwi 4, 4, 4
+        \\ li 0, 0
+        \\ stwu 0, -16(4)
+        \\
+        \\ #move c into first arg
+        \\ mr 3, 5
+        \\ #mr 4, 4
+        \\ mr 5, 7
+        \\ mr 6, 8
+        \\ mr 7, 9
+        \\
+        \\ # move syscall number into r0
+        \\ li 0, 120 # SYS_clone
+        \\
+        \\ sc
+        \\
+        \\ # check for syscall error
+        \\ bns+ 1f # jump to label 1 if no summary overflow.
+        \\ #else
+        \\ neg 3, 3 #negate the result (errno)
+        \\ 1:
+        \\ # compare sc result with 0
+        \\ cmpwi cr7, 3, 0
+        \\
+        \\ # if not 0, restore stack and return
+        \\ beq cr7, 2f
+        \\ lwz 29, 0(1)
+        \\ lwz 30, 4(1)
+        \\ addi 1, 1, 16
+        \\ blr
+        \\
+        \\ #else: we're the child
+        \\ 2:
+        \\ .cfi_undefined lr
+        \\ li 31, 0
+        \\ mtlr 0
+        \\
+        \\ #call funcptr: move arg (d) into r3
+        \\ mr 3, 30
+        \\ #move r29 (funcptr) into CTR reg
+        \\ mtctr 29
+        \\ # call CTR reg
+        \\ bctrl
+        \\ # mov SYS_exit into r0 (the exit param is already in r3)
+        \\ li 0, 1
+        \\ sc
+    );
+}
 
 pub const restore = restore_rt;
 
@@ -166,13 +227,6 @@ pub const F = struct {
     pub const RDLCK = 0;
     pub const WRLCK = 1;
     pub const UNLCK = 2;
-};
-
-pub const LOCK = struct {
-    pub const SH = 1;
-    pub const EX = 2;
-    pub const UN = 8;
-    pub const NB = 4;
 };
 
 pub const VDSO = struct {
@@ -249,13 +303,13 @@ pub const Stat = extern struct {
 };
 
 pub const timeval = extern struct {
-    tv_sec: time_t,
-    tv_usec: isize,
+    sec: time_t,
+    usec: isize,
 };
 
 pub const timezone = extern struct {
-    tz_minuteswest: i32,
-    tz_dsttime: i32,
+    minuteswest: i32,
+    dsttime: i32,
 };
 
 pub const greg_t = u32;
@@ -290,3 +344,6 @@ pub const ucontext_t = extern struct {
 pub const Elf_Symndx = u32;
 
 pub const MMAP2_UNIT = 4096;
+
+/// TODO
+pub const getcontext = {};

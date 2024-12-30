@@ -696,9 +696,8 @@ __partition_with_equals_on_left(_RandomAccessIterator __first, _RandomAccessIter
   using _Ops = _IterOps<_AlgPolicy>;
   typedef typename iterator_traits<_RandomAccessIterator>::difference_type difference_type;
   typedef typename std::iterator_traits<_RandomAccessIterator>::value_type value_type;
-  // TODO(LLVM18): Make __begin const, see https://reviews.llvm.org/D147089#4349748
-  _RandomAccessIterator __begin     = __first; // used for bounds checking, those are not moved around
-  const _RandomAccessIterator __end = __last;
+  const _RandomAccessIterator __begin = __first; // used for bounds checking, those are not moved around
+  const _RandomAccessIterator __end   = __last;
   (void)__end; //
   value_type __pivot(_Ops::__iter_move(__first));
   if (__comp(__pivot, *(__last - difference_type(1)))) {

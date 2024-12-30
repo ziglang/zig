@@ -11,15 +11,15 @@ const rem_pio2 = @import("rem_pio2.zig").rem_pio2;
 const rem_pio2f = @import("rem_pio2f.zig").rem_pio2f;
 
 comptime {
-    @export(__cosh, .{ .name = "__cosh", .linkage = common.linkage, .visibility = common.visibility });
-    @export(cosf, .{ .name = "cosf", .linkage = common.linkage, .visibility = common.visibility });
-    @export(cos, .{ .name = "cos", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__cosx, .{ .name = "__cosx", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__cosh, .{ .name = "__cosh", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&cosf, .{ .name = "cosf", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&cos, .{ .name = "cos", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__cosx, .{ .name = "__cosx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
-        @export(cosq, .{ .name = "cosf128", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&cosq, .{ .name = "cosf128", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(cosq, .{ .name = "cosq", .linkage = common.linkage, .visibility = common.visibility });
-    @export(cosl, .{ .name = "cosl", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&cosq, .{ .name = "cosq", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&cosl, .{ .name = "cosl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __cosh(a: f16) callconv(.C) f16 {
@@ -41,7 +41,7 @@ pub fn cosf(x: f32) callconv(.C) f32 {
     if (ix <= 0x3f490fda) { // |x| ~<= pi/4
         if (ix < 0x39800000) { // |x| < 2**-12
             // raise inexact if x != 0
-            mem.doNotOptimizeAway(x + 0x1p120);
+            if (common.want_float_exceptions) mem.doNotOptimizeAway(x + 0x1p120);
             return 1.0;
         }
         return trig.__cosdf(x);
@@ -92,7 +92,7 @@ pub fn cos(x: f64) callconv(.C) f64 {
     if (ix <= 0x3fe921fb) {
         if (ix < 0x3e46a09e) { // |x| < 2**-27 * sqrt(2)
             // raise inexact if x!=0
-            mem.doNotOptimizeAway(x + 0x1p120);
+            if (common.want_float_exceptions) mem.doNotOptimizeAway(x + 0x1p120);
             return 1.0;
         }
         return trig.__cos(x, 0);
@@ -124,7 +124,7 @@ pub fn cosq(a: f128) callconv(.C) f128 {
 }
 
 pub fn cosl(x: c_longdouble) callconv(.C) c_longdouble {
-    switch (@typeInfo(c_longdouble).Float.bits) {
+    switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __cosh(x),
         32 => return cosf(x),
         64 => return cos(x),

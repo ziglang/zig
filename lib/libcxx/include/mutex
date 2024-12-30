@@ -186,7 +186,6 @@ template<class Callable, class ...Args>
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__chrono/steady_clock.h>
 #include <__chrono/time_point.h>
 #include <__condition_variable/condition_variable.h>
@@ -198,7 +197,7 @@ template<class Callable, class ...Args>
 #include <__mutex/tag_types.h>
 #include <__mutex/unique_lock.h>
 #include <__thread/id.h>
-#include <__threading_support>
+#include <__thread/support.h>
 #include <__utility/forward.h>
 #include <cstddef>
 #include <limits>
@@ -419,24 +418,6 @@ inline _LIBCPP_HIDE_FROM_ABI void lock(_L0& __l0, _L1& __l1, _L2& __l2, _L3&... 
   std::__lock_first(0, __l0, __l1, __l2, __l3...);
 }
 
-template <class _L0>
-inline _LIBCPP_HIDE_FROM_ABI void __unlock(_L0& __l0) {
-  __l0.unlock();
-}
-
-template <class _L0, class _L1>
-inline _LIBCPP_HIDE_FROM_ABI void __unlock(_L0& __l0, _L1& __l1) {
-  __l0.unlock();
-  __l1.unlock();
-}
-
-template <class _L0, class _L1, class _L2, class... _L3>
-inline _LIBCPP_HIDE_FROM_ABI void __unlock(_L0& __l0, _L1& __l1, _L2& __l2, _L3&... __l3) {
-  __l0.unlock();
-  __l1.unlock();
-  std::__unlock(__l2, __l3...);
-}
-
 #  endif // _LIBCPP_CXX03_LANG
 
 #  if _LIBCPP_STD_VER >= 17
@@ -446,10 +427,10 @@ class _LIBCPP_TEMPLATE_VIS scoped_lock;
 template <>
 class _LIBCPP_TEMPLATE_VIS scoped_lock<> {
 public:
-  explicit scoped_lock() {}
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI explicit scoped_lock() {}
   ~scoped_lock() = default;
 
-  _LIBCPP_HIDE_FROM_ABI explicit scoped_lock(adopt_lock_t) {}
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI explicit scoped_lock(adopt_lock_t) {}
 
   scoped_lock(scoped_lock const&)            = delete;
   scoped_lock& operator=(scoped_lock const&) = delete;
@@ -464,13 +445,15 @@ private:
   mutex_type& __m_;
 
 public:
-  explicit scoped_lock(mutex_type& __m) _LIBCPP_THREAD_SAFETY_ANNOTATION(acquire_capability(__m)) : __m_(__m) {
+  [[nodiscard]]
+  _LIBCPP_HIDE_FROM_ABI explicit scoped_lock(mutex_type& __m) _LIBCPP_THREAD_SAFETY_ANNOTATION(acquire_capability(__m))
+      : __m_(__m) {
     __m_.lock();
   }
 
   ~scoped_lock() _LIBCPP_THREAD_SAFETY_ANNOTATION(release_capability()) { __m_.unlock(); }
 
-  _LIBCPP_HIDE_FROM_ABI explicit scoped_lock(adopt_lock_t, mutex_type& __m)
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI explicit scoped_lock(adopt_lock_t, mutex_type& __m)
       _LIBCPP_THREAD_SAFETY_ANNOTATION(requires_capability(__m))
       : __m_(__m) {}
 
@@ -484,9 +467,11 @@ class _LIBCPP_TEMPLATE_VIS scoped_lock {
   typedef tuple<_MArgs&...> _MutexTuple;
 
 public:
-  _LIBCPP_HIDE_FROM_ABI explicit scoped_lock(_MArgs&... __margs) : __t_(__margs...) { std::lock(__margs...); }
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI explicit scoped_lock(_MArgs&... __margs) : __t_(__margs...) {
+    std::lock(__margs...);
+  }
 
-  _LIBCPP_HIDE_FROM_ABI scoped_lock(adopt_lock_t, _MArgs&... __margs) : __t_(__margs...) {}
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI scoped_lock(adopt_lock_t, _MArgs&... __margs) : __t_(__margs...) {}
 
   _LIBCPP_HIDE_FROM_ABI ~scoped_lock() {
     typedef typename __make_tuple_indices<sizeof...(_MArgs)>::type _Indices;
@@ -499,7 +484,7 @@ public:
 private:
   template <size_t... _Indx>
   _LIBCPP_HIDE_FROM_ABI static void __unlock_unpack(__tuple_indices<_Indx...>, _MutexTuple& __mt) {
-    std::__unlock(std::get<_Indx>(__mt)...);
+    (std::get<_Indx>(__mt).unlock(), ...);
   }
 
   _MutexTuple __t_;

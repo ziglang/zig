@@ -36,7 +36,9 @@ pub fn create(owner: *std.Build, options: Options) *Fmt {
     return fmt;
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    const prog_node = options.progress_node;
+
     // TODO: if check=false, this means we are modifying source files in place, which
     // is an operation that could race against other operations also modifying source files
     // in place. In this case, this step should obtain a write lock while making those
@@ -46,7 +48,7 @@ fn make(step: *Step, prog_node: std.Progress.Node) !void {
     const arena = b.allocator;
     const fmt: *Fmt = @fieldParentPtr("step", step);
 
-    var argv: std.ArrayListUnmanaged([]const u8) = .{};
+    var argv: std.ArrayListUnmanaged([]const u8) = .empty;
     try argv.ensureUnusedCapacity(arena, 2 + 1 + fmt.paths.len + 2 * fmt.exclude_paths.len);
 
     argv.appendAssumeCapacity(b.graph.zig_exe);

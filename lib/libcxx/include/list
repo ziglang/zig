@@ -202,8 +202,7 @@ template <class T, class Allocator, class Predicate>
 #include <__algorithm/lexicographical_compare.h>
 #include <__algorithm/lexicographical_compare_three_way.h>
 #include <__algorithm/min.h>
-#include <__assert> // all public C++ headers provide the assertion handler
-#include <__availability>
+#include <__assert>
 #include <__config>
 #include <__format/enable_insertable.h>
 #include <__iterator/distance.h>
@@ -227,9 +226,8 @@ template <class T, class Allocator, class Predicate>
 #include <__ranges/from_range.h>
 #include <__type_traits/conditional.h>
 #include <__type_traits/is_allocator.h>
-#include <__type_traits/is_nothrow_default_constructible.h>
-#include <__type_traits/is_nothrow_move_assignable.h>
-#include <__type_traits/is_nothrow_move_constructible.h>
+#include <__type_traits/is_nothrow_assignable.h>
+#include <__type_traits/is_nothrow_constructible.h>
 #include <__type_traits/is_pointer.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/type_identity.h>
@@ -467,10 +465,10 @@ public:
 
 template <class _Tp, class _Alloc>
 class __list_imp {
-  __list_imp(const __list_imp&);
-  __list_imp& operator=(const __list_imp&);
-
 public:
+  __list_imp(const __list_imp&) = delete;
+  __list_imp& operator=(const __list_imp&) = delete;
+
   typedef _Alloc allocator_type;
   typedef allocator_traits<allocator_type> __alloc_traits;
   typedef typename __alloc_traits::size_type size_type;
@@ -495,9 +493,8 @@ protected:
 
   typedef __rebind_alloc<__alloc_traits, __node_base> __node_base_allocator;
   typedef typename allocator_traits<__node_base_allocator>::pointer __node_base_pointer;
-  static_assert((!is_same<allocator_type, __node_allocator>::value),
-                "internal allocator type must differ from user-specified "
-                "type; otherwise overload resolution breaks");
+  static_assert(!is_same<allocator_type, __node_allocator>::value,
+                "internal allocator type must differ from user-specified type; otherwise overload resolution breaks");
 
   __node_base __end_;
   __compressed_pair<size_type, __node_allocator> __size_alloc_;
@@ -535,7 +532,7 @@ protected:
 #if _LIBCPP_STD_VER >= 14
       _NOEXCEPT;
 #else
-      _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value || __is_nothrow_swappable<allocator_type>::value);
+      _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value || __is_nothrow_swappable_v<allocator_type>);
 #endif
 
   _LIBCPP_HIDE_FROM_ABI void __copy_assign_alloc(const __list_imp& __c) {
@@ -568,7 +565,6 @@ protected:
     return __guard.__release_ptr();
   }
 
-  template <class... _Args>
   _LIBCPP_HIDE_FROM_ABI void __delete_node(__node_pointer __node) {
     // For the same reason as above, we use the allocator's destroy() method for the value_type,
     // but not for the node itself.
@@ -642,7 +638,7 @@ void __list_imp<_Tp, _Alloc>::swap(__list_imp& __c)
 #if _LIBCPP_STD_VER >= 14
     _NOEXCEPT
 #else
-    _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value || __is_nothrow_swappable<allocator_type>::value)
+    _NOEXCEPT_(!__alloc_traits::propagate_on_container_swap::value || __is_nothrow_swappable_v<allocator_type>)
 #endif
 {
   _LIBCPP_ASSERT_COMPATIBLE_ALLOCATOR(
@@ -677,7 +673,8 @@ class _LIBCPP_TEMPLATE_VIS list : private __list_imp<_Tp, _Alloc> {
 public:
   typedef _Tp value_type;
   typedef _Alloc allocator_type;
-  static_assert((is_same<value_type, typename allocator_type::value_type>::value),
+  static_assert(__check_valid_allocator<allocator_type>::value);
+  static_assert(is_same<value_type, typename allocator_type::value_type>::value,
                 "Allocator::value_type must be same type as value_type");
   typedef value_type& reference;
   typedef const value_type& const_reference;
@@ -695,10 +692,6 @@ public:
   typedef void __remove_return_type;
 #endif
 
-  static_assert(is_same<allocator_type, __rebind_alloc<allocator_traits<allocator_type>, value_type> >::value,
-                "[allocator.requirements] states that rebinding an allocator to the same type should result in the "
-                "original allocator");
-
   _LIBCPP_HIDE_FROM_ABI list() _NOEXCEPT_(is_nothrow_default_constructible<__node_allocator>::value) {}
   _LIBCPP_HIDE_FROM_ABI explicit list(const allocator_type& __a) : base(__a) {}
   _LIBCPP_HIDE_FROM_ABI explicit list(size_type __n);
@@ -706,21 +699,17 @@ public:
   _LIBCPP_HIDE_FROM_ABI explicit list(size_type __n, const allocator_type& __a);
 #endif
   _LIBCPP_HIDE_FROM_ABI list(size_type __n, const value_type& __x);
-  template <class = __enable_if_t<__is_allocator<_Alloc>::value> >
+  template <__enable_if_t<__is_allocator<_Alloc>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI list(size_type __n, const value_type& __x, const allocator_type& __a) : base(__a) {
     for (; __n > 0; --__n)
       push_back(__x);
   }
 
-  template <class _InpIter>
-  _LIBCPP_HIDE_FROM_ABI
-  list(_InpIter __f, _InpIter __l, __enable_if_t<__has_input_iterator_category<_InpIter>::value>* = 0);
-  template <class _InpIter>
-  _LIBCPP_HIDE_FROM_ABI
-  list(_InpIter __f,
-       _InpIter __l,
-       const allocator_type& __a,
-       __enable_if_t<__has_input_iterator_category<_InpIter>::value>* = 0);
+  template <class _InpIter, __enable_if_t<__has_input_iterator_category<_InpIter>::value, int> = 0>
+  _LIBCPP_HIDE_FROM_ABI list(_InpIter __f, _InpIter __l);
+
+  template <class _InpIter, __enable_if_t<__has_input_iterator_category<_InpIter>::value, int> = 0>
+  _LIBCPP_HIDE_FROM_ABI list(_InpIter __f, _InpIter __l, const allocator_type& __a);
 
 #if _LIBCPP_STD_VER >= 23
   template <_ContainerCompatibleRange<_Tp> _Range>
@@ -750,9 +739,8 @@ public:
   _LIBCPP_HIDE_FROM_ABI void assign(initializer_list<value_type> __il) { assign(__il.begin(), __il.end()); }
 #endif // _LIBCPP_CXX03_LANG
 
-  template <class _InpIter>
-  _LIBCPP_HIDE_FROM_ABI void
-  assign(_InpIter __f, _InpIter __l, __enable_if_t<__has_input_iterator_category<_InpIter>::value>* = 0);
+  template <class _InpIter, __enable_if_t<__has_input_iterator_category<_InpIter>::value, int> = 0>
+  _LIBCPP_HIDE_FROM_ABI void assign(_InpIter __f, _InpIter __l);
 
 #if _LIBCPP_STD_VER >= 23
   template <_ContainerCompatibleRange<_Tp> _Range>
@@ -766,7 +754,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI allocator_type get_allocator() const _NOEXCEPT;
 
   _LIBCPP_HIDE_FROM_ABI size_type size() const _NOEXCEPT { return base::__sz(); }
-  _LIBCPP_NODISCARD_AFTER_CXX17 _LIBCPP_HIDE_FROM_ABI bool empty() const _NOEXCEPT { return base::empty(); }
+  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI bool empty() const _NOEXCEPT { return base::empty(); }
   _LIBCPP_HIDE_FROM_ABI size_type max_size() const _NOEXCEPT {
     return std::min<size_type>(base::__node_alloc_max_size(), numeric_limits<difference_type >::max());
   }
@@ -854,12 +842,9 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI iterator insert(const_iterator __p, const value_type& __x);
   _LIBCPP_HIDE_FROM_ABI iterator insert(const_iterator __p, size_type __n, const value_type& __x);
-  template <class _InpIter>
-  _LIBCPP_HIDE_FROM_ABI iterator
-  insert(const_iterator __p,
-         _InpIter __f,
-         _InpIter __l,
-         __enable_if_t<__has_input_iterator_category<_InpIter>::value>* = 0);
+
+  template <class _InpIter, __enable_if_t<__has_input_iterator_category<_InpIter>::value, int> = 0>
+  _LIBCPP_HIDE_FROM_ABI iterator insert(const_iterator __p, _InpIter __f, _InpIter __l);
 
 #if _LIBCPP_STD_VER >= 23
   template <_ContainerCompatibleRange<_Tp> _Range>
@@ -872,8 +857,7 @@ public:
 #if _LIBCPP_STD_VER >= 14
       _NOEXCEPT
 #else
-      _NOEXCEPT_(!__node_alloc_traits::propagate_on_container_swap::value ||
-                 __is_nothrow_swappable<__node_allocator>::value)
+      _NOEXCEPT_(!__node_alloc_traits::propagate_on_container_swap::value || __is_nothrow_swappable_v<__node_allocator>)
 #endif
   {
     base::swap(__c);
@@ -1024,19 +1008,15 @@ list<_Tp, _Alloc>::list(size_type __n, const value_type& __x) {
 }
 
 template <class _Tp, class _Alloc>
-template <class _InpIter>
-list<_Tp, _Alloc>::list(_InpIter __f, _InpIter __l, __enable_if_t<__has_input_iterator_category<_InpIter>::value>*) {
+template <class _InpIter, __enable_if_t<__has_input_iterator_category<_InpIter>::value, int> >
+list<_Tp, _Alloc>::list(_InpIter __f, _InpIter __l) {
   for (; __f != __l; ++__f)
     __emplace_back(*__f);
 }
 
 template <class _Tp, class _Alloc>
-template <class _InpIter>
-list<_Tp, _Alloc>::list(_InpIter __f,
-                        _InpIter __l,
-                        const allocator_type& __a,
-                        __enable_if_t<__has_input_iterator_category<_InpIter>::value>*)
-    : base(__a) {
+template <class _InpIter, __enable_if_t<__has_input_iterator_category<_InpIter>::value, int> >
+list<_Tp, _Alloc>::list(_InpIter __f, _InpIter __l, const allocator_type& __a) : base(__a) {
   for (; __f != __l; ++__f)
     __emplace_back(*__f);
 }
@@ -1069,7 +1049,7 @@ list<_Tp, _Alloc>::list(initializer_list<value_type> __il) {
 }
 
 template <class _Tp, class _Alloc>
-inline list<_Tp, _Alloc>::list(list&& __c) _NOEXCEPT_(is_nothrow_move_constructible<__node_allocator>::value)
+inline list<_Tp, _Alloc>::list(list&& __c) noexcept(is_nothrow_move_constructible<__node_allocator>::value)
     : base(std::move(__c.__node_alloc())) {
   splice(end(), __c);
 }
@@ -1085,9 +1065,9 @@ inline list<_Tp, _Alloc>::list(list&& __c, const __type_identity_t<allocator_typ
 }
 
 template <class _Tp, class _Alloc>
-inline list<_Tp, _Alloc>& list<_Tp, _Alloc>::operator=(list&& __c)
-    _NOEXCEPT_(__node_alloc_traits::propagate_on_container_move_assignment::value&&
-                   is_nothrow_move_assignable<__node_allocator>::value) {
+inline list<_Tp, _Alloc>& list<_Tp, _Alloc>::operator=(list&& __c) noexcept(
+    __node_alloc_traits::propagate_on_container_move_assignment::value &&
+    is_nothrow_move_assignable<__node_allocator>::value) {
   __move_assign(__c, integral_constant<bool, __node_alloc_traits::propagate_on_container_move_assignment::value>());
   return *this;
 }
@@ -1102,8 +1082,8 @@ void list<_Tp, _Alloc>::__move_assign(list& __c, false_type) {
 }
 
 template <class _Tp, class _Alloc>
-void list<_Tp, _Alloc>::__move_assign(list& __c, true_type)
-    _NOEXCEPT_(is_nothrow_move_assignable<__node_allocator>::value) {
+void list<_Tp, _Alloc>::__move_assign(list& __c,
+                                      true_type) noexcept(is_nothrow_move_assignable<__node_allocator>::value) {
   clear();
   base::__move_assign_alloc(__c);
   splice(end(), __c);
@@ -1121,9 +1101,8 @@ inline list<_Tp, _Alloc>& list<_Tp, _Alloc>::operator=(const list& __c) {
 }
 
 template <class _Tp, class _Alloc>
-template <class _InpIter>
-void list<_Tp, _Alloc>::assign(
-    _InpIter __f, _InpIter __l, __enable_if_t<__has_input_iterator_category<_InpIter>::value>*) {
+template <class _InpIter, __enable_if_t<__has_input_iterator_category<_InpIter>::value, int> >
+void list<_Tp, _Alloc>::assign(_InpIter __f, _InpIter __l) {
   __assign_with_sentinel(__f, __l);
 }
 
@@ -1201,9 +1180,8 @@ list<_Tp, _Alloc>::insert(const_iterator __p, size_type __n, const value_type& _
 }
 
 template <class _Tp, class _Alloc>
-template <class _InpIter>
-typename list<_Tp, _Alloc>::iterator list<_Tp, _Alloc>::insert(
-    const_iterator __p, _InpIter __f, _InpIter __l, __enable_if_t<__has_input_iterator_category<_InpIter>::value>*) {
+template <class _InpIter, __enable_if_t<__has_input_iterator_category<_InpIter>::value, int> >
+typename list<_Tp, _Alloc>::iterator list<_Tp, _Alloc>::insert(const_iterator __p, _InpIter __f, _InpIter __l) {
   return __insert_with_sentinel(__p, __f, __l);
 }
 
@@ -1702,7 +1680,7 @@ template <class _Tp, class _Allocator>
 _LIBCPP_HIDE_FROM_ABI __synth_three_way_result<_Tp>
 operator<=>(const list<_Tp, _Allocator>& __x, const list<_Tp, _Allocator>& __y) {
   return std::lexicographical_compare_three_way(
-      __x.begin(), __x.end(), __y.begin(), __y.end(), std::__synth_three_way<_Tp, _Tp>);
+      __x.begin(), __x.end(), __y.begin(), __y.end(), std::__synth_three_way);
 }
 
 #endif // _LIBCPP_STD_VER <= 17

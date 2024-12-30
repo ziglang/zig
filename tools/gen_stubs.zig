@@ -2,21 +2,51 @@
 //! ./gen_stubs /path/to/musl/build-all >libc.S
 //!
 //! The directory 'build-all' is expected to contain these subdirectories:
-//! arm  x86  mips  mips64  powerpc  powerpc64  riscv64  x86_64
+//!
+//! * aarch64
+//! * arm
+//! * i386
+//! * loongarch64
+//! * mips
+//! * mips64
+//! * mipsn32
+//! * powerpc
+//! * powerpc64
+//! * riscv32
+//! * riscv64
+//! * s390x
+//! * x32 (currently broken)
+//! * x86_64
 //!
 //! ...each with 'lib/libc.so' inside of them.
 //!
 //! When building the resulting libc.S file, these defines are required:
-//! * `-DPTR64`: when the architecture is 64-bit
+//! * `-DTIME32`: When the target's primary time ABI is 32-bit
+//! * `-DPTR64`: When the target has 64-bit pointers
 //! * One of the following, corresponding to the CPU architecture:
-//!   - `-DARCH_riscv64`
+//!   - `-DARCH_aarch64`
+//!   - `-DARCH_arm`
+//!   - `-DARCH_i386`
+//!   - `-DARCH_loongarch64`
 //!   - `-DARCH_mips`
 //!   - `-DARCH_mips64`
-//!   - `-DARCH_i386`
-//!   - `-DARCH_x86_64`
+//!   - `-DARCH_mipsn32`
 //!   - `-DARCH_powerpc`
 //!   - `-DARCH_powerpc64`
-//!   - `-DARCH_aarch64`
+//!   - `-DARCH_riscv32`
+//!   - `-DARCH_riscv64`
+//!   - `-DARCH_s390x`
+//!   - `-DARCH_x32`
+//!   - `-DARCH_x86_64`
+//! * One of the following, corresponding to the CPU architecture family:
+//!   - `-DFAMILY_aarch64`
+//!   - `-DFAMILY_arm`
+//!   - `-DFAMILY_loongarch`
+//!   - `-DFAMILY_mips`
+//!   - `-DFAMILY_powerpc`
+//!   - `-DFAMILY_riscv`
+//!   - `-DFAMILY_s390x`
+//!   - `-DFAMILY_x86`
 
 // TODO: pick the best index to put them into instead of at the end
 //       - e.g. find a common previous symbol and put it after that one
@@ -27,24 +57,85 @@ const builtin = std.builtin;
 const mem = std.mem;
 const log = std.log;
 const elf = std.elf;
-const native_endian = @import("builtin").target.cpu.arch.endian();
+const native_endian = @import("builtin").cpu.arch.endian();
 
-const inputs = .{
-    .riscv32,
-    .riscv64,
-    .loongarch64,
-    .mips,
-    .mips64,
-    .x86,
-    .x86_64,
-    .powerpc,
-    .powerpc64,
-    .aarch64,
+const Arch = enum {
+    aarch64,
+    arm,
+    i386,
+    loongarch64,
+    mips,
+    mips64,
+    mipsn32,
+    powerpc,
+    powerpc64,
+    riscv32,
+    riscv64,
+    s390x,
+    x86_64,
+
+    pub fn ptrSize(arch: Arch) u16 {
+        return switch (arch) {
+            .arm,
+            .i386,
+            .mips,
+            .mipsn32,
+            .powerpc,
+            .riscv32,
+            => 4,
+            .aarch64,
+            .loongarch64,
+            .mips64,
+            .powerpc64,
+            .riscv64,
+            .s390x,
+            .x86_64,
+            => 8,
+        };
+    }
+
+    pub fn isTime32(arch: Arch) bool {
+        return switch (arch) {
+            // This list will never grow; newer 32-bit ports will be time64 (e.g. riscv32).
+            .arm,
+            .i386,
+            .mips,
+            .mipsn32,
+            .powerpc,
+            => true,
+            else => false,
+        };
+    }
+
+    pub fn family(arch: Arch) Family {
+        return switch (arch) {
+            .aarch64 => .aarch64,
+            .arm => .arm,
+            .i386, .x86_64 => .x86,
+            .loongarch64 => .loongarch,
+            .mips, .mips64, .mipsn32 => .mips,
+            .powerpc, .powerpc64 => .powerpc,
+            .riscv32, .riscv64 => .riscv,
+            .s390x => .s390x,
+        };
+    }
 };
 
-const arches: [inputs.len]std.Target.Cpu.Arch = blk: {
-    var result: [inputs.len]std.Target.Cpu.Arch = undefined;
-    for (inputs) |arch| {
+const Family = enum {
+    aarch64,
+    arm,
+    loongarch,
+    mips,
+    powerpc,
+    riscv,
+    s390x,
+    x86,
+};
+
+const arches: [@typeInfo(Arch).@"enum".fields.len]Arch = blk: {
+    var result: [@typeInfo(Arch).@"enum".fields.len]Arch = undefined;
+    for (@typeInfo(Arch).@"enum".fields) |field| {
+        const arch: Arch = @enumFromInt(field.value);
         result[archIndex(arch)] = arch;
     }
     break :blk result;
@@ -58,6 +149,31 @@ const MultiSym = struct {
     ty: u4,
     visib: elf.STV,
 
+    fn isSingleArch(ms: MultiSym) ?Arch {
+        var result: ?Arch = null;
+        inline for (@typeInfo(Arch).@"enum".fields) |field| {
+            const arch: Arch = @enumFromInt(field.value);
+            if (ms.present[archIndex(arch)]) {
+                if (result != null) return null;
+                result = arch;
+            }
+        }
+        return result;
+    }
+
+    fn isFamily(ms: MultiSym) ?Family {
+        var result: ?Family = null;
+        inline for (@typeInfo(Arch).@"enum".fields) |field| {
+            const arch: Arch = @enumFromInt(field.value);
+            if (ms.present[archIndex(arch)]) {
+                const family = arch.family();
+                if (result) |r| if (family != r) return null;
+                result = family;
+            }
+        }
+        return result;
+    }
+
     fn allPresent(ms: MultiSym) bool {
         for (arches, 0..) |_, i| {
             if (!ms.present[i]) {
@@ -67,15 +183,14 @@ const MultiSym = struct {
         return true;
     }
 
-    fn is32Only(ms: MultiSym) bool {
-        return ms.present[archIndex(.riscv64)] == false and
-            ms.present[archIndex(.mips)] == true and
-            ms.present[archIndex(.mips64)] == false and
-            ms.present[archIndex(.x86)] == true and
-            ms.present[archIndex(.x86_64)] == false and
-            ms.present[archIndex(.powerpc)] == true and
-            ms.present[archIndex(.powerpc64)] == false and
-            ms.present[archIndex(.aarch64)] == false;
+    fn isTime32Only(ms: MultiSym) bool {
+        inline for (@typeInfo(Arch).@"enum".fields) |field| {
+            const arch: Arch = @enumFromInt(field.value);
+            if (ms.present[archIndex(arch)] != arch.isTime32()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     fn commonSize(ms: MultiSym) ?u64 {
@@ -108,44 +223,11 @@ const MultiSym = struct {
         return binding.?;
     }
 
-    fn isPtrSize(ms: MultiSym) bool {
-        const map = .{
-            .{ .riscv64, 8 },
-            .{ .mips, 4 },
-            .{ .mips64, 8 },
-            .{ .x86, 4 },
-            .{ .x86_64, 8 },
-            .{ .powerpc, 4 },
-            .{ .powerpc64, 8 },
-            .{ .aarch64, 8 },
-        };
-        inline for (map) |item| {
-            const arch = item[0];
-            const size = item[1];
+    fn isPtrSize(ms: MultiSym, mult: u16) bool {
+        inline for (@typeInfo(Arch).@"enum".fields) |field| {
+            const arch: Arch = @enumFromInt(field.value);
             const arch_index = archIndex(arch);
-            if (ms.present[arch_index] and ms.size[arch_index] != size) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    fn isPtr2Size(ms: MultiSym) bool {
-        const map = .{
-            .{ .riscv64, 16 },
-            .{ .mips, 8 },
-            .{ .mips64, 16 },
-            .{ .x86, 8 },
-            .{ .x86_64, 16 },
-            .{ .powerpc, 8 },
-            .{ .powerpc64, 16 },
-            .{ .aarch64, 16 },
-        };
-        inline for (map) |item| {
-            const arch = item[0];
-            const size = item[1];
-            const arch_index = archIndex(arch);
-            if (ms.present[arch_index] and ms.size[arch_index] != size) {
+            if (ms.present[arch_index] and ms.size[arch_index] != arch.ptrSize() * mult) {
                 return false;
             }
         }
@@ -153,20 +235,26 @@ const MultiSym = struct {
     }
 
     fn isWeak64(ms: MultiSym) bool {
-        const map = .{
-            .{ .riscv64, 2 },
-            .{ .mips, 1 },
-            .{ .mips64, 2 },
-            .{ .x86, 1 },
-            .{ .x86_64, 2 },
-            .{ .powerpc, 1 },
-            .{ .powerpc64, 2 },
-            .{ .aarch64, 2 },
-        };
-        inline for (map) |item| {
-            const arch = item[0];
-            const binding = item[1];
+        inline for (@typeInfo(Arch).@"enum".fields) |field| {
+            const arch: Arch = @enumFromInt(field.value);
             const arch_index = archIndex(arch);
+            const binding: u4 = switch (arch.ptrSize()) {
+                4 => std.elf.STB_GLOBAL,
+                8 => std.elf.STB_WEAK,
+                else => unreachable,
+            };
+            if (ms.present[arch_index] and ms.binding[arch_index] != binding) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    fn isWeakTime64(ms: MultiSym) bool {
+        inline for (@typeInfo(Arch).@"enum".fields) |field| {
+            const arch: Arch = @enumFromInt(field.value);
+            const arch_index = archIndex(arch);
+            const binding: u4 = if (arch.isTime32()) std.elf.STB_GLOBAL else std.elf.STB_WEAK;
             if (ms.present[arch_index] and ms.binding[arch_index] != binding) {
                 return false;
             }
@@ -179,10 +267,9 @@ const Parse = struct {
     arena: mem.Allocator,
     sym_table: *std.StringArrayHashMap(MultiSym),
     sections: *std.StringArrayHashMap(void),
-    blacklist: std.StringArrayHashMap(void),
     elf_bytes: []align(@alignOf(elf.Elf64_Ehdr)) u8,
     header: elf.Header,
-    arch: std.Target.Cpu.Arch,
+    arch: Arch,
 };
 
 pub fn main() !void {
@@ -197,16 +284,10 @@ pub fn main() !void {
 
     var sym_table = std.StringArrayHashMap(MultiSym).init(arena);
     var sections = std.StringArrayHashMap(void).init(arena);
-    var blacklist = std.StringArrayHashMap(void).init(arena);
-
-    try blacklist.ensureUnusedCapacity(blacklisted_symbols.len);
-    for (blacklisted_symbols) |name| {
-        blacklist.putAssumeCapacityNoClobber(name, {});
-    }
 
     for (arches) |arch| {
         const libc_so_path = try std.fmt.allocPrint(arena, "{s}/lib/libc.so", .{
-            archMuslName(arch),
+            @tagName(arch),
         });
 
         // Read the ELF header.
@@ -228,7 +309,6 @@ pub fn main() !void {
             .arena = arena,
             .sym_table = &sym_table,
             .sections = &sections,
-            .blacklist = blacklist,
             .elf_bytes = elf_bytes,
             .header = header,
             .arch = arch,
@@ -257,6 +337,13 @@ pub fn main() !void {
         \\#define PTR_SIZE_BYTES 4
         \\#define PTR2_SIZE_BYTES 8
         \\#endif
+        \\
+        \\#ifdef TIME32
+        \\#define WEAKTIME64 .globl
+        \\#else
+        \\#define WEAKTIME64 .weak
+        \\#endif
+        \\
         \\
     );
 
@@ -291,7 +378,7 @@ pub fn main() !void {
     sym_table.sort(SymTableSort{ .sym_table = &sym_table, .sections = &sections });
 
     var prev_section: u16 = std.math.maxInt(u16);
-    var prev_pp_state: enum { none, ptr32, special } = .none;
+    var prev_pp_state: union(enum) { all, single: Arch, multi, family: Family, time32 } = .all;
     for (sym_table.values(), 0..) |multi_sym, sym_index| {
         const name = sym_table.keys()[sym_index];
 
@@ -303,32 +390,66 @@ pub fn main() !void {
 
         if (multi_sym.allPresent()) {
             switch (prev_pp_state) {
-                .none => {},
-                .ptr32, .special => {
+                .all => {},
+                .single, .multi, .family, .time32 => {
                     try stdout.writeAll("#endif\n");
-                    prev_pp_state = .none;
+                    prev_pp_state = .all;
                 },
             }
-        } else if (multi_sym.is32Only()) {
+        } else if (multi_sym.isSingleArch()) |arch| {
             switch (prev_pp_state) {
-                .none => {
-                    try stdout.writeAll("#ifdef PTR32\n");
-                    prev_pp_state = .ptr32;
+                .all => {
+                    try stdout.print("#ifdef ARCH_{s}\n", .{@tagName(arch)});
+                    prev_pp_state = .{ .single = arch };
                 },
-                .special => {
-                    try stdout.writeAll("#endif\n#ifdef PTR32\n");
-                    prev_pp_state = .ptr32;
+                .multi, .family, .time32 => {
+                    try stdout.print("#endif\n#ifdef ARCH_{s}\n", .{@tagName(arch)});
+                    prev_pp_state = .{ .single = arch };
                 },
-                .ptr32 => {},
+                .single => |prev_arch| {
+                    if (arch != prev_arch) {
+                        try stdout.print("#endif\n#ifdef ARCH_{s}\n", .{@tagName(arch)});
+                        prev_pp_state = .{ .single = arch };
+                    }
+                },
+            }
+        } else if (multi_sym.isFamily()) |family| {
+            switch (prev_pp_state) {
+                .all => {
+                    try stdout.print("#ifdef FAMILY_{s}\n", .{@tagName(family)});
+                    prev_pp_state = .{ .family = family };
+                },
+                .single, .multi, .time32 => {
+                    try stdout.print("#endif\n#ifdef FAMILY_{s}\n", .{@tagName(family)});
+                    prev_pp_state = .{ .family = family };
+                },
+                .family => |prev_family| {
+                    if (family != prev_family) {
+                        try stdout.print("#endif\n#ifdef FAMILY_{s}\n", .{@tagName(family)});
+                        prev_pp_state = .{ .family = family };
+                    }
+                },
+            }
+        } else if (multi_sym.isTime32Only()) {
+            switch (prev_pp_state) {
+                .all => {
+                    try stdout.writeAll("#ifdef TIME32\n");
+                    prev_pp_state = .time32;
+                },
+                .single, .multi, .family => {
+                    try stdout.writeAll("#endif\n#ifdef TIME32\n");
+                    prev_pp_state = .time32;
+                },
+                .time32 => {},
             }
         } else {
             switch (prev_pp_state) {
-                .none => {},
-                .special, .ptr32 => {
+                .all => {},
+                .single, .multi, .family, .time32 => {
                     try stdout.writeAll("#endif\n");
                 },
             }
-            prev_pp_state = .special;
+            prev_pp_state = .multi;
 
             var first = true;
             try stdout.writeAll("#if ");
@@ -356,6 +477,8 @@ pub fn main() !void {
             }
         } else if (multi_sym.isWeak64()) {
             try stdout.print("WEAK64 {s}\n", .{name});
+        } else if (multi_sym.isWeakTime64()) {
+            try stdout.print("WEAKTIME64 {s}\n", .{name});
         } else {
             for (arches, 0..) |arch, i| {
                 log.info("symbol '{s}' binding on {s}: {d}", .{
@@ -374,9 +497,9 @@ pub fn main() !void {
                 try stdout.print(".type {s}, %object;\n", .{name});
                 if (multi_sym.commonSize()) |size| {
                     try stdout.print(".size {s}, {d}\n", .{ name, size });
-                } else if (multi_sym.isPtrSize()) {
+                } else if (multi_sym.isPtrSize(1)) {
                     try stdout.print(".size {s}, PTR_SIZE_BYTES\n", .{name});
-                } else if (multi_sym.isPtr2Size()) {
+                } else if (multi_sym.isPtrSize(2)) {
                     try stdout.print(".size {s}, PTR2_SIZE_BYTES\n", .{name});
                 } else {
                     for (arches, 0..) |arch, i| {
@@ -400,8 +523,8 @@ pub fn main() !void {
     }
 
     switch (prev_pp_state) {
-        .none => {},
-        .ptr32, .special => try stdout.writeAll("#endif\n"),
+        .all => {},
+        .single, .multi, .family, .time32 => try stdout.writeAll("#endif\n"),
     }
 }
 
@@ -477,10 +600,15 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
         const visib = @as(elf.STV, @enumFromInt(@as(u2, @truncate(sym.st_other))));
         const size = s(sym.st_size);
 
-        if (parse.blacklist.contains(name)) continue;
-
         if (size == 0) {
             log.warn("{s}: symbol '{s}' has size 0", .{ @tagName(parse.arch), name });
+        }
+
+        if (sym.st_shndx == elf.SHN_UNDEF) {
+            log.debug("{s}: skipping '{s}' due to it being undefined", .{
+                @tagName(parse.arch), name,
+            });
+            continue;
         }
 
         switch (binding) {
@@ -580,40 +708,8 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
     }
 }
 
-fn archIndex(arch: std.Target.Cpu.Arch) u8 {
-    return switch (arch) {
-        // zig fmt: off
-        .riscv64     => 0,
-        .mips        => 1,
-        .mips64      => 2,
-        .x86         => 3,
-        .x86_64      => 4,
-        .powerpc     => 5,
-        .powerpc64   => 6,
-        .aarch64     => 7,
-        .riscv32     => 8,
-        .loongarch64 => 9,
-        else         => unreachable,
-        // zig fmt: on
-    };
-}
-
-fn archMuslName(arch: std.Target.Cpu.Arch) []const u8 {
-    return switch (arch) {
-        // zig fmt: off
-        .riscv64     => "riscv64",
-        .mips        => "mips",
-        .mips64      => "mips64",
-        .x86         => "i386",
-        .x86_64      => "x86_64",
-        .powerpc     => "powerpc",
-        .powerpc64   => "powerpc64",
-        .aarch64     => "aarch64",
-        .riscv32     => "riscv32",
-        .loongarch64 => "loongarch64",
-        else         => unreachable,
-        // zig fmt: on
-    };
+fn archIndex(arch: Arch) u8 {
+    return @intFromEnum(arch);
 }
 
 fn archSetName(arch_set: [arches.len]bool) []const u8 {
@@ -629,529 +725,3 @@ fn fatal(comptime format: []const u8, args: anytype) noreturn {
     log.err(format, args);
     std.process.exit(1);
 }
-
-const blacklisted_symbols = [_][]const u8{
-    "__absvdi2",
-    "__absvsi2",
-    "__absvti2",
-    "__adddf3",
-    "__addkf3",
-    "__addodi4",
-    "__addosi4",
-    "__addoti4",
-    "__addsf3",
-    "__addtf3",
-    "__addxf3",
-    "__ashldi3",
-    "__ashlsi3",
-    "__ashlti3",
-    "__ashrdi3",
-    "__ashrsi3",
-    "__ashrti3",
-    "__atomic_compare_exchange",
-    "__atomic_compare_exchange_1",
-    "__atomic_compare_exchange_2",
-    "__atomic_compare_exchange_4",
-    "__atomic_compare_exchange_8",
-    "__atomic_exchange",
-    "__atomic_exchange_1",
-    "__atomic_exchange_2",
-    "__atomic_exchange_4",
-    "__atomic_exchange_8",
-    "__atomic_fetch_add_1",
-    "__atomic_fetch_add_2",
-    "__atomic_fetch_add_4",
-    "__atomic_fetch_add_8",
-    "__atomic_fetch_and_1",
-    "__atomic_fetch_and_2",
-    "__atomic_fetch_and_4",
-    "__atomic_fetch_and_8",
-    "__atomic_fetch_nand_1",
-    "__atomic_fetch_nand_2",
-    "__atomic_fetch_nand_4",
-    "__atomic_fetch_nand_8",
-    "__atomic_fetch_or_1",
-    "__atomic_fetch_or_2",
-    "__atomic_fetch_or_4",
-    "__atomic_fetch_or_8",
-    "__atomic_fetch_sub_1",
-    "__atomic_fetch_sub_2",
-    "__atomic_fetch_sub_4",
-    "__atomic_fetch_sub_8",
-    "__atomic_fetch_xor_1",
-    "__atomic_fetch_xor_2",
-    "__atomic_fetch_xor_4",
-    "__atomic_fetch_xor_8",
-    "__atomic_load",
-    "__atomic_load_1",
-    "__atomic_load_2",
-    "__atomic_load_4",
-    "__atomic_load_8",
-    "__atomic_store",
-    "__atomic_store_1",
-    "__atomic_store_2",
-    "__atomic_store_4",
-    "__atomic_store_8",
-    "__bswapdi2",
-    "__bswapsi2",
-    "__bswapti2",
-    "__ceilh",
-    "__ceilx",
-    "__clear_cache",
-    "__clzdi2",
-    "__chk_fail",
-    "__clzsi2",
-    "__clzti2",
-    "__cmpdf2",
-    "__cmpdi2",
-    "__cmpsf2",
-    "__cmpsi2",
-    "__cmptf2",
-    "__cmpti2",
-    "__cosh",
-    "__cosx",
-    "__ctzdi2",
-    "__ctzsi2",
-    "__ctzti2",
-    "__divdf3",
-    "__divdi3",
-    "__divkf3",
-    "__divmoddi4",
-    "__divmodsi4",
-    "__divmodti4",
-    "__divsf3",
-    "__divsi3",
-    "__divtf3",
-    "__divti3",
-    "__divxf3",
-    "__dlstart",
-    "__eqdf2",
-    "__eqkf2",
-    "__eqsf2",
-    "__eqtf2",
-    "__eqxf2",
-    "__exp2h",
-    "__exp2x",
-    "__exph",
-    "__expx",
-    "__extenddfkf2",
-    "__extenddftf2",
-    "__extenddfxf2",
-    "__extendhfsf2",
-    "__extendhftf2",
-    "__extendhfxf2",
-    "__extendsfdf2",
-    "__extendsfkf2",
-    "__extendsftf2",
-    "__extendsfxf2",
-    "__extendxftf2",
-    "__fabsh",
-    "__fabsx",
-    "__ffsdi2",
-    "__ffssi2",
-    "__ffsti2",
-    "__fixdfdi",
-    "__fixdfsi",
-    "__fixdfti",
-    "__fixkfdi",
-    "__fixkfsi",
-    "__fixkfti",
-    "__fixsfdi",
-    "__fixsfsi",
-    "__fixsfti",
-    "__fixtfdi",
-    "__fixtfsi",
-    "__fixtfti",
-    "__fixunsdfdi",
-    "__fixunsdfsi",
-    "__fixunsdfti",
-    "__fixunskfdi",
-    "__fixunskfsi",
-    "__fixunskfti",
-    "__fixunssfdi",
-    "__fixunssfsi",
-    "__fixunssfti",
-    "__fixunstfdi",
-    "__fixunstfsi",
-    "__fixunstfti",
-    "__fixunsxfdi",
-    "__fixunsxfsi",
-    "__fixunsxfti",
-    "__fixxfdi",
-    "__fixxfsi",
-    "__fixxfti",
-    "__floatdidf",
-    "__floatdikf",
-    "__floatdisf",
-    "__floatditf",
-    "__floatdixf",
-    "__floatsidf",
-    "__floatsikf",
-    "__floatsisf",
-    "__floatsitf",
-    "__floatsixf",
-    "__floattidf",
-    "__floattikf",
-    "__floattisf",
-    "__floattitf",
-    "__floattixf",
-    "__floatundidf",
-    "__floatundikf",
-    "__floatundisf",
-    "__floatunditf",
-    "__floatundixf",
-    "__floatunsidf",
-    "__floatunsikf",
-    "__floatunsisf",
-    "__floatunsitf",
-    "__floatunsixf",
-    "__floatuntidf",
-    "__floatuntikf",
-    "__floatuntisf",
-    "__floatuntitf",
-    "__floatuntixf",
-    "__floorh",
-    "__floorx",
-    "__fmah",
-    "__fmax",
-    "__fmaxh",
-    "__fmaxx",
-    "__fminh",
-    "__fminx",
-    "__fmodh",
-    "__fmodx",
-    "__gedf2",
-    "__gekf2",
-    "__gesf2",
-    "__getf2",
-    "__gexf2",
-    "__gnu_f2h_ieee",
-    "__gnu_h2f_ieee",
-    "__gtdf2",
-    "__gtkf2",
-    "__gtsf2",
-    "__gttf2",
-    "__gtxf2",
-    "__ledf2",
-    "__lekf2",
-    "__lesf2",
-    "__letf2",
-    "__lexf2",
-    "__log10h",
-    "__log10x",
-    "__log2h",
-    "__log2x",
-    "__logh",
-    "__logx",
-    "__lshrdi3",
-    "__lshrsi3",
-    "__lshrti3",
-    "__ltdf2",
-    "__ltkf2",
-    "__ltsf2",
-    "__lttf2",
-    "__ltxf2",
-    "__memcpy_chk",
-    "__memmove_chk",
-    "__memset",
-    "__memset_chk",
-    "__moddi3",
-    "__modsi3",
-    "__modti3",
-    "__muldc3",
-    "__muldf3",
-    "__muldi3",
-    "__mulkc3",
-    "__mulkf3",
-    "__mulodi4",
-    "__mulosi4",
-    "__muloti4",
-    "__mulsc3",
-    "__mulsf3",
-    "__mulsi3",
-    "__multc3",
-    "__multf3",
-    "__multi3",
-    "__mulxc3",
-    "__mulxf3",
-    "__nedf2",
-    "__negdf2",
-    "__negdi2",
-    "__negsf2",
-    "__negsi2",
-    "__negti2",
-    "__negvdi2",
-    "__negvsi2",
-    "__negvti2",
-    "__nekf2",
-    "__nesf2",
-    "__netf2",
-    "__nexf2",
-    "__paritydi2",
-    "__paritysi2",
-    "__parityti2",
-    "__popcountdi2",
-    "__popcountsi2",
-    "__popcountti2",
-    "__powidf2",
-    "__powihf2",
-    "__powikf2",
-    "__powisf2",
-    "__powitf2",
-    "__powixf2",
-    "__roundh",
-    "__roundx",
-    "__sincosh",
-    "__sincosx",
-    "__sinh",
-    "__sinx",
-    "__sqrth",
-    "__sqrtx",
-    "__strcat_chk",
-    "__strcpy_chk",
-    "__strncat_chk",
-    "__strncpy_chk",
-    "__subdf3",
-    "__subkf3",
-    "__subodi4",
-    "__subosi4",
-    "__suboti4",
-    "__subsf3",
-    "__subtf3",
-    "__subxf3",
-    "__tanh",
-    "__tanx",
-    "__truncdfhf2",
-    "__truncdfsf2",
-    "__trunch",
-    "__trunckfdf2",
-    "__trunckfsf2",
-    "__truncsfhf2",
-    "__trunctfdf2",
-    "__trunctfhf2",
-    "__trunctfsf2",
-    "__trunctfxf2",
-    "__truncx",
-    "__truncxfdf2",
-    "__truncxfhf2",
-    "__truncxfsf2",
-    "__ucmpdi2",
-    "__ucmpsi2",
-    "__ucmpti2",
-    "__udivdi3",
-    "__udivei4",
-    "__udivmoddi4",
-    "__udivmodsi4",
-    "__udivmodti4",
-    "__udivsi3",
-    "__udivti3",
-    "__umoddi3",
-    "__umodei4",
-    "__umodsi3",
-    "__umodti3",
-    "__unorddf2",
-    "__unordkf2",
-    "__unordsf2",
-    "__unordtf2",
-    "__zig_probe_stack",
-    "ceilf128",
-    "ceilq",
-    "cosf128",
-    "cosq",
-    "exp2f128",
-    "exp2q",
-    "expf128",
-    "expq",
-    "fabsf128",
-    "fabsq",
-    "fabsq.2",
-    "fabsq.3",
-    "floorf128",
-    "floorq",
-    "fmaf128",
-    "fmaq",
-    "fmaxf128",
-    "fmaxq",
-    "fmaxq.2",
-    "fmaxq.3",
-    "fminf128",
-    "fminq",
-    "fmodf128",
-    "fmodq",
-    "log10f128",
-    "log10q",
-    "log2f128",
-    "log2q",
-    "logf128",
-    "logq",
-    "roundf128",
-    "roundq",
-    "sincosf128",
-    "sincosq",
-    "sinf128",
-    "sinq",
-    "sqrtf128",
-    "sqrtq",
-    "tanf128",
-    "tanq",
-    "truncf128",
-    "truncq",
-    "__aarch64_cas16_acq",
-    "__aarch64_cas16_acq_rel",
-    "__aarch64_cas16_rel",
-    "__aarch64_cas16_relax",
-    "__aarch64_cas1_acq",
-    "__aarch64_cas1_acq_rel",
-    "__aarch64_cas1_rel",
-    "__aarch64_cas1_relax",
-    "__aarch64_cas2_acq",
-    "__aarch64_cas2_acq_rel",
-    "__aarch64_cas2_rel",
-    "__aarch64_cas2_relax",
-    "__aarch64_cas4_acq",
-    "__aarch64_cas4_acq_rel",
-    "__aarch64_cas4_rel",
-    "__aarch64_cas4_relax",
-    "__aarch64_cas8_acq",
-    "__aarch64_cas8_acq_rel",
-    "__aarch64_cas8_rel",
-    "__aarch64_cas8_relax",
-    "__aarch64_ldadd1_acq",
-    "__aarch64_ldadd1_acq_rel",
-    "__aarch64_ldadd1_rel",
-    "__aarch64_ldadd1_relax",
-    "__aarch64_ldadd2_acq",
-    "__aarch64_ldadd2_acq_rel",
-    "__aarch64_ldadd2_rel",
-    "__aarch64_ldadd2_relax",
-    "__aarch64_ldadd4_acq",
-    "__aarch64_ldadd4_acq_rel",
-    "__aarch64_ldadd4_rel",
-    "__aarch64_ldadd4_relax",
-    "__aarch64_ldadd8_acq",
-    "__aarch64_ldadd8_acq_rel",
-    "__aarch64_ldadd8_rel",
-    "__aarch64_ldadd8_relax",
-    "__aarch64_ldclr1_acq",
-    "__aarch64_ldclr1_acq_rel",
-    "__aarch64_ldclr1_rel",
-    "__aarch64_ldclr1_relax",
-    "__aarch64_ldclr2_acq",
-    "__aarch64_ldclr2_acq_rel",
-    "__aarch64_ldclr2_rel",
-    "__aarch64_ldclr2_relax",
-    "__aarch64_ldclr4_acq",
-    "__aarch64_ldclr4_acq_rel",
-    "__aarch64_ldclr4_rel",
-    "__aarch64_ldclr4_relax",
-    "__aarch64_ldclr8_acq",
-    "__aarch64_ldclr8_acq_rel",
-    "__aarch64_ldclr8_rel",
-    "__aarch64_ldclr8_relax",
-    "__aarch64_ldeor1_acq",
-    "__aarch64_ldeor1_acq_rel",
-    "__aarch64_ldeor1_rel",
-    "__aarch64_ldeor1_relax",
-    "__aarch64_ldeor2_acq",
-    "__aarch64_ldeor2_acq_rel",
-    "__aarch64_ldeor2_rel",
-    "__aarch64_ldeor2_relax",
-    "__aarch64_ldeor4_acq",
-    "__aarch64_ldeor4_acq_rel",
-    "__aarch64_ldeor4_rel",
-    "__aarch64_ldeor4_relax",
-    "__aarch64_ldeor8_acq",
-    "__aarch64_ldeor8_acq_rel",
-    "__aarch64_ldeor8_rel",
-    "__aarch64_ldeor8_relax",
-    "__aarch64_ldset1_acq",
-    "__aarch64_ldset1_acq_rel",
-    "__aarch64_ldset1_rel",
-    "__aarch64_ldset1_relax",
-    "__aarch64_ldset2_acq",
-    "__aarch64_ldset2_acq_rel",
-    "__aarch64_ldset2_rel",
-    "__aarch64_ldset2_relax",
-    "__aarch64_ldset4_acq",
-    "__aarch64_ldset4_acq_rel",
-    "__aarch64_ldset4_rel",
-    "__aarch64_ldset4_relax",
-    "__aarch64_ldset8_acq",
-    "__aarch64_ldset8_acq_rel",
-    "__aarch64_ldset8_rel",
-    "__aarch64_ldset8_relax",
-    "__aarch64_swp1_acq",
-    "__aarch64_swp1_acq_rel",
-    "__aarch64_swp1_rel",
-    "__aarch64_swp1_relax",
-    "__aarch64_swp2_acq",
-    "__aarch64_swp2_acq_rel",
-    "__aarch64_swp2_rel",
-    "__aarch64_swp2_relax",
-    "__aarch64_swp4_acq",
-    "__aarch64_swp4_acq_rel",
-    "__aarch64_swp4_rel",
-    "__aarch64_swp4_relax",
-    "__aarch64_swp8_acq",
-    "__aarch64_swp8_acq_rel",
-    "__aarch64_swp8_rel",
-    "__aarch64_swp8_relax",
-    "__addhf3",
-    "__atomic_compare_exchange_16",
-    "__atomic_exchange_16",
-    "__atomic_fetch_add_16",
-    "__atomic_fetch_and_16",
-    "__atomic_fetch_nand_16",
-    "__atomic_fetch_or_16",
-    "__atomic_fetch_sub_16",
-    "__atomic_fetch_umax_1",
-    "__atomic_fetch_umax_16",
-    "__atomic_fetch_umax_2",
-    "__atomic_fetch_umax_4",
-    "__atomic_fetch_umax_8",
-    "__atomic_fetch_umin_1",
-    "__atomic_fetch_umin_16",
-    "__atomic_fetch_umin_2",
-    "__atomic_fetch_umin_4",
-    "__atomic_fetch_umin_8",
-    "__atomic_fetch_xor_16",
-    "__atomic_load_16",
-    "__atomic_store_16",
-    "__cmphf2",
-    "__cmpxf2",
-    "__divdc3",
-    "__divhc3",
-    "__divhf3",
-    "__divkc3",
-    "__divsc3",
-    "__divtc3",
-    "__divxc3",
-    "__eqhf2",
-    "__extendhfdf2",
-    "__fixhfdi",
-    "__fixhfsi",
-    "__fixhfti",
-    "__fixunshfdi",
-    "__fixunshfsi",
-    "__fixunshfti",
-    "__floatdihf",
-    "__floatsihf",
-    "__floattihf",
-    "__floatundihf",
-    "__floatunsihf",
-    "__floatuntihf",
-    "__gehf2",
-    "__gthf2",
-    "__lehf2",
-    "__lthf2",
-    "__mulhc3",
-    "__mulhf3",
-    "__neghf2",
-    "__negkf2",
-    "__negtf2",
-    "__negxf2",
-    "__nehf2",
-    "__subhf3",
-    "__unordhf2",
-    "__unordxf2",
-};

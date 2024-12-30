@@ -148,7 +148,7 @@ pub const Parser = struct {
     a: Allocator,
 
     /// Maps (instruction set, opcode) => instruction index (for instruction set)
-    opcode_table: std.AutoHashMapUnmanaged(u32, u16) = .{},
+    opcode_table: std.AutoHashMapUnmanaged(u32, u16) = .empty,
 
     pub fn init(a: Allocator) !Parser {
         var self = Parser{

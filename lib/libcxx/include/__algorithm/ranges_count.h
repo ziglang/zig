@@ -38,14 +38,14 @@ namespace __count {
 struct __fn {
   template <input_iterator _Iter, sentinel_for<_Iter> _Sent, class _Type, class _Proj = identity>
     requires indirect_binary_predicate<ranges::equal_to, projected<_Iter, _Proj>, const _Type*>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr iter_difference_t<_Iter>
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr iter_difference_t<_Iter>
   operator()(_Iter __first, _Sent __last, const _Type& __value, _Proj __proj = {}) const {
     return std::__count<_RangeAlgPolicy>(std::move(__first), std::move(__last), __value, __proj);
   }
 
   template <input_range _Range, class _Type, class _Proj = identity>
     requires indirect_binary_predicate<ranges::equal_to, projected<iterator_t<_Range>, _Proj>, const _Type*>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr range_difference_t<_Range>
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr range_difference_t<_Range>
   operator()(_Range&& __r, const _Type& __value, _Proj __proj = {}) const {
     return std::__count<_RangeAlgPolicy>(ranges::begin(__r), ranges::end(__r), __value, __proj);
   }

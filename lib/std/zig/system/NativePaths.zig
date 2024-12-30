@@ -7,11 +7,11 @@ const mem = std.mem;
 const NativePaths = @This();
 
 arena: Allocator,
-include_dirs: std.ArrayListUnmanaged([]const u8) = .{},
-lib_dirs: std.ArrayListUnmanaged([]const u8) = .{},
-framework_dirs: std.ArrayListUnmanaged([]const u8) = .{},
-rpaths: std.ArrayListUnmanaged([]const u8) = .{},
-warnings: std.ArrayListUnmanaged([]const u8) = .{},
+include_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
+lib_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
+framework_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
+rpaths: std.ArrayListUnmanaged([]const u8) = .empty,
+warnings: std.ArrayListUnmanaged([]const u8) = .empty,
 
 pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
     var self: NativePaths = .{ .arena = arena };

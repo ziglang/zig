@@ -28,7 +28,7 @@ __LDBL_REDIR_DECL (vprintf)
 __LDBL_REDIR_DECL (vsprintf)
 #if !__GLIBC_USE (DEPRECATED_SCANF)
 # if defined __LDBL_COMPAT
-#  if __GLIBC_USE (C2X_STRTOL)
+#  if __GLIBC_USE (C23_STRTOL)
 __LDBL_REDIR1_DECL (fscanf, __nldbl___isoc23_fscanf)
 __LDBL_REDIR1_DECL (scanf, __nldbl___isoc23_scanf)
 __LDBL_REDIR1_DECL (sscanf, __nldbl___isoc23_sscanf)
@@ -38,7 +38,7 @@ __LDBL_REDIR1_DECL (scanf, __nldbl___isoc99_scanf)
 __LDBL_REDIR1_DECL (sscanf, __nldbl___isoc99_sscanf)
 #  endif
 # elif __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
-#  if __GLIBC_USE (C2X_STRTOL)
+#  if __GLIBC_USE (C23_STRTOL)
 __LDBL_REDIR1_DECL (fscanf, __isoc23_fscanfieee128)
 __LDBL_REDIR1_DECL (scanf, __isoc23_scanfieee128)
 __LDBL_REDIR1_DECL (sscanf, __isoc23_sscanfieee128)
@@ -64,7 +64,7 @@ __LDBL_REDIR_DECL (vsnprintf)
 #ifdef	__USE_ISOC99
 # if !__GLIBC_USE (DEPRECATED_SCANF)
 #  if defined __LDBL_COMPAT
-#   if __GLIBC_USE (C2X_STRTOL)
+#   if __GLIBC_USE (C23_STRTOL)
 __LDBL_REDIR1_DECL (vfscanf, __nldbl___isoc23_vfscanf)
 __LDBL_REDIR1_DECL (vscanf, __nldbl___isoc23_vscanf)
 __LDBL_REDIR1_DECL (vsscanf, __nldbl___isoc23_vsscanf)
@@ -74,7 +74,7 @@ __LDBL_REDIR1_DECL (vscanf, __nldbl___isoc99_vscanf)
 __LDBL_REDIR1_DECL (vsscanf, __nldbl___isoc99_vsscanf)
 #   endif
 #  elif __LDOUBLE_REDIRECTS_TO_FLOAT128_ABI == 1
-#   if __GLIBC_USE (C2X_STRTOL)
+#   if __GLIBC_USE (C23_STRTOL)
 __LDBL_REDIR1_DECL (vfscanf, __isoc23_vfscanfieee128)
 __LDBL_REDIR1_DECL (vscanf, __isoc23_vscanfieee128)
 __LDBL_REDIR1_DECL (vsscanf, __isoc23_vsscanfieee128)

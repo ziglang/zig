@@ -21,14 +21,118 @@
 
 #include <sysdeps/generic/sysdep.h>
 
+/* The extended state feature IDs in the state component bitmap.  */
+#define X86_XSTATE_X87_ID	0
+#define X86_XSTATE_SSE_ID	1
+#define X86_XSTATE_AVX_ID	2
+#define X86_XSTATE_BNDREGS_ID	3
+#define X86_XSTATE_BNDCFG_ID	4
+#define X86_XSTATE_K_ID		5
+#define X86_XSTATE_ZMM_H_ID	6
+#define X86_XSTATE_ZMM_ID	7
+#define X86_XSTATE_PKRU_ID	9
+#define X86_XSTATE_TILECFG_ID	17
+#define X86_XSTATE_TILEDATA_ID	18
+#define X86_XSTATE_APX_F_ID	19
+
+#ifdef __x86_64__
 /* Offset for fxsave/xsave area used by _dl_runtime_resolve.  Also need
    space to preserve RCX, RDX, RSI, RDI, R8, R9 and RAX.  It must be
-   aligned to 16 bytes for fxsave and 64 bytes for xsave.  */
-#define STATE_SAVE_OFFSET (8 * 7 + 8)
+   aligned to 16 bytes for fxsave and 64 bytes for xsave.  It is non-zero
+   because MOV, instead of PUSH, is used to save registers onto stack.
 
-/* Save SSE, AVX, AVX512, mask and bound registers.  */
-#define STATE_SAVE_MASK \
-  ((1 << 1) | (1 << 2) | (1 << 3) | (1 << 5) | (1 << 6) | (1 << 7))
+   +==================+<- stack frame start aligned at 8 or 16 bytes
+   |                  |<- paddings for stack realignment of 64 bytes
+   |------------------|<- xsave buffer end aligned at 64 bytes
+   |                  |<-
+   |                  |<-
+   |                  |<-
+   |------------------|<- xsave buffer start at STATE_SAVE_OFFSET(%rsp)
+   |                  |<- 8-byte padding for 64-byte alignment
+   |                  |<- R9
+   |                  |<- R8
+   |                  |<- RDI
+   |                  |<- RSI
+   |                  |<- RDX
+   |                  |<- RCX
+   |                  |<- RAX
+   +==================+<- RSP aligned at 64 bytes
+
+ */
+# define STATE_SAVE_OFFSET (8 * 7 + 8)
+
+/* _dl_tlsdesc_dynamic preserves RDI, RSI and RBX before realigning
+   stack.  After realigning stack, it saves RCX, RDX, R8, R9, R10 and
+   R11.  Allocate space for RDI, RSI and RBX to avoid clobbering saved
+   RDI, RSI and RBX values on stack by xsave.
+
+   +==================+<- stack frame start aligned at 8 or 16 bytes
+   |                  |<- RDI saved in the red zone
+   |                  |<- RSI saved in the red zone
+   |                  |<- RBX saved in the red zone
+   |                  |<- paddings for stack realignment of 64 bytes
+   |------------------|<- xsave buffer end aligned at 64 bytes
+   |                  |<-
+   |                  |<-
+   |                  |<-
+   |------------------|<- xsave buffer start at STATE_SAVE_OFFSET(%rsp)
+   |                  |<- 8-byte padding for 64-byte alignment
+   |                  |<- 8-byte padding for 64-byte alignment
+   |                  |<- R11
+   |                  |<- R10
+   |                  |<- R9
+   |                  |<- R8
+   |                  |<- RDX
+   |                  |<- RCX
+   +==================+<- RSP aligned at 64 bytes
+
+   Define the total register save area size for all integer registers by
+   adding 24 to STATE_SAVE_OFFSET since RDI, RSI and RBX are saved onto
+   stack without adjusting stack pointer first, using the red-zone.  */
+# define TLSDESC_CALL_REGISTER_SAVE_AREA (STATE_SAVE_OFFSET + 24)
+
+/* Save SSE, AVX, AVX512, mask, bound and APX registers.  Bound and APX
+   registers are mutually exclusive.  */
+# define STATE_SAVE_MASK		\
+  ((1 << X86_XSTATE_SSE_ID)		\
+   | (1 << X86_XSTATE_AVX_ID)		\
+   | (1 << X86_XSTATE_BNDREGS_ID)	\
+   | (1 << X86_XSTATE_K_ID)		\
+   | (1 << X86_XSTATE_ZMM_H_ID) 	\
+   | (1 << X86_XSTATE_ZMM_ID)		\
+   | (1 << X86_XSTATE_APX_F_ID))
+
+/* AMX state mask.  */
+# define AMX_STATE_SAVE_MASK		\
+  ((1 << X86_XSTATE_TILECFG_ID) | (1 << X86_XSTATE_TILEDATA_ID))
+
+/* States to be included in xsave_state_full_size.  */
+# define FULL_STATE_SAVE_MASK		\
+  (STATE_SAVE_MASK | AMX_STATE_SAVE_MASK)
+#else
+/* Offset for fxsave/xsave area used by _dl_tlsdesc_dynamic.  Since i386
+   uses PUSH to save registers onto stack, use 0 here.  */
+# define STATE_SAVE_OFFSET 0
+# define TLSDESC_CALL_REGISTER_SAVE_AREA 0
+
+/* Save SSE, AVX, AXV512, mask and bound registers.   */
+# define STATE_SAVE_MASK		\
+  ((1 << X86_XSTATE_SSE_ID)		\
+   | (1 << X86_XSTATE_AVX_ID)		\
+   | (1 << X86_XSTATE_BNDREGS_ID)	\
+   | (1 << X86_XSTATE_K_ID)		\
+   | (1 << X86_XSTATE_ZMM_H_ID))
+
+/* States to be included in xsave_state_size.  */
+# define FULL_STATE_SAVE_MASK		STATE_SAVE_MASK
+#endif
+
+/* States which should be saved for TLSDESC_CALL and TLS_DESC_CALL.
+   Compiler assumes that all registers, including AMX and x87 FPU
+   stack registers, are unchanged after CALL, except for EFLAGS and
+   RAX/EAX.  */
+#define TLSDESC_CALL_STATE_SAVE_MASK	\
+  (FULL_STATE_SAVE_MASK | (1 << X86_XSTATE_X87_ID))
 
 /* Constants for bits in __x86_string_control:  */
 

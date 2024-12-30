@@ -207,16 +207,16 @@ typedef char bool;
     __asm(zig_mangle_c(name) " = " zig_mangle_c(symbol))
 #endif
 
+#define zig_mangled_tentative zig_mangled
+#define zig_mangled_final zig_mangled
 #if _MSC_VER
-#define zig_mangled_tentative(mangled, unmangled)
-#define zig_mangled_final(mangled, unmangled) ; \
+#define zig_mangled(mangled, unmangled) ; \
     zig_export(#mangled, unmangled)
 #define zig_mangled_export(mangled, unmangled, symbol) \
     zig_export(unmangled, #mangled) \
     zig_export(symbol, unmangled)
 #else /* _MSC_VER */
-#define zig_mangled_tentative(mangled, unmangled) __asm(zig_mangle_c(unmangled))
-#define zig_mangled_final(mangled, unmangled) zig_mangled_tentative(mangled, unmangled)
+#define zig_mangled(mangled, unmangled) __asm(zig_mangle_c(unmangled))
 #define zig_mangled_export(mangled, unmangled, symbol) \
     zig_mangled_final(mangled, unmangled) \
     zig_export(symbol, unmangled)
@@ -248,36 +248,54 @@ typedef char bool;
 
 #if zig_has_builtin(trap)
 #define zig_trap() __builtin_trap()
-#elif _MSC_VER && (_M_IX86 || _M_X64)
+#elif defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_X64))
 #define zig_trap() __ud2()
-#elif _MSC_VER
-#define zig_trap() __fastfail(0)
-#elif defined(__i386__) || defined(__x86_64__)
-#define zig_trap() __asm__ volatile("ud2");
+#elif defined(_MSC_VER)
+#define zig_trap() __fastfail(7)
+#elif defined(__thumb__)
+#define zig_trap() __asm__ volatile("udf #0xfe")
 #elif defined(__arm__) || defined(__aarch64__)
-#define zig_trap() __asm__ volatile("udf #0");
+#define zig_trap() __asm__ volatile("udf #0xfdee")
+#elif defined(__loongarch__) || defined(__powerpc__)
+#define zig_trap() __asm__ volatile(".word 0x0")
+#elif defined(__mips__)
+#define zig_trap() __asm__ volatile(".word 0x3d")
+#elif defined(__riscv)
+#define zig_trap() __asm__ volatile("unimp")
+#elif defined(__s390__)
+#define zig_trap() __asm__ volatile("j 0x2")
+#elif defined(__sparc__)
+#define zig_trap() __asm__ volatile("illtrap")
+#elif defined(__i386__) || defined(__x86_64__)
+#define zig_trap() __asm__ volatile("ud2")
 #else
-#include <stdlib.h>
-#define zig_trap() abort()
+#define zig_trap() zig_trap_unavailable
 #endif
 
 #if zig_has_builtin(debugtrap)
 #define zig_breakpoint() __builtin_debugtrap()
 #elif defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__)
 #define zig_breakpoint() __debugbreak()
-#elif defined(__i386__) || defined(__x86_64__)
-#define zig_breakpoint() __asm__ volatile("int $0x03");
 #elif defined(__arm__)
-#define zig_breakpoint() __asm__ volatile("bkpt #0");
+#define zig_breakpoint() __asm__ volatile("bkpt #0x0")
 #elif defined(__aarch64__)
-#define zig_breakpoint() __asm__ volatile("brk #0");
-#else
-#include <signal.h>
-#if defined(SIGTRAP)
-#define zig_breakpoint() raise(SIGTRAP)
+#define zig_breakpoint() __asm__ volatile("brk #0xf000")
+#elif defined(__loongarch__)
+#define zig_breakpoint() __asm__ volatile("break 0x0")
+#elif defined(__mips__)
+#define zig_breakpoint() __asm__ volatile("break")
+#elif defined(__powerpc__)
+#define zig_breakpoint() __asm__ volatile("trap")
+#elif defined(__riscv)
+#define zig_breakpoint() __asm__ volatile("ebreak")
+#elif defined(__s390__)
+#define zig_breakpoint() __asm__ volatile("j 0x6")
+#elif defined(__sparc__)
+#define zig_breakpoint() __asm__ volatile("ta 0x1")
+#elif defined(__i386__) || defined(__x86_64__)
+#define zig_breakpoint() __asm__ volatile("int $0x3")
 #else
 #define zig_breakpoint() zig_breakpoint_unavailable
-#endif
 #endif
 
 #if zig_has_builtin(return_address) || defined(zig_gnuc)
@@ -3089,7 +3107,7 @@ typedef _Float32 zig_f32;
 #undef zig_has_f32
 #define zig_has_f32 0
 #define zig_repr_f32 u32
-ypedef uint32_t zig_f32;
+typedef uint32_t zig_f32;
 #define zig_make_f32(fp, repr) repr
 #undef zig_make_special_f32
 #define zig_make_special_f32(sign, name, arg, repr) repr
@@ -3592,7 +3610,6 @@ typedef enum memory_order zig_memory_order;
 #define zig_atomicrmw_add_float zig_atomicrmw_add
 #undef  zig_atomicrmw_sub_float
 #define zig_atomicrmw_sub_float zig_atomicrmw_sub
-#define zig_fence(order) atomic_thread_fence(order)
 #elif defined(__GNUC__)
 typedef int zig_memory_order;
 #define zig_memory_order_relaxed __ATOMIC_RELAXED
@@ -3616,7 +3633,6 @@ typedef int zig_memory_order;
 #define    zig_atomic_load(res, obj,      order, Type, ReprType)       __atomic_load      (obj, &(res), order)
 #undef  zig_atomicrmw_xchg_float
 #define zig_atomicrmw_xchg_float zig_atomicrmw_xchg
-#define zig_fence(order) __atomic_thread_fence(order)
 #elif _MSC_VER && (_M_IX86 || _M_X64)
 #define zig_memory_order_relaxed 0
 #define zig_memory_order_acquire 2
@@ -3636,12 +3652,7 @@ typedef int zig_memory_order;
 #define  zig_atomicrmw_min(res, obj, arg, order, Type, ReprType) res = zig_msvc_atomicrmw_min_ ##Type(obj, arg)
 #define  zig_atomicrmw_max(res, obj, arg, order, Type, ReprType) res = zig_msvc_atomicrmw_max_ ##Type(obj, arg)
 #define   zig_atomic_store(     obj, arg, order, Type, ReprType)       zig_msvc_atomic_store_  ##Type(obj, arg)
-#define    zig_atomic_load(res, obj,      order, Type, ReprType) res = zig_msvc_atomic_load_   ##Type(obj)
-#if _M_X64
-#define zig_fence(order) __faststorefence()
-#else
-#define zig_fence(order) zig_msvc_atomic_barrier()
-#endif
+#define    zig_atomic_load(res, obj,      order, Type, ReprType) res = zig_msvc_atomic_load_   ##order##_##Type(obj)
 /* TODO: _MSC_VER && (_M_ARM || _M_ARM64) */
 #else
 #define zig_memory_order_relaxed 0
@@ -3663,14 +3674,13 @@ typedef int zig_memory_order;
 #define  zig_atomicrmw_max(res, obj, arg, order, Type, ReprType) zig_atomics_unavailable
 #define   zig_atomic_store(     obj, arg, order, Type, ReprType) zig_atomics_unavailable
 #define    zig_atomic_load(res, obj,      order, Type, ReprType) zig_atomics_unavailable
-#define zig_fence(order) zig_fence_unavailable
 #endif
 
 #if _MSC_VER && (_M_IX86 || _M_X64) && !(defined(zig_clang) && !defined(__STDC_NO_ATOMICS__))
 
 /* TODO: zig_msvc_atomic_load should load 32 bit without interlocked on x86, and load 64 bit without interlocked on x64 */
 
-#define zig_msvc_atomics(ZigType, Type, SigType, suffix) \
+#define zig_msvc_atomics(ZigType, Type, SigType, suffix, iso_suffix) \
     static inline bool zig_msvc_cmpxchg_##ZigType(Type volatile* obj, Type* expected, Type desired) { \
         Type comparand = *expected; \
         Type initial = _InterlockedCompareExchange##suffix((SigType volatile*)obj, (SigType)desired, (SigType)comparand); \
@@ -3741,24 +3751,34 @@ typedef int zig_memory_order;
     } \
     static inline void zig_msvc_atomic_store_##ZigType(Type volatile* obj, Type value) { \
         (void)_InterlockedExchange##suffix((SigType volatile*)obj, (SigType)value); \
+    }                                                                   \
+    static inline Type zig_msvc_atomic_load_zig_memory_order_relaxed_##ZigType(Type volatile* obj) { \
+        return __iso_volatile_load##iso_suffix((SigType volatile*)obj); \
     } \
-    static inline Type zig_msvc_atomic_load_##ZigType(Type volatile* obj) { \
-        return _InterlockedExchangeAdd##suffix((SigType volatile*)obj, (SigType)0); \
+    static inline Type zig_msvc_atomic_load_zig_memory_order_acquire_##ZigType(Type volatile* obj) { \
+        Type val = __iso_volatile_load##iso_suffix((SigType volatile*)obj); \
+        _ReadWriteBarrier(); \
+        return val; \
+    } \
+    static inline Type zig_msvc_atomic_load_zig_memory_order_seq_cst_##ZigType(Type volatile* obj) { \
+        Type val = __iso_volatile_load##iso_suffix((SigType volatile*)obj); \
+        _ReadWriteBarrier(); \
+        return val; \
     }
 
-zig_msvc_atomics( u8,  uint8_t,    char,  8)
-zig_msvc_atomics( i8,   int8_t,    char,  8)
-zig_msvc_atomics(u16, uint16_t,   short, 16)
-zig_msvc_atomics(i16,  int16_t,   short, 16)
-zig_msvc_atomics(u32, uint32_t,    long, )
-zig_msvc_atomics(i32,  int32_t,    long, )
+zig_msvc_atomics( u8,  uint8_t,    char,  8, 8)
+zig_msvc_atomics( i8,   int8_t,    char,  8, 8)
+zig_msvc_atomics(u16, uint16_t,   short, 16, 16)
+zig_msvc_atomics(i16,  int16_t,   short, 16, 16)
+zig_msvc_atomics(u32, uint32_t,    long,   , 32)
+zig_msvc_atomics(i32,  int32_t,    long,   , 32)
 
 #if _M_X64
-zig_msvc_atomics(u64, uint64_t, __int64, 64)
-zig_msvc_atomics(i64,  int64_t, __int64, 64)
+zig_msvc_atomics(u64, uint64_t, __int64, 64, 64)
+zig_msvc_atomics(i64,  int64_t, __int64, 64, 64)
 #endif
 
-#define zig_msvc_flt_atomics(Type, SigType, suffix) \
+#define zig_msvc_flt_atomics(Type, SigType, suffix, iso_suffix) \
     static inline bool zig_msvc_cmpxchg_##Type(zig_##Type volatile* obj, zig_##Type* expected, zig_##Type desired) { \
         SigType exchange; \
         SigType comparand; \
@@ -3776,15 +3796,30 @@ zig_msvc_atomics(i64,  int64_t, __int64, 64)
         memcpy(&value, &arg, sizeof(value)); \
         (void)_InterlockedExchange##suffix((SigType volatile*)obj, value); \
     } \
-    static inline zig_##Type zig_msvc_atomic_load_##Type(zig_##Type volatile* obj) { \
+    static inline zig_##Type zig_msvc_atomic_load_zig_memory_order_relaxed_##Type(zig_##Type volatile* obj) { \
         zig_##Type result; \
-        SigType initial = _InterlockedExchangeAdd##suffix((SigType volatile*)obj, (SigType)0); \
+        SigType initial = __iso_volatile_load##iso_suffix((SigType volatile*)obj); \
         memcpy(&result, &initial, sizeof(result)); \
         return result; \
+    } \
+    static inline zig_##Type zig_msvc_atomic_load_zig_memory_order_acquire_##Type(zig_##Type volatile* obj) { \
+        zig_##Type result; \
+        SigType initial = __iso_volatile_load##iso_suffix((SigType volatile*)obj); \
+        _ReadWriteBarrier(); \
+        memcpy(&result, &initial, sizeof(result));     \
+        return result; \
+    } \
+    static inline zig_##Type zig_msvc_atomic_load_zig_memory_order_seq_cst_##Type(zig_##Type volatile* obj) { \
+        zig_##Type result; \
+        SigType initial = __iso_volatile_load##iso_suffix((SigType volatile*)obj); \
+        _ReadWriteBarrier(); \
+        memcpy(&result, &initial, sizeof(result));     \
+        return result; \
     }
-zig_msvc_flt_atomics(f32,    long,   )
+
+zig_msvc_flt_atomics(f32,    long,   , 32)
 #if _M_X64
-zig_msvc_flt_atomics(f64, int64_t, 64)
+zig_msvc_flt_atomics(f64, int64_t, 64, 64)
 #endif
 
 #if _M_IX86
@@ -3803,8 +3838,18 @@ static inline void zig_msvc_atomic_store_p32(void volatile* obj, void* arg) {
     (void)_InterlockedExchangePointer(obj, arg);
 }
 
-static inline void* zig_msvc_atomic_load_p32(void volatile* obj) {
-    return (void*)_InterlockedExchangeAdd(obj, 0);
+static inline void* zig_msvc_atomic_load_zig_memory_order_relaxed_p32(void volatile* obj) {
+    return (void*)__iso_volatile_load32(obj);
+}
+
+static inline void* zig_msvc_atomic_load_zig_memory_order_acquire_p32(void volatile* obj) {
+    void* val = (void*)__iso_volatile_load32(obj);
+    _ReadWriteBarrier();
+    return val;
+}
+
+static inline void* zig_msvc_atomic_load_zig_memory_order_seq_cst_p32(void volatile* obj) {
+    return zig_msvc_atomic_load_zig_memory_order_acquire_p32(obj);
 }
 
 static inline bool zig_msvc_cmpxchg_p32(void volatile* obj, void* expected, void* desired) {
@@ -3823,8 +3868,18 @@ static inline void zig_msvc_atomic_store_p64(void volatile* obj, void* arg) {
     (void)_InterlockedExchangePointer(obj, arg);
 }
 
-static inline void* zig_msvc_atomic_load_p64(void volatile* obj) {
-    return (void*)_InterlockedExchangeAdd64(obj, 0);
+static inline void* zig_msvc_atomic_load_zig_memory_order_relaxed_p64(void volatile* obj) {
+    return (void*)__iso_volatile_load64(obj);
+}
+
+static inline void* zig_msvc_atomic_load_zig_memory_order_acquire_p64(void volatile* obj) {
+    void* val = (void*)__iso_volatile_load64(obj);
+    _ReadWriteBarrier();
+    return val;
+}
+
+static inline void* zig_msvc_atomic_load_zig_memory_order_seq_cst_p64(void volatile* obj) {
+    return zig_msvc_atomic_load_zig_memory_order_acquire_p64(obj);
 }
 
 static inline bool zig_msvc_cmpxchg_p64(void volatile* obj, void* expected, void* desired) {
@@ -3871,28 +3926,52 @@ static inline void zig_msvc_atomic_store_i128(zig_i128 volatile* obj, zig_i128 a
 
 /* ======================== Special Case Intrinsics ========================= */
 
-#if (_MSC_VER && _M_X64) || defined(__x86_64__)
+#if defined(_M_ARM) || defined(__thumb__)
 
-static inline void* zig_x86_64_windows_teb(void) {
-#if _MSC_VER
-    return (void*)__readgsqword(0x30);
-#else
-    void* teb;
-    __asm volatile(" movq %%gs:0x30, %[ptr]": [ptr]"=r"(teb)::);
-    return teb;
+static inline void* zig_thumb_windows_teb(void) {
+    void* teb = 0;
+#if defined(_MSC_VER)
+    teb = (void*)_MoveFromCoprocessor(15, 0, 13, 0, 2);
+#elif defined(__GNUC__)
+    __asm__ ("mrc p15, 0, %[ptr], c13, c0, 2" : [ptr] "=r" (teb));
 #endif
+    return teb;
 }
 
-#elif (_MSC_VER && _M_IX86) || defined(__i386__) || defined(__X86__)
+#elif defined(_M_ARM64) || defined(__arch64__)
+
+static inline void* zig_aarch64_windows_teb(void) {
+    void* teb = 0;
+#if defined(_MSC_VER)
+    teb = (void*)__readx18qword(0x0);
+#elif defined(__GNUC__)
+    __asm__ ("mov %[ptr], x18" : [ptr] "=r" (teb));
+#endif
+    return teb;
+}
+
+#elif defined(_M_IX86) || defined(__i386__)
 
 static inline void* zig_x86_windows_teb(void) {
-#if _MSC_VER
-    return (void*)__readfsdword(0x18);
-#else
-    void* teb;
-    __asm volatile(" movl %%fs:0x18, %[ptr]": [ptr]"=r"(teb)::);
-    return teb;
+    void* teb = 0;
+#if defined(_MSC_VER)
+    teb = (void*)__readfsdword(0x18);
+#elif defined(__GNUC__)
+    __asm__ ("movl %%fs:0x18, %[ptr]" : [ptr] "=r" (teb));
 #endif
+    return teb;
+}
+
+#elif defined(_M_X64) || defined(__x86_64__)
+
+static inline void* zig_x86_64_windows_teb(void) {
+    void* teb = 0;
+#if defined(_MSC_VER)
+    teb = (void*)__readgsqword(0x30);
+#elif defined(__GNUC__)
+    __asm__ ("movq %%gs:0x30, %[ptr]" : [ptr] "=r" (teb));
+#endif
+    return teb;
 }
 
 #endif

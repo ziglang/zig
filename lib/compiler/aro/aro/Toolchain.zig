@@ -89,7 +89,7 @@ pub fn discover(tc: *Toolchain) !void {
             .{ .unknown = {} } // TODO
         else if (target.cpu.arch.isMIPS())
             .{ .unknown = {} } // TODO
-        else if (target.cpu.arch.isPPC())
+        else if (target.cpu.arch.isPowerPC())
             .{ .unknown = {} } // TODO
         else if (target.cpu.arch == .ve)
             .{ .unknown = {} } // TODO

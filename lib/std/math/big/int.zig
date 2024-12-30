@@ -2,9 +2,9 @@ const std = @import("../../std.zig");
 const builtin = @import("builtin");
 const math = std.math;
 const Limb = std.math.big.Limb;
-const limb_bits = @typeInfo(Limb).Int.bits;
+const limb_bits = @typeInfo(Limb).int.bits;
 const HalfLimb = std.math.big.HalfLimb;
-const half_limb_bits = @typeInfo(HalfLimb).Int.bits;
+const half_limb_bits = @typeInfo(HalfLimb).int.bits;
 const DoubleLimb = std.math.big.DoubleLimb;
 const SignedDoubleLimb = std.math.big.SignedDoubleLimb;
 const Log2Limb = std.math.big.Log2Limb;
@@ -23,7 +23,7 @@ const debug_safety = false;
 /// primitive integer value.
 /// Note: A comptime-known upper bound of this value that may be used
 /// instead if `scalar` is not already comptime-known is
-/// `calcTwosCompLimbCount(@typeInfo(@TypeOf(scalar)).Int.bits)`
+/// `calcTwosCompLimbCount(@typeInfo(@TypeOf(scalar)).int.bits)`
 pub fn calcLimbLen(scalar: anytype) usize {
     if (scalar == 0) {
         return 1;
@@ -236,7 +236,7 @@ pub const Mutable = struct {
         self.positive = value >= 0;
 
         switch (@typeInfo(T)) {
-            .Int => |info| {
+            .int => |info| {
                 var w_value = @abs(value);
 
                 if (info.bits <= limb_bits) {
@@ -251,7 +251,7 @@ pub const Mutable = struct {
                     }
                 }
             },
-            .ComptimeInt => {
+            .comptime_int => {
                 comptime var w_value = @abs(value);
 
                 if (w_value <= maxInt(Limb)) {
@@ -405,8 +405,8 @@ pub const Mutable = struct {
         // is well worth being able to use the stack and not needing an allocator passed in.
         // Note that Mutable.init still sets len to calcLimbLen(scalar) in any case.
         const limb_len = comptime switch (@typeInfo(@TypeOf(scalar))) {
-            .ComptimeInt => calcLimbLen(scalar),
-            .Int => |info| calcTwosCompLimbCount(info.bits),
+            .comptime_int => calcLimbLen(scalar),
+            .int => |info| calcTwosCompLimbCount(info.bits),
             else => @compileError("expected scalar to be an int"),
         };
         var limbs: [limb_len]Limb = undefined;
@@ -795,7 +795,6 @@ pub const Mutable = struct {
         const endian_mask: usize = (@sizeOf(Limb) - 1) << 3;
 
         const bytes = std.mem.sliceAsBytes(r.limbs);
-        var bits = std.packed_int_array.PackedIntSliceEndian(u1, .little).init(bytes, limbs_required * @bitSizeOf(Limb));
 
         var k: usize = 0;
         while (k < ((bit_count + 1) / 2)) : (k += 1) {
@@ -809,17 +808,17 @@ pub const Mutable = struct {
                 rev_i ^= endian_mask;
             }
 
-            const bit_i = bits.get(i);
-            const bit_rev_i = bits.get(rev_i);
-            bits.set(i, bit_rev_i);
-            bits.set(rev_i, bit_i);
+            const bit_i = std.mem.readPackedInt(u1, bytes, i, .little);
+            const bit_rev_i = std.mem.readPackedInt(u1, bytes, rev_i, .little);
+            std.mem.writePackedInt(u1, bytes, i, bit_rev_i, .little);
+            std.mem.writePackedInt(u1, bytes, rev_i, bit_i, .little);
         }
 
         // Calculate signed-magnitude representation for output
         if (signedness == .signed) {
             const last_bit = switch (native_endian) {
-                .little => bits.get(bit_count - 1),
-                .big => bits.get((bit_count - 1) ^ endian_mask),
+                .little => std.mem.readPackedInt(u1, bytes, bit_count - 1, .little),
+                .big => std.mem.readPackedInt(u1, bytes, (bit_count - 1) ^ endian_mask, .little),
             };
             if (last_bit == 1) {
                 r.bitNotWrap(r.toConst(), .unsigned, bit_count); // Bitwise NOT.
@@ -1173,7 +1172,9 @@ pub const Mutable = struct {
     /// Asserts there is enough memory to fit the result. The upper bound Limb count is
     /// `a.limbs.len - (shift / (@sizeOf(Limb) * 8))`.
     pub fn shiftRight(r: *Mutable, a: Const, shift: usize) void {
-        if (a.limbs.len <= shift / limb_bits) {
+        const full_limbs_shifted_out = shift / limb_bits;
+        const remaining_bits_shifted_out = shift % limb_bits;
+        if (a.limbs.len <= full_limbs_shifted_out) {
             // Shifting negative numbers converges to -1 instead of 0
             if (a.positive) {
                 r.len = 1;
@@ -1186,14 +1187,29 @@ pub const Mutable = struct {
             }
             return;
         }
+        const nonzero_negative_shiftout = if (a.positive) false else nonzero: {
+            for (a.limbs[0..full_limbs_shifted_out]) |x| {
+                if (x != 0)
+                    break :nonzero true;
+            }
+            if (remaining_bits_shifted_out == 0)
+                break :nonzero false;
+            const not_covered: Log2Limb = @intCast(limb_bits - remaining_bits_shifted_out);
+            break :nonzero a.limbs[full_limbs_shifted_out] << not_covered != 0;
+        };
 
         llshr(r.limbs[0..], a.limbs[0..a.limbs.len], shift);
-        r.normalize(a.limbs.len - (shift / limb_bits));
+
+        r.len = a.limbs.len - full_limbs_shifted_out;
         r.positive = a.positive;
-        // Shifting negative numbers converges to -1 instead of 0
-        if (!r.positive and r.len == 1 and r.limbs[0] == 0) {
-            r.limbs[0] = 1;
+        if (nonzero_negative_shiftout) {
+            if (full_limbs_shifted_out > 0) {
+                r.limbs[a.limbs.len - full_limbs_shifted_out] = 0;
+                r.len += 1;
+            }
+            r.addScalar(r.toConst(), -1);
         }
+        r.normalize(r.len);
     }
 
     /// r = ~a under 2s complement wrapping semantics.
@@ -2075,6 +2091,12 @@ pub const Const = struct {
         return bits;
     }
 
+    /// Returns the number of bits required to represent the integer in twos-complement form
+    /// with the given signedness.
+    pub fn bitCountTwosCompForSignedness(self: Const, signedness: std.builtin.Signedness) usize {
+        return self.bitCountTwosComp() + @intFromBool(self.positive and signedness == .signed);
+    }
+
     /// @popCount with two's complement semantics.
     ///
     /// This returns the number of 1 bits set when the value would be represented in
@@ -2130,14 +2152,12 @@ pub const Const = struct {
         if (signedness == .unsigned and !self.positive) {
             return false;
         }
-
-        const req_bits = self.bitCountTwosComp() + @intFromBool(self.positive and signedness == .signed);
-        return bit_count >= req_bits;
+        return bit_count >= self.bitCountTwosCompForSignedness(signedness);
     }
 
     /// Returns whether self can fit into an integer of the requested type.
     pub fn fits(self: Const, comptime T: type) bool {
-        const info = @typeInfo(T).Int;
+        const info = @typeInfo(T).int;
         return self.fitsInTwosComp(info.signedness, info.bits);
     }
 
@@ -2160,7 +2180,7 @@ pub const Const = struct {
     /// Returns an error if self cannot be narrowed into the requested type without truncation.
     pub fn to(self: Const, comptime T: type) ConvertError!T {
         switch (@typeInfo(T)) {
-            .Int => |info| {
+            .int => |info| {
                 // Make sure -0 is handled correctly.
                 if (self.eqlZero()) return 0;
 
@@ -2474,8 +2494,8 @@ pub const Const = struct {
         // is well worth being able to use the stack and not needing an allocator passed in.
         // Note that Mutable.init still sets len to calcLimbLen(scalar) in any case.
         const limb_len = comptime switch (@typeInfo(@TypeOf(scalar))) {
-            .ComptimeInt => calcLimbLen(scalar),
-            .Int => |info| calcTwosCompLimbCount(info.bits),
+            .comptime_int => calcLimbLen(scalar),
+            .int => |info| calcTwosCompLimbCount(info.bits),
             else => @compileError("expected scalar to be an int"),
         };
         var limbs: [limb_len]Limb = undefined;
@@ -2534,7 +2554,7 @@ pub const Const = struct {
 /// Memory is allocated as needed to ensure operations never overflow. The range
 /// is bounded only by available memory.
 pub const Managed = struct {
-    pub const sign_bit: usize = 1 << (@typeInfo(usize).Int.bits - 1);
+    pub const sign_bit: usize = 1 << (@typeInfo(usize).int.bits - 1);
 
     /// Default number of limbs to allocate on creation of a `Managed`.
     pub const default_capacity = 4;

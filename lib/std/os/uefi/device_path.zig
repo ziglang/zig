@@ -4,38 +4,38 @@ const uefi = std.os.uefi;
 const Guid = uefi.Guid;
 
 pub const DevicePath = union(Type) {
-    Hardware: Hardware,
-    Acpi: Acpi,
-    Messaging: Messaging,
-    Media: Media,
-    BiosBootSpecification: BiosBootSpecification,
-    End: End,
+    hardware: Hardware,
+    acpi: Acpi,
+    messaging: Messaging,
+    media: Media,
+    bios_boot_specification: BiosBootSpecification,
+    end: End,
 
     pub const Type = enum(u8) {
-        Hardware = 0x01,
-        Acpi = 0x02,
-        Messaging = 0x03,
-        Media = 0x04,
-        BiosBootSpecification = 0x05,
-        End = 0x7f,
+        hardware = 0x01,
+        acpi = 0x02,
+        messaging = 0x03,
+        media = 0x04,
+        bios_boot_specification = 0x05,
+        end = 0x7f,
         _,
     };
 
     pub const Hardware = union(Subtype) {
-        Pci: *const PciDevicePath,
-        PcCard: *const PcCardDevicePath,
-        MemoryMapped: *const MemoryMappedDevicePath,
-        Vendor: *const VendorDevicePath,
-        Controller: *const ControllerDevicePath,
-        Bmc: *const BmcDevicePath,
+        pci: *const PciDevicePath,
+        pc_card: *const PcCardDevicePath,
+        memory_mapped: *const MemoryMappedDevicePath,
+        vendor: *const VendorDevicePath,
+        controller: *const ControllerDevicePath,
+        bmc: *const BmcDevicePath,
 
         pub const Subtype = enum(u8) {
-            Pci = 1,
-            PcCard = 2,
-            MemoryMapped = 3,
-            Vendor = 4,
-            Controller = 5,
-            Bmc = 6,
+            pci = 1,
+            pc_card = 2,
+            memory_mapped = 3,
+            vendor = 4,
+            controller = 5,
+            bmc = 6,
             _,
         };
 
@@ -151,14 +151,14 @@ pub const DevicePath = union(Type) {
     };
 
     pub const Acpi = union(Subtype) {
-        Acpi: *const BaseAcpiDevicePath,
-        ExpandedAcpi: *const ExpandedAcpiDevicePath,
-        Adr: *const AdrDevicePath,
+        acpi: *const BaseAcpiDevicePath,
+        expanded_acpi: *const ExpandedAcpiDevicePath,
+        adr: *const AdrDevicePath,
 
         pub const Subtype = enum(u8) {
-            Acpi = 1,
-            ExpandedAcpi = 2,
-            Adr = 3,
+            acpi = 1,
+            expanded_acpi = 2,
+            adr = 3,
             _,
         };
 

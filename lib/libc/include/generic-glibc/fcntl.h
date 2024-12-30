@@ -177,7 +177,7 @@ typedef __pid_t pid_t;
 
    This function is a cancellation point and therefore not marked with
    __THROW.  */
-#ifndef __USE_TIME_BITS64
+#ifndef __USE_TIME64_REDIRECTS
 # ifndef __USE_FILE_OFFSET64
 extern int fcntl (int __fd, int __cmd, ...);
 # else
@@ -190,7 +190,7 @@ extern int __REDIRECT (fcntl, (int __fd, int __cmd, ...), fcntl64);
 # ifdef __USE_LARGEFILE64
 extern int fcntl64 (int __fd, int __cmd, ...);
 # endif
-#else /* __USE_TIME_BITS64 */
+#else /* __USE_TIME64_REDIRECTS */
 # ifdef __REDIRECT
 extern int __REDIRECT_NTH (fcntl, (int __fd, int __request, ...),
 			   __fcntl_time64);
@@ -345,8 +345,7 @@ extern int posix_fallocate64 (int __fd, off64_t __offset, off64_t __len);
 
 
 /* Define some inlines helping to catch common problems.  */
-#if __USE_FORTIFY_LEVEL > 0 && defined __fortify_function \
-    && defined __va_arg_pack_len
+#if __USE_FORTIFY_LEVEL > 0 && defined __fortify_function
 # include <bits/fcntl2.h>
 #endif
 

@@ -19,7 +19,6 @@ pub fn create(
     dest_rel_path: []const u8,
 ) *InstallFile {
     assert(dest_rel_path.len != 0);
-    owner.pushInstalledFile(dir, dest_rel_path);
     const install_file = owner.allocator.create(InstallFile) catch @panic("OOM");
     install_file.* = .{
         .step = Step.init(.{
@@ -36,10 +35,12 @@ pub fn create(
     return install_file;
 }
 
-fn make(step: *Step, prog_node: std.Progress.Node) !void {
-    _ = prog_node;
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    _ = options;
     const b = step.owner;
     const install_file: *InstallFile = @fieldParentPtr("step", step);
+    try step.singleUnchangingWatchInput(install_file.source);
+
     const full_src_path = install_file.source.getPath2(b, step);
     const full_dest_path = b.getInstallPath(install_file.dir, install_file.dest_rel_path);
     const cwd = std.fs.cwd();

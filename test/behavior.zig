@@ -1,6 +1,7 @@
 const builtin = @import("builtin");
 
 test {
+    _ = @import("behavior/addrspace_and_linksection.zig");
     _ = @import("behavior/align.zig");
     _ = @import("behavior/alignof.zig");
     _ = @import("behavior/array.zig");
@@ -12,6 +13,7 @@ test {
     _ = @import("behavior/bitcast.zig");
     _ = @import("behavior/bitreverse.zig");
     _ = @import("behavior/bool.zig");
+    _ = @import("behavior/builtin_functions_returning_void_or_noreturn.zig");
     _ = @import("behavior/byteswap.zig");
     _ = @import("behavior/byval_arg_var.zig");
     _ = @import("behavior/call.zig");
@@ -20,11 +22,11 @@ test {
     _ = @import("behavior/cast_int.zig");
     _ = @import("behavior/comptime_memory.zig");
     _ = @import("behavior/const_slice_child.zig");
+    _ = @import("behavior/decl_literals.zig");
     _ = @import("behavior/decltest.zig");
     _ = @import("behavior/duplicated_test_names.zig");
     _ = @import("behavior/defer.zig");
     _ = @import("behavior/destructure.zig");
-    _ = @import("behavior/empty_tuple_fields.zig");
     _ = @import("behavior/empty_union.zig");
     _ = @import("behavior/enum.zig");
     _ = @import("behavior/error.zig");
@@ -87,6 +89,7 @@ test {
     _ = @import("behavior/struct_contains_null_ptr_itself.zig");
     _ = @import("behavior/struct_contains_slice_of_itself.zig");
     _ = @import("behavior/switch.zig");
+    _ = @import("behavior/switch_loop.zig");
     _ = @import("behavior/switch_prong_err_enum.zig");
     _ = @import("behavior/switch_prong_implicit_cast.zig");
     _ = @import("behavior/switch_on_captured_error.zig");
@@ -98,7 +101,6 @@ test {
     _ = @import("behavior/tuple_declarations.zig");
     _ = @import("behavior/type.zig");
     _ = @import("behavior/type_info.zig");
-    _ = @import("behavior/type_info_mul_linksection_addrspace_decls.zig");
     _ = @import("behavior/typename.zig");
     _ = @import("behavior/undefined.zig");
     _ = @import("behavior/underscore.zig");

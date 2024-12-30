@@ -9,7 +9,7 @@ const Case = struct {
         mode: u32 = 0,
         link_name: []const u8 = &[0]u8{},
         kind: tar.FileKind = .file,
-        truncated: bool = false, // when there is no file body, just header, usefull for huge files
+        truncated: bool = false, // when there is no file body, just header, useful for huge files
     };
 
     data: []const u8, // testdata file content

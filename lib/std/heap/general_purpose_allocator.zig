@@ -157,6 +157,7 @@ pub const Config = struct {
 
 pub const Check = enum { ok, leak };
 
+/// Default initialization of this struct is deprecated; use `.init` instead.
 pub fn GeneralPurposeAllocator(comptime config: Config) type {
     return struct {
         backing_allocator: Allocator = std.heap.page_allocator,
@@ -173,6 +174,16 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         mutex: @TypeOf(mutex_init) = mutex_init,
 
         const Self = @This();
+
+        /// The initial state of a `GeneralPurposeAllocator`, containing no allocations and backed by the system page allocator.
+        pub const init: Self = .{
+            .backing_allocator = std.heap.page_allocator,
+            .buckets = [1]Buckets{.{}} ** small_bucket_count,
+            .cur_buckets = [1]?*BucketHeader{null} ** small_bucket_count,
+            .large_allocations = .{},
+            .empty_buckets = if (config.retain_metadata) .{} else {},
+            .bucket_node_pool = .init(std.heap.page_allocator),
+        };
 
         const total_requested_bytes_init = if (config.enable_memory_limit) @as(usize, 0) else {};
         const requested_memory_limit_init = if (config.enable_memory_limit) @as(usize, math.maxInt(usize)) else {};

@@ -99,7 +99,7 @@ pub fn Inflate(comptime container: Container, comptime LookaheadType: type, comp
 
         fn storedBlock(self: *Self) !bool {
             self.bits.alignToByte(); // skip padding until byte boundary
-            // everyting after this is byte aligned in stored block
+            // everything after this is byte aligned in stored block
             var len = try self.bits.read(u16);
             const nlen = try self.bits.read(u16);
             if (len != ~nlen) return error.WrongStoredBlockNlen;
@@ -155,7 +155,7 @@ pub fn Inflate(comptime container: Container, comptime LookaheadType: type, comp
         fn dynamicBlockHeader(self: *Self) !void {
             const hlit: u16 = @as(u16, try self.bits.read(u5)) + 257; // number of ll code entries present - 257
             const hdist: u16 = @as(u16, try self.bits.read(u5)) + 1; // number of distance code entries - 1
-            const hclen: u8 = @as(u8, try self.bits.read(u4)) + 4; // hclen + 4 code lenths are encoded
+            const hclen: u8 = @as(u8, try self.bits.read(u4)) + 4; // hclen + 4 code lengths are encoded
 
             if (hlit > 286 or hdist > 30)
                 return error.InvalidDynamicBlockHeader;
@@ -180,7 +180,7 @@ pub fn Inflate(comptime container: Container, comptime LookaheadType: type, comp
                 return error.InvalidDynamicBlockHeader;
             }
 
-            // literal code lengts to literal decoder
+            // literal code lengths to literal decoder
             try self.lit_dec.generate(dec_lens[0..hlit]);
 
             // distance code lengths to distance decoder

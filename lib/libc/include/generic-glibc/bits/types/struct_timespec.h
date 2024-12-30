@@ -10,14 +10,14 @@
    has nanoseconds instead of microseconds.  */
 struct timespec
 {
-#ifdef __USE_TIME_BITS64
+#ifdef __USE_TIME64_REDIRECTS
   __time64_t tv_sec;		/* Seconds.  */
 #else
   __time_t tv_sec;		/* Seconds.  */
 #endif
 #if __WORDSIZE == 64 \
   || (defined __SYSCALL_WORDSIZE && __SYSCALL_WORDSIZE == 64) \
-  || (__TIMESIZE == 32 && !defined __USE_TIME_BITS64)
+  || (__TIMESIZE == 32 && !defined __USE_TIME64_REDIRECTS)
   __syscall_slong_t tv_nsec;	/* Nanoseconds.  */
 #else
 # if __BYTE_ORDER == __BIG_ENDIAN

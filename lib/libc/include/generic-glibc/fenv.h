@@ -77,7 +77,7 @@ extern int fegetexceptflag (fexcept_t *__flagp, int __excepts) __THROW;
 /* Raise the supported exceptions represented by EXCEPTS.  */
 extern int feraiseexcept (int __excepts) __THROW;
 
-#if __GLIBC_USE (IEC_60559_BFP_EXT_C2X)
+#if __GLIBC_USE (IEC_60559_BFP_EXT_C23)
 /* Set the supported exception flags represented by EXCEPTS, without
    causing enabled traps to be taken.  */
 extern int fesetexcept (int __excepts) __THROW;
@@ -91,7 +91,7 @@ extern int fesetexceptflag (const fexcept_t *__flagp, int __excepts) __THROW;
    currently set.  */
 extern int fetestexcept (int __excepts) __THROW;
 
-#if __GLIBC_USE (IEC_60559_BFP_EXT_C2X)
+#if __GLIBC_USE (IEC_60559_BFP_EXT_C23)
 /* Determine which of subset of the exceptions specified by EXCEPTS
    are set in *FLAGP.  */
 extern int fetestexceptflag (const fexcept_t *__flagp, int __excepts) __THROW;
@@ -130,7 +130,7 @@ extern int feupdateenv (const fenv_t *__envp) __THROW;
 
 /* Control modes.  */
 
-#if __GLIBC_USE (IEC_60559_BFP_EXT_C2X)
+#if __GLIBC_USE (IEC_60559_BFP_EXT_C23)
 /* Store the current floating-point control modes in the object
    pointed to by MODEP.  */
 extern int fegetmode (femode_t *__modep) __THROW;
@@ -143,7 +143,7 @@ extern int fesetmode (const femode_t *__modep) __THROW;
 
 /* NaN support.  */
 
-#if (__GLIBC_USE (IEC_60559_BFP_EXT_C2X)		\
+#if (__GLIBC_USE (IEC_60559_BFP_EXT_C23)		\
      && defined FE_INVALID			\
      && defined __SUPPORT_SNAN__)
 # define FE_SNANS_ALWAYS_SIGNAL	1

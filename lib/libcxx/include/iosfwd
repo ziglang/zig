@@ -25,7 +25,6 @@ template<>            struct char_traits<wchar_t>;
 
 template<class T>     class allocator;
 
-class ios_base;
 template <class charT, class traits = char_traits<charT> > class basic_ios;
 
 template <class charT, class traits = char_traits<charT> > class basic_streambuf;
@@ -106,11 +105,11 @@ using wosyncstream = basic_osyncstream<wchar_t>;  // C++20
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__fwd/fstream.h>
 #include <__fwd/ios.h>
 #include <__fwd/istream.h>
+#include <__fwd/memory.h>
 #include <__fwd/ostream.h>
 #include <__fwd/sstream.h>
 #include <__fwd/streambuf.h>
@@ -123,8 +122,6 @@ using wosyncstream = basic_osyncstream<wchar_t>;  // C++20
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
-
-class _LIBCPP_EXPORTED_FROM_ABI ios_base;
 
 template <class _CharT, class _Traits = char_traits<_CharT> >
 class _LIBCPP_TEMPLATE_VIS istreambuf_iterator;
@@ -143,7 +140,7 @@ typedef fpos<mbstate_t> u8streampos;
 typedef fpos<mbstate_t> u16streampos;
 typedef fpos<mbstate_t> u32streampos;
 
-#if _LIBCPP_STD_VER >= 20
+#if _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_SYNCSTREAM)
 
 template <class _CharT, class _Traits = char_traits<_CharT>, class _Allocator = allocator<_CharT>>
 class basic_syncbuf;
@@ -161,11 +158,7 @@ using osyncstream = basic_osyncstream<char>;
 using wosyncstream = basic_osyncstream<wchar_t>;
 #  endif
 
-#endif // _LIBCPP_STD_VER >=20
-
-// Include other forward declarations here
-template <class _Tp, class _Alloc = allocator<_Tp> >
-class _LIBCPP_TEMPLATE_VIS vector;
+#endif // _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_SYNCSTREAM)
 
 template <class _CharT, class _Traits>
 class __save_flags {
@@ -176,10 +169,10 @@ class __save_flags {
   fmtflags __fmtflags_;
   _CharT __fill_;
 
-  __save_flags(const __save_flags&);
-  __save_flags& operator=(const __save_flags&);
-
 public:
+    __save_flags(const __save_flags&) = delete;
+    __save_flags& operator=(const __save_flags&) = delete;
+
   _LIBCPP_HIDE_FROM_ABI explicit __save_flags(__stream_type& __stream)
       : __stream_(__stream), __fmtflags_(__stream.flags()), __fill_(__stream.fill()) {}
   _LIBCPP_HIDE_FROM_ABI ~__save_flags() {

@@ -22,12 +22,14 @@
 #include <bits/types/siginfo_t.h>
 
 #define PIDFD_NONBLOCK O_NONBLOCK
+#define PIDFD_THREAD O_EXCL
+
+#define PIDFD_SIGNAL_THREAD (1UL << 0)
+#define PIDFD_SIGNAL_THREAD_GROUP (1UL << 1)
+#define PIDFD_SIGNAL_PROCESS_GROUP (1UL << 2)
 
 /* Returns a file descriptor that refers to the process PID.  The
-   close-on-exec is set on the file descriptor.
-
-   The FLAGS argument is reserved for future use, it must be specified
-   as 0.  */
+   close-on-exec is set on the file descriptor.  */
 extern int pidfd_open (__pid_t __pid, unsigned int __flags) __THROW;
 
 /* Duplicates an existing file descriptor TARGETFD in the process referred
@@ -39,10 +41,7 @@ extern int pidfd_getfd (int __pidfd, int __targetfd,
 			unsigned int __flags) __THROW;
 
 /* Sends the signal SIG to the target process referred by the PIDFD.  If
-   INFO points to a siginfo_t buffer, it will be populated.
-
-   The FLAGS argument is reserved for future use, it must be specified
-   as 0.  */
+   INFO points to a siginfo_t buffer, it will be populated.  */
 extern int pidfd_send_signal (int __pidfd, int __sig, siginfo_t *__info,
 			      unsigned int __flags) __THROW;
 

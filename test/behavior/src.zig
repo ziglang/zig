@@ -7,17 +7,18 @@ fn doTheTest() !void {
     try expect(std.mem.endsWith(u8, src.file, "src.zig"));
     try expect(src.fn_name[src.fn_name.len] == 0);
     try expect(src.file[src.file.len] == 0);
+    if (!std.mem.eql(u8, src.module, "test") and !std.mem.eql(u8, src.module, "root")) return error.TestFailure;
 }
 
 const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
+const expectEqualStrings = std.testing.expectEqualStrings;
 
 test "@src" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try doTheTest();
 }
@@ -38,8 +39,6 @@ test "@src used as a comptime parameter" {
 }
 
 test "@src in tuple passed to anytype function" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
     const S = struct {
         fn Foo(a: anytype) u32 {
             return a[0].line;

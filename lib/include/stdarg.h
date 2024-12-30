@@ -14,29 +14,24 @@
  * need to use some of its interfaces. Otherwise this header provides all of
  * the expected interfaces.
  *
- * When clang modules are enabled, this header is a textual header. It ignores
- * its header guard so that multiple submodules can export its interfaces.
- * Take module SM with submodules A and B, whose headers both include stdarg.h
- * When SM.A builds, __STDARG_H will be defined. When SM.B builds, the
- * definition from SM.A will leak when building without local submodule
- * visibility. stdarg.h wouldn't include any of its implementation headers, and
- * SM.B wouldn't import any of the stdarg modules, and SM.B's `export *`
- * wouldn't export any stdarg interfaces as expected. However, since stdarg.h
- * ignores its header guard when building with modules, it all works as
- * expected.
- *
- * When clang modules are not enabled, the header guards can function in the
- * normal simple fashion.
+ * When clang modules are enabled, this header is a textual header to support
+ * the multiple include behavior. As such, it doesn't directly declare anything
+ * so that it doesn't add duplicate declarations to all of its includers'
+ * modules.
  */
-#if !defined(__STDARG_H) || __has_feature(modules) ||                          \
-    defined(__need___va_list) || defined(__need_va_list) ||                    \
-    defined(__need_va_arg) || defined(__need___va_copy) ||                     \
-    defined(__need_va_copy)
+#if defined(__MVS__) && __has_include_next(<stdarg.h>)
+#undef __need___va_list
+#undef __need_va_list
+#undef __need_va_arg
+#undef __need___va_copy
+#undef __need_va_copy
+#include <__stdarg_header_macro.h>
+#include_next <stdarg.h>
 
+#else
 #if !defined(__need___va_list) && !defined(__need_va_list) &&                  \
     !defined(__need_va_arg) && !defined(__need___va_copy) &&                   \
     !defined(__need_va_copy)
-#define __STDARG_H
 #define __need___va_list
 #define __need_va_list
 #define __need_va_arg
@@ -49,6 +44,7 @@
     !defined(__STRICT_ANSI__)
 #define __need_va_copy
 #endif
+#include <__stdarg_header_macro.h>
 #endif
 
 #ifdef __need___va_list
@@ -76,4 +72,4 @@
 #undef __need_va_copy
 #endif /* defined(__need_va_copy) */
 
-#endif
+#endif /* __MVS__ */

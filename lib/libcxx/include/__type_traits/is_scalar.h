@@ -49,7 +49,7 @@ struct _LIBCPP_TEMPLATE_VIS is_scalar
           bool, is_arithmetic<_Tp>::value ||
                 is_member_pointer<_Tp>::value ||
                 is_pointer<_Tp>::value ||
-                __is_nullptr_t<_Tp>::value ||
+                __is_null_pointer_v<_Tp> ||
                 __is_block<_Tp>::value ||
                 is_enum<_Tp>::value> {};
 // clang-format on

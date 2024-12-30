@@ -1,3 +1,12 @@
+const Manifest = @This();
+const std = @import("std");
+const mem = std.mem;
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+const Ast = std.zig.Ast;
+const testing = std.testing;
+const hex_charset = std.fmt.hex_charset;
+
 pub const max_bytes = 10 * 1024 * 1024;
 pub const basename = "build.zig.zon";
 pub const Hash = std.crypto.hash.sha2.Sha256;
@@ -9,8 +18,10 @@ pub const MultiHashHexDigest = [multihash_hex_digest_len]u8;
 pub const Dependency = struct {
     location: Location,
     location_tok: Ast.TokenIndex,
+    location_node: Ast.Node.Index,
     hash: ?[]const u8,
     hash_tok: Ast.TokenIndex,
+    hash_node: Ast.Node.Index,
     node: Ast.Node.Index,
     name_tok: Ast.TokenIndex,
     lazy: bool,
@@ -153,24 +164,6 @@ pub fn copyErrorsIntoBundle(
     }
 }
 
-const hex_charset = "0123456789abcdef";
-
-pub fn hex64(x: u64) [16]u8 {
-    var result: [16]u8 = undefined;
-    var i: usize = 0;
-    while (i < 8) : (i += 1) {
-        const byte = @as(u8, @truncate(x >> @as(u6, @intCast(8 * i))));
-        result[i * 2 + 0] = hex_charset[byte >> 4];
-        result[i * 2 + 1] = hex_charset[byte & 15];
-    }
-    return result;
-}
-
-test hex64 {
-    const s = "[" ++ hex64(0x12345678_abcdef00) ++ "]";
-    try std.testing.expectEqualStrings("[00efcdab78563412]", s);
-}
-
 pub fn hexDigest(digest: Digest) MultiHashHexDigest {
     var result: MultiHashHexDigest = undefined;
 
@@ -302,8 +295,10 @@ const Parse = struct {
         var dep: Dependency = .{
             .location = undefined,
             .location_tok = 0,
+            .location_node = undefined,
             .hash = null,
             .hash_tok = 0,
+            .hash_node = undefined,
             .node = node,
             .name_tok = 0,
             .lazy = false,
@@ -329,6 +324,7 @@ const Parse = struct {
                 };
                 has_location = true;
                 dep.location_tok = main_tokens[field_init];
+                dep.location_node = field_init;
             } else if (mem.eql(u8, field_name, "path")) {
                 if (has_location) {
                     return fail(p, main_tokens[field_init], "dependency should specify only one of 'url' and 'path' fields.", .{});
@@ -341,12 +337,14 @@ const Parse = struct {
                 };
                 has_location = true;
                 dep.location_tok = main_tokens[field_init];
+                dep.location_node = field_init;
             } else if (mem.eql(u8, field_name, "hash")) {
                 dep.hash = parseHash(p, field_init) catch |err| switch (err) {
                     error.ParseFailure => continue,
                     else => |e| return e,
                 };
                 dep.hash_tok = main_tokens[field_init];
+                dep.hash_node = field_init;
             } else if (mem.eql(u8, field_name, "lazy")) {
                 dep.lazy = parseBool(p, field_init) catch |err| switch (err) {
                     error.ParseFailure => continue,
@@ -558,6 +556,9 @@ const Parse = struct {
                     .{raw_string[bad_index]},
                 );
             },
+            .empty_char_literal => {
+                try p.appendErrorOff(token, offset, "empty character literal", .{});
+            },
         }
     }
 
@@ -589,14 +590,6 @@ const Parse = struct {
         });
     }
 };
-
-const Manifest = @This();
-const std = @import("std");
-const mem = std.mem;
-const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-const Ast = std.zig.Ast;
-const testing = std.testing;
 
 test "basic" {
     const gpa = testing.allocator;

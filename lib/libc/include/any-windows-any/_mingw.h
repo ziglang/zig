@@ -97,6 +97,20 @@ limitations in handling dllimport attribute.  */
 #endif
 #endif
 
+/* Recent MSVC supports C++14 but it doesn't define __cplusplus accordingly.  */
+#define __MINGW_CXX11_CONSTEXPR
+#define __MINGW_CXX14_CONSTEXPR
+#ifdef __cplusplus
+# if __cplusplus >= 201103L || defined(_MSC_VER)
+#  undef __MINGW_CXX11_CONSTEXPR
+#  define __MINGW_CXX11_CONSTEXPR  constexpr
+# endif
+# if __cplusplus >= 201402L || defined(_MSC_VER)
+#  undef __MINGW_CXX14_CONSTEXPR
+#  define __MINGW_CXX14_CONSTEXPR  constexpr
+# endif
+#endif
+
 #ifdef __cplusplus
 # define __UNUSED_PARAM(x)
 #else

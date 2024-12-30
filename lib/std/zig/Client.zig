@@ -33,6 +33,9 @@ pub const Message = struct {
         /// Ask the test runner to run a particular test.
         /// The message body is a u32 test index.
         run_test,
+        /// Ask the test runner to start fuzzing a particular test.
+        /// The message body is a u32 test index.
+        start_fuzzing,
 
         _,
     };

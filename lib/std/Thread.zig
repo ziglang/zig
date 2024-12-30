@@ -22,6 +22,83 @@ pub const WaitGroup = @import("Thread/WaitGroup.zig");
 
 pub const use_pthreads = native_os != .windows and native_os != .wasi and builtin.link_libc;
 
+/// Spurious wakeups are possible and no precision of timing is guaranteed.
+pub fn sleep(nanoseconds: u64) void {
+    if (builtin.os.tag == .windows) {
+        const big_ms_from_ns = nanoseconds / std.time.ns_per_ms;
+        const ms = math.cast(windows.DWORD, big_ms_from_ns) orelse math.maxInt(windows.DWORD);
+        windows.kernel32.Sleep(ms);
+        return;
+    }
+
+    if (builtin.os.tag == .wasi) {
+        const w = std.os.wasi;
+        const userdata: w.userdata_t = 0x0123_45678;
+        const clock: w.subscription_clock_t = .{
+            .id = .MONOTONIC,
+            .timeout = nanoseconds,
+            .precision = 0,
+            .flags = 0,
+        };
+        const in: w.subscription_t = .{
+            .userdata = userdata,
+            .u = .{
+                .tag = .CLOCK,
+                .u = .{ .clock = clock },
+            },
+        };
+
+        var event: w.event_t = undefined;
+        var nevents: usize = undefined;
+        _ = w.poll_oneoff(&in, &event, 1, &nevents);
+        return;
+    }
+
+    if (builtin.os.tag == .uefi) {
+        const boot_services = std.os.uefi.system_table.boot_services.?;
+        const us_from_ns = nanoseconds / std.time.ns_per_us;
+        const us = math.cast(usize, us_from_ns) orelse math.maxInt(usize);
+        _ = boot_services.stall(us);
+        return;
+    }
+
+    const s = nanoseconds / std.time.ns_per_s;
+    const ns = nanoseconds % std.time.ns_per_s;
+
+    // Newer kernel ports don't have old `nanosleep()` and `clock_nanosleep()` has been around
+    // since Linux 2.6 and glibc 2.1 anyway.
+    if (builtin.os.tag == .linux) {
+        const linux = std.os.linux;
+
+        var req: linux.timespec = .{
+            .sec = std.math.cast(linux.time_t, s) orelse std.math.maxInt(linux.time_t),
+            .nsec = std.math.cast(linux.time_t, ns) orelse std.math.maxInt(linux.time_t),
+        };
+        var rem: linux.timespec = undefined;
+
+        while (true) {
+            switch (linux.E.init(linux.clock_nanosleep(.MONOTONIC, .{ .ABSTIME = false }, &req, &rem))) {
+                .SUCCESS => return,
+                .INTR => {
+                    req = rem;
+                    continue;
+                },
+                .FAULT,
+                .INVAL,
+                .OPNOTSUPP,
+                => unreachable,
+                else => return,
+            }
+        }
+    }
+
+    posix.nanosleep(s, ns);
+}
+
+test sleep {
+    sleep(1);
+}
+
 const Thread = @This();
 const Impl = if (native_os == .windows)
     WindowsThreadImpl
@@ -75,7 +152,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
                 }
             } else {
                 const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr);
-                switch (err) {
+                switch (@as(posix.E, @enumFromInt(err))) {
                     .SUCCESS => return,
                     .RANGE => unreachable,
                     else => |e| return posix.unexpectedErrno(e),
@@ -119,14 +196,14 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
             if (self.getHandle() != std.c.pthread_self()) return error.Unsupported;
 
             const err = std.c.pthread_setname_np(name_with_terminator.ptr);
-            switch (err) {
+            switch (@as(posix.E, @enumFromInt(err))) {
                 .SUCCESS => return,
                 else => |e| return posix.unexpectedErrno(e),
             }
         },
         .netbsd, .solaris, .illumos => if (use_pthreads) {
             const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr, null);
-            switch (err) {
+            switch (@as(posix.E, @enumFromInt(err))) {
                 .SUCCESS => return,
                 .INVAL => unreachable,
                 .SRCH => unreachable,
@@ -144,7 +221,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
         },
         .dragonfly => if (use_pthreads) {
             const err = std.c.pthread_setname_np(self.getHandle(), name_with_terminator.ptr);
-            switch (err) {
+            switch (@as(posix.E, @enumFromInt(err))) {
                 .SUCCESS => return,
                 .INVAL => unreachable,
                 .FAULT => unreachable,
@@ -180,7 +257,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
                 }
             } else {
                 const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
-                switch (err) {
+                switch (@as(posix.E, @enumFromInt(err))) {
                     .SUCCESS => return std.mem.sliceTo(buffer, 0),
                     .RANGE => unreachable,
                     else => |e| return posix.unexpectedErrno(e),
@@ -219,7 +296,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
         },
         .macos, .ios, .watchos, .tvos, .visionos => if (use_pthreads) {
             const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
-            switch (err) {
+            switch (@as(posix.E, @enumFromInt(err))) {
                 .SUCCESS => return std.mem.sliceTo(buffer, 0),
                 .SRCH => unreachable,
                 else => |e| return posix.unexpectedErrno(e),
@@ -227,7 +304,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
         },
         .netbsd, .solaris, .illumos => if (use_pthreads) {
             const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
-            switch (err) {
+            switch (@as(posix.E, @enumFromInt(err))) {
                 .SUCCESS => return std.mem.sliceTo(buffer, 0),
                 .INVAL => unreachable,
                 .SRCH => unreachable,
@@ -243,7 +320,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
         },
         .dragonfly => if (use_pthreads) {
             const err = std.c.pthread_getname_np(self.getHandle(), buffer.ptr, max_name_len + 1);
-            switch (err) {
+            switch (@as(posix.E, @enumFromInt(err))) {
                 .SUCCESS => return std.mem.sliceTo(buffer, 0),
                 .INVAL => unreachable,
                 .FAULT => unreachable,
@@ -280,12 +357,13 @@ pub fn getCurrentId() Id {
 pub const CpuCountError = error{
     PermissionDenied,
     SystemResources,
+    Unsupported,
     Unexpected,
 };
 
 /// Returns the platforms view on the number of logical CPU cores available.
 pub fn getCpuCount() CpuCountError!usize {
-    return Impl.getCpuCount();
+    return try Impl.getCpuCount();
 }
 
 /// Configuration options for hints on how to spawn threads.
@@ -384,7 +462,7 @@ pub fn yield() YieldError!void {
 }
 
 /// State to synchronize detachment of spawner thread to spawned thread
-const Completion = std.atomic.Value(enum(u8) {
+const Completion = std.atomic.Value(enum(if (builtin.zig_backend == .stage2_riscv64) u32 else u8) {
     running,
     detached,
     completed,
@@ -398,17 +476,17 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
     else => unreachable,
 } {
     const default_value = if (Impl == PosixThreadImpl) null else 0;
-    const bad_fn_ret = "expected return type of startFn to be 'u8', 'noreturn', 'void', or '!void'";
+    const bad_fn_ret = "expected return type of startFn to be 'u8', 'noreturn', '!noreturn', 'void', or '!void'";
 
-    switch (@typeInfo(@typeInfo(@TypeOf(f)).Fn.return_type.?)) {
-        .NoReturn => {
+    switch (@typeInfo(@typeInfo(@TypeOf(f)).@"fn".return_type.?)) {
+        .noreturn => {
             @call(.auto, f, args);
         },
-        .Void => {
+        .void => {
             @call(.auto, f, args);
             return default_value;
         },
-        .Int => |info| {
+        .int => |info| {
             if (info.bits != 8) {
                 @compileError(bad_fn_ret);
             }
@@ -421,19 +499,22 @@ fn callFn(comptime f: anytype, args: anytype) switch (Impl) {
             // pthreads don't support exit status, ignore value
             return default_value;
         },
-        .ErrorUnion => |info| {
-            if (info.payload != void) {
-                @compileError(bad_fn_ret);
+        .error_union => |info| {
+            switch (info.payload) {
+                void, noreturn => {
+                    @call(.auto, f, args) catch |err| {
+                        std.debug.print("error: {s}\n", .{@errorName(err)});
+                        if (@errorReturnTrace()) |trace| {
+                            std.debug.dumpStackTrace(trace.*);
+                        }
+                    };
+
+                    return default_value;
+                },
+                else => {
+                    @compileError(bad_fn_ret);
+                },
             }
-
-            @call(.auto, f, args) catch |err| {
-                std.debug.print("error: {s}\n", .{@errorName(err)});
-                if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
-                }
-            };
-
-            return default_value;
         },
         else => {
             @compileError(bad_fn_ret);
@@ -480,7 +561,7 @@ const WindowsThreadImpl = struct {
     pub const ThreadHandle = windows.HANDLE;
 
     fn getCurrentId() windows.DWORD {
-        return windows.kernel32.GetCurrentThreadId();
+        return windows.GetCurrentThreadId();
     }
 
     fn getCpuCount() !usize {
@@ -508,7 +589,7 @@ const WindowsThreadImpl = struct {
             fn_args: Args,
             thread: ThreadCompletion,
 
-            fn entryFn(raw_ptr: windows.PVOID) callconv(.C) windows.DWORD {
+            fn entryFn(raw_ptr: windows.PVOID) callconv(.winapi) windows.DWORD {
                 const self: *@This() = @ptrCast(@alignCast(raw_ptr));
                 defer switch (self.thread.completion.swap(.completed, .seq_cst)) {
                     .running => {},
@@ -550,7 +631,7 @@ const WindowsThreadImpl = struct {
             0,
             null,
         ) orelse {
-            const errno = windows.kernel32.GetLastError();
+            const errno = windows.GetLastError();
             return windows.unexpectedError(errno);
         };
 
@@ -668,7 +749,7 @@ const PosixThreadImpl = struct {
         const allocator = std.heap.c_allocator;
 
         const Instance = struct {
-            fn entryFn(raw_arg: ?*anyopaque) callconv(.C) ?*anyopaque {
+            fn entryFn(raw_arg: ?*anyopaque) callconv(.c) ?*anyopaque {
                 const args_ptr: *Args = @ptrCast(@alignCast(raw_arg));
                 defer allocator.destroy(args_ptr);
                 return callFn(f, args_ptr.*);
@@ -779,6 +860,10 @@ const WasiThreadImpl = struct {
         return tls_thread_id;
     }
 
+    fn getCpuCount() error{Unsupported}!noreturn {
+        return error.Unsupported;
+    }
+
     fn getHandle(self: Impl) ThreadHandle {
         return self.thread.tid.load(.seq_cst);
     }
@@ -842,17 +927,17 @@ const WasiThreadImpl = struct {
             fn entry(ptr: usize) void {
                 const w: *@This() = @ptrFromInt(ptr);
                 const bad_fn_ret = "expected return type of startFn to be 'u8', 'noreturn', 'void', or '!void'";
-                switch (@typeInfo(@typeInfo(@TypeOf(f)).Fn.return_type.?)) {
-                    .NoReturn, .Void => {
+                switch (@typeInfo(@typeInfo(@TypeOf(f)).@"fn".return_type.?)) {
+                    .noreturn, .void => {
                         @call(.auto, f, w.args);
                     },
-                    .Int => |info| {
+                    .int => |info| {
                         if (info.bits != 8) {
                             @compileError(bad_fn_ret);
                         }
                         _ = @call(.auto, f, w.args); // WASI threads don't support exit status, ignore value
                     },
-                    .ErrorUnion => |info| {
+                    .error_union => |info| {
                         if (info.payload != void) {
                             @compileError(bad_fn_ret);
                         }
@@ -1056,8 +1141,7 @@ const LinuxThreadImpl = struct {
 
     fn getCpuCount() !usize {
         const cpu_set = try posix.sched_getaffinity(0);
-        // TODO: should not need this usize cast
-        return @as(usize, posix.CPU_COUNT(cpu_set));
+        return posix.CPU_COUNT(cpu_set);
     }
 
     thread: *ThreadCompletion,
@@ -1074,11 +1158,11 @@ const LinuxThreadImpl = struct {
         fn freeAndExit(self: *ThreadCompletion) noreturn {
             switch (target.cpu.arch) {
                 .x86 => asm volatile (
-                    \\  movl $91, %%eax
+                    \\  movl $91, %%eax # SYS_munmap
                     \\  movl %[ptr], %%ebx
                     \\  movl %[len], %%ecx
                     \\  int $128
-                    \\  movl $1, %%eax
+                    \\  movl $1, %%eax # SYS_exit
                     \\  movl $0, %%ebx
                     \\  int $128
                     :
@@ -1087,9 +1171,9 @@ const LinuxThreadImpl = struct {
                     : "memory"
                 ),
                 .x86_64 => asm volatile (
-                    \\  movq $11, %%rax
+                    \\  movq $11, %%rax # SYS_munmap
                     \\  syscall
-                    \\  movq $60, %%rax
+                    \\  movq $60, %%rax # SYS_exit
                     \\  movq $1, %%rdi
                     \\  syscall
                     :
@@ -1097,11 +1181,11 @@ const LinuxThreadImpl = struct {
                       [len] "{rsi}" (self.mapped.len),
                 ),
                 .arm, .armeb, .thumb, .thumbeb => asm volatile (
-                    \\  mov r7, #91
+                    \\  mov r7, #91 // SYS_munmap
                     \\  mov r0, %[ptr]
                     \\  mov r1, %[len]
                     \\  svc 0
-                    \\  mov r7, #1
+                    \\  mov r7, #1 // SYS_exit
                     \\  mov r0, #0
                     \\  svc 0
                     :
@@ -1109,12 +1193,12 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
-                .aarch64, .aarch64_be, .aarch64_32 => asm volatile (
-                    \\  mov x8, #215
+                .aarch64, .aarch64_be => asm volatile (
+                    \\  mov x8, #215 // SYS_munmap
                     \\  mov x0, %[ptr]
                     \\  mov x1, %[len]
                     \\  svc 0
-                    \\  mov x8, #93
+                    \\  mov x8, #93 // SYS_exit
                     \\  mov x0, #0
                     \\  svc 0
                     :
@@ -1122,13 +1206,30 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
+                .hexagon => asm volatile (
+                    \\  r6 = #215 // SYS_munmap
+                    \\  r0 = %[ptr]
+                    \\  r1 = %[len]
+                    \\  trap0(#1)
+                    \\  r6 = #93 // SYS_exit
+                    \\  r0 = #0
+                    \\  trap0(#1)
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
+                ),
+                // We set `sp` to the address of the current function as a workaround for a Linux
+                // kernel bug that caused syscalls to return EFAULT if the stack pointer is invalid.
+                // The bug was introduced in 46e12c07b3b9603c60fc1d421ff18618241cb081 and fixed in
+                // 7928eb0370d1133d0d8cd2f5ddfca19c309079d5.
                 .mips, .mipsel => asm volatile (
                     \\  move $sp, $25
-                    \\  li $2, 4091
+                    \\  li $2, 4091 # SYS_munmap
                     \\  move $4, %[ptr]
                     \\  move $5, %[len]
                     \\  syscall
-                    \\  li $2, 4001
+                    \\  li $2, 4001 # SYS_exit
                     \\  li $4, 0
                     \\  syscall
                     :
@@ -1137,11 +1238,11 @@ const LinuxThreadImpl = struct {
                     : "memory"
                 ),
                 .mips64, .mips64el => asm volatile (
-                    \\  li $2, 4091
+                    \\  li $2, 5011 # SYS_munmap
                     \\  move $4, %[ptr]
                     \\  move $5, %[len]
                     \\  syscall
-                    \\  li $2, 4001
+                    \\  li $2, 5058 # SYS_exit
                     \\  li $4, 0
                     \\  syscall
                     :
@@ -1150,11 +1251,11 @@ const LinuxThreadImpl = struct {
                     : "memory"
                 ),
                 .powerpc, .powerpcle, .powerpc64, .powerpc64le => asm volatile (
-                    \\  li 0, 91
-                    \\  mr %[ptr], 3
-                    \\  mr %[len], 4
+                    \\  li 0, 91 # SYS_munmap
+                    \\  mr 3, %[ptr]
+                    \\  mr 4, %[len]
                     \\  sc
-                    \\  li 0, 1
+                    \\  li 0, 1 # SYS_exit
                     \\  li 3, 0
                     \\  sc
                     \\  blr
@@ -1163,14 +1264,47 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
-                .riscv64 => asm volatile (
-                    \\  li a7, 215
+                .riscv32, .riscv64 => asm volatile (
+                    \\  li a7, 215 # SYS_munmap
                     \\  mv a0, %[ptr]
                     \\  mv a1, %[len]
                     \\  ecall
-                    \\  li a7, 93
+                    \\  li a7, 93 # SYS_exit
                     \\  mv a0, zero
                     \\  ecall
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
+                ),
+                .s390x => asm volatile (
+                    \\  lgr %%r2, %[ptr]
+                    \\  lgr %%r3, %[len]
+                    \\  svc 91 # SYS_munmap
+                    \\  lghi %%r2, 0
+                    \\  svc 1 # SYS_exit
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
+                ),
+                .sparc => asm volatile (
+                    \\ # See sparc64 comments below.
+                    \\ 1:
+                    \\  cmp %%fp, 0
+                    \\  beq 2f
+                    \\  nop
+                    \\  ba 1b
+                    \\  restore
+                    \\ 2:
+                    \\  mov 73, %%g1 // SYS_munmap
+                    \\  mov %[ptr], %%o0
+                    \\  mov %[len], %%o1
+                    \\  t 0x3 # ST_FLUSH_WINDOWS
+                    \\  t 0x10
+                    \\  mov 1, %%g1 // SYS_exit
+                    \\  mov 0, %%o0
+                    \\  t 0x10
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
@@ -1181,23 +1315,36 @@ const LinuxThreadImpl = struct {
                     \\ # is unmapped (it will result in a segfault), so we
                     \\ # force-deactivate it by running `restore` until
                     \\ # all frames are cleared.
-                    \\  1:
+                    \\ 1:
                     \\  cmp %%fp, 0
                     \\  beq 2f
                     \\  nop
                     \\  ba 1b
                     \\  restore
-                    \\  2:
-                    \\  mov 73, %%g1
+                    \\ 2:
+                    \\  mov 73, %%g1 // SYS_munmap
                     \\  mov %[ptr], %%o0
                     \\  mov %[len], %%o1
                     \\  # Flush register window contents to prevent background
                     \\  # memory access before unmapping the stack.
                     \\  flushw
                     \\  t 0x6d
-                    \\  mov 1, %%g1
-                    \\  mov 1, %%o0
+                    \\  mov 1, %%g1 // SYS_exit
+                    \\  mov 0, %%o0
                     \\  t 0x6d
+                    :
+                    : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
+                      [len] "r" (self.mapped.len),
+                    : "memory"
+                ),
+                .loongarch32, .loongarch64 => asm volatile (
+                    \\ or      $a0, $zero, %[ptr]
+                    \\ or      $a1, $zero, %[len]
+                    \\ ori     $a7, $zero, 215     # SYS_munmap
+                    \\ syscall 0                   # call munmap
+                    \\ ori     $a0, $zero, 0
+                    \\ ori     $a7, $zero, 93      # SYS_exit
+                    \\ syscall 0                   # call exit
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
@@ -1216,7 +1363,7 @@ const LinuxThreadImpl = struct {
             fn_args: Args,
             thread: ThreadCompletion,
 
-            fn entryFn(raw_arg: usize) callconv(.C) u8 {
+            fn entryFn(raw_arg: usize) callconv(.c) u8 {
                 const self = @as(*@This(), @ptrFromInt(raw_arg));
                 defer switch (self.thread.completion.swap(.completed, .seq_cst)) {
                     .running => {},
@@ -1240,9 +1387,9 @@ const LinuxThreadImpl = struct {
             bytes = std.mem.alignForward(usize, bytes, page_size);
             stack_offset = bytes;
 
-            bytes = std.mem.alignForward(usize, bytes, linux.tls.tls_image.alloc_align);
+            bytes = std.mem.alignForward(usize, bytes, linux.tls.area_desc.alignment);
             tls_offset = bytes;
-            bytes += linux.tls.tls_image.alloc_size;
+            bytes += linux.tls.area_desc.size;
 
             bytes = std.mem.alignForward(usize, bytes, @alignOf(Instance));
             instance_offset = bytes;
@@ -1283,12 +1430,12 @@ const LinuxThreadImpl = struct {
         };
 
         // Prepare the TLS segment and prepare a user_desc struct when needed on x86
-        var tls_ptr = linux.tls.prepareTLS(mapped[tls_offset..]);
+        var tls_ptr = linux.tls.prepareArea(mapped[tls_offset..]);
         var user_desc: if (target.cpu.arch == .x86) linux.user_desc else void = undefined;
         if (target.cpu.arch == .x86) {
             defer tls_ptr = @intFromPtr(&user_desc);
             user_desc = .{
-                .entry_number = linux.tls.tls_image.gdt_entry_number,
+                .entry_number = linux.tls.area_desc.gdt_entry_number,
                 .base_addr = tls_ptr,
                 .limit = 0xfffff,
                 .flags = .{
@@ -1457,6 +1604,7 @@ test {
     _ = Semaphore;
     _ = Condition;
     _ = RwLock;
+    _ = Pool;
 }
 
 fn testIncrementNotify(value: *usize, event: *ResetEvent) void {

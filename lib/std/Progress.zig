@@ -90,13 +90,13 @@ pub const Node = struct {
         /// 0 means unknown.
         /// Little endian.
         estimated_total_count: u32,
-        name: [max_name_len]u8,
+        name: [max_name_len]u8 align(@alignOf(usize)),
 
         /// Not thread-safe.
         fn getIpcFd(s: Storage) ?posix.fd_t {
             return if (s.estimated_total_count == std.math.maxInt(u32)) switch (@typeInfo(posix.fd_t)) {
-                .Int => @bitCast(s.completed_count),
-                .Pointer => @ptrFromInt(s.completed_count),
+                .int => @bitCast(s.completed_count),
+                .pointer => @ptrFromInt(s.completed_count),
                 else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
             } else null;
         }
@@ -104,8 +104,8 @@ pub const Node = struct {
         /// Thread-safe.
         fn setIpcFd(s: *Storage, fd: posix.fd_t) void {
             const integer: u32 = switch (@typeInfo(posix.fd_t)) {
-                .Int => @bitCast(fd),
-                .Pointer => @intFromPtr(fd),
+                .int => @bitCast(fd),
+                .pointer => @intFromPtr(fd),
                 else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
             };
             // `estimated_total_count` max int indicates the special state that
@@ -188,7 +188,8 @@ pub const Node = struct {
         var opt_free_index = @atomicLoad(Node.OptionalIndex, freelist_head, .seq_cst);
         while (opt_free_index.unwrap()) |free_index| {
             const freelist_ptr = freelistByIndex(free_index);
-            opt_free_index = @cmpxchgWeak(Node.OptionalIndex, freelist_head, opt_free_index, freelist_ptr.*, .seq_cst, .seq_cst) orelse {
+            const next = @atomicLoad(Node.OptionalIndex, freelist_ptr, .seq_cst);
+            opt_free_index = @cmpxchgWeak(Node.OptionalIndex, freelist_head, opt_free_index, next, .seq_cst, .seq_cst) orelse {
                 // We won the allocation race.
                 return init(free_index, parent, name, estimated_total_items);
             };
@@ -249,7 +250,7 @@ pub const Node = struct {
             const freelist_head = &global_progress.node_freelist_first;
             var first = @atomicLoad(Node.OptionalIndex, freelist_head, .seq_cst);
             while (true) {
-                freelistByIndex(index).* = first;
+                @atomicStore(Node.OptionalIndex, freelistByIndex(index), first, .seq_cst);
                 first = @cmpxchgWeak(Node.OptionalIndex, freelist_head, first, index.toOptional(), .seq_cst, .seq_cst) orelse break;
             }
         } else {
@@ -269,6 +270,19 @@ pub const Node = struct {
         storageByIndex(index).setIpcFd(fd);
     }
 
+    /// Posix-only. Thread-safe. Assumes the node is storing an IPC file
+    /// descriptor.
+    pub fn getIpcFd(node: Node) ?posix.fd_t {
+        const index = node.index.unwrap() orelse return null;
+        const storage = storageByIndex(index);
+        const int = @atomicLoad(u32, &storage.completed_count, .monotonic);
+        return switch (@typeInfo(posix.fd_t)) {
+            .int => @bitCast(int),
+            .pointer => @ptrFromInt(int),
+            else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
+        };
+    }
+
     fn storageByIndex(index: Node.Index) *Node.Storage {
         return &global_progress.node_storage[@intFromEnum(index)];
     }
@@ -282,16 +296,15 @@ pub const Node = struct {
     }
 
     fn init(free_index: Index, parent: Parent, name: []const u8, estimated_total_items: usize) Node {
-        assert(parent != .unused);
+        assert(parent == .none or @intFromEnum(parent) < node_storage_buffer_len);
 
         const storage = storageByIndex(free_index);
-        storage.* = .{
-            .completed_count = 0,
-            .estimated_total_count = std.math.lossyCast(u32, estimated_total_items),
-            .name = [1]u8{0} ** max_name_len,
-        };
+        @atomicStore(u32, &storage.completed_count, 0, .monotonic);
+        @atomicStore(u32, &storage.estimated_total_count, std.math.lossyCast(u32, estimated_total_items), .monotonic);
         const name_len = @min(max_name_len, name.len);
-        @memcpy(storage.name[0..name_len], name[0..name_len]);
+        copyAtomicStore(storage.name[0..name_len], name[0..name_len]);
+        if (name_len < storage.name.len)
+            @atomicStore(u8, &storage.name[name_len], 0, .monotonic);
 
         const parent_ptr = parentByIndex(free_index);
         assert(parent_ptr.* == .unused);
@@ -330,6 +343,11 @@ var default_draw_buffer: [4096]u8 = undefined;
 
 var debug_start_trace = std.debug.Trace.init;
 
+pub const have_ipc = switch (builtin.os.tag) {
+    .wasi, .freestanding, .windows => false,
+    else => true,
+};
+
 const noop_impl = builtin.single_threaded or switch (builtin.os.tag) {
     .wasi, .freestanding => true,
     else => false,
@@ -364,8 +382,8 @@ pub fn start(options: Options) Node {
     if (std.process.parseEnvVarInt("ZIG_PROGRESS", u31, 10)) |ipc_fd| {
         global_progress.update_thread = std.Thread.spawn(.{}, ipcThreadRun, .{
             @as(posix.fd_t, switch (@typeInfo(posix.fd_t)) {
-                .Int => ipc_fd,
-                .Pointer => @ptrFromInt(ipc_fd),
+                .int => ipc_fd,
+                .pointer => @ptrFromInt(ipc_fd),
                 else => @compileError("unsupported fd_t of " ++ @typeName(posix.fd_t)),
             }),
         }) catch |err| {
@@ -397,9 +415,7 @@ pub fn start(options: Options) Node {
                     .mask = posix.empty_sigset,
                     .flags = (posix.SA.SIGINFO | posix.SA.RESTART),
                 };
-                posix.sigaction(posix.SIG.WINCH, &act, null) catch |err| {
-                    std.log.warn("failed to install SIGWINCH signal handler for noticing terminal resizes: {s}", .{@errorName(err)});
-                };
+                posix.sigaction(posix.SIG.WINCH, &act, null);
             }
 
             if (switch (global_progress.terminal_mode) {
@@ -618,7 +634,7 @@ const TreeSymbol = enum {
 
     fn maxByteLen(symbol: TreeSymbol) usize {
         var max: usize = 0;
-        inline for (@typeInfo(Encoding).Enum.fields) |field| {
+        inline for (@typeInfo(Encoding).@"enum".fields) |field| {
             const len = symbol.bytes(@field(Encoding, field.name)).len;
             max = @max(max, len);
         }
@@ -652,14 +668,8 @@ fn appendTreeSymbol(symbol: TreeSymbol, buf: []u8, start_i: usize) usize {
 fn clearWrittenWithEscapeCodes() anyerror!void {
     if (!global_progress.need_clear) return;
 
-    var i: usize = 0;
-    const buf = global_progress.draw_buffer;
-
-    buf[i..][0..clear.len].* = clear.*;
-    i += clear.len;
-
     global_progress.need_clear = false;
-    try write(buf[0..i]);
+    try write(clear);
 }
 
 /// U+25BA or ►
@@ -765,7 +775,7 @@ fn serialize(serialized_buffer: *Serialized.Buffer) Serialized {
         var begin_parent = @atomicLoad(Node.Parent, parent_ptr, .acquire);
         while (begin_parent != .unused) {
             const dest_storage = &serialized_buffer.storage[serialized_len];
-            @memcpy(&dest_storage.name, &storage_ptr.name);
+            copyAtomicLoad(&dest_storage.name, &storage_ptr.name);
             dest_storage.estimated_total_count = @atomicLoad(u32, &storage_ptr.estimated_total_count, .acquire);
             dest_storage.completed_count = @atomicLoad(u32, &storage_ptr.completed_count, .monotonic);
             const end_parent = @atomicLoad(Node.Parent, parent_ptr, .acquire);
@@ -1338,16 +1348,16 @@ fn maybeUpdateSize(resize_flag: bool) void {
         }
     } else {
         var winsize: posix.winsize = .{
-            .ws_row = 0,
-            .ws_col = 0,
-            .ws_xpixel = 0,
-            .ws_ypixel = 0,
+            .row = 0,
+            .col = 0,
+            .xpixel = 0,
+            .ypixel = 0,
         };
 
         const err = posix.system.ioctl(fd, posix.T.IOCGWINSZ, @intFromPtr(&winsize));
         if (posix.errno(err) == .SUCCESS) {
-            global_progress.rows = winsize.ws_row;
-            global_progress.cols = winsize.ws_col;
+            global_progress.rows = winsize.row;
+            global_progress.cols = winsize.col;
         } else {
             std.log.debug("failed to determine terminal size; using conservative guess 80x25", .{});
             global_progress.rows = 25;
@@ -1386,3 +1396,29 @@ const have_sigwinch = switch (builtin.os.tag) {
 /// stderr mutex is held still dumps the stack trace and other debug
 /// information.
 var stderr_mutex = std.Thread.Mutex.Recursive.init;
+
+fn copyAtomicStore(dest: []align(@alignOf(usize)) u8, src: []const u8) void {
+    assert(dest.len == src.len);
+    const chunked_len = dest.len / @sizeOf(usize);
+    const dest_chunked: []usize = @as([*]usize, @ptrCast(dest))[0..chunked_len];
+    const src_chunked: []align(1) const usize = @as([*]align(1) const usize, @ptrCast(src))[0..chunked_len];
+    for (dest_chunked, src_chunked) |*d, s| {
+        @atomicStore(usize, d, s, .monotonic);
+    }
+    const remainder_start = chunked_len * @sizeOf(usize);
+    for (dest[remainder_start..], src[remainder_start..]) |*d, s| {
+        @atomicStore(u8, d, s, .monotonic);
+    }
+}
+
+fn copyAtomicLoad(
+    dest: *align(@alignOf(usize)) [Node.max_name_len]u8,
+    src: *align(@alignOf(usize)) const [Node.max_name_len]u8,
+) void {
+    const chunked_len = @divExact(dest.len, @sizeOf(usize));
+    const dest_chunked: *[chunked_len]usize = @ptrCast(dest);
+    const src_chunked: *const [chunked_len]usize = @ptrCast(src);
+    for (dest_chunked, src_chunked) |*d, *s| {
+        d.* = @atomicLoad(usize, s, .monotonic);
+    }
+}

@@ -831,6 +831,10 @@ typedef struct
 					   control.  */
 #define NT_ARM_PAC_ENABLED_KEYS	0x40a	/* AArch64 pointer authentication
 					   enabled keys.  */
+#define NT_ARM_SSVE	0x40b		/* ARM Streaming SVE registers.  */
+#define NT_ARM_ZA	0x40c		/* ARM SME ZA registers.  */
+#define NT_ARM_ZT	0x40d		/* ARM SME ZT registers.  */
+#define NT_ARM_FPMR	0x40e		/* ARM floating point mode register.  */
 #define NT_VMCOREDD	0x700		/* Vmcore Device Dump Note.  */
 #define NT_MIPS_DSP	0x800		/* MIPS DSP ASE registers.  */
 #define NT_MIPS_FP_MODE	0x801		/* MIPS floating-point mode.  */
@@ -1234,6 +1238,10 @@ typedef struct
 #define AT_RSEQ_FEATURE_SIZE	27	/* rseq supported feature size.  */
 #define AT_RSEQ_ALIGN	28		/* rseq allocation alignment.  */
 
+/* More machine-dependent hints about processor capabilities.  */
+#define AT_HWCAP3	29		/* extension of AT_HWCAP.  */
+#define AT_HWCAP4	30		/* extension of AT_HWCAP.  */
+
 #define AT_EXECFN	31		/* Filename of executable.  */
 
 /* Pointer to the global system page used for system calls and other
@@ -1333,8 +1341,12 @@ typedef struct
 #define NT_GNU_PROPERTY_TYPE_0 5
 
 /* Packaging metadata as defined on
-   https://systemd.io/COREDUMP_PACKAGE_METADATA/ */
+   https://systemd.io/ELF_PACKAGE_METADATA/ */
 #define NT_FDO_PACKAGING_METADATA 0xcafe1a7e
+
+/* dlopen metadata as defined on
+   https://systemd.io/ELF_DLOPEN_METADATA/ */
+#define NT_FDO_DLOPEN_METADATA 0x407c0c0a
 
 /* Note section name of program property.   */
 #define NOTE_GNU_PROPERTY_SECTION_NAME ".note.gnu.property"
@@ -4237,6 +4249,8 @@ enum
 #define R_LARCH_TLS_TPREL32	10
 #define R_LARCH_TLS_TPREL64	11
 #define R_LARCH_IRELATIVE	12
+#define R_LARCH_TLS_DESC32	13
+#define R_LARCH_TLS_DESC64	14
 
 /* Reserved for future relocs that the dynamic linker must understand.  */
 
@@ -4331,6 +4345,23 @@ enum
 #define R_LARCH_ADD_ULEB128 107
 #define R_LARCH_SUB_ULEB128 108
 #define R_LARCH_64_PCREL 109
+#define R_LARCH_CALL36 110
+#define R_LARCH_TLS_DESC_PC_HI20 111
+#define R_LARCH_TLS_DESC_PC_LO12 112
+#define R_LARCH_TLS_DESC64_PC_LO20 113
+#define R_LARCH_TLS_DESC64_PC_HI12 114
+#define R_LARCH_TLS_DESC_HI20 115
+#define R_LARCH_TLS_DESC_LO12 116
+#define R_LARCH_TLS_DESC64_LO20 117
+#define R_LARCH_TLS_DESC64_HI12 118
+#define R_LARCH_TLS_DESC_LD 119
+#define R_LARCH_TLS_DESC_CALL 120
+#define R_LARCH_TLS_LE_HI20_R 121
+#define R_LARCH_TLS_LE_ADD_R 122
+#define R_LARCH_TLS_LE_LO12_R 123
+#define R_LARCH_TLS_LD_PCREL20_S2 124
+#define R_LARCH_TLS_GD_PCREL20_S2 125
+#define R_LARCH_TLS_DESC_PCREL20_S2 126
 
 /* ARC specific declarations.  */
 

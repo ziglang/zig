@@ -80,7 +80,7 @@ typedef struct {
 
 	__darwin_rune_t	(*__sgetrune)(const char *, __darwin_size_t, char const **);
 	int		(*__sputrune)(__darwin_rune_t, char *, __darwin_size_t, char **);
-	__darwin_rune_t	__invalid_rune;
+	__darwin_rune_t	__invalid_rune;	/* Deprecated */
 
 	__uint32_t	__runetype[_CACHED_RUNES];
 	__darwin_rune_t	__maplower[_CACHED_RUNES];

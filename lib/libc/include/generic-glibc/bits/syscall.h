@@ -1,11 +1,11 @@
 /* Generated at libc build time from syscall list.  */
-/* The system call list corresponds to kernel 6.7.  */
+/* The system call list corresponds to kernel 6.9.  */
 
 #ifndef _SYSCALL_H
 # error "Never use <bits/syscall.h> directly; include <sys/syscall.h> instead."
 #endif
 
-#define __GLIBC_LINUX_VERSION_CODE 395008
+#define __GLIBC_LINUX_VERSION_CODE 395520
 
 #ifdef __NR_FAST_atomic_update
 # define SYS_FAST_atomic_update __NR_FAST_atomic_update
@@ -867,6 +867,10 @@
 # define SYS_listen __NR_listen
 #endif
 
+#ifdef __NR_listmount
+# define SYS_listmount __NR_listmount
+#endif
+
 #ifdef __NR_listxattr
 # define SYS_listxattr __NR_listxattr
 #endif
@@ -897,6 +901,18 @@
 
 #ifdef __NR_lsetxattr
 # define SYS_lsetxattr __NR_lsetxattr
+#endif
+
+#ifdef __NR_lsm_get_self_attr
+# define SYS_lsm_get_self_attr __NR_lsm_get_self_attr
+#endif
+
+#ifdef __NR_lsm_list_modules
+# define SYS_lsm_list_modules __NR_lsm_list_modules
+#endif
+
+#ifdef __NR_lsm_set_self_attr
+# define SYS_lsm_set_self_attr __NR_lsm_set_self_attr
 #endif
 
 #ifdef __NR_lstat
@@ -2281,6 +2297,10 @@
 
 #ifdef __NR_statfs64
 # define SYS_statfs64 __NR_statfs64
+#endif
+
+#ifdef __NR_statmount
+# define SYS_statmount __NR_statmount
 #endif
 
 #ifdef __NR_statx

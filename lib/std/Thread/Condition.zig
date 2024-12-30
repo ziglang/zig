@@ -178,7 +178,7 @@ const WindowsImpl = struct {
 
         // Return error.Timeout if we know the timeout elapsed correctly.
         if (rc == os.windows.FALSE) {
-            assert(os.windows.kernel32.GetLastError() == .TIMEOUT);
+            assert(os.windows.GetLastError() == .TIMEOUT);
             if (!timeout_overflowed) return error.Timeout;
         }
     }

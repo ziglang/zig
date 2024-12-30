@@ -15,10 +15,12 @@ pub fn build(b: *std.Build) void {
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const exe = b.addExecutable(.{
         .name = "lib",
-        .root_source_file = b.path("lib.zig"),
-        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
-        .optimize = optimize,
-        .strip = false,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("lib.zig"),
+            .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+            .optimize = optimize,
+            .strip = false,
+        }),
     });
     exe.entry = .disabled;
     exe.use_llvm = false;

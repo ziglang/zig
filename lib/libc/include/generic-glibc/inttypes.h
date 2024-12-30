@@ -165,7 +165,7 @@ typedef wchar_t __gwchar_t;
 # define PRIXPTR	__PRIPTR_PREFIX "X"
 
 /* Binary notation.  */
-# if __GLIBC_USE (ISOC2X)
+# if __GLIBC_USE (ISOC23)
 #  define PRIb8		"b"
 #  define PRIb16	"b"
 #  define PRIb32	"b"
@@ -303,7 +303,7 @@ typedef wchar_t __gwchar_t;
 
 
 /* Binary notation.  */
-# if __GLIBC_USE (ISOC2X)
+# if __GLIBC_USE (ISOC23)
 #  define SCNb8		"hhb"
 #  define SCNb16	"hb"
 #  define SCNb32	"b"
@@ -374,7 +374,7 @@ extern uintmax_t wcstoumax (const __gwchar_t *__restrict __nptr,
 
 /* Versions of the above functions that handle '0b' and '0B' prefixes
    in base 0 or 2.  */
-#if __GLIBC_USE (C2X_STRTOL)
+#if __GLIBC_USE (C23_STRTOL)
 # ifdef __REDIRECT
 extern intmax_t __REDIRECT_NTH (strtoimax, (const char *__restrict __nptr,
 					    char **__restrict __endptr,

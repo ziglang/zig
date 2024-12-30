@@ -23,6 +23,7 @@ const fs = std.fs;
 const dl = @import("dynamic_library.zig");
 const max_path_bytes = std.fs.max_path_bytes;
 const posix = std.posix;
+const native_os = builtin.os.tag;
 
 pub const linux = @import("os/linux.zig");
 pub const plan9 = @import("os/plan9.zig");
@@ -33,7 +34,7 @@ pub const windows = @import("os/windows.zig");
 
 test {
     _ = linux;
-    if (builtin.os.tag == .uefi) {
+    if (native_os == .uefi) {
         _ = uefi;
     }
     _ = wasi;
@@ -48,7 +49,7 @@ pub var environ: [][*:0]u8 = undefined;
 /// Populated by startup code before main().
 /// Not available on WASI or Windows without libc. See `std.process.argsAlloc`
 /// or `std.process.argsWithAllocator` for a cross-platform alternative.
-pub var argv: [][*:0]u8 = if (builtin.link_libc) undefined else switch (builtin.os.tag) {
+pub var argv: [][*:0]u8 = if (builtin.link_libc) undefined else switch (native_os) {
     .windows => @compileError("argv isn't supported on Windows: use std.process.argsAlloc instead"),
     .wasi => @compileError("argv isn't supported on WASI: use std.process.argsAlloc instead"),
     else => undefined,
@@ -61,7 +62,7 @@ pub fn accessW(path: [*:0]const u16) windows.GetFileAttributesError!void {
     if (ret != windows.INVALID_FILE_ATTRIBUTES) {
         return;
     }
-    switch (windows.kernel32.GetLastError()) {
+    switch (windows.GetLastError()) {
         .FILE_NOT_FOUND => return error.FileNotFound,
         .PATH_NOT_FOUND => return error.FileNotFound,
         .ACCESS_DENIED => return error.PermissionDenied,
@@ -103,7 +104,7 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
     if (!comptime isGetFdPathSupportedOnTarget(builtin.os)) {
         @compileError("querying for canonical path of a handle is unsupported on this host");
     }
-    switch (builtin.os.tag) {
+    switch (native_os) {
         .windows => {
             var wide_buf: [windows.PATH_MAX_WIDE]u16 = undefined;
             const wide_slice = try windows.GetFinalPathNameByHandle(fd, .{}, wide_buf[0..]);
@@ -150,6 +151,7 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
             const target = posix.readlinkZ(proc_path, out_buffer) catch |err| switch (err) {
                 error.UnsupportedReparsePointType => unreachable,
                 error.NotLink => unreachable,
+                error.InvalidUtf8 => unreachable, // WASI-only
                 else => |e| return e,
             };
             return target;

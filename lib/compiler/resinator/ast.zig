@@ -28,7 +28,7 @@ pub const Tree = struct {
 };
 
 pub const CodePageLookup = struct {
-    lookup: std.ArrayListUnmanaged(CodePage) = .{},
+    lookup: std.ArrayListUnmanaged(CodePage) = .empty,
     allocator: Allocator,
     default_code_page: CodePage,
 

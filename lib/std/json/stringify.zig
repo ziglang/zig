@@ -156,36 +156,23 @@ pub fn writeStreamArbitraryDepth(
 ///    | <array>
 ///    | write
 ///    | print
+///    | <writeRawStream>
 ///  <object> = beginObject ( <field> <value> )* endObject
-///  <field> = objectField | objectFieldRaw
+///  <field> = objectField | objectFieldRaw | <objectFieldRawStream>
 ///  <array> = beginArray ( <value> )* endArray
+///  <writeRawStream> = beginWriteRaw ( stream.writeAll )* endWriteRaw
+///  <objectFieldRawStream> = beginObjectFieldRaw ( stream.writeAll )* endObjectFieldRaw
 /// ```
 ///
-/// Supported types:
-///  * Zig `bool` -> JSON `true` or `false`.
-///  * Zig `?T` -> `null` or the rendering of `T`.
-///  * Zig `i32`, `u64`, etc. -> JSON number or string.
-///      * When option `emit_nonportable_numbers_as_strings` is true, if the value is outside the range `+-1<<53` (the precise integer range of f64), it is rendered as a JSON string in base 10. Otherwise, it is rendered as JSON number.
-///  * Zig floats -> JSON number or string.
-///      * If the value cannot be precisely represented by an f64, it is rendered as a JSON string. Otherwise, it is rendered as JSON number.
-///      * TODO: Float rendering will likely change in the future, e.g. to remove the unnecessary "e+00".
-///  * Zig `[]const u8`, `[]u8`, `*[N]u8`, `@Vector(N, u8)`, and similar -> JSON string.
-///      * See `StringifyOptions.emit_strings_as_arrays`.
-///      * If the content is not valid UTF-8, rendered as an array of numbers instead.
-///  * Zig `[]T`, `[N]T`, `*[N]T`, `@Vector(N, T)`, and similar -> JSON array of the rendering of each item.
-///  * Zig tuple -> JSON array of the rendering of each item.
-///  * Zig `struct` -> JSON object with each field in declaration order.
-///      * If the struct declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`. See `std.json.Value` for an example.
-///      * See `StringifyOptions.emit_null_optional_fields`.
-///  * Zig `union(enum)` -> JSON object with one field named for the active tag and a value representing the payload.
-///      * If the payload is `void`, then the emitted value is `{}`.
-///      * If the union declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
-///  * Zig `enum` -> JSON string naming the active tag.
-///      * If the enum declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
-///  * Zig untyped enum literal -> JSON string naming the active tag.
-///  * Zig error -> JSON string naming the error.
-///  * Zig `*T` -> the rendering of `T`. Note there is no guard against circular-reference infinite recursion.
-///
+/// The `safety_checks_hint` parameter determines how much memory is used to enable assertions that the above grammar is being followed,
+/// e.g. tripping an assertion rather than allowing `endObject` to emit the final `}` in `[[[]]}`.
+/// "Depth" in this context means the depth of nested `[]` or `{}` expressions
+/// (or equivalently the amount of recursion on the `<value>` grammar expression above).
+/// For example, emitting the JSON `[[[]]]` requires a depth of 3.
+/// If `.checked_to_fixed_depth` is used, there is additionally an assertion that the nesting depth never exceeds the given limit.
+/// `.checked_to_arbitrary_depth` requires a runtime allocator for the memory.
+/// `.checked_to_fixed_depth` embeds the storage required in the `WriteStream` struct.
+/// `.assumed_correct` requires no space and performs none of these assertions.
 /// In `ReleaseFast` and `ReleaseSmall` mode, the given `safety_checks_hint` is ignored and is always treated as `.assumed_correct`.
 pub fn WriteStream(
     comptime OutStream: type,
@@ -197,10 +184,14 @@ pub fn WriteStream(
 ) type {
     return struct {
         const Self = @This();
-        const safety_checks: @TypeOf(safety_checks_hint) = switch (@import("builtin").mode) {
-            .Debug, .ReleaseSafe => safety_checks_hint,
-            .ReleaseFast, .ReleaseSmall => .assumed_correct,
+        const build_mode_has_safety = switch (@import("builtin").mode) {
+            .Debug, .ReleaseSafe => true,
+            .ReleaseFast, .ReleaseSmall => false,
         };
+        const safety_checks: @TypeOf(safety_checks_hint) = if (build_mode_has_safety)
+            safety_checks_hint
+        else
+            .assumed_correct;
 
         pub const Stream = OutStream;
         pub const Error = switch (safety_checks) {
@@ -225,6 +216,11 @@ pub fn WriteStream(
             .assumed_correct => void,
         },
 
+        raw_streaming_mode: if (build_mode_has_safety)
+            enum { none, value, objectField }
+        else
+            void = if (build_mode_has_safety) .none else {},
+
         pub fn init(safety_allocator: Allocator, stream: OutStream, options: StringifyOptions) Self {
             return .{
                 .options = options,
@@ -237,6 +233,7 @@ pub fn WriteStream(
             };
         }
 
+        /// Only necessary with .checked_to_arbitrary_depth.
         pub fn deinit(self: *Self) void {
             switch (safety_checks) {
                 .checked_to_arbitrary_depth => self.nesting_stack.deinit(),
@@ -246,6 +243,7 @@ pub fn WriteStream(
         }
 
         pub fn beginArray(self: *Self) Error!void {
+            if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
             try self.valueStart();
             try self.stream.writeByte('[');
             try self.pushIndentation(ARRAY_MODE);
@@ -253,6 +251,7 @@ pub fn WriteStream(
         }
 
         pub fn beginObject(self: *Self) Error!void {
+            if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
             try self.valueStart();
             try self.stream.writeByte('{');
             try self.pushIndentation(OBJECT_MODE);
@@ -260,6 +259,7 @@ pub fn WriteStream(
         }
 
         pub fn endArray(self: *Self) Error!void {
+            if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
             self.popIndentation(ARRAY_MODE);
             switch (self.next_punctuation) {
                 .none => {},
@@ -273,6 +273,7 @@ pub fn WriteStream(
         }
 
         pub fn endObject(self: *Self) Error!void {
+            if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
             self.popIndentation(OBJECT_MODE);
             switch (self.next_punctuation) {
                 .none => {},
@@ -389,8 +390,30 @@ pub fn WriteStream(
         /// e.g. `"1"`, `"[]"`, `"[1,2]"`, not `"1,2"`.
         /// This function may be useful for doing your own number formatting.
         pub fn print(self: *Self, comptime fmt: []const u8, args: anytype) Error!void {
+            if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
             try self.valueStart();
             try self.stream.print(fmt, args);
+            self.valueDone();
+        }
+
+        /// An alternative to calling `write` that allows you to write directly to the `.stream` field, e.g. with `.stream.writeAll()`.
+        /// Call `beginWriteRaw()`, then write a complete value (including any quotes if necessary) directly to the `.stream` field,
+        /// then call `endWriteRaw()`.
+        /// This can be useful for streaming very long strings into the output without needing it all buffered in memory.
+        pub fn beginWriteRaw(self: *Self) !void {
+            if (build_mode_has_safety) {
+                assert(self.raw_streaming_mode == .none);
+                self.raw_streaming_mode = .value;
+            }
+            try self.valueStart();
+        }
+
+        /// See `beginWriteRaw`.
+        pub fn endWriteRaw(self: *Self) void {
+            if (build_mode_has_safety) {
+                assert(self.raw_streaming_mode == .value);
+                self.raw_streaming_mode = .none;
+            }
             self.valueDone();
         }
 
@@ -399,6 +422,7 @@ pub fn WriteStream(
         /// Surrounding quotes will be added and any special characters will be escaped.
         /// See also `objectFieldRaw`.
         pub fn objectField(self: *Self, key: []const u8) Error!void {
+            if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
             try self.objectFieldStart();
             try encodeJsonString(key, self.options, self.stream);
             self.next_punctuation = .colon;
@@ -408,17 +432,69 @@ pub fn WriteStream(
         /// A few assertions are performed on the given value to ensure that the caller of this function understands the API contract.
         /// See also `objectField`.
         pub fn objectFieldRaw(self: *Self, quoted_key: []const u8) Error!void {
+            if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
             assert(quoted_key.len >= 2 and quoted_key[0] == '"' and quoted_key[quoted_key.len - 1] == '"'); // quoted_key should be "quoted".
             try self.objectFieldStart();
             try self.stream.writeAll(quoted_key);
             self.next_punctuation = .colon;
         }
 
-        /// See `WriteStream`.
+        /// In the rare case that you need to write very long object field names,
+        /// this is an alternative to `objectField` and `objectFieldRaw` that allows you to write directly to the `.stream` field
+        /// similar to `beginWriteRaw`.
+        /// Call `endObjectFieldRaw()` when you're done.
+        pub fn beginObjectFieldRaw(self: *Self) !void {
+            if (build_mode_has_safety) {
+                assert(self.raw_streaming_mode == .none);
+                self.raw_streaming_mode = .objectField;
+            }
+            try self.objectFieldStart();
+        }
+
+        /// See `beginObjectFieldRaw`.
+        pub fn endObjectFieldRaw(self: *Self) void {
+            if (build_mode_has_safety) {
+                assert(self.raw_streaming_mode == .objectField);
+                self.raw_streaming_mode = .none;
+            }
+            self.next_punctuation = .colon;
+        }
+
+        /// Renders the given Zig value as JSON.
+        ///
+        /// Supported types:
+        ///  * Zig `bool` -> JSON `true` or `false`.
+        ///  * Zig `?T` -> `null` or the rendering of `T`.
+        ///  * Zig `i32`, `u64`, etc. -> JSON number or string.
+        ///      * When option `emit_nonportable_numbers_as_strings` is true, if the value is outside the range `+-1<<53` (the precise integer range of f64), it is rendered as a JSON string in base 10. Otherwise, it is rendered as JSON number.
+        ///  * Zig floats -> JSON number or string.
+        ///      * If the value cannot be precisely represented by an f64, it is rendered as a JSON string. Otherwise, it is rendered as JSON number.
+        ///      * TODO: Float rendering will likely change in the future, e.g. to remove the unnecessary "e+00".
+        ///  * Zig `[]const u8`, `[]u8`, `*[N]u8`, `@Vector(N, u8)`, and similar -> JSON string.
+        ///      * See `StringifyOptions.emit_strings_as_arrays`.
+        ///      * If the content is not valid UTF-8, rendered as an array of numbers instead.
+        ///  * Zig `[]T`, `[N]T`, `*[N]T`, `@Vector(N, T)`, and similar -> JSON array of the rendering of each item.
+        ///  * Zig tuple -> JSON array of the rendering of each item.
+        ///  * Zig `struct` -> JSON object with each field in declaration order.
+        ///      * If the struct declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`. See `std.json.Value` for an example.
+        ///      * See `StringifyOptions.emit_null_optional_fields`.
+        ///  * Zig `union(enum)` -> JSON object with one field named for the active tag and a value representing the payload.
+        ///      * If the payload is `void`, then the emitted value is `{}`.
+        ///      * If the union declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
+        ///  * Zig `enum` -> JSON string naming the active tag.
+        ///      * If the enum declares a method `pub fn jsonStringify(self: *@This(), jw: anytype) !void`, it is called to do the serialization instead of the default behavior. The given `jw` is a pointer to this `WriteStream`.
+        ///      * If the enum is non-exhaustive, unnamed values are rendered as integers.
+        ///  * Zig untyped enum literal -> JSON string naming the active tag.
+        ///  * Zig error -> JSON string naming the error.
+        ///  * Zig `*T` -> the rendering of `T`. Note there is no guard against circular-reference infinite recursion.
+        ///
+        /// See also alternative functions `print` and `beginWriteRaw`.
+        /// For writing object field names, use `objectField` instead.
         pub fn write(self: *Self, value: anytype) Error!void {
+            if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
             const T = @TypeOf(value);
             switch (@typeInfo(T)) {
-                .Int => {
+                .int => {
                     try self.valueStart();
                     if (self.options.emit_nonportable_numbers_as_strings and
                         (value <= -(1 << 53) or value >= (1 << 53)))
@@ -430,10 +506,10 @@ pub fn WriteStream(
                     self.valueDone();
                     return;
                 },
-                .ComptimeInt => {
+                .comptime_int => {
                     return self.write(@as(std.math.IntFittingRange(value, value), value));
                 },
-                .Float, .ComptimeFloat => {
+                .float, .comptime_float => {
                     if (@as(f64, @floatCast(value)) == value) {
                         try self.valueStart();
                         try self.stream.print("{}", .{@as(f64, @floatCast(value))});
@@ -446,38 +522,51 @@ pub fn WriteStream(
                     return;
                 },
 
-                .Bool => {
+                .bool => {
                     try self.valueStart();
                     try self.stream.writeAll(if (value) "true" else "false");
                     self.valueDone();
                     return;
                 },
-                .Null => {
+                .null => {
                     try self.valueStart();
                     try self.stream.writeAll("null");
                     self.valueDone();
                     return;
                 },
-                .Optional => {
+                .optional => {
                     if (value) |payload| {
                         return try self.write(payload);
                     } else {
                         return try self.write(null);
                     }
                 },
-                .Enum, .EnumLiteral => {
+                .@"enum" => |enum_info| {
                     if (std.meta.hasFn(T, "jsonStringify")) {
                         return value.jsonStringify(self);
+                    }
+
+                    if (!enum_info.is_exhaustive) {
+                        inline for (enum_info.fields) |field| {
+                            if (value == @field(T, field.name)) {
+                                break;
+                            }
+                        } else {
+                            return self.write(@intFromEnum(value));
+                        }
                     }
 
                     return self.stringValue(@tagName(value));
                 },
-                .Union => {
+                .enum_literal => {
+                    return self.stringValue(@tagName(value));
+                },
+                .@"union" => {
                     if (std.meta.hasFn(T, "jsonStringify")) {
                         return value.jsonStringify(self);
                     }
 
-                    const info = @typeInfo(T).Union;
+                    const info = @typeInfo(T).@"union";
                     if (info.tag_type) |UnionTagType| {
                         try self.beginObject();
                         inline for (info.fields) |u_field| {
@@ -501,7 +590,7 @@ pub fn WriteStream(
                         @compileError("Unable to stringify untagged union '" ++ @typeName(T) ++ "'");
                     }
                 },
-                .Struct => |S| {
+                .@"struct" => |S| {
                     if (std.meta.hasFn(T, "jsonStringify")) {
                         return value.jsonStringify(self);
                     }
@@ -518,7 +607,7 @@ pub fn WriteStream(
                         var emit_field = true;
 
                         // don't include optional fields that are null when emit_null_optional_fields is set to false
-                        if (@typeInfo(Field.type) == .Optional) {
+                        if (@typeInfo(Field.type) == .optional) {
                             if (self.options.emit_null_optional_fields == false) {
                                 if (@field(value, Field.name) == null) {
                                     emit_field = false;
@@ -540,10 +629,10 @@ pub fn WriteStream(
                     }
                     return;
                 },
-                .ErrorSet => return self.stringValue(@errorName(value)),
-                .Pointer => |ptr_info| switch (ptr_info.size) {
+                .error_set => return self.stringValue(@errorName(value)),
+                .pointer => |ptr_info| switch (ptr_info.size) {
                     .One => switch (@typeInfo(ptr_info.child)) {
-                        .Array => {
+                        .array => {
                             // Coerce `*[N]T` to `[]const T`.
                             const Slice = []const std.meta.Elem(ptr_info.child);
                             return self.write(@as(Slice, value));
@@ -573,11 +662,11 @@ pub fn WriteStream(
                     },
                     else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
                 },
-                .Array => {
+                .array => {
                     // Coerce `[N]T` to `*const [N]T` (and then to `[]const T`).
                     return self.write(&value);
                 },
-                .Vector => |info| {
+                .vector => |info| {
                     const array: [info.len]info.child = value;
                     return self.write(&array);
                 },

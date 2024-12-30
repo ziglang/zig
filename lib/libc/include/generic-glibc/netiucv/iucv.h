@@ -23,7 +23,7 @@
 
 __BEGIN_DECLS
 
-struct sockaddr_iucv
+struct __attribute_struct_may_alias__ sockaddr_iucv
   {
     __SOCKADDR_COMMON (siucv_);
     unsigned short	siucv_port;		/* Reserved */

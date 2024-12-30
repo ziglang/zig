@@ -47,7 +47,7 @@ extern int timerfd_settime (int __ufd, int __flags,
 			    const struct itimerspec *__utmr,
 			    struct itimerspec *__otmr) __THROW;
 
-#ifdef __USE_TIME_BITS64
+#ifdef __USE_TIME64_REDIRECTS
 # if defined(__REDIRECT_NTH)
 extern int __REDIRECT_NTH (timerfd_settime,
                            (int __ufd, int __flags,
@@ -62,7 +62,7 @@ extern int __REDIRECT_NTH (timerfd_settime,
 /* Return the next expiration time of UFD.  */
 extern int timerfd_gettime (int __ufd, struct itimerspec *__otmr) __THROW;
 
-#ifdef __USE_TIME_BITS64
+#ifdef __USE_TIME64_REDIRECTS
 # if defined(__REDIRECT_NTH)
 extern int __REDIRECT_NTH (timerfd_gettime, (int __ufd,
                                              struct itimerspec *__otmr),

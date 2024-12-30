@@ -64,9 +64,13 @@ extern unsigned int stdc_leading_zeros_ul (unsigned long int __x)
 __extension__
 extern unsigned int stdc_leading_zeros_ull (unsigned long long int __x)
      __THROW __attribute_const__;
-#define stdc_leading_zeros(x)				\
+#if __glibc_has_builtin (__builtin_stdc_leading_zeros)
+# define stdc_leading_zeros(x) (__builtin_stdc_leading_zeros (x))
+#else
+# define stdc_leading_zeros(x)				\
   (stdc_leading_zeros_ull (x)				\
    - (unsigned int) (8 * (sizeof (0ULL) - sizeof (x))))
+#endif
 
 #if __GNUC_PREREQ (3, 4) || __glibc_has_builtin (__builtin_clzll)
 static __always_inline unsigned int
@@ -116,9 +120,13 @@ extern unsigned int stdc_leading_ones_ul (unsigned long int __x)
 __extension__
 extern unsigned int stdc_leading_ones_ull (unsigned long long int __x)
      __THROW __attribute_const__;
-#define stdc_leading_ones(x)					\
+#if __glibc_has_builtin (__builtin_stdc_leading_ones)
+# define stdc_leading_ones(x) (__builtin_stdc_leading_ones (x))
+#else
+# define stdc_leading_ones(x)					\
   (stdc_leading_ones_ull ((unsigned long long int) (x)		\
 			  << 8 * (sizeof (0ULL) - sizeof (x))))
+#endif
 
 #if __GNUC_PREREQ (3, 4) || __glibc_has_builtin (__builtin_clzll)
 static __always_inline unsigned int
@@ -168,11 +176,15 @@ extern unsigned int stdc_trailing_zeros_ul (unsigned long int __x)
 __extension__
 extern unsigned int stdc_trailing_zeros_ull (unsigned long long int __x)
      __THROW __attribute_const__;
-#define stdc_trailing_zeros(x)				\
+#if __glibc_has_builtin (__builtin_stdc_trailing_zeros)
+# define stdc_trailing_zeros(x) (__builtin_stdc_trailing_zeros (x))
+#else
+# define stdc_trailing_zeros(x)				\
   (sizeof (x) == 8 ? stdc_trailing_zeros_ull (x)	\
    : sizeof (x) == 4 ? stdc_trailing_zeros_ui (x)	\
    : sizeof (x) == 2 ? stdc_trailing_zeros_us (__pacify_uint16 (x))	\
    : stdc_trailing_zeros_uc (__pacify_uint8 (x)))
+#endif
 
 #if __GNUC_PREREQ (3, 4) || __glibc_has_builtin (__builtin_ctzll)
 static __always_inline unsigned int
@@ -222,7 +234,11 @@ extern unsigned int stdc_trailing_ones_ul (unsigned long int __x)
 __extension__
 extern unsigned int stdc_trailing_ones_ull (unsigned long long int __x)
      __THROW __attribute_const__;
-#define stdc_trailing_ones(x) (stdc_trailing_ones_ull (x))
+#if __glibc_has_builtin (__builtin_stdc_trailing_ones)
+# define stdc_trailing_ones(x) (__builtin_stdc_trailing_ones (x))
+#else
+# define stdc_trailing_ones(x) (stdc_trailing_ones_ull (x))
+#endif
 
 #if __GNUC_PREREQ (3, 4) || __glibc_has_builtin (__builtin_ctzll)
 static __always_inline unsigned int
@@ -272,11 +288,15 @@ extern unsigned int stdc_first_leading_zero_ul (unsigned long int __x)
 __extension__
 extern unsigned int stdc_first_leading_zero_ull (unsigned long long int __x)
      __THROW __attribute_const__;
-#define stdc_first_leading_zero(x)			\
+#if __glibc_has_builtin (__builtin_stdc_first_leading_zero)
+# define stdc_first_leading_zero(x) (__builtin_stdc_first_leading_zero (x))
+#else
+# define stdc_first_leading_zero(x)			\
   (sizeof (x) == 8 ? stdc_first_leading_zero_ull (x)	\
    : sizeof (x) == 4 ? stdc_first_leading_zero_ui (x)	\
    : sizeof (x) == 2 ? stdc_first_leading_zero_us (__pacify_uint16 (x))	\
    : stdc_first_leading_zero_uc (__pacify_uint8 (x)))
+#endif
 
 #if __GNUC_PREREQ (3, 4) || __glibc_has_builtin (__builtin_clzll)
 static __always_inline unsigned int
@@ -326,11 +346,15 @@ extern unsigned int stdc_first_leading_one_ul (unsigned long int __x)
 __extension__
 extern unsigned int stdc_first_leading_one_ull (unsigned long long int __x)
      __THROW __attribute_const__;
-#define stdc_first_leading_one(x)			\
+#if __glibc_has_builtin (__builtin_stdc_first_leading_one)
+# define stdc_first_leading_one(x) (__builtin_stdc_first_leading_one (x))
+#else
+# define stdc_first_leading_one(x)			\
   (sizeof (x) == 8 ? stdc_first_leading_one_ull (x)	\
    : sizeof (x) == 4 ? stdc_first_leading_one_ui (x)	\
    : sizeof (x) == 2 ? stdc_first_leading_one_us (__pacify_uint16 (x))	\
    : stdc_first_leading_one_uc (__pacify_uint8 (x)))
+#endif
 
 #if __GNUC_PREREQ (3, 4) || __glibc_has_builtin (__builtin_clzll)
 static __always_inline unsigned int
@@ -380,11 +404,15 @@ extern unsigned int stdc_first_trailing_zero_ul (unsigned long int __x)
 __extension__
 extern unsigned int stdc_first_trailing_zero_ull (unsigned long long int __x)
      __THROW __attribute_const__;
-#define stdc_first_trailing_zero(x)			\
+#if __glibc_has_builtin (__builtin_stdc_first_trailing_zero)
+# define stdc_first_trailing_zero(x) (__builtin_stdc_first_trailing_zero (x))
+#else
+# define stdc_first_trailing_zero(x)			\
   (sizeof (x) == 8 ? stdc_first_trailing_zero_ull (x)	\
    : sizeof (x) == 4 ? stdc_first_trailing_zero_ui (x)	\
    : sizeof (x) == 2 ? stdc_first_trailing_zero_us (__pacify_uint16 (x)) \
    : stdc_first_trailing_zero_uc (__pacify_uint8 (x)))
+#endif
 
 #if __GNUC_PREREQ (3, 4) || __glibc_has_builtin (__builtin_ctzll)
 static __always_inline unsigned int
@@ -434,11 +462,15 @@ extern unsigned int stdc_first_trailing_one_ul (unsigned long int __x)
 __extension__
 extern unsigned int stdc_first_trailing_one_ull (unsigned long long int __x)
      __THROW __attribute_const__;
-#define stdc_first_trailing_one(x)			\
+#if __glibc_has_builtin (__builtin_stdc_first_trailing_one)
+# define stdc_first_trailing_one(x) (__builtin_stdc_first_trailing_one (x))
+#else
+# define stdc_first_trailing_one(x)			\
   (sizeof (x) == 8 ? stdc_first_trailing_one_ull (x)	\
    : sizeof (x) == 4 ? stdc_first_trailing_one_ui (x)	\
    : sizeof (x) == 2 ? stdc_first_trailing_one_us (__pacify_uint16 (x))	\
    : stdc_first_trailing_one_uc (__pacify_uint8 (x)))
+#endif
 
 #if __GNUC_PREREQ (3, 4) || __glibc_has_builtin (__builtin_ctzll)
 static __always_inline unsigned int
@@ -488,9 +520,13 @@ extern unsigned int stdc_count_zeros_ul (unsigned long int __x)
 __extension__
 extern unsigned int stdc_count_zeros_ull (unsigned long long int __x)
      __THROW __attribute_const__;
-#define stdc_count_zeros(x)				\
+#if __glibc_has_builtin (__builtin_stdc_count_zeros)
+# define stdc_count_zeros(x) (__builtin_stdc_count_zeros (x))
+#else
+# define stdc_count_zeros(x)				\
   (stdc_count_zeros_ull (x)				\
    - (unsigned int) (8 * (sizeof (0ULL) - sizeof (x))))
+#endif
 
 #if __GNUC_PREREQ (3, 4) || __glibc_has_builtin (__builtin_popcountll)
 static __always_inline unsigned int
@@ -540,7 +576,11 @@ extern unsigned int stdc_count_ones_ul (unsigned long int __x)
 __extension__
 extern unsigned int stdc_count_ones_ull (unsigned long long int __x)
      __THROW __attribute_const__;
-#define stdc_count_ones(x) (stdc_count_ones_ull (x))
+#if __glibc_has_builtin (__builtin_stdc_count_ones)
+# define stdc_count_ones(x) (__builtin_stdc_count_ones (x))
+#else
+# define stdc_count_ones(x) (stdc_count_ones_ull (x))
+#endif
 
 #if __GNUC_PREREQ (3, 4) || __glibc_has_builtin (__builtin_popcountll)
 static __always_inline unsigned int
@@ -590,10 +630,14 @@ extern bool stdc_has_single_bit_ul (unsigned long int __x)
 __extension__
 extern bool stdc_has_single_bit_ull (unsigned long long int __x)
      __THROW __attribute_const__;
-#define stdc_has_single_bit(x)				\
+#if __glibc_has_builtin (__builtin_stdc_has_single_bit)
+# define stdc_has_single_bit(x) (__builtin_stdc_has_single_bit (x))
+#else
+# define stdc_has_single_bit(x)				\
   ((bool) (sizeof (x) <= sizeof (unsigned int)		\
 	   ? stdc_has_single_bit_ui (x)			\
 	   : stdc_has_single_bit_ull (x)))
+#endif
 
 static __always_inline bool
 __hsb64_inline (uint64_t __x)
@@ -641,7 +685,11 @@ extern unsigned int stdc_bit_width_ul (unsigned long int __x)
 __extension__
 extern unsigned int stdc_bit_width_ull (unsigned long long int __x)
      __THROW __attribute_const__;
-#define stdc_bit_width(x) (stdc_bit_width_ull (x))
+#if __glibc_has_builtin (__builtin_stdc_bit_width)
+# define stdc_bit_width(x) (__builtin_stdc_bit_width (x))
+#else
+# define stdc_bit_width(x) (stdc_bit_width_ull (x))
+#endif
 
 #if __GNUC_PREREQ (3, 4) || __glibc_has_builtin (__builtin_clzll)
 static __always_inline unsigned int
@@ -691,7 +739,11 @@ extern unsigned long int stdc_bit_floor_ul (unsigned long int __x)
 __extension__
 extern unsigned long long int stdc_bit_floor_ull (unsigned long long int __x)
      __THROW __attribute_const__;
-#define stdc_bit_floor(x) ((__typeof (x)) stdc_bit_floor_ull (x))
+#if __glibc_has_builtin (__builtin_stdc_bit_floor)
+# define stdc_bit_floor(x) (__builtin_stdc_bit_floor (x))
+#else
+# define stdc_bit_floor(x) ((__typeof (x)) stdc_bit_floor_ull (x))
+#endif
 
 #if __GNUC_PREREQ (3, 4) || __glibc_has_builtin (__builtin_clzll)
 static __always_inline uint64_t
@@ -743,7 +795,11 @@ extern unsigned long int stdc_bit_ceil_ul (unsigned long int __x)
 __extension__
 extern unsigned long long int stdc_bit_ceil_ull (unsigned long long int __x)
      __THROW __attribute_const__;
-#define stdc_bit_ceil(x) ((__typeof (x)) stdc_bit_ceil_ull (x))
+#if __glibc_has_builtin (__builtin_stdc_bit_ceil)
+# define stdc_bit_ceil(x) (__builtin_stdc_bit_ceil (x))
+#else
+# define stdc_bit_ceil(x) ((__typeof (x)) stdc_bit_ceil_ull (x))
+#endif
 
 #if __GNUC_PREREQ (3, 4) || __glibc_has_builtin (__builtin_clzll)
 static __always_inline uint64_t

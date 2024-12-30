@@ -6,7 +6,7 @@ const reflection = @This();
 
 test "reflection: function return type, var args, and param types" {
     comptime {
-        const info = @typeInfo(@TypeOf(dummy)).Fn;
+        const info = @typeInfo(@TypeOf(dummy)).@"fn";
         try expect(info.return_type.? == i32);
         try expect(!info.is_var_args);
         try expect(info.params.len == 3);
@@ -28,7 +28,6 @@ fn dummy(a: bool, b: i32, c: f32) i32 {
 test "reflection: @field" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var f = Foo{
         .one = 42,

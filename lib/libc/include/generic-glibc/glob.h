@@ -150,7 +150,7 @@ extern int glob (const char *__restrict __pattern, int __flags,
 /* Free storage allocated in PGLOB by a previous `glob' call.  */
 extern void globfree (glob_t *__pglob) __THROW;
 #else
-# ifdef __USE_TIME_BITS64
+# ifdef __USE_TIME64_REDIRECTS
 extern int __REDIRECT_NTHNL (glob, (const char *__restrict __pattern,
 				    int __flags,
 				    int (*__errfunc) (const char *, int),
@@ -170,7 +170,7 @@ extern void __REDIRECT_NTH (globfree, (glob_t *__pglob), globfree64);
 #endif
 
 #ifdef __USE_LARGEFILE64
-# ifdef __USE_TIME_BITS64
+# ifdef __USE_TIME64_REDIRECTS
 extern int __REDIRECT_NTHNL (glob64, (const char *__restrict __pattern,
 				      int __flags,
 				      int (*__errfunc) (const char *, int),

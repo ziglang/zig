@@ -90,7 +90,7 @@ extern thrd_t thrd_current (void);
    __TIME_POINT.  The current thread may resume if receives a signal.  In
    that case, if __REMAINING is not NULL, the remaining time is stored in
    the object pointed by it.  */
-#ifndef __USE_TIME_BITS64
+#ifndef __USE_TIME64_REDIRECTS
 extern int thrd_sleep (const struct timespec *__time_point,
 		       struct timespec *__remaining);
 #else
@@ -143,7 +143,7 @@ extern int mtx_lock (mtx_t *__mutex);
 /* Block the current thread until the mutex pointed by __MUTEX is unlocked
    or time pointed by __TIME_POINT is reached.  In case the mutex is unlock,
    the current thread will not be blocked.  */
-#ifndef __USE_TIME_BITS64
+#ifndef __USE_TIME64_REDIRECTS
 extern int mtx_timedlock (mtx_t *__restrict __mutex,
 			  const struct timespec *__restrict __time_point);
 #else
@@ -194,7 +194,7 @@ extern int cnd_wait (cnd_t *__cond, mtx_t *__mutex);
 /* Block current thread on the condition variable until condition variable
    pointed by __COND is signaled or time pointed by __TIME_POINT is
    reached.  */
-#ifndef __USE_TIME_BITS64
+#ifndef __USE_TIME64_REDIRECTS
 extern int cnd_timedwait (cnd_t *__restrict __cond,
 			  mtx_t *__restrict __mutex,
 			  const struct timespec *__restrict __time_point);

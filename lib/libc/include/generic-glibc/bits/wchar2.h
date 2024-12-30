@@ -20,17 +20,24 @@
 # error "Never include <bits/wchar2.h> directly; use <wchar.h> instead."
 #endif
 
-__fortify_function wchar_t *
-__NTH (wmemcpy (wchar_t *__restrict __s1, const wchar_t *__restrict __s2,
-		size_t __n))
+__fortify_function __attribute_overloadable__ wchar_t *
+__NTH (wmemcpy (__fortify_clang_overload_arg (wchar_t *, __restrict, __s1),
+		const wchar_t *__restrict __s2, size_t __n))
+     __fortify_clang_warning_only_if_bos0_lt2 (__n, __s1, sizeof (wchar_t),
+					       "wmemcpy called with length bigger "
+					       "than size of destination buffer")
 {
   return __glibc_fortify_n (wmemcpy, __n, sizeof (wchar_t),
 			    __glibc_objsize0 (__s1),
 			    __s1, __s2, __n);
 }
 
-__fortify_function wchar_t *
-__NTH (wmemmove (wchar_t *__s1, const wchar_t *__s2, size_t __n))
+__fortify_function __attribute_overloadable__ wchar_t *
+__NTH (wmemmove (__fortify_clang_overload_arg (wchar_t *, ,__s1),
+		 const wchar_t *__s2, size_t __n))
+     __fortify_clang_warning_only_if_bos0_lt2 (__n, __s1, sizeof (wchar_t),
+					       "wmemmove called with length bigger "
+					       "than size of destination buffer")
 {
   return __glibc_fortify_n (wmemmove, __n, sizeof (wchar_t),
 			    __glibc_objsize0 (__s1),
@@ -38,9 +45,12 @@ __NTH (wmemmove (wchar_t *__s1, const wchar_t *__s2, size_t __n))
 }
 
 #ifdef __USE_GNU
-__fortify_function wchar_t *
-__NTH (wmempcpy (wchar_t *__restrict __s1, const wchar_t *__restrict __s2,
-		 size_t __n))
+__fortify_function __attribute_overloadable__ wchar_t *
+__NTH (wmempcpy (__fortify_clang_overload_arg (wchar_t *, __restrict, __s1),
+		 const wchar_t *__restrict __s2, size_t __n))
+     __fortify_clang_warning_only_if_bos0_lt2 (__n, __s1, sizeof (wchar_t),
+					       "wmempcpy called with length bigger "
+					       "than size of destination buffer")
 {
   return __glibc_fortify_n (wmempcpy, __n, sizeof (wchar_t),
 			    __glibc_objsize0 (__s1),
@@ -48,16 +58,21 @@ __NTH (wmempcpy (wchar_t *__restrict __s1, const wchar_t *__restrict __s2,
 }
 #endif
 
-__fortify_function wchar_t *
-__NTH (wmemset (wchar_t *__s, wchar_t __c, size_t __n))
+__fortify_function __attribute_overloadable__ wchar_t *
+__NTH (wmemset (__fortify_clang_overload_arg (wchar_t *, ,__s), wchar_t __c,
+		size_t __n))
+     __fortify_clang_warning_only_if_bos0_lt2 (__n, __s, sizeof (wchar_t),
+					       "wmemset called with length bigger "
+					       "than size of destination buffer")
 {
   return __glibc_fortify_n (wmemset, __n, sizeof (wchar_t),
 			    __glibc_objsize0 (__s),
 			    __s, __c, __n);
 }
 
-__fortify_function wchar_t *
-__NTH (wcscpy (wchar_t *__restrict __dest, const wchar_t *__restrict __src))
+__fortify_function __attribute_overloadable__ wchar_t *
+__NTH (wcscpy (__fortify_clang_overload_arg (wchar_t *, __restrict, __dest),
+	       const wchar_t *__restrict __src))
 {
   size_t sz = __glibc_objsize (__dest);
   if (sz != (size_t) -1)
@@ -65,8 +80,9 @@ __NTH (wcscpy (wchar_t *__restrict __dest, const wchar_t *__restrict __src))
   return __wcscpy_alias (__dest, __src);
 }
 
-__fortify_function wchar_t *
-__NTH (wcpcpy (wchar_t *__restrict __dest, const wchar_t *__restrict __src))
+__fortify_function __attribute_overloadable__ wchar_t *
+__NTH (wcpcpy (__fortify_clang_overload_arg (wchar_t *, __restrict, __dest),
+	       const wchar_t *__restrict __src))
 {
   size_t sz = __glibc_objsize (__dest);
   if (sz != (size_t) -1)
@@ -74,26 +90,33 @@ __NTH (wcpcpy (wchar_t *__restrict __dest, const wchar_t *__restrict __src))
   return __wcpcpy_alias (__dest, __src);
 }
 
-__fortify_function wchar_t *
-__NTH (wcsncpy (wchar_t *__restrict __dest, const wchar_t *__restrict __src,
-		size_t __n))
+__fortify_function __attribute_overloadable__ wchar_t *
+__NTH (wcsncpy (__fortify_clang_overload_arg (wchar_t *, __restrict, __dest),
+		const wchar_t *__restrict __src, size_t __n))
+     __fortify_clang_warning_only_if_bos0_lt2 (__n, __dest, sizeof (wchar_t),
+					       "wcsncpy called with length bigger "
+					       "than size of destination buffer")
 {
   return __glibc_fortify_n (wcsncpy, __n, sizeof (wchar_t),
 			    __glibc_objsize (__dest),
 			    __dest, __src, __n);
 }
 
-__fortify_function wchar_t *
-__NTH (wcpncpy (wchar_t *__restrict __dest, const wchar_t *__restrict __src,
-		size_t __n))
+__fortify_function __attribute_overloadable__ wchar_t *
+__NTH (wcpncpy (__fortify_clang_overload_arg (wchar_t *, __restrict, __dest),
+		const wchar_t *__restrict __src, size_t __n))
+     __fortify_clang_warning_only_if_bos0_lt2 (__n, __dest, sizeof (wchar_t),
+					       "wcpncpy called with length bigger "
+					       "than size of destination buffer")
 {
   return __glibc_fortify_n (wcpncpy, __n, sizeof (wchar_t),
 			    __glibc_objsize (__dest),
 			    __dest, __src, __n);
 }
 
-__fortify_function wchar_t *
-__NTH (wcscat (wchar_t *__restrict __dest, const wchar_t *__restrict __src))
+__fortify_function __attribute_overloadable__ wchar_t *
+__NTH (wcscat (__fortify_clang_overload_arg (wchar_t *, __restrict, __dest),
+	       const wchar_t *__restrict __src))
 {
   size_t sz = __glibc_objsize (__dest);
   if (sz != (size_t) -1)
@@ -101,9 +124,9 @@ __NTH (wcscat (wchar_t *__restrict __dest, const wchar_t *__restrict __src))
   return __wcscat_alias (__dest, __src);
 }
 
-__fortify_function wchar_t *
-__NTH (wcsncat (wchar_t *__restrict __dest, const wchar_t *__restrict __src,
-		size_t __n))
+__fortify_function __attribute_overloadable__ wchar_t *
+__NTH (wcsncat (__fortify_clang_overload_arg (wchar_t *, __restrict, __dest),
+	       const wchar_t *__restrict __src, size_t __n))
 {
   size_t sz = __glibc_objsize (__dest);
   if (sz != (size_t) -1)
@@ -112,9 +135,12 @@ __NTH (wcsncat (wchar_t *__restrict __dest, const wchar_t *__restrict __src,
 }
 
 #ifdef __USE_MISC
-__fortify_function size_t
-__NTH (wcslcpy (wchar_t *__restrict __dest, const wchar_t *__restrict __src,
-		size_t __n))
+__fortify_function __attribute_overloadable__ size_t
+__NTH (wcslcpy (__fortify_clang_overload_arg (wchar_t *, __restrict, __dest),
+		const wchar_t *__restrict __src, size_t __n))
+     __fortify_clang_warning_only_if_bos0_lt2 (__n, __dest, sizeof (wchar_t),
+					       "wcslcpy called with length bigger "
+					       "than size of destination buffer")
 {
   if (__glibc_objsize (__dest) != (size_t) -1
       && (!__builtin_constant_p (__n
@@ -125,9 +151,9 @@ __NTH (wcslcpy (wchar_t *__restrict __dest, const wchar_t *__restrict __src,
   return __wcslcpy_alias (__dest, __src, __n);
 }
 
-__fortify_function size_t
-__NTH (wcslcat (wchar_t *__restrict __dest, const wchar_t *__restrict __src,
-		size_t __n))
+__fortify_function __attribute_overloadable__ size_t
+__NTH (wcslcat (__fortify_clang_overload_arg (wchar_t *, __restrict, __dest),
+		const wchar_t *__restrict __src, size_t __n))
 {
   if (__glibc_objsize (__dest) != (size_t) -1
       && (!__builtin_constant_p (__n > __glibc_objsize (__dest)
@@ -149,6 +175,23 @@ __NTH (swprintf (wchar_t *__restrict __s, size_t __n,
     return __swprintf_chk (__s, __n, __USE_FORTIFY_LEVEL - 1,
 			   sz / sizeof (wchar_t), __fmt, __va_arg_pack ());
   return __swprintf_alias (__s, __n, __fmt, __va_arg_pack ());
+}
+#elif __fortify_use_clang
+__fortify_function_error_function __attribute_overloadable__ int
+__NTH (swprintf (__fortify_clang_overload_arg (wchar_t *, __restrict, __s),
+		 size_t __n, const wchar_t *__restrict __fmt, ...))
+{
+  __gnuc_va_list __fortify_ap;
+  __builtin_va_start (__fortify_ap, __fmt);
+  int __r;
+  if (__glibc_objsize (__s) != (size_t) -1 || __USE_FORTIFY_LEVEL > 1)
+    __r = __vswprintf_chk (__s, __n, __USE_FORTIFY_LEVEL - 1,
+			   __glibc_objsize (__s) / sizeof (wchar_t),
+			   __fmt, __fortify_ap);
+  else
+    __r = __vswprintf_alias (__s, __n, __fmt, __fortify_ap);
+  __builtin_va_end (__fortify_ap);
+  return __r;
 }
 #elif !defined __cplusplus
 /* XXX We might want to have support in gcc for swprintf.  */
@@ -207,34 +250,46 @@ vfwprintf (__FILE *__restrict __stream,
 }
 
 #endif
-__fortify_function __wur wchar_t *
-fgetws (wchar_t *__restrict __s, int __n, __FILE *__restrict __stream)
+__fortify_function __attribute_overloadable__ __wur wchar_t *
+fgetws (__fortify_clang_overload_arg (wchar_t *, __restrict, __s), int __n,
+	__FILE *__restrict __stream)
+     __fortify_clang_warning_only_if_bos_lt2 (__n, __s, sizeof (wchar_t),
+					      "fgetws called with length bigger "
+					      "than size of destination buffer")
 {
   size_t sz = __glibc_objsize (__s);
   if (__glibc_safe_or_unknown_len (__n, sizeof (wchar_t), sz))
     return __fgetws_alias (__s, __n, __stream);
+#if !__fortify_use_clang
   if (__glibc_unsafe_len (__n, sizeof (wchar_t), sz))
     return __fgetws_chk_warn (__s, sz / sizeof (wchar_t), __n, __stream);
+#endif
   return __fgetws_chk (__s, sz / sizeof (wchar_t), __n, __stream);
 }
 
 #ifdef __USE_GNU
-__fortify_function __wur wchar_t *
-fgetws_unlocked (wchar_t *__restrict __s, int __n, __FILE *__restrict __stream)
+__fortify_function __attribute_overloadable__ __wur wchar_t *
+fgetws_unlocked (__fortify_clang_overload_arg (wchar_t *, __restrict, __s),
+		 int __n, __FILE *__restrict __stream)
+     __fortify_clang_warning_only_if_bos_lt2 (__n, __s, sizeof (wchar_t),
+					      "fgetws_unlocked called with length bigger "
+					      "than size of destination buffer")
 {
   size_t sz = __glibc_objsize (__s);
   if (__glibc_safe_or_unknown_len (__n, sizeof (wchar_t), sz))
     return __fgetws_unlocked_alias (__s, __n, __stream);
+# if !__fortify_use_clang
   if (__glibc_unsafe_len (__n, sizeof (wchar_t), sz))
     return __fgetws_unlocked_chk_warn (__s, sz / sizeof (wchar_t), __n,
 				       __stream);
+# endif
   return __fgetws_unlocked_chk (__s, sz / sizeof (wchar_t), __n, __stream);
 }
 #endif
 
-__fortify_function __wur size_t
-__NTH (wcrtomb (char *__restrict __s, wchar_t __wchar,
-		mbstate_t *__restrict __ps))
+__fortify_function __attribute_overloadable__ __wur size_t
+__NTH (wcrtomb (__fortify_clang_overload_arg (char *, __restrict, __s),
+		wchar_t __wchar, mbstate_t *__restrict __ps))
 {
   /* We would have to include <limits.h> to get a definition of MB_LEN_MAX.
      But this would only disturb the namespace.  So we define our own
@@ -249,18 +304,26 @@ __NTH (wcrtomb (char *__restrict __s, wchar_t __wchar,
   return __wcrtomb_alias (__s, __wchar, __ps);
 }
 
-__fortify_function size_t
-__NTH (mbsrtowcs (wchar_t *__restrict __dst, const char **__restrict __src,
+__fortify_function __attribute_overloadable__ size_t
+__NTH (mbsrtowcs (__fortify_clang_overload_arg (wchar_t *, __restrict, __dst),
+		  const char **__restrict __src,
 		  size_t __len, mbstate_t *__restrict __ps))
+     __fortify_clang_warning_only_if_bos_lt2 (__len, __dst, sizeof (wchar_t),
+					      "mbsrtowcs called with dst buffer "
+					      "smaller than len * sizeof (wchar_t)")
 {
   return __glibc_fortify_n (mbsrtowcs, __len, sizeof (wchar_t),
 			    __glibc_objsize (__dst),
 			    __dst, __src, __len, __ps);
 }
 
-__fortify_function size_t
-__NTH (wcsrtombs (char *__restrict __dst, const wchar_t **__restrict __src,
+__fortify_function __attribute_overloadable__ size_t
+__NTH (wcsrtombs (__fortify_clang_overload_arg (char *, __restrict, __dst),
+		  const wchar_t **__restrict __src,
 		  size_t __len, mbstate_t *__restrict __ps))
+     __fortify_clang_warning_only_if_bos_lt (__len, __dst,
+					     "wcsrtombs called with dst buffer "
+					     "smaller than len")
 {
   return __glibc_fortify (wcsrtombs, __len, sizeof (char),
 			  __glibc_objsize (__dst),
@@ -269,18 +332,26 @@ __NTH (wcsrtombs (char *__restrict __dst, const wchar_t **__restrict __src,
 
 
 #ifdef	__USE_XOPEN2K8
-__fortify_function size_t
-__NTH (mbsnrtowcs (wchar_t *__restrict __dst, const char **__restrict __src,
-		   size_t __nmc, size_t __len, mbstate_t *__restrict __ps))
+__fortify_function __attribute_overloadable__ size_t
+__NTH (mbsnrtowcs (__fortify_clang_overload_arg (wchar_t *, __restrict, __dst),
+		   const char **__restrict __src, size_t __nmc, size_t __len,
+		   mbstate_t *__restrict __ps))
+     __fortify_clang_warning_only_if_bos_lt (sizeof (wchar_t) * __len, __dst,
+					     "mbsnrtowcs called with dst buffer "
+					     "smaller than len * sizeof (wchar_t)")
 {
   return __glibc_fortify_n (mbsnrtowcs, __len, sizeof (wchar_t),
 			    __glibc_objsize (__dst),
 			    __dst, __src, __nmc, __len, __ps);
 }
 
-__fortify_function size_t
-__NTH (wcsnrtombs (char *__restrict __dst, const wchar_t **__restrict __src,
-		   size_t __nwc, size_t __len, mbstate_t *__restrict __ps))
+__fortify_function __attribute_overloadable__ size_t
+__NTH (wcsnrtombs (__fortify_clang_overload_arg (char *, __restrict, __dst),
+		   const wchar_t **__restrict __src, size_t __nwc,
+		   size_t __len, mbstate_t *__restrict __ps))
+     __fortify_clang_warning_only_if_bos_lt (__len, __dst,
+					     "wcsnrtombs called with dst buffer "
+					     "smaller than len")
 {
   return __glibc_fortify (wcsnrtombs, __len, sizeof (char),
 			  __glibc_objsize (__dst),

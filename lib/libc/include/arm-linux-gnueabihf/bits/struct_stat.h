@@ -28,7 +28,7 @@
 
 struct stat
   {
-#ifdef __USE_TIME_BITS64
+#ifdef __USE_TIME64_REDIRECTS
 # include <bits/struct_stat_time64_helper.h>
 #else
     __dev_t st_dev;			/* Device.  */
@@ -83,13 +83,13 @@ struct stat
 # else
     __ino64_t st_ino;			/* File serial number.	*/
 # endif
-#endif /* __USE_TIME_BITS64  */
+#endif /* __USE_TIME64_REDIRECTS  */
   };
 
 #ifdef __USE_LARGEFILE64
 struct stat64
   {
-# ifdef __USE_TIME_BITS64
+# ifdef __USE_TIME64_REDIRECTS
 #  include <bits/struct_stat_time64_helper.h>
 # else
     __dev_t st_dev;			/* Device.  */
@@ -125,7 +125,7 @@ struct stat64
     unsigned long int st_ctimensec;	/* Nsecs of last status change.  */
 #  endif
     __ino64_t st_ino;			/* File serial number.		*/
-# endif /* __USE_TIME_BITS64  */
+# endif /* __USE_TIME64_REDIRECTS  */
   };
 #endif
 

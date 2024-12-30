@@ -51,20 +51,24 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         elf_step.dependOn(testEmitRelocatable(b, .{ .target = musl_target }));
         elf_step.dependOn(testRelocatableArchive(b, .{ .target = musl_target }));
         elf_step.dependOn(testRelocatableEhFrame(b, .{ .target = musl_target }));
+        elf_step.dependOn(testRelocatableEhFrameComdatHeavy(b, .{ .target = musl_target }));
         elf_step.dependOn(testRelocatableNoEhFrame(b, .{ .target = musl_target }));
 
         // Exercise linker in ar mode
         elf_step.dependOn(testEmitStaticLib(b, .{ .target = musl_target }));
+        elf_step.dependOn(testEmitStaticLibZig(b, .{ .target = musl_target }));
 
         // Exercise linker with LLVM backend
         // musl tests
         elf_step.dependOn(testAbsSymbols(b, .{ .target = musl_target }));
+        elf_step.dependOn(testComdatElimination(b, .{ .target = musl_target }));
         elf_step.dependOn(testCommonSymbols(b, .{ .target = musl_target }));
         elf_step.dependOn(testCommonSymbolsInArchive(b, .{ .target = musl_target }));
         elf_step.dependOn(testCommentString(b, .{ .target = musl_target }));
         elf_step.dependOn(testEmptyObject(b, .{ .target = musl_target }));
         elf_step.dependOn(testEntryPoint(b, .{ .target = musl_target }));
         elf_step.dependOn(testGcSections(b, .{ .target = musl_target }));
+        elf_step.dependOn(testGcSectionsZig(b, .{ .target = musl_target }));
         elf_step.dependOn(testImageBase(b, .{ .target = musl_target }));
         elf_step.dependOn(testInitArrayOrder(b, .{ .target = musl_target }));
         elf_step.dependOn(testLargeAlignmentExe(b, .{ .target = musl_target }));
@@ -364,6 +368,109 @@ fn testCanonicalPlt(b: *Build, opts: Options) *Step {
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
     test_step.dependOn(&run.step);
+
+    return test_step;
+}
+
+fn testComdatElimination(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "comdat-elimination", opts);
+
+    const a_o = addObject(b, opts, .{
+        .name = "a",
+        .cpp_source_bytes =
+        \\#include <stdio.h>
+        \\inline void foo() {
+        \\  printf("calling foo in a\n");
+        \\}
+        \\void hello() {
+        \\  foo();
+        \\}
+        ,
+    });
+    a_o.linkLibCpp();
+
+    const main_o = addObject(b, opts, .{
+        .name = "main",
+        .cpp_source_bytes =
+        \\#include <stdio.h>
+        \\inline void foo() {
+        \\  printf("calling foo in main\n");
+        \\}
+        \\void hello();
+        \\int main() {
+        \\  foo();
+        \\  hello();
+        \\  return 0;
+        \\}
+        ,
+    });
+    main_o.linkLibCpp();
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main1" });
+        exe.addObject(a_o);
+        exe.addObject(main_o);
+        exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(
+            \\calling foo in a
+            \\calling foo in a
+            \\
+        );
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const exe = addExecutable(b, opts, .{ .name = "main2" });
+        exe.addObject(main_o);
+        exe.addObject(a_o);
+        exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(
+            \\calling foo in main
+            \\calling foo in main
+            \\
+        );
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const c_o = addObject(b, opts, .{ .name = "c" });
+        c_o.addObject(main_o);
+        c_o.addObject(a_o);
+
+        const exe = addExecutable(b, opts, .{ .name = "main3" });
+        exe.addObject(c_o);
+        exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(
+            \\calling foo in main
+            \\calling foo in main
+            \\
+        );
+        test_step.dependOn(&run.step);
+    }
+
+    {
+        const d_o = addObject(b, opts, .{ .name = "d" });
+        d_o.addObject(a_o);
+        d_o.addObject(main_o);
+
+        const exe = addExecutable(b, opts, .{ .name = "main4" });
+        exe.addObject(d_o);
+        exe.linkLibCpp();
+
+        const run = addRunArtifact(exe);
+        run.expectStdOutEqual(
+            \\calling foo in a
+            \\calling foo in a
+            \\
+        );
+        test_step.dependOn(&run.step);
+    }
 
     return test_step;
 }
@@ -833,8 +940,8 @@ fn testEmitStaticLib(b: *Build, opts: Options) *Step {
         \\}
         \\export var strongBar: usize = 100;
         \\comptime {
-        \\    @export(weakFoo, .{ .name = "weakFoo", .linkage = .weak });
-        \\    @export(strongBar, .{ .name = "strongBarAlias", .linkage = .strong });
+        \\    @export(&weakFoo, .{ .name = "weakFoo", .linkage = .weak });
+        \\    @export(&strongBar, .{ .name = "strongBarAlias", .linkage = .strong });
         \\}
         ,
     });
@@ -846,25 +953,25 @@ fn testEmitStaticLib(b: *Build, opts: Options) *Step {
 
     const check = lib.checkObject();
     check.checkInArchiveSymtab();
-    check.checkExactPath("in object", obj1.getEmittedBin());
+    check.checkExact("in object obj1.o");
     check.checkExact("foo");
     check.checkInArchiveSymtab();
-    check.checkExactPath("in object", obj1.getEmittedBin());
+    check.checkExact("in object obj1.o");
     check.checkExact("bar");
     check.checkInArchiveSymtab();
-    check.checkExactPath("in object", obj1.getEmittedBin());
+    check.checkExact("in object obj1.o");
     check.checkExact("fooBar");
     check.checkInArchiveSymtab();
-    check.checkExactPath("in object", obj2.getEmittedBin());
+    check.checkExact("in object obj2.o");
     check.checkExact("tentative");
     check.checkInArchiveSymtab();
-    check.checkExactPath("in object", obj3.getEmittedBin());
+    check.checkExact("in object a_very_long_file_name_so_that_it_ends_up_in_strtab.o");
     check.checkExact("weakFoo");
     check.checkInArchiveSymtab();
-    check.checkExactPath("in object", obj3.getEmittedBin());
+    check.checkExact("in object a_very_long_file_name_so_that_it_ends_up_in_strtab.o");
     check.checkExact("strongBar");
     check.checkInArchiveSymtab();
-    check.checkExactPath("in object", obj3.getEmittedBin());
+    check.checkExact("in object a_very_long_file_name_so_that_it_ends_up_in_strtab.o");
     check.checkExact("strongBarAlias");
     test_step.dependOn(&check.step);
 
@@ -1669,25 +1776,41 @@ fn testImportingDataDynamic(b: *Build, opts: Options) *Step {
         .use_llvm = true,
     }, .{
         .name = "a",
-        .c_source_bytes = "int foo = 42;",
+        .c_source_bytes =
+        \\#include <stdio.h>
+        \\int foo = 42;
+        \\void printFoo() { fprintf(stderr, "lib foo=%d\n", foo); }
+        ,
     });
+    dso.linkLibC();
 
     const main = addExecutable(b, opts, .{
         .name = "main",
         .zig_source_bytes =
+        \\const std = @import("std");
         \\extern var foo: i32;
+        \\extern fn printFoo() void;
         \\pub fn main() void {
-        \\    @import("std").debug.print("{d}\n", .{foo});
+        \\    std.debug.print("exe foo={d}\n", .{foo});
+        \\    printFoo();
+        \\    foo += 1;
+        \\    std.debug.print("exe foo={d}\n", .{foo});
+        \\    printFoo();
         \\}
         ,
         .strip = true, // TODO temp hack
     });
     main.pie = true;
     main.linkLibrary(dso);
-    main.linkLibC();
 
     const run = addRunArtifact(main);
-    run.expectStdErrEqual("42\n");
+    run.expectStdErrEqual(
+        \\exe foo=42
+        \\lib foo=42
+        \\exe foo=43
+        \\lib foo=43
+        \\
+    );
     test_step.dependOn(&run.step);
 
     return test_step;
@@ -2023,6 +2146,7 @@ fn testLdScript(b: *Build, opts: Options) *Step {
     exe.addLibraryPath(dso.getEmittedBinDirectory());
     exe.addRPath(dso.getEmittedBinDirectory());
     exe.linkLibC();
+    exe.allow_so_scripts = true;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -2042,14 +2166,13 @@ fn testLdScriptPathError(b: *Build, opts: Options) *Step {
     exe.linkSystemLibrary2("a", .{});
     exe.addLibraryPath(scripts.getDirectory());
     exe.linkLibC();
+    exe.allow_so_scripts = true;
 
-    expectLinkErrors(
-        exe,
-        test_step,
-        .{
-            .contains = "error: missing library dependency: GNU ld script '/?/liba.so' requires 'libfoo.so', but file not found",
-        },
-    );
+    // TODO: A future enhancement could make this error message also mention
+    // the file that references the missing library.
+    expectLinkErrors(exe, test_step, .{
+        .stderr_contains = "error: unable to find dynamic system library 'foo' using strategy 'no_fallback'. searched paths:",
+    });
 
     return test_step;
 }
@@ -2081,6 +2204,7 @@ fn testLdScriptAllowUndefinedVersion(b: *Build, opts: Options) *Step {
     });
     exe.linkLibrary(so);
     exe.linkLibC();
+    exe.allow_so_scripts = true;
 
     const run = addRunArtifact(exe);
     run.expectStdErrEqual("3\n");
@@ -2103,6 +2227,7 @@ fn testLdScriptDisallowUndefinedVersion(b: *Build, opts: Options) *Step {
     const ld = b.addWriteFiles().add("add.ld", "VERSION { ADD_1.0 { global: add; sub; local: *; }; }");
     so.setLinkerScript(ld);
     so.linker_allow_undefined_version = false;
+    so.allow_so_scripts = true;
 
     expectLinkErrors(
         so,
@@ -2137,7 +2262,7 @@ fn testMismatchedCpuArchitectureError(b: *Build, opts: Options) *Step {
     exe.linkLibC();
 
     expectLinkErrors(exe, test_step, .{ .exact = &.{
-        "invalid cpu architecture: aarch64",
+        "invalid ELF machine type: AARCH64",
         "note: while parsing /?/a.o",
     } });
 
@@ -2599,38 +2724,49 @@ fn testRelocatableArchive(b: *Build, opts: Options) *Step {
 fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "relocatable-eh-frame", opts);
 
+    const obj1 = addObject(b, opts, .{
+        .name = "obj1",
+        .cpp_source_bytes =
+        \\#include <stdexcept>
+        \\int try_me() {
+        \\  throw std::runtime_error("Oh no!");
+        \\}
+        ,
+    });
+    obj1.linkLibCpp();
+    const obj2 = addObject(b, opts, .{
+        .name = "obj2",
+        .cpp_source_bytes =
+        \\extern int try_me();
+        \\int try_again() {
+        \\  return try_me();
+        \\}
+        ,
+    });
+    obj2.linkLibCpp();
+    const obj3 = addObject(b, opts, .{ .name = "obj3", .cpp_source_bytes = 
+    \\#include <iostream>
+    \\#include <stdexcept>
+    \\extern int try_again();
+    \\int main() {
+    \\  try {
+    \\    try_again();
+    \\  } catch (const std::exception &e) {
+    \\    std::cout << "exception=" << e.what();
+    \\  }
+    \\  return 0;
+    \\}
+    });
+    obj3.linkLibCpp();
+
     {
-        const obj = addObject(b, opts, .{
-            .name = "obj1",
-            .cpp_source_bytes =
-            \\#include <stdexcept>
-            \\int try_me() {
-            \\  throw std::runtime_error("Oh no!");
-            \\}
-            ,
-        });
-        addCppSourceBytes(obj,
-            \\extern int try_me();
-            \\int try_again() {
-            \\  return try_me();
-            \\}
-        , &.{});
+        const obj = addObject(b, opts, .{ .name = "obj" });
+        obj.addObject(obj1);
+        obj.addObject(obj2);
         obj.linkLibCpp();
 
         const exe = addExecutable(b, opts, .{ .name = "test1" });
-        addCppSourceBytes(exe,
-            \\#include <iostream>
-            \\#include <stdexcept>
-            \\extern int try_again();
-            \\int main() {
-            \\  try {
-            \\    try_again();
-            \\  } catch (const std::exception &e) {
-            \\    std::cout << "exception=" << e.what();
-            \\  }
-            \\  return 0;
-            \\}
-        , &.{});
+        exe.addObject(obj3);
         exe.addObject(obj);
         exe.linkLibCpp();
 
@@ -2638,40 +2774,15 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
         run.expectStdOutEqual("exception=Oh no!");
         test_step.dependOn(&run.step);
     }
-
     {
-        // Let's make the object file COMDAT group heavy!
-        const obj = addObject(b, opts, .{
-            .name = "obj2",
-            .cpp_source_bytes =
-            \\#include <stdexcept>
-            \\int try_me() {
-            \\  throw std::runtime_error("Oh no!");
-            \\}
-            ,
-        });
-        addCppSourceBytes(obj,
-            \\extern int try_me();
-            \\int try_again() {
-            \\  return try_me();
-            \\}
-        , &.{});
-        addCppSourceBytes(obj,
-            \\#include <iostream>
-            \\#include <stdexcept>
-            \\extern int try_again();
-            \\int main() {
-            \\  try {
-            \\    try_again();
-            \\  } catch (const std::exception &e) {
-            \\    std::cout << "exception=" << e.what();
-            \\  }
-            \\  return 0;
-            \\}
-        , &.{});
+        // Flipping the order should not influence the end result.
+        const obj = addObject(b, opts, .{ .name = "obj" });
+        obj.addObject(obj2);
+        obj.addObject(obj1);
         obj.linkLibCpp();
 
         const exe = addExecutable(b, opts, .{ .name = "test2" });
+        exe.addObject(obj3);
         exe.addObject(obj);
         exe.linkLibCpp();
 
@@ -2679,6 +2790,64 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
         run.expectStdOutEqual("exception=Oh no!");
         test_step.dependOn(&run.step);
     }
+
+    return test_step;
+}
+
+fn testRelocatableEhFrameComdatHeavy(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "relocatable-eh-frame-comdat-heavy", opts);
+
+    const obj1 = addObject(b, opts, .{
+        .name = "obj1",
+        .cpp_source_bytes =
+        \\#include <stdexcept>
+        \\int try_me() {
+        \\  throw std::runtime_error("Oh no!");
+        \\}
+        ,
+    });
+    obj1.linkLibCpp();
+    const obj2 = addObject(b, opts, .{
+        .name = "obj2",
+        .cpp_source_bytes =
+        \\extern int try_me();
+        \\int try_again() {
+        \\  return try_me();
+        \\}
+        ,
+    });
+    obj2.linkLibCpp();
+    const obj3 = addObject(b, opts, .{
+        .name = "obj3",
+        .cpp_source_bytes =
+        \\#include <iostream>
+        \\#include <stdexcept>
+        \\extern int try_again();
+        \\int main() {
+        \\  try {
+        \\    try_again();
+        \\  } catch (const std::exception &e) {
+        \\    std::cout << "exception=" << e.what();
+        \\  }
+        \\  return 0;
+        \\}
+        ,
+    });
+    obj3.linkLibCpp();
+
+    const obj = addObject(b, opts, .{ .name = "obj" });
+    obj.addObject(obj1);
+    obj.addObject(obj2);
+    obj.addObject(obj3);
+    obj.linkLibCpp();
+
+    const exe = addExecutable(b, opts, .{ .name = "test2" });
+    exe.addObject(obj);
+    exe.linkLibCpp();
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("exception=Oh no!");
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
@@ -2853,44 +3022,27 @@ fn testStrip(b: *Build, opts: Options) *Step {
 fn testThunks(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "thunks", opts);
 
-    const src =
-        \\#include <stdio.h>
-        \\__attribute__((aligned(0x8000000))) int bar() {
-        \\  return 42;
-        \\}
-        \\int foobar();
-        \\int foo() {
-        \\  return bar() - foobar();
-        \\}
-        \\__attribute__((aligned(0x8000000))) int foobar() {
-        \\  return 42;
-        \\}
-        \\int main() {
-        \\  printf("bar=%d, foo=%d, foobar=%d", bar(), foo(), foobar());
-        \\  return foo();
-        \\}
-    ;
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    \\void foo();
+    \\__attribute__((section(".bar"))) void bar() {
+    \\  return foo();
+    \\}
+    \\__attribute__((section(".foo"))) void foo() {
+    \\  return bar();
+    \\}
+    \\int main() {
+    \\  foo();
+    \\  bar();
+    \\  return 0;
+    \\}
+    });
 
-    {
-        const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = src });
-        exe.link_function_sections = true;
-        exe.linkLibC();
-
-        const run = addRunArtifact(exe);
-        run.expectStdOutEqual("bar=42, foo=0, foobar=42");
-        run.expectExitCode(0);
-        test_step.dependOn(&run.step);
-    }
-
-    {
-        const exe = addExecutable(b, opts, .{ .name = "main2", .c_source_bytes = src });
-        exe.linkLibC();
-
-        const run = addRunArtifact(exe);
-        run.expectStdOutEqual("bar=42, foo=0, foobar=42");
-        run.expectExitCode(0);
-        test_step.dependOn(&run.step);
-    }
+    const check = exe.checkObject();
+    check.checkInSymtab();
+    check.checkContains("foo$thunk");
+    check.checkInSymtab();
+    check.checkContains("bar$thunk");
+    test_step.dependOn(&check.step);
 
     return test_step;
 }
@@ -3625,11 +3777,15 @@ fn testTlsOffsetAlignment(b: *Build, opts: Options) *Step {
         \\#include <pthread.h>
         \\#include <dlfcn.h>
         \\#include <assert.h>
+        \\#include <stdio.h>
         \\void *(*verify)(void *);
         \\
         \\int main() {
         \\  void *handle = dlopen("liba.so", RTLD_NOW);
-        \\  assert(handle);
+        \\  if (!handle) {
+        \\    fprintf(stderr, "dlopen failed: %s\n", dlerror());
+        \\    return 1;
+        \\  }
         \\  *(void**)(&verify) = dlsym(handle, "verify");
         \\  assert(verify);
         \\
@@ -3802,16 +3958,8 @@ fn testUnknownFileTypeError(b: *Build, opts: Options) *Step {
     exe.linkLibrary(dylib);
     exe.linkLibC();
 
-    // TODO: improve the test harness to be able to selectively match lines in error output
-    // while avoiding jankiness
-    // expectLinkErrors(exe, test_step, .{ .exact = &.{
-    //     "error: invalid token in LD script: '\\x00\\x00\\x00\\x0c\\x00\\x00\\x00/usr/lib/dyld\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x0d' (0:989)",
-    //     "note: while parsing /?/liba.dylib",
-    //     "error: unexpected error: parsing input file failed with error InvalidLdScript",
-    //     "note: while parsing /?/liba.dylib",
-    // } });
     expectLinkErrors(exe, test_step, .{
-        .contains = "error: unexpected error: parsing input file failed with error InvalidLdScript",
+        .contains = "error: failed to parse shared library: BadMagic",
     });
 
     return test_step;

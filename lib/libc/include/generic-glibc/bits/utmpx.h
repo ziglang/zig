@@ -74,7 +74,7 @@ struct utmpx
   __int32_t ut_session;		/* Session ID, used for windowing.  */
   struct
   {
-    __int32_t tv_sec;		/* Seconds.  */
+    __uint32_t tv_sec;		/* Seconds.  */
     __int32_t tv_usec;		/* Microseconds.  */
   } ut_tv;			/* Time entry was made.  */
 #else

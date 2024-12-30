@@ -17,7 +17,7 @@ fn testDerefPtr() !void {
     try expect(x == 1235);
 }
 
-test "pointer arithmetic" {
+test "pointer-integer arithmetic" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
@@ -41,6 +41,77 @@ test "pointer arithmetic" {
     try expect(ptr[0] == 'b');
     ptr -= 1;
     try expect(ptr[0] == 'a');
+}
+
+test "pointer subtraction" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    {
+        const a: *u8 = @ptrFromInt(100);
+        const b: *u8 = @ptrFromInt(50);
+        try expect(a - b == 50);
+    }
+    {
+        var ptr: [*]const u8 = "abc";
+        try expect(&ptr[1] - &ptr[0] == 1);
+        try expect(&ptr[2] - &ptr[0] == 2);
+    }
+    {
+        const a: *[100]u16 = @ptrFromInt(100);
+        const b: *[100]u16 = @ptrFromInt(50);
+        try expect(a - b == 25);
+    }
+    {
+        var x: struct { a: u32, b: u32 } = undefined;
+        const a = &x.a;
+        const b = &x.b;
+        try expect(a - a == 0);
+        try expect(b - b == 0);
+        try expect(b - a == 1);
+    }
+    comptime {
+        var x: packed struct { a: u1, b: u1 } = undefined;
+        const a = &x.a;
+        const b = &x.b;
+        try expect(a - a == 0);
+        try expect(b - b == 0);
+        try expect(b - a == 0);
+    }
+    comptime {
+        var x: extern struct { a: u32, b: u32 } = undefined;
+        const a = &x.a;
+        const b = &x.b;
+        try expect(a - a == 0);
+        try expect(b - b == 0);
+        try expect(b - a == 1);
+    }
+    comptime {
+        const a: *const [3]u8 = "abc";
+        const b: [*]const u8 = @ptrCast(a);
+        try expect(&a[1] - &b[0] == 1);
+    }
+    comptime {
+        var x: [64][64]u8 = undefined;
+        const a = &x[0][12];
+        const b = &x[15][3];
+        try expect(b - a == 951);
+    }
+}
+
+test "pointer arithmetic with non-trivial RHS" {
+    var t: bool = undefined;
+    t = true;
+
+    var ptr: [*]const u8 = "Hello, World!";
+    ptr += if (t) 5 else 2;
+    try expect(ptr[0] == ',');
+    ptr += if (!t) 4 else 2;
+    try expect(ptr[0] == 'W');
+    ptr -= if (t) @as(usize, 6) else 3;
+    try expect(ptr[0] == 'e');
+    ptr -= if (!t) @as(usize, 0) else 1;
+    try expect(ptr[0] == 'H');
 }
 
 test "double pointer parsing" {
@@ -69,7 +140,6 @@ test "initialize const optional C pointer to null" {
 
 test "assigning integer to C pointer" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var x: i32 = 0;
     var y: i32 = 1;
@@ -87,7 +157,6 @@ test "assigning integer to C pointer" {
 
 test "C pointer comparison and arithmetic" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -202,7 +271,6 @@ test "allowzero pointer and slice" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var ptr: [*]allowzero i32 = @ptrFromInt(0);
     const opt_ptr: ?[*]allowzero i32 = ptr;
@@ -214,15 +282,14 @@ test "allowzero pointer and slice" {
     comptime assert(@TypeOf(slice) == []allowzero i32);
     try expect(@intFromPtr(&slice[5]) == 20);
 
-    comptime assert(@typeInfo(@TypeOf(ptr)).Pointer.is_allowzero);
-    comptime assert(@typeInfo(@TypeOf(slice)).Pointer.is_allowzero);
+    comptime assert(@typeInfo(@TypeOf(ptr)).pointer.is_allowzero);
+    comptime assert(@typeInfo(@TypeOf(slice)).pointer.is_allowzero);
 }
 
 test "assign null directly to C pointer and test null equality" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var x: [*c]i32 = null;
     _ = &x;
@@ -290,7 +357,6 @@ test "array initialization types" {
 test "null terminated pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -385,21 +451,21 @@ test "pointer to array at fixed address" {
     try expect(@intFromPtr(&array[1]) == 0x14);
 }
 
-test "pointer arithmetic affects the alignment" {
+test "pointer-integer arithmetic affects the alignment" {
     {
         var ptr: [*]align(8) u32 = undefined;
         var x: usize = 1;
         _ = .{ &ptr, &x };
 
-        try expect(@typeInfo(@TypeOf(ptr)).Pointer.alignment == 8);
+        try expect(@typeInfo(@TypeOf(ptr)).pointer.alignment == 8);
         const ptr1 = ptr + 1; // 1 * 4 = 4 -> lcd(4,8) = 4
-        try expect(@typeInfo(@TypeOf(ptr1)).Pointer.alignment == 4);
+        try expect(@typeInfo(@TypeOf(ptr1)).pointer.alignment == 4);
         const ptr2 = ptr + 4; // 4 * 4 = 16 -> lcd(16,8) = 8
-        try expect(@typeInfo(@TypeOf(ptr2)).Pointer.alignment == 8);
+        try expect(@typeInfo(@TypeOf(ptr2)).pointer.alignment == 8);
         const ptr3 = ptr + 0; // no-op
-        try expect(@typeInfo(@TypeOf(ptr3)).Pointer.alignment == 8);
+        try expect(@typeInfo(@TypeOf(ptr3)).pointer.alignment == 8);
         const ptr4 = ptr + x; // runtime-known addend
-        try expect(@typeInfo(@TypeOf(ptr4)).Pointer.alignment == 4);
+        try expect(@typeInfo(@TypeOf(ptr4)).pointer.alignment == 4);
     }
     {
         var ptr: [*]align(8) [3]u8 = undefined;
@@ -407,13 +473,13 @@ test "pointer arithmetic affects the alignment" {
         _ = .{ &ptr, &x };
 
         const ptr1 = ptr + 17; // 3 * 17 = 51
-        try expect(@typeInfo(@TypeOf(ptr1)).Pointer.alignment == 1);
+        try expect(@typeInfo(@TypeOf(ptr1)).pointer.alignment == 1);
         const ptr2 = ptr + x; // runtime-known addend
-        try expect(@typeInfo(@TypeOf(ptr2)).Pointer.alignment == 1);
+        try expect(@typeInfo(@TypeOf(ptr2)).pointer.alignment == 1);
         const ptr3 = ptr + 8; // 3 * 8 = 24 -> lcd(8,24) = 8
-        try expect(@typeInfo(@TypeOf(ptr3)).Pointer.alignment == 8);
+        try expect(@typeInfo(@TypeOf(ptr3)).pointer.alignment == 8);
         const ptr4 = ptr + 4; // 3 * 4 = 12 -> lcd(8,12) = 4
-        try expect(@typeInfo(@TypeOf(ptr4)).Pointer.alignment == 4);
+        try expect(@typeInfo(@TypeOf(ptr4)).pointer.alignment == 4);
     }
 }
 
@@ -442,7 +508,6 @@ test "indexing array with sentinel returns correct type" {
 test "element pointer to slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -465,7 +530,6 @@ test "element pointer to slice" {
 test "element pointer arithmetic to slice" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -490,7 +554,6 @@ test "element pointer arithmetic to slice" {
 
 test "array slicing to slice" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -513,7 +576,7 @@ test "pointer to constant decl preserves alignment" {
         const aligned align(8) = @This(){ .a = 3, .b = 4 };
     };
 
-    const alignment = @typeInfo(@TypeOf(&S.aligned)).Pointer.alignment;
+    const alignment = @typeInfo(@TypeOf(&S.aligned)).pointer.alignment;
     try std.testing.expect(alignment == 8);
 }
 
@@ -521,7 +584,6 @@ test "ptrCast comptime known slice to C pointer" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const s: [:0]const u8 = "foo";
     var p: [*c]const u8 = @ptrCast(s);
@@ -541,7 +603,6 @@ test "pointer alignment and element type include call expression" {
 
 test "pointer to array has explicit alignment" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         const Base = extern struct { a: u8 };
@@ -596,24 +657,24 @@ const Box2 = struct {
 
 fn mutable() !void {
     var box0: Box0 = .{ .items = undefined };
-    try std.testing.expect(@typeInfo(@TypeOf(box0.items[0..])).Pointer.is_const == false);
+    try std.testing.expect(@typeInfo(@TypeOf(box0.items[0..])).pointer.is_const == false);
 
     var box1: Box1 = .{ .items = undefined };
-    try std.testing.expect(@typeInfo(@TypeOf(box1.items[0..])).Pointer.is_const == false);
+    try std.testing.expect(@typeInfo(@TypeOf(box1.items[0..])).pointer.is_const == false);
 
     var box2: Box2 = .{ .items = undefined };
-    try std.testing.expect(@typeInfo(@TypeOf(box2.items[0..])).Pointer.is_const == false);
+    try std.testing.expect(@typeInfo(@TypeOf(box2.items[0..])).pointer.is_const == false);
 }
 
 fn constant() !void {
     const box0: Box0 = .{ .items = undefined };
-    try std.testing.expect(@typeInfo(@TypeOf(box0.items[0..])).Pointer.is_const == true);
+    try std.testing.expect(@typeInfo(@TypeOf(box0.items[0..])).pointer.is_const == true);
 
     const box1: Box1 = .{ .items = undefined };
-    try std.testing.expect(@typeInfo(@TypeOf(box1.items[0..])).Pointer.is_const == true);
+    try std.testing.expect(@typeInfo(@TypeOf(box1.items[0..])).pointer.is_const == true);
 
     const box2: Box2 = .{ .items = undefined };
-    try std.testing.expect(@typeInfo(@TypeOf(box2.items[0..])).Pointer.is_const == true);
+    try std.testing.expect(@typeInfo(@TypeOf(box2.items[0..])).pointer.is_const == true);
 }
 
 test "pointer-to-array constness for zero-size elements, var" {

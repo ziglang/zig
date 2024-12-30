@@ -36,7 +36,7 @@ __LDBL_REDIR1_DECL (strtold_l, __strtoieee128_l)
 # endif
 #endif
 
-#if __GLIBC_USE (IEC_60559_BFP_EXT_C2X)
+#if __GLIBC_USE (IEC_60559_BFP_EXT_C23)
 # ifdef __LDBL_COMPAT
 __LDBL_REDIR1_DECL (strfroml, strfromd)
 # else

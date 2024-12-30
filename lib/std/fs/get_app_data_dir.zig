@@ -32,7 +32,9 @@ pub fn getAppDataDir(allocator: mem.Allocator, appname: []const u8) GetAppDataDi
         },
         .linux, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos => {
             if (posix.getenv("XDG_DATA_HOME")) |xdg| {
-                return fs.path.join(allocator, &[_][]const u8{ xdg, appname });
+                if (xdg.len > 0) {
+                    return fs.path.join(allocator, &[_][]const u8{ xdg, appname });
+                }
             }
 
             const home_dir = posix.getenv("HOME") orelse {

@@ -20,8 +20,8 @@ pub fn deinit(self: *@This()) void {
     self.* = undefined;
 }
 
-pub fn ensureTotalCapacity(self: *@This(), bit_capcity: usize) Allocator.Error!void {
-    const byte_capacity = (bit_capcity + 7) >> 3;
+pub fn ensureTotalCapacity(self: *@This(), bit_capacity: usize) Allocator.Error!void {
+    const byte_capacity = (bit_capacity + 7) >> 3;
     try self.bytes.ensureTotalCapacity(byte_capacity);
 }
 

@@ -26,6 +26,16 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER >= 20
 
+#  if __has_builtin(__is_nothrow_convertible)
+
+template <class _Tp, class _Up>
+struct is_nothrow_convertible : bool_constant<__is_nothrow_convertible(_Tp, _Up)> {};
+
+template <class _Tp, class _Up>
+inline constexpr bool is_nothrow_convertible_v = __is_nothrow_convertible(_Tp, _Up);
+
+#  else // __has_builtin(__is_nothrow_convertible)
+
 template <typename _Tp>
 void __test_noexcept(_Tp) noexcept;
 
@@ -42,6 +52,8 @@ struct is_nothrow_convertible
 
 template <typename _Fm, typename _To>
 inline constexpr bool is_nothrow_convertible_v = is_nothrow_convertible<_Fm, _To>::value;
+
+#  endif // __has_builtin(__is_nothrow_convertible)
 
 #endif // _LIBCPP_STD_VER >= 20
 

@@ -4,11 +4,14 @@ on:
   push:
     branches:
       - master
-      - llvm18
+      - llvm19
 concurrency:
   # Cancels pending runs when a PR gets updated.
   group: ${{ github.head_ref || github.run_id }}-${{ github.actor }}
   cancel-in-progress: true
+permissions:
+  # Sets permission policy for `GITHUB_TOKEN`
+  contents: read
 jobs:
   x86_64-linux-debug:
     timeout-minutes: 420
@@ -43,7 +46,7 @@ jobs:
       - name: Build and Test
         run: sh ci/aarch64-linux-release.sh
   x86_64-macos-release:
-    runs-on: "macos-11"
+    runs-on: "macos-13"
     env:
       ARCH: "x86_64"
     steps:

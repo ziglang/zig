@@ -12,5 +12,4 @@ pub const enable_tracy = false;
 pub const value_tracing = false;
 pub const skip_non_native = false;
 pub const force_gpa = false;
-pub const only_c = false;
-pub const only_core_functionality = true;
+pub const dev = .core;

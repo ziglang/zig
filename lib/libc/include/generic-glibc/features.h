@@ -24,7 +24,8 @@
    __STRICT_ANSI__	ISO Standard C.
    _ISOC99_SOURCE	Extensions to ISO C89 from ISO C99.
    _ISOC11_SOURCE	Extensions to ISO C99 from ISO C11.
-   _ISOC2X_SOURCE	Extensions to ISO C99 from ISO C2X.
+   _ISOC23_SOURCE	Extensions to ISO C99 from ISO C23.
+   _ISOC2X_SOURCE	Old name for _ISOC23_SOURCE.
    __STDC_WANT_LIB_EXT2__
 			Extensions to ISO C99 from TR 27431-2:2010.
    __STDC_WANT_IEC_60559_BFP_EXT__
@@ -34,7 +35,7 @@
    __STDC_WANT_IEC_60559_TYPES_EXT__
 			Extensions to ISO C11 from TS 18661-3:2015.
    __STDC_WANT_IEC_60559_EXT__
-			ISO C2X interfaces defined only in Annex F.
+			ISO C23 interfaces defined only in Annex F.
 
    _POSIX_SOURCE	IEEE Std 1003.1.
    _POSIX_C_SOURCE	If ==1, like _POSIX_SOURCE; if >=2 add IEEE Std 1003.2;
@@ -148,10 +149,10 @@
 #undef	__USE_GNU
 #undef	__USE_FORTIFY_LEVEL
 #undef	__KERNEL_STRICT_NAMES
-#undef	__GLIBC_USE_ISOC2X
+#undef	__GLIBC_USE_ISOC23
 #undef	__GLIBC_USE_DEPRECATED_GETS
 #undef	__GLIBC_USE_DEPRECATED_SCANF
-#undef	__GLIBC_USE_C2X_STRTOL
+#undef	__GLIBC_USE_C23_STRTOL
 
 /* Suppress kernel-name space pollution unless user expressedly asks
    for it.  */
@@ -206,6 +207,13 @@
 # define _DEFAULT_SOURCE	1
 #endif
 
+/* Remap the old name _ISOC2X_SOURCE to _ISOC23_SOURCE.  */
+#ifdef _ISOC2X_SOURCE
+# undef _ISOC2X_SOURCE
+# undef _ISOC23_SOURCE
+# define _ISOC23_SOURCE	1
+#endif
+
 /* If _GNU_SOURCE was defined by the user, turn on all the other features.  */
 #ifdef _GNU_SOURCE
 # undef  _ISOC95_SOURCE
@@ -214,8 +222,8 @@
 # define _ISOC99_SOURCE	1
 # undef  _ISOC11_SOURCE
 # define _ISOC11_SOURCE	1
-# undef  _ISOC2X_SOURCE
-# define _ISOC2X_SOURCE	1
+# undef  _ISOC23_SOURCE
+# define _ISOC23_SOURCE	1
 # undef  _POSIX_SOURCE
 # define _POSIX_SOURCE	1
 # undef  _POSIX_C_SOURCE
@@ -244,37 +252,37 @@
 #if (defined _DEFAULT_SOURCE					\
      || (!defined __STRICT_ANSI__				\
 	 && !defined _ISOC99_SOURCE && !defined _ISOC11_SOURCE	\
-	 && !defined _ISOC2X_SOURCE				\
+	 && !defined _ISOC23_SOURCE				\
 	 && !defined _POSIX_SOURCE && !defined _POSIX_C_SOURCE	\
 	 && !defined _XOPEN_SOURCE))
 # undef  _DEFAULT_SOURCE
 # define _DEFAULT_SOURCE	1
 #endif
 
-/* This is to enable the ISO C2X extension.  */
-#if (defined _ISOC2X_SOURCE \
+/* This is to enable the ISO C23 extension.  */
+#if (defined _ISOC23_SOURCE \
      || (defined __STDC_VERSION__ && __STDC_VERSION__ > 201710L))
-# define __GLIBC_USE_ISOC2X	1
+# define __GLIBC_USE_ISOC23	1
 #else
-# define __GLIBC_USE_ISOC2X	0
+# define __GLIBC_USE_ISOC23	0
 #endif
 
 /* This is to enable the ISO C11 extension.  */
-#if (defined _ISOC11_SOURCE || defined _ISOC2X_SOURCE \
+#if (defined _ISOC11_SOURCE || defined _ISOC23_SOURCE \
      || (defined __STDC_VERSION__ && __STDC_VERSION__ >= 201112L))
 # define __USE_ISOC11	1
 #endif
 
 /* This is to enable the ISO C99 extension.  */
 #if (defined _ISOC99_SOURCE || defined _ISOC11_SOURCE			\
-     || defined _ISOC2X_SOURCE						\
+     || defined _ISOC23_SOURCE						\
      || (defined __STDC_VERSION__ && __STDC_VERSION__ >= 199901L))
 # define __USE_ISOC99	1
 #endif
 
 /* This is to enable the ISO C90 Amendment 1:1995 extension.  */
 #if (defined _ISOC99_SOURCE || defined _ISOC11_SOURCE			\
-     || defined _ISOC2X_SOURCE						\
+     || defined _ISOC23_SOURCE						\
      || (defined __STDC_VERSION__ && __STDC_VERSION__ >= 199409L))
 # define __USE_ISOC95	1
 #endif
@@ -486,18 +494,18 @@
  * glibc commit 64924422a99690d147a166b4de3103f3bf3eaf6c
  */
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 38) || __GLIBC__ > 2
-/* ISO C2X added support for a 0b or 0B prefix on binary constants as
+/* ISO C23 added support for a 0b or 0B prefix on binary constants as
    inputs to strtol-family functions (base 0 or 2).  This macro is
    used to condition redirection in headers to allow that redirection
    to be disabled when building those functions, despite _GNU_SOURCE
    being defined.  */
-#if __GLIBC_USE (ISOC2X)
-# define __GLIBC_USE_C2X_STRTOL 1
+#if __GLIBC_USE (ISOC23)
+# define __GLIBC_USE_C23_STRTOL 1
 #else
-# define __GLIBC_USE_C2X_STRTOL 0
+# define __GLIBC_USE_C23_STRTOL 0
 #endif
 #else	/* glibc 2.37 or lower */
-# define __GLIBC_USE_C2X_STRTOL 0
+# define __GLIBC_USE_C23_STRTOL 0
 #endif
 
 /* Get definitions of __STDC_* predefined macros, if the compiler has

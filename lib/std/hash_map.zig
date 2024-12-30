@@ -11,11 +11,11 @@ pub fn getAutoHashFn(comptime K: type, comptime Context: type) (fn (Context, K) 
     comptime {
         assert(@hasDecl(std, "StringHashMap")); // detect when the following message needs updated
         if (K == []const u8) {
-            @compileError("std.auto_hash.autoHash does not allow slices here (" ++
+            @compileError("std.hash.autoHash does not allow slices here (" ++
                 @typeName(K) ++
                 ") because the intent is unclear. " ++
                 "Consider using std.StringHashMap for hashing the contents of []const u8. " ++
-                "Alternatively, consider using std.auto_hash.hash or providing your own hash function instead.");
+                "Alternatively, consider using std.hash.autoHashStrat or providing your own hash function instead.");
         }
     }
 
@@ -139,10 +139,10 @@ pub fn verifyContext(
         var Context = RawContext;
         // Make sure the context is a namespace type which may have member functions
         switch (@typeInfo(Context)) {
-            .Struct, .Union, .Enum => {},
-            // Special-case .Opaque for a better error message
-            .Opaque => @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context) ++ " because it is opaque.  Use a pointer instead."),
-            .Pointer => |ptr| {
+            .@"struct", .@"union", .@"enum" => {},
+            // Special-case .@"opaque" for a better error message
+            .@"opaque" => @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context) ++ " because it is opaque.  Use a pointer instead."),
+            .pointer => |ptr| {
                 if (ptr.size != .One) {
                     @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context) ++ " because it is not a single pointer.");
                 }
@@ -150,7 +150,7 @@ pub fn verifyContext(
                 allow_const_ptr = true;
                 allow_mutable_ptr = !ptr.is_const;
                 switch (@typeInfo(Context)) {
-                    .Struct, .Union, .Enum, .Opaque => {},
+                    .@"struct", .@"union", .@"enum", .@"opaque" => {},
                     else => @compileError("Hash context must be a type with hash and eql member functions.  Cannot use " ++ @typeName(Context)),
                 }
             },
@@ -179,8 +179,8 @@ pub fn verifyContext(
         if (@hasDecl(Context, "hash")) {
             const hash = Context.hash;
             const info = @typeInfo(@TypeOf(hash));
-            if (info == .Fn) {
-                const func = info.Fn;
+            if (info == .@"fn") {
+                const func = info.@"fn";
                 if (func.params.len != 2) {
                     errors = errors ++ lazy.err_invalid_hash_signature;
                 } else {
@@ -255,8 +255,8 @@ pub fn verifyContext(
         if (@hasDecl(Context, "eql")) {
             const eql = Context.eql;
             const info = @typeInfo(@TypeOf(eql));
-            if (info == .Fn) {
-                const func = info.Fn;
+            if (info == .@"fn") {
+                const func = info.@"fn";
                 const args_len = if (is_array) 4 else 3;
                 if (func.params.len != args_len) {
                     errors = errors ++ lazy.err_invalid_eql_signature;
@@ -401,7 +401,7 @@ pub fn HashMap(
                 @compileError("Context must be specified! Call initContext(allocator, ctx) instead.");
             }
             return .{
-                .unmanaged = .{},
+                .unmanaged = .empty,
                 .allocator = allocator,
                 .ctx = undefined, // ctx is zero-sized so this is safe.
             };
@@ -410,7 +410,7 @@ pub fn HashMap(
         /// Create a managed hash map with a context
         pub fn initContext(allocator: Allocator, ctx: Context) Self {
             return .{
-                .unmanaged = .{},
+                .unmanaged = .empty,
                 .allocator = allocator,
                 .ctx = ctx,
             };
@@ -691,8 +691,23 @@ pub fn HashMap(
         pub fn move(self: *Self) Self {
             self.unmanaged.pointer_stability.assertUnlocked();
             const result = self.*;
-            self.unmanaged = .{};
+            self.unmanaged = .empty;
             return result;
+        }
+
+        /// Rehash the map, in-place.
+        ///
+        /// Over time, due to the current tombstone-based implementation, a
+        /// HashMap could become fragmented due to the buildup of tombstone
+        /// entries that causes a performance degradation due to excessive
+        /// probing. The kind of pattern that might cause this is a long-lived
+        /// HashMap with repeated inserts and deletes.
+        ///
+        /// After this function is called, there will be no tombstones in
+        /// the HashMap, each of the entries is rehashed and any existing
+        /// key/value pointers into the HashMap are invalidated.
+        pub fn rehash(self: *Self) void {
+            self.unmanaged.rehash(self.ctx);
         }
     };
 }
@@ -706,6 +721,8 @@ pub fn HashMap(
 /// the price of handling size with u32, which should be reasonable enough
 /// for almost all uses.
 /// Deletions are achieved with tombstones.
+///
+/// Default initialization of this struct is deprecated; use `.empty` instead.
 pub fn HashMapUnmanaged(
     comptime K: type,
     comptime V: type,
@@ -746,6 +763,13 @@ pub fn HashMapUnmanaged(
         // This is purely empirical and not a /very smart magic constant™/.
         /// Capacity of the first grow when bootstrapping the hashmap.
         const minimal_capacity = 8;
+
+        /// A map containing no keys or values.
+        pub const empty: Self = .{
+            .metadata = null,
+            .size = 0,
+            .available = 0,
+        };
 
         // This hashmap is specially designed for sizes that fit in a u32.
         pub const Size = u32;
@@ -809,8 +833,8 @@ pub fn HashMapUnmanaged(
             }
 
             pub fn takeFingerprint(hash: Hash) FingerPrint {
-                const hash_bits = @typeInfo(Hash).Int.bits;
-                const fp_bits = @typeInfo(FingerPrint).Int.bits;
+                const hash_bits = @typeInfo(Hash).int.bits;
+                const fp_bits = @typeInfo(FingerPrint).int.bits;
                 return @as(FingerPrint, @truncate(hash >> (hash_bits - fp_bits)));
             }
 
@@ -1163,17 +1187,13 @@ pub fn HashMapUnmanaged(
         }
 
         /// Find the index containing the data for the given key.
-        /// Whether this function returns null is almost always
-        /// branched on after this function returns, and this function
-        /// returns null/not null from separate code paths.  We
-        /// want the optimizer to remove that branch and instead directly
-        /// fuse the basic blocks after the branch to the basic blocks
-        /// from this function.  To encourage that, this function is
-        /// marked as inline.
-        inline fn getIndex(self: Self, key: anytype, ctx: anytype) ?usize {
+        fn getIndex(self: Self, key: anytype, ctx: anytype) ?usize {
             comptime verifyContext(@TypeOf(ctx), @TypeOf(key), K, Hash, false);
 
             if (self.size == 0) {
+                // We use cold instead of unlikely to force a jump to this case,
+                // no matter the weight of the opposing side.
+                @branchHint(.cold);
                 return null;
             }
 
@@ -1519,7 +1539,7 @@ pub fn HashMapUnmanaged(
             return self.cloneContext(allocator, @as(Context, undefined));
         }
         pub fn cloneContext(self: Self, allocator: Allocator, new_ctx: anytype) Allocator.Error!HashMapUnmanaged(K, V, @TypeOf(new_ctx), max_load_percentage) {
-            var other = HashMapUnmanaged(K, V, @TypeOf(new_ctx), max_load_percentage){};
+            var other: HashMapUnmanaged(K, V, @TypeOf(new_ctx), max_load_percentage) = .empty;
             if (self.size == 0)
                 return other;
 
@@ -1548,12 +1568,101 @@ pub fn HashMapUnmanaged(
         pub fn move(self: *Self) Self {
             self.pointer_stability.assertUnlocked();
             const result = self.*;
-            self.* = .{};
+            self.* = .empty;
             return result;
         }
 
+        /// Rehash the map, in-place.
+        ///
+        /// Over time, due to the current tombstone-based implementation, a
+        /// HashMap could become fragmented due to the buildup of tombstone
+        /// entries that causes a performance degradation due to excessive
+        /// probing. The kind of pattern that might cause this is a long-lived
+        /// HashMap with repeated inserts and deletes.
+        ///
+        /// After this function is called, there will be no tombstones in
+        /// the HashMap, each of the entries is rehashed and any existing
+        /// key/value pointers into the HashMap are invalidated.
+        pub fn rehash(self: *Self, ctx: anytype) void {
+            const mask = self.capacity() - 1;
+
+            var metadata = self.metadata.?;
+            var keys_ptr = self.keys();
+            var values_ptr = self.values();
+            var curr: Size = 0;
+
+            // While we are re-hashing every slot, we will use the
+            // fingerprint to mark used buckets as being used and either free
+            // (needing to be rehashed) or tombstone (already rehashed).
+
+            while (curr < self.capacity()) : (curr += 1) {
+                metadata[curr].fingerprint = Metadata.free;
+            }
+
+            // Now iterate over all the buckets, rehashing them
+
+            curr = 0;
+            while (curr < self.capacity()) {
+                if (!metadata[curr].isUsed()) {
+                    assert(metadata[curr].isFree());
+                    curr += 1;
+                    continue;
+                }
+
+                const hash = ctx.hash(keys_ptr[curr]);
+                const fingerprint = Metadata.takeFingerprint(hash);
+                var idx = @as(usize, @truncate(hash & mask));
+
+                // For each bucket, rehash to an index:
+                // 1) before the cursor, probed into a free slot, or
+                // 2) equal to the cursor, no need to move, or
+                // 3) ahead of the cursor, probing over already rehashed
+
+                while ((idx < curr and metadata[idx].isUsed()) or
+                    (idx > curr and metadata[idx].fingerprint == Metadata.tombstone))
+                {
+                    idx = (idx + 1) & mask;
+                }
+
+                if (idx < curr) {
+                    assert(metadata[idx].isFree());
+                    metadata[idx].fill(fingerprint);
+                    keys_ptr[idx] = keys_ptr[curr];
+                    values_ptr[idx] = values_ptr[curr];
+
+                    metadata[curr].used = 0;
+                    assert(metadata[curr].isFree());
+                    keys_ptr[curr] = undefined;
+                    values_ptr[curr] = undefined;
+
+                    curr += 1;
+                } else if (idx == curr) {
+                    metadata[idx].fingerprint = fingerprint;
+                    curr += 1;
+                } else {
+                    assert(metadata[idx].fingerprint != Metadata.tombstone);
+                    metadata[idx].fingerprint = Metadata.tombstone;
+                    if (metadata[idx].isUsed()) {
+                        std.mem.swap(K, &keys_ptr[curr], &keys_ptr[idx]);
+                        std.mem.swap(V, &values_ptr[curr], &values_ptr[idx]);
+                    } else {
+                        metadata[idx].used = 1;
+                        keys_ptr[idx] = keys_ptr[curr];
+                        values_ptr[idx] = values_ptr[curr];
+
+                        metadata[curr].fingerprint = Metadata.free;
+                        metadata[curr].used = 0;
+                        keys_ptr[curr] = undefined;
+                        values_ptr[curr] = undefined;
+
+                        curr += 1;
+                    }
+                }
+            }
+        }
+
         fn grow(self: *Self, allocator: Allocator, new_capacity: Size, ctx: Context) Allocator.Error!void {
-            @setCold(true);
+            @branchHint(.cold);
             const new_cap = @max(new_capacity, minimal_capacity);
             assert(new_cap > self.capacity());
             assert(std.math.isPowerOfTwo(new_cap));
@@ -1579,7 +1688,7 @@ pub fn HashMapUnmanaged(
             }
 
             self.size = 0;
-            self.pointer_stability = .{ .state = .unlocked };
+            self.pointer_stability = .{};
             std.mem.swap(Self, self, &map);
             map.deinit(allocator);
         }
@@ -1654,9 +1763,11 @@ pub fn HashMapUnmanaged(
         }
 
         comptime {
-            if (!builtin.strip_debug_info) {
-                _ = &dbHelper;
-            }
+            if (!builtin.strip_debug_info) _ = switch (builtin.zig_backend) {
+                .stage2_llvm => &dbHelper,
+                .stage2_x86_64 => KV,
+                else => {},
+            };
         }
     };
 }
@@ -1935,7 +2046,7 @@ test "put and remove loop in random order" {
     while (i < size) : (i += 1) {
         try keys.append(i);
     }
-    var prng = std.Random.DefaultPrng.init(0);
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const random = prng.random();
 
     while (i < iterations) : (i += 1) {
@@ -1967,7 +2078,7 @@ test "remove one million elements in random order" {
         keys.append(i) catch unreachable;
     }
 
-    var prng = std.Random.DefaultPrng.init(0);
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const random = prng.random();
     random.shuffle(u32, keys.items);
 
@@ -2245,7 +2356,7 @@ test "removeByPtr 0 sized key" {
 }
 
 test "repeat fetchRemove" {
-    var map = AutoHashMapUnmanaged(u64, void){};
+    var map: AutoHashMapUnmanaged(u64, void) = .empty;
     defer map.deinit(testing.allocator);
 
     try map.ensureTotalCapacity(testing.allocator, 4);
@@ -2269,6 +2380,35 @@ test "repeat fetchRemove" {
 }
 
 test "getOrPut allocation failure" {
-    var map: std.StringHashMapUnmanaged(void) = .{};
+    var map: std.StringHashMapUnmanaged(void) = .empty;
     try testing.expectError(error.OutOfMemory, map.getOrPut(std.testing.failing_allocator, "hello"));
+}
+
+test "std.hash_map rehash" {
+    var map = AutoHashMap(usize, usize).init(std.testing.allocator);
+    defer map.deinit();
+
+    var prng = std.Random.DefaultPrng.init(0);
+    const random = prng.random();
+
+    const count = 6 * random.intRangeLessThan(u32, 100_000, 500_000);
+
+    for (0..count) |i| {
+        try map.put(i, i);
+        if (i % 3 == 0) {
+            try expectEqual(map.remove(i), true);
+        }
+    }
+
+    map.rehash();
+
+    try expectEqual(map.count(), count * 2 / 3);
+
+    for (0..count) |i| {
+        if (i % 3 == 0) {
+            try expectEqual(map.get(i), null);
+        } else {
+            try expectEqual(map.get(i).?, i);
+        }
+    }
 }

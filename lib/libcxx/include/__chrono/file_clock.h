@@ -10,7 +10,6 @@
 #ifndef _LIBCPP___CHRONO_FILE_CLOCK_H
 #define _LIBCPP___CHRONO_FILE_CLOCK_H
 
-#include <__availability>
 #include <__chrono/duration.h>
 #include <__chrono/system_clock.h>
 #include <__chrono/time_point.h>

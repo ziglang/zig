@@ -78,7 +78,7 @@ public:
 
 template <class _Clock, class _Duration1, class _Duration2>
 struct _LIBCPP_TEMPLATE_VIS
-    common_type<chrono::time_point<_Clock, _Duration1>, chrono::time_point<_Clock, _Duration2> > {
+common_type<chrono::time_point<_Clock, _Duration1>, chrono::time_point<_Clock, _Duration2> > {
   typedef chrono::time_point<_Clock, typename common_type<_Duration1, _Duration2>::type> type;
 };
 
@@ -92,25 +92,22 @@ time_point_cast(const time_point<_Clock, _Duration>& __t) {
 
 #if _LIBCPP_STD_VER >= 17
 template <class _ToDuration, class _Clock, class _Duration, enable_if_t<__is_duration<_ToDuration>::value, int> = 0>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR time_point<_Clock, _ToDuration>
-floor(const time_point<_Clock, _Duration>& __t) {
+inline _LIBCPP_HIDE_FROM_ABI constexpr time_point<_Clock, _ToDuration> floor(const time_point<_Clock, _Duration>& __t) {
   return time_point<_Clock, _ToDuration>{chrono::floor<_ToDuration>(__t.time_since_epoch())};
 }
 
 template <class _ToDuration, class _Clock, class _Duration, enable_if_t<__is_duration<_ToDuration>::value, int> = 0>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR time_point<_Clock, _ToDuration>
-ceil(const time_point<_Clock, _Duration>& __t) {
+inline _LIBCPP_HIDE_FROM_ABI constexpr time_point<_Clock, _ToDuration> ceil(const time_point<_Clock, _Duration>& __t) {
   return time_point<_Clock, _ToDuration>{chrono::ceil<_ToDuration>(__t.time_since_epoch())};
 }
 
 template <class _ToDuration, class _Clock, class _Duration, enable_if_t<__is_duration<_ToDuration>::value, int> = 0>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR time_point<_Clock, _ToDuration>
-round(const time_point<_Clock, _Duration>& __t) {
+inline _LIBCPP_HIDE_FROM_ABI constexpr time_point<_Clock, _ToDuration> round(const time_point<_Clock, _Duration>& __t) {
   return time_point<_Clock, _ToDuration>{chrono::round<_ToDuration>(__t.time_since_epoch())};
 }
 
 template <class _Rep, class _Period, enable_if_t<numeric_limits<_Rep>::is_signed, int> = 0>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR duration<_Rep, _Period> abs(duration<_Rep, _Period> __d) {
+inline _LIBCPP_HIDE_FROM_ABI constexpr duration<_Rep, _Period> abs(duration<_Rep, _Period> __d) {
   return __d >= __d.zero() ? +__d : -__d;
 }
 #endif // _LIBCPP_STD_VER >= 17
@@ -180,9 +177,9 @@ operator<=>(const time_point<_Clock, _Duration1>& __lhs, const time_point<_Clock
 // time_point operator+(time_point x, duration y);
 
 template <class _Clock, class _Duration1, class _Rep2, class _Period2>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14
-    time_point<_Clock, typename common_type<_Duration1, duration<_Rep2, _Period2> >::type>
-    operator+(const time_point<_Clock, _Duration1>& __lhs, const duration<_Rep2, _Period2>& __rhs) {
+inline _LIBCPP_HIDE_FROM_ABI
+_LIBCPP_CONSTEXPR_SINCE_CXX14 time_point<_Clock, typename common_type<_Duration1, duration<_Rep2, _Period2> >::type>
+operator+(const time_point<_Clock, _Duration1>& __lhs, const duration<_Rep2, _Period2>& __rhs) {
   typedef time_point<_Clock, typename common_type<_Duration1, duration<_Rep2, _Period2> >::type> _Tr;
   return _Tr(__lhs.time_since_epoch() + __rhs);
 }
@@ -190,18 +187,18 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14
 // time_point operator+(duration x, time_point y);
 
 template <class _Rep1, class _Period1, class _Clock, class _Duration2>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14
-    time_point<_Clock, typename common_type<duration<_Rep1, _Period1>, _Duration2>::type>
-    operator+(const duration<_Rep1, _Period1>& __lhs, const time_point<_Clock, _Duration2>& __rhs) {
+inline _LIBCPP_HIDE_FROM_ABI
+_LIBCPP_CONSTEXPR_SINCE_CXX14 time_point<_Clock, typename common_type<duration<_Rep1, _Period1>, _Duration2>::type>
+operator+(const duration<_Rep1, _Period1>& __lhs, const time_point<_Clock, _Duration2>& __rhs) {
   return __rhs + __lhs;
 }
 
 // time_point operator-(time_point x, duration y);
 
 template <class _Clock, class _Duration1, class _Rep2, class _Period2>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14
-    time_point<_Clock, typename common_type<_Duration1, duration<_Rep2, _Period2> >::type>
-    operator-(const time_point<_Clock, _Duration1>& __lhs, const duration<_Rep2, _Period2>& __rhs) {
+inline _LIBCPP_HIDE_FROM_ABI
+_LIBCPP_CONSTEXPR_SINCE_CXX14 time_point<_Clock, typename common_type<_Duration1, duration<_Rep2, _Period2> >::type>
+operator-(const time_point<_Clock, _Duration1>& __lhs, const duration<_Rep2, _Period2>& __rhs) {
   typedef time_point<_Clock, typename common_type<_Duration1, duration<_Rep2, _Period2> >::type> _Ret;
   return _Ret(__lhs.time_since_epoch() - __rhs);
 }

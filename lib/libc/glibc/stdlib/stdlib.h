@@ -210,7 +210,7 @@ extern unsigned long long int strtoull (const char *__restrict __nptr,
 
 /* Versions of the above functions that handle '0b' and '0B' prefixes
    in base 0 or 2.  */
-#if __GLIBC_USE (C2X_STRTOL)
+#if __GLIBC_USE (C23_STRTOL)
 # ifdef __REDIRECT
 extern long int __REDIRECT_NTH (strtol, (const char *__restrict __nptr,
 					 char **__restrict __endptr,
@@ -274,7 +274,7 @@ extern unsigned long long int __isoc23_strtoull (const char *__restrict __nptr,
 #endif
 
 /* Convert a floating-point number to a string.  */
-#if __GLIBC_USE (IEC_60559_BFP_EXT_C2X)
+#if __GLIBC_USE (IEC_60559_BFP_EXT_C23)
 extern int strfromd (char *__dest, size_t __size, const char *__format,
 		     double __f)
      __THROW __nonnull ((3));
@@ -360,7 +360,7 @@ extern unsigned long long int strtoull_l (const char *__restrict __nptr,
 
 /* Versions of the above functions that handle '0b' and '0B' prefixes
    in base 0 or 2.  */
-# if __GLIBC_USE (C2X_STRTOL)
+# if __GLIBC_USE (C23_STRTOL)
 #  ifdef __REDIRECT
 extern long int __REDIRECT_NTH (strtol_l, (const char *__restrict __nptr,
 					   char **__restrict __endptr,

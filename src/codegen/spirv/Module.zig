@@ -35,7 +35,7 @@ pub const Fn = struct {
     /// the end of this function definition.
     body: Section = .{},
     /// The decl dependencies that this function depends on.
-    decl_deps: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .{},
+    decl_deps: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .empty,
 
     /// Reset this function without deallocating resources, so that
     /// it may be used to emit code for another function.
@@ -141,7 +141,7 @@ sections: struct {
 next_result_id: Word,
 
 /// Cache for results of OpString instructions.
-strings: std.StringArrayHashMapUnmanaged(IdRef) = .{},
+strings: std.StringArrayHashMapUnmanaged(IdRef) = .empty,
 
 /// Some types shouldn't be emitted more than one time, but cannot be caught by
 /// the `intern_map` during codegen. Sometimes, IDs are compared to check if
@@ -154,27 +154,27 @@ strings: std.StringArrayHashMapUnmanaged(IdRef) = .{},
 cache: struct {
     bool_type: ?IdRef = null,
     void_type: ?IdRef = null,
-    int_types: std.AutoHashMapUnmanaged(std.builtin.Type.Int, IdRef) = .{},
-    float_types: std.AutoHashMapUnmanaged(std.builtin.Type.Float, IdRef) = .{},
+    int_types: std.AutoHashMapUnmanaged(std.builtin.Type.Int, IdRef) = .empty,
+    float_types: std.AutoHashMapUnmanaged(std.builtin.Type.Float, IdRef) = .empty,
     // This cache is required so that @Vector(X, u1) in direct representation has the
     // same ID as @Vector(X, bool) in indirect representation.
-    vector_types: std.AutoHashMapUnmanaged(struct { IdRef, u32 }, IdRef) = .{},
+    vector_types: std.AutoHashMapUnmanaged(struct { IdRef, u32 }, IdRef) = .empty,
 
-    builtins: std.AutoHashMapUnmanaged(struct { IdRef, spec.BuiltIn }, Decl.Index) = .{},
+    builtins: std.AutoHashMapUnmanaged(struct { IdRef, spec.BuiltIn }, Decl.Index) = .empty,
 } = .{},
 
 /// Set of Decls, referred to by Decl.Index.
-decls: std.ArrayListUnmanaged(Decl) = .{},
+decls: std.ArrayListUnmanaged(Decl) = .empty,
 
 /// List of dependencies, per decl. This list holds all the dependencies, sliced by the
 /// begin_dep and end_dep in `self.decls`.
-decl_deps: std.ArrayListUnmanaged(Decl.Index) = .{},
+decl_deps: std.ArrayListUnmanaged(Decl.Index) = .empty,
 
 /// The list of entry points that should be exported from this module.
-entry_points: std.ArrayListUnmanaged(EntryPoint) = .{},
+entry_points: std.ArrayListUnmanaged(EntryPoint) = .empty,
 
 /// The list of extended instruction sets that should be imported.
-extended_instruction_set: std.AutoHashMapUnmanaged(spec.InstructionSet, IdRef) = .{},
+extended_instruction_set: std.AutoHashMapUnmanaged(spec.InstructionSet, IdRef) = .empty,
 
 pub fn init(gpa: Allocator) Module {
     return .{
@@ -402,9 +402,7 @@ pub fn resolveString(self: *Module, string: []const u8) !IdRef {
     return id;
 }
 
-pub fn structType(self: *Module, types: []const IdRef, maybe_names: ?[]const []const u8) !IdRef {
-    const result_id = self.allocId();
-
+pub fn structType(self: *Module, result_id: IdResult, types: []const IdRef, maybe_names: ?[]const []const u8) !void {
     try self.sections.types_globals_constants.emit(self.gpa, .OpTypeStruct, .{
         .id_result = result_id,
         .id_ref = types,
@@ -416,8 +414,6 @@ pub fn structType(self: *Module, types: []const IdRef, maybe_names: ?[]const []c
             try self.memberDebugName(result_id, @intCast(i), name);
         }
     }
-
-    return result_id;
 }
 
 pub fn boolType(self: *Module) !IdRef {

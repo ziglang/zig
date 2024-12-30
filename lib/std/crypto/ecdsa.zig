@@ -91,24 +91,26 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             s: Curve.scalar.CompressedScalar,
 
             /// Create a Verifier for incremental verification of a signature.
-            pub fn verifier(self: Signature, public_key: PublicKey) (NonCanonicalError || EncodingError || IdentityElementError)!Verifier {
-                return Verifier.init(self, public_key);
+            pub fn verifier(sig: Signature, public_key: PublicKey) Verifier.InitError!Verifier {
+                return Verifier.init(sig, public_key);
             }
+
+            pub const VerifyError = Verifier.InitError || Verifier.VerifyError;
 
             /// Verify the signature against a message and public key.
             /// Return IdentityElement or NonCanonical if the public key or signature are not in the expected range,
             /// or SignatureVerificationError if the signature is invalid for the given message and key.
-            pub fn verify(self: Signature, msg: []const u8, public_key: PublicKey) (IdentityElementError || NonCanonicalError || SignatureVerificationError)!void {
-                var st = try Verifier.init(self, public_key);
+            pub fn verify(sig: Signature, msg: []const u8, public_key: PublicKey) VerifyError!void {
+                var st = try sig.verifier(public_key);
                 st.update(msg);
-                return st.verify();
+                try st.verify();
             }
 
             /// Return the raw signature (r, s) in big-endian format.
-            pub fn toBytes(self: Signature) [encoded_length]u8 {
+            pub fn toBytes(sig: Signature) [encoded_length]u8 {
                 var bytes: [encoded_length]u8 = undefined;
-                @memcpy(bytes[0 .. encoded_length / 2], &self.r);
-                @memcpy(bytes[encoded_length / 2 ..], &self.s);
+                @memcpy(bytes[0 .. encoded_length / 2], &sig.r);
+                @memcpy(bytes[encoded_length / 2 ..], &sig.s);
                 return bytes;
             }
 
@@ -124,23 +126,23 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             /// Encode the signature using the DER format.
             /// The maximum length of the DER encoding is der_encoded_length_max.
             /// The function returns a slice, that can be shorter than der_encoded_length_max.
-            pub fn toDer(self: Signature, buf: *[der_encoded_length_max]u8) []u8 {
+            pub fn toDer(sig: Signature, buf: *[der_encoded_length_max]u8) []u8 {
                 var fb = io.fixedBufferStream(buf);
                 const w = fb.writer();
-                const r_len = @as(u8, @intCast(self.r.len + (self.r[0] >> 7)));
-                const s_len = @as(u8, @intCast(self.s.len + (self.s[0] >> 7)));
+                const r_len = @as(u8, @intCast(sig.r.len + (sig.r[0] >> 7)));
+                const s_len = @as(u8, @intCast(sig.s.len + (sig.s[0] >> 7)));
                 const seq_len = @as(u8, @intCast(2 + r_len + 2 + s_len));
                 w.writeAll(&[_]u8{ 0x30, seq_len }) catch unreachable;
                 w.writeAll(&[_]u8{ 0x02, r_len }) catch unreachable;
-                if (self.r[0] >> 7 != 0) {
+                if (sig.r[0] >> 7 != 0) {
                     w.writeByte(0x00) catch unreachable;
                 }
-                w.writeAll(&self.r) catch unreachable;
+                w.writeAll(&sig.r) catch unreachable;
                 w.writeAll(&[_]u8{ 0x02, s_len }) catch unreachable;
-                if (self.s[0] >> 7 != 0) {
+                if (sig.s[0] >> 7 != 0) {
                     w.writeByte(0x00) catch unreachable;
                 }
-                w.writeAll(&self.s) catch unreachable;
+                w.writeAll(&sig.s) catch unreachable;
                 return fb.getWritten();
             }
 
@@ -236,7 +238,9 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             s: Curve.scalar.Scalar,
             public_key: PublicKey,
 
-            fn init(sig: Signature, public_key: PublicKey) (IdentityElementError || NonCanonicalError)!Verifier {
+            pub const InitError = IdentityElementError || NonCanonicalError;
+
+            fn init(sig: Signature, public_key: PublicKey) InitError!Verifier {
                 const r = try Curve.scalar.Scalar.fromBytes(sig.r, .big);
                 const s = try Curve.scalar.Scalar.fromBytes(sig.s, .big);
                 if (r.isZero() or s.isZero()) return error.IdentityElement;
@@ -254,8 +258,11 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
                 self.h.update(data);
             }
 
+            pub const VerifyError = IdentityElementError || NonCanonicalError ||
+                SignatureVerificationError;
+
             /// Verify that the signature is valid for the entire message.
-            pub fn verify(self: *Verifier) (IdentityElementError || NonCanonicalError || SignatureVerificationError)!void {
+            pub fn verify(self: *Verifier) VerifyError!void {
                 const ht = Curve.scalar.encoded_length;
                 const h_len = @max(Hash.digest_length, ht);
                 var h: [h_len]u8 = [_]u8{0} ** h_len;
@@ -289,19 +296,26 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             /// Secret scalar.
             secret_key: SecretKey,
 
-            /// Create a new key pair. The seed must be secret and indistinguishable from random.
-            /// The seed can also be left to null in order to generate a random key pair.
-            pub fn create(seed: ?[seed_length]u8) IdentityElementError!KeyPair {
-                var seed_ = seed;
-                if (seed_ == null) {
-                    var random_seed: [seed_length]u8 = undefined;
-                    crypto.random.bytes(&random_seed);
-                    seed_ = random_seed;
-                }
+            /// Deterministically derive a key pair from a cryptograpically secure secret seed.
+            ///
+            /// Except in tests, applications should generally call `generate()` instead of this function.
+            pub fn generateDeterministic(seed: [seed_length]u8) IdentityElementError!KeyPair {
                 const h = [_]u8{0x00} ** Hash.digest_length;
                 const k0 = [_]u8{0x01} ** SecretKey.encoded_length;
-                const secret_key = deterministicScalar(h, k0, seed_).toBytes(.big);
+                const secret_key = deterministicScalar(h, k0, seed).toBytes(.big);
                 return fromSecretKey(SecretKey{ .bytes = secret_key });
+            }
+
+            /// Generate a new, random key pair.
+            pub fn generate() KeyPair {
+                var random_seed: [seed_length]u8 = undefined;
+                while (true) {
+                    crypto.random.bytes(&random_seed);
+                    return generateDeterministic(random_seed) catch {
+                        @branchHint(.unlikely);
+                        continue;
+                    };
+                }
             }
 
             /// Return the public key corresponding to the secret key.
@@ -380,7 +394,7 @@ test "Basic operations over EcdsaP384Sha384" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const Scheme = EcdsaP384Sha384;
-    const kp = try Scheme.KeyPair.create(null);
+    const kp = Scheme.KeyPair.generate();
     const msg = "test";
 
     var noise: [Scheme.noise_length]u8 = undefined;
@@ -396,7 +410,7 @@ test "Basic operations over Secp256k1" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const Scheme = EcdsaSecp256k1Sha256oSha256;
-    const kp = try Scheme.KeyPair.create(null);
+    const kp = Scheme.KeyPair.generate();
     const msg = "test";
 
     var noise: [Scheme.noise_length]u8 = undefined;
@@ -412,7 +426,7 @@ test "Basic operations over EcdsaP384Sha256" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const Scheme = Ecdsa(crypto.ecc.P384, crypto.hash.sha2.Sha256);
-    const kp = try Scheme.KeyPair.create(null);
+    const kp = Scheme.KeyPair.generate();
     const msg = "test";
 
     var noise: [Scheme.noise_length]u8 = undefined;
@@ -886,7 +900,7 @@ test "Sec1 encoding/decoding" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
 
     const Scheme = EcdsaP384Sha384;
-    const kp = try Scheme.KeyPair.create(null);
+    const kp = Scheme.KeyPair.generate();
     const pk = kp.public_key;
     const pk_compressed_sec1 = pk.toCompressedSec1();
     const pk_recovered1 = try Scheme.PublicKey.fromSec1(&pk_compressed_sec1);

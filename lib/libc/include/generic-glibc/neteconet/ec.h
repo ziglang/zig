@@ -28,7 +28,7 @@ struct ec_addr
     unsigned char net;			/* Network number.  */
   };
 
-struct sockaddr_ec
+struct __attribute_struct_may_alias__ sockaddr_ec
   {
     __SOCKADDR_COMMON (sec_);
     unsigned char port;			/* Port number.  */

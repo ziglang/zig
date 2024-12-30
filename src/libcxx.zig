@@ -46,7 +46,7 @@ const libcxx_base_files = [_][]const u8{
     "src/chrono.cpp",
     "src/error_category.cpp",
     "src/exception.cpp",
-    "src/experimental/keep.cpp",
+    "src/expected.cpp",
     "src/filesystem/directory_entry.cpp",
     "src/filesystem/directory_iterator.cpp",
     "src/filesystem/filesystem_clock.cpp",
@@ -89,8 +89,6 @@ const libcxx_base_files = [_][]const u8{
     "src/support/win32/support.cpp",
     "src/system_error.cpp",
     "src/typeinfo.cpp",
-    "src/tz.cpp",
-    "src/tzdb_list.cpp",
     "src/valarray.cpp",
     "src/variant.cpp",
     "src/vector.cpp",
@@ -197,7 +195,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
             .valgrind = false,
             .optimize_mode = optimize_mode,
             .structured_cfg = comp.root_mod.structured_cfg,
-            .pic = comp.root_mod.pic,
+            .pic = if (target_util.supports_fpic(target)) true else null,
         },
         .global = config,
         .cc_argv = &.{},
@@ -223,7 +221,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     for (libcxx_files) |cxx_src| {
         var cflags = std.ArrayList([]const u8).init(arena);
 
-        if ((target.os.tag == .windows and target.abi == .msvc) or target.os.tag == .wasi) {
+        if ((target.os.tag == .windows and (target.abi == .msvc or target.abi == .itanium)) or target.os.tag == .wasi) {
             // Filesystem stuff isn't supported on WASI and Windows (MSVC).
             if (std.mem.startsWith(u8, cxx_src, "src/filesystem/"))
                 continue;
@@ -239,19 +237,18 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         try cflags.append("-DNDEBUG");
         try cflags.append(hardeningModeFlag(optimize_mode));
         try cflags.append("-D_LIBCPP_BUILDING_LIBRARY");
+        try cflags.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
         try cflags.append("-D_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER");
+        try cflags.append("-D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS");
         try cflags.append("-DLIBCXX_BUILDING_LIBCXXABI");
         try cflags.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
-        try cflags.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
-        try cflags.append("-D_LIBCPP_DISABLE_NEW_DELETE_DEFINITIONS");
-        try cflags.append("-D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS");
 
         // See libcxx/include/__algorithm/pstl_backends/cpu_backends/backend.h
         // for potentially enabling some fancy features here, which would
         // require corresponding changes in libcxx.zig, as well as
         // Compilation.addCCArgs. This option makes it use serial backend which
         // is simple and works everywhere.
-        try cflags.append("-D_LIBCPP_PSTL_CPU_BACKEND_SERIAL");
+        try cflags.append("-D_LIBCPP_PSTL_BACKEND_SERIAL");
 
         try cflags.append(abi_version_arg);
         try cflags.append(abi_namespace_arg);
@@ -265,7 +262,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
 
         if (target.isGnuLibC()) {
             // glibc 2.16 introduced aligned_alloc
-            if (target.os.version_range.linux.glibc.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
+            if (target.os.versionRange().gnuLibCVersion().?.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
                 try cflags.append("-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION");
             }
         }
@@ -281,12 +278,11 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
             try cflags.append("-faligned-allocation");
         }
 
-        if (target_util.supports_fpic(target)) {
-            try cflags.append("-fPIC");
-        }
         try cflags.append("-nostdinc++");
-        try cflags.append("-std=c++20");
+        try cflags.append("-std=c++23");
         try cflags.append("-Wno-user-defined-literals");
+        try cflags.append("-Wno-covered-switch-default");
+        try cflags.append("-Wno-suggest-override");
 
         // These depend on only the zig lib directory file path, which is
         // purposefully either in the cache or not in the cache. The decision
@@ -356,7 +352,9 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     };
 
     assert(comp.libcxx_static_lib == null);
-    comp.libcxx_static_lib = try sub_compilation.toCrtFile();
+    const crt_file = try sub_compilation.toCrtFile();
+    comp.libcxx_static_lib = crt_file;
+    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
 }
 
 pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildError!void {
@@ -399,7 +397,6 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
 
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
-    const unwind_tables = true;
 
     const config = Compilation.Config.resolve(.{
         .output_mode = output_mode,
@@ -411,7 +408,6 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .root_optimize_mode = optimize_mode,
         .root_strip = strip,
         .link_libc = true,
-        .any_unwind_tables = unwind_tables,
         .lto = comp.config.lto,
         .any_sanitize_thread = comp.config.any_sanitize_thread,
     }) catch |err| {
@@ -442,7 +438,12 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             .valgrind = false,
             .optimize_mode = optimize_mode,
             .structured_cfg = comp.root_mod.structured_cfg,
-            .unwind_tables = unwind_tables,
+            // See the `-fno-exceptions` logic for WASI.
+            // The old 32-bit x86 variant of SEH doesn't use tables.
+            .unwind_tables = if (target.os.tag == .wasi or (target.cpu.arch == .x86 and target.os.tag == .windows))
+                .none
+            else
+                .@"async",
             .pic = comp.root_mod.pic,
         },
         .global = config,
@@ -478,19 +479,17 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
                 continue;
             }
             try cflags.append("-D_LIBCXXABI_HAS_NO_THREADS");
-            try cflags.append("-D_LIBCPP_HAS_NO_THREADS");
         } else if (target.abi.isGnu()) {
-            if (target.os.tag != .linux or !(target.os.version_range.linux.glibc.order(.{ .major = 2, .minor = 18, .patch = 0 }) == .lt))
+            if (target.os.tag != .linux or !(target.os.versionRange().gnuLibCVersion().?.order(.{ .major = 2, .minor = 18, .patch = 0 }) == .lt))
                 try cflags.append("-DHAVE___CXA_THREAD_ATEXIT_IMPL");
         }
 
-        try cflags.append("-D_LIBCPP_DISABLE_EXTERN_TEMPLATE");
-        try cflags.append("-D_LIBCPP_ENABLE_CXX17_REMOVED_UNEXPECTED_FUNCTIONS");
+        try cflags.append("-DNDEBUG");
+        try cflags.append(hardeningModeFlag(optimize_mode));
         try cflags.append("-D_LIBCXXABI_BUILDING_LIBRARY");
         try cflags.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
         try cflags.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
-        // This must be coordinated with the same flag in libcxx
-        try cflags.append("-D_LIBCPP_PSTL_CPU_BACKEND_SERIAL");
+        try cflags.append("-D_LIBCPP_ENABLE_CXX17_REMOVED_UNEXPECTED_FUNCTIONS");
 
         try cflags.append(abi_version_arg);
         try cflags.append(abi_namespace_arg);
@@ -504,19 +503,20 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
 
         if (target.isGnuLibC()) {
             // glibc 2.16 introduced aligned_alloc
-            if (target.os.version_range.linux.glibc.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
+            if (target.os.versionRange().gnuLibCVersion().?.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
                 try cflags.append("-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION");
             }
         }
-
-        try cflags.append(hardeningModeFlag(optimize_mode));
 
         if (target_util.supports_fpic(target)) {
             try cflags.append("-fPIC");
         }
         try cflags.append("-nostdinc++");
         try cflags.append("-fstrict-aliasing");
-        try cflags.append("-std=c++20");
+        try cflags.append("-std=c++23");
+        try cflags.append("-Wno-user-defined-literals");
+        try cflags.append("-Wno-covered-switch-default");
+        try cflags.append("-Wno-suggest-override");
 
         // These depend on only the zig lib directory file path, which is
         // purposefully either in the cache or not in the cache. The decision
@@ -586,7 +586,9 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     };
 
     assert(comp.libcxxabi_static_lib == null);
-    comp.libcxxabi_static_lib = try sub_compilation.toCrtFile();
+    const crt_file = try sub_compilation.toCrtFile();
+    comp.libcxxabi_static_lib = crt_file;
+    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
 }
 
 pub fn hardeningModeFlag(optimize_mode: std.builtin.OptimizeMode) []const u8 {

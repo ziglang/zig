@@ -38,7 +38,7 @@ __BEGIN_DECLS
 /* Perform the I/O control operation specified by REQUEST on FD.
    One argument may follow; its presence and type depend on REQUEST.
    Return value depends on REQUEST.  Usually -1 indicates error.  */
-#ifndef __USE_TIME_BITS64
+#ifndef __USE_TIME64_REDIRECTS
 extern int ioctl (int __fd, unsigned long int __request, ...) __THROW;
 #else
 # ifdef __REDIRECT

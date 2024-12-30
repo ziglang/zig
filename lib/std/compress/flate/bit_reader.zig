@@ -57,7 +57,7 @@ pub fn BitReader(comptime T: type, comptime ReaderType: type) type {
         /// it may be some extra zero bits in buffer.
         pub inline fn fill(self: *Self, nice: u6) !void {
             if (self.nbits >= nice and nice != 0) {
-                return; // We have enought bits
+                return; // We have enough bits
             }
             // Read more bits from forward reader
 
@@ -96,7 +96,7 @@ pub fn BitReader(comptime T: type, comptime ReaderType: type) type {
         pub const flag = struct {
             pub const peek: u3 = 0b001; // dont advance internal buffer, just get bits, leave them in buffer
             pub const buffered: u3 = 0b010; // assume that there is no need to fill, fill should be called before
-            pub const reverse: u3 = 0b100; // bit reverse readed bits
+            pub const reverse: u3 = 0b100; // bit reverse read bits
         };
 
         /// Alias for readF(U, 0).
@@ -133,7 +133,7 @@ pub fn BitReader(comptime T: type, comptime ReaderType: type) type {
                     try self.fill(n);
                     return @truncate(self.bits);
                 },
-                flag.buffered => { // no fill, assume that buffer has enought bits
+                flag.buffered => { // no fill, assume that buffer has enough bits
                     const u: U = @truncate(self.bits);
                     try self.shift(n);
                     return u;
@@ -212,7 +212,7 @@ pub fn BitReader(comptime T: type, comptime ReaderType: type) type {
         }
 
         /// Read deflate fixed fixed code.
-        /// Reads first 7 bits, and then mybe 1 or 2 more to get full 7,8 or 9 bit code.
+        /// Reads first 7 bits, and then maybe 1 or 2 more to get full 7,8 or 9 bit code.
         /// ref: https://datatracker.ietf.org/doc/html/rfc1951#page-12
         ///         Lit Value    Bits        Codes
         ///          ---------    ----        -----
