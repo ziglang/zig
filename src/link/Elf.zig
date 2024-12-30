@@ -1716,7 +1716,9 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                 "-z",
                 try std.fmt.allocPrint(arena, "stack-size={d}", .{self.base.stack_size}),
             });
+        }
 
+        if (is_exe_or_dyn_lib) {
             switch (self.base.build_id) {
                 .none => {},
                 .fast, .uuid, .sha1, .md5 => {
