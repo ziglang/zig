@@ -682,7 +682,6 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             .__wasm_call_ctors => @panic("TODO lower __wasm_call_ctors"),
             .__wasm_init_memory => @panic("TODO lower __wasm_init_memory "),
             .__wasm_init_tls => @panic("TODO lower __wasm_init_tls "),
-            .__zig_error_names => @panic("TODO lower __zig_error_names "),
             .object_function => |i| {
                 _ = i;
                 @panic("TODO lower object function code and apply relocations");

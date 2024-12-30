@@ -214,22 +214,35 @@ pub const Diags = struct {
         return error.LinkFailure;
     }
 
+    pub fn failSourceLocation(diags: *Diags, sl: SourceLocation, comptime format: []const u8, args: anytype) error{LinkFailure} {
+        @branchHint(.cold);
+        addErrorSourceLocation(diags, sl, format, args);
+        return error.LinkFailure;
+    }
+
     pub fn addError(diags: *Diags, comptime format: []const u8, args: anytype) void {
+        return addErrorSourceLocation(diags, .none, format, args);
+    }
+
+    pub fn addErrorSourceLocation(diags: *Diags, sl: SourceLocation, comptime format: []const u8, args: anytype) void {
         @branchHint(.cold);
         const gpa = diags.gpa;
         const eu_main_msg = std.fmt.allocPrint(gpa, format, args);
         diags.mutex.lock();
         defer diags.mutex.unlock();
-        addErrorLockedFallible(diags, eu_main_msg) catch |err| switch (err) {
+        addErrorLockedFallible(diags, sl, eu_main_msg) catch |err| switch (err) {
             error.OutOfMemory => diags.setAllocFailureLocked(),
         };
     }
 
-    fn addErrorLockedFallible(diags: *Diags, eu_main_msg: Allocator.Error![]u8) Allocator.Error!void {
+    fn addErrorLockedFallible(diags: *Diags, sl: SourceLocation, eu_main_msg: Allocator.Error![]u8) Allocator.Error!void {
         const gpa = diags.gpa;
         const main_msg = try eu_main_msg;
         errdefer gpa.free(main_msg);
-        try diags.msgs.append(gpa, .{ .msg = main_msg });
+        try diags.msgs.append(gpa, .{
+            .msg = main_msg,
+            .source_location = sl,
+        });
     }
 
     pub fn addErrorWithNotes(diags: *Diags, note_count: usize) error{OutOfMemory}!ErrorWithNotes {

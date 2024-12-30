@@ -474,6 +474,10 @@ pub const SourceLocation = enum(u32) {
         err_msg.notes[err.note_slot - 1].source_location = .{ .wasm = sl };
     }
 
+    pub fn fail(sl: SourceLocation, diags: *link.Diags, comptime format: []const u8, args: anytype) error{LinkFailure} {
+        return diags.failSourceLocation(.{ .wasm = sl }, format, args);
+    }
+
     pub fn string(
         sl: SourceLocation,
         msg: []const u8,
@@ -881,12 +885,11 @@ pub const FunctionImport = extern struct {
         __wasm_call_ctors,
         __wasm_init_memory,
         __wasm_init_tls,
-        __zig_error_names,
         // Next, index into `object_functions`.
         // Next, index into `zcu_funcs`.
         _,
 
-        const first_object_function = @intFromEnum(Resolution.__zig_error_names) + 1;
+        const first_object_function = @intFromEnum(Resolution.__wasm_init_tls) + 1;
 
         pub const Unpacked = union(enum) {
             unresolved,
@@ -894,7 +897,6 @@ pub const FunctionImport = extern struct {
             __wasm_call_ctors,
             __wasm_init_memory,
             __wasm_init_tls,
-            __zig_error_names,
             object_function: ObjectFunctionIndex,
             zcu_func: ZcuFunc.Index,
         };
@@ -906,7 +908,6 @@ pub const FunctionImport = extern struct {
                 .__wasm_call_ctors => .__wasm_call_ctors,
                 .__wasm_init_memory => .__wasm_init_memory,
                 .__wasm_init_tls => .__wasm_init_tls,
-                .__zig_error_names => .__zig_error_names,
                 _ => {
                     const object_function_index = @intFromEnum(r) - first_object_function;
 
@@ -927,7 +928,6 @@ pub const FunctionImport = extern struct {
                 .__wasm_call_ctors => .__wasm_call_ctors,
                 .__wasm_init_memory => .__wasm_init_memory,
                 .__wasm_init_tls => .__wasm_init_tls,
-                .__zig_error_names => .__zig_error_names,
                 .object_function => |i| @enumFromInt(first_object_function + @intFromEnum(i)),
                 .zcu_func => |i| @enumFromInt(first_object_function + wasm.object_functions.items.len + @intFromEnum(i)),
             };
@@ -957,11 +957,11 @@ pub const FunctionImport = extern struct {
         pub fn typeIndex(r: Resolution, wasm: *Wasm) FunctionType.Index {
             return switch (unpack(r, wasm)) {
                 .unresolved => unreachable,
-                .__wasm_apply_global_tls_relocs => @panic("TODO"),
-                .__wasm_call_ctors => @panic("TODO"),
-                .__wasm_init_memory => @panic("TODO"),
-                .__wasm_init_tls => @panic("TODO"),
-                .__zig_error_names => @panic("TODO"),
+                .__wasm_apply_global_tls_relocs,
+                .__wasm_call_ctors,
+                .__wasm_init_memory,
+                => getExistingFuncType2(wasm, &.{}, &.{}),
+                .__wasm_init_tls => getExistingFuncType2(wasm, &.{.i32}, &.{}),
                 .object_function => |i| i.ptr(wasm).type_index,
                 .zcu_func => |i| i.typeIndex(wasm).?,
             };
@@ -974,7 +974,6 @@ pub const FunctionImport = extern struct {
                 .__wasm_call_ctors => @tagName(Unpacked.__wasm_call_ctors),
                 .__wasm_init_memory => @tagName(Unpacked.__wasm_init_memory),
                 .__wasm_init_tls => @tagName(Unpacked.__wasm_init_tls),
-                .__zig_error_names => @tagName(Unpacked.__zig_error_names),
                 .object_function => |i| i.ptr(wasm).name.slice(wasm),
                 .zcu_func => |i| i.name(wasm),
             };
@@ -2991,7 +2990,7 @@ fn markFunctionImport(
     name: String,
     import: *FunctionImport,
     func_index: FunctionImport.Index,
-) Allocator.Error!void {
+) link.File.FlushError!void {
     if (import.flags.alive) return;
     import.flags.alive = true;
 
@@ -3002,17 +3001,13 @@ fn markFunctionImport(
 
     if (import.resolution == .unresolved) {
         if (name == wasm.preloaded_strings.__wasm_init_memory) {
-            import.resolution = .__wasm_init_memory;
-            wasm.functions.putAssumeCapacity(.__wasm_init_memory, {});
+            try wasm.resolveFunctionSynthetic(import, .__wasm_init_memory, &.{}, &.{});
         } else if (name == wasm.preloaded_strings.__wasm_apply_global_tls_relocs) {
-            import.resolution = .__wasm_apply_global_tls_relocs;
-            wasm.functions.putAssumeCapacity(.__wasm_apply_global_tls_relocs, {});
+            try wasm.resolveFunctionSynthetic(import, .__wasm_apply_global_tls_relocs, &.{}, &.{});
         } else if (name == wasm.preloaded_strings.__wasm_call_ctors) {
-            import.resolution = .__wasm_call_ctors;
-            wasm.functions.putAssumeCapacity(.__wasm_call_ctors, {});
+            try wasm.resolveFunctionSynthetic(import, .__wasm_call_ctors, &.{}, &.{});
         } else if (name == wasm.preloaded_strings.__wasm_init_tls) {
-            import.resolution = .__wasm_init_tls;
-            wasm.functions.putAssumeCapacity(.__wasm_init_tls, {});
+            try wasm.resolveFunctionSynthetic(import, .__wasm_init_tls, &.{.i32}, &.{});
         } else {
             try wasm.function_imports.put(gpa, name, .fromObject(func_index, wasm));
         }
@@ -3022,7 +3017,7 @@ fn markFunctionImport(
 }
 
 /// Recursively mark alive everything referenced by the function.
-fn markFunction(wasm: *Wasm, i: ObjectFunctionIndex) Allocator.Error!void {
+fn markFunction(wasm: *Wasm, i: ObjectFunctionIndex) link.File.FlushError!void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const gop = try wasm.functions.getOrPut(gpa, .fromObjectFunction(wasm, i));
@@ -3046,7 +3041,7 @@ fn markGlobalImport(
     name: String,
     import: *GlobalImport,
     global_index: GlobalImport.Index,
-) !void {
+) link.File.FlushError!void {
     if (import.flags.alive) return;
     import.flags.alive = true;
 
@@ -3082,7 +3077,7 @@ fn markGlobalImport(
     }
 }
 
-fn markGlobal(wasm: *Wasm, i: ObjectGlobalIndex) Allocator.Error!void {
+fn markGlobal(wasm: *Wasm, i: ObjectGlobalIndex) link.File.FlushError!void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const gop = try wasm.globals.getOrPut(gpa, .fromObjectGlobal(wasm, i));
@@ -3105,7 +3100,7 @@ fn markTableImport(
     name: String,
     import: *TableImport,
     table_index: TableImport.Index,
-) !void {
+) link.File.FlushError!void {
     if (import.flags.alive) return;
     import.flags.alive = true;
 
@@ -3127,7 +3122,7 @@ fn markTableImport(
     }
 }
 
-fn markDataSegment(wasm: *Wasm, segment_index: ObjectDataSegment.Index) Allocator.Error!void {
+fn markDataSegment(wasm: *Wasm, segment_index: ObjectDataSegment.Index) link.File.FlushError!void {
     const segment = segment_index.ptr(wasm);
     if (segment.flags.alive) return;
     segment.flags.alive = true;
@@ -3135,7 +3130,7 @@ fn markDataSegment(wasm: *Wasm, segment_index: ObjectDataSegment.Index) Allocato
     try wasm.markRelocations(segment.relocations(wasm));
 }
 
-fn markRelocations(wasm: *Wasm, relocs: ObjectRelocation.IterableSlice) Allocator.Error!void {
+fn markRelocations(wasm: *Wasm, relocs: ObjectRelocation.IterableSlice) link.File.FlushError!void {
     for (relocs.slice.tags(wasm), relocs.slice.pointees(wasm), relocs.slice.offsets(wasm)) |tag, *pointee, offset| {
         if (offset >= relocs.end) break;
         switch (tag) {
@@ -3751,7 +3746,7 @@ pub fn internValtypeList(wasm: *Wasm, valtype_list: []const std.wasm.Valtype) Al
     return .fromString(try internString(wasm, @ptrCast(valtype_list)));
 }
 
-pub fn getExistingValtypeList(wasm: *Wasm, valtype_list: []const std.wasm.Valtype) ?ValtypeList {
+pub fn getExistingValtypeList(wasm: *const Wasm, valtype_list: []const std.wasm.Valtype) ?ValtypeList {
     return .fromString(getExistingString(wasm, @ptrCast(valtype_list)) orelse return null);
 }
 
@@ -3764,6 +3759,13 @@ pub fn addFuncType(wasm: *Wasm, ft: FunctionType) Allocator.Error!FunctionType.I
 pub fn getExistingFuncType(wasm: *const Wasm, ft: FunctionType) ?FunctionType.Index {
     const index = wasm.func_types.getIndex(ft) orelse return null;
     return @enumFromInt(index);
+}
+
+pub fn getExistingFuncType2(wasm: *const Wasm, params: []const std.wasm.Valtype, returns: []const std.wasm.Valtype) FunctionType.Index {
+    return getExistingFuncType(wasm, .{
+        .params = getExistingValtypeList(wasm, params).?,
+        .returns = getExistingValtypeList(wasm, returns).?,
+    }).?;
 }
 
 pub fn internFunctionType(
@@ -4079,4 +4081,27 @@ fn addZcuImportReserved(wasm: *Wasm, nav_index: InternPool.Nav.Index) ZcuImportI
     const gop = wasm.imports.getOrPutAssumeCapacity(nav_index);
     gop.value_ptr.* = {};
     return @enumFromInt(gop.index);
+}
+
+fn resolveFunctionSynthetic(
+    wasm: *Wasm,
+    import: *FunctionImport,
+    res: FunctionImport.Resolution,
+    params: []const std.wasm.Valtype,
+    returns: []const std.wasm.Valtype,
+) link.File.FlushError!void {
+    import.resolution = res;
+    wasm.functions.putAssumeCapacity(res, {});
+    // This is not only used for type-checking but also ensures the function
+    // type index is interned so that it is guaranteed to exist during `flush`.
+    const correct_func_type = try addFuncType(wasm, .{
+        .params = try internValtypeList(wasm, params),
+        .returns = try internValtypeList(wasm, returns),
+    });
+    if (import.type != correct_func_type) {
+        const diags = &wasm.base.comp.link_diags;
+        return import.source_location.fail(diags, "synthetic function {s} {} imported with incorrect signature {}", .{
+            @tagName(res), correct_func_type.fmt(wasm), import.type.fmt(wasm),
+        });
+    }
 }
