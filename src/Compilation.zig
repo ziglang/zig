@@ -3291,7 +3291,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         }));
     }
 
-    try comp.link_diags.addMessagesToBundle(&bundle);
+    try comp.link_diags.addMessagesToBundle(&bundle, comp.bin_file);
 
     if (comp.zcu) |zcu| {
         if (bundle.root_list.items.len == 0 and zcu.compile_log_sources.count() != 0) {

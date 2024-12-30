@@ -17,7 +17,7 @@ path: Path,
 /// For error reporting purposes only.
 /// If this represents an object in an archive, it's the basename of the
 /// object, and path refers to the archive.
-archive_member_name: ?[]const u8,
+archive_member_name: Wasm.OptionalString,
 /// Represents the function ID that must be called on startup.
 /// This is `null` by default as runtimes may determine the startup
 /// function themselves. This is essentially legacy.
@@ -965,21 +965,21 @@ pub fn parse(
                 if (gop.value_ptr.type != fn_ty_index) {
                     var err = try diags.addErrorWithNotes(2);
                     try err.addMsg("symbol '{s}' mismatching function signatures", .{name.slice(wasm)});
-                    gop.value_ptr.source_location.addNote(wasm, &err, "imported as {} here", .{
+                    gop.value_ptr.source_location.addNote(&err, "imported as {} here", .{
                         gop.value_ptr.type.fmt(wasm),
                     });
-                    err.addNote("{}: imported as {} here", .{ path, fn_ty_index.fmt(wasm) });
+                    source_location.addNote(&err, "imported as {} here", .{fn_ty_index.fmt(wasm)});
                     continue;
                 }
                 if (gop.value_ptr.module_name != ptr.module_name.toOptional()) {
                     var err = try diags.addErrorWithNotes(2);
                     try err.addMsg("symbol '{s}' mismatching module names", .{name.slice(wasm)});
                     if (gop.value_ptr.module_name.slice(wasm)) |module_name| {
-                        gop.value_ptr.source_location.addNote(wasm, &err, "module '{s}' here", .{module_name});
+                        gop.value_ptr.source_location.addNote(&err, "module '{s}' here", .{module_name});
                     } else {
-                        gop.value_ptr.source_location.addNote(wasm, &err, "no module here", .{});
+                        gop.value_ptr.source_location.addNote(&err, "no module here", .{});
                     }
-                    err.addNote("{}: module '{s}' here", .{ path, ptr.module_name.slice(wasm) });
+                    source_location.addNote(&err, "module '{s}' here", .{ptr.module_name.slice(wasm)});
                     continue;
                 }
                 if (symbol.flags.binding == .strong) gop.value_ptr.flags.binding = .strong;
@@ -1008,18 +1008,18 @@ pub fn parse(
                 if (ptr.valtype != existing_ty.valtype) {
                     var err = try diags.addErrorWithNotes(2);
                     try err.addMsg("symbol '{s}' mismatching global types", .{name.slice(wasm)});
-                    gop.value_ptr.source_location.addNote(wasm, &err, "type {s} here", .{@tagName(existing_ty.valtype)});
-                    err.addNote("{}: type {s} here", .{ path, @tagName(ptr.valtype) });
+                    gop.value_ptr.source_location.addNote(&err, "type {s} here", .{@tagName(existing_ty.valtype)});
+                    source_location.addNote(&err, "type {s} here", .{@tagName(ptr.valtype)});
                     continue;
                 }
                 if (ptr.mutable != existing_ty.mutable) {
                     var err = try diags.addErrorWithNotes(2);
                     try err.addMsg("symbol '{s}' mismatching global mutability", .{name.slice(wasm)});
-                    gop.value_ptr.source_location.addNote(wasm, &err, "{s} here", .{
+                    gop.value_ptr.source_location.addNote(&err, "{s} here", .{
                         if (existing_ty.mutable) "mutable" else "not mutable",
                     });
-                    err.addNote("{}: {s} here", .{
-                        path, if (ptr.mutable) "mutable" else "not mutable",
+                    source_location.addNote(&err, "{s} here", .{
+                        if (ptr.mutable) "mutable" else "not mutable",
                     });
                     continue;
                 }
@@ -1027,11 +1027,11 @@ pub fn parse(
                     var err = try diags.addErrorWithNotes(2);
                     try err.addMsg("symbol '{s}' mismatching module names", .{name.slice(wasm)});
                     if (gop.value_ptr.module_name.slice(wasm)) |module_name| {
-                        gop.value_ptr.source_location.addNote(wasm, &err, "module '{s}' here", .{module_name});
+                        gop.value_ptr.source_location.addNote(&err, "module '{s}' here", .{module_name});
                     } else {
-                        gop.value_ptr.source_location.addNote(wasm, &err, "no module here", .{});
+                        gop.value_ptr.source_location.addNote(&err, "no module here", .{});
                     }
-                    err.addNote("{}: module '{s}' here", .{ path, ptr.module_name.slice(wasm) });
+                    source_location.addNote(&err, "module '{s}' here", .{ptr.module_name.slice(wasm)});
                     continue;
                 }
                 if (symbol.flags.binding == .strong) gop.value_ptr.flags.binding = .strong;
@@ -1063,17 +1063,17 @@ pub fn parse(
                 if (ptr.ref_type != existing_reftype) {
                     var err = try diags.addErrorWithNotes(2);
                     try err.addMsg("symbol '{s}' mismatching table reftypes", .{name.slice(wasm)});
-                    gop.value_ptr.source_location.addNote(wasm, &err, "{s} here", .{@tagName(existing_reftype)});
-                    err.addNote("{}: {s} here", .{ path, @tagName(ptr.ref_type) });
+                    gop.value_ptr.source_location.addNote(&err, "{s} here", .{@tagName(existing_reftype)});
+                    source_location.addNote(&err, "{s} here", .{@tagName(ptr.ref_type)});
                     continue;
                 }
                 if (gop.value_ptr.module_name != ptr.module_name) {
                     var err = try diags.addErrorWithNotes(2);
                     try err.addMsg("symbol '{s}' mismatching module names", .{name.slice(wasm)});
-                    gop.value_ptr.source_location.addNote(wasm, &err, "module '{s}' here", .{
+                    gop.value_ptr.source_location.addNote(&err, "module '{s}' here", .{
                         gop.value_ptr.module_name.slice(wasm),
                     });
-                    err.addNote("{}: module '{s}' here", .{ path, ptr.module_name.slice(wasm) });
+                    source_location.addNote(&err, "module '{s}' here", .{ptr.module_name.slice(wasm)});
                     continue;
                 }
                 if (symbol.flags.binding == .strong) gop.value_ptr.flags.binding = .strong;
@@ -1105,11 +1105,11 @@ pub fn parse(
                 if (gop.value_ptr.type != ptr.type_index) {
                     var err = try diags.addErrorWithNotes(2);
                     try err.addMsg("function signature mismatch: {s}", .{name.slice(wasm)});
-                    gop.value_ptr.source_location.addNote(wasm, &err, "exported as {} here", .{
+                    gop.value_ptr.source_location.addNote(&err, "exported as {} here", .{
                         ptr.type_index.fmt(wasm),
                     });
                     const word = if (gop.value_ptr.resolution == .unresolved) "imported" else "exported";
-                    err.addNote("{}: {s} as {} here", .{ path, word, gop.value_ptr.type.fmt(wasm) });
+                    source_location.addNote(&err, "{s} as {} here", .{ word, gop.value_ptr.type.fmt(wasm) });
                     continue;
                 }
                 if (gop.value_ptr.resolution == .unresolved or gop.value_ptr.flags.binding == .weak) {
@@ -1121,8 +1121,8 @@ pub fn parse(
                 }
                 var err = try diags.addErrorWithNotes(2);
                 try err.addMsg("symbol collision: {s}", .{name.slice(wasm)});
-                gop.value_ptr.source_location.addNote(wasm, &err, "exported as {} here", .{ptr.type_index.fmt(wasm)});
-                err.addNote("{}: exported as {} here", .{ path, gop.value_ptr.type.fmt(wasm) });
+                gop.value_ptr.source_location.addNote(&err, "exported as {} here", .{ptr.type_index.fmt(wasm)});
+                source_location.addNote(&err, "exported as {} here", .{gop.value_ptr.type.fmt(wasm)});
                 continue;
             } else {
                 gop.value_ptr.* = .{
@@ -1242,7 +1242,7 @@ pub fn parse(
     return .{
         .version = version,
         .path = path,
-        .archive_member_name = archive_member_name,
+        .archive_member_name = try wasm.internOptionalString(archive_member_name),
         .start_function = start_function,
         .features = features,
         .functions = .{

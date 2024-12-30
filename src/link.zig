@@ -38,6 +38,11 @@ pub const Diags = struct {
     flags: Flags,
     lld: std.ArrayListUnmanaged(Lld),
 
+    pub const SourceLocation = union(enum) {
+        none,
+        wasm: File.Wasm.SourceLocation,
+    };
+
     pub const Flags = packed struct {
         no_entry_point_found: bool = false,
         missing_libc: bool = false,
@@ -70,8 +75,24 @@ pub const Diags = struct {
     };
 
     pub const Msg = struct {
+        source_location: SourceLocation = .none,
         msg: []const u8,
         notes: []Msg = &.{},
+
+        fn string(
+            msg: *const Msg,
+            bundle: *std.zig.ErrorBundle.Wip,
+            base: ?*File,
+        ) Allocator.Error!std.zig.ErrorBundle.String {
+            return switch (msg.source_location) {
+                .none => try bundle.addString(msg.msg),
+                .wasm => |sl| {
+                    dev.check(.wasm_linker);
+                    const wasm = base.?.cast(.wasm).?;
+                    return sl.string(msg.msg, bundle, wasm);
+                },
+            };
+        }
 
         pub fn deinit(self: *Msg, gpa: Allocator) void {
             for (self.notes) |*note| note.deinit(gpa);
@@ -326,16 +347,16 @@ pub const Diags = struct {
         diags.flags.alloc_failure_occurred = true;
     }
 
-    pub fn addMessagesToBundle(diags: *const Diags, bundle: *std.zig.ErrorBundle.Wip) Allocator.Error!void {
+    pub fn addMessagesToBundle(diags: *const Diags, bundle: *std.zig.ErrorBundle.Wip, base: ?*File) Allocator.Error!void {
         for (diags.msgs.items) |link_err| {
             try bundle.addRootErrorMessage(.{
-                .msg = try bundle.addString(link_err.msg),
+                .msg = try link_err.string(bundle, base),
                 .notes_len = @intCast(link_err.notes.len),
             });
             const notes_start = try bundle.reserveNotes(@intCast(link_err.notes.len));
             for (link_err.notes, 0..) |note, i| {
                 bundle.extra.items[notes_start + i] = @intFromEnum(try bundle.addErrorMessage(.{
-                    .msg = try bundle.addString(note.msg),
+                    .msg = try note.string(bundle, base),
                 }));
             }
         }
@@ -2224,7 +2245,7 @@ fn resolvePathInputLib(
             try wip_errors.init(gpa);
             defer wip_errors.deinit();
 
-            try diags.addMessagesToBundle(&wip_errors);
+            try diags.addMessagesToBundle(&wip_errors, null);
 
             var error_bundle = try wip_errors.toOwnedBundle("");
             defer error_bundle.deinit(gpa);

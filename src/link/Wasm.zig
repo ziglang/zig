@@ -465,17 +465,33 @@ pub const SourceLocation = enum(u32) {
 
     pub fn addNote(
         sl: SourceLocation,
-        wasm: *Wasm,
         err: *link.Diags.ErrorWithNotes,
         comptime f: []const u8,
         args: anytype,
     ) void {
-        switch (sl.unpack(wasm)) {
-            .none => err.addNote(f, args),
-            .zig_object_nofile => err.addNote("zig compilation unit: " ++ f, args),
-            .object_index => |i| err.addNote("{}: " ++ f, .{i.ptr(wasm).path} ++ args),
+        err.addNote(f, args);
+        const err_msg = &err.diags.msgs.items[err.index];
+        err_msg.notes[err.note_slot - 1].source_location = .{ .wasm = sl };
+    }
+
+    pub fn string(
+        sl: SourceLocation,
+        msg: []const u8,
+        bundle: *std.zig.ErrorBundle.Wip,
+        wasm: *const Wasm,
+    ) Allocator.Error!std.zig.ErrorBundle.String {
+        return switch (sl.unpack(wasm)) {
+            .none => try bundle.addString(msg),
+            .zig_object_nofile => try bundle.printString("zig compilation unit: {s}", .{msg}),
+            .object_index => |i| {
+                const obj = i.ptr(wasm);
+                return if (obj.archive_member_name.slice(wasm)) |obj_name|
+                    try bundle.printString("{} ({s}): {s}", .{ obj.path, std.fs.path.basename(obj_name), msg })
+                else
+                    try bundle.printString("{}: {s}", .{ obj.path, msg });
+            },
             .source_location_index => @panic("TODO"),
-        }
+        };
     }
 };
 
@@ -3677,6 +3693,12 @@ fn defaultEntrySymbolName(
         .reactor => preloaded_strings._initialize,
         .command => preloaded_strings._start,
     };
+}
+
+pub fn internOptionalString(wasm: *Wasm, optional_bytes: ?[]const u8) Allocator.Error!OptionalString {
+    const bytes = optional_bytes orelse return .none;
+    const string = try internString(wasm, bytes);
+    return string.toOptional();
 }
 
 pub fn internString(wasm: *Wasm, bytes: []const u8) Allocator.Error!String {
