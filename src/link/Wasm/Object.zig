@@ -36,12 +36,16 @@ global_imports: RelativeSlice,
 table_imports: RelativeSlice,
 /// Points into Wasm object_custom_segments
 custom_segments: RelativeSlice,
-/// For calculating local section index from `Wasm.ObjectSectionIndex`.
-local_section_index_base: u32,
 /// Points into Wasm object_init_funcs
 init_funcs: RelativeSlice,
 /// Points into Wasm object_comdats
 comdats: RelativeSlice,
+/// Guaranteed to be non-null when functions has nonzero length.
+code_section_index: ?Wasm.ObjectSectionIndex,
+/// Guaranteed to be non-null when globals has nonzero length.
+global_section_index: ?Wasm.ObjectSectionIndex,
+/// Guaranteed to be non-null when data segments has nonzero length.
+data_section_index: ?Wasm.ObjectSectionIndex,
 
 pub const RelativeSlice = struct {
     off: u32,
@@ -52,7 +56,8 @@ pub const SegmentInfo = struct {
     name: Wasm.String,
     flags: Flags,
 
-    const Flags = packed struct(u32) {
+    /// Matches the ABI.
+    pub const Flags = packed struct(u32) {
         /// Signals that the segment contains only null terminated strings allowing
         /// the linker to perform merging.
         strings: bool,
@@ -99,6 +104,37 @@ pub const SubsectionType = enum(u8) {
     init_funcs = 6,
     comdat_info = 7,
     symbol_table = 8,
+};
+
+/// Specified by https://github.com/WebAssembly/tool-conventions/blob/main/Linking.md
+pub const RelocationType = enum(u8) {
+    function_index_leb = 0,
+    table_index_sleb = 1,
+    table_index_i32 = 2,
+    memory_addr_leb = 3,
+    memory_addr_sleb = 4,
+    memory_addr_i32 = 5,
+    type_index_leb = 6,
+    global_index_leb = 7,
+    function_offset_i32 = 8,
+    section_offset_i32 = 9,
+    event_index_leb = 10,
+    memory_addr_rel_sleb = 11,
+    table_index_rel_sleb = 12,
+    global_index_i32 = 13,
+    memory_addr_leb64 = 14,
+    memory_addr_sleb64 = 15,
+    memory_addr_i64 = 16,
+    memory_addr_rel_sleb64 = 17,
+    table_index_sleb64 = 18,
+    table_index_i64 = 19,
+    table_number_leb = 20,
+    memory_addr_tls_sleb = 21,
+    function_offset_i64 = 22,
+    memory_addr_locrel_i32 = 23,
+    table_index_rel_sleb64 = 24,
+    memory_addr_tls_sleb64 = 25,
+    function_index_i32 = 26,
 };
 
 pub const Symbol = struct {
@@ -245,7 +281,8 @@ pub fn parse(
     const global_imports_start: u32 = @intCast(wasm.object_global_imports.entries.len);
     const table_imports_start: u32 = @intCast(wasm.object_table_imports.entries.len);
     const local_section_index_base = wasm.object_total_sections;
-    const source_location: Wasm.SourceLocation = .fromObject(@enumFromInt(wasm.objects.items.len), wasm);
+    const object_index: Wasm.ObjectIndex = @enumFromInt(wasm.objects.items.len);
+    const source_location: Wasm.SourceLocation = .fromObject(object_index, wasm);
 
     ss.clear();
 
@@ -254,6 +291,9 @@ pub fn parse(
     var saw_linking_section = false;
     var has_tls = false;
     var table_import_symbol_count: usize = 0;
+    var code_section_index: ?Wasm.ObjectSectionIndex = null;
+    var global_section_index: ?Wasm.ObjectSectionIndex = null;
+    var data_section_index: ?Wasm.ObjectSectionIndex = null;
     while (pos < bytes.len) : (wasm.object_total_sections += 1) {
         const section_index: Wasm.ObjectSectionIndex = @enumFromInt(wasm.object_total_sections);
 
@@ -365,7 +405,8 @@ pub fn parse(
                                     switch (tag) {
                                         .data => {
                                             const name, pos = readBytes(bytes, pos);
-                                            symbol.name = (try wasm.internString(name)).toOptional();
+                                            const interned_name = try wasm.internString(name);
+                                            symbol.name = interned_name.toOptional();
                                             if (symbol.flags.undefined) {
                                                 symbol.pointee = .data_import;
                                             } else {
@@ -376,7 +417,7 @@ pub fn parse(
                                                     .segment = @enumFromInt(data_segment_start + segment_index),
                                                     .offset = segment_offset,
                                                     .size = size,
-                                                    .name = symbol.name,
+                                                    .name = interned_name,
                                                     .flags = symbol.flags,
                                                 });
                                                 symbol.pointee = .{
@@ -468,7 +509,7 @@ pub fn parse(
                     var prev_offset: u32 = 0;
                     try wasm.object_relocations.ensureUnusedCapacity(gpa, count);
                     for (0..count) |_| {
-                        const tag: Wasm.ObjectRelocation.Tag = @enumFromInt(bytes[pos]);
+                        const tag: RelocationType = @enumFromInt(bytes[pos]);
                         pos += 1;
                         const offset, pos = readLeb(u32, bytes, pos);
                         const index, pos = readLeb(u32, bytes, pos);
@@ -477,75 +518,134 @@ pub fn parse(
                             return diags.failParse(path, "relocation entries not sorted by offset", .{});
                         prev_offset = offset;
 
+                        const sym = &ss.symbol_table.items[index];
+
                         switch (tag) {
-                            .MEMORY_ADDR_LEB,
-                            .MEMORY_ADDR_SLEB,
-                            .MEMORY_ADDR_I32,
-                            .MEMORY_ADDR_REL_SLEB,
-                            .MEMORY_ADDR_LEB64,
-                            .MEMORY_ADDR_SLEB64,
-                            .MEMORY_ADDR_I64,
-                            .MEMORY_ADDR_REL_SLEB64,
-                            .MEMORY_ADDR_TLS_SLEB,
-                            .MEMORY_ADDR_LOCREL_I32,
-                            .MEMORY_ADDR_TLS_SLEB64,
+                            .memory_addr_leb,
+                            .memory_addr_sleb,
+                            .memory_addr_i32,
+                            .memory_addr_rel_sleb,
+                            .memory_addr_leb64,
+                            .memory_addr_sleb64,
+                            .memory_addr_i64,
+                            .memory_addr_rel_sleb64,
+                            .memory_addr_tls_sleb,
+                            .memory_addr_locrel_i32,
+                            .memory_addr_tls_sleb64,
                             => {
                                 const addend: i32, pos = readLeb(i32, bytes, pos);
-                                wasm.object_relocations.appendAssumeCapacity(.{
-                                    .tag = tag,
-                                    .offset = offset,
-                                    .pointee = .{ .data = ss.symbol_table.items[index].pointee.data },
-                                    .addend = addend,
+                                wasm.object_relocations.appendAssumeCapacity(switch (sym.pointee) {
+                                    .data => |data| .{
+                                        .tag = .fromType(tag),
+                                        .offset = offset,
+                                        .pointee = .{ .data = data },
+                                        .addend = addend,
+                                    },
+                                    .data_import => .{
+                                        .tag = .fromTypeImport(tag),
+                                        .offset = offset,
+                                        .pointee = .{ .symbol_name = sym.name.unwrap().? },
+                                        .addend = addend,
+                                    },
+                                    else => unreachable,
                                 });
                             },
-                            .FUNCTION_OFFSET_I32,
-                            .FUNCTION_OFFSET_I64,
-                            => {
+                            .function_offset_i32, .function_offset_i64 => {
+                                const addend: i32, pos = readLeb(i32, bytes, pos);
+                                wasm.object_relocations.appendAssumeCapacity(switch (sym.pointee) {
+                                    .function => .{
+                                        .tag = .fromType(tag),
+                                        .offset = offset,
+                                        .pointee = .{ .function = sym.pointee.function },
+                                        .addend = addend,
+                                    },
+                                    .function_import => .{
+                                        .tag = .fromTypeImport(tag),
+                                        .offset = offset,
+                                        .pointee = .{ .symbol_name = sym.name.unwrap().? },
+                                        .addend = addend,
+                                    },
+                                    else => unreachable,
+                                });
+                            },
+                            .section_offset_i32 => {
                                 const addend: i32, pos = readLeb(i32, bytes, pos);
                                 wasm.object_relocations.appendAssumeCapacity(.{
-                                    .tag = tag,
+                                    .tag = .section_offset_i32,
                                     .offset = offset,
-                                    .pointee = .{ .function = ss.symbol_table.items[index].pointee.function },
+                                    .pointee = .{ .section = sym.pointee.section },
                                     .addend = addend,
                                 });
                             },
-                            .SECTION_OFFSET_I32 => {
-                                const addend: i32, pos = readLeb(i32, bytes, pos);
+                            .type_index_leb => {
                                 wasm.object_relocations.appendAssumeCapacity(.{
-                                    .tag = tag,
-                                    .offset = offset,
-                                    .pointee = .{ .section = ss.symbol_table.items[index].pointee.section },
-                                    .addend = addend,
-                                });
-                            },
-                            .TYPE_INDEX_LEB => {
-                                wasm.object_relocations.appendAssumeCapacity(.{
-                                    .tag = tag,
+                                    .tag = .type_index_leb,
                                     .offset = offset,
                                     .pointee = .{ .type_index = ss.func_types.items[index] },
                                     .addend = undefined,
                                 });
                             },
-                            .FUNCTION_INDEX_LEB,
-                            .FUNCTION_INDEX_I32,
-                            .GLOBAL_INDEX_LEB,
-                            .GLOBAL_INDEX_I32,
-                            .TABLE_INDEX_SLEB,
-                            .TABLE_INDEX_I32,
-                            .TABLE_INDEX_SLEB64,
-                            .TABLE_INDEX_I64,
-                            .TABLE_NUMBER_LEB,
-                            .TABLE_INDEX_REL_SLEB,
-                            .TABLE_INDEX_REL_SLEB64,
-                            .TAG_INDEX_LEB,
+                            .function_index_leb,
+                            .function_index_i32,
+                            .table_index_sleb,
+                            .table_index_i32,
+                            .table_index_sleb64,
+                            .table_index_i64,
+                            .table_index_rel_sleb,
+                            .table_index_rel_sleb64,
                             => {
-                                wasm.object_relocations.appendAssumeCapacity(.{
-                                    .tag = tag,
-                                    .offset = offset,
-                                    .pointee = .{ .symbol_name = ss.symbol_table.items[index].name.unwrap().? },
-                                    .addend = undefined,
+                                wasm.object_relocations.appendAssumeCapacity(switch (sym.pointee) {
+                                    .function => .{
+                                        .tag = .fromType(tag),
+                                        .offset = offset,
+                                        .pointee = .{ .function = sym.pointee.function },
+                                        .addend = undefined,
+                                    },
+                                    .function_import => .{
+                                        .tag = .fromTypeImport(tag),
+                                        .offset = offset,
+                                        .pointee = .{ .symbol_name = sym.name.unwrap().? },
+                                        .addend = undefined,
+                                    },
+                                    else => unreachable,
                                 });
                             },
+                            .global_index_leb, .global_index_i32 => {
+                                wasm.object_relocations.appendAssumeCapacity(switch (sym.pointee) {
+                                    .global => .{
+                                        .tag = .fromType(tag),
+                                        .offset = offset,
+                                        .pointee = .{ .global = sym.pointee.global },
+                                        .addend = undefined,
+                                    },
+                                    .global_import => .{
+                                        .tag = .fromTypeImport(tag),
+                                        .offset = offset,
+                                        .pointee = .{ .symbol_name = sym.name.unwrap().? },
+                                        .addend = undefined,
+                                    },
+                                    else => unreachable,
+                                });
+                            },
+
+                            .table_number_leb => {
+                                wasm.object_relocations.appendAssumeCapacity(switch (sym.pointee) {
+                                    .table => .{
+                                        .tag = .fromType(tag),
+                                        .offset = offset,
+                                        .pointee = .{ .table = sym.pointee.table },
+                                        .addend = undefined,
+                                    },
+                                    .table_import => .{
+                                        .tag = .fromTypeImport(tag),
+                                        .offset = offset,
+                                        .pointee = .{ .symbol_name = sym.name.unwrap().? },
+                                        .addend = undefined,
+                                    },
+                                    else => unreachable,
+                                });
+                            },
+                            .event_index_leb => return diags.failParse(path, "unsupported relocation: R_WASM_EVENT_INDEX_LEB", .{}),
                         }
                     }
 
@@ -684,11 +784,17 @@ pub fn parse(
                 }
             },
             .global => {
+                if (global_section_index != null)
+                    return diags.failParse(path, "object has more than one global section", .{});
+                global_section_index = section_index;
+
+                const section_start = pos;
                 const globals_len, pos = readLeb(u32, bytes, pos);
                 for (try wasm.object_globals.addManyAsSlice(gpa, globals_len)) |*global| {
                     const valtype, pos = readEnum(std.wasm.Valtype, bytes, pos);
                     const mutable = bytes[pos] == 0x01;
                     pos += 1;
+                    const init_start = pos;
                     const expr, pos = try readInit(wasm, bytes, pos);
                     global.* = .{
                         .name = .none,
@@ -699,6 +805,9 @@ pub fn parse(
                             },
                         },
                         .expr = expr,
+                        .object_index = object_index,
+                        .offset = @intCast(init_start - section_start),
+                        .size = @intCast(pos - init_start),
                     };
                 }
             },
@@ -728,10 +837,14 @@ pub fn parse(
                 start_function = @enumFromInt(functions_start + index);
             },
             .element => {
-                log.warn("unimplemented: element section in {}", .{path});
+                log.warn("unimplemented: element section in {} {s}", .{ path, archive_member_name.? });
                 pos = section_end;
             },
             .code => {
+                if (code_section_index != null)
+                    return diags.failParse(path, "object has more than one code section", .{});
+                code_section_index = section_index;
+
                 const start = pos;
                 const count, pos = readLeb(u32, bytes, pos);
                 for (try wasm.object_functions.addManyAsSlice(gpa, count)) |*elem| {
@@ -745,12 +858,16 @@ pub fn parse(
                         .type_index = undefined, // populated from func_types
                         .code = payload,
                         .offset = offset,
-                        .section_index = section_index,
-                        .source_location = source_location,
+                        .object_index = object_index,
                     };
                 }
             },
             .data => {
+                if (data_section_index != null)
+                    return diags.failParse(path, "object has more than one data section", .{});
+                data_section_index = section_index;
+
+                const section_start = pos;
                 const count, pos = readLeb(u32, bytes, pos);
                 for (try wasm.object_data_segments.addManyAsSlice(gpa, count)) |*elem| {
                     const flags, pos = readEnum(DataSegmentFlags, bytes, pos);
@@ -761,12 +878,17 @@ pub fn parse(
                     //const expr, pos = if (flags != .passive) try readInit(wasm, bytes, pos) else .{ .none, pos };
                     if (flags != .passive) pos = try skipInit(bytes, pos);
                     const data_len, pos = readLeb(u32, bytes, pos);
+                    const segment_start = pos;
                     const payload = try wasm.addRelocatableDataPayload(bytes[pos..][0..data_len]);
                     pos += data_len;
                     elem.* = .{
                         .payload = payload,
-                        .name = .none, // Populated from symbol table
-                        .flags = .{}, // Populated from symbol table and segment_info
+                        .name = .none, // Populated from segment_info
+                        .flags = .{
+                            .is_passive = flags == .passive,
+                        }, // Remainder populated from segment_info
+                        .offset = @intCast(segment_start - section_start),
+                        .object_index = object_index,
                     };
                 }
             },
@@ -1033,8 +1155,10 @@ pub fn parse(
             }
         },
         .data_import => {
-            const name = symbol.name.unwrap().?;
-            log.warn("TODO data import '{s}'", .{name.slice(wasm)});
+            if (symbol.flags.undefined and symbol.flags.binding == .local) {
+                const name = symbol.name.slice(wasm).?;
+                diags.addParseError(path, "local symbol '{s}' references import", .{name});
+            }
         },
         .data => continue, // `wasm.object_datas` has already been populated.
     };
@@ -1055,16 +1179,21 @@ pub fn parse(
     }
 
     // Apply segment_info.
-    for (wasm.object_data_segments.items[data_segment_start..], ss.segment_info.items) |*data, info| {
+    const data_segments = wasm.object_data_segments.items[data_segment_start..];
+    if (data_segments.len != ss.segment_info.items.len) {
+        return diags.failParse(path, "expected {d} segment_info entries; found {d}", .{
+            data_segments.len, ss.segment_info.items.len,
+        });
+    }
+    for (data_segments, ss.segment_info.items) |*data, info| {
         data.name = info.name.toOptional();
-        data.flags.strings = info.flags.strings;
-        data.flags.tls = data.flags.tls or info.flags.tls;
-        data.flags.no_strip = info.flags.retain;
-        data.flags.alignment = info.flags.alignment;
-        if (data.flags.undefined and data.flags.binding == .local) {
-            const name = info.name.slice(wasm);
-            diags.addParseError(path, "local symbol '{s}' references import", .{name});
-        }
+        data.flags = .{
+            .is_passive = data.flags.is_passive,
+            .strings = info.flags.strings,
+            .tls = info.flags.tls,
+            .retain = info.flags.retain,
+            .alignment = info.flags.alignment,
+        };
     }
 
     // Check for indirect function table in case of an MVP object file.
@@ -1106,6 +1235,10 @@ pub fn parse(
         });
     }
 
+    const functions_len: u32 = @intCast(wasm.object_functions.items.len - functions_start);
+    if (functions_len > 0 and code_section_index == null)
+        return diags.failParse(path, "code section missing ({d} functions)", .{functions_len});
+
     return .{
         .version = version,
         .path = path,
@@ -1114,7 +1247,7 @@ pub fn parse(
         .features = features,
         .functions = .{
             .off = functions_start,
-            .len = @intCast(wasm.object_functions.items.len - functions_start),
+            .len = functions_len,
         },
         .function_imports = .{
             .off = function_imports_start,
@@ -1140,7 +1273,9 @@ pub fn parse(
             .off = custom_segment_start,
             .len = @intCast(wasm.object_custom_segments.entries.len - custom_segment_start),
         },
-        .local_section_index_base = local_section_index_base,
+        .code_section_index = code_section_index,
+        .global_section_index = global_section_index,
+        .data_section_index = data_section_index,
     };
 }
 

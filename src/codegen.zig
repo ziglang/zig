@@ -670,7 +670,7 @@ fn lowerUavRef(
                 try wasm.out_relocs.append(gpa, .{
                     .offset = @intCast(code.items.len),
                     .pointee = .{ .symbol_index = try wasm.uavSymbolIndex(uav.val) },
-                    .tag = if (ptr_width_bytes == 4) .MEMORY_ADDR_I32 else .MEMORY_ADDR_I64,
+                    .tag = if (ptr_width_bytes == 4) .memory_addr_i32 else .memory_addr_i64,
                     .addend = @intCast(offset),
                 });
             } else {
@@ -742,7 +742,7 @@ fn lowerNavRef(
                 try wasm.out_relocs.append(gpa, .{
                     .offset = @intCast(code.items.len),
                     .pointee = .{ .symbol_index = try wasm.navSymbolIndex(nav_index) },
-                    .tag = if (ptr_width_bytes == 4) .MEMORY_ADDR_I32 else .MEMORY_ADDR_I64,
+                    .tag = if (ptr_width_bytes == 4) .memory_addr_i32 else .memory_addr_i64,
                     .addend = @intCast(offset),
                 });
             } else {

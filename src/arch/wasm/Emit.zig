@@ -108,7 +108,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 try wasm.out_relocs.append(gpa, .{
                     .offset = @intCast(code.items.len),
                     .pointee = .{ .symbol_index = try wasm.errorNameTableSymbolIndex() },
-                    .tag = if (is_wasm32) .MEMORY_ADDR_LEB else .MEMORY_ADDR_LEB64,
+                    .tag = if (is_wasm32) .memory_addr_leb else .memory_addr_leb64,
                     .addend = 0,
                 });
                 code.appendNTimesAssumeCapacity(0, if (is_wasm32) 5 else 10);
@@ -162,7 +162,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 try wasm.out_relocs.append(gpa, .{
                     .offset = @intCast(code.items.len),
                     .pointee = .{ .symbol_index = try wasm.navSymbolIndex(datas[inst].nav_index) },
-                    .tag = .FUNCTION_INDEX_LEB,
+                    .tag = .function_index_leb,
                     .addend = 0,
                 });
                 code.appendNTimesAssumeCapacity(0, 5);
@@ -182,7 +182,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 try wasm.out_relocs.append(gpa, .{
                     .offset = @intCast(code.items.len),
                     .pointee = .{ .type_index = func_ty_index },
-                    .tag = .TYPE_INDEX_LEB,
+                    .tag = .type_index_leb,
                     .addend = 0,
                 });
                 code.appendNTimesAssumeCapacity(0, 5);
@@ -202,7 +202,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 try wasm.out_relocs.append(gpa, .{
                     .offset = @intCast(code.items.len),
                     .pointee = .{ .symbol_index = try wasm.tagNameSymbolIndex(datas[inst].ip_index) },
-                    .tag = .FUNCTION_INDEX_LEB,
+                    .tag = .function_index_leb,
                     .addend = 0,
                 });
                 code.appendNTimesAssumeCapacity(0, 5);
@@ -226,7 +226,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 try wasm.out_relocs.append(gpa, .{
                     .offset = @intCast(code.items.len),
                     .pointee = .{ .symbol_index = try wasm.symbolNameIndex(symbol_name) },
-                    .tag = .FUNCTION_INDEX_LEB,
+                    .tag = .function_index_leb,
                     .addend = 0,
                 });
                 code.appendNTimesAssumeCapacity(0, 5);
@@ -245,7 +245,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 try wasm.out_relocs.append(gpa, .{
                     .offset = @intCast(code.items.len),
                     .pointee = .{ .symbol_index = try wasm.stackPointerSymbolIndex() },
-                    .tag = .GLOBAL_INDEX_LEB,
+                    .tag = .global_index_leb,
                     .addend = 0,
                 });
                 code.appendNTimesAssumeCapacity(0, 5);
@@ -922,7 +922,7 @@ fn uavRefOffObj(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.UavRef
     try wasm.out_relocs.append(gpa, .{
         .offset = @intCast(code.items.len),
         .pointee = .{ .symbol_index = try wasm.uavSymbolIndex(data.uav_obj.key(wasm).*) },
-        .tag = if (is_wasm32) .MEMORY_ADDR_LEB else .MEMORY_ADDR_LEB64,
+        .tag = if (is_wasm32) .memory_addr_leb else .memory_addr_leb64,
         .addend = data.offset,
     });
     code.appendNTimesAssumeCapacity(0, if (is_wasm32) 5 else 10);
@@ -957,7 +957,7 @@ fn navRefOff(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.NavRefOff
         try wasm.out_relocs.append(gpa, .{
             .offset = @intCast(code.items.len),
             .pointee = .{ .symbol_index = try wasm.navSymbolIndex(data.nav_index) },
-            .tag = if (is_wasm32) .MEMORY_ADDR_LEB else .MEMORY_ADDR_LEB64,
+            .tag = if (is_wasm32) .memory_addr_leb else .memory_addr_leb64,
             .addend = data.offset,
         });
         code.appendNTimesAssumeCapacity(0, if (is_wasm32) 5 else 10);

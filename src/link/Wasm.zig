@@ -93,13 +93,13 @@ func_types: std.AutoArrayHashMapUnmanaged(FunctionType, void) = .empty,
 /// Local functions may be unnamed.
 object_function_imports: std.AutoArrayHashMapUnmanaged(String, FunctionImport) = .empty,
 /// All functions for all objects.
-object_functions: std.ArrayListUnmanaged(Function) = .empty,
+object_functions: std.ArrayListUnmanaged(ObjectFunction) = .empty,
 
 /// Provides a mapping of both imports and provided globals to symbol name.
 /// Local globals may be unnamed.
 object_global_imports: std.AutoArrayHashMapUnmanaged(String, GlobalImport) = .empty,
 /// All globals for all objects.
-object_globals: std.ArrayListUnmanaged(Global) = .empty,
+object_globals: std.ArrayListUnmanaged(ObjectGlobal) = .empty,
 
 /// All table imports for all objects.
 object_table_imports: std.AutoArrayHashMapUnmanaged(String, TableImport) = .empty,
@@ -386,7 +386,7 @@ pub const GlobalIndex = enum(u32) {
     pub const stack_pointer: GlobalIndex = @enumFromInt(0);
 
     /// Same as `stack_pointer` but with a safety assertion.
-    pub fn stackPointer(wasm: *const Wasm) Global.Index {
+    pub fn stackPointer(wasm: *const Wasm) ObjectGlobal.Index {
         const comp = wasm.base.comp;
         assert(comp.config.output_mode != .Obj);
         assert(comp.zcu != null);
@@ -513,26 +513,19 @@ pub const SymbolFlags = packed struct(u32) {
 
     // Above here matches the tooling conventions ABI.
 
-    padding1: u5 = 0,
+    padding1: u13 = 0,
     /// Zig-specific. Dead things are allowed to be garbage collected.
     alive: bool = false,
-    /// Zig-specific. Segments only. Signals that the segment contains only
-    /// null terminated strings allowing the linker to perform merging.
-    strings: bool = false,
     /// Zig-specific. This symbol comes from an object that must be included in
     /// the final link.
     must_link: bool = false,
-    /// Zig-specific. Data segments only.
-    is_passive: bool = false,
-    /// Zig-specific. Data segments only.
-    alignment: Alignment = .none,
-    /// Zig-specific. Globals only.
+    /// Zig-specific.
     global_type: GlobalType4 = .zero,
-    /// Zig-specific. Tables only.
+    /// Zig-specific.
     limits_has_max: bool = false,
-    /// Zig-specific. Tables only.
+    /// Zig-specific.
     limits_is_shared: bool = false,
-    /// Zig-specific. Tables only.
+    /// Zig-specific.
     ref_type: RefType1 = .funcref,
 
     pub const Binding = enum(u2) {
@@ -554,10 +547,7 @@ pub const SymbolFlags = packed struct(u32) {
     pub fn initZigSpecific(flags: *SymbolFlags, must_link: bool, no_strip: bool) void {
         flags.no_strip = no_strip;
         flags.alive = false;
-        flags.strings = false;
         flags.must_link = must_link;
-        flags.is_passive = false;
-        flags.alignment = .none;
         flags.global_type = .zero;
         flags.limits_has_max = false;
         flags.limits_is_shared = false;
@@ -603,7 +593,7 @@ pub const GlobalType4 = packed struct(u4) {
 
     pub const zero: GlobalType4 = @bitCast(@as(u4, 0));
 
-    pub fn to(gt: GlobalType4) Global.Type {
+    pub fn to(gt: GlobalType4) ObjectGlobal.Type {
         return .{
             .valtype = gt.valtype.to(),
             .mutable = gt.mutable,
@@ -1001,18 +991,24 @@ pub const FunctionImport = extern struct {
     };
 };
 
-pub const Function = extern struct {
+pub const ObjectFunction = extern struct {
     flags: SymbolFlags,
     /// `none` if this function has no symbol describing it.
     name: OptionalString,
     type_index: FunctionType.Index,
     code: Code,
-    /// The offset within the section where the data starts.
+    /// The offset within the code section where the data starts.
     offset: u32,
-    section_index: ObjectSectionIndex,
-    source_location: SourceLocation,
+    /// The object file whose code section contains this function.
+    object_index: ObjectIndex,
 
     pub const Code = DataPayload;
+
+    fn relocations(of: *const ObjectFunction, wasm: *const Wasm) ObjectRelocation.IterableSlice {
+        const code_section_index = of.object_index.ptr(wasm).code_section_index.?;
+        const relocs = wasm.object_relocations_table.get(code_section_index) orelse return .empty;
+        return .init(relocs, of.offset, of.code.len, wasm);
+    }
 };
 
 pub const GlobalImport = extern struct {
@@ -1101,6 +1097,10 @@ pub const GlobalImport = extern struct {
             });
         }
 
+        fn fromObjectGlobal(wasm: *const Wasm, object_global: ObjectGlobalIndex) Resolution {
+            return pack(wasm, .{ .object_global = object_global });
+        }
+
         pub fn name(r: Resolution, wasm: *const Wasm) ?[]const u8 {
             return switch (unpack(r, wasm)) {
                 .unresolved => unreachable,
@@ -1137,22 +1137,32 @@ pub const GlobalImport = extern struct {
             return index.value(wasm).module_name;
         }
 
-        pub fn globalType(index: Index, wasm: *const Wasm) Global.Type {
+        pub fn globalType(index: Index, wasm: *const Wasm) ObjectGlobal.Type {
             return value(index, wasm).flags.global_type.to();
         }
     };
 };
 
-pub const Global = extern struct {
+pub const ObjectGlobal = extern struct {
     /// `none` if this function has no symbol describing it.
     name: OptionalString,
     flags: SymbolFlags,
     expr: Expr,
+    /// The object file whose global section contains this global.
+    object_index: ObjectIndex,
+    offset: u32,
+    size: u32,
 
     pub const Type = struct {
         valtype: std.wasm.Valtype,
         mutable: bool,
     };
+
+    fn relocations(og: *const ObjectGlobal, wasm: *const Wasm) ObjectRelocation.IterableSlice {
+        const global_section_index = og.object_index.ptr(wasm).global_section_index.?;
+        const relocs = wasm.object_relocations_table.get(global_section_index) orelse return .empty;
+        return .init(relocs, og.offset, og.size, wasm);
+    }
 };
 
 pub const RefType1 = enum(u1) {
@@ -1203,6 +1213,18 @@ pub const TableImport = extern struct {
                 .__indirect_function_table => .__indirect_function_table,
                 _ => .{ .object_table = @enumFromInt(@intFromEnum(r) - first_object_table) },
             };
+        }
+
+        fn pack(unpacked: Unpacked) Resolution {
+            return switch (unpacked) {
+                .unresolved => .unresolved,
+                .__indirect_function_table => .__indirect_function_table,
+                .object_table => |i| @enumFromInt(first_object_table + @intFromEnum(i)),
+            };
+        }
+
+        fn fromObjectTable(object_table: ObjectTableIndex) Resolution {
+            return pack(.{ .object_table = object_table });
         }
 
         pub fn refType(r: Resolution, wasm: *const Wasm) std.wasm.RefType {
@@ -1298,7 +1320,7 @@ pub const ObjectTableIndex = enum(u32) {
 pub const ObjectGlobalIndex = enum(u32) {
     _,
 
-    pub fn ptr(index: ObjectGlobalIndex, wasm: *const Wasm) *Global {
+    pub fn ptr(index: ObjectGlobalIndex, wasm: *const Wasm) *ObjectGlobal {
         return &wasm.object_globals.items[@intFromEnum(index)];
     }
 
@@ -1338,7 +1360,7 @@ pub const ObjectMemory = extern struct {
 pub const ObjectFunctionIndex = enum(u32) {
     _,
 
-    pub fn ptr(index: ObjectFunctionIndex, wasm: *const Wasm) *Function {
+    pub fn ptr(index: ObjectFunctionIndex, wasm: *const Wasm) *ObjectFunction {
         return &wasm.object_functions.items[@intFromEnum(index)];
     }
 
@@ -1363,8 +1385,28 @@ pub const OptionalObjectFunctionIndex = enum(u32) {
 pub const ObjectDataSegment = extern struct {
     /// `none` if segment info custom subsection is missing.
     name: OptionalString,
-    flags: SymbolFlags,
+    flags: Flags,
     payload: DataPayload,
+    offset: u32,
+    object_index: ObjectIndex,
+
+    pub const Flags = packed struct(u32) {
+        alive: bool = false,
+        is_passive: bool = false,
+        alignment: Alignment = .none,
+        /// Signals that the segment contains only null terminated strings allowing
+        /// the linker to perform merging.
+        strings: bool = false,
+        /// The segment contains thread-local data. This means that a unique copy
+        /// of this segment will be created for each thread.
+        tls: bool = false,
+        /// If the object file is included in the final link, the segment should be
+        /// retained in the final output regardless of whether it is used by the
+        /// program.
+        retain: bool = false,
+
+        _: u21 = 0,
+    };
 
     /// Index into `Wasm.object_data_segments`.
     pub const Index = enum(u32) {
@@ -1374,6 +1416,12 @@ pub const ObjectDataSegment = extern struct {
             return &wasm.object_data_segments.items[@intFromEnum(i)];
         }
     };
+
+    fn relocations(ods: *const ObjectDataSegment, wasm: *const Wasm) ObjectRelocation.IterableSlice {
+        const data_section_index = ods.object_index.ptr(wasm).data_section_index.?;
+        const relocs = wasm.object_relocations_table.get(data_section_index) orelse return .empty;
+        return .init(relocs, ods.offset, ods.payload.len, wasm);
+    }
 };
 
 /// A local or exported global const from an object file.
@@ -1383,8 +1431,7 @@ pub const ObjectData = extern struct {
     offset: u32,
     /// May be zero. `offset + size` must be <= the segment's size.
     size: u32,
-    /// `none` if no symbol describes it.
-    name: OptionalString,
+    name: String,
     flags: SymbolFlags,
 
     /// Index into `Wasm.object_datas`.
@@ -1845,7 +1892,7 @@ pub const ZcuImportIndex = enum(u32) {
         return getExistingFunctionType(wasm, fn_info.cc, fn_info.param_types.get(ip), .fromInterned(fn_info.return_type), target).?;
     }
 
-    pub fn globalType(index: ZcuImportIndex, wasm: *const Wasm) Global.Type {
+    pub fn globalType(index: ZcuImportIndex, wasm: *const Wasm) ObjectGlobal.Type {
         _ = index;
         _ = wasm;
         unreachable; // Zig has no way to create Wasm globals yet.
@@ -1997,7 +2044,7 @@ pub const GlobalImportId = enum(u32) {
         };
     }
 
-    pub fn globalType(id: GlobalImportId, wasm: *Wasm) Global.Type {
+    pub fn globalType(id: GlobalImportId, wasm: *Wasm) ObjectGlobal.Type {
         return switch (unpack(id, wasm)) {
             inline .object_global_import, .zcu_import => |i| i.globalType(wasm),
         };
@@ -2014,7 +2061,7 @@ pub const SymbolTableIndex = enum(u32) {
 };
 
 pub const OutReloc = struct {
-    tag: ObjectRelocation.Tag,
+    tag: Object.RelocationType,
     offset: u32,
     pointee: Pointee,
     addend: i32,
@@ -2041,15 +2088,144 @@ pub const ObjectRelocation = struct {
     /// When `offset` is zero, its position is immediately after the id and size of the section.
     offset: u32,
     pointee: Pointee,
-    /// Populated only for `MEMORY_ADDR_*`, `FUNCTION_OFFSET_I32` and `SECTION_OFFSET_I32`.
+    /// Populated only for `memory_addr_*`, `function_offset_i32` and `section_offset_i32`.
     addend: i32,
+
+    pub const Tag = enum(u8) {
+        // These use `Pointee.function`.
+        function_index_i32,
+        function_index_leb,
+        function_offset_i32,
+        function_offset_i64,
+        table_index_i32,
+        table_index_i64,
+        table_index_rel_sleb,
+        table_index_rel_sleb64,
+        table_index_sleb,
+        table_index_sleb64,
+        // These use `Pointee.symbol_name`.
+        function_import_index_i32,
+        function_import_index_leb,
+        function_import_offset_i32,
+        function_import_offset_i64,
+        table_import_index_i32,
+        table_import_index_i64,
+        table_import_index_rel_sleb,
+        table_import_index_rel_sleb64,
+        table_import_index_sleb,
+        table_import_index_sleb64,
+        // These use `Pointee.global`.
+        global_index_i32,
+        global_index_leb,
+        // These use `Pointee.symbol_name`.
+        global_import_index_i32,
+        global_import_index_leb,
+        // These use `Pointee.data`.
+        memory_addr_i32,
+        memory_addr_i64,
+        memory_addr_leb,
+        memory_addr_leb64,
+        memory_addr_locrel_i32,
+        memory_addr_rel_sleb,
+        memory_addr_rel_sleb64,
+        memory_addr_sleb,
+        memory_addr_sleb64,
+        memory_addr_tls_sleb,
+        memory_addr_tls_sleb64,
+        // These use `Pointee.symbol_name`.
+        memory_addr_import_i32,
+        memory_addr_import_i64,
+        memory_addr_import_leb,
+        memory_addr_import_leb64,
+        memory_addr_import_locrel_i32,
+        memory_addr_import_rel_sleb,
+        memory_addr_import_rel_sleb64,
+        memory_addr_import_sleb,
+        memory_addr_import_sleb64,
+        memory_addr_import_tls_sleb,
+        memory_addr_import_tls_sleb64,
+        /// Uses `Pointee.section`.
+        section_offset_i32,
+        /// Uses `Pointee.table`.
+        table_number_leb,
+        /// Uses `Pointee.symbol_name`.
+        table_import_number_leb,
+        /// Uses `Pointee.type_index`.
+        type_index_leb,
+
+        pub fn fromType(t: Object.RelocationType) Tag {
+            return switch (t) {
+                .event_index_leb => unreachable,
+                .function_index_i32 => .function_index_i32,
+                .function_index_leb => .function_index_leb,
+                .function_offset_i32 => .function_offset_i32,
+                .function_offset_i64 => .function_offset_i64,
+                .global_index_i32 => .global_index_i32,
+                .global_index_leb => .global_index_leb,
+                .memory_addr_i32 => .memory_addr_i32,
+                .memory_addr_i64 => .memory_addr_i64,
+                .memory_addr_leb => .memory_addr_leb,
+                .memory_addr_leb64 => .memory_addr_leb64,
+                .memory_addr_locrel_i32 => .memory_addr_locrel_i32,
+                .memory_addr_rel_sleb => .memory_addr_rel_sleb,
+                .memory_addr_rel_sleb64 => .memory_addr_rel_sleb64,
+                .memory_addr_sleb => .memory_addr_sleb,
+                .memory_addr_sleb64 => .memory_addr_sleb64,
+                .memory_addr_tls_sleb => .memory_addr_tls_sleb,
+                .memory_addr_tls_sleb64 => .memory_addr_tls_sleb64,
+                .section_offset_i32 => .section_offset_i32,
+                .table_index_i32 => .table_index_i32,
+                .table_index_i64 => .table_index_i64,
+                .table_index_rel_sleb => .table_index_rel_sleb,
+                .table_index_rel_sleb64 => .table_index_rel_sleb64,
+                .table_index_sleb => .table_index_sleb,
+                .table_index_sleb64 => .table_index_sleb64,
+                .table_number_leb => .table_number_leb,
+                .type_index_leb => .type_index_leb,
+            };
+        }
+
+        pub fn fromTypeImport(t: Object.RelocationType) Tag {
+            return switch (t) {
+                .event_index_leb => unreachable,
+                .function_index_i32 => .function_import_index_i32,
+                .function_index_leb => .function_import_index_leb,
+                .function_offset_i32 => .function_import_offset_i32,
+                .function_offset_i64 => .function_import_offset_i64,
+                .global_index_i32 => .global_import_index_i32,
+                .global_index_leb => .global_import_index_leb,
+                .memory_addr_i32 => .memory_addr_import_i32,
+                .memory_addr_i64 => .memory_addr_import_i64,
+                .memory_addr_leb => .memory_addr_import_leb,
+                .memory_addr_leb64 => .memory_addr_import_leb64,
+                .memory_addr_locrel_i32 => .memory_addr_import_locrel_i32,
+                .memory_addr_rel_sleb => .memory_addr_import_rel_sleb,
+                .memory_addr_rel_sleb64 => .memory_addr_import_rel_sleb64,
+                .memory_addr_sleb => .memory_addr_import_sleb,
+                .memory_addr_sleb64 => .memory_addr_import_sleb64,
+                .memory_addr_tls_sleb => .memory_addr_import_tls_sleb,
+                .memory_addr_tls_sleb64 => .memory_addr_import_tls_sleb64,
+                .section_offset_i32 => unreachable,
+                .table_index_i32 => .table_import_index_i32,
+                .table_index_i64 => .table_import_index_i64,
+                .table_index_rel_sleb => .table_import_index_rel_sleb,
+                .table_index_rel_sleb64 => .table_import_index_rel_sleb64,
+                .table_index_sleb => .table_import_index_sleb,
+                .table_index_sleb64 => .table_import_index_sleb64,
+                .table_number_leb => .table_import_number_leb,
+                .type_index_leb => unreachable,
+            };
+        }
+    };
 
     pub const Pointee = union {
         symbol_name: String,
+        data: ObjectData.Index,
         type_index: FunctionType.Index,
         section: ObjectSectionIndex,
-        data: ObjectData.Index,
-        function: Wasm.ObjectFunctionIndex,
+        function: ObjectFunctionIndex,
+        global: ObjectGlobalIndex,
+        table: ObjectTableIndex,
     };
 
     pub const Slice = extern struct {
@@ -2057,63 +2233,47 @@ pub const ObjectRelocation = struct {
         off: u32,
         len: u32,
 
-        pub fn slice(s: Slice, wasm: *const Wasm) []ObjectRelocation {
-            return wasm.relocations.items[s.off..][0..s.len];
+        const empty: Slice = .{ .off = 0, .len = 0 };
+
+        fn tags(s: Slice, wasm: *const Wasm) []const ObjectRelocation.Tag {
+            return wasm.object_relocations.items(.tag)[s.off..][0..s.len];
+        }
+
+        fn offsets(s: Slice, wasm: *const Wasm) []const u32 {
+            return wasm.object_relocations.items(.offset)[s.off..][0..s.len];
+        }
+
+        fn pointees(s: Slice, wasm: *const Wasm) []const Pointee {
+            return wasm.object_relocations.items(.pointee)[s.off..][0..s.len];
+        }
+
+        fn addends(s: Slice, wasm: *const Wasm) []const i32 {
+            return wasm.object_relocations.items(.addend)[s.off..][0..s.len];
         }
     };
 
-    pub const Tag = enum(u8) {
-        /// Uses `function`.
-        FUNCTION_INDEX_LEB = 0,
-        /// Uses `table_index`.
-        TABLE_INDEX_SLEB = 1,
-        /// Uses `table_index`.
-        TABLE_INDEX_I32 = 2,
-        /// Uses `data_segment`.
-        MEMORY_ADDR_LEB = 3,
-        /// Uses `data_segment`.
-        MEMORY_ADDR_SLEB = 4,
-        /// Uses `data_segment`.
-        MEMORY_ADDR_I32 = 5,
-        /// Uses `type_index`.
-        TYPE_INDEX_LEB = 6,
-        /// Uses `symbol_name`.
-        GLOBAL_INDEX_LEB = 7,
-        FUNCTION_OFFSET_I32 = 8,
-        SECTION_OFFSET_I32 = 9,
-        TAG_INDEX_LEB = 10,
-        /// Uses `data_segment`.
-        MEMORY_ADDR_REL_SLEB = 11,
-        TABLE_INDEX_REL_SLEB = 12,
-        /// Uses `symbol_name`.
-        GLOBAL_INDEX_I32 = 13,
-        /// Uses `data_segment`.
-        MEMORY_ADDR_LEB64 = 14,
-        /// Uses `data_segment`.
-        MEMORY_ADDR_SLEB64 = 15,
-        /// Uses `data_segment`.
-        MEMORY_ADDR_I64 = 16,
-        /// Uses `data_segment`.
-        MEMORY_ADDR_REL_SLEB64 = 17,
-        /// Uses `table_index`.
-        TABLE_INDEX_SLEB64 = 18,
-        /// Uses `table_index`.
-        TABLE_INDEX_I64 = 19,
-        TABLE_NUMBER_LEB = 20,
-        /// Uses `data_segment`.
-        MEMORY_ADDR_TLS_SLEB = 21,
-        FUNCTION_OFFSET_I64 = 22,
-        /// Uses `data_segment`.
-        MEMORY_ADDR_LOCREL_I32 = 23,
-        TABLE_INDEX_REL_SLEB64 = 24,
-        /// Uses `data_segment`.
-        MEMORY_ADDR_TLS_SLEB64 = 25,
-        /// Uses `symbol_name`.
-        FUNCTION_INDEX_I32 = 26,
+    pub const IterableSlice = struct {
+        slice: Slice,
+        /// Offset at which point to stop iterating.
+        end: u32,
 
-        // Above here, the tags correspond to symbol table ABI described in
-        // https://github.com/WebAssembly/tool-conventions/blob/main/Linking.md
-        // Below, the tags are compiler-internal.
+        const empty: IterableSlice = .{ .slice = .empty, .end = 0 };
+
+        fn init(relocs: Slice, offset: u32, size: u32, wasm: *const Wasm) IterableSlice {
+            const offsets = relocs.offsets(wasm);
+            const start = std.sort.lowerBound(u32, offsets, offset, order);
+            return .{
+                .slice = .{
+                    .off = @intCast(relocs.off + start),
+                    .len = @intCast(relocs.len - start),
+                },
+                .end = offset + size,
+            };
+        }
+
+        fn order(lhs: u32, rhs: u32) std.math.Order {
+            return std.math.order(lhs, rhs);
+        }
     };
 };
 
@@ -2781,7 +2941,7 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
     // At the end, output functions and globals will be populated.
     for (wasm.object_function_imports.keys(), wasm.object_function_imports.values(), 0..) |name, *import, i| {
         if (import.flags.isIncluded(rdynamic)) {
-            try markFunction(wasm, name, import, @enumFromInt(i));
+            try markFunctionImport(wasm, name, import, @enumFromInt(i));
         }
     }
     wasm.functions_end_prelink = @intCast(wasm.functions.entries.len);
@@ -2789,7 +2949,7 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
 
     for (wasm.object_global_imports.keys(), wasm.object_global_imports.values(), 0..) |name, *import, i| {
         if (import.flags.isIncluded(rdynamic)) {
-            try markGlobal(wasm, name, import, @enumFromInt(i));
+            try markGlobalImport(wasm, name, import, @enumFromInt(i));
         }
     }
     wasm.globals_end_prelink = @intCast(wasm.globals.entries.len);
@@ -2797,13 +2957,12 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
 
     for (wasm.object_table_imports.keys(), wasm.object_table_imports.values(), 0..) |name, *import, i| {
         if (import.flags.isIncluded(rdynamic)) {
-            try markTable(wasm, name, import, @enumFromInt(i));
+            try markTableImport(wasm, name, import, @enumFromInt(i));
         }
     }
 }
 
-/// Recursively mark alive everything referenced by the function.
-fn markFunction(
+fn markFunctionImport(
     wasm: *Wasm,
     name: String,
     import: *FunctionImport,
@@ -2814,8 +2973,6 @@ fn markFunction(
 
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
-    const rdynamic = comp.config.rdynamic;
-    const is_obj = comp.config.output_mode == .Obj;
 
     try wasm.functions.ensureUnusedCapacity(gpa, 1);
 
@@ -2836,20 +2993,31 @@ fn markFunction(
             try wasm.function_imports.put(gpa, name, .fromObject(func_index, wasm));
         }
     } else {
-        const gop = wasm.functions.getOrPutAssumeCapacity(import.resolution);
-
-        if (!is_obj and import.flags.isExported(rdynamic)) try wasm.function_exports.append(gpa, .{
-            .name = name,
-            .function_index = @enumFromInt(gop.index),
-        });
-
-        for (try wasm.functionResolutionRelocSlice(import.resolution)) |reloc|
-            try wasm.markReloc(reloc);
+        try markFunction(wasm, import.resolution.unpack(wasm).object_function);
     }
 }
 
+/// Recursively mark alive everything referenced by the function.
+fn markFunction(wasm: *Wasm, i: ObjectFunctionIndex) Allocator.Error!void {
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const gop = try wasm.functions.getOrPut(gpa, .fromObjectFunction(wasm, i));
+    if (gop.found_existing) return;
+
+    const rdynamic = comp.config.rdynamic;
+    const is_obj = comp.config.output_mode == .Obj;
+    const function = i.ptr(wasm);
+
+    if (!is_obj and function.flags.isExported(rdynamic)) try wasm.function_exports.append(gpa, .{
+        .name = function.name.unwrap().?,
+        .function_index = @enumFromInt(gop.index),
+    });
+
+    try wasm.markRelocations(function.relocations(wasm));
+}
+
 /// Recursively mark alive everything referenced by the global.
-fn markGlobal(
+fn markGlobalImport(
     wasm: *Wasm,
     name: String,
     import: *GlobalImport,
@@ -2860,8 +3028,6 @@ fn markGlobal(
 
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
-    const rdynamic = comp.config.rdynamic;
-    const is_obj = comp.config.output_mode == .Obj;
 
     try wasm.globals.ensureUnusedCapacity(gpa, 1);
 
@@ -2888,19 +3054,29 @@ fn markGlobal(
             try wasm.global_imports.put(gpa, name, .fromObject(global_index, wasm));
         }
     } else {
-        const gop = wasm.globals.getOrPutAssumeCapacity(import.resolution);
-
-        if (!is_obj and import.flags.isExported(rdynamic)) try wasm.global_exports.append(gpa, .{
-            .name = name,
-            .global_index = @enumFromInt(gop.index),
-        });
-
-        for (try wasm.globalResolutionRelocSlice(import.resolution)) |reloc|
-            try wasm.markReloc(reloc);
+        try markGlobal(wasm, import.resolution.unpack(wasm).object_global);
     }
 }
 
-fn markTable(
+fn markGlobal(wasm: *Wasm, i: ObjectGlobalIndex) Allocator.Error!void {
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const gop = try wasm.globals.getOrPut(gpa, .fromObjectGlobal(wasm, i));
+    if (gop.found_existing) return;
+
+    const rdynamic = comp.config.rdynamic;
+    const is_obj = comp.config.output_mode == .Obj;
+    const global = i.ptr(wasm);
+
+    if (!is_obj and global.flags.isExported(rdynamic)) try wasm.global_exports.append(gpa, .{
+        .name = global.name.unwrap().?,
+        .global_index = @enumFromInt(gop.index),
+    });
+
+    try wasm.markRelocations(global.relocations(wasm));
+}
+
+fn markTableImport(
     wasm: *Wasm,
     name: String,
     import: *TableImport,
@@ -2927,22 +3103,101 @@ fn markTable(
     }
 }
 
-fn globalResolutionRelocSlice(wasm: *Wasm, resolution: GlobalImport.Resolution) ![]const ObjectRelocation {
-    assert(resolution != .unresolved);
-    _ = wasm;
-    @panic("TODO");
+fn markDataSegment(wasm: *Wasm, segment_index: ObjectDataSegment.Index) Allocator.Error!void {
+    const segment = segment_index.ptr(wasm);
+    if (segment.flags.alive) return;
+    segment.flags.alive = true;
+
+    try wasm.markRelocations(segment.relocations(wasm));
 }
 
-fn functionResolutionRelocSlice(wasm: *Wasm, resolution: FunctionImport.Resolution) ![]const ObjectRelocation {
-    assert(resolution != .unresolved);
-    _ = wasm;
-    @panic("TODO");
-}
+fn markRelocations(wasm: *Wasm, relocs: ObjectRelocation.IterableSlice) Allocator.Error!void {
+    for (relocs.slice.tags(wasm), relocs.slice.pointees(wasm), relocs.slice.offsets(wasm)) |tag, *pointee, offset| {
+        if (offset >= relocs.end) break;
+        switch (tag) {
+            .function_import_index_leb,
+            .function_import_index_i32,
+            .function_import_offset_i32,
+            .function_import_offset_i64,
+            .table_import_index_sleb,
+            .table_import_index_i32,
+            .table_import_index_sleb64,
+            .table_import_index_i64,
+            .table_import_index_rel_sleb,
+            .table_import_index_rel_sleb64,
+            => {
+                const name = pointee.symbol_name;
+                const i: FunctionImport.Index = @enumFromInt(wasm.object_function_imports.getIndex(name).?);
+                try markFunctionImport(wasm, name, i.value(wasm), i);
+            },
+            .global_import_index_leb, .global_import_index_i32 => {
+                const name = pointee.symbol_name;
+                const i: GlobalImport.Index = @enumFromInt(wasm.object_global_imports.getIndex(name).?);
+                try markGlobalImport(wasm, name, i.value(wasm), i);
+            },
+            .table_import_number_leb => {
+                const name = pointee.symbol_name;
+                const i: TableImport.Index = @enumFromInt(wasm.object_table_imports.getIndex(name).?);
+                try markTableImport(wasm, name, i.value(wasm), i);
+            },
 
-fn markReloc(wasm: *Wasm, reloc: ObjectRelocation) !void {
-    _ = wasm;
-    _ = reloc;
-    @panic("TODO");
+            .function_index_leb,
+            .function_index_i32,
+            .function_offset_i32,
+            .function_offset_i64,
+            .table_index_sleb,
+            .table_index_i32,
+            .table_index_sleb64,
+            .table_index_i64,
+            .table_index_rel_sleb,
+            .table_index_rel_sleb64,
+            => try markFunction(wasm, pointee.function),
+            .global_index_leb,
+            .global_index_i32,
+            => try markGlobal(wasm, pointee.global),
+            .table_number_leb,
+            => try wasm.tables.put(wasm.base.comp.gpa, .fromObjectTable(pointee.table), {}),
+
+            .section_offset_i32 => {
+                log.warn("TODO: ensure section {d} is included in output", .{pointee.section});
+            },
+            .memory_addr_import_leb,
+            .memory_addr_import_sleb,
+            .memory_addr_import_i32,
+            .memory_addr_import_rel_sleb,
+            .memory_addr_import_leb64,
+            .memory_addr_import_sleb64,
+            .memory_addr_import_i64,
+            .memory_addr_import_rel_sleb64,
+            .memory_addr_import_tls_sleb,
+            .memory_addr_import_locrel_i32,
+            .memory_addr_import_tls_sleb64,
+            => {
+                const name = pointee.symbol_name;
+                if (name == wasm.preloaded_strings.__heap_end or
+                    name == wasm.preloaded_strings.__heap_base)
+                {
+                    continue;
+                }
+                log.warn("TODO: ensure data symbol {s} is included in output", .{name.slice(wasm)});
+            },
+
+            .memory_addr_leb,
+            .memory_addr_sleb,
+            .memory_addr_i32,
+            .memory_addr_rel_sleb,
+            .memory_addr_leb64,
+            .memory_addr_sleb64,
+            .memory_addr_i64,
+            .memory_addr_rel_sleb64,
+            .memory_addr_tls_sleb,
+            .memory_addr_locrel_i32,
+            .memory_addr_tls_sleb64,
+            => try markDataSegment(wasm, pointee.data.ptr(wasm).segment),
+
+            .type_index_leb => continue,
+        }
+    }
 }
 
 pub fn flushModule(
