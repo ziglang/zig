@@ -31876,6 +31876,38 @@ fn analyzeSlice(
                 break :e try sema.coerce(block, .usize, uncasted_end, end_src);
             } else break :e try sema.coerce(block, .usize, uncasted_end_opt, end_src);
         }
+
+        // when slicing a many-item pointer, if a sentinel `S` is provided as in `ptr[a.. :S]`, it
+        // must match the sentinel of `@TypeOf(ptr)`.
+        sentinel_check: {
+            if (sentinel_opt == .none) break :sentinel_check;
+            const provided = provided: {
+                const casted = try sema.coerce(block, elem_ty, sentinel_opt, sentinel_src);
+                try checkSentinelType(sema, block, sentinel_src, elem_ty);
+                break :provided try sema.resolveConstDefinedValue(
+                    block,
+                    sentinel_src,
+                    casted,
+                    .{ .simple = .slice_sentinel },
+                );
+            };
+
+            if (ptr_sentinel) |current| {
+                if (provided.toIntern() == current.toIntern()) break :sentinel_check;
+            }
+
+            return sema.failWithOwnedErrorMsg(block, msg: {
+                const msg = try sema.errMsg(sentinel_src, "sentinel-terminated slicing of many-item pointer must match existing sentinel", .{});
+                errdefer msg.destroy(sema.gpa);
+                if (ptr_sentinel) |current| {
+                    try sema.errNote(sentinel_src, msg, "expected sentinel '{f}', found '{f}'", .{ current.fmtValue(pt), provided.fmtValue(pt) });
+                } else {
+                    try sema.errNote(ptr_src, msg, "type '{f}' does not have a sentinel", .{slice_ty.fmt(pt)});
+                }
+                try sema.errNote(src, msg, "use @ptrCast to cast pointer sentinel", .{});
+                break :msg msg;
+            });
+        }
         return sema.analyzePtrArithmetic(block, src, ptr, start, .ptr_add, ptr_src, start_src);
     };
 

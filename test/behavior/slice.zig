@@ -628,9 +628,6 @@ test "slice syntax resulting in pointer-to-array" {
             comptime assert(@TypeOf(ptr[1..][0..2]) == *[2]u8);
             comptime assert(@TypeOf(ptr[1..][0..4]) == *[4]u8);
             comptime assert(@TypeOf(ptr[1..][0..2 :4]) == *[2:4]u8);
-            comptime assert(@TypeOf(ptr[1.. :0][0..2]) == *[2]u8);
-            comptime assert(@TypeOf(ptr[1.. :0][0..4]) == *[4]u8);
-            comptime assert(@TypeOf(ptr[1.. :0][0..2 :4]) == *[2:4]u8);
 
             var ptr_z: [*:0]u8 = &array;
             comptime assert(@TypeOf(ptr_z[1..][0..2]) == *[2]u8);
