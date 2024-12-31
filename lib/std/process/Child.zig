@@ -741,10 +741,6 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
             immediateExit(spawnPosixChildHelper(@intFromPtr(&child_arg)));
         }
     } else {
-        var old_mask: posix.sigset_t = undefined;
-        posix.sigprocmask(posix.SIG.SETMASK, &linux.all_mask, &old_mask);
-        defer posix.sigprocmask(posix.SIG.SETMASK, &old_mask, null);
-        child_arg.sigmask = &old_mask;
         child_arg.ret_err = null;
         // Although the stack is fixed sized, we alloc it here,
         // because stack-smashing protection may have higher overhead than allocation.
@@ -752,13 +748,34 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
         // On aarch64, stack address must be a multiple of 16.
         const stack = try self.allocator.alignedAlloc(u8, 16, stack_size);
         defer self.allocator.free(stack);
-        const rc = linux.clone(spawnPosixChildHelper, @intFromPtr(stack.ptr) + stack_size, linux.CLONE.VM | linux.CLONE.VFORK | linux.SIG.CHLD, @intFromPtr(&child_arg), null, 0, null);
-        pid_result = switch (posix.errno(rc)) {
-            .SUCCESS => @intCast(rc),
-            .AGAIN => return error.SystemResources,
-            .NOMEM => return error.SystemResources,
+
+        var clone_args = mem.zeroes(linux.clone_args);
+        clone_args.flags = linux.CLONE.VM | linux.CLONE.VFORK | linux.CLONE.CLEAR_SIGHAND;
+        clone_args.exit_signal = linux.SIG.CHLD;
+        clone_args.stack = @intFromPtr(stack.ptr);
+        clone_args.stack_size = stack_size;
+        var rc = linux.clone3(&clone_args, @sizeOf(linux.clone_args), spawnPosixChildHelper, @intFromPtr(&child_arg));
+        switch (linux.E.init(rc)) {
+            .SUCCESS => {},
+            .AGAIN, .NOMEM => return error.SystemResources,
+            .INVAL, .NOSYS => {
+                // Fallback to use clone().
+                // We need to block signals here because we share VM with child before exec.
+                // Signal handlers may mess up our memory.
+                var old_mask: posix.sigset_t = undefined;
+                posix.sigprocmask(posix.SIG.SETMASK, &linux.all_mask, &old_mask);
+                defer posix.sigprocmask(posix.SIG.SETMASK, &old_mask, null);
+                child_arg.sigmask = &old_mask;
+                rc = linux.clone(spawnPosixChildHelper, @intFromPtr(stack.ptr) + stack_size, linux.CLONE.VM | linux.CLONE.VFORK | linux.SIG.CHLD, @intFromPtr(&child_arg), null, 0, null);
+                switch (linux.E.init(rc)) {
+                    .SUCCESS => {},
+                    .AGAIN, .NOMEM => return error.SystemResources,
+                    else => |err| return posix.unexpectedErrno(err),
+                }
+            },
             else => |err| return posix.unexpectedErrno(err),
-        };
+        }
+        pid_result = @intCast(rc);
         if (child_arg.ret_err) |err| {
             return err;
         }
