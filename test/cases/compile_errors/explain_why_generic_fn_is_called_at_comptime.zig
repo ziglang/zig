@@ -15,9 +15,8 @@ pub export fn entry() void {
     _ = foo(a, fn () void);
 }
 // error
-// backend=stage2
-// target=native
 //
 // :15:13: error: unable to resolve comptime value
-// :15:13: note: argument to function being called at comptime must be comptime-known
-// :9:38: note: expression is evaluated at comptime because the generic function was instantiated with a comptime-only return type
+// :9:38: note: generic function instantiated with comptime-only return type 'tmp.S(fn () void)' is evaluated at comptime
+// :3:16: note: struct requires comptime because of this field
+// :3:16: note: use '*const fn () void' for a function pointer type

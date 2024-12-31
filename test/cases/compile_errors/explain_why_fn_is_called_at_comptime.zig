@@ -4,7 +4,7 @@ const S = struct {
 };
 fn bar() void {}
 
-fn foo(comptime a: *u8) S {
+fn foo(a: *u8) S {
     return .{ .fnPtr = bar, .a = a.* };
 }
 pub export fn entry() void {
@@ -13,11 +13,8 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :12:13: error: unable to resolve comptime value
-// :12:13: note: argument to function being called at comptime must be comptime-known
-// :7:25: note: expression is evaluated at comptime because the function returns a comptime-only type 'tmp.S'
+// :7:16: note: function with comptime-only return type 'tmp.S' is evaluated at comptime
 // :2:12: note: struct requires comptime because of this field
 // :2:12: note: use '*const fn () void' for a function pointer type

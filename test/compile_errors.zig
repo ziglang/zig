@@ -57,8 +57,8 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\}
         , &[_][]const u8{
             ":3:12: error: unable to resolve comptime value",
-            ":3:12: note: argument to function being called at comptime must be comptime-known",
-            ":2:55: note: expression is evaluated at comptime because the generic function was instantiated with a comptime-only return type",
+            ":2:55: note: generic function instantiated with comptime-only return type '?fn () void' is evaluated at comptime",
+            ":2:55: note: use '*const fn () void' for a function pointer type",
         });
         case.addSourceFile("b.zig",
             \\pub const ElfDynLib = struct {
@@ -198,7 +198,9 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             ":8:36: error: runtime-known argument passed to comptime parameter",
             ":2:41: note: declared comptime here",
             ":13:32: error: unable to resolve comptime value",
-            ":13:32: note: initializer of comptime only struct must be comptime-known",
+            ":13:32: note: initializer of comptime-only struct 'tmp.callAnytypeFunctionWithRuntimeComptimeOnlyType.S' must be comptime-known",
+            ":12:35: note: struct requires comptime because of this field",
+            ":12:35: note: types are not available at runtime",
         });
 
         case.addSourceFile("import.zig",

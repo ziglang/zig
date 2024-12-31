@@ -78,6 +78,7 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
             Inst.Ref,
             Inst.Index,
             Inst.Declaration.Name,
+            std.zig.SimpleComptimeReason,
             NullTerminatedString,
             => @enumFromInt(code.extra[i]),
 
@@ -291,7 +292,8 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field. Payload is `Block`.
         block,
         /// Like `block`, but forces full evaluation of its contents at compile-time.
-        /// Uses the `pl_node` union field. Payload is `Block`.
+        /// Exited with `break_inline`.
+        /// Uses the `pl_node` union field. Payload is `BlockComptime`.
         block_comptime,
         /// A list of instructions which are analyzed in the parent context, without
         /// generating a runtime block. Must terminate with an "inline" variant of
@@ -709,6 +711,12 @@ pub const Inst = struct {
         /// operator. Emit a compile error if not.
         /// Uses the `un_tok` union field. Token is the `&` operator. Operand is the type.
         validate_ref_ty,
+        /// Given a value, check whether it is a valid local constant in this scope.
+        /// In a runtime scope, this is always a nop.
+        /// In a comptime scope, raises a compile error if the value is runtime-known.
+        /// Result is always void.
+        /// Uses the `un_node` union field. Node is the initializer. Operand is the initializer value.
+        validate_const,
         /// Given a type `T`, construct the type `E!T`, where `E` is this function's error set, to be used
         /// as the result type of a `try` operand. Generic poison is propagated.
         /// Uses the `un_node` union field. Node is the `try` expression. Operand is the type `T`.
@@ -1291,6 +1299,7 @@ pub const Inst = struct {
                 .array_init_elem_type,
                 .array_init_elem_ptr,
                 .validate_ref_ty,
+                .validate_const,
                 .try_operand_ty,
                 .try_ref_operand_ty,
                 .restore_err_ret_index_unconditional,
@@ -1351,6 +1360,7 @@ pub const Inst = struct {
                 .validate_array_init_result_ty,
                 .validate_ptr_array_init,
                 .validate_ref_ty,
+                .validate_const,
                 .try_operand_ty,
                 .try_ref_operand_ty,
                 => true,
@@ -1734,6 +1744,7 @@ pub const Inst = struct {
                 .opt_eu_base_ptr_init = .un_node,
                 .coerce_ptr_elem_ty = .pl_node,
                 .validate_ref_ty = .un_tok,
+                .validate_const = .un_node,
                 .try_operand_ty = .un_node,
                 .try_ref_operand_ty = .un_node,
 
@@ -2544,6 +2555,13 @@ pub const Inst = struct {
     /// This data is stored inside extra, with trailing operands according to `body_len`.
     /// Each operand is an `Index`.
     pub const Block = struct {
+        body_len: u32,
+    };
+
+    /// Trailing:
+    /// * inst: Index // for each `body_len`
+    pub const BlockComptime = struct {
+        reason: std.zig.SimpleComptimeReason,
         body_len: u32,
     };
 
@@ -4134,6 +4152,7 @@ fn findTrackableInner(
         .opt_eu_base_ptr_init,
         .coerce_ptr_elem_ty,
         .validate_ref_ty,
+        .validate_const,
         .try_operand_ty,
         .try_ref_operand_ty,
         .struct_init_empty,
@@ -4517,7 +4536,6 @@ fn findTrackableInner(
         // Block instructions, recurse over the bodies.
 
         .block,
-        .block_comptime,
         .block_inline,
         .c_import,
         .typeof_builtin,
@@ -4525,6 +4543,12 @@ fn findTrackableInner(
         => {
             const inst_data = datas[@intFromEnum(inst)].pl_node;
             const extra = zir.extraData(Inst.Block, inst_data.payload_index);
+            const body = zir.bodySlice(extra.end, extra.data.body_len);
+            return zir.findTrackableBody(gpa, contents, defers, body);
+        },
+        .block_comptime => {
+            const inst_data = datas[@intFromEnum(inst)].pl_node;
+            const extra = zir.extraData(Inst.BlockComptime, inst_data.payload_index);
             const body = zir.bodySlice(extra.end, extra.data.body_len);
             return zir.findTrackableBody(gpa, contents, defers, body);
         },
