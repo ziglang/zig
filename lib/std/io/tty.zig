@@ -11,7 +11,7 @@ const native_os = builtin.os.tag;
 /// respecting the `NO_COLOR` and `CLICOLOR_FORCE` environment variables to override the default.
 /// Will attempt to enable ANSI escape code support if necessary/possible.
 pub fn detectConfig(file: File) Config {
-    const force_color: ?bool = if (builtin.os.tag == .wasi)
+    const force_color: ?bool = if (native_os == .wasi)
         null // wasi does not support environment variables
     else if (process.hasEnvVarConstant("NO_COLOR"))
         false
@@ -60,8 +60,6 @@ pub const Color = enum {
     reset,
 };
 
-/// Provides simple functionality for manipulating the terminal in some way,
-/// such as coloring text, etc.
 pub const Config = union(enum) {
     no_color,
     escape_codes,
@@ -73,12 +71,12 @@ pub const Config = union(enum) {
     };
 
     pub fn setColor(
-        conf: Config,
+        config: Config,
         writer: anytype,
         color: Color,
     ) (@typeInfo(@TypeOf(writer.writeAll(""))).error_union.error_set ||
         windows.SetConsoleTextAttributeError)!void {
-        nosuspend switch (conf) {
+        nosuspend switch (config) {
             .no_color => return,
             .escape_codes => {
                 const color_string = switch (color) {
