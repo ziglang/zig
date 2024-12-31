@@ -368,10 +368,6 @@ pub fn HashMap(
         allocator: Allocator,
         ctx: Context,
 
-        comptime {
-            verifyContext(Context, K, K, u64, false);
-        }
-
         /// The type of the unmanaged hash map underlying this wrapper
         pub const Unmanaged = HashMapUnmanaged(K, V, Context, max_load_percentage);
         /// An entry, containing pointers to a key and value stored in the map
@@ -733,10 +729,6 @@ pub fn HashMapUnmanaged(
         @compileError("max_load_percentage must be between 0 and 100.");
     return struct {
         const Self = @This();
-
-        comptime {
-            verifyContext(Context, K, K, u64, false);
-        }
 
         // This is actually a midway pointer to the single buffer containing
         // a `Header` field, the `Metadata`s and `Entry`s.
@@ -1188,8 +1180,6 @@ pub fn HashMapUnmanaged(
 
         /// Find the index containing the data for the given key.
         fn getIndex(self: Self, key: anytype, ctx: anytype) ?usize {
-            comptime verifyContext(@TypeOf(ctx), @TypeOf(key), K, Hash, false);
-
             if (self.size == 0) {
                 // We use cold instead of unlikely to force a jump to this case,
                 // no matter the weight of the opposing side.
@@ -1200,11 +1190,7 @@ pub fn HashMapUnmanaged(
             // If you get a compile error on this line, it means that your generic hash
             // function is invalid for these parameters.
             const hash = ctx.hash(key);
-            // verifyContext can't verify the return type of generic hash functions,
-            // so we need to double-check it here.
-            if (@TypeOf(hash) != Hash) {
-                @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic hash function that returns the wrong type! " ++ @typeName(Hash) ++ " was expected, but found " ++ @typeName(@TypeOf(hash)));
-            }
+
             const mask = self.capacity() - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
             // Don't loop indefinitely when there are no empty slots.
@@ -1215,15 +1201,8 @@ pub fn HashMapUnmanaged(
             while (!metadata[0].isFree() and limit != 0) {
                 if (metadata[0].isUsed() and metadata[0].fingerprint == fingerprint) {
                     const test_key = &self.keys()[idx];
-                    // If you get a compile error on this line, it means that your generic eql
-                    // function is invalid for these parameters.
-                    const eql = ctx.eql(key, test_key.*);
-                    // verifyContext can't verify the return type of generic eql functions,
-                    // so we need to double-check it here.
-                    if (@TypeOf(eql) != bool) {
-                        @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic eql function that returns the wrong type! bool was expected, but found " ++ @typeName(@TypeOf(eql)));
-                    }
-                    if (eql) {
+
+                    if (ctx.eql(key, test_key.*)) {
                         return idx;
                     }
                 }
@@ -1378,16 +1357,11 @@ pub fn HashMapUnmanaged(
             return result;
         }
         pub fn getOrPutAssumeCapacityAdapted(self: *Self, key: anytype, ctx: anytype) GetOrPutResult {
-            comptime verifyContext(@TypeOf(ctx), @TypeOf(key), K, Hash, false);
 
             // If you get a compile error on this line, it means that your generic hash
             // function is invalid for these parameters.
             const hash = ctx.hash(key);
-            // verifyContext can't verify the return type of generic hash functions,
-            // so we need to double-check it here.
-            if (@TypeOf(hash) != Hash) {
-                @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic hash function that returns the wrong type! " ++ @typeName(Hash) ++ " was expected, but found " ++ @typeName(@TypeOf(hash)));
-            }
+
             const mask = self.capacity() - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
             var limit = self.capacity();
@@ -1400,13 +1374,8 @@ pub fn HashMapUnmanaged(
                     const test_key = &self.keys()[idx];
                     // If you get a compile error on this line, it means that your generic eql
                     // function is invalid for these parameters.
-                    const eql = ctx.eql(key, test_key.*);
-                    // verifyContext can't verify the return type of generic eql functions,
-                    // so we need to double-check it here.
-                    if (@TypeOf(eql) != bool) {
-                        @compileError("Context " ++ @typeName(@TypeOf(ctx)) ++ " has a generic eql function that returns the wrong type! bool was expected, but found " ++ @typeName(@TypeOf(eql)));
-                    }
-                    if (eql) {
+
+                    if (ctx.eql(key, test_key.*)) {
                         return GetOrPutResult{
                             .key_ptr = test_key,
                             .value_ptr = &self.values()[idx],
