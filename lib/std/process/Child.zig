@@ -548,6 +548,7 @@ const ChildArg = struct {
     dev_null_fd: posix.fd_t,
     argv_buf: [:null]?[*:0]const u8,
     envp: [*:null]const ?[*:0]const u8,
+    sigmask: ?*posix.sigset_t,
     ret_err: RetErr,
 };
 
@@ -579,6 +580,28 @@ fn spawnPosixChildHelper(arg: usize) callconv(.c) u8 {
 
     if (child_arg.self.pgid) |pid| {
         posix.setpgid(0, pid) catch |err| return forkChildErrReport(&child_arg.ret_err, err);
+    }
+
+    if (native_os == .linux and child_arg.sigmask != null) {
+        std.debug.assert(linux.SIG.DFL == null);
+        for (1..linux.NSIG) |sig| {
+            if (sig == posix.SIG.KILL or sig == posix.SIG.STOP) {
+                continue;
+            }
+            if (sig > std.math.maxInt(u6)) {
+                // XXX: We cannot disable all signals.
+                // sigaction accepts u6, which is too narrow.
+                break;
+            }
+            var old_act: posix.Sigaction = undefined;
+            const new_act = mem.zeroes(posix.Sigaction);
+            // Do not use posix.sigaction. It reaches unreachable.
+            _ = linux.sigaction(@intCast(sig), &new_act, &old_act);
+            if (old_act.handler.handler == linux.SIG.IGN) {
+                _ = linux.sigaction(@intCast(sig), &old_act, null);
+            }
+        }
+        posix.sigprocmask(posix.SIG.SETMASK, child_arg.sigmask, null);
     }
 
     const err = switch (child_arg.self.expand_arg0) {
@@ -706,6 +729,7 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
         .dev_null_fd = dev_null_fd,
         .argv_buf = argv_buf,
         .envp = envp,
+        .sigmask = null,
         .ret_err = undefined,
     };
 
@@ -717,6 +741,10 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
             immediateExit(spawnPosixChildHelper(@intFromPtr(&child_arg)));
         }
     } else {
+        var old_mask: posix.sigset_t = undefined;
+        posix.sigprocmask(posix.SIG.SETMASK, &linux.all_mask, &old_mask);
+        defer posix.sigprocmask(posix.SIG.SETMASK, &old_mask, null);
+        child_arg.sigmask = &old_mask;
         child_arg.ret_err = null;
         // Although the stack is fixed sized, we alloc it here,
         // because stack-smashing protection may have higher overhead than allocation.
