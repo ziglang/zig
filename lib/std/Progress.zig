@@ -1328,42 +1328,14 @@ fn writevNonblock(fd: posix.fd_t, iov: []posix.iovec_const) posix.WriteError!usi
 
 fn maybeUpdateSize(resize_flag: bool) void {
     if (!resize_flag) return;
-
-    const fd = global_progress.terminal.handle;
-
-    if (is_windows) {
-        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-
-        if (windows.kernel32.GetConsoleScreenBufferInfo(fd, &info) != windows.FALSE) {
-            // In the old Windows console, dwSize.Y is the line count of the
-            // entire scrollback buffer, so we use this instead so that we
-            // always get the size of the screen.
-            const screen_height = info.srWindow.Bottom - info.srWindow.Top;
-            global_progress.rows = @intCast(screen_height);
-            global_progress.cols = @intCast(info.dwSize.X);
-        } else {
-            std.log.debug("failed to determine terminal size; using conservative guess 80x25", .{});
-            global_progress.rows = 25;
-            global_progress.cols = 80;
-        }
-    } else {
-        var winsize: posix.winsize = .{
-            .row = 0,
-            .col = 0,
-            .xpixel = 0,
-            .ypixel = 0,
-        };
-
-        const err = posix.system.ioctl(fd, posix.T.IOCGWINSZ, @intFromPtr(&winsize));
-        if (posix.errno(err) == .SUCCESS) {
-            global_progress.rows = winsize.row;
-            global_progress.cols = winsize.col;
-        } else {
-            std.log.debug("failed to determine terminal size; using conservative guess 80x25", .{});
-            global_progress.rows = 25;
-            global_progress.cols = 80;
-        }
-    }
+    const size = std.io.tty.getSize(global_progress.terminal) catch {
+        std.log.debug("failed to determine terminal size; using conservative guess 80x25", .{});
+        global_progress.rows = 25;
+        global_progress.cols = 80;
+        return;
+    };
+    global_progress.rows = size.rows;
+    global_progress.cols = size.columns;
 }
 
 fn handleSigWinch(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {

@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const File = std.fs.File;
 const process = std.process;
+const posix = std.posix;
 const windows = std.os.windows;
 const native_os = builtin.os.tag;
 
@@ -133,3 +134,30 @@ pub const Config = union(enum) {
         };
     }
 };
+
+/// Obtains the size of a terminal designated by the file descriptor.
+pub fn getSize(file_descriptor: File) error{ NotATerminal, Unexpected }!struct { rows: u16, columns: u16 } {
+    if (native_os == .windows) {
+        var info: windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
+        if (windows.kernel32.GetConsoleScreenBufferInfo(file_descriptor.handle, &info) != windows.FALSE) {
+            // In the old Windows console, info.dwSize.Y is the line count of the
+            // entire scrollback buffer, so we use this instead so that we
+            // always get the size of the screen.
+            const screen_height = info.srWindow.Bottom - info.srWindow.Top;
+            return .{
+                .rows = @intCast(screen_height),
+                .columns = @intCast(info.dwSize.X),
+            };
+        } else {
+            return error.NotATerminal;
+        }
+    } else {
+        var winsize: posix.winsize = undefined;
+        switch (posix.errno(posix.system.ioctl(file_descriptor.handle, posix.T.IOCGWINSZ, @intFromPtr(&winsize)))) {
+            .SUCCESS => return .{ .rows = winsize.row, .columns = winsize.col },
+            .NOTTY => return error.NotATerminal,
+            .BADF, .FAULT, .INVAL => unreachable,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+}
