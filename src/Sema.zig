@@ -845,11 +845,15 @@ pub const Block = struct {
     }
 };
 
+/// Represents the reason we are resolving a value or evaluating code at comptime.
+/// Most reasons are represented by a `std.zig.SimpleComptimeReason`, which provides a plain message.
 const ComptimeReason = union(enum) {
     /// Evaluating at comptime for a reason in the `std.zig.SimpleComptimeReason` enum.
     simple: std.zig.SimpleComptimeReason,
 
-    /// Evaluating at comptime because of a comptime-only type.
+    /// Evaluating at comptime because of a comptime-only type. This field is separate so that
+    /// the type in question can be included in the error message. AstGen could never emit this
+    /// reason, because it knows nothing of types.
     /// The format string looks like "foo '{}' bar", where "{}" is the comptime-only type.
     /// We will then explain why this type is comptime-only.
     comptime_only: struct {
@@ -885,12 +889,14 @@ const ComptimeReason = union(enum) {
     }
 };
 
+/// Represents the reason a `Block` is being evaluated at comptime.
 const BlockComptimeReason = union(enum) {
     /// This block inherits being comptime-only from the `inlining` call site.
     inlining_parent,
 
-    /// This block is comptime for the given reason at the given source location.
+    /// Comptime evaluation began somewhere in the current function for a given `ComptimeReason`.
     reason: struct {
+        /// The source location which this reason originates from. `r` is reported here.
         src: LazySrcLoc,
         r: ComptimeReason,
     },
