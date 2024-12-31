@@ -15,6 +15,8 @@ const native_os = builtin.os.tag;
 const Allocator = std.mem.Allocator;
 const ChildProcess = @This();
 
+const use_clone = native_os == .linux and builtin.zig_backend != .stage2_c;
+
 pub const Id = switch (native_os) {
     .windows => windows.HANDLE,
     .wasi => void,
@@ -502,7 +504,7 @@ fn cleanupStreams(self: *ChildProcess) void {
 }
 
 fn cleanupAfterWait(self: *ChildProcess, status: u32) !Term {
-    if (native_os != .linux) {
+    if (!use_clone) {
         if (self.err_pipe) |err_pipe| {
             defer destroyPipe(err_pipe);
 
@@ -535,7 +537,7 @@ fn statusToTerm(status: u32) Term {
         Term{ .Unknown = status };
 }
 
-const RetErr = if (native_os == .linux) ?SpawnError else posix.fd_t;
+const RetErr = if (use_clone) ?SpawnError else posix.fd_t;
 
 const ChildArg = struct {
     self: *ChildProcess,
@@ -687,7 +689,7 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     // This pipe is used to communicate errors between the time of fork
     // and execve from the child process to the parent process.
     const err_pipe = blk: {
-        if (native_os != .linux) {
+        if (!use_clone) {
             break :blk try posix.pipe2(.{ .CLOEXEC = true });
         } else {
             break :blk [_]posix.fd_t{ -1, -1 };
@@ -708,7 +710,7 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     };
 
     var pid_result: posix.pid_t = undefined;
-    if (native_os != .linux) {
+    if (!use_clone) {
         child_arg.ret_err = err_pipe[1];
         pid_result = try posix.fork();
         if (pid_result == 0) {
@@ -758,7 +760,7 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     }
 
     self.id = pid;
-    if (native_os != .linux or builtin.zig_backend == .stage2_c) {
+    if (!use_clone) {
         self.err_pipe = err_pipe;
     }
     self.term = null;
@@ -1088,7 +1090,7 @@ fn immediateExit(exitcode: u8) noreturn {
 // Child of fork calls this to report an error to the fork parent.
 // Returns exit code.
 fn forkChildErrReport(retErr: *RetErr, err: ChildProcess.SpawnError) u8 {
-    if (native_os != .linux) {
+    if (!use_clone) {
         writeIntFd(retErr.*, @as(ErrInt, @intFromError(err))) catch {};
     } else {
         retErr.* = err;
