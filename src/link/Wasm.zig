@@ -349,6 +349,10 @@ pub const OutputFunctionIndex = enum(u32) {
         return @enumFromInt(wasm.function_imports.entries.len + @intFromEnum(index));
     }
 
+    pub fn fromObjectFunction(wasm: *const Wasm, index: ObjectFunctionIndex) OutputFunctionIndex {
+        return fromResolution(wasm, .fromObjectFunction(wasm, index)).?;
+    }
+
     pub fn fromIpIndex(wasm: *const Wasm, ip_index: InternPool.Index) OutputFunctionIndex {
         const zcu = wasm.base.comp.zcu.?;
         const ip = &zcu.intern_pool;
@@ -400,6 +404,33 @@ pub const GlobalIndex = enum(u32) {
     pub fn fromIpNav(wasm: *const Wasm, nav_index: InternPool.Nav.Index) ?GlobalIndex {
         const i = wasm.globals.getIndex(.fromIpNav(wasm, nav_index)) orelse return null;
         return @enumFromInt(i);
+    }
+
+    pub fn fromObjectGlobal(wasm: *const Wasm, i: ObjectGlobalIndex) GlobalIndex {
+        return @enumFromInt(wasm.globals.getIndex(.fromObjectGlobal(wasm, i)).?);
+    }
+
+    pub fn fromSymbolName(wasm: *const Wasm, name: String) GlobalIndex {
+        const import = wasm.object_global_imports.getPtr(name).?;
+        return @enumFromInt(wasm.globals.getIndex(import.resolution).?);
+    }
+};
+
+/// Index into `tables`.
+pub const TableIndex = enum(u32) {
+    _,
+
+    pub fn ptr(index: TableIndex, f: *const Flush) *Wasm.TableImport.Resolution {
+        return &f.tables.items[@intFromEnum(index)];
+    }
+
+    pub fn fromObjectTable(wasm: *const Wasm, i: ObjectTableIndex) TableIndex {
+        return @enumFromInt(wasm.tables.getIndex(.fromObjectTable(i)).?);
+    }
+
+    pub fn fromSymbolName(wasm: *const Wasm, name: String) TableIndex {
+        const import = wasm.object_table_imports.getPtr(name).?;
+        return @enumFromInt(wasm.tables.getIndex(import.resolution).?);
     }
 };
 
@@ -1019,7 +1050,7 @@ pub const ObjectFunction = extern struct {
 
     pub const Code = DataPayload;
 
-    fn relocations(of: *const ObjectFunction, wasm: *const Wasm) ObjectRelocation.IterableSlice {
+    pub fn relocations(of: *const ObjectFunction, wasm: *const Wasm) ObjectRelocation.IterableSlice {
         const code_section_index = of.object_index.ptr(wasm).code_section_index.?;
         const relocs = wasm.object_relocations_table.get(code_section_index) orelse return .empty;
         return .init(relocs, of.offset, of.code.len, wasm);
@@ -1181,7 +1212,7 @@ pub const ObjectGlobal = extern struct {
         mutable: bool,
     };
 
-    fn relocations(og: *const ObjectGlobal, wasm: *const Wasm) ObjectRelocation.IterableSlice {
+    pub fn relocations(og: *const ObjectGlobal, wasm: *const Wasm) ObjectRelocation.IterableSlice {
         const global_section_index = og.object_index.ptr(wasm).global_section_index.?;
         const relocs = wasm.object_relocations_table.get(global_section_index) orelse return .empty;
         return .init(relocs, og.offset, og.size, wasm);
@@ -1440,7 +1471,7 @@ pub const ObjectDataSegment = extern struct {
         }
     };
 
-    fn relocations(ods: *const ObjectDataSegment, wasm: *const Wasm) ObjectRelocation.IterableSlice {
+    pub fn relocations(ods: *const ObjectDataSegment, wasm: *const Wasm) ObjectRelocation.IterableSlice {
         const data_section_index = ods.object_index.ptr(wasm).data_section_index.?;
         const relocs = wasm.object_relocations_table.get(data_section_index) orelse return .empty;
         return .init(relocs, ods.offset, ods.payload.len, wasm);
@@ -1561,6 +1592,10 @@ pub const DataId = enum(u32) {
                 }
             },
         };
+    }
+
+    pub fn fromObjectDataSegment(wasm: *const Wasm, object_data_segment: ObjectDataSegment.Index) DataId {
+        return pack(wasm, .{ .object = object_data_segment });
     }
 
     pub fn category(id: DataId, wasm: *const Wasm) Category {
@@ -2258,19 +2293,19 @@ pub const ObjectRelocation = struct {
 
         const empty: Slice = .{ .off = 0, .len = 0 };
 
-        fn tags(s: Slice, wasm: *const Wasm) []const ObjectRelocation.Tag {
+        pub fn tags(s: Slice, wasm: *const Wasm) []const ObjectRelocation.Tag {
             return wasm.object_relocations.items(.tag)[s.off..][0..s.len];
         }
 
-        fn offsets(s: Slice, wasm: *const Wasm) []const u32 {
+        pub fn offsets(s: Slice, wasm: *const Wasm) []const u32 {
             return wasm.object_relocations.items(.offset)[s.off..][0..s.len];
         }
 
-        fn pointees(s: Slice, wasm: *const Wasm) []const Pointee {
+        pub fn pointees(s: Slice, wasm: *const Wasm) []const Pointee {
             return wasm.object_relocations.items(.pointee)[s.off..][0..s.len];
         }
 
-        fn addends(s: Slice, wasm: *const Wasm) []const i32 {
+        pub fn addends(s: Slice, wasm: *const Wasm) []const i32 {
             return wasm.object_relocations.items(.addend)[s.off..][0..s.len];
         }
     };
@@ -3131,7 +3166,7 @@ fn markDataSegment(wasm: *Wasm, segment_index: ObjectDataSegment.Index) link.Fil
 }
 
 fn markRelocations(wasm: *Wasm, relocs: ObjectRelocation.IterableSlice) link.File.FlushError!void {
-    for (relocs.slice.tags(wasm), relocs.slice.pointees(wasm), relocs.slice.offsets(wasm)) |tag, *pointee, offset| {
+    for (relocs.slice.tags(wasm), relocs.slice.pointees(wasm), relocs.slice.offsets(wasm)) |tag, pointee, offset| {
         if (offset >= relocs.end) break;
         switch (tag) {
             .function_import_index_leb,

@@ -683,10 +683,12 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             .__wasm_init_memory => @panic("TODO lower __wasm_init_memory "),
             .__wasm_init_tls => @panic("TODO lower __wasm_init_tls "),
             .object_function => |i| {
-                _ = i;
-                @panic("TODO lower object function code and apply relocations");
-                //try leb.writeUleb128(binary_writer, atom.code.len);
-                //try binary_bytes.appendSlice(gpa, atom.code.slice(wasm));
+                const ptr = i.ptr(wasm);
+                const code = ptr.code.slice(wasm);
+                try leb.writeUleb128(binary_writer, code.len);
+                const code_start = binary_bytes.items.len;
+                try binary_bytes.appendSlice(gpa, code);
+                if (!is_obj) applyRelocs(binary_bytes.items[code_start..], ptr.offset, ptr.relocations(wasm), wasm);
             },
             .zcu_func => |i| {
                 const code_start = try reserveSize(gpa, binary_bytes);
@@ -699,7 +701,6 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         };
 
         replaceVecSectionHeader(binary_bytes, header_offset, .code, @intCast(wasm.functions.entries.len));
-        if (is_obj) @panic("TODO apply offset to code relocs");
         code_section_index = section_index;
         section_index += 1;
     }
@@ -801,7 +802,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     }
 
     if (is_obj) {
-        @panic("TODO emit link section for object file and apply relocations");
+        @panic("TODO emit link section for object file and emit modified relocations");
         //var symbol_table = std.AutoArrayHashMap(SymbolLoc, u32).init(arena);
         //try wasm.emitLinkSection(binary_bytes, &symbol_table);
         //if (code_section_index) |code_index| {
@@ -1419,4 +1420,142 @@ fn emitErrorNameTable(
         mem.writeInt(Int, code.addManyAsArrayAssumeCapacity(ptr_size_bytes), base + off, .little);
         mem.writeInt(Int, code.addManyAsArrayAssumeCapacity(ptr_size_bytes), name_len, .little);
     }
+}
+
+fn applyRelocs(code: []u8, code_offset: u32, relocs: Wasm.ObjectRelocation.IterableSlice, wasm: *const Wasm) void {
+    for (
+        relocs.slice.tags(wasm),
+        relocs.slice.pointees(wasm),
+        relocs.slice.offsets(wasm),
+        relocs.slice.addends(wasm),
+    ) |tag, pointee, offset, *addend| {
+        if (offset >= relocs.end) break;
+        const sliced_code = code[offset - code_offset ..];
+        switch (tag) {
+            .function_index_i32 => reloc_u32_function(sliced_code, .fromObjectFunction(wasm, pointee.function)),
+            .function_index_leb => reloc_leb_function(sliced_code, .fromObjectFunction(wasm, pointee.function)),
+            .function_offset_i32 => @panic("TODO this value is not known yet"),
+            .function_offset_i64 => @panic("TODO this value is not known yet"),
+            .table_index_i32 => @panic("TODO indirect function table needs to support object functions too"),
+            .table_index_i64 => @panic("TODO indirect function table needs to support object functions too"),
+            .table_index_rel_sleb => @panic("TODO indirect function table needs to support object functions too"),
+            .table_index_rel_sleb64 => @panic("TODO indirect function table needs to support object functions too"),
+            .table_index_sleb => @panic("TODO indirect function table needs to support object functions too"),
+            .table_index_sleb64 => @panic("TODO indirect function table needs to support object functions too"),
+
+            .function_import_index_i32 => reloc_u32_function(sliced_code, .fromSymbolName(wasm, pointee.symbol_name)),
+            .function_import_index_leb => reloc_leb_function(sliced_code, .fromSymbolName(wasm, pointee.symbol_name)),
+            .function_import_offset_i32 => @panic("TODO this value is not known yet"),
+            .function_import_offset_i64 => @panic("TODO this value is not known yet"),
+            .table_import_index_i32 => @panic("TODO indirect function table needs to support object functions too"),
+            .table_import_index_i64 => @panic("TODO indirect function table needs to support object functions too"),
+            .table_import_index_rel_sleb => @panic("TODO indirect function table needs to support object functions too"),
+            .table_import_index_rel_sleb64 => @panic("TODO indirect function table needs to support object functions too"),
+            .table_import_index_sleb => @panic("TODO indirect function table needs to support object functions too"),
+            .table_import_index_sleb64 => @panic("TODO indirect function table needs to support object functions too"),
+
+            .global_index_i32 => reloc_u32_global(sliced_code, .fromObjectGlobal(wasm, pointee.global)),
+            .global_index_leb => reloc_leb_global(sliced_code, .fromObjectGlobal(wasm, pointee.global)),
+
+            .global_import_index_i32 => reloc_u32_global(sliced_code, .fromSymbolName(wasm, pointee.symbol_name)),
+            .global_import_index_leb => reloc_leb_global(sliced_code, .fromSymbolName(wasm, pointee.symbol_name)),
+
+            .memory_addr_i32 => reloc_u32_addr(sliced_code, .fromObjectData(wasm, pointee.data, addend.*)),
+            .memory_addr_i64 => reloc_u64_addr(sliced_code, .fromObjectData(wasm, pointee.data, addend.*)),
+            .memory_addr_leb => reloc_leb_addr(sliced_code, .fromObjectData(wasm, pointee.data, addend.*)),
+            .memory_addr_leb64 => reloc_leb64_addr(sliced_code, .fromObjectData(wasm, pointee.data, addend.*)),
+            .memory_addr_locrel_i32 => @panic("TODO implement relocation memory_addr_locrel_i32"),
+            .memory_addr_rel_sleb => @panic("TODO implement relocation memory_addr_rel_sleb"),
+            .memory_addr_rel_sleb64 => @panic("TODO implement relocation memory_addr_rel_sleb64"),
+            .memory_addr_sleb => reloc_sleb_addr(sliced_code, .fromObjectData(wasm, pointee.data, addend.*)),
+            .memory_addr_sleb64 => reloc_sleb64_addr(sliced_code, .fromObjectData(wasm, pointee.data, addend.*)),
+            .memory_addr_tls_sleb => @panic("TODO implement relocation memory_addr_tls_sleb"),
+            .memory_addr_tls_sleb64 => @panic("TODO implement relocation memory_addr_tls_sleb64"),
+
+            .memory_addr_import_i32 => reloc_u32_addr(sliced_code, .fromSymbolName(wasm, pointee.symbol_name, addend.*)),
+            .memory_addr_import_i64 => reloc_u64_addr(sliced_code, .fromSymbolName(wasm, pointee.symbol_name, addend.*)),
+            .memory_addr_import_leb => reloc_leb_addr(sliced_code, .fromSymbolName(wasm, pointee.symbol_name, addend.*)),
+            .memory_addr_import_leb64 => reloc_leb64_addr(sliced_code, .fromSymbolName(wasm, pointee.symbol_name, addend.*)),
+            .memory_addr_import_locrel_i32 => @panic("TODO implement relocation memory_addr_import_locrel_i32"),
+            .memory_addr_import_rel_sleb => @panic("TODO implement relocation memory_addr_import_rel_sleb"),
+            .memory_addr_import_rel_sleb64 => @panic("TODO implement memory_addr_import_rel_sleb64"),
+            .memory_addr_import_sleb => reloc_sleb_addr(sliced_code, .fromSymbolName(wasm, pointee.symbol_name, addend.*)),
+            .memory_addr_import_sleb64 => reloc_sleb64_addr(sliced_code, .fromSymbolName(wasm, pointee.symbol_name, addend.*)),
+            .memory_addr_import_tls_sleb => @panic("TODO"),
+            .memory_addr_import_tls_sleb64 => @panic("TODO"),
+
+            .section_offset_i32 => @panic("TODO this value is not known yet"),
+
+            .table_number_leb => reloc_leb_table(sliced_code, .fromObjectTable(wasm, pointee.table)),
+            .table_import_number_leb => reloc_leb_table(sliced_code, .fromSymbolName(wasm, pointee.symbol_name)),
+
+            .type_index_leb => reloc_leb_type(sliced_code, pointee.type_index),
+        }
+    }
+}
+
+fn reloc_u32_function(code: []u8, function: Wasm.OutputFunctionIndex) void {
+    mem.writeInt(u32, code[0..4], @intFromEnum(function), .little);
+}
+
+fn reloc_leb_function(code: []u8, function: Wasm.OutputFunctionIndex) void {
+    leb.writeUnsignedFixed(5, code[0..5], @intFromEnum(function));
+}
+
+fn reloc_u32_global(code: []u8, global: Wasm.GlobalIndex) void {
+    mem.writeInt(u32, code[0..4], @intFromEnum(global), .little);
+}
+
+fn reloc_leb_global(code: []u8, global: Wasm.GlobalIndex) void {
+    leb.writeUnsignedFixed(5, code[0..5], @intFromEnum(global));
+}
+
+const RelocAddr = struct {
+    addr: u32,
+
+    fn fromObjectData(wasm: *const Wasm, i: Wasm.ObjectData.Index, addend: i32) RelocAddr {
+        const ptr = i.ptr(wasm);
+        const f = &wasm.flush_buffer;
+        const addr = f.data_segments.get(.fromObjectDataSegment(wasm, ptr.segment)).?;
+        return .{ .addr = @intCast(@as(i64, addr) + addend) };
+    }
+
+    fn fromSymbolName(wasm: *const Wasm, name: String, addend: i32) RelocAddr {
+        _ = wasm;
+        _ = name;
+        _ = addend;
+        @panic("TODO implement data symbol resolution");
+    }
+};
+
+fn reloc_u32_addr(code: []u8, ra: RelocAddr) void {
+    mem.writeInt(u32, code[0..4], ra.addr, .little);
+}
+
+fn reloc_u64_addr(code: []u8, ra: RelocAddr) void {
+    mem.writeInt(u64, code[0..8], ra.addr, .little);
+}
+
+fn reloc_leb_addr(code: []u8, ra: RelocAddr) void {
+    leb.writeUnsignedFixed(5, code[0..5], ra.addr);
+}
+
+fn reloc_leb64_addr(code: []u8, ra: RelocAddr) void {
+    leb.writeUnsignedFixed(11, code[0..11], ra.addr);
+}
+
+fn reloc_sleb_addr(code: []u8, ra: RelocAddr) void {
+    leb.writeSignedFixed(5, code[0..5], ra.addr);
+}
+
+fn reloc_sleb64_addr(code: []u8, ra: RelocAddr) void {
+    leb.writeSignedFixed(11, code[0..11], ra.addr);
+}
+
+fn reloc_leb_table(code: []u8, table: Wasm.TableIndex) void {
+    leb.writeUnsignedFixed(5, code[0..5], @intFromEnum(table));
+}
+
+fn reloc_leb_type(code: []u8, index: Wasm.FunctionType.Index) void {
+    leb.writeUnsignedFixed(5, code[0..5], @intFromEnum(index));
 }
