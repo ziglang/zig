@@ -378,6 +378,7 @@ pub const OutputFunctionIndex = enum(u32) {
     }
 
     pub fn fromSymbolName(wasm: *const Wasm, name: String) OutputFunctionIndex {
+        if (wasm.flush_buffer.function_imports.getIndex(name)) |i| return @enumFromInt(i);
         return fromFunctionIndex(wasm, FunctionIndex.fromSymbolName(wasm, name).?);
     }
 };
@@ -3001,6 +3002,10 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
         if (import.flags.isIncluded(rdynamic)) {
             try markFunctionImport(wasm, name, import, @enumFromInt(i));
         }
+    }
+    // Also treat init functions as roots.
+    for (wasm.object_init_funcs.items) |init_func| {
+        try markFunction(wasm, init_func.function_index);
     }
     wasm.functions_end_prelink = @intCast(wasm.functions.entries.len);
     wasm.function_exports_len = @intCast(wasm.function_exports.items.len);

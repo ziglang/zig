@@ -679,7 +679,11 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         for (wasm.functions.keys()) |resolution| switch (resolution.unpack(wasm)) {
             .unresolved => unreachable,
             .__wasm_apply_global_tls_relocs => @panic("TODO lower __wasm_apply_global_tls_relocs"),
-            .__wasm_call_ctors => @panic("TODO lower __wasm_call_ctors"),
+            .__wasm_call_ctors => {
+                const code_start = try reserveSize(gpa, binary_bytes);
+                defer replaceSize(binary_bytes, code_start);
+                try emitCallCtorsFunction(wasm, binary_bytes);
+            },
             .__wasm_init_memory => @panic("TODO lower __wasm_init_memory "),
             .__wasm_init_tls => @panic("TODO lower __wasm_init_tls "),
             .object_function => |i| {
@@ -1558,4 +1562,28 @@ fn reloc_leb_table(code: []u8, table: Wasm.TableIndex) void {
 
 fn reloc_leb_type(code: []u8, index: Wasm.FunctionType.Index) void {
     leb.writeUnsignedFixed(5, code[0..5], @intFromEnum(index));
+}
+
+fn emitCallCtorsFunction(wasm: *const Wasm, binary_bytes: *std.ArrayListUnmanaged(u8)) Allocator.Error!void {
+    const gpa = wasm.base.comp.gpa;
+
+    try binary_bytes.ensureUnusedCapacity(gpa, 5 + 1);
+    leb.writeUleb128(binary_bytes.fixedWriter(), @as(u32, 0)) catch unreachable; // no locals
+
+    for (wasm.object_init_funcs.items) |init_func| {
+        const func = init_func.function_index.ptr(wasm);
+        const ty = func.type_index.ptr(wasm);
+        const n_returns = ty.returns.slice(wasm).len;
+
+        // Call function by its function index
+        try binary_bytes.ensureUnusedCapacity(gpa, 1 + 5 + n_returns + 1);
+        const call_index: Wasm.OutputFunctionIndex = .fromObjectFunction(wasm, init_func.function_index);
+        binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.call));
+        leb.writeUleb128(binary_bytes.fixedWriter(), @intFromEnum(call_index)) catch unreachable;
+
+        // drop all returned values from the stack as __wasm_call_ctors has no return value
+        binary_bytes.appendNTimesAssumeCapacity(@intFromEnum(std.wasm.Opcode.drop), n_returns);
+    }
+
+    binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.end)); // end function body
 }
