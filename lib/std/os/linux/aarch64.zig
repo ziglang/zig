@@ -139,6 +139,25 @@ pub fn clone() callconv(.naked) usize {
     );
 }
 
+pub fn clone3() callconv(.Naked) usize {
+    asm volatile (
+        \\      mov x8,#435 // SYS_clone3
+        \\      svc #0
+        \\
+        \\      cbz x0,1f
+        \\      ret
+        \\
+        \\1:    .cfi_undefined lr
+        \\      mov fp, 0
+        \\      mov lr, 0
+        \\
+        \\      mov x0,x3
+        \\      blr x2
+        \\      mov x8,#93 // SYS_exit
+        \\      svc #0
+    );
+}
+
 pub const restore = restore_rt;
 
 pub fn restore_rt() callconv(.naked) noreturn {
