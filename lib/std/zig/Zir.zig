@@ -4481,11 +4481,18 @@ fn findTrackableInner(
         .func,
         .func_inferred,
         => {
+            const inst_data = datas[@intFromEnum(inst)].pl_node;
+            const extra = zir.extraData(Inst.Func, inst_data.payload_index);
+
+            if (extra.data.body_len == 0) {
+                // This is just a prototype. No need to track.
+                assert(extra.data.ret_body_len < 2);
+                return;
+            }
+
             assert(contents.func_decl == null);
             contents.func_decl = inst;
 
-            const inst_data = datas[@intFromEnum(inst)].pl_node;
-            const extra = zir.extraData(Inst.Func, inst_data.payload_index);
             var extra_index: usize = extra.end;
             switch (extra.data.ret_body_len) {
                 0 => {},
@@ -4500,11 +4507,19 @@ fn findTrackableInner(
             return zir.findTrackableBody(gpa, contents, defers, body);
         },
         .func_fancy => {
+            const inst_data = datas[@intFromEnum(inst)].pl_node;
+            const extra = zir.extraData(Inst.FuncFancy, inst_data.payload_index);
+
+            if (extra.data.body_len == 0) {
+                // This is just a prototype. No need to track.
+                assert(!extra.data.bits.has_cc_body);
+                assert(!extra.data.bits.has_ret_ty_body);
+                return;
+            }
+
             assert(contents.func_decl == null);
             contents.func_decl = inst;
 
-            const inst_data = datas[@intFromEnum(inst)].pl_node;
-            const extra = zir.extraData(Inst.FuncFancy, inst_data.payload_index);
             var extra_index: usize = extra.end;
 
             if (extra.data.bits.has_cc_body) {
@@ -5026,10 +5041,16 @@ pub fn assertTrackable(zir: Zir, inst_idx: Zir.Inst.Index) void {
         .struct_init_ref,
         .struct_init_anon,
         => {}, // tracked in order, as the owner instructions of anonymous struct types
-        .func,
-        .func_inferred,
-        .func_fancy,
-        => {}, // tracked in order, as the owner instructions of function bodies
+        .func, .func_inferred => {
+            // These are tracked provided they are actual function declarations, not just bodies.
+            const extra = zir.extraData(Inst.Func, inst.data.pl_node.payload_index);
+            assert(extra.data.body_len != 0);
+        },
+        .func_fancy => {
+            // These are tracked provided they are actual function declarations, not just bodies.
+            const extra = zir.extraData(Inst.FuncFancy, inst.data.pl_node.payload_index);
+            assert(extra.data.body_len != 0);
+        },
         .declaration => {}, // tracked by correlating names in the namespace of the parent container
         .extended => switch (inst.data.extended.opcode) {
             .struct_decl,
