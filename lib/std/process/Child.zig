@@ -585,17 +585,8 @@ fn spawnPosixChildHelper(arg: usize) callconv(.c) u8 {
     if (native_os == .linux and child_arg.sigmask != null) {
         std.debug.assert(linux.SIG.DFL == null);
         for (1..linux.NSIG) |sig| {
-            if (sig == posix.SIG.KILL or sig == posix.SIG.STOP) {
-                continue;
-            }
-            if (sig > std.math.maxInt(u6)) {
-                // XXX: We cannot disable all signals.
-                // sigaction accepts u6, which is too narrow.
-                break;
-            }
             var old_act: posix.Sigaction = undefined;
             const new_act = mem.zeroes(posix.Sigaction);
-            // Do not use posix.sigaction. It reaches unreachable.
             _ = linux.sigaction(@intCast(sig), &new_act, &old_act);
             if (old_act.handler.handler == linux.SIG.IGN) {
                 _ = linux.sigaction(@intCast(sig), &old_act, null);

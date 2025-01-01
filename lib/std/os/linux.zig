@@ -1758,24 +1758,21 @@ pub fn sigprocmask(flags: u32, noalias set: ?*const sigset_t, noalias oldset: ?*
     return syscall4(.rt_sigprocmask, flags, @intFromPtr(set), @intFromPtr(oldset), NSIG / 8);
 }
 
-pub fn sigaction(sig: u6, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) usize {
-    assert(sig >= 1);
-    assert(sig != SIG.KILL);
-    assert(sig != SIG.STOP);
-
+pub fn sigaction(sig: u8, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) usize {
     var ksa: k_sigaction = undefined;
     var oldksa: k_sigaction = undefined;
     const mask_size = @sizeOf(@TypeOf(ksa.mask));
 
     if (act) |new| {
-        const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) &restore_rt else &restore;
-        ksa = k_sigaction{
-            .handler = new.handler.handler,
-            .flags = new.flags | SA.RESTORER,
-            .mask = undefined,
-            .restorer = @ptrCast(restorer_fn),
-        };
-        @memcpy(@as([*]u8, @ptrCast(&ksa.mask))[0..mask_size], @as([*]const u8, @ptrCast(&new.mask)));
+        ksa.handler = new.handler.handler;
+        if (ksa.handler == SIG.DFL or ksa.handler == SIG.IGN) {
+            ksa.flags = new.flags;
+        } else {
+            const restorer_fn = if ((new.flags & SA.SIGINFO) != 0) &restore_rt else &restore;
+            ksa.flags = new.flags | SA.RESTORER;
+            ksa.restorer = @ptrCast(restorer_fn);
+            @memcpy(@as([*]u8, @ptrCast(&ksa.mask))[0..mask_size], @as([*]const u8, @ptrCast(&new.mask)));
+        }
     }
 
     const ksa_arg = if (act != null) @intFromPtr(&ksa) else 0;
