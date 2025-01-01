@@ -1539,8 +1539,8 @@ pub fn posixGetUserInfo(allocator: mem.Allocator, name: []const u8) !UserInfo {
         ReadShell
     };
 
-    var buf: [std.mem.page_size]u8 = undefined;
-    var name_index: usize = 0;
+    var buf: [mem.page_size]u8 = undefined;
+    var index: usize = 0;
     var state = State.Start;
     var uid: posix.uid_t = 0;
     var gid: posix.gid_t = 0;
@@ -1557,19 +1557,19 @@ pub fn posixGetUserInfo(allocator: mem.Allocator, name: []const u8) !UserInfo {
             switch (state) {
                 .Start => switch (byte) {
                     ':' => {
-                        state = if (name_index == name.len) State.SkipPassword else State.WaitForNextLine;
+                        state = if (index == name.len) State.SkipPassword else State.WaitForNextLine;
                     },
                     '\n' => return error.CorruptPasswordFile,
                     else => {
-                        if (name_index == name.len or name[name_index] != byte) {
+                        if (index == name.len or name[index] != byte) {
                             state = .WaitForNextLine;
                         }
-                        name_index += 1;
+                        index += 1;
                     },
                 },
                 .WaitForNextLine => switch (byte) {
                     '\n' => {
-                        name_index = 0;
+                        index = 0;
                         state = .Start;
                     },
                     else => continue,
@@ -1629,20 +1629,32 @@ pub fn posixGetUserInfo(allocator: mem.Allocator, name: []const u8) !UserInfo {
                     '\n' => return error.CorruptPasswordFile,
                     ':' => {
                         gecos = try gecosByteArray.toOwnedSlice();
+                        index = 0;
                         state = .ReadHome;
                     },
                     else => {
-                        try gecosByteArray.append(byte);
+                        if (index >= mem.page_size) {
+                            try gecosByteArray.append(byte);
+                        } else {
+                            return error.CorruptPasswordFile;
+                        }
+                        index += 1;
                     },
                 },
                 .ReadHome => switch (byte) {
                     '\n' => return error.CorruptPasswordFile,
                     ':' => {
                         home = try homeByteArray.toOwnedSlice();
+                        index = 0;
                         state = .ReadShell;
                     },
                     else => {
-                        try homeByteArray.append(byte);
+                        if (index >= mem.page_size) {
+                            try homeByteArray.append(byte);
+                        } else {
+                            return error.CorruptPasswordFile;
+                        }
+                        index += 1;
                     },
                 },
                 .ReadShell => switch (byte) {
@@ -1658,7 +1670,12 @@ pub fn posixGetUserInfo(allocator: mem.Allocator, name: []const u8) !UserInfo {
                         };
                     },
                     else => {
-                        try shellByteArray.append(byte);
+                        if (index >= mem.page_size) {
+                            try shellByteArray.append(byte);
+                        } else {
+                            return error.CorruptPasswordFile;
+                        }
+                        index += 1;
                     },
                 },
             }
