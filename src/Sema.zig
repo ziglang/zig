@@ -1658,13 +1658,17 @@ fn analyzeBodyInner(
                 const extra = sema.code.extraData(Zir.Inst.BlockComptime, pl_node.payload_index);
                 const block_body = sema.code.bodySlice(extra.end, extra.data.body_len);
 
-                if (block.isComptime()) {
-                    // No need for a sub-block; just resolve the other body directly!
-                    break :inst try sema.resolveInlineBody(block, block_body, inst);
-                }
-
                 var child_block = block.makeSubBlock();
                 defer child_block.instructions.deinit(sema.gpa);
+
+                // We won't have any merges, but we must ensure this block is properly labeled for
+                // any `.restore_err_ret_index_*` instructions.
+                var label: Block.Label = .{
+                    .zir_block = inst,
+                    .merges = undefined,
+                };
+                child_block.label = &label;
+
                 child_block.comptime_reason = .{ .reason = .{
                     .src = src,
                     .r = .{ .simple = extra.data.reason },
@@ -1672,7 +1676,9 @@ fn analyzeBodyInner(
 
                 const result = try sema.resolveInlineBody(&child_block, block_body, inst);
 
-                if (!try sema.isComptimeKnown(result)) {
+                // Only check for the result being comptime-known in the outermost `block_comptime`.
+                // That way, AstGen can safely elide redundant `block_comptime` without affecting semantics.
+                if (!block.isComptime() and !try sema.isComptimeKnown(result)) {
                     return sema.failWithNeededComptime(&child_block, src, null);
                 }
 
