@@ -229,7 +229,8 @@ pub fn init(argv: []const []const u8, allocator: mem.Allocator) ChildProcess {
 }
 
 pub fn setUserName(self: *ChildProcess, name: []const u8) !void {
-    const user_info = try process.getUserInfo(name);
+    const user_info = try process.getUserInfo(self.allocator, name);
+    defer user_info.deinit();
     self.uid = user_info.uid;
     self.gid = user_info.gid;
 }

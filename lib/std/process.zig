@@ -1485,12 +1485,23 @@ fn testResponseFileCmdLine(input_cmd_line: []const u8, expected_args: []const []
 }
 
 pub const UserInfo = struct {
+    allocator: mem.Allocator,
     uid: posix.uid_t,
     gid: posix.gid_t,
+    gecos: []u8,
+    home: []u8,
+    shell: []u8,
+
+    pub fn deinit(self: *const UserInfo) void {
+        self.allocator.free(self.gecos);
+        self.allocator.free(self.home);
+        self.allocator.free(self.shell);
+    }
 };
 
-/// POSIX function which gets a uid from username.
-pub fn getUserInfo(name: []const u8) !UserInfo {
+/// POSIX function which gets a UID, GID, GECOS (comment field), HOME directory and SHELL path from username.
+/// You must call `deinit()` of the returned object to clean up allocated resources.
+pub fn getUserInfo(allocator: mem.Allocator, name: []const u8) !UserInfo {
     return switch (native_os) {
         .linux,
         .macos,
@@ -1504,14 +1515,14 @@ pub fn getUserInfo(name: []const u8) !UserInfo {
         .haiku,
         .solaris,
         .illumos,
-        => posixGetUserInfo(name),
+        => posixGetUserInfo(allocator, name),
         else => @compileError("Unsupported OS"),
     };
 }
 
 /// TODO this reads /etc/passwd. But sometimes the user/id mapping is in something else
 /// like NIS, AD, etc. See `man nss` or look at an strace for `id myuser`.
-pub fn posixGetUserInfo(name: []const u8) !UserInfo {
+pub fn posixGetUserInfo(allocator: mem.Allocator, name: []const u8) !UserInfo {
     const file = try std.fs.openFileAbsolute("/etc/passwd", .{});
     defer file.close();
 
@@ -1523,6 +1534,9 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
         SkipPassword,
         ReadUserId,
         ReadGroupId,
+        ReadGECOS,
+        ReadHome,
+        ReadShell
     };
 
     var buf: [std.mem.page_size]u8 = undefined;
@@ -1530,6 +1544,12 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
     var state = State.Start;
     var uid: posix.uid_t = 0;
     var gid: posix.gid_t = 0;
+    var gecosByteArray = std.ArrayList(u8).init(allocator);
+    var gecos: []u8 = "";
+    var homeByteArray = std.ArrayList(u8).init(allocator);
+    var home: []u8 = "";
+    var shellByteArray = std.ArrayList(u8).init(allocator);
+    var shell: []u8 = "";
 
     while (true) {
         const amt_read = try reader.read(buf[0..]);
@@ -1584,12 +1604,10 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
                     },
                 },
                 .ReadGroupId => switch (byte) {
-                    '\n', ':' => {
-                        return UserInfo{
-                            .uid = uid,
-                            .gid = gid,
-                        };
+                    ':' => {
+                        state = .ReadGECOS;
                     },
+                    '\n' => return error.CorruptPasswordFile,
                     else => {
                         const digit = switch (byte) {
                             '0'...'9' => byte - '0',
@@ -1605,6 +1623,34 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
                             if (ov[1] != 0) return error.CorruptPasswordFile;
                             gid = ov[0];
                         }
+                    },
+                },
+                .ReadGECOS => switch (byte) {
+                    '\n' => return error.CorruptPasswordFile,
+                    ':' => {
+                        gecos = try gecosByteArray.toOwnedSlice();
+                        state = .ReadHome;
+                    },
+                    else => {
+                        try gecosByteArray.append(byte);
+                    },
+                },
+                .ReadHome => switch (byte) {
+                    '\n', ':' => {
+                        home = try homeByteArray.toOwnedSlice();
+                        state = .ReadShell;
+                    },
+                    else => {
+                        try homeByteArray.append(byte);
+                    },
+                },
+                .ReadShell => switch (byte) {
+                    '\n', ':' => {
+                        shell = try shellByteArray.toOwnedSlice();
+                        return UserInfo{ .allocator = allocator, .uid = uid, .gid = gid, .gecos = gecos, .home = home, .shell = shell };
+                    },
+                    else => {
+                        try shellByteArray.append(byte);
                     },
                 },
             }
