@@ -1863,22 +1863,9 @@ pub fn updateExports(
     }
 }
 
-/// Must be called only after a successful call to `updateNav`.
-pub fn updateNavLineNumber(
-    self: *ZigObject,
-    pt: Zcu.PerThread,
-    nav_index: InternPool.Nav.Index,
-) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const ip = &pt.zcu.intern_pool;
-    const nav = ip.getNav(nav_index);
-
-    log.debug("updateNavLineNumber {}({d})", .{ nav.fqn.fmt(ip), nav_index });
-
+pub fn updateLineNumber(self: *ZigObject, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
     if (self.dwarf) |*dwarf| {
-        try dwarf.updateNavLineNumber(pt.zcu, nav_index);
+        try dwarf.updateLineNumber(pt.zcu, ti_id);
     }
 }
 

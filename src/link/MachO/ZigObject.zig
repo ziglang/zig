@@ -1432,14 +1432,9 @@ fn updateLazySymbol(
     try macho_file.base.file.?.pwriteAll(code, file_offset);
 }
 
-/// Must be called only after a successful call to `updateNav`.
-pub fn updateNavLineNumber(
-    self: *ZigObject,
-    pt: Zcu.PerThread,
-    nav_index: InternPool.Nav.Index,
-) !void {
+pub fn updateLineNumber(self: *ZigObject, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
     if (self.dwarf) |*dwarf| {
-        try dwarf.updateNavLineNumber(pt.zcu, nav_index);
+        try dwarf.updateLineNumber(pt.zcu, ti_id);
     }
 }
 

@@ -379,6 +379,7 @@ fn cleanupUpdatedFiles(gpa: Allocator, updated_files: *std.AutoArrayHashMapUnman
 pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
     assert(pt.tid == .main);
     const zcu = pt.zcu;
+    const comp = zcu.comp;
     const ip = &zcu.intern_pool;
     const gpa = zcu.gpa;
 
@@ -435,8 +436,19 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
 
             const old_zir = file.prev_zir.?.*;
             const new_zir = file.zir;
-            const old_tag = old_zir.instructions.items(.tag);
-            const old_data = old_zir.instructions.items(.data);
+            const old_tag = old_zir.instructions.items(.tag)[@intFromEnum(old_inst)];
+            const old_data = old_zir.instructions.items(.data)[@intFromEnum(old_inst)];
+
+            switch (old_tag) {
+                .declaration => {
+                    const old_line = old_zir.getDeclaration(old_inst).src_line;
+                    const new_line = new_zir.getDeclaration(new_inst).src_line;
+                    if (old_line != new_line) {
+                        try comp.queueJob(.{ .update_line_number = tracked_inst_index });
+                    }
+                },
+                else => {},
+            }
 
             if (old_zir.getAssociatedSrcHash(old_inst)) |old_hash| hash_changed: {
                 if (new_zir.getAssociatedSrcHash(new_inst)) |new_hash| {
@@ -455,8 +467,8 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
             }
 
             // If this is a `struct_decl` etc, we must invalidate any outdated namespace dependencies.
-            const has_namespace = switch (old_tag[@intFromEnum(old_inst)]) {
-                .extended => switch (old_data[@intFromEnum(old_inst)].extended.opcode) {
+            const has_namespace = switch (old_tag) {
+                .extended => switch (old_data.extended.opcode) {
                     .struct_decl, .union_decl, .opaque_decl, .enum_decl => true,
                     else => false,
                 },
@@ -2517,8 +2529,6 @@ const ScanDeclIter = struct {
             );
             try comp.queueJob(.{ .analyze_comptime_unit = unit });
         }
-
-        // TODO: we used to do line number updates here, but this is an inappropriate place for this logic to live.
     }
 };
 
@@ -3148,6 +3158,15 @@ pub fn linkerUpdateContainerType(pt: Zcu.PerThread, ty: InternPool.Index) !void 
         lf.updateContainerType(pt, ty) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => |e| log.err("codegen type failed: {s}", .{@errorName(e)}),
+        };
+    }
+}
+
+pub fn linkerUpdateLineNumber(pt: Zcu.PerThread, ti: InternPool.TrackedInst.Index) !void {
+    if (pt.zcu.comp.bin_file) |lf| {
+        lf.updateLineNumber(pt, ti) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => |e| log.err("update line number failed: {s}", .{@errorName(e)}),
         };
     }
 }

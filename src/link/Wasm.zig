@@ -1574,9 +1574,9 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !voi
     try wasm.zig_object.?.updateNav(wasm, pt, nav);
 }
 
-pub fn updateNavLineNumber(wasm: *Wasm, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !void {
+pub fn updateLineNumber(wasm: *Wasm, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
     if (wasm.llvm_object) |_| return;
-    try wasm.zig_object.?.updateNavLineNumber(pt, nav);
+    try wasm.zig_object.?.updateLineNumber(pt, ti_id);
 }
 
 /// From a given symbol location, returns its `wasm.GlobalType`.

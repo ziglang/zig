@@ -4156,21 +4156,11 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
     }
 }
 
-pub fn updateNavLineNumber(dwarf: *Dwarf, zcu: *Zcu, nav_index: InternPool.Nav.Index) UpdateError!void {
-    const ip = &zcu.intern_pool;
-
-    const zir_index = ip.getCau(ip.getNav(nav_index).analysis_owner.unwrap() orelse return).zir_index;
-    const inst_info = zir_index.resolveFull(ip).?;
-    assert(inst_info.inst != .main_struct_inst);
-    const file = zcu.fileByIndex(inst_info.file);
-
-    const line = file.zir.getDeclaration(inst_info.inst).src_line;
-    var line_buf: [4]u8 = undefined;
-    std.mem.writeInt(u32, &line_buf, line, dwarf.endian);
-
-    const unit = dwarf.debug_line.section.getUnit(dwarf.mods.get(file.mod).?);
-    const entry = unit.getEntry(dwarf.navs.get(nav_index).?);
-    try dwarf.getFile().?.pwriteAll(&line, dwarf.debug_line.section.off + unit.off + unit.header_len + entry.off + DebugInfo.declEntryLineOff(dwarf));
+pub fn updateLineNumber(dwarf: *Dwarf, zcu: *Zcu, ti_id: InternPool.TrackedInst.Index) UpdateError!void {
+    _ = dwarf;
+    _ = zcu;
+    _ = ti_id;
+    @panic("TODO: Dwarf.updateLineNumber");
 }
 
 pub fn freeNav(dwarf: *Dwarf, nav_index: InternPool.Nav.Index) void {

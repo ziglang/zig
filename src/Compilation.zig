@@ -348,6 +348,7 @@ const Job = union(enum) {
     /// Corresponds to the task in `link.Task`.
     /// Only needed for backends that haven't yet been updated to not race against Sema.
     codegen_type: InternPool.Index,
+    update_line_number: InternPool.TrackedInst.Index,
     /// The `AnalUnit`, which is *not* a `func`, must be semantically analyzed.
     /// This may be its first time being analyzed, or it may be outdated.
     /// If the unit is a function, a `codegen_func` job will then be queued.
@@ -3717,6 +3718,9 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
         },
         .codegen_type => |ty| {
             comp.dispatchCodegenTask(tid, .{ .codegen_type = ty });
+        },
+        .update_line_number => |ti| {
+            comp.dispatchCodegenTask(tid, .{ .update_line_number = ti });
         },
         .analyze_func => |func| {
             const named_frame = tracy.namedFrame("analyze_func");
