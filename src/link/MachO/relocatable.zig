@@ -93,11 +93,11 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
 
     if (module_obj_path) |path| try positionals.append(try link.openObjectInput(diags, path));
 
-    if (comp.include_compiler_rt) {
+    if (comp.compiler_rt_strat == .obj) {
         try positionals.append(try link.openObjectInput(diags, comp.compiler_rt_obj.?.full_object_path));
     }
 
-    if (comp.include_ubsan_rt) {
+    if (comp.ubsan_rt_strat == .obj) {
         try positionals.append(try link.openObjectInput(diags, comp.ubsan_rt_obj.?.full_object_path));
     }
 

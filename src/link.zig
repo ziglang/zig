@@ -1102,12 +1102,12 @@ pub const File = struct {
 
         log.debug("zcu_obj_path={s}", .{if (zcu_obj_path) |s| s else "(null)"});
 
-        const compiler_rt_path: ?Path = if (comp.include_compiler_rt)
+        const compiler_rt_path: ?Path = if (comp.compiler_rt_strat == .obj)
             comp.compiler_rt_obj.?.full_object_path
         else
             null;
 
-        const ubsan_rt_path: ?Path = if (comp.include_ubsan_rt)
+        const ubsan_rt_path: ?Path = if (comp.ubsan_rt_strat == .obj)
             comp.ubsan_rt_obj.?.full_object_path
         else
             null;

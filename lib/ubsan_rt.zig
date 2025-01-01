@@ -59,7 +59,7 @@ const Value = extern struct {
         return switch (size) {
             64 => @as(*const u64, @alignCast(@ptrCast(value.handle))).*,
             128 => @as(*const u128, @alignCast(@ptrCast(value.handle))).*,
-            else => unreachable,
+            else => @trap(),
         };
     }
 
@@ -186,8 +186,8 @@ fn divRemHandler(
     lhs_handle: ValueHandle,
     rhs_handle: ValueHandle,
 ) callconv(.c) noreturn {
-    const lhs: Value = .{ .handle = lhs_handle, .td = data.lhs_type };
-    const rhs: Value = .{ .handle = rhs_handle, .td = data.rhs_type };
+    const lhs: Value = .{ .handle = lhs_handle, .td = data.td };
+    const rhs: Value = .{ .handle = rhs_handle, .td = data.td };
 
     if (rhs.isMinusOne()) {
         logMessage(
@@ -533,26 +533,10 @@ fn exportHandler(
     }
 }
 
-fn exportMinimal(
-    comptime err_name: []const u8,
-    comptime sym_name: []const u8,
-    comptime abort: bool,
-) void {
-    const S = struct {
-        fn handler() callconv(.c) noreturn {
-            logMessage("{s}", .{err_name});
-        }
-    };
-    const linkage = if (builtin.is_test) .internal else .weak;
-    {
-        const N = "__ubsan_handle_" ++ sym_name ++ "_minimal";
-        @export(&S.handler, .{ .name = N, .linkage = linkage });
-    }
-    if (abort) {
-        const N = "__ubsan_handle_" ++ sym_name ++ "_minimal_abort";
-        @export(&S.handler, .{ .name = N, .linkage = linkage });
-    }
-}
+const can_build_ubsan = switch (builtin.zig_backend) {
+    .stage2_riscv64 => false,
+    else => true,
+};
 
 comptime {
     overflowHandler("add_overflow", "+");
@@ -573,24 +557,6 @@ comptime {
     exportHandler(&shiftOob, "shift_out_of_bounds", true);
     exportHandler(&typeMismatch, "type_mismatch_v1", true);
     exportHandler(&vlaBoundNotPositive, "vla_bound_not_positive", true);
-
-    exportMinimal("add-overflow", "add_overflow", true);
-    exportMinimal("sub-overflow", "sub_overflow", true);
-    exportMinimal("mul-overflow", "mul_overflow", true);
-    exportMinimal("alignment-assumption-handler", "alignment_assumption", true);
-    exportMinimal("builtin-unreachable", "builtin_unreachable", false);
-    exportMinimal("divrem-handler", "divrem_overflow", true);
-    exportMinimal("float-cast-overflow", "float_cast_overflow", true);
-    exportMinimal("invalid-builtin", "invalid_builtin", true);
-    exportMinimal("load-invalid-value", "load_invalid_value", true);
-    exportMinimal("missing-return", "missing_return", true);
-    exportMinimal("negation-handler", "negate_overflow", true);
-    exportMinimal("nonnull-arg", "nonnull_arg", true);
-    exportMinimal("out-of-bounds", "out_of_bounds", true);
-    exportMinimal("pointer-overflow", "pointer_overflow", true);
-    exportMinimal("shift-oob", "shift_out_of_bounds", true);
-    exportMinimal("type-mismatch", "type_mismatch", true);
-    exportMinimal("vla-bound-not-positive", "vla_bound_not_positive", true);
 
     // these checks are nearly impossible to duplicate in zig, as they rely on nuances
     // in the Itanium C++ ABI.
