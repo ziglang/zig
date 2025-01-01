@@ -1647,7 +1647,14 @@ pub fn posixGetUserInfo(allocator: mem.Allocator, name: []const u8) !UserInfo {
                 .ReadShell => switch (byte) {
                     '\n', ':' => {
                         shell = try shellByteArray.toOwnedSlice();
-                        return UserInfo{ .allocator = allocator, .uid = uid, .gid = gid, .gecos = gecos, .home = home, .shell = shell };
+                        return UserInfo{
+                            .allocator = allocator,
+                            .uid = uid,
+                            .gid = gid,
+                            .gecos = gecos,
+                            .home = home,
+                            .shell = shell
+                        };
                     },
                     else => {
                         try shellByteArray.append(byte);
