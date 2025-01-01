@@ -1528,16 +1528,7 @@ pub fn posixGetUserInfo(allocator: mem.Allocator, name: []const u8) !UserInfo {
 
     const reader = file.reader();
 
-    const State = enum {
-        Start,
-        WaitForNextLine,
-        SkipPassword,
-        ReadUserId,
-        ReadGroupId,
-        ReadGECOS,
-        ReadHome,
-        ReadShell
-    };
+    const State = enum { Start, WaitForNextLine, SkipPassword, ReadUserId, ReadGroupId, ReadGECOS, ReadHome, ReadShell };
 
     var buf: [std.mem.page_size]u8 = undefined;
     var name_index: usize = 0;
@@ -1636,7 +1627,8 @@ pub fn posixGetUserInfo(allocator: mem.Allocator, name: []const u8) !UserInfo {
                     },
                 },
                 .ReadHome => switch (byte) {
-                    '\n', ':' => {
+                    '\n' => return error.CorruptPasswordFile,
+                    ':' => {
                         home = try homeByteArray.toOwnedSlice();
                         state = .ReadShell;
                     },
@@ -1647,14 +1639,7 @@ pub fn posixGetUserInfo(allocator: mem.Allocator, name: []const u8) !UserInfo {
                 .ReadShell => switch (byte) {
                     '\n', ':' => {
                         shell = try shellByteArray.toOwnedSlice();
-                        return UserInfo{
-                            .allocator = allocator,
-                            .uid = uid,
-                            .gid = gid,
-                            .gecos = gecos,
-                            .home = home,
-                            .shell = shell
-                        };
+                        return UserInfo{ .allocator = allocator, .uid = uid, .gid = gid, .gecos = gecos, .home = home, .shell = shell };
                     },
                     else => {
                         try shellByteArray.append(byte);
