@@ -1633,7 +1633,7 @@ pub fn posixGetUserInfo(allocator: mem.Allocator, name: []const u8) !UserInfo {
                         state = .ReadHome;
                     },
                     else => {
-                        if (index >= mem.page_size) {
+                        if (index <= mem.page_size) {
                             try gecosByteArray.append(byte);
                         } else {
                             return error.CorruptPasswordFile;
@@ -1649,7 +1649,7 @@ pub fn posixGetUserInfo(allocator: mem.Allocator, name: []const u8) !UserInfo {
                         state = .ReadShell;
                     },
                     else => {
-                        if (index >= mem.page_size) {
+                        if (index <= mem.page_size) {
                             try homeByteArray.append(byte);
                         } else {
                             return error.CorruptPasswordFile;
@@ -1670,7 +1670,7 @@ pub fn posixGetUserInfo(allocator: mem.Allocator, name: []const u8) !UserInfo {
                         };
                     },
                     else => {
-                        if (index >= mem.page_size) {
+                        if (index <= mem.page_size) {
                             try shellByteArray.append(byte);
                         } else {
                             return error.CorruptPasswordFile;
