@@ -29736,6 +29736,7 @@ fn coerceExtra(
             // Coercions where the source is a single pointer to an array.
             src_array_ptr: {
                 if (!inst_ty.isSinglePointer(zcu)) break :src_array_ptr;
+                if (dest_info.flags.size == .One) break :src_array_ptr; // `*[n]T` -> `*T` isn't valid
                 if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :pointer;
                 const array_ty = inst_ty.childType(zcu);
                 if (array_ty.zigTypeTag(zcu) != .array) break :src_array_ptr;
@@ -29791,7 +29792,7 @@ fn coerceExtra(
                         // *[N]T to [*]T
                         return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
                     },
-                    .One => {},
+                    .One => unreachable, // early exit at top of block
                 }
             }
 
@@ -31259,6 +31260,7 @@ fn coerceInMemoryAllowedPtrs(
         // As a special case, we also allow coercing `*[n:s]T` to `*[n]T`, akin to dropping the sentinel from a slice.
         // `*[n:s]T` cannot coerce in memory to `*[n]T` since they have different sizes.
         if (src_child.zigTypeTag(zcu) == .array and dest_child.zigTypeTag(zcu) == .array and
+            src_child.arrayLen(zcu) == dest_child.arrayLen(zcu) and
             src_child.sentinel(zcu) != null and dest_child.sentinel(zcu) == null and
             .ok == try sema.coerceInMemoryAllowed(block, dest_child.childType(zcu), src_child.childType(zcu), !dest_info.flags.is_const, target, dest_src, src_src, null))
         {
