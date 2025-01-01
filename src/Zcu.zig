@@ -3590,17 +3590,17 @@ fn formatAnalUnit(data: struct { unit: AnalUnit, zcu: *Zcu }, comptime fmt: []co
             const cu = ip.getComptimeUnit(cu_id);
             if (cu.zir_index.resolveFull(ip)) |resolved| {
                 const file_path = zcu.fileByIndex(resolved.file).sub_file_path;
-                return writer.print("comptime(inst=('{s}', %{}))", .{ file_path, @intFromEnum(resolved.inst) });
+                return writer.print("comptime(inst=('{s}', %{}) [{}])", .{ file_path, @intFromEnum(resolved.inst), @intFromEnum(cu_id) });
             } else {
-                return writer.writeAll("comptime(inst=<list>)");
+                return writer.print("comptime(inst=<lost> [{}])", .{@intFromEnum(cu_id)});
             }
         },
-        .nav_val => |nav| return writer.print("nav_val('{}')", .{ip.getNav(nav).fqn.fmt(ip)}),
-        .nav_ty => |nav| return writer.print("nav_ty('{}')", .{ip.getNav(nav).fqn.fmt(ip)}),
-        .type => |ty| return writer.print("ty('{}')", .{Type.fromInterned(ty).containerTypeName(ip).fmt(ip)}),
+        .nav_val => |nav| return writer.print("nav_val('{}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
+        .nav_ty => |nav| return writer.print("nav_ty('{}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) }),
+        .type => |ty| return writer.print("ty('{}' [{}])", .{ Type.fromInterned(ty).containerTypeName(ip).fmt(ip), @intFromEnum(ty) }),
         .func => |func| {
             const nav = zcu.funcInfo(func).owner_nav;
-            return writer.print("func('{}')", .{ip.getNav(nav).fqn.fmt(ip)});
+            return writer.print("func('{}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(func) });
         },
     }
 }
