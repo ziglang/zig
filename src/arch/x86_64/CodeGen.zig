@@ -327,6 +327,13 @@ pub const MCValue = union(enum) {
         };
     }
 
+    fn isAddress(mcv: MCValue) bool {
+        return switch (mcv) {
+            .immediate, .register, .register_offset, .lea_frame => true,
+            else => false,
+        };
+    }
+
     fn address(mcv: MCValue) MCValue {
         return switch (mcv) {
             .none,
@@ -23005,17 +23012,69 @@ fn genSetMem(
 
                 try self.genSetMem(base, disp, ty, .{ .register = src_reg }, opts);
             },
-            else => try self.genInlineMemcpy(
-                dst_ptr_mcv,
-                src_mcv.address(),
-                .{ .immediate = abi_size },
-            ),
+            else => try self.genInlineMemcpy(dst_ptr_mcv, src_mcv.address(), .{ .immediate = abi_size }, .{ .no_alias = true }),
         },
         .air_ref => |src_ref| try self.genSetMem(base, disp, ty, try self.resolveInst(src_ref), opts),
     }
 }
 
-fn genInlineMemcpy(self: *CodeGen, dst_ptr: MCValue, src_ptr: MCValue, len: MCValue) InnerError!void {
+fn genInlineMemcpy(self: *CodeGen, dst_ptr: MCValue, src_ptr: MCValue, len: MCValue, opts: struct {
+    no_alias: bool,
+}) InnerError!void {
+    if (opts.no_alias and dst_ptr.isAddress() and src_ptr.isAddress()) switch (len) {
+        else => {},
+        .immediate => |len_imm| switch (len_imm) {
+            else => {},
+            1 => if (self.register_manager.tryAllocReg(null, abi.RegisterClass.gp)) |reg| {
+                try self.asmRegisterMemory(.{ ._, .mov }, reg.to8(), try src_ptr.deref().mem(self, .{ .size = .byte }));
+                try self.asmMemoryRegister(.{ ._, .mov }, try dst_ptr.deref().mem(self, .{ .size = .byte }), reg.to8());
+                return;
+            },
+            2 => if (self.register_manager.tryAllocReg(null, abi.RegisterClass.gp)) |reg| {
+                try self.asmRegisterMemory(.{ ._, .mov }, reg.to16(), try src_ptr.deref().mem(self, .{ .size = .word }));
+                try self.asmMemoryRegister(.{ ._, .mov }, try dst_ptr.deref().mem(self, .{ .size = .word }), reg.to16());
+                return;
+            },
+            4 => if (self.register_manager.tryAllocReg(null, abi.RegisterClass.gp)) |reg| {
+                try self.asmRegisterMemory(.{ ._, .mov }, reg.to32(), try src_ptr.deref().mem(self, .{ .size = .dword }));
+                try self.asmMemoryRegister(.{ ._, .mov }, try dst_ptr.deref().mem(self, .{ .size = .dword }), reg.to32());
+                return;
+            },
+            8 => if (self.target.cpu.arch == .x86_64) {
+                if (self.register_manager.tryAllocReg(null, abi.RegisterClass.gp)) |reg| {
+                    try self.asmRegisterMemory(.{ ._, .mov }, reg.to64(), try src_ptr.deref().mem(self, .{ .size = .qword }));
+                    try self.asmMemoryRegister(.{ ._, .mov }, try dst_ptr.deref().mem(self, .{ .size = .qword }), reg.to64());
+                    return;
+                }
+            },
+            16 => if (self.hasFeature(.avx)) {
+                if (self.register_manager.tryAllocReg(null, abi.RegisterClass.sse)) |reg| {
+                    try self.asmRegisterMemory(.{ .v_dqu, .mov }, reg.to128(), try src_ptr.deref().mem(self, .{ .size = .xword }));
+                    try self.asmMemoryRegister(.{ .v_dqu, .mov }, try dst_ptr.deref().mem(self, .{ .size = .xword }), reg.to128());
+                    return;
+                }
+            } else if (self.hasFeature(.sse2)) {
+                if (self.register_manager.tryAllocReg(null, abi.RegisterClass.sse)) |reg| {
+                    try self.asmRegisterMemory(.{ ._dqu, .mov }, reg.to128(), try src_ptr.deref().mem(self, .{ .size = .xword }));
+                    try self.asmMemoryRegister(.{ ._dqu, .mov }, try dst_ptr.deref().mem(self, .{ .size = .xword }), reg.to128());
+                    return;
+                }
+            } else if (self.hasFeature(.sse)) {
+                if (self.register_manager.tryAllocReg(null, abi.RegisterClass.sse)) |reg| {
+                    try self.asmRegisterMemory(.{ ._ps, .movu }, reg.to128(), try src_ptr.deref().mem(self, .{ .size = .xword }));
+                    try self.asmMemoryRegister(.{ ._ps, .movu }, try dst_ptr.deref().mem(self, .{ .size = .xword }), reg.to128());
+                    return;
+                }
+            },
+            32 => if (self.hasFeature(.avx)) {
+                if (self.register_manager.tryAllocReg(null, abi.RegisterClass.sse)) |reg| {
+                    try self.asmRegisterMemory(.{ .v_dqu, .mov }, reg.to256(), try src_ptr.deref().mem(self, .{ .size = .yword }));
+                    try self.asmMemoryRegister(.{ .v_dqu, .mov }, try dst_ptr.deref().mem(self, .{ .size = .yword }), reg.to256());
+                    return;
+                }
+            },
+        },
+    };
     try self.spillRegisters(&.{ .rsi, .rdi, .rcx });
     try self.genSetReg(.rsi, .usize, src_ptr, .{});
     try self.genSetReg(.rdi, .usize, dst_ptr, .{});
@@ -24057,7 +24116,7 @@ fn airMemset(self: *CodeGen, inst: Air.Inst.Index, safety: bool) !void {
                     len_reg,
                     .s(elem_abi_size),
                 );
-                try self.genInlineMemcpy(second_elem_ptr_mcv, dst_ptr, len_mcv);
+                try self.genInlineMemcpy(second_elem_ptr_mcv, dst_ptr, len_mcv, .{ .no_alias = false });
 
                 self.performReloc(skip_reloc);
             },
@@ -24082,7 +24141,7 @@ fn airMemset(self: *CodeGen, inst: Air.Inst.Index, safety: bool) !void {
                 } }, .{});
 
                 const bytes_to_copy: MCValue = .{ .immediate = elem_abi_size * (len - 1) };
-                try self.genInlineMemcpy(second_elem_ptr_mcv, dst, bytes_to_copy);
+                try self.genInlineMemcpy(second_elem_ptr_mcv, dst, bytes_to_copy, .{ .no_alias = false });
             },
             .c, .many => unreachable,
         }
@@ -24165,7 +24224,7 @@ fn airMemcpy(self: *CodeGen, inst: Air.Inst.Index) !void {
         else => src,
     };
 
-    try self.genInlineMemcpy(dst_ptr, src_ptr, len);
+    try self.genInlineMemcpy(dst_ptr, src_ptr, len, .{ .no_alias = true });
 
     return self.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
 }
