@@ -130,7 +130,10 @@ pub fn getExternalExecutor(
             if (options.allow_wine) {
                 // x86_64 wine does not support emulating aarch64-windows and
                 // vice versa.
-                if (candidate.cpu.arch != builtin.cpu.arch) {
+                if (candidate.cpu.arch != builtin.cpu.arch and
+                    !(candidate.cpu.arch == .thumb and builtin.cpu.arch == .aarch64) and
+                    !(candidate.cpu.arch == .x86 and builtin.cpu.arch == .x86_64))
+                {
                     return bad_result;
                 }
                 switch (candidate.ptrBitWidth()) {
