@@ -2523,7 +2523,7 @@ pub const Const = struct {
     /// Returns the number of leading zeros in twos-complement form.
     pub fn clz(a: Const, bits: Limb) Limb {
         // Limbs are stored in little-endian order but we need to iterate big-endian.
-        if (!a.positive) return 0;
+        if (!a.positive and !a.eqlZero()) return 0;
         var total_limb_lz: Limb = 0;
         var i: usize = a.limbs.len;
         const bits_per_limb = @bitSizeOf(Limb);

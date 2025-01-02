@@ -719,32 +719,25 @@ pub const SwitchBrTable = struct {
 
 /// Caller owns the memory.
 pub fn getSwitchBr(l: Liveness, gpa: Allocator, inst: Air.Inst.Index, cases_len: u32) Allocator.Error!SwitchBrTable {
-    var index: usize = l.special.get(inst) orelse return SwitchBrTable{
-        .deaths = &.{},
-    };
+    var index: usize = l.special.get(inst) orelse return .{ .deaths = &.{} };
     const else_death_count = l.extra[index];
     index += 1;
 
-    var deaths = std.ArrayList([]const Air.Inst.Index).init(gpa);
-    defer deaths.deinit();
-    try deaths.ensureTotalCapacity(cases_len + 1);
+    var deaths = try gpa.alloc([]const Air.Inst.Index, cases_len);
+    errdefer gpa.free(deaths);
 
     var case_i: u32 = 0;
     while (case_i < cases_len - 1) : (case_i += 1) {
         const case_death_count: u32 = l.extra[index];
         index += 1;
-        const case_deaths: []const Air.Inst.Index = @ptrCast(l.extra[index..][0..case_death_count]);
+        deaths[case_i] = @ptrCast(l.extra[index..][0..case_death_count]);
         index += case_death_count;
-        deaths.appendAssumeCapacity(case_deaths);
     }
     {
         // Else
-        const else_deaths: []const Air.Inst.Index = @ptrCast(l.extra[index..][0..else_death_count]);
-        deaths.appendAssumeCapacity(else_deaths);
+        deaths[case_i] = @ptrCast(l.extra[index..][0..else_death_count]);
     }
-    return SwitchBrTable{
-        .deaths = try deaths.toOwnedSlice(),
-    };
+    return .{ .deaths = deaths };
 }
 
 /// Note that this information is technically redundant, but is useful for

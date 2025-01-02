@@ -804,7 +804,7 @@ test "getrlimit and setrlimit" {
         //
         // This happens for example if RLIMIT_MEMLOCK is bigger than ~2GiB.
         // In that case the following the limit would be RLIM_INFINITY and the following setrlimit fails with EPERM.
-        if (comptime builtin.cpu.arch.isMIPS() and builtin.link_libc) {
+        if (builtin.cpu.arch.isMIPS() and builtin.link_libc) {
             if (limit.cur != linux.RLIM.INFINITY) {
                 try posix.setrlimit(resource, limit);
             }

@@ -482,17 +482,18 @@ pub const Memory = struct {
     base: Base = .none,
     mod: Mod = .{ .rm = .{} },
 
-    pub const Base = union(enum(u2)) {
+    pub const Base = union(enum(u3)) {
         none,
         reg: Register,
         frame: FrameIndex,
+        table,
         reloc: u32,
 
         pub const Tag = @typeInfo(Base).@"union".tag_type.?;
 
         pub fn isExtended(self: Base) bool {
             return switch (self) {
-                .none, .frame, .reloc => false, // rsp, rbp, and rip are not extended
+                .none, .frame, .table, .reloc => false, // rsp, rbp, and rip are not extended
                 .reg => |reg| reg.isExtended(),
             };
         }

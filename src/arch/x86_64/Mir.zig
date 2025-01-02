@@ -9,6 +9,7 @@
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
 extra: []const u32,
+table: []const Inst.Index,
 frame_locs: std.MultiArrayList(FrameLoc).Slice,
 
 pub const Inst = struct {
@@ -1237,7 +1238,7 @@ pub const Memory = struct {
         size: bits.Memory.Size,
         index: Register,
         scale: bits.Memory.Scale,
-        _: u16 = undefined,
+        _: u15 = undefined,
     };
 
     pub fn encode(mem: bits.Memory) Memory {
@@ -1260,7 +1261,7 @@ pub const Memory = struct {
                 },
             },
             .base = switch (mem.base) {
-                .none => undefined,
+                .none, .table => undefined,
                 .reg => |reg| @intFromEnum(reg),
                 .frame => |frame_index| @intFromEnum(frame_index),
                 .reloc => |sym_index| sym_index,
@@ -1289,6 +1290,7 @@ pub const Memory = struct {
                         .none => .none,
                         .reg => .{ .reg = @enumFromInt(mem.base) },
                         .frame => .{ .frame = @enumFromInt(mem.base) },
+                        .table => .table,
                         .reloc => .{ .reloc = mem.base },
                     },
                     .scale_index = switch (mem.info.index) {
@@ -1317,6 +1319,7 @@ pub const Memory = struct {
 pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.instructions.deinit(gpa);
     gpa.free(mir.extra);
+    gpa.free(mir.table);
     mir.frame_locs.deinit(gpa);
     mir.* = undefined;
 }
@@ -1352,7 +1355,7 @@ pub fn resolveFrameAddr(mir: Mir, frame_addr: bits.FrameAddr) bits.RegisterOffse
 
 pub fn resolveFrameLoc(mir: Mir, mem: Memory) Memory {
     return switch (mem.info.base) {
-        .none, .reg, .reloc => mem,
+        .none, .reg, .table, .reloc => mem,
         .frame => if (mir.frame_locs.len > 0) .{
             .info = .{
                 .base = .reg,

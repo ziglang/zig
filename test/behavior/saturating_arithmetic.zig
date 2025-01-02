@@ -164,10 +164,10 @@ test "saturating multiplication <= 32 bits" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .wasm32) {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isWasm()) {
         // https://github.com/ziglang/zig/issues/9660
         return error.SkipZigTest;
     }
@@ -264,10 +264,10 @@ test "saturating multiplication" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .wasm32) {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isWasm()) {
         // https://github.com/ziglang/zig/issues/9660
         return error.SkipZigTest;
     }
@@ -311,7 +311,7 @@ test "saturating shift-left" {
             try testSatShl(i8, 127, 1, 127);
             try testSatShl(i8, -128, 1, -128);
             // TODO: remove this check once #9668 is completed
-            if (builtin.cpu.arch != .wasm32) {
+            if (!builtin.cpu.arch.isWasm()) {
                 // skip testing ints > 64 bits on wasm due to miscompilation / wasmtime ci error
                 try testSatShl(i128, maxInt(i128), 64, maxInt(i128));
                 try testSatShl(u128, maxInt(u128), 64, maxInt(u128));

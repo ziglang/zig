@@ -61,9 +61,10 @@ src_loc: Zcu.LazySrcLoc,
 eflags_inst: ?Air.Inst.Index = null,
 
 /// MIR Instructions
-mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
+mir_instructions: std.MultiArrayList(Mir.Inst) = .empty,
 /// MIR extra data
 mir_extra: std.ArrayListUnmanaged(u32) = .empty,
+mir_table: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
 
 /// Byte offset within the source file of the ending curly.
 end_di_line: u32,
@@ -75,8 +76,8 @@ end_di_column: u32,
 exitlude_jump_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
 
 reused_operands: std.StaticBitSet(Liveness.bpi - 1) = undefined,
-const_tracking: ConstTrackingMap = .{},
-inst_tracking: InstTrackingMap = .{},
+const_tracking: ConstTrackingMap = .empty,
+inst_tracking: InstTrackingMap = .empty,
 
 // Key is the block instruction
 blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .empty,
@@ -86,16 +87,26 @@ register_manager: RegisterManager = .{},
 /// Generation of the current scope, increments by 1 for every entered scope.
 scope_generation: u32 = 0,
 
-frame_allocs: std.MultiArrayList(FrameAlloc) = .{},
+frame_allocs: std.MultiArrayList(FrameAlloc) = .empty,
 free_frame_indices: std.AutoArrayHashMapUnmanaged(FrameIndex, void) = .empty,
-frame_locs: std.MultiArrayList(Mir.FrameLoc) = .{},
+frame_locs: std.MultiArrayList(Mir.FrameLoc) = .empty,
 
 loops: std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
     /// The state to restore before branching.
     state: State,
     /// The branch target.
     target: Mir.Inst.Index,
-}) = .{},
+}) = .empty,
+loop_switches: std.AutoHashMapUnmanaged(Air.Inst.Index, struct {
+    start: u31,
+    len: u11,
+    min: Value,
+    else_relocs: union(enum) {
+        @"unreachable",
+        forward: std.ArrayListUnmanaged(Mir.Inst.Index),
+        backward: Mir.Inst.Index,
+    },
+}) = .empty,
 
 next_temp_index: Temp.Index = @enumFromInt(0),
 temp_type: [Temp.Index.max]Type = undefined,
@@ -904,6 +915,7 @@ pub fn generate(
         function.free_frame_indices.deinit(gpa);
         function.frame_locs.deinit(gpa);
         function.loops.deinit(gpa);
+        function.loop_switches.deinit(gpa);
         var block_it = function.blocks.valueIterator();
         while (block_it.next()) |block| block.deinit(gpa);
         function.blocks.deinit(gpa);
@@ -912,6 +924,7 @@ pub fn generate(
         function.exitlude_jump_relocs.deinit(gpa);
         function.mir_instructions.deinit(gpa);
         function.mir_extra.deinit(gpa);
+        function.mir_table.deinit(gpa);
     }
     try function.inst_tracking.ensureTotalCapacity(gpa, Temp.Index.max);
     for (0..Temp.Index.max) |temp_index| {
@@ -978,6 +991,7 @@ pub fn generate(
     var mir: Mir = .{
         .instructions = function.mir_instructions.toOwnedSlice(),
         .extra = try function.mir_extra.toOwnedSlice(gpa),
+        .table = try function.mir_table.toOwnedSlice(gpa),
         .frame_locs = function.frame_locs.toOwnedSlice(),
     };
     defer mir.deinit(gpa);
@@ -1012,7 +1026,6 @@ pub fn generate(
         },
         .prev_di_pc = 0,
     };
-    defer emit.deinit();
     emit.emitMir() catch |err| switch (err) {
         error.LowerFail, error.EmitFail => return function.failMsg(emit.lower.err_msg.?),
 
@@ -1056,6 +1069,7 @@ pub fn generateLazy(
     defer {
         function.mir_instructions.deinit(gpa);
         function.mir_extra.deinit(gpa);
+        function.mir_table.deinit(gpa);
     }
 
     function.genLazy(lazy_sym) catch |err| switch (err) {
@@ -1067,6 +1081,7 @@ pub fn generateLazy(
     var mir: Mir = .{
         .instructions = function.mir_instructions.toOwnedSlice(),
         .extra = try function.mir_extra.toOwnedSlice(gpa),
+        .table = try function.mir_table.toOwnedSlice(gpa),
         .frame_locs = function.frame_locs.toOwnedSlice(),
     };
     defer mir.deinit(gpa);
@@ -1093,7 +1108,6 @@ pub fn generateLazy(
         .prev_di_loc = undefined, // no debug info yet
         .prev_di_pc = undefined, // no debug info yet
     };
-    defer emit.deinit();
     emit.emitMir() catch |err| switch (err) {
         error.LowerFail, error.EmitFail => return function.failMsg(emit.lower.err_msg.?),
         error.InvalidInstruction => return function.fail("failed to find a viable x86 instruction (Zig compiler bug)", .{}),
@@ -1161,6 +1175,7 @@ fn formatWipMir(
         .mir = .{
             .instructions = data.self.mir_instructions.slice(),
             .extra = data.self.mir_extra.items,
+            .table = data.self.mir_table.items,
             .frame_locs = (std.MultiArrayList(Mir.FrameLoc){}).slice(),
         },
         .cc = .auto,
@@ -20748,25 +20763,195 @@ fn lowerBlock(self: *CodeGen, inst: Air.Inst.Index, body: []const Air.Inst.Index
     self.getValueIfFree(tracking.short, inst);
 }
 
-fn lowerSwitchBr(self: *CodeGen, inst: Air.Inst.Index, switch_br: Air.UnwrappedSwitch, condition: MCValue) !void {
+fn lowerSwitchBr(
+    self: *CodeGen,
+    inst: Air.Inst.Index,
+    switch_br: Air.UnwrappedSwitch,
+    condition: MCValue,
+    condition_dies: bool,
+    is_loop: bool,
+) !void {
     const zcu = self.pt.zcu;
     const condition_ty = self.typeOf(switch_br.operand);
-    const liveness = try self.liveness.getSwitchBr(self.gpa, inst, switch_br.cases_len + 1);
-    defer self.gpa.free(liveness.deaths);
 
-    const signedness = switch (condition_ty.zigTypeTag(zcu)) {
-        .bool, .pointer => .unsigned,
-        .int, .@"enum", .error_set => condition_ty.intInfo(zcu).signedness,
-        else => unreachable,
+    const ExpectedContents = extern struct {
+        liveness_deaths: [1 << 8 | 1]Air.Inst.Index,
+        bigint_limbs: [std.math.big.int.calcTwosCompLimbCount(1 << 8)]std.math.big.Limb,
+        relocs: [1 << 6]Mir.Inst.Index,
     };
+    var stack align(@max(@alignOf(ExpectedContents), @alignOf(std.heap.StackFallbackAllocator(0)))) =
+        std.heap.stackFallback(@sizeOf(ExpectedContents), self.gpa);
+    const allocator = stack.get();
 
     self.scope_generation += 1;
     const state = try self.saveState();
 
-    var it = switch_br.iterateCases();
-    while (it.next()) |case| {
-        var relocs = try self.gpa.alloc(Mir.Inst.Index, case.items.len + case.ranges.len);
-        defer self.gpa.free(relocs);
+    const liveness = try self.liveness.getSwitchBr(allocator, inst, switch_br.cases_len + 1);
+    defer allocator.free(liveness.deaths);
+
+    if (!self.mod.pic and self.target.ofmt == .elf) table: {
+        var prong_items: u32 = 0;
+        var min: ?Value = null;
+        var max: ?Value = null;
+        {
+            var cases_it = switch_br.iterateCases();
+            while (cases_it.next()) |case| {
+                prong_items += @intCast(case.items.len + case.ranges.len);
+                for (case.items) |item| {
+                    const val = Value.fromInterned(item.toInterned().?);
+                    if (min == null or val.compareHetero(.lt, min.?, zcu)) min = val;
+                    if (max == null or val.compareHetero(.gt, max.?, zcu)) max = val;
+                }
+                for (case.ranges) |range| {
+                    const low = Value.fromInterned(range[0].toInterned().?);
+                    if (min == null or low.compareHetero(.lt, min.?, zcu)) min = low;
+                    const high = Value.fromInterned(range[1].toInterned().?);
+                    if (max == null or high.compareHetero(.gt, max.?, zcu)) max = high;
+                }
+            }
+        }
+        // This condition also triggers for switches with no non-else prongs and switches on bool.
+        if (prong_items < 1 << 2 or prong_items > 1 << 8) break :table;
+
+        var min_space: Value.BigIntSpace = undefined;
+        const min_bigint = min.?.toBigInt(&min_space, zcu);
+        var max_space: Value.BigIntSpace = undefined;
+        const max_bigint = max.?.toBigInt(&max_space, zcu);
+        const limbs = try allocator.alloc(
+            std.math.big.Limb,
+            @max(min_bigint.limbs.len, max_bigint.limbs.len) + 1,
+        );
+        defer allocator.free(limbs);
+        const table_len = table_len: {
+            var table_len_bigint: std.math.big.int.Mutable = .{ .limbs = limbs, .positive = undefined, .len = undefined };
+            table_len_bigint.sub(max_bigint, min_bigint);
+            assert(table_len_bigint.positive); // min <= max
+            break :table_len @as(u11, table_len_bigint.toConst().to(u10) catch break :table) + 1; // no more than a 1024 entry table
+        };
+        assert(prong_items <= table_len); // each prong item introduces at least one unique integer to the range
+        if (prong_items < table_len >> 2) break :table; // no more than 75% waste
+
+        const condition_index = if (condition_dies and condition.isModifiable()) condition else condition_index: {
+            const condition_index = try self.allocTempRegOrMem(condition_ty, true);
+            try self.genCopy(condition_ty, condition_index, condition, .{});
+            break :condition_index condition_index;
+        };
+        try self.spillEflagsIfOccupied();
+        if (min.?.orderAgainstZero(zcu).compare(.neq)) try self.genBinOpMir(
+            .{ ._, .sub },
+            condition_ty,
+            condition_index,
+            .{ .air_ref = Air.internedToRef(min.?.toIntern()) },
+        );
+        const else_reloc = if (switch_br.else_body_len > 0) else_reloc: {
+            try self.genBinOpMir(.{ ._, .cmp }, condition_ty, condition_index, .{ .immediate = table_len - 1 });
+            break :else_reloc try self.asmJccReloc(.a, undefined);
+        } else undefined;
+        const table_start: u31 = @intCast(self.mir_table.items.len);
+        {
+            const condition_index_reg = if (condition_index.isRegister())
+                condition_index.getReg().?
+            else
+                try self.copyToTmpRegister(.usize, condition_index);
+            const condition_index_lock = self.register_manager.lockReg(condition_index_reg);
+            defer if (condition_index_lock) |lock| self.register_manager.unlockReg(lock);
+            try self.truncateRegister(condition_ty, condition_index_reg);
+            const ptr_size = @divExact(self.target.ptrBitWidth(), 8);
+            try self.asmMemory(.{ ._, .jmp }, .{
+                .base = .table,
+                .mod = .{ .rm = .{
+                    .size = .ptr,
+                    .index = registerAlias(condition_index_reg, ptr_size),
+                    .scale = .fromFactor(@intCast(ptr_size)),
+                    .disp = table_start * ptr_size,
+                } },
+            });
+        }
+        const else_reloc_marker: u32 = 0;
+        assert(self.mir_instructions.len > else_reloc_marker);
+        try self.mir_table.appendNTimes(self.gpa, else_reloc_marker, table_len);
+        if (is_loop) try self.loop_switches.putNoClobber(self.gpa, inst, .{
+            .start = table_start,
+            .len = table_len,
+            .min = min.?,
+            .else_relocs = if (switch_br.else_body_len > 0) .{ .forward = .empty } else .@"unreachable",
+        });
+        defer if (is_loop) {
+            var loop_switch_data = self.loop_switches.fetchRemove(inst).?.value;
+            switch (loop_switch_data.else_relocs) {
+                .@"unreachable", .backward => {},
+                .forward => |*else_relocs| else_relocs.deinit(self.gpa),
+            }
+        };
+        var cases_it = switch_br.iterateCases();
+        while (cases_it.next()) |case| {
+            {
+                const table = self.mir_table.items[table_start..][0..table_len];
+                for (case.items) |item| {
+                    const val = Value.fromInterned(item.toInterned().?);
+                    var val_space: Value.BigIntSpace = undefined;
+                    const val_bigint = val.toBigInt(&val_space, zcu);
+                    var index_bigint: std.math.big.int.Mutable = .{ .limbs = limbs, .positive = undefined, .len = undefined };
+                    index_bigint.sub(val_bigint, min_bigint);
+                    table[index_bigint.toConst().to(u10) catch unreachable] = @intCast(self.mir_instructions.len);
+                }
+                for (case.ranges) |range| {
+                    var low_space: Value.BigIntSpace = undefined;
+                    const low_bigint = Value.fromInterned(range[0].toInterned().?).toBigInt(&low_space, zcu);
+                    var high_space: Value.BigIntSpace = undefined;
+                    const high_bigint = Value.fromInterned(range[1].toInterned().?).toBigInt(&high_space, zcu);
+                    var index_bigint: std.math.big.int.Mutable = .{ .limbs = limbs, .positive = undefined, .len = undefined };
+                    index_bigint.sub(low_bigint, min_bigint);
+                    const start = index_bigint.toConst().to(u10) catch unreachable;
+                    index_bigint.sub(high_bigint, min_bigint);
+                    const end = @as(u11, index_bigint.toConst().to(u10) catch unreachable) + 1;
+                    @memset(table[start..end], @intCast(self.mir_instructions.len));
+                }
+            }
+
+            for (liveness.deaths[case.idx]) |operand| try self.processDeath(operand);
+
+            try self.genBodyBlock(case.body);
+            try self.restoreState(state, &.{}, .{
+                .emit_instructions = false,
+                .update_tracking = true,
+                .resurrect = true,
+                .close_scope = true,
+            });
+        }
+        if (switch_br.else_body_len > 0) {
+            const else_body = cases_it.elseBody();
+
+            const else_deaths = liveness.deaths.len - 1;
+            for (liveness.deaths[else_deaths]) |operand| try self.processDeath(operand);
+
+            self.performReloc(else_reloc);
+            if (is_loop) {
+                const loop_switch_data = self.loop_switches.getPtr(inst).?;
+                for (loop_switch_data.else_relocs.forward.items) |reloc| self.performReloc(reloc);
+                loop_switch_data.else_relocs.forward.deinit(self.gpa);
+                loop_switch_data.else_relocs = .{ .backward = @intCast(self.mir_instructions.len) };
+            }
+            for (self.mir_table.items[table_start..][0..table_len]) |*entry| if (entry.* == else_reloc_marker) {
+                entry.* = @intCast(self.mir_instructions.len);
+            };
+
+            try self.genBodyBlock(else_body);
+            try self.restoreState(state, &.{}, .{
+                .emit_instructions = false,
+                .update_tracking = true,
+                .resurrect = true,
+                .close_scope = true,
+            });
+        }
+        return;
+    }
+
+    const signedness = if (condition_ty.isAbiInt(zcu)) condition_ty.intInfo(zcu).signedness else .unsigned;
+    var cases_it = switch_br.iterateCases();
+    while (cases_it.next()) |case| {
+        var relocs = try allocator.alloc(Mir.Inst.Index, case.items.len + case.ranges.len);
+        defer allocator.free(relocs);
 
         try self.spillEflagsIfOccupied();
         for (case.items, relocs[0..case.items.len]) |item, *reloc| {
@@ -20849,9 +21034,8 @@ fn lowerSwitchBr(self: *CodeGen, inst: Air.Inst.Index, switch_br: Air.UnwrappedS
         // Relocate the "skip" branch to fall through to the next case.
         self.performReloc(skip_case_reloc);
     }
-
     if (switch_br.else_body_len > 0) {
-        const else_body = it.elseBody();
+        const else_body = cases_it.elseBody();
 
         const else_deaths = liveness.deaths.len - 1;
         for (liveness.deaths[else_deaths]) |operand| try self.processDeath(operand);
@@ -20873,11 +21057,11 @@ fn airSwitchBr(self: *CodeGen, inst: Air.Inst.Index) !void {
     // If the condition dies here in this switch instruction, process
     // that death now instead of later as this has an effect on
     // whether it needs to be spilled in the branches
-    if (self.liveness.operandDies(inst, 0)) {
+    const condition_dies = self.liveness.operandDies(inst, 0);
+    if (condition_dies) {
         if (switch_br.operand.toIndex()) |op_inst| try self.processDeath(op_inst);
     }
-
-    try self.lowerSwitchBr(inst, switch_br, condition);
+    try self.lowerSwitchBr(inst, switch_br, condition, condition_dies, false);
 
     // We already took care of pl_op.operand earlier, so there's nothing left to do
 }
@@ -20915,7 +21099,7 @@ fn airLoopSwitchBr(self: *CodeGen, inst: Air.Inst.Index) !void {
     // Stop tracking block result without forgetting tracking info
     try self.freeValue(mat_cond);
 
-    try self.lowerSwitchBr(inst, switch_br, mat_cond);
+    try self.lowerSwitchBr(inst, switch_br, mat_cond, true, true);
 
     try self.processDeath(inst);
 }
@@ -20924,8 +21108,67 @@ fn airSwitchDispatch(self: *CodeGen, inst: Air.Inst.Index) !void {
     const br = self.air.instructions.items(.data)[@intFromEnum(inst)].br;
 
     const block_ty = self.typeOfIndex(br.block_inst);
-    const block_tracking = self.inst_tracking.getPtr(br.block_inst).?;
     const loop_data = self.loops.getPtr(br.block_inst).?;
+    if (self.loop_switches.getPtr(br.block_inst)) |table| {
+        // Process operand death so that it is properly accounted for in the State below.
+        const condition_dies = self.liveness.operandDies(inst, 0);
+
+        try self.restoreState(loop_data.state, &.{}, .{
+            .emit_instructions = true,
+            .update_tracking = false,
+            .resurrect = false,
+            .close_scope = false,
+        });
+
+        const condition_ty = self.typeOf(br.operand);
+        const condition = try self.resolveInst(br.operand);
+        const condition_index = if (condition_dies and condition.isModifiable()) condition else condition_index: {
+            const condition_index = try self.allocTempRegOrMem(condition_ty, true);
+            try self.genCopy(condition_ty, condition_index, condition, .{});
+            break :condition_index condition_index;
+        };
+        try self.spillEflagsIfOccupied();
+        if (table.min.orderAgainstZero(self.pt.zcu).compare(.neq)) try self.genBinOpMir(
+            .{ ._, .sub },
+            condition_ty,
+            condition_index,
+            .{ .air_ref = Air.internedToRef(table.min.toIntern()) },
+        );
+        switch (table.else_relocs) {
+            .@"unreachable" => {},
+            .forward => |*else_relocs| {
+                try self.genBinOpMir(.{ ._, .cmp }, condition_ty, condition_index, .{ .immediate = table.len - 1 });
+                try else_relocs.append(self.gpa, try self.asmJccReloc(.a, undefined));
+            },
+            .backward => |else_reloc| {
+                try self.genBinOpMir(.{ ._, .cmp }, condition_ty, condition_index, .{ .immediate = table.len - 1 });
+                _ = try self.asmJccReloc(.a, else_reloc);
+            },
+        }
+        {
+            const condition_index_reg = if (condition_index.isRegister())
+                condition_index.getReg().?
+            else
+                try self.copyToTmpRegister(.usize, condition_index);
+            const condition_index_lock = self.register_manager.lockReg(condition_index_reg);
+            defer if (condition_index_lock) |lock| self.register_manager.unlockReg(lock);
+            try self.truncateRegister(condition_ty, condition_index_reg);
+            const ptr_size = @divExact(self.target.ptrBitWidth(), 8);
+            try self.asmMemory(.{ ._, .jmp }, .{
+                .base = .table,
+                .mod = .{ .rm = .{
+                    .size = .ptr,
+                    .index = registerAlias(condition_index_reg, ptr_size),
+                    .scale = .fromFactor(@intCast(ptr_size)),
+                    .disp = @intCast(table.start * ptr_size),
+                } },
+            });
+        }
+
+        return self.finishAir(inst, .none, .{ br.operand, .none, .none });
+    }
+
+    const block_tracking = self.inst_tracking.getPtr(br.block_inst).?;
     done: {
         try self.getValue(block_tracking.short, null);
         const src_mcv = try self.resolveInst(br.operand);
@@ -22543,6 +22786,7 @@ fn genSetMem(
         .none => .{ .immediate = @bitCast(@as(i64, disp)) },
         .reg => |base_reg| .{ .register_offset = .{ .reg = base_reg, .off = disp } },
         .frame => |base_frame_index| .{ .lea_frame = .{ .index = base_frame_index, .off = disp } },
+        .table => unreachable,
         .reloc => |sym_index| .{ .lea_symbol = .{ .sym_index = sym_index, .off = disp } },
     };
     switch (src_mcv) {
@@ -22652,6 +22896,7 @@ fn genSetMem(
                     .index = frame_index,
                     .off = disp,
                 }).compare(.gte, src_align),
+                .table => unreachable,
                 .reloc => false,
             })).write(
                 self,
@@ -23260,6 +23505,7 @@ fn airCmpxchg(self: *CodeGen, inst: Air.Inst.Index) !void {
     const ptr_lock = switch (ptr_mem.base) {
         .none, .frame, .reloc => null,
         .reg => |reg| self.register_manager.lockReg(reg),
+        .table => unreachable,
     };
     defer if (ptr_lock) |lock| self.register_manager.unlockReg(lock);
 
@@ -23327,6 +23573,7 @@ fn atomicOp(
     const mem_lock = switch (ptr_mem.base) {
         .none, .frame, .reloc => null,
         .reg => |reg| self.register_manager.lockReg(reg),
+        .table => unreachable,
     };
     defer if (mem_lock) |lock| self.register_manager.unlockReg(lock);
 

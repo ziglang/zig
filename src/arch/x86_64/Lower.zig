@@ -57,6 +57,7 @@ pub const Reloc = struct {
 
     const Target = union(enum) {
         inst: Mir.Inst.Index,
+        table,
         linker_reloc: u32,
         linker_tlsld: u32,
         linker_dtpoff: u32,
@@ -348,7 +349,7 @@ pub fn fail(lower: *Lower, comptime format: []const u8, args: anytype) Error {
     return error.LowerFail;
 }
 
-pub fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
+pub fn imm(lower: *const Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
     return switch (ops) {
         .rri_s,
         .ri_s,
@@ -379,8 +380,16 @@ pub fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
     };
 }
 
-pub fn mem(lower: Lower, payload: u32) Memory {
-    return lower.mir.resolveFrameLoc(lower.mir.extraData(Mir.Memory, payload).data).decode();
+pub fn mem(lower: *Lower, payload: u32) Memory {
+    var m = lower.mir.resolveFrameLoc(lower.mir.extraData(Mir.Memory, payload).data).decode();
+    switch (m) {
+        .sib => |*sib| switch (sib.base) {
+            else => {},
+            .table => sib.disp = lower.reloc(.table, sib.disp).signed,
+        },
+        else => {},
+    }
+    return m;
 }
 
 fn reloc(lower: *Lower, target: Reloc.Target, off: i32) Immediate {
