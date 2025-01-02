@@ -74,6 +74,13 @@ pub const Os = struct {
         // - nacl
         // - shadermodel
 
+        pub inline fn isWindows(tag: Tag) bool {
+            return switch(tag) {
+                .window => true,
+                else => false,
+            };
+        }
+
         pub inline fn isDarwin(tag: Tag) bool {
             return switch (tag) {
                 .driverkit,
@@ -2073,6 +2080,10 @@ pub inline fn isAndroid(target: Target) bool {
 
 pub inline fn isWasm(target: Target) bool {
     return target.cpu.arch.isWasm();
+}
+
+pub inline fn isWindows(target: Target) bool {
+    return target.os.tag.isWindows();
 }
 
 pub inline fn isDarwin(target: Target) bool {
