@@ -1499,7 +1499,7 @@ pub const SrcLoc = struct {
                 const node = src_loc.relativeToNodeIndex(node_off);
                 var buf: [1]Ast.Node.Index = undefined;
                 const full = tree.fullFnProto(&buf, node).?;
-                return tree.nodeToSpan(full.ast.callconv_expr);
+                return tree.nodeToSpan(if (full.ast.callconv_expr != 0) full.ast.callconv_expr else node);
             },
 
             .node_offset_fn_type_ret_ty => |node_off| {
