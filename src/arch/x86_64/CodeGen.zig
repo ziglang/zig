@@ -22303,8 +22303,8 @@ fn genCopy(self: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue, opts: C
                 .off = -dst_reg_off.off,
             } },
         }, opts),
-        inline .register_pair, .register_triple, .register_quadruple => |dst_regs| {
-            const src_info: ?struct { addr_reg: Register, addr_lock: RegisterLock } = switch (src_mcv) {
+        inline .register_pair, .register_triple, .register_quadruple => |dst_regs, dst_tag| {
+            const src_info: ?struct { addr_reg: Register, addr_lock: RegisterLock } = src_info: switch (src_mcv) {
                 .register => |src_reg| switch (dst_regs[0].class()) {
                     .general_purpose => switch (src_reg.class()) {
                         else => unreachable,
@@ -22329,43 +22329,66 @@ fn genCopy(self: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue, opts: C
                     },
                     else => unreachable,
                 },
-                .register_pair, .memory, .indirect, .load_frame => null,
-                .load_symbol, .load_direct, .load_got, .load_tlv => src: {
+                dst_tag => |src_regs| {
+                    var hazard_regs = src_regs;
+                    for (dst_regs, &hazard_regs, 1..) |dst_reg, src_reg, hazard_index| {
+                        const dst_id = dst_reg.id();
+                        if (dst_id == src_reg.id()) continue;
+                        var mir_tag: Mir.Inst.Tag = .mov;
+                        for (hazard_regs[hazard_index..]) |*hazard_reg| {
+                            if (dst_id != hazard_reg.id()) continue;
+                            mir_tag = .xchg;
+                            hazard_reg.* = src_reg;
+                        }
+                        try self.asmRegisterRegister(.{ ._, mir_tag }, dst_reg.to64(), src_reg.to64());
+                    }
+                    return;
+                },
+                .memory, .indirect, .load_frame => null,
+                .load_symbol, .load_direct, .load_got, .load_tlv => {
                     const src_addr_reg =
                         (try self.register_manager.allocReg(null, abi.RegisterClass.gp)).to64();
                     const src_addr_lock = self.register_manager.lockRegAssumeUnused(src_addr_reg);
                     errdefer self.register_manager.unlockReg(src_addr_lock);
 
                     try self.genSetReg(src_addr_reg, .usize, src_mcv.address(), opts);
-                    break :src .{ .addr_reg = src_addr_reg, .addr_lock = src_addr_lock };
+                    break :src_info .{ .addr_reg = src_addr_reg, .addr_lock = src_addr_lock };
                 },
-                .air_ref => |src_ref| return self.genCopy(
-                    ty,
-                    dst_mcv,
-                    try self.resolveInst(src_ref),
-                    opts,
-                ),
+                .air_ref => |src_ref| return self.genCopy(ty, dst_mcv, try self.resolveInst(src_ref), opts),
                 else => return self.fail("TODO implement genCopy for {s} of {}", .{
                     @tagName(src_mcv), ty.fmt(pt),
                 }),
             };
             defer if (src_info) |info| self.register_manager.unlockReg(info.addr_lock);
 
-            var part_disp: i32 = 0;
-            for (dst_regs, try self.splitType(dst_regs.len, ty), 0..) |dst_reg, dst_ty, part_i| {
-                try self.genSetReg(dst_reg, dst_ty, switch (src_mcv) {
-                    inline .register_pair,
-                    .register_triple,
-                    .register_quadruple,
-                    => |src_regs| .{ .register = src_regs[part_i] },
-                    .memory, .indirect, .load_frame => src_mcv.address().offset(part_disp).deref(),
-                    .load_symbol, .load_direct, .load_got, .load_tlv => .{ .indirect = .{
-                        .reg = src_info.?.addr_reg,
-                        .off = part_disp,
-                    } },
+            for ([_]bool{ false, true }) |emit_hazard| {
+                var hazard_count: u3 = 0;
+                var part_disp: i32 = 0;
+                for (dst_regs, try self.splitType(dst_regs.len, ty), 0..) |dst_reg, dst_ty, part_i| {
+                    defer part_disp += @intCast(dst_ty.abiSize(pt.zcu));
+                    const is_hazard = if (src_mcv.getReg()) |src_reg|
+                        dst_reg.id() == src_reg.id()
+                    else if (src_info) |info|
+                        dst_reg.id() == info.addr_reg.id()
+                    else
+                        false;
+                    if (is_hazard) hazard_count += 1;
+                    if (is_hazard != emit_hazard) continue;
+                    try self.genSetReg(dst_reg, dst_ty, switch (src_mcv) {
+                        dst_tag => |src_regs| .{ .register = src_regs[part_i] },
+                        .memory, .indirect, .load_frame => src_mcv.address().offset(part_disp).deref(),
+                        .load_symbol, .load_direct, .load_got, .load_tlv => .{ .indirect = .{
+                            .reg = src_info.?.addr_reg,
+                            .off = part_disp,
+                        } },
+                        else => unreachable,
+                    }, opts);
+                }
+                switch (hazard_count) {
+                    0 => break,
+                    1 => continue,
                     else => unreachable,
-                }, opts);
-                part_disp += @intCast(dst_ty.abiSize(pt.zcu));
+                }
             }
         },
         .indirect => |reg_off| try self.genSetMem(

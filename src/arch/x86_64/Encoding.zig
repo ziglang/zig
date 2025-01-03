@@ -176,9 +176,14 @@ pub fn format(
     for (opc) |byte| try writer.print("{x:0>2} ", .{byte});
 
     switch (encoding.data.op_en) {
-        .zo, .fd, .td, .i, .zi, .d => {},
-        .o, .oi => {
-            const tag = switch (encoding.data.ops[0]) {
+        .z, .fd, .td, .i, .zi, .d => {},
+        .o, .zo, .oz, .oi => {
+            const op = switch (encoding.data.op_en) {
+                .o, .oz, .oi => encoding.data.ops[0],
+                .zo => encoding.data.ops[1],
+                else => unreachable,
+            };
+            const tag = switch (op) {
                 .r8 => "rb",
                 .r16 => "rw",
                 .r32 => "rd",
@@ -213,7 +218,7 @@ pub fn format(
             try writer.print("{s} ", .{tag});
         },
         .rvmr => try writer.writeAll("/is4 "),
-        .zo, .fd, .td, .o, .m, .m1, .mc, .mr, .rm, .mrc, .rm0, .rvm, .mvr, .rmv => {},
+        .z, .fd, .td, .o, .zo, .oz, .m, .m1, .mc, .mr, .rm, .mrc, .rm0, .rvm, .mvr, .rmv => {},
     }
 
     try writer.print("{s} ", .{@tagName(encoding.mnemonic)});
@@ -455,8 +460,8 @@ pub const Mnemonic = enum {
 
 pub const OpEn = enum {
     // zig fmt: off
-    zo,
-    o, oi,
+    z,
+    o, zo, oz, oi,
     i, zi,
     d, m,
     fd, td,
@@ -572,6 +577,21 @@ pub const Op = enum {
             },
 
             .bytes => unreachable,
+        };
+    }
+
+    pub fn toReg(op: Op) Register {
+        return switch (op) {
+            else => .none,
+            .al => .al,
+            .ax => .ax,
+            .eax => .eax,
+            .rax => .rax,
+            .cl => .cl,
+            .rip => .rip,
+            .eip => .eip,
+            .ip => .ip,
+            .xmm0 => .xmm0,
         };
     }
 

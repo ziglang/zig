@@ -336,7 +336,7 @@ pub const Instruction = struct {
             .directive => .{
                 .mnemonic = mnemonic,
                 .data = .{
-                    .op_en = .zo,
+                    .op_en = .z,
                     .ops = .{
                         if (ops.len > 0) Encoding.Op.fromOperand(ops[0], target) else .none,
                         if (ops.len > 1) Encoding.Op.fromOperand(ops[1], target) else .none,
@@ -401,7 +401,7 @@ pub const Instruction = struct {
         }
 
         switch (data.op_en) {
-            .zo, .o => {},
+            .z, .o, .zo, .oz => {},
             .i, .d => try encodeImm(inst.ops[0].imm, data.ops[0], encoder),
             .zi, .oi => try encodeImm(inst.ops[1].imm, data.ops[1], encoder),
             .fd => try encoder.imm64(inst.ops[1].mem.moffs.offset),
@@ -454,7 +454,8 @@ pub const Instruction = struct {
         const final = opcode.len - 1;
         for (opcode[first..final]) |byte| try encoder.opcode_1byte(byte);
         switch (inst.encoding.data.op_en) {
-            .o, .oi => try encoder.opcode_withReg(opcode[final], inst.ops[0].reg.lowEnc()),
+            .o, .oz, .oi => try encoder.opcode_withReg(opcode[final], inst.ops[0].reg.lowEnc()),
+            .zo => try encoder.opcode_withReg(opcode[final], inst.ops[1].reg.lowEnc()),
             else => try encoder.opcode_1byte(opcode[final]),
         }
     }
@@ -480,7 +481,7 @@ pub const Instruction = struct {
         }
 
         const segment_override: ?Register = switch (op_en) {
-            .zo, .i, .zi, .o, .oi, .d => null,
+            .z, .i, .zi, .o, .zo, .oz, .oi, .d => null,
             .fd => inst.ops[1].mem.base().reg,
             .td => inst.ops[0].mem.base().reg,
             .rm, .rmi, .rm0 => if (inst.ops[1].isSegmentRegister())
@@ -516,8 +517,9 @@ pub const Instruction = struct {
         rex.w = inst.encoding.data.mode == .long;
 
         switch (op_en) {
-            .zo, .i, .zi, .fd, .td, .d => {},
-            .o, .oi => rex.b = inst.ops[0].reg.isExtended(),
+            .z, .i, .zi, .fd, .td, .d => {},
+            .o, .oz, .oi => rex.b = inst.ops[0].reg.isExtended(),
+            .zo => rex.b = inst.ops[1].reg.isExtended(),
             .m, .mi, .m1, .mc, .mr, .rm, .rmi, .mri, .mrc, .rm0, .rmv => {
                 const r_op = switch (op_en) {
                     .rm, .rmi, .rm0, .rmv => inst.ops[0],
@@ -550,8 +552,9 @@ pub const Instruction = struct {
         vex.w = inst.encoding.data.mode.isLong();
 
         switch (op_en) {
-            .zo, .i, .zi, .fd, .td, .d => {},
-            .o, .oi => vex.b = inst.ops[0].reg.isExtended(),
+            .z, .i, .zi, .fd, .td, .d => {},
+            .o, .oz, .oi => vex.b = inst.ops[0].reg.isExtended(),
+            .zo => vex.b = inst.ops[1].reg.isExtended(),
             .m, .mi, .m1, .mc, .mr, .rm, .rmi, .mri, .mrc, .rm0, .vmi, .rvm, .rvmr, .rvmi, .mvr, .rmv => {
                 const r_op = switch (op_en) {
                     .rm, .rmi, .rm0, .rvm, .rvmr, .rvmi, .rmv => inst.ops[0],
