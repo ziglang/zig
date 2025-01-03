@@ -3320,7 +3320,10 @@ fn buildOutputType(
             fatal("the argument -femit-implib is allowed only when building a Windows DLL", .{});
         }
     }
-    const default_implib_basename = try std.fmt.allocPrint(arena, "{s}.lib", .{root_name});
+    const default_implib_basename = try if (target.abi.isGnu())
+        std.fmt.allocPrint(arena, "lib{s}.dll.a", .{root_name})
+    else
+        std.fmt.allocPrint(arena, "{s}.lib", .{root_name});
     var emit_implib_resolved = switch (emit_implib) {
         .no => Emit.Resolved{ .data = null, .dir = null },
         .yes => |p| emit_implib.resolve(default_implib_basename, output_to_cache) catch |err| {

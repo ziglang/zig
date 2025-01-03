@@ -4840,7 +4840,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
         c_source_basename[0 .. c_source_basename.len - std.fs.path.extension(c_source_basename).len];
 
     const target = comp.getTarget();
-    const o_ext = target.ofmt.fileExt(target.cpu.arch);
+    const o_ext = target.ofmt.fileExt(target.abi, target.cpu.arch);
     const digest = if (!comp.disable_c_depfile and try man.hit()) man.final() else blk: {
         var argv = std.ArrayList([]const u8).init(gpa);
         defer argv.deinit();
@@ -6108,7 +6108,7 @@ pub const FileExt = enum {
             .assembly => ".s",
             .assembly_with_cpp => ".S",
             .shared_library => target.dynamicLibSuffix(),
-            .object => target.ofmt.fileExt(target.cpu.arch),
+            .object => target.ofmt.fileExt(target.abi, target.cpu.arch),
             .static_library => target.staticLibSuffix(),
             .zig => ".zig",
             .def => ".def",
