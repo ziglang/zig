@@ -480,7 +480,10 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
                 compile.name_only_filename = owner.fmt("lib{s}.dylib", .{compile.name});
                 compile.out_lib_filename = compile.out_filename;
             } else if (target.os.tag == .windows) {
-                compile.out_lib_filename = owner.fmt("{s}.lib", .{compile.name});
+                compile.out_lib_filename = if (target.abi.isGnu())
+                    owner.fmt("lib{s}.dll.a", .{compile.name})
+                else
+                    owner.fmt("{s}.lib", .{compile.name});
             } else {
                 compile.major_only_filename = owner.fmt("lib{s}.so.{d}", .{ compile.name, version.major });
                 compile.name_only_filename = owner.fmt("lib{s}.so", .{compile.name});
@@ -490,7 +493,10 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
             if (target.os.tag.isDarwin()) {
                 compile.out_lib_filename = compile.out_filename;
             } else if (target.os.tag == .windows) {
-                compile.out_lib_filename = owner.fmt("{s}.lib", .{compile.name});
+                compile.out_lib_filename = if (target.abi.isGnu())
+                    owner.fmt("lib{s}.dll.a", .{compile.name})
+                else
+                    owner.fmt("{s}.lib", .{compile.name});
             } else {
                 compile.out_lib_filename = compile.out_filename;
             }
@@ -667,6 +673,7 @@ pub fn producesPdbFile(compile: *Compile) bool {
         .windows, .uefi => {},
         else => return false,
     }
+    if (target.abi.isGnu()) return false;
     if (target.ofmt == .c) return false;
     if (compile.use_llvm == false) return false;
     if (compile.root_module.strip == true or

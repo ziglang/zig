@@ -1975,17 +1975,17 @@ fn resolveLibInput(
         return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query);
     }
 
-    // In the case of MinGW, the main check will be .lib but we also need to
-    // look for `libfoo.a`.
-    if (target.isMinGW() and link_mode == .static) mingw: {
+    // In the case of MinGW, the main check will be `libfoo.dll` but we also need to
+    // look for `libfoo.dll.a`.
+    if (target.isMinGW() and link_mode == .dynamic) mingw: {
         const test_path: Path = .{
             .root_dir = lib_directory,
-            .sub_path = try std.fmt.allocPrint(arena, "lib{s}.a", .{lib_name}),
+            .sub_path = try std.fmt.allocPrint(arena, "lib{s}.dll.a", .{lib_name}),
         };
         try checked_paths.writer(gpa).print("\n  {}", .{test_path});
         var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
             error.FileNotFound => break :mingw,
-            else => |e| fatal("unable to search for static library '{}': {s}", .{ test_path, @errorName(e) }),
+            else => |e| fatal("unable to search for DLL import library '{}': {s}", .{ test_path, @errorName(e) }),
         };
         errdefer file.close();
         return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query);

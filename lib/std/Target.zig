@@ -113,7 +113,8 @@ pub const Os = struct {
             return switch (abi) {
                 .msvc, .itanium => ".lib",
                 else => switch (tag) {
-                    .windows, .uefi => ".lib",
+                    .uefi => ".lib",
+                    .windows => if (abi.isGnu()) ".a" else ".lib",
                     else => ".a",
                 },
             };
@@ -137,7 +138,8 @@ pub const Os = struct {
             return switch (abi) {
                 .msvc, .itanium => "",
                 else => switch (tag) {
-                    .windows, .uefi => "",
+                    .uefi => "",
+                    .windows => if (abi.isGnu()) "lib" else "",
                     else => "lib",
                 },
             };
@@ -1046,10 +1048,10 @@ pub const ObjectFormat = enum {
     // LLVM tags deliberately omitted:
     // - dxcontainer
 
-    pub fn fileExt(of: ObjectFormat, arch: Cpu.Arch) [:0]const u8 {
+    pub fn fileExt(of: ObjectFormat, abi: Abi, arch: Cpu.Arch) [:0]const u8 {
         return switch (of) {
             .c => ".c",
-            .coff => ".obj",
+            .coff => if (abi.isGnu()) ".o" else ".obj",
             .elf, .goff, .macho, .wasm, .xcoff => ".o",
             .hex => ".ihex",
             .plan9 => arch.plan9Ext(),

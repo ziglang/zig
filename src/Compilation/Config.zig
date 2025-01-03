@@ -470,9 +470,10 @@ pub fn resolve(options: Options) ResolveError!Config {
         if (options.debug_format) |x| break :b x;
         break :b switch (target.ofmt) {
             .elf, .goff, .macho, .wasm, .xcoff => .{ .dwarf = .@"32" },
-            .coff => .code_view,
+            .coff => if (target.abi.isGnu()) .{ .dwarf = .@"32" } else .code_view,
             .c => switch (target.os.tag) {
-                .windows, .uefi => .code_view,
+                .uefi => .code_view,
+                .windows => if (target.abi.isGnu()) .{ .dwarf = .@"32" } else .code_view,
                 else => .{ .dwarf = .@"32" },
             },
             .spirv, .hex, .raw, .plan9 => .strip,
