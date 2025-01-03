@@ -99,8 +99,7 @@ pub fn RegisterManager(
                 max_id = @max(elem_id, max_id);
             }
 
-            const OptionalIndex = std.math.IntFittingRange(0, set.len);
-            comptime var map = [1]OptionalIndex{set.len} ** (max_id - min_id + 1);
+            comptime var map: [max_id - min_id + 1]std.math.IntFittingRange(0, set.len) = @splat(set.len);
             inline for (set, 0..) |elem, elem_index| map[comptime elem.id() - min_id] = elem_index;
 
             const id_index = reg.id() -% min_id;
@@ -384,7 +383,7 @@ pub fn RegisterManager(
         /// Allocates the specified register with the specified
         /// instruction. Asserts that the register is free and no
         /// spilling is necessary.
-        fn getRegIndexAssumeFree(
+        pub fn getRegIndexAssumeFree(
             self: *Self,
             tracked_index: TrackedIndex,
             inst: ?Air.Inst.Index,
@@ -403,7 +402,7 @@ pub fn RegisterManager(
         }
 
         /// Marks the specified register as free
-        fn freeRegIndex(self: *Self, tracked_index: TrackedIndex) void {
+        pub fn freeRegIndex(self: *Self, tracked_index: TrackedIndex) void {
             log.debug("freeing register {}", .{regAtTrackedIndex(tracked_index)});
             self.registers[tracked_index] = undefined;
             self.markRegIndexFree(tracked_index);

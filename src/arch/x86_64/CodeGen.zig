@@ -9731,7 +9731,7 @@ fn computeFrameLayout(self: *CodeGen, cc: std.builtin.CallingConvention) !FrameL
 
     // Create list of registers to save in the prologue.
     // TODO handle register classes
-    var save_reg_list = Mir.RegisterList{};
+    var save_reg_list: Mir.RegisterList = .empty;
     const callee_preserved_regs =
         abi.getCalleePreservedRegs(abi.resolveCallingConvention(cc, self.target.*));
     for (callee_preserved_regs) |reg| {
@@ -9972,43 +9972,34 @@ fn restoreState(self: *CodeGen, state: State, deaths: []const Air.Inst.Index, co
         reg_locks.deinit();
     };
 
-    for (0..state.registers.len) |index| {
-        const current_maybe_inst = if (self.register_manager.free_registers.isSet(index))
-            null
-        else
-            self.register_manager.registers[index];
-        const target_maybe_inst = if (state.free_registers.isSet(index))
-            null
-        else
-            state.registers[index];
+    for (
+        0..,
+        self.register_manager.registers,
+        state.registers,
+        state.reg_tracking,
+    ) |reg_i, current_slot, target_slot, reg_tracking| {
+        const reg_index: RegisterManager.TrackedIndex = @intCast(reg_i);
+        const current_maybe_inst = if (self.register_manager.isRegIndexFree(reg_index)) null else current_slot;
+        const target_maybe_inst = if (state.free_registers.isSet(reg_index)) null else target_slot;
         if (std.debug.runtime_safety) if (target_maybe_inst) |target_inst|
             assert(self.inst_tracking.getIndex(target_inst).? < state.inst_tracking_len);
         if (opts.emit_instructions) {
-            if (current_maybe_inst) |current_inst| {
+            if (current_maybe_inst) |current_inst|
                 try self.inst_tracking.getPtr(current_inst).?.spill(self, current_inst);
-            }
-            if (target_maybe_inst) |target_inst| {
-                const target_tracking = self.inst_tracking.getPtr(target_inst).?;
-                try target_tracking.materialize(self, target_inst, state.reg_tracking[index]);
-            }
+            if (target_maybe_inst) |target_inst|
+                try self.inst_tracking.getPtr(target_inst).?.materialize(self, target_inst, reg_tracking);
         }
         if (opts.update_tracking) {
             if (current_maybe_inst) |current_inst| {
                 try self.inst_tracking.getPtr(current_inst).?.trackSpill(self, current_inst);
-            }
-            {
-                const reg = RegisterManager.regAtTrackedIndex(@intCast(index));
-                self.register_manager.freeReg(reg);
-                self.register_manager.getRegAssumeFree(reg, target_maybe_inst);
+                self.register_manager.freeRegIndex(reg_index);
             }
             if (target_maybe_inst) |target_inst| {
-                self.inst_tracking.getPtr(target_inst).?.trackMaterialize(
-                    target_inst,
-                    state.reg_tracking[index],
-                );
+                self.register_manager.getRegIndexAssumeFree(reg_index, target_maybe_inst);
+                self.inst_tracking.getPtr(target_inst).?.trackMaterialize(target_inst, reg_tracking);
             }
         } else if (target_maybe_inst) |_|
-            try reg_locks.append(self.register_manager.lockRegIndexAssumeUnused(@intCast(index)));
+            try reg_locks.append(self.register_manager.lockRegIndexAssumeUnused(reg_index));
     }
     if (opts.emit_instructions) if (self.eflags_inst) |inst|
         try self.inst_tracking.getPtr(inst).?.spill(self, inst);

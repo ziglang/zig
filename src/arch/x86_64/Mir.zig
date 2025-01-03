@@ -1168,10 +1168,12 @@ pub const AirOffset = struct { air_inst: Air.Inst.Index, off: i32 };
 
 /// Used in conjunction with payload to transfer a list of used registers in a compact manner.
 pub const RegisterList = struct {
-    bitset: BitSet = BitSet.initEmpty(),
+    bitset: BitSet,
 
     const BitSet = IntegerBitSet(32);
     const Self = @This();
+
+    pub const empty: RegisterList = .{ .bitset = .initEmpty() };
 
     fn getIndexForReg(registers: []const Register, reg: Register) BitSet.MaskInt {
         for (registers, 0..) |cpreg, i| {
