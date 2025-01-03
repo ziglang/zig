@@ -835,7 +835,7 @@ fn buildOutputType(
     var emit_llvm_ir: Emit = .no;
     var emit_llvm_bc: Emit = .no;
     var emit_docs: Emit = .no;
-    var emit_implib: Emit = .yes_default_path;
+    var emit_implib: Emit = undefined;
     var emit_implib_arg_provided = false;
     var target_arch_os_abi: ?[]const u8 = null;
     var target_mcpu: ?[]const u8 = null;
@@ -1022,6 +1022,7 @@ fn buildOutputType(
             }
 
             soname = .yes_default_value;
+            emit_implib = .yes_default_path;
 
             var args_iter = ArgsIterator{
                 .args = all_args[2..],
@@ -1819,6 +1820,7 @@ fn buildOutputType(
 
             emit_h = .no;
             soname = .no;
+            emit_implib = .no;
             create_module.opts.ensure_libc_on_non_freestanding = true;
             create_module.opts.ensure_libcpp_on_non_freestanding = arg_mode == .cpp;
             create_module.want_native_include_dirs = true;
