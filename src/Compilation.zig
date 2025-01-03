@@ -5399,8 +5399,10 @@ pub fn addCCArgs(
         },
     }
 
-    if (comp.config.lto) {
-        try argv.append("-flto");
+    switch (comp.config.lto) {
+        .none => try argv.append("-fno-lto"),
+        .full => try argv.append("-flto=full"),
+        .thin => try argv.append("-flto=thin"),
     }
 
     // This only works for preprocessed files. Guarded by `FileExt.clangSupportsDepFile`.
@@ -6450,7 +6452,7 @@ pub fn build_crt_file(
         .link_libc = false,
         .lto = switch (output_mode) {
             .Lib => comp.config.lto,
-            .Obj, .Exe => false,
+            .Obj, .Exe => .none,
         },
     });
     const root_mod = try Package.Module.create(arena, .{

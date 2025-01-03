@@ -1859,7 +1859,7 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         if (comp.version) |version| {
             try argv.append(try allocPrint(arena, "-VERSION:{}.{}", .{ version.major, version.minor }));
         }
-        if (comp.config.lto) {
+        if (comp.config.lto != .none) {
             switch (optimize_mode) {
                 .Debug => {},
                 .ReleaseSmall => try argv.append("-OPT:lldlto=2"),
