@@ -561,6 +561,10 @@ const known_options = [_]KnownOpt{
         .ident = "mingw_unicode_entry_point",
     },
     .{
+        .name = "mwindows",
+        .ident = "mingw_subsystem_windows",
+    },
+    .{
         .name = "fsanitize-coverage-trace-pc-guard",
         .ident = "san_cov_trace_pc_guard",
     },
