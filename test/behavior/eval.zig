@@ -1744,3 +1744,10 @@ test "block with comptime-known result but possible runtime exit is comptime-kno
     comptime assert(a == 123);
     comptime assert(b == 456);
 }
+
+test "comptime labeled block implicit exit" {
+    const result = comptime b: {
+        if (false) break :b 123;
+    };
+    comptime assert(result == {});
+}
