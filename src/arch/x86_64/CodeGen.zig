@@ -27209,14 +27209,57 @@ fn regExtraBits(self: *CodeGen, ty: Type) u64 {
     return self.regBitSize(ty) - ty.bitSize(self.pt.zcu);
 }
 
-fn hasFeature(self: *CodeGen, feature: std.Target.x86.Feature) bool {
-    return std.Target.x86.featureSetHas(self.target.cpu.features, feature);
-}
-fn hasAnyFeatures(self: *CodeGen, features: anytype) bool {
-    return std.Target.x86.featureSetHasAny(self.target.cpu.features, features);
-}
-fn hasAllFeatures(self: *CodeGen, features: anytype) bool {
-    return std.Target.x86.featureSetHasAll(self.target.cpu.features, features);
+fn hasFeature(cg: *CodeGen, feature: std.Target.x86.Feature) bool {
+    return switch (feature) {
+        .@"64bit" => switch (cg.target.cpu.arch) {
+            else => unreachable,
+            .x86 => false,
+            .x86_64 => true,
+        },
+        .false_deps_getmant,
+        .false_deps_lzcnt_tzcnt,
+        .false_deps_mulc,
+        .false_deps_mullq,
+        .false_deps_perm,
+        .false_deps_popcnt,
+        .false_deps_range,
+        .slow_3ops_lea,
+        .slow_incdec,
+        .slow_lea,
+        .slow_pmaddwd,
+        .slow_pmulld,
+        .slow_shld,
+        .slow_two_mem_ops,
+        .slow_unaligned_mem_16,
+        .slow_unaligned_mem_32,
+        => switch (cg.mod.optimize_mode) {
+            .Debug, .ReleaseSafe, .ReleaseFast => null,
+            .ReleaseSmall => false,
+        },
+        .fast_11bytenop,
+        .fast_15bytenop,
+        .fast_7bytenop,
+        .fast_bextr,
+        .fast_dpwssd,
+        .fast_gather,
+        .fast_hops,
+        .fast_imm16,
+        .fast_lzcnt,
+        .fast_movbe,
+        .fast_scalar_fsqrt,
+        .fast_scalar_shift_masks,
+        .fast_shld_rotate,
+        .fast_variable_crosslane_shuffle,
+        .fast_variable_perlane_shuffle,
+        .fast_vector_fsqrt,
+        .fast_vector_shift_masks,
+        => switch (cg.mod.optimize_mode) {
+            .Debug, .ReleaseSafe, .ReleaseFast => null,
+            .ReleaseSmall => true,
+        },
+        .mmx => false,
+        else => null,
+    } orelse std.Target.x86.featureSetHas(cg.target.cpu.features, feature);
 }
 
 fn typeOf(self: *CodeGen, inst: Air.Inst.Ref) Type {
@@ -29090,15 +29133,7 @@ fn select(
     cases: []const Select.Case,
 ) !void {
     cases: for (cases) |case| {
-        for (case.required_features) |required_feature| if (required_feature) |feature| if (!switch (feature) {
-            .@"64bit" => switch (cg.target.cpu.arch) {
-                else => unreachable,
-                .x86 => false,
-                .x86_64 => true,
-            },
-            .mmx => false,
-            else => cg.hasFeature(feature),
-        }) continue :cases;
+        for (case.required_features) |required_feature| if (required_feature) |feature| if (!cg.hasFeature(feature)) continue :cases;
         for (case.dst_constraints[0..dst_temps.len], dst_tys) |dst_constraint, dst_ty| if (!dst_constraint.accepts(dst_ty, cg)) continue :cases;
         for (case.src_constraints[0..src_temps.len], src_temps) |src_constraint, src_temp| if (!src_constraint.accepts(src_temp.typeOf(cg), cg)) continue :cases;
         if (std.debug.runtime_safety) {
