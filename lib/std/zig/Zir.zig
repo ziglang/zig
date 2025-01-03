@@ -526,8 +526,10 @@ pub const Inst = struct {
         /// Asserts that all the lengths provided match. Used to build a for loop.
         /// Return value is the length as a usize.
         /// Uses the `pl_node` field with payload `MultiOp`.
-        /// There is exactly one item corresponding to each AST node inside the for
-        /// loop condition. Any item may be `none`, indicating an unbounded range.
+        /// There are two items for each AST node inside the for loop condition.
+        /// If both items in a pair are `.none`, then this node is an unbounded range.
+        /// If only the second item in a pair is `.none`, then the first is an indexable.
+        /// Otherwise, the node is a bounded range `a..b`, with the items being `a` and `b`.
         /// Illegal behaviors:
         ///  * If all lengths are unbounded ranges (always a compile error).
         ///  * If any two lengths do not match each other.
