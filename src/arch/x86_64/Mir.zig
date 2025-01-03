@@ -1200,8 +1200,12 @@ pub const RegisterList = struct {
         return @intCast(self.bitset.count());
     }
 
-    pub fn size(self: Self) i32 {
-        return @intCast(self.bitset.count() * 8);
+    pub fn size(self: Self, target: *const std.Target) i32 {
+        return @intCast(self.bitset.count() * @as(u4, switch (target.cpu.arch) {
+            else => unreachable,
+            .x86 => 4,
+            .x86_64 => 8,
+        }));
     }
 };
 

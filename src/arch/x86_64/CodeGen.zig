@@ -952,7 +952,6 @@ pub fn generate(
     );
 
     const fn_info = zcu.typeToFunc(fn_type).?;
-    const cc = abi.resolveCallingConvention(fn_info.cc, function.target.*);
     var call_info = function.resolveCallingConventionValues(fn_info, &.{}, .args_frame) catch |err| switch (err) {
         error.CodegenFail => return error.CodegenFail,
         else => |e| return e,
@@ -978,7 +977,7 @@ pub fn generate(
             .alignment = call_info.stack_align,
         }),
     );
-    function.va_info = switch (cc) {
+    function.va_info = switch (fn_info.cc) {
         else => undefined,
         .x86_64_sysv => .{ .sysv = .{
             .gp_count = call_info.gp_count,
@@ -1010,7 +1009,7 @@ pub fn generate(
             .target = function.target,
             .allocator = gpa,
             .mir = mir,
-            .cc = cc,
+            .cc = fn_info.cc,
             .src_loc = src_loc,
             .output_mode = comp.config.output_mode,
             .link_mode = comp.config.link_mode,
@@ -1100,7 +1099,7 @@ pub fn generateLazy(
             .target = function.target,
             .allocator = gpa,
             .mir = mir,
-            .cc = abi.resolveCallingConvention(.auto, function.target.*),
+            .cc = .auto,
             .src_loc = src_loc,
             .output_mode = comp.config.output_mode,
             .link_mode = comp.config.link_mode,
@@ -2126,8 +2125,7 @@ fn gen(self: *CodeGen) InnerError!void {
     const pt = self.pt;
     const zcu = pt.zcu;
     const fn_info = zcu.typeToFunc(self.fn_type).?;
-    const cc = abi.resolveCallingConvention(fn_info.cc, self.target.*);
-    if (cc != .naked) {
+    if (fn_info.cc != .naked) {
         try self.asmRegister(.{ ._, .push }, .rbp);
         try self.asmPseudoImmediate(.pseudo_cfi_adjust_cfa_offset_i_s, .s(8));
         try self.asmPseudoRegisterImmediate(.pseudo_cfi_rel_offset_ri_s, .rbp, .s(0));
@@ -2159,7 +2157,7 @@ fn gen(self: *CodeGen) InnerError!void {
             else => unreachable,
         }
 
-        if (fn_info.is_var_args) switch (cc) {
+        if (fn_info.is_var_args) switch (fn_info.cc) {
             .x86_64_sysv => {
                 const info = &self.va_info.sysv;
                 const reg_save_area_fi = try self.allocFrameIndex(.init(.{
@@ -2188,7 +2186,7 @@ fn gen(self: *CodeGen) InnerError!void {
                 self.performReloc(skip_sse_reloc);
             },
             .x86_64_win => return self.fail("TODO implement gen var arg function for Win64", .{}),
-            else => unreachable,
+            else => |cc| return self.fail("{s} does not support var args", .{@tagName(cc)}),
         };
 
         try self.asmPseudo(.pseudo_dbg_prologue_end_none);
@@ -2214,7 +2212,7 @@ fn gen(self: *CodeGen) InnerError!void {
         try self.asmPseudoRegisterImmediate(.pseudo_cfi_def_cfa_ri_s, .rsp, .s(8));
         try self.asmOpOnly(.{ ._, .ret });
 
-        const frame_layout = try self.computeFrameLayout(cc);
+        const frame_layout = try self.computeFrameLayout(fn_info.cc);
         const need_frame_align = frame_layout.stack_mask != std.math.maxInt(u32);
         const need_stack_adjust = frame_layout.stack_adjust > 0;
         const need_save_reg = frame_layout.save_reg_list.count() > 0;
@@ -2262,12 +2260,13 @@ fn gen(self: *CodeGen) InnerError!void {
                     } },
                 });
             } else {
+                const scratch_reg = abi.getCAbiLinkerScratchReg(fn_info.cc);
                 self.mir_instructions.set(backpatch_stack_alloc, .{
                     .tag = .pseudo,
                     .ops = .pseudo_probe_adjust_setup_rri_s,
                     .data = .{ .rri = .{
                         .r1 = .rsp,
-                        .r2 = .rax,
+                        .r2 = scratch_reg,
                         .i = frame_layout.stack_adjust,
                     } },
                 });
@@ -2276,25 +2275,35 @@ fn gen(self: *CodeGen) InnerError!void {
                     .ops = .pseudo_probe_adjust_loop_rr,
                     .data = .{ .rr = .{
                         .r1 = .rsp,
-                        .r2 = .rax,
+                        .r2 = scratch_reg,
                     } },
                 });
             }
         }
         if (need_frame_align or need_stack_adjust) {
-            self.mir_instructions.set(backpatch_stack_dealloc, .{
-                .tag = .lea,
-                .ops = .rm,
-                .data = .{ .rx = .{
-                    .r1 = .rsp,
-                    .payload = try self.addExtra(Mir.Memory.encode(.{
-                        .base = .{ .reg = .rbp },
-                        .mod = .{ .rm = .{
-                            .size = .qword,
-                            .disp = -frame_layout.save_reg_list.size(),
-                        } },
-                    })),
-                } },
+            self.mir_instructions.set(backpatch_stack_dealloc, switch (-frame_layout.save_reg_list.size(self.target)) {
+                0 => .{
+                    .tag = .mov,
+                    .ops = .rr,
+                    .data = .{ .rr = .{
+                        .r1 = .rsp,
+                        .r2 = .rbp,
+                    } },
+                },
+                else => |disp| .{
+                    .tag = .lea,
+                    .ops = .rm,
+                    .data = .{ .rx = .{
+                        .r1 = .rsp,
+                        .payload = try self.addExtra(Mir.Memory.encode(.{
+                            .base = .{ .reg = .rbp },
+                            .mod = .{ .rm = .{
+                                .size = .qword,
+                                .disp = disp,
+                            } },
+                        })),
+                    } },
+                },
             });
         }
         if (need_save_reg) {
@@ -9552,8 +9561,7 @@ fn genLazy(self: *CodeGen, lazy_sym: link.File.LazySymbol) InnerError!void {
             const enum_ty: Type = .fromInterned(lazy_sym.ty);
             wip_mir_log.debug("{}.@tagName:", .{enum_ty.fmt(pt)});
 
-            const resolved_cc = abi.resolveCallingConvention(.auto, self.target.*);
-            const param_regs = abi.getCAbiIntParamRegs(resolved_cc);
+            const param_regs = abi.getCAbiIntParamRegs(.auto);
             const param_locks = self.register_manager.lockRegsAssumeUnused(2, param_regs[0..2].*);
             defer for (param_locks) |lock| self.register_manager.unlockReg(lock);
 
@@ -9700,7 +9708,7 @@ fn setFrameLoc(
     offset.* += self.frame_allocs.items(.abi_size)[frame_i];
 }
 
-fn computeFrameLayout(self: *CodeGen, cc: std.builtin.CallingConvention) !FrameLayout {
+fn computeFrameLayout(self: *CodeGen, cc: std.builtin.CallingConvention.Tag) !FrameLayout {
     const frame_allocs_len = self.frame_allocs.len;
     try self.frame_locs.resize(self.gpa, frame_allocs_len);
     const stack_frame_order = try self.gpa.alloc(FrameIndex, frame_allocs_len - FrameIndex.named_count);
@@ -9732,8 +9740,7 @@ fn computeFrameLayout(self: *CodeGen, cc: std.builtin.CallingConvention) !FrameL
     // Create list of registers to save in the prologue.
     // TODO handle register classes
     var save_reg_list: Mir.RegisterList = .empty;
-    const callee_preserved_regs =
-        abi.getCalleePreservedRegs(abi.resolveCallingConvention(cc, self.target.*));
+    const callee_preserved_regs = abi.getCalleePreservedRegs(cc);
     for (callee_preserved_regs) |reg| {
         if (self.register_manager.isRegAllocated(reg)) {
             save_reg_list.push(callee_preserved_regs, reg);
@@ -9747,7 +9754,7 @@ fn computeFrameLayout(self: *CodeGen, cc: std.builtin.CallingConvention) !FrameL
     const stack_frame_align_offset = if (need_align_stack)
         0
     else
-        save_reg_list.size() + frame_offset[@intFromEnum(FrameIndex.args_frame)];
+        save_reg_list.size(self.target) + frame_offset[@intFromEnum(FrameIndex.args_frame)];
 
     var rsp_offset: i32 = 0;
     self.setFrameLoc(.call_frame, .rsp, &rsp_offset, true);
@@ -10036,10 +10043,9 @@ pub fn spillEflagsIfOccupied(self: *CodeGen) !void {
     }
 }
 
-pub fn spillCallerPreservedRegs(self: *CodeGen, cc: std.builtin.CallingConvention) !void {
+pub fn spillCallerPreservedRegs(self: *CodeGen, cc: std.builtin.CallingConvention.Tag) !void {
     switch (cc) {
-        .x86_64_sysv => try self.spillRegisters(abi.getCallerPreservedRegs(.{ .x86_64_sysv = .{} })),
-        .x86_64_win => try self.spillRegisters(abi.getCallerPreservedRegs(.{ .x86_64_win = .{} })),
+        inline .auto, .x86_64_sysv, .x86_64_win => |tag| try self.spillRegisters(abi.getCallerPreservedRegs(tag)),
         else => unreachable,
     }
 }
@@ -19127,8 +19133,7 @@ fn airArg(self: *CodeGen, inst: Air.Inst.Index) !void {
                 try self.spillEflagsIfOccupied();
 
                 const fn_info = zcu.typeToFunc(self.fn_type).?;
-                const cc = abi.resolveCallingConvention(fn_info.cc, self.target.*);
-                const param_int_regs = abi.getCAbiIntParamRegs(cc);
+                const param_int_regs = abi.getCAbiIntParamRegs(fn_info.cc);
                 var prev_reg: Register = undefined;
                 for (
                     param_int_regs[param_int_regs.len - regs_frame_addr.regs ..],
@@ -19228,8 +19233,7 @@ fn airDbgArg(self: *CodeGen, inst: Air.Inst.Index) !void {
 }
 
 fn airDbgVarArgs(self: *CodeGen) !void {
-    if (self.pt.zcu.typeToFunc(self.fn_type).?.is_var_args)
-        try self.asmPseudo(.pseudo_dbg_var_args_none);
+    if (self.pt.zcu.typeToFunc(self.fn_type).?.is_var_args) try self.asmPseudo(.pseudo_dbg_var_args_none);
 }
 
 fn genLocalDebugInfo(
@@ -19364,7 +19368,6 @@ fn genCall(self: *CodeGen, info: union(enum) {
         }),
     };
     const fn_info = zcu.typeToFunc(fn_ty).?;
-    const resolved_cc = abi.resolveCallingConvention(fn_info.cc, self.target.*);
 
     const ExpectedContents = extern struct {
         var_args: [16][@sizeOf(Type)]u8 align(@alignOf(Type)),
@@ -19406,7 +19409,7 @@ fn genCall(self: *CodeGen, info: union(enum) {
     }
 
     try self.spillEflagsIfOccupied();
-    try self.spillCallerPreservedRegs(resolved_cc);
+    try self.spillCallerPreservedRegs(fn_info.cc);
 
     // set stack arguments first because this can clobber registers
     // also clobber spill arguments as we go
@@ -19482,7 +19485,7 @@ fn genCall(self: *CodeGen, info: union(enum) {
                 );
                 _ = try self.asmJccReloc(.b, loop);
 
-                const param_int_regs = abi.getCAbiIntParamRegs(resolved_cc);
+                const param_int_regs = abi.getCAbiIntParamRegs(fn_info.cc);
                 for (param_int_regs[param_int_regs.len - regs_frame_addr.regs ..]) |dst_reg| {
                     try self.register_manager.getReg(dst_reg, null);
                     try reg_locks.append(self.register_manager.lockReg(dst_reg));
@@ -19546,7 +19549,7 @@ fn genCall(self: *CodeGen, info: union(enum) {
                 };
                 defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
 
-                const param_int_regs = abi.getCAbiIntParamRegs(resolved_cc);
+                const param_int_regs = abi.getCAbiIntParamRegs(fn_info.cc);
                 for (
                     param_int_regs[param_int_regs.len - regs_frame_addr.regs ..],
                     0..,
@@ -19559,8 +19562,7 @@ fn genCall(self: *CodeGen, info: union(enum) {
             else => unreachable,
         };
 
-    if (fn_info.is_var_args)
-        try self.asmRegisterImmediate(.{ ._, .mov }, .al, .u(call_info.fp_count));
+    if (fn_info.is_var_args) try self.asmRegisterImmediate(.{ ._, .mov }, .al, .u(call_info.fp_count));
 
     // Due to incremental compilation, how function calls are generated depends
     // on linking.
@@ -19582,8 +19584,9 @@ fn genCall(self: *CodeGen, info: union(enum) {
                     } else if (self.bin_file.cast(.coff)) |coff_file| {
                         const atom = try coff_file.getOrCreateAtomForNav(func.owner_nav);
                         const sym_index = coff_file.getAtom(atom).getSymbolIndex().?;
-                        try self.genSetReg(.rax, .usize, .{ .lea_got = sym_index }, .{});
-                        try self.asmRegister(.{ ._, .call }, .rax);
+                        const scratch_reg = abi.getCAbiLinkerScratchReg(fn_info.cc);
+                        try self.genSetReg(scratch_reg, .usize, .{ .lea_got = sym_index }, .{});
+                        try self.asmRegister(.{ ._, .call }, scratch_reg);
                     } else if (self.bin_file.cast(.macho)) |macho_file| {
                         const zo = macho_file.getZigObject().?;
                         const sym_index = try zo.getOrCreateMetadataForNav(macho_file, func.owner_nav);
@@ -19622,8 +19625,9 @@ fn genCall(self: *CodeGen, info: union(enum) {
             }
         } else {
             assert(self.typeOf(callee).zigTypeTag(zcu) == .pointer);
-            try self.genSetReg(.rax, .usize, .{ .air_ref = callee }, .{});
-            try self.asmRegister(.{ ._, .call }, .rax);
+            const scratch_reg = abi.getCAbiLinkerScratchReg(fn_info.cc);
+            try self.genSetReg(scratch_reg, .usize, .{ .air_ref = callee }, .{});
+            try self.asmRegister(.{ ._, .call }, scratch_reg);
         },
         .lib => |lib| if (self.bin_file.cast(.elf)) |elf_file| {
             const target_sym_index = try elf_file.getGlobalSymbol(lib.callee, lib.lib);
@@ -23095,11 +23099,12 @@ fn genExternSymbolRef(
 ) InnerError!void {
     if (self.bin_file.cast(.coff)) |coff_file| {
         const global_index = try coff_file.getGlobalSymbol(callee, lib);
+        const scratch_reg = abi.getCAbiLinkerScratchReg(self.fn_type.fnCallingConvention(self.pt.zcu));
         _ = try self.addInst(.{
             .tag = .mov,
             .ops = .import_reloc,
             .data = .{ .rx = .{
-                .r1 = .rax,
+                .r1 = scratch_reg,
                 .payload = try self.addExtra(bits.SymbolOffset{
                     .sym_index = link.File.Coff.global_symbol_bit | global_index,
                 }),
@@ -23107,7 +23112,7 @@ fn genExternSymbolRef(
         });
         switch (tag) {
             .mov => {},
-            .call => try self.asmRegister(.{ ._, .call }, .rax),
+            .call => try self.asmRegister(.{ ._, .call }, scratch_reg),
             else => unreachable,
         }
     } else return self.fail("TODO implement calling extern functions", .{});
@@ -24226,7 +24231,6 @@ fn airTagName(self: *CodeGen, inst: Air.Inst.Index) !void {
     const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const inst_ty = self.typeOfIndex(inst);
     const enum_ty = self.typeOf(un_op);
-    const resolved_cc = abi.resolveCallingConvention(.auto, self.target.*);
 
     // We need a properly aligned and sized call frame to be able to call this function.
     {
@@ -24244,9 +24248,9 @@ fn airTagName(self: *CodeGen, inst: Air.Inst.Index) !void {
     }
 
     try self.spillEflagsIfOccupied();
-    try self.spillCallerPreservedRegs(resolved_cc);
+    try self.spillCallerPreservedRegs(.auto);
 
-    const param_regs = abi.getCAbiIntParamRegs(resolved_cc);
+    const param_regs = abi.getCAbiIntParamRegs(.auto);
 
     const dst_mcv = try self.allocRegOrMem(inst, false);
     try self.genSetReg(param_regs[0], .usize, dst_mcv.address(), .{});
@@ -24255,7 +24259,7 @@ fn airTagName(self: *CodeGen, inst: Air.Inst.Index) !void {
     try self.genSetReg(param_regs[1], enum_ty, operand, .{});
 
     const enum_lazy_sym: link.File.LazySymbol = .{ .kind = .code, .ty = enum_ty.toIntern() };
-    try self.genLazySymbolRef(.call, .rax, enum_lazy_sym);
+    try self.genLazySymbolRef(.call, abi.getCAbiLinkerScratchReg(self.fn_type.fnCallingConvention(zcu)), enum_lazy_sym);
 
     return self.finishAir(inst, dst_mcv, .{ un_op, .none, .none });
 }
@@ -26349,10 +26353,7 @@ fn airVaStart(self: *CodeGen, inst: Air.Inst.Index) !void {
     const va_list_ty = self.air.instructions.items(.data)[@intFromEnum(inst)].ty;
     const ptr_anyopaque_ty = try pt.singleMutPtrType(.anyopaque);
 
-    const result: MCValue = switch (abi.resolveCallingConvention(
-        self.fn_type.fnCallingConvention(zcu),
-        self.target.*,
-    )) {
+    const result: MCValue = switch (self.fn_type.fnCallingConvention(zcu)) {
         .x86_64_sysv => result: {
             const info = self.va_info.sysv;
             const dst_fi = try self.allocFrameIndex(.initSpill(va_list_ty, zcu));
@@ -26396,7 +26397,7 @@ fn airVaStart(self: *CodeGen, inst: Air.Inst.Index) !void {
             break :result .{ .load_frame = .{ .index = dst_fi } };
         },
         .x86_64_win => return self.fail("TODO implement c_va_start for Win64", .{}),
-        else => unreachable,
+        else => |cc| return self.fail("{s} does not support var args", .{@tagName(cc)}),
     };
     return self.finishAir(inst, result, .{ .none, .none, .none });
 }
@@ -26410,10 +26411,7 @@ fn airVaArg(self: *CodeGen, inst: Air.Inst.Index) !void {
     const ptr_anyopaque_ty = try pt.singleMutPtrType(.anyopaque);
     const unused = self.liveness.isUnused(inst);
 
-    const result: MCValue = switch (abi.resolveCallingConvention(
-        self.fn_type.fnCallingConvention(zcu),
-        self.target.*,
-    )) {
+    const result: MCValue = switch (self.fn_type.fnCallingConvention(zcu)) {
         .x86_64_sysv => result: {
             try self.spillEflagsIfOccupied();
 
@@ -26592,7 +26590,7 @@ fn airVaArg(self: *CodeGen, inst: Air.Inst.Index) !void {
             break :result promote_mcv;
         },
         .x86_64_win => return self.fail("TODO implement c_va_arg for Win64", .{}),
-        else => unreachable,
+        else => |cc| return self.fail("{s} does not support var args", .{@tagName(cc)}),
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -26753,13 +26751,15 @@ fn resolveCallingConventionValues(
     errdefer self.gpa.free(result.args);
 
     const ret_ty: Type = .fromInterned(fn_info.return_type);
-
-    const resolved_cc = abi.resolveCallingConvention(cc, self.target.*);
     switch (cc) {
         .naked => {
             assert(result.args.len == 0);
             result.return_value = .init(.unreach);
-            result.stack_align = .@"8";
+            result.stack_align = switch (self.target.cpu.arch) {
+                else => unreachable,
+                .x86 => .@"4",
+                .x86_64 => .@"8",
+            };
         },
         .x86_64_sysv, .x86_64_win => |cc_opts| {
             var ret_int_reg_i: u32 = 0;
@@ -26768,17 +26768,14 @@ fn resolveCallingConventionValues(
             var param_sse_reg_i: u32 = 0;
             result.stack_align = .fromByteUnits(cc_opts.incoming_stack_alignment orelse 16);
 
-            switch (resolved_cc) {
+            switch (cc) {
                 .x86_64_sysv => {},
-                .x86_64_win => {
-                    // Align the stack to 16bytes before allocating shadow stack space (if any).
-                    result.stack_byte_count += @intCast(4 * Type.usize.abiSize(zcu));
-                },
+                .x86_64_win => result.stack_byte_count += @intCast(4 * 8),
                 else => unreachable,
             }
 
             // Return values
-            if (ret_ty.zigTypeTag(zcu) == .noreturn) {
+            if (ret_ty.isNoReturn(zcu)) {
                 result.return_value = .init(.unreach);
             } else if (!ret_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                 // TODO: is this even possible for C calling convention?
@@ -26787,7 +26784,7 @@ fn resolveCallingConventionValues(
                 var ret_tracking: [4]InstTracking = undefined;
                 var ret_tracking_i: usize = 0;
 
-                const classes = switch (resolved_cc) {
+                const classes = switch (cc) {
                     .x86_64_sysv => std.mem.sliceTo(&abi.classifySystemV(ret_ty, zcu, self.target.*, .ret), .none),
                     .x86_64_win => &.{abi.classifyWindows(ret_ty, zcu)},
                     else => unreachable,
@@ -26795,7 +26792,7 @@ fn resolveCallingConventionValues(
                 for (classes) |class| switch (class) {
                     .integer => {
                         const ret_int_reg = registerAlias(
-                            abi.getCAbiIntReturnRegs(resolved_cc)[ret_int_reg_i],
+                            abi.getCAbiIntReturnRegs(cc)[ret_int_reg_i],
                             @intCast(@min(ret_ty.abiSize(zcu), 8)),
                         );
                         ret_int_reg_i += 1;
@@ -26804,7 +26801,7 @@ fn resolveCallingConventionValues(
                         ret_tracking_i += 1;
                     },
                     .sse, .float, .float_combine, .win_i128 => {
-                        const ret_sse_regs = abi.getCAbiSseReturnRegs(resolved_cc);
+                        const ret_sse_regs = abi.getCAbiSseReturnRegs(cc);
                         const abi_size: u32 = @intCast(ret_ty.abiSize(zcu));
                         const reg_size = @min(abi_size, self.vectorSize(.float));
                         var byte_offset: u32 = 0;
@@ -26818,18 +26815,18 @@ fn resolveCallingConventionValues(
                     },
                     .sseup => assert(ret_tracking[ret_tracking_i - 1].short.register.class() == .sse),
                     .x87 => {
-                        ret_tracking[ret_tracking_i] = .init(.{ .register = .st0 });
+                        ret_tracking[ret_tracking_i] = .init(.{ .register = abi.getCAbiX87ReturnRegs(cc)[0] });
                         ret_tracking_i += 1;
                     },
                     .x87up => assert(ret_tracking[ret_tracking_i - 1].short.register.class() == .x87),
                     .complex_x87 => {
-                        ret_tracking[ret_tracking_i] = .init(.{ .register_pair = .{ .st0, .st1 } });
+                        ret_tracking[ret_tracking_i] = .init(.{ .register_pair = abi.getCAbiX87ReturnRegs(cc)[0..2].* });
                         ret_tracking_i += 1;
                     },
                     .memory => {
-                        const ret_int_reg = abi.getCAbiIntReturnRegs(resolved_cc)[ret_int_reg_i].to64();
+                        const ret_int_reg = abi.getCAbiIntReturnRegs(cc)[ret_int_reg_i].to64();
                         ret_int_reg_i += 1;
-                        const ret_indirect_reg = abi.getCAbiIntParamRegs(resolved_cc)[param_int_reg_i];
+                        const ret_indirect_reg = abi.getCAbiIntParamRegs(cc)[param_int_reg_i];
                         param_int_reg_i += 1;
 
                         ret_tracking[ret_tracking_i] = .{
@@ -26864,7 +26861,7 @@ fn resolveCallingConventionValues(
             // Input params
             for (param_types, result.args) |ty, *arg| {
                 assert(ty.hasRuntimeBitsIgnoreComptime(zcu));
-                switch (resolved_cc) {
+                switch (cc) {
                     .x86_64_sysv => {},
                     .x86_64_win => {
                         param_int_reg_i = @max(param_int_reg_i, param_sse_reg_i);
@@ -26876,14 +26873,14 @@ fn resolveCallingConventionValues(
                 var arg_mcv: [4]MCValue = undefined;
                 var arg_mcv_i: usize = 0;
 
-                const classes = switch (resolved_cc) {
+                const classes = switch (cc) {
                     .x86_64_sysv => std.mem.sliceTo(&abi.classifySystemV(ty, zcu, self.target.*, .arg), .none),
                     .x86_64_win => &.{abi.classifyWindows(ty, zcu)},
                     else => unreachable,
                 };
                 classes: for (classes) |class| switch (class) {
                     .integer => {
-                        const param_int_regs = abi.getCAbiIntParamRegs(resolved_cc);
+                        const param_int_regs = abi.getCAbiIntParamRegs(cc);
                         if (param_int_reg_i >= param_int_regs.len) break;
 
                         const param_int_reg =
@@ -26894,7 +26891,7 @@ fn resolveCallingConventionValues(
                         arg_mcv_i += 1;
                     },
                     .sse, .float, .float_combine => {
-                        const param_sse_regs = abi.getCAbiSseParamRegs(resolved_cc);
+                        const param_sse_regs = abi.getCAbiSseParamRegs(cc);
                         const abi_size: u32 = @intCast(ty.abiSize(zcu));
                         const reg_size = @min(abi_size, self.vectorSize(.float));
                         var byte_offset: u32 = 0;
@@ -26909,14 +26906,13 @@ fn resolveCallingConventionValues(
                         }
                     },
                     .sseup => assert(arg_mcv[arg_mcv_i - 1].register.class() == .sse),
-                    .x87, .x87up, .complex_x87, .memory, .win_i128 => switch (resolved_cc) {
+                    .x87, .x87up, .complex_x87, .memory, .win_i128 => switch (cc) {
                         .x86_64_sysv => switch (class) {
                             .x87, .x87up, .complex_x87, .memory => break,
                             else => unreachable,
                         },
                         .x86_64_win => if (ty.abiSize(zcu) > 8) {
-                            const param_int_reg =
-                                abi.getCAbiIntParamRegs(resolved_cc)[param_int_reg_i].to64();
+                            const param_int_reg = abi.getCAbiIntParamRegs(cc)[param_int_reg_i].to64();
                             param_int_reg_i += 1;
 
                             arg_mcv[arg_mcv_i] = .{ .indirect = .{ .reg = param_int_reg } };
@@ -26927,7 +26923,7 @@ fn resolveCallingConventionValues(
                     .none => unreachable,
                     .integer_per_element => {
                         const param_int_regs_len: u32 =
-                            @intCast(abi.getCAbiIntParamRegs(resolved_cc).len);
+                            @intCast(abi.getCAbiIntParamRegs(cc).len);
                         const remaining_param_int_regs: u3 =
                             @intCast(param_int_regs_len - param_int_reg_i);
                         param_int_reg_i = param_int_regs_len;
@@ -26989,42 +26985,86 @@ fn resolveCallingConventionValues(
             result.fp_count = param_sse_reg_i;
         },
         .auto => {
-            result.stack_align = .@"16";
+            result.stack_align = abi.zigcc.stack_align orelse .fromByteUnits(self.vectorSize(.float));
+
+            var param_gpr = abi.getCAbiIntParamRegs(cc);
+            var param_x87 = abi.getCAbiX87ParamRegs(cc);
+            var param_sse = abi.getCAbiSseParamRegs(cc);
 
             // Return values
-            if (ret_ty.zigTypeTag(zcu) == .noreturn) {
-                result.return_value = .init(.unreach);
-            } else if (!ret_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-                result.return_value = .init(.none);
-            } else {
-                const ret_reg = abi.getCAbiIntReturnRegs(resolved_cc)[0];
-                const ret_ty_size: u31 = @intCast(ret_ty.abiSize(zcu));
-                if (ret_ty_size <= 8 and !ret_ty.isRuntimeFloat()) {
-                    const aliased_reg = registerAlias(ret_reg, ret_ty_size);
-                    result.return_value = .{ .short = .{ .register = aliased_reg }, .long = .none };
-                } else {
-                    const ret_indirect_reg = abi.getCAbiIntParamRegs(resolved_cc)[0];
-                    result.return_value = .{
-                        .short = .{ .indirect = .{ .reg = ret_reg } },
-                        .long = .{ .indirect = .{ .reg = ret_indirect_reg } },
-                    };
-                }
-            }
+            result.return_value = if (ret_ty.isNoReturn(zcu))
+                .init(.unreach)
+            else if (!ret_ty.hasRuntimeBitsIgnoreComptime(zcu))
+                .init(.none)
+            else return_value: {
+                const ret_gpr = abi.getCAbiIntReturnRegs(cc);
+                const ret_size: u31 = @intCast(ret_ty.abiSize(zcu));
+                if (abi.zigcc.return_in_regs) switch (self.regClassForType(ret_ty)) {
+                    .general_purpose => if (ret_size <= @as(u4, switch (self.target.cpu.arch) {
+                        else => unreachable,
+                        .x86 => 4,
+                        .x86_64 => 8,
+                    }))
+                        break :return_value .init(.{ .register = registerAlias(ret_gpr[0], ret_size) })
+                    else if (ret_gpr.len >= 2 and ret_ty.isSliceAtRuntime(zcu))
+                        break :return_value .init(.{ .register_pair = ret_gpr[0..2].* }),
+                    .segment, .mmx, .ip => unreachable,
+                    .x87 => break :return_value .init(.{ .register = .st0 }),
+                    .sse => if (ret_size <= self.vectorSize(.float)) break :return_value .init(.{
+                        .register = registerAlias(abi.getCAbiSseReturnRegs(cc)[0], @max(ret_size, 16)),
+                    }),
+                };
+                const ret_indirect_reg = param_gpr[0];
+                param_gpr = param_gpr[1..];
+                break :return_value .{
+                    .short = .{ .indirect = .{ .reg = ret_gpr[0] } },
+                    .long = .{ .indirect = .{ .reg = ret_indirect_reg } },
+                };
+            };
 
             // Input params
-            for (param_types, result.args) |ty, *arg| {
-                if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+            for (param_types, result.args) |param_ty, *arg| {
+                if (!param_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                     arg.* = .none;
                     continue;
                 }
-                const param_align = ty.abiAlignment(zcu);
+                const param_size: u31 = @intCast(param_ty.abiSize(zcu));
+                if (abi.zigcc.params_in_regs) switch (self.regClassForType(param_ty)) {
+                    .general_purpose => if (param_gpr.len >= 1 and param_size <= @as(u4, switch (self.target.cpu.arch) {
+                        else => unreachable,
+                        .x86 => 4,
+                        .x86_64 => 8,
+                    })) {
+                        arg.* = .{ .register = registerAlias(param_gpr[0], param_size) };
+                        param_gpr = param_gpr[1..];
+                        continue;
+                    } else if (param_gpr.len >= 2 and param_ty.isSliceAtRuntime(zcu)) {
+                        arg.* = .{ .register_pair = param_gpr[0..2].* };
+                        param_gpr = param_gpr[2..];
+                        continue;
+                    },
+                    .segment, .mmx, .ip => unreachable,
+                    .x87 => if (param_x87.len >= 1) {
+                        arg.* = .{ .register = param_x87[0] };
+                        param_x87 = param_x87[1..];
+                        continue;
+                    },
+                    .sse => if (param_sse.len >= 1 and param_size <= self.vectorSize(.float)) {
+                        arg.* = .{
+                            .register = registerAlias(param_sse[0], @max(param_size, 16)),
+                        };
+                        param_sse = param_sse[1..];
+                        continue;
+                    },
+                };
+                const param_align = param_ty.abiAlignment(zcu);
                 result.stack_byte_count = @intCast(param_align.forward(result.stack_byte_count));
                 result.stack_align = result.stack_align.max(param_align);
                 arg.* = .{ .load_frame = .{
                     .index = stack_frame_base,
                     .off = result.stack_byte_count,
                 } };
-                result.stack_byte_count += @intCast(ty.abiSize(zcu));
+                result.stack_byte_count += param_size;
             }
         },
         else => return self.fail("TODO implement function parameters and return values for {} on x86_64", .{cc}),

@@ -1920,6 +1920,17 @@ pub fn isSlice(ty: Type, zcu: *const Zcu) bool {
     };
 }
 
+pub fn isSliceAtRuntime(ty: Type, zcu: *const Zcu) bool {
+    return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
+        .ptr_type => |ptr_type| ptr_type.flags.size == .slice,
+        .opt_type => |child| switch (zcu.intern_pool.indexToKey(child)) {
+            .ptr_type => |ptr_type| !ptr_type.flags.is_allowzero and ptr_type.flags.size == .slice,
+            else => false,
+        },
+        else => false,
+    };
+}
+
 pub fn slicePtrFieldType(ty: Type, zcu: *const Zcu) Type {
     return Type.fromInterned(zcu.intern_pool.slicePtrType(ty.toIntern()));
 }
