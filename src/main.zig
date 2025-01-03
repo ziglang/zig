@@ -473,6 +473,7 @@ const usage_build_generic =
     \\  -fno-structured-cfg       (SPIR-V) force SPIR-V kernels to not use structured control flow
     \\  -mexec-model=[value]      (WASI) Execution model
     \\  -municode                 (Windows) Use wmain/wWinMain as entry point
+    \\  -mwindows                 (Windows) Specifies a GUI application is to be generated
     \\
     \\Per-Module Compile Options:
     \\  -target [name]            <arch><sub>-<os>-<abi> see the targets command
@@ -1746,6 +1747,8 @@ fn buildOutputType(
                         create_module.opts.wasi_exec_model = parseWasiExecModel(arg["-mexec-model=".len..]);
                     } else if (mem.eql(u8, arg, "-municode")) {
                         mingw_unicode_entry_point = true;
+                    } else if (mem.eql(u8, arg, "-mwindows")) {
+                        subsystem = .Windows;
                     } else {
                         fatal("unrecognized parameter: '{s}'", .{arg});
                     }
@@ -2255,6 +2258,7 @@ fn buildOutputType(
                     },
                     .force_load_objc => force_load_objc = true,
                     .mingw_unicode_entry_point => mingw_unicode_entry_point = true,
+                    .mingw_subsystem_windows => subsystem = .Windows,
                     .weak_library => try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
                         .name = it.only_arg,
                         .query = .{
@@ -2560,6 +2564,8 @@ fn buildOutputType(
                             minor, @errorName(err),
                         });
                     };
+                } else if (mem.eql(u8, arg, "-mwindows")) {
+                    subsystem = .Windows;
                 } else if (mem.eql(u8, arg, "-framework")) {
                     try create_module.frameworks.put(arena, linker_args_it.nextOrFatal(), .{});
                 } else if (mem.eql(u8, arg, "-weak_framework")) {
@@ -5834,6 +5840,7 @@ pub const ClangArgIterator = struct {
         undefined,
         force_load_objc,
         mingw_unicode_entry_point,
+        mingw_subsystem_windows,
         san_cov_trace_pc_guard,
         san_cov,
         no_san_cov,
