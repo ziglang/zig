@@ -4004,10 +4004,10 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 } });
                 try slot.moveTo(inst, cg);
             },
-            .call => try cg.airCall(inst, .auto),
-            .call_always_tail => try cg.airCall(inst, .always_tail),
-            .call_never_tail => try cg.airCall(inst, .never_tail),
-            .call_never_inline => try cg.airCall(inst, .never_inline),
+            .call => try cg.airCall(inst, .auto, .{ .safety = true }),
+            .call_always_tail => try cg.airCall(inst, .always_tail, .{ .safety = true }),
+            .call_never_tail => try cg.airCall(inst, .never_tail, .{ .safety = true }),
+            .call_never_inline => try cg.airCall(inst, .never_inline, .{ .safety = true }),
 
             .clz => |air_tag| if (use_old) try cg.airClz(inst) else {
                 const ty_op = air_datas[@intFromEnum(inst)].ty_op;
@@ -10136,7 +10136,7 @@ fn airFptrunc(self: *CodeGen, inst: Air.Inst.Index) !void {
                     floatCompilerRtAbiName(src_bits),
                     floatCompilerRtAbiName(dst_bits),
                 }) catch unreachable,
-            } }, &.{src_ty}, &.{.{ .air_ref = ty_op.operand }});
+            } }, &.{src_ty}, &.{.{ .air_ref = ty_op.operand }}, .{});
         }
 
         const src_mcv = try self.resolveInst(ty_op.operand);
@@ -10240,7 +10240,7 @@ fn airFpext(self: *CodeGen, inst: Air.Inst.Index) !void {
                     floatCompilerRtAbiName(src_bits),
                     floatCompilerRtAbiName(dst_bits),
                 }) catch unreachable,
-            } }, &.{src_scalar_ty}, &.{.{ .air_ref = ty_op.operand }});
+            } }, &.{src_scalar_ty}, &.{.{ .air_ref = ty_op.operand }}, .{});
         }
 
         const src_abi_size: u32 = @intCast(src_ty.abiSize(zcu));
@@ -10969,6 +10969,7 @@ fn airMulDivBinOp(self: *CodeGen, inst: Air.Inst.Index) !void {
                     } },
                     &.{ src_ty, src_ty },
                     &.{ .{ .air_ref = bin_op.lhs }, .{ .air_ref = bin_op.rhs } },
+                    .{},
                 );
                 break :result if (signed) switch (tag) {
                     .div_floor => {
@@ -10998,6 +10999,7 @@ fn airMulDivBinOp(self: *CodeGen, inst: Air.Inst.Index) !void {
                             } },
                             &.{ src_ty, src_ty },
                             &.{ .{ .air_ref = bin_op.lhs }, .{ .air_ref = bin_op.rhs } },
+                            .{},
                         );
                         try self.asmRegisterMemory(
                             .{ ._, .sub },
@@ -11247,7 +11249,7 @@ fn airMulSat(self: *CodeGen, inst: Air.Inst.Index) !void {
                 .{ .air_ref = bin_op.lhs },
                 .{ .air_ref = bin_op.rhs },
                 overflow.address(),
-            });
+            }, .{});
             const dst_locks = self.register_manager.lockRegsAssumeUnused(2, dst_mcv.register_pair);
             defer for (dst_locks) |lock| self.register_manager.unlockReg(lock);
 
@@ -11748,7 +11750,7 @@ fn airMulWithOverflow(self: *CodeGen, inst: Air.Inst.Index) !void {
                         .{ .air_ref = bin_op.lhs },
                         .{ .air_ref = bin_op.rhs },
                         overflow.address(),
-                    });
+                    }, .{});
 
                     const dst_mcv = try self.allocRegOrMem(inst, false);
                     try self.genSetMem(
@@ -14413,7 +14415,7 @@ fn genRoundLibcall(self: *CodeGen, ty: Type, src_mcv: MCValue, mode: RoundMode) 
             },
             floatLibcAbiSuffix(ty),
         }) catch unreachable,
-    } }, &.{ty}, &.{src_mcv});
+    } }, &.{ty}, &.{src_mcv}, .{});
 }
 
 fn genRound(self: *CodeGen, ty: Type, dst_reg: Register, src_mcv: MCValue, mode: RoundMode) !void {
@@ -14684,7 +14686,7 @@ fn airSqrt(self: *CodeGen, inst: Air.Inst.Index) !void {
                             floatLibcAbiPrefix(ty),
                             floatLibcAbiSuffix(ty),
                         }) catch unreachable,
-                    } }, &.{ty}, &.{.{ .air_ref = un_op }});
+                    } }, &.{ty}, &.{.{ .air_ref = un_op }}, .{});
                 }
             },
             else => {},
@@ -14850,7 +14852,7 @@ fn airUnaryMath(self: *CodeGen, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
             },
             floatLibcAbiSuffix(ty),
         }) catch unreachable,
-    } }, &.{ty}, &.{.{ .air_ref = un_op }});
+    } }, &.{ty}, &.{.{ .air_ref = un_op }}, .{});
     return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
@@ -16689,7 +16691,7 @@ fn genMulDivBinOp(
                         lhs_mcv.address(),
                         rhs_mcv.address(),
                         .{ .immediate = src_info.bits },
-                    });
+                    }, .{});
                     return dst_mcv;
                 },
             },
@@ -16913,7 +16915,7 @@ fn genBinOp(
             .return_type = lhs_ty.toIntern(),
             .param_types = &.{ lhs_ty.toIntern(), rhs_ty.toIntern() },
             .callee = callee,
-        } }, &.{ lhs_ty, rhs_ty }, &.{ .{ .air_ref = lhs_air }, .{ .air_ref = rhs_air } });
+        } }, &.{ lhs_ty, rhs_ty }, &.{ .{ .air_ref = lhs_air }, .{ .air_ref = rhs_air } }, .{});
         return switch (air_tag) {
             .mod => result: {
                 const adjusted: MCValue = if (type_needs_libcall) adjusted: {
@@ -16927,7 +16929,7 @@ fn genBinOp(
                         .callee = std.fmt.bufPrint(&add_callee_buf, "__add{c}f3", .{
                             floatCompilerRtAbiName(float_bits),
                         }) catch unreachable,
-                    } }, &.{ lhs_ty, rhs_ty }, &.{ result, .{ .air_ref = rhs_air } });
+                    } }, &.{ lhs_ty, rhs_ty }, &.{ result, .{ .air_ref = rhs_air } }, .{});
                 } else switch (float_bits) {
                     16, 32, 64 => adjusted: {
                         const dst_reg = switch (result) {
@@ -17026,7 +17028,7 @@ fn genBinOp(
                     .return_type = lhs_ty.toIntern(),
                     .param_types = &.{ lhs_ty.toIntern(), rhs_ty.toIntern() },
                     .callee = callee,
-                } }, &.{ lhs_ty, rhs_ty }, &.{ adjusted, .{ .air_ref = rhs_air } });
+                } }, &.{ lhs_ty, rhs_ty }, &.{ adjusted, .{ .air_ref = rhs_air } }, .{});
             },
             .div_trunc, .div_floor => try self.genRoundLibcall(lhs_ty, result, .{
                 .mode = switch (air_tag) {
@@ -19305,7 +19307,7 @@ fn airFrameAddress(self: *CodeGen, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, dst_mcv, .{ .none, .none, .none });
 }
 
-fn airCall(self: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) !void {
+fn airCall(self: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier, opts: CopyOptions) !void {
     if (modifier == .always_tail) return self.fail("TODO implement tail calls for x86_64", .{});
 
     const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
@@ -19329,7 +19331,7 @@ fn airCall(self: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModif
     defer allocator.free(arg_vals);
     for (arg_vals, arg_refs) |*arg_val, arg_ref| arg_val.* = .{ .air_ref = arg_ref };
 
-    const ret = try self.genCall(.{ .air = pl_op.operand }, arg_tys, arg_vals);
+    const ret = try self.genCall(.{ .air = pl_op.operand }, arg_tys, arg_vals, opts);
 
     var bt = self.liveness.iterateBigTomb(inst);
     try self.feed(&bt, pl_op.operand);
@@ -19347,7 +19349,7 @@ fn genCall(self: *CodeGen, info: union(enum) {
         lib: ?[]const u8 = null,
         callee: []const u8,
     },
-}, arg_types: []const Type, args: []const MCValue) !MCValue {
+}, arg_types: []const Type, args: []const MCValue, opts: CopyOptions) !MCValue {
     const pt = self.pt;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -19431,12 +19433,12 @@ fn genCall(self: *CodeGen, info: union(enum) {
             },
             .indirect => |reg_off| {
                 frame_index.* = try self.allocFrameIndex(.initType(arg_ty, zcu));
-                try self.genSetMem(.{ .frame = frame_index.* }, 0, arg_ty, src_arg, .{});
+                try self.genSetMem(.{ .frame = frame_index.* }, 0, arg_ty, src_arg, opts);
                 try self.register_manager.getReg(reg_off.reg, null);
                 try reg_locks.append(self.register_manager.lockReg(reg_off.reg));
             },
             .load_frame => {
-                try self.genCopy(arg_ty, dst_arg, src_arg, .{});
+                try self.genCopy(arg_ty, dst_arg, src_arg, opts);
                 try self.freeValue(src_arg);
             },
             .elementwise_regs_then_frame => |regs_frame_addr| {
@@ -19513,22 +19515,20 @@ fn genCall(self: *CodeGen, info: union(enum) {
         switch (dst_arg) {
             .none, .load_frame => {},
             .register => |dst_reg| switch (fn_info.cc) {
-                else => try self.genSetReg(
-                    registerAlias(dst_reg, @intCast(arg_ty.abiSize(zcu))),
-                    arg_ty,
-                    src_arg,
-                    .{},
-                ),
+                else => try self.genSetReg(registerAlias(
+                    dst_reg,
+                    @intCast(arg_ty.abiSize(zcu)),
+                ), arg_ty, src_arg, opts),
                 .x86_64_sysv, .x86_64_win => {
                     const promoted_ty = self.promoteInt(arg_ty);
                     const promoted_abi_size: u32 = @intCast(promoted_ty.abiSize(zcu));
                     const dst_alias = registerAlias(dst_reg, promoted_abi_size);
-                    try self.genSetReg(dst_alias, promoted_ty, src_arg, .{});
+                    try self.genSetReg(dst_alias, promoted_ty, src_arg, opts);
                     if (promoted_ty.toIntern() != arg_ty.toIntern())
                         try self.truncateRegister(arg_ty, dst_alias);
                 },
             },
-            .register_pair => try self.genCopy(arg_ty, dst_arg, src_arg, .{}),
+            .register_pair => try self.genCopy(arg_ty, dst_arg, src_arg, opts),
             .indirect => |reg_off| try self.genSetReg(reg_off.reg, .usize, .{
                 .lea_frame = .{ .index = frame_index, .off = -reg_off.off },
             }, .{}),
@@ -19756,7 +19756,7 @@ fn airCmp(self: *CodeGen, inst: Air.Inst.Index, op: std.math.CompareOperator) !v
                             },
                             floatCompilerRtAbiName(float_bits),
                         }) catch unreachable,
-                    } }, &.{ ty, ty }, &.{ .{ .air_ref = bin_op.lhs }, .{ .air_ref = bin_op.rhs } });
+                    } }, &.{ ty, ty }, &.{ .{ .air_ref = bin_op.lhs }, .{ .air_ref = bin_op.rhs } }, .{});
                     try self.genBinOpMir(.{ ._, .@"test" }, .i32, ret, ret);
                     break :result switch (op) {
                         .eq => .e,
@@ -22305,6 +22305,7 @@ fn genCopy(self: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue, opts: C
         }, opts),
         inline .register_pair, .register_triple, .register_quadruple => |dst_regs, dst_tag| {
             const src_info: ?struct { addr_reg: Register, addr_lock: RegisterLock } = src_info: switch (src_mcv) {
+                .undef, .memory, .indirect, .load_frame => null,
                 .register => |src_reg| switch (dst_regs[0].class()) {
                     .general_purpose => switch (src_reg.class()) {
                         else => unreachable,
@@ -22344,7 +22345,6 @@ fn genCopy(self: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue, opts: C
                     }
                     return;
                 },
-                .memory, .indirect, .load_frame => null,
                 .load_symbol, .load_direct, .load_got, .load_tlv => {
                     const src_addr_reg =
                         (try self.register_manager.allocReg(null, abi.RegisterClass.gp)).to64();
@@ -22375,6 +22375,7 @@ fn genCopy(self: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue, opts: C
                     if (is_hazard) hazard_count += 1;
                     if (is_hazard != emit_hazard) continue;
                     try self.genSetReg(dst_reg, dst_ty, switch (src_mcv) {
+                        .undef => if (opts.safety and part_i > 0) .{ .register = dst_regs[0] } else .undef,
                         dst_tag => |src_regs| .{ .register = src_regs[part_i] },
                         .memory, .indirect, .load_frame => src_mcv.address().offset(part_disp).deref(),
                         .load_symbol, .load_direct, .load_got, .load_tlv => .{ .indirect = .{
@@ -23410,7 +23411,7 @@ fn airFloatFromInt(self: *CodeGen, inst: Air.Inst.Index) !void {
                     intCompilerRtAbiName(src_bits),
                     floatCompilerRtAbiName(dst_bits),
                 }) catch unreachable,
-            } }, &.{src_ty}, &.{.{ .air_ref = ty_op.operand }});
+            } }, &.{src_ty}, &.{.{ .air_ref = ty_op.operand }}, .{});
         }
 
         const src_mcv = try self.resolveInst(ty_op.operand);
@@ -23490,7 +23491,7 @@ fn airIntFromFloat(self: *CodeGen, inst: Air.Inst.Index) !void {
                     floatCompilerRtAbiName(src_bits),
                     intCompilerRtAbiName(dst_bits),
                 }) catch unreachable,
-            } }, &.{src_ty}, &.{.{ .air_ref = ty_op.operand }});
+            } }, &.{src_ty}, &.{.{ .air_ref = ty_op.operand }}, .{});
         }
 
         const src_mcv = try self.resolveInst(ty_op.operand);
@@ -26230,7 +26231,7 @@ fn airMulAdd(self: *CodeGen, inst: Air.Inst.Index) !void {
                 }) catch unreachable,
             } }, &.{ ty, ty, ty }, &.{
                 .{ .air_ref = extra.lhs }, .{ .air_ref = extra.rhs }, .{ .air_ref = pl_op.operand },
-            });
+            }, .{});
         }
 
         var mcvs: [3]MCValue = undefined;
