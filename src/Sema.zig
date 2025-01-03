@@ -18172,7 +18172,9 @@ fn zirThis(
     _ = extended;
     const pt = sema.pt;
     const namespace = pt.zcu.namespacePtr(block.namespace);
+
     const new_ty = try pt.ensureTypeUpToDate(namespace.owner_type);
+
     switch (pt.zcu.intern_pool.indexToKey(new_ty)) {
         .struct_type, .union_type, .enum_type => try sema.declareDependency(.{ .interned = new_ty }),
         .opaque_type => {},

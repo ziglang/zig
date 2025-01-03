@@ -2563,19 +2563,6 @@ pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
         }
     }
 
-    if (chosen_unit == null) {
-        for (zcu.outdated.keys(), zcu.outdated.values()) |o, opod| {
-            const func = o.unwrap().func;
-            const nav = zcu.funcInfo(func).owner_nav;
-            std.io.getStdErr().writer().print("outdated: func {}, nav {}, name '{}', [p]o deps {}\n", .{ func, nav, ip.getNav(nav).fqn.fmt(ip), opod }) catch {};
-        }
-        for (zcu.potentially_outdated.keys(), zcu.potentially_outdated.values()) |o, opod| {
-            const func = o.unwrap().func;
-            const nav = zcu.funcInfo(func).owner_nav;
-            std.io.getStdErr().writer().print("po: func {}, nav {}, name '{}', [p]o deps {}\n", .{ func, nav, ip.getNav(nav).fqn.fmt(ip), opod }) catch {};
-        }
-    }
-
     log.debug("findOutdatedToAnalyze: heuristic returned '{}' ({d} dependers)", .{
         zcu.fmtAnalUnit(chosen_unit.?),
         chosen_unit_dependers,
@@ -2661,6 +2648,14 @@ pub fn mapOldZirToNew(
     }
 
     while (match_stack.popOrNull()) |match_item| {
+        // First, a check: if the number of captures of this type has changed, we can't map it, because
+        // we wouldn't know how to correlate type information with the last update.
+        // Synchronizes with logic in `Zcu.PerThread.recreateStructType` etc.
+        if (old_zir.typeCapturesLen(match_item.old_inst) != new_zir.typeCapturesLen(match_item.new_inst)) {
+            // Don't map this type or anything within it.
+            continue;
+        }
+
         // Match the namespace declaration itself
         try inst_map.put(gpa, match_item.old_inst, match_item.new_inst);
 
