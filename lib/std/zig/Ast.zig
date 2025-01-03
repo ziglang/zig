@@ -3026,46 +3026,94 @@ pub const Node = struct {
         assert(@sizeOf(Tag) == 1);
     }
 
-    /// Note: The FooComma/FooSemicolon variants exist to ease the implementation of
-    /// Ast.lastToken()
+    /// The FooComma/FooSemicolon variants exist to ease the implementation of
+    /// `Ast.lastToken()`
     pub const Tag = enum {
-        /// sub_list[lhs...rhs]
+        /// The root node which is guaranteed to be at `Node.Index.root`.
+        /// The meaning of lhs and rhs depends on whether it is
+        /// a `.zig` or `.zon` file.
+        ///
+        /// main_token is the first token for the source file.
         root,
-        /// `usingnamespace lhs;`. rhs unused. main_token is `usingnamespace`.
+        /// `usingnamespace lhs;`.
+        ///
+        /// lhs is a `Node.Index`.
+        /// rhs is unused.
+        /// main_token is the `usingnamespace`.
         @"usingnamespace",
-        /// lhs is test name token (must be string literal or identifier), if any.
-        /// rhs is the body node.
+        /// `test {}`,
+        /// `test "name" {}`,
+        /// `test identifier {}`.
+        ///
+        /// lhs is a `OptionalTokenIndex` to test name token (must be string literal or identifier), if any.
+        /// rhs is a `Node.Index` to the block.
+        /// main_token is the `test`.
         test_decl,
-        /// lhs is the index into extra_data.
-        /// rhs is the initialization expression, if any.
-        /// main_token is `var` or `const`.
+        /// lhs is a `ExtraIndex` to `GlobalVarDecl`.
+        /// rhs is a `Node.OptionalIndex` to the initialization expression.
+        /// main_token is the `var` or `const`.
+        ///
+        /// The rhs can't be `.none` unless it is part of a `assign_destructure`
+        /// node or a parsing error occured.
         global_var_decl,
-        /// `var a: x align(y) = rhs`
-        /// lhs is the index into extra_data.
-        /// main_token is `var` or `const`.
+        /// `var a: b align(c) = rhs`.
+        /// `const main_token: type_node align(align_node) = rhs`
+        ///
+        /// lhs is a `ExtraIndex` to `LocalVarDecl`.
+        /// rhs is a `Node.OptionalIndex` to the initialization expression.
+        /// main_token is the `var` or `const`.
+        ///
+        /// The rhs can't be `.none` unless it is part of a `assign_destructure`
+        /// node or a parsing error occured.
         local_var_decl,
-        /// `var a: lhs = rhs`. lhs and rhs may be unused.
+        /// `var a: lhs = rhs`.
         /// Can be local or global.
-        /// main_token is `var` or `const`.
+        ///
+        /// lhs is a `Node.OptionalIndex` to the type expression, if any.
+        /// rhs is a `Node.OptionalIndex` to the initialization expression.
+        /// main_token is the `var` or `const`.
+        ///
+        /// The rhs can't be `.none` unless it is part of a `assign_destructure`
+        /// node or a parsing error occured.
         simple_var_decl,
-        /// `var a align(lhs) = rhs`. lhs and rhs may be unused.
+        /// `var a align(lhs) = rhs`.
         /// Can be local or global.
-        /// main_token is `var` or `const`.
+        ///
+        /// lhs is a `Node.Index` to the alignment expression.
+        /// rhs is a `Node.OptionalIndex` to the initialization expression.
+        /// main_token is the `var` or `const`.
+        ///
+        /// The rhs can't be `.none` unless it is part of a `assign_destructure`
+        /// node or a parsing error occured.
         aligned_var_decl,
-        /// lhs is the identifier token payload if any,
-        /// rhs is the deferred expression.
+        /// `errdefer rhs`,
+        /// `errdefer |lhs| rhs`.
+        ///
+        /// lhs is a `OptionalTokenIndex` to the payload identifier, if any.
+        /// rhs is a `Node.Index` to the deferred expression.
+        /// main_token is the `errdefer`.
         @"errdefer",
+        /// `defer rhs`.
+        ///
         /// lhs is unused.
-        /// rhs is the deferred expression.
+        /// rhs is a `Node.Index` to the deferred expression.
+        /// main_token is the `defer`.
         @"defer",
-        /// lhs catch rhs
-        /// lhs catch |err| rhs
+        /// `lhs catch rhs`,
+        /// `lhs catch |err| rhs`.
+        ///
         /// main_token is the `catch` keyword.
-        /// payload is determined by looking at the next token after the `catch` keyword.
+        /// The payload is determined by looking at the next token after the `catch` keyword.
         @"catch",
-        /// `lhs.a`. main_token is the dot. rhs is the identifier token index.
+        /// `lhs.a`.
+        ///
+        /// rhs is a `TokenIndex` to the field name identifier.
+        /// main_token is the `.`.
         field_access,
-        /// `lhs.?`. main_token is the dot. rhs is the `?` token index.
+        /// `lhs.?`.
+        ///
+        /// rhs is a `TokenIndex` to the `?`.
+        /// main_token is the `.`.
         unwrap_optional,
         /// `lhs == rhs`. main_token is op.
         equal_equal,
@@ -3115,17 +3163,28 @@ pub const Node = struct {
         assign_sub_sat,
         /// `lhs = rhs`. main_token is op.
         assign,
-        /// `a, b, ... = rhs`. main_token is op. lhs is index into `extra_data`
-        /// of an lhs elem count followed by an array of that many `Node.Index`,
-        /// with each node having one of the following types:
-        /// * `global_var_decl`
-        /// * `local_var_decl`
-        /// * `simple_var_decl`
-        /// * `aligned_var_decl`
-        /// * Any expression node
-        /// The first 3 types correspond to a `var` or `const` lhs node (note
-        /// that their `rhs` is always 0). An expression node corresponds to a
-        /// standard assignment LHS (which must be evaluated as an lvalue).
+        /// `a, b, ... = rhs`.
+        ///
+        /// lhs is a `ExtraIndex`.
+        /// rhs is a `Node.OptionalIndex` to the initialization expression.
+        /// main_token is op.
+        ///
+        /// The lhs stores the following data:
+        /// ```
+        /// elem_count: u32,
+        /// variables: [elem_count]Node.Index,
+        /// ```
+        ///
+        /// Each node in `variables` has one of the following tags:
+        ///   - `global_var_decl`
+        ///   - `local_var_decl`
+        ///   - `simple_var_decl`
+        ///   - `aligned_var_decl`
+        ///   - Any expression node
+        ///
+        /// The first 4 tags correspond to a `var` or `const` lhs node (note
+        /// that their `rhs` is always `.none`). An expression node corresponds
+        /// to a standard assignment LHS (which must be evaluated as an lvalue).
         /// There may be a preceding `comptime` token, which does not create a
         /// corresponding `comptime` node so must be manually detected.
         assign_destructure,
@@ -3175,151 +3234,209 @@ pub const Node = struct {
         bool_and,
         /// `lhs or rhs`. main_token is the `or`.
         bool_or,
-        /// `op lhs`. rhs unused. main_token is op.
+        /// `!lhs`. rhs unused. main_token is the `!`.
         bool_not,
-        /// `op lhs`. rhs unused. main_token is op.
+        /// `-lhs`. rhs unused. main_token is the `-`.
         negation,
-        /// `op lhs`. rhs unused. main_token is op.
+        /// `~lhs`. rhs unused. main_token is the `~`.
         bit_not,
-        /// `op lhs`. rhs unused. main_token is op.
+        /// `-%lhs`. rhs unused. main_token is the `-%`.
         negation_wrap,
-        /// `op lhs`. rhs unused. main_token is op.
+        /// `&lhs`. rhs unused. main_token is the `&`.
         address_of,
-        /// `op lhs`. rhs unused. main_token is op.
+        /// `try lhs`. rhs unused. main_token is the `try`.
         @"try",
-        /// `op lhs`. rhs unused. main_token is op.
+        /// `await lhs`. rhs unused. main_token is the `await`.
         @"await",
         /// `?lhs`. rhs unused. main_token is the `?`.
         optional_type,
-        /// `[lhs]rhs`.
+        /// `[lhs]rhs`. main_token is the `[`.
         array_type,
-        /// `[lhs:a]b`. `ArrayTypeSentinel[rhs]`.
+        /// `[lhs:a]b`.
+        ///
+        /// rhs is a `ExtraIndex` to `ArrayTypeSentinel`.
+        /// main_token is the `[`.
         array_type_sentinel,
-        /// `[*]align(lhs) rhs`. lhs can be omitted.
-        /// `*align(lhs) rhs`. lhs can be omitted.
+        /// `[*]align(lhs) rhs`,
+        /// `*align(lhs) rhs`,
         /// `[]rhs`.
+        ///
+        /// lhs is a `Node.OptionalIndex` to the alignment expression, if any.
+        /// rhs is a `Node.Index` to the element type expression.
         /// main_token is the asterisk if a single item pointer or the lbracket
-        /// if a slice, many-item pointer, or C-pointer
+        /// if a slice, many-item pointer, or C-pointer.
         /// main_token might be a ** token, which is shared with a parent/child
         /// pointer type and may require special handling.
         ptr_type_aligned,
-        /// `[*:lhs]rhs`. lhs can be omitted.
-        /// `*rhs`.
+        /// `[*:lhs]rhs`,
+        /// `*rhs`,
         /// `[:lhs]rhs`.
+        ///
+        /// lhs is a `Node.OptionalIndex` to the sentinel expression, if any.
+        /// rhs is a `Node.Index` to the element type expression.
         /// main_token is the asterisk if a single item pointer or the lbracket
-        /// if a slice, many-item pointer, or C-pointer
+        /// if a slice, many-item pointer, or C-pointer.
         /// main_token might be a ** token, which is shared with a parent/child
         /// pointer type and may require special handling.
         ptr_type_sentinel,
-        /// lhs is index into ptr_type. rhs is the element type expression.
+        /// lhs is a `ExtraIndex` to `PtrType`.
+        /// rhs is the element type expression.
         /// main_token is the asterisk if a single item pointer or the lbracket
-        /// if a slice, many-item pointer, or C-pointer
+        /// if a slice, many-item pointer, or C-pointer.
         /// main_token might be a ** token, which is shared with a parent/child
         /// pointer type and may require special handling.
         ptr_type,
-        /// lhs is index into ptr_type_bit_range. rhs is the element type expression.
+        /// lhs is a `ExtraIndex` to `PtrTypeBitRange`.
+        /// rhs is the element type expression.
         /// main_token is the asterisk if a single item pointer or the lbracket
-        /// if a slice, many-item pointer, or C-pointer
+        /// if a slice, many-item pointer, or C-pointer.
         /// main_token might be a ** token, which is shared with a parent/child
         /// pointer type and may require special handling.
         ptr_type_bit_range,
         /// `lhs[rhs..]`
-        /// main_token is the lbracket.
+        /// main_token is the `[`.
         slice_open,
-        /// `lhs[b..c]`. rhs is index into Slice
-        /// main_token is the lbracket.
+        /// `lhs[start..end]`.
+        ///
+        /// rhs is a `ExtraIndex` to `Slice`.
+        /// main_token is the `[`.
         slice,
-        /// `lhs[b..c :d]`. rhs is index into SliceSentinel. Slice end "c" can be omitted.
-        /// main_token is the lbracket.
+        /// `lhs[start..end :sentinel]`,
+        /// `lhs[start.. :sentinel]`.
+        ///
+        /// rhs is a `ExtraIndex` to `SliceSentinel`.
+        /// main_token is the `[`.
         slice_sentinel,
-        /// `lhs.*`. rhs is unused.
+        /// `lhs.*`.
+        ///
+        /// rhs is unused.
+        /// main_token is the `*`.
         deref,
-        /// `lhs[rhs]`.
+        /// `lhs[rhs]`. main_token is the `[`.
         array_access,
-        /// `lhs{rhs}`. rhs can be omitted.
+        /// `lhs{rhs}`. main_token is the `{`.
         array_init_one,
-        /// `lhs{rhs,}`. rhs can *not* be omitted
+        /// `lhs{rhs,}`. main_token is the `{`.
         array_init_one_comma,
-        /// `.{lhs, rhs}`. lhs and rhs can be omitted.
+        /// `.{}`,
+        /// `.{lhs}`,
+        /// `.{lhs, rhs}`.
+        ///
+        /// lhs is a `Node.OptionalIndex` but never `.none`.
+        /// rhs is a `Node.OptionalIndex`.
+        /// main_token is the `{`.
         array_init_dot_two,
         /// Same as `array_init_dot_two` except there is known to be a trailing comma
         /// before the final rbrace.
         array_init_dot_two_comma,
-        /// `.{a, b}`. `sub_list[lhs..rhs]`.
+        /// `.{a, b}`. `extra_data[lhs..rhs]`.
+        /// main_token is the `{`.
         array_init_dot,
         /// Same as `array_init_dot` except there is known to be a trailing comma
         /// before the final rbrace.
         array_init_dot_comma,
-        /// `lhs{a, b}`. `sub_range_list[rhs]`. lhs can be omitted which means `.{a, b}`.
+        /// `lhs{a, b}`. `sub_range_list[rhs]`.
+        /// main_token is the `{`.
         array_init,
         /// Same as `array_init` except there is known to be a trailing comma
         /// before the final rbrace.
         array_init_comma,
-        /// `lhs{.a = rhs}`. rhs can be omitted making it empty.
-        /// main_token is the lbrace.
+        /// `lhs{.a = rhs}`, `lhs{}`.
+        ///
+        /// rhs is a `Node.OptionalIndex`.
+        /// main_token is the `{`.
+        ///
+        /// The field name is determined by looking at the tokens before the initialization expression.
         struct_init_one,
-        /// `lhs{.a = rhs,}`. rhs can *not* be omitted.
-        /// main_token is the lbrace.
+        /// Same as `struct_init_one` except there is known to be a trailing comma
+        /// before the final rbrace.
         struct_init_one_comma,
-        /// `.{.a = lhs, .b = rhs}`. lhs and rhs can be omitted.
-        /// main_token is the lbrace.
-        /// No trailing comma before the rbrace.
+        /// `.{.a = lhs, .b = rhs}`.
+        ///
+        /// lhs is a `Node.OptionalIndex` but never `.none`.
+        /// rhs is a `Node.OptionalIndex`.
+        /// main_token is the '{'.
+        ///
+        /// The field name is determined by looking at the tokens before the initialization expression.
         struct_init_dot_two,
         /// Same as `struct_init_dot_two` except there is known to be a trailing comma
         /// before the final rbrace.
         struct_init_dot_two_comma,
-        /// `.{.a = b, .c = d}`. `sub_list[lhs..rhs]`.
-        /// main_token is the lbrace.
+        /// `.{.a = b, .c = d}`. `extra_data[lhs..rhs]`.
+        ///
+        /// main_token is the `{`.
+        ///
+        /// The field name is determined by looking at the tokens before the initialization expression.
         struct_init_dot,
         /// Same as `struct_init_dot` except there is known to be a trailing comma
         /// before the final rbrace.
         struct_init_dot_comma,
-        /// `lhs{.a = b, .c = d}`. `sub_range_list[rhs]`.
-        /// lhs can be omitted which means `.{.a = b, .c = d}`.
-        /// main_token is the lbrace.
+        /// `lhs{.a = b, .c = d}`.
+        ///
+        /// rhs is a `Node.ExtraIndex` to a `SubRange` that stores the initialization expression nodes.
+        /// main_token is the `{`.
+        ///
+        /// The field name is determined by looking at the tokens before the initialization expression.
         struct_init,
         /// Same as `struct_init` except there is known to be a trailing comma
         /// before the final rbrace.
         struct_init_comma,
-        /// `lhs(rhs)`. rhs can be omitted.
-        /// main_token is the lparen.
+        /// `lhs(rhs)`, `lhs()`.
+        ///
+        /// rhs is a `Node.OptionalIndex` to the first argument, if any.
+        /// main_token is the `(`.
         call_one,
-        /// `lhs(rhs,)`. rhs can be omitted.
-        /// main_token is the lparen.
+        /// Same as `call_one` except there is known to be a trailing comma
+        /// before the final rparen.
         call_one_comma,
-        /// `async lhs(rhs)`. rhs can be omitted.
+        /// `async lhs(rhs)`, `async lhs()`.
+        ///
+        /// rhs is a `Node.OptionalIndex` to the first argument, if any.
+        /// main_token is the `(`.
         async_call_one,
-        /// `async lhs(rhs,)`.
+        /// Same as `async_call_one` except there is known to be a trailing comma
+        /// before the final rparen.
         async_call_one_comma,
-        /// `lhs(a, b, c)`. `SubRange[rhs]`.
+        /// `lhs(a, b, c)`.
+        ///
+        /// rhs is a `Node.ExtraIndex` to a `SubRange` that stores the argument nodes.
         /// main_token is the `(`.
         call,
-        /// `lhs(a, b, c,)`. `SubRange[rhs]`.
-        /// main_token is the `(`.
+        /// Same as `call` except there is known to be a trailing comma
+        /// before the final rparen.
         call_comma,
-        /// `async lhs(a, b, c)`. `SubRange[rhs]`.
+        /// `async lhs(a, b, c)`.
+        ///
+        /// rhs is a `Node.ExtraIndex` to a `SubRange` that stores the argument nodes.
         /// main_token is the `(`.
         async_call,
-        /// `async lhs(a, b, c,)`. `SubRange[rhs]`.
-        /// main_token is the `(`.
+        /// Same as `async_call` except there is known to be a trailing comma
+        /// before the final rparen.
         async_call_comma,
-        /// `switch(lhs) {}`. `SubRange[rhs]`.
+        /// `switch(lhs) {}`.
+        ///
+        /// rhs is a `Node.ExtraIndex` to a `SubRange` that stores the case nodes.
         /// `main_token` is the identifier of a preceding label, if any; otherwise `switch`.
         @"switch",
         /// Same as switch except there is known to be a trailing comma
         /// before the final rbrace
         switch_comma,
-        /// `lhs => rhs`. If lhs is omitted it means `else`.
-        /// main_token is the `=>`
+        /// `lhs => rhs`,
+        /// `else => rhs`.
+        ///
+        /// lhs is a `Node.OptionalIndex` where `.none` means `else`.
+        /// main_token is the `=>`.
         switch_case_one,
-        /// Same ast `switch_case_one` but the case is inline
+        /// Same as `switch_case_one` but the case is inline.
         switch_case_inline_one,
-        /// `a, b, c => rhs`. `SubRange[lhs]`.
-        /// main_token is the `=>`
+        /// `a, b, c => rhs`.
+        ///
+        /// lhs is a `Node.ExtraIndex` to a `SubRange` that stores the switch item nodes.
+        /// main_token is the `=>`.
         switch_case,
-        /// Same ast `switch_case` but the case is inline
+        /// Same as `switch_case` but the case is inline.
         switch_case_inline,
-        /// `lhs...rhs`.
+        /// `lhs...rhs`. main_token is the `...`.
         switch_range,
         /// `while (lhs) rhs`.
         /// `while (lhs) |x| rhs`.
@@ -3345,45 +3462,84 @@ pub const Node = struct {
         /// `if (lhs) |x| a else b`. `If[rhs]`.
         /// `if (lhs) |x| a else |y| b`. `If[rhs]`.
         @"if",
-        /// `suspend lhs`. lhs can be omitted. rhs is unused.
+        /// `suspend lhs`.
+        ///
+        /// rhs is unused.
+        /// main_token is the `suspend`.
         @"suspend",
-        /// `resume lhs`. rhs is unused.
+        /// `resume lhs`.
+        ///
+        /// rhs is unused.
+        /// main_token is the `resume`.
         @"resume",
-        /// `continue :lhs rhs`
-        /// both lhs and rhs may be omitted.
+        /// `continue :lhs rhs`,
+        /// `continue rhs`,
+        /// `continue :lhs`,
+        /// `continue`.
+        ///
+        /// lhs is a `OptionalTokenIndex` to the label identifier, if any.
+        /// rhs is a `Node.OptionalIndex`.
+        /// main_token is the `continue`.
         @"continue",
-        /// `break :lhs rhs`
-        /// both lhs and rhs may be omitted.
+        /// `break :lhs rhs`,
+        /// `break rhs`,
+        /// `break :lhs`,
+        /// `break`.
+        ///
+        /// lhs is a `OptionalTokenIndex` to the label identifier, if any.
+        /// rhs is a `Node.OptionalIndex`.
+        /// main_token is the `break`.
         @"break",
-        /// `return lhs`. lhs can be omitted. rhs is unused.
+        /// `return lhs`, `return`.
+        ///
+        /// lhs is a `Node.OptionalIndex`.
+        /// rhs is unused.
+        /// main_token is the `return`.
         @"return",
-        /// `fn (a: lhs) rhs`. lhs can be omitted.
-        /// anytype and ... parameters are omitted from the AST tree.
-        /// main_token is the `fn` keyword.
+        /// `fn (a: lhs) rhs`.
+        /// `anytype` and `...` parameters are omitted from the AST tree.
         /// extern function declarations use this tag.
+        ///
+        /// lhs is a `Node.OptionalIndex` to the first parameter type expression, if any.
+        /// rhs is a `Node.OptionalIndex` to the initialization expression. Can't be `.none` unless a parsing error occured.
+        /// main_token is the `fn` keyword.
         fn_proto_simple,
-        /// `fn (a: b, c: d) rhs`. `sub_range_list[lhs]`.
-        /// anytype and ... parameters are omitted from the AST tree.
-        /// main_token is the `fn` keyword.
+        /// `fn (a: b, c: d) rhs`.
+        /// `anytype` and `...` parameters are omitted from the AST tree.
         /// extern function declarations use this tag.
+        ///
+        /// lhs is a `Node.ExtraIndex` to a `SubRange` that stores the parameter type expression nodes.
+        /// rhs is a `Node.OptionalIndex` to the initialization expression. Can't be `.none` unless a parsing error occured.
+        /// main_token is the `fn` keyword.
         fn_proto_multi,
         /// `fn (a: b) addrspace(e) linksection(f) callconv(g) rhs`. `FnProtoOne[lhs]`.
         /// zero or one parameters.
-        /// anytype and ... parameters are omitted from the AST tree.
-        /// main_token is the `fn` keyword.
+        /// `anytype` and `...` parameters are omitted from the AST tree.
         /// extern function declarations use this tag.
+        ///
+        /// lhs is a `Node.ExtraIndex` to `FnProtoOne`.
+        /// rhs is a `Node.OptionalIndex` to the initialization expression. Can't be `.none` unless a parsing error occured.
+        /// main_token is the `fn` keyword.
         fn_proto_one,
         /// `fn (a: b, c: d) addrspace(e) linksection(f) callconv(g) rhs`. `FnProto[lhs]`.
-        /// anytype and ... parameters are omitted from the AST tree.
-        /// main_token is the `fn` keyword.
+        /// `anytype` and `...` parameters are omitted from the AST tree.
         /// extern function declarations use this tag.
+        ///
+        /// lhs is a `Node.ExtraIndex` to `FnProto`.
+        /// rhs is a `Node.OptionalIndex` to the initialization expression. Can't be `.none` unless a parsing error occured.
+        /// main_token is the `fn` keyword.
         fn_proto,
-        /// lhs is the fn_proto.
-        /// rhs is the function body block.
-        /// Note that extern function declarations use the fn_proto tags rather
-        /// than this one.
+        /// Extern function declarations use the fn_proto tags rather than this one.
+        ///
+        /// lhs is a `Node.Index` to `fn_proto_*`.
+        /// rhs is a `Node.Index` to function body block.
+        /// main_token is the `fn` keyword.
         fn_decl,
-        /// `anyframe->rhs`. main_token is `anyframe`. `lhs` is arrow token index.
+        /// `anyframe->rhs`.
+        ///
+        /// lhs is a `TokenIndex` to the `->`.
+        /// rhs is a `Node.Index`.
+        /// main_token is the `anyframe`.
         anyframe_type,
         /// Both lhs and rhs unused.
         anyframe_literal,
@@ -3398,97 +3554,163 @@ pub const Node = struct {
         /// which could be one of many different kinds of AST nodes, there will be an
         /// identifier AST node for it.
         identifier,
-        /// lhs is the dot token index, rhs unused, main_token is the identifier.
+        /// `.foo`.
+        ///
+        /// lhs is a `TokenIndex` to the `.`,
+        /// rhs unused,
+        /// main_token is the identifier.
         enum_literal,
-        /// main_token is the string literal token
         /// Both lhs and rhs unused.
+        /// main_token is the string literal token.
         string_literal,
-        /// main_token is the first token index (redundant with lhs)
+        /// main_token is the first token index (redundant with lhs).
         /// lhs is the first token index; rhs is the last token index.
         /// Could be a series of multiline_string_literal_line tokens, or a single
         /// string_literal token.
         multiline_string_literal,
-        /// `(lhs)`. main_token is the `(`; rhs is the token index of the `)`.
+        /// `(lhs)`.
+        ///
+        /// lhs is a `Node.Index`.
+        /// rhs is a `TokenIndex` to the `)`.
+        /// main_token is the `(`.
         grouped_expression,
-        /// `@a(lhs, rhs)`. lhs and rhs may be omitted.
+        /// `@a(lhs, rhs)`.
+        ///
+        /// lhs is a `Node.OptionalIndex` to the first argument, if any.
+        /// rhs is a `Node.OptionalIndex` to the second argument, if any.
         /// main_token is the builtin token.
         builtin_call_two,
-        /// Same as builtin_call_two but there is known to be a trailing comma before the rparen.
+        /// Same as `builtin_call_two` except there is known to be a trailing comma
+        /// before the final rparen.
         builtin_call_two_comma,
-        /// `@a(b, c)`. `sub_list[lhs..rhs]`.
+        /// `@a(b, c)`. `extra_data[lhs..rhs]`.
         /// main_token is the builtin token.
         builtin_call,
-        /// Same as builtin_call but there is known to be a trailing comma before the rparen.
+        /// Same as `builtin_call` except there is known to be a trailing comma
+        /// before the final rparen.
         builtin_call_comma,
         /// `error{a, b}`.
-        /// rhs is the rbrace, lhs is unused.
+        ///
+        /// lhs is unused.
+        /// rhs is the rbrace,
+        /// main_token is the `error`.
         error_set_decl,
         /// `struct {}`, `union {}`, `opaque {}`, `enum {}`. `extra_data[lhs..rhs]`.
-        /// main_token is `struct`, `union`, `opaque`, `enum` keyword.
+        ///
+        /// main_token is the `struct`, `union`, `opaque` or `enum`.
         container_decl,
-        /// Same as ContainerDecl but there is known to be a trailing comma
-        /// or semicolon before the rbrace.
+        /// Same as `container_decl` except there is known to be a trailing comma
+        /// before the final rbrace.
         container_decl_trailing,
         /// `struct {lhs, rhs}`, `union {lhs, rhs}`, `opaque {lhs, rhs}`, `enum {lhs, rhs}`.
-        /// lhs or rhs can be omitted.
-        /// main_token is `struct`, `union`, `opaque`, `enum` keyword.
+        ///
+        /// lhs is a `Node.OptionalIndex` to the first container member, if any.
+        /// rhs is a `Node.OptionalIndex` to the second container member, if any.
+        /// main_token is the `struct`, `union`, `opaque` or `enum`.
         container_decl_two,
-        /// Same as ContainerDeclTwo except there is known to be a trailing comma
-        /// or semicolon before the rbrace.
+        /// Same as `container_decl_two` except there is known to be a trailing comma
+        /// before the final rbrace.
         container_decl_two_trailing,
-        /// `struct(lhs)` / `union(lhs)` / `enum(lhs)`. `SubRange[rhs]`.
+        /// `struct(lhs)`, `union(lhs)`, `enum(lhs)`.
+        ///
+        /// lhs is a `Node.Index`.
+        /// rhs is a `ExtraIndex` to a `SubRange` that stores the container member nodes.
+        /// main_token is the `struct`, `union` or `enum`.
         container_decl_arg,
-        /// Same as container_decl_arg but there is known to be a trailing
-        /// comma or semicolon before the rbrace.
+        /// Same as `container_decl_arg` except there is known to be a trailing comma
+        /// before the final rbrace.
         container_decl_arg_trailing,
-        /// `union(enum) {}`. `sub_list[lhs..rhs]`.
-        /// Note that tagged unions with explicitly provided enums are represented
-        /// by `container_decl_arg`.
+        /// `union(enum) {}`. `extra_data[lhs..rhs]`.
+        ///
+        /// main_token is the `union`.
+        ///
+        /// A tagged union with explicitly provided enums will instead be
+        /// represented by `container_decl_arg`.
         tagged_union,
-        /// Same as tagged_union but there is known to be a trailing comma
-        /// or semicolon before the rbrace.
+        /// Same as `tagged_union` except there is known to be a trailing comma
+        /// before the final rbrace.
         tagged_union_trailing,
         /// `union(enum) {lhs, rhs}`. lhs or rhs may be omitted.
-        /// Note that tagged unions with explicitly provided enums are represented
-        /// by `container_decl_arg`.
+        ///
+        /// lhs is a `Node.OptionalIndex` to the first container member, if any.
+        /// rhs is a `Node.OptionalIndex` to the second container member, if any.
+        /// main_token is the `union`.
+        ///
+        /// A tagged union with explicitly provided enums will instead be
+        /// represented by `container_decl_arg`.
         tagged_union_two,
-        /// Same as tagged_union_two but there is known to be a trailing comma
-        /// or semicolon before the rbrace.
+        /// Same as `tagged_union_two` except there is known to be a trailing comma
+        /// before the final rbrace.
         tagged_union_two_trailing,
-        /// `union(enum(lhs)) {}`. `SubRange[rhs]`.
+        /// `union(enum(lhs)) {}`.
+        ///
+        /// lhs is a `Node.Index`.
+        /// rhs is a `ExtraIndex` to a `SubRange` that stores the container member nodes.
+        /// main_token is the `union`.
         tagged_union_enum_tag,
-        /// Same as tagged_union_enum_tag but there is known to be a trailing comma
-        /// or semicolon before the rbrace.
+        /// Same as `tagged_union_enum_tag` except there is known to be a trailing comma
+        /// before the final rbrace.
         tagged_union_enum_tag_trailing,
-        /// `a: lhs = rhs,`. lhs and rhs can be omitted.
+        /// `a: lhs = rhs,`,
+        /// `a: lhs,`.
+        ///
+        /// lhs is a `Node.Index` to the field type expression.
+        /// rhs is a `Node.OptionalIndex` to the default value expression, if any.
         /// main_token is the field name identifier.
-        /// lastToken() does not include the possible trailing comma.
+        ///
+        /// `lastToken()` does not include the possible trailing comma.
         container_field_init,
-        /// `a: lhs align(rhs),`. rhs can be omitted.
+        /// `a: lhs align(rhs),`.
+        ///
+        /// lhs is a `Node.Index` to the field type expression.
+        /// rhs is a `Node.Index` to the alignment expression.
         /// main_token is the field name identifier.
-        /// lastToken() does not include the possible trailing comma.
+        ///
+        /// `lastToken()` does not include the possible trailing comma.
         container_field_align,
-        /// `a: lhs align(c) = d,`. `container_field_list[rhs]`.
+        /// `a: lhs align(c) = d,`.
+        ///
+        /// lhs is a `Node.Index` to the field type expression.
+        /// rhs is a `ExtraIndex` to `ContainerField`.
         /// main_token is the field name identifier.
-        /// lastToken() does not include the possible trailing comma.
+        ///
+        /// `lastToken()` does not include the possible trailing comma.
         container_field,
-        /// `comptime lhs`. rhs unused.
+        /// `comptime lhs`.
+        ///
+        /// rhs is unused.
+        /// main_token is the `comptime`.
         @"comptime",
-        /// `nosuspend lhs`. rhs unused.
+        /// `nosuspend lhs`.
+        ///
+        /// rhs is unused.
+        /// main_token is the `nosuspend`.
         @"nosuspend",
-        /// `{lhs rhs}`. rhs or lhs can be omitted.
-        /// main_token points at the lbrace.
+        /// `{lhs rhs}`.
+        ///
+        /// lhs is a `Node.OptionalIndex` to the first statement, if any.
+        /// rhs is a `Node.OptionalIndex` to the second statement, if any.
+        /// main_token is the `{`.
         block_two,
-        /// Same as block_two but there is known to be a semicolon before the rbrace.
+        /// Same as `block_two_semicolon` except there is known to be a trailing comma
+        /// before the final rbrace.
         block_two_semicolon,
-        /// `{}`. `sub_list[lhs..rhs]`.
-        /// main_token points at the lbrace.
+        /// `{a b}`. `extra_data[lhs..rhs]`.
+        ///
+        /// main_token is the `{`.
         block,
-        /// Same as block but there is known to be a semicolon before the rbrace.
+        /// Same as `block` except there is known to be a trailing comma
+        /// before the final rbrace.
         block_semicolon,
-        /// `asm(lhs)`. rhs is the token index of the rparen.
+        /// `asm(lhs)`.
+        ///
+        /// rhs is a `Token.Index` to the `)`.
+        /// main_token is the `asm`.
         asm_simple,
-        /// `asm(lhs, a)`. `Asm[rhs]`.
+        /// `asm(lhs, a)`.
+        ///
+        /// rhs is a `ExtraIndex` to `Asm`.
+        /// main_token is the `asm`.
         @"asm",
         /// `[a] "b" (c)`. lhs is 0, rhs is token index of the rparen.
         /// `[a] "b" (-> lhs)`. rhs is token index of the rparen.
@@ -3497,9 +3719,15 @@ pub const Node = struct {
         /// `[a] "b" (lhs)`. rhs is token index of the rparen.
         /// main_token is `a`.
         asm_input,
-        /// `error.a`. lhs is token index of `.`. rhs is token index of `a`.
+        /// `error.a`.
+        ///
+        /// lhs is the `OptionalTokenIndex` of `.`. Can't be `.none` unless a parsing error occured.
+        /// rhs is the `OptionalTokenIndex` of `a`. Can't be `.none` unless a parsing error occured.
+        /// main_token is `error`.
         error_value,
-        /// `lhs!rhs`. main_token is the `!`.
+        /// `lhs!rhs`.
+        ///
+        /// main_token is the `{`.
         error_union,
 
         pub fn isContainerField(tag: Tag) bool {
