@@ -232,20 +232,13 @@ pub const File = struct {
                     return .{ .global_const = node };
                 },
 
-                .builtin_call_two, .builtin_call_two_comma => {
-                    if (node_datas[node].lhs == 0) {
-                        const params = [_]Ast.Node.Index{};
-                        return categorize_builtin_call(file_index, node, &params);
-                    } else if (node_datas[node].rhs == 0) {
-                        const params = [_]Ast.Node.Index{node_datas[node].lhs};
-                        return categorize_builtin_call(file_index, node, &params);
-                    } else {
-                        const params = [_]Ast.Node.Index{ node_datas[node].lhs, node_datas[node].rhs };
-                        return categorize_builtin_call(file_index, node, &params);
-                    }
-                },
-                .builtin_call, .builtin_call_comma => {
-                    const params = ast.extra_data[node_datas[node].lhs..node_datas[node].rhs];
+                .builtin_call_two,
+                .builtin_call_two_comma,
+                .builtin_call,
+                .builtin_call_comma,
+                => {
+                    var buf: [2]Ast.Node.Index = undefined;
+                    const params = ast.builtinCallParams(&buf, node).?;
                     return categorize_builtin_call(file_index, node, params);
                 },
 
@@ -818,20 +811,13 @@ fn expr(w: *Walk, scope: *Scope, parent_decl: Decl.Index, node: Ast.Node.Index) 
             try expr(w, scope, parent_decl, full.ast.template);
         },
 
-        .builtin_call_two, .builtin_call_two_comma => {
-            if (node_datas[node].lhs == 0) {
-                const params = [_]Ast.Node.Index{};
-                return builtin_call(w, scope, parent_decl, node, &params);
-            } else if (node_datas[node].rhs == 0) {
-                const params = [_]Ast.Node.Index{node_datas[node].lhs};
-                return builtin_call(w, scope, parent_decl, node, &params);
-            } else {
-                const params = [_]Ast.Node.Index{ node_datas[node].lhs, node_datas[node].rhs };
-                return builtin_call(w, scope, parent_decl, node, &params);
-            }
-        },
-        .builtin_call, .builtin_call_comma => {
-            const params = ast.extra_data[node_datas[node].lhs..node_datas[node].rhs];
+        .builtin_call_two,
+        .builtin_call_two_comma,
+        .builtin_call,
+        .builtin_call_comma,
+        => {
+            var buf: [2]Ast.Node.Index = undefined;
+            const params = ast.builtinCallParams(&buf, node).?;
             return builtin_call(w, scope, parent_decl, node, params);
         },
 
@@ -886,18 +872,13 @@ fn expr(w: *Walk, scope: *Scope, parent_decl: Decl.Index, node: Ast.Node.Index) 
         .slice_open => return slice(w, scope, parent_decl, ast.sliceOpen(node)),
         .slice_sentinel => return slice(w, scope, parent_decl, ast.sliceSentinel(node)),
 
-        .block_two, .block_two_semicolon => {
-            const statements = [2]Ast.Node.Index{ node_datas[node].lhs, node_datas[node].rhs };
-            if (node_datas[node].lhs == 0) {
-                return block(w, scope, parent_decl, statements[0..0]);
-            } else if (node_datas[node].rhs == 0) {
-                return block(w, scope, parent_decl, statements[0..1]);
-            } else {
-                return block(w, scope, parent_decl, statements[0..2]);
-            }
-        },
-        .block, .block_semicolon => {
-            const statements = ast.extra_data[node_datas[node].lhs..node_datas[node].rhs];
+        .block_two,
+        .block_two_semicolon,
+        .block,
+        .block_semicolon,
+        => {
+            var buf: [2]Ast.Node.Index = undefined;
+            const statements = ast.blockStatements(&buf, node).?;
             return block(w, scope, parent_decl, statements);
         },
 
