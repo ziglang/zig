@@ -313,17 +313,13 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
         .error_set_decl,
         => return false,
 
-        .builtin_call_two, .builtin_call_two_comma => {
-            if (node_datas[node].lhs == 0) {
-                return astrl.builtinCall(block, ri, node, &.{});
-            } else if (node_datas[node].rhs == 0) {
-                return astrl.builtinCall(block, ri, node, &.{node_datas[node].lhs});
-            } else {
-                return astrl.builtinCall(block, ri, node, &.{ node_datas[node].lhs, node_datas[node].rhs });
-            }
-        },
-        .builtin_call, .builtin_call_comma => {
-            const params = tree.extra_data[node_datas[node].lhs..node_datas[node].rhs];
+        .builtin_call_two,
+        .builtin_call_two_comma,
+        .builtin_call,
+        .builtin_call_comma,
+        => {
+            var buf: [2]Ast.Node.Index = undefined;
+            const params = tree.builtinCallParams(&buf, node).?;
             return astrl.builtinCall(block, ri, node, params);
         },
 
@@ -499,17 +495,13 @@ fn expr(astrl: *AstRlAnnotate, node: Ast.Node.Index, block: ?*Block, ri: ResultI
         .unwrap_optional,
         => return astrl.expr(node_datas[node].lhs, block, ri),
 
-        .block_two, .block_two_semicolon => {
-            if (node_datas[node].lhs == 0) {
-                return astrl.blockExpr(block, ri, node, &.{});
-            } else if (node_datas[node].rhs == 0) {
-                return astrl.blockExpr(block, ri, node, &.{node_datas[node].lhs});
-            } else {
-                return astrl.blockExpr(block, ri, node, &.{ node_datas[node].lhs, node_datas[node].rhs });
-            }
-        },
-        .block, .block_semicolon => {
-            const statements = tree.extra_data[node_datas[node].lhs..node_datas[node].rhs];
+        .block_two,
+        .block_two_semicolon,
+        .block,
+        .block_semicolon,
+        => {
+            var buf: [2]Ast.Node.Index = undefined;
+            const statements = tree.blockStatements(&buf, node).?;
             return astrl.blockExpr(block, ri, node, statements);
         },
         .anyframe_type => {

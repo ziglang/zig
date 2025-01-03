@@ -2432,6 +2432,42 @@ pub fn fullCall(tree: Ast, buffer: *[1]Ast.Node.Index, node: Node.Index) ?full.C
     };
 }
 
+pub fn builtinCallParams(tree: Ast, buffer: *[2]Ast.Node.Index, node: Ast.Node.Index) ?[]const Node.Index {
+    const data = tree.nodes.items(.data)[node];
+    return switch (tree.nodes.items(.tag)[node]) {
+        .builtin_call_two, .builtin_call_two_comma => {
+            buffer.* = .{ data.lhs, data.rhs };
+            if (data.rhs != 0) {
+                return buffer[0..2];
+            } else if (data.lhs != 0) {
+                return buffer[0..1];
+            } else {
+                return buffer[0..0];
+            }
+        },
+        .builtin_call, .builtin_call_comma => tree.extra_data[data.lhs..data.rhs],
+        else => null,
+    };
+}
+
+pub fn blockStatements(tree: Ast, buffer: *[2]Ast.Node.Index, node: Ast.Node.Index) ?[]const Node.Index {
+    const data = tree.nodes.items(.data)[node];
+    return switch (tree.nodes.items(.tag)[node]) {
+        .block_two, .block_two_semicolon => {
+            buffer.* = .{ data.lhs, data.rhs };
+            if (data.rhs != 0) {
+                return buffer[0..2];
+            } else if (data.lhs != 0) {
+                return buffer[0..1];
+            } else {
+                return buffer[0..0];
+            }
+        },
+        .block, .block_semicolon => tree.extra_data[data.lhs..data.rhs],
+        else => null,
+    };
+}
+
 /// Fully assembled AST node information.
 pub const full = struct {
     pub const VarDecl = struct {

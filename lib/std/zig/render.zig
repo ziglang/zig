@@ -141,7 +141,6 @@ fn renderMember(
 ) Error!void {
     const tree = r.tree;
     const ais = r.ais;
-    const node_tags = tree.nodes.items(.tag);
     const token_tags = tree.tokens.items(.tag);
     const main_tokens = tree.nodes.items(.main_token);
     const datas = tree.nodes.items(.data);
@@ -223,25 +222,7 @@ fn renderMember(
                     }
                 }
                 var statements_buf: [2]Ast.Node.Index = undefined;
-                const statements = switch (node_tags[body_node]) {
-                    .block_two,
-                    .block_two_semicolon,
-                    => b: {
-                        statements_buf = .{ datas[body_node].lhs, datas[body_node].rhs };
-                        if (datas[body_node].lhs == 0) {
-                            break :b statements_buf[0..0];
-                        } else if (datas[body_node].rhs == 0) {
-                            break :b statements_buf[0..1];
-                        } else {
-                            break :b statements_buf[0..2];
-                        }
-                    },
-                    .block,
-                    .block_semicolon,
-                    => tree.extra_data[datas[body_node].lhs..datas[body_node].rhs],
-
-                    else => unreachable,
-                };
+                const statements = tree.blockStatements(&statements_buf, body_node).?;
                 return finishRenderBlock(r, body_node, statements, space);
             } else {
                 return renderExpression(r, body_node, space);
@@ -394,20 +375,11 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
 
         .block_two,
         .block_two_semicolon,
-        => {
-            const statements = [2]Ast.Node.Index{ datas[node].lhs, datas[node].rhs };
-            if (datas[node].lhs == 0) {
-                return renderBlock(r, node, statements[0..0], space);
-            } else if (datas[node].rhs == 0) {
-                return renderBlock(r, node, statements[0..1], space);
-            } else {
-                return renderBlock(r, node, statements[0..2], space);
-            }
-        },
         .block,
         .block_semicolon,
         => {
-            const statements = tree.extra_data[datas[node].lhs..datas[node].rhs];
+            var buf: [2]Ast.Node.Index = undefined;
+            const statements = tree.blockStatements(&buf, node).?;
             return renderBlock(r, node, statements, space);
         },
 
@@ -813,17 +785,13 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             }
         },
 
-        .builtin_call_two, .builtin_call_two_comma => {
-            if (datas[node].lhs == 0) {
-                return renderBuiltinCall(r, main_tokens[node], &.{}, space);
-            } else if (datas[node].rhs == 0) {
-                return renderBuiltinCall(r, main_tokens[node], &.{datas[node].lhs}, space);
-            } else {
-                return renderBuiltinCall(r, main_tokens[node], &.{ datas[node].lhs, datas[node].rhs }, space);
-            }
-        },
-        .builtin_call, .builtin_call_comma => {
-            const params = tree.extra_data[datas[node].lhs..datas[node].rhs];
+        .builtin_call_two,
+        .builtin_call_two_comma,
+        .builtin_call,
+        .builtin_call_comma,
+        => {
+            var buf: [2]Ast.Node.Index = undefined;
+            const params = tree.builtinCallParams(&buf, node).?;
             return renderBuiltinCall(r, main_tokens[node], params, space);
         },
 

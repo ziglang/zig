@@ -230,20 +230,11 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
 
         .block_two,
         .block_two_semicolon,
-        => {
-            const statements = [2]Ast.Node.Index{ datas[node].lhs, datas[node].rhs };
-            if (datas[node].lhs == 0) {
-                return walkBlock(w, node, statements[0..0]);
-            } else if (datas[node].rhs == 0) {
-                return walkBlock(w, node, statements[0..1]);
-            } else {
-                return walkBlock(w, node, statements[0..2]);
-            }
-        },
         .block,
         .block_semicolon,
         => {
-            const statements = ast.extra_data[datas[node].lhs..datas[node].rhs];
+            var buf: [2]Ast.Node.Index = undefined;
+            const statements = ast.blockStatements(&buf, node).?;
             return walkBlock(w, node, statements);
         },
 
@@ -506,17 +497,13 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
             }
         },
 
-        .builtin_call_two, .builtin_call_two_comma => {
-            if (datas[node].lhs == 0) {
-                return walkBuiltinCall(w, node, &.{});
-            } else if (datas[node].rhs == 0) {
-                return walkBuiltinCall(w, node, &.{datas[node].lhs});
-            } else {
-                return walkBuiltinCall(w, node, &.{ datas[node].lhs, datas[node].rhs });
-            }
-        },
-        .builtin_call, .builtin_call_comma => {
-            const params = ast.extra_data[datas[node].lhs..datas[node].rhs];
+        .builtin_call_two,
+        .builtin_call_two_comma,
+        .builtin_call,
+        .builtin_call_comma,
+        => {
+            var buf: [2]Ast.Node.Index = undefined;
+            const params = ast.builtinCallParams(&buf, node).?;
             return walkBuiltinCall(w, node, params);
         },
 
@@ -972,24 +959,13 @@ fn walkParamList(w: *Walk, params: []const Ast.Node.Index) Error!void {
 fn isFnBodyGutted(ast: *const Ast, body_node: Ast.Node.Index) bool {
     // skip over discards
     const node_tags = ast.nodes.items(.tag);
-    const datas = ast.nodes.items(.data);
     var statements_buf: [2]Ast.Node.Index = undefined;
     const statements = switch (node_tags[body_node]) {
         .block_two,
         .block_two_semicolon,
-        => blk: {
-            statements_buf[0..2].* = .{ datas[body_node].lhs, datas[body_node].rhs };
-            break :blk if (datas[body_node].lhs == 0)
-                statements_buf[0..0]
-            else if (datas[body_node].rhs == 0)
-                statements_buf[0..1]
-            else
-                statements_buf[0..2];
-        },
-
         .block,
         .block_semicolon,
-        => ast.extra_data[datas[body_node].lhs..datas[body_node].rhs],
+        => ast.blockStatements(&statements_buf, body_node).?,
 
         else => return false,
     };
@@ -1016,17 +992,13 @@ fn categorizeStmt(ast: *const Ast, stmt: Ast.Node.Index) StmtCategory {
     const datas = ast.nodes.items(.data);
     const main_tokens = ast.nodes.items(.main_token);
     switch (node_tags[stmt]) {
-        .builtin_call_two, .builtin_call_two_comma => {
-            if (datas[stmt].lhs == 0) {
-                return categorizeBuiltinCall(ast, main_tokens[stmt], &.{});
-            } else if (datas[stmt].rhs == 0) {
-                return categorizeBuiltinCall(ast, main_tokens[stmt], &.{datas[stmt].lhs});
-            } else {
-                return categorizeBuiltinCall(ast, main_tokens[stmt], &.{ datas[stmt].lhs, datas[stmt].rhs });
-            }
-        },
-        .builtin_call, .builtin_call_comma => {
-            const params = ast.extra_data[datas[stmt].lhs..datas[stmt].rhs];
+        .builtin_call_two,
+        .builtin_call_two_comma,
+        .builtin_call,
+        .builtin_call_comma,
+        => {
+            var buf: [2]Ast.Node.Index = undefined;
+            const params = ast.builtinCallParams(&buf, stmt).?;
             return categorizeBuiltinCall(ast, main_tokens[stmt], params);
         },
         .assign => {

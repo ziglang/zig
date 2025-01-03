@@ -1162,19 +1162,10 @@ pub const SrcLoc = struct {
             },
             .node_offset_builtin_call_arg => |builtin_arg| {
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_datas = tree.nodes.items(.data);
-                const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.relativeToNodeIndex(builtin_arg.builtin_call_node);
-                const param = switch (node_tags[node]) {
-                    .builtin_call_two, .builtin_call_two_comma => switch (builtin_arg.arg_index) {
-                        0 => node_datas[node].lhs,
-                        1 => node_datas[node].rhs,
-                        else => unreachable,
-                    },
-                    .builtin_call, .builtin_call_comma => tree.extra_data[node_datas[node].lhs + builtin_arg.arg_index],
-                    else => unreachable,
-                };
-                return tree.nodeToSpan(param);
+                var buf: [2]Ast.Node.Index = undefined;
+                const params = tree.builtinCallParams(&buf, node).?;
+                return tree.nodeToSpan(params[builtin_arg.arg_index]);
             },
             .node_offset_ptrcast_operand => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
@@ -1855,14 +1846,10 @@ pub const SrcLoc = struct {
                     else => unreachable,
                 };
                 const tree = try src_loc.file_scope.getTree(gpa);
-                const node_datas = tree.nodes.items(.data);
-                const node_tags = tree.nodes.items(.tag);
                 const node = src_loc.relativeToNodeIndex(builtin_call_node);
-                const arg_node = switch (node_tags[node]) {
-                    .builtin_call_two, .builtin_call_two_comma => node_datas[node].rhs,
-                    .builtin_call, .builtin_call_comma => tree.extra_data[node_datas[node].lhs + 1],
-                    else => unreachable,
-                };
+                var builtin_buf: [2]Ast.Node.Index = undefined;
+                const args = tree.builtinCallParams(&builtin_buf, node).?;
+                const arg_node = args[1];
                 var buf: [2]Ast.Node.Index = undefined;
                 const full = tree.fullStructInit(&buf, arg_node) orelse
                     return tree.nodeToSpan(arg_node);

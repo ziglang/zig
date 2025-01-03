@@ -824,20 +824,13 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .number_literal => return numberLiteral(gz, ri, node, node, .positive),
         // zig fmt: on
 
-        .builtin_call_two, .builtin_call_two_comma => {
-            if (node_datas[node].lhs == 0) {
-                const params = [_]Ast.Node.Index{};
-                return builtinCall(gz, scope, ri, node, &params, false);
-            } else if (node_datas[node].rhs == 0) {
-                const params = [_]Ast.Node.Index{node_datas[node].lhs};
-                return builtinCall(gz, scope, ri, node, &params, false);
-            } else {
-                const params = [_]Ast.Node.Index{ node_datas[node].lhs, node_datas[node].rhs };
-                return builtinCall(gz, scope, ri, node, &params, false);
-            }
-        },
-        .builtin_call, .builtin_call_comma => {
-            const params = tree.extra_data[node_datas[node].lhs..node_datas[node].rhs];
+        .builtin_call_two,
+        .builtin_call_two_comma,
+        .builtin_call,
+        .builtin_call_comma,
+        => {
+            var buf: [2]Ast.Node.Index = undefined;
+            const params = tree.builtinCallParams(&buf, node).?;
             return builtinCall(gz, scope, ri, node, params, false);
         },
 
@@ -991,18 +984,13 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
                 return rvalue(gz, ri, try gz.addUnNode(.optional_payload_safe, lhs, node), node);
             },
         },
-        .block_two, .block_two_semicolon => {
-            const statements = [2]Ast.Node.Index{ node_datas[node].lhs, node_datas[node].rhs };
-            if (node_datas[node].lhs == 0) {
-                return blockExpr(gz, scope, ri, node, statements[0..0], .normal);
-            } else if (node_datas[node].rhs == 0) {
-                return blockExpr(gz, scope, ri, node, statements[0..1], .normal);
-            } else {
-                return blockExpr(gz, scope, ri, node, statements[0..2], .normal);
-            }
-        },
-        .block, .block_semicolon => {
-            const statements = tree.extra_data[node_datas[node].lhs..node_datas[node].rhs];
+        .block_two,
+        .block_two_semicolon,
+        .block,
+        .block_semicolon,
+        => {
+            var buf: [2]Ast.Node.Index = undefined;
+            const statements = tree.blockStatements(&buf, node).?;
             return blockExpr(gz, scope, ri, node, statements, .normal);
         },
         .enum_literal => if (try ri.rl.resultType(gz, node)) |res_ty| {
@@ -2080,28 +2068,11 @@ fn comptimeExpr2(
             if (token_tags[lbrace - 1] == .colon and
                 token_tags[lbrace - 2] == .identifier)
             {
-                const node_datas = tree.nodes.items(.data);
-                switch (node_tags[node]) {
-                    .block_two, .block_two_semicolon => {
-                        const stmts: [2]Ast.Node.Index = .{ node_datas[node].lhs, node_datas[node].rhs };
-                        const stmt_slice = if (stmts[0] == 0)
-                            stmts[0..0]
-                        else if (stmts[1] == 0)
-                            stmts[0..1]
-                        else
-                            stmts[0..2];
-
-                        const block_ref = try labeledBlockExpr(gz, scope, ty_only_ri, node, stmt_slice, true, .normal);
-                        return rvalue(gz, ri, block_ref, node);
-                    },
-                    .block, .block_semicolon => {
-                        const stmts = tree.extra_data[node_datas[node].lhs..node_datas[node].rhs];
-                        // Replace result location and copy back later - see above.
-                        const block_ref = try labeledBlockExpr(gz, scope, ty_only_ri, node, stmts, true, .normal);
-                        return rvalue(gz, ri, block_ref, node);
-                    },
-                    else => unreachable,
-                }
+                var buf: [2]Ast.Node.Index = undefined;
+                const stmts = tree.blockStatements(&buf, node).?;
+                // Replace result location and copy back later - see above.
+                const block_ref = try labeledBlockExpr(gz, scope, ty_only_ri, node, stmts, true, .normal);
+                return rvalue(gz, ri, block_ref, node);
             }
         },
 
@@ -2402,25 +2373,10 @@ fn fullBodyExpr(
     block_kind: BlockKind,
 ) InnerError!Zir.Inst.Ref {
     const tree = gz.astgen.tree;
-    const node_tags = tree.nodes.items(.tag);
-    const node_datas = tree.nodes.items(.data);
     const main_tokens = tree.nodes.items(.main_token);
     const token_tags = tree.tokens.items(.tag);
     var stmt_buf: [2]Ast.Node.Index = undefined;
-    const statements: []const Ast.Node.Index = switch (node_tags[node]) {
-        else => return expr(gz, scope, ri, node),
-        .block_two, .block_two_semicolon => if (node_datas[node].lhs == 0) s: {
-            break :s &.{};
-        } else if (node_datas[node].rhs == 0) s: {
-            stmt_buf[0] = node_datas[node].lhs;
-            break :s stmt_buf[0..1];
-        } else s: {
-            stmt_buf[0] = node_datas[node].lhs;
-            stmt_buf[1] = node_datas[node].rhs;
-            break :s stmt_buf[0..2];
-        },
-        .block, .block_semicolon => tree.extra_data[node_datas[node].lhs..node_datas[node].rhs],
-    };
+    const statements = tree.blockStatements(&stmt_buf, node).?;
 
     const lbrace = main_tokens[node];
     if (token_tags[lbrace - 1] == .colon and
@@ -2671,33 +2627,23 @@ fn blockExprStmts(gz: *GenZir, parent_scope: *Scope, statements: []const Ast.Nod
 
                 .for_simple,
                 .@"for", => _ = try forExpr(gz, scope, .{ .rl = .none }, inner_node, tree.fullFor(inner_node).?, true),
+                // zig fmt: on
 
                 // These cases are here to allow branch hints.
-                .builtin_call_two, .builtin_call_two_comma => {
+                .builtin_call_two,
+                .builtin_call_two_comma,
+                .builtin_call,
+                .builtin_call_comma,
+                => {
+                    var buf: [2]Ast.Node.Index = undefined;
+                    const params = tree.builtinCallParams(&buf, inner_node).?;
+
                     try emitDbgNode(gz, inner_node);
-                    const ri: ResultInfo = .{ .rl = .none };
-                    const result = if (node_data[inner_node].lhs == 0) r: {
-                        break :r try builtinCall(gz, scope, ri, inner_node, &.{}, allow_branch_hint);
-                    } else if (node_data[inner_node].rhs == 0) r: {
-                        break :r try builtinCall(gz, scope, ri, inner_node, &.{node_data[inner_node].lhs}, allow_branch_hint);
-                    } else r: {
-                        break :r try builtinCall(gz, scope, ri, inner_node, &.{
-                            node_data[inner_node].lhs,
-                            node_data[inner_node].rhs,
-                        }, allow_branch_hint);
-                    };
-                    noreturn_src_node = try addEnsureResult(gz, result, inner_node);
-                },
-                .builtin_call, .builtin_call_comma => {
-                    try emitDbgNode(gz, inner_node);
-                    const ri: ResultInfo = .{ .rl = .none };
-                    const params = tree.extra_data[node_data[inner_node].lhs..node_data[inner_node].rhs];
-                    const result = try builtinCall(gz, scope, ri, inner_node, params, allow_branch_hint);
+                    const result = try builtinCall(gz, scope, .{ .rl = .none }, inner_node, params, allow_branch_hint);
                     noreturn_src_node = try addEnsureResult(gz, result, inner_node);
                 },
 
                 else => noreturn_src_node = try unusedResultExpr(gz, scope, inner_node),
-                // zig fmt: on
             }
             break;
         }
@@ -9194,13 +9140,14 @@ fn ptrCast(
             else => break,
         }
 
-        if (node_datas[node].lhs == 0) break; // 0 args
+        var buf: [2]Ast.Node.Index = undefined;
+        const args = tree.builtinCallParams(&buf, node).?;
+        std.debug.assert(args.len <= 2);
 
         const builtin_token = main_tokens[node];
         const builtin_name = tree.tokenSlice(builtin_token);
         const info = BuiltinFn.list.get(builtin_name) orelse break;
-        if (node_datas[node].rhs == 0) {
-            // 1 arg
+        if (args.len == 1) {
             if (info.param_count != 1) break;
 
             switch (info.tag) {
@@ -9218,9 +9165,9 @@ fn ptrCast(
                 },
             }
 
-            node = node_datas[node].lhs;
+            node = args[0];
         } else {
-            // 2 args
+            std.debug.assert(args.len == 2);
             if (info.param_count != 2) break;
 
             switch (info.tag) {
@@ -9231,8 +9178,8 @@ fn ptrCast(
                     const flags_int: FlagsInt = @bitCast(flags);
                     const cursor = maybeAdvanceSourceCursorToMainToken(gz, root_node);
                     const parent_ptr_type = try ri.rl.resultTypeForCast(gz, root_node, "@alignCast");
-                    const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, node_datas[node].lhs, .field_name);
-                    const field_ptr = try expr(gz, scope, .{ .rl = .none }, node_datas[node].rhs);
+                    const field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, args[0], .field_name);
+                    const field_ptr = try expr(gz, scope, .{ .rl = .none }, args[1]);
                     try emitDbgStmt(gz, cursor);
                     const result = try gz.addExtendedPayloadSmall(.field_parent_ptr, flags_int, Zir.Inst.FieldParentPtr{
                         .src_node = gz.nodeIndexToRelative(node),
