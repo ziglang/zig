@@ -903,6 +903,14 @@ pub const Request = struct {
             try w.writeAll(header.value);
             try w.writeAll("\r\n");
         }
+        for (req.privileged_headers) |header| {
+            assert(header.name.len != 0);
+
+            try w.writeAll(header.name);
+            try w.writeAll(": ");
+            try w.writeAll(header.value);
+            try w.writeAll("\r\n");
+        }
 
         if (connection.proxied) proxy: {
             const proxy = switch (connection.protocol) {
