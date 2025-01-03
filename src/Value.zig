@@ -1066,6 +1066,7 @@ pub fn orderAgainstZeroInner(
             .float => |float| switch (float.storage) {
                 inline else => |x| std.math.order(x, 0),
             },
+            .err => .gt, // error values cannot be 0
             else => unreachable,
         },
     };

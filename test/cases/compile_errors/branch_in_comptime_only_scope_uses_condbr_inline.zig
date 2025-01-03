@@ -20,4 +20,6 @@ pub export fn entry2() void {
 //
 // :5:15: error: unable to evaluate comptime expression
 // :5:13: note: operation is runtime due to this operand
+// :4:72: note: '@shuffle' mask must be comptime-known
 // :13:11: error: unable to evaluate comptime expression
+// :12:72: note: '@shuffle' mask must be comptime-known

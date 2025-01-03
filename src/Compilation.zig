@@ -3102,9 +3102,10 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         for (zcu.failed_embed_files.values()) |error_msg| {
             try addModuleErrorMsg(zcu, &bundle, error_msg.*);
         }
-        {
+        var sorted_failed_analysis: std.AutoArrayHashMapUnmanaged(InternPool.AnalUnit, *Zcu.ErrorMsg).DataList.Slice = s: {
             const SortOrder = struct {
                 zcu: *Zcu,
+                errors: []const *Zcu.ErrorMsg,
                 err: *?Error,
 
                 const Error = @typeInfo(
@@ -3113,12 +3114,11 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
 
                 pub fn lessThan(ctx: @This(), lhs_index: usize, rhs_index: usize) bool {
                     if (ctx.err.*) |_| return lhs_index < rhs_index;
-                    const errors = ctx.zcu.failed_analysis.values();
-                    const lhs_src_loc = errors[lhs_index].src_loc.upgradeOrLost(ctx.zcu) orelse {
+                    const lhs_src_loc = ctx.errors[lhs_index].src_loc.upgradeOrLost(ctx.zcu) orelse {
                         // LHS source location lost, so should never be referenced. Just sort it to the end.
                         return false;
                     };
-                    const rhs_src_loc = errors[rhs_index].src_loc.upgradeOrLost(ctx.zcu) orelse {
+                    const rhs_src_loc = ctx.errors[rhs_index].src_loc.upgradeOrLost(ctx.zcu) orelse {
                         // RHS source location lost, so should never be referenced. Just sort it to the end.
                         return true;
                     };
@@ -3135,13 +3135,24 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                     }).main;
                 }
             };
+
+            // We can't directly sort `zcu.failed_analysis.entries`, because that would leave the map
+            // in an invalid state, and we need it intact for future incremental updates. The amount
+            // of data here is only as large as the number of analysis errors, so just dupe it all.
+            var entries = try zcu.failed_analysis.entries.clone(gpa);
+            errdefer entries.deinit(gpa);
+
             var err: ?SortOrder.Error = null;
-            // This leaves `zcu.failed_analysis` an invalid state, but we do not
-            // need lookups anymore anyway.
-            zcu.failed_analysis.entries.sort(SortOrder{ .zcu = zcu, .err = &err });
+            entries.sort(SortOrder{
+                .zcu = zcu,
+                .errors = entries.items(.value),
+                .err = &err,
+            });
             if (err) |e| return e;
-        }
-        for (zcu.failed_analysis.keys(), zcu.failed_analysis.values()) |anal_unit, error_msg| {
+            break :s entries.slice();
+        };
+        defer sorted_failed_analysis.deinit(gpa);
+        for (sorted_failed_analysis.items(.key), sorted_failed_analysis.items(.value)) |anal_unit, error_msg| {
             if (comp.incremental) {
                 const refs = try zcu.resolveReferences();
                 if (!refs.contains(anal_unit)) continue;
@@ -3157,6 +3168,11 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             // Skip errors for AnalUnits within files that had a parse failure.
             // We'll try again once parsing succeeds.
             if (!zcu.fileByIndex(file_index).okToReportErrors()) continue;
+
+            std.log.scoped(.zcu).debug("analysis error '{s}' reported from unit '{}'", .{
+                error_msg.msg,
+                zcu.fmtAnalUnit(anal_unit),
+            });
 
             try addModuleErrorMsg(zcu, &bundle, error_msg.*);
             if (zcu.cimport_errors.get(anal_unit)) |errors| {
@@ -3435,6 +3451,7 @@ pub fn addModuleErrorMsg(
     var notes: std.ArrayHashMapUnmanaged(ErrorBundle.ErrorMessage, void, ErrorNoteHashContext, true) = .empty;
     defer notes.deinit(gpa);
 
+    var last_note_loc: ?std.zig.Loc = null;
     for (module_err_msg.notes) |module_note| {
         const note_src_loc = module_note.src_loc.upgrade(zcu);
         const source = try note_src_loc.file_scope.getSource(gpa);
@@ -3442,6 +3459,9 @@ pub fn addModuleErrorMsg(
         const loc = std.zig.findLineColumn(source.bytes, span.main);
         const note_file_path = try note_src_loc.file_scope.fullPath(gpa);
         defer gpa.free(note_file_path);
+
+        const omit_source_line = loc.eql(err_loc) or (last_note_loc != null and loc.eql(last_note_loc.?));
+        last_note_loc = loc;
 
         const gop = try notes.getOrPutContext(gpa, .{
             .msg = try eb.addString(module_note.msg),
@@ -3452,7 +3472,7 @@ pub fn addModuleErrorMsg(
                 .span_end = span.end,
                 .line = @intCast(loc.line),
                 .column = @intCast(loc.column),
-                .source_line = if (err_loc.eql(loc)) 0 else try eb.addString(loc.source_line),
+                .source_line = if (omit_source_line) 0 else try eb.addString(loc.source_line),
             }),
         }, .{ .eb = eb });
         if (gop.found_existing) {

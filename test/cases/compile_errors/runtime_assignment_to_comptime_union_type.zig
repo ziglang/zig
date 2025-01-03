@@ -10,8 +10,8 @@ export fn f() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :8:23: error: unable to resolve comptime value
-// :8:23: note: initializer of comptime only union must be comptime-known
+// :8:23: note: initializer of comptime-only union 'tmp.Foo' must be comptime-known
+// :3:10: note: union requires comptime because of this field
+// :3:10: note: types are not available at runtime
