@@ -909,7 +909,7 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
         // Of course, we need to make sure we depend on it properly.
         try sema.declareDependency(.{ .nav_ty = nav_id });
         try pt.ensureNavTypeUpToDate(nav_id);
-        break :ty .fromInterned(ip.getNav(nav_id).status.type_resolved.type);
+        break :ty .fromInterned(ip.getNav(nav_id).typeOf(ip));
     } else null;
 
     const final_val: ?Value = if (zir_decl.value_body) |value_body| val: {
