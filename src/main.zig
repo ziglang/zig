@@ -1386,9 +1386,18 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-PIE")) {
                         create_module.opts.pie = false;
                     } else if (mem.eql(u8, arg, "-flto")) {
-                        create_module.opts.lto = true;
+                        create_module.opts.lto = .full;
+                    } else if (mem.startsWith(u8, arg, "-flto=")) {
+                        const mode = arg["-flto=".len..];
+                        if (mem.eql(u8, mode, "full")) {
+                            create_module.opts.lto = .full;
+                        } else if (mem.eql(u8, mode, "thin")) {
+                            create_module.opts.lto = .thin;
+                        } else {
+                            fatal("Invalid -flto mode: '{s}'. Must be 'full'or 'thin'.", .{mode});
+                        }
                     } else if (mem.eql(u8, arg, "-fno-lto")) {
-                        create_module.opts.lto = false;
+                        create_module.opts.lto = .none;
                     } else if (mem.eql(u8, arg, "-funwind-tables")) {
                         mod_opts.unwind_tables = .sync;
                     } else if (mem.eql(u8, arg, "-fasync-unwind-tables")) {
@@ -1958,8 +1967,20 @@ fn buildOutputType(
                     .no_pic => mod_opts.pic = false,
                     .pie => create_module.opts.pie = true,
                     .no_pie => create_module.opts.pie = false,
-                    .lto => create_module.opts.lto = true,
-                    .no_lto => create_module.opts.lto = false,
+                    .lto => {
+                        if (mem.eql(u8, it.only_arg, "flto") or
+                            mem.eql(u8, it.only_arg, "auto") or
+                            mem.eql(u8, it.only_arg, "full") or
+                            mem.eql(u8, it.only_arg, "jobserver"))
+                        {
+                            create_module.opts.lto = .full;
+                        } else if (mem.eql(u8, it.only_arg, "thin")) {
+                            create_module.opts.lto = .thin;
+                        } else {
+                            fatal("Invalid -flto mode: '{s}'. Must be 'auto', 'full', 'thin', or 'jobserver'.", .{it.only_arg});
+                        }
+                    },
+                    .no_lto => create_module.opts.lto = .none,
                     .red_zone => mod_opts.red_zone = true,
                     .no_red_zone => mod_opts.red_zone = false,
                     .omit_frame_pointer => mod_opts.omit_frame_pointer = true,
