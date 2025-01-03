@@ -17443,21 +17443,22 @@ fn genBinOp(
         .float => switch (lhs_ty.floatBits(self.target.*)) {
             16 => {
                 assert(self.hasFeature(.f16c));
-                const tmp_reg =
-                    (try self.register_manager.allocReg(null, abi.RegisterClass.sse)).to128();
+                const lhs_reg = if (copied_to_dst) dst_reg else registerAlias(lhs_mcv.getReg().?, abi_size);
+
+                const tmp_reg = (try self.register_manager.allocReg(null, abi.RegisterClass.sse)).to128();
                 const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
                 defer self.register_manager.unlockReg(tmp_lock);
 
                 if (src_mcv.isBase()) try self.asmRegisterRegisterMemoryImmediate(
                     .{ .vp_w, .insr },
                     dst_reg,
-                    dst_reg,
+                    lhs_reg,
                     try src_mcv.mem(self, .{ .size = .word }),
                     .u(1),
                 ) else try self.asmRegisterRegisterRegister(
                     .{ .vp_, .unpcklwd },
                     dst_reg,
-                    dst_reg,
+                    lhs_reg,
                     (if (src_mcv.isRegister())
                         src_mcv.getReg().?
                     else
@@ -17885,25 +17886,24 @@ fn genBinOp(
             .float => switch (lhs_ty.childType(zcu).floatBits(self.target.*)) {
                 16 => tag: {
                     assert(self.hasFeature(.f16c));
+                    const lhs_reg = if (copied_to_dst) dst_reg else registerAlias(lhs_mcv.getReg().?, abi_size);
                     switch (lhs_ty.vectorLen(zcu)) {
                         1 => {
-                            const tmp_reg = (try self.register_manager.allocReg(
-                                null,
-                                abi.RegisterClass.sse,
-                            )).to128();
+                            const tmp_reg =
+                                (try self.register_manager.allocReg(null, abi.RegisterClass.sse)).to128();
                             const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
                             defer self.register_manager.unlockReg(tmp_lock);
 
                             if (src_mcv.isBase()) try self.asmRegisterRegisterMemoryImmediate(
                                 .{ .vp_w, .insr },
                                 dst_reg,
-                                dst_reg,
+                                lhs_reg,
                                 try src_mcv.mem(self, .{ .size = .word }),
                                 .u(1),
                             ) else try self.asmRegisterRegisterRegister(
                                 .{ .vp_, .unpcklwd },
                                 dst_reg,
-                                dst_reg,
+                                lhs_reg,
                                 (if (src_mcv.isRegister())
                                     src_mcv.getReg().?
                                 else
@@ -17941,15 +17941,16 @@ fn genBinOp(
                             const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
                             defer self.register_manager.unlockReg(tmp_lock);
 
-                            if (src_mcv.isBase()) try self.asmRegisterMemoryImmediate(
+                            if (src_mcv.isBase()) try self.asmRegisterRegisterMemoryImmediate(
                                 .{ .vp_d, .insr },
                                 dst_reg,
+                                lhs_reg,
                                 try src_mcv.mem(self, .{ .size = .dword }),
                                 .u(1),
                             ) else try self.asmRegisterRegisterRegister(
                                 .{ .v_ps, .unpckl },
                                 dst_reg,
-                                dst_reg,
+                                lhs_reg,
                                 (if (src_mcv.isRegister())
                                     src_mcv.getReg().?
                                 else
@@ -17992,7 +17993,7 @@ fn genBinOp(
                             const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
                             defer self.register_manager.unlockReg(tmp_lock);
 
-                            try self.asmRegisterRegister(.{ .v_ps, .cvtph2 }, dst_reg, dst_reg);
+                            try self.asmRegisterRegister(.{ .v_ps, .cvtph2 }, dst_reg, lhs_reg);
                             if (src_mcv.isBase()) try self.asmRegisterMemory(
                                 .{ .v_ps, .cvtph2 },
                                 tmp_reg,
@@ -18035,7 +18036,7 @@ fn genBinOp(
                             const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
                             defer self.register_manager.unlockReg(tmp_lock);
 
-                            try self.asmRegisterRegister(.{ .v_ps, .cvtph2 }, dst_reg.to256(), dst_reg);
+                            try self.asmRegisterRegister(.{ .v_ps, .cvtph2 }, dst_reg.to256(), lhs_reg);
                             if (src_mcv.isBase()) try self.asmRegisterMemory(
                                 .{ .v_ps, .cvtph2 },
                                 tmp_reg,
@@ -18196,8 +18197,7 @@ fn genBinOp(
 
     switch (mir_tag[1]) {
         else => if (self.hasFeature(.avx)) {
-            const lhs_reg =
-                if (copied_to_dst) dst_reg else registerAlias(lhs_mcv.getReg().?, abi_size);
+            const lhs_reg = if (copied_to_dst) dst_reg else registerAlias(lhs_mcv.getReg().?, abi_size);
             if (src_mcv.isBase()) try self.asmRegisterRegisterMemory(
                 mir_tag,
                 dst_reg,
