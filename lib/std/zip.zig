@@ -504,6 +504,8 @@ pub fn Iterator(comptime SeekableStream: type) type {
                         }
                     }
 
+                    std.debug.print("Self compressed size {}\n", .{self.compressed_size});
+                    std.debug.print("Extents compressed size {}\n", .{extents.compressed_size});
                     if (extents.compressed_size != 0 and
                         extents.compressed_size != self.compressed_size)
                         return error.ZipMismatchCompLen;
@@ -732,6 +734,20 @@ test "zip64" {
         .end = .{
             .zip64 = .{},
             .central_directory_offset = std.math.maxInt(u32), // trigger zip64
+        },
+    });
+    try testZip(.{}, &test_files, .{
+        .end = .{
+            .zip64 = .{},
+            .central_directory_offset = std.math.maxInt(u32), // trigger zip64
+        },
+        .local_header = .{
+            .zip64 = .{ // trigger local header zip64
+                .data_size = 16,
+            },
+            .compressed_size = std.math.maxInt(u32),
+            .uncompressed_size = std.math.maxInt(u32),
+            .extra_len = 20,
         },
     });
 }
