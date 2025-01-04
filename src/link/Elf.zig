@@ -811,7 +811,7 @@ pub fn flushModule(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_nod
     const diags = &comp.link_diags;
 
     if (self.llvm_object) |llvm_object| {
-        try self.base.emitLlvmObject(arena, llvm_object, prog_node);
+        try self.base.emitLlvmObject(arena, llvm_object, prog_node, tid);
         const use_lld = build_options.have_llvm and comp.config.use_lld;
         if (use_lld) return;
     }
