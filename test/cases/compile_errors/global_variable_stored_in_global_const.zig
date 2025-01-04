@@ -5,8 +5,6 @@ pub export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:11: error: unable to resolve comptime value
-// :2:11: note: global variable initializer must be comptime-known
+// :2:11: note: initializer of container-level variable must be comptime-known

@@ -682,7 +682,13 @@ fn analyzeComptimeUnit(pt: Zcu.PerThread, cu_id: InternPool.ComptimeUnit.Id) Zcu
         .namespace = comptime_unit.namespace,
         .instructions = .{},
         .inlining = null,
-        .is_comptime = true,
+        .comptime_reason = .{ .reason = .{
+            .src = .{
+                .base_node_inst = comptime_unit.zir_index,
+                .offset = .{ .token_offset = 0 },
+            },
+            .r = .{ .simple = .comptime_keyword },
+        } },
         .src_base_inst = comptime_unit.zir_index,
         .type_name_ctx = try ip.getOrPutStringFmt(gpa, pt.tid, "{}.comptime", .{
             Type.fromInterned(zcu.namespacePtr(comptime_unit.namespace).owner_type).containerTypeName(ip).fmt(ip),
@@ -878,7 +884,7 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
         .namespace = old_nav.analysis.?.namespace,
         .instructions = .{},
         .inlining = null,
-        .is_comptime = true,
+        .comptime_reason = undefined, // set below
         .src_base_inst = old_nav.analysis.?.zir_index,
         .type_name_ctx = old_nav.fqn,
     };
@@ -892,6 +898,11 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
     const align_src = block.src(.{ .node_offset_var_decl_align = 0 });
     const section_src = block.src(.{ .node_offset_var_decl_section = 0 });
     const addrspace_src = block.src(.{ .node_offset_var_decl_addrspace = 0 });
+
+    block.comptime_reason = .{ .reason = .{
+        .src = init_src,
+        .r = .{ .simple = .container_var_init },
+    } };
 
     const maybe_ty: ?Type = if (zir_decl.type_body != null) ty: {
         // Since we have a type body, the type is resolved separately!
@@ -1253,7 +1264,7 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
         .namespace = old_nav.analysis.?.namespace,
         .instructions = .{},
         .inlining = null,
-        .is_comptime = true,
+        .comptime_reason = undefined, // set below
         .src_base_inst = old_nav.analysis.?.zir_index,
         .type_name_ctx = old_nav.fqn,
     };
@@ -1261,6 +1272,13 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
 
     const zir_decl = zir.getDeclaration(inst_resolved.inst);
     assert(old_nav.is_usingnamespace == (zir_decl.kind == .@"usingnamespace"));
+
+    const ty_src = block.src(.{ .node_offset_var_decl_ty = 0 });
+
+    block.comptime_reason = .{ .reason = .{
+        .src = ty_src,
+        .r = .{ .simple = .type },
+    } };
 
     const type_body = zir_decl.type_body orelse {
         // The type of this `Nav` is inferred from the value.
@@ -1278,8 +1296,6 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
         // is outdated.
         return .{ .type_changed = true };
     };
-
-    const ty_src = block.src(.{ .node_offset_var_decl_ty = 0 });
 
     const resolved_ty: Type = ty: {
         const uncoerced_type_ref = try sema.resolveInlineBody(&block, type_body, inst_resolved.inst);
@@ -2442,7 +2458,7 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
         .namespace = decl_nav.analysis.?.namespace,
         .instructions = .{},
         .inlining = null,
-        .is_comptime = false,
+        .comptime_reason = null,
         .src_base_inst = decl_nav.analysis.?.zir_index,
         .type_name_ctx = func_nav.fqn,
     };

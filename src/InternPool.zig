@@ -2046,7 +2046,7 @@ pub const Key = union(enum) {
         },
         /// This type originates from a reification via `@Type`, or from an anonymous initialization.
         /// It is hashed based on its ZIR instruction index and fields, attributes, etc.
-        /// To avoid making this key overly complex, the type-specific data is hased by Sema.
+        /// To avoid making this key overly complex, the type-specific data is hashed by Sema.
         reified: struct {
             /// A `reify`, `struct_init`, `struct_init_ref`, or `struct_init_anon` instruction.
             zir_index: TrackedInst.Index,
@@ -11287,7 +11287,8 @@ pub fn createNamespace(
         return reused_namespace_index;
     }
     const namespaces = local.getMutableNamespaces(gpa);
-    if (local.mutate.namespaces.last_bucket_len == 0) {
+    const last_bucket_len = local.mutate.namespaces.last_bucket_len & Local.namespaces_bucket_mask;
+    if (last_bucket_len == 0) {
         try namespaces.ensureUnusedCapacity(1);
         var arena = namespaces.arena.promote(namespaces.gpa);
         defer namespaces.arena.* = arena.state;
@@ -11298,10 +11299,9 @@ pub fn createNamespace(
     const unwrapped_namespace_index: NamespaceIndex.Unwrapped = .{
         .tid = tid,
         .bucket_index = namespaces.mutate.len - 1,
-        .index = local.mutate.namespaces.last_bucket_len,
+        .index = last_bucket_len,
     };
-    local.mutate.namespaces.last_bucket_len =
-        (unwrapped_namespace_index.index + 1) & Local.namespaces_bucket_mask;
+    local.mutate.namespaces.last_bucket_len = last_bucket_len + 1;
     const namespace_index = unwrapped_namespace_index.wrap(ip);
     ip.namespacePtr(namespace_index).* = initialization;
     return namespace_index;
