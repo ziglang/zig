@@ -49,6 +49,11 @@ namespace_deps: std.AutoArrayHashMapUnmanaged(TrackedInst.Index, DepEntry.Index)
 /// Dependencies on the (non-)existence of some name in a namespace.
 /// Value is index into `dep_entries` of the first dependency on this name.
 namespace_name_deps: std.AutoArrayHashMapUnmanaged(NamespaceNameKey, DepEntry.Index),
+// Dependencies on the value of fields memoized on `Zcu` (`panic_messages` etc).
+// If set, these are indices into `dep_entries` of the first dependency on this state.
+memoized_state_main_deps: DepEntry.Index.Optional,
+memoized_state_panic_deps: DepEntry.Index.Optional,
+memoized_state_va_list_deps: DepEntry.Index.Optional,
 
 /// Given a `Depender`, points to an entry in `dep_entries` whose `depender`
 /// matches. The `next_dependee` field can be used to iterate all such entries
@@ -87,6 +92,9 @@ pub const empty: InternPool = .{
     .interned_deps = .empty,
     .namespace_deps = .empty,
     .namespace_name_deps = .empty,
+    .memoized_state_main_deps = .none,
+    .memoized_state_panic_deps = .none,
+    .memoized_state_va_list_deps = .none,
     .first_dependency = .empty,
     .dep_entries = .empty,
     .free_dep_entries = .empty,
@@ -385,6 +393,7 @@ pub const AnalUnit = packed struct(u64) {
         nav_ty,
         type,
         func,
+        memoized_state,
     };
 
     pub const Unwrapped = union(Kind) {
@@ -399,6 +408,8 @@ pub const AnalUnit = packed struct(u64) {
         type: InternPool.Index,
         /// This `AnalUnit` analyzes the body of the given runtime function.
         func: InternPool.Index,
+        /// This `AnalUnit` resolves all state which is memoized in fields on `Zcu`.
+        memoized_state: MemoizedStateStage,
     };
 
     pub fn unwrap(au: AnalUnit) Unwrapped {
@@ -432,6 +443,16 @@ pub const AnalUnit = packed struct(u64) {
             };
         }
     };
+};
+
+pub const MemoizedStateStage = enum(u32) {
+    /// Everything other than panics and `VaList`.
+    main,
+    /// Everything within `std.builtin.Panic`.
+    /// Since the panic handler is user-provided, this must be able to reference the other memoized state.
+    panic,
+    /// Specifically `std.builtin.VaList`. See `Zcu.BuiltinDecl.stage`.
+    va_list,
 };
 
 pub const ComptimeUnit = extern struct {
@@ -769,6 +790,7 @@ pub const Dependee = union(enum) {
     interned: Index,
     namespace: TrackedInst.Index,
     namespace_name: NamespaceNameKey,
+    memoized_state: MemoizedStateStage,
 };
 
 pub fn removeDependenciesForDepender(ip: *InternPool, gpa: Allocator, depender: AnalUnit) void {
@@ -819,6 +841,11 @@ pub fn dependencyIterator(ip: *const InternPool, dependee: Dependee) DependencyI
         .interned => |x| ip.interned_deps.get(x),
         .namespace => |x| ip.namespace_deps.get(x),
         .namespace_name => |x| ip.namespace_name_deps.get(x),
+        .memoized_state => |stage| switch (stage) {
+            .main => ip.memoized_state_main_deps.unwrap(),
+            .panic => ip.memoized_state_panic_deps.unwrap(),
+            .va_list => ip.memoized_state_va_list_deps.unwrap(),
+        },
     } orelse return .{
         .ip = ip,
         .next_entry = .none,
@@ -848,6 +875,33 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: AnalUnit, depend
     // This block should allocate an entry and prepend it to the relevant `*_deps` list.
     // The `next` field should be correctly initialized; all other fields may be undefined.
     const new_index: DepEntry.Index = switch (dependee) {
+        .memoized_state => |stage| new_index: {
+            const deps = switch (stage) {
+                .main => &ip.memoized_state_main_deps,
+                .panic => &ip.memoized_state_panic_deps,
+                .va_list => &ip.memoized_state_va_list_deps,
+            };
+
+            if (deps.unwrap()) |first| {
+                if (ip.dep_entries.items[@intFromEnum(first)].depender == .none) {
+                    // Dummy entry, so we can reuse it rather than allocating a new one!
+                    break :new_index first;
+                }
+            }
+
+            // Prepend a new dependency.
+            const new_index: DepEntry.Index, const ptr = if (ip.free_dep_entries.popOrNull()) |new_index| new: {
+                break :new .{ new_index, &ip.dep_entries.items[@intFromEnum(new_index)] };
+            } else .{ @enumFromInt(ip.dep_entries.items.len), ip.dep_entries.addOneAssumeCapacity() };
+            if (deps.unwrap()) |old_first| {
+                ptr.next = old_first.toOptional();
+                ip.dep_entries.items[@intFromEnum(old_first)].prev = new_index.toOptional();
+            } else {
+                ptr.next = .none;
+            }
+            deps.* = new_index.toOptional();
+            break :new_index new_index;
+        },
         inline else => |dependee_payload, tag| new_index: {
             const gop = try switch (tag) {
                 .file => ip.file_deps,
@@ -857,6 +911,7 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: AnalUnit, depend
                 .interned => ip.interned_deps,
                 .namespace => ip.namespace_deps,
                 .namespace_name => ip.namespace_name_deps,
+                .memoized_state => comptime unreachable,
             }.getOrPut(gpa, dependee_payload);
 
             if (gop.found_existing and ip.dep_entries.items[@intFromEnum(gop.value_ptr.*)].depender == .none) {

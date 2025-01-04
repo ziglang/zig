@@ -217,14 +217,211 @@ all_type_references: std.ArrayListUnmanaged(TypeReference) = .empty,
 /// Freelist of indices in `all_type_references`.
 free_type_references: std.ArrayListUnmanaged(u32) = .empty,
 
-panic_messages: [PanicId.len]InternPool.Nav.Index.Optional = .{.none} ** PanicId.len,
-/// The panic function body.
-panic_func_index: InternPool.Index = .none,
+/// Populated by analysis of `AnalUnit.wrap(.{ .memoized_state = s })`, where `s` depends on the field.
+builtin_decl_values: BuiltinDecl.Memoized = .{},
+/// Populated by analysis of `AnalUnit.wrap(.{ .memoized_state = .panic })`.
 null_stack_trace: InternPool.Index = .none,
 
 generation: u32 = 0,
 
 pub const PerThread = @import("Zcu/PerThread.zig");
+
+/// Names of declarations in `std.builtin` whose values are memoized in a `BuiltinDecl.Memoized`.
+/// The name must exactly match the declaration name, as comptime logic is used to compute the namespace accesses.
+/// Parent namespaces must be before their children in this enum. For instance, `.Type` must be before `.@"Type.Fn"`.
+/// Additionally, parent namespaces must be resolved in the same stage as their children; see `BuiltinDecl.stage`.
+pub const BuiltinDecl = enum {
+    Signedness,
+    AddressSpace,
+    CallingConvention,
+    returnError,
+    StackTrace,
+    SourceLocation,
+    CallModifier,
+    AtomicOrder,
+    AtomicRmwOp,
+    ReduceOp,
+    FloatMode,
+    PrefetchOptions,
+    ExportOptions,
+    ExternOptions,
+    BranchHint,
+
+    Type,
+    @"Type.Fn",
+    @"Type.Fn.Param",
+    @"Type.Int",
+    @"Type.Float",
+    @"Type.Pointer",
+    @"Type.Pointer.Size",
+    @"Type.Array",
+    @"Type.Vector",
+    @"Type.Optional",
+    @"Type.Error",
+    @"Type.ErrorUnion",
+    @"Type.EnumField",
+    @"Type.Enum",
+    @"Type.Union",
+    @"Type.UnionField",
+    @"Type.Struct",
+    @"Type.StructField",
+    @"Type.ContainerLayout",
+    @"Type.Opaque",
+    @"Type.Declaration",
+
+    Panic,
+    @"Panic.call",
+    @"Panic.sentinelMismatch",
+    @"Panic.unwrapError",
+    @"Panic.outOfBounds",
+    @"Panic.startGreaterThanEnd",
+    @"Panic.inactiveUnionField",
+    @"Panic.messages",
+    @"Panic.messages.reached_unreachable",
+    @"Panic.messages.unwrap_null",
+    @"Panic.messages.cast_to_null",
+    @"Panic.messages.incorrect_alignment",
+    @"Panic.messages.invalid_error_code",
+    @"Panic.messages.cast_truncated_data",
+    @"Panic.messages.negative_to_unsigned",
+    @"Panic.messages.integer_overflow",
+    @"Panic.messages.shl_overflow",
+    @"Panic.messages.shr_overflow",
+    @"Panic.messages.divide_by_zero",
+    @"Panic.messages.exact_division_remainder",
+    @"Panic.messages.integer_part_out_of_bounds",
+    @"Panic.messages.corrupt_switch",
+    @"Panic.messages.shift_rhs_too_big",
+    @"Panic.messages.invalid_enum_value",
+    @"Panic.messages.for_len_mismatch",
+    @"Panic.messages.memcpy_len_mismatch",
+    @"Panic.messages.memcpy_alias",
+    @"Panic.messages.noreturn_returned",
+
+    VaList,
+
+    /// Determines what kind of validation will be done to the decl's value.
+    pub fn kind(decl: BuiltinDecl) enum { type, func, string } {
+        return switch (decl) {
+            .returnError => .func,
+
+            .StackTrace,
+            .CallingConvention,
+            .SourceLocation,
+            .Signedness,
+            .AddressSpace,
+            .VaList,
+            .CallModifier,
+            .AtomicOrder,
+            .AtomicRmwOp,
+            .ReduceOp,
+            .FloatMode,
+            .PrefetchOptions,
+            .ExportOptions,
+            .ExternOptions,
+            .BranchHint,
+            => .type,
+
+            .Type,
+            .@"Type.Fn",
+            .@"Type.Fn.Param",
+            .@"Type.Int",
+            .@"Type.Float",
+            .@"Type.Pointer",
+            .@"Type.Pointer.Size",
+            .@"Type.Array",
+            .@"Type.Vector",
+            .@"Type.Optional",
+            .@"Type.Error",
+            .@"Type.ErrorUnion",
+            .@"Type.EnumField",
+            .@"Type.Enum",
+            .@"Type.Union",
+            .@"Type.UnionField",
+            .@"Type.Struct",
+            .@"Type.StructField",
+            .@"Type.ContainerLayout",
+            .@"Type.Opaque",
+            .@"Type.Declaration",
+            => .type,
+
+            .Panic => .type,
+
+            .@"Panic.call",
+            .@"Panic.sentinelMismatch",
+            .@"Panic.unwrapError",
+            .@"Panic.outOfBounds",
+            .@"Panic.startGreaterThanEnd",
+            .@"Panic.inactiveUnionField",
+            => .func,
+
+            .@"Panic.messages" => .type,
+
+            .@"Panic.messages.reached_unreachable",
+            .@"Panic.messages.unwrap_null",
+            .@"Panic.messages.cast_to_null",
+            .@"Panic.messages.incorrect_alignment",
+            .@"Panic.messages.invalid_error_code",
+            .@"Panic.messages.cast_truncated_data",
+            .@"Panic.messages.negative_to_unsigned",
+            .@"Panic.messages.integer_overflow",
+            .@"Panic.messages.shl_overflow",
+            .@"Panic.messages.shr_overflow",
+            .@"Panic.messages.divide_by_zero",
+            .@"Panic.messages.exact_division_remainder",
+            .@"Panic.messages.integer_part_out_of_bounds",
+            .@"Panic.messages.corrupt_switch",
+            .@"Panic.messages.shift_rhs_too_big",
+            .@"Panic.messages.invalid_enum_value",
+            .@"Panic.messages.for_len_mismatch",
+            .@"Panic.messages.memcpy_len_mismatch",
+            .@"Panic.messages.memcpy_alias",
+            .@"Panic.messages.noreturn_returned",
+            => .string,
+        };
+    }
+
+    /// Resolution of these values is done in three distinct stages:
+    /// * Resolution of `std.builtin.Panic` and everything under it
+    /// * Resolution of `VaList`
+    /// * Everything else
+    ///
+    /// Panics are separated because they are provided by the user, so must be able to use
+    /// things like reification.
+    ///
+    /// `VaList` is separate because its value depends on the target, so it needs some reflection
+    /// machinery to work; additionally, it is `@compileError` on some targets, so must be referenced
+    /// by itself.
+    pub fn stage(decl: BuiltinDecl) InternPool.MemoizedStateStage {
+        if (decl == .VaList) return .va_list;
+
+        if (@intFromEnum(decl) <= @intFromEnum(BuiltinDecl.@"Type.Declaration")) {
+            return .main;
+        } else {
+            return .panic;
+        }
+    }
+
+    /// Based on the tag name, determines how to access this decl; either as a direct child of the
+    /// `std.builtin` namespace, or as a child of some preceding `BuiltinDecl` value.
+    pub fn access(decl: BuiltinDecl) union(enum) {
+        direct: []const u8,
+        nested: struct { BuiltinDecl, []const u8 },
+    } {
+        @setEvalBranchQuota(2000);
+        return switch (decl) {
+            inline else => |tag| {
+                const name = @tagName(tag);
+                const split = (comptime std.mem.lastIndexOfScalar(u8, name, '.')) orelse return .{ .direct = name };
+                const parent = @field(BuiltinDecl, name[0..split]);
+                comptime assert(@intFromEnum(parent) < @intFromEnum(tag)); // dependencies ordered correctly
+                return .{ .nested = .{ parent, name[split + 1 ..] } };
+            },
+        };
+    }
+
+    const Memoized = std.enums.EnumFieldStruct(BuiltinDecl, InternPool.Index, .none);
+};
 
 pub const PanicId = enum {
     reached_unreachable,
@@ -247,8 +444,6 @@ pub const PanicId = enum {
     memcpy_len_mismatch,
     memcpy_alias,
     noreturn_returned,
-
-    pub const len = @typeInfo(PanicId).@"enum".fields.len;
 };
 
 pub const GlobalErrorSet = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void);
@@ -2454,6 +2649,7 @@ pub fn markPoDependeeUpToDate(zcu: *Zcu, dependee: InternPool.Dependee) !void {
             .nav_ty => |nav| try zcu.markPoDependeeUpToDate(.{ .nav_ty = nav }),
             .type => |ty| try zcu.markPoDependeeUpToDate(.{ .interned = ty }),
             .func => |func| try zcu.markPoDependeeUpToDate(.{ .interned = func }),
+            .memoized_state => |stage| try zcu.markPoDependeeUpToDate(.{ .memoized_state = stage }),
         }
     }
 }
@@ -2468,6 +2664,7 @@ fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: AnalUni
         .nav_ty => |nav| .{ .nav_ty = nav },
         .type => |ty| .{ .interned = ty },
         .func => |func_index| .{ .interned = func_index }, // IES
+        .memoized_state => |stage| .{ .memoized_state = stage },
     };
     log.debug("potentially outdated dependee: {}", .{zcu.fmtDependee(dependee)});
     var it = ip.dependencyIterator(dependee);
@@ -2553,6 +2750,12 @@ pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
                 .type => |ty| .{ .interned = ty },
                 .nav_val => |nav| .{ .nav_val = nav },
                 .nav_ty => |nav| .{ .nav_ty = nav },
+                .memoized_state => {
+                    // If we've hit a loop and some `.memoized_state` is outdated, we should make that choice eagerly.
+                    // In general, it's good to resolve this early on, since -- for instance -- almost every function
+                    // references the panic handler.
+                    return unit;
+                },
             });
             while (it.next()) |_| n += 1;
 
@@ -3462,7 +3665,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 const other: AnalUnit = .wrap(switch (unit.unwrap()) {
                     .nav_val => |n| .{ .nav_ty = n },
                     .nav_ty => |n| .{ .nav_val = n },
-                    .@"comptime", .type, .func => break :queue_paired,
+                    .@"comptime", .type, .func, .memoized_state => break :queue_paired,
                 });
                 if (result.contains(other)) break :queue_paired;
                 try unit_queue.put(gpa, other, kv.value); // same reference location
@@ -3597,6 +3800,7 @@ fn formatAnalUnit(data: struct { unit: AnalUnit, zcu: *Zcu }, comptime fmt: []co
             const nav = zcu.funcInfo(func).owner_nav;
             return writer.print("func('{}' [{}])", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(func) });
         },
+        .memoized_state => return writer.writeAll("memoized_state"),
     }
 }
 fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
@@ -3642,6 +3846,7 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
             const file_path = zcu.fileByIndex(info.file).sub_file_path;
             return writer.print("namespace('{s}', %{d}, '{}')", .{ file_path, @intFromEnum(info.inst), k.name.fmt(ip) });
         },
+        .memoized_state => return writer.writeAll("memoized_state"),
     }
 }
 
