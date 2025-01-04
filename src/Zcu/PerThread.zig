@@ -545,10 +545,19 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
 pub fn ensureFileAnalyzed(pt: Zcu.PerThread, file_index: Zcu.File.Index) Zcu.SemaError!void {
     const file_root_type = pt.zcu.fileRootType(file_index);
     if (file_root_type != .none) {
-        _ = try pt.ensureTypeUpToDate(file_root_type);
-    } else {
-        return pt.semaFile(file_index);
+        if (pt.ensureTypeUpToDate(file_root_type)) |_| {
+            return;
+        } else |err| switch (err) {
+            error.AnalysisFail => {
+                // The file's root `struct_decl` has, at some point, been lost, because the file failed AstGen.
+                // Clear `file_root_type`, and try the `semaFile` call below, in case the instruction has since
+                // been discovered under a new `TrackedInst.Index`.
+                pt.zcu.setFileRootType(file_index, .none);
+            },
+            else => |e| return e,
+        }
     }
+    return pt.semaFile(file_index);
 }
 
 /// Ensures that the state of the given `ComptimeUnit` is fully up-to-date, performing re-analysis
