@@ -1798,7 +1798,7 @@ fn parseInt(
         .int_literal => |int| switch (int) {
             .small => |val| return std.math.cast(T, val) orelse
                 self.failCannotRepresent(T, node),
-            .big => |val| return val.to(T) catch
+            .big => |val| return val.toInt(T) catch
                 self.failCannotRepresent(T, node),
         },
         .float_literal => |val| return intFromFloatExact(T, val) orelse
@@ -1818,21 +1818,7 @@ fn parseFloat(
     switch (node.get(self.zoir)) {
         .int_literal => |int| switch (int) {
             .small => |val| return @floatFromInt(val),
-            .big => {
-                const main_tokens = self.ast.nodes.items(.main_token);
-                const tags = self.ast.nodes.items(.tag);
-                const data = self.ast.nodes.items(.data);
-                const ast_node = node.getAstNode(self.zoir);
-                const negative = tags[ast_node] == .negation;
-                const num_lit_node = if (negative) data[ast_node].lhs else ast_node;
-                const token = main_tokens[num_lit_node];
-                const bytes = self.ast.tokenSlice(token);
-                const unsigned = std.fmt.parseFloat(T, bytes) catch {
-                    // Bytes already validated by big int parser
-                    unreachable;
-                };
-                return if (negative) -unsigned else unsigned;
-            },
+            .big => |val| return val.toFloat(T),
         },
         .float_literal => |val| return @floatCast(val),
         .pos_inf => return std.math.inf(T),

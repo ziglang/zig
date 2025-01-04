@@ -390,31 +390,17 @@ fn lowerFloat(
                     else => unreachable,
                 },
             } }),
-            .big => {
-                const main_tokens = self.file.tree.nodes.items(.main_token);
-                const tags = self.file.tree.nodes.items(.tag);
-                const data = self.file.tree.nodes.items(.data);
-                const ast_node = node.getAstNode(self.file.zoir.?);
-                const negative = tags[ast_node] == .negation;
-                const num_lit_node = if (negative) data[ast_node].lhs else ast_node;
-                const token = main_tokens[num_lit_node];
-                const bytes = self.file.tree.tokenSlice(token);
-                const val = std.fmt.parseFloat(f128, bytes) catch {
-                    // Bytes already validated by big int parser
-                    unreachable;
-                };
-                return self.sema.pt.intern(.{ .float = .{
-                    .ty = res_ty.toIntern(),
-                    .storage = switch (res_ty.toIntern()) {
-                        .f16_type => .{ .f16 = @floatCast(val) },
-                        .f32_type => .{ .f32 = @floatCast(val) },
-                        .f64_type => .{ .f64 = @floatCast(val) },
-                        .f80_type => .{ .f80 = @floatCast(val) },
-                        .f128_type, .comptime_float_type => .{ .f128 = val },
-                        else => unreachable,
-                    },
-                } });
-            },
+            .big => |val| return self.sema.pt.intern(.{ .float = .{
+                .ty = res_ty.toIntern(),
+                .storage = switch (res_ty.toIntern()) {
+                    .f16_type => .{ .f16 = val.toFloat(f16) },
+                    .f32_type => .{ .f32 = val.toFloat(f32) },
+                    .f64_type => .{ .f64 = val.toFloat(f64) },
+                    .f80_type => .{ .f80 = val.toFloat(f80) },
+                    .f128_type, .comptime_float_type => .{ .f128 = val.toFloat(f128) },
+                    else => unreachable,
+                },
+            } }),
         },
         .float_literal => |val| return self.sema.pt.intern(.{ .float = .{
             .ty = res_ty.toIntern(),
