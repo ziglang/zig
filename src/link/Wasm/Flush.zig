@@ -32,6 +32,7 @@ binary_bytes: std.ArrayListUnmanaged(u8) = .empty,
 missing_exports: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
 function_imports: std.AutoArrayHashMapUnmanaged(String, Wasm.FunctionImportId) = .empty,
 global_imports: std.AutoArrayHashMapUnmanaged(String, Wasm.GlobalImportId) = .empty,
+data_imports: std.AutoArrayHashMapUnmanaged(String, Wasm.DataImportId) = .empty,
 
 /// For debug purposes only.
 memory_layout_finished: bool = false,
@@ -50,6 +51,7 @@ pub fn deinit(f: *Flush, gpa: Allocator) void {
     f.missing_exports.deinit(gpa);
     f.function_imports.deinit(gpa);
     f.global_imports.deinit(gpa);
+    f.data_imports.deinit(gpa);
     f.* = undefined;
 }
 
@@ -108,7 +110,9 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                     .global_index = Wasm.GlobalIndex.fromIpNav(wasm, nav_export.nav_index).?,
                 });
                 _ = f.missing_exports.swapRemove(nav_export.name);
-                _ = f.global_imports.swapRemove(nav_export.name);
+                _ = f.data_imports.swapRemove(nav_export.name);
+                // `f.global_imports` is ignored because Zcu has no way to
+                // export wasm globals.
             }
         }
 
@@ -139,6 +143,10 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             const src_loc = table_import_id.value(wasm).source_location;
             src_loc.addError(wasm, "undefined table: {s}", .{name.slice(wasm)});
         }
+        for (f.data_imports.keys(), f.data_imports.values()) |name, data_import_id| {
+            const src_loc = data_import_id.sourceLocation(wasm);
+            src_loc.addError(wasm, "undefined data: {s}", .{name.slice(wasm)});
+        }
     }
 
     if (diags.hasErrors()) return error.LinkFailure;
@@ -151,11 +159,9 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         try wasm.functions.put(gpa, .__wasm_call_ctors, {});
     }
 
-    var any_passive_inits = false;
-
     // Merge and order the data segments. Depends on garbage collection so that
     // unused segments can be omitted.
-    try f.data_segments.ensureUnusedCapacity(gpa, wasm.object_data_segments.items.len +
+    try f.data_segments.ensureUnusedCapacity(gpa, wasm.data_segments.entries.len +
         wasm.uavs_obj.entries.len + wasm.navs_obj.entries.len +
         wasm.uavs_exe.entries.len + wasm.navs_exe.entries.len + 2);
     if (is_obj) assert(wasm.uavs_exe.entries.len == 0);
@@ -174,18 +180,11 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     for (0..wasm.navs_exe.entries.len) |navs_index| f.data_segments.putAssumeCapacityNoClobber(.pack(wasm, .{
         .nav_exe = @enumFromInt(navs_index),
     }), @as(u32, undefined));
-    for (wasm.object_data_segments.items, 0..) |*ds, i| {
-        if (!ds.flags.alive) continue;
-        const obj_seg_index: Wasm.ObjectDataSegment.Index = @enumFromInt(i);
-        any_passive_inits = any_passive_inits or ds.flags.is_passive or (import_memory and !wasm.isBss(ds.name));
-        _ = f.data_segments.putAssumeCapacityNoClobber(.pack(wasm, .{
-            .object = obj_seg_index,
-        }), @as(u32, undefined));
-    }
     if (wasm.error_name_table_ref_count > 0) {
         f.data_segments.putAssumeCapacity(.__zig_error_names, @as(u32, undefined));
         f.data_segments.putAssumeCapacity(.__zig_error_name_table, @as(u32, undefined));
     }
+    for (wasm.data_segments.keys()) |data_id| f.data_segments.putAssumeCapacity(data_id, @as(u32, undefined));
 
     try wasm.functions.ensureUnusedCapacity(gpa, 3);
 
@@ -194,7 +193,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     // dropped in __wasm_init_memory, which is registered as the start function
     // We also initialize bss segments (using memory.fill) as part of this
     // function.
-    if (any_passive_inits) {
+    if (wasm.any_passive_inits) {
         wasm.functions.putAssumeCapacity(.__wasm_init_memory, {});
     }
 
@@ -349,7 +348,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         if (category != .zero) try f.data_segment_groups.append(gpa, @intCast(memory_ptr));
     }
 
-    if (shared_memory and any_passive_inits) {
+    if (shared_memory and wasm.any_passive_inits) {
         memory_ptr = pointer_alignment.forward(memory_ptr);
         virtual_addrs.init_memory_flag = @intCast(memory_ptr);
         memory_ptr += 4;
@@ -774,6 +773,8 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             const code_start = binary_bytes.items.len;
             append: {
                 const code = switch (segment_id.unpack(wasm)) {
+                    .__heap_base => @panic("TODO"),
+                    .__heap_end => @panic("TODO"),
                     .__zig_error_names => {
                         try binary_bytes.appendSlice(gpa, wasm.error_name_bytes.items);
                         break :append;

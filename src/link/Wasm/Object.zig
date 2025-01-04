@@ -26,14 +26,16 @@ start_function: Wasm.OptionalObjectFunctionIndex,
 /// (or therefore missing) and must generate an error when another object uses
 /// features that are not supported by the other.
 features: Wasm.Feature.Set,
-/// Points into Wasm object_functions
+/// Points into `Wasm.object_functions`
 functions: RelativeSlice,
-/// Points into Wasm object_function_imports
+/// Points into `Wasm.object_function_imports`
 function_imports: RelativeSlice,
-/// Points into Wasm object_global_imports
+/// Points into `Wasm.object_global_imports`
 global_imports: RelativeSlice,
-/// Points into Wasm object_table_imports
+/// Points into `Wasm.object_table_imports`
 table_imports: RelativeSlice,
+// Points into `Wasm.object_data_imports`
+data_imports: RelativeSlice,
 /// Points into Wasm object_custom_segments
 custom_segments: RelativeSlice,
 /// Points into Wasm object_init_funcs
@@ -280,6 +282,7 @@ pub fn parse(
     const function_imports_start: u32 = @intCast(wasm.object_function_imports.entries.len);
     const global_imports_start: u32 = @intCast(wasm.object_global_imports.entries.len);
     const table_imports_start: u32 = @intCast(wasm.object_table_imports.entries.len);
+    const data_imports_start: u32 = @intCast(wasm.object_data_imports.entries.len);
     const local_section_index_base = wasm.object_total_sections;
     const object_index: Wasm.ObjectIndex = @enumFromInt(wasm.objects.items.len);
     const source_location: Wasm.SourceLocation = .fromObject(object_index, wasm);
@@ -1087,6 +1090,19 @@ pub fn parse(
                 gop.value_ptr.flags.ref_type = .from(ptr.ref_type);
             }
         },
+        .data_import => {
+            const name = symbol.name.unwrap().?;
+            if (symbol.flags.binding == .local) {
+                diags.addParseError(path, "local symbol '{s}' references import", .{name.slice(wasm)});
+                continue;
+            }
+            const gop = try wasm.object_data_imports.getOrPut(gpa, name);
+            if (!gop.found_existing) gop.value_ptr.* = .{
+                .flags = symbol.flags,
+                .source_location = source_location,
+                .resolution = .unresolved,
+            };
+        },
         .function => |index| {
             assert(!symbol.flags.undefined);
             const ptr = index.ptr(wasm);
@@ -1134,12 +1150,13 @@ pub fn parse(
             }
         },
         .global => |index| {
+            assert(!symbol.flags.undefined);
             const ptr = index.ptr(wasm);
             ptr.name = symbol.name;
             ptr.flags = symbol.flags;
             if (symbol.flags.binding == .local) continue; // No participation in symbol resolution.
-            const new_ty = ptr.type();
             const name = symbol.name.unwrap().?;
+            const new_ty = ptr.type();
             const gop = try wasm.object_global_imports.getOrPut(gpa, name);
             if (gop.found_existing) {
                 const existing_ty = gop.value_ptr.type();
@@ -1192,12 +1209,42 @@ pub fn parse(
             }
         },
         .table => |i| {
+            assert(!symbol.flags.undefined);
             const ptr = i.ptr(wasm);
             ptr.name = symbol.name;
             ptr.flags = symbol.flags;
-            if (symbol.flags.undefined and symbol.flags.binding == .local) {
-                const name = ptr.name.slice(wasm).?;
-                diags.addParseError(path, "local symbol '{s}' references import", .{name});
+        },
+        .data => |index| {
+            assert(!symbol.flags.undefined);
+            const ptr = index.ptr(wasm);
+            const name = ptr.name;
+            assert(name.toOptional() == symbol.name);
+            ptr.flags = symbol.flags;
+            if (symbol.flags.binding == .local) continue; // No participation in symbol resolution.
+            const gop = try wasm.object_data_imports.getOrPut(gpa, name);
+            if (gop.found_existing) {
+                if (gop.value_ptr.resolution == .unresolved or gop.value_ptr.flags.binding == .weak) {
+                    // Intentional: if they're both weak, take the last one.
+                    gop.value_ptr.source_location = source_location;
+                    gop.value_ptr.resolution = .fromObjectDataIndex(wasm, index);
+                    gop.value_ptr.flags = symbol.flags;
+                    continue;
+                }
+                if (ptr.flags.binding == .weak) {
+                    // Keep the existing one.
+                    continue;
+                }
+                var err = try diags.addErrorWithNotes(2);
+                try err.addMsg("symbol collision: {s}", .{name.slice(wasm)});
+                gop.value_ptr.source_location.addNote(&err, "exported here", .{});
+                source_location.addNote(&err, "exported here", .{});
+                continue;
+            } else {
+                gop.value_ptr.* = .{
+                    .flags = symbol.flags,
+                    .source_location = source_location,
+                    .resolution = .unresolved,
+                };
             }
         },
         .section => |i| {
@@ -1210,13 +1257,6 @@ pub fn parse(
                 diags.addParseError(path, "local symbol '{s}' references import", .{name});
             }
         },
-        .data_import => {
-            if (symbol.flags.undefined and symbol.flags.binding == .local) {
-                const name = symbol.name.slice(wasm).?;
-                diags.addParseError(path, "local symbol '{s}' references import", .{name});
-            }
-        },
-        .data => continue, // `wasm.object_datas` has already been populated.
     };
 
     // Apply export section info. This is done after the symbol table above so
@@ -1316,6 +1356,10 @@ pub fn parse(
         .table_imports = .{
             .off = table_imports_start,
             .len = @intCast(wasm.object_table_imports.entries.len - table_imports_start),
+        },
+        .data_imports = .{
+            .off = data_imports_start,
+            .len = @intCast(wasm.object_data_imports.entries.len - data_imports_start),
         },
         .init_funcs = .{
             .off = init_funcs_start,
