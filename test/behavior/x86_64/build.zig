@@ -88,6 +88,7 @@ pub fn build(b: *std.Build) void {
         const cpu = query.serializeCpuAlloc(b.allocator) catch @panic("OOM");
         for ([_][]const u8{
             "math.zig",
+            "mem.zig",
         }) |path| {
             const test_mod = b.createModule(.{
                 .root_source_file = b.path(path),

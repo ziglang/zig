@@ -2492,8 +2492,6 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .atomic_store_seq_cst   => try cg.airAtomicStore(inst, .seq_cst),
 
             .array_elem_val      => try cg.airArrayElemVal(inst),
-            .slice_elem_val      => try cg.airSliceElemVal(inst),
-            .ptr_elem_val        => try cg.airPtrElemVal(inst),
 
             .optional_payload           => try cg.airOptionalPayload(inst),
             .unwrap_errunion_err        => try cg.airUnwrapErrUnionErr(inst),
@@ -3995,7 +3993,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 var slot = try cg.tempFromValue(cg.typeOfIndex(inst), .{ .load_frame = .{
                     .index = .ret_addr,
                 } });
-                while (try slot.toAnyReg(cg)) {}
+                while (try slot.toRegClass(true, .general_purpose, cg)) {}
                 try slot.moveTo(inst, cg);
             },
             .frame_addr => if (use_old) try cg.airFrameAddress(inst) else {
@@ -9445,7 +9443,111 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 try ops[0].toOffset(0, cg);
                 try ops[0].moveTo(inst, cg);
             },
-            .slice_elem_ptr, .ptr_elem_ptr => |tag| if (use_old) switch (tag) {
+            .slice_elem_val, .ptr_elem_val => |air_tag| if (use_old) switch (air_tag) {
+                else => unreachable,
+                .slice_elem_val => try cg.airSliceElemVal(inst),
+                .ptr_elem_val => try cg.airPtrElemVal(inst),
+            } else {
+                const bin_op = air_datas[@intFromEnum(inst)].bin_op;
+                var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
+                switch (air_tag) {
+                    else => unreachable,
+                    .slice_elem_val => try ops[0].toLimb(0, cg),
+                    .ptr_elem_val => {},
+                }
+                var res: [1]Temp = undefined;
+                const res_ty = cg.typeOfIndex(inst);
+                cg.select(&res, &.{res_ty}, &ops, comptime &.{ .{
+                    .dst_constraints = .{.{ .int = .byte }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_gpr, .simm32 } },
+                        .{ .src = .{ .to_gpr, .to_gpr } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .movzx, .dst0d, .leai(.byte, .src0, .src1), ._, ._ },
+                    } },
+                }, .{
+                    .dst_constraints = .{.{ .int = .word }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_gpr, .simm32 } },
+                        .{ .src = .{ .to_gpr, .to_gpr } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .movzx, .dst0d, .leasi(.word, .src0, .@"2", .src1), ._, ._ },
+                    } },
+                }, .{
+                    .dst_constraints = .{.{ .int = .dword }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_gpr, .simm32 } },
+                        .{ .src = .{ .to_gpr, .to_gpr } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .mov, .dst0d, .leasi(.dword, .src0, .@"4", .src1), ._, ._ },
+                    } },
+                }, .{
+                    .required_features = .{ .@"64bit", null, null, null },
+                    .dst_constraints = .{.{ .int = .qword }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_gpr, .simm32 } },
+                        .{ .src = .{ .to_gpr, .to_gpr } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .mov, .dst0q, .leasi(.qword, .src0, .@"8", .src1), ._, ._ },
+                    } },
+                } }) catch |err| switch (err) {
+                    error.SelectFailed => switch (res_ty.abiSize(zcu)) {
+                        0 => res[0] = try cg.tempFromValue(res_ty, .none),
+                        else => |elem_size| {
+                            while (true) for (&ops) |*op| {
+                                if (try op.toRegClass(true, .general_purpose, cg)) break;
+                            } else break;
+                            const lhs_reg = ops[0].unwrap(cg).temp.tracking(cg).short.register.to64();
+                            const rhs_reg = ops[1].unwrap(cg).temp.tracking(cg).short.register.to64();
+                            if (!std.math.isPowerOfTwo(elem_size)) {
+                                try cg.spillEflagsIfOccupied();
+                                try cg.asmRegisterRegisterImmediate(
+                                    .{ .i_, .mul },
+                                    rhs_reg,
+                                    rhs_reg,
+                                    .u(elem_size),
+                                );
+                                try cg.asmRegisterMemory(.{ ._, .lea }, lhs_reg, .{
+                                    .base = .{ .reg = lhs_reg },
+                                    .mod = .{ .rm = .{ .size = .qword, .index = rhs_reg } },
+                                });
+                            } else if (elem_size > 8) {
+                                try cg.spillEflagsIfOccupied();
+                                try cg.asmRegisterImmediate(
+                                    .{ ._l, .sh },
+                                    rhs_reg,
+                                    .u(std.math.log2_int(u64, elem_size)),
+                                );
+                                try cg.asmRegisterMemory(.{ ._, .lea }, lhs_reg, .{
+                                    .base = .{ .reg = lhs_reg },
+                                    .mod = .{ .rm = .{ .size = .qword, .index = rhs_reg } },
+                                });
+                            } else try cg.asmRegisterMemory(.{ ._, .lea }, lhs_reg, .{
+                                .base = .{ .reg = lhs_reg },
+                                .mod = .{ .rm = .{
+                                    .size = .qword,
+                                    .index = rhs_reg,
+                                    .scale = .fromFactor(@intCast(elem_size)),
+                                } },
+                            });
+                            res[0] = try ops[0].load(res_ty, cg);
+                        },
+                    },
+                    else => |e| return e,
+                };
+                if (ops[0].index != res[0].index) try ops[0].die(cg);
+                if (ops[1].index != res[0].index) try ops[1].die(cg);
+                try res[0].moveTo(inst, cg);
+            },
+            .slice_elem_ptr, .ptr_elem_ptr => |air_tag| if (use_old) switch (air_tag) {
                 else => unreachable,
                 .slice_elem_ptr => try cg.airSliceElemPtr(inst),
                 .ptr_elem_ptr => try cg.airPtrElemPtr(inst),
@@ -9453,7 +9555,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
                 const bin_op = cg.air.extraData(Air.Bin, ty_pl.payload).data;
                 var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
-                switch (tag) {
+                switch (air_tag) {
                     else => unreachable,
                     .slice_elem_ptr => try ops[0].toLimb(0, cg),
                     .ptr_elem_ptr => {},
@@ -9463,7 +9565,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     const elem_size = dst_ty.childType(zcu).abiSize(zcu);
                     if (elem_size == 0) break :zero_offset;
                     while (true) for (&ops) |*op| {
-                        if (try op.toAnyReg(cg)) break;
+                        if (try op.toRegClass(true, .general_purpose, cg)) break;
                     } else break;
                     const lhs_reg = ops[0].unwrap(cg).temp.tracking(cg).short.register.to64();
                     const rhs_reg = ops[1].unwrap(cg).temp.tracking(cg).short.register.to64();
@@ -27718,28 +27820,8 @@ const Temp = struct {
             },
         };
         const new_temp_index = cg.next_temp_index;
+        try cg.register_manager.getReg(new_reg, new_temp_index.toIndex());
         cg.temp_type[@intFromEnum(new_temp_index)] = ty;
-        try cg.genSetReg(new_reg, ty, val, .{});
-        new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
-        try temp.die(cg);
-        cg.next_temp_index = @enumFromInt(@intFromEnum(new_temp_index) + 1);
-        temp.* = .{ .index = new_temp_index.toIndex() };
-        return true;
-    }
-
-    fn toAnyReg(temp: *Temp, cg: *CodeGen) !bool {
-        const val, const ty = switch (temp.unwrap(cg)) {
-            .ref => |ref| .{ temp.tracking(cg).short, cg.typeOf(ref) },
-            .temp => |temp_index| val: {
-                const temp_tracking = temp_index.tracking(cg);
-                if (temp_tracking.short == .register) return false;
-                break :val .{ temp_tracking.short, temp_index.typeOf(cg) };
-            },
-        };
-        const new_temp_index = cg.next_temp_index;
-        cg.temp_type[@intFromEnum(new_temp_index)] = ty;
-        const new_reg =
-            try cg.register_manager.allocReg(new_temp_index.toIndex(), cg.regSetForType(ty));
         try cg.genSetReg(new_reg, ty, val, .{});
         new_temp_index.tracking(cg).* = .init(.{ .register = new_reg });
         try temp.die(cg);
@@ -27769,7 +27851,7 @@ const Temp = struct {
 
     fn toPair(first_temp: *Temp, second_temp: *Temp, cg: *CodeGen) !void {
         while (true) for ([_]*Temp{ first_temp, second_temp }) |part_temp| {
-            if (try part_temp.toAnyReg(cg)) break;
+            if (try part_temp.toRegClass(true, .general_purpose, cg)) break;
         } else break;
         const first_temp_tracking = first_temp.unwrap(cg).temp.tracking(cg);
         const second_temp_tracking = second_temp.unwrap(cg).temp.tracking(cg);
@@ -27824,12 +27906,12 @@ const Temp = struct {
             .load_got,
             .load_tlv,
             .load_frame,
-            => return temp.toAnyReg(cg),
+            => return temp.toRegClass(true, .general_purpose, cg),
             .lea_symbol => |sym_off| {
                 const off = sym_off.off;
                 if (off == 0) return false;
                 try temp.toOffset(-off, cg);
-                while (try temp.toAnyReg(cg)) {}
+                while (try temp.toRegClass(true, .general_purpose, cg)) {}
                 try temp.toOffset(off, cg);
                 return true;
             },
@@ -27868,24 +27950,16 @@ const Temp = struct {
     }
 
     fn load(ptr: *Temp, val_ty: Type, cg: *CodeGen) !Temp {
-        const val_abi_size: u32 = @intCast(val_ty.abiSize(cg.pt.zcu));
         const val = try cg.tempAlloc(val_ty);
         switch (val.tracking(cg).short) {
             else => |mcv| std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
             .register => |val_reg| {
                 while (try ptr.toLea(cg)) {}
-                switch (val_reg.class()) {
-                    .general_purpose => try cg.asmRegisterMemory(
-                        .{ ._, .mov },
-                        registerAlias(val_reg, val_abi_size),
-                        try ptr.tracking(cg).short.deref().mem(cg, .{ .size = cg.memSize(val_ty) }),
-                    ),
-                    else => |mcv| std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
-                }
+                try cg.genSetReg(val_reg, val_ty, ptr.tracking(cg).short.deref(), .{});
             },
             .load_frame => |val_frame_addr| {
                 var val_ptr = try cg.tempFromValue(.usize, .{ .lea_frame = val_frame_addr });
-                var len = try cg.tempFromValue(.usize, .{ .immediate = val_abi_size });
+                var len = try cg.tempFromValue(.usize, .{ .immediate = val_ty.abiSize(cg.pt.zcu) });
                 try val_ptr.memcpy(ptr, &len, cg);
                 try val_ptr.die(cg);
                 try len.die(cg);
@@ -27908,7 +27982,7 @@ const Temp = struct {
                 );
             } else continue :val .{ .register = undefined },
             .register => {
-                while (try ptr.toLea(cg) or try val.toAnyReg(cg)) {}
+                while (try ptr.toLea(cg) or try val.toRegClass(true, .general_purpose, cg)) {}
                 const val_reg = val.tracking(cg).short.register;
                 switch (val_reg.class()) {
                     .general_purpose => try cg.asmMemoryRegister(
@@ -28224,6 +28298,7 @@ const Select = struct {
         any_int,
         any_signed_int,
         any_float,
+        po2_any,
         bool_vec: Memory.Size,
         vec: Memory.Size,
         signed_int_vec: Memory.Size,
@@ -28250,15 +28325,17 @@ const Select = struct {
         unsigned_or_exact_remainder_int: struct { of: Memory.Size, is: Memory.Size },
         signed_int: Memory.Size,
         unsigned_int: Memory.Size,
+        elem_int: Memory.Size,
 
         fn accepts(constraint: Constraint, ty: Type, cg: *CodeGen) bool {
             const zcu = cg.pt.zcu;
             switch (constraint) {
                 .any => return true,
-                .any_bool_vec => return ty.isVector(zcu) and ty.scalarType(zcu).toIntern() == .bool_type,
+                .any_bool_vec => return ty.isVector(zcu) and ty.childType(zcu).toIntern() == .bool_type,
                 .any_int => return ty.toIntern() == .bool_type or ty.isPtrAtRuntime(zcu) or ty.isAbiInt(zcu),
                 .any_signed_int => return ty.isAbiInt(zcu) and ty.intInfo(zcu).signedness == .signed,
-                .any_float => return ty.scalarType(zcu).isRuntimeFloat(),
+                .any_float => return ty.isRuntimeFloat(),
+                .po2_any => return std.math.isPowerOfTwo(ty.abiSize(zcu)),
                 .bool_vec => |size| return ty.isVector(zcu) and ty.scalarType(zcu).toIntern() == .bool_type and
                     size.bitSize(cg.target) >= ty.vectorLen(zcu),
                 .vec => |size| return ty.isVector(zcu) and ty.scalarType(zcu).toIntern() != .bool_type and
@@ -28433,6 +28510,12 @@ const Select = struct {
                     if (!ty.isAbiInt(zcu)) return false;
                     const int_info = ty.intInfo(zcu);
                     return int_info.signedness == .unsigned and size.bitSize(cg.target) >= int_info.bits;
+                },
+                .elem_int => |size| {
+                    const elem_ty = ty.childType(zcu);
+                    if (elem_ty.toIntern() == .bool_type) return true;
+                    if (elem_ty.isPtrAtRuntime(zcu)) return size.bitSize(cg.target) >= cg.target.ptrBitWidth();
+                    return elem_ty.isAbiInt(zcu) and size.bitSize(cg.target) >= elem_ty.intInfo(zcu).bits;
                 },
             }
         }
@@ -29107,7 +29190,14 @@ const Select = struct {
             const UnsignedImm = @Type(.{
                 .int = .{ .signedness = .unsigned, .bits = @typeInfo(SignedImm).int.bits },
             });
-            return op.imm + @as(i5, op.adjust.factor) * op.adjust.scale.toFactor() * @as(SignedImm, switch (op.adjust.amount) {
+            return switch (op.index.ref) {
+                else => |ref| switch (ref.deref(s).tracking(s.cg).short) {
+                    else => unreachable,
+                    .immediate => |imm| op.index.scale.toFactor() * @as(i32, @intCast(imm)),
+                    .register => 0,
+                },
+                .none => 0,
+            } + @as(i5, op.adjust.factor) * op.adjust.scale.toFactor() * @as(SignedImm, switch (op.adjust.amount) {
                 .none => 0,
                 .ptr_size => @divExact(s.cg.target.ptrBitWidth(), 8),
                 .ptr_bit_size => s.cg.target.ptrBitWidth(),
@@ -29120,7 +29210,7 @@ const Select = struct {
                     op.base.ref.deref(s).typeOf(s.cg).scalarType(s.cg.pt.zcu).abiSize(s.cg.pt.zcu),
                     @divExact(op.base.size.bitSize(s.cg.target), 8),
                 )),
-                .src0_elem_size => @intCast(Select.Operand.Ref.src0.deref(s).typeOf(s.cg).scalarType(s.cg.pt.zcu).abiSize(s.cg.pt.zcu)),
+                .src0_elem_size => @intCast(Select.Operand.Ref.src0.deref(s).typeOf(s.cg).childType(s.cg.pt.zcu).abiSize(s.cg.pt.zcu)),
                 .smin => @as(SignedImm, std.math.minInt(SignedImm)) >> @truncate(
                     -%op.base.ref.deref(s).typeOf(s.cg).scalarType(s.cg.pt.zcu).bitSize(s.cg.pt.zcu),
                 ),
@@ -29130,7 +29220,7 @@ const Select = struct {
                 .umax => @bitCast(@as(UnsignedImm, std.math.maxInt(UnsignedImm)) >> @truncate(
                     -%op.base.ref.deref(s).typeOf(s.cg).scalarType(s.cg.pt.zcu).bitSize(s.cg.pt.zcu),
                 )),
-            });
+            }) + op.imm;
         }
 
         fn lower(op: Select.Operand, s: *Select) !CodeGen.Operand {
@@ -29160,7 +29250,11 @@ const Select = struct {
                     .mod = .{ .rm = .{
                         .size = op.base.size,
                         .index = switch (op.index.ref) {
-                            else => |ref| registerAlias(ref.deref(s).tracking(s.cg).short.register, @divExact(s.cg.target.ptrBitWidth(), 8)),
+                            else => |ref| switch (ref.deref(s).tracking(s.cg).short) {
+                                else => unreachable,
+                                .immediate => .none,
+                                .register => |index_reg| registerAlias(index_reg, @divExact(s.cg.target.ptrBitWidth(), 8)),
+                            },
                             .none => .none,
                         },
                         .scale = op.index.scale,
@@ -29170,7 +29264,11 @@ const Select = struct {
                 .mem => .{ .mem = try op.base.ref.deref(s).tracking(s.cg).short.mem(s.cg, .{
                     .size = op.base.size,
                     .index = switch (op.index.ref) {
-                        else => |ref| registerAlias(ref.deref(s).tracking(s.cg).short.register, @divExact(s.cg.target.ptrBitWidth(), 8)),
+                        else => |ref| switch (ref.deref(s).tracking(s.cg).short) {
+                            else => unreachable,
+                            .immediate => .none,
+                            .register => |index_reg| registerAlias(index_reg, @divExact(s.cg.target.ptrBitWidth(), 8)),
+                        },
                         .none => .none,
                     },
                     .scale = op.index.scale,
