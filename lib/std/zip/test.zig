@@ -162,7 +162,7 @@ pub fn Zipper(comptime Writer: type) type {
                 var extra_len: u16 = 0;
                 if (header_options) |hdr_options| {
                     compressed_size = if (hdr_options.compressed_size) |size| size else 0;
-                    uncompressed_size = if (hdr_options.uncompressed_size) |size| size else 0;
+                    uncompressed_size = if (hdr_options.uncompressed_size) |size| size else @intCast(opt.content.len);
                     extra_len = if (hdr_options.extra_len) |len| len else 0;
                 }
                 const hdr: zip.LocalFileHeader = .{
