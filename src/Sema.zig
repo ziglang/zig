@@ -4356,7 +4356,8 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const ip = &zcu.intern_pool;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const extra = sema.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
-    const args = sema.code.refSlice(extra.end, extra.data.operands_len);
+    const all_args = sema.code.refSlice(extra.end, extra.data.operands_len);
+    const arg_pairs: []const [2]Zir.Inst.Ref = @as([*]const [2]Zir.Inst.Ref, @ptrCast(all_args))[0..@divExact(all_args.len, 2)];
     const src = block.nodeOffset(inst_data.src_node);
 
     var len: Air.Inst.Ref = .none;
@@ -4364,27 +4365,24 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     var len_idx: u32 = undefined;
     var any_runtime = false;
 
-    const runtime_arg_lens = try gpa.alloc(Air.Inst.Ref, args.len);
+    const runtime_arg_lens = try gpa.alloc(Air.Inst.Ref, arg_pairs.len);
     defer gpa.free(runtime_arg_lens);
 
     // First pass to look for comptime values.
-    for (args, 0..) |zir_arg, i_usize| {
+    for (arg_pairs, 0..) |zir_arg_pair, i_usize| {
         const i: u32 = @intCast(i_usize);
         runtime_arg_lens[i] = .none;
-        if (zir_arg == .none) continue;
-        const object = try sema.resolveInst(zir_arg);
-        const object_ty = sema.typeOf(object);
-        // Each arg could be an indexable, or a range, in which case the length
-        // is passed directly as an integer.
-        const is_int = switch (object_ty.zigTypeTag(zcu)) {
-            .int, .comptime_int => true,
-            else => false,
-        };
+        if (zir_arg_pair[0] == .none) continue;
+
         const arg_src = block.src(.{ .for_input = .{
             .for_node_offset = inst_data.src_node,
             .input_index = i,
         } });
-        const arg_len_uncoerced = if (is_int) object else l: {
+
+        const arg_len_uncoerced = if (zir_arg_pair[1] == .none) l: {
+            // This argument is an indexable.
+            const object = try sema.resolveInst(zir_arg_pair[0]);
+            const object_ty = sema.typeOf(object);
             if (!object_ty.isIndexable(zcu)) {
                 // Instead of using checkIndexable we customize this error.
                 const msg = msg: {
@@ -4401,8 +4399,12 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                 return sema.failWithOwnedErrorMsg(block, msg);
             }
             if (!object_ty.indexableHasLen(zcu)) continue;
-
             break :l try sema.fieldVal(block, arg_src, object, try ip.getOrPutString(gpa, pt.tid, "len", .no_embedded_nulls), arg_src);
+        } else l: {
+            // This argument is a range.
+            const range_start = try sema.resolveInst(zir_arg_pair[0]);
+            const range_end = try sema.resolveInst(zir_arg_pair[1]);
+            break :l try sema.analyzeArithmetic(block, .sub, range_end, range_start, arg_src, arg_src, arg_src, true);
         };
         const arg_len = try sema.coerce(block, Type.usize, arg_len_uncoerced, arg_src);
         if (len == .none) {
@@ -4444,17 +4446,12 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
         const msg = msg: {
             const msg = try sema.errMsg(src, "unbounded for loop", .{});
             errdefer msg.destroy(gpa);
-            for (args, 0..) |zir_arg, i_usize| {
+            for (arg_pairs, 0..) |zir_arg_pair, i_usize| {
                 const i: u32 = @intCast(i_usize);
-                if (zir_arg == .none) continue;
-                const object = try sema.resolveInst(zir_arg);
+                if (zir_arg_pair[0] == .none) continue;
+                if (zir_arg_pair[1] != .none) continue;
+                const object = try sema.resolveInst(zir_arg_pair[0]);
                 const object_ty = sema.typeOf(object);
-                // Each arg could be an indexable, or a range, in which case the length
-                // is passed directly as an integer.
-                switch (object_ty.zigTypeTag(zcu)) {
-                    .int, .comptime_int => continue,
-                    else => {},
-                }
                 const arg_src = block.src(.{ .for_input = .{
                     .for_node_offset = inst_data.src_node,
                     .input_index = i,

@@ -28,10 +28,11 @@ export fn d() void {
         _ = x3;
     }
 }
+export fn e() void {
+    for (123) |_| {}
+}
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:5: error: non-matching for loop lengths
 // :2:11: note: length 10 here
@@ -43,3 +44,5 @@ export fn d() void {
 // :25:5: error: unbounded for loop
 // :25:10: note: type '[*]const u8' has no upper bound
 // :25:18: note: type '[*]const u8' has no upper bound
+// :32:10: error: type 'comptime_int' is not indexable and not a range
+// :32:10: note: for loop operand must be a range, array, slice, tuple, or vector

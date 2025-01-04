@@ -7020,7 +7020,7 @@ fn forExpr(
     const indexables = try gpa.alloc(Zir.Inst.Ref, for_full.ast.inputs.len);
     defer gpa.free(indexables);
     // elements of this array can be `none`, indicating no length check.
-    const lens = try gpa.alloc(Zir.Inst.Ref, for_full.ast.inputs.len);
+    const lens = try gpa.alloc([2]Zir.Inst.Ref, for_full.ast.inputs.len);
     defer gpa.free(lens);
 
     // We will use a single zero-based counter no matter how many indexables there are.
@@ -7039,7 +7039,7 @@ fn forExpr(
 
     {
         var capture_token = for_full.payload_token;
-        for (for_full.ast.inputs, indexables, lens) |input, *indexable_ref, *len_ref| {
+        for (for_full.ast.inputs, indexables, lens) |input, *indexable_ref, *len_refs| {
             const capture_is_ref = token_tags[capture_token] == .asterisk;
             const ident_tok = capture_token + @intFromBool(capture_is_ref);
             const is_discard = mem.eql(u8, tree.tokenSlice(ident_tok), "_");
@@ -7068,24 +7068,21 @@ fn forExpr(
                     try astgen.appendErrorTok(ident_tok, "discard of unbounded counter", .{});
                 }
 
-                const start_is_zero = nodeIsTriviallyZero(tree, start_node);
-                const range_len = if (end_val == .none or start_is_zero)
-                    end_val
-                else
-                    try parent_gz.addPlNode(.sub, input, Zir.Inst.Bin{
-                        .lhs = end_val,
-                        .rhs = start_val,
-                    });
+                if (end_val == .none) {
+                    len_refs.* = .{ .none, .none };
+                } else {
+                    any_len_checks = true;
+                    len_refs.* = .{ start_val, end_val };
+                }
 
-                any_len_checks = any_len_checks or range_len != .none;
+                const start_is_zero = nodeIsTriviallyZero(tree, start_node);
                 indexable_ref.* = if (start_is_zero) .none else start_val;
-                len_ref.* = range_len;
             } else {
                 const indexable = try expr(parent_gz, scope, .{ .rl = .none }, input);
 
                 any_len_checks = true;
                 indexable_ref.* = indexable;
-                len_ref.* = indexable;
+                len_refs.* = .{ indexable, .none };
             }
         }
     }
@@ -7097,12 +7094,13 @@ fn forExpr(
     // We use a dedicated ZIR instruction to assert the lengths to assist with
     // nicer error reporting as well as fewer ZIR bytes emitted.
     const len: Zir.Inst.Ref = len: {
-        const lens_len: u32 = @intCast(lens.len);
+        const all_lens = @as([*]Zir.Inst.Ref, @ptrCast(lens))[0 .. lens.len * 2];
+        const lens_len: u32 = @intCast(all_lens.len);
         try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.MultiOp).@"struct".fields.len + lens_len);
         const len = try parent_gz.addPlNode(.for_len, node, Zir.Inst.MultiOp{
             .operands_len = lens_len,
         });
-        appendRefsAssumeCapacity(astgen, lens);
+        appendRefsAssumeCapacity(astgen, all_lens);
         break :len len;
     };
 
