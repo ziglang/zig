@@ -689,9 +689,6 @@ pub const File = struct {
     /// successful, this field is unloaded.
     prev_zir: ?*Zir = null,
 
-    /// Whether the file is Zig or ZON. This field is always populated.
-    mode: Ast.Mode,
-
     pub const Status = enum {
         never_loaded,
         retryable_failure,
@@ -711,10 +708,10 @@ pub const File = struct {
         root: *Package.Module,
     };
 
-    pub fn modeFromPath(path: []const u8) Ast.Mode {
-        if (std.mem.endsWith(u8, path, ".zon")) {
+    pub fn getMode(self: File) Ast.Mode {
+        if (std.mem.endsWith(u8, self.sub_file_path, ".zon")) {
             return .zon;
-        } else if (std.mem.endsWith(u8, path, ".zig")) {
+        } else if (std.mem.endsWith(u8, self.sub_file_path, ".zig")) {
             return .zig;
         } else {
             // `Module.importFile` rejects all other extensions
@@ -797,7 +794,7 @@ pub const File = struct {
         if (file.tree_loaded) return &file.tree;
 
         const source = try file.getSource(gpa);
-        file.tree = try Ast.parse(gpa, source.bytes, file.mode);
+        file.tree = try Ast.parse(gpa, source.bytes, file.getMode());
         file.tree_loaded = true;
         return &file.tree;
     }

@@ -2221,7 +2221,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         for (zcu.import_table.values()) |file_index| {
             if (zcu.fileByIndex(file_index).mod.isBuiltin()) continue;
             const file = zcu.fileByIndex(file_index);
-            if (file.mode == .zig) {
+            if (file.getMode() == .zig) {
                 comp.astgen_work_queue.writeItemAssumeCapacity(file_index);
             }
         }
@@ -4289,7 +4289,7 @@ fn workerAstGenFile(
     wg: *WaitGroup,
     src: Zcu.AstGenSrc,
 ) void {
-    assert(file.mode == .zig);
+    assert(file.getMode() == .zig);
     const child_prog_node = prog_node.start(file.sub_file_path, 0);
     defer child_prog_node.end();
 
@@ -4343,7 +4343,7 @@ fn workerAstGenFile(
                 const imported_path_digest = pt.zcu.filePathDigest(res.file_index);
                 break :blk .{ res, imported_path_digest };
             };
-            if (import_result.is_new and import_result.file.mode == .zig) {
+            if (import_result.is_new and import_result.file.getMode() == .zig) {
                 log.debug("AstGen of {s} has import '{s}'; queuing AstGen of {s}", .{
                     file.sub_file_path, import_path, import_result.file.sub_file_path,
                 });

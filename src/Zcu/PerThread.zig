@@ -1867,7 +1867,7 @@ fn semaFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) Zcu.SemaError!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const file = zcu.fileByIndex(file_index);
-    assert(file.mode == .zig);
+    assert(file.getMode() == .zig);
     assert(zcu.fileRootType(file_index) == .none);
 
     if (file.status != .success_zir) {
@@ -1993,7 +1993,6 @@ pub fn importPkg(pt: Zcu.PerThread, mod: *Module) !Zcu.ImportFileResult {
         .status = .never_loaded,
         .prev_status = .never_loaded,
         .mod = mod,
-        .mode = Zcu.File.modeFromPath(sub_file_path),
     };
 
     try new_file.addReference(zcu, .{ .root = mod });
@@ -2107,7 +2106,6 @@ pub fn importFile(
         .status = .never_loaded,
         .prev_status = .never_loaded,
         .mod = mod,
-        .mode = Zcu.File.modeFromPath(sub_file_path),
     };
 
     return .{

@@ -13957,7 +13957,7 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
         },
     };
-    switch (result.file.mode) {
+    switch (result.file.getMode()) {
         .zig => {
             try sema.declareDependency(.{ .file = result.file_index });
             try pt.ensureFileAnalyzed(result.file_index);
