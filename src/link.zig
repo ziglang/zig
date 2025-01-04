@@ -1975,20 +1975,32 @@ fn resolveLibInput(
         return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query);
     }
 
-    // In the case of MinGW, the main check will be `libfoo.dll` but we also need to
-    // look for `libfoo.dll.a`.
-    if (target.isMinGW() and link_mode == .dynamic) mingw: {
-        const test_path: Path = .{
-            .root_dir = lib_directory,
-            .sub_path = try std.fmt.allocPrint(arena, "lib{s}.dll.a", .{lib_name}),
-        };
-        try checked_paths.writer(gpa).print("\n  {}", .{test_path});
-        var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
-            error.FileNotFound => break :mingw,
-            else => |e| fatal("unable to search for DLL import library '{}': {s}", .{ test_path, @errorName(e) }),
-        };
-        errdefer file.close();
-        return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query);
+    // In the case of MinGW, the main check will be `libfoo.dll` and `libfoo.a`, but we also need to
+    // look for `foo.dll`, `foo.lib` and `libfoo.dll.a`.
+    if (target.isMinGW()) {
+        const sub_paths = if (link_mode == .dynamic)
+            &[_][]const u8{
+                try std.fmt.allocPrint(arena, "lib{s}.dll.a", .{lib_name}),
+                try std.fmt.allocPrint(arena, "{s}.dll", .{lib_name}),
+                try std.fmt.allocPrint(arena, "{s}.lib", .{lib_name}),
+            }
+        else
+            &[_][]const u8{
+                try std.fmt.allocPrint(arena, "{s}.lib", .{lib_name}),
+            };
+        for (sub_paths) |sub_path| {
+            const test_path: Path = .{
+                .root_dir = lib_directory,
+                .sub_path = sub_path,
+            };
+            try checked_paths.writer(gpa).print("\n  {}", .{test_path});
+            var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
+                error.FileNotFound => continue,
+                else => |e| fatal("unable to search for {s} library '{}': {s}", .{ @tagName(link_mode), test_path, @errorName(e) }),
+            };
+            errdefer file.close();
+            return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query);
+        }
     }
 
     return .no_match;
