@@ -1658,13 +1658,17 @@ fn analyzeBodyInner(
                 const extra = sema.code.extraData(Zir.Inst.BlockComptime, pl_node.payload_index);
                 const block_body = sema.code.bodySlice(extra.end, extra.data.body_len);
 
-                if (block.isComptime()) {
-                    // No need for a sub-block; just resolve the other body directly!
-                    break :inst try sema.resolveInlineBody(block, block_body, inst);
-                }
-
                 var child_block = block.makeSubBlock();
                 defer child_block.instructions.deinit(sema.gpa);
+
+                // We won't have any merges, but we must ensure this block is properly labeled for
+                // any `.restore_err_ret_index_*` instructions.
+                var label: Block.Label = .{
+                    .zir_block = inst,
+                    .merges = undefined,
+                };
+                child_block.label = &label;
+
                 child_block.comptime_reason = .{ .reason = .{
                     .src = src,
                     .r = .{ .simple = extra.data.reason },
@@ -1672,7 +1676,9 @@ fn analyzeBodyInner(
 
                 const result = try sema.resolveInlineBody(&child_block, block_body, inst);
 
-                if (!try sema.isComptimeKnown(result)) {
+                // Only check for the result being comptime-known in the outermost `block_comptime`.
+                // That way, AstGen can safely elide redundant `block_comptime` without affecting semantics.
+                if (!block.isComptime() and !try sema.isComptimeKnown(result)) {
                     return sema.failWithNeededComptime(&child_block, src, null);
                 }
 
@@ -4350,7 +4356,8 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     const ip = &zcu.intern_pool;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const extra = sema.code.extraData(Zir.Inst.MultiOp, inst_data.payload_index);
-    const args = sema.code.refSlice(extra.end, extra.data.operands_len);
+    const all_args = sema.code.refSlice(extra.end, extra.data.operands_len);
+    const arg_pairs: []const [2]Zir.Inst.Ref = @as([*]const [2]Zir.Inst.Ref, @ptrCast(all_args))[0..@divExact(all_args.len, 2)];
     const src = block.nodeOffset(inst_data.src_node);
 
     var len: Air.Inst.Ref = .none;
@@ -4358,27 +4365,24 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     var len_idx: u32 = undefined;
     var any_runtime = false;
 
-    const runtime_arg_lens = try gpa.alloc(Air.Inst.Ref, args.len);
+    const runtime_arg_lens = try gpa.alloc(Air.Inst.Ref, arg_pairs.len);
     defer gpa.free(runtime_arg_lens);
 
     // First pass to look for comptime values.
-    for (args, 0..) |zir_arg, i_usize| {
+    for (arg_pairs, 0..) |zir_arg_pair, i_usize| {
         const i: u32 = @intCast(i_usize);
         runtime_arg_lens[i] = .none;
-        if (zir_arg == .none) continue;
-        const object = try sema.resolveInst(zir_arg);
-        const object_ty = sema.typeOf(object);
-        // Each arg could be an indexable, or a range, in which case the length
-        // is passed directly as an integer.
-        const is_int = switch (object_ty.zigTypeTag(zcu)) {
-            .int, .comptime_int => true,
-            else => false,
-        };
+        if (zir_arg_pair[0] == .none) continue;
+
         const arg_src = block.src(.{ .for_input = .{
             .for_node_offset = inst_data.src_node,
             .input_index = i,
         } });
-        const arg_len_uncoerced = if (is_int) object else l: {
+
+        const arg_len_uncoerced = if (zir_arg_pair[1] == .none) l: {
+            // This argument is an indexable.
+            const object = try sema.resolveInst(zir_arg_pair[0]);
+            const object_ty = sema.typeOf(object);
             if (!object_ty.isIndexable(zcu)) {
                 // Instead of using checkIndexable we customize this error.
                 const msg = msg: {
@@ -4395,8 +4399,12 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                 return sema.failWithOwnedErrorMsg(block, msg);
             }
             if (!object_ty.indexableHasLen(zcu)) continue;
-
             break :l try sema.fieldVal(block, arg_src, object, try ip.getOrPutString(gpa, pt.tid, "len", .no_embedded_nulls), arg_src);
+        } else l: {
+            // This argument is a range.
+            const range_start = try sema.resolveInst(zir_arg_pair[0]);
+            const range_end = try sema.resolveInst(zir_arg_pair[1]);
+            break :l try sema.analyzeArithmetic(block, .sub, range_end, range_start, arg_src, arg_src, arg_src, true);
         };
         const arg_len = try sema.coerce(block, Type.usize, arg_len_uncoerced, arg_src);
         if (len == .none) {
@@ -4438,17 +4446,12 @@ fn zirForLen(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
         const msg = msg: {
             const msg = try sema.errMsg(src, "unbounded for loop", .{});
             errdefer msg.destroy(gpa);
-            for (args, 0..) |zir_arg, i_usize| {
+            for (arg_pairs, 0..) |zir_arg_pair, i_usize| {
                 const i: u32 = @intCast(i_usize);
-                if (zir_arg == .none) continue;
-                const object = try sema.resolveInst(zir_arg);
+                if (zir_arg_pair[0] == .none) continue;
+                if (zir_arg_pair[1] != .none) continue;
+                const object = try sema.resolveInst(zir_arg_pair[0]);
                 const object_ty = sema.typeOf(object);
-                // Each arg could be an indexable, or a range, in which case the length
-                // is passed directly as an integer.
-                switch (object_ty.zigTypeTag(zcu)) {
-                    .int, .comptime_int => continue,
-                    else => {},
-                }
                 const arg_src = block.src(.{ .for_input = .{
                     .for_node_offset = inst_data.src_node,
                     .input_index = i,
@@ -29736,6 +29739,7 @@ fn coerceExtra(
             // Coercions where the source is a single pointer to an array.
             src_array_ptr: {
                 if (!inst_ty.isSinglePointer(zcu)) break :src_array_ptr;
+                if (dest_info.flags.size == .One) break :src_array_ptr; // `*[n]T` -> `*T` isn't valid
                 if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :pointer;
                 const array_ty = inst_ty.childType(zcu);
                 if (array_ty.zigTypeTag(zcu) != .array) break :src_array_ptr;
@@ -29791,7 +29795,7 @@ fn coerceExtra(
                         // *[N]T to [*]T
                         return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
                     },
-                    .One => {},
+                    .One => unreachable, // early exit at top of block
                 }
             }
 
@@ -31259,6 +31263,7 @@ fn coerceInMemoryAllowedPtrs(
         // As a special case, we also allow coercing `*[n:s]T` to `*[n]T`, akin to dropping the sentinel from a slice.
         // `*[n:s]T` cannot coerce in memory to `*[n]T` since they have different sizes.
         if (src_child.zigTypeTag(zcu) == .array and dest_child.zigTypeTag(zcu) == .array and
+            src_child.arrayLen(zcu) == dest_child.arrayLen(zcu) and
             src_child.sentinel(zcu) != null and dest_child.sentinel(zcu) == null and
             .ok == try sema.coerceInMemoryAllowed(block, dest_child.childType(zcu), src_child.childType(zcu), !dest_info.flags.is_const, target, dest_src, src_src, null))
         {
