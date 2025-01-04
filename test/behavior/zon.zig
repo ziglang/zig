@@ -200,91 +200,144 @@ test "enum literals" {
 }
 
 test "int" {
-    const expected = .{
+    const T = struct {
+        u8,
+        i16,
+        i14,
+        i32,
+        i8,
+        i8,
+        u8,
+        u8,
+        u65,
+        u65,
+        i128,
+        i128,
+        i66,
+        i66,
+        i8,
+        i8,
+        i16,
+        i16,
+        i16,
+        i16,
+        i16,
+        i16,
+        u65,
+        i66,
+        i66,
+        u65,
+        i66,
+        i66,
+        u65,
+        i66,
+        i66,
+    };
+    const expected: T = .{
         // Test various numbers and types
-        @as(u8, 10),
-        @as(i16, 24),
-        @as(i14, -4),
-        @as(i32, -123),
+        10,
+        24,
+        -4,
+        -123,
 
         // Test limits
-        @as(i8, 127),
-        @as(i8, -128),
+        127,
+        -128,
 
         // Test characters
-        @as(u8, 'a'),
-        @as(u8, 'z'),
+        'a',
+        'z',
 
         // Test big integers
-        @as(u65, 36893488147419103231),
-        @as(u65, 36893488147419103231),
-        @as(i128, -18446744073709551615), // Only a big int due to negation
-        @as(i128, -9223372036854775809), // Only a big int due to negation
+        36893488147419103231,
+        36893488147419103231,
+        -18446744073709551615, // Only a big int due to negation
+        -9223372036854775809, // Only a big int due to negation
 
         // Test big integer limits
-        @as(i66, 36893488147419103231),
-        @as(i66, -36893488147419103232),
+        36893488147419103231,
+        -36893488147419103232,
 
         // Test parsing whole number floats as integers
-        @as(i8, -1),
-        @as(i8, 123),
+        -1,
+        123,
 
         // Test non-decimal integers
-        @as(i16, 0xff),
-        @as(i16, -0xff),
-        @as(i16, 0o77),
-        @as(i16, -0o77),
-        @as(i16, 0b11),
-        @as(i16, -0b11),
+        0xff,
+        -0xff,
+        0o77,
+        -0o77,
+        0b11,
+        -0b11,
 
         // Test non-decimal big integers
-        @as(u65, 0x1ffffffffffffffff),
-        @as(i66, 0x1ffffffffffffffff),
-        @as(i66, -0x1ffffffffffffffff),
-        @as(u65, 0x1ffffffffffffffff),
-        @as(i66, 0x1ffffffffffffffff),
-        @as(i66, -0x1ffffffffffffffff),
-        @as(u65, 0x1ffffffffffffffff),
-        @as(i66, 0x1ffffffffffffffff),
-        @as(i66, -0x1ffffffffffffffff),
+        0x1ffffffffffffffff,
+        0x1ffffffffffffffff,
+        -0x1ffffffffffffffff,
+        0x1ffffffffffffffff,
+        0x1ffffffffffffffff,
+        -0x1ffffffffffffffff,
+        0x1ffffffffffffffff,
+        0x1ffffffffffffffff,
+        -0x1ffffffffffffffff,
     };
-    const actual: @TypeOf(expected) = @import("zon/ints.zon");
+    const actual: T = @import("zon/ints.zon");
     try expectEqual(expected, actual);
 }
 
 test "floats" {
-    const expected = .{
+    const T = struct {
+        f16,
+        f32,
+        f64,
+        f128,
+        f16,
+        f16,
+        f32,
+        f32,
+        f32,
+        f32,
+        f32,
+        f32,
+        f128,
+        f32,
+        f32,
+        f32,
+        f32,
+        f32,
+    };
+    const expected: T = .{
         // Test decimals
-        @as(f16, 0.5),
-        @as(f32, 123.456),
-        @as(f64, -123.456),
-        @as(f128, 42.5),
+        0.5,
+        123.456,
+        -123.456,
+        42.5,
 
         // Test whole numbers with and without decimals
-        @as(f16, 5.0),
-        @as(f16, 5.0),
-        @as(f32, -102),
-        @as(f32, -102),
+        5.0,
+        5.0,
+        -102,
+        -102,
 
         // Test characters and negated characters
-        @as(f32, 'a'),
-        @as(f32, 'z'),
+        'a',
+        'z',
 
         // Test big integers
-        @as(f32, 36893488147419103231),
-        @as(f32, -36893488147419103231),
-        @as(f128, 0x1ffffffffffffffff),
-        @as(f32, 0x1ffffffffffffffff),
+        36893488147419103231,
+        -36893488147419103231,
+        0x1ffffffffffffffff,
+        0x1ffffffffffffffff,
 
         // Exponents, underscores
-        @as(f32, 123.0E+77),
+        123.0E+77,
 
         // Hexadecimal
-        @as(f32, 0x103.70p-5),
-        @as(f32, -0x103.70),
-        @as(f32, 0x1234_5678.9ABC_CDEFp-10),
+        0x103.70p-5,
+        -0x103.70,
+        0x1234_5678.9ABC_CDEFp-10,
     };
-    const actual: @TypeOf(expected) = @import("zon/floats.zon");
+    const actual: T = @import("zon/floats.zon");
     try expectEqual(actual, expected);
 }
 
