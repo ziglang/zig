@@ -504,8 +504,6 @@ pub fn Iterator(comptime SeekableStream: type) type {
                         }
                     }
 
-                    std.debug.print("Self compressed size {}\n", .{self.compressed_size});
-                    std.debug.print("Extents compressed size {}\n", .{extents.compressed_size});
                     if (extents.compressed_size != 0 and
                         extents.compressed_size != self.compressed_size)
                         return error.ZipMismatchCompLen;
