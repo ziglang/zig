@@ -184,14 +184,6 @@ pub fn IntegerBitSet(comptime size: u16) type {
             return @ctz(mask);
         }
 
-        /// Finds the index of the last set bit.
-        /// If no bits are set, returns null.
-        pub fn findLastSet(self: Self) ?usize {
-            const mask = self.mask;
-            if (mask == 0) return null;
-            return @clz(mask);
-        }
-
         /// Finds the index of the first set bit, and unsets it.
         /// If no bits are set, returns null.
         pub fn toggleFirstSet(self: *Self) ?usize {
