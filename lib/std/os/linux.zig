@@ -117,7 +117,7 @@ pub fn clone3(
             arg: usize,
         ) callconv(.C) usize, @ptrCast(&syscall_bits.clone3))(cl_args, size, func, arg);
     } else {
-        return @bitCast(-@as(isize, @intFromEnum(E.NOSYS)));
+        @compileError("clone3() implementation has not been written for this target");
     }
 }
 
