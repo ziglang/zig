@@ -630,14 +630,14 @@ fn spawnPosixChildHelper(arg: usize) callconv(.c) u8 {
     if (native_os == .linux and child_arg.sigmask != null) {
         std.debug.assert(linux.SIG.DFL == null);
         for (1..linux.NSIG) |sig| {
-            var old_act: posix.Sigaction = undefined;
+            var old_act: linux.Sigaction = undefined;
             const new_act = mem.zeroes(posix.Sigaction);
             _ = linux.sigaction(@intCast(sig), &new_act, &old_act);
             if (old_act.handler.handler == linux.SIG.IGN) {
                 _ = linux.sigaction(@intCast(sig), &old_act, null);
             }
         }
-        posix.sigprocmask(posix.SIG.SETMASK, child_arg.sigmask, null);
+        std.debug.assert(linux.sigprocmask(linux.SIG.SETMASK, child_arg.sigmask, null) == 0);
     }
 
     const err = switch (child_arg.self.expand_arg0) {
@@ -803,8 +803,8 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
                 // We need to block signals here because we share VM with child before exec.
                 // Signal handlers may mess up our memory.
                 var old_mask: posix.sigset_t = undefined;
-                posix.sigprocmask(posix.SIG.SETMASK, &linux.all_mask, &old_mask);
-                defer posix.sigprocmask(posix.SIG.SETMASK, &old_mask, null);
+                std.debug.assert(linux.sigprocmask(linux.SIG.SETMASK, &linux.all_mask, &old_mask) == 0);
+                defer std.debug.assert(linux.sigprocmask(linux.SIG.SETMASK, &old_mask, null) == 0);
                 child_arg.sigmask = &old_mask;
                 rc = linux.clone(spawnPosixChildHelper, @intFromPtr(stack.ptr) + stack_size, linux.CLONE.VM | linux.CLONE.VFORK | linux.SIG.CHLD, @intFromPtr(&child_arg), null, 0, null);
                 switch (linux.E.init(rc)) {
