@@ -32735,7 +32735,8 @@ fn analyzeOptionalSlicePtr(
 ) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    const result_ty = opt_slice_ty.optionalChild(zcu).slicePtrFieldType(zcu);
+    const slice_ty = opt_slice_ty.optionalChild(zcu);
+    const result_ty = slice_ty.slicePtrFieldType(zcu);
 
     if (try sema.resolveValue(opt_slice)) |opt_val| {
         if (opt_val.isUndef(zcu)) return pt.undefRef(result_ty);
@@ -32749,7 +32750,7 @@ fn analyzeOptionalSlicePtr(
 
     try sema.requireRuntimeBlock(block, opt_slice_src, null);
 
-    const slice = try block.addTyOp(.optional_payload, opt_slice_ty, opt_slice);
+    const slice = try block.addTyOp(.optional_payload, slice_ty, opt_slice);
     return block.addTyOp(.slice_ptr, result_ty, slice);
 }
 
