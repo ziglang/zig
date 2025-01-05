@@ -217,8 +217,8 @@ all_type_references: std.ArrayListUnmanaged(TypeReference) = .empty,
 /// Freelist of indices in `all_type_references`.
 free_type_references: std.ArrayListUnmanaged(u32) = .empty,
 
-/// Populated by analysis of `AnalUnit.wrap(.{ .memoized_state = s })`, where `s` depends on the field.
-builtin_decl_values: BuiltinDecl.Memoized = .{},
+/// Populated by analysis of `AnalUnit.wrap(.{ .memoized_state = s })`, where `s` depends on the element.
+builtin_decl_values: BuiltinDecl.Memoized = .initFill(.none),
 /// Populated by analysis of `AnalUnit.wrap(.{ .memoized_state = .panic })`.
 null_stack_trace: InternPool.Index = .none,
 
@@ -420,7 +420,7 @@ pub const BuiltinDecl = enum {
         };
     }
 
-    const Memoized = std.enums.EnumFieldStruct(BuiltinDecl, InternPool.Index, .none);
+    const Memoized = std.enums.EnumArray(BuiltinDecl, InternPool.Index);
 };
 
 pub const PanicId = enum {
@@ -444,6 +444,21 @@ pub const PanicId = enum {
     memcpy_len_mismatch,
     memcpy_alias,
     noreturn_returned,
+
+    pub fn toBuiltin(id: PanicId) BuiltinDecl {
+        const first_msg: PanicId = @enumFromInt(0);
+        const first_decl = @field(BuiltinDecl, "Panic.messages." ++ @tagName(first_msg));
+        comptime {
+            // Ensure that the messages are ordered the same in `BuiltinDecl` as they are here.
+            for (@typeInfo(PanicId).@"enum".fields) |panic_field| {
+                const expect_name = "Panic.messages." ++ panic_field.name;
+                const expect_idx = @intFromEnum(first_decl) + panic_field.value;
+                const actual_idx = @intFromEnum(@field(BuiltinDecl, expect_name));
+                assert(expect_idx == actual_idx);
+            }
+        }
+        return @enumFromInt(@intFromEnum(first_decl) + @intFromEnum(id));
+    }
 };
 
 pub const GlobalErrorSet = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, void);

@@ -5754,9 +5754,7 @@ pub const FuncGen = struct {
         const o = fg.ng.object;
         const zcu = o.pt.zcu;
         const ip = &zcu.intern_pool;
-        const panic_msg_val: InternPool.Index = switch (panic_id) {
-            inline else => |ct_panic_id| @field(zcu.builtin_decl_values, "Panic.messages." ++ @tagName(ct_panic_id)),
-        };
+        const panic_msg_val = zcu.builtin_decl_values.get(panic_id.toBuiltin());
         assert(panic_msg_val != .none);
         const msg_len = Value.fromInterned(panic_msg_val).typeOf(zcu).childType(zcu).arrayLen(zcu);
         const msg_ptr = try o.lowerValue(panic_msg_val);
@@ -5770,7 +5768,7 @@ pub const FuncGen = struct {
         //   ptr null,                                               ; stack trace
         //   ptr @2,                                                 ; addr (null ?usize)
         // )
-        const panic_func = zcu.funcInfo(zcu.builtin_decl_values.@"Panic.call");
+        const panic_func = zcu.funcInfo(zcu.builtin_decl_values.get(.@"Panic.call"));
         const panic_nav = ip.getNav(panic_func.owner_nav);
         const fn_info = zcu.typeToFunc(Type.fromInterned(panic_nav.typeOf(ip))).?;
         const panic_global = try o.resolveLlvmFunction(panic_func.owner_nav);

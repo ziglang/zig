@@ -590,13 +590,13 @@ pub fn ensureMemoizedStateUpToDate(pt: Zcu.PerThread, stage: InternPool.Memoized
         _ = zcu.transitive_failed_analysis.swapRemove(unit);
     } else {
         if (prev_failed) return error.AnalysisFail;
-        // We use an arbitrary field to check if the state has been resolved yet.
-        const val = switch (stage) {
-            .main => zcu.builtin_decl_values.Type,
-            .panic => zcu.builtin_decl_values.Panic,
-            .va_list => zcu.builtin_decl_values.VaList,
+        // We use an arbitrary element to check if the state has been resolved yet.
+        const to_check: Zcu.BuiltinDecl = switch (stage) {
+            .main => .Type,
+            .panic => .Panic,
+            .va_list => .VaList,
         };
-        if (val != .none) return;
+        if (zcu.builtin_decl_values.get(to_check) != .none) return;
     }
 
     const any_changed: bool, const new_failed: bool = if (pt.analyzeMemoizedState(stage)) |any_changed|
