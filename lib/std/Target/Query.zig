@@ -544,7 +544,7 @@ fn parseOs(result: *Query, diags: *ParseOptions.Diagnostics, text: []const u8) !
     const version_text = it.rest();
     if (version_text.len > 0) switch (tag.versionRangeTag()) {
         .none => return error.InvalidOperatingSystemVersion,
-        .semver, .hurd, .linux => range: {
+        .semver, .hurd, .linux => {
             var range_it = mem.splitSequence(u8, version_text, "...");
             result.os_version_min = .{
                 .semver = parseVersion(range_it.first()) catch |err| switch (err) {
@@ -552,21 +552,25 @@ fn parseOs(result: *Query, diags: *ParseOptions.Diagnostics, text: []const u8) !
                     error.InvalidVersion => return error.InvalidOperatingSystemVersion,
                 },
             };
-            result.os_version_max = .{
-                .semver = parseVersion(range_it.next() orelse break :range) catch |err| switch (err) {
-                    error.Overflow => return error.InvalidOperatingSystemVersion,
-                    error.InvalidVersion => return error.InvalidOperatingSystemVersion,
-                },
-            };
+            if (range_it.next()) |v| {
+                result.os_version_max = .{
+                    .semver = parseVersion(v) catch |err| switch (err) {
+                        error.Overflow => return error.InvalidOperatingSystemVersion,
+                        error.InvalidVersion => return error.InvalidOperatingSystemVersion,
+                    },
+                };
+            }
         },
-        .windows => range: {
+        .windows => {
             var range_it = mem.splitSequence(u8, version_text, "...");
             result.os_version_min = .{
                 .windows = try Target.Os.WindowsVersion.parse(range_it.first()),
             };
-            result.os_version_max = .{
-                .windows = try Target.Os.WindowsVersion.parse(range_it.next() orelse break :range),
-            };
+            if (range_it.next()) |v| {
+                result.os_version_max = .{
+                    .windows = try Target.Os.WindowsVersion.parse(v),
+                };
+            }
         },
     };
 }
