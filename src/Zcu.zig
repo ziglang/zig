@@ -3482,8 +3482,6 @@ pub fn atomicPtrAlignment(
 }
 
 /// Returns null in the following cases:
-/// * `@TypeOf(.{})`
-/// * A struct which has no fields (`struct {}`).
 /// * Not a struct.
 pub fn typeToStruct(zcu: *const Zcu, ty: Type) ?InternPool.LoadedStructType {
     if (ty.ip_index == .none) return null;
