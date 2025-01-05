@@ -9,8 +9,6 @@ export fn entry1() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// :4:15: error: comptime call of extern function pointer
-// :8:5: error: inline call of extern function pointer
+// :4:15: error: comptime call of extern function
+// :8:5: error: inline call of extern function

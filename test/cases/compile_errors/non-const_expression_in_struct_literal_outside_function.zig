@@ -9,7 +9,5 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:27: error: comptime call of extern function

@@ -4735,6 +4735,7 @@ pub const FnInfo = struct {
     body: []const Inst.Index,
     ret_ty_ref: Zir.Inst.Ref,
     total_params_len: u32,
+    inferred_error_set: bool,
 };
 
 pub fn getParamBody(zir: Zir, fn_inst: Inst.Index) []const Zir.Inst.Index {
@@ -4774,8 +4775,9 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
         body: []const Inst.Index,
         ret_ty_ref: Inst.Ref,
         ret_ty_body: []const Inst.Index,
+        ies: bool,
     } = switch (tags[@intFromEnum(fn_inst)]) {
-        .func, .func_inferred => blk: {
+        .func, .func_inferred => |tag| blk: {
             const inst_data = datas[@intFromEnum(fn_inst)].pl_node;
             const extra = zir.extraData(Inst.Func, inst_data.payload_index);
 
@@ -4805,6 +4807,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
                 .ret_ty_ref = ret_ty_ref,
                 .ret_ty_body = ret_ty_body,
                 .body = body,
+                .ies = tag == .func_inferred,
             };
         },
         .func_fancy => blk: {
@@ -4812,7 +4815,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
             const extra = zir.extraData(Inst.FuncFancy, inst_data.payload_index);
 
             var extra_index: usize = extra.end;
-            var ret_ty_ref: Inst.Ref = .void_type;
+            var ret_ty_ref: Inst.Ref = .none;
             var ret_ty_body: []const Inst.Index = &.{};
 
             if (extra.data.bits.has_cc_body) {
@@ -4828,6 +4831,8 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
             } else if (extra.data.bits.has_ret_ty_ref) {
                 ret_ty_ref = @enumFromInt(zir.extra[extra_index]);
                 extra_index += 1;
+            } else {
+                ret_ty_ref = .void_type;
             }
 
             extra_index += @intFromBool(extra.data.bits.has_any_noalias);
@@ -4839,6 +4844,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
                 .ret_ty_ref = ret_ty_ref,
                 .ret_ty_body = ret_ty_body,
                 .body = body,
+                .ies = extra.data.bits.is_inferred_error,
             };
         },
         else => unreachable,
@@ -4860,6 +4866,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
         .ret_ty_ref = info.ret_ty_ref,
         .body = info.body,
         .total_params_len = total_params_len,
+        .inferred_error_set = info.ies,
     };
 }
 

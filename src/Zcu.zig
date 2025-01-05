@@ -1928,6 +1928,24 @@ pub const SrcLoc = struct {
                     },
                 }
             },
+            .func_decl_param_comptime => |param_idx| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                var buf: [1]Ast.Node.Index = undefined;
+                const full = tree.fullFnProto(&buf, src_loc.base_node).?;
+                var param_it = full.iterate(tree);
+                for (0..param_idx) |_| assert(param_it.next() != null);
+                const param = param_it.next().?;
+                return tree.tokenToSpan(param.comptime_noalias.?);
+            },
+            .func_decl_param_ty => |param_idx| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                var buf: [1]Ast.Node.Index = undefined;
+                const full = tree.fullFnProto(&buf, src_loc.base_node).?;
+                var param_it = full.iterate(tree);
+                for (0..param_idx) |_| assert(param_it.next() != null);
+                const param = param_it.next().?;
+                return tree.nodeToSpan(param.type_expr);
+            },
         }
     }
 };
@@ -2235,6 +2253,12 @@ pub const LazySrcLoc = struct {
         /// The source location points to the "tag" capture (second capture) of
         /// a specific case of a `switch`.
         switch_tag_capture: SwitchCapture,
+        /// The source location points to the `comptime` token on the given comptime parameter,
+        /// where the base node is a function declaration. The value is the parameter index.
+        func_decl_param_comptime: u32,
+        /// The source location points to the type annotation on the given function parameter,
+        /// where the base node is a function declaration. The value is the parameter index.
+        func_decl_param_ty: u32,
 
         pub const FnProtoParam = struct {
             /// The offset of the function prototype AST node.
