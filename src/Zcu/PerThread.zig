@@ -545,10 +545,160 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
 pub fn ensureFileAnalyzed(pt: Zcu.PerThread, file_index: Zcu.File.Index) Zcu.SemaError!void {
     const file_root_type = pt.zcu.fileRootType(file_index);
     if (file_root_type != .none) {
-        _ = try pt.ensureTypeUpToDate(file_root_type);
-    } else {
-        return pt.semaFile(file_index);
+        if (pt.ensureTypeUpToDate(file_root_type)) |_| {
+            return;
+        } else |err| switch (err) {
+            error.AnalysisFail => {
+                // The file's root `struct_decl` has, at some point, been lost, because the file failed AstGen.
+                // Clear `file_root_type`, and try the `semaFile` call below, in case the instruction has since
+                // been discovered under a new `TrackedInst.Index`.
+                pt.zcu.setFileRootType(file_index, .none);
+            },
+            else => |e| return e,
+        }
     }
+    return pt.semaFile(file_index);
+}
+
+/// Ensures that all memoized state on `Zcu` is up-to-date, performing re-analysis if necessary.
+/// Returns `error.AnalysisFail` if an analysis error is encountered; the caller is free to ignore
+/// this, since the error is already registered, but it must not use the value of memoized fields.
+pub fn ensureMemoizedStateUpToDate(pt: Zcu.PerThread, stage: InternPool.MemoizedStateStage) Zcu.SemaError!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+
+    const unit: AnalUnit = .wrap(.{ .memoized_state = stage });
+
+    log.debug("ensureMemoizedStateUpToDate", .{});
+
+    assert(!zcu.analysis_in_progress.contains(unit));
+
+    const was_outdated = zcu.outdated.swapRemove(unit) or zcu.potentially_outdated.swapRemove(unit);
+    const prev_failed = zcu.failed_analysis.contains(unit) or zcu.transitive_failed_analysis.contains(unit);
+
+    if (was_outdated) {
+        dev.check(.incremental);
+        _ = zcu.outdated_ready.swapRemove(unit);
+        // No need for `deleteUnitExports` because we never export anything.
+        zcu.deleteUnitReferences(unit);
+        if (zcu.failed_analysis.fetchSwapRemove(unit)) |kv| {
+            kv.value.destroy(gpa);
+        }
+        _ = zcu.transitive_failed_analysis.swapRemove(unit);
+    } else {
+        if (prev_failed) return error.AnalysisFail;
+        // We use an arbitrary field to check if the state has been resolved yet.
+        const val = switch (stage) {
+            .main => zcu.builtin_decl_values.Type,
+            .panic => zcu.builtin_decl_values.Panic,
+            .va_list => zcu.builtin_decl_values.VaList,
+        };
+        if (val != .none) return;
+    }
+
+    const any_changed: bool, const new_failed: bool = if (pt.analyzeMemoizedState(stage)) |any_changed|
+        .{ any_changed or prev_failed, false }
+    else |err| switch (err) {
+        error.AnalysisFail => res: {
+            if (!zcu.failed_analysis.contains(unit)) {
+                // If this unit caused the error, it would have an entry in `failed_analysis`.
+                // Since it does not, this must be a transitive failure.
+                try zcu.transitive_failed_analysis.put(gpa, unit, {});
+                log.debug("mark transitive analysis failure for {}", .{zcu.fmtAnalUnit(unit)});
+            }
+            break :res .{ !prev_failed, true };
+        },
+        error.OutOfMemory => {
+            // TODO: same as for `ensureComptimeUnitUpToDate` etc
+            return error.OutOfMemory;
+        },
+        error.GenericPoison => unreachable,
+        error.ComptimeReturn => unreachable,
+        error.ComptimeBreak => unreachable,
+    };
+
+    if (was_outdated) {
+        const dependee: InternPool.Dependee = .{ .memoized_state = stage };
+        if (any_changed) {
+            try zcu.markDependeeOutdated(.marked_po, dependee);
+        } else {
+            try zcu.markPoDependeeUpToDate(dependee);
+        }
+    }
+
+    if (new_failed) return error.AnalysisFail;
+}
+
+fn analyzeMemoizedState(pt: Zcu.PerThread, stage: InternPool.MemoizedStateStage) Zcu.CompileError!bool {
+    const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
+    const gpa = zcu.gpa;
+
+    const unit: AnalUnit = .wrap(.{ .memoized_state = stage });
+
+    try zcu.analysis_in_progress.put(gpa, unit, {});
+    defer assert(zcu.analysis_in_progress.swapRemove(unit));
+
+    // Before we begin, collect:
+    // * The type `std`, and its namespace
+    // * The type `std.builtin`, and its namespace
+    // * A semi-reasonable source location
+    const std_file_imported = pt.importPkg(zcu.std_mod) catch return error.AnalysisFail;
+    try pt.ensureFileAnalyzed(std_file_imported.file_index);
+    const std_type: Type = .fromInterned(zcu.fileRootType(std_file_imported.file_index));
+    const std_namespace = std_type.getNamespaceIndex(zcu);
+    try pt.ensureNamespaceUpToDate(std_namespace);
+    const builtin_str = try ip.getOrPutString(gpa, pt.tid, "builtin", .no_embedded_nulls);
+    const builtin_nav = zcu.namespacePtr(std_namespace).pub_decls.getKeyAdapted(builtin_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }) orelse
+        @panic("lib/std.zig is corrupt and missing 'builtin'");
+    try pt.ensureNavValUpToDate(builtin_nav);
+    const builtin_type: Type = .fromInterned(ip.getNav(builtin_nav).status.fully_resolved.val);
+    const builtin_namespace = builtin_type.getNamespaceIndex(zcu);
+    try pt.ensureNamespaceUpToDate(builtin_namespace);
+    const src: Zcu.LazySrcLoc = .{
+        .base_node_inst = builtin_type.typeDeclInst(zcu).?,
+        .offset = .entire_file,
+    };
+
+    var analysis_arena: std.heap.ArenaAllocator = .init(gpa);
+    defer analysis_arena.deinit();
+
+    var comptime_err_ret_trace: std.ArrayList(Zcu.LazySrcLoc) = .init(gpa);
+    defer comptime_err_ret_trace.deinit();
+
+    var sema: Sema = .{
+        .pt = pt,
+        .gpa = gpa,
+        .arena = analysis_arena.allocator(),
+        .code = .{ .instructions = .empty, .string_bytes = &.{}, .extra = &.{} },
+        .owner = unit,
+        .func_index = .none,
+        .func_is_naked = false,
+        .fn_ret_ty = .void,
+        .fn_ret_ty_ies = null,
+        .comptime_err_ret_trace = &comptime_err_ret_trace,
+    };
+    defer sema.deinit();
+
+    var block: Sema.Block = .{
+        .parent = null,
+        .sema = &sema,
+        .namespace = std_namespace,
+        .instructions = .{},
+        .inlining = null,
+        .comptime_reason = .{ .reason = .{
+            .src = src,
+            .r = .{ .simple = .type },
+        } },
+        .src_base_inst = src.base_node_inst,
+        .type_name_ctx = .empty,
+    };
+    defer block.instructions.deinit(gpa);
+
+    return sema.analyzeMemoizedState(&block, src, builtin_namespace, stage);
 }
 
 /// Ensures that the state of the given `ComptimeUnit` is fully up-to-date, performing re-analysis
@@ -909,7 +1059,7 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
         // Of course, we need to make sure we depend on it properly.
         try sema.declareDependency(.{ .nav_ty = nav_id });
         try pt.ensureNavTypeUpToDate(nav_id);
-        break :ty .fromInterned(ip.getNav(nav_id).status.type_resolved.type);
+        break :ty .fromInterned(ip.getNav(nav_id).typeOf(ip));
     } else null;
 
     const final_val: ?Value = if (zir_decl.value_body) |value_body| val: {
@@ -2606,7 +2756,7 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
     // result in circular dependency errors.
     // TODO: this can go away once we fix backends having to resolve `StackTrace`.
     // The codegen timing guarantees that the parameter types will be populated.
-    sema.resolveFnTypes(fn_ty) catch |err| switch (err) {
+    sema.resolveFnTypes(fn_ty, inner_block.nodeOffset(0)) catch |err| switch (err) {
         error.GenericPoison => unreachable,
         error.ComptimeReturn => unreachable,
         error.ComptimeBreak => unreachable,
@@ -3462,23 +3612,6 @@ pub fn structPackedFieldBitOffset(
     unreachable; // index out of bounds
 }
 
-pub fn getBuiltinNav(pt: Zcu.PerThread, name: []const u8) Allocator.Error!InternPool.Nav.Index {
-    const zcu = pt.zcu;
-    const gpa = zcu.gpa;
-    const ip = &zcu.intern_pool;
-    const std_file_imported = pt.importPkg(zcu.std_mod) catch @panic("failed to import lib/std.zig");
-    const std_type = Type.fromInterned(zcu.fileRootType(std_file_imported.file_index));
-    const std_namespace = zcu.namespacePtr(std_type.getNamespace(zcu).unwrap().?);
-    const builtin_str = try ip.getOrPutString(gpa, pt.tid, "builtin", .no_embedded_nulls);
-    const builtin_nav = std_namespace.pub_decls.getKeyAdapted(builtin_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }) orelse
-        @panic("lib/std.zig is corrupt and missing 'builtin'");
-    pt.ensureNavValUpToDate(builtin_nav) catch @panic("std.builtin is corrupt");
-    const builtin_type = Type.fromInterned(ip.getNav(builtin_nav).status.fully_resolved.val);
-    const builtin_namespace = zcu.namespacePtr(builtin_type.getNamespace(zcu).unwrap() orelse @panic("std.builtin is corrupt"));
-    const name_str = try ip.getOrPutString(gpa, pt.tid, name, .no_embedded_nulls);
-    return builtin_namespace.pub_decls.getKeyAdapted(name_str, Zcu.Namespace.NameAdapter{ .zcu = zcu }) orelse @panic("lib/std/builtin.zig is corrupt");
-}
-
 pub fn navPtrType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Allocator.Error!Type {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -3524,9 +3657,11 @@ pub fn navAlignment(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) InternPo
     return ty.abiAlignment(zcu);
 }
 
-/// Given a container type requiring resolution, ensures that it is up-to-date.
-/// If not, the type is recreated at a new `InternPool.Index`.
-/// The new index is returned. This is the same as the old index if the fields were up-to-date.
+/// `ty` is a container type requiring resolution (struct, union, or enum).
+/// If `ty` is outdated, it is recreated at a new `InternPool.Index`, which is returned.
+/// If the type cannot be recreated because it has been lost, `error.AnalysisFail` is returned.
+/// If `ty` is not outdated, that same `InternPool.Index` is returned.
+/// If `ty` has already been replaced by this function, the new index will not be returned again.
 pub fn ensureTypeUpToDate(pt: Zcu.PerThread, ty: InternPool.Index) Zcu.SemaError!InternPool.Index {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -3536,12 +3671,29 @@ pub fn ensureTypeUpToDate(pt: Zcu.PerThread, ty: InternPool.Index) Zcu.SemaError
     const outdated = zcu.outdated.swapRemove(anal_unit) or
         zcu.potentially_outdated.swapRemove(anal_unit);
 
+    if (outdated) {
+        _ = zcu.outdated_ready.swapRemove(anal_unit);
+        try zcu.markDependeeOutdated(.marked_po, .{ .interned = ty });
+    }
+
+    const ty_key = switch (ip.indexToKey(ty)) {
+        .struct_type, .union_type, .enum_type => |key| key,
+        else => unreachable,
+    };
+    const declared_ty_key = switch (ty_key) {
+        .reified => unreachable, // never outdated
+        .generated_tag => unreachable, // never outdated
+        .declared => |d| d,
+    };
+
+    if (declared_ty_key.zir_index.resolve(ip) == null) {
+        // The instruction has been lost -- this type is dead.
+        return error.AnalysisFail;
+    }
+
     if (!outdated) return ty;
 
     // We will recreate the type at a new `InternPool.Index`.
-
-    _ = zcu.outdated_ready.swapRemove(anal_unit);
-    try zcu.markDependeeOutdated(.marked_po, .{ .interned = ty });
 
     // Delete old state which is no longer in use. Technically, this is not necessary: these exports,
     // references, etc, will be ignored because the type itself is unreferenced. However, it allows
@@ -3555,9 +3707,9 @@ pub fn ensureTypeUpToDate(pt: Zcu.PerThread, ty: InternPool.Index) Zcu.SemaError
     zcu.intern_pool.removeDependenciesForDepender(gpa, anal_unit);
 
     switch (ip.indexToKey(ty)) {
-        .struct_type => |key| return pt.recreateStructType(ty, key),
-        .union_type => |key| return pt.recreateUnionType(ty, key),
-        .enum_type => |key| return pt.recreateEnumType(ty, key),
+        .struct_type => return pt.recreateStructType(ty, declared_ty_key),
+        .union_type => return pt.recreateUnionType(ty, declared_ty_key),
+        .enum_type => return pt.recreateEnumType(ty, declared_ty_key),
         else => unreachable,
     }
 }
@@ -3565,21 +3717,15 @@ pub fn ensureTypeUpToDate(pt: Zcu.PerThread, ty: InternPool.Index) Zcu.SemaError
 fn recreateStructType(
     pt: Zcu.PerThread,
     old_ty: InternPool.Index,
-    full_key: InternPool.Key.NamespaceType,
-) Zcu.SemaError!InternPool.Index {
+    key: InternPool.Key.NamespaceType.Declared,
+) Allocator.Error!InternPool.Index {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
 
-    const key = switch (full_key) {
-        .reified => unreachable, // never outdated
-        .generated_tag => unreachable, // not a struct
-        .declared => |d| d,
-    };
-
-    const inst_info = key.zir_index.resolveFull(ip) orelse return error.AnalysisFail;
+    const inst_info = key.zir_index.resolveFull(ip).?;
     const file = zcu.fileByIndex(inst_info.file);
-    if (file.status != .success_zir) return error.AnalysisFail;
+    assert(file.status == .success_zir); // otherwise inst tracking failed
     const zir = file.zir;
 
     assert(zir.instructions.items(.tag)[@intFromEnum(inst_info.inst)] == .extended);
@@ -3600,7 +3746,7 @@ fn recreateStructType(
         break :blk fields_len;
     } else 0;
 
-    if (captures_len != key.captures.owned.len) return error.AnalysisFail;
+    assert(captures_len == key.captures.owned.len); // synchronises with logic in `Zcu.mapOldZirToNew`
 
     const struct_obj = ip.loadStructType(old_ty);
 
@@ -3644,21 +3790,15 @@ fn recreateStructType(
 fn recreateUnionType(
     pt: Zcu.PerThread,
     old_ty: InternPool.Index,
-    full_key: InternPool.Key.NamespaceType,
-) Zcu.SemaError!InternPool.Index {
+    key: InternPool.Key.NamespaceType.Declared,
+) Allocator.Error!InternPool.Index {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
 
-    const key = switch (full_key) {
-        .reified => unreachable, // never outdated
-        .generated_tag => unreachable, // not a union
-        .declared => |d| d,
-    };
-
-    const inst_info = key.zir_index.resolveFull(ip) orelse return error.AnalysisFail;
+    const inst_info = key.zir_index.resolveFull(ip).?;
     const file = zcu.fileByIndex(inst_info.file);
-    if (file.status != .success_zir) return error.AnalysisFail;
+    assert(file.status == .success_zir); // otherwise inst tracking failed
     const zir = file.zir;
 
     assert(zir.instructions.items(.tag)[@intFromEnum(inst_info.inst)] == .extended);
@@ -3681,7 +3821,7 @@ fn recreateUnionType(
         break :blk fields_len;
     } else 0;
 
-    if (captures_len != key.captures.owned.len) return error.AnalysisFail;
+    assert(captures_len == key.captures.owned.len); // synchronises with logic in `Zcu.mapOldZirToNew`
 
     const union_obj = ip.loadUnionType(old_ty);
 
@@ -3731,23 +3871,19 @@ fn recreateUnionType(
     return wip_ty.finish(ip, namespace_index);
 }
 
+// TODO: is it safe for this to return `SemaError`? enum type resolution is a bit weird...
 fn recreateEnumType(
     pt: Zcu.PerThread,
     old_ty: InternPool.Index,
-    full_key: InternPool.Key.NamespaceType,
+    key: InternPool.Key.NamespaceType.Declared,
 ) Zcu.SemaError!InternPool.Index {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
 
-    const key = switch (full_key) {
-        .reified, .generated_tag => unreachable, // never outdated
-        .declared => |d| d,
-    };
-
-    const inst_info = key.zir_index.resolveFull(ip) orelse return error.AnalysisFail;
+    const inst_info = key.zir_index.resolveFull(ip).?;
     const file = zcu.fileByIndex(inst_info.file);
-    if (file.status != .success_zir) return error.AnalysisFail;
+    assert(file.status == .success_zir); // otherwise inst tracking failed
     const zir = file.zir;
 
     assert(zir.instructions.items(.tag)[@intFromEnum(inst_info.inst)] == .extended);
@@ -3787,7 +3923,7 @@ fn recreateEnumType(
         break :blk decls_len;
     } else 0;
 
-    if (captures_len != key.captures.owned.len) return error.AnalysisFail;
+    assert(captures_len == key.captures.owned.len); // synchronises with logic in `Zcu.mapOldZirToNew`
 
     extra_index += captures_len;
     extra_index += decls_len;
