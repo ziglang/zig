@@ -547,8 +547,8 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         pub fn findLastSet(self: Self) ?usize {
             if (self.bit_length == 0) return null;
             const bs = @bitSizeOf(MaskInt);
-            var len = self.bit_length / bs;
-            if (self.bit_length % bs != 0) len += 1;
+            var len = bit_length / bs;
+            if (bit_length % bs != 0) len += 1;
             var offset: usize = len * bs;
             var idx: usize = len - 1;
             while (self.masks[idx] == 0) : (idx -= 1) {
