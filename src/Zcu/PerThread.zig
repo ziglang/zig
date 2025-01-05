@@ -3944,7 +3944,7 @@ fn recreateEnumType(
 
     assert(captures_len == key.captures.owned.len); // synchronises with logic in `Zcu.mapOldZirToNew`
 
-    extra_index += captures_len;
+    extra_index += captures_len * 2;
     extra_index += decls_len;
 
     const body = zir.bodySlice(extra_index, body_len);
@@ -4071,7 +4071,7 @@ pub fn ensureNamespaceUpToDate(pt: Zcu.PerThread, namespace_index: Zcu.Namespace
                 extra_index += 1;
                 break :blk decls_len;
             } else 0;
-            extra_index += captures_len;
+            extra_index += captures_len * 2;
             if (small.has_backing_int) {
                 const backing_int_body_len = zir.extra[extra_index];
                 extra_index += 1; // backing_int_body_len
@@ -4101,7 +4101,7 @@ pub fn ensureNamespaceUpToDate(pt: Zcu.PerThread, namespace_index: Zcu.Namespace
                 extra_index += 1;
                 break :blk decls_len;
             } else 0;
-            extra_index += captures_len;
+            extra_index += captures_len * 2;
             break :decls zir.bodySlice(extra_index, decls_len);
         },
         .@"enum" => decls: {
@@ -4122,7 +4122,7 @@ pub fn ensureNamespaceUpToDate(pt: Zcu.PerThread, namespace_index: Zcu.Namespace
                 extra_index += 1;
                 break :blk decls_len;
             } else 0;
-            extra_index += captures_len;
+            extra_index += captures_len * 2;
             break :decls zir.bodySlice(extra_index, decls_len);
         },
         .@"opaque" => decls: {
@@ -4140,7 +4140,7 @@ pub fn ensureNamespaceUpToDate(pt: Zcu.PerThread, namespace_index: Zcu.Namespace
                 extra_index += 1;
                 break :blk decls_len;
             } else 0;
-            extra_index += captures_len;
+            extra_index += captures_len * 2;
             break :decls zir.bodySlice(extra_index, decls_len);
         },
     };

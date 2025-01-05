@@ -5315,8 +5315,9 @@ fn structDeclInner(
     const fields_slice = wip_members.fieldsSlice();
     const bodies_slice = astgen.scratch.items[bodies_start..];
     try astgen.extra.ensureUnusedCapacity(gpa, backing_int_body_len + 2 +
-        decls_slice.len + namespace.captures.count() + fields_slice.len + bodies_slice.len);
+        decls_slice.len + namespace.captures.count() * 2 + fields_slice.len + bodies_slice.len);
     astgen.extra.appendSliceAssumeCapacity(@ptrCast(namespace.captures.keys()));
+    astgen.extra.appendSliceAssumeCapacity(@ptrCast(namespace.captures.values()));
     if (backing_int_ref != .none) {
         astgen.extra.appendAssumeCapacity(@intCast(backing_int_body_len));
         if (backing_int_body_len == 0) {
@@ -5595,8 +5596,9 @@ fn unionDeclInner(
     wip_members.finishBits(bits_per_field);
     const decls_slice = wip_members.declsSlice();
     const fields_slice = wip_members.fieldsSlice();
-    try astgen.extra.ensureUnusedCapacity(gpa, namespace.captures.count() + decls_slice.len + body_len + fields_slice.len);
+    try astgen.extra.ensureUnusedCapacity(gpa, namespace.captures.count() * 2 + decls_slice.len + body_len + fields_slice.len);
     astgen.extra.appendSliceAssumeCapacity(@ptrCast(namespace.captures.keys()));
+    astgen.extra.appendSliceAssumeCapacity(@ptrCast(namespace.captures.values()));
     astgen.extra.appendSliceAssumeCapacity(decls_slice);
     astgen.appendBodyWithFixups(body);
     astgen.extra.appendSliceAssumeCapacity(fields_slice);
@@ -5855,8 +5857,9 @@ fn containerDecl(
             wip_members.finishBits(bits_per_field);
             const decls_slice = wip_members.declsSlice();
             const fields_slice = wip_members.fieldsSlice();
-            try astgen.extra.ensureUnusedCapacity(gpa, namespace.captures.count() + decls_slice.len + body_len + fields_slice.len);
+            try astgen.extra.ensureUnusedCapacity(gpa, namespace.captures.count() * 2 + decls_slice.len + body_len + fields_slice.len);
             astgen.extra.appendSliceAssumeCapacity(@ptrCast(namespace.captures.keys()));
+            astgen.extra.appendSliceAssumeCapacity(@ptrCast(namespace.captures.values()));
             astgen.extra.appendSliceAssumeCapacity(decls_slice);
             astgen.appendBodyWithFixups(body);
             astgen.extra.appendSliceAssumeCapacity(fields_slice);
@@ -5910,8 +5913,9 @@ fn containerDecl(
 
             wip_members.finishBits(0);
             const decls_slice = wip_members.declsSlice();
-            try astgen.extra.ensureUnusedCapacity(gpa, namespace.captures.count() + decls_slice.len);
+            try astgen.extra.ensureUnusedCapacity(gpa, namespace.captures.count() * 2 + decls_slice.len);
             astgen.extra.appendSliceAssumeCapacity(@ptrCast(namespace.captures.keys()));
+            astgen.extra.appendSliceAssumeCapacity(@ptrCast(namespace.captures.values()));
             astgen.extra.appendSliceAssumeCapacity(decls_slice);
 
             block_scope.unstack();
@@ -8548,6 +8552,7 @@ fn localVarRef(
                     num_namespaces_out,
                     .{ .ref = local_val.inst },
                     .{ .token = local_val.token_src },
+                    name_str_index,
                 ) else local_val.inst;
 
                 return rvalueNoCoercePreRef(gz, ri, value_inst, ident);
@@ -8580,6 +8585,7 @@ fn localVarRef(
                             num_namespaces_out,
                             .{ .ref = local_ptr.ptr },
                             .{ .token = local_ptr.token_src },
+                            name_str_index,
                         ) else local_ptr.ptr;
                         local_ptr.used_as_lvalue = true;
                         return ptr_inst;
@@ -8591,6 +8597,7 @@ fn localVarRef(
                             num_namespaces_out,
                             .{ .ref_load = local_ptr.ptr },
                             .{ .token = local_ptr.token_src },
+                            name_str_index,
                         ) else try gz.addUnNode(.load, local_ptr.ptr, ident);
                         return rvalueNoCoercePreRef(gz, ri, val_inst, ident);
                     },
@@ -8636,6 +8643,7 @@ fn localVarRef(
                 found_namespaces_out,
                 .{ .decl_ref = name_str_index },
                 .{ .node = found_already.? },
+                name_str_index,
             ),
             else => {
                 const result = try tunnelThroughClosure(
@@ -8644,6 +8652,7 @@ fn localVarRef(
                     found_namespaces_out,
                     .{ .decl_val = name_str_index },
                     .{ .node = found_already.? },
+                    name_str_index,
                 );
                 return rvalueNoCoercePreRef(gz, ri, result, ident);
             },
@@ -8680,6 +8689,7 @@ fn tunnelThroughClosure(
         token: Ast.TokenIndex,
         node: Ast.Node.Index,
     },
+    name_str_index: Zir.NullTerminatedString,
 ) !Zir.Inst.Ref {
     switch (value) {
         .ref => |v| if (v.toIndex() == null) return v, // trivial value; do not need tunnel
@@ -8714,34 +8724,43 @@ fn tunnelThroughClosure(
 
     // Now that we know the scopes we're tunneling through, begin adding
     // captures as required, starting with the outermost namespace.
-    const root_capture = Zir.Inst.Capture.wrap(switch (value) {
+    const root_capture: Zir.Inst.Capture = .wrap(switch (value) {
         .ref => |v| .{ .instruction = v.toIndex().? },
         .ref_load => |v| .{ .instruction_load = v.toIndex().? },
         .decl_val => |str| .{ .decl_val = str },
         .decl_ref => |str| .{ .decl_ref = str },
     });
-    var cur_capture_index = std.math.cast(
-        u16,
-        (try root_ns.captures.getOrPut(gpa, root_capture)).index,
-    ) orelse return astgen.failNodeNotes(root_ns.node, "this compiler implementation only supports up to 65536 captures per namespace", .{}, &.{
-        switch (decl_src) {
-            .token => |t| try astgen.errNoteTok(t, "captured value here", .{}),
-            .node => |n| try astgen.errNoteNode(n, "captured value here", .{}),
-        },
-        try astgen.errNoteNode(inner_ref_node, "value used here", .{}),
-    });
 
-    for (intermediate_tunnels) |tunnel_ns| {
-        cur_capture_index = std.math.cast(
-            u16,
-            (try tunnel_ns.captures.getOrPut(gpa, Zir.Inst.Capture.wrap(.{ .nested = cur_capture_index }))).index,
-        ) orelse return astgen.failNodeNotes(tunnel_ns.node, "this compiler implementation only supports up to 65536 captures per namespace", .{}, &.{
+    const root_gop = try root_ns.captures.getOrPut(gpa, root_capture);
+    root_gop.value_ptr.* = name_str_index;
+    var cur_capture_index = std.math.cast(u16, root_gop.index) orelse return astgen.failNodeNotes(
+        root_ns.node,
+        "this compiler implementation only supports up to 65536 captures per namespace",
+        .{},
+        &.{
             switch (decl_src) {
                 .token => |t| try astgen.errNoteTok(t, "captured value here", .{}),
                 .node => |n| try astgen.errNoteNode(n, "captured value here", .{}),
             },
             try astgen.errNoteNode(inner_ref_node, "value used here", .{}),
-        });
+        },
+    );
+
+    for (intermediate_tunnels) |tunnel_ns| {
+        const tunnel_gop = try tunnel_ns.captures.getOrPut(gpa, .wrap(.{ .nested = cur_capture_index }));
+        tunnel_gop.value_ptr.* = name_str_index;
+        cur_capture_index = std.math.cast(u16, tunnel_gop.index) orelse return astgen.failNodeNotes(
+            tunnel_ns.node,
+            "this compiler implementation only supports up to 65536 captures per namespace",
+            .{},
+            &.{
+                switch (decl_src) {
+                    .token => |t| try astgen.errNoteTok(t, "captured value here", .{}),
+                    .node => |n| try astgen.errNoteNode(n, "captured value here", .{}),
+                },
+                try astgen.errNoteNode(inner_ref_node, "value used here", .{}),
+            },
+        );
     }
 
     // Incorporate the capture index into the source hash, so that changes in
@@ -11920,7 +11939,7 @@ const Scope = struct {
         declaring_gz: ?*GenZir,
 
         /// Set of captures used by this namespace.
-        captures: std.AutoArrayHashMapUnmanaged(Zir.Inst.Capture, void) = .empty,
+        captures: std.AutoArrayHashMapUnmanaged(Zir.Inst.Capture, Zir.NullTerminatedString) = .empty,
 
         fn deinit(self: *Namespace, gpa: Allocator) void {
             self.decls.deinit(gpa);
