@@ -682,6 +682,7 @@ pub const Tokenizer = struct {
                     },
                 }
             },
+
             .builtin => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
@@ -689,6 +690,7 @@ pub const Tokenizer = struct {
                     else => {},
                 }
             },
+
             .backslash => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
@@ -698,6 +700,7 @@ pub const Tokenizer = struct {
                     else => continue :state .invalid,
                 }
             },
+
             .string_literal => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
@@ -711,7 +714,7 @@ pub const Tokenizer = struct {
                     '\n' => result.tag = .invalid,
                     '\\' => continue :state .string_literal_backslash,
                     '"' => self.index += 1,
-                    0x01...0x09, 0x0b...0x1f, 0x7f => {
+                    0x01...0x08, 0x0b...0x1f, 0x7f => {
                         continue :state .invalid;
                     },
                     else => continue :state .string_literal,
@@ -774,7 +777,7 @@ pub const Tokenizer = struct {
                     '\r' => if (self.buffer[self.index + 1] != '\n') {
                         continue :state .invalid;
                     },
-                    0x01...0x09, 0x0b...0x0c, 0x0e...0x1f, 0x7f => continue :state .invalid,
+                    0x01...0x08, 0x0b...0x0c, 0x0e...0x1f, 0x7f => continue :state .invalid,
                     else => continue :state .multiline_string_literal_line,
                 }
             },
@@ -847,6 +850,7 @@ pub const Tokenizer = struct {
                     else => result.tag = .minus_percent,
                 }
             },
+
             .minus_pipe => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
@@ -955,6 +959,7 @@ pub const Tokenizer = struct {
                     else => result.tag = .slash,
                 }
             },
+
             .line_comment_start => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
@@ -980,12 +985,13 @@ pub const Tokenizer = struct {
                     },
                     '/' => continue :state .doc_comment_start,
                     '\r' => continue :state .expect_newline,
-                    0x01...0x09, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
+                    0x01...0x08, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
                         continue :state .invalid;
                     },
                     else => continue :state .line_comment,
                 }
             },
+
             .doc_comment_start => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
@@ -998,7 +1004,7 @@ pub const Tokenizer = struct {
                         }
                     },
                     '/' => continue :state .line_comment,
-                    0x01...0x09, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
+                    0x01...0x08, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
                         continue :state .invalid;
                     },
                     else => {
@@ -1007,6 +1013,7 @@ pub const Tokenizer = struct {
                     },
                 }
             },
+
             .line_comment => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
@@ -1027,12 +1034,13 @@ pub const Tokenizer = struct {
                         continue :state .start;
                     },
                     '\r' => continue :state .expect_newline,
-                    0x01...0x09, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
+                    0x01...0x08, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
                         continue :state .invalid;
                     },
                     else => continue :state .line_comment,
                 }
             },
+
             .doc_comment => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
@@ -1040,12 +1048,13 @@ pub const Tokenizer = struct {
                     '\r' => if (self.buffer[self.index + 1] != '\n') {
                         continue :state .invalid;
                     },
-                    0x01...0x09, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
+                    0x01...0x08, 0x0b...0x0c, 0x0e...0x1f, 0x7f => {
                         continue :state .invalid;
                     },
                     else => continue :state .doc_comment,
                 }
             },
+
             .int => switch (self.buffer[self.index]) {
                 '.' => continue :state .int_period,
                 '_', 'a'...'d', 'f'...'o', 'q'...'z', 'A'...'D', 'F'...'O', 'Q'...'Z', '0'...'9' => {
@@ -1057,6 +1066,7 @@ pub const Tokenizer = struct {
                 },
                 else => {},
             },
+
             .int_exponent => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
@@ -1067,6 +1077,7 @@ pub const Tokenizer = struct {
                     else => continue :state .int,
                 }
             },
+
             .int_period => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
@@ -1080,6 +1091,7 @@ pub const Tokenizer = struct {
                     else => self.index -= 1,
                 }
             },
+
             .float => switch (self.buffer[self.index]) {
                 '_', 'a'...'d', 'f'...'o', 'q'...'z', 'A'...'D', 'F'...'O', 'Q'...'Z', '0'...'9' => {
                     self.index += 1;
@@ -1090,6 +1102,7 @@ pub const Tokenizer = struct {
                 },
                 else => {},
             },
+
             .float_exponent => {
                 self.index += 1;
                 switch (self.buffer[self.index]) {
