@@ -180,6 +180,9 @@
         .run_output_caching = .{
             .path = "run_output_caching",
         },
+        .empty_global_error_set = .{
+            .path = "empty_global_error_set",
+        },
     },
     .paths = .{
         "build.zig",

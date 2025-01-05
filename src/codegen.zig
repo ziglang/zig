@@ -148,19 +148,23 @@ pub fn generateLazySymbol(
     if (lazy_sym.ty == .anyerror_type) {
         alignment.* = .@"4";
         const err_names = ip.global_error_set.getNamesFromMainThread();
-        mem.writeInt(u32, try code.addManyAsArray(4), @intCast(err_names.len), endian);
-        var offset = code.items.len;
-        try code.resize((err_names.len + 1) * 4);
+        var offset_index: u32 = @intCast(code.items.len);
+        var string_index: u32 = @intCast(4 * (1 + err_names.len + @intFromBool(err_names.len > 0)));
+        try code.resize(offset_index + string_index);
+        mem.writeInt(u32, code.items[offset_index..][0..4], @intCast(err_names.len), endian);
+        if (err_names.len == 0) return .ok;
+        offset_index += 4;
         for (err_names) |err_name_nts| {
             const err_name = err_name_nts.toSlice(ip);
-            mem.writeInt(u32, code.items[offset..][0..4], @intCast(code.items.len), endian);
-            offset += 4;
+            mem.writeInt(u32, code.items[offset_index..][0..4], string_index, endian);
+            offset_index += 4;
             try code.ensureUnusedCapacity(err_name.len + 1);
             code.appendSliceAssumeCapacity(err_name);
             code.appendAssumeCapacity(0);
+            string_index += @intCast(err_name.len + 1);
         }
-        mem.writeInt(u32, code.items[offset..][0..4], @intCast(code.items.len), endian);
-        return Result.ok;
+        mem.writeInt(u32, code.items[offset_index..][0..4], string_index, endian);
+        return .ok;
     } else if (Type.fromInterned(lazy_sym.ty).zigTypeTag(pt.zcu) == .@"enum") {
         alignment.* = .@"1";
         const enum_ty = Type.fromInterned(lazy_sym.ty);
@@ -171,8 +175,8 @@ pub fn generateLazySymbol(
             code.appendSliceAssumeCapacity(tag_name);
             code.appendAssumeCapacity(0);
         }
-        return Result.ok;
-    } else return .{ .fail = try ErrorMsg.create(
+        return .ok;
+    } else return .{ .fail = try .create(
         gpa,
         src_loc,
         "TODO implement generateLazySymbol for {s} {}",
