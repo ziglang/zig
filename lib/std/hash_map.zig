@@ -1360,7 +1360,7 @@ pub fn HashMapUnmanaged(
 
             // If you get a compile error on this line, it means that your generic hash
             // function is invalid for these parameters.
-            const hash = ctx.hash(key);
+            const hash: Hash = ctx.hash(key);
 
             const mask = self.capacity() - 1;
             const fingerprint = Metadata.takeFingerprint(hash);
