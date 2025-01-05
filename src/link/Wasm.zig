@@ -242,7 +242,7 @@ function_imports: std.AutoArrayHashMapUnmanaged(String, FunctionImportId) = .emp
 data_imports: std.AutoArrayHashMapUnmanaged(String, DataImportId) = .empty,
 /// Set of data symbols that will appear in the final binary. Used to populate
 /// `Flush.data_segments` before sorting.
-data_segments: std.AutoArrayHashMapUnmanaged(DataId, void) = .empty,
+data_segments: std.AutoArrayHashMapUnmanaged(DataSegmentId, void) = .empty,
 
 /// Ordered list of non-import globals that will appear in the final binary.
 /// Empty until prelink.
@@ -1523,27 +1523,120 @@ pub const ObjectDataImport = extern struct {
     source_location: SourceLocation,
 
     pub const Resolution = enum(u32) {
+        unresolved,
         __zig_error_names,
         __zig_error_name_table,
         __heap_base,
         __heap_end,
-        unresolved = std.math.maxInt(u32),
+        /// Next, an `ObjectData.Index`.
+        /// Next, index into `uavs_obj` or `uavs_exe` depending on whether emitting an object.
+        /// Next, index into `navs_obj` or `navs_exe` depending on whether emitting an object.
         _,
 
-        comptime {
-            assert(@intFromEnum(Resolution.__zig_error_names) == @intFromEnum(DataId.__zig_error_names));
-            assert(@intFromEnum(Resolution.__zig_error_name_table) == @intFromEnum(DataId.__zig_error_name_table));
-            assert(@intFromEnum(Resolution.__heap_base) == @intFromEnum(DataId.__heap_base));
-            assert(@intFromEnum(Resolution.__heap_end) == @intFromEnum(DataId.__heap_end));
+        const first_object = @intFromEnum(Resolution.__heap_end) + 1;
+
+        pub const Unpacked = union(enum) {
+            unresolved,
+            __zig_error_names,
+            __zig_error_name_table,
+            __heap_base,
+            __heap_end,
+            object: ObjectData.Index,
+            uav_exe: UavsExeIndex,
+            uav_obj: UavsObjIndex,
+            nav_exe: NavsExeIndex,
+            nav_obj: NavsObjIndex,
+        };
+
+        pub fn unpack(r: Resolution, wasm: *const Wasm) Unpacked {
+            return switch (r) {
+                .unresolved => .unresolved,
+                .__zig_error_names => .__zig_error_names,
+                .__zig_error_name_table => .__zig_error_name_table,
+                .__heap_base => .__heap_base,
+                .__heap_end => .__heap_end,
+                _ => {
+                    const object_index = @intFromEnum(r) - first_object;
+
+                    const uav_index = if (object_index < wasm.object_datas.items.len)
+                        return .{ .object = @enumFromInt(object_index) }
+                    else
+                        object_index - wasm.object_datas.items.len;
+
+                    const comp = wasm.base.comp;
+                    const is_obj = comp.config.output_mode == .Obj;
+                    if (is_obj) {
+                        const nav_index = if (uav_index < wasm.uavs_obj.entries.len)
+                            return .{ .uav_obj = @enumFromInt(uav_index) }
+                        else
+                            uav_index - wasm.uavs_obj.entries.len;
+
+                        return .{ .nav_obj = @enumFromInt(nav_index) };
+                    } else {
+                        const nav_index = if (uav_index < wasm.uavs_exe.entries.len)
+                            return .{ .uav_exe = @enumFromInt(uav_index) }
+                        else
+                            uav_index - wasm.uavs_exe.entries.len;
+
+                        return .{ .nav_exe = @enumFromInt(nav_index) };
+                    }
+                },
+            };
         }
 
-        pub fn toDataId(r: Resolution) ?DataId {
-            if (r == .unresolved) return null;
-            return @enumFromInt(@intFromEnum(r));
+        pub fn pack(wasm: *const Wasm, unpacked: Unpacked) Resolution {
+            return switch (unpacked) {
+                .unresolved => .unresolved,
+                .__zig_error_names => .__zig_error_names,
+                .__zig_error_name_table => .__zig_error_name_table,
+                .__heap_base => .__heap_base,
+                .__heap_end => .__heap_end,
+                .object => |i| @enumFromInt(first_object + @intFromEnum(i)),
+                inline .uav_exe, .uav_obj => |i| @enumFromInt(first_object + wasm.object_datas.items.len + @intFromEnum(i)),
+                .nav_exe => |i| @enumFromInt(first_object + wasm.object_datas.items.len + wasm.uavs_exe.entries.len + @intFromEnum(i)),
+                .nav_obj => |i| @enumFromInt(first_object + wasm.object_datas.items.len + wasm.uavs_obj.entries.len + @intFromEnum(i)),
+            };
         }
 
         pub fn fromObjectDataIndex(wasm: *const Wasm, object_data_index: ObjectData.Index) Resolution {
-            return @enumFromInt(@intFromEnum(DataId.pack(wasm, .{ .object = object_data_index.ptr(wasm).segment })));
+            return pack(wasm, .{ .object = object_data_index });
+        }
+
+        pub fn objectDataSegment(r: Resolution, wasm: *const Wasm) ?ObjectDataSegment.Index {
+            return switch (unpack(r, wasm)) {
+                .unresolved => unreachable,
+                .object => |i| i.ptr(wasm).segment,
+                .__zig_error_names,
+                .__zig_error_name_table,
+                .__heap_base,
+                .__heap_end,
+                .uav_exe,
+                .uav_obj,
+                .nav_exe,
+                .nav_obj,
+                => null,
+            };
+        }
+
+        pub fn dataLoc(r: Resolution, wasm: *const Wasm) DataLoc {
+            return switch (unpack(r, wasm)) {
+                .unresolved => unreachable,
+                .object => |i| {
+                    const ptr = i.ptr(wasm);
+                    return .{
+                        .segment = .fromObjectDataSegment(wasm, ptr.segment),
+                        .offset = ptr.offset,
+                    };
+                },
+                .__zig_error_names => .{ .segment = .__zig_error_names, .offset = 0 },
+                .__zig_error_name_table => .{ .segment = .__zig_error_name_table, .offset = 0 },
+                .__heap_base => .{ .segment = .__heap_base, .offset = 0 },
+                .__heap_end => .{ .segment = .__heap_end, .offset = 0 },
+                .uav_exe => @panic("TODO"),
+                .uav_obj => @panic("TODO"),
+                .nav_exe => @panic("TODO"),
+                .nav_obj => @panic("TODO"),
+            };
         }
     };
 
@@ -1583,7 +1676,7 @@ pub const DataPayload = extern struct {
 };
 
 /// A reference to a local or exported global const.
-pub const DataId = enum(u32) {
+pub const DataSegmentId = enum(u32) {
     __zig_error_names,
     __zig_error_name_table,
     /// This and `__heap_end` are better retrieved via a global, but there is
@@ -1596,7 +1689,7 @@ pub const DataId = enum(u32) {
     /// Next, index into `navs_obj` or `navs_exe` depending on whether emitting an object.
     _,
 
-    const first_object = @intFromEnum(DataId.__heap_end) + 1;
+    const first_object = @intFromEnum(DataSegmentId.__heap_end) + 1;
 
     pub const Category = enum {
         /// Thread-local variables.
@@ -1620,7 +1713,7 @@ pub const DataId = enum(u32) {
         nav_obj: NavsObjIndex,
     };
 
-    pub fn pack(wasm: *const Wasm, unpacked: Unpacked) DataId {
+    pub fn pack(wasm: *const Wasm, unpacked: Unpacked) DataSegmentId {
         return switch (unpacked) {
             .__zig_error_names => .__zig_error_names,
             .__zig_error_name_table => .__zig_error_name_table,
@@ -1633,7 +1726,7 @@ pub const DataId = enum(u32) {
         };
     }
 
-    pub fn unpack(id: DataId, wasm: *const Wasm) Unpacked {
+    pub fn unpack(id: DataSegmentId, wasm: *const Wasm) Unpacked {
         return switch (id) {
             .__zig_error_names => .__zig_error_names,
             .__zig_error_name_table => .__zig_error_name_table,
@@ -1668,11 +1761,21 @@ pub const DataId = enum(u32) {
         };
     }
 
-    pub fn fromObjectDataSegment(wasm: *const Wasm, object_data_segment: ObjectDataSegment.Index) DataId {
+    pub fn fromNav(wasm: *const Wasm, nav_index: InternPool.Nav.Index) DataSegmentId {
+        const comp = wasm.base.comp;
+        const is_obj = comp.config.output_mode == .Obj;
+        return pack(wasm, if (is_obj) .{
+            .nav_obj = @enumFromInt(wasm.navs_obj.getIndex(nav_index).?),
+        } else .{
+            .nav_exe = @enumFromInt(wasm.navs_exe.getIndex(nav_index).?),
+        });
+    }
+
+    pub fn fromObjectDataSegment(wasm: *const Wasm, object_data_segment: ObjectDataSegment.Index) DataSegmentId {
         return pack(wasm, .{ .object = object_data_segment });
     }
 
-    pub fn category(id: DataId, wasm: *const Wasm) Category {
+    pub fn category(id: DataSegmentId, wasm: *const Wasm) Category {
         return switch (unpack(id, wasm)) {
             .__zig_error_names, .__zig_error_name_table, .__heap_base, .__heap_end => .data,
             .object => |i| {
@@ -1693,7 +1796,7 @@ pub const DataId = enum(u32) {
         };
     }
 
-    pub fn isTls(id: DataId, wasm: *const Wasm) bool {
+    pub fn isTls(id: DataSegmentId, wasm: *const Wasm) bool {
         return switch (unpack(id, wasm)) {
             .__zig_error_names, .__zig_error_name_table, .__heap_base, .__heap_end => false,
             .object => |i| i.ptr(wasm).flags.tls,
@@ -1707,11 +1810,11 @@ pub const DataId = enum(u32) {
         };
     }
 
-    pub fn isBss(id: DataId, wasm: *const Wasm) bool {
+    pub fn isBss(id: DataSegmentId, wasm: *const Wasm) bool {
         return id.category(wasm) == .zero;
     }
 
-    pub fn name(id: DataId, wasm: *const Wasm) []const u8 {
+    pub fn name(id: DataSegmentId, wasm: *const Wasm) []const u8 {
         return switch (unpack(id, wasm)) {
             .__zig_error_names, .__zig_error_name_table, .uav_exe, .uav_obj, .__heap_base, .__heap_end => ".data",
             .object => |i| i.ptr(wasm).name.unwrap().?.slice(wasm),
@@ -1724,7 +1827,7 @@ pub const DataId = enum(u32) {
         };
     }
 
-    pub fn alignment(id: DataId, wasm: *const Wasm) Alignment {
+    pub fn alignment(id: DataSegmentId, wasm: *const Wasm) Alignment {
         return switch (unpack(id, wasm)) {
             .__zig_error_names => .@"1",
             .__zig_error_name_table, .__heap_base, .__heap_end => wasm.pointerAlignment(),
@@ -1752,7 +1855,7 @@ pub const DataId = enum(u32) {
         };
     }
 
-    pub fn refCount(id: DataId, wasm: *const Wasm) u32 {
+    pub fn refCount(id: DataSegmentId, wasm: *const Wasm) u32 {
         return switch (unpack(id, wasm)) {
             .__zig_error_names => @intCast(wasm.error_name_offs.items.len),
             .__zig_error_name_table => wasm.error_name_table_ref_count,
@@ -1761,7 +1864,7 @@ pub const DataId = enum(u32) {
         };
     }
 
-    pub fn isPassive(id: DataId, wasm: *const Wasm) bool {
+    pub fn isPassive(id: DataSegmentId, wasm: *const Wasm) bool {
         const comp = wasm.base.comp;
         if (comp.config.import_memory and !id.isBss(wasm)) return true;
         return switch (unpack(id, wasm)) {
@@ -1771,7 +1874,7 @@ pub const DataId = enum(u32) {
         };
     }
 
-    pub fn isEmpty(id: DataId, wasm: *const Wasm) bool {
+    pub fn isEmpty(id: DataSegmentId, wasm: *const Wasm) bool {
         return switch (unpack(id, wasm)) {
             .__zig_error_names, .__zig_error_name_table, .__heap_base, .__heap_end => false,
             .object => |i| i.ptr(wasm).payload.off == .none,
@@ -1779,7 +1882,7 @@ pub const DataId = enum(u32) {
         };
     }
 
-    pub fn size(id: DataId, wasm: *const Wasm) u32 {
+    pub fn size(id: DataSegmentId, wasm: *const Wasm) u32 {
         return switch (unpack(id, wasm)) {
             .__zig_error_names => @intCast(wasm.error_name_bytes.items.len),
             .__zig_error_name_table => {
@@ -1792,6 +1895,38 @@ pub const DataId = enum(u32) {
             .__heap_base, .__heap_end => wasm.pointerSize(),
             .object => |i| i.ptr(wasm).payload.len,
             inline .uav_exe, .uav_obj, .nav_exe, .nav_obj => |i| i.value(wasm).code.len,
+        };
+    }
+};
+
+pub const DataLoc = struct {
+    segment: Wasm.DataSegmentId,
+    offset: u32,
+
+    pub fn fromObjectDataIndex(wasm: *const Wasm, i: Wasm.ObjectData.Index) DataLoc {
+        const ptr = i.ptr(wasm);
+        return .{
+            .segment = .fromObjectDataSegment(wasm, ptr.segment),
+            .offset = ptr.offset,
+        };
+    }
+
+    pub fn fromDataImportId(wasm: *const Wasm, id: Wasm.DataImportId) DataLoc {
+        return switch (id.unpack(wasm)) {
+            .object_data_import => |i| .fromObjectDataImportIndex(wasm, i),
+            .zcu_import => |i| .fromZcuImport(wasm, i),
+        };
+    }
+
+    pub fn fromObjectDataImportIndex(wasm: *const Wasm, i: Wasm.ObjectDataImport.Index) DataLoc {
+        return i.value(wasm).resolution.dataLoc(wasm);
+    }
+
+    pub fn fromZcuImport(wasm: *const Wasm, zcu_import: ZcuImportIndex) DataLoc {
+        const nav_index = zcu_import.ptr(wasm).*;
+        return .{
+            .segment = .fromNav(wasm, nav_index),
+            .offset = 0,
         };
     }
 };
@@ -3330,8 +3465,8 @@ fn markDataImport(
         } else {
             try wasm.data_imports.put(gpa, name, .fromObject(data_index, wasm));
         }
-    } else {
-        try markDataSegment(wasm, import.resolution.toDataId().?.unpack(wasm).object);
+    } else if (import.resolution.objectDataSegment(wasm)) |segment_index| {
+        try markDataSegment(wasm, segment_index);
     }
 }
 
@@ -4144,7 +4279,7 @@ pub fn uavAddr(wasm: *Wasm, uav_index: UavsExeIndex) u32 {
     assert(wasm.flush_buffer.memory_layout_finished);
     const comp = wasm.base.comp;
     assert(comp.config.output_mode != .Obj);
-    const ds_id: DataId = .pack(wasm, .{ .uav_exe = uav_index });
+    const ds_id: DataSegmentId = .pack(wasm, .{ .uav_exe = uav_index });
     return wasm.flush_buffer.data_segments.get(ds_id).?;
 }
 
@@ -4155,7 +4290,7 @@ pub fn navAddr(wasm: *Wasm, nav_index: InternPool.Nav.Index) u32 {
     assert(comp.config.output_mode != .Obj);
     const navs_exe_index: NavsExeIndex = @enumFromInt(wasm.navs_exe.getIndex(nav_index).?);
     log.debug("navAddr {s} {}", .{ navs_exe_index.name(wasm), nav_index });
-    const ds_id: DataId = .pack(wasm, .{ .nav_exe = navs_exe_index });
+    const ds_id: DataSegmentId = .pack(wasm, .{ .nav_exe = navs_exe_index });
     return wasm.flush_buffer.data_segments.get(ds_id).?;
 }
 

@@ -22,7 +22,7 @@ const assert = std.debug.assert;
 /// Ordered list of data segments that will appear in the final binary.
 /// When sorted, to-be-merged segments will be made adjacent.
 /// Values are virtual address.
-data_segments: std.AutoArrayHashMapUnmanaged(Wasm.DataId, u32) = .empty,
+data_segments: std.AutoArrayHashMapUnmanaged(Wasm.DataSegmentId, u32) = .empty,
 /// Each time a `data_segment` offset equals zero it indicates a new group, and
 /// the next element in this array will contain the total merged segment size.
 /// Value is the virtual memory address of the end of the segment.
@@ -228,7 +228,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     // For the purposes of sorting, they are implicitly all named ".data".
     const Sort = struct {
         wasm: *const Wasm,
-        segments: []const Wasm.DataId,
+        segments: []const Wasm.DataSegmentId,
         pub fn lessThan(ctx: @This(), lhs: usize, rhs: usize) bool {
             const lhs_segment = ctx.segments[lhs];
             const rhs_segment = ctx.segments[rhs];
@@ -311,7 +311,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     const data_vaddr: u32 = @intCast(memory_ptr);
     {
         var seen_tls: enum { before, during, after } = .before;
-        var category: Wasm.DataId.Category = undefined;
+        var category: Wasm.DataSegmentId.Category = undefined;
         for (segment_ids, segment_vaddrs, 0..) |segment_id, *segment_vaddr, i| {
             const alignment = segment_id.alignment(wasm);
             category = segment_id.category(wasm);
@@ -710,7 +710,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
 
     if (!is_obj) {
         for (wasm.uav_fixups.items) |uav_fixup| {
-            const ds_id: Wasm.DataId = .pack(wasm, .{ .uav_exe = uav_fixup.uavs_exe_index });
+            const ds_id: Wasm.DataSegmentId = .pack(wasm, .{ .uav_exe = uav_fixup.uavs_exe_index });
             const vaddr = f.data_segments.get(ds_id).?;
             if (!is64) {
                 mem.writeInt(u32, wasm.string_bytes.items[uav_fixup.offset..][0..4], vaddr, .little);
@@ -719,7 +719,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             }
         }
         for (wasm.nav_fixups.items) |nav_fixup| {
-            const ds_id: Wasm.DataId = .pack(wasm, .{ .nav_exe = nav_fixup.navs_exe_index });
+            const ds_id: Wasm.DataSegmentId = .pack(wasm, .{ .nav_exe = nav_fixup.navs_exe_index });
             const vaddr = f.data_segments.get(ds_id).?;
             if (!is64) {
                 mem.writeInt(u32, wasm.string_bytes.items[nav_fixup.offset..][0..4], vaddr, .little);
@@ -867,7 +867,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
 
 fn emitNameSection(
     wasm: *Wasm,
-    data_segments: *const std.AutoArrayHashMapUnmanaged(Wasm.DataId, u32),
+    data_segments: *const std.AutoArrayHashMapUnmanaged(Wasm.DataSegmentId, u32),
     binary_bytes: *std.ArrayListUnmanaged(u8),
 ) !void {
     const f = &wasm.flush_buffer;
@@ -1142,9 +1142,9 @@ fn splitSegmentName(name: []const u8) struct { []const u8, []const u8 } {
 
 fn wantSegmentMerge(
     wasm: *const Wasm,
-    a_id: Wasm.DataId,
-    b_id: Wasm.DataId,
-    b_category: Wasm.DataId.Category,
+    a_id: Wasm.DataSegmentId,
+    b_id: Wasm.DataSegmentId,
+    b_category: Wasm.DataSegmentId.Category,
 ) bool {
     const a_category = a_id.category(wasm);
     if (a_category != b_category) return false;
@@ -1519,17 +1519,23 @@ const RelocAddr = struct {
     addr: u32,
 
     fn fromObjectData(wasm: *const Wasm, i: Wasm.ObjectData.Index, addend: i32) RelocAddr {
-        const ptr = i.ptr(wasm);
-        const f = &wasm.flush_buffer;
-        const addr = f.data_segments.get(.fromObjectDataSegment(wasm, ptr.segment)).?;
-        return .{ .addr = @intCast(@as(i64, addr) + addend) };
+        return fromDataLoc(&wasm.flush_buffer, .fromObjectDataIndex(wasm, i), addend);
     }
 
     fn fromSymbolName(wasm: *const Wasm, name: String, addend: i32) RelocAddr {
-        _ = wasm;
-        _ = name;
-        _ = addend;
-        @panic("TODO implement data symbol resolution");
+        const flush = &wasm.flush_buffer;
+        if (wasm.object_data_imports.getPtr(name)) |import| {
+            return fromDataLoc(flush, import.resolution.dataLoc(wasm), addend);
+        } else if (wasm.data_imports.get(name)) |id| {
+            return fromDataLoc(flush, .fromDataImportId(wasm, id), addend);
+        } else {
+            unreachable;
+        }
+    }
+
+    fn fromDataLoc(flush: *const Flush, data_loc: Wasm.DataLoc, addend: i32) RelocAddr {
+        const base_addr: i64 = flush.data_segments.get(data_loc.segment).?;
+        return .{ .addr = @intCast(base_addr + data_loc.offset + addend) };
     }
 };
 
