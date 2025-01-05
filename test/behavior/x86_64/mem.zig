@@ -4,13 +4,19 @@ fn access(comptime array: anytype) !void {
     inline for (0.., &array) |ct_index, *elem| {
         var rt_index: usize = undefined;
         rt_index = ct_index;
+        if (&(slice.ptr + ct_index)[0] != elem) return error.Unexpected;
+        if (&(slice.ptr + rt_index)[0] != elem) return error.Unexpected;
+        if (&slice.ptr[ct_index..][0] != elem) return error.Unexpected;
+        if (&slice.ptr[rt_index..][0] != elem) return error.Unexpected;
         if (&slice.ptr[ct_index] != elem) return error.Unexpected;
-        if (&slice[ct_index] != elem) return error.Unexpected;
         if (&slice.ptr[rt_index] != elem) return error.Unexpected;
+        if (&slice[ct_index..].ptr[0] != elem) return error.Unexpected;
+        if (&slice[rt_index..].ptr[0] != elem) return error.Unexpected;
+        if (&slice[ct_index] != elem) return error.Unexpected;
         if (&slice[rt_index] != elem) return error.Unexpected;
         if (slice.ptr[ct_index] != elem.*) return error.Unexpected;
-        if (slice[ct_index] != elem.*) return error.Unexpected;
         if (slice.ptr[rt_index] != elem.*) return error.Unexpected;
+        if (slice[ct_index] != elem.*) return error.Unexpected;
         if (slice[rt_index] != elem.*) return error.Unexpected;
     }
 }
