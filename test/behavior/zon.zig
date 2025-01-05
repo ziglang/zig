@@ -98,6 +98,12 @@ test "struct default fields" {
     try expectEqual(Vec3{ .x = 1.5, .y = 2.0, .z = 123.4 }, @as(Vec3, @import("zon/vec2.zon")));
     const ascribed: Vec3 = @import("zon/vec2.zon");
     try expectEqual(Vec3{ .x = 1.5, .y = 2.0, .z = 123.4 }, ascribed);
+
+    const Vec2 = struct {
+        x: f32 = 20.0,
+        y: f32 = 10.0,
+    };
+    try expectEqual(Vec2{ .x = 1.5, .y = 2.0 }, @as(Vec2, @import("zon/vec2.zon")));
 }
 
 test "struct enum field" {
@@ -110,6 +116,49 @@ test "struct enum field" {
 test "tuple" {
     const Tuple = struct { f32, bool, []const u8, u16 };
     try expectEqualDeep(Tuple{ 1.2, true, "hello", 3 }, @as(Tuple, @import("zon/tuple.zon")));
+}
+
+test "comptime fields" {
+    // Test setting comptime tuple fields to the correct value
+    {
+        const Tuple = struct {
+            comptime f32 = 1.2,
+            comptime bool = true,
+            comptime []const u8 = "hello",
+            comptime u16 = 3,
+        };
+        try expectEqualDeep(Tuple{ 1.2, true, "hello", 3 }, @as(Tuple, @import("zon/tuple.zon")));
+    }
+
+    // Test setting comptime struct fields to the correct value
+    {
+        const Vec2 = struct {
+            comptime x: f32 = 1.5,
+            comptime y: f32 = 2.0,
+        };
+        try expectEqualDeep(Vec2{}, @as(Vec2, @import("zon/vec2.zon")));
+    }
+
+    // Test allowing comptime tuple fields to be set to their defaults
+    {
+        const Tuple = struct {
+            f32,
+            bool,
+            []const u8,
+            u16,
+            comptime u8 = 255,
+        };
+        try expectEqualDeep(Tuple{ 1.2, true, "hello", 3 }, @as(Tuple, @import("zon/tuple.zon")));
+    }
+
+    // Test allowing comptime struct fields to be set to their defaults
+    {
+        const Vec2 = struct {
+            comptime x: f32 = 1.5,
+            comptime y: f32 = 2.0,
+        };
+        try expectEqualDeep(Vec2{}, @as(Vec2, @import("zon/slice-empty.zon")));
+    }
 }
 
 test "char" {

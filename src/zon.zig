@@ -1,6 +1,7 @@
 const std = @import("std");
 const Zcu = @import("Zcu.zig");
 const Sema = @import("Sema.zig");
+const Air = @import("Air.zig");
 const InternPool = @import("InternPool.zig");
 const Type = @import("Type.zig");
 const Zir = std.zig.Zir;
@@ -23,6 +24,7 @@ sema: *Sema,
 file: *File,
 file_index: Zcu.File.Index,
 import_loc: LazySrcLoc,
+block: *Sema.Block,
 
 /// Lowers the given file as ZON.
 pub fn lower(
@@ -31,6 +33,7 @@ pub fn lower(
     file_index: Zcu.File.Index,
     res_ty: Type,
     import_loc: LazySrcLoc,
+    block: *Sema.Block,
 ) CompileError!InternPool.Index {
     assert(file.tree_loaded);
 
@@ -46,6 +49,7 @@ pub fn lower(
         .file = file,
         .file_index = file_index,
         .import_loc = import_loc,
+        .block = block,
     };
 
     return lower_zon.lowerExpr(.root, res_ty);
@@ -600,29 +604,50 @@ fn lowerTuple(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.I
         ),
     };
 
+    const field_defaults = tuple_info.values.get(ip);
     const field_types = tuple_info.types.get(ip);
-    if (elem_nodes.len < field_types.len) {
-        return self.fail(
-            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
-            "missing tuple field with index {}",
-            .{elem_nodes.len},
-        );
-    } else if (elem_nodes.len > field_types.len) {
-        return self.fail(
-            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
-            "index {} outside tuple of length {}",
-            .{
-                field_types.len,
-                elem_nodes.at(@intCast(field_types.len)),
-            },
-        );
-    }
-
     const elems = try gpa.alloc(InternPool.Index, field_types.len);
     defer gpa.free(elems);
+    for (elems) |*v| v.* = .none;
 
     for (0..elem_nodes.len) |i| {
+        if (i >= elems.len) {
+            const elem_node = elem_nodes.at(@intCast(i)).getAstNode(self.file.zoir.?);
+            return self.fail(
+                .{ .node_abs = elem_node },
+                "index {} outside tuple of length {}",
+                .{
+                    elems.len,
+                    elem_nodes.at(@intCast(i)).getAstNode(self.file.zoir.?),
+                },
+            );
+        }
         elems[i] = try self.lowerExpr(elem_nodes.at(@intCast(i)), Type.fromInterned(field_types[i]));
+
+        if (field_defaults[i] != .none and elems[i] != field_defaults[i]) {
+            const elem_node = elem_nodes.at(@intCast(i)).getAstNode(self.file.zoir.?);
+            return self.fail(
+                .{ .node_abs = elem_node },
+                "value stored in comptime field does not match the default value of the field",
+                .{},
+            );
+        }
+    }
+
+    for (0..elems.len) |i| {
+        if (elems[i] == .none and i < field_defaults.len) {
+            elems[i] = field_defaults[i];
+        }
+    }
+
+    for (elems, 0..) |val, i| {
+        if (val == .none) {
+            return self.fail(
+                .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                "missing tuple field with index {}",
+                .{i},
+            );
+        }
     }
 
     return self.sema.pt.intern(.{ .aggregate = .{
@@ -648,13 +673,10 @@ fn lowerStruct(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
         ),
     };
 
+    const field_defaults = struct_info.field_inits.get(ip);
     const field_values = try gpa.alloc(InternPool.Index, struct_info.field_names.len);
     defer gpa.free(field_values);
-
-    const field_defaults = struct_info.field_inits.get(ip);
-    for (0..field_values.len) |i| {
-        field_values[i] = if (i < field_defaults.len) field_defaults[i] else .none;
-    }
+    for (field_values) |*v| v.* = .none;
 
     for (0..fields.names.len) |i| {
         const field_name = try ip.getOrPutString(
@@ -685,6 +707,24 @@ fn lowerStruct(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
         }
 
         field_values[name_index] = try self.lowerExpr(field_node, field_type);
+
+        if (struct_info.comptime_bits.getBit(ip, name_index)) {
+            const val = ip.indexToKey(field_values[name_index]);
+            const default = ip.indexToKey(field_defaults[name_index]);
+            if (!val.eql(default, ip)) {
+                return self.fail(
+                    .{ .token_abs = field_name_token },
+                    "value stored in comptime field does not match the default value of the field",
+                    .{},
+                );
+            }
+        }
+    }
+
+    for (0..field_values.len) |i| {
+        if (field_values[i] == .none and i < field_defaults.len) {
+            field_values[i] = field_defaults[i];
+        }
     }
 
     const field_names = struct_info.field_names.get(ip);
@@ -721,28 +761,14 @@ fn lowerPointer(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool
     if (string_alignment and ptr_info.child == .u8_type and string_sentinel) {
         switch (node.get(self.file.zoir.?)) {
             .string_literal => |val| {
-                const string = try ip.getOrPutString(gpa, self.sema.pt.tid, val, .maybe_embedded_nulls);
-                const array_ty = try self.sema.pt.intern(.{ .array_type = .{
-                    .len = val.len,
-                    .sentinel = .zero_u8,
-                    .child = .u8_type,
-                } });
-                const array_val = try self.sema.pt.intern(.{ .aggregate = .{
-                    .ty = array_ty,
-                    .storage = .{ .bytes = string },
-                } });
-                return self.sema.pt.intern(.{ .slice = .{
-                    .ty = res_ty.toIntern(),
-                    .ptr = try self.sema.pt.intern(.{ .ptr = .{
-                        .ty = .manyptr_const_u8_sentinel_0_type,
-                        .base_addr = .{ .uav = .{
-                            .orig_ty = .slice_const_u8_sentinel_0_type,
-                            .val = array_val,
-                        } },
-                        .byte_offset = 0,
-                    } }),
-                    .len = (try self.sema.pt.intValue(Type.usize, val.len)).toIntern(),
-                } });
+                const ip_str = try ip.getOrPutString(gpa, self.sema.pt.tid, val, .maybe_embedded_nulls);
+                const str_ref = try self.sema.addStrLit(ip_str, val.len);
+                return (try self.sema.coerce(
+                    self.block,
+                    res_ty,
+                    str_ref,
+                    try self.lazySrcLoc(.{ .node_abs = node.getAstNode(self.file.zoir.?) }),
+                )).toInterned().?;
             },
             else => {},
         }
@@ -907,32 +933,4 @@ fn lowerUnion(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.I
         .tag = tag,
         .val = val,
     });
-}
-
-fn createErrorWithOptionalNote(
-    self: LowerZon,
-    src_loc: LazySrcLoc,
-    comptime fmt: []const u8,
-    args: anytype,
-    note: ?[]const u8,
-) error{OutOfMemory}!*Zcu.ErrorMsg {
-    const notes = try self.sema.pt.zcu.gpa.alloc(Zcu.ErrorMsg, if (note == null) 0 else 1);
-    errdefer self.sema.pt.zcu.gpa.free(notes);
-    if (note) |n| {
-        notes[0] = try Zcu.ErrorMsg.init(
-            self.sema.pt.zcu.gpa,
-            src_loc,
-            "{s}",
-            .{n},
-        );
-    }
-
-    const err_msg = try Zcu.ErrorMsg.create(
-        self.sema.pt.zcu.gpa,
-        src_loc,
-        fmt,
-        args,
-    );
-    err_msg.*.notes = notes;
-    return err_msg;
 }

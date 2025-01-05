@@ -5807,7 +5807,7 @@ fn addNullTerminatedStrLit(sema: *Sema, string: InternPool.NullTerminatedString)
     return sema.addStrLit(string.toString(), string.length(&sema.pt.zcu.intern_pool));
 }
 
-fn addStrLit(sema: *Sema, string: InternPool.String, len: u64) CompileError!Air.Inst.Ref {
+pub fn addStrLit(sema: *Sema, string: InternPool.String, len: u64) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const array_ty = try pt.arrayType(.{
         .len = len,
@@ -13988,6 +13988,7 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                 result.file_index,
                 res_ty,
                 operand_src,
+                block,
             );
             return Air.internedToRef(interned);
         },

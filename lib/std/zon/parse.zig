@@ -594,7 +594,6 @@ fn parseUnion(
             switch (field_index) {
                 inline 0...field_infos.len - 1 => |i| {
                     if (field_infos[i].type == void) {
-                        // XXX: remove?
                         return self.failNode(field_val, "expected type 'void'");
                     } else {
                         const value = try self.parseExpr(field_infos[i].type, options, field_val);
@@ -769,11 +768,15 @@ fn parseStruct(
 
         switch (field_index) {
             inline 0...(field_infos.len - 1) => |j| {
-                @field(result, field_infos[j].name) = try self.parseExpr(
-                    field_infos[j].type,
-                    options,
-                    fields.vals.at(@intCast(i)),
-                );
+                if (field_infos[j].is_comptime) {
+                    return self.failRuntimeValueComptimeVar(node, j);
+                } else {
+                    @field(result, field_infos[j].name) = try self.parseExpr(
+                        field_infos[j].type,
+                        options,
+                        fields.vals.at(@intCast(i)),
+                    );
+                }
             },
             else => unreachable, // Can't be out of bounds
         }
@@ -881,6 +884,26 @@ test "std.zon structs" {
         try std.testing.expectEqual(Vec2{ .x = 1.2, .y = 1.5 }, parsed);
     }
 
+    // Comptime field
+    {
+        const Vec2 = struct { x: f32, comptime y: f32 = 1.5 };
+        const parsed = try parseFromSlice(Vec2, gpa, ".{.x = 1.2}", null, .{});
+        try std.testing.expectEqual(Vec2{ .x = 1.2, .y = 1.5 }, parsed);
+    }
+
+    // Comptime field assignment
+    {
+        const Vec2 = struct { x: f32, comptime y: f32 = 1.5 };
+        var status: Status = .{};
+        defer status.deinit(gpa);
+        const parsed = parseFromSlice(Vec2, gpa, ".{.x = 1.2, .y = 1.5}", &status, .{});
+        try std.testing.expectError(error.ParseZon, parsed);
+        try std.testing.expectFmt(
+            \\1:18: error: cannot store runtime value in compile time variable
+            \\
+        , "{}", .{status});
+    }
+
     // Enum field (regression test, we were previously getting the field name in an
     // incorrect way that broke for enum values)
     {
@@ -978,22 +1001,42 @@ fn parseTuple(
     };
 
     var result: T = undefined;
-
     const field_infos = @typeInfo(T).@"struct".fields;
-    if (nodes.len != field_infos.len) {
-        return self.failExpectedContainer(T, node);
+
+    if (nodes.len > field_infos.len) {
+        return self.failNode(nodes.at(field_infos.len), std.fmt.comptimePrint(
+            "index {} outside of tuple length {}",
+            .{ field_infos.len, field_infos.len },
+        ));
     }
 
     inline for (0..field_infos.len) |i| {
-        // If we fail to parse this field, free all fields before it
-        errdefer if (options.free_on_error) {
-            inline for (0..i) |j| {
-                if (j >= i) break;
-                parseFree(self.gpa, result[j]);
+        // Check if we're out of bounds
+        if (i >= nodes.len) {
+            if (field_infos[i].default_value) |default| {
+                const typed: *const field_infos[i].type = @ptrCast(@alignCast(default));
+                @field(result, field_infos[i].name) = typed.*;
+            } else {
+                return self.failNode(node, std.fmt.comptimePrint(
+                    "missing tuple field with index {}",
+                    .{i},
+                ));
             }
-        };
+        } else {
+            // If we fail to parse this field, free all fields before it
+            errdefer if (options.free_on_error) {
+                inline for (0..i) |j| {
+                    if (j >= i) break;
+                    parseFree(self.gpa, result[j]);
+                }
+            };
 
-        result[i] = try self.parseExpr(field_infos[i].type, options, nodes.at(i));
+            if (field_infos[i].is_comptime) {
+                return self.failRuntimeValueComptimeVar(node, i);
+            } else {
+                result[i] = try self.parseExpr(field_infos[i].type, options, nodes.at(i));
+            }
+        }
     }
 
     return result;
@@ -1036,7 +1079,7 @@ test "std.zon tuples" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Tuple, gpa, ".{0.5, true, 123}", &status, .{}));
-        try std.testing.expectFmt("1:2: error: expected tuple with 2 fields\n", "{}", .{status});
+        try std.testing.expectFmt("1:14: error: index 2 outside of tuple length 2\n", "{}", .{status});
     }
 
     // Extra field
@@ -1045,7 +1088,7 @@ test "std.zon tuples" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Tuple, gpa, ".{0.5}", &status, .{}));
-        try std.testing.expectFmt("1:2: error: expected tuple with 2 fields\n", "{}", .{status});
+        try std.testing.expectFmt("1:2: error: missing tuple field with index 1\n", "{}", .{status});
     }
 
     // Tuple with unexpected field names
@@ -1054,7 +1097,7 @@ test "std.zon tuples" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Tuple, gpa, ".{.foo = 10.0}", &status, .{}));
-        try std.testing.expectFmt("1:2: error: expected tuple with 1 field\n", "{}", .{status});
+        try std.testing.expectFmt("1:2: error: expected tuple\n", "{}", .{status});
     }
 
     // Struct with missing field names
@@ -1064,6 +1107,26 @@ test "std.zon tuples" {
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice(Struct, gpa, ".{10.0}", &status, .{}));
         try std.testing.expectFmt("1:2: error: expected struct\n", "{}", .{status});
+    }
+
+    // Comptime field
+    {
+        const Vec2 = struct { f32, comptime f32 = 1.5 };
+        const parsed = try parseFromSlice(Vec2, gpa, ".{ 1.2 }", null, .{});
+        try std.testing.expectEqual(Vec2{ 1.2, 1.5 }, parsed);
+    }
+
+    // Comptime field assignment
+    {
+        const Vec2 = struct { f32, comptime f32 = 1.5 };
+        var status: Status = .{};
+        defer status.deinit(gpa);
+        const parsed = parseFromSlice(Vec2, gpa, ".{ 1.2, 1.5}", &status, .{});
+        try std.testing.expectError(error.ParseZon, parsed);
+        try std.testing.expectFmt(
+            \\1:9: error: cannot store runtime value in compile time variable
+            \\
+        , "{}", .{status});
     }
 }
 
@@ -1082,8 +1145,21 @@ fn parseArray(
     const array_info = @typeInfo(T).array;
 
     // Check if the size matches
-    if (nodes.len != array_info.len) {
-        return self.failExpectedContainer(T, node);
+    if (nodes.len > array_info.len) {
+        return self.failNode(nodes.at(array_info.len), std.fmt.comptimePrint(
+            "index {} outside of tuple length {}",
+            .{ array_info.len, array_info.len },
+        ));
+    } else if (nodes.len < array_info.len) {
+        switch (nodes.len) {
+            inline 0...array_info.len => |n| {
+                return self.failNode(node, std.fmt.comptimePrint(
+                    "missing tuple field with index {}",
+                    .{n},
+                ));
+            },
+            else => unreachable,
+        }
     }
 
     // Parse the elements and return the array
@@ -1205,7 +1281,7 @@ test "std.zon arrays and slices" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice([0]u8, gpa, ".{'a', 'b', 'c'}", &status, .{}));
-        try std.testing.expectFmt("1:2: error: expected tuple with 0 fields\n", "{}", .{status});
+        try std.testing.expectFmt("1:3: error: index 0 outside of tuple length 0\n", "{}", .{status});
     }
 
     // Expect 1 find 2
@@ -1213,7 +1289,7 @@ test "std.zon arrays and slices" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice([1]u8, gpa, ".{'a', 'b'}", &status, .{}));
-        try std.testing.expectFmt("1:2: error: expected tuple with 1 field\n", "{}", .{status});
+        try std.testing.expectFmt("1:8: error: index 1 outside of tuple length 1\n", "{}", .{status});
     }
 
     // Expect 2 find 1
@@ -1221,7 +1297,7 @@ test "std.zon arrays and slices" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice([2]u8, gpa, ".{'a'}", &status, .{}));
-        try std.testing.expectFmt("1:2: error: expected tuple with 2 fields\n", "{}", .{status});
+        try std.testing.expectFmt("1:2: error: missing tuple field with index 1\n", "{}", .{status});
     }
 
     // Expect 3 find 0
@@ -1229,7 +1305,7 @@ test "std.zon arrays and slices" {
         var status: Status = .{};
         defer status.deinit(gpa);
         try std.testing.expectError(error.ParseZon, parseFromSlice([3]u8, gpa, ".{}", &status, .{}));
-        try std.testing.expectFmt("1:2: error: expected tuple with 3 fields\n", "{}", .{status});
+        try std.testing.expectFmt("1:2: error: missing tuple field with index 0\n", "{}", .{status});
     }
 
     // Wrong inner type
@@ -1258,7 +1334,7 @@ test "std.zon arrays and slices" {
             var status: Status = .{};
             defer status.deinit(gpa);
             try std.testing.expectError(error.ParseZon, parseFromSlice([3]u8, gpa, "'a'", &status, .{}));
-            try std.testing.expectFmt("1:1: error: expected tuple with 3 fields\n", "{}", .{status});
+            try std.testing.expectFmt("1:1: error: expected tuple\n", "{}", .{status});
         }
 
         // Slice
@@ -1417,7 +1493,7 @@ test "std.zon string literal" {
                 error.ParseZon,
                 parseFromSlice([4:0]u8, gpa, "\"abcd\"", &status, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected tuple with 4 fields\n", "{}", .{status});
+            try std.testing.expectFmt("1:1: error: expected tuple\n", "{}", .{status});
         }
 
         {
@@ -1427,11 +1503,11 @@ test "std.zon string literal" {
                 error.ParseZon,
                 parseFromSlice([4:0]u8, gpa, "\\\\abcd", &status, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected tuple with 4 fields\n", "{}", .{status});
+            try std.testing.expectFmt("1:1: error: expected tuple\n", "{}", .{status});
         }
     }
 
-    // Zero termianted slices
+    // Zero terminated slices
     {
         {
             const parsed: [:0]const u8 = try parseFromSlice([:0]const u8, gpa, "\"abc\"", null, .{});
@@ -1702,28 +1778,16 @@ fn failUnexpectedField(self: @This(), T: type, node: Zoir.Node.Index, field: ?us
     }
 }
 
-fn failExpectedTupleWithField(
-    self: @This(),
-    node: Zoir.Node.Index,
-    comptime fields: usize,
-) error{ParseZon} {
-    const plural = if (fields == 1) "" else "s";
-    return self.failNode(
-        node,
-        std.fmt.comptimePrint("expected tuple with {} field{s}", .{ fields, plural }),
-    );
-}
-
 fn failExpectedContainer(self: @This(), T: type, node: Zoir.Node.Index) error{ParseZon} {
     @branchHint(.cold);
     switch (@typeInfo(T)) {
         .@"struct" => |@"struct"| if (@"struct".is_tuple) {
-            return self.failExpectedTupleWithField(node, @"struct".fields.len);
+            return self.failNode(node, "expected tuple");
         } else {
             return self.failNode(node, "expected struct");
         },
         .@"union" => return self.failNode(node, "expected union"),
-        .array => |array| return self.failExpectedTupleWithField(node, array.len),
+        .array => return self.failNode(node, "expected tuple"),
         .pointer => |pointer| {
             if (pointer.child == u8 and
                 pointer.size == .Slice and
@@ -1736,8 +1800,9 @@ fn failExpectedContainer(self: @This(), T: type, node: Zoir.Node.Index) error{Pa
                 return self.failNode(node, "expected tuple");
             }
         },
-        else => @compileError("unreachable, should not be called for type " ++ @typeName(T)),
+        else => {},
     }
+    @compileError("unreachable, should not be called for type " ++ @typeName(T));
 }
 
 fn failMissingField(self: @This(), comptime name: []const u8, node: Zoir.Node.Index) error{ParseZon} {
@@ -1752,6 +1817,24 @@ fn failDuplicateField(self: @This(), node: Zoir.Node.Index, field: usize) error{
     const field_node = struct_init.ast.fields[field];
     const token = self.ast.firstToken(field_node) - 2;
     return self.failToken(token, "duplicate field");
+}
+
+// Technically we could do this if we were willing to do a deep equal to verify
+// the value matched, but doing so doesn't seem to support any real use cases
+// so isn't worth the complexity at the moment.
+fn failRuntimeValueComptimeVar(self: @This(), node: Zoir.Node.Index, field: usize) error{ParseZon} {
+    @branchHint(.cold);
+    const ast_node = node.getAstNode(self.zoir);
+    var buf: [2]Ast.Node.Index = undefined;
+    const token = if (self.ast.fullStructInit(&buf, ast_node)) |struct_init| b: {
+        const field_node = struct_init.ast.fields[field];
+        break :b self.ast.firstToken(field_node);
+    } else b: {
+        const array_init = self.ast.fullArrayInit(&buf, ast_node).?;
+        const value_node = array_init.ast.elements[field];
+        break :b self.ast.firstToken(value_node);
+    };
+    return self.failToken(token, "cannot store runtime value in compile time variable");
 }
 
 fn parseBool(self: @This(), node: Zoir.Node.Index) error{ParseZon}!bool {
