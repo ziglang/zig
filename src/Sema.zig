@@ -27612,13 +27612,8 @@ fn explainWhyTypeIsNotPacked(
 fn preparePanicId(sema: *Sema, src: LazySrcLoc, panic_id: Zcu.PanicId) !InternPool.Index {
     const zcu = sema.pt.zcu;
     try sema.ensureMemoizedStateResolved(src, .panic);
-    try zcu.ensureFuncBodyAnalysisQueued(zcu.builtin_decl_values.@"Panic.call");
-    switch (panic_id) {
-        inline else => |ct_panic_id| {
-            const name = "Panic.messages." ++ @tagName(ct_panic_id);
-            return @field(zcu.builtin_decl_values, name);
-        },
-    }
+    try zcu.ensureFuncBodyAnalysisQueued(zcu.builtin_decl_values.get(.@"Panic.call"));
+    return zcu.builtin_decl_values.get(panic_id.toBuiltin());
 }
 
 fn addSafetyCheck(
@@ -27723,9 +27718,9 @@ fn panicWithMsg(sema: *Sema, block: *Block, src: LazySrcLoc, msg_inst: Air.Inst.
     }
 
     try sema.ensureMemoizedStateResolved(src, .panic);
-    try zcu.ensureFuncBodyAnalysisQueued(zcu.builtin_decl_values.@"Panic.call");
+    try zcu.ensureFuncBodyAnalysisQueued(zcu.builtin_decl_values.get(.@"Panic.call"));
 
-    const panic_fn = Air.internedToRef(zcu.builtin_decl_values.@"Panic.call");
+    const panic_fn = Air.internedToRef(zcu.builtin_decl_values.get(.@"Panic.call"));
     const null_stack_trace = Air.internedToRef(zcu.null_stack_trace);
 
     const opt_usize_ty = try pt.optionalType(.usize_type);
@@ -38720,15 +38715,15 @@ const ComptimeLoadResult = @import("Sema/comptime_ptr_access.zig").ComptimeLoadR
 const storeComptimePtr = @import("Sema/comptime_ptr_access.zig").storeComptimePtr;
 const ComptimeStoreResult = @import("Sema/comptime_ptr_access.zig").ComptimeStoreResult;
 
-pub fn getBuiltinType(sema: *Sema, src: LazySrcLoc, comptime decl: Zcu.BuiltinDecl) SemaError!Type {
-    comptime assert(decl.kind() == .type);
+pub fn getBuiltinType(sema: *Sema, src: LazySrcLoc, decl: Zcu.BuiltinDecl) SemaError!Type {
+    assert(decl.kind() == .type);
     try sema.ensureMemoizedStateResolved(src, decl.stage());
-    return .fromInterned(@field(sema.pt.zcu.builtin_decl_values, @tagName(decl)));
+    return .fromInterned(sema.pt.zcu.builtin_decl_values.get(decl));
 }
-pub fn getBuiltin(sema: *Sema, src: LazySrcLoc, comptime decl: Zcu.BuiltinDecl) SemaError!InternPool.Index {
-    comptime assert(decl.kind() != .type);
+pub fn getBuiltin(sema: *Sema, src: LazySrcLoc, decl: Zcu.BuiltinDecl) SemaError!InternPool.Index {
+    assert(decl.kind() != .type);
     try sema.ensureMemoizedStateResolved(src, decl.stage());
-    return @field(sema.pt.zcu.builtin_decl_values, @tagName(decl));
+    return sema.pt.zcu.builtin_decl_values.get(decl);
 }
 
 pub const NavPtrModifiers = struct {
@@ -38810,7 +38805,7 @@ pub fn analyzeMemoizedState(sema: *Sema, block: *Block, src: LazySrcLoc, builtin
             const parent_ns: Zcu.Namespace.Index, const parent_name: []const u8, const name: []const u8 = switch (comptime builtin_decl.access()) {
                 .direct => |name| .{ builtin_namespace, "std.builtin", name },
                 .nested => |nested| access: {
-                    const parent_ty: Type = .fromInterned(@field(zcu.builtin_decl_values, @tagName(nested[0])));
+                    const parent_ty: Type = .fromInterned(zcu.builtin_decl_values.get(nested[0]));
                     const parent_ns = parent_ty.getNamespace(zcu).unwrap() orelse {
                         return sema.fail(block, src, "std.builtin.{s} is not a container type", .{@tagName(nested[0])});
                     };
@@ -38845,9 +38840,9 @@ pub fn analyzeMemoizedState(sema: *Sema, block: *Block, src: LazySrcLoc, builtin
                 },
             }
 
-            const prev = @field(zcu.builtin_decl_values, @tagName(builtin_decl));
+            const prev = zcu.builtin_decl_values.get(builtin_decl);
             if (val.toIntern() != prev) {
-                @field(zcu.builtin_decl_values, @tagName(builtin_decl)) = val.toIntern();
+                zcu.builtin_decl_values.set(builtin_decl, val.toIntern());
                 any_changed = true;
             }
         }
