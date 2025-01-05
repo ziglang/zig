@@ -3284,24 +3284,25 @@ pub const Inst = struct {
     /// 1. fields_len: u32, // if has_fields_len
     /// 2. decls_len: u32, // if has_decls_len
     /// 3. capture: Capture // for every captures_len
-    /// 4. backing_int_body_len: u32, // if has_backing_int
-    /// 5. backing_int_ref: Ref, // if has_backing_int and backing_int_body_len is 0
-    /// 6. backing_int_body_inst: Inst, // if has_backing_int and backing_int_body_len is > 0
-    /// 7. decl: Index, // for every decls_len; points to a `declaration` instruction
-    /// 8. flags: u32 // for every 8 fields
+    /// 4. capture_name: NullTerminatedString // for every captures_len
+    /// 5. backing_int_body_len: u32, // if has_backing_int
+    /// 6. backing_int_ref: Ref, // if has_backing_int and backing_int_body_len is 0
+    /// 7. backing_int_body_inst: Inst, // if has_backing_int and backing_int_body_len is > 0
+    /// 8. decl: Index, // for every decls_len; points to a `declaration` instruction
+    /// 9. flags: u32 // for every 8 fields
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding field has an align expression
     ///      0b00X0: whether corresponding field has a default expression
     ///      0b0X00: whether corresponding field is comptime
     ///      0bX000: whether corresponding field has a type expression
-    /// 9. fields: { // for every fields_len
+    /// 10. fields: { // for every fields_len
     ///        field_name: u32,
     ///        field_type: Ref, // if corresponding bit is not set. none means anytype.
     ///        field_type_body_len: u32, // if corresponding bit is set
     ///        align_body_len: u32, // if corresponding bit is set
     ///        init_body_len: u32, // if corresponding bit is set
     ///    }
-    /// 10. bodies: { // for every fields_len
+    /// 11. bodies: { // for every fields_len
     ///        field_type_body_inst: Inst, // for each field_type_body_len
     ///        align_body_inst: Inst, // for each align_body_len
     ///        init_body_inst: Inst, // for each init_body_len
@@ -3450,11 +3451,12 @@ pub const Inst = struct {
     /// 3. fields_len: u32, // if has_fields_len
     /// 4. decls_len: u32, // if has_decls_len
     /// 5. capture: Capture // for every captures_len
-    /// 6. decl: Index, // for every decls_len; points to a `declaration` instruction
-    /// 7. inst: Index // for every body_len
-    /// 8. has_bits: u32 // for every 32 fields
+    /// 6. capture_name: NullTerminatedString // for every captures_len
+    /// 7. decl: Index, // for every decls_len; points to a `declaration` instruction
+    /// 8. inst: Index // for every body_len
+    /// 9. has_bits: u32 // for every 32 fields
     ///    - the bit is whether corresponding field has an value expression
-    /// 9. fields: { // for every fields_len
+    /// 10. fields: { // for every fields_len
     ///        field_name: u32,
     ///        value: Ref, // if corresponding bit is set
     ///    }
@@ -3488,15 +3490,16 @@ pub const Inst = struct {
     /// 3. fields_len: u32, // if has_fields_len
     /// 4. decls_len: u32, // if has_decls_len
     /// 5. capture: Capture // for every captures_len
-    /// 6. decl: Index, // for every decls_len; points to a `declaration` instruction
-    /// 7. inst: Index // for every body_len
-    /// 8. has_bits: u32 // for every 8 fields
+    /// 6. capture_name: NullTerminatedString // for every captures_len
+    /// 7. decl: Index, // for every decls_len; points to a `declaration` instruction
+    /// 8. inst: Index // for every body_len
+    /// 9. has_bits: u32 // for every 8 fields
     ///    - sets of 4 bits:
     ///      0b000X: whether corresponding field has a type expression
     ///      0b00X0: whether corresponding field has a align expression
     ///      0b0X00: whether corresponding field has a tag value expression
     ///      0bX000: unused
-    /// 9. fields: { // for every fields_len
+    /// 10. fields: { // for every fields_len
     ///        field_name: NullTerminatedString, // null terminated string index
     ///        field_type: Ref, // if corresponding bit is set
     ///        align: Ref, // if corresponding bit is set
@@ -3537,7 +3540,8 @@ pub const Inst = struct {
     /// 0. captures_len: u32, // if has_captures_len
     /// 1. decls_len: u32, // if has_decls_len
     /// 2. capture: Capture, // for every captures_len
-    /// 3. decl: Index, // for every decls_len; points to a `declaration` instruction
+    /// 3. capture_name: NullTerminatedString // for every captures_len
+    /// 4. decl: Index, // for every decls_len; points to a `declaration` instruction
     pub const OpaqueDecl = struct {
         src_line: u32,
         /// This node provides a new absolute baseline node for all instructions within this struct.
@@ -3852,7 +3856,7 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
                 break :decls_len decls_len;
             } else 0;
 
-            extra_index += captures_len;
+            extra_index += captures_len * 2;
 
             if (small.has_backing_int) {
                 const backing_int_body_len = zir.extra[extra_index];
@@ -3887,7 +3891,7 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
                 break :decls_len decls_len;
             } else 0;
 
-            extra_index += captures_len;
+            extra_index += captures_len * 2;
 
             return .{
                 .extra_index = extra_index,
@@ -3912,7 +3916,7 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
                 break :decls_len decls_len;
             } else 0;
 
-            extra_index += captures_len;
+            extra_index += captures_len * 2;
 
             return .{
                 .extra_index = extra_index,
@@ -3934,7 +3938,7 @@ pub fn declIterator(zir: Zir, decl_inst: Zir.Inst.Index) DeclIterator {
                 break :captures_len captures_len;
             } else 0;
 
-            extra_index += captures_len;
+            extra_index += captures_len * 2;
 
             return .{
                 .extra_index = extra_index,
@@ -4349,7 +4353,7 @@ fn findTrackableInner(
                         extra_index += 1;
                         break :blk decls_len;
                     } else 0;
-                    extra_index += captures_len;
+                    extra_index += captures_len * 2;
                     if (small.has_backing_int) {
                         const backing_int_body_len = zir.extra[extra_index];
                         extra_index += 1;
@@ -4441,7 +4445,7 @@ fn findTrackableInner(
                         extra_index += 1;
                         break :blk decls_len;
                     } else 0;
-                    extra_index += captures_len;
+                    extra_index += captures_len * 2;
                     extra_index += decls_len;
                     const body = zir.bodySlice(extra_index, body_len);
                     try zir.findTrackableBody(gpa, contents, defers, body);
@@ -4471,7 +4475,7 @@ fn findTrackableInner(
                         extra_index += 1;
                         break :blk decls_len;
                     } else 0;
-                    extra_index += captures_len;
+                    extra_index += captures_len * 2;
                     extra_index += decls_len;
                     const body = zir.bodySlice(extra_index, body_len);
                     try zir.findTrackableBody(gpa, contents, defers, body);
