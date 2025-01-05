@@ -26,7 +26,7 @@ data_segments: std.AutoArrayHashMapUnmanaged(Wasm.DataSegmentId, u32) = .empty,
 /// Each time a `data_segment` offset equals zero it indicates a new group, and
 /// the next element in this array will contain the total merged segment size.
 /// Value is the virtual memory address of the end of the segment.
-data_segment_groups: std.ArrayListUnmanaged(u32) = .empty,
+data_segment_groups: std.ArrayListUnmanaged(DataSegmentGroup) = .empty,
 
 binary_bytes: std.ArrayListUnmanaged(u8) = .empty,
 missing_exports: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
@@ -36,6 +36,11 @@ data_imports: std.AutoArrayHashMapUnmanaged(String, Wasm.DataImportId) = .empty,
 
 /// For debug purposes only.
 memory_layout_finished: bool = false,
+
+const DataSegmentGroup = struct {
+    first_segment: Wasm.DataSegmentId,
+    end_addr: u32,
+};
 
 pub fn clear(f: *Flush) void {
     f.data_segments.clearRetainingCapacity();
@@ -280,15 +285,6 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     // Always place the stack at the start by default unless the user specified the global-base flag.
     const place_stack_first, var memory_ptr: u64 = if (wasm.global_base) |base| .{ false, base } else .{ true, 0 };
 
-    const VirtualAddrs = struct {
-        stack_pointer: u32,
-        heap_base: u32,
-        heap_end: u32,
-        tls_base: ?u32,
-        tls_align: Alignment,
-        tls_size: ?u32,
-        init_memory_flag: ?u32,
-    };
     var virtual_addrs: VirtualAddrs = .{
         .stack_pointer = undefined,
         .heap_base = undefined,
@@ -309,9 +305,10 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     const segment_vaddrs = f.data_segments.values();
     assert(f.data_segment_groups.items.len == 0);
     const data_vaddr: u32 = @intCast(memory_ptr);
-    {
+    if (segment_ids.len > 0) {
         var seen_tls: enum { before, during, after } = .before;
         var category: Wasm.DataSegmentId.Category = undefined;
+        var first_segment: Wasm.DataSegmentId = segment_ids[0];
         for (segment_ids, segment_vaddrs, 0..) |segment_id, *segment_vaddr, i| {
             const alignment = segment_id.alignment(wasm);
             category = segment_id.category(wasm);
@@ -338,14 +335,21 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             };
             if (want_new_segment) {
                 log.debug("new segment at 0x{x} {} {s} {}", .{ start_addr, segment_id, segment_id.name(wasm), category });
-                try f.data_segment_groups.append(gpa, @intCast(memory_ptr));
+                try f.data_segment_groups.append(gpa, .{
+                    .end_addr = @intCast(memory_ptr),
+                    .first_segment = first_segment,
+                });
+                first_segment = segment_id;
             }
 
             const size = segment_id.size(wasm);
             segment_vaddr.* = @intCast(start_addr);
             memory_ptr = start_addr + size;
         }
-        if (category != .zero) try f.data_segment_groups.append(gpa, @intCast(memory_ptr));
+        if (category != .zero) try f.data_segment_groups.append(gpa, .{
+            .first_segment = first_segment,
+            .end_addr = @intCast(memory_ptr),
+        });
     }
 
     if (shared_memory and wasm.any_passive_inits) {
@@ -567,7 +571,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                     binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Valtype.i32));
                     binary_bytes.appendAssumeCapacity(1); // mutable
                     binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
-                    leb.writeUleb128(binary_bytes.fixedWriter(), virtual_addrs.stack_pointer) catch unreachable;
+                    appendReservedUleb32(binary_bytes, virtual_addrs.stack_pointer);
                     binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.end));
                 },
                 .__tls_align => @panic("TODO"),
@@ -683,7 +687,11 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 defer replaceSize(binary_bytes, code_start);
                 try emitCallCtorsFunction(wasm, binary_bytes);
             },
-            .__wasm_init_memory => @panic("TODO lower __wasm_init_memory "),
+            .__wasm_init_memory => {
+                const code_start = try reserveSize(gpa, binary_bytes);
+                defer replaceSize(binary_bytes, code_start);
+                try emitInitMemoryFunction(wasm, binary_bytes, &virtual_addrs);
+            },
             .__wasm_init_tls => @panic("TODO lower __wasm_init_tls "),
             .object_function => |i| {
                 const ptr = i.ptr(wasm);
@@ -736,7 +744,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         var group_index: u32 = 0;
         var segment_offset: u32 = 0;
         var group_start_addr: u32 = data_vaddr;
-        var group_end_addr = f.data_segment_groups.items[group_index];
+        var group_end_addr = f.data_segment_groups.items[group_index].end_addr;
         for (segment_ids, segment_vaddrs) |segment_id, segment_vaddr| {
             if (segment_vaddr >= group_end_addr) {
                 try binary_bytes.appendNTimes(gpa, 0, group_end_addr - group_start_addr - segment_offset);
@@ -746,7 +754,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                     break;
                 }
                 group_start_addr = group_end_addr;
-                group_end_addr = f.data_segment_groups.items[group_index];
+                group_end_addr = f.data_segment_groups.items[group_index].end_addr;
                 segment_offset = 0;
             }
             if (segment_offset == 0) {
@@ -864,6 +872,16 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     try file.pwriteAll(binary_bytes.items, 0);
     try file.setEndPos(binary_bytes.items.len);
 }
+
+const VirtualAddrs = struct {
+    stack_pointer: u32,
+    heap_base: u32,
+    heap_end: u32,
+    tls_base: ?u32,
+    tls_align: Alignment,
+    tls_size: ?u32,
+    init_memory_flag: ?u32,
+};
 
 fn emitNameSection(
     wasm: *Wasm,
@@ -1575,7 +1593,7 @@ fn emitCallCtorsFunction(wasm: *const Wasm, binary_bytes: *std.ArrayListUnmanage
     const gpa = wasm.base.comp.gpa;
 
     try binary_bytes.ensureUnusedCapacity(gpa, 5 + 1);
-    leb.writeUleb128(binary_bytes.fixedWriter(), @as(u32, 0)) catch unreachable; // no locals
+    appendReservedUleb32(binary_bytes, 0); // no locals
 
     for (wasm.object_init_funcs.items) |init_func| {
         const func = init_func.function_index.ptr(wasm);
@@ -1586,11 +1604,171 @@ fn emitCallCtorsFunction(wasm: *const Wasm, binary_bytes: *std.ArrayListUnmanage
         try binary_bytes.ensureUnusedCapacity(gpa, 1 + 5 + n_returns + 1);
         const call_index: Wasm.OutputFunctionIndex = .fromObjectFunction(wasm, init_func.function_index);
         binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.call));
-        leb.writeUleb128(binary_bytes.fixedWriter(), @intFromEnum(call_index)) catch unreachable;
+        appendReservedUleb32(binary_bytes, @intFromEnum(call_index));
 
         // drop all returned values from the stack as __wasm_call_ctors has no return value
         binary_bytes.appendNTimesAssumeCapacity(@intFromEnum(std.wasm.Opcode.drop), n_returns);
     }
 
     binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.end)); // end function body
+}
+
+fn emitInitMemoryFunction(
+    wasm: *const Wasm,
+    binary_bytes: *std.ArrayListUnmanaged(u8),
+    virtual_addrs: *const VirtualAddrs,
+) Allocator.Error!void {
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+    const shared_memory = comp.config.shared_memory;
+
+    // Passive segments are used to avoid memory being reinitialized on each
+    // thread's instantiation. These passive segments are initialized and
+    // dropped in __wasm_init_memory, which is registered as the start function
+    // We also initialize bss segments (using memory.fill) as part of this
+    // function.
+    assert(wasm.any_passive_inits);
+
+    try binary_bytes.ensureUnusedCapacity(gpa, 5 + 1);
+    appendReservedUleb32(binary_bytes, 0); // no locals
+
+    if (virtual_addrs.init_memory_flag) |flag_address| {
+        assert(shared_memory);
+        try binary_bytes.ensureUnusedCapacity(gpa, 2 * 3 + 6 * 3 + 1 + 6 * 3 + 1 + 5 * 4 + 1 + 1);
+        // destination blocks
+        // based on values we jump to corresponding label
+        binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.block)); // $drop
+        binary_bytes.appendAssumeCapacity(std.wasm.block_empty); // block type
+
+        binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.block)); // $wait
+        binary_bytes.appendAssumeCapacity(std.wasm.block_empty); // block type
+
+        binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.block)); // $init
+        binary_bytes.appendAssumeCapacity(std.wasm.block_empty); // block type
+
+        // atomically check
+        appendReservedI32Const(binary_bytes, flag_address);
+        appendReservedI32Const(binary_bytes, 0);
+        appendReservedI32Const(binary_bytes, 1);
+        binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.atomics_prefix));
+        appendReservedUleb32(binary_bytes, @intFromEnum(std.wasm.AtomicsOpcode.i32_atomic_rmw_cmpxchg));
+        appendReservedUleb32(binary_bytes, 2); // alignment
+        appendReservedUleb32(binary_bytes, 0); // offset
+
+        // based on the value from the atomic check, jump to the label.
+        binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.br_table));
+        appendReservedUleb32(binary_bytes, 2); // length of the table (we have 3 blocks but because of the mandatory default the length is 2).
+        appendReservedUleb32(binary_bytes, 0); // $init
+        appendReservedUleb32(binary_bytes, 1); // $wait
+        appendReservedUleb32(binary_bytes, 2); // $drop
+        binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.end));
+    }
+
+    const segment_groups = wasm.flush_buffer.data_segment_groups.items;
+    var prev_end: u32 = 0;
+    for (segment_groups, 0..) |group, segment_index| {
+        defer prev_end = group.end_addr;
+        const segment = group.first_segment;
+        if (!segment.isPassive(wasm)) continue;
+
+        const start_addr: u32 = @intCast(segment.alignment(wasm).forward(prev_end));
+        const segment_size: u32 = group.end_addr - start_addr;
+
+        try binary_bytes.ensureUnusedCapacity(gpa, 6 + 6 + 1 + 5 + 6 + 6 + 1 + 6 * 2 + 1 + 1);
+
+        // For passive BSS segments we can simply issue a memory.fill(0). For
+        // non-BSS segments we do a memory.init. Both instructions take as
+        // their first argument the destination address.
+        appendReservedI32Const(binary_bytes, start_addr);
+
+        if (shared_memory and segment.isTls(wasm)) {
+            // When we initialize the TLS segment we also set the `__tls_base`
+            // global.  This allows the runtime to use this static copy of the
+            // TLS data for the first/main thread.
+            appendReservedI32Const(binary_bytes, start_addr);
+            binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_set));
+            appendReservedUleb32(binary_bytes, virtual_addrs.tls_base.?);
+        }
+
+        appendReservedI32Const(binary_bytes, 0);
+        appendReservedI32Const(binary_bytes, segment_size);
+        binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.misc_prefix));
+        if (segment.isBss(wasm)) {
+            // fill bss segment with zeroes
+            appendReservedUleb32(binary_bytes, @intFromEnum(std.wasm.MiscOpcode.memory_fill));
+        } else {
+            // initialize the segment
+            appendReservedUleb32(binary_bytes, @intFromEnum(std.wasm.MiscOpcode.memory_init));
+            appendReservedUleb32(binary_bytes, @intCast(segment_index));
+        }
+        binary_bytes.appendAssumeCapacity(0); // memory index immediate
+    }
+
+    if (virtual_addrs.init_memory_flag) |flag_address| {
+        assert(shared_memory);
+        try binary_bytes.ensureUnusedCapacity(gpa, 6 + 6 + 1 + 3 * 5 + 6 + 1 + 5 + 1 + 3 * 5 + 1 + 1 + 5 + 1 + 6 * 2 + 1 + 5 + 1 + 3 * 5 + 1 + 1 + 1);
+        // we set the init memory flag to value '2'
+        appendReservedI32Const(binary_bytes, flag_address);
+        appendReservedI32Const(binary_bytes, 2);
+        binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.atomics_prefix));
+        appendReservedUleb32(binary_bytes, @intFromEnum(std.wasm.AtomicsOpcode.i32_atomic_store));
+        appendReservedUleb32(binary_bytes, @as(u32, 2)); // alignment
+        appendReservedUleb32(binary_bytes, @as(u32, 0)); // offset
+
+        // notify any waiters for segment initialization completion
+        appendReservedI32Const(binary_bytes, flag_address);
+        binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
+        leb.writeIleb128(binary_bytes.fixedWriter(), @as(i32, -1)) catch unreachable; // number of waiters
+        binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.atomics_prefix));
+        appendReservedUleb32(binary_bytes, @intFromEnum(std.wasm.AtomicsOpcode.memory_atomic_notify));
+        appendReservedUleb32(binary_bytes, @as(u32, 2)); // alignment
+        appendReservedUleb32(binary_bytes, @as(u32, 0)); // offset
+        binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.drop));
+
+        // branch and drop segments
+        binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.br));
+        appendReservedUleb32(binary_bytes, @as(u32, 1));
+
+        // wait for thread to initialize memory segments
+        binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.end)); // end $wait
+        appendReservedI32Const(binary_bytes, flag_address);
+        appendReservedI32Const(binary_bytes, 1); // expected flag value
+        binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i64_const));
+        leb.writeIleb128(binary_bytes.fixedWriter(), @as(i64, -1)) catch unreachable; // timeout
+        binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.atomics_prefix));
+        appendReservedUleb32(binary_bytes, @intFromEnum(std.wasm.AtomicsOpcode.memory_atomic_wait32));
+        appendReservedUleb32(binary_bytes, @as(u32, 2)); // alignment
+        appendReservedUleb32(binary_bytes, @as(u32, 0)); // offset
+        binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.drop));
+
+        binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.end)); // end $drop
+    }
+
+    for (segment_groups, 0..) |group, segment_index| {
+        const segment = group.first_segment;
+        if (!segment.isPassive(wasm)) continue;
+        if (segment.isBss(wasm)) continue;
+        // The TLS region should not be dropped since its is needed
+        // during the initialization of each thread (__wasm_init_tls).
+        if (shared_memory and segment.isTls(wasm)) continue;
+
+        try binary_bytes.ensureUnusedCapacity(gpa, 1 + 5 + 5 + 1);
+
+        binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.misc_prefix));
+        appendReservedUleb32(binary_bytes, @intFromEnum(std.wasm.MiscOpcode.data_drop));
+        appendReservedUleb32(binary_bytes, @intCast(segment_index));
+    }
+
+    // End of the function body
+    binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.end));
+}
+
+/// Writes an unsigned 32-bit integer as a LEB128-encoded 'i32.const' value.
+fn appendReservedI32Const(bytes: *std.ArrayListUnmanaged(u8), val: u32) void {
+    bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
+    leb.writeIleb128(bytes.fixedWriter(), @as(i32, @bitCast(val))) catch unreachable;
+}
+
+fn appendReservedUleb32(bytes: *std.ArrayListUnmanaged(u8), val: u32) void {
+    leb.writeUleb128(bytes.fixedWriter(), val) catch unreachable;
 }
