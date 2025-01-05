@@ -5066,3 +5066,35 @@ pub fn assertTrackable(zir: Zir, inst_idx: Zir.Inst.Index) void {
         else => unreachable, // assertion failure; not trackable
     }
 }
+
+pub fn typeCapturesLen(zir: Zir, type_decl: Inst.Index) u32 {
+    const inst = zir.instructions.get(@intFromEnum(type_decl));
+    assert(inst.tag == .extended);
+    switch (inst.data.extended.opcode) {
+        .struct_decl => {
+            const small: Inst.StructDecl.Small = @bitCast(inst.data.extended.small);
+            if (!small.has_captures_len) return 0;
+            const extra = zir.extraData(Inst.StructDecl, inst.data.extended.operand);
+            return zir.extra[extra.end];
+        },
+        .union_decl => {
+            const small: Inst.UnionDecl.Small = @bitCast(inst.data.extended.small);
+            if (!small.has_captures_len) return 0;
+            const extra = zir.extraData(Inst.UnionDecl, inst.data.extended.operand);
+            return zir.extra[extra.end + @intFromBool(small.has_tag_type)];
+        },
+        .enum_decl => {
+            const small: Inst.EnumDecl.Small = @bitCast(inst.data.extended.small);
+            if (!small.has_captures_len) return 0;
+            const extra = zir.extraData(Inst.EnumDecl, inst.data.extended.operand);
+            return zir.extra[extra.end + @intFromBool(small.has_tag_type)];
+        },
+        .opaque_decl => {
+            const small: Inst.OpaqueDecl.Small = @bitCast(inst.data.extended.small);
+            if (!small.has_captures_len) return 0;
+            const extra = zir.extraData(Inst.OpaqueDecl, inst.data.extended.operand);
+            return zir.extra[extra.end];
+        },
+        else => unreachable,
+    }
+}
