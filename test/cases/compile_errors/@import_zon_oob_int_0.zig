@@ -1,4 +1,4 @@
-pub fn main() void {
+export fn entry() void {
     {
         const f: u6 = @import("zon/int_32.zon");
         _ = f;
@@ -10,8 +10,6 @@ pub fn main() void {
 }
 
 // error
-// backend=stage2
-// output_mode=Exe
 // imports=zon/int_32.zon
 //
 // int_32.zon:1:1: error: type 'u5' cannot represent integer value '32'

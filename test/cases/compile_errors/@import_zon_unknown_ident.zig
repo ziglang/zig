@@ -1,11 +1,9 @@
-pub fn main() void {
+export fn entry() void {
     const f: struct { value: bool } = @import("zon/unknown_ident.zon");
     _ = f;
 }
 
 // error
-// backend=stage2
-// output_mode=Exe
 // imports=zon/unknown_ident.zon
 //
 // unknown_ident.zon:2:14: error: invalid expression

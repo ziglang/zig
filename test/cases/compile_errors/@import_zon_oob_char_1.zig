@@ -1,4 +1,4 @@
-pub fn main() void {
+export fn entry() void {
     {
         const f: i7 = @import("zon/char_32.zon");
         _ = f;
@@ -10,8 +10,6 @@ pub fn main() void {
 }
 
 // error
-// backend=stage2
-// output_mode=Exe
 // imports=zon/char_32.zon
 //
 // char_32.zon:1:1: error: type 'i6' cannot represent integer value '32'

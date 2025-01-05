@@ -1,11 +1,9 @@
-pub fn main() void {
+export fn entry() void {
     const f: i8 = @import("zon/negative_zero.zon");
     _ = f;
 }
 
 // error
-// backend=stage2
-// output_mode=Exe
 // imports=zon/negative_zero.zon
 //
 // negative_zero.zon:1:2: error: integer literal '-0' is ambiguous

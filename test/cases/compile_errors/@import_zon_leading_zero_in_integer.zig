@@ -1,11 +1,9 @@
-pub fn main() void {
+export fn entry() void {
     const f: u128 = @import("zon/leading_zero_in_integer.zon");
     _ = f;
 }
 
 // error
-// backend=stage2
-// output_mode=Exe
 // imports=zon/leading_zero_in_integer.zon
 //
 // leading_zero_in_integer.zon:1:1: error: number '0012' has leading zero

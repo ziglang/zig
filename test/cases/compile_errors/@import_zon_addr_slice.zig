@@ -4,8 +4,6 @@ pub fn main() void {
 }
 
 // error
-// backend=stage2
-// output_mode=Exe
 // imports=zon/addr_slice.zon
 //
 // addr_slice.zon:2:14: error: pointers are not available in ZON

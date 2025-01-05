@@ -1,4 +1,4 @@
-pub fn main() void {
+export fn entry() void {
     const Vec2 = struct {
         comptime x: f32 = 1.5,
         comptime y: f32 = 2.5,
@@ -8,8 +8,6 @@ pub fn main() void {
 }
 
 // error
-// backend=stage2
-// output_mode=Exe
 // imports=zon/vec2.zon
 //
 // zon/vec2.zon:1:15: error: value stored in comptime field does not match the default value of the field

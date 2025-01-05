@@ -1,11 +1,9 @@
-pub fn main() void {
+export fn entry() void {
     const f: bool = @import("zon/struct.zon");
     _ = f;
 }
 
 // error
-// backend=stage2
-// output_mode=Exe
 // imports=zon/struct.zon
 //
 // struct.zon:1:2: error: expected type 'bool'

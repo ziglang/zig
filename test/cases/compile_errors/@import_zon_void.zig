@@ -1,11 +1,9 @@
-pub fn main() void {
+export fn entry() void {
     const f: union { foo: void } = @import("zon/void.zon");
     _ = f;
 }
 
 // error
-// backend=stage2
-// output_mode=Exe
 // imports=zon/void.zon
 //
 // void.zon:1:11: error: void literals are not available in ZON
