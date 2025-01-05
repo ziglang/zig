@@ -168,6 +168,8 @@ pub const TrackedInst = extern struct {
                     _ => @enumFromInt(@intFromEnum(opt)),
                 };
             }
+
+            const debug_state = InternPool.debug_state;
         };
 
         pub const Unwrapped = struct {
@@ -187,6 +189,8 @@ pub const TrackedInst = extern struct {
                 .index = @intFromEnum(tracked_inst_index) & ip.getIndexMask(u32),
             };
         }
+
+        const debug_state = InternPool.debug_state;
     };
 };
 
@@ -508,7 +512,7 @@ pub const Nav = struct {
     /// The fully-qualified name of this `Nav`.
     fqn: NullTerminatedString,
     /// This field is populated iff this `Nav` is resolved by semantic analysis.
-    /// If this is `null`, then `status == .resolved` always.
+    /// If this is `null`, then `status == .fully_resolved` always.
     analysis: ?struct {
         namespace: NamespaceIndex,
         zir_index: TrackedInst.Index,
@@ -6631,6 +6635,8 @@ pub fn activate(ip: *const InternPool) void {
     _ = OptionalString.debug_state;
     _ = NullTerminatedString.debug_state;
     _ = OptionalNullTerminatedString.debug_state;
+    _ = TrackedInst.Index.debug_state;
+    _ = TrackedInst.Index.Optional.debug_state;
     _ = Nav.Index.debug_state;
     _ = Nav.Index.Optional.debug_state;
     std.debug.assert(debug_state.intern_pool == null);

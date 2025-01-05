@@ -2372,9 +2372,9 @@ pub fn updateExports(
     return self.zigObjectPtr().?.updateExports(self, pt, exported, export_indices);
 }
 
-pub fn updateNavLineNumber(self: *Elf, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !void {
+pub fn updateLineNumber(self: *Elf, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
     if (self.llvm_object) |_| return;
-    return self.zigObjectPtr().?.updateNavLineNumber(pt, nav);
+    return self.zigObjectPtr().?.updateLineNumber(pt, ti_id);
 }
 
 pub fn deleteExport(

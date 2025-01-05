@@ -1074,15 +1074,9 @@ pub fn createDebugSectionForIndex(zig_object: *ZigObject, wasm: *Wasm, index: *?
     return atom_index;
 }
 
-pub fn updateDeclLineNumber(
-    zig_object: *ZigObject,
-    pt: Zcu.PerThread,
-    decl_index: InternPool.DeclIndex,
-) !void {
+pub fn updateLineNumber(zig_object: *ZigObject, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
     if (zig_object.dwarf) |*dw| {
-        const decl = pt.zcu.declPtr(decl_index);
-        log.debug("updateDeclLineNumber {}{*}", .{ decl.fqn.fmt(&pt.zcu.intern_pool), decl });
-        try dw.updateDeclLineNumber(pt.zcu, decl_index);
+        try dw.updateLineNumber(pt.zcu, ti_id);
     }
 }
 
