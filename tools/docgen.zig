@@ -14,7 +14,7 @@ const fatal = std.zig.fatal;
 
 const max_doc_file_size = 10 * 1024 * 1024;
 
-const obj_ext = builtin.object_format.fileExt(builtin.abi, builtin.cpu.arch);
+const obj_ext = builtin.target.objFileExt();
 
 const usage =
     \\Usage: docgen [options] input output

@@ -2021,6 +2021,10 @@ pub fn exeFileExt(target: *const Target) [:0]const u8 {
     return target.os.tag.exeFileExt(target.cpu.arch);
 }
 
+pub fn objFileExt(target: *const Target) [:0]const u8 {
+    return target.ofmt.fileExt(target.abi, target.cpu.arch);
+}
+
 pub fn staticLibSuffix(target: *const Target) [:0]const u8 {
     return target.os.tag.staticLibSuffix(target.abi);
 }
