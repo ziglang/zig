@@ -564,16 +564,9 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         for (wasm.globals.keys()) |global_resolution| {
             switch (global_resolution.unpack(wasm)) {
                 .unresolved => unreachable,
-                .__heap_base => @panic("TODO"),
-                .__heap_end => @panic("TODO"),
-                .__stack_pointer => {
-                    try binary_bytes.ensureUnusedCapacity(gpa, 9);
-                    binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Valtype.i32));
-                    binary_bytes.appendAssumeCapacity(1); // mutable
-                    binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
-                    appendReservedUleb32(binary_bytes, virtual_addrs.stack_pointer);
-                    binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.end));
-                },
+                .__heap_base => try appendGlobal(gpa, binary_bytes, 0, virtual_addrs.heap_base),
+                .__heap_end => try appendGlobal(gpa, binary_bytes, 0, virtual_addrs.heap_end),
+                .__stack_pointer => try appendGlobal(gpa, binary_bytes, 1, virtual_addrs.stack_pointer),
                 .__tls_align => @panic("TODO"),
                 .__tls_base => @panic("TODO"),
                 .__tls_size => @panic("TODO"),
@@ -781,8 +774,14 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             const code_start = binary_bytes.items.len;
             append: {
                 const code = switch (segment_id.unpack(wasm)) {
-                    .__heap_base => @panic("TODO"),
-                    .__heap_end => @panic("TODO"),
+                    .__heap_base => {
+                        mem.writeInt(u32, try binary_bytes.addManyAsArray(gpa, 4), virtual_addrs.heap_base, .little);
+                        break :append;
+                    },
+                    .__heap_end => {
+                        mem.writeInt(u32, try binary_bytes.addManyAsArray(gpa, 4), virtual_addrs.heap_end, .little);
+                        break :append;
+                    },
                     .__zig_error_names => {
                         try binary_bytes.appendSlice(gpa, wasm.error_name_bytes.items);
                         break :append;
@@ -1771,4 +1770,13 @@ fn appendReservedI32Const(bytes: *std.ArrayListUnmanaged(u8), val: u32) void {
 
 fn appendReservedUleb32(bytes: *std.ArrayListUnmanaged(u8), val: u32) void {
     leb.writeUleb128(bytes.fixedWriter(), val) catch unreachable;
+}
+
+fn appendGlobal(gpa: Allocator, bytes: *std.ArrayListUnmanaged(u8), mutable: u8, val: u32) Allocator.Error!void {
+    try bytes.ensureUnusedCapacity(gpa, 9);
+    bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Valtype.i32));
+    bytes.appendAssumeCapacity(mutable);
+    bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
+    appendReservedUleb32(bytes, val);
+    bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.end));
 }
