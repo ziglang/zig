@@ -2025,6 +2025,10 @@ pub fn exeFileExt(target: Target) [:0]const u8 {
     return target.os.tag.exeFileExt(target.cpu.arch);
 }
 
+pub fn objFileExt(target: Target) [:0]const u8 {
+    return target.ofmt.fileExt(target.abi, target.cpu.arch);
+}
+
 pub fn staticLibSuffix(target: Target) [:0]const u8 {
     return target.os.tag.staticLibSuffix(target.abi);
 }
