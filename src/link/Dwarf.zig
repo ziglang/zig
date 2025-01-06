@@ -1980,7 +1980,7 @@ pub const WipNav = struct {
         abbrev_code: struct {
             decl: AbbrevCode,
             generic_decl: AbbrevCode,
-            instance: AbbrevCode,
+            decl_instance: AbbrevCode,
         },
         nav: *const InternPool.Nav,
         file: Zcu.File.Index,
@@ -2001,8 +2001,8 @@ pub const WipNav = struct {
                 switch (try dwarf.debug_info.declAbbrevCode(wip_nav.unit, decl_gop.value_ptr.*)) {
                 else => unreachable,
                 .decl_alias,
-                .decl_enum,
                 .decl_empty_enum,
+                .decl_enum,
                 .decl_namespace_struct,
                 .decl_struct,
                 .decl_packed_struct,
@@ -2012,15 +2012,11 @@ pub const WipNav = struct {
                 .decl_const_runtime_bits,
                 .decl_const_comptime_state,
                 .decl_const_runtime_bits_comptime_state,
-                .decl_func,
                 .decl_empty_func,
-                .decl_func_generic,
+                .decl_func,
                 .decl_empty_func_generic,
+                .decl_func_generic,
                 => false,
-                .generic_decl_alias,
-                .generic_decl_enum,
-                .generic_decl_struct,
-                .generic_decl_union,
                 .generic_decl_var,
                 .generic_decl_const,
                 .generic_decl_func,
@@ -2054,7 +2050,7 @@ pub const WipNav = struct {
         try dwarf.debug_info.section.replaceEntry(wip_nav.unit, generic_decl_entry, dwarf, wip_nav.debug_info.items);
         wip_nav.debug_info.clearRetainingCapacity();
         wip_nav.entry = orig_entry;
-        try wip_nav.abbrevCode(abbrev_code.instance);
+        try wip_nav.abbrevCode(abbrev_code.decl_instance);
         try wip_nav.refType(parent_type.?);
         try wip_nav.infoSectionOffset(.debug_info, wip_nav.unit, generic_decl_entry, 0);
     }
@@ -2402,7 +2398,7 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             try wip_nav.declCommon(.{
                 .decl = .decl_var,
                 .generic_decl = .generic_decl_var,
-                .instance = .instance_var,
+                .decl_instance = .decl_instance_var,
             }, &nav, inst_info.file, &decl);
             try wip_nav.strp(nav.fqn.toSlice(ip));
             const ty: Type = nav_val.typeOf(zcu);
@@ -2429,7 +2425,14 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
                 },
             }
         },
-        .func => |func| {
+        .func => |func| if (func.owner_nav != nav_index) {
+            try wip_nav.declCommon(.{
+                .decl = .decl_alias,
+                .generic_decl = .generic_decl_const,
+                .decl_instance = .decl_instance_alias,
+            }, &nav, inst_info.file, &decl);
+            try wip_nav.refNav(func.owner_nav);
+        } else {
             const func_type = ip.indexToKey(func.ty).func_type;
             wip_nav.func = nav_val.toIntern();
             wip_nav.func_sym_index = sym_index;
@@ -2479,7 +2482,7 @@ pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.In
             try wip_nav.declCommon(.{
                 .decl = .decl_func,
                 .generic_decl = .generic_decl_func,
-                .instance = .instance_func,
+                .decl_instance = .decl_instance_func,
             }, &nav, inst_info.file, &decl);
             try wip_nav.strp(nav.fqn.toSlice(ip));
             try wip_nav.refType(.fromInterned(func_type.return_type));
@@ -2599,11 +2602,20 @@ pub fn finishWipNavFunc(
         if (wip_nav.any_children) {
             const diw = wip_nav.debug_info.writer(dwarf.gpa);
             try uleb128(diw, @intFromEnum(AbbrevCode.null));
-        } else std.leb.writeUnsignedFixed(
-            AbbrevCode.decl_bytes,
-            wip_nav.debug_info.items[0..AbbrevCode.decl_bytes],
-            try dwarf.refAbbrevCode(.decl_empty_func),
-        );
+        } else {
+            const abbrev_code_buf = wip_nav.debug_info.items[0..AbbrevCode.decl_bytes];
+            var abbrev_code_fbs = std.io.fixedBufferStream(abbrev_code_buf);
+            const abbrev_code: AbbrevCode = @enumFromInt(std.leb.readUleb128(@typeInfo(AbbrevCode).@"enum".tag_type, abbrev_code_fbs.reader()) catch unreachable);
+            std.leb.writeUnsignedFixed(
+                AbbrevCode.decl_bytes,
+                abbrev_code_buf,
+                try dwarf.refAbbrevCode(switch (abbrev_code) {
+                    else => unreachable,
+                    .decl_func => .decl_empty_func,
+                    .decl_instance_func => .decl_instance_empty_func,
+                }),
+            );
+        }
     }
     {
         try dwarf.debug_rnglists.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).external_relocs.appendSlice(dwarf.gpa, &.{
@@ -2702,14 +2714,20 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
     const nav_gop = try dwarf.navs.getOrPut(dwarf.gpa, nav_index);
     errdefer _ = if (!nav_gop.found_existing) dwarf.navs.pop();
 
-    const tag: enum { done, decl_alias, decl_var, decl_const } = switch (ip.indexToKey(nav_val.toIntern())) {
+    const tag: union(enum) {
+        done,
+        decl_alias,
+        decl_var,
+        decl_const,
+        decl_func_alias: InternPool.Nav.Index,
+    } = switch (ip.indexToKey(nav_val.toIntern())) {
         .int_type,
         .ptr_type,
         .array_type,
         .vector_type,
         .opt_type,
-        .anyframe_type,
         .error_union_type,
+        .anyframe_type,
         .simple_type,
         .tuple_type,
         .func_type,
@@ -2739,12 +2757,12 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 .auto, .@"extern" => {
                     try wip_nav.declCommon(if (loaded_struct.field_types.len == 0) .{
                         .decl = .decl_namespace_struct,
-                        .generic_decl = .generic_decl_struct,
-                        .instance = .instance_namespace_struct,
+                        .generic_decl = .generic_decl_const,
+                        .decl_instance = .decl_instance_namespace_struct,
                     } else .{
                         .decl = .decl_struct,
-                        .generic_decl = .generic_decl_struct,
-                        .instance = .instance_struct,
+                        .generic_decl = .generic_decl_const,
+                        .decl_instance = .decl_instance_struct,
                     }, &nav, inst_info.file, &decl);
                     if (loaded_struct.field_types.len == 0) try diw.writeByte(@intFromBool(false)) else {
                         try uleb128(diw, nav_val.toType().abiSize(zcu));
@@ -2799,8 +2817,8 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
                 .@"packed" => {
                     try wip_nav.declCommon(.{
                         .decl = .decl_packed_struct,
-                        .generic_decl = .generic_decl_struct,
-                        .instance = .instance_packed_struct,
+                        .generic_decl = .generic_decl_const,
+                        .decl_instance = .decl_instance_packed_struct,
                     }, &nav, inst_info.file, &decl);
                     try wip_nav.refType(.fromInterned(loaded_struct.backingIntTypeUnordered(ip)));
                     var field_bit_offset: u16 = 0;
@@ -2837,12 +2855,12 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
             const diw = wip_nav.debug_info.writer(dwarf.gpa);
             try wip_nav.declCommon(if (loaded_enum.names.len > 0) .{
                 .decl = .decl_enum,
-                .generic_decl = .generic_decl_enum,
-                .instance = .instance_enum,
+                .generic_decl = .generic_decl_const,
+                .decl_instance = .decl_instance_enum,
             } else .{
                 .decl = .decl_empty_enum,
-                .generic_decl = .generic_decl_enum,
-                .instance = .instance_empty_enum,
+                .generic_decl = .generic_decl_const,
+                .decl_instance = .decl_instance_empty_enum,
             }, &nav, inst_info.file, &decl);
             try wip_nav.refType(.fromInterned(loaded_enum.tag_ty));
             for (0..loaded_enum.names.len) |field_index| {
@@ -2875,8 +2893,8 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
             const diw = wip_nav.debug_info.writer(dwarf.gpa);
             try wip_nav.declCommon(.{
                 .decl = .decl_union,
-                .generic_decl = .generic_decl_union,
-                .instance = .instance_union,
+                .generic_decl = .generic_decl_const,
+                .decl_instance = .decl_instance_union,
             }, &nav, inst_info.file, &decl);
             const union_layout = Type.getUnionLayout(loaded_union, zcu);
             try uleb128(diw, union_layout.abi_size);
@@ -2945,8 +2963,8 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
             const diw = wip_nav.debug_info.writer(dwarf.gpa);
             try wip_nav.declCommon(.{
                 .decl = .decl_namespace_struct,
-                .generic_decl = .generic_decl_struct,
-                .instance = .instance_namespace_struct,
+                .generic_decl = .generic_decl_const,
+                .decl_instance = .decl_instance_namespace_struct,
             }, &nav, inst_info.file, &decl);
             try diw.writeByte(@intFromBool(true));
             break :tag .done;
@@ -2969,14 +2987,15 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
         .variable => .decl_var,
         .@"extern" => unreachable,
         .func => |func| tag: {
+            if (func.owner_nav != nav_index) break :tag .{ .decl_func_alias = func.owner_nav };
             if (nav_gop.found_existing) switch (try dwarf.debug_info.declAbbrevCode(wip_nav.unit, nav_gop.value_ptr.*)) {
                 .null => {},
                 else => unreachable,
-                .decl_func, .decl_empty_func, .instance_func, .instance_empty_func => return,
-                .decl_func_generic,
+                .decl_empty_func, .decl_func, .decl_instance_empty_func, .decl_instance_func => return,
                 .decl_empty_func_generic,
-                .instance_func_generic,
-                .instance_empty_func_generic,
+                .decl_func_generic,
+                .decl_instance_empty_func_generic,
+                .decl_instance_func_generic,
                 => dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(nav_gop.value_ptr.*).clear(),
             } else nav_gop.value_ptr.* = try dwarf.addCommonEntry(wip_nav.unit);
             wip_nav.entry = nav_gop.value_ptr.*;
@@ -2986,11 +3005,11 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
             try wip_nav.declCommon(if (func_type.param_types.len > 0 or func_type.is_var_args) .{
                 .decl = .decl_func_generic,
                 .generic_decl = .generic_decl_func,
-                .instance = .instance_func_generic,
+                .decl_instance = .decl_instance_func_generic,
             } else .{
                 .decl = .decl_empty_func_generic,
                 .generic_decl = .generic_decl_func,
-                .instance = .instance_empty_func_generic,
+                .decl_instance = .decl_instance_empty_func_generic,
             }, &nav, inst_info.file, &decl);
             try wip_nav.refType(.fromInterned(func_type.return_type));
             if (func_type.param_types.len > 0 or func_type.is_var_args) {
@@ -3018,8 +3037,8 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
         .decl_alias => {
             try wip_nav.declCommon(.{
                 .decl = .decl_alias,
-                .generic_decl = .generic_decl_alias,
-                .instance = .instance_alias,
+                .generic_decl = .generic_decl_const,
+                .decl_instance = .decl_instance_alias,
             }, &nav, inst_info.file, &decl);
             try wip_nav.refType(nav_val.toType());
         },
@@ -3028,7 +3047,7 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
             try wip_nav.declCommon(.{
                 .decl = .decl_var,
                 .generic_decl = .generic_decl_var,
-                .instance = .instance_var,
+                .decl_instance = .decl_instance_var,
             }, &nav, inst_info.file, &decl);
             try wip_nav.strp(nav.fqn.toSlice(ip));
             const nav_ty = nav_val.typeOf(zcu);
@@ -3046,19 +3065,19 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
             try wip_nav.declCommon(if (has_runtime_bits and has_comptime_state) .{
                 .decl = .decl_const_runtime_bits_comptime_state,
                 .generic_decl = .generic_decl_const,
-                .instance = .instance_const_runtime_bits_comptime_state,
+                .decl_instance = .decl_instance_const_runtime_bits_comptime_state,
             } else if (has_comptime_state) .{
                 .decl = .decl_const_comptime_state,
                 .generic_decl = .generic_decl_const,
-                .instance = .instance_const_comptime_state,
+                .decl_instance = .decl_instance_const_comptime_state,
             } else if (has_runtime_bits) .{
                 .decl = .decl_const_runtime_bits,
                 .generic_decl = .generic_decl_const,
-                .instance = .instance_const_runtime_bits,
+                .decl_instance = .decl_instance_const_runtime_bits,
             } else .{
                 .decl = .decl_const,
                 .generic_decl = .generic_decl_const,
-                .instance = .instance_const,
+                .decl_instance = .decl_instance_const,
             }, &nav, inst_info.file, &decl);
             try wip_nav.strp(nav.fqn.toSlice(ip));
             const nav_ty_reloc_index = try wip_nav.refForward();
@@ -3070,6 +3089,14 @@ pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool
             wip_nav.finishForward(nav_ty_reloc_index);
             try wip_nav.abbrevCode(.is_const);
             try wip_nav.refType(nav_ty);
+        },
+        .decl_func_alias => |owner_nav| {
+            try wip_nav.declCommon(.{
+                .decl = .decl_alias,
+                .generic_decl = .generic_decl_const,
+                .decl_instance = .decl_instance_alias,
+            }, &nav, inst_info.file, &decl);
+            try wip_nav.refNav(owner_nav);
         },
     }
     try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.items);
@@ -3442,7 +3469,7 @@ fn updateLazyType(
         },
         .enum_type => {
             const loaded_enum = ip.loadEnumType(type_index);
-            try wip_nav.abbrevCode(if (loaded_enum.names.len > 0) .generated_enum_type else .generated_empty_enum_type);
+            try wip_nav.abbrevCode(if (loaded_enum.names.len == 0) .generated_empty_enum_type else .generated_enum_type);
             try wip_nav.strp(name);
             try wip_nav.refType(.fromInterned(loaded_enum.tag_ty));
             for (0..loaded_enum.names.len) |field_index| {
@@ -3467,7 +3494,7 @@ fn updateLazyType(
                 }
                 // For better or worse, we try to match what Clang emits.
                 break :cc switch (func_type.cc) {
-                    .@"inline" => unreachable,
+                    .@"inline" => .nocall,
                     .@"async", .auto, .naked => .normal,
                     .x86_64_sysv => .LLVM_X86_64SysV,
                     .x86_64_win => .LLVM_Win64,
@@ -3534,7 +3561,7 @@ fn updateLazyType(
             if (!is_nullary) try uleb128(diw, @intFromEnum(AbbrevCode.null));
         },
         .error_set_type => |error_set_type| {
-            try wip_nav.abbrevCode(if (error_set_type.names.len > 0) .generated_enum_type else .generated_empty_enum_type);
+            try wip_nav.abbrevCode(if (error_set_type.names.len == 0) .generated_empty_enum_type else .generated_enum_type);
             try wip_nav.strp(name);
             try wip_nav.refType(.fromInterned(try pt.intern(.{ .int_type = .{
                 .signedness = .unsigned,
@@ -4318,7 +4345,7 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
         defer wip_nav.deinit();
         const diw = wip_nav.debug_info.writer(dwarf.gpa);
         const global_error_set_names = ip.global_error_set.getNamesFromMainThread();
-        try wip_nav.abbrevCode(if (global_error_set_names.len > 0) .generated_enum_type else .generated_empty_enum_type);
+        try wip_nav.abbrevCode(if (global_error_set_names.len == 0) .generated_empty_enum_type else .generated_enum_type);
         try wip_nav.strp("anyerror");
         try wip_nav.refType(.fromInterned(try pt.intern(.{ .int_type = .{
             .signedness = .unsigned,
@@ -4707,10 +4734,10 @@ const AbbrevCode = enum {
     // padding codes must be one byte uleb128 values to function
     pad_1,
     pad_n,
-    // (generic) decl codes are assumed to all have the same uleb128 length
+    // decl, generic decl, and instance codes are assumed to all have the same uleb128 length
     decl_alias,
-    decl_enum,
     decl_empty_enum,
+    decl_enum,
     decl_namespace_struct,
     decl_struct,
     decl_packed_struct,
@@ -4720,38 +4747,35 @@ const AbbrevCode = enum {
     decl_const_runtime_bits,
     decl_const_comptime_state,
     decl_const_runtime_bits_comptime_state,
-    decl_func,
     decl_empty_func,
-    decl_func_generic,
+    decl_func,
     decl_empty_func_generic,
-    generic_decl_alias,
-    generic_decl_enum,
-    generic_decl_struct,
-    generic_decl_union,
+    decl_func_generic,
     generic_decl_var,
     generic_decl_const,
     generic_decl_func,
-    // the rest are unrestricted
-    instance_alias,
-    instance_enum,
-    instance_empty_enum,
-    instance_namespace_struct,
-    instance_struct,
-    instance_packed_struct,
-    instance_union,
-    instance_var,
-    instance_const,
-    instance_const_runtime_bits,
-    instance_const_comptime_state,
-    instance_const_runtime_bits_comptime_state,
-    instance_func,
-    instance_empty_func,
-    instance_func_generic,
-    instance_empty_func_generic,
+    decl_instance_alias,
+    decl_instance_empty_enum,
+    decl_instance_enum,
+    decl_instance_namespace_struct,
+    decl_instance_struct,
+    decl_instance_packed_struct,
+    decl_instance_union,
+    decl_instance_var,
+    decl_instance_const,
+    decl_instance_const_runtime_bits,
+    decl_instance_const_comptime_state,
+    decl_instance_const_runtime_bits_comptime_state,
+    decl_instance_empty_func,
+    decl_instance_func,
+    decl_instance_empty_func_generic,
+    decl_instance_func_generic,
+    // the rest are unrestricted other than empty variants must not be longer
+    // than the non-empty variant, and so should appear first
     compile_unit,
     module,
-    file,
     empty_file,
+    file,
     signed_enum_field,
     unsigned_enum_field,
     big_enum_field,
@@ -4784,19 +4808,19 @@ const AbbrevCode = enum {
     func_type,
     func_type_param,
     is_var_args,
-    generated_enum_type,
     generated_empty_enum_type,
-    generated_struct_type,
+    generated_enum_type,
     generated_empty_struct_type,
+    generated_struct_type,
     generated_union_type,
-    enum_type,
     empty_enum_type,
-    struct_type,
+    enum_type,
     empty_struct_type,
-    packed_struct_type,
+    struct_type,
     empty_packed_struct_type,
-    union_type,
+    packed_struct_type,
     empty_union_type,
+    union_type,
     empty_block,
     block,
     empty_inlined_func,
@@ -4818,7 +4842,12 @@ const AbbrevCode = enum {
     comptime_value_elem_runtime_bits,
     comptime_value_elem_comptime_state,
 
-    const decl_bytes = uleb128Bytes(@intFromEnum(AbbrevCode.generic_decl_func));
+    const decl_bytes = uleb128Bytes(@intFromEnum(AbbrevCode.decl_instance_func_generic));
+    comptime {
+        assert(uleb128Bytes(@intFromEnum(AbbrevCode.pad_1)) == 1);
+        assert(uleb128Bytes(@intFromEnum(AbbrevCode.pad_n)) == 1);
+        assert(uleb128Bytes(@intFromEnum(AbbrevCode.decl_alias)) == decl_bytes);
+    }
 
     const Attr = struct {
         DeclValEnum(DW.AT),
@@ -4831,7 +4860,10 @@ const AbbrevCode = enum {
         .{ .accessibility, .data1 },
         .{ .name, .strp },
     };
-    const instance_abbrev_common_attrs = &[_]Attr{
+    const generic_decl_abbrev_common_attrs = decl_abbrev_common_attrs ++ &[_]Attr{
+        .{ .declaration, .flag_present },
+    };
+    const decl_instance_abbrev_common_attrs = &[_]Attr{
         .{ .ZIG_parent, .ref_addr },
         .{ .abstract_origin, .ref_addr },
     };
@@ -4855,15 +4887,15 @@ const AbbrevCode = enum {
                 .{ .import, .ref_addr },
             },
         },
-        .decl_enum = .{
+        .decl_empty_enum = .{
             .tag = .enumeration_type,
-            .children = true,
             .attrs = decl_abbrev_common_attrs ++ .{
                 .{ .type, .ref_addr },
             },
         },
-        .decl_empty_enum = .{
+        .decl_enum = .{
             .tag = .enumeration_type,
+            .children = true,
             .attrs = decl_abbrev_common_attrs ++ .{
                 .{ .type, .ref_addr },
             },
@@ -4947,6 +4979,18 @@ const AbbrevCode = enum {
                 .{ .ZIG_comptime_value, .ref_addr },
             },
         },
+        .decl_empty_func = .{
+            .tag = .subprogram,
+            .attrs = decl_abbrev_common_attrs ++ .{
+                .{ .linkage_name, .strp },
+                .{ .type, .ref_addr },
+                .{ .low_pc, .addr },
+                .{ .high_pc, .data4 },
+                .{ .alignment, .udata },
+                .{ .external, .flag },
+                .{ .noreturn, .flag },
+            },
+        },
         .decl_func = .{
             .tag = .subprogram,
             .children = true,
@@ -4960,16 +5004,10 @@ const AbbrevCode = enum {
                 .{ .noreturn, .flag },
             },
         },
-        .decl_empty_func = .{
+        .decl_empty_func_generic = .{
             .tag = .subprogram,
             .attrs = decl_abbrev_common_attrs ++ .{
-                .{ .linkage_name, .strp },
                 .{ .type, .ref_addr },
-                .{ .low_pc, .addr },
-                .{ .high_pc, .data4 },
-                .{ .alignment, .udata },
-                .{ .external, .flag },
-                .{ .noreturn, .flag },
             },
         },
         .decl_func_generic = .{
@@ -4979,105 +5017,69 @@ const AbbrevCode = enum {
                 .{ .type, .ref_addr },
             },
         },
-        .decl_empty_func_generic = .{
-            .tag = .subprogram,
-            .attrs = decl_abbrev_common_attrs ++ .{
-                .{ .type, .ref_addr },
-            },
-        },
-        .generic_decl_alias = .{
-            .tag = .imported_declaration,
-            .attrs = decl_abbrev_common_attrs ++ .{
-                .{ .declaration, .flag_present },
-            },
-        },
-        .generic_decl_enum = .{
-            .tag = .enumeration_type,
-            .attrs = decl_abbrev_common_attrs ++ .{
-                .{ .declaration, .flag_present },
-            },
-        },
-        .generic_decl_struct = .{
-            .tag = .structure_type,
-            .attrs = decl_abbrev_common_attrs ++ .{
-                .{ .declaration, .flag_present },
-            },
-        },
-        .generic_decl_union = .{
-            .tag = .union_type,
-            .attrs = decl_abbrev_common_attrs ++ .{
-                .{ .declaration, .flag_present },
-            },
-        },
         .generic_decl_var = .{
             .tag = .variable,
-            .attrs = decl_abbrev_common_attrs ++ .{
-                .{ .declaration, .flag_present },
-            },
+            .attrs = generic_decl_abbrev_common_attrs,
         },
         .generic_decl_const = .{
             .tag = .constant,
-            .attrs = decl_abbrev_common_attrs ++ .{
-                .{ .declaration, .flag_present },
-            },
+            .attrs = generic_decl_abbrev_common_attrs,
         },
         .generic_decl_func = .{
             .tag = .subprogram,
-            .attrs = decl_abbrev_common_attrs ++ .{
-                .{ .declaration, .flag_present },
-            },
+            .attrs = generic_decl_abbrev_common_attrs,
         },
-        .instance_alias = .{
+        .decl_instance_alias = .{
             .tag = .imported_declaration,
-            .attrs = instance_abbrev_common_attrs ++ .{
+            .attrs = decl_instance_abbrev_common_attrs ++ .{
                 .{ .import, .ref_addr },
             },
         },
-        .instance_enum = .{
+        .decl_instance_empty_enum = .{
+            .tag = .enumeration_type,
+            .attrs = decl_instance_abbrev_common_attrs ++ .{
+                .{ .type, .ref_addr },
+            },
+        },
+        .decl_instance_enum = .{
             .tag = .enumeration_type,
             .children = true,
-            .attrs = instance_abbrev_common_attrs ++ .{
+            .attrs = decl_instance_abbrev_common_attrs ++ .{
                 .{ .type, .ref_addr },
             },
         },
-        .instance_empty_enum = .{
-            .tag = .enumeration_type,
-            .attrs = instance_abbrev_common_attrs ++ .{
-                .{ .type, .ref_addr },
-            },
-        },
-        .instance_namespace_struct = .{
+        .decl_instance_namespace_struct = .{
             .tag = .structure_type,
-            .attrs = instance_abbrev_common_attrs ++ .{
+            .attrs = decl_instance_abbrev_common_attrs ++ .{
                 .{ .declaration, .flag },
             },
         },
-        .instance_struct = .{
+        .decl_instance_struct = .{
             .tag = .structure_type,
             .children = true,
-            .attrs = instance_abbrev_common_attrs ++ .{
+            .attrs = decl_instance_abbrev_common_attrs ++ .{
                 .{ .byte_size, .udata },
                 .{ .alignment, .udata },
             },
         },
-        .instance_packed_struct = .{
+        .decl_instance_packed_struct = .{
             .tag = .structure_type,
             .children = true,
-            .attrs = instance_abbrev_common_attrs ++ .{
+            .attrs = decl_instance_abbrev_common_attrs ++ .{
                 .{ .type, .ref_addr },
             },
         },
-        .instance_union = .{
+        .decl_instance_union = .{
             .tag = .union_type,
             .children = true,
-            .attrs = instance_abbrev_common_attrs ++ .{
+            .attrs = decl_instance_abbrev_common_attrs ++ .{
                 .{ .byte_size, .udata },
                 .{ .alignment, .udata },
             },
         },
-        .instance_var = .{
+        .decl_instance_var = .{
             .tag = .variable,
-            .attrs = instance_abbrev_common_attrs ++ .{
+            .attrs = decl_instance_abbrev_common_attrs ++ .{
                 .{ .linkage_name, .strp },
                 .{ .type, .ref_addr },
                 .{ .location, .exprloc },
@@ -5085,18 +5087,18 @@ const AbbrevCode = enum {
                 .{ .external, .flag },
             },
         },
-        .instance_const = .{
+        .decl_instance_const = .{
             .tag = .constant,
-            .attrs = instance_abbrev_common_attrs ++ .{
+            .attrs = decl_instance_abbrev_common_attrs ++ .{
                 .{ .linkage_name, .strp },
                 .{ .type, .ref_addr },
                 .{ .alignment, .udata },
                 .{ .external, .flag },
             },
         },
-        .instance_const_runtime_bits = .{
+        .decl_instance_const_runtime_bits = .{
             .tag = .constant,
-            .attrs = instance_abbrev_common_attrs ++ .{
+            .attrs = decl_instance_abbrev_common_attrs ++ .{
                 .{ .linkage_name, .strp },
                 .{ .type, .ref_addr },
                 .{ .alignment, .udata },
@@ -5104,9 +5106,9 @@ const AbbrevCode = enum {
                 .{ .const_value, .block },
             },
         },
-        .instance_const_comptime_state = .{
+        .decl_instance_const_comptime_state = .{
             .tag = .constant,
-            .attrs = instance_abbrev_common_attrs ++ .{
+            .attrs = decl_instance_abbrev_common_attrs ++ .{
                 .{ .linkage_name, .strp },
                 .{ .type, .ref_addr },
                 .{ .alignment, .udata },
@@ -5114,9 +5116,9 @@ const AbbrevCode = enum {
                 .{ .ZIG_comptime_value, .ref_addr },
             },
         },
-        .instance_const_runtime_bits_comptime_state = .{
+        .decl_instance_const_runtime_bits_comptime_state = .{
             .tag = .constant,
-            .attrs = instance_abbrev_common_attrs ++ .{
+            .attrs = decl_instance_abbrev_common_attrs ++ .{
                 .{ .linkage_name, .strp },
                 .{ .type, .ref_addr },
                 .{ .alignment, .udata },
@@ -5125,10 +5127,9 @@ const AbbrevCode = enum {
                 .{ .ZIG_comptime_value, .ref_addr },
             },
         },
-        .instance_func = .{
+        .decl_instance_empty_func = .{
             .tag = .subprogram,
-            .children = true,
-            .attrs = instance_abbrev_common_attrs ++ .{
+            .attrs = decl_instance_abbrev_common_attrs ++ .{
                 .{ .linkage_name, .strp },
                 .{ .type, .ref_addr },
                 .{ .low_pc, .addr },
@@ -5138,9 +5139,10 @@ const AbbrevCode = enum {
                 .{ .noreturn, .flag },
             },
         },
-        .instance_empty_func = .{
+        .decl_instance_func = .{
             .tag = .subprogram,
-            .attrs = instance_abbrev_common_attrs ++ .{
+            .children = true,
+            .attrs = decl_instance_abbrev_common_attrs ++ .{
                 .{ .linkage_name, .strp },
                 .{ .type, .ref_addr },
                 .{ .low_pc, .addr },
@@ -5150,16 +5152,16 @@ const AbbrevCode = enum {
                 .{ .noreturn, .flag },
             },
         },
-        .instance_func_generic = .{
+        .decl_instance_empty_func_generic = .{
             .tag = .subprogram,
-            .children = true,
-            .attrs = instance_abbrev_common_attrs ++ .{
+            .attrs = decl_instance_abbrev_common_attrs ++ .{
                 .{ .type, .ref_addr },
             },
         },
-        .instance_empty_func_generic = .{
+        .decl_instance_func_generic = .{
             .tag = .subprogram,
-            .attrs = instance_abbrev_common_attrs ++ .{
+            .children = true,
+            .attrs = decl_instance_abbrev_common_attrs ++ .{
                 .{ .type, .ref_addr },
             },
         },
@@ -5185,6 +5187,13 @@ const AbbrevCode = enum {
                 .{ .ranges, .rnglistx },
             },
         },
+        .empty_file = .{
+            .tag = .structure_type,
+            .attrs = &.{
+                .{ .decl_file, .udata },
+                .{ .name, .strp },
+            },
+        },
         .file = .{
             .tag = .structure_type,
             .children = true,
@@ -5193,13 +5202,6 @@ const AbbrevCode = enum {
                 .{ .name, .strp },
                 .{ .byte_size, .udata },
                 .{ .alignment, .udata },
-            },
-        },
-        .empty_file = .{
-            .tag = .structure_type,
-            .attrs = &.{
-                .{ .decl_file, .udata },
-                .{ .name, .strp },
             },
         },
         .signed_enum_field = .{
@@ -5449,6 +5451,13 @@ const AbbrevCode = enum {
         .is_var_args = .{
             .tag = .unspecified_parameters,
         },
+        .generated_empty_enum_type = .{
+            .tag = .enumeration_type,
+            .attrs = &.{
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
+            },
+        },
         .generated_enum_type = .{
             .tag = .enumeration_type,
             .children = true,
@@ -5457,11 +5466,11 @@ const AbbrevCode = enum {
                 .{ .type, .ref_addr },
             },
         },
-        .generated_empty_enum_type = .{
-            .tag = .enumeration_type,
+        .generated_empty_struct_type = .{
+            .tag = .structure_type,
             .attrs = &.{
                 .{ .name, .strp },
-                .{ .type, .ref_addr },
+                .{ .declaration, .flag },
             },
         },
         .generated_struct_type = .{
@@ -5473,13 +5482,6 @@ const AbbrevCode = enum {
                 .{ .alignment, .udata },
             },
         },
-        .generated_empty_struct_type = .{
-            .tag = .structure_type,
-            .attrs = &.{
-                .{ .name, .strp },
-                .{ .declaration, .flag },
-            },
-        },
         .generated_union_type = .{
             .tag = .union_type,
             .children = true,
@@ -5487,6 +5489,14 @@ const AbbrevCode = enum {
                 .{ .name, .strp },
                 .{ .byte_size, .udata },
                 .{ .alignment, .udata },
+            },
+        },
+        .empty_enum_type = .{
+            .tag = .enumeration_type,
+            .attrs = &.{
+                .{ .decl_file, .udata },
+                .{ .name, .strp },
+                .{ .type, .ref_addr },
             },
         },
         .enum_type = .{
@@ -5498,12 +5508,12 @@ const AbbrevCode = enum {
                 .{ .type, .ref_addr },
             },
         },
-        .empty_enum_type = .{
-            .tag = .enumeration_type,
+        .empty_struct_type = .{
+            .tag = .structure_type,
             .attrs = &.{
                 .{ .decl_file, .udata },
                 .{ .name, .strp },
-                .{ .type, .ref_addr },
+                .{ .declaration, .flag },
             },
         },
         .struct_type = .{
@@ -5516,12 +5526,12 @@ const AbbrevCode = enum {
                 .{ .alignment, .udata },
             },
         },
-        .empty_struct_type = .{
+        .empty_packed_struct_type = .{
             .tag = .structure_type,
             .attrs = &.{
                 .{ .decl_file, .udata },
                 .{ .name, .strp },
-                .{ .declaration, .flag },
+                .{ .type, .ref_addr },
             },
         },
         .packed_struct_type = .{
@@ -5533,17 +5543,8 @@ const AbbrevCode = enum {
                 .{ .type, .ref_addr },
             },
         },
-        .empty_packed_struct_type = .{
-            .tag = .structure_type,
-            .attrs = &.{
-                .{ .decl_file, .udata },
-                .{ .name, .strp },
-                .{ .type, .ref_addr },
-            },
-        },
-        .union_type = .{
+        .empty_union_type = .{
             .tag = .union_type,
-            .children = true,
             .attrs = &.{
                 .{ .decl_file, .udata },
                 .{ .name, .strp },
@@ -5551,8 +5552,9 @@ const AbbrevCode = enum {
                 .{ .alignment, .udata },
             },
         },
-        .empty_union_type = .{
+        .union_type = .{
             .tag = .union_type,
+            .children = true,
             .attrs = &.{
                 .{ .decl_file, .udata },
                 .{ .name, .strp },
