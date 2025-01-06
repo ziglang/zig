@@ -35,8 +35,6 @@ pub fn lower(
     import_loc: LazySrcLoc,
     block: *Sema.Block,
 ) CompileError!InternPool.Index {
-    assert(file.tree_loaded);
-
     const zoir = try file.getZoir(sema.gpa);
 
     if (zoir.hasCompileErrors()) {
@@ -91,50 +89,6 @@ const Ident = struct {
         self.* = undefined;
     }
 };
-
-fn ident(self: LowerZon, token: Ast.TokenIndex) !Ident {
-    var bytes = self.file.tree.tokenSlice(token);
-
-    if (bytes[0] == '@' and bytes[1] == '"') {
-        const gpa = self.sema.gpa;
-
-        const raw_string = bytes[1..bytes.len];
-        var parsed: std.ArrayListUnmanaged(u8) = .{};
-        defer parsed.deinit(gpa);
-
-        switch (try std.zig.string_literal.parseWrite(parsed.writer(gpa), raw_string)) {
-            .success => {
-                if (std.mem.indexOfScalar(u8, parsed.items, 0) != null) {
-                    return self.fail(.{ .token_abs = token }, "identifier cannot contain null bytes", .{});
-                }
-                return .{
-                    .bytes = try parsed.toOwnedSlice(gpa),
-                    .owned = true,
-                };
-            },
-            .failure => |err| {
-                const offset = self.file.tree.tokens.items(.start)[token];
-                return self.fail(
-                    .{ .byte_abs = offset + @as(u32, @intCast(err.offset())) },
-                    "{}",
-                    .{err.fmtWithSource(raw_string)},
-                );
-            },
-        }
-    }
-
-    return .{
-        .bytes = bytes,
-        .owned = false,
-    };
-}
-
-fn identAsNullTerminatedString(self: LowerZon, token: Ast.TokenIndex) !NullTerminatedString {
-    var parsed = try self.ident(token);
-    defer parsed.deinit(self.sema.gpa);
-    const ip = &self.sema.pt.zcu.intern_pool;
-    return ip.getOrPutString(self.sema.gpa, self.sema.pt.tid, parsed.bytes, .no_embedded_nulls);
-}
 
 const FieldTypes = union(enum) {
     st: struct {
@@ -686,8 +640,6 @@ fn lowerStruct(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
             .no_embedded_nulls,
         );
         const field_node = fields.vals.at(@intCast(i));
-        const field_node_ast = field_node.getAstNode(self.file.zoir.?);
-        const field_name_token = self.file.tree.firstToken(field_node_ast) - 2;
 
         const name_index = struct_info.nameIndex(ip, field_name) orelse {
             return self.fail(
@@ -699,6 +651,8 @@ fn lowerStruct(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
 
         const field_type = Type.fromInterned(struct_info.field_types.get(ip)[name_index]);
         if (field_values[name_index] != .none) {
+            const field_node_ast = field_node.getAstNode(self.file.zoir.?);
+            const field_name_token = self.file.getTree(gpa).firstToken(field_node_ast) - 2;
             return self.fail(
                 .{ .token_abs = field_name_token },
                 "duplicate field '{}'",
@@ -712,6 +666,8 @@ fn lowerStruct(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
             const val = ip.indexToKey(field_values[name_index]);
             const default = ip.indexToKey(field_defaults[name_index]);
             if (!val.eql(default, ip)) {
+                const field_node_ast = field_node.getAstNode(self.file.zoir.?);
+                const field_name_token = self.file.getTree(gpa).firstToken(field_node_ast) - 2;
                 return self.fail(
                     .{ .token_abs = field_name_token },
                     "value stored in comptime field does not match the default value of the field",
