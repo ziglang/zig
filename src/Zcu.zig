@@ -803,7 +803,7 @@ pub const File = struct {
         if (file.zoir) |*zoir| return zoir;
         assert(file.tree_loaded);
         assert(file.tree.mode == .zon);
-        file.zoir = try ZonGen.generate(gpa, file.tree);
+        file.zoir = try ZonGen.generate(gpa, file.tree, true);
         return &file.zoir.?;
     }
 

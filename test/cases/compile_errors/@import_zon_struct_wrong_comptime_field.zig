@@ -10,5 +10,5 @@ export fn entry() void {
 // error
 // imports=zon/vec2.zon
 //
-// zon/vec2.zon:1:15: error: value stored in comptime field does not match the default value of the field
+// vec2.zon:1:15: error: value stored in comptime field does not match the default value of the field
 // tmp.zig:6:29: note: imported here

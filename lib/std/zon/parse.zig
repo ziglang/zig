@@ -5,7 +5,7 @@ const Zoir = std.zig.Zoir;
 const ZonGen = std.zig.ZonGen;
 const TokenIndex = std.zig.Ast.TokenIndex;
 const Base = std.zig.number_literal.Base;
-const StringLiteralError = std.zig.string_literal.Error;
+const StrLitErr = std.zig.string_literal.Error;
 const NumberLiteralError = std.zig.number_literal.Error;
 const assert = std.debug.assert;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
@@ -51,10 +51,25 @@ pub const Error = union(enum) {
             }
         };
 
-        pub fn getMessage(self: Note, status: *const Status) []const u8 {
-            switch (self) {
-                .zoir => |note| return note.msg.get(status.zoir.?),
-            }
+        fn formatMessage(
+            self: []const u8,
+            comptime f: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            _ = f;
+            _ = options;
+
+            // Just writes the string for now, but we're keeping this behind a formatter so we have
+            // the option to extend it in the future to print more advanced messages (like `Error`
+            // does) without breaking the API.
+            try writer.writeAll(self);
+        }
+
+        pub fn fmtMessage(self: Note, status: *const Status) std.fmt.Formatter(Note.formatMessage) {
+            return .{ .data = switch (self) {
+                .zoir => |note| note.msg.get(status.zoir.?),
+            } };
         }
 
         pub fn getLocation(self: Note, status: *const Status) Ast.Location {
@@ -95,14 +110,57 @@ pub const Error = union(enum) {
 
     const TypeCheckFailure = struct {
         token: Ast.TokenIndex,
-        message: []const u8,
+        detail: union(enum) {
+            msg: []const u8,
+            str_lit_err: StrLitErr,
+        },
     };
 
-    pub fn getMessage(self: @This(), status: *const Status) []const u8 {
-        return switch (self) {
-            .zoir => |err| err.msg.get(status.zoir.?),
-            .type_check => |err| err.message,
+    const FormatMessage = struct {
+        err: Error,
+        status: *const Status,
+    };
+
+    fn formatMessage(
+        self: FormatMessage,
+        comptime f: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = f;
+        _ = options;
+        return switch (self.err) {
+            .zoir => |err| try writer.writeAll(err.msg.get(self.status.zoir.?)),
+            .type_check => |tc| switch (tc.detail) {
+                .msg => |msg| try writer.writeAll(msg),
+                .str_lit_err => |str_lit_err| {
+                    const raw_string = self.status.ast.?.tokenSlice(tc.token);
+                    return str_lit_err.lower(
+                        raw_string,
+                        0,
+                        struct {
+                            fn lowerStrLitErr(
+                                w: @TypeOf(writer),
+                                offset: u32,
+                                comptime format: []const u8,
+                                args: anytype,
+                            ) @TypeOf(w).Error!void {
+                                _ = offset;
+                                try w.print(format, args);
+                            }
+                        }.lowerStrLitErr,
+                        .{writer},
+                    );
+                },
+            },
         };
+    }
+
+    pub fn fmtMessage(self: @This(), status: *const Status) std.fmt.Formatter(formatMessage) {
+        return .{ .data = .{
+            .err = self,
+            .status = status,
+        } };
     }
 
     pub fn getLocation(self: @This(), status: *const Status) Ast.Location {
@@ -113,7 +171,13 @@ pub const Error = union(enum) {
                 err.token,
                 err.node_or_offset,
             ),
-            .type_check => |err| return ast.tokenLocation(0, err.token),
+            .type_check => |err| {
+                const offset = switch (err.detail) {
+                    .msg => 0,
+                    .str_lit_err => |sle| sle.offset(),
+                };
+                return ast.tokenLocation(@intCast(offset), err.token);
+            },
         };
     }
 
@@ -168,13 +232,13 @@ pub const Status = struct {
         var errors = self.iterateErrors();
         while (errors.next()) |err| {
             const loc = err.getLocation(self);
-            const msg = err.getMessage(self);
-            try writer.print("{}:{}: error: {s}\n", .{ loc.line + 1, loc.column + 1, msg });
+            const msg = err.fmtMessage(self);
+            try writer.print("{}:{}: error: {}\n", .{ loc.line + 1, loc.column + 1, msg });
 
             var notes = err.iterateNotes(self);
             while (notes.next()) |note| {
                 const note_loc = note.getLocation(self);
-                const note_msg = note.getMessage(self);
+                const note_msg = note.fmtMessage(self);
                 try writer.print("{}:{}: note: {s}\n", .{ note_loc.line + 1, note_loc.column + 1, note_msg });
             }
         }
@@ -266,7 +330,7 @@ pub fn parseFromSlice(
     defer if (status == null) ast.deinit(gpa);
     if (status) |s| s.ast = ast;
 
-    var zoir = try ZonGen.generate(gpa, ast);
+    var zoir = try ZonGen.generate(gpa, ast, false);
     defer if (status == null) zoir.deinit(gpa);
     if (status) |s| s.zoir = zoir;
     if (zoir.hasCompileErrors()) return error.ParseZon;
@@ -307,7 +371,7 @@ pub fn parseFromZoirNoAlloc(
 test "std.zon parseFromZoirNoAlloc" {
     var ast = try std.zig.Ast.parse(std.testing.allocator, ".{ .x = 1.5, .y = 2.5 }", .zon);
     defer ast.deinit(std.testing.allocator);
-    var zoir = try ZonGen.generate(std.testing.allocator, ast);
+    var zoir = try ZonGen.generate(std.testing.allocator, ast, false);
     defer zoir.deinit(std.testing.allocator);
     const S = struct { x: f32, y: f32 };
     const found = try parseFromZoirNoAlloc(S, ast, zoir, null, .{});
@@ -369,7 +433,7 @@ test "std.zon parseFromZoirNode and parseFromZoirNodeNoAlloc" {
 
     var ast = try std.zig.Ast.parse(gpa, ".{ .vec = .{ .x = 1.5, .y = 2.5 } }", .zon);
     defer ast.deinit(gpa);
-    var zoir = try ZonGen.generate(gpa, ast);
+    var zoir = try ZonGen.generate(gpa, ast, false);
     defer zoir.deinit(gpa);
 
     const vec = Zoir.Node.Index.root.get(zoir).struct_literal.vals.at(0);
@@ -1362,7 +1426,7 @@ fn parsePointer(
     node: Zoir.Node.Index,
 ) error{ OutOfMemory, ParseZon }!T {
     switch (node.get(self.zoir)) {
-        .string_literal => |str| return try self.parseString(T, node, str),
+        .string_literal => return try self.parseString(T, node),
         .array_literal => |nodes| return try self.parseSlice(T, options, nodes),
         .empty_literal => return try self.parseSlice(T, options, .{ .start = node, .len = 0 }),
         else => return self.failExpectedContainer(T, node),
@@ -1373,9 +1437,26 @@ fn parseString(
     self: *@This(),
     comptime T: type,
     node: Zoir.Node.Index,
-    str: []const u8,
 ) !T {
+    const ast_node = node.getAstNode(self.zoir);
     const pointer = @typeInfo(T).pointer;
+    var size_hint = ZonGen.strLitSizeHint(self.ast, ast_node);
+    if (pointer.sentinel != null) size_hint += 1;
+
+    var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(self.gpa, size_hint);
+    defer buf.deinit(self.gpa);
+    switch (try ZonGen.parseStrLit(self.ast, ast_node, buf.writer(self.gpa))) {
+        .success => {},
+        .failure => |err| {
+            @branchHint(.cold);
+            const token = self.ast.nodes.items(.main_token)[ast_node];
+            if (self.status) |s| s.type_check = .{
+                .detail = .{ .str_lit_err = err },
+                .token = token,
+            };
+            return error.ParseZon;
+        },
+    }
 
     if (pointer.child != u8 or
         pointer.size != .Slice or
@@ -1386,14 +1467,11 @@ fn parseString(
         return self.failExpectedContainer(T, node);
     }
 
-    if (pointer.sentinel) |sentinel| {
-        if (@as(*const u8, @ptrCast(sentinel)).* != 0) {
-            return self.failExpectedContainer(T, node);
-        }
-        return try self.gpa.dupeZ(u8, str);
+    if (pointer.sentinel != null) {
+        return try buf.toOwnedSliceSentinel(self.gpa, 0);
+    } else {
+        return try buf.toOwnedSlice(self.gpa);
     }
-
-    return self.gpa.dupe(pointer.child, str);
 }
 
 fn parseSlice(
@@ -1485,7 +1563,7 @@ test "std.zon string literal" {
         {
             var ast = try std.zig.Ast.parse(gpa, "\"abcd\"", .zon);
             defer ast.deinit(gpa);
-            var zoir = try ZonGen.generate(gpa, ast);
+            var zoir = try ZonGen.generate(gpa, ast, false);
             defer zoir.deinit(gpa);
             var status: Status = .{};
             defer status.deinit(gpa);
@@ -1728,20 +1806,20 @@ test "std.zon enum literals" {
     }
 }
 
-fn failToken(self: @This(), token: Ast.TokenIndex, message: []const u8) error{ParseZon} {
+fn failToken(self: @This(), token: Ast.TokenIndex, msg: []const u8) error{ParseZon} {
     @branchHint(.cold);
     if (self.status) |s| s.type_check = .{
         .token = token,
-        .message = message,
+        .detail = .{ .msg = msg },
     };
     return error.ParseZon;
 }
 
-fn failNode(self: @This(), node: Zoir.Node.Index, message: []const u8) error{ParseZon} {
+fn failNode(self: @This(), node: Zoir.Node.Index, msg: []const u8) error{ParseZon} {
     @branchHint(.cold);
     const main_tokens = self.ast.nodes.items(.main_token);
     const token = main_tokens[node.getAstNode(self.zoir)];
-    return self.failToken(token, message);
+    return self.failToken(token, msg);
 }
 
 fn failCannotRepresent(self: @This(), comptime T: type, node: Zoir.Node.Index) error{ParseZon} {
@@ -1765,13 +1843,13 @@ fn failUnexpectedField(self: @This(), T: type, node: Zoir.Node.Index, field: ?us
             if (info.fields.len == 0) {
                 return self.failToken(token, "unexpected field, no fields expected");
             } else {
-                comptime var message: []const u8 = "unexpected field, supported fields: ";
+                comptime var msg: []const u8 = "unexpected field, supported fields: ";
                 inline for (info.fields, 0..) |field_info, i| {
-                    if (i != 0) message = message ++ ", ";
+                    if (i != 0) msg = msg ++ ", ";
                     const id_formatter = comptime std.zig.fmtId(field_info.name);
-                    message = message ++ std.fmt.comptimePrint("{}", .{id_formatter});
+                    msg = msg ++ std.fmt.comptimePrint("{}", .{id_formatter});
                 }
-                return self.failToken(token, message);
+                return self.failToken(token, msg);
             }
         },
         else => @compileError("unreachable, should not be called for type " ++ @typeName(T)),

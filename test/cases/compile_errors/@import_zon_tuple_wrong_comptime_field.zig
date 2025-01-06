@@ -10,5 +10,5 @@ export fn entry() void {
 // error
 // imports=zon/tuple.zon
 //
-// zon/tuple.zon:1:9: error: value stored in comptime field does not match the default value of the field
+// tuple.zon:1:9: error: value stored in comptime field does not match the default value of the field
 // tmp.zig:6:26: note: imported here

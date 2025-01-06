@@ -35,6 +35,7 @@ pub fn lower(
     import_loc: LazySrcLoc,
     block: *Sema.Block,
 ) CompileError!InternPool.Index {
+    assert(file.tree_loaded);
     const zoir = try file.getZoir(sema.gpa);
 
     if (zoir.hasCompileErrors()) {
@@ -652,7 +653,7 @@ fn lowerStruct(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
         const field_type = Type.fromInterned(struct_info.field_types.get(ip)[name_index]);
         if (field_values[name_index] != .none) {
             const field_node_ast = field_node.getAstNode(self.file.zoir.?);
-            const field_name_token = self.file.getTree(gpa).firstToken(field_node_ast) - 2;
+            const field_name_token = self.file.tree.firstToken(field_node_ast) - 2;
             return self.fail(
                 .{ .token_abs = field_name_token },
                 "duplicate field '{}'",
@@ -667,7 +668,7 @@ fn lowerStruct(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
             const default = ip.indexToKey(field_defaults[name_index]);
             if (!val.eql(default, ip)) {
                 const field_node_ast = field_node.getAstNode(self.file.zoir.?);
-                const field_name_token = self.file.getTree(gpa).firstToken(field_node_ast) - 2;
+                const field_name_token = self.file.tree.firstToken(field_node_ast) - 2;
                 return self.fail(
                     .{ .token_abs = field_name_token },
                     "value stored in comptime field does not match the default value of the field",

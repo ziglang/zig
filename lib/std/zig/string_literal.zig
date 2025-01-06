@@ -43,7 +43,7 @@ pub const Error = union(enum) {
     pub fn lower(
         err: Error,
         raw_string: []const u8,
-        offset: u32,
+        index_offset: u32,
         comptime func: anytype,
         first_args: anytype,
     ) @typeInfo(@TypeOf(func)).@"fn".return_type.? {
@@ -61,17 +61,33 @@ pub const Error = union(enum) {
                     .invalid_unicode_codepoint => .{ "unicode escape does not correspond to a valid unicode scalar value", .{} },
                     .expected_lbrace => .{ "expected '{{', found '{c}'", .{raw_string[bad_index]} },
                     .expected_rbrace => .{ "expected '}}', found '{c}'", .{raw_string[bad_index]} },
-                    .expected_single_quote => .{ "expected singel quote ('), found '{c}'", .{raw_string[bad_index]} },
+                    .expected_single_quote => .{ "expected single quote ('), found '{c}'", .{raw_string[bad_index]} },
                     .invalid_character => .{ "invalid byte in string or character literal: '{c}'", .{raw_string[bad_index]} },
                     .empty_char_literal => .{ "empty character literal", .{} },
                 };
                 return @call(.auto, func, first_args ++ .{
-                    offset + bad_index,
+                    index_offset + bad_index,
                     fmt_str,
                     args,
                 });
             },
         }
+    }
+
+    pub fn offset(err: Error) usize {
+        return switch (err) {
+            inline .invalid_escape_character,
+            .expected_hex_digit,
+            .empty_unicode_escape_sequence,
+            .expected_hex_digit_or_rbrace,
+            .invalid_unicode_codepoint,
+            .expected_lbrace,
+            .expected_rbrace,
+            .expected_single_quote,
+            .invalid_character,
+            => |n| n,
+            .empty_char_literal => 0,
+        };
     }
 };
 
