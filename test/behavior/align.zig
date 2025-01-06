@@ -347,7 +347,7 @@ test "@alignCast functions" {
 
     // function alignment is a compile error on wasm32/wasm64
     if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
-    if (native_arch == .thumb) return error.SkipZigTest;
+    if (native_arch == .thumb or native_arch == .thumbeb) return error.SkipZigTest;
 
     try expect(fnExpectsOnly1(simple4) == 0x19);
 }
@@ -512,7 +512,7 @@ test "align(N) on functions" {
 
     // function alignment is a compile error on wasm32/wasm64
     if (native_arch == .wasm32 or native_arch == .wasm64) return error.SkipZigTest;
-    if (native_arch == .thumb) return error.SkipZigTest;
+    if (native_arch == .thumb or native_arch == .thumbeb) return error.SkipZigTest;
 
     try expect((@intFromPtr(&overaligned_fn) & (0x1000 - 1)) == 0);
 }

@@ -83,8 +83,8 @@ pub fn getExternalExecutor(
         return switch (candidate.cpu.arch) {
             .aarch64 => Executor{ .qemu = "qemu-aarch64" },
             .aarch64_be => Executor{ .qemu = "qemu-aarch64_be" },
-            .arm => Executor{ .qemu = "qemu-arm" },
-            .armeb => Executor{ .qemu = "qemu-armeb" },
+            .arm, .thumb => Executor{ .qemu = "qemu-arm" },
+            .armeb, .thumbeb => Executor{ .qemu = "qemu-armeb" },
             .hexagon => Executor{ .qemu = "qemu-hexagon" },
             .loongarch64 => Executor{ .qemu = "qemu-loongarch64" },
             .m68k => Executor{ .qemu = "qemu-m68k" },
@@ -116,7 +116,10 @@ pub fn getExternalExecutor(
             },
             .sparc64 => Executor{ .qemu = "qemu-sparc64" },
             .x86 => Executor{ .qemu = "qemu-i386" },
-            .x86_64 => Executor{ .qemu = "qemu-x86_64" },
+            .x86_64 => switch (candidate.abi) {
+                .gnux32, .muslx32 => return bad_result,
+                else => Executor{ .qemu = "qemu-x86_64" },
+            },
             .xtensa => Executor{ .qemu = "qemu-xtensa" },
             else => return bad_result,
         };
