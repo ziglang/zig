@@ -379,12 +379,12 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !
     gop.value_ptr.fwd_decl = try self.addString(object.dg.fwd_decl.items);
 }
 
-pub fn updateNavLineNumber(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
+pub fn updateLineNumber(self: *C, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
     // The C backend does not have the ability to fix line numbers without re-generating
     // the entire Decl.
     _ = self;
     _ = pt;
-    _ = nav_index;
+    _ = ti_id;
 }
 
 pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {

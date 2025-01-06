@@ -727,16 +727,22 @@ pub const File = struct {
         }
     }
 
-    pub fn updateNavLineNumber(
-        base: *File,
-        pt: Zcu.PerThread,
-        nav_index: InternPool.Nav.Index,
-    ) UpdateNavError!void {
+    /// On an incremental update, fixup the line number of all `Nav`s at the given `TrackedInst`, because
+    /// its line number has changed. The ZIR instruction `ti_id` has tag `.declaration`.
+    pub fn updateLineNumber(base: *File, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) UpdateNavError!void {
+        {
+            const ti = ti_id.resolveFull(&pt.zcu.intern_pool).?;
+            const file = pt.zcu.fileByIndex(ti.file);
+            assert(file.zir_loaded);
+            const inst = file.zir.instructions.get(@intFromEnum(ti.inst));
+            assert(inst.tag == .declaration);
+        }
+
         switch (base.tag) {
             .spirv, .nvptx => {},
             inline else => |tag| {
                 dev.check(tag.devFeature());
-                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateNavineNumber(pt, nav_index);
+                return @as(*tag.Type(), @fieldParentPtr("base", base)).updateLineNumber(pt, ti_id);
             },
         }
     }
@@ -1407,6 +1413,8 @@ pub const Task = union(enum) {
     codegen_func: CodegenFunc,
     codegen_type: InternPool.Index,
 
+    update_line_number: InternPool.TrackedInst.Index,
+
     pub const CodegenFunc = struct {
         /// This will either be a non-generic `func_decl` or a `func_instance`.
         func: InternPool.Index,
@@ -1555,6 +1563,13 @@ pub fn doTask(comp: *Compilation, tid: usize, task: Task) void {
             const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
             defer pt.deactivate();
             pt.linkerUpdateContainerType(ty) catch |err| switch (err) {
+                error.OutOfMemory => diags.setAllocFailure(),
+            };
+        },
+        .update_line_number => |ti| {
+            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+            defer pt.deactivate();
+            pt.linkerUpdateLineNumber(ti) catch |err| switch (err) {
                 error.OutOfMemory => diags.setAllocFailure(),
             };
         },

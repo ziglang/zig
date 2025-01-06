@@ -1859,7 +1859,7 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         if (comp.version) |version| {
             try argv.append(try allocPrint(arena, "-VERSION:{}.{}", .{ version.major, version.minor }));
         }
-        if (comp.config.lto) {
+        if (comp.config.lto != .none) {
             switch (optimize_mode) {
                 .Debug => {},
                 .ReleaseSmall => try argv.append("-OPT:lldlto=2"),
@@ -2484,11 +2484,11 @@ pub fn getGlobalSymbol(coff: *Coff, name: []const u8, lib_name_name: ?[]const u8
     return global_index;
 }
 
-pub fn updateDeclLineNumber(coff: *Coff, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
+pub fn updateLineNumber(coff: *Coff, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
     _ = coff;
     _ = pt;
-    _ = decl_index;
-    log.debug("TODO implement updateDeclLineNumber", .{});
+    _ = ti_id;
+    log.debug("TODO implement updateLineNumber", .{});
 }
 
 /// TODO: note if we need to rewrite base relocations by dirtying any of the entries in the global table

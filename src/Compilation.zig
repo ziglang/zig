@@ -348,6 +348,7 @@ const Job = union(enum) {
     /// Corresponds to the task in `link.Task`.
     /// Only needed for backends that haven't yet been updated to not race against Sema.
     codegen_type: InternPool.Index,
+    update_line_number: InternPool.TrackedInst.Index,
     /// The `AnalUnit`, which is *not* a `func`, must be semantically analyzed.
     /// This may be its first time being analyzed, or it may be outdated.
     /// If the unit is a function, a `codegen_func` job will then be queued.
@@ -3158,16 +3159,19 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 if (!refs.contains(anal_unit)) continue;
             }
 
-            const file_index = switch (anal_unit.unwrap()) {
-                .@"comptime" => |cu| ip.getComptimeUnit(cu).zir_index.resolveFile(ip),
-                .nav_val, .nav_ty => |nav| ip.getNav(nav).analysis.?.zir_index.resolveFile(ip),
-                .type => |ty| Type.fromInterned(ty).typeDeclInst(zcu).?.resolveFile(ip),
-                .func => |ip_index| zcu.funcInfo(ip_index).zir_body_inst.resolveFile(ip),
-            };
+            report_ok: {
+                const file_index = switch (anal_unit.unwrap()) {
+                    .@"comptime" => |cu| ip.getComptimeUnit(cu).zir_index.resolveFile(ip),
+                    .nav_val, .nav_ty => |nav| ip.getNav(nav).analysis.?.zir_index.resolveFile(ip),
+                    .type => |ty| Type.fromInterned(ty).typeDeclInst(zcu).?.resolveFile(ip),
+                    .func => |ip_index| zcu.funcInfo(ip_index).zir_body_inst.resolveFile(ip),
+                    .memoized_state => break :report_ok, // always report std.builtin errors
+                };
 
-            // Skip errors for AnalUnits within files that had a parse failure.
-            // We'll try again once parsing succeeds.
-            if (!zcu.fileByIndex(file_index).okToReportErrors()) continue;
+                // Skip errors for AnalUnits within files that had a parse failure.
+                // We'll try again once parsing succeeds.
+                if (!zcu.fileByIndex(file_index).okToReportErrors()) continue;
+            }
 
             std.log.scoped(.zcu).debug("analysis error '{s}' reported from unit '{}'", .{
                 error_msg.msg,
@@ -3391,7 +3395,7 @@ pub fn addModuleErrorMsg(
             const ref = maybe_ref orelse break;
             const gop = try seen.getOrPut(gpa, ref.referencer);
             if (gop.found_existing) break;
-            if (ref_traces.items.len < max_references) {
+            if (ref_traces.items.len < max_references) skip: {
                 const src = ref.src.upgrade(zcu);
                 const source = try src.file_scope.getSource(gpa);
                 const span = try src.span(gpa);
@@ -3403,6 +3407,7 @@ pub fn addModuleErrorMsg(
                     .nav_val, .nav_ty => |nav| ip.getNav(nav).name.toSlice(ip),
                     .type => |ty| Type.fromInterned(ty).containerTypeName(ip).toSlice(ip),
                     .func => |f| ip.getNav(zcu.funcInfo(f).owner_nav).name.toSlice(ip),
+                    .memoized_state => break :skip,
                 };
                 try ref_traces.append(gpa, .{
                     .decl_name = try eb.addString(name),
@@ -3670,6 +3675,7 @@ fn performAllTheWorkInner(
             if (try zcu.findOutdatedToAnalyze()) |outdated| {
                 try comp.queueJob(switch (outdated.unwrap()) {
                     .func => |f| .{ .analyze_func = f },
+                    .memoized_state,
                     .@"comptime",
                     .nav_ty,
                     .nav_val,
@@ -3713,6 +3719,9 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
         .codegen_type => |ty| {
             comp.dispatchCodegenTask(tid, .{ .codegen_type = ty });
         },
+        .update_line_number => |ti| {
+            comp.dispatchCodegenTask(tid, .{ .update_line_number = ti });
+        },
         .analyze_func => |func| {
             const named_frame = tracy.namedFrame("analyze_func");
             defer named_frame.end();
@@ -3737,6 +3746,7 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
                 .nav_ty => |nav| pt.ensureNavTypeUpToDate(nav),
                 .nav_val => |nav| pt.ensureNavValUpToDate(nav),
                 .type => |ty| if (pt.ensureTypeUpToDate(ty)) |_| {} else |err| err,
+                .memoized_state => |stage| pt.ensureMemoizedStateUpToDate(stage),
                 .func => unreachable,
             };
             maybe_err catch |err| switch (err) {
@@ -5389,8 +5399,10 @@ pub fn addCCArgs(
         },
     }
 
-    if (comp.config.lto) {
-        try argv.append("-flto");
+    switch (comp.config.lto) {
+        .none => try argv.append("-fno-lto"),
+        .full => try argv.append("-flto=full"),
+        .thin => try argv.append("-flto=thin"),
     }
 
     // This only works for preprocessed files. Guarded by `FileExt.clangSupportsDepFile`.
@@ -6440,7 +6452,7 @@ pub fn build_crt_file(
         .link_libc = false,
         .lto = switch (output_mode) {
             .Lib => comp.config.lto,
-            .Obj, .Exe => false,
+            .Obj, .Exe => .none,
         },
     });
     const root_mod = try Package.Module.create(arena, .{
