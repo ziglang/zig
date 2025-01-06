@@ -1517,3 +1517,36 @@ pub const DB_RECORDTYPE = enum(u32) {
     pub const APP_DEFINED_START = 0x80000000;
     pub const APP_DEFINED_END = 0xffffffff;
 };
+
+pub const TCP = struct {
+    /// Turn off Nagle's algorithm
+    pub const NODELAY = 0x01;
+    /// Limit MSS
+    pub const MAXSEG = 0x02;
+    /// Don't push last block of write
+    pub const NOPUSH = 0x04;
+    /// Don't use TCP options
+    pub const NOOPT = 0x08;
+    /// Idle time used when SO_KEEPALIVE is enabled
+    pub const KEEPALIVE = 0x10;
+    /// Connection timeout
+    pub const CONNECTION_TIMEOUT = 0x20;
+    /// Time after which a conection in persist timeout will terminate.
+    pub const PERSIST_TIMEOUT = 0x40;
+    /// Time after which TCP retransmissions will be stopped and the connection will be dropped.
+    pub const RXT_CONNDROPTIME = 0x80;
+    /// Drop a connection after retransmitting the FIN 3 times.
+    pub const RXT_FINDROP = 0x100;
+    /// Interval between keepalives
+    pub const KEEPINTVL = 0x101;
+    /// Number of keepalives before clsoe
+    pub const KEEPCNT = 0x102;
+    /// Always ack every other packet
+    pub const SEND_MORE_ACKS = 0x103;
+    /// Enable ECN on a connection
+    pub const ENABLE_ECN = 0x104;
+    /// Enable/Disable TCP Fastopen on this socket
+    pub const FASTOPEN = 0x105;
+    /// State of the TCP connection
+    pub const CONNECTION_INFO = 0x106;
+};
