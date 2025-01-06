@@ -796,9 +796,11 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                         }
                         break :append;
                     },
-                    .object => |i| c: {
-                        if (true) @panic("TODO apply data segment relocations");
-                        break :c i.ptr(wasm).payload;
+                    .object => |i| {
+                        const ptr = i.ptr(wasm);
+                        try binary_bytes.appendSlice(gpa, ptr.payload.slice(wasm));
+                        if (!is_obj) applyRelocs(binary_bytes.items[code_start..], ptr.offset, ptr.relocations(wasm), wasm);
+                        break :append;
                     },
                     inline .uav_exe, .uav_obj, .nav_exe, .nav_obj => |i| i.value(wasm).code,
                 };
