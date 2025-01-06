@@ -99,7 +99,8 @@ pub fn format(
     @setEvalBranchQuota(2000000);
     comptime var arg_state: ArgState = .{ .args_len = fields_info.len };
     comptime var i = 0;
-    inline while (i < fmt.len) {
+    comptime var literal: []const u8 = "";
+    inline while (true) {
         const start_index = i;
 
         inline while (i < fmt.len) : (i += 1) {
@@ -121,13 +122,16 @@ pub fn format(
             i += 2;
         }
 
-        // Write out the literal
-        if (start_index != end_index) {
-            try writer.writeAll(fmt[start_index..end_index]);
-        }
+        literal = literal ++ fmt[start_index..end_index];
 
         // We've already skipped the other brace, restart the loop
         if (unescape_brace) continue;
+
+        // Write out the literal
+        if (literal.len != 0) {
+            try writer.writeAll(literal);
+            literal = "";
+        }
 
         if (i >= fmt.len) break;
 
