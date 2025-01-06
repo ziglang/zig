@@ -116,7 +116,10 @@ pub fn getExternalExecutor(
             },
             .sparc64 => Executor{ .qemu = "qemu-sparc64" },
             .x86 => Executor{ .qemu = "qemu-i386" },
-            .x86_64 => Executor{ .qemu = "qemu-x86_64" },
+            .x86_64 => switch (candidate.abi) {
+                .gnux32, .muslx32 => return bad_result,
+                else => Executor{ .qemu = "qemu-x86_64" },
+            },
             .xtensa => Executor{ .qemu = "qemu-xtensa" },
             else => return bad_result,
         };
