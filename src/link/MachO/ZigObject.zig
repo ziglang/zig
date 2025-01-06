@@ -818,7 +818,8 @@ pub fn updateFunc(
         break :blk .{ atom.value, atom.alignment };
     };
 
-    if (debug_wip_nav) |*wip_nav| try self.dwarf.?.finishWipNavFunc(pt, func.owner_nav, code.len, wip_nav);
+    if (debug_wip_nav) |*wip_nav| self.dwarf.?.finishWipNavFunc(pt, func.owner_nav, code.len, wip_nav) catch |err|
+        return macho_file.base.cgFail(func.owner_nav, "falied to finish dwarf function: {s}", .{@errorName(err)});
 
     // Exports will be updated by `Zcu.processExports` after the update.
     if (old_rva != new_rva and old_rva > 0) {
@@ -889,7 +890,11 @@ pub fn updateNav(
             if (self.dwarf) |*dwarf| dwarf: {
                 var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, sym_index) orelse break :dwarf;
                 defer debug_wip_nav.deinit();
-                try dwarf.finishWipNav(pt, nav_index, &debug_wip_nav);
+                dwarf.finishWipNav(pt, nav_index, &debug_wip_nav) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    error.Overflow => return error.Overflow,
+                    else => |e| return macho_file.base.cgFail(nav_index, "failed to finish dwarf nav: {s}", .{@errorName(e)}),
+                };
             }
             return;
         },
@@ -922,7 +927,11 @@ pub fn updateNav(
         else
             try self.updateNavCode(macho_file, pt, nav_index, sym_index, sect_index, code);
 
-        if (debug_wip_nav) |*wip_nav| try self.dwarf.?.finishWipNav(pt, nav_index, wip_nav);
+        if (debug_wip_nav) |*wip_nav| self.dwarf.?.finishWipNav(pt, nav_index, wip_nav) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.Overflow => return error.Overflow,
+            else => |e| return macho_file.base.cgFail(nav_index, "failed to finish dwarf nav: {s}", .{@errorName(e)}),
+        };
     } else if (self.dwarf) |*dwarf| try dwarf.updateComptimeNav(pt, nav_index);
 
     // Exports will be updated by `Zcu.processExports` after the update.
@@ -1411,7 +1420,13 @@ fn updateLazySymbol(
 
 pub fn updateLineNumber(self: *ZigObject, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
     if (self.dwarf) |*dwarf| {
-        try dwarf.updateLineNumber(pt.zcu, ti_id);
+        const comp = dwarf.bin_file.comp;
+        const diags = &comp.link_diags;
+        dwarf.updateLineNumber(pt.zcu, ti_id) catch |err| switch (err) {
+            error.Overflow => return error.Overflow,
+            error.OutOfMemory => return error.OutOfMemory,
+            else => |e| return diags.fail("failed to update dwarf line numbers: {s}", .{@errorName(e)}),
+        };
     }
 }
 

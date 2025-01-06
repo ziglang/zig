@@ -142,7 +142,7 @@ pub fn generateLazySymbol(
         var string_index: u32 = @intCast(4 * (1 + err_names.len + @intFromBool(err_names.len > 0)));
         try code.resize(gpa, offset_index + string_index);
         mem.writeInt(u32, code.items[offset_index..][0..4], @intCast(err_names.len), endian);
-        if (err_names.len == 0) return .ok;
+        if (err_names.len == 0) return;
         offset_index += 4;
         for (err_names) |err_name_nts| {
             const err_name = err_name_nts.toSlice(ip);

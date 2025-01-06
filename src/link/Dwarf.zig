@@ -2661,19 +2661,7 @@ pub fn finishWipNav(
     pt: Zcu.PerThread,
     nav_index: InternPool.Nav.Index,
     wip_nav: *WipNav,
-) error{ OutOfMemory, CodegenFail }!void {
-    return finishWipNavInner(dwarf, pt, nav_index, wip_nav) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => |e| return pt.zcu.codegenFail(nav_index, "failed to finish dwarf: {s}", .{@errorName(e)}),
-    };
-}
-
-fn finishWipNavInner(
-    dwarf: *Dwarf,
-    pt: Zcu.PerThread,
-    nav_index: InternPool.Nav.Index,
-    wip_nav: *WipNav,
-) !void {
+) UpdateError!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
