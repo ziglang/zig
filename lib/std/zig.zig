@@ -230,7 +230,7 @@ pub fn binNameAlloc(allocator: Allocator, options: BinNameOptions) error{OutOfMe
         .plan9 => switch (options.output_mode) {
             .Exe => return allocator.dupe(u8, root_name),
             .Obj => return std.fmt.allocPrint(allocator, "{s}{s}", .{
-                root_name, t.ofmt.fileExt(t.abi, t.cpu.arch),
+                root_name, t.objFileExt(),
             }),
             .Lib => return std.fmt.allocPrint(allocator, "{s}{s}.a", .{
                 t.libPrefix(), root_name,
