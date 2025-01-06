@@ -312,8 +312,6 @@ pub fn hasRedZone(target: std.Target) bool {
         .powerpcle,
         .powerpc64,
         .powerpc64le,
-        .wasm32,
-        .wasm64,
         .x86_64,
         .x86,
         => true,
