@@ -345,7 +345,7 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
         os.version_range.linux.android = android;
     }
 
-    const cpu = switch (query.cpu_model) {
+    var cpu = switch (query.cpu_model) {
         .native => detectNativeCpuAndFeatures(query_cpu_arch, os, query),
         .baseline => Target.Cpu.baseline(query_cpu_arch, os),
         .determined_by_arch_os => if (query.cpu_arch == null)
@@ -356,6 +356,60 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
     } orelse backup_cpu_detection: {
         break :backup_cpu_detection Target.Cpu.baseline(query_cpu_arch, os);
     };
+
+    // For x86, we need to populate some CPU feature flags depending on architecture
+    // and mode:
+    //  * 16bit_mode => if the abi is code16
+    //  * 32bit_mode => if the arch is x86
+    // However, the "mode" flags can be used as overrides, so if the user explicitly
+    // sets one of them, that takes precedence.
+    switch (query_cpu_arch) {
+        .x86 => {
+            if (!Target.x86.featureSetHasAny(query.cpu_features_add, .{
+                .@"16bit_mode", .@"32bit_mode",
+            })) {
+                switch (query_abi) {
+                    .code16 => cpu.features.addFeature(
+                        @intFromEnum(Target.x86.Feature.@"16bit_mode"),
+                    ),
+                    else => cpu.features.addFeature(
+                        @intFromEnum(Target.x86.Feature.@"32bit_mode"),
+                    ),
+                }
+            }
+        },
+        .arm, .armeb => {
+            // XXX What do we do if the target has the noarm feature?
+            //     What do we do if the user specifies +thumb_mode?
+        },
+        .thumb, .thumbeb => {
+            cpu.features.addFeature(
+                @intFromEnum(Target.arm.Feature.thumb_mode),
+            );
+        },
+        else => {},
+    }
+    updateCpuFeatures(
+        &cpu.features,
+        cpu.arch.allFeaturesList(),
+        query.cpu_features_add,
+        query.cpu_features_sub,
+    );
+
+    if (cpu.arch == .hexagon) {
+        // Both LLVM and LLD have broken support for the small data area. Yet LLVM has the feature
+        // on by default for all Hexagon CPUs. Clang sort of solves this by defaulting the `-gpsize`
+        // command line parameter for the Hexagon backend to 0, so that no constants get placed in
+        // the SDA. (This of course breaks down if the user passes `-G <n>` to Clang...) We can't do
+        // the `-gpsize` hack because we can have multiple concurrent LLVM emit jobs, and command
+        // line options in LLVM are shared globally. So just force this feature off. Lovely stuff.
+        cpu.features.removeFeature(@intFromEnum(Target.hexagon.Feature.small_data));
+    }
+
+    // https://github.com/llvm/llvm-project/issues/105978
+    if (cpu.arch.isArm() and query_abi.floatAbi() == .soft) {
+        cpu.features.removeFeature(@intFromEnum(Target.arm.Feature.vfp2));
+    }
 
     var result = try detectAbiAndDynamicLinker(cpu, os, query);
 
@@ -388,60 +442,6 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                 result_ver_range.windows.min = abi_ver_range.windows.min;
             },
         }
-    }
-
-    // For x86, we need to populate some CPU feature flags depending on architecture
-    // and mode:
-    //  * 16bit_mode => if the abi is code16
-    //  * 32bit_mode => if the arch is x86
-    // However, the "mode" flags can be used as overrides, so if the user explicitly
-    // sets one of them, that takes precedence.
-    switch (result.cpu.arch) {
-        .x86 => {
-            if (!Target.x86.featureSetHasAny(query.cpu_features_add, .{
-                .@"16bit_mode", .@"32bit_mode",
-            })) {
-                switch (result.abi) {
-                    .code16 => result.cpu.features.addFeature(
-                        @intFromEnum(Target.x86.Feature.@"16bit_mode"),
-                    ),
-                    else => result.cpu.features.addFeature(
-                        @intFromEnum(Target.x86.Feature.@"32bit_mode"),
-                    ),
-                }
-            }
-        },
-        .arm, .armeb => {
-            // XXX What do we do if the target has the noarm feature?
-            //     What do we do if the user specifies +thumb_mode?
-        },
-        .thumb, .thumbeb => {
-            result.cpu.features.addFeature(
-                @intFromEnum(Target.arm.Feature.thumb_mode),
-            );
-        },
-        else => {},
-    }
-    updateCpuFeatures(
-        &result.cpu.features,
-        result.cpu.arch.allFeaturesList(),
-        query.cpu_features_add,
-        query.cpu_features_sub,
-    );
-
-    if (result.cpu.arch == .hexagon) {
-        // Both LLVM and LLD have broken support for the small data area. Yet LLVM has the feature
-        // on by default for all Hexagon CPUs. Clang sort of solves this by defaulting the `-gpsize`
-        // command line parameter for the Hexagon backend to 0, so that no constants get placed in
-        // the SDA. (This of course breaks down if the user passes `-G <n>` to Clang...) We can't do
-        // the `-gpsize` hack because we can have multiple concurrent LLVM emit jobs, and command
-        // line options in LLVM are shared globally. So just force this feature off. Lovely stuff.
-        result.cpu.features.removeFeature(@intFromEnum(Target.hexagon.Feature.small_data));
-    }
-
-    // https://github.com/llvm/llvm-project/issues/105978
-    if (result.cpu.arch.isArm() and result.floatAbi() == .soft) {
-        result.cpu.features.removeFeature(@intFromEnum(Target.arm.Feature.vfp2));
     }
 
     return result;
