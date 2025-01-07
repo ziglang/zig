@@ -8,7 +8,7 @@ import_table: std.StringArrayHashMapUnmanaged(*Module),
 
 resolved_target: ?std.Build.ResolvedTarget = null,
 optimize: ?std.builtin.OptimizeMode = null,
-dwarf_format: ?std.dwarf.Format,
+debug_format: ?std.builtin.DebugFormat,
 
 c_macros: std.ArrayListUnmanaged([]const u8),
 include_dirs: std.ArrayListUnmanaged(IncludeDir),
@@ -248,7 +248,7 @@ pub const CreateOptions = struct {
     single_threaded: ?bool = null,
     strip: ?bool = null,
     unwind_tables: ?std.builtin.UnwindTables = null,
-    dwarf_format: ?std.dwarf.Format = null,
+    debug_format: ?std.builtin.DebugFormat = null,
     code_model: std.builtin.CodeModel = .default,
     stack_protector: ?bool = null,
     stack_check: ?bool = null,
@@ -288,7 +288,7 @@ pub fn init(
                 .optimize = options.optimize,
                 .link_libc = options.link_libc,
                 .link_libcpp = options.link_libcpp,
-                .dwarf_format = options.dwarf_format,
+                .debug_format = options.debug_format,
                 .c_macros = .{},
                 .include_dirs = .{},
                 .lib_paths = .{},
@@ -557,11 +557,17 @@ pub fn appendZigProcessFlags(
     try addFlag(zig_args, m.pic, "-fPIC", "-fno-PIC");
     try addFlag(zig_args, m.red_zone, "-mred-zone", "-mno-red-zone");
 
-    if (m.dwarf_format) |dwarf_format| {
-        try zig_args.append(switch (dwarf_format) {
-            .@"32" => "-gdwarf32",
-            .@"64" => "-gdwarf64",
-        });
+    if (m.debug_format) |debug_format| {
+        switch (debug_format) {
+            .strip => {},
+            .dwarf => |fmt| switch (fmt) {
+                .@"32" => try zig_args.append("-gdwarf32"),
+                .@"64" => try zig_args.append("-gdwarf64"),
+            },
+            .code_view => {
+                try zig_args.append("-gcodeview");
+            },
+        }
     }
 
     if (m.unwind_tables) |unwind_tables| {
