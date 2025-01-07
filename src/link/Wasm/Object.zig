@@ -710,14 +710,29 @@ pub fn parse(
                         },
                         .memory => {
                             const limits, pos = readLimits(bytes, pos);
-                            try wasm.object_memory_imports.append(gpa, .{
-                                .module_name = interned_module_name,
-                                .name = interned_name,
-                                .limits_min = limits.min,
-                                .limits_max = limits.max,
-                                .limits_has_max = limits.flags.has_max,
-                                .limits_is_shared = limits.flags.is_shared,
-                            });
+                            const gop = try wasm.object_memory_imports.getOrPut(gpa, interned_name);
+                            if (gop.found_existing) {
+                                if (gop.value_ptr.module_name != interned_module_name) {
+                                    var err = try diags.addErrorWithNotes(2);
+                                    try err.addMsg("memory '{s}' mismatching module names", .{name});
+                                    gop.value_ptr.source_location.addNote(&err, "module '{s}' here", .{
+                                        gop.value_ptr.module_name.slice(wasm),
+                                    });
+                                    source_location.addNote(&err, "module '{s}' here", .{module_name});
+                                }
+                                // TODO error for mismatching flags
+                                gop.value_ptr.limits_min = @min(gop.value_ptr.limits_min, limits.min);
+                                gop.value_ptr.limits_max = @max(gop.value_ptr.limits_max, limits.max);
+                            } else {
+                                gop.value_ptr.* = .{
+                                    .module_name = interned_module_name,
+                                    .limits_min = limits.min,
+                                    .limits_max = limits.max,
+                                    .limits_has_max = limits.flags.has_max,
+                                    .limits_is_shared = limits.flags.is_shared,
+                                    .source_location = source_location,
+                                };
+                            }
                         },
                         .global => {
                             const valtype, pos = readEnum(std.wasm.Valtype, bytes, pos);

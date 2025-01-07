@@ -107,7 +107,7 @@ object_table_imports: std.AutoArrayHashMapUnmanaged(String, TableImport) = .empt
 object_tables: std.ArrayListUnmanaged(Table) = .empty,
 
 /// All memory imports for all objects.
-object_memory_imports: std.ArrayListUnmanaged(MemoryImport) = .empty,
+object_memory_imports: std.AutoArrayHashMapUnmanaged(String, MemoryImport) = .empty,
 /// All parsed memory sections for all objects.
 object_memories: std.ArrayListUnmanaged(ObjectMemory) = .empty,
 
@@ -2596,9 +2596,9 @@ pub const ObjectRelocation = struct {
 
 pub const MemoryImport = extern struct {
     module_name: String,
-    name: String,
     limits_min: u32,
     limits_max: u32,
+    source_location: SourceLocation,
     limits_has_max: bool,
     limits_is_shared: bool,
     padding: [2]u8 = .{ 0, 0 },

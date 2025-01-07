@@ -484,18 +484,19 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         }
         total_imports += wasm.table_imports.entries.len;
 
-        for (wasm.object_memory_imports.items) |*memory_import| {
-            try emitMemoryImport(wasm, binary_bytes, memory_import);
+        for (wasm.object_memory_imports.keys(), wasm.object_memory_imports.values()) |name, *memory_import| {
+            try emitMemoryImport(wasm, binary_bytes, name, memory_import);
             total_imports += 1;
         } else if (import_memory) {
-            try emitMemoryImport(wasm, binary_bytes, &.{
+            const name = if (is_obj) wasm.preloaded_strings.__linear_memory else wasm.preloaded_strings.memory;
+            try emitMemoryImport(wasm, binary_bytes, name, &.{
                 // TODO the import_memory option needs to specify from which module
                 .module_name = wasm.object_host_name.unwrap().?,
-                .name = if (is_obj) wasm.preloaded_strings.__linear_memory else wasm.preloaded_strings.memory,
                 .limits_min = wasm.memories.limits.min,
                 .limits_max = wasm.memories.limits.max,
                 .limits_has_max = wasm.memories.limits.flags.has_max,
                 .limits_is_shared = wasm.memories.limits.flags.is_shared,
+                .source_location = .none,
             });
             total_imports += 1;
         }
@@ -1249,6 +1250,7 @@ fn emitLimits(
 fn emitMemoryImport(
     wasm: *Wasm,
     binary_bytes: *std.ArrayListUnmanaged(u8),
+    name_index: String,
     memory_import: *const Wasm.MemoryImport,
 ) Allocator.Error!void {
     const gpa = wasm.base.comp.gpa;
@@ -1256,7 +1258,7 @@ fn emitMemoryImport(
     try leb.writeUleb128(binary_bytes.writer(gpa), @as(u32, @intCast(module_name.len)));
     try binary_bytes.appendSlice(gpa, module_name);
 
-    const name = memory_import.name.slice(wasm);
+    const name = name_index.slice(wasm);
     try leb.writeUleb128(binary_bytes.writer(gpa), @as(u32, @intCast(name.len)));
     try binary_bytes.appendSlice(gpa, name);
 
