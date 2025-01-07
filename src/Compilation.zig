@@ -6438,6 +6438,7 @@ fn buildOutputFromZig(
         .emit_bin = true,
         .root_optimize_mode = optimize_mode,
         .root_strip = strip,
+        .debug_format = comp.config.debug_format,
         .link_libc = comp.config.link_libc,
         .any_unwind_tables = comp.root_mod.unwind_tables != .none,
         .lto = if (allow_lto) comp.config.lto else .none,
@@ -6578,6 +6579,7 @@ pub fn build_crt_file(
         .emit_bin = true,
         .root_optimize_mode = comp.compilerRtOptMode(),
         .root_strip = comp.compilerRtStrip(),
+        .debug_format = comp.config.debug_format,
         .link_libc = false,
         .any_unwind_tables = options.unwind_tables != .none,
         .lto = switch (output_mode) {

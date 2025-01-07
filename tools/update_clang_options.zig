@@ -253,6 +253,10 @@ const known_options = [_]KnownOpt{
         .ident = "debug",
     },
     .{
+        .name = "gcodeview",
+        .ident = "gcodeview",
+    },
+    .{
         .name = "gdwarf32",
         .ident = "gdwarf32",
     },
