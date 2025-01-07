@@ -6321,6 +6321,7 @@ fn buildOutputFromZig(
         .emit_bin = true,
         .root_optimize_mode = optimize_mode,
         .root_strip = strip,
+        .debug_format = comp.config.debug_format,
         .link_libc = comp.config.link_libc,
     });
 
@@ -6457,6 +6458,7 @@ pub fn build_crt_file(
         .emit_bin = true,
         .root_optimize_mode = comp.compilerRtOptMode(),
         .root_strip = comp.compilerRtStrip(),
+        .debug_format = comp.config.debug_format,
         .link_libc = false,
         .lto = switch (output_mode) {
             .Lib => comp.config.lto,

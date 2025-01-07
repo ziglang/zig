@@ -67,7 +67,6 @@ pub const CFrontend = enum { clang, aro };
 
 pub const LtoMode = enum { none, full, thin };
 
-
 pub const Options = struct {
     output_mode: std.builtin.OutputMode,
     resolved_target: Module.ResolvedTarget,
