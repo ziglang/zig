@@ -883,13 +883,13 @@ pub const cache_helpers = struct {
         addEmitLoc(hh, optional_emit_loc orelse return);
     }
 
-    pub fn addOptionalDebugFormat(hh: *Cache.HashHelper, x: ?Config.DebugFormat) void {
+    pub fn addOptionalDebugFormat(hh: *Cache.HashHelper, x: ?std.builtin.DebugFormat) void {
         hh.add(x != null);
         addDebugFormat(hh, x orelse return);
     }
 
-    pub fn addDebugFormat(hh: *Cache.HashHelper, x: Config.DebugFormat) void {
-        const tag: @typeInfo(Config.DebugFormat).@"union".tag_type.? = x;
+    pub fn addDebugFormat(hh: *Cache.HashHelper, x: std.builtin.DebugFormat) void {
+        const tag: @typeInfo(std.builtin.DebugFormat).@"union".tag_type.? = x;
         hh.add(tag);
         switch (x) {
             .strip, .code_view => {},
