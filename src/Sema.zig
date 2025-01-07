@@ -15155,21 +15155,26 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     try sema.requireRuntimeBlock(block, src, runtime_src);
 
     if (ptr_addrspace) |ptr_as| {
-        const alloc_ty = try pt.ptrTypeSema(.{
+        const constant_alloc_ty = try pt.ptrTypeSema(.{
             .child = result_ty.toIntern(),
             .flags = .{
                 .address_space = ptr_as,
                 .is_const = true,
             },
         });
-        const alloc = try block.addTy(.alloc, alloc_ty);
+        const alloc_ty = try pt.ptrTypeSema(.{
+            .child = result_ty.toIntern(),
+            .flags = .{ .address_space = ptr_as },
+        });
         const elem_ptr_ty = try pt.ptrTypeSema(.{
             .child = resolved_elem_ty.toIntern(),
             .flags = .{ .address_space = ptr_as },
         });
 
+        const mutable_alloc = try block.addTy(.alloc, alloc_ty);
+
         // if both the source and destination are arrays
-        // we can hot path via a memcpy.
+        // we can hotpath via a memcpy.
         if (lhs_ty.zigTypeTag(zcu) == .pointer and
             rhs_ty.zigTypeTag(zcu) == .pointer)
         {
@@ -15180,27 +15185,24 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .address_space = ptr_as,
                 },
             });
-            const many_ty = try pt.ptrTypeSema(.{
-                .child = resolved_elem_ty.toIntern(),
-                .flags = .{
-                    .size = .Many,
-                    .address_space = ptr_as,
-                },
-            });
-            const slice_ty_ref = Air.internedToRef(slice_ty.toIntern());
+
+            const many_ty = slice_ty.slicePtrFieldType(zcu);
+            const many_alloc = try block.addTyOp(.bitcast, many_ty, mutable_alloc);
 
             // lhs_dest_slice = dest[0..lhs.len]
+            const slice_ty_ref = Air.internedToRef(slice_ty.toIntern());
             const lhs_len_ref = try pt.intRef(Type.usize, lhs_len);
             const lhs_dest_slice = try block.addInst(.{
                 .tag = .slice,
                 .data = .{ .ty_pl = .{
                     .ty = slice_ty_ref,
                     .payload = try sema.addExtra(Air.Bin{
-                        .lhs = alloc,
+                        .lhs = many_alloc,
                         .rhs = lhs_len_ref,
                     }),
                 } },
             });
+
             _ = try block.addBinOp(.memcpy, lhs_dest_slice, lhs);
 
             // rhs_dest_slice = dest[lhs.len..][0..rhs.len]
@@ -15210,7 +15212,7 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 .data = .{ .ty_pl = .{
                     .ty = Air.internedToRef(many_ty.toIntern()),
                     .payload = try sema.addExtra(Air.Bin{
-                        .lhs = alloc,
+                        .lhs = many_alloc,
                         .rhs = lhs_len_ref,
                     }),
                 } },
@@ -15230,18 +15232,18 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             if (res_sent_val) |sent_val| {
                 const elem_index = try pt.intRef(Type.usize, result_len);
-                const elem_ptr = try block.addPtrElemPtr(alloc, elem_index, elem_ptr_ty);
+                const elem_ptr = try block.addPtrElemPtr(mutable_alloc, elem_index, elem_ptr_ty);
                 const init = Air.internedToRef((try pt.getCoerced(sent_val, lhs_info.elem_type)).toIntern());
                 try sema.storePtr2(block, src, elem_ptr, src, init, lhs_src, .store);
             }
 
-            return alloc;
+            return block.addTyOp(.bitcast, constant_alloc_ty, mutable_alloc);
         }
 
         var elem_i: u32 = 0;
         while (elem_i < lhs_len) : (elem_i += 1) {
             const elem_index = try pt.intRef(Type.usize, elem_i);
-            const elem_ptr = try block.addPtrElemPtr(alloc, elem_index, elem_ptr_ty);
+            const elem_ptr = try block.addPtrElemPtr(mutable_alloc, elem_index, elem_ptr_ty);
             const operand_src = block.src(.{ .array_cat_lhs = .{
                 .array_cat_offset = inst_data.src_node,
                 .elem_index = elem_i,
@@ -15253,7 +15255,7 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const rhs_elem_i = elem_i - lhs_len;
             const elem_index = try pt.intRef(Type.usize, elem_i);
             const rhs_index = try pt.intRef(Type.usize, rhs_elem_i);
-            const elem_ptr = try block.addPtrElemPtr(alloc, elem_index, elem_ptr_ty);
+            const elem_ptr = try block.addPtrElemPtr(mutable_alloc, elem_index, elem_ptr_ty);
             const operand_src = block.src(.{ .array_cat_rhs = .{
                 .array_cat_offset = inst_data.src_node,
                 .elem_index = @intCast(rhs_elem_i),
@@ -15263,12 +15265,12 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         }
         if (res_sent_val) |sent_val| {
             const elem_index = try pt.intRef(Type.usize, result_len);
-            const elem_ptr = try block.addPtrElemPtr(alloc, elem_index, elem_ptr_ty);
+            const elem_ptr = try block.addPtrElemPtr(mutable_alloc, elem_index, elem_ptr_ty);
             const init = Air.internedToRef((try pt.getCoerced(sent_val, lhs_info.elem_type)).toIntern());
             try sema.storePtr2(block, src, elem_ptr, src, init, lhs_src, .store);
         }
 
-        return alloc;
+        return block.addTyOp(.bitcast, constant_alloc_ty, mutable_alloc);
     }
 
     const element_refs = try sema.arena.alloc(Air.Inst.Ref, result_len);
