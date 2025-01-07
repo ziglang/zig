@@ -1554,6 +1554,8 @@ fn buildOutputType(
                         create_module.opts.debug_format = .{ .dwarf = .@"32" };
                     } else if (mem.eql(u8, arg, "-gdwarf64")) {
                         create_module.opts.debug_format = .{ .dwarf = .@"64" };
+                    } else if (mem.eql(u8, arg, "-gcodeview")) {
+                        create_module.opts.debug_format = .code_view;
                     } else if (mem.eql(u8, arg, "-fformatted-panics")) {
                         // Remove this after 0.15.0 is tagged.
                         warn("-fformatted-panics is deprecated and does nothing", .{});
@@ -2189,6 +2191,10 @@ fn buildOutputType(
                         } else {
                             try cc_argv.appendSlice(arena, it.other_args);
                         }
+                    },
+                    .gcodeview => {
+                        mod_opts.strip = false;
+                        create_module.opts.debug_format = .code_view;
                     },
                     .gdwarf32 => {
                         mod_opts.strip = false;
@@ -5831,6 +5837,7 @@ pub const ClangArgIterator = struct {
         asm_only,
         optimize,
         debug,
+        gcodeview,
         gdwarf32,
         gdwarf64,
         sanitize,
