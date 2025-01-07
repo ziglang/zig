@@ -28,6 +28,20 @@ pub const Annotation = struct {
     dom_id: u32,
 };
 
+pub fn fileSourceLineNumbersHtml(
+    file_index: Walk.File.Index,
+    out: *std.ArrayListUnmanaged(u8),
+    root_node: Ast.Node.Index,
+) !void {
+    const ast = file_index.get_ast();
+    const first_token_line = ast.tokenLocation(0, ast.firstToken(root_node)).line;
+    const last_token_line = ast.tokenLocation(0, ast.lastToken(root_node)).line;
+    const writer = out.writer(gpa);
+    for (first_token_line..last_token_line + 1) |i| {
+        try std.fmt.format(writer, "<span>{d}</span>\n", .{i + 1});
+    }
+}
+
 pub fn fileSourceHtml(
     file_index: Walk.File.Index,
     out: *std.ArrayListUnmanaged(u8),

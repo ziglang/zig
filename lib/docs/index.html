@@ -36,6 +36,15 @@
       code a {
         color: #000000;
       }
+      .source-code {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        align-items: start;
+      }
+      .source-line-numbers pre {
+        text-align: right;
+        color: #666;
+      }
       #listFields > div, #listParams > div {
         margin-bottom: 1em;
       }
@@ -400,7 +409,14 @@
     </div>
     <div id="sectSource" class="hidden">
       <h2>Source Code</h2>
-      <pre><code id="sourceText"></code></pre>
+      <div class="source-code">
+        <div class="source-line-numbers">
+          <pre><code id="sourceLineNumbers"></code></pre>
+        </div>
+        <div class="source-text">
+          <pre><code id="sourceText"></code></pre>
+        </div>
+      </div>
     </div>
     </section>
     <div id="helpDialog" class="hidden">
