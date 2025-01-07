@@ -5056,9 +5056,17 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
                 }
             }.fmtRcEscape;
 
-            // 1 is CREATEPROCESS_MANIFEST_RESOURCE_ID which is the default ID used for RT_MANIFEST resources
+            // https://learn.microsoft.com/en-us/windows/win32/sbscs/using-side-by-side-assemblies-as-a-resource
+            // WinUser.h defines:
+            // CREATEPROCESS_MANIFEST_RESOURCE_ID to 1, which is the default
+            // ISOLATIONAWARE_MANIFEST_RESOURCE_ID to 2, which must be used for .dlls
+            const resource_id: u32 = if (comp.config.output_mode == .Lib and comp.config.link_mode == .dynamic) 2 else 1;
+
             // 24 is RT_MANIFEST
-            const input = try std.fmt.allocPrint(arena, "1 24 \"{s}\"", .{fmtRcEscape(src_path)});
+            const resource_type = 24;
+
+            const input = try std.fmt.allocPrint(arena, "{} {} \"{s}\"", .{ resource_id, resource_type, fmtRcEscape(src_path) });
+
             try o_dir.writeFile(.{ .sub_path = rc_basename, .data = input });
 
             var argv = std.ArrayList([]const u8).init(comp.gpa);
