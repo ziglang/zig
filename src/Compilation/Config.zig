@@ -56,7 +56,7 @@ import_memory: bool,
 export_memory: bool,
 shared_memory: bool,
 is_test: bool,
-debug_format: DebugFormat,
+debug_format: std.builtin.DebugFormat,
 root_optimize_mode: std.builtin.OptimizeMode,
 root_strip: bool,
 root_error_tracing: bool,
@@ -65,12 +65,6 @@ rdynamic: bool,
 san_cov_trace_pc_guard: bool,
 
 pub const CFrontend = enum { clang, aro };
-
-pub const DebugFormat = union(enum) {
-    strip,
-    dwarf: std.dwarf.Format,
-    code_view,
-};
 
 pub const Options = struct {
     output_mode: std.builtin.OutputMode,
@@ -109,7 +103,7 @@ pub const Options = struct {
     import_memory: ?bool = null,
     export_memory: ?bool = null,
     shared_memory: ?bool = null,
-    debug_format: ?DebugFormat = null,
+    debug_format: ?std.builtin.DebugFormat = null,
     dll_export_fns: ?bool = null,
     rdynamic: ?bool = null,
     san_cov_trace_pc_guard: bool = false,
@@ -465,7 +459,7 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b false;
     };
 
-    const debug_format: DebugFormat = b: {
+    const debug_format: std.builtin.DebugFormat = b: {
         if (root_strip and !options.any_non_stripped) break :b .strip;
         if (options.debug_format) |x| break :b x;
         break :b switch (target.ofmt) {
