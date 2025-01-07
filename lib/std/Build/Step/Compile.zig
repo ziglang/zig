@@ -673,7 +673,11 @@ pub fn producesPdbFile(compile: *Compile) bool {
         .windows, .uefi => {},
         else => return false,
     }
-    if (target.abi.isGnu()) return false;
+    if (compile.root_module.debug_format) |fmt| {
+        if (fmt != .code_view) return false;
+    } else {
+        if (target.abi.isGnu()) return false;
+    }
     if (target.ofmt == .c) return false;
     if (compile.use_llvm == false) return false;
     if (compile.root_module.strip == true or
