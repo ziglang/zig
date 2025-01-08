@@ -683,16 +683,49 @@ pub const Ip6Address = extern struct {
                 break :blk buf;
             },
         };
+
+        // Find the longest zero run
+        var longest_start: usize = 8;
+        var longest_len: usize = 0;
+        var current_start: usize = 0;
+        var current_len: usize = 0;
+
+        for (native_endian_parts, 0..) |part, i| {
+            if (part == 0) {
+                if (current_len == 0) {
+                    current_start = i;
+                }
+                current_len += 1;
+                if (current_len > longest_len) {
+                    longest_start = current_start;
+                    longest_len = current_len;
+                }
+            } else {
+                current_len = 0;
+            }
+        }
+
+        // Only compress if the longest zero run is 2 or more
+        if (longest_len < 2) {
+            longest_start = 8;
+            longest_len = 0;
+        }
+
         try out_stream.writeAll("[");
         var i: usize = 0;
         var abbrv = false;
         while (i < native_endian_parts.len) : (i += 1) {
-            if (native_endian_parts[i] == 0) {
+            if (i == longest_start) {
+                // Emit "::" for the longest zero run
                 if (!abbrv) {
                     try out_stream.writeAll(if (i == 0) "::" else ":");
                     abbrv = true;
                 }
+                i += longest_len - 1; // Skip the compressed range
                 continue;
+            }
+            if (abbrv) {
+                abbrv = false;
             }
             try std.fmt.format(out_stream, "{x}", .{native_endian_parts[i]});
             if (i != native_endian_parts.len - 1) {
