@@ -517,9 +517,9 @@ pub fn stat(self: File) StatError!Stat {
                 .directory
             else
                 .file,
-            .atime = windows.fromSysTime(info.BasicInformation.LastAccessTime),
-            .mtime = windows.fromSysTime(info.BasicInformation.LastWriteTime),
-            .ctime = windows.fromSysTime(info.BasicInformation.ChangeTime),
+            .atime = windows.fromSysTime(@bitCast(info.BasicInformation.LastAccessTime)),
+            .mtime = windows.fromSysTime(@bitCast(info.BasicInformation.LastWriteTime)),
+            .ctime = windows.fromSysTime(@bitCast(info.BasicInformation.ChangeTime)),
         };
     }
 
@@ -1055,9 +1055,9 @@ pub fn metadata(self: File) MetadataError!Metadata {
                     .attributes = info.BasicInformation.FileAttributes,
                     .reparse_tag = reparse_tag,
                     ._size = @as(u64, @bitCast(info.StandardInformation.EndOfFile)),
-                    .access_time = windows.fromSysTime(info.BasicInformation.LastAccessTime),
-                    .modified_time = windows.fromSysTime(info.BasicInformation.LastWriteTime),
-                    .creation_time = windows.fromSysTime(info.BasicInformation.CreationTime),
+                    .access_time = windows.fromSysTime(@bitCast(info.BasicInformation.LastAccessTime)),
+                    .modified_time = windows.fromSysTime(@bitCast(info.BasicInformation.LastWriteTime)),
+                    .creation_time = windows.fromSysTime(@bitCast(info.BasicInformation.CreationTime)),
                 };
             },
             .linux => blk: {

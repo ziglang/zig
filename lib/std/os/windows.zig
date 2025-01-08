@@ -2151,28 +2151,75 @@ pub fn peb() *PEB {
 /// Universal Time (UTC).
 /// This function returns the number of nanoseconds since the canonical epoch,
 /// which is the POSIX one (Jan 01, 1970 AD).
-pub fn fromSysTime(hns: i64) i128 {
-    const adjusted_epoch: i128 = hns + std.time.epoch.windows * (std.time.ns_per_s / 100);
-    return adjusted_epoch * 100;
+pub fn fromSysTime(hns: u64) i128 {
+    const ns = @as(i128, hns) * 100;
+    return ns + (std.time.epoch.windows * std.time.ns_per_s);
 }
 
-pub fn toSysTime(ns: i128) i64 {
-    const hns = @divFloor(ns, 100);
-    return @as(i64, @intCast(hns)) - std.time.epoch.windows * (std.time.ns_per_s / 100);
+test fromSysTime {
+    try std.testing.expectEqual(-11_644_473_600_000_000_000, fromSysTime(0));
+    try std.testing.expectEqual(std.time.epoch.posix, fromSysTime(116_444_736_000_000_000));
+    try std.testing.expectEqual(1_833_029_933_770_955_161_500, fromSysTime(maxInt(u64)));
 }
 
+/// Converts a number of nanoseconds since the POSIX epoch to a 64-bit value
+/// that represents the number of 100-nanosecond intervals that have elapsed
+/// since 12:00 A.M. January 1, 1601 Coordinated Universal Time (UTC).
+pub fn toSysTime(ns: i128) u64 {
+    const hns = ns - (std.time.epoch.windows * std.time.ns_per_s);
+    return @intCast(@divFloor(hns, 100));
+}
+
+test toSysTime {
+    try std.testing.expectEqual(0, toSysTime(-11_644_473_600_000_000_000));
+    try std.testing.expectEqual(116_444_736_000_000_000, toSysTime(std.time.epoch.posix));
+    try std.testing.expectEqual(maxInt(u64), toSysTime(1_833_029_933_770_955_161_500));
+}
+
+/// Converts a Windows FILETIME to a number of nanoseconds since the POSIX
+/// epoch.
 pub fn fileTimeToNanoSeconds(ft: FILETIME) i128 {
-    const hns = (@as(i64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
+    const hns = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
     return fromSysTime(hns);
+}
+
+test fileTimeToNanoSeconds {
+    try std.testing.expectEqual(-11_644_473_600_000_000_000, fileTimeToNanoSeconds(FILETIME{
+        .dwHighDateTime = 0,
+        .dwLowDateTime = 0,
+    }));
+    try std.testing.expectEqual(std.time.epoch.posix, fileTimeToNanoSeconds(FILETIME{
+        .dwHighDateTime = 0x019d_b1de,
+        .dwLowDateTime = 0xd53e_8000,
+    }));
+    try std.testing.expectEqual(1_833_029_933_770_955_161_500, fileTimeToNanoSeconds(FILETIME{
+        .dwHighDateTime = maxInt(DWORD),
+        .dwLowDateTime = maxInt(DWORD),
+    }));
 }
 
 /// Converts a number of nanoseconds since the POSIX epoch to a Windows FILETIME.
 pub fn nanoSecondsToFileTime(ns: i128) FILETIME {
-    const adjusted: u64 = @bitCast(toSysTime(ns));
+    const adjusted = toSysTime(ns);
     return FILETIME{
-        .dwHighDateTime = @as(u32, @truncate(adjusted >> 32)),
-        .dwLowDateTime = @as(u32, @truncate(adjusted)),
+        .dwHighDateTime = @intCast(adjusted >> 32),
+        .dwLowDateTime = @truncate(adjusted),
     };
+}
+
+test nanoSecondsToFileTime {
+    try std.testing.expectEqual(FILETIME{
+        .dwHighDateTime = 0,
+        .dwLowDateTime = 0,
+    }, nanoSecondsToFileTime(-11_644_473_600_000_000_000));
+    try std.testing.expectEqual(FILETIME{
+        .dwHighDateTime = 0x019d_b1de,
+        .dwLowDateTime = 0xd53e_8000,
+    }, nanoSecondsToFileTime(std.time.epoch.posix));
+    try std.testing.expectEqual(FILETIME{
+        .dwHighDateTime = maxInt(DWORD),
+        .dwLowDateTime = maxInt(DWORD),
+    }, nanoSecondsToFileTime(1_833_029_933_770_955_161_500));
 }
 
 /// Compares two WTF16 strings using the equivalent functionality of
