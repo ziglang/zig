@@ -381,7 +381,7 @@ pub fn fromZoirNode(
 }
 
 fn requiresAllocator(comptime T: type) bool {
-    // Keep in sync with free, stringify, and requiresAllocator.
+    _ = valid_types;
     return switch (@typeInfo(T)) {
         .pointer => true,
         .array => |array| requiresAllocator(array.child),
@@ -432,7 +432,7 @@ test "std.zon requiresAllocator" {
 pub fn free(gpa: Allocator, value: anytype) void {
     const Value = @TypeOf(value);
 
-    // Keep in sync with free, stringify, and requiresAllocator.
+    _ = valid_types;
     switch (@typeInfo(Value)) {
         .bool, .int, .float, .@"enum" => {},
         .pointer => |pointer| {
@@ -470,13 +470,16 @@ pub fn free(gpa: Allocator, value: anytype) void {
     }
 }
 
+/// Rename when adding or removing support for a type.
+const valid_types = {};
+
 fn parseExpr(
     self: *@This(),
     comptime T: type,
     comptime options: Options,
     node: Zoir.Node.Index,
 ) !T {
-    // Keep in sync with free, stringify, and requiresAllocator.
+    _ = valid_types;
     switch (@typeInfo(T)) {
         .bool => return self.parseBool(node),
         .int => return self.parseInt(T, node),
