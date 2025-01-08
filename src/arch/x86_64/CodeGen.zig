@@ -2467,8 +2467,6 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .memcpy           => try cg.airMemcpy(inst),
             .memset           => try cg.airMemset(inst, false),
             .memset_safe      => try cg.airMemset(inst, true),
-            .set_union_tag    => try cg.airSetUnionTag(inst),
-            .get_union_tag    => try cg.airGetUnionTag(inst),
             .ctz              => try cg.airCtz(inst),
             .popcount         => try cg.airPopCount(inst),
             .byte_swap        => try cg.airByteSwap(inst),
@@ -2480,7 +2478,6 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .shuffle          => try cg.airShuffle(inst),
             .reduce           => try cg.airReduce(inst),
             .aggregate_init   => try cg.airAggregateInit(inst),
-            .union_init       => try cg.airUnionInit(inst),
             .prefetch         => try cg.airPrefetch(inst),
             .mul_add          => try cg.airMulAdd(inst),
 
@@ -2528,7 +2525,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
                 try ops[0].toSlicePtr(cg);
                 var res: [1]Temp = undefined;
-                cg.select(&res, &.{cg.typeOfIndex(inst)}, &ops, comptime &.{ .{
+                cg.select(&res, &.{ty_pl.ty.toType()}, &ops, comptime &.{ .{
                     .patterns = &.{
                         .{ .src = .{ .to_gpr, .simm32 } },
                     },
@@ -2645,7 +2642,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
                 try ops[0].toSlicePtr(cg);
                 var res: [1]Temp = undefined;
-                cg.select(&res, &.{cg.typeOfIndex(inst)}, &ops, comptime &.{ .{
+                cg.select(&res, &.{ty_pl.ty.toType()}, &ops, comptime &.{ .{
                     .patterns = &.{
                         .{ .src = .{ .to_gpr, .simm32 } },
                     },
@@ -2772,20 +2769,22 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 try res[0].moveTo(inst, cg);
             },
             .alloc => if (use_old) try cg.airAlloc(inst) else {
-                var slot = try cg.tempFromValue(cg.typeOfIndex(inst), .{ .lea_frame = .{
+                const ty = air_datas[@intFromEnum(inst)].ty;
+                var slot = try cg.tempInit(ty, .{ .lea_frame = .{
                     .index = try cg.allocMemPtr(inst),
                 } });
                 try slot.moveTo(inst, cg);
             },
             .inferred_alloc, .inferred_alloc_comptime => unreachable,
             .ret_ptr => if (use_old) try cg.airRetPtr(inst) else {
+                const ty = air_datas[@intFromEnum(inst)].ty;
                 var slot = switch (cg.ret_mcv.long) {
                     else => unreachable,
-                    .none => try cg.tempFromValue(cg.typeOfIndex(inst), .{ .lea_frame = .{
+                    .none => try cg.tempInit(ty, .{ .lea_frame = .{
                         .index = try cg.allocMemPtr(inst),
                     } }),
                     .load_frame => slot: {
-                        var slot = try cg.tempFromValue(cg.typeOfIndex(inst), cg.ret_mcv.long);
+                        var slot = try cg.tempInit(ty, cg.ret_mcv.long);
                         try slot.toOffset(cg.ret_mcv.short.indirect.off, cg);
                         break :slot slot;
                     },
@@ -2797,7 +2796,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 const bin_op = air_datas[@intFromEnum(inst)].bin_op;
                 var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
                 var res: [1]Temp = undefined;
-                cg.select(&res, &.{cg.typeOfIndex(inst)}, &ops, switch (@as(Mir.Inst.Tag, switch (air_tag) {
+                cg.select(&res, &.{cg.typeOf(bin_op.lhs)}, &ops, switch (@as(Mir.Inst.Tag, switch (air_tag) {
                     else => unreachable,
                     .bit_and => .@"and",
                     .bit_or => .@"or",
@@ -3156,7 +3155,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 const ty_op = air_datas[@intFromEnum(inst)].ty_op;
                 var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
                 var res: [1]Temp = undefined;
-                cg.select(&res, &.{cg.typeOfIndex(inst)}, &ops, comptime &.{ .{
+                cg.select(&res, &.{ty_op.ty.toType()}, &ops, comptime &.{ .{
                     .src_constraints = .{ .{ .signed_or_exact_int = .byte }, .any },
                     .patterns = &.{
                         .{ .src = .{ .mut_mem, .none } },
@@ -4239,14 +4238,14 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .trap => try cg.asmOpOnly(.{ ._, .ud2 }),
             .breakpoint => try cg.asmOpOnly(.{ ._, .int3 }),
             .ret_addr => if (use_old) try cg.airRetAddr(inst) else {
-                var slot = try cg.tempFromValue(cg.typeOfIndex(inst), .{ .load_frame = .{
+                var slot = try cg.tempInit(.usize, .{ .load_frame = .{
                     .index = .ret_addr,
                 } });
                 while (try slot.toRegClass(true, .general_purpose, cg)) {}
                 try slot.moveTo(inst, cg);
             },
             .frame_addr => if (use_old) try cg.airFrameAddress(inst) else {
-                var slot = try cg.tempFromValue(cg.typeOfIndex(inst), .{ .lea_frame = .{
+                var slot = try cg.tempInit(.usize, .{ .lea_frame = .{
                     .index = .base_ptr,
                 } });
                 try slot.moveTo(inst, cg);
@@ -4260,7 +4259,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 const ty_op = air_datas[@intFromEnum(inst)].ty_op;
                 var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
                 var res: [1]Temp = undefined;
-                cg.select(&res, &.{cg.typeOfIndex(inst)}, &ops, comptime &.{ .{
+                cg.select(&res, &.{ty_op.ty.toType()}, &ops, comptime &.{ .{
                     .required_features = .{ .slow_incdec, null, null, null },
                     .src_constraints = .{ .{ .exact_signed_int = 1 }, .any },
                     .patterns = &.{
@@ -6997,7 +6996,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 switch (extra.compareOperator()) {
                     .lt => unreachable,
                     .lte => unreachable,
-                    .eq, .neq => |cmp_op| cg.select(&res, &.{cg.typeOfIndex(inst)}, &ops, switch (@as(Condition, switch (cmp_op) {
+                    .eq, .neq => |cmp_op| cg.select(&res, &.{ty_pl.ty.toType()}, &ops, switch (@as(Condition, switch (cmp_op) {
                         else => unreachable,
                         .eq => .e,
                         .neq => .ne,
@@ -8825,7 +8824,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     .unsigned;
                 var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
                 var res: [1]Temp = undefined;
-                cg.select(&res, &.{cg.typeOfIndex(inst)}, &ops, switch (@as(Condition, switch (signedness) {
+                cg.select(&res, &.{.bool}, &ops, switch (@as(Condition, switch (signedness) {
                     .signed => switch (air_tag) {
                         else => unreachable,
                         .cmp_lt, .cmp_lt_optimized => .l,
@@ -9011,7 +9010,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 });
                 var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
                 var res: [1]Temp = undefined;
-                cg.select(&res, &.{cg.typeOfIndex(inst)}, &ops, switch (@as(Condition, switch (air_tag) {
+                cg.select(&res, &.{.bool}, &ops, switch (@as(Condition, switch (air_tag) {
                     else => unreachable,
                     .cmp_eq, .cmp_eq_optimized => .e,
                     .cmp_neq, .cmp_neq_optimized => .ne,
@@ -9540,7 +9539,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .fromSize(opt_child_abi_size) }),
                     .u(0),
                 );
-                var is_null = try cg.tempFromValue(cg.typeOfIndex(inst), .{ .eflags = .e });
+                var is_null = try cg.tempInit(.bool, .{ .eflags = .e });
                 try ops[0].die(cg);
                 try is_null.moveTo(inst, cg);
             },
@@ -9563,7 +9562,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .fromSize(opt_child_abi_size) }),
                     .u(0),
                 );
-                var is_non_null = try cg.tempFromValue(cg.typeOfIndex(inst), .{ .eflags = .ne });
+                var is_non_null = try cg.tempInit(.bool, .{ .eflags = .ne });
                 try ops[0].die(cg);
                 try is_non_null.moveTo(inst, cg);
             },
@@ -9581,7 +9580,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     try ops[0].tracking(cg).short.deref().mem(cg, .{ .size = cg.memSize(eu_err_ty) }),
                     .u(0),
                 );
-                var is_err = try cg.tempFromValue(cg.typeOfIndex(inst), .{ .eflags = .ne });
+                var is_err = try cg.tempInit(.bool, .{ .eflags = .ne });
                 try ops[0].die(cg);
                 try is_err.moveTo(inst, cg);
             },
@@ -9599,7 +9598,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     try ops[0].tracking(cg).short.deref().mem(cg, .{ .size = cg.memSize(eu_err_ty) }),
                     .u(0),
                 );
-                var is_non_err = try cg.tempFromValue(cg.typeOfIndex(inst), .{ .eflags = .e });
+                var is_non_err = try cg.tempInit(.bool, .{ .eflags = .e });
                 try ops[0].die(cg);
                 try is_non_err.moveTo(inst, cg);
             },
@@ -9631,8 +9630,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     const opt_child_ty = opt_ty.optionalChild(zcu);
                     const opt_child_abi_size: i32 = @intCast(opt_child_ty.abiSize(zcu));
                     try ops[0].toOffset(opt_child_abi_size, cg);
-                    var has_value = try cg.tempFromValue(.bool, .{ .immediate = 1 });
-                    try ops[0].store(&has_value, cg);
+                    var has_value = try cg.tempInit(.bool, .{ .immediate = 1 });
+                    try ops[0].store(0, &has_value, cg);
                     try has_value.die(cg);
                     try ops[0].toOffset(-opt_child_abi_size, cg);
                 }
@@ -9654,7 +9653,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 const eu_err_off: i32 = @intCast(codegen.errUnionErrorOffset(eu_pl_ty, zcu));
                 var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
                 try ops[0].toOffset(eu_err_off, cg);
-                var err = try ops[0].load(eu_ty.errorUnionSet(zcu), cg);
+                var err = try ops[0].load(0, eu_ty.errorUnionSet(zcu), cg);
                 try ops[0].die(cg);
                 try err.moveTo(inst, cg);
             },
@@ -9667,8 +9666,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 const eu_pl_off: i32 = @intCast(codegen.errUnionPayloadOffset(eu_pl_ty, zcu));
                 var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
                 try ops[0].toOffset(eu_err_off, cg);
-                var no_err = try cg.tempFromValue(eu_err_ty, .{ .immediate = 0 });
-                try ops[0].store(&no_err, cg);
+                var no_err = try cg.tempInit(eu_err_ty, .{ .immediate = 0 });
+                try ops[0].store(0, &no_err, cg);
                 try no_err.die(cg);
                 try ops[0].toOffset(eu_pl_off - eu_err_off, cg);
                 try ops[0].moveTo(inst, cg);
@@ -9679,7 +9678,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 var ops = try cg.tempsFromOperands(inst, .{extra.struct_operand});
                 try ops[0].toOffset(cg.fieldOffset(
                     cg.typeOf(extra.struct_operand),
-                    cg.typeOfIndex(inst),
+                    ty_pl.ty.toType(),
                     extra.field_index,
                 ), cg);
                 try ops[0].moveTo(inst, cg);
@@ -9689,7 +9688,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
                 try ops[0].toOffset(cg.fieldOffset(
                     cg.typeOf(ty_op.operand),
-                    cg.typeOfIndex(inst),
+                    ty_op.ty.toType(),
                     0,
                 ), cg);
                 try ops[0].moveTo(inst, cg);
@@ -9699,7 +9698,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
                 try ops[0].toOffset(cg.fieldOffset(
                     cg.typeOf(ty_op.operand),
-                    cg.typeOfIndex(inst),
+                    ty_op.ty.toType(),
                     1,
                 ), cg);
                 try ops[0].moveTo(inst, cg);
@@ -9709,7 +9708,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
                 try ops[0].toOffset(cg.fieldOffset(
                     cg.typeOf(ty_op.operand),
-                    cg.typeOfIndex(inst),
+                    ty_op.ty.toType(),
                     2,
                 ), cg);
                 try ops[0].moveTo(inst, cg);
@@ -9719,10 +9718,28 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
                 try ops[0].toOffset(cg.fieldOffset(
                     cg.typeOf(ty_op.operand),
-                    cg.typeOfIndex(inst),
+                    ty_op.ty.toType(),
                     3,
                 ), cg);
                 try ops[0].moveTo(inst, cg);
+            },
+            .set_union_tag => if (use_old) try cg.airSetUnionTag(inst) else {
+                const bin_op = air_datas[@intFromEnum(inst)].bin_op;
+                const union_ty = cg.typeOf(bin_op.lhs).childType(zcu);
+                var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
+                const union_layout = union_ty.unionGetLayout(zcu);
+                if (union_layout.tag_size > 0) try ops[0].store(@intCast(union_layout.tagOffset()), &ops[1], cg);
+                for (ops) |op| try op.die(cg);
+            },
+            .get_union_tag => if (use_old) try cg.airGetUnionTag(inst) else {
+                const ty_op = air_datas[@intFromEnum(inst)].ty_op;
+                const union_ty = cg.typeOf(ty_op.operand);
+                var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
+                const union_layout = union_ty.unionGetLayout(zcu);
+                assert(union_layout.tag_size > 0);
+                var res = try ops[0].read(@intCast(union_layout.tagOffset()), ty_op.ty.toType(), cg);
+                for (ops) |op| if (op.index != res.index) try op.die(cg);
+                try res.moveTo(inst, cg);
             },
             .slice => if (use_old) try cg.airSlice(inst) else {
                 const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
@@ -9764,7 +9781,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
                 try ops[0].toSlicePtr(cg);
                 var res: [1]Temp = undefined;
-                const res_ty = cg.typeOfIndex(inst);
+                const res_ty = cg.typeOf(bin_op.lhs).elemType2(zcu);
                 cg.select(&res, &.{res_ty}, &ops, comptime &.{ .{
                     .dst_constraints = .{.{ .int = .byte }},
                     .patterns = &.{
@@ -9840,7 +9857,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     } },
                 } }) catch |err| switch (err) {
                     error.SelectFailed => switch (res_ty.abiSize(zcu)) {
-                        0 => res[0] = try cg.tempFromValue(res_ty, .none),
+                        0 => res[0] = try cg.tempInit(res_ty, .none),
                         else => |elem_size| {
                             while (true) for (&ops) |*op| {
                                 if (try op.toRegClass(true, .general_purpose, cg)) break;
@@ -9878,7 +9895,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                     .scale = .fromFactor(@intCast(elem_size)),
                                 } },
                             });
-                            res[0] = try ops[0].load(res_ty, cg);
+                            res[0] = try ops[0].load(0, res_ty, cg);
                         },
                     },
                     else => |e| return e,
@@ -9897,7 +9914,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 const bin_op = cg.air.extraData(Air.Bin, ty_pl.payload).data;
                 var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
                 try ops[0].toSlicePtr(cg);
-                const dst_ty = cg.typeOfIndex(inst);
+                const dst_ty = ty_pl.ty.toType();
                 if (dst_ty.ptrInfo(zcu).flags.vector_index == .none) zero_offset: {
                     const elem_size = dst_ty.childType(zcu).abiSize(zcu);
                     if (elem_size == 0) break :zero_offset;
@@ -9944,19 +9961,38 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .array_to_slice => if (use_old) try cg.airArrayToSlice(inst) else {
                 const ty_op = air_datas[@intFromEnum(inst)].ty_op;
                 var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
-                var len = try cg.tempFromValue(.usize, .{
+                var len = try cg.tempInit(.usize, .{
                     .immediate = cg.typeOf(ty_op.operand).childType(zcu).arrayLen(zcu),
                 });
                 try ops[0].toPair(&len, cg);
                 try ops[0].moveTo(inst, cg);
             },
             .error_set_has_value => return cg.fail("TODO implement error_set_has_value", .{}),
+            .union_init => if (use_old) try cg.airUnionInit(inst) else {
+                const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
+                const extra = cg.air.extraData(Air.UnionInit, ty_pl.payload).data;
+                const union_ty = ty_pl.ty.toType();
+                var ops = try cg.tempsFromOperands(inst, .{extra.init});
+                var res = try cg.tempAllocMem(union_ty);
+                const union_layout = union_ty.unionGetLayout(zcu);
+                if (union_layout.tag_size > 0) {
+                    var tag_temp = try cg.tempFromValue(try pt.enumValueFieldIndex(
+                        union_ty.unionTagTypeSafety(zcu).?,
+                        extra.field_index,
+                    ));
+                    try res.write(@intCast(union_layout.tagOffset()), &tag_temp, cg);
+                    try tag_temp.die(cg);
+                }
+                try res.write(@intCast(union_layout.payloadOffset()), &ops[0], cg);
+                try ops[0].die(cg);
+                try res.moveTo(inst, cg);
+            },
             .field_parent_ptr => if (use_old) try cg.airFieldParentPtr(inst) else {
                 const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
                 const extra = cg.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
                 var ops = try cg.tempsFromOperands(inst, .{extra.field_ptr});
                 try ops[0].toOffset(-cg.fieldOffset(
-                    cg.typeOfIndex(inst),
+                    ty_pl.ty.toType(),
                     cg.typeOf(extra.field_ptr),
                     extra.field_index,
                 ), cg);
@@ -10273,7 +10309,7 @@ fn allocRegOrMemAdvanced(self: *CodeGen, ty: Type, inst: ?Air.Inst.Index, reg_ok
     };
 
     if (reg_ok) need_mem: {
-        if (abi_size <= @as(u32, switch (ty.zigTypeTag(zcu)) {
+        if (std.math.isPowerOfTwo(abi_size) and abi_size <= @as(u32, switch (ty.zigTypeTag(zcu)) {
             .float => switch (ty.floatBits(self.target.*)) {
                 16, 32, 64, 128 => 16,
                 80 => break :need_mem,
@@ -11042,7 +11078,8 @@ fn airTrunc(self: *CodeGen, inst: Air.Inst.Index) !void {
             if (src_mcv.getReg()) |reg| self.register_manager.lockRegAssumeUnused(reg) else null;
         defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const dst_mcv = if (src_mcv.isRegister() and self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
+        const dst_mcv = if (src_mcv.isRegister() and src_mcv.getReg().?.class() == self.regClassForType(dst_ty) and
+            self.reuseOperand(inst, ty_op.operand, 0, src_mcv))
             src_mcv
         else if (dst_abi_size <= 8)
             try self.copyToRegisterWithInstTracking(inst, dst_ty, src_mcv)
@@ -15513,12 +15550,12 @@ fn airLoad(self: *CodeGen, inst: Air.Inst.Index) !void {
         const ptr_ty = self.typeOf(ty_op.operand);
         const elem_size = elem_ty.abiSize(zcu);
 
-        const elem_rc = self.regSetForType(elem_ty);
-        const ptr_rc = self.regSetForType(ptr_ty);
+        const elem_rs = self.regSetForType(elem_ty);
+        const ptr_rs = self.regSetForType(ptr_ty);
 
         const ptr_mcv = try self.resolveInst(ty_op.operand);
-        const dst_mcv = if (elem_size <= 8 and elem_rc.supersetOf(ptr_rc) and
-            self.reuseOperand(inst, ty_op.operand, 0, ptr_mcv))
+        const dst_mcv = if (elem_size <= 8 and std.math.isPowerOfTwo(elem_size) and
+            elem_rs.supersetOf(ptr_rs) and self.reuseOperand(inst, ty_op.operand, 0, ptr_mcv))
             // The MCValue that holds the pointer can be re-used as the value.
             ptr_mcv
         else
@@ -28295,17 +28332,19 @@ const Temp = struct {
         return true;
     }
 
-    fn load(ptr: *Temp, val_ty: Type, cg: *CodeGen) !Temp {
+    fn load(ptr: *Temp, disp: i32, val_ty: Type, cg: *CodeGen) !Temp {
         const val = try cg.tempAlloc(val_ty);
-        switch (val.tracking(cg).short) {
+        const val_mcv = val.tracking(cg).short;
+        switch (val_mcv) {
             else => |mcv| std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
             .register => |val_reg| {
                 while (try ptr.toLea(cg)) {}
-                try cg.genSetReg(val_reg, val_ty, ptr.tracking(cg).short.deref(), .{});
+                try cg.genSetReg(val_reg, val_ty, ptr.tracking(cg).short.offset(disp).deref(), .{});
             },
-            .load_frame => |val_frame_addr| {
-                var val_ptr = try cg.tempFromValue(.usize, .{ .lea_frame = val_frame_addr });
-                var len = try cg.tempFromValue(.usize, .{ .immediate = val_ty.abiSize(cg.pt.zcu) });
+            .memory, .indirect, .load_frame, .load_symbol => {
+                try ptr.toOffset(disp, cg);
+                var val_ptr = try cg.tempInit(.usize, val_mcv.address());
+                var len = try cg.tempInit(.usize, .{ .immediate = val_ty.abiSize(cg.pt.zcu) });
                 try val_ptr.memcpy(ptr, &len, cg);
                 try val_ptr.die(cg);
                 try len.die(cg);
@@ -28314,31 +28353,147 @@ const Temp = struct {
         return val;
     }
 
-    fn store(ptr: *Temp, val: *Temp, cg: *CodeGen) !void {
+    fn store(ptr: *Temp, disp: i32, val: *Temp, cg: *CodeGen) !void {
         const val_ty = val.typeOf(cg);
-        const val_abi_size: u32 = @intCast(val_ty.abiSize(cg.pt.zcu));
         val: switch (val.tracking(cg).short) {
             else => |mcv| std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
-            .immediate => |imm| if (std.math.cast(i32, imm)) |s| {
+            .immediate => |val_imm| {
+                const val_op: Immediate = if (std.math.cast(u32, val_imm)) |val_uimm32|
+                    .u(val_uimm32)
+                else if (std.math.cast(i32, @as(i64, @bitCast(val_imm)))) |val_simm32|
+                    .s(val_simm32)
+                else
+                    continue :val .{ .register = undefined };
                 while (try ptr.toLea(cg)) {}
                 try cg.asmMemoryImmediate(
                     .{ ._, .mov },
-                    try ptr.tracking(cg).short.deref().mem(cg, .{ .size = cg.memSize(val_ty) }),
-                    .s(s),
+                    try ptr.tracking(cg).short.deref().mem(cg, .{
+                        .size = cg.memSize(val_ty),
+                        .disp = disp,
+                    }),
+                    val_op,
                 );
-            } else continue :val .{ .register = undefined },
+            },
             .register => {
                 while (try ptr.toLea(cg) or try val.toRegClass(true, .general_purpose, cg)) {}
                 const val_reg = val.tracking(cg).short.register;
                 switch (val_reg.class()) {
                     .general_purpose => try cg.asmMemoryRegister(
                         .{ ._, .mov },
-                        try ptr.tracking(cg).short.deref().mem(cg, .{ .size = cg.memSize(val_ty) }),
-                        registerAlias(val_reg, val_abi_size),
+                        try ptr.tracking(cg).short.deref().mem(cg, .{
+                            .size = cg.memSize(val_ty),
+                            .disp = disp,
+                        }),
+                        registerAlias(val_reg, @intCast(val_ty.abiSize(cg.pt.zcu))),
                     ),
                     else => |mcv| std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
                 }
             },
+        }
+    }
+
+    fn read(src: *Temp, disp: i32, val_ty: Type, cg: *CodeGen) !Temp {
+        const val = try cg.tempAlloc(val_ty);
+        while (try src.toBase(cg)) {}
+        const val_mcv = val.tracking(cg).short;
+        switch (val_mcv) {
+            else => |mcv| std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
+            .register => |val_reg| try src.readReg(disp, val_ty, registerAlias(
+                val_reg,
+                @intCast(val_ty.abiSize(cg.pt.zcu)),
+            ), cg),
+        }
+        return val;
+    }
+
+    fn readReg(src: Temp, disp: i32, dst_ty: Type, dst_reg: Register, cg: *CodeGen) !void {
+        const strat = try cg.moveStrategy(dst_ty, dst_reg.class(), false);
+        try strat.read(cg, dst_reg, try src.tracking(cg).short.mem(cg, .{
+            .size = .fromBitSize(@min(8 * dst_ty.abiSize(cg.pt.zcu), dst_reg.bitSize())),
+            .disp = disp,
+        }));
+    }
+
+    fn write(dst: *Temp, disp: i32, val: *Temp, cg: *CodeGen) !void {
+        const val_ty = val.typeOf(cg);
+        while (try dst.toBase(cg)) {}
+        val_to_gpr: while (true) : (while (try val.toRegClass(false, .general_purpose, cg)) {}) {
+            const val_mcv = val.tracking(cg).short;
+            switch (val_mcv) {
+                else => |mcv| std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
+                .immediate => |val_imm| {
+                    const val_op: Immediate = if (std.math.cast(u32, val_imm)) |val_uimm32|
+                        .u(val_uimm32)
+                    else if (std.math.cast(i32, @as(i64, @bitCast(val_imm)))) |val_simm32|
+                        .s(val_simm32)
+                    else
+                        continue :val_to_gpr;
+                    try cg.asmMemoryImmediate(
+                        .{ ._, .mov },
+                        try dst.tracking(cg).short.mem(cg, .{
+                            .size = cg.memSize(val_ty),
+                            .disp = disp,
+                        }),
+                        val_op,
+                    );
+                },
+                .register => |val_reg| try dst.writeReg(disp, val_ty, registerAlias(
+                    val_reg,
+                    @intCast(val_ty.abiSize(cg.pt.zcu)),
+                ), cg),
+                inline .register_pair, .register_triple, .register_quadruple => |val_regs| {
+                    var part_disp = disp;
+                    for (val_regs) |val_reg| {
+                        try dst.writeReg(part_disp, val_ty, val_reg, cg);
+                        part_disp += @divExact(val_reg.bitSize(), 8);
+                    }
+                },
+                .register_offset => |val_reg_off| switch (val_reg_off.off) {
+                    0 => try dst.writeReg(disp, val_ty, registerAlias(
+                        val_reg_off.reg,
+                        @intCast(val_ty.abiSize(cg.pt.zcu)),
+                    ), cg),
+                    else => continue :val_to_gpr,
+                },
+                .lea_frame, .lea_symbol => continue :val_to_gpr,
+                .memory, .indirect, .load_frame, .load_symbol => {
+                    var dst_ptr = try cg.tempInit(.usize, dst.tracking(cg).short.address().offset(disp));
+                    var val_ptr = try cg.tempInit(.usize, val_mcv.address());
+                    var len = try cg.tempInit(.usize, .{ .immediate = val_ty.abiSize(cg.pt.zcu) });
+                    try dst_ptr.memcpy(&val_ptr, &len, cg);
+                    try dst_ptr.die(cg);
+                    try val_ptr.die(cg);
+                    try len.die(cg);
+                },
+            }
+            break;
+        }
+    }
+
+    fn writeReg(dst: Temp, disp: i32, src_ty: Type, src_reg: Register, cg: *CodeGen) !void {
+        const src_rc = src_reg.class();
+        const src_abi_size = src_ty.abiSize(cg.pt.zcu);
+        const strat = try cg.moveStrategy(src_ty, src_rc, false);
+        if (src_rc == .x87 or std.math.isPowerOfTwo(src_abi_size)) {
+            try strat.write(cg, try dst.tracking(cg).short.mem(cg, .{
+                .size = .fromBitSize(@min(8 * src_abi_size, src_reg.bitSize())),
+                .disp = disp,
+            }), src_reg);
+        } else {
+            const frame_alloc: FrameAlloc = .initSpill(src_ty, cg.pt.zcu);
+            const frame_index = try cg.allocFrameIndex(frame_alloc);
+            const frame_size: Memory.Size = .fromSize(frame_alloc.abi_size);
+            try strat.write(cg, .{
+                .base = .{ .frame = frame_index },
+                .mod = .{ .rm = .{ .size = frame_size } },
+            }, src_reg);
+            var dst_ptr = try cg.tempInit(.usize, dst.tracking(cg).short.address());
+            var src_ptr = try cg.tempInit(.usize, .{ .lea_frame = .{ .index = frame_index } });
+            var len = try cg.tempInit(.usize, .{ .immediate = src_abi_size });
+            try dst_ptr.memcpy(&src_ptr, &len, cg);
+            try dst_ptr.die(cg);
+            try src_ptr.die(cg);
+            try len.die(cg);
         }
     }
 
@@ -28498,13 +28653,17 @@ fn tempAllocMem(cg: *CodeGen, ty: Type) !Temp {
     return .{ .index = temp_index.toIndex() };
 }
 
-fn tempFromValue(cg: *CodeGen, ty: Type, value: MCValue) !Temp {
+fn tempInit(cg: *CodeGen, ty: Type, value: MCValue) !Temp {
     const temp_index = cg.next_temp_index;
     temp_index.tracking(cg).* = .init(value);
     cg.temp_type[@intFromEnum(temp_index)] = ty;
     try cg.getValue(value, temp_index.toIndex());
     cg.next_temp_index = @enumFromInt(@intFromEnum(temp_index) + 1);
     return .{ .index = temp_index.toIndex() };
+}
+
+fn tempFromValue(cg: *CodeGen, value: Value) !Temp {
+    return cg.tempInit(value.typeOf(cg.pt.zcu), try cg.genTypedValue(value));
 }
 
 fn tempFromOperand(
@@ -28549,7 +28708,7 @@ fn tempFromOperand(
                 else => break :init const_mcv,
             }
         });
-        return cg.tempFromValue(.fromInterned(ip.typeOf(val)), gop.value_ptr.short);
+        return cg.tempInit(.fromInterned(ip.typeOf(val)), gop.value_ptr.short);
     }
 
     const temp_index = cg.next_temp_index;
@@ -29023,8 +29182,8 @@ const Select = struct {
             return switch (spec.kind) {
                 .unused => null,
                 .any => try cg.tempAlloc(spec.type),
-                .cc => |cc| try cg.tempFromValue(spec.type, .{ .eflags = cc }),
-                .reg => |reg| try cg.tempFromValue(spec.type, .{ .register = reg }),
+                .cc => |cc| try cg.tempInit(spec.type, .{ .eflags = cc }),
+                .reg => |reg| try cg.tempInit(spec.type, .{ .register = reg }),
                 .rc => |rc| try cg.tempAllocReg(spec.type, regSetForRegClass(rc)),
                 .rc_mask => |rc_mask| try cg.tempAllocReg(spec.type, regSetForRegClass(rc_mask.rc)),
                 .mem => try cg.tempAllocMem(spec.type),
@@ -29081,18 +29240,14 @@ const Select = struct {
                             break :res_scalar .{ scalar_int_ty, try pt.intValue_big(scalar_int_ty, big_int.toConst()) };
                         },
                     };
-                    const res_ty, const res_val: Value = if (vector_len) |len| res: {
-                        const vector_ty = try pt.vectorType(.{
+                    const res_val: Value = if (vector_len) |len| .fromInterned(try pt.intern(.{ .aggregate = .{
+                        .ty = (try pt.vectorType(.{
                             .len = len,
                             .child = res_scalar_ty.toIntern(),
-                        });
-                        const vector_val = try pt.intern(.{ .aggregate = .{
-                            .ty = vector_ty.toIntern(),
-                            .storage = .{ .repeated_elem = res_scalar_val.toIntern() },
-                        } });
-                        break :res .{ vector_ty, .fromInterned(vector_val) };
-                    } else .{ res_scalar_ty, res_scalar_val };
-                    return try cg.tempFromValue(res_ty, try cg.genTypedValue(res_val));
+                        })).toIntern(),
+                        .storage = .{ .repeated_elem = res_scalar_val.toIntern() },
+                    } })) else res_scalar_val;
+                    return try cg.tempFromValue(res_val);
                 },
                 .ref => |ref| ref.deref(s),
                 .ref_mask => |ref_mask| ref_mask.ref.deref(s),

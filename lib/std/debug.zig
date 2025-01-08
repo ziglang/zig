@@ -23,6 +23,7 @@ pub const Coverage = @import("debug/Coverage.zig");
 
 pub const FormattedPanic = @import("debug/FormattedPanic.zig");
 pub const SimplePanic = @import("debug/SimplePanic.zig");
+pub const NoPanic = @import("debug/NoPanic.zig");
 
 /// Unresolved source locations can be represented with a single `usize` that
 /// corresponds to a virtual memory address of the program counter. Combined
