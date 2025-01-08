@@ -11549,9 +11549,21 @@ fn parseStrLit(
     }
 }
 
-fn failWithStrLitError(astgen: *AstGen, err: std.zig.string_literal.Error, token: Ast.TokenIndex, bytes: []const u8, offset: u32) InnerError {
+fn failWithStrLitError(
+    astgen: *AstGen,
+    err: std.zig.string_literal.Error,
+    token: Ast.TokenIndex,
+    bytes: []const u8,
+    offset: u32,
+) InnerError {
     const raw_string = bytes[offset..];
-    return err.lower(raw_string, offset, AstGen.failOff, .{ astgen, token });
+    return AstGen.failOff(
+        astgen,
+        token,
+        @intCast(offset + err.offset()),
+        "{}",
+        .{err.fmt(raw_string)},
+    );
 }
 
 fn failNode(

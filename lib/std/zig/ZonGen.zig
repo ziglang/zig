@@ -741,8 +741,20 @@ fn setNode(zg: *ZonGen, dest: Zoir.Node.Index, repr: Zoir.Node.Repr) void {
     zg.nodes.set(@intFromEnum(dest), repr);
 }
 
-fn lowerStrLitError(zg: *ZonGen, err: std.zig.string_literal.Error, token: Ast.TokenIndex, raw_string: []const u8, offset: u32) Allocator.Error!void {
-    return err.lower(raw_string, offset, ZonGen.addErrorTokOff, .{ zg, token });
+fn lowerStrLitError(
+    zg: *ZonGen,
+    err: std.zig.string_literal.Error,
+    token: Ast.TokenIndex,
+    raw_string: []const u8,
+    offset: u32,
+) Allocator.Error!void {
+    return ZonGen.addErrorTokOff(
+        zg,
+        token,
+        @intCast(offset + err.offset()),
+        "{}",
+        .{err.fmt(raw_string)},
+    );
 }
 
 fn lowerNumberError(zg: *ZonGen, err: std.zig.number_literal.Error, token: Ast.TokenIndex, bytes: []const u8) Allocator.Error!void {

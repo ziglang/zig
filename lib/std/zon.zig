@@ -44,7 +44,6 @@
 //! * `parseFromZoir`
 //! * `parseFromZoirNode`
 //! * `parseFromZoirNode`
-//! * `parseFromZoirNodeNoAlloc`
 //!
 //! If you need lower level control than provided by this module, you can operate directly on the
 //! results of `std.zig.Zoir` directly. This module is a good example of how that can be done.
@@ -69,9 +68,7 @@ pub const ParseOptions = @import("zon/parse.zig").Options;
 pub const ParseStatus = @import("zon/parse.zig").Status;
 pub const parseFromSlice = @import("zon/parse.zig").parseFromSlice;
 pub const parseFromZoir = @import("zon/parse.zig").parseFromZoir;
-pub const parseFromZoirNoAlloc = @import("zon/parse.zig").parseFromZoirNoAlloc;
 pub const parseFromZoirNode = @import("zon/parse.zig").parseFromZoirNode;
-pub const parseFromZoirNodeNoAlloc = @import("zon/parse.zig").parseFromZoirNodeNoAlloc;
 pub const parseFree = @import("zon/parse.zig").parseFree;
 
 pub const StringifierOptions = @import("zon/stringify.zig").StringifierOptions;
