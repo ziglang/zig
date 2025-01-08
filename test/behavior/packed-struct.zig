@@ -1317,3 +1317,13 @@ test "packed struct equality" {
     try S.doTest(x, y);
     comptime try S.doTest(x, y);
 }
+
+test "packed struct with signed field" {
+    var s: packed struct {
+        a: i2,
+        b: u6,
+    } = .{ .a = -1, .b = 42 };
+    s = s;
+    try expect(s.a == -1);
+    try expect(s.b == 42);
+}
