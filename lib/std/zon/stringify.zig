@@ -1,24 +1,29 @@
+//! ZON can be serialized with `serialize`.
+//!
+//! The following functions are provided for serializing recursive types:
+//! * `serializeMaxDepth`
+//! * `serializeArbitraryDepth`
+//!
+//! For additional control over serialization, see `Serializer`.
+//!
+//! Transitively Supported types:
+//! * bools
+//! * fixed sized numeric types
+//! * exhaustive enums (non-exhaustive enums may have no literal representation)
+//! * enum literals
+//! * slices
+//! * arrays
+//! * structs
+//! * tagged unions
+//! * optionals
+//! * null
+//!
+//! Unsupported types will fail to serialize at compile time.
+
 const std = @import("std");
 
-/// Configuration for stringification.
-///
-/// See `StringifyOptions` for more details.
-pub const StringifierOptions = struct {
-    /// If false, only syntactically necessary whitespace is emitted.
-    whitespace: bool = true,
-};
-
-/// Options for stringification of an individual value.
-///
-/// See `StringifyOptions` for more details.
-pub const StringifyValueOptions = struct {
-    emit_utf8_codepoints: bool = false,
-    emit_strings_as_containers: bool = false,
-    emit_default_optional_fields: bool = true,
-};
-
-/// All stringify options.
-pub const StringifyOptions = struct {
+/// Options for `serialize`.
+pub const SerializeOptions = struct {
     /// If false, all whitespace is emitted. Otherwise, whitespace is emitted in the standard Zig
     /// style when possible.
     whitespace: bool = true,
@@ -33,47 +38,15 @@ pub const StringifyOptions = struct {
     emit_default_optional_fields: bool = true,
 };
 
-/// Options for manual serializaation of container types.
-pub const StringifyContainerOptions = struct {
-    /// The whitespace style that should be used for this container. Ignored if whitespace is off.
-    whitespace_style: union(enum) {
-        /// If true, wrap every field/item. If false do not.
-        wrap: bool,
-        /// Automatically decide whether to wrap or not based on the number of fields. Following
-        /// the standard rule of thumb, containers with more than two fields are wrapped.
-        fields: usize,
-    } = .{ .wrap = true },
-
-    fn shouldWrap(self: StringifyContainerOptions) bool {
-        return switch (self.whitespace_style) {
-            .wrap => |wrap| wrap,
-            .fields => |fields| fields > 2,
-        };
-    }
-};
-
-/// Serialize the given value to ZON.
+/// Serialize the given value as ZON.
 ///
 /// It is asserted at comptime that `@TypeOf(val)` is not a recursive type.
-pub fn stringify(
-    /// The value to serialize. May only transitively contain the following supported types:
-    /// * bools
-    /// * fixed sized numeric types
-    /// * exhaustive enums, enum literals
-    ///     * Non-exhaustive enums may hold values that have no literal representation, and
-    ///       therefore cannot be stringified in a way that allows round trips back through the
-    ///       parser. There are plans to resolve this in the future.
-    /// * slices
-    /// * arrays
-    /// * structures
-    /// * tagged unions
-    /// * optionals
-    /// * null
+pub fn serialize(
     val: anytype,
-    comptime options: StringifyOptions,
+    comptime options: SerializeOptions,
     writer: anytype,
 ) @TypeOf(writer).Error!void {
-    var serializer = stringifier(writer, .{
+    var serializer: Serializer(@TypeOf(writer)) = .init(writer, .{
         .whitespace = options.whitespace,
     });
     try serializer.value(val, .{
@@ -83,11 +56,16 @@ pub fn stringify(
     });
 }
 
-/// Like `stringify`, but recursive types are allowed.
+/// Like `serialize`, but recursive types are allowed.
 ///
-/// Returns `error.MaxDepth` if `depth` is exceeded.
-pub fn stringifyMaxDepth(val: anytype, comptime options: StringifyOptions, writer: anytype, depth: usize) Stringifier(@TypeOf(writer)).MaxDepthError!void {
-    var serializer = stringifier(writer, .{
+/// Returns `error.ExceededMaxDepth` if `depth` is exceeded.
+pub fn serializeMaxDepth(
+    val: anytype,
+    comptime options: SerializeOptions,
+    writer: anytype,
+    depth: usize,
+) Serializer(@TypeOf(writer)).ExceededMaxDepth!void {
+    var serializer: Serializer(@TypeOf(writer)) = .init(writer, .{
         .whitespace = options.whitespace,
     });
     try serializer.valueMaxDepth(val, .{
@@ -97,11 +75,15 @@ pub fn stringifyMaxDepth(val: anytype, comptime options: StringifyOptions, write
     }, depth);
 }
 
-/// Like `stringify`, but recursive types are allowed.
+/// Like `serialize`, but recursive types are allowed.
 ///
 /// It is the caller's responsibility to ensure that `val` does not contain cycles.
-pub fn stringifyArbitraryDepth(val: anytype, comptime options: StringifyOptions, writer: anytype) @TypeOf(writer).Error!void {
-    var serializer = stringifier(writer, .{
+pub fn serializeArbitraryDepth(
+    val: anytype,
+    comptime options: SerializeOptions,
+    writer: anytype,
+) @TypeOf(writer).Error!void {
+    var serializer: Serializer(@TypeOf(writer)) = .init(writer, .{
         .whitespace = options.whitespace,
     });
     try serializer.valueArbitraryDepth(val, .{
@@ -244,9 +226,41 @@ test "std.zon checkValueDepth" {
     try expectValueDepthEquals(3, @as([]const []const u8, &.{&.{ 1, 2, 3 }}));
 }
 
-/// Lower level control over stringification, you can create a new instance with `stringifier`.
+/// Options for `Serializer`.
+pub const SerializerOptions = struct {
+    /// If false, only syntactically necessary whitespace is emitted.
+    whitespace: bool = true,
+};
+
+/// Options for serialization of an individual value.
+pub const ValueOptions = struct {
+    emit_utf8_codepoints: bool = false,
+    emit_strings_as_containers: bool = false,
+    emit_default_optional_fields: bool = true,
+};
+
+/// Options for manual serialization of container types.
+pub const SerializeContainerOptions = struct {
+    /// The whitespace style that should be used for this container. Ignored if whitespace is off.
+    whitespace_style: union(enum) {
+        /// If true, wrap every field/item. If false do not.
+        wrap: bool,
+        /// Automatically decide whether to wrap or not based on the number of fields. Following
+        /// the standard rule of thumb, containers with more than two fields are wrapped.
+        fields: usize,
+    } = .{ .wrap = true },
+
+    fn shouldWrap(self: SerializeContainerOptions) bool {
+        return switch (self.whitespace_style) {
+            .wrap => |wrap| wrap,
+            .fields => |fields| fields > 2,
+        };
+    }
+};
+
+/// Lower level control over serialization, you can create a new instance with `serializer`.
 ///
-/// Useful when you want control over which fields/items are stringified, how they're represented,
+/// Useful when you want control over which fields/items are serialized, how they're represented,
 /// or want to write a ZON object that does not exist in memory.
 ///
 /// You can serialize values with `value`. To serialize recursive types, the following are provided:
@@ -270,25 +284,25 @@ test "std.zon checkValueDepth" {
 ///
 /// # Example
 /// ```zig
-/// var serializer = stringifier(writer, .{});
+/// var serializer: Serializer(@TypeOf(writer)) = .init(writer, .{});
 /// var vec2 = try serializer.startStruct(.{});
 /// try vec2.field("x", 1.5, .{});
 /// try vec2.fieldPrefix();
 /// try serializer.value(2.5);
 /// try vec2.finish();
 /// ```
-pub fn Stringifier(comptime Writer: type) type {
+pub fn Serializer(comptime Writer: type) type {
     return struct {
         const Self = @This();
 
-        pub const MaxDepthError = error{MaxDepth} || Writer.Error;
+        pub const ExceededMaxDepth = error{MaxDepth} || Writer.Error;
 
-        options: StringifierOptions,
+        options: SerializerOptions,
         indent_level: u8,
         writer: Writer,
 
-        /// Initialize a stringifier.
-        fn init(writer: Writer, options: StringifierOptions) Self {
+        /// Initialize a serializer.
+        fn init(writer: Writer, options: SerializerOptions) Self {
             return .{
                 .options = options,
                 .writer = writer,
@@ -296,20 +310,29 @@ pub fn Stringifier(comptime Writer: type) type {
             };
         }
 
-        /// Serialize a value, similar to `stringify`.
-        pub fn value(self: *Self, val: anytype, options: StringifyValueOptions) Writer.Error!void {
+        /// Serialize a value, similar to `serialize`.
+        pub fn value(self: *Self, val: anytype, options: ValueOptions) Writer.Error!void {
             comptimeAssertNoRecursion(@TypeOf(val));
             return self.valueArbitraryDepth(val, options);
         }
 
-        /// Serialize a value, similar to `stringifyMaxDepth`.
-        pub fn valueMaxDepth(self: *Self, val: anytype, options: StringifyValueOptions, depth: usize) MaxDepthError!void {
+        /// Serialize a value, similar to `serializeMaxDepth`.
+        pub fn valueMaxDepth(
+            self: *Self,
+            val: anytype,
+            options: ValueOptions,
+            depth: usize,
+        ) ExceededMaxDepth!void {
             try checkValueDepth(val, depth);
             return self.valueArbitraryDepth(val, options);
         }
 
-        /// Serialize a value, similar to `stringifyArbitraryDepth`.
-        pub fn valueArbitraryDepth(self: *Self, val: anytype, options: StringifyValueOptions) Writer.Error!void {
+        /// Serialize a value, similar to `serializeArbitraryDepth`.
+        pub fn valueArbitraryDepth(
+            self: *Self,
+            val: anytype,
+            options: ValueOptions,
+        ) Writer.Error!void {
             switch (@typeInfo(@TypeOf(val))) {
                 .int => |int_info| if (options.emit_utf8_codepoints and
                     int_info.signedness == .unsigned and
@@ -344,13 +367,17 @@ pub fn Stringifier(comptime Writer: type) type {
                     try self.writer.writeByte('.');
                     try self.ident(@tagName(val));
                 } else {
-                    @compileError(@typeName(@TypeOf(val)) ++ ": cannot stringify non-exhaustive enums");
+                    @compileError(
+                        @typeName(@TypeOf(val)) ++ ": cannot stringify non-exhaustive enums",
+                    );
                 },
                 .void => try self.writer.writeAll("{}"),
                 .pointer => |pointer| {
                     const child_type = switch (@typeInfo(pointer.child)) {
                         .array => |array| array.child,
-                        else => if (pointer.size != .Slice) @compileError(@typeName(@TypeOf(val)) ++ ": cannot stringify pointer to this type") else pointer.child,
+                        else => if (pointer.size != .Slice) @compileError(
+                            @typeName(@TypeOf(val)) ++ ": cannot stringify pointer to this type",
+                        ) else pointer.child,
                     };
                     if (child_type == u8 and !options.emit_strings_as_containers) {
                         try self.string(val);
@@ -359,14 +386,18 @@ pub fn Stringifier(comptime Writer: type) type {
                     }
                 },
                 .array => {
-                    var container = try self.startTuple(.{ .whitespace_style = .{ .fields = val.len } });
+                    var container = try self.startTuple(
+                        .{ .whitespace_style = .{ .fields = val.len } },
+                    );
                     for (val) |item_val| {
                         try container.fieldArbitraryDepth(item_val, options);
                     }
                     try container.finish();
                 },
                 .@"struct" => |@"struct"| if (@"struct".is_tuple) {
-                    var container = try self.startTuple(.{ .whitespace_style = .{ .fields = @"struct".fields.len } });
+                    var container = try self.startTuple(
+                        .{ .whitespace_style = .{ .fields = @"struct".fields.len } },
+                    );
                     inline for (val) |field_value| {
                         try container.fieldArbitraryDepth(field_value, options);
                     }
@@ -381,7 +412,9 @@ pub fn Stringifier(comptime Writer: type) type {
                         inline for (@"struct".fields, &skipped) |field_info, *skip| {
                             if (field_info.default_value) |default_field_value_opaque| {
                                 const field_value = @field(val, field_info.name);
-                                const default_field_value: *const @TypeOf(field_value) = @ptrCast(@alignCast(default_field_value_opaque));
+                                const default_field_value: *const @TypeOf(field_value) = @ptrCast(
+                                    @alignCast(default_field_value_opaque),
+                                );
                                 if (std.meta.eql(field_value, default_field_value.*)) {
                                     skip.* = true;
                                     fields -= 1;
@@ -392,10 +425,16 @@ pub fn Stringifier(comptime Writer: type) type {
                     };
 
                     // Emit those fields
-                    var container = try self.startStruct(.{ .whitespace_style = .{ .fields = fields } });
+                    var container = try self.startStruct(
+                        .{ .whitespace_style = .{ .fields = fields } },
+                    );
                     inline for (@"struct".fields, skipped) |field_info, skip| {
                         if (!skip) {
-                            try container.fieldArbitraryDepth(field_info.name, @field(val, field_info.name), options);
+                            try container.fieldArbitraryDepth(
+                                field_info.name,
+                                @field(val, field_info.name),
+                                options,
+                            );
                         }
                     }
                     try container.finish();
@@ -405,7 +444,11 @@ pub fn Stringifier(comptime Writer: type) type {
                 } else {
                     var container = try self.startStruct(.{ .whitespace_style = .{ .fields = 1 } });
                     switch (val) {
-                        inline else => |pl, tag| try container.fieldArbitraryDepth(@tagName(tag), pl, options),
+                        inline else => |pl, tag| try container.fieldArbitraryDepth(
+                            @tagName(tag),
+                            pl,
+                            options,
+                        ),
                     }
                     try container.finish();
                 },
@@ -478,15 +521,20 @@ pub fn Stringifier(comptime Writer: type) type {
         /// Like `value`, but always serializes `val` as a slice.
         ///
         /// Will fail at comptime if `val` is not an array or slice.
-        pub fn slice(self: *Self, val: anytype, options: StringifyValueOptions) Writer.Error!void {
+        pub fn slice(self: *Self, val: anytype, options: ValueOptions) Writer.Error!void {
             comptimeAssertNoRecursion(@TypeOf(val));
             try self.sliceArbitraryDepth(val, options);
         }
 
         /// Like `value`, but recursive types are allowed.
         ///
-        /// Returns `error.MaxDepthError` if `depth` is exceeded.
-        pub fn sliceMaxDepth(self: *Self, val: anytype, options: StringifyValueOptions, depth: usize) MaxDepthError!void {
+        /// Returns `error.ExceededMaxDepth` if `depth` is exceeded.
+        pub fn sliceMaxDepth(
+            self: *Self,
+            val: anytype,
+            options: ValueOptions,
+            depth: usize,
+        ) ExceededMaxDepth!void {
             try checkValueDepth(val, depth);
             try self.sliceArbitraryDepth(val, options);
         }
@@ -494,11 +542,15 @@ pub fn Stringifier(comptime Writer: type) type {
         /// Like `value`, but recursive types are allowed.
         ///
         /// It is the caller's responsibility to ensure that `val` does not contain cycles.
-        pub fn sliceArbitraryDepth(self: *Self, val: anytype, options: StringifyValueOptions) Writer.Error!void {
+        pub fn sliceArbitraryDepth(
+            self: *Self,
+            val: anytype,
+            options: ValueOptions,
+        ) Writer.Error!void {
             try self.sliceImpl(val, options);
         }
 
-        fn sliceImpl(self: *Self, val: anytype, options: StringifyValueOptions) Writer.Error!void {
+        fn sliceImpl(self: *Self, val: anytype, options: ValueOptions) Writer.Error!void {
             var container = try self.startSlice(.{ .whitespace_style = .{ .fields = val.len } });
             for (val) |item_val| {
                 try container.itemArbitraryDepth(item_val, options);
@@ -523,7 +575,11 @@ pub fn Stringifier(comptime Writer: type) type {
         ///
         /// Returns `error.InnerCarriageReturn` if `val` contains a CR not followed by a newline,
         /// since multiline strings cannot represent CR without a following newline.
-        pub fn multilineString(self: *Self, val: []const u8, options: MultilineStringOptions) (Writer.Error || error{InnerCarriageReturn})!void {
+        pub fn multilineString(
+            self: *Self,
+            val: []const u8,
+            options: MultilineStringOptions,
+        ) (Writer.Error || error{InnerCarriageReturn})!void {
             // Make sure the string does not contain any carriage returns not followed by a newline
             var i: usize = 0;
             while (i < val.len) : (i += 1) {
@@ -561,17 +617,17 @@ pub fn Stringifier(comptime Writer: type) type {
         }
 
         /// Create a `Struct` for writing ZON structs field by field.
-        pub fn startStruct(self: *Self, options: StringifyContainerOptions) Writer.Error!Struct {
+        pub fn startStruct(self: *Self, options: SerializeContainerOptions) Writer.Error!Struct {
             return Struct.start(self, options);
         }
 
         /// Creates a `Tuple` for writing ZON tuples field by field.
-        pub fn startTuple(self: *Self, options: StringifyContainerOptions) Writer.Error!Tuple {
+        pub fn startTuple(self: *Self, options: SerializeContainerOptions) Writer.Error!Tuple {
             return Tuple.start(self, options);
         }
 
         /// Creates a `Slice` for writing ZON slices item by item.
-        pub fn startSlice(self: *Self, options: StringifyContainerOptions) Writer.Error!Slice {
+        pub fn startSlice(self: *Self, options: SerializeContainerOptions) Writer.Error!Slice {
             return Slice.start(self, options);
         }
 
@@ -605,7 +661,7 @@ pub fn Stringifier(comptime Writer: type) type {
         pub const Tuple = struct {
             container: Container,
 
-            fn start(parent: *Self, options: StringifyContainerOptions) Writer.Error!Tuple {
+            fn start(parent: *Self, options: SerializeContainerOptions) Writer.Error!Tuple {
                 return .{
                     .container = try Container.start(parent, .anon, options),
                 };
@@ -620,17 +676,31 @@ pub fn Stringifier(comptime Writer: type) type {
             }
 
             /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `value`.
-            pub fn field(self: *Tuple, val: anytype, options: StringifyValueOptions) Writer.Error!void {
+            pub fn field(
+                self: *Tuple,
+                val: anytype,
+                options: ValueOptions,
+            ) Writer.Error!void {
                 try self.container.field(null, val, options);
             }
 
             /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `valueMaxDepth`.
-            pub fn fieldMaxDepth(self: *Tuple, val: anytype, options: StringifyValueOptions, depth: usize) MaxDepthError!void {
+            pub fn fieldMaxDepth(
+                self: *Tuple,
+                val: anytype,
+                options: ValueOptions,
+                depth: usize,
+            ) ExceededMaxDepth!void {
                 try self.container.fieldMaxDepth(null, val, options, depth);
             }
 
-            /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `valueArbitraryDepth`.
-            pub fn fieldArbitraryDepth(self: *Tuple, val: anytype, options: StringifyValueOptions) Writer.Error!void {
+            /// Serialize a field. Equivalent to calling `fieldPrefix` followed by
+            /// `valueArbitraryDepth`.
+            pub fn fieldArbitraryDepth(
+                self: *Tuple,
+                val: anytype,
+                options: ValueOptions,
+            ) Writer.Error!void {
                 try self.container.fieldArbitraryDepth(null, val, options);
             }
 
@@ -645,7 +715,7 @@ pub fn Stringifier(comptime Writer: type) type {
         pub const Struct = struct {
             container: Container,
 
-            fn start(parent: *Self, options: StringifyContainerOptions) Writer.Error!Struct {
+            fn start(parent: *Self, options: SerializeContainerOptions) Writer.Error!Struct {
                 return .{
                     .container = try Container.start(parent, .named, options),
                 };
@@ -660,17 +730,34 @@ pub fn Stringifier(comptime Writer: type) type {
             }
 
             /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `value`.
-            pub fn field(self: *Struct, name: []const u8, val: anytype, options: StringifyValueOptions) Writer.Error!void {
+            pub fn field(
+                self: *Struct,
+                name: []const u8,
+                val: anytype,
+                options: ValueOptions,
+            ) Writer.Error!void {
                 try self.container.field(name, val, options);
             }
 
             /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `valueMaxDepth`.
-            pub fn fieldMaxDepth(self: *Struct, name: []const u8, val: anytype, options: StringifyValueOptions, depth: usize) MaxDepthError!void {
+            pub fn fieldMaxDepth(
+                self: *Struct,
+                name: []const u8,
+                val: anytype,
+                options: ValueOptions,
+                depth: usize,
+            ) ExceededMaxDepth!void {
                 try self.container.fieldMaxDepth(name, val, options, depth);
             }
 
-            /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `valueArbitraryDepth`.
-            pub fn fieldArbitraryDepth(self: *Struct, name: []const u8, val: anytype, options: StringifyValueOptions) Writer.Error!void {
+            /// Serialize a field. Equivalent to calling `fieldPrefix` followed by
+            /// `valueArbitraryDepth`.
+            pub fn fieldArbitraryDepth(
+                self: *Struct,
+                name: []const u8,
+                val: anytype,
+                options: ValueOptions,
+            ) Writer.Error!void {
                 try self.container.fieldArbitraryDepth(name, val, options);
             }
 
@@ -686,7 +773,7 @@ pub fn Stringifier(comptime Writer: type) type {
         pub const Slice = struct {
             container: Container,
 
-            fn start(parent: *Self, options: StringifyContainerOptions) Writer.Error!Slice {
+            fn start(parent: *Self, options: SerializeContainerOptions) Writer.Error!Slice {
                 try parent.writer.writeByte('&');
                 return .{
                     .container = try Container.start(parent, .anon, options),
@@ -702,17 +789,31 @@ pub fn Stringifier(comptime Writer: type) type {
             }
 
             /// Serialize an item. Equivalent to calling `itemPrefix` followed by `value`.
-            pub fn item(self: *Slice, val: anytype, options: StringifyValueOptions) Writer.Error!void {
+            pub fn item(
+                self: *Slice,
+                val: anytype,
+                options: ValueOptions,
+            ) Writer.Error!void {
                 try self.container.field(null, val, options);
             }
 
             /// Serialize an item. Equivalent to calling `itemPrefix` followed by `valueMaxDepth`.
-            pub fn itemMaxDepth(self: *Slice, val: anytype, options: StringifyValueOptions, depth: usize) MaxDepthError!void {
+            pub fn itemMaxDepth(
+                self: *Slice,
+                val: anytype,
+                options: ValueOptions,
+                depth: usize,
+            ) ExceededMaxDepth!void {
                 try self.container.fieldMaxDepth(null, val, options, depth);
             }
 
-            /// Serialize an item. Equivalent to calling `itemPrefix` followed by `valueArbitraryDepth`.
-            pub fn itemArbitraryDepth(self: *Slice, val: anytype, options: StringifyValueOptions) Writer.Error!void {
+            /// Serialize an item. Equivalent to calling `itemPrefix` followed by
+            /// `valueArbitraryDepth`.
+            pub fn itemArbitraryDepth(
+                self: *Slice,
+                val: anytype,
+                options: ValueOptions,
+            ) Writer.Error!void {
                 try self.container.fieldArbitraryDepth(null, val, options);
             }
 
@@ -728,10 +829,14 @@ pub fn Stringifier(comptime Writer: type) type {
 
             serializer: *Self,
             field_style: FieldStyle,
-            options: StringifyContainerOptions,
+            options: SerializeContainerOptions,
             empty: bool,
 
-            fn start(serializer: *Self, field_style: FieldStyle, options: StringifyContainerOptions) Writer.Error!Container {
+            fn start(
+                serializer: *Self,
+                field_style: FieldStyle,
+                options: SerializeContainerOptions,
+            ) Writer.Error!Container {
                 if (options.shouldWrap()) serializer.indent_level +|= 1;
                 try serializer.writer.writeAll(".{");
                 return .{
@@ -779,17 +884,33 @@ pub fn Stringifier(comptime Writer: type) type {
                 }
             }
 
-            fn field(self: *Container, name: ?[]const u8, val: anytype, options: StringifyValueOptions) Writer.Error!void {
+            fn field(
+                self: *Container,
+                name: ?[]const u8,
+                val: anytype,
+                options: ValueOptions,
+            ) Writer.Error!void {
                 comptimeAssertNoRecursion(@TypeOf(val));
                 try self.fieldArbitraryDepth(name, val, options);
             }
 
-            fn fieldMaxDepth(self: *Container, name: ?[]const u8, val: anytype, options: StringifyValueOptions, depth: usize) MaxDepthError!void {
+            fn fieldMaxDepth(
+                self: *Container,
+                name: ?[]const u8,
+                val: anytype,
+                options: ValueOptions,
+                depth: usize,
+            ) ExceededMaxDepth!void {
                 try checkValueDepth(val, depth);
                 try self.fieldArbitraryDepth(name, val, options);
             }
 
-            fn fieldArbitraryDepth(self: *Container, name: ?[]const u8, val: anytype, options: StringifyValueOptions) Writer.Error!void {
+            fn fieldArbitraryDepth(
+                self: *Container,
+                name: ?[]const u8,
+                val: anytype,
+                options: ValueOptions,
+            ) Writer.Error!void {
                 try self.fieldPrefix(name);
                 try self.serializer.valueArbitraryDepth(val, options);
             }
@@ -810,89 +931,96 @@ pub fn Stringifier(comptime Writer: type) type {
     };
 }
 
-/// Creates an instance of `Stringifier`.
-pub fn stringifier(writer: anytype, options: StringifierOptions) Stringifier(@TypeOf(writer)) {
-    return Stringifier(@TypeOf(writer)).init(writer, options);
-}
-
-fn expectStringifyEqual(expected: []const u8, value: anytype, comptime options: StringifyOptions) !void {
+fn expectSerializeEqual(
+    expected: []const u8,
+    value: anytype,
+    comptime options: SerializeOptions,
+) !void {
     var buf = std.ArrayList(u8).init(std.testing.allocator);
     defer buf.deinit();
-    try stringify(value, options, buf.writer());
+    try serialize(value, options, buf.writer());
     try std.testing.expectEqualStrings(expected, buf.items);
 }
 
 test "std.zon stringify whitespace, high level API" {
-    try expectStringifyEqual(".{}", .{}, .{});
-    try expectStringifyEqual(".{}", .{}, .{ .whitespace = false });
+    try expectSerializeEqual(".{}", .{}, .{});
+    try expectSerializeEqual(".{}", .{}, .{ .whitespace = false });
 
-    try expectStringifyEqual(".{1}", .{1}, .{});
-    try expectStringifyEqual(".{1}", .{1}, .{ .whitespace = false });
+    try expectSerializeEqual(".{1}", .{1}, .{});
+    try expectSerializeEqual(".{1}", .{1}, .{ .whitespace = false });
 
-    try expectStringifyEqual(".{1}", @as([1]u32, .{1}), .{});
-    try expectStringifyEqual(".{1}", @as([1]u32, .{1}), .{ .whitespace = false });
+    try expectSerializeEqual(".{1}", @as([1]u32, .{1}), .{});
+    try expectSerializeEqual(".{1}", @as([1]u32, .{1}), .{ .whitespace = false });
 
-    try expectStringifyEqual("&.{1}", @as([]const u32, &.{1}), .{});
-    try expectStringifyEqual("&.{1}", @as([]const u32, &.{1}), .{ .whitespace = false });
+    try expectSerializeEqual("&.{1}", @as([]const u32, &.{1}), .{});
+    try expectSerializeEqual("&.{1}", @as([]const u32, &.{1}), .{ .whitespace = false });
 
-    try expectStringifyEqual(".{ .x = 1 }", .{ .x = 1 }, .{});
-    try expectStringifyEqual(".{.x=1}", .{ .x = 1 }, .{ .whitespace = false });
+    try expectSerializeEqual(".{ .x = 1 }", .{ .x = 1 }, .{});
+    try expectSerializeEqual(".{.x=1}", .{ .x = 1 }, .{ .whitespace = false });
 
-    try expectStringifyEqual(".{ 1, 2 }", .{ 1, 2 }, .{});
-    try expectStringifyEqual(".{1,2}", .{ 1, 2 }, .{ .whitespace = false });
+    try expectSerializeEqual(".{ 1, 2 }", .{ 1, 2 }, .{});
+    try expectSerializeEqual(".{1,2}", .{ 1, 2 }, .{ .whitespace = false });
 
-    try expectStringifyEqual(".{ 1, 2 }", @as([2]u32, .{ 1, 2 }), .{});
-    try expectStringifyEqual(".{1,2}", @as([2]u32, .{ 1, 2 }), .{ .whitespace = false });
+    try expectSerializeEqual(".{ 1, 2 }", @as([2]u32, .{ 1, 2 }), .{});
+    try expectSerializeEqual(".{1,2}", @as([2]u32, .{ 1, 2 }), .{ .whitespace = false });
 
-    try expectStringifyEqual("&.{ 1, 2 }", @as([]const u32, &.{ 1, 2 }), .{});
-    try expectStringifyEqual("&.{1,2}", @as([]const u32, &.{ 1, 2 }), .{ .whitespace = false });
+    try expectSerializeEqual("&.{ 1, 2 }", @as([]const u32, &.{ 1, 2 }), .{});
+    try expectSerializeEqual("&.{1,2}", @as([]const u32, &.{ 1, 2 }), .{ .whitespace = false });
 
-    try expectStringifyEqual(".{ .x = 1, .y = 2 }", .{ .x = 1, .y = 2 }, .{});
-    try expectStringifyEqual(".{.x=1,.y=2}", .{ .x = 1, .y = 2 }, .{ .whitespace = false });
+    try expectSerializeEqual(".{ .x = 1, .y = 2 }", .{ .x = 1, .y = 2 }, .{});
+    try expectSerializeEqual(".{.x=1,.y=2}", .{ .x = 1, .y = 2 }, .{ .whitespace = false });
 
-    try expectStringifyEqual(
+    try expectSerializeEqual(
         \\.{
         \\    1,
         \\    2,
         \\    3,
         \\}
     , .{ 1, 2, 3 }, .{});
-    try expectStringifyEqual(".{1,2,3}", .{ 1, 2, 3 }, .{ .whitespace = false });
+    try expectSerializeEqual(".{1,2,3}", .{ 1, 2, 3 }, .{ .whitespace = false });
 
-    try expectStringifyEqual(
+    try expectSerializeEqual(
         \\.{
         \\    1,
         \\    2,
         \\    3,
         \\}
     , @as([3]u32, .{ 1, 2, 3 }), .{});
-    try expectStringifyEqual(".{1,2,3}", @as([3]u32, .{ 1, 2, 3 }), .{ .whitespace = false });
+    try expectSerializeEqual(".{1,2,3}", @as([3]u32, .{ 1, 2, 3 }), .{ .whitespace = false });
 
-    try expectStringifyEqual(
+    try expectSerializeEqual(
         \\&.{
         \\    1,
         \\    2,
         \\    3,
         \\}
     , @as([]const u32, &.{ 1, 2, 3 }), .{});
-    try expectStringifyEqual("&.{1,2,3}", @as([]const u32, &.{ 1, 2, 3 }), .{ .whitespace = false });
+    try expectSerializeEqual(
+        "&.{1,2,3}",
+        @as([]const u32, &.{ 1, 2, 3 }),
+        .{ .whitespace = false },
+    );
 
-    try expectStringifyEqual(
+    try expectSerializeEqual(
         \\.{
         \\    .x = 1,
         \\    .y = 2,
         \\    .z = 3,
         \\}
     , .{ .x = 1, .y = 2, .z = 3 }, .{});
-    try expectStringifyEqual(".{.x=1,.y=2,.z=3}", .{ .x = 1, .y = 2, .z = 3 }, .{ .whitespace = false });
+    try expectSerializeEqual(
+        ".{.x=1,.y=2,.z=3}",
+        .{ .x = 1, .y = 2, .z = 3 },
+        .{ .whitespace = false },
+    );
 
     const Union = union(enum) { a: bool, b: i32, c: u8 };
 
-    try expectStringifyEqual(".{ .b = 1 }", Union{ .b = 1 }, .{});
-    try expectStringifyEqual(".{.b=1}", Union{ .b = 1 }, .{ .whitespace = false });
+    try expectSerializeEqual(".{ .b = 1 }", Union{ .b = 1 }, .{});
+    try expectSerializeEqual(".{.b=1}", Union{ .b = 1 }, .{ .whitespace = false });
 
     // Nested indentation where outer object doesn't wrap
-    try expectStringifyEqual(
+    try expectSerializeEqual(
         \\.{ .inner = .{
         \\    1,
         \\    2,
@@ -905,7 +1033,7 @@ test "std.zon stringify whitespace, low level API" {
     var buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer buffer.deinit();
     const writer = buffer.writer();
-    var serializer = stringifier(writer, .{});
+    var serializer: Serializer(@TypeOf(writer)) = .init(writer, .{});
 
     inline for (.{ true, false }) |whitespace| {
         serializer.options = .{ .whitespace = whitespace };
@@ -1249,7 +1377,10 @@ test "std.zon stringify whitespace, low level API" {
                     \\} }
                 , buffer.items);
             } else {
-                try std.testing.expectEqualStrings(".{.first=.{1,2,3},.second=.{4,5,6}}", buffer.items);
+                try std.testing.expectEqualStrings(
+                    ".{.first=.{1,2,3},.second=.{4,5,6}}",
+                    buffer.items,
+                );
             }
             buffer.clearRetainingCapacity();
         }
@@ -1260,7 +1391,7 @@ test "std.zon stringify utf8 codepoints" {
     var buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer buffer.deinit();
     const writer = buffer.writer();
-    var serializer = stringifier(writer, .{});
+    var serializer: Serializer(@TypeOf(writer)) = .init(writer, .{});
 
     // Minimal case
     try serializer.utf8Codepoint('a');
@@ -1351,7 +1482,7 @@ test "std.zon stringify strings" {
     var buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer buffer.deinit();
     const writer = buffer.writer();
-    var serializer = stringifier(writer, .{});
+    var serializer: Serializer(@TypeOf(writer)) = .init(writer, .{});
 
     // Minimal case
     try serializer.string("abc⚡\n");
@@ -1405,8 +1536,8 @@ test "std.zon stringify strings" {
     , buffer.items);
     buffer.clearRetainingCapacity();
 
-    // Arrays (rather than pointers to arrays) of u8s are not considered strings, so that data can round trip
-    // correctly.
+    // Arrays (rather than pointers to arrays) of u8s are not considered strings, so that data can
+    // round trip correctly.
     try serializer.value("abc".*, .{});
     try std.testing.expectEqualStrings(
         \\.{
@@ -1422,7 +1553,7 @@ test "std.zon stringify multiline strings" {
     var buf = std.ArrayList(u8).init(std.testing.allocator);
     defer buf.deinit();
     const writer = buf.writer();
-    var serializer = stringifier(writer, .{});
+    var serializer: Serializer(@TypeOf(writer)) = .init(writer, .{});
 
     inline for (.{ true, false }) |whitespace| {
         serializer.options.whitespace = whitespace;
@@ -1481,9 +1612,18 @@ test "std.zon stringify multiline strings" {
         }
 
         {
-            try std.testing.expectError(error.InnerCarriageReturn, serializer.multilineString(@as([]const u8, &.{ 'a', '\r', 'c' }), .{}));
-            try std.testing.expectError(error.InnerCarriageReturn, serializer.multilineString(@as([]const u8, &.{ 'a', '\r', 'c', '\n' }), .{}));
-            try std.testing.expectError(error.InnerCarriageReturn, serializer.multilineString(@as([]const u8, &.{ 'a', '\r', 'c', '\r', '\n' }), .{}));
+            try std.testing.expectError(
+                error.InnerCarriageReturn,
+                serializer.multilineString(@as([]const u8, &.{ 'a', '\r', 'c' }), .{}),
+            );
+            try std.testing.expectError(
+                error.InnerCarriageReturn,
+                serializer.multilineString(@as([]const u8, &.{ 'a', '\r', 'c', '\n' }), .{}),
+            );
+            try std.testing.expectError(
+                error.InnerCarriageReturn,
+                serializer.multilineString(@as([]const u8, &.{ 'a', '\r', 'c', '\r', '\n' }), .{}),
+            );
             try std.testing.expectEqualStrings("", buf.items);
             buf.clearRetainingCapacity();
         }
@@ -1513,7 +1653,7 @@ test "std.zon stringify skip default fields" {
     };
 
     // Not skipping if not set
-    try expectStringifyEqual(
+    try expectSerializeEqual(
         \\.{
         \\    .x = 2,
         \\    .y = 3,
@@ -1553,7 +1693,7 @@ test "std.zon stringify skip default fields" {
     );
 
     // Top level defaults
-    try expectStringifyEqual(
+    try expectSerializeEqual(
         \\.{ .y = 3, .inner3 = .{
         \\    'a',
         \\    'b',
@@ -1580,8 +1720,9 @@ test "std.zon stringify skip default fields" {
         },
     );
 
-    // Inner types having defaults, and defaults changing the number of fields affecting the formatting
-    try expectStringifyEqual(
+    // Inner types having defaults, and defaults changing the number of fields affecting the
+    // formatting
+    try expectSerializeEqual(
         \\.{
         \\    .y = 3,
         \\    .inner1 = .{ .b = '2', .c = '3' },
@@ -1615,13 +1756,13 @@ test "std.zon stringify skip default fields" {
     const DefaultStrings = struct {
         foo: []const u8 = "abc",
     };
-    try expectStringifyEqual(
+    try expectSerializeEqual(
         \\.{}
     ,
         DefaultStrings{ .foo = "abc" },
         .{ .emit_default_optional_fields = false },
     );
-    try expectStringifyEqual(
+    try expectSerializeEqual(
         \\.{ .foo = "abcd" }
     ,
         DefaultStrings{ .foo = "abcd" },
@@ -1636,23 +1777,26 @@ test "std.zon depth limits" {
     const Recurse = struct { r: []const @This() };
 
     // Normal operation
-    try stringifyMaxDepth(.{ 1, .{ 2, 3 } }, .{}, buf.writer(), 16);
+    try serializeMaxDepth(.{ 1, .{ 2, 3 } }, .{}, buf.writer(), 16);
     try std.testing.expectEqualStrings(".{ 1, .{ 2, 3 } }", buf.items);
     buf.clearRetainingCapacity();
 
-    try stringifyArbitraryDepth(.{ 1, .{ 2, 3 } }, .{}, buf.writer());
+    try serializeArbitraryDepth(.{ 1, .{ 2, 3 } }, .{}, buf.writer());
     try std.testing.expectEqualStrings(".{ 1, .{ 2, 3 } }", buf.items);
     buf.clearRetainingCapacity();
 
     // Max depth failing on non recursive type
-    try std.testing.expectError(error.MaxDepth, stringifyMaxDepth(.{ 1, .{ 2, .{ 3, 4 } } }, .{}, buf.writer(), 3));
+    try std.testing.expectError(
+        error.MaxDepth,
+        serializeMaxDepth(.{ 1, .{ 2, .{ 3, 4 } } }, .{}, buf.writer(), 3),
+    );
     try std.testing.expectEqualStrings("", buf.items);
     buf.clearRetainingCapacity();
 
     // Max depth passing on recursive type
     {
         const maybe_recurse = Recurse{ .r = &.{} };
-        try stringifyMaxDepth(maybe_recurse, .{}, buf.writer(), 2);
+        try serializeMaxDepth(maybe_recurse, .{}, buf.writer(), 2);
         try std.testing.expectEqualStrings(".{ .r = &.{} }", buf.items);
         buf.clearRetainingCapacity();
     }
@@ -1660,7 +1804,7 @@ test "std.zon depth limits" {
     // Unchecked passing on recursive type
     {
         const maybe_recurse = Recurse{ .r = &.{} };
-        try stringifyArbitraryDepth(maybe_recurse, .{}, buf.writer());
+        try serializeArbitraryDepth(maybe_recurse, .{}, buf.writer());
         try std.testing.expectEqualStrings(".{ .r = &.{} }", buf.items);
         buf.clearRetainingCapacity();
     }
@@ -1669,7 +1813,10 @@ test "std.zon depth limits" {
     {
         var maybe_recurse = Recurse{ .r = &.{} };
         maybe_recurse.r = &.{.{ .r = &.{} }};
-        try std.testing.expectError(error.MaxDepth, stringifyMaxDepth(maybe_recurse, .{}, buf.writer(), 2));
+        try std.testing.expectError(
+            error.MaxDepth,
+            serializeMaxDepth(maybe_recurse, .{}, buf.writer(), 2),
+        );
         try std.testing.expectEqualStrings("", buf.items);
         buf.clearRetainingCapacity();
     }
@@ -1679,13 +1826,20 @@ test "std.zon depth limits" {
         var temp: [1]Recurse = .{.{ .r = &.{} }};
         const maybe_recurse: []const Recurse = &temp;
 
-        try std.testing.expectError(error.MaxDepth, stringifyMaxDepth(maybe_recurse, .{}, buf.writer(), 2));
+        try std.testing.expectError(
+            error.MaxDepth,
+            serializeMaxDepth(maybe_recurse, .{}, buf.writer(), 2),
+        );
         try std.testing.expectEqualStrings("", buf.items);
         buf.clearRetainingCapacity();
 
-        var serializer = stringifier(buf.writer(), .{});
+        const writer = buf.writer();
+        var serializer: Serializer(@TypeOf(writer)) = .init(writer, .{});
 
-        try std.testing.expectError(error.MaxDepth, serializer.sliceMaxDepth(maybe_recurse, .{}, 2));
+        try std.testing.expectError(
+            error.MaxDepth,
+            serializer.sliceMaxDepth(maybe_recurse, .{}, 2),
+        );
         try std.testing.expectEqualStrings("", buf.items);
         buf.clearRetainingCapacity();
 
@@ -1699,11 +1853,12 @@ test "std.zon depth limits" {
         var temp: [1]Recurse = .{.{ .r = &.{} }};
         const maybe_recurse: []const Recurse = &temp;
 
-        try stringifyMaxDepth(maybe_recurse, .{}, buf.writer(), 3);
+        try serializeMaxDepth(maybe_recurse, .{}, buf.writer(), 3);
         try std.testing.expectEqualStrings("&.{.{ .r = &.{} }}", buf.items);
         buf.clearRetainingCapacity();
 
-        var serializer = stringifier(buf.writer(), .{});
+        const writer = buf.writer();
+        var serializer: Serializer(@TypeOf(writer)) = .init(writer, .{});
 
         try serializer.sliceMaxDepth(maybe_recurse, .{}, 3);
         try std.testing.expectEqualStrings("&.{.{ .r = &.{} }}", buf.items);
@@ -1720,12 +1875,19 @@ test "std.zon depth limits" {
         temp[0].r = &temp;
         const maybe_recurse: []const Recurse = &temp;
 
-        try std.testing.expectError(error.MaxDepth, stringifyMaxDepth(maybe_recurse, .{}, buf.writer(), 128));
+        try std.testing.expectError(
+            error.MaxDepth,
+            serializeMaxDepth(maybe_recurse, .{}, buf.writer(), 128),
+        );
         try std.testing.expectEqualStrings("", buf.items);
         buf.clearRetainingCapacity();
 
-        var serializer = stringifier(buf.writer(), .{});
-        try std.testing.expectError(error.MaxDepth, serializer.sliceMaxDepth(maybe_recurse, .{}, 128));
+        const writer = buf.writer();
+        var serializer: Serializer(@TypeOf(writer)) = .init(writer, .{});
+        try std.testing.expectError(
+            error.MaxDepth,
+            serializer.sliceMaxDepth(maybe_recurse, .{}, 128),
+        );
         try std.testing.expectEqualStrings("", buf.items);
         buf.clearRetainingCapacity();
     }
@@ -1733,7 +1895,7 @@ test "std.zon depth limits" {
     // Max depth on other parts of the lower level API
     {
         const writer = buf.writer();
-        var serializer = stringifier(writer, .{});
+        var serializer: Serializer(@TypeOf(writer)) = .init(writer, .{});
 
         const maybe_recurse: []const Recurse = &.{};
 
@@ -1785,7 +1947,7 @@ test "std.zon stringify primitives" {
     // Issue: https://github.com/ziglang/zig/issues/20880
     if (@import("builtin").zig_backend == .stage2_c) return error.SkipZigTest;
 
-    try expectStringifyEqual(
+    try expectSerializeEqual(
         \\.{
         \\    .a = 1.5,
         \\    .b = 0.3333333333333333333333333333333333,
@@ -1810,7 +1972,7 @@ test "std.zon stringify primitives" {
         .{},
     );
 
-    try expectStringifyEqual(
+    try expectSerializeEqual(
         \\.{
         \\    .a = 18446744073709551616,
         \\    .b = -18446744073709551616,
@@ -1829,7 +1991,7 @@ test "std.zon stringify primitives" {
         .{},
     );
 
-    try expectStringifyEqual(
+    try expectSerializeEqual(
         \\.{
         \\    .a = true,
         \\    .b = false,
@@ -1849,7 +2011,7 @@ test "std.zon stringify primitives" {
     );
 
     const Struct = struct { x: f32, y: f32 };
-    try expectStringifyEqual(
+    try expectSerializeEqual(
         ".{ .a = .{ .x = 1, .y = 2 }, .b = null }",
         .{
             .a = @as(?Struct, .{ .x = 1, .y = 2 }),
@@ -1862,7 +2024,7 @@ test "std.zon stringify primitives" {
         foo,
         bar,
     };
-    try expectStringifyEqual(
+    try expectSerializeEqual(
         ".{ .a = .foo, .b = .foo }",
         .{
             .a = .foo,
@@ -1876,7 +2038,7 @@ test "std.zon stringify ident" {
     var buffer = std.ArrayList(u8).init(std.testing.allocator);
     defer buffer.deinit();
     const writer = buffer.writer();
-    var serializer = stringifier(writer, .{});
+    var serializer: Serializer(@TypeOf(writer)) = .init(writer, .{});
 
     try serializer.ident("a");
     try std.testing.expectEqualStrings("a", buffer.items);
@@ -1913,7 +2075,7 @@ test "std.zon stringify ident" {
     const Enum = enum {
         @"foo bar",
     };
-    try expectStringifyEqual(".{ .@\"var\" = .@\"foo bar\", .@\"1\" = .@\"foo bar\" }", .{
+    try expectSerializeEqual(".{ .@\"var\" = .@\"foo bar\", .@\"1\" = .@\"foo bar\" }", .{
         .@"var" = .@"foo bar",
         .@"1" = Enum.@"foo bar",
     }, .{});
