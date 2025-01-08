@@ -208,8 +208,7 @@ fn lowerInt(
             }
 
             // Create a rational representation of the float
-            var rational = try std.math.big.Rational.init(gpa);
-            defer rational.deinit();
+            var rational = try std.math.big.Rational.init(self.sema.arena);
             rational.setFloat(f128, val) catch |err| switch (err) {
                 error.NonFiniteFloat => unreachable,
                 error.OutOfMemory => return error.OutOfMemory,
@@ -384,8 +383,6 @@ fn lowerNull(self: LowerZon, node: Zoir.Node.Index) !InternPool.Index {
 }
 
 fn lowerArray(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
-    const gpa = self.sema.gpa;
-
     const array_info = res_ty.arrayInfo(self.sema.pt.zcu);
     const nodes: Zoir.Node.Index.Range = switch (node.get(self.file.zoir.?)) {
         .array_literal => |nodes| nodes,
@@ -405,11 +402,10 @@ fn lowerArray(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.I
         );
     }
 
-    const elems = try gpa.alloc(
+    const elems = try self.sema.arena.alloc(
         InternPool.Index,
         nodes.len + @intFromBool(array_info.sentinel != null),
     );
-    defer gpa.free(elems);
 
     for (0..nodes.len) |i| {
         elems[i] = try self.lowerExpr(nodes.at(@intCast(i)), array_info.elem_type);
@@ -490,7 +486,6 @@ fn lowerStructOrTuple(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !Inte
 
 fn lowerTuple(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
     const ip = &self.sema.pt.zcu.intern_pool;
-    const gpa = self.sema.gpa;
 
     const tuple_info = ip.indexToKey(res_ty.toIntern()).tuple_type;
 
@@ -506,8 +501,7 @@ fn lowerTuple(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.I
 
     const field_defaults = tuple_info.values.get(ip);
     const field_types = tuple_info.types.get(ip);
-    const elems = try gpa.alloc(InternPool.Index, field_types.len);
-    defer gpa.free(elems);
+    const elems = try self.sema.arena.alloc(InternPool.Index, field_types.len);
     for (elems) |*v| v.* = .none;
 
     for (0..elem_nodes.len) |i| {
@@ -575,8 +569,7 @@ fn lowerStruct(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
     };
 
     const field_defaults = struct_info.field_inits.get(ip);
-    const field_values = try gpa.alloc(InternPool.Index, struct_info.field_names.len);
-    defer gpa.free(field_values);
+    const field_values = try self.sema.arena.alloc(InternPool.Index, struct_info.field_names.len);
     for (field_values) |*v| v.* = .none;
 
     for (0..fields.names.len) |i| {
@@ -688,8 +681,7 @@ fn lowerPointer(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool
         ),
     };
 
-    const elems = try gpa.alloc(InternPool.Index, elem_nodes.len + @intFromBool(ptr_info.sentinel != .none));
-    defer gpa.free(elems);
+    const elems = try self.sema.arena.alloc(InternPool.Index, elem_nodes.len + @intFromBool(ptr_info.sentinel != .none));
 
     for (0..elem_nodes.len) |i| {
         elems[i] = try self.lowerExpr(elem_nodes.at(@intCast(i)), Type.fromInterned(ptr_info.child));
