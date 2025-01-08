@@ -91,53 +91,6 @@ const Ident = struct {
     }
 };
 
-const FieldTypes = union(enum) {
-    st: struct {
-        ty: Type,
-        loaded: InternPool.LoadedStructType,
-    },
-    un: struct {
-        ty: Type,
-        loaded: InternPool.LoadedEnumType,
-    },
-    none,
-
-    fn init(ty: ?Type, sema: *Sema) !@This() {
-        const t = ty orelse return .none;
-        const ip = &sema.pt.zcu.intern_pool;
-        switch (t.zigTypeTagOrPoison(sema.pt.zcu) catch return .none) {
-            .@"struct" => {
-                try t.resolveFully(sema.pt);
-                const loaded_struct_type = ip.loadStructType(t.toIntern());
-                return .{ .st = .{
-                    .ty = t,
-                    .loaded = loaded_struct_type,
-                } };
-            },
-            .@"union" => {
-                try t.resolveFully(sema.pt);
-                const loaded_union_type = ip.loadUnionType(t.toIntern());
-                const loaded_tag_type = loaded_union_type.loadTagType(ip);
-                return .{ .un = .{
-                    .ty = t,
-                    .loaded = loaded_tag_type,
-                } };
-            },
-            else => return .none,
-        }
-    }
-
-    fn get(self: *const @This(), name: NullTerminatedString, zcu: *Zcu) ?Type {
-        const ip = &zcu.intern_pool;
-        const self_ty, const index = switch (self.*) {
-            .st => |st| .{ st.ty, st.loaded.nameIndex(ip, name) orelse return null },
-            .un => |un| .{ un.ty, un.loaded.nameIndex(ip, name) orelse return null },
-            .none => return null,
-        };
-        return self_ty.fieldType(index, zcu);
-    }
-};
-
 fn lowerExpr(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) CompileError!InternPool.Index {
     switch (Type.zigTypeTag(res_ty, self.sema.pt.zcu)) {
         .bool => return self.lowerBool(node),

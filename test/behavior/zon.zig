@@ -33,9 +33,9 @@ test "union" {
         const union2: Union = @import("zon/union2.zon");
         const union3: Union = @import("zon/union3.zon");
 
-        try expectEqual(union1.x, 1.5);
-        try expectEqual(union2.y, true);
-        try expectEqual(union3.z, {});
+        try expectEqual(1.5, union1.x);
+        try expectEqual(true, union2.y);
+        try expectEqual({}, union3.z);
     }
 
     // Inferred tag
@@ -50,9 +50,9 @@ test "union" {
         const union2: Union = @import("zon/union2.zon");
         const union3: Union = @import("zon/union3.zon");
 
-        try expectEqual(union1.x, 1.5);
-        try expectEqual(union2.y, true);
-        try expectEqual(union3.z, {});
+        try expectEqual(1.5, union1.x);
+        try expectEqual(true, union2.y);
+        try expectEqual({}, union3.z);
     }
 
     // Explicit tag
@@ -72,9 +72,9 @@ test "union" {
         const union2: Union = @import("zon/union2.zon");
         const union3: Union = @import("zon/union3.zon");
 
-        try expectEqual(union1.x, 1.5);
-        try expectEqual(union2.y, true);
-        try expectEqual(union3.z, {});
+        try expectEqual(1.5, union1.x);
+        try expectEqual(true, union2.y);
+        try expectEqual({}, union3.z);
     }
 }
 
@@ -387,7 +387,7 @@ test "floats" {
         0x1234_5678.9ABC_CDEFp-10,
     };
     const actual: T = @import("zon/floats.zon");
-    try expectEqual(actual, expected);
+    try expectEqual(expected, actual);
 }
 
 test "inf and nan" {
