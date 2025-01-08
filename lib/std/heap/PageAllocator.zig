@@ -14,7 +14,7 @@ pub const vtable = Allocator.VTable{
     .free = free,
 };
 
-fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
+fn alloc(_: ?*anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
     _ = ra;
     _ = log2_align;
     assert(n > 0);
@@ -51,7 +51,7 @@ fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
 }
 
 fn resize(
-    _: *anyopaque,
+    _: ?*anyopaque,
     buf_unaligned: []u8,
     log2_buf_align: u8,
     new_size: usize,
@@ -100,7 +100,7 @@ fn resize(
     return false;
 }
 
-fn free(_: *anyopaque, slice: []u8, log2_buf_align: u8, return_address: usize) void {
+fn free(_: ?*anyopaque, slice: []u8, log2_buf_align: u8, return_address: usize) void {
     _ = log2_buf_align;
     _ = return_address;
 

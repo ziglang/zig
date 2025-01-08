@@ -12,7 +12,7 @@ const posix = std.posix;
 /// We use this as a layer of indirection because global const pointers cannot
 /// point to thread-local variables.
 pub const interface: std.Random = .{
-    .ptr = undefined,
+    .ptr = null,
     .fillFn = tlsCsprngFill,
 };
 
@@ -44,7 +44,7 @@ var install_atfork_handler = std.once(struct {
 
 threadlocal var wipe_mem: []align(mem.page_size) u8 = &[_]u8{};
 
-fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
+fn tlsCsprngFill(_: ?*anyopaque, buffer: []u8) void {
     if (os_has_arc4random) {
         // arc4random is already a thread-local CSPRNG.
         return std.c.arc4random_buf(buffer.ptr, buffer.len);

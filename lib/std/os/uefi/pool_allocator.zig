@@ -13,7 +13,7 @@ const UefiPoolAllocator = struct {
     }
 
     fn alloc(
-        _: *anyopaque,
+        _: ?*anyopaque,
         len: usize,
         log2_ptr_align: u8,
         ret_addr: usize,
@@ -41,7 +41,7 @@ const UefiPoolAllocator = struct {
     }
 
     fn resize(
-        _: *anyopaque,
+        _: ?*anyopaque,
         buf: []u8,
         log2_old_ptr_align: u8,
         new_len: usize,
@@ -55,7 +55,7 @@ const UefiPoolAllocator = struct {
     }
 
     fn free(
-        _: *anyopaque,
+        _: ?*anyopaque,
         buf: []u8,
         log2_old_ptr_align: u8,
         ret_addr: usize,
@@ -69,7 +69,7 @@ const UefiPoolAllocator = struct {
 /// Supports the full Allocator interface, including alignment.
 /// For a direct call of `allocatePool`, see `raw_pool_allocator`.
 pub const pool_allocator = Allocator{
-    .ptr = undefined,
+    .ptr = null,
     .vtable = &pool_allocator_vtable,
 };
 
@@ -81,7 +81,7 @@ const pool_allocator_vtable = Allocator.VTable{
 
 /// Asserts allocations are 8 byte aligned and calls `boot_services.allocatePool`.
 pub const raw_pool_allocator = Allocator{
-    .ptr = undefined,
+    .ptr = null,
     .vtable = &raw_pool_allocator_table,
 };
 
@@ -92,7 +92,7 @@ const raw_pool_allocator_table = Allocator.VTable{
 };
 
 fn uefi_alloc(
-    _: *anyopaque,
+    _: ?*anyopaque,
     len: usize,
     log2_ptr_align: u8,
     ret_addr: usize,
@@ -108,7 +108,7 @@ fn uefi_alloc(
 }
 
 fn uefi_resize(
-    _: *anyopaque,
+    _: ?*anyopaque,
     buf: []u8,
     log2_old_ptr_align: u8,
     new_len: usize,
@@ -123,7 +123,7 @@ fn uefi_resize(
 }
 
 fn uefi_free(
-    _: *anyopaque,
+    _: ?*anyopaque,
     buf: []u8,
     log2_old_ptr_align: u8,
     ret_addr: usize,
