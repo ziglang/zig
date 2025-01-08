@@ -73,7 +73,7 @@ end_di_column: u32,
 /// The value is an offset into the `Function` `code` from the beginning.
 /// To perform the reloc, write 32-bit signed little-endian integer
 /// which is a relative jump, based on the address following the reloc.
-exitlude_jump_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
+epilogue_relocs: std.ArrayListUnmanaged(Mir.Inst.Index) = .empty,
 
 reused_operands: std.StaticBitSet(Liveness.bpi - 1) = undefined,
 const_tracking: ConstTrackingMap = .empty,
@@ -928,7 +928,7 @@ pub fn generate(
         function.blocks.deinit(gpa);
         function.inst_tracking.deinit(gpa);
         function.const_tracking.deinit(gpa);
-        function.exitlude_jump_relocs.deinit(gpa);
+        function.epilogue_relocs.deinit(gpa);
         function.mir_instructions.deinit(gpa);
         function.mir_extra.deinit(gpa);
         function.mir_table.deinit(gpa);
@@ -2193,24 +2193,24 @@ fn gen(self: *CodeGen) InnerError!void {
 
         try self.genBody(self.air.getMainBody());
 
-        // TODO can single exitlude jump reloc be elided? What if it is not at the end of the code?
-        // Example:
-        // pub fn main() void {
-        //     maybeErr() catch return;
-        //     unreachable;
-        // }
-        // Eliding the reloc will cause a miscompilation in this case.
-        for (self.exitlude_jump_relocs.items) |jmp_reloc| {
-            self.mir_instructions.items(.data)[jmp_reloc].inst.inst =
-                @intCast(self.mir_instructions.len);
-        }
+        const epilogue = if (self.epilogue_relocs.items.len > 0) epilogue: {
+            const epilogue_relocs_last_index = self.epilogue_relocs.items.len - 1;
+            for (if (self.epilogue_relocs.items[epilogue_relocs_last_index] == self.mir_instructions.len - 1) epilogue_relocs: {
+                _ = self.mir_instructions.pop();
+                break :epilogue_relocs self.epilogue_relocs.items[0..epilogue_relocs_last_index];
+            } else self.epilogue_relocs.items) |epilogue_reloc| self.performReloc(epilogue_reloc);
 
-        try self.asmPseudo(.pseudo_dbg_epilogue_begin_none);
-        const backpatch_stack_dealloc = try self.asmPlaceholder();
-        const backpatch_pop_callee_preserved_regs = try self.asmPlaceholder();
-        try self.asmRegister(.{ ._, .pop }, .rbp);
-        try self.asmPseudoRegisterImmediate(.pseudo_cfi_def_cfa_ri_s, .rsp, .s(8));
-        try self.asmOpOnly(.{ ._, .ret });
+            try self.asmPseudo(.pseudo_dbg_epilogue_begin_none);
+            const backpatch_stack_dealloc = try self.asmPlaceholder();
+            const backpatch_pop_callee_preserved_regs = try self.asmPlaceholder();
+            try self.asmRegister(.{ ._, .pop }, .rbp);
+            try self.asmPseudoRegisterImmediate(.pseudo_cfi_def_cfa_ri_s, .rsp, .s(8));
+            try self.asmOpOnly(.{ ._, .ret });
+            break :epilogue .{
+                .backpatch_stack_dealloc = backpatch_stack_dealloc,
+                .backpatch_pop_callee_preserved_regs = backpatch_pop_callee_preserved_regs,
+            };
+        } else null;
 
         const frame_layout = try self.computeFrameLayout(fn_info.cc);
         const need_frame_align = frame_layout.stack_mask != std.math.maxInt(u32);
@@ -2280,8 +2280,8 @@ fn gen(self: *CodeGen) InnerError!void {
                 });
             }
         }
-        if (need_frame_align or need_stack_adjust) {
-            self.mir_instructions.set(backpatch_stack_dealloc, switch (-frame_layout.save_reg_list.size(self.target)) {
+        if (epilogue) |e| if (need_frame_align or need_stack_adjust) {
+            self.mir_instructions.set(e.backpatch_stack_dealloc, switch (-frame_layout.save_reg_list.size(self.target)) {
                 0 => .{
                     .tag = .mov,
                     .ops = .rr,
@@ -2305,14 +2305,14 @@ fn gen(self: *CodeGen) InnerError!void {
                     } },
                 },
             });
-        }
+        };
         if (need_save_reg) {
             self.mir_instructions.set(backpatch_push_callee_preserved_regs, .{
                 .tag = .pseudo,
                 .ops = .pseudo_push_reg_list,
                 .data = .{ .reg_list = frame_layout.save_reg_list },
             });
-            self.mir_instructions.set(backpatch_pop_callee_preserved_regs, .{
+            if (epilogue) |e| self.mir_instructions.set(e.backpatch_pop_callee_preserved_regs, .{
                 .tag = .pseudo,
                 .ops = .pseudo_pop_reg_list,
                 .data = .{ .reg_list = frame_layout.save_reg_list },
@@ -10007,8 +10007,8 @@ fn genLazy(self: *CodeGen, lazy_sym: link.File.LazySymbol) InnerError!void {
             const ret_reg = param_regs[0];
             const enum_mcv = MCValue{ .register = param_regs[1] };
 
-            const exitlude_jump_relocs = try self.gpa.alloc(Mir.Inst.Index, enum_ty.enumFieldCount(zcu));
-            defer self.gpa.free(exitlude_jump_relocs);
+            const epilogue_relocs = try self.gpa.alloc(Mir.Inst.Index, enum_ty.enumFieldCount(zcu));
+            defer self.gpa.free(epilogue_relocs);
 
             const data_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
             const data_lock = self.register_manager.lockRegAssumeUnused(data_reg);
@@ -10017,7 +10017,7 @@ fn genLazy(self: *CodeGen, lazy_sym: link.File.LazySymbol) InnerError!void {
 
             var data_off: i32 = 0;
             const tag_names = enum_ty.enumFields(zcu);
-            for (exitlude_jump_relocs, 0..) |*exitlude_jump_reloc, tag_index| {
+            for (epilogue_relocs, 0..) |*epilogue_reloc, tag_index| {
                 const tag_name_len = tag_names.get(ip)[tag_index].length(ip);
                 const tag_val = try pt.enumValueFieldIndex(enum_ty, @intCast(tag_index));
                 const tag_mcv = try self.genTypedValue(tag_val);
@@ -10033,7 +10033,7 @@ fn genLazy(self: *CodeGen, lazy_sym: link.File.LazySymbol) InnerError!void {
                 );
                 try self.genSetMem(.{ .reg = ret_reg }, 8, .usize, .{ .immediate = tag_name_len }, .{});
 
-                exitlude_jump_reloc.* = try self.asmJmpReloc(undefined);
+                epilogue_reloc.* = try self.asmJmpReloc(undefined);
                 self.performReloc(skip_reloc);
 
                 data_off += @intCast(tag_name_len + 1);
@@ -10041,7 +10041,7 @@ fn genLazy(self: *CodeGen, lazy_sym: link.File.LazySymbol) InnerError!void {
 
             try self.asmOpOnly(.{ ._, .ud2 });
 
-            for (exitlude_jump_relocs) |reloc| self.performReloc(reloc);
+            for (epilogue_relocs) |reloc| self.performReloc(reloc);
             try self.asmOpOnly(.{ ._, .ret });
         },
         else => return self.fail(
@@ -20114,7 +20114,7 @@ fn airRet(self: *CodeGen, inst: Air.Inst.Index, safety: bool) !void {
     // TODO optimization opportunity: figure out when we can emit this as a 2 byte instruction
     // which is available if the jump is 127 bytes or less forward.
     const jmp_reloc = try self.asmJmpReloc(undefined);
-    try self.exitlude_jump_relocs.append(self.gpa, jmp_reloc);
+    try self.epilogue_relocs.append(self.gpa, jmp_reloc);
 }
 
 fn airRetLoad(self: *CodeGen, inst: Air.Inst.Index) !void {
@@ -20134,7 +20134,7 @@ fn airRetLoad(self: *CodeGen, inst: Air.Inst.Index) !void {
     // TODO optimization opportunity: figure out when we can emit this as a 2 byte instruction
     // which is available if the jump is 127 bytes or less forward.
     const jmp_reloc = try self.asmJmpReloc(undefined);
-    try self.exitlude_jump_relocs.append(self.gpa, jmp_reloc);
+    try self.epilogue_relocs.append(self.gpa, jmp_reloc);
 }
 
 fn airCmp(self: *CodeGen, inst: Air.Inst.Index, op: std.math.CompareOperator) !void {
@@ -24486,7 +24486,7 @@ fn airMemset(self: *CodeGen, inst: Air.Inst.Index, safety: bool) !void {
                 self.register_manager.lockRegAssumeUnused(dst_regs[0]),
                 self.register_manager.lockRegAssumeUnused(dst_regs[1]),
             },
-            else => .{ null, null },
+            else => @splat(null),
         };
         for (dst_locks) |dst_lock| if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
@@ -24625,7 +24625,7 @@ fn airMemcpy(self: *CodeGen, inst: Air.Inst.Index) !void {
             self.register_manager.lockRegAssumeUnused(dst_regs[0]),
             self.register_manager.lockReg(dst_regs[1]),
         },
-        else => .{ null, null },
+        else => @splat(null),
     };
     for (dst_locks) |dst_lock| if (dst_lock) |lock| self.register_manager.unlockReg(lock);
 
@@ -24636,7 +24636,7 @@ fn airMemcpy(self: *CodeGen, inst: Air.Inst.Index) !void {
             self.register_manager.lockRegAssumeUnused(src_regs[0]),
             self.register_manager.lockRegAssumeUnused(src_regs[1]),
         },
-        else => .{ null, null },
+        else => @splat(null),
     };
     for (src_locks) |src_lock| if (src_lock) |lock| self.register_manager.unlockReg(lock);
 
