@@ -120,7 +120,7 @@ pub fn run(
                     process.exit(2);
                 }
             } else {
-                const zoir = try std.zig.ZonGen.generate(gpa, tree, true);
+                const zoir = try std.zig.ZonGen.generate(gpa, tree, .{});
                 defer zoir.deinit(gpa);
 
                 if (zoir.hasCompileErrors()) {
@@ -335,7 +335,7 @@ fn fmtPathFile(
                 }
             },
             .zon => {
-                var zoir = try std.zig.ZonGen.generate(gpa, tree, true);
+                var zoir = try std.zig.ZonGen.generate(gpa, tree, .{});
                 defer zoir.deinit(gpa);
 
                 if (zoir.hasCompileErrors()) {

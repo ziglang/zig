@@ -3,7 +3,7 @@
 gpa: Allocator,
 tree: Ast,
 
-parse_str_lits: bool,
+options: Options,
 
 nodes: std.MultiArrayList(Zoir.Node.Repr),
 extra: std.ArrayListUnmanaged(u32),
@@ -14,13 +14,21 @@ string_table: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.d
 compile_errors: std.ArrayListUnmanaged(Zoir.CompileError),
 error_notes: std.ArrayListUnmanaged(Zoir.CompileError.Note),
 
-pub fn generate(gpa: Allocator, tree: Ast, parse_str_lits: bool) Allocator.Error!Zoir {
+pub const Options = struct {
+    /// When false, string literals are not parsed. `string_literal` nodes will contain empty
+    /// strings, and errors that normally occur during string parsing will not be raised.
+    ///
+    /// `parseStrLit` and `strLitSizeHint` may be used to parse string literals after the fact.
+    parse_str_lits: bool = true,
+};
+
+pub fn generate(gpa: Allocator, tree: Ast, options: Options) Allocator.Error!Zoir {
     assert(tree.mode == .zon);
 
     var zg: ZonGen = .{
         .gpa = gpa,
         .tree = tree,
-        .parse_str_lits = parse_str_lits,
+        .options = options,
         .nodes = .empty,
         .extra = .empty,
         .limbs = .empty,
@@ -536,7 +544,7 @@ const StringLiteralResult = union(enum) {
 };
 
 fn strLitAsString(zg: *ZonGen, str_node: Ast.Node.Index) !StringLiteralResult {
-    if (!zg.parse_str_lits) return .{ .slice = .{ .start = 0, .len = 0 } };
+    if (!zg.options.parse_str_lits) return .{ .slice = .{ .start = 0, .len = 0 } };
 
     const gpa = zg.gpa;
     const string_bytes = &zg.string_bytes;

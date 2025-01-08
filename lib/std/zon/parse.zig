@@ -313,7 +313,7 @@ pub fn parseFromSlice(
     defer if (status == null) ast.deinit(gpa);
     if (status) |s| s.ast = ast;
 
-    var zoir = try ZonGen.generate(gpa, ast, false);
+    var zoir = try ZonGen.generate(gpa, ast, .{ .parse_str_lits = false });
     defer if (status == null) zoir.deinit(gpa);
     if (status) |s| s.zoir = zoir;
     if (zoir.hasCompileErrors()) return error.ParseZon;
@@ -1585,7 +1585,7 @@ test "std.zon string literal" {
         {
             var ast = try std.zig.Ast.parse(gpa, "\"abcd\"", .zon);
             defer ast.deinit(gpa);
-            var zoir = try ZonGen.generate(gpa, ast, false);
+            var zoir = try ZonGen.generate(gpa, ast, .{ .parse_str_lits = false });
             defer zoir.deinit(gpa);
             var status: Status = .{};
             defer status.deinit(gpa);
