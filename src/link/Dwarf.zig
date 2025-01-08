@@ -1999,7 +1999,7 @@ pub const WipNav = struct {
             errdefer _ = if (!decl_gop.found_existing) dwarf.decls.pop();
             const was_generic_decl = decl_gop.found_existing and
                 switch (try dwarf.debug_info.declAbbrevCode(wip_nav.unit, decl_gop.value_ptr.*)) {
-                else => unreachable,
+                .null,
                 .decl_alias,
                 .decl_empty_enum,
                 .decl_enum,
@@ -2021,6 +2021,7 @@ pub const WipNav = struct {
                 .generic_decl_const,
                 .generic_decl_func,
                 => true,
+                else => unreachable,
             };
             if (parent_type.getCaptures(zcu).len == 0) {
                 if (was_generic_decl) try dwarf.freeCommonEntry(wip_nav.unit, decl_gop.value_ptr.*);
