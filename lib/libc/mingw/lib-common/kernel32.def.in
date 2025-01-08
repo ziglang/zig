@@ -121,9 +121,11 @@ BuildCommDCBW
 BuildIoRingCancelRequest
 BuildIoRingFlushFile
 BuildIoRingReadFile
+BuildIoRingReadFileScatter
 BuildIoRingRegisterBuffers
 BuildIoRingRegisterFileHandles
 BuildIoRingWriteFile
+BuildIoRingWriteFileGather
 CallNamedPipeA
 CallNamedPipeW
 CallbackMayRunLong

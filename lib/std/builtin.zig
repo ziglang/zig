@@ -220,7 +220,7 @@ pub const CallingConvention = union(enum(u8)) {
     };
     /// Deprecated; use `.x86_thiscall`.
     pub const Thiscall: CallingConvention = .{ .x86_thiscall = .{} };
-    /// Deprecated; use `.arm_apcs`.
+    /// Deprecated; do not use.
     pub const APCS: CallingConvention = .{ .arm_apcs = .{} };
     /// Deprecated; use `.arm_aapcs`.
     pub const AAPCS: CallingConvention = .{ .arm_aapcs = .{} };
@@ -284,13 +284,14 @@ pub const CallingConvention = union(enum(u8)) {
     aarch64_vfabi_sve: CommonOptions,
 
     // Calling convetions for the `arm`, `armeb`, `thumb`, and `thumbeb` architectures.
-    /// ARM Procedure Call Standard (obsolete)
-    arm_apcs: CommonOptions,
+    /// Deprecated; do not use.
+    arm_apcs: CommonOptions, // Removal of `arm_apcs` is blocked by #21842.
     /// ARM Architecture Procedure Call Standard
     arm_aapcs: CommonOptions,
     /// ARM Architecture Procedure Call Standard Vector Floating-Point
     arm_aapcs_vfp: CommonOptions,
-    arm_aapcs16_vfp: CommonOptions,
+    /// Deprecated; do not use.
+    arm_aapcs16_vfp: CommonOptions, // Removal of `arm_aapcs16_vfp` is blocked by #21842.
     arm_interrupt: ArmInterruptOptions,
 
     // Calling conventions for the `mips64` and `mips64el` architectures.
@@ -801,6 +802,14 @@ pub const OutputMode = enum {
 pub const LinkMode = enum {
     static,
     dynamic,
+};
+
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const UnwindTables = enum {
+    none,
+    sync,
+    @"async",
 };
 
 /// This data structure is used by the Zig language code generation and

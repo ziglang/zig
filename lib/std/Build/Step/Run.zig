@@ -43,9 +43,6 @@ stdio: StdIo,
 /// It should be only set using `setStdIn`.
 stdin: StdIn,
 
-/// Deprecated: use `addFileInput`
-extra_file_dependencies: []const []const u8,
-
 /// Additional input files that, when modified, indicate that the Run step
 /// should be re-executed.
 /// If the Run step is determined to have side-effects, the Run step is always
@@ -178,7 +175,6 @@ pub fn create(owner: *std.Build, name: []const u8) *Run {
         .disable_zig_progress = false,
         .stdio = .infer_from_args,
         .stdin = .none,
-        .extra_file_dependencies = &.{},
         .file_inputs = .{},
         .rename_step_with_output_arg = true,
         .skip_foreign_checks = false,
@@ -364,15 +360,9 @@ pub fn addPrefixedOutputDirectoryArg(
     return .{ .generated = .{ .file = &output.generated_file } };
 }
 
-/// deprecated: use `addDirectoryArg`
-pub const addDirectorySourceArg = addDirectoryArg;
-
 pub fn addDirectoryArg(run: *Run, directory_source: std.Build.LazyPath) void {
     run.addPrefixedDirectoryArg("", directory_source);
 }
-
-// deprecated: use `addPrefixedDirectoryArg`
-pub const addPrefixedDirectorySourceArg = addPrefixedDirectoryArg;
 
 pub fn addPrefixedDirectoryArg(run: *Run, prefix: []const u8, directory_source: std.Build.LazyPath) void {
     const b = run.step.owner;
@@ -698,9 +688,6 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
     hashStdIo(&man.hash, run.stdio);
 
-    for (run.extra_file_dependencies) |file_path| {
-        _ = try man.addFile(b.pathFromRoot(file_path), null);
-    }
     for (run.file_inputs.items) |lazy_path| {
         _ = try man.addFile(lazy_path.getPath2(b, step), null);
     }
@@ -1009,7 +996,8 @@ fn runCommand(
                 else => break :interpret,
             }
 
-            const need_cross_glibc = exe.rootModuleTarget().isGnuLibC() and
+            const root_target = exe.rootModuleTarget();
+            const need_cross_glibc = root_target.isGnuLibC() and
                 exe.is_linking_libc;
             const other_target = exe.root_module.resolved_target.?.result;
             switch (std.zig.system.getExternalExecutor(b.graph.host.result, &other_target, .{
@@ -1039,23 +1027,16 @@ fn runCommand(
                         try interp_argv.append(bin_name);
 
                         if (glibc_dir_arg) |dir| {
-                            // TODO look into making this a call to `linuxTriple`. This
-                            // needs the directory to be called "i686" rather than
-                            // "x86" which is why we do it manually here.
-                            const fmt_str = "{s}" ++ fs.path.sep_str ++ "{s}-{s}-{s}";
-                            const cpu_arch = exe.rootModuleTarget().cpu.arch;
-                            const os_tag = exe.rootModuleTarget().os.tag;
-                            const abi = exe.rootModuleTarget().abi;
-                            const cpu_arch_name: []const u8 = if (cpu_arch == .x86)
-                                "i686"
-                            else
-                                @tagName(cpu_arch);
-                            const full_dir = try std.fmt.allocPrint(b.allocator, fmt_str, .{
-                                dir, cpu_arch_name, @tagName(os_tag), @tagName(abi),
-                            });
-
                             try interp_argv.append("-L");
-                            try interp_argv.append(full_dir);
+                            try interp_argv.append(b.pathJoin(&.{
+                                dir,
+                                try std.zig.target.glibcRuntimeTriple(
+                                    b.allocator,
+                                    root_target.cpu.arch,
+                                    root_target.os.tag,
+                                    root_target.abi,
+                                ),
+                            }));
                         }
 
                         try interp_argv.appendSlice(argv);
@@ -1113,7 +1094,7 @@ fn runCommand(
                     if (allow_skip) return error.MakeSkipped;
 
                     const host_name = try b.graph.host.result.zigTriple(b.allocator);
-                    const foreign_name = try exe.rootModuleTarget().zigTriple(b.allocator);
+                    const foreign_name = try root_target.zigTriple(b.allocator);
 
                     return step.fail("the host system ({s}) is unable to execute binaries from the target ({s})", .{
                         host_name, foreign_name,
@@ -1121,7 +1102,7 @@ fn runCommand(
                 },
             }
 
-            if (exe.rootModuleTarget().os.tag == .windows) {
+            if (root_target.os.tag == .windows) {
                 // On Windows we don't have rpaths so we have to add .dll search paths to PATH
                 run.addPathForDynLibs(exe);
             }
@@ -1738,15 +1719,12 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
 
 fn addPathForDynLibs(run: *Run, artifact: *Step.Compile) void {
     const b = run.step.owner;
-    var it = artifact.root_module.iterateDependencies(artifact, true);
-    while (it.next()) |item| {
-        const other = item.compile.?;
-        if (item.module == &other.root_module) {
-            if (item.module.resolved_target.?.result.os.tag == .windows and
-                other.isDynamicLibrary())
-            {
-                addPathDir(run, fs.path.dirname(other.getEmittedBin().getPath2(b, &run.step)).?);
-            }
+    const compiles = artifact.getCompileDependencies(true);
+    for (compiles) |compile| {
+        if (compile.root_module.resolved_target.?.result.os.tag == .windows and
+            compile.isDynamicLibrary())
+        {
+            addPathDir(run, fs.path.dirname(compile.getEmittedBin().getPath2(b, &run.step)).?);
         }
     }
 }

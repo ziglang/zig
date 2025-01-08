@@ -639,8 +639,9 @@ test "vector division operators" {
         }
     };
 
-    try S.doTheTest();
     try comptime S.doTheTest();
+    if ((builtin.cpu.arch == .armeb or builtin.cpu.arch == .thumbeb) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22060
+    try S.doTheTest();
 }
 
 test "vector bitwise not operator" {
@@ -1098,8 +1099,9 @@ test "@addWithOverflow" {
             }
         }
     };
-    try S.doTheTest();
     try comptime S.doTheTest();
+    if ((builtin.cpu.arch == .armeb or builtin.cpu.arch == .thumbeb) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22060
+    try S.doTheTest();
 }
 
 test "@subWithOverflow" {
@@ -1131,8 +1133,9 @@ test "@subWithOverflow" {
             }
         }
     };
-    try S.doTheTest();
     try comptime S.doTheTest();
+    if ((builtin.cpu.arch == .armeb or builtin.cpu.arch == .thumbeb) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22060
+    try S.doTheTest();
 }
 
 test "@mulWithOverflow" {
@@ -1154,8 +1157,9 @@ test "@mulWithOverflow" {
             try expectEqual(expected, overflow);
         }
     };
-    try S.doTheTest();
     try comptime S.doTheTest();
+    if ((builtin.cpu.arch == .armeb or builtin.cpu.arch == .thumbeb) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22060
+    try S.doTheTest();
 }
 
 test "@shlWithOverflow" {

@@ -34,6 +34,16 @@ extern double _simd_orient_pd3(const double *);
 extern double _simd_insphere_pd3(const double *);
 #endif /* SIMD_LIBRARY_VERSION */
 
+#if SIMD_LIBRARY_VERSION >= 6
+extern _Float16 _simd_orient_vh2(simd_half2, simd_half2);
+extern _Float16 _simd_orient_ph2(simd_half2, simd_half2, simd_half2);
+extern _Float16 _simd_incircle_ph2(simd_half2, simd_half2, simd_half2, simd_half2);
+
+extern _Float16 _simd_orient_vh3(simd_half3, simd_half3, simd_half3);
+extern _Float16 _simd_orient_ph3(simd_half3, simd_half3, simd_half3, simd_half3);
+extern _Float16 _simd_insphere_ph3(simd_half3, simd_half3, simd_half3, simd_half3, simd_half3);
+#endif /* SIMD_LIBRARY_VERSION */
+
 #pragma mark - matrix
 extern simd_float2x2 __invert_f2(simd_float2x2);
 extern simd_double2x2 __invert_d2(simd_double2x2);
@@ -41,6 +51,12 @@ extern simd_float3x3 __invert_f3(simd_float3x3);
 extern simd_double3x3 __invert_d3(simd_double3x3);
 extern simd_float4x4 __invert_f4(simd_float4x4);
 extern simd_double4x4 __invert_d4(simd_double4x4);
+
+#if SIMD_LIBRARY_VERSION >= 6
+extern simd_half2x2 __invert_h2(simd_half2x2);
+extern simd_half3x3 __invert_h3(simd_half3x3);
+extern simd_half4x4 __invert_h4(simd_half4x4);
+#endif /* SIMD_LIBRARY_VERSION */
 
 #ifdef __cplusplus
 }

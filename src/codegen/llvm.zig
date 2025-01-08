@@ -167,7 +167,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .aix,
         .zos,
         => "ibm",
-        .bridgeos,
         .driverkit,
         .ios,
         .macos,
@@ -218,7 +217,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .hurd => "hurd",
         .wasi => "wasi",
         .emscripten => "emscripten",
-        .bridgeos => "bridgeos",
         .macos => "macosx",
         .ios => "ios",
         .tvos => "tvos",
@@ -301,103 +299,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     }
 
     return llvm_triple.toOwnedSlice();
-}
-
-pub fn targetOs(os_tag: std.Target.Os.Tag) llvm.OSType {
-    return switch (os_tag) {
-        .freestanding => .UnknownOS,
-        .windows, .uefi => .Win32,
-        .dragonfly => .DragonFly,
-        .freebsd => .FreeBSD,
-        .fuchsia => .Fuchsia,
-        .ios => .IOS,
-        .linux => .Linux,
-        .ps3 => .Lv2,
-        .macos => .MacOSX,
-        .netbsd => .NetBSD,
-        .openbsd => .OpenBSD,
-        .solaris, .illumos => .Solaris,
-        .zos => .ZOS,
-        .haiku => .Haiku,
-        .rtems => .RTEMS,
-        .aix => .AIX,
-        .cuda => .CUDA,
-        .nvcl => .NVCL,
-        .amdhsa => .AMDHSA,
-        .opencl => .UnknownOS, // https://llvm.org/docs/SPIRVUsage.html#target-triples
-        .ps4 => .PS4,
-        .ps5 => .PS5,
-        .elfiamcu => .ELFIAMCU,
-        .tvos => .TvOS,
-        .watchos => .WatchOS,
-        .visionos => .XROS,
-        .mesa3d => .Mesa3D,
-        .amdpal => .AMDPAL,
-        .hermit => .HermitCore,
-        .hurd => .Hurd,
-        .wasi => .WASI,
-        .emscripten => .Emscripten,
-        .driverkit => .DriverKit,
-        .vulkan => .Vulkan,
-        .serenity => .Serenity,
-        .bridgeos => .BridgeOS,
-
-        .opengl,
-        .plan9,
-        .contiki,
-        .other,
-        => .UnknownOS,
-    };
-}
-
-pub fn targetArch(arch_tag: std.Target.Cpu.Arch) llvm.ArchType {
-    return switch (arch_tag) {
-        .arm => .arm,
-        .armeb => .armeb,
-        .aarch64 => .aarch64,
-        .aarch64_be => .aarch64_be,
-        .arc => .arc,
-        .avr => .avr,
-        .bpfel => .bpfel,
-        .bpfeb => .bpfeb,
-        .csky => .csky,
-        .hexagon => .hexagon,
-        .loongarch32 => .loongarch32,
-        .loongarch64 => .loongarch64,
-        .m68k => .m68k,
-        .mips => .mips,
-        .mipsel => .mipsel,
-        .mips64 => .mips64,
-        .mips64el => .mips64el,
-        .msp430 => .msp430,
-        .powerpc => .ppc,
-        .powerpcle => .ppcle,
-        .powerpc64 => .ppc64,
-        .powerpc64le => .ppc64le,
-        .amdgcn => .amdgcn,
-        .riscv32 => .riscv32,
-        .riscv64 => .riscv64,
-        .sparc => .sparc,
-        .sparc64 => .sparcv9, // In LLVM, sparc64 == sparcv9.
-        .s390x => .systemz,
-        .thumb => .thumb,
-        .thumbeb => .thumbeb,
-        .x86 => .x86,
-        .x86_64 => .x86_64,
-        .xcore => .xcore,
-        .xtensa => .xtensa,
-        .nvptx => .nvptx,
-        .nvptx64 => .nvptx64,
-        .spirv => .spirv,
-        .spirv32 => .spirv32,
-        .spirv64 => .spirv64,
-        .kalimba => .kalimba,
-        .lanai => .lanai,
-        .wasm32 => .wasm32,
-        .wasm64 => .wasm64,
-        .ve => .ve,
-        .propeller1, .propeller2, .spu_2 => .UnknownArch,
-    };
 }
 
 pub fn supportsTailCall(target: std.Target) bool {
@@ -1155,7 +1056,7 @@ pub const Object = struct {
         time_report: bool,
         sanitize_thread: bool,
         fuzz: bool,
-        lto: bool,
+        lto: Compilation.Config.LtoMode,
     };
 
     pub fn emit(o: *Object, options: EmitOptions) !void {
@@ -1437,7 +1338,7 @@ pub const Object = struct {
             .time_report = options.time_report,
             .tsan = options.sanitize_thread,
             .sancov = options.fuzz,
-            .lto = options.lto,
+            .lto = options.lto != .none,
             // https://github.com/ziglang/zig/issues/21215
             .allow_fast_isel = !comp.root_mod.resolved_target.result.cpu.arch.isMIPS(),
             .asm_filename = null,
@@ -1575,7 +1476,7 @@ pub const Object = struct {
             } }, &o.builder);
         }
 
-        if (nav.status.resolved.@"linksection".toSlice(ip)) |section|
+        if (nav.status.fully_resolved.@"linksection".toSlice(ip)) |section|
             function_index.setSection(try o.builder.string(section), &o.builder);
 
         var deinit_wip = true;
@@ -1783,7 +1684,7 @@ pub const Object = struct {
             const file = try o.getDebugFile(file_scope);
 
             const line_number = zcu.navSrcLine(func.owner_nav) + 1;
-            const is_internal_linkage = ip.indexToKey(nav.status.resolved.val) != .@"extern";
+            const is_internal_linkage = ip.indexToKey(nav.status.fully_resolved.val) != .@"extern";
             const debug_decl_type = try o.lowerDebugType(fn_ty);
 
             const subprogram = try o.builder.debugSubprogram(
@@ -3027,9 +2928,7 @@ pub const Object = struct {
         const gpa = o.gpa;
         const nav = ip.getNav(nav_index);
         const owner_mod = zcu.navFileScope(nav_index).mod;
-        const resolved = nav.status.resolved;
-        const val = Value.fromInterned(resolved.val);
-        const ty = val.typeOf(zcu);
+        const ty: Type = .fromInterned(nav.typeOf(ip));
         const gop = try o.nav_map.getOrPut(gpa, nav_index);
         if (gop.found_existing) return gop.value_ptr.ptr(&o.builder).kind.function;
 
@@ -3037,15 +2936,14 @@ pub const Object = struct {
         const target = owner_mod.resolved_target.result;
         const sret = firstParamSRet(fn_info, zcu, target);
 
-        const is_extern, const lib_name = switch (ip.indexToKey(val.toIntern())) {
-            .variable => |variable| .{ false, variable.lib_name },
-            .@"extern" => |@"extern"| .{ true, @"extern".lib_name },
-            else => .{ false, .none },
-        };
+        const is_extern, const lib_name = if (nav.getExtern(ip)) |@"extern"|
+            .{ true, @"extern".lib_name }
+        else
+            .{ false, .none };
         const function_index = try o.builder.addFunction(
             try o.lowerType(ty),
             try o.builder.strtabString((if (is_extern) nav.name else nav.fqn).toSlice(ip)),
-            toLlvmAddressSpace(resolved.@"addrspace", target),
+            toLlvmAddressSpace(nav.getAddrspace(), target),
         );
         gop.value_ptr.* = function_index.ptrConst(&o.builder).global;
 
@@ -3163,8 +3061,8 @@ pub const Object = struct {
             }
         }
 
-        if (resolved.alignment != .none)
-            function_index.setAlignment(resolved.alignment.toLlvm(), &o.builder);
+        if (nav.getAlignment() != .none)
+            function_index.setAlignment(nav.getAlignment().toLlvm(), &o.builder);
 
         // Function attributes that are independent of analysis results of the function body.
         try o.addCommonFnAttributes(
@@ -3240,8 +3138,11 @@ pub const Object = struct {
             } }, &o.builder);
         }
         try attributes.addFnAttr(.nounwind, &o.builder);
-        if (owner_mod.unwind_tables) {
-            try attributes.addFnAttr(.{ .uwtable = Builder.Attribute.UwTable.default }, &o.builder);
+        if (owner_mod.unwind_tables != .none) {
+            try attributes.addFnAttr(
+                .{ .uwtable = if (owner_mod.unwind_tables == .@"async") .@"async" else .sync },
+                &o.builder,
+            );
         }
         if (owner_mod.no_builtin) {
             // The intent here is for compiler-rt and libc functions to not generate
@@ -3346,17 +3247,21 @@ pub const Object = struct {
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
         const nav = ip.getNav(nav_index);
-        const resolved = nav.status.resolved;
-        const is_extern, const is_threadlocal, const is_weak_linkage, const is_dll_import = switch (ip.indexToKey(resolved.val)) {
-            .variable => |variable| .{ false, variable.is_threadlocal, variable.is_weak_linkage, false },
-            .@"extern" => |@"extern"| .{ true, @"extern".is_threadlocal, @"extern".is_weak_linkage, @"extern".is_dll_import },
-            else => .{ false, false, false, false },
+        const is_extern, const is_threadlocal, const is_weak_linkage, const is_dll_import = switch (nav.status) {
+            .unresolved => unreachable,
+            .fully_resolved => |r| switch (ip.indexToKey(r.val)) {
+                .variable => |variable| .{ false, variable.is_threadlocal, variable.is_weak_linkage, false },
+                .@"extern" => |@"extern"| .{ true, @"extern".is_threadlocal, @"extern".is_weak_linkage, @"extern".is_dll_import },
+                else => .{ false, false, false, false },
+            },
+            // This means it's a source declaration which is not `extern`!
+            .type_resolved => |r| .{ false, r.is_threadlocal, false, false },
         };
 
         const variable_index = try o.builder.addVariable(
             try o.builder.strtabString((if (is_extern) nav.name else nav.fqn).toSlice(ip)),
             try o.lowerType(Type.fromInterned(nav.typeOf(ip))),
-            toLlvmGlobalAddressSpace(resolved.@"addrspace", zcu.getTarget()),
+            toLlvmGlobalAddressSpace(nav.getAddrspace(), zcu.getTarget()),
         );
         gop.value_ptr.* = variable_index.ptrConst(&o.builder).global;
 
@@ -4625,20 +4530,10 @@ pub const Object = struct {
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
 
-        // In the case of something like:
-        // fn foo() void {}
-        // const bar = foo;
-        // ... &bar;
-        // `bar` is just an alias and we actually want to lower a reference to `foo`.
-        const owner_nav_index = switch (ip.indexToKey(zcu.navValue(nav_index).toIntern())) {
-            .func => |func| func.owner_nav,
-            .@"extern" => |@"extern"| @"extern".owner_nav,
-            else => nav_index,
-        };
-        const owner_nav = ip.getNav(owner_nav_index);
+        const nav = ip.getNav(nav_index);
 
-        const nav_ty = Type.fromInterned(owner_nav.typeOf(ip));
-        const ptr_ty = try pt.navPtrType(owner_nav_index);
+        const nav_ty = Type.fromInterned(nav.typeOf(ip));
+        const ptr_ty = try pt.navPtrType(nav_index);
 
         const is_fn_body = nav_ty.zigTypeTag(zcu) == .@"fn";
         if ((!is_fn_body and !nav_ty.hasRuntimeBits(zcu)) or
@@ -4648,13 +4543,13 @@ pub const Object = struct {
         }
 
         const llvm_global = if (is_fn_body)
-            (try o.resolveLlvmFunction(owner_nav_index)).ptrConst(&o.builder).global
+            (try o.resolveLlvmFunction(nav_index)).ptrConst(&o.builder).global
         else
-            (try o.resolveGlobalNav(owner_nav_index)).ptrConst(&o.builder).global;
+            (try o.resolveGlobalNav(nav_index)).ptrConst(&o.builder).global;
 
         const llvm_val = try o.builder.convConst(
             llvm_global.toConst(),
-            try o.builder.ptrType(toLlvmAddressSpace(owner_nav.status.resolved.@"addrspace", zcu.getTarget())),
+            try o.builder.ptrType(toLlvmAddressSpace(nav.getAddrspace(), zcu.getTarget())),
         );
 
         return o.builder.convConst(llvm_val, try o.lowerType(ptr_ty));
@@ -4896,10 +4791,10 @@ pub const NavGen = struct {
         const ip = &zcu.intern_pool;
         const nav_index = ng.nav_index;
         const nav = ip.getNav(nav_index);
-        const resolved = nav.status.resolved;
+        const resolved = nav.status.fully_resolved;
 
         const is_extern, const lib_name, const is_threadlocal, const is_weak_linkage, const is_dll_import, const is_const, const init_val, const owner_nav = switch (ip.indexToKey(resolved.val)) {
-            .variable => |variable| .{ false, variable.lib_name, variable.is_threadlocal, variable.is_weak_linkage, false, false, variable.init, variable.owner_nav },
+            .variable => |variable| .{ false, .none, variable.is_threadlocal, variable.is_weak_linkage, false, false, variable.init, variable.owner_nav },
             .@"extern" => |@"extern"| .{ true, @"extern".lib_name, @"extern".is_threadlocal, @"extern".is_weak_linkage, @"extern".is_dll_import, @"extern".is_const, .none, @"extern".owner_nav },
             else => .{ false, .none, false, false, false, true, resolved.val, nav_index },
         };
@@ -5859,10 +5754,10 @@ pub const FuncGen = struct {
         const o = fg.ng.object;
         const zcu = o.pt.zcu;
         const ip = &zcu.intern_pool;
-        const msg_nav_index = zcu.panic_messages[@intFromEnum(panic_id)].unwrap().?;
-        const msg_nav = ip.getNav(msg_nav_index);
-        const msg_len = Type.fromInterned(msg_nav.typeOf(ip)).childType(zcu).arrayLen(zcu);
-        const msg_ptr = try o.lowerValue(msg_nav.status.resolved.val);
+        const panic_msg_val = zcu.builtin_decl_values.get(panic_id.toBuiltin());
+        assert(panic_msg_val != .none);
+        const msg_len = Value.fromInterned(panic_msg_val).typeOf(zcu).childType(zcu).arrayLen(zcu);
+        const msg_ptr = try o.lowerValue(panic_msg_val);
         const null_opt_addr_global = try fg.resolveNullOptUsize();
         const target = zcu.getTarget();
         const llvm_usize = try o.lowerType(Type.usize);
@@ -5873,7 +5768,7 @@ pub const FuncGen = struct {
         //   ptr null,                                               ; stack trace
         //   ptr @2,                                                 ; addr (null ?usize)
         // )
-        const panic_func = zcu.funcInfo(zcu.panic_func_index);
+        const panic_func = zcu.funcInfo(zcu.builtin_decl_values.get(.@"Panic.call"));
         const panic_nav = ip.getNav(panic_func.owner_nav);
         const fn_info = zcu.typeToFunc(Type.fromInterned(panic_nav.typeOf(ip))).?;
         const panic_global = try o.resolveLlvmFunction(panic_func.owner_nav);

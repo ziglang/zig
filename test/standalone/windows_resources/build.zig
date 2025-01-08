@@ -28,11 +28,13 @@ fn add(
 ) void {
     const exe = b.addExecutable(.{
         .name = "zig_resource_test",
-        .root_source_file = b.path("main.zig"),
-        .target = target,
-        .optimize = .Debug,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .target = target,
+            .optimize = .Debug,
+        }),
     });
-    exe.addWin32ResourceFile(.{
+    exe.root_module.addWin32ResourceFile(.{
         .file = b.path("res/zig.rc"),
         .flags = &.{"/c65001"}, // UTF-8 code page
         .include_paths = &.{

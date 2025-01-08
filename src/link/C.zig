@@ -217,7 +217,7 @@ pub fn updateFunc(
                 .mod = zcu.navFileScope(func.owner_nav).mod,
                 .error_msg = null,
                 .pass = .{ .nav = func.owner_nav },
-                .is_naked_fn = zcu.navValue(func.owner_nav).typeOf(zcu).fnCallingConvention(zcu) == .naked,
+                .is_naked_fn = Type.fromInterned(func.ty).fnCallingConvention(zcu) == .naked,
                 .fwd_decl = fwd_decl.toManaged(gpa),
                 .ctype_pool = ctype_pool.*,
                 .scratch = .{},
@@ -320,11 +320,11 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !
     const ip = &zcu.intern_pool;
 
     const nav = ip.getNav(nav_index);
-    const nav_init = switch (ip.indexToKey(nav.status.resolved.val)) {
+    const nav_init = switch (ip.indexToKey(nav.status.fully_resolved.val)) {
         .func => return,
         .@"extern" => .none,
         .variable => |variable| variable.init,
-        else => nav.status.resolved.val,
+        else => nav.status.fully_resolved.val,
     };
     if (nav_init != .none and !Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(zcu)) return;
 
@@ -379,12 +379,12 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !
     gop.value_ptr.fwd_decl = try self.addString(object.dg.fwd_decl.items);
 }
 
-pub fn updateNavLineNumber(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
+pub fn updateLineNumber(self: *C, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
     // The C backend does not have the ability to fix line numbers without re-generating
     // the entire Decl.
     _ = self;
     _ = pt;
-    _ = nav_index;
+    _ = ti_id;
 }
 
 pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
@@ -419,7 +419,8 @@ pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
     const gpa = comp.gpa;
     const zcu = self.base.comp.zcu.?;
     const ip = &zcu.intern_pool;
-    const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = tid };
+    const pt: Zcu.PerThread = .activate(zcu, tid);
+    defer pt.deactivate();
 
     {
         var i: usize = 0;
@@ -498,7 +499,7 @@ pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
             av_block,
             self.exported_navs.getPtr(nav),
             export_names,
-            if (ip.indexToKey(zcu.navValue(nav).toIntern()) == .@"extern")
+            if (ip.getNav(nav).getExtern(ip) != null)
                 ip.getNav(nav).name.toOptional()
             else
                 .none,
@@ -543,13 +544,11 @@ pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
         },
         self.getString(av_block.code),
     );
-    for (self.navs.keys(), self.navs.values()) |nav, av_block| f.appendCodeAssumeCapacity(
-        if (self.exported_navs.contains(nav)) .default else switch (ip.indexToKey(zcu.navValue(nav).toIntern())) {
-            .@"extern" => .zig_extern,
-            else => .static,
-        },
-        self.getString(av_block.code),
-    );
+    for (self.navs.keys(), self.navs.values()) |nav, av_block| f.appendCodeAssumeCapacity(storage: {
+        if (self.exported_navs.contains(nav)) break :storage .default;
+        if (ip.getNav(nav).getExtern(ip) != null) break :storage .zig_extern;
+        break :storage .static;
+    }, self.getString(av_block.code));
 
     const file = self.base.file.?;
     try file.setEndPos(f.file_size);

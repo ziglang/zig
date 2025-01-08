@@ -32,6 +32,7 @@
 # endif
 
 # if SIMD_COMPILER_HAS_REQUIRED_FEATURES
+#  define SIMD_CURRENT_LIBRARY_VERSION 6
 #  if __has_include(<TargetConditionals.h>) && __has_include(<Availability.h>)
 #   include <TargetConditionals.h>
 #   include <Availability.h>
@@ -43,19 +44,27 @@
  *  do not work; these functions are simply unavailable when targeting older
  *  versions of the library.                                                  */
 #   if TARGET_OS_RTKIT
-#    define SIMD_LIBRARY_VERSION 5
+#    define SIMD_LIBRARY_VERSION SIMD_CURRENT_LIBRARY_VERSION
+#   elif __MAC_OS_X_VERSION_MIN_REQUIRED >= __MAC_15_0   || \
+        __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_18_0 || \
+        __WATCH_OS_VERSION_MIN_REQUIRED  >= __WATCHOS_11_0 || \
+        __TV_OS_VERSION_MIN_REQUIRED     >= __TVOS_18_0   || \
+        __XR_OS_VERSION_MIN_REQUIRED     >= __XROS_2_0 || \
+        __BRIDGE_OS_VERSION_MIN_REQUIRED >= __BRIDGEOS_9_0 || \
+        __DRIVERKIT_VERSION_MIN_REQUIRED >= __DRIVERKIT_24_0
+#    define SIMD_LIBRARY_VERSION 6
 #   elif __MAC_OS_X_VERSION_MIN_REQUIRED >= __MAC_13_0   || \
         __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_16_0 || \
         __WATCH_OS_VERSION_MIN_REQUIRED  >= __WATCHOS_9_0 || \
         __TV_OS_VERSION_MIN_REQUIRED     >= __TVOS_16_0   || \
-        __BRIDGE_OS_VERSION_MIN_REQUIRED >= 70000   || \
+        __BRIDGE_OS_VERSION_MIN_REQUIRED >= __BRIDGEOS_7_0 || \
         __DRIVERKIT_VERSION_MIN_REQUIRED >= __DRIVERKIT_22_0
 #    define SIMD_LIBRARY_VERSION 5
 #   elif   __MAC_OS_X_VERSION_MIN_REQUIRED >= __MAC_12_0   || \
         __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_15_0 || \
          __WATCH_OS_VERSION_MIN_REQUIRED >= __WATCHOS_8_0 || \
             __TV_OS_VERSION_MIN_REQUIRED >= __TVOS_15_0   || \
-        __BRIDGE_OS_VERSION_MIN_REQUIRED >= 60000   || \
+        __BRIDGE_OS_VERSION_MIN_REQUIRED >= __BRIDGEOS_6_0 || \
         __DRIVERKIT_VERSION_MIN_REQUIRED >= __DRIVERKIT_21_0
 #    define SIMD_LIBRARY_VERSION 4
 #   elif __MAC_OS_X_VERSION_MIN_REQUIRED >= __MAC_10_13   || \
@@ -76,14 +85,14 @@
 #    define SIMD_LIBRARY_VERSION 0
 #   endif
 #  else /* !__has_include(<TargetContidionals.h>) && __has_include(<Availability.h>) */
-#   define SIMD_LIBRARY_VERSION 5
+#   define SIMD_LIBRARY_VERSION SIMD_CURRENT_LIBRARY_VERSION
 #   define __API_AVAILABLE(...) /* Nothing */
 #  endif
 
 /*  The simd types interoperate with the native simd intrinsic types for each
  *  architecture; the headers that define those types and operations are
  *  automatically included with simd.h                                        */
-#  if defined __ARM_NEON__
+#  if defined __ARM_NEON
 #   include <arm_neon.h>
 #  elif defined __i386__ || defined __x86_64__
 #   include <immintrin.h>

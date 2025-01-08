@@ -110,6 +110,9 @@ PSSTDAPI VariantToString(REFVARIANT var, PWSTR ret, UINT cch);
 
 PSSTDAPI PropVariantToStringAlloc(REFPROPVARIANT propvarIn, WCHAR **ret);
 
+PSSTDAPI PropVariantToVariant(const PROPVARIANT *propvar, VARIANT *var);
+PSSTDAPI VariantToPropVariant(const VARIANT* var, PROPVARIANT* propvar);
+
 #ifdef __cplusplus
 
 HRESULT InitPropVariantFromBoolean(WINBOOL fVal, PROPVARIANT *ppropvar);

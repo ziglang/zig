@@ -37,7 +37,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .root_strip = comp.compilerRtStrip(),
         .link_libc = true,
         // Disable LTO to avoid https://github.com/llvm/llvm-project/issues/56825
-        .lto = false,
+        .lto = .none,
     }) catch |err| {
         comp.setMiscFailure(
             .libunwind,
@@ -65,7 +65,8 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             .sanitize_c = false,
             .sanitize_thread = false,
             // necessary so that libunwind can unwind through its own stack frames
-            .unwind_tables = true,
+            // The old 32-bit x86 variant of SEH doesn't use tables.
+            .unwind_tables = if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .@"async",
             .pic = if (target_util.supports_fpic(target)) true else null,
             .optimize_mode = comp.compilerRtOptMode(),
         },

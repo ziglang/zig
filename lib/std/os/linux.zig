@@ -71,9 +71,9 @@ pub fn clone(
     stack: usize,
     flags: u32,
     arg: usize,
-    ptid: *i32,
+    ptid: ?*i32,
     tp: usize, // aka tls
-    ctid: *i32,
+    ctid: ?*i32,
 ) usize {
     // Can't directly call a naked function; cast to C calling convention first.
     return @as(*const fn (
@@ -81,9 +81,9 @@ pub fn clone(
         usize,
         u32,
         usize,
-        *i32,
+        ?*i32,
         usize,
-        *i32,
+        ?*i32,
     ) callconv(.C) usize, @ptrCast(&syscall_bits.clone))(func, stack, flags, arg, ptid, tp, ctid);
 }
 
@@ -1674,7 +1674,7 @@ pub fn setpgid(pid: pid_t, pgid: pid_t) usize {
     return syscall2(.setpgid, @intCast(pid), @intCast(pgid));
 }
 
-pub fn getgroups(size: usize, list: *gid_t) usize {
+pub fn getgroups(size: usize, list: ?*gid_t) usize {
     if (@hasField(SYS, "getgroups32")) {
         return syscall2(.getgroups32, size, @intFromPtr(list));
     } else {

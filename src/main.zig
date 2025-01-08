@@ -19,6 +19,7 @@ const Directory = std.Build.Cache.Directory;
 const EnvVar = std.zig.EnvVar;
 const LibCInstallation = std.zig.LibCInstallation;
 const AstGen = std.zig.AstGen;
+const ZonGen = std.zig.ZonGen;
 const Server = std.zig.Server;
 
 const tracy = @import("tracy.zig");
@@ -33,6 +34,10 @@ const crash_report = @import("crash_report.zig");
 const Zcu = @import("Zcu.zig");
 const mingw = @import("mingw.zig");
 const dev = @import("dev.zig");
+
+test {
+    _ = Package;
+}
 
 pub const std_options: std.Options = .{
     .wasiCwd = wasi_cwd,
@@ -402,11 +407,10 @@ const usage_build_generic =
     \\                           .s    Target-specific assembly source code
     \\                           .S    Assembly with C preprocessor (requires LLVM extensions)
     \\                           .c    C source code (requires LLVM extensions)
-    \\  .cxx .cc .C .cpp .c++ .stub    C++ source code (requires LLVM extensions)
+    \\        .cxx .cc .C .cpp .c++    C++ source code (requires LLVM extensions)
     \\                           .m    Objective-C source code (requires LLVM extensions)
     \\                          .mm    Objective-C++ source code (requires LLVM extensions)
     \\                          .bc    LLVM IR Module (requires LLVM extensions)
-    \\                          .cu    Cuda source code (requires LLVM extensions)
     \\
     \\General Options:
     \\  -h, --help                Print this help and exit
@@ -510,6 +514,7 @@ const usage_build_generic =
     \\  -ffuzz                    Enable fuzz testing instrumentation
     \\  -fno-fuzz                 Disable fuzz testing instrumentation
     \\  -funwind-tables           Always produce unwind table entries for all functions
+    \\  -fasync-unwind-tables     Always produce asynchronous unwind table entries for all functions
     \\  -fno-unwind-tables        Never produce unwind table entries
     \\  -ferror-tracing           Enable error tracing in ReleaseFast mode
     \\  -fno-error-tracing        Disable error tracing in Debug and ReleaseSafe mode
@@ -1381,13 +1386,24 @@ fn buildOutputType(
                     } else if (mem.eql(u8, arg, "-fno-PIE")) {
                         create_module.opts.pie = false;
                     } else if (mem.eql(u8, arg, "-flto")) {
-                        create_module.opts.lto = true;
+                        create_module.opts.lto = .full;
+                    } else if (mem.startsWith(u8, arg, "-flto=")) {
+                        const mode = arg["-flto=".len..];
+                        if (mem.eql(u8, mode, "full")) {
+                            create_module.opts.lto = .full;
+                        } else if (mem.eql(u8, mode, "thin")) {
+                            create_module.opts.lto = .thin;
+                        } else {
+                            fatal("Invalid -flto mode: '{s}'. Must be 'full'or 'thin'.", .{mode});
+                        }
                     } else if (mem.eql(u8, arg, "-fno-lto")) {
-                        create_module.opts.lto = false;
+                        create_module.opts.lto = .none;
                     } else if (mem.eql(u8, arg, "-funwind-tables")) {
-                        mod_opts.unwind_tables = true;
+                        mod_opts.unwind_tables = .sync;
+                    } else if (mem.eql(u8, arg, "-fasync-unwind-tables")) {
+                        mod_opts.unwind_tables = .@"async";
                     } else if (mem.eql(u8, arg, "-fno-unwind-tables")) {
-                        mod_opts.unwind_tables = false;
+                        mod_opts.unwind_tables = .none;
                     } else if (mem.eql(u8, arg, "-fstack-check")) {
                         mod_opts.stack_check = true;
                     } else if (mem.eql(u8, arg, "-fno-stack-check")) {
@@ -1763,7 +1779,7 @@ fn buildOutputType(
                             fatal("only one manifest file can be specified, found '{s}' after '{s}'", .{ arg, other });
                         } else manifest_file = arg;
                     },
-                    .assembly, .assembly_with_cpp, .c, .cpp, .h, .hpp, .hm, .hmm, .ll, .bc, .m, .mm, .cu => {
+                    .assembly, .assembly_with_cpp, .c, .cpp, .h, .hpp, .hm, .hmm, .ll, .bc, .m, .mm => {
                         try create_module.c_source_files.append(arena, .{
                             // Populated after module creation.
                             .owner = undefined,
@@ -1860,7 +1876,7 @@ fn buildOutputType(
                         try cc_argv.appendSlice(arena, it.other_args);
                     },
                     .positional => switch (file_ext orelse Compilation.classifyFileExt(mem.sliceTo(it.only_arg, 0))) {
-                        .assembly, .assembly_with_cpp, .c, .cpp, .ll, .bc, .h, .hpp, .hm, .hmm, .m, .mm, .cu => {
+                        .assembly, .assembly_with_cpp, .c, .cpp, .ll, .bc, .h, .hpp, .hm, .hmm, .m, .mm => {
                             try create_module.c_source_files.append(arena, .{
                                 // Populated after module creation.
                                 .owner = undefined,
@@ -1951,8 +1967,20 @@ fn buildOutputType(
                     .no_pic => mod_opts.pic = false,
                     .pie => create_module.opts.pie = true,
                     .no_pie => create_module.opts.pie = false,
-                    .lto => create_module.opts.lto = true,
-                    .no_lto => create_module.opts.lto = false,
+                    .lto => {
+                        if (mem.eql(u8, it.only_arg, "flto") or
+                            mem.eql(u8, it.only_arg, "auto") or
+                            mem.eql(u8, it.only_arg, "full") or
+                            mem.eql(u8, it.only_arg, "jobserver"))
+                        {
+                            create_module.opts.lto = .full;
+                        } else if (mem.eql(u8, it.only_arg, "thin")) {
+                            create_module.opts.lto = .thin;
+                        } else {
+                            fatal("Invalid -flto mode: '{s}'. Must be 'auto', 'full', 'thin', or 'jobserver'.", .{it.only_arg});
+                        }
+                    },
+                    .no_lto => create_module.opts.lto = .none,
                     .red_zone => mod_opts.red_zone = true,
                     .no_red_zone => mod_opts.red_zone = false,
                     .omit_frame_pointer => mod_opts.omit_frame_pointer = true,
@@ -1973,8 +2001,27 @@ fn buildOutputType(
                         }
                     },
                     .no_stack_protector => mod_opts.stack_protector = 0,
-                    .unwind_tables => mod_opts.unwind_tables = true,
-                    .no_unwind_tables => mod_opts.unwind_tables = false,
+                    // The way these unwind table options are processed in GCC and Clang is crazy
+                    // convoluted, and we also don't know the target triple here, so this is all
+                    // best-effort.
+                    .unwind_tables => if (mod_opts.unwind_tables) |uwt| switch (uwt) {
+                        .none => {
+                            mod_opts.unwind_tables = .sync;
+                        },
+                        .sync, .@"async" => {},
+                    } else {
+                        mod_opts.unwind_tables = .sync;
+                    },
+                    .no_unwind_tables => mod_opts.unwind_tables = .none,
+                    .asynchronous_unwind_tables => mod_opts.unwind_tables = .@"async",
+                    .no_asynchronous_unwind_tables => if (mod_opts.unwind_tables) |uwt| switch (uwt) {
+                        .none, .sync => {},
+                        .@"async" => {
+                            mod_opts.unwind_tables = .sync;
+                        },
+                    } else {
+                        mod_opts.unwind_tables = .sync;
+                    },
                     .nostdlib => {
                         create_module.opts.ensure_libc_on_non_freestanding = false;
                         create_module.opts.ensure_libcpp_on_non_freestanding = false;
@@ -2788,8 +2835,15 @@ fn buildOutputType(
             create_module.opts.any_sanitize_thread = true;
         if (mod_opts.fuzz == true)
             create_module.opts.any_fuzz = true;
-        if (mod_opts.unwind_tables == true)
-            create_module.opts.any_unwind_tables = true;
+        if (mod_opts.unwind_tables) |uwt| switch (uwt) {
+            .none => {},
+            .sync => if (create_module.opts.any_unwind_tables == .none) {
+                create_module.opts.any_unwind_tables = .sync;
+            },
+            .@"async" => {
+                create_module.opts.any_unwind_tables = .@"async";
+            },
+        };
         if (mod_opts.strip == false)
             create_module.opts.any_non_stripped = true;
         if (mod_opts.error_tracing == true)
@@ -3516,21 +3570,28 @@ fn buildOutputType(
 
             for (std.zig.target.available_libcs) |t| {
                 if (t.arch == target.cpu.arch and t.os == target.os.tag) {
-                    if (t.os_ver) |os_ver| {
-                        std.log.info("zig can provide libc for related target {s}-{s}.{d}-{s}", .{
-                            @tagName(t.arch), @tagName(t.os), os_ver.major, @tagName(t.abi),
-                        });
-                    } else if (t.glibc_min) |glibc_min| {
-                        std.log.info("zig can provide libc for related target {s}-{s}-{s}.{d}.{d}", .{
+                    // If there's a `glibc_min`, there's also an `os_ver`.
+                    if (t.glibc_min) |glibc_min| {
+                        std.log.info("zig can provide libc for related target {s}-{s}.{}-{s}.{d}.{d}", .{
                             @tagName(t.arch),
                             @tagName(t.os),
+                            t.os_ver.?,
                             @tagName(t.abi),
                             glibc_min.major,
                             glibc_min.minor,
                         });
+                    } else if (t.os_ver) |os_ver| {
+                        std.log.info("zig can provide libc for related target {s}-{s}.{}-{s}", .{
+                            @tagName(t.arch),
+                            @tagName(t.os),
+                            os_ver,
+                            @tagName(t.abi),
+                        });
                     } else {
                         std.log.info("zig can provide libc for related target {s}-{s}-{s}", .{
-                            @tagName(t.arch), @tagName(t.os), @tagName(t.abi),
+                            @tagName(t.arch),
+                            @tagName(t.os),
+                            @tagName(t.abi),
                         });
                     }
                 }
@@ -3824,6 +3885,15 @@ fn createModule(
         for (create_module.cli_link_inputs.items) |cli_link_input| switch (cli_link_input) {
             .name_query => |nq| {
                 const lib_name = nq.name;
+
+                if (target.os.tag == .wasi) {
+                    if (wasi_libc.getEmulatedLibCrtFile(lib_name)) |crt_file| {
+                        try create_module.wasi_emulated_libs.append(arena, crt_file);
+                        create_module.opts.link_libc = true;
+                        continue;
+                    }
+                }
+
                 if (std.zig.target.isLibCLibName(target, lib_name)) {
                     create_module.opts.link_libc = true;
                     continue;
@@ -3832,16 +3902,14 @@ fn createModule(
                     create_module.opts.link_libcpp = true;
                     continue;
                 }
-                switch (target_util.classifyCompilerRtLibName(target, lib_name)) {
+
+                switch (target_util.classifyCompilerRtLibName(lib_name)) {
                     .none => {},
                     .only_libunwind, .both => {
                         create_module.opts.link_libunwind = true;
                         continue;
                     },
-                    .only_compiler_rt => {
-                        warn("ignoring superfluous library '{s}': this dependency is fulfilled instead by compiler-rt which zig unconditionally provides", .{lib_name});
-                        continue;
-                    },
+                    .only_compiler_rt => continue,
                 }
 
                 if (target.isMinGW()) {
@@ -3860,12 +3928,6 @@ fn createModule(
                     fatal("cannot use absolute path as a system library: {s}", .{lib_name});
                 }
 
-                if (target.os.tag == .wasi) {
-                    if (wasi_libc.getEmulatedLibCrtFile(lib_name)) |crt_file| {
-                        try create_module.wasi_emulated_libs.append(arena, crt_file);
-                        continue;
-                    }
-                }
                 unresolved_link_inputs.appendAssumeCapacity(cli_link_input);
                 any_name_queries_remaining = true;
             },
@@ -5712,6 +5774,8 @@ pub const ClangArgIterator = struct {
         no_lto,
         unwind_tables,
         no_unwind_tables,
+        asynchronous_unwind_tables,
+        no_asynchronous_unwind_tables,
         nostdlib,
         nostdlib_cpp,
         shared,
@@ -5971,15 +6035,16 @@ fn parseCodeModel(arg: []const u8) std.builtin.CodeModel {
 const usage_ast_check =
     \\Usage: zig ast-check [file]
     \\
-    \\    Given a .zig source file, reports any compile errors that can be
-    \\    ascertained on the basis of the source code alone, without target
-    \\    information or type checking.
+    \\    Given a .zig source file or .zon file, reports any compile errors
+    \\    that can be ascertained on the basis of the source code alone,
+    \\    without target information or type checking.
     \\
     \\    If [file] is omitted, stdin is used.
     \\
     \\Options:
     \\  -h, --help            Print this help and exit
     \\  --color [auto|off|on] Enable or disable colored error messages
+    \\  --zon                 Treat the input file as ZON, regardless of file extension
     \\  -t                    (debug option) Output ZIR in text form to stdout
     \\
     \\
@@ -5996,6 +6061,7 @@ fn cmdAstCheck(
 
     var color: Color = .auto;
     var want_output_text = false;
+    var force_zon = false;
     var zig_source_file: ?[]const u8 = null;
 
     var i: usize = 0;
@@ -6007,6 +6073,8 @@ fn cmdAstCheck(
                 return cleanExit();
             } else if (mem.eql(u8, arg, "-t")) {
                 want_output_text = true;
+            } else if (mem.eql(u8, arg, "--zon")) {
+                force_zon = true;
             } else if (mem.eql(u8, arg, "--color")) {
                 if (i + 1 >= args.len) {
                     fatal("expected [auto|on|off] after --color", .{});
@@ -6074,77 +6142,137 @@ fn cmdAstCheck(
         file.stat.size = source.len;
     }
 
+    const mode: Ast.Mode = mode: {
+        if (force_zon) break :mode .zon;
+        if (zig_source_file) |name| {
+            if (mem.endsWith(u8, name, ".zon")) {
+                break :mode .zon;
+            }
+        }
+        break :mode .zig;
+    };
+
     file.mod = try Package.Module.createLimited(arena, .{
         .root = Path.cwd(),
         .root_src_path = file.sub_file_path,
         .fully_qualified_name = "root",
     });
 
-    file.tree = try Ast.parse(gpa, file.source, .zig);
+    file.tree = try Ast.parse(gpa, file.source, mode);
     file.tree_loaded = true;
     defer file.tree.deinit(gpa);
 
-    file.zir = try AstGen.generate(gpa, file.tree);
-    file.zir_loaded = true;
-    defer file.zir.deinit(gpa);
+    switch (mode) {
+        .zig => {
+            file.zir = try AstGen.generate(gpa, file.tree);
+            file.zir_loaded = true;
+            defer file.zir.deinit(gpa);
 
-    if (file.zir.hasCompileErrors()) {
-        var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-        try wip_errors.init(gpa);
-        defer wip_errors.deinit();
-        try Compilation.addZirErrorMessages(&wip_errors, &file);
-        var error_bundle = try wip_errors.toOwnedBundle("");
-        defer error_bundle.deinit(gpa);
-        error_bundle.renderToStdErr(color.renderOptions());
-        process.exit(1);
-    }
+            if (file.zir.hasCompileErrors()) {
+                var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+                try wip_errors.init(gpa);
+                defer wip_errors.deinit();
+                try Compilation.addZirErrorMessages(&wip_errors, &file);
+                var error_bundle = try wip_errors.toOwnedBundle("");
+                defer error_bundle.deinit(gpa);
+                error_bundle.renderToStdErr(color.renderOptions());
 
-    if (!want_output_text) {
-        return cleanExit();
-    }
-    if (!build_options.enable_debug_extensions) {
-        fatal("-t option only available in builds of zig with debug extensions", .{});
-    }
+                if (file.zir.loweringFailed()) {
+                    process.exit(1);
+                }
+            }
 
-    {
-        const token_bytes = @sizeOf(Ast.TokenList) +
-            file.tree.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(Ast.ByteOffset));
-        const tree_bytes = @sizeOf(Ast) + file.tree.nodes.len *
-            (@sizeOf(Ast.Node.Tag) +
-            @sizeOf(Ast.Node.Data) +
-            @sizeOf(Ast.TokenIndex));
-        const instruction_bytes = file.zir.instructions.len *
-            // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
-            // the debug safety tag but we want to measure release size.
-            (@sizeOf(Zir.Inst.Tag) + 8);
-        const extra_bytes = file.zir.extra.len * @sizeOf(u32);
-        const total_bytes = @sizeOf(Zir) + instruction_bytes + extra_bytes +
-            file.zir.string_bytes.len * @sizeOf(u8);
-        const stdout = io.getStdOut();
-        const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
-        // zig fmt: off
-        try stdout.writer().print(
-            \\# Source bytes:       {}
-            \\# Tokens:             {} ({})
-            \\# AST Nodes:          {} ({})
-            \\# Total ZIR bytes:    {}
-            \\# Instructions:       {d} ({})
-            \\# String Table Bytes: {}
-            \\# Extra Data Items:   {d} ({})
-            \\
-        , .{
-            fmtIntSizeBin(file.source.len),
-            file.tree.tokens.len, fmtIntSizeBin(token_bytes),
-            file.tree.nodes.len, fmtIntSizeBin(tree_bytes),
-            fmtIntSizeBin(total_bytes),
-            file.zir.instructions.len, fmtIntSizeBin(instruction_bytes),
-            fmtIntSizeBin(file.zir.string_bytes.len),
-            file.zir.extra.len, fmtIntSizeBin(extra_bytes),
-        });
-        // zig fmt: on
-    }
+            if (!want_output_text) {
+                if (file.zir.hasCompileErrors()) {
+                    process.exit(1);
+                } else {
+                    return cleanExit();
+                }
+            }
+            if (!build_options.enable_debug_extensions) {
+                fatal("-t option only available in builds of zig with debug extensions", .{});
+            }
 
-    return @import("print_zir.zig").renderAsTextToFile(gpa, &file, io.getStdOut());
+            {
+                const token_bytes = @sizeOf(Ast.TokenList) +
+                    file.tree.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(Ast.ByteOffset));
+                const tree_bytes = @sizeOf(Ast) + file.tree.nodes.len *
+                    (@sizeOf(Ast.Node.Tag) +
+                    @sizeOf(Ast.Node.Data) +
+                    @sizeOf(Ast.TokenIndex));
+                const instruction_bytes = file.zir.instructions.len *
+                    // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
+                    // the debug safety tag but we want to measure release size.
+                    (@sizeOf(Zir.Inst.Tag) + 8);
+                const extra_bytes = file.zir.extra.len * @sizeOf(u32);
+                const total_bytes = @sizeOf(Zir) + instruction_bytes + extra_bytes +
+                    file.zir.string_bytes.len * @sizeOf(u8);
+                const stdout = io.getStdOut();
+                const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
+                // zig fmt: off
+                try stdout.writer().print(
+                    \\# Source bytes:       {}
+                    \\# Tokens:             {} ({})
+                    \\# AST Nodes:          {} ({})
+                    \\# Total ZIR bytes:    {}
+                    \\# Instructions:       {d} ({})
+                    \\# String Table Bytes: {}
+                    \\# Extra Data Items:   {d} ({})
+                    \\
+                , .{
+                    fmtIntSizeBin(file.source.len),
+                    file.tree.tokens.len, fmtIntSizeBin(token_bytes),
+                    file.tree.nodes.len, fmtIntSizeBin(tree_bytes),
+                    fmtIntSizeBin(total_bytes),
+                    file.zir.instructions.len, fmtIntSizeBin(instruction_bytes),
+                    fmtIntSizeBin(file.zir.string_bytes.len),
+                    file.zir.extra.len, fmtIntSizeBin(extra_bytes),
+                });
+                // zig fmt: on
+            }
+
+            try @import("print_zir.zig").renderAsTextToFile(gpa, &file, io.getStdOut());
+
+            if (file.zir.hasCompileErrors()) {
+                process.exit(1);
+            } else {
+                return cleanExit();
+            }
+        },
+        .zon => {
+            const zoir = try ZonGen.generate(gpa, file.tree);
+            defer zoir.deinit(gpa);
+
+            if (zoir.hasCompileErrors()) {
+                var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+                try wip_errors.init(gpa);
+                defer wip_errors.deinit();
+
+                {
+                    const src_path = try file.fullPath(gpa);
+                    defer gpa.free(src_path);
+                    try wip_errors.addZoirErrorMessages(zoir, file.tree, file.source, src_path);
+                }
+
+                var error_bundle = try wip_errors.toOwnedBundle("");
+                defer error_bundle.deinit(gpa);
+                error_bundle.renderToStdErr(color.renderOptions());
+
+                process.exit(1);
+            }
+
+            if (!want_output_text) {
+                return cleanExit();
+            }
+
+            if (!build_options.enable_debug_extensions) {
+                fatal("-t option only available in builds of zig with debug extensions", .{});
+            }
+
+            try @import("print_zoir.zig").renderToFile(zoir, arena, io.getStdOut());
+            return cleanExit();
+        },
+    }
 }
 
 fn cmdDetectCpu(
@@ -6457,7 +6585,7 @@ fn cmdChangelist(
     file.zir_loaded = true;
     defer file.zir.deinit(gpa);
 
-    if (file.zir.hasCompileErrors()) {
+    if (file.zir.loweringFailed()) {
         var wip_errors: std.zig.ErrorBundle.Wip = undefined;
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
@@ -6492,7 +6620,7 @@ fn cmdChangelist(
     file.zir = try AstGen.generate(gpa, new_tree);
     file.zir_loaded = true;
 
-    if (file.zir.hasCompileErrors()) {
+    if (file.zir.loweringFailed()) {
         var wip_errors: std.zig.ErrorBundle.Wip = undefined;
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
@@ -6988,8 +7116,8 @@ fn cmdFetch(
 
     var saved_path_or_url = path_or_url;
 
-    if (fetch.latest_commit) |*latest_commit| resolved: {
-        const latest_commit_hex = try std.fmt.allocPrint(arena, "{}", .{std.fmt.fmtSliceHexLower(latest_commit)});
+    if (fetch.latest_commit) |latest_commit| resolved: {
+        const latest_commit_hex = try std.fmt.allocPrint(arena, "{}", .{latest_commit});
 
         var uri = try std.Uri.parse(path_or_url);
 
@@ -7421,8 +7549,15 @@ fn handleModArg(
         create_module.opts.any_sanitize_thread = true;
     if (mod_opts.fuzz == true)
         create_module.opts.any_fuzz = true;
-    if (mod_opts.unwind_tables == true)
-        create_module.opts.any_unwind_tables = true;
+    if (mod_opts.unwind_tables) |uwt| switch (uwt) {
+        .none => {},
+        .sync => if (create_module.opts.any_unwind_tables == .none) {
+            create_module.opts.any_unwind_tables = .sync;
+        },
+        .@"async" => {
+            create_module.opts.any_unwind_tables = .@"async";
+        },
+    };
     if (mod_opts.strip == false)
         create_module.opts.any_non_stripped = true;
     if (mod_opts.error_tracing == true)

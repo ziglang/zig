@@ -9829,6 +9829,8 @@ pub fn printUnbuffered(
                             extra.then.toInst(&function).fmt(function_index, self),
                             extra.@"else".toInst(&function).fmt(function_index, self),
                         });
+                        metadata_formatter.need_comma = true;
+                        defer metadata_formatter.need_comma = undefined;
                         switch (extra.weights) {
                             .none => {},
                             .unpredictable => try writer.writeAll("!unpredictable !{}"),
@@ -10110,6 +10112,8 @@ pub fn printUnbuffered(
                             },
                         );
                         try writer.writeAll("  ]");
+                        metadata_formatter.need_comma = true;
+                        defer metadata_formatter.need_comma = undefined;
                         switch (extra.data.weights) {
                             .none => {},
                             .unpredictable => try writer.writeAll("!unpredictable !{}"),

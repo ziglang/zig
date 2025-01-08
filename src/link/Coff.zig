@@ -997,7 +997,7 @@ fn markRelocsDirtyByAddress(coff: *Coff, addr: u32) void {
     }
 }
 
-fn resolveRelocs(coff: *Coff, atom_index: Atom.Index, relocs: []*const Relocation, code: []u8, image_base: u64) void {
+fn resolveRelocs(coff: *Coff, atom_index: Atom.Index, relocs: []const *const Relocation, code: []u8, image_base: u64) void {
     log.debug("relocating '{s}'", .{coff.getAtom(atom_index).getName(coff)});
     for (relocs) |reloc| {
         reloc.resolve(atom_index, code, image_base, coff);
@@ -1109,6 +1109,8 @@ pub fn updateFunc(coff: *Coff, pt: Zcu.PerThread, func_index: InternPool.Index, 
 
     const atom_index = try coff.getOrCreateAtomForNav(func.owner_nav);
     coff.freeRelocations(atom_index);
+
+    coff.navs.getPtr(func.owner_nav).?.section = coff.text_section_index.?;
 
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
@@ -1222,6 +1224,8 @@ pub fn updateNav(
         const atom_index = try coff.getOrCreateAtomForNav(nav_index);
         coff.freeRelocations(atom_index);
         const atom = coff.getAtom(atom_index);
+
+        coff.navs.getPtr(nav_index).?.section = coff.getNavOutputSection(nav_index);
 
         var code_buffer = std.ArrayList(u8).init(gpa);
         defer code_buffer.deinit();
@@ -1342,7 +1346,8 @@ pub fn getOrCreateAtomForNav(coff: *Coff, nav_index: InternPool.Nav.Index) !Atom
     if (!gop.found_existing) {
         gop.value_ptr.* = .{
             .atom = try coff.createAtom(),
-            .section = coff.getNavOutputSection(nav_index),
+            // If necessary, this will be modified by `updateNav` or `updateFunc`.
+            .section = coff.rdata_section_index.?,
             .exports = .{},
         };
     }
@@ -1355,7 +1360,7 @@ fn getNavOutputSection(coff: *Coff, nav_index: InternPool.Nav.Index) u16 {
     const nav = ip.getNav(nav_index);
     const ty = Type.fromInterned(nav.typeOf(ip));
     const zig_ty = ty.zigTypeTag(zcu);
-    const val = Value.fromInterned(nav.status.resolved.val);
+    const val = Value.fromInterned(nav.status.fully_resolved.val);
     const index: u16 = blk: {
         if (val.isUndefDeep(zcu)) {
             // TODO in release-fast and release-small, we should put undef in .bss
@@ -1854,7 +1859,7 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         if (comp.version) |version| {
             try argv.append(try allocPrint(arena, "-VERSION:{}.{}", .{ version.major, version.minor }));
         }
-        if (comp.config.lto) {
+        if (comp.config.lto != .none) {
             switch (optimize_mode) {
                 .Debug => {},
                 .ReleaseSmall => try argv.append("-OPT:lldlto=2"),
@@ -2218,10 +2223,11 @@ pub fn flushModule(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_no
     const sub_prog_node = prog_node.start("COFF Flush", 0);
     defer sub_prog_node.end();
 
-    const pt: Zcu.PerThread = .{
-        .zcu = comp.zcu orelse return error.LinkingWithoutZigSourceUnimplemented,
-        .tid = tid,
-    };
+    const pt: Zcu.PerThread = .activate(
+        comp.zcu orelse return error.LinkingWithoutZigSourceUnimplemented,
+        tid,
+    );
+    defer pt.deactivate();
 
     if (coff.lazy_syms.getPtr(.anyerror_type)) |metadata| {
         // Most lazy symbols can be updated on first use, but
@@ -2347,10 +2353,10 @@ pub fn getNavVAddr(
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
     log.debug("getNavVAddr {}({d})", .{ nav.fqn.fmt(ip), nav_index });
-    const sym_index = switch (ip.indexToKey(nav.status.resolved.val)) {
-        .@"extern" => |@"extern"| try coff.getGlobalSymbol(nav.name.toSlice(ip), @"extern".lib_name.toSlice(ip)),
-        else => coff.getAtom(try coff.getOrCreateAtomForNav(nav_index)).getSymbolIndex().?,
-    };
+    const sym_index = if (nav.getExtern(ip)) |e|
+        try coff.getGlobalSymbol(nav.name.toSlice(ip), e.lib_name.toSlice(ip))
+    else
+        coff.getAtom(try coff.getOrCreateAtomForNav(nav_index)).getSymbolIndex().?;
     const atom_index = coff.getAtomIndexForSymbol(.{
         .sym_index = reloc_info.parent.atom_index,
         .file = null,
@@ -2478,11 +2484,11 @@ pub fn getGlobalSymbol(coff: *Coff, name: []const u8, lib_name_name: ?[]const u8
     return global_index;
 }
 
-pub fn updateDeclLineNumber(coff: *Coff, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
+pub fn updateLineNumber(coff: *Coff, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
     _ = coff;
     _ = pt;
-    _ = decl_index;
-    log.debug("TODO implement updateDeclLineNumber", .{});
+    _ = ti_id;
+    log.debug("TODO implement updateLineNumber", .{});
 }
 
 /// TODO: note if we need to rewrite base relocations by dirtying any of the entries in the global table

@@ -891,7 +891,7 @@ pub const ResolveStratLazy = enum {
 };
 
 /// The chosen strategy can be easily optimized away in release builds.
-/// However, in debug builds, it helps to avoid acceidentally resolving types in backends.
+/// However, in debug builds, it helps to avoid accidentally resolving types in backends.
 pub const ResolveStrat = enum {
     /// Assert that all necessary resolution is completed.
     /// Backends should typically use this, since they must not perform type resolution.
@@ -3851,7 +3851,7 @@ fn resolveStructInner(
     const gpa = zcu.gpa;
 
     const struct_obj = zcu.typeToStruct(ty).?;
-    const owner = InternPool.AnalUnit.wrap(.{ .cau = struct_obj.cau });
+    const owner: InternPool.AnalUnit = .wrap(.{ .type = ty.toIntern() });
 
     if (zcu.failed_analysis.contains(owner) or zcu.transitive_failed_analysis.contains(owner)) {
         return error.AnalysisFail;
@@ -3905,7 +3905,7 @@ fn resolveUnionInner(
     const gpa = zcu.gpa;
 
     const union_obj = zcu.typeToUnion(ty).?;
-    const owner = InternPool.AnalUnit.wrap(.{ .cau = union_obj.cau });
+    const owner: InternPool.AnalUnit = .wrap(.{ .type = ty.toIntern() });
 
     if (zcu.failed_analysis.contains(owner) or zcu.transitive_failed_analysis.contains(owner)) {
         return error.AnalysisFail;
@@ -4126,6 +4126,7 @@ pub const @"anyframe": Type = .{ .ip_index = .anyframe_type };
 pub const @"null": Type = .{ .ip_index = .null_type };
 pub const @"undefined": Type = .{ .ip_index = .undefined_type };
 pub const @"noreturn": Type = .{ .ip_index = .noreturn_type };
+pub const enum_literal: Type = .{ .ip_index = .enum_literal_type };
 
 pub const @"c_char": Type = .{ .ip_index = .c_char_type };
 pub const @"c_short": Type = .{ .ip_index = .c_short_type };

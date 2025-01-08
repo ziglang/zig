@@ -1066,6 +1066,7 @@ pub fn orderAgainstZeroInner(
             .float => |float| switch (float.storage) {
                 inline else => |x| std.math.order(x, 0),
             },
+            .err => .gt, // error values cannot be 0
             else => unreachable,
         },
     };
@@ -1343,7 +1344,12 @@ pub fn isLazySize(val: Value, zcu: *Zcu) bool {
 pub fn isPtrRuntimeValue(val: Value, zcu: *Zcu) bool {
     const ip = &zcu.intern_pool;
     const nav = ip.getBackingNav(val.toIntern()).unwrap() orelse return false;
-    return switch (ip.indexToKey(ip.getNav(nav).status.resolved.val)) {
+    const nav_val = switch (ip.getNav(nav).status) {
+        .unresolved => unreachable,
+        .type_resolved => |r| return r.is_threadlocal,
+        .fully_resolved => |r| r.val,
+    };
+    return switch (ip.indexToKey(nav_val)) {
         .@"extern" => |e| e.is_threadlocal or e.is_dll_import,
         .variable => |v| v.is_threadlocal,
         else => false,
@@ -3709,8 +3715,6 @@ pub const empty_tuple: Value = .{ .ip_index = .empty_tuple };
 pub fn makeBool(x: bool) Value {
     return if (x) Value.true else Value.false;
 }
-
-pub const RuntimeIndex = InternPool.RuntimeIndex;
 
 /// `parent_ptr` must be a single-pointer to some optional.
 /// Returns a pointer to the payload of the optional.

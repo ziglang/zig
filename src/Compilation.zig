@@ -305,7 +305,6 @@ pub const LangToExt = std.StaticStringMap(FileExt).initComptime(.{
     .{ "objective-c++-header", .hmm },
     .{ "assembler", .assembly },
     .{ "assembler-with-cpp", .assembly_with_cpp },
-    .{ "cuda", .cu },
 });
 
 /// For passing to a C compiler.
@@ -349,12 +348,16 @@ const Job = union(enum) {
     /// Corresponds to the task in `link.Task`.
     /// Only needed for backends that haven't yet been updated to not race against Sema.
     codegen_type: InternPool.Index,
-    /// The `Cau` must be semantically analyzed (and possibly export itself).
+    update_line_number: InternPool.TrackedInst.Index,
+    /// The `AnalUnit`, which is *not* a `func`, must be semantically analyzed.
     /// This may be its first time being analyzed, or it may be outdated.
-    analyze_cau: InternPool.Cau.Index,
-    /// Analyze the body of a runtime function.
+    /// If the unit is a function, a `codegen_func` job will then be queued.
+    analyze_comptime_unit: InternPool.AnalUnit,
+    /// This function must be semantically analyzed.
+    /// This may be its first time being analyzed, or it may be outdated.
     /// After analysis, a `codegen_func` job will be queued.
     /// These must be separate jobs to ensure any needed type resolution occurs *before* codegen.
+    /// This job is separate from `analyze_comptime_unit` because it has a different priority.
     analyze_func: InternPool.Index,
     /// The main source file for the module needs to be analyzed.
     analyze_mod: *Package.Module,
@@ -1261,12 +1264,15 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         // The "any" values provided by resolved config only account for
         // explicitly-provided settings. We now make them additionally account
         // for default setting resolution.
-        const any_unwind_tables = options.config.any_unwind_tables or options.root_mod.unwind_tables;
+        const any_unwind_tables = switch (options.config.any_unwind_tables) {
+            .none => options.root_mod.unwind_tables,
+            .sync, .@"async" => |uwt| uwt,
+        };
         const any_non_single_threaded = options.config.any_non_single_threaded or !options.root_mod.single_threaded;
         const any_sanitize_thread = options.config.any_sanitize_thread or options.root_mod.sanitize_thread;
         const any_fuzz = options.config.any_fuzz or options.root_mod.fuzz;
 
-        const link_eh_frame_hdr = options.link_eh_frame_hdr or any_unwind_tables;
+        const link_eh_frame_hdr = options.link_eh_frame_hdr or any_unwind_tables != .none;
         const build_id = options.build_id orelse .none;
 
         const link_libc = options.config.link_libc;
@@ -1354,6 +1360,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         cache.hash.add(options.config.pie);
         cache.hash.add(options.config.lto);
         cache.hash.add(options.config.link_mode);
+        cache.hash.add(options.config.any_unwind_tables);
         cache.hash.add(options.function_sections);
         cache.hash.add(options.data_sections);
         cache.hash.add(link_libc);
@@ -2048,15 +2055,30 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             whole.cache_manifest = &man;
             try addNonIncrementalStuffToCacheManifest(comp, arena, &man);
 
-            const is_hit = man.hit() catch |err| {
-                const i = man.failed_file_index orelse return err;
-                const pp = man.files.keys()[i].prefixed_path;
-                const prefix = man.cache.prefixes()[pp.prefix];
-                return comp.setMiscFailure(
+            const is_hit = man.hit() catch |err| switch (err) {
+                error.CacheCheckFailed => switch (man.diagnostic) {
+                    .none => unreachable,
+                    .manifest_create, .manifest_read, .manifest_lock => |e| return comp.setMiscFailure(
+                        .check_whole_cache,
+                        "failed to check cache: {s} {s}",
+                        .{ @tagName(man.diagnostic), @errorName(e) },
+                    ),
+                    .file_open, .file_stat, .file_read, .file_hash => |op| {
+                        const pp = man.files.keys()[op.file_index].prefixed_path;
+                        const prefix = man.cache.prefixes()[pp.prefix];
+                        return comp.setMiscFailure(
+                            .check_whole_cache,
+                            "failed to check cache: '{}{s}' {s} {s}",
+                            .{ prefix, pp.sub_path, @tagName(man.diagnostic), @errorName(op.err) },
+                        );
+                    },
+                },
+                error.OutOfMemory => return error.OutOfMemory,
+                error.InvalidFormat => return comp.setMiscFailure(
                     .check_whole_cache,
-                    "unable to check cache: stat file '{}{s}' failed: {s}",
-                    .{ prefix, pp.sub_path, @errorName(err) },
-                );
+                    "failed to check cache: invalid manifest file format",
+                    .{},
+                ),
             };
             if (is_hit) {
                 // In this case the cache hit contains the full set of file system inputs. Nice!
@@ -2163,7 +2185,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
     }
 
     if (comp.zcu) |zcu| {
-        const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = .main };
+        const pt: Zcu.PerThread = .activate(zcu, .main);
+        defer pt.deactivate();
 
         zcu.compile_log_text.shrinkAndFree(gpa, 0);
 
@@ -2233,7 +2256,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
     try comp.performAllTheWork(main_progress_node);
 
     if (comp.zcu) |zcu| {
-        const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = .main };
+        const pt: Zcu.PerThread = .activate(zcu, .main);
+        defer pt.deactivate();
 
         if (build_options.enable_debug_extensions and comp.verbose_intern_pool) {
             std.debug.print("intern pool stats for '{s}':\n", .{
@@ -2883,6 +2907,7 @@ const Header = extern struct {
         file_deps_len: u32,
         src_hash_deps_len: u32,
         nav_val_deps_len: u32,
+        nav_ty_deps_len: u32,
         namespace_deps_len: u32,
         namespace_name_deps_len: u32,
         first_dependency_len: u32,
@@ -2926,6 +2951,7 @@ pub fn saveState(comp: *Compilation) !void {
                 .file_deps_len = @intCast(ip.file_deps.count()),
                 .src_hash_deps_len = @intCast(ip.src_hash_deps.count()),
                 .nav_val_deps_len = @intCast(ip.nav_val_deps.count()),
+                .nav_ty_deps_len = @intCast(ip.nav_ty_deps.count()),
                 .namespace_deps_len = @intCast(ip.namespace_deps.count()),
                 .namespace_name_deps_len = @intCast(ip.namespace_name_deps.count()),
                 .first_dependency_len = @intCast(ip.first_dependency.count()),
@@ -2956,6 +2982,8 @@ pub fn saveState(comp: *Compilation) !void {
         addBuf(&bufs, mem.sliceAsBytes(ip.src_hash_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.nav_val_deps.keys()));
         addBuf(&bufs, mem.sliceAsBytes(ip.nav_val_deps.values()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.nav_ty_deps.keys()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.nav_ty_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.namespace_deps.keys()));
         addBuf(&bufs, mem.sliceAsBytes(ip.namespace_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.namespace_name_deps.keys()));
@@ -3075,9 +3103,10 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         for (zcu.failed_embed_files.values()) |error_msg| {
             try addModuleErrorMsg(zcu, &bundle, error_msg.*);
         }
-        {
+        var sorted_failed_analysis: std.AutoArrayHashMapUnmanaged(InternPool.AnalUnit, *Zcu.ErrorMsg).DataList.Slice = s: {
             const SortOrder = struct {
                 zcu: *Zcu,
+                errors: []const *Zcu.ErrorMsg,
                 err: *?Error,
 
                 const Error = @typeInfo(
@@ -3086,12 +3115,11 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
 
                 pub fn lessThan(ctx: @This(), lhs_index: usize, rhs_index: usize) bool {
                     if (ctx.err.*) |_| return lhs_index < rhs_index;
-                    const errors = ctx.zcu.failed_analysis.values();
-                    const lhs_src_loc = errors[lhs_index].src_loc.upgradeOrLost(ctx.zcu) orelse {
+                    const lhs_src_loc = ctx.errors[lhs_index].src_loc.upgradeOrLost(ctx.zcu) orelse {
                         // LHS source location lost, so should never be referenced. Just sort it to the end.
                         return false;
                     };
-                    const rhs_src_loc = errors[rhs_index].src_loc.upgradeOrLost(ctx.zcu) orelse {
+                    const rhs_src_loc = ctx.errors[rhs_index].src_loc.upgradeOrLost(ctx.zcu) orelse {
                         // RHS source location lost, so should never be referenced. Just sort it to the end.
                         return true;
                     };
@@ -3108,26 +3136,47 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                     }).main;
                 }
             };
+
+            // We can't directly sort `zcu.failed_analysis.entries`, because that would leave the map
+            // in an invalid state, and we need it intact for future incremental updates. The amount
+            // of data here is only as large as the number of analysis errors, so just dupe it all.
+            var entries = try zcu.failed_analysis.entries.clone(gpa);
+            errdefer entries.deinit(gpa);
+
             var err: ?SortOrder.Error = null;
-            // This leaves `zcu.failed_analysis` an invalid state, but we do not
-            // need lookups anymore anyway.
-            zcu.failed_analysis.entries.sort(SortOrder{ .zcu = zcu, .err = &err });
+            entries.sort(SortOrder{
+                .zcu = zcu,
+                .errors = entries.items(.value),
+                .err = &err,
+            });
             if (err) |e| return e;
-        }
-        for (zcu.failed_analysis.keys(), zcu.failed_analysis.values()) |anal_unit, error_msg| {
+            break :s entries.slice();
+        };
+        defer sorted_failed_analysis.deinit(gpa);
+        for (sorted_failed_analysis.items(.key), sorted_failed_analysis.items(.value)) |anal_unit, error_msg| {
             if (comp.incremental) {
                 const refs = try zcu.resolveReferences();
                 if (!refs.contains(anal_unit)) continue;
             }
 
-            const file_index = switch (anal_unit.unwrap()) {
-                .cau => |cau| zcu.namespacePtr(ip.getCau(cau).namespace).file_scope,
-                .func => |ip_index| (zcu.funcInfo(ip_index).zir_body_inst.resolveFull(ip) orelse continue).file,
-            };
+            report_ok: {
+                const file_index = switch (anal_unit.unwrap()) {
+                    .@"comptime" => |cu| ip.getComptimeUnit(cu).zir_index.resolveFile(ip),
+                    .nav_val, .nav_ty => |nav| ip.getNav(nav).analysis.?.zir_index.resolveFile(ip),
+                    .type => |ty| Type.fromInterned(ty).typeDeclInst(zcu).?.resolveFile(ip),
+                    .func => |ip_index| zcu.funcInfo(ip_index).zir_body_inst.resolveFile(ip),
+                    .memoized_state => break :report_ok, // always report std.builtin errors
+                };
 
-            // Skip errors for AnalUnits within files that had a parse failure.
-            // We'll try again once parsing succeeds.
-            if (!zcu.fileByIndex(file_index).okToReportErrors()) continue;
+                // Skip errors for AnalUnits within files that had a parse failure.
+                // We'll try again once parsing succeeds.
+                if (!zcu.fileByIndex(file_index).okToReportErrors()) continue;
+            }
+
+            std.log.scoped(.zcu).debug("analysis error '{s}' reported from unit '{}'", .{
+                error_msg.msg,
+                zcu.fmtAnalUnit(anal_unit),
+            });
 
             try addModuleErrorMsg(zcu, &bundle, error_msg.*);
             if (zcu.cimport_errors.get(anal_unit)) |errors| {
@@ -3223,17 +3272,29 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         }
     }
 
-    if (comp.zcu) |zcu| {
-        if (comp.incremental and bundle.root_list.items.len == 0) {
-            const should_have_error = for (zcu.transitive_failed_analysis.keys()) |failed_unit| {
-                const refs = try zcu.resolveReferences();
-                if (refs.contains(failed_unit)) break true;
-            } else false;
-            if (should_have_error) {
-                @panic("referenced transitive analysis errors, but none actually emitted");
+    // TODO: eventually, this should be behind `std.debug.runtime_safety`. But right now, this is a
+    // very common way for incremental compilation bugs to manifest, so let's always check it.
+    if (comp.zcu) |zcu| if (comp.incremental and bundle.root_list.items.len == 0) {
+        for (zcu.transitive_failed_analysis.keys()) |failed_unit| {
+            const refs = try zcu.resolveReferences();
+            var ref = refs.get(failed_unit) orelse continue;
+            // This AU is referenced and has a transitive compile error, meaning it referenced something with a compile error.
+            // However, we haven't reported any such error.
+            // This is a compiler bug.
+            const stderr = std.io.getStdErr().writer();
+            try stderr.writeAll("referenced transitive analysis errors, but none actually emitted\n");
+            try stderr.print("{} [transitive failure]\n", .{zcu.fmtAnalUnit(failed_unit)});
+            while (ref) |r| {
+                try stderr.print("referenced by: {}{s}\n", .{
+                    zcu.fmtAnalUnit(r.referencer),
+                    if (zcu.transitive_failed_analysis.contains(r.referencer)) " [transitive failure]" else "",
+                });
+                ref = refs.get(r.referencer).?;
             }
+
+            @panic("referenced transitive analysis errors, but none actually emitted");
         }
-    }
+    };
 
     const compile_log_text = if (comp.zcu) |m| m.compile_log_text.items else "";
     return bundle.toOwnedBundle(compile_log_text);
@@ -3334,7 +3395,7 @@ pub fn addModuleErrorMsg(
             const ref = maybe_ref orelse break;
             const gop = try seen.getOrPut(gpa, ref.referencer);
             if (gop.found_existing) break;
-            if (ref_traces.items.len < max_references) {
+            if (ref_traces.items.len < max_references) skip: {
                 const src = ref.src.upgrade(zcu);
                 const source = try src.file_scope.getSource(gpa);
                 const span = try src.span(gpa);
@@ -3342,12 +3403,11 @@ pub fn addModuleErrorMsg(
                 const rt_file_path = try src.file_scope.fullPath(gpa);
                 defer gpa.free(rt_file_path);
                 const name = switch (ref.referencer.unwrap()) {
-                    .cau => |cau| switch (ip.getCau(cau).owner.unwrap()) {
-                        .nav => |nav| ip.getNav(nav).name.toSlice(ip),
-                        .type => |ty| Type.fromInterned(ty).containerTypeName(ip).toSlice(ip),
-                        .none => "comptime",
-                    },
+                    .@"comptime" => "comptime",
+                    .nav_val, .nav_ty => |nav| ip.getNav(nav).name.toSlice(ip),
+                    .type => |ty| Type.fromInterned(ty).containerTypeName(ip).toSlice(ip),
                     .func => |f| ip.getNav(zcu.funcInfo(f).owner_nav).name.toSlice(ip),
+                    .memoized_state => break :skip,
                 };
                 try ref_traces.append(gpa, .{
                     .decl_name = try eb.addString(name),
@@ -3396,6 +3456,7 @@ pub fn addModuleErrorMsg(
     var notes: std.ArrayHashMapUnmanaged(ErrorBundle.ErrorMessage, void, ErrorNoteHashContext, true) = .empty;
     defer notes.deinit(gpa);
 
+    var last_note_loc: ?std.zig.Loc = null;
     for (module_err_msg.notes) |module_note| {
         const note_src_loc = module_note.src_loc.upgrade(zcu);
         const source = try note_src_loc.file_scope.getSource(gpa);
@@ -3403,6 +3464,9 @@ pub fn addModuleErrorMsg(
         const loc = std.zig.findLineColumn(source.bytes, span.main);
         const note_file_path = try note_src_loc.file_scope.fullPath(gpa);
         defer gpa.free(note_file_path);
+
+        const omit_source_line = loc.eql(err_loc) or (last_note_loc != null and loc.eql(last_note_loc.?));
+        last_note_loc = loc;
 
         const gop = try notes.getOrPutContext(gpa, .{
             .msg = try eb.addString(module_note.msg),
@@ -3413,7 +3477,7 @@ pub fn addModuleErrorMsg(
                 .span_end = span.end,
                 .line = @intCast(loc.line),
                 .column = @intCast(loc.column),
-                .source_line = if (err_loc.eql(loc)) 0 else try eb.addString(loc.source_line),
+                .source_line = if (omit_source_line) 0 else try eb.addString(loc.source_line),
             }),
         }, .{ .eb = eb });
         if (gop.found_existing) {
@@ -3579,7 +3643,8 @@ fn performAllTheWorkInner(
     }
 
     if (comp.zcu) |zcu| {
-        const pt: Zcu.PerThread = .{ .zcu = zcu, .tid = .main };
+        const pt: Zcu.PerThread = .activate(zcu, .main);
+        defer pt.deactivate();
         if (comp.incremental) {
             const update_zir_refs_node = main_progress_node.start("Update ZIR References", 0);
             defer update_zir_refs_node.end();
@@ -3608,10 +3673,15 @@ fn performAllTheWorkInner(
             // If there's no work queued, check if there's anything outdated
             // which we need to work on, and queue it if so.
             if (try zcu.findOutdatedToAnalyze()) |outdated| {
-                switch (outdated.unwrap()) {
-                    .cau => |cau| try comp.queueJob(.{ .analyze_cau = cau }),
-                    .func => |func| try comp.queueJob(.{ .analyze_func = func }),
-                }
+                try comp.queueJob(switch (outdated.unwrap()) {
+                    .func => |f| .{ .analyze_func = f },
+                    .memoized_state,
+                    .@"comptime",
+                    .nav_ty,
+                    .nav_val,
+                    .type,
+                    => .{ .analyze_comptime_unit = outdated },
+                });
                 continue;
             }
         }
@@ -3634,13 +3704,13 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
         .codegen_nav => |nav_index| {
             const zcu = comp.zcu.?;
             const nav = zcu.intern_pool.getNav(nav_index);
-            if (nav.analysis_owner.unwrap()) |cau| {
-                const unit = InternPool.AnalUnit.wrap(.{ .cau = cau });
+            if (nav.analysis != null) {
+                const unit: InternPool.AnalUnit = .wrap(.{ .nav_val = nav_index });
                 if (zcu.failed_analysis.contains(unit) or zcu.transitive_failed_analysis.contains(unit)) {
                     return;
                 }
             }
-            assert(nav.status == .resolved);
+            assert(nav.status == .fully_resolved);
             comp.dispatchCodegenTask(tid, .{ .codegen_nav = nav_index });
         },
         .codegen_func => |func| {
@@ -3649,47 +3719,66 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
         .codegen_type => |ty| {
             comp.dispatchCodegenTask(tid, .{ .codegen_type = ty });
         },
+        .update_line_number => |ti| {
+            comp.dispatchCodegenTask(tid, .{ .update_line_number = ti });
+        },
         .analyze_func => |func| {
             const named_frame = tracy.namedFrame("analyze_func");
             defer named_frame.end();
 
-            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
-            pt.ensureFuncBodyAnalyzed(func) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
+            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+            defer pt.deactivate();
+
+            pt.ensureFuncBodyUpToDate(func) catch |err| switch (err) {
+                error.OutOfMemory => |e| return e,
                 error.AnalysisFail => return,
             };
         },
-        .analyze_cau => |cau_index| {
-            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
-            pt.ensureCauAnalyzed(cau_index) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
+        .analyze_comptime_unit => |unit| {
+            const named_frame = tracy.namedFrame("analyze_comptime_unit");
+            defer named_frame.end();
+
+            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+            defer pt.deactivate();
+
+            const maybe_err: Zcu.SemaError!void = switch (unit.unwrap()) {
+                .@"comptime" => |cu| pt.ensureComptimeUnitUpToDate(cu),
+                .nav_ty => |nav| pt.ensureNavTypeUpToDate(nav),
+                .nav_val => |nav| pt.ensureNavValUpToDate(nav),
+                .type => |ty| if (pt.ensureTypeUpToDate(ty)) |_| {} else |err| err,
+                .memoized_state => |stage| pt.ensureMemoizedStateUpToDate(stage),
+                .func => unreachable,
+            };
+            maybe_err catch |err| switch (err) {
+                error.OutOfMemory => |e| return e,
                 error.AnalysisFail => return,
             };
+
             queue_test_analysis: {
                 if (!comp.config.is_test) break :queue_test_analysis;
+                const nav = switch (unit.unwrap()) {
+                    .nav_val => |nav| nav,
+                    else => break :queue_test_analysis,
+                };
 
                 // Check if this is a test function.
                 const ip = &pt.zcu.intern_pool;
-                const cau = ip.getCau(cau_index);
-                const nav_index = switch (cau.owner.unwrap()) {
-                    .none, .type => break :queue_test_analysis,
-                    .nav => |nav| nav,
-                };
-                if (!pt.zcu.test_functions.contains(nav_index)) {
+                if (!pt.zcu.test_functions.contains(nav)) {
                     break :queue_test_analysis;
                 }
 
                 // Tests are always emitted in test binaries. The decl_refs are created by
                 // Zcu.populateTestFunctions, but this will not queue body analysis, so do
                 // that now.
-                try pt.zcu.ensureFuncBodyAnalysisQueued(ip.getNav(nav_index).status.resolved.val);
+                try pt.zcu.ensureFuncBodyAnalysisQueued(ip.getNav(nav).status.fully_resolved.val);
             }
         },
         .resolve_type_fully => |ty| {
             const named_frame = tracy.namedFrame("resolve_type_fully");
             defer named_frame.end();
 
-            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
+            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+            defer pt.deactivate();
             Type.fromInterned(ty).resolveFully(pt) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
@@ -3699,7 +3788,8 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
             const named_frame = tracy.namedFrame("analyze_mod");
             defer named_frame.end();
 
-            const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
+            const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+            defer pt.deactivate();
             pt.semaPkg(mod) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
@@ -4153,7 +4243,8 @@ fn workerAstGenFile(
     const child_prog_node = prog_node.start(file.sub_file_path, 0);
     defer child_prog_node.end();
 
-    const pt: Zcu.PerThread = .{ .zcu = comp.zcu.?, .tid = @enumFromInt(tid) };
+    const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
+    defer pt.deactivate();
     pt.astGenFile(file, path_digest) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
@@ -4656,19 +4747,18 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
 
         try argv.appendSlice(&[_][]const u8{ self_exe_path, "clang" });
         // if "ext" is explicit, add "-x <lang>". Otherwise let clang do its thing.
-        if (c_object.src.ext != null) {
+        if (c_object.src.ext != null or ext.clangNeedsLanguageOverride()) {
             try argv.appendSlice(&[_][]const u8{ "-x", switch (ext) {
                 .assembly => "assembler",
                 .assembly_with_cpp => "assembler-with-cpp",
                 .c => "c",
-                .cpp => "c++",
                 .h => "c-header",
+                .cpp => "c++",
                 .hpp => "c++-header",
-                .hm => "objective-c-header",
-                .hmm => "objective-c++-header",
-                .cu => "cuda",
                 .m => "objective-c",
+                .hm => "objective-c-header",
                 .mm => "objective-c++",
+                .hmm => "objective-c++-header",
                 else => fatal("language '{s}' is unsupported in this context", .{@tagName(ext)}),
             } });
         }
@@ -4966,9 +5056,17 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
                 }
             }.fmtRcEscape;
 
-            // 1 is CREATEPROCESS_MANIFEST_RESOURCE_ID which is the default ID used for RT_MANIFEST resources
+            // https://learn.microsoft.com/en-us/windows/win32/sbscs/using-side-by-side-assemblies-as-a-resource
+            // WinUser.h defines:
+            // CREATEPROCESS_MANIFEST_RESOURCE_ID to 1, which is the default
+            // ISOLATIONAWARE_MANIFEST_RESOURCE_ID to 2, which must be used for .dlls
+            const resource_id: u32 = if (comp.config.output_mode == .Lib and comp.config.link_mode == .dynamic) 2 else 1;
+
             // 24 is RT_MANIFEST
-            const input = try std.fmt.allocPrint(arena, "1 24 \"{s}\"", .{fmtRcEscape(src_path)});
+            const resource_type = 24;
+
+            const input = try std.fmt.allocPrint(arena, "{} {} \"{s}\"", .{ resource_id, resource_type, fmtRcEscape(src_path) });
+
             try o_dir.writeFile(.{ .sub_path = rc_basename, .data = input });
 
             var argv = std.ArrayList([]const u8).init(comp.gpa);
@@ -5242,10 +5340,6 @@ pub fn addCCArgs(
     // can be disabled.
     try argv.append("--no-default-config");
 
-    if (ext == .cpp) {
-        try argv.append("-nostdinc++");
-    }
-
     // We don't ever put `-fcolor-diagnostics` or `-fno-color-diagnostics` because in passthrough mode
     // we want Clang to infer it, and in normal mode we always want it off, which will be true since
     // clang will detect stderr as a pipe rather than a terminal.
@@ -5254,123 +5348,312 @@ pub fn addCCArgs(
         try argv.append("-fno-caret-diagnostics");
     }
 
-    if (comp.function_sections) {
-        try argv.append("-ffunction-sections");
-    }
-
-    if (comp.data_sections) {
-        try argv.append("-fdata-sections");
-    }
-
-    if (mod.no_builtin) {
-        try argv.append("-fno-builtin");
-    }
-
-    if (comp.config.link_libcpp) {
-        const libcxx_include_path = try std.fs.path.join(arena, &[_][]const u8{
-            comp.zig_lib_directory.path.?, "libcxx", "include",
-        });
-        const libcxxabi_include_path = try std.fs.path.join(arena, &[_][]const u8{
-            comp.zig_lib_directory.path.?, "libcxxabi", "include",
-        });
-
-        try argv.append("-isystem");
-        try argv.append(libcxx_include_path);
-
-        try argv.append("-isystem");
-        try argv.append(libcxxabi_include_path);
-
-        if (target.abi.isMusl()) {
-            try argv.append("-D_LIBCPP_HAS_MUSL_LIBC");
-        }
-        try argv.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
-        try argv.append("-D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS");
-        try argv.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
-
-        if (!comp.config.any_non_single_threaded) {
-            try argv.append("-D_LIBCPP_HAS_NO_THREADS");
-        }
-
-        // See the comment in libcxx.zig for more details about this.
-        try argv.append("-D_LIBCPP_PSTL_BACKEND_SERIAL");
-
-        try argv.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_VERSION={d}", .{
-            @intFromEnum(comp.libcxx_abi_version),
-        }));
-        try argv.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
-            @intFromEnum(comp.libcxx_abi_version),
-        }));
-
-        try argv.append(libcxx.hardeningModeFlag(mod.optimize_mode));
-    }
-
-    if (comp.config.link_libunwind) {
-        const libunwind_include_path = try std.fs.path.join(arena, &[_][]const u8{
-            comp.zig_lib_directory.path.?, "libunwind", "include",
-        });
-
-        try argv.append("-isystem");
-        try argv.append(libunwind_include_path);
-    }
-
-    if (comp.config.link_libc) {
-        if (target.isGnuLibC()) {
-            const target_version = target.os.versionRange().gnuLibCVersion().?;
-            const glibc_minor_define = try std.fmt.allocPrint(arena, "-D__GLIBC_MINOR__={d}", .{
-                target_version.minor,
-            });
-            try argv.append(glibc_minor_define);
-        } else if (target.isMinGW()) {
-            try argv.append("-D__MSVCRT_VERSION__=0xE00"); // use ucrt
-
-            switch (ext) {
-                .c, .cpp, .m, .mm, .h, .hpp, .hm, .hmm, .cu, .rc, .assembly, .assembly_with_cpp => {
-                    const minver: u16 = @truncate(@intFromEnum(target.os.versionRange().windows.min) >> 16);
-                    try argv.append(
-                        try std.fmt.allocPrint(arena, "-D_WIN32_WINNT=0x{x:0>4}", .{minver}),
-                    );
-                },
-                else => {},
-            }
-        }
+    // We never want clang to invoke the system assembler for anything. So we would want
+    // this option always enabled. However, it only matters for some targets. To avoid
+    // "unused parameter" warnings, and to keep CLI spam to a minimum, we only put this
+    // flag on the command line if it is necessary.
+    if (target_util.clangMightShellOutForAssembly(target)) {
+        try argv.append("-integrated-as");
     }
 
     const llvm_triple = try @import("codegen/llvm.zig").targetTriple(arena, target);
     try argv.appendSlice(&[_][]const u8{ "-target", llvm_triple });
 
-    switch (ext) {
-        .c, .cpp, .m, .mm, .h, .hpp, .hm, .hmm, .cu, .rc => {
+    if (target.cpu.arch.isArm()) {
+        try argv.append(if (target.cpu.arch.isThumb()) "-mthumb" else "-mno-thumb");
+    }
+
+    if (target_util.llvmMachineAbi(target)) |mabi| {
+        try argv.append(try std.fmt.allocPrint(arena, "-mabi={s}", .{mabi}));
+    }
+
+    // We might want to support -mfloat-abi=softfp for Arm and CSKY here in the future.
+    if (target_util.clangSupportsFloatAbiArg(target)) {
+        const fabi = @tagName(target.floatAbi());
+
+        try argv.append(switch (target.cpu.arch) {
+            // For whatever reason, Clang doesn't support `-mfloat-abi` for s390x.
+            .s390x => try std.fmt.allocPrint(arena, "-m{s}-float", .{fabi}),
+            else => try std.fmt.allocPrint(arena, "-mfloat-abi={s}", .{fabi}),
+        });
+    }
+
+    if (target_util.supports_fpic(target)) {
+        try argv.append(if (mod.pic) "-fPIC" else "-fno-PIC");
+    }
+
+    if (comp.mingw_unicode_entry_point) {
+        try argv.append("-municode");
+    }
+
+    if (mod.code_model != .default) {
+        try argv.append(try std.fmt.allocPrint(arena, "-mcmodel={s}", .{@tagName(mod.code_model)}));
+    }
+
+    try argv.ensureUnusedCapacity(2);
+    switch (comp.config.debug_format) {
+        .strip => {},
+        .code_view => {
+            // -g is required here because -gcodeview doesn't trigger debug info
+            // generation, it only changes the type of information generated.
+            argv.appendSliceAssumeCapacity(&.{ "-g", "-gcodeview" });
+        },
+        .dwarf => |f| {
+            argv.appendAssumeCapacity("-gdwarf-4");
+            switch (f) {
+                .@"32" => argv.appendAssumeCapacity("-gdwarf32"),
+                .@"64" => argv.appendAssumeCapacity("-gdwarf64"),
+            }
+        },
+    }
+
+    switch (comp.config.lto) {
+        .none => try argv.append("-fno-lto"),
+        .full => try argv.append("-flto=full"),
+        .thin => try argv.append("-flto=thin"),
+    }
+
+    // This only works for preprocessed files. Guarded by `FileExt.clangSupportsDepFile`.
+    if (out_dep_path) |p| {
+        try argv.appendSlice(&[_][]const u8{ "-MD", "-MV", "-MF", p });
+    }
+
+    // Non-preprocessed assembly files don't support these flags.
+    if (ext != .assembly) {
+        try argv.append(if (target.os.tag == .freestanding) "-ffreestanding" else "-fhosted");
+
+        if (target_util.clangSupportsNoImplicitFloatArg(target) and target.floatAbi() == .soft) {
+            try argv.append("-mno-implicit-float");
+        }
+
+        if (target_util.hasRedZone(target)) {
+            try argv.append(if (mod.red_zone) "-mred-zone" else "-mno-red-zone");
+        }
+
+        try argv.append(if (mod.omit_frame_pointer) "-fomit-frame-pointer" else "-fno-omit-frame-pointer");
+
+        const ssp_buf_size = mod.stack_protector;
+        if (ssp_buf_size != 0) {
             try argv.appendSlice(&[_][]const u8{
-                "-nostdinc",
-                "-fno-spell-checking",
+                "-fstack-protector-strong",
+                "--param",
+                try std.fmt.allocPrint(arena, "ssp-buffer-size={d}", .{ssp_buf_size}),
             });
-            if (comp.config.lto) {
-                try argv.append("-flto");
+        } else {
+            try argv.append("-fno-stack-protector");
+        }
+
+        try argv.append(if (mod.no_builtin) "-fno-builtin" else "-fbuiltin");
+
+        try argv.append(if (comp.function_sections) "-ffunction-sections" else "-fno-function-sections");
+        try argv.append(if (comp.data_sections) "-fdata-sections" else "-fno-data-sections");
+
+        switch (mod.unwind_tables) {
+            .none => {
+                try argv.append("-fno-unwind-tables");
+                try argv.append("-fno-asynchronous-unwind-tables");
+            },
+            .sync => {
+                // Need to override Clang's convoluted default logic.
+                try argv.append("-fno-asynchronous-unwind-tables");
+                try argv.append("-funwind-tables");
+            },
+            .@"async" => try argv.append("-fasynchronous-unwind-tables"),
+        }
+
+        try argv.append("-nostdinc");
+
+        if (ext == .cpp or ext == .hpp) {
+            try argv.append("-nostdinc++");
+        }
+
+        // LLVM IR files don't support these flags.
+        if (ext != .ll and ext != .bc) {
+            // https://github.com/llvm/llvm-project/issues/105972
+            if (target.cpu.arch.isPowerPC() and target.floatAbi() == .soft) {
+                try argv.append("-D__NO_FPRS__");
+                try argv.append("-D_SOFT_FLOAT");
+                try argv.append("-D_SOFT_DOUBLE");
             }
 
-            if (ext == .mm) {
-                try argv.append("-ObjC++");
+            if (comp.config.link_libc) {
+                if (target.isGnuLibC()) {
+                    const target_version = target.os.versionRange().gnuLibCVersion().?;
+                    const glibc_minor_define = try std.fmt.allocPrint(arena, "-D__GLIBC_MINOR__={d}", .{
+                        target_version.minor,
+                    });
+                    try argv.append(glibc_minor_define);
+                } else if (target.isMinGW()) {
+                    try argv.append("-D__MSVCRT_VERSION__=0xE00"); // use ucrt
+
+                    const minver: u16 = @truncate(@intFromEnum(target.os.versionRange().windows.min) >> 16);
+                    try argv.append(
+                        try std.fmt.allocPrint(arena, "-D_WIN32_WINNT=0x{x:0>4}", .{minver}),
+                    );
+                }
             }
 
-            for (comp.libc_framework_dir_list) |framework_dir| {
-                try argv.appendSlice(&.{ "-iframework", framework_dir });
-            }
+            if (comp.config.link_libcpp) {
+                try argv.append("-isystem");
+                try argv.append(try std.fs.path.join(arena, &[_][]const u8{
+                    comp.zig_lib_directory.path.?, "libcxx", "include",
+                }));
 
-            for (comp.framework_dirs) |framework_dir| {
-                try argv.appendSlice(&.{ "-F", framework_dir });
+                try argv.append("-isystem");
+                try argv.append(try std.fs.path.join(arena, &[_][]const u8{
+                    comp.zig_lib_directory.path.?, "libcxxabi", "include",
+                }));
+
+                if (target.abi.isMusl()) {
+                    try argv.append("-D_LIBCPP_HAS_MUSL_LIBC");
+                }
+
+                try argv.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
+                try argv.append("-D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS");
+                try argv.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
+
+                if (!comp.config.any_non_single_threaded) {
+                    try argv.append("-D_LIBCPP_HAS_NO_THREADS");
+                }
+
+                // See the comment in libcxx.zig for more details about this.
+                try argv.append("-D_LIBCPP_PSTL_BACKEND_SERIAL");
+
+                try argv.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_VERSION={d}", .{
+                    @intFromEnum(comp.libcxx_abi_version),
+                }));
+                try argv.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
+                    @intFromEnum(comp.libcxx_abi_version),
+                }));
+
+                try argv.append(libcxx.hardeningModeFlag(mod.optimize_mode));
             }
 
             // According to Rich Felker libc headers are supposed to go before C language headers.
-            // However as noted by @dimenus, appending libc headers before c_headers breaks intrinsics
-            // and other compiler specific items.
-            const c_headers_dir = try std.fs.path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, "include" });
+            // However as noted by @dimenus, appending libc headers before compiler headers breaks
+            // intrinsics and other compiler specific items.
             try argv.append("-isystem");
-            try argv.append(c_headers_dir);
+            try argv.append(try std.fs.path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, "include" }));
 
+            try argv.ensureUnusedCapacity(comp.libc_include_dir_list.len * 2);
             for (comp.libc_include_dir_list) |include_dir| {
                 try argv.append("-isystem");
                 try argv.append(include_dir);
             }
+
+            if (mod.resolved_target.is_native_os and mod.resolved_target.is_native_abi) {
+                try argv.ensureUnusedCapacity(comp.native_system_include_paths.len * 2);
+                for (comp.native_system_include_paths) |include_path| {
+                    argv.appendAssumeCapacity("-isystem");
+                    argv.appendAssumeCapacity(include_path);
+                }
+            }
+
+            if (comp.config.link_libunwind) {
+                try argv.append("-isystem");
+                try argv.append(try std.fs.path.join(arena, &[_][]const u8{
+                    comp.zig_lib_directory.path.?, "libunwind", "include",
+                }));
+            }
+
+            try argv.ensureUnusedCapacity(comp.libc_framework_dir_list.len * 2);
+            for (comp.libc_framework_dir_list) |framework_dir| {
+                try argv.appendSlice(&.{ "-iframework", framework_dir });
+            }
+
+            try argv.ensureUnusedCapacity(comp.framework_dirs.len * 2);
+            for (comp.framework_dirs) |framework_dir| {
+                try argv.appendSlice(&.{ "-F", framework_dir });
+            }
+        }
+    }
+
+    // Only assembly files support these flags.
+    switch (ext) {
+        .assembly,
+        .assembly_with_cpp,
+        => {
+            // The Clang assembler does not accept the list of CPU features like the
+            // compiler frontend does. Therefore we must hard-code the -m flags for
+            // all CPU features here.
+            switch (target.cpu.arch) {
+                .riscv32, .riscv64 => {
+                    const RvArchFeat = struct { char: u8, feat: std.Target.riscv.Feature };
+                    const letters = [_]RvArchFeat{
+                        .{ .char = 'm', .feat = .m },
+                        .{ .char = 'a', .feat = .a },
+                        .{ .char = 'f', .feat = .f },
+                        .{ .char = 'd', .feat = .d },
+                        .{ .char = 'c', .feat = .c },
+                    };
+                    const prefix: []const u8 = if (target.cpu.arch == .riscv64) "rv64" else "rv32";
+                    const prefix_len = 4;
+                    assert(prefix.len == prefix_len);
+                    var march_buf: [prefix_len + letters.len + 1]u8 = undefined;
+                    var march_index: usize = prefix_len;
+                    @memcpy(march_buf[0..prefix.len], prefix);
+
+                    if (std.Target.riscv.featureSetHas(target.cpu.features, .e)) {
+                        march_buf[march_index] = 'e';
+                    } else {
+                        march_buf[march_index] = 'i';
+                    }
+                    march_index += 1;
+
+                    for (letters) |letter| {
+                        if (std.Target.riscv.featureSetHas(target.cpu.features, letter.feat)) {
+                            march_buf[march_index] = letter.char;
+                            march_index += 1;
+                        }
+                    }
+
+                    const march_arg = try std.fmt.allocPrint(arena, "-march={s}", .{
+                        march_buf[0..march_index],
+                    });
+                    try argv.append(march_arg);
+
+                    if (std.Target.riscv.featureSetHas(target.cpu.features, .relax)) {
+                        try argv.append("-mrelax");
+                    } else {
+                        try argv.append("-mno-relax");
+                    }
+                    if (std.Target.riscv.featureSetHas(target.cpu.features, .save_restore)) {
+                        try argv.append("-msave-restore");
+                    } else {
+                        try argv.append("-mno-save-restore");
+                    }
+                },
+                .mips, .mipsel, .mips64, .mips64el => {
+                    if (target.cpu.model.llvm_name) |llvm_name| {
+                        try argv.append(try std.fmt.allocPrint(arena, "-march={s}", .{llvm_name}));
+                    }
+                },
+                else => {
+                    // TODO
+                },
+            }
+
+            if (target_util.clangAssemblerSupportsMcpuArg(target)) {
+                if (target.cpu.model.llvm_name) |llvm_name| {
+                    try argv.append(try std.fmt.allocPrint(arena, "-mcpu={s}", .{llvm_name}));
+                }
+            }
+        },
+        else => {},
+    }
+
+    // Only C-family files support these flags.
+    switch (ext) {
+        .c,
+        .h,
+        .cpp,
+        .hpp,
+        .m,
+        .hm,
+        .mm,
+        .hmm,
+        => {
+            try argv.append("-fno-spell-checking");
 
             if (target_util.clangSupportsTargetCpuArg(target)) {
                 if (target.cpu.model.llvm_name) |llvm_name| {
@@ -5396,9 +5679,6 @@ pub fn addCCArgs(
                     const arg = try std.fmt.allocPrint(arena, "{c}{s}", .{ plus_or_minus, llvm_name });
                     argv.appendAssumeCapacity(arg);
                 }
-            }
-            if (mod.code_model != .default) {
-                try argv.append(try std.fmt.allocPrint(arena, "-mcmodel={s}", .{@tagName(mod.code_model)}));
             }
 
             switch (target.os.tag) {
@@ -5482,29 +5762,6 @@ pub fn addCCArgs(
                 }
             }
 
-            if (mod.red_zone) {
-                try argv.append("-mred-zone");
-            } else if (target_util.hasRedZone(target)) {
-                try argv.append("-mno-red-zone");
-            }
-
-            if (mod.omit_frame_pointer) {
-                try argv.append("-fomit-frame-pointer");
-            } else {
-                try argv.append("-fno-omit-frame-pointer");
-            }
-
-            const ssp_buf_size = mod.stack_protector;
-            if (ssp_buf_size != 0) {
-                try argv.appendSlice(&[_][]const u8{
-                    "-fstack-protector-strong",
-                    "--param",
-                    try std.fmt.allocPrint(arena, "ssp-buffer-size={d}", .{ssp_buf_size}),
-                });
-            } else {
-                try argv.append("-fno-stack-protector");
-            }
-
             switch (mod.optimize_mode) {
                 .Debug => {
                     // windows c runtime requires -D_DEBUG if using debug libraries
@@ -5538,170 +5795,8 @@ pub fn addCCArgs(
             if (mod.optimize_mode != .Debug) {
                 try argv.append("-Werror=date-time");
             }
-
-            if (mod.unwind_tables) {
-                try argv.append("-funwind-tables");
-            } else {
-                try argv.append("-fno-unwind-tables");
-            }
         },
-        .shared_library, .ll, .bc, .unknown, .static_library, .object, .def, .zig, .res, .manifest => {},
-        .assembly, .assembly_with_cpp => {
-            if (ext == .assembly_with_cpp) {
-                const c_headers_dir = try std.fs.path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, "include" });
-                try argv.append("-isystem");
-                try argv.append(c_headers_dir);
-
-                for (comp.libc_include_dir_list) |include_dir| {
-                    try argv.append("-isystem");
-                    try argv.append(include_dir);
-                }
-            }
-
-            // The Clang assembler does not accept the list of CPU features like the
-            // compiler frontend does. Therefore we must hard-code the -m flags for
-            // all CPU features here.
-            switch (target.cpu.arch) {
-                .riscv32, .riscv64 => {
-                    const RvArchFeat = struct { char: u8, feat: std.Target.riscv.Feature };
-                    const letters = [_]RvArchFeat{
-                        .{ .char = 'm', .feat = .m },
-                        .{ .char = 'a', .feat = .a },
-                        .{ .char = 'f', .feat = .f },
-                        .{ .char = 'd', .feat = .d },
-                        .{ .char = 'c', .feat = .c },
-                    };
-                    const prefix: []const u8 = if (target.cpu.arch == .riscv64) "rv64" else "rv32";
-                    const prefix_len = 4;
-                    assert(prefix.len == prefix_len);
-                    var march_buf: [prefix_len + letters.len + 1]u8 = undefined;
-                    var march_index: usize = prefix_len;
-                    @memcpy(march_buf[0..prefix.len], prefix);
-
-                    if (std.Target.riscv.featureSetHas(target.cpu.features, .e)) {
-                        march_buf[march_index] = 'e';
-                    } else {
-                        march_buf[march_index] = 'i';
-                    }
-                    march_index += 1;
-
-                    for (letters) |letter| {
-                        if (std.Target.riscv.featureSetHas(target.cpu.features, letter.feat)) {
-                            march_buf[march_index] = letter.char;
-                            march_index += 1;
-                        }
-                    }
-
-                    const march_arg = try std.fmt.allocPrint(arena, "-march={s}", .{
-                        march_buf[0..march_index],
-                    });
-                    try argv.append(march_arg);
-
-                    if (std.Target.riscv.featureSetHas(target.cpu.features, .relax)) {
-                        try argv.append("-mrelax");
-                    } else {
-                        try argv.append("-mno-relax");
-                    }
-                    if (std.Target.riscv.featureSetHas(target.cpu.features, .save_restore)) {
-                        try argv.append("-msave-restore");
-                    } else {
-                        try argv.append("-mno-save-restore");
-                    }
-                },
-                .mips, .mipsel, .mips64, .mips64el => {
-                    if (target.cpu.model.llvm_name) |llvm_name| {
-                        try argv.append(try std.fmt.allocPrint(arena, "-march={s}", .{llvm_name}));
-                    }
-                },
-                else => {
-                    // TODO
-                },
-            }
-            if (target_util.clangAssemblerSupportsMcpuArg(target)) {
-                if (target.cpu.model.llvm_name) |llvm_name| {
-                    try argv.append(try std.fmt.allocPrint(arena, "-mcpu={s}", .{llvm_name}));
-                }
-            }
-        },
-    }
-
-    if (comp.mingw_unicode_entry_point) {
-        try argv.append("-municode");
-    }
-
-    if (target.cpu.arch.isThumb()) {
-        try argv.append("-mthumb");
-    }
-
-    if (target_util.supports_fpic(target)) {
-        try argv.append(if (mod.pic) "-fPIC" else "-fno-PIC");
-    }
-
-    try argv.ensureUnusedCapacity(2);
-    switch (comp.config.debug_format) {
-        .strip => {},
-        .code_view => {
-            // -g is required here because -gcodeview doesn't trigger debug info
-            // generation, it only changes the type of information generated.
-            argv.appendSliceAssumeCapacity(&.{ "-g", "-gcodeview" });
-        },
-        .dwarf => |f| {
-            argv.appendAssumeCapacity("-gdwarf-4");
-            switch (f) {
-                .@"32" => argv.appendAssumeCapacity("-gdwarf32"),
-                .@"64" => argv.appendAssumeCapacity("-gdwarf64"),
-            }
-        },
-    }
-
-    if (target_util.llvmMachineAbi(target)) |mabi| {
-        try argv.append(try std.fmt.allocPrint(arena, "-mabi={s}", .{mabi}));
-    }
-
-    // We might want to support -mfloat-abi=softfp for Arm and CSKY here in the future.
-    if (target_util.clangSupportsFloatAbiArg(target)) {
-        const fabi = @tagName(target.floatAbi());
-
-        try argv.append(switch (target.cpu.arch) {
-            // For whatever reason, Clang doesn't support `-mfloat-abi` for s390x.
-            .s390x => try std.fmt.allocPrint(arena, "-m{s}-float", .{fabi}),
-            else => try std.fmt.allocPrint(arena, "-mfloat-abi={s}", .{fabi}),
-        });
-    }
-
-    if (target_util.clangSupportsNoImplicitFloatArg(target) and target.floatAbi() == .soft) {
-        try argv.append("-mno-implicit-float");
-    }
-
-    // https://github.com/llvm/llvm-project/issues/105972
-    if (target.cpu.arch.isPowerPC() and target.floatAbi() == .soft) {
-        try argv.append("-D__NO_FPRS__");
-        try argv.append("-D_SOFT_FLOAT");
-        try argv.append("-D_SOFT_DOUBLE");
-    }
-
-    if (out_dep_path) |p| {
-        try argv.appendSlice(&[_][]const u8{ "-MD", "-MV", "-MF", p });
-    }
-
-    // We never want clang to invoke the system assembler for anything. So we would want
-    // this option always enabled. However, it only matters for some targets. To avoid
-    // "unused parameter" warnings, and to keep CLI spam to a minimum, we only put this
-    // flag on the command line if it is necessary.
-    if (target_util.clangMightShellOutForAssembly(target)) {
-        try argv.append("-integrated-as");
-    }
-
-    if (target.os.tag == .freestanding) {
-        try argv.append("-ffreestanding");
-    }
-
-    if (mod.resolved_target.is_native_os and mod.resolved_target.is_native_abi) {
-        try argv.ensureUnusedCapacity(comp.native_system_include_paths.len * 2);
-        for (comp.native_system_include_paths) |include_path| {
-            argv.appendAssumeCapacity("-isystem");
-            argv.appendAssumeCapacity(include_path);
-        }
+        else => {},
     }
 
     try argv.appendSlice(comp.global_cc_argv);
@@ -5794,7 +5889,6 @@ fn failWin32ResourceWithOwnedBundle(
 pub const FileExt = enum {
     c,
     cpp,
-    cu,
     h,
     hpp,
     hm,
@@ -5815,9 +5909,38 @@ pub const FileExt = enum {
     manifest,
     unknown,
 
+    pub fn clangNeedsLanguageOverride(ext: FileExt) bool {
+        return switch (ext) {
+            .h,
+            .hpp,
+            .hm,
+            .hmm,
+            => true,
+
+            .c,
+            .cpp,
+            .m,
+            .mm,
+            .ll,
+            .bc,
+            .assembly,
+            .assembly_with_cpp,
+            .shared_library,
+            .object,
+            .static_library,
+            .zig,
+            .def,
+            .rc,
+            .res,
+            .manifest,
+            .unknown,
+            => false,
+        };
+    }
+
     pub fn clangSupportsDiagnostics(ext: FileExt) bool {
         return switch (ext) {
-            .c, .cpp, .h, .hpp, .hm, .hmm, .m, .mm, .cu, .ll, .bc => true,
+            .c, .cpp, .h, .hpp, .hm, .hmm, .m, .mm, .ll, .bc => true,
 
             .assembly,
             .assembly_with_cpp,
@@ -5836,12 +5959,11 @@ pub const FileExt = enum {
 
     pub fn clangSupportsDepFile(ext: FileExt) bool {
         return switch (ext) {
-            .c, .cpp, .h, .hpp, .hm, .hmm, .m, .mm, .cu => true,
+            .assembly_with_cpp, .c, .cpp, .h, .hpp, .hm, .hmm, .m, .mm => true,
 
             .ll,
             .bc,
             .assembly,
-            .assembly_with_cpp,
             .shared_library,
             .object,
             .static_library,
@@ -5859,11 +5981,10 @@ pub const FileExt = enum {
         return switch (ext) {
             .c => ".c",
             .cpp => ".cpp",
-            .cu => ".cu",
             .h => ".h",
-            .hpp => ".h",
-            .hm => ".h",
-            .hmm => ".h",
+            .hpp => ".hpp",
+            .hm => ".hm",
+            .hmm => ".hmm",
             .m => ".m",
             .mm => ".mm",
             .ll => ".ll",
@@ -5886,32 +6007,55 @@ pub const FileExt = enum {
 pub fn hasObjectExt(filename: []const u8) bool {
     return mem.endsWith(u8, filename, ".o") or
         mem.endsWith(u8, filename, ".lo") or
-        mem.endsWith(u8, filename, ".obj");
+        mem.endsWith(u8, filename, ".obj") or
+        mem.endsWith(u8, filename, ".rmeta");
 }
 
 pub fn hasStaticLibraryExt(filename: []const u8) bool {
-    return mem.endsWith(u8, filename, ".a") or mem.endsWith(u8, filename, ".lib");
+    return mem.endsWith(u8, filename, ".a") or
+        mem.endsWith(u8, filename, ".lib") or
+        mem.endsWith(u8, filename, ".rlib");
 }
 
 pub fn hasCExt(filename: []const u8) bool {
     return mem.endsWith(u8, filename, ".c");
 }
 
+pub fn hasCHExt(filename: []const u8) bool {
+    return mem.endsWith(u8, filename, ".h");
+}
+
 pub fn hasCppExt(filename: []const u8) bool {
     return mem.endsWith(u8, filename, ".C") or
         mem.endsWith(u8, filename, ".cc") or
+        mem.endsWith(u8, filename, ".cp") or
+        mem.endsWith(u8, filename, ".CPP") or
         mem.endsWith(u8, filename, ".cpp") or
         mem.endsWith(u8, filename, ".cxx") or
-        mem.endsWith(u8, filename, ".c++") or
-        mem.endsWith(u8, filename, ".stub");
+        mem.endsWith(u8, filename, ".c++");
+}
+
+pub fn hasCppHExt(filename: []const u8) bool {
+    return mem.endsWith(u8, filename, ".hh") or
+        mem.endsWith(u8, filename, ".hpp") or
+        mem.endsWith(u8, filename, ".hxx");
 }
 
 pub fn hasObjCExt(filename: []const u8) bool {
     return mem.endsWith(u8, filename, ".m");
 }
 
+pub fn hasObjCHExt(filename: []const u8) bool {
+    return mem.endsWith(u8, filename, ".hm");
+}
+
 pub fn hasObjCppExt(filename: []const u8) bool {
-    return mem.endsWith(u8, filename, ".mm");
+    return mem.endsWith(u8, filename, ".M") or
+        mem.endsWith(u8, filename, ".mm");
+}
+
+pub fn hasObjCppHExt(filename: []const u8) bool {
+    return mem.endsWith(u8, filename, ".hmm");
 }
 
 pub fn hasSharedLibraryExt(filename: []const u8) bool {
@@ -5944,12 +6088,20 @@ pub fn hasSharedLibraryExt(filename: []const u8) bool {
 pub fn classifyFileExt(filename: []const u8) FileExt {
     if (hasCExt(filename)) {
         return .c;
+    } else if (hasCHExt(filename)) {
+        return .h;
     } else if (hasCppExt(filename)) {
         return .cpp;
+    } else if (hasCppHExt(filename)) {
+        return .hpp;
     } else if (hasObjCExt(filename)) {
         return .m;
+    } else if (hasObjCHExt(filename)) {
+        return .hm;
     } else if (hasObjCppExt(filename)) {
         return .mm;
+    } else if (hasObjCppHExt(filename)) {
+        return .hmm;
     } else if (mem.endsWith(u8, filename, ".ll")) {
         return .ll;
     } else if (mem.endsWith(u8, filename, ".bc")) {
@@ -5958,8 +6110,6 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .assembly;
     } else if (mem.endsWith(u8, filename, ".S")) {
         return .assembly_with_cpp;
-    } else if (mem.endsWith(u8, filename, ".h")) {
-        return .h;
     } else if (mem.endsWith(u8, filename, ".zig")) {
         return .zig;
     } else if (hasSharedLibraryExt(filename)) {
@@ -5968,8 +6118,6 @@ pub fn classifyFileExt(filename: []const u8) FileExt {
         return .static_library;
     } else if (hasObjectExt(filename)) {
         return .object;
-    } else if (mem.endsWith(u8, filename, ".cu")) {
-        return .cu;
     } else if (mem.endsWith(u8, filename, ".def")) {
         return .def;
     } else if (std.ascii.endsWithIgnoreCase(filename, ".rc")) {
@@ -6271,6 +6419,7 @@ pub const CrtFileOptions = struct {
     function_sections: ?bool = null,
     data_sections: ?bool = null,
     omit_frame_pointer: ?bool = null,
+    unwind_tables: ?std.builtin.UnwindTables = null,
     pic: ?bool = null,
     no_builtin: ?bool = null,
 };
@@ -6311,7 +6460,7 @@ pub fn build_crt_file(
         .link_libc = false,
         .lto = switch (output_mode) {
             .Lib => comp.config.lto,
-            .Obj, .Exe => false,
+            .Obj, .Exe => .none,
         },
     });
     const root_mod = try Package.Module.create(arena, .{
@@ -6332,7 +6481,8 @@ pub fn build_crt_file(
             // Some libcs (e.g. musl) are opinionated about -fomit-frame-pointer.
             .omit_frame_pointer = options.omit_frame_pointer orelse comp.root_mod.omit_frame_pointer,
             .valgrind = false,
-            .unwind_tables = false,
+            // Some libcs (e.g. MinGW) are opinionated about -funwind-tables.
+            .unwind_tables = options.unwind_tables orelse .none,
             // Some CRT objects (e.g. musl's rcrt1.o and Scrt1.o) are opinionated about PIC.
             .pic = options.pic orelse comp.root_mod.pic,
             .optimize_mode = comp.compilerRtOptMode(),

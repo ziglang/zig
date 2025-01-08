@@ -48,6 +48,60 @@ pub const CValue = union(enum) {
     payload_identifier: []const u8,
     /// Rendered with fmtCTypePoolString
     ctype_pool_string: CType.Pool.String,
+
+    fn eql(lhs: CValue, rhs: CValue) bool {
+        return switch (lhs) {
+            .none => rhs == .none,
+            .new_local, .local => |lhs_local| switch (rhs) {
+                .new_local, .local => |rhs_local| lhs_local == rhs_local,
+                else => false,
+            },
+            .local_ref => |lhs_local| switch (rhs) {
+                .local_ref => |rhs_local| lhs_local == rhs_local,
+                else => false,
+            },
+            .constant => |lhs_val| switch (rhs) {
+                .constant => |rhs_val| lhs_val.toIntern() == rhs_val.toIntern(),
+                else => false,
+            },
+            .arg => |lhs_arg_index| switch (rhs) {
+                .arg => |rhs_arg_index| lhs_arg_index == rhs_arg_index,
+                else => false,
+            },
+            .arg_array => |lhs_arg_index| switch (rhs) {
+                .arg_array => |rhs_arg_index| lhs_arg_index == rhs_arg_index,
+                else => false,
+            },
+            .field => |lhs_field_index| switch (rhs) {
+                .field => |rhs_field_index| lhs_field_index == rhs_field_index,
+                else => false,
+            },
+            .nav => |lhs_nav| switch (rhs) {
+                .nav => |rhs_nav| lhs_nav == rhs_nav,
+                else => false,
+            },
+            .nav_ref => |lhs_nav| switch (rhs) {
+                .nav_ref => |rhs_nav| lhs_nav == rhs_nav,
+                else => false,
+            },
+            .undef => |lhs_ty| switch (rhs) {
+                .undef => |rhs_ty| lhs_ty.toIntern() == rhs_ty.toIntern(),
+                else => false,
+            },
+            .identifier => |lhs_id| switch (rhs) {
+                .identifier => |rhs_id| std.mem.eql(u8, lhs_id, rhs_id),
+                else => false,
+            },
+            .payload_identifier => |lhs_id| switch (rhs) {
+                .payload_identifier => |rhs_id| std.mem.eql(u8, lhs_id, rhs_id),
+                else => false,
+            },
+            .ctype_pool_string => |lhs_str| switch (rhs) {
+                .ctype_pool_string => |rhs_str| lhs_str.index == rhs_str.index,
+                else => false,
+            },
+        };
+    }
 };
 
 const BlockData = struct {
@@ -716,11 +770,14 @@ pub const DeclGen = struct {
         const ctype_pool = &dg.ctype_pool;
 
         // Chase function values in order to be able to reference the original function.
-        const owner_nav = switch (ip.indexToKey(zcu.navValue(nav_index).toIntern())) {
-            .variable => |variable| variable.owner_nav,
-            .func => |func| func.owner_nav,
-            .@"extern" => |@"extern"| @"extern".owner_nav,
-            else => nav_index,
+        const owner_nav = switch (ip.getNav(nav_index).status) {
+            .unresolved => unreachable,
+            .type_resolved => nav_index, // this can't be an extern or a function
+            .fully_resolved => |r| switch (ip.indexToKey(r.val)) {
+                .func => |f| f.owner_nav,
+                .@"extern" => |e| e.owner_nav,
+                else => nav_index,
+            },
         };
 
         // Render an undefined pointer if we have a pointer to a zero-bit or comptime type.
@@ -2183,7 +2240,7 @@ pub const DeclGen = struct {
             Type.fromInterned(nav.typeOf(ip)),
             .{ .nav = nav_index },
             CQualifiers.init(.{ .@"const" = flags.is_const }),
-            nav.status.resolved.alignment,
+            nav.getAlignment(),
             .complete,
         );
         try fwd.writeAll(";\n");
@@ -2192,19 +2249,19 @@ pub const DeclGen = struct {
     fn renderNavName(dg: *DeclGen, writer: anytype, nav_index: InternPool.Nav.Index) !void {
         const zcu = dg.pt.zcu;
         const ip = &zcu.intern_pool;
-        switch (ip.indexToKey(zcu.navValue(nav_index).toIntern())) {
-            .@"extern" => |@"extern"| try writer.print("{ }", .{
+        const nav = ip.getNav(nav_index);
+        if (nav.getExtern(ip)) |@"extern"| {
+            try writer.print("{ }", .{
                 fmtIdent(ip.getNav(@"extern".owner_nav).name.toSlice(ip)),
-            }),
-            else => {
-                // MSVC has a limit of 4095 character token length limit, and fmtIdent can (worst case),
-                // expand to 3x the length of its input, but let's cut it off at a much shorter limit.
-                const fqn_slice = ip.getNav(nav_index).fqn.toSlice(ip);
-                try writer.print("{}__{d}", .{
-                    fmtIdent(fqn_slice[0..@min(fqn_slice.len, 100)]),
-                    @intFromEnum(nav_index),
-                });
-            },
+            });
+        } else {
+            // MSVC has a limit of 4095 character token length limit, and fmtIdent can (worst case),
+            // expand to 3x the length of its input, but let's cut it off at a much shorter limit.
+            const fqn_slice = ip.getNav(nav_index).fqn.toSlice(ip);
+            try writer.print("{}__{d}", .{
+                fmtIdent(fqn_slice[0..@min(fqn_slice.len, 100)]),
+                @intFromEnum(nav_index),
+            });
         }
     }
 
@@ -2772,7 +2829,7 @@ pub fn genLazyFn(o: *Object, lazy_ctype_pool: *const CType.Pool, lazy_fn: LazyFn
 
             const fwd = o.dg.fwdDeclWriter();
             try fwd.print("static zig_{s} ", .{@tagName(key)});
-            try o.dg.renderFunctionSignature(fwd, fn_val, ip.getNav(fn_nav_index).status.resolved.alignment, .forward, .{
+            try o.dg.renderFunctionSignature(fwd, fn_val, ip.getNav(fn_nav_index).getAlignment(), .forward, .{
                 .fmt_ctype_pool_string = fn_name,
             });
             try fwd.writeAll(";\n");
@@ -2813,13 +2870,13 @@ pub fn genFunc(f: *Function) !void {
     try o.dg.renderFunctionSignature(
         fwd,
         nav_val,
-        nav.status.resolved.alignment,
+        nav.status.fully_resolved.alignment,
         .forward,
         .{ .nav = nav_index },
     );
     try fwd.writeAll(";\n");
 
-    if (nav.status.resolved.@"linksection".toSlice(ip)) |s|
+    if (nav.status.fully_resolved.@"linksection".toSlice(ip)) |s|
         try o.writer().print("zig_linksection_fn({s}) ", .{fmtStringLiteral(s, null)});
     try o.dg.renderFunctionSignature(
         o.writer(),
@@ -2898,7 +2955,7 @@ pub fn genDecl(o: *Object) !void {
     const nav_ty = Type.fromInterned(nav.typeOf(ip));
 
     if (!nav_ty.isFnOrHasRuntimeBitsIgnoreComptime(zcu)) return;
-    switch (ip.indexToKey(nav.status.resolved.val)) {
+    switch (ip.indexToKey(nav.status.fully_resolved.val)) {
         .@"extern" => |@"extern"| {
             if (!ip.isFunctionType(nav_ty.toIntern())) return o.dg.renderFwdDecl(o.dg.pass.nav, .{
                 .is_extern = true,
@@ -2911,8 +2968,8 @@ pub fn genDecl(o: *Object) !void {
             try fwd.writeAll("zig_extern ");
             try o.dg.renderFunctionSignature(
                 fwd,
-                Value.fromInterned(nav.status.resolved.val),
-                nav.status.resolved.alignment,
+                Value.fromInterned(nav.status.fully_resolved.val),
+                nav.status.fully_resolved.alignment,
                 .forward,
                 .{ .@"export" = .{
                     .main_name = nav.name,
@@ -2931,14 +2988,14 @@ pub fn genDecl(o: *Object) !void {
             const w = o.writer();
             if (variable.is_weak_linkage) try w.writeAll("zig_weak_linkage ");
             if (variable.is_threadlocal and !o.dg.mod.single_threaded) try w.writeAll("zig_threadlocal ");
-            if (nav.status.resolved.@"linksection".toSlice(&zcu.intern_pool)) |s|
+            if (nav.status.fully_resolved.@"linksection".toSlice(&zcu.intern_pool)) |s|
                 try w.print("zig_linksection({s}) ", .{fmtStringLiteral(s, null)});
             try o.dg.renderTypeAndName(
                 w,
                 nav_ty,
                 .{ .nav = o.dg.pass.nav },
                 .{},
-                nav.status.resolved.alignment,
+                nav.status.fully_resolved.alignment,
                 .complete,
             );
             try w.writeAll(" = ");
@@ -2948,10 +3005,10 @@ pub fn genDecl(o: *Object) !void {
         },
         else => try genDeclValue(
             o,
-            Value.fromInterned(nav.status.resolved.val),
+            Value.fromInterned(nav.status.fully_resolved.val),
             .{ .nav = o.dg.pass.nav },
-            nav.status.resolved.alignment,
-            nav.status.resolved.@"linksection",
+            nav.status.fully_resolved.alignment,
+            nav.status.fully_resolved.@"linksection",
         ),
     }
 }
@@ -4219,17 +4276,23 @@ fn airCmpOp(
     const writer = f.object.writer();
     const local = try f.allocLocal(inst, inst_ty);
     const v = try Vectorize.start(f, inst, writer, lhs_ty);
+    const a = try Assignment.start(f, writer, try f.ctypeFromType(scalar_ty, .complete));
     try f.writeCValue(writer, local, .Other);
     try v.elem(f, writer);
-    try writer.writeAll(" = ");
-    if (need_cast) try writer.writeAll("(void*)");
-    try f.writeCValue(writer, lhs, .Other);
-    try v.elem(f, writer);
-    try writer.writeAll(compareOperatorC(operator));
-    if (need_cast) try writer.writeAll("(void*)");
-    try f.writeCValue(writer, rhs, .Other);
-    try v.elem(f, writer);
-    try writer.writeAll(";\n");
+    try a.assign(f, writer);
+    if (lhs != .undef and lhs.eql(rhs)) try writer.writeAll(switch (operator) {
+        .lt, .neq, .gt => "false",
+        .lte, .eq, .gte => "true",
+    }) else {
+        if (need_cast) try writer.writeAll("(void*)");
+        try f.writeCValue(writer, lhs, .Other);
+        try v.elem(f, writer);
+        try writer.writeAll(compareOperatorC(operator));
+        if (need_cast) try writer.writeAll("(void*)");
+        try f.writeCValue(writer, rhs, .Other);
+        try v.elem(f, writer);
+    }
+    try a.end(f, writer);
     try v.end(f, inst, writer);
 
     return local;
@@ -4270,7 +4333,11 @@ fn airEquality(
     try a.assign(f, writer);
 
     const operand_ctype = try f.ctypeFromType(operand_ty, .complete);
-    switch (operand_ctype.info(ctype_pool)) {
+    if (lhs != .undef and lhs.eql(rhs)) try writer.writeAll(switch (operator) {
+        .lt, .lte, .gte, .gt => unreachable,
+        .neq => "false",
+        .eq => "true",
+    }) else switch (operand_ctype.info(ctype_pool)) {
         .basic, .pointer => {
             try f.writeCValue(writer, lhs, .Other);
             try writer.writeAll(compareOperatorC(operator));

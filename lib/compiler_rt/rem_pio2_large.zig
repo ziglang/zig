@@ -356,6 +356,7 @@ pub fn rem_pio2_large(x: []f64, y: []f64, e0: i32, nx: i32, prec: usize) i32 {
                 }
             }
             if (q0 > 0) { // rare case: chance is 1 in 12
+                @branchHint(.unlikely);
                 switch (q0) {
                     1 => iq[@intCast(jz - 1)] &= 0x7fffff,
                     2 => iq[@intCast(jz - 1)] &= 0x3fffff,

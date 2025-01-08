@@ -26,20 +26,8 @@
  * $FreeBSD: /repoman/r/ncvs/src/include/monetary.h,v 1.7 2002/09/20 08:22:48 mike Exp $
  */
 
-#ifndef _MONETARY_H_
-#define	_MONETARY_H_
-
-#include <sys/cdefs.h>
-#include <_types.h>
-#include <sys/_types/_size_t.h>
-#include <sys/_types/_ssize_t.h>
-
-__BEGIN_DECLS
-ssize_t	strfmon(char *, size_t, const char *, ...);
-__END_DECLS
+#include <_monetary.h>
 
 #ifdef _USE_EXTENDED_LOCALES_
 #include <xlocale/_monetary.h>
 #endif /* _USE_EXTENDED_LOCALES_ */
-
-#endif /* !_MONETARY_H_ */

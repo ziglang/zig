@@ -604,10 +604,11 @@ pub fn flushModule(self: *Plan9, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
 
     defer assert(self.hdr.entry != 0x0);
 
-    const pt: Zcu.PerThread = .{
-        .zcu = self.base.comp.zcu orelse return error.LinkingWithoutZigSourceUnimplemented,
-        .tid = tid,
-    };
+    const pt: Zcu.PerThread = .activate(
+        self.base.comp.zcu orelse return error.LinkingWithoutZigSourceUnimplemented,
+        tid,
+    );
+    defer pt.deactivate();
 
     // finish up the lazy syms
     if (self.lazy_syms.getPtr(.none)) |metadata| {
@@ -1020,7 +1021,7 @@ pub fn seeNav(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) 
     const atom_idx = gop.value_ptr.index;
     // handle externs here because they might not get updateDecl called on them
     const nav = ip.getNav(nav_index);
-    if (ip.indexToKey(nav.status.resolved.val) == .@"extern") {
+    if (nav.getExtern(ip) != null) {
         // this is a "phantom atom" - it is never actually written to disk, just convenient for us to store stuff about externs
         if (nav.name.eqlSlice("etext", ip)) {
             self.etext_edata_end_atom_indices[0] = atom_idx;
@@ -1353,11 +1354,10 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
     }
 }
 
-/// Must be called only after a successful call to `updateDecl`.
-pub fn updateDeclLineNumber(self: *Plan9, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
+pub fn updateLineNumber(self: *Plan9, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
     _ = self;
     _ = pt;
-    _ = decl_index;
+    _ = ti_id;
 }
 
 pub fn getNavVAddr(
@@ -1369,7 +1369,7 @@ pub fn getNavVAddr(
     const ip = &pt.zcu.intern_pool;
     const nav = ip.getNav(nav_index);
     log.debug("getDeclVAddr for {}", .{nav.name.fmt(ip)});
-    if (ip.indexToKey(nav.status.resolved.val) == .@"extern") {
+    if (nav.getExtern(ip) != null) {
         if (nav.name.eqlSlice("etext", ip)) {
             try self.addReloc(reloc_info.parent.atom_index, .{
                 .target = undefined,

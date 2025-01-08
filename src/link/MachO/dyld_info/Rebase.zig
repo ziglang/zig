@@ -281,7 +281,7 @@ test "rebase - no entries" {
     defer rebase.deinit(gpa);
 
     try rebase.finalize(gpa);
-    try testing.expectEqual(@as(u64, 0), rebase.size());
+    try testing.expectEqual(0, rebase.buffer.items.len);
 }
 
 test "rebase - single entry" {

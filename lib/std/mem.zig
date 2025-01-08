@@ -2903,9 +2903,10 @@ pub fn WindowIterator(comptime T: type) type {
 
         const Self = @This();
 
-        /// Returns a slice of the first window. This never fails.
+        /// Returns a slice of the first window.
         /// Call this only to get the first window and then use `next` to get
         /// all subsequent windows.
+        /// Asserts that iteration has not begun.
         pub fn first(self: *Self) []const T {
             assert(self.index.? == 0);
             return self.next().?;
@@ -3037,8 +3038,9 @@ pub fn SplitIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
 
         const Self = @This();
 
-        /// Returns a slice of the first field. This never fails.
+        /// Returns a slice of the first field.
         /// Call this only to get the first field and then use `next` to get all subsequent fields.
+        /// Asserts that iteration has not begun.
         pub fn first(self: *Self) []const T {
             assert(self.index.? == 0);
             return self.next().?;
@@ -3101,8 +3103,9 @@ pub fn SplitBackwardsIterator(comptime T: type, comptime delimiter_type: Delimit
 
         const Self = @This();
 
-        /// Returns a slice of the first field. This never fails.
+        /// Returns a slice of the first field.
         /// Call this only to get the first field and then use `next` to get all subsequent fields.
+        /// Asserts that iteration has not begun.
         pub fn first(self: *Self) []const T {
             assert(self.index.? == self.buffer.len);
             return self.next().?;

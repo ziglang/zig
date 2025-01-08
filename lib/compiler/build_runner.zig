@@ -337,6 +337,7 @@ pub fn main() !void {
         var prog_node = main_progress_node.start("Configure", 0);
         defer prog_node.end();
         try builder.runBuild(root);
+        createModuleDependencies(builder) catch @panic("OOM");
     }
 
     if (graph.needed_lazy_dependencies.entries.len != 0) {
@@ -1364,20 +1365,20 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
     );
 }
 
-fn nextArg(args: [][:0]const u8, idx: *usize) ?[:0]const u8 {
+fn nextArg(args: []const [:0]const u8, idx: *usize) ?[:0]const u8 {
     if (idx.* >= args.len) return null;
     defer idx.* += 1;
     return args[idx.*];
 }
 
-fn nextArgOrFatal(args: [][:0]const u8, idx: *usize) [:0]const u8 {
+fn nextArgOrFatal(args: []const [:0]const u8, idx: *usize) [:0]const u8 {
     return nextArg(args, idx) orelse {
         std.debug.print("expected argument after '{s}'\n  access the help menu with 'zig build -h'\n", .{args[idx.* - 1]});
         process.exit(1);
     };
 }
 
-fn argsRest(args: [][:0]const u8, idx: usize) ?[][:0]const u8 {
+fn argsRest(args: []const [:0]const u8, idx: usize) ?[]const [:0]const u8 {
     if (idx >= args.len) return null;
     return args[idx..];
 }
@@ -1438,5 +1439,82 @@ fn validateSystemLibraryOptions(b: *std.Build) void {
     if (bad) {
         std.debug.print("  access the help menu with 'zig build -h'\n", .{});
         process.exit(1);
+    }
+}
+
+/// Starting from all top-level steps in `b`, traverses the entire step graph
+/// and adds all step dependencies implied by module graphs.
+fn createModuleDependencies(b: *std.Build) Allocator.Error!void {
+    const arena = b.graph.arena;
+
+    var all_steps: std.AutoArrayHashMapUnmanaged(*Step, void) = .empty;
+    var next_step_idx: usize = 0;
+
+    try all_steps.ensureUnusedCapacity(arena, b.top_level_steps.count());
+    for (b.top_level_steps.values()) |tls| {
+        all_steps.putAssumeCapacityNoClobber(&tls.step, {});
+    }
+
+    while (next_step_idx < all_steps.count()) {
+        const step = all_steps.keys()[next_step_idx];
+        next_step_idx += 1;
+
+        // Set up any implied dependencies for this step. It's important that we do this first, so
+        // that the loop below discovers steps implied by the module graph.
+        try createModuleDependenciesForStep(step);
+
+        try all_steps.ensureUnusedCapacity(arena, step.dependencies.items.len);
+        for (step.dependencies.items) |other_step| {
+            all_steps.putAssumeCapacity(other_step, {});
+        }
+    }
+}
+
+/// If the given `Step` is a `Step.Compile`, adds any dependencies for that step which
+/// are implied by the module graph rooted at `step.cast(Step.Compile).?.root_module`.
+fn createModuleDependenciesForStep(step: *Step) Allocator.Error!void {
+    const root_module = if (step.cast(Step.Compile)) |cs| root: {
+        break :root cs.root_module;
+    } else return; // not a compile step so no module dependencies
+
+    // Starting from `root_module`, discover all modules in this graph.
+    const modules = root_module.getGraph().modules;
+
+    // For each of those modules, set up the implied step dependencies.
+    for (modules) |mod| {
+        if (mod.root_source_file) |lp| lp.addStepDependencies(step);
+        for (mod.include_dirs.items) |include_dir| switch (include_dir) {
+            .path,
+            .path_system,
+            .path_after,
+            .framework_path,
+            .framework_path_system,
+            => |lp| lp.addStepDependencies(step),
+
+            .other_step => |other| {
+                other.getEmittedIncludeTree().addStepDependencies(step);
+                step.dependOn(&other.step);
+            },
+
+            .config_header_step => |other| step.dependOn(&other.step),
+        };
+        for (mod.lib_paths.items) |lp| lp.addStepDependencies(step);
+        for (mod.rpaths.items) |rpath| switch (rpath) {
+            .lazy_path => |lp| lp.addStepDependencies(step),
+            .special => {},
+        };
+        for (mod.link_objects.items) |link_object| switch (link_object) {
+            .static_path,
+            .assembly_file,
+            => |lp| lp.addStepDependencies(step),
+            .other_step => |other| step.dependOn(&other.step),
+            .system_lib => {},
+            .c_source_file => |source| source.file.addStepDependencies(step),
+            .c_source_files => |source_files| source_files.root.addStepDependencies(step),
+            .win32_resource_file => |rc_source| {
+                rc_source.file.addStepDependencies(step);
+                for (rc_source.include_paths) |lp| lp.addStepDependencies(step);
+            },
+        };
     }
 }

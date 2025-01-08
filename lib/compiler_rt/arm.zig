@@ -233,6 +233,7 @@ test "__aeabi_frsub" {
 
 test "__aeabi_drsub" {
     if (!builtin.cpu.arch.isArm() or builtin.cpu.arch.isThumb()) return error.SkipZigTest;
+    if (builtin.cpu.arch == .armeb and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22061
     const inf64 = std.math.inf(f64);
     const maxf64 = std.math.floatMax(f64);
     const frsub_data = [_][3]f64{

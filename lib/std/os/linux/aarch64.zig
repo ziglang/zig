@@ -120,8 +120,13 @@ pub fn clone() callconv(.Naked) usize {
         \\      cbz x0,1f
         \\      // parent
         \\      ret
+        \\
         \\      // child
-        \\1:    ldp x1,x0,[sp],#16
+        \\1:    .cfi_undefined lr
+        \\      mov fp, 0
+        \\      mov lr, 0
+        \\
+        \\      ldp x1,x0,[sp],#16
         \\      blr x1
         \\      mov x8,#93 // SYS_exit
         \\      svc #0

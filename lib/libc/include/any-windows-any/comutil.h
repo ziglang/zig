@@ -409,8 +409,10 @@ public:
   _variant_t(char cSrc) throw();
   _variant_t(unsigned short usSrc) throw();
   _variant_t(unsigned __LONG32 ulSrc) throw();
+#ifndef __CYGWIN__
   _variant_t(int iSrc) throw();
   _variant_t(unsigned int uiSrc) throw();
+#endif
   __MINGW_EXTENSION _variant_t(__int64 i8Src) throw();
   __MINGW_EXTENSION _variant_t(unsigned __int64 ui8Src) throw();
   ~_variant_t() throw();
@@ -429,8 +431,10 @@ public:
   operator char() const;
   operator unsigned short() const;
   operator unsigned __LONG32() const;
+#ifndef __CYGWIN__
   operator int() const;
   operator unsigned int() const;
+#endif
   __MINGW_EXTENSION operator __int64() const;
   __MINGW_EXTENSION operator unsigned __int64() const;
   _variant_t &operator=(const VARIANT &varSrc);
@@ -452,8 +456,10 @@ public:
   _variant_t &operator=(char cSrc);
   _variant_t &operator=(unsigned short usSrc);
   _variant_t &operator=(unsigned __LONG32 ulSrc);
+#ifndef __CYGWIN__
   _variant_t &operator=(int iSrc);
   _variant_t &operator=(unsigned int uiSrc);
+#endif
   __MINGW_EXTENSION _variant_t &operator=(__int64 i8Src);
   __MINGW_EXTENSION _variant_t &operator=(unsigned __int64 ui8Src);
   bool operator==(const VARIANT &varSrc) const throw();
@@ -597,6 +603,7 @@ inline _variant_t::_variant_t(unsigned __LONG32 ulSrc) throw() {
   V_VT(this) = VT_UI4;
   V_UI4(this) = ulSrc;
 }
+#ifndef __CYGWIN__
 inline _variant_t::_variant_t(int iSrc) throw() {
   V_VT(this) = VT_INT;
   V_INT(this) = iSrc;
@@ -605,6 +612,7 @@ inline _variant_t::_variant_t(unsigned int uiSrc) throw() {
   V_VT(this) = VT_UINT;
   V_UINT(this) = uiSrc;
 }
+#endif
 __MINGW_EXTENSION inline _variant_t::_variant_t(__int64 i8Src) throw() {
   V_VT(this) = VT_I8;
   V_I8(this) = i8Src;
@@ -714,6 +722,7 @@ inline _variant_t::operator unsigned __LONG32() const {
   varDest.ChangeType(VT_UI4,this);
   return V_UI4(&varDest);
 }
+#ifndef __CYGWIN__
 inline _variant_t::operator int() const {
   if(V_VT(this)==VT_INT) return V_INT(this);
   _variant_t varDest;
@@ -726,6 +735,7 @@ inline _variant_t::operator unsigned int() const {
   varDest.ChangeType(VT_UINT,this);
   return V_UINT(&varDest);
 }
+#endif
 __MINGW_EXTENSION inline _variant_t::operator __int64() const {
   if(V_VT(this)==VT_I8) return V_I8(this);
   _variant_t varDest;
@@ -988,6 +998,7 @@ inline _variant_t &_variant_t::operator=(unsigned __LONG32 ulSrc)
   return *this;
 }
 
+#ifndef __CYGWIN__
 inline _variant_t &_variant_t::operator=(int iSrc)
 {
   if(V_VT(this)!=VT_INT) {
@@ -1015,6 +1026,7 @@ inline _variant_t &_variant_t::operator=(unsigned int uiSrc)
 
   return *this;
 }
+#endif
 
 __MINGW_EXTENSION inline _variant_t &_variant_t::operator=(__int64 i8Src) {
   if(V_VT(this)!=VT_I8) {
