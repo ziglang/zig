@@ -35,14 +35,7 @@ pub fn lower(
     import_loc: LazySrcLoc,
     block: *Sema.Block,
 ) CompileError!InternPool.Index {
-    assert(file.tree_loaded);
-    const zoir = try file.getZoir(sema.gpa);
-
-    if (zoir.hasCompileErrors()) {
-        try sema.pt.zcu.failed_files.putNoClobber(sema.gpa, file, null);
-        return error.AnalysisFail;
-    }
-
+    _ = try file.getZoir(sema.pt.zcu);
     const lower_zon: LowerZon = .{
         .sema = sema,
         .file = file,
@@ -70,13 +63,12 @@ fn fail(
     loc: LazySrcLoc.Offset,
     comptime format: []const u8,
     args: anytype,
-) (Allocator.Error || error{AnalysisFail}) {
+) error{ AnalysisFail, OutOfMemory } {
     @branchHint(.cold);
     const src_loc = try self.lazySrcLoc(loc);
     const err_msg = try Zcu.ErrorMsg.create(self.sema.pt.zcu.gpa, src_loc, format, args);
     try self.sema.pt.zcu.errNote(self.import_loc, err_msg, "imported here", .{});
-    try self.sema.pt.zcu.failed_files.putNoClobber(self.sema.pt.zcu.gpa, self.file, err_msg);
-    return error.AnalysisFail;
+    return self.sema.failWithOwnedErrorMsg(self.block, err_msg);
 }
 
 const Ident = struct {
@@ -568,7 +560,8 @@ fn lowerStruct(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
     const ip = &self.sema.pt.zcu.intern_pool;
     const gpa = self.sema.gpa;
 
-    try res_ty.resolveFully(self.sema.pt);
+    try res_ty.resolveFields(self.sema.pt);
+    try res_ty.resolveStructFieldInits(self.sema.pt);
     const struct_info = self.sema.pt.zcu.typeToStruct(res_ty).?;
 
     const fields: std.meta.fieldInfo(Zoir.Node, .struct_literal).type = switch (node.get(self.file.zoir.?)) {
@@ -752,7 +745,7 @@ fn lowerPointer(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool
 
 fn lowerUnion(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
     const ip = &self.sema.pt.zcu.intern_pool;
-    try res_ty.resolveFully(self.sema.pt);
+    try res_ty.resolveFields(self.sema.pt);
     const union_info = self.sema.pt.zcu.typeToUnion(res_ty).?;
     const enum_tag_info = union_info.loadTagType(ip);
 

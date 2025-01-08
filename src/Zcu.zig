@@ -799,11 +799,16 @@ pub const File = struct {
         return &file.tree;
     }
 
-    pub fn getZoir(file: *File, gpa: Allocator) !*const Zoir {
+    pub fn getZoir(file: *File, zcu: *Zcu) !*const Zoir {
         if (file.zoir) |*zoir| return zoir;
+
         assert(file.tree_loaded);
         assert(file.tree.mode == .zon);
-        file.zoir = try ZonGen.generate(gpa, file.tree, .{});
+        file.zoir = try ZonGen.generate(zcu.gpa, file.tree, .{});
+        if (file.zoir.?.hasCompileErrors()) {
+            try zcu.failed_files.putNoClobber(zcu.gpa, file, null);
+            return error.AnalysisFail;
+        }
         return &file.zoir.?;
     }
 
