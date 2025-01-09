@@ -648,6 +648,13 @@ pub const Type = union(enum) {
         default_value: ?*const anyopaque,
         is_comptime: bool,
         alignment: comptime_int,
+
+        pub fn defaultValue(self: StructField) ?self.type {
+            return (self.defaultValuePtr() orelse return null).*;
+        }
+        pub fn defaultValuePtr(self: StructField) ?*const self.type {
+            return @ptrCast(@alignCast(self.default_value orelse return null));
+        }
     };
 
     /// This data structure is used by the Zig language code generation and

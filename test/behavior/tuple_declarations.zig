@@ -20,7 +20,7 @@ test "tuple declaration type info" {
 
         try expectEqualStrings(info.fields[0].name, "0");
         try expect(info.fields[0].type == u32);
-        try expect(@as(*const u32, @ptrCast(@alignCast(info.fields[0].default_value))).* == 1);
+        try expect(info.fields[0].defaultValue().? == 1);
         try expect(info.fields[0].is_comptime);
         try expect(info.fields[0].alignment == @alignOf(u32));
 

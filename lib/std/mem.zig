@@ -456,8 +456,7 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                                     @field(value, field.name) = @field(init, field.name);
                                 },
                             }
-                        } else if (field.default_value) |default_value_ptr| {
-                            const default_value = @as(*align(1) const field.type, @ptrCast(default_value_ptr)).*;
+                        } else if (field.defaultValue()) |default_value| {
                             @field(value, field.name) = default_value;
                         } else {
                             switch (@typeInfo(field.type)) {
