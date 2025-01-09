@@ -91,6 +91,7 @@ objects: std.ArrayListUnmanaged(Object) = .{},
 func_types: std.AutoArrayHashMapUnmanaged(FunctionType, void) = .empty,
 /// Provides a mapping of both imports and provided functions to symbol name.
 /// Local functions may be unnamed.
+/// Key is symbol name, however the `FunctionImport` may have an name override for the import name.
 object_function_imports: std.AutoArrayHashMapUnmanaged(String, FunctionImport) = .empty,
 /// All functions for all objects.
 object_functions: std.ArrayListUnmanaged(ObjectFunction) = .empty,
@@ -164,7 +165,7 @@ object_host_name: OptionalString,
 /// Memory section
 memories: std.wasm.Memory = .{ .limits = .{
     .min = 0,
-    .max = undefined,
+    .max = 0,
     .flags = .{ .has_max = false, .is_shared = false },
 } },
 
@@ -368,6 +369,17 @@ pub const OutputFunctionIndex = enum(u32) {
     }
 
     pub fn fromObjectFunction(wasm: *const Wasm, index: ObjectFunctionIndex) OutputFunctionIndex {
+        return fromResolution(wasm, .fromObjectFunction(wasm, index)).?;
+    }
+
+    pub fn fromObjectFunctionHandlingWeak(wasm: *const Wasm, index: ObjectFunctionIndex) OutputFunctionIndex {
+        const ptr = index.ptr(wasm);
+        if (ptr.flags.binding == .weak) {
+            const name = ptr.name.unwrap().?;
+            const import = wasm.object_function_imports.getPtr(name).?;
+            assert(import.resolution != .unresolved);
+            return fromResolution(wasm, import.resolution).?;
+        }
         return fromResolution(wasm, .fromObjectFunction(wasm, index)).?;
     }
 
@@ -923,6 +935,8 @@ const DebugSection = struct {};
 pub const FunctionImport = extern struct {
     flags: SymbolFlags,
     module_name: OptionalString,
+    /// May be different than the key which is a symbol name.
+    name: String,
     source_location: SourceLocation,
     resolution: Resolution,
     type: FunctionType.Index,
@@ -1042,8 +1056,12 @@ pub const FunctionImport = extern struct {
             return &wasm.object_function_imports.values()[@intFromEnum(index)];
         }
 
-        pub fn name(index: Index, wasm: *const Wasm) String {
+        pub fn symbolName(index: Index, wasm: *const Wasm) String {
             return index.key(wasm).*;
+        }
+
+        pub fn importName(index: Index, wasm: *const Wasm) String {
+            return index.value(wasm).name;
         }
 
         pub fn moduleName(index: Index, wasm: *const Wasm) OptionalString {
@@ -1079,6 +1097,8 @@ pub const ObjectFunction = extern struct {
 pub const GlobalImport = extern struct {
     flags: SymbolFlags,
     module_name: OptionalString,
+    /// May be different than the key which is a symbol name.
+    name: String,
     source_location: SourceLocation,
     resolution: Resolution,
 
@@ -1194,8 +1214,12 @@ pub const GlobalImport = extern struct {
             return &wasm.object_global_imports.values()[@intFromEnum(index)];
         }
 
-        pub fn name(index: Index, wasm: *const Wasm) String {
+        pub fn symbolName(index: Index, wasm: *const Wasm) String {
             return index.key(wasm).*;
+        }
+
+        pub fn importName(index: Index, wasm: *const Wasm) String {
+            return index.value(wasm).name;
         }
 
         pub fn moduleName(index: Index, wasm: *const Wasm) OptionalString {
@@ -1260,6 +1284,8 @@ pub const RefType1 = enum(u1) {
 pub const TableImport = extern struct {
     flags: SymbolFlags,
     module_name: String,
+    /// May be different than the key which is a symbol name.
+    name: String,
     source_location: SourceLocation,
     resolution: Resolution,
     limits_min: u32,
@@ -1387,6 +1413,15 @@ pub const ObjectTableIndex = enum(u32) {
     pub fn ptr(index: ObjectTableIndex, wasm: *const Wasm) *Table {
         return &wasm.object_tables.items[@intFromEnum(index)];
     }
+
+    pub fn chaseWeak(i: ObjectTableIndex, wasm: *const Wasm) ObjectTableIndex {
+        const table = ptr(i, wasm);
+        if (table.flags.binding != .weak) return i;
+        const name = table.name.unwrap().?;
+        const import = wasm.object_table_imports.getPtr(name).?;
+        assert(import.resolution != .unresolved); // otherwise it should resolve to this one.
+        return import.resolution.unpack().object_table;
+    }
 };
 
 /// Index into `Wasm.object_globals`.
@@ -1399,6 +1434,15 @@ pub const ObjectGlobalIndex = enum(u32) {
 
     pub fn name(index: ObjectGlobalIndex, wasm: *const Wasm) OptionalString {
         return index.ptr(wasm).name;
+    }
+
+    pub fn chaseWeak(i: ObjectGlobalIndex, wasm: *const Wasm) ObjectGlobalIndex {
+        const global = ptr(i, wasm);
+        if (global.flags.binding != .weak) return i;
+        const import_name = global.name.unwrap().?;
+        const import = wasm.object_global_imports.getPtr(import_name).?;
+        assert(import.resolution != .unresolved); // otherwise it should resolve to this one.
+        return import.resolution.unpack(wasm).object_global;
     }
 };
 
@@ -1441,6 +1485,15 @@ pub const ObjectFunctionIndex = enum(u32) {
         const result: OptionalObjectFunctionIndex = @enumFromInt(@intFromEnum(i));
         assert(result != .none);
         return result;
+    }
+
+    pub fn chaseWeak(i: ObjectFunctionIndex, wasm: *const Wasm) ObjectFunctionIndex {
+        const func = ptr(i, wasm);
+        if (func.flags.binding != .weak) return i;
+        const name = func.name.unwrap().?;
+        const import = wasm.object_function_imports.getPtr(name).?;
+        assert(import.resolution != .unresolved); // otherwise it should resolve to this one.
+        return import.resolution.unpack(wasm).object_function;
     }
 };
 
@@ -2131,7 +2184,7 @@ pub const ZcuImportIndex = enum(u32) {
         return &wasm.imports.keys()[@intFromEnum(index)];
     }
 
-    pub fn name(index: ZcuImportIndex, wasm: *const Wasm) String {
+    pub fn importName(index: ZcuImportIndex, wasm: *const Wasm) String {
         const zcu = wasm.base.comp.zcu.?;
         const ip = &zcu.intern_pool;
         const nav_index = index.ptr(wasm).*;
@@ -2217,9 +2270,9 @@ pub const FunctionImportId = enum(u32) {
         }
     }
 
-    pub fn name(id: FunctionImportId, wasm: *const Wasm) String {
+    pub fn importName(id: FunctionImportId, wasm: *const Wasm) String {
         return switch (unpack(id, wasm)) {
-            inline .object_function_import, .zcu_import => |i| i.name(wasm),
+            inline .object_function_import, .zcu_import => |i| i.importName(wasm),
         };
     }
 
@@ -2300,9 +2353,9 @@ pub const GlobalImportId = enum(u32) {
         }
     }
 
-    pub fn name(id: GlobalImportId, wasm: *const Wasm) String {
+    pub fn importName(id: GlobalImportId, wasm: *const Wasm) String {
         return switch (unpack(id, wasm)) {
-            inline .object_global_import, .zcu_import => |i| i.name(wasm),
+            inline .object_global_import, .zcu_import => |i| i.importName(wasm),
         };
     }
 
@@ -3297,6 +3350,14 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
             try markDataImport(wasm, name, import, @enumFromInt(i));
         }
     }
+
+    // This is a wild ass guess at how to merge memories, haven't checked yet
+    // what the proper way to do this is.
+    for (wasm.object_memory_imports.values()) |*memory_import| {
+        wasm.memories.limits.min = @min(wasm.memories.limits.min, memory_import.limits_min);
+        wasm.memories.limits.max = @max(wasm.memories.limits.max, memory_import.limits_max);
+        wasm.memories.limits.flags.has_max = wasm.memories.limits.flags.has_max or memory_import.limits_has_max;
+    }
 }
 
 fn markFunctionImport(
@@ -3532,12 +3593,12 @@ fn markRelocations(wasm: *Wasm, relocs: ObjectRelocation.IterableSlice) link.Fil
             .table_index_i64,
             .table_index_rel_sleb,
             .table_index_rel_sleb64,
-            => try markFunction(wasm, pointee.function),
+            => try markFunction(wasm, pointee.function.chaseWeak(wasm)),
             .global_index_leb,
             .global_index_i32,
-            => try markGlobal(wasm, pointee.global),
+            => try markGlobal(wasm, pointee.global.chaseWeak(wasm)),
             .table_number_leb,
-            => try wasm.tables.put(wasm.base.comp.gpa, .fromObjectTable(pointee.table), {}),
+            => try markTable(wasm, pointee.table.chaseWeak(wasm)),
 
             .section_offset_i32 => {
                 log.warn("TODO: ensure section {d} is included in output", .{pointee.section});
@@ -3559,6 +3620,10 @@ fn markRelocations(wasm: *Wasm, relocs: ObjectRelocation.IterableSlice) link.Fil
             .type_index_leb => continue,
         }
     }
+}
+
+fn markTable(wasm: *Wasm, i: ObjectTableIndex) link.File.FlushError!void {
+    try wasm.tables.put(wasm.base.comp.gpa, .fromObjectTable(i), {});
 }
 
 pub fn flushModule(

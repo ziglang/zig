@@ -972,7 +972,7 @@ pub fn parse(
     for (ss.symbol_table.items) |symbol| switch (symbol.pointee) {
         .function_import => |index| {
             const ptr = index.ptr(ss);
-            const name = symbol.name.unwrap().?;
+            const name = symbol.name.unwrap() orelse ptr.name;
             if (symbol.flags.binding == .local) {
                 diags.addParseError(path, "local symbol '{s}' references import", .{name.slice(wasm)});
                 continue;
@@ -1000,10 +1000,18 @@ pub fn parse(
                     source_location.addNote(&err, "module '{s}' here", .{ptr.module_name.slice(wasm)});
                     continue;
                 }
+                if (gop.value_ptr.name != ptr.name) {
+                    var err = try diags.addErrorWithNotes(2);
+                    try err.addMsg("symbol '{s}' mismatching import names", .{name.slice(wasm)});
+                    gop.value_ptr.source_location.addNote(&err, "imported as '{s}' here", .{gop.value_ptr.name.slice(wasm)});
+                    source_location.addNote(&err, "imported as '{s}' here", .{ptr.name.slice(wasm)});
+                    continue;
+                }
             } else {
                 gop.value_ptr.* = .{
                     .flags = symbol.flags,
                     .module_name = ptr.module_name.toOptional(),
+                    .name = ptr.name,
                     .source_location = source_location,
                     .resolution = .unresolved,
                     .type = fn_ty_index,
@@ -1012,7 +1020,7 @@ pub fn parse(
         },
         .global_import => |index| {
             const ptr = index.ptr(ss);
-            const name = symbol.name.unwrap().?;
+            const name = symbol.name.unwrap() orelse ptr.name;
             if (symbol.flags.binding == .local) {
                 diags.addParseError(path, "local symbol '{s}' references import", .{name.slice(wasm)});
                 continue;
@@ -1049,10 +1057,18 @@ pub fn parse(
                     source_location.addNote(&err, "module '{s}' here", .{ptr.module_name.slice(wasm)});
                     continue;
                 }
+                if (gop.value_ptr.name != ptr.name) {
+                    var err = try diags.addErrorWithNotes(2);
+                    try err.addMsg("symbol '{s}' mismatching import names", .{name.slice(wasm)});
+                    gop.value_ptr.source_location.addNote(&err, "imported as '{s}' here", .{gop.value_ptr.name.slice(wasm)});
+                    source_location.addNote(&err, "imported as '{s}' here", .{ptr.name.slice(wasm)});
+                    continue;
+                }
             } else {
                 gop.value_ptr.* = .{
                     .flags = symbol.flags,
                     .module_name = ptr.module_name.toOptional(),
+                    .name = ptr.name,
                     .source_location = source_location,
                     .resolution = .unresolved,
                 };
@@ -1064,7 +1080,7 @@ pub fn parse(
         },
         .table_import => |index| {
             const ptr = index.ptr(ss);
-            const name = symbol.name.unwrap().?;
+            const name = symbol.name.unwrap() orelse ptr.name;
             if (symbol.flags.binding == .local) {
                 diags.addParseError(path, "local symbol '{s}' references import", .{name.slice(wasm)});
                 continue;
@@ -1088,6 +1104,13 @@ pub fn parse(
                     source_location.addNote(&err, "module '{s}' here", .{ptr.module_name.slice(wasm)});
                     continue;
                 }
+                if (gop.value_ptr.name != ptr.name) {
+                    var err = try diags.addErrorWithNotes(2);
+                    try err.addMsg("symbol '{s}' mismatching import names", .{name.slice(wasm)});
+                    gop.value_ptr.source_location.addNote(&err, "imported as '{s}' here", .{gop.value_ptr.name.slice(wasm)});
+                    source_location.addNote(&err, "imported as '{s}' here", .{ptr.name.slice(wasm)});
+                    continue;
+                }
                 if (symbol.flags.binding == .strong) gop.value_ptr.flags.binding = .strong;
                 if (!symbol.flags.visibility_hidden) gop.value_ptr.flags.visibility_hidden = false;
                 if (symbol.flags.no_strip) gop.value_ptr.flags.no_strip = true;
@@ -1095,6 +1118,7 @@ pub fn parse(
                 gop.value_ptr.* = .{
                     .flags = symbol.flags,
                     .module_name = ptr.module_name,
+                    .name = ptr.name,
                     .source_location = source_location,
                     .resolution = .unresolved,
                     .limits_min = ptr.limits_min,
@@ -1158,6 +1182,7 @@ pub fn parse(
                 gop.value_ptr.* = .{
                     .flags = symbol.flags,
                     .module_name = host_name,
+                    .name = name,
                     .source_location = source_location,
                     .resolution = .fromObjectFunction(wasm, index),
                     .type = ptr.type_index,
@@ -1214,8 +1239,9 @@ pub fn parse(
                 gop.value_ptr.* = .{
                     .flags = symbol.flags,
                     .module_name = .none,
+                    .name = name,
                     .source_location = source_location,
-                    .resolution = .unresolved,
+                    .resolution = .fromObjectGlobal(wasm, index),
                 };
                 gop.value_ptr.flags.global_type = .{
                     .valtype = .from(new_ty.valtype),
@@ -1258,7 +1284,7 @@ pub fn parse(
                 gop.value_ptr.* = .{
                     .flags = symbol.flags,
                     .source_location = source_location,
-                    .resolution = .unresolved,
+                    .resolution = .fromObjectDataIndex(wasm, index),
                 };
             }
         },
@@ -1280,11 +1306,8 @@ pub fn parse(
         switch (exp.pointee) {
             inline .function, .table, .memory, .global => |index| {
                 const ptr = index.ptr(wasm);
-                if (ptr.name == .none) {
-                    // Missing symbol table entry; use defaults for exported things.
-                    ptr.name = exp.name.toOptional();
-                    ptr.flags.exported = true;
-                }
+                ptr.name = exp.name.toOptional();
+                ptr.flags.exported = true;
             },
         }
     }

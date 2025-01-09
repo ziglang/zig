@@ -459,7 +459,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(module_name.len)));
             try binary_writer.writeAll(module_name);
 
-            const name = id.name(wasm).slice(wasm);
+            const name = id.importName(wasm).slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(name.len)));
             try binary_writer.writeAll(name);
 
@@ -474,7 +474,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(module_name.len)));
             try binary_writer.writeAll(module_name);
 
-            const name = id.key(wasm).slice(wasm);
+            const name = table_import.name.slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(name.len)));
             try binary_writer.writeAll(name);
 
@@ -484,10 +484,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         }
         total_imports += wasm.table_imports.entries.len;
 
-        for (wasm.object_memory_imports.keys(), wasm.object_memory_imports.values()) |name, *memory_import| {
-            try emitMemoryImport(wasm, binary_bytes, name, memory_import);
-            total_imports += 1;
-        } else if (import_memory) {
+        if (import_memory) {
             const name = if (is_obj) wasm.preloaded_strings.__linear_memory else wasm.preloaded_strings.memory;
             try emitMemoryImport(wasm, binary_bytes, name, &.{
                 // TODO the import_memory option needs to specify from which module
@@ -506,7 +503,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(module_name.len)));
             try binary_writer.writeAll(module_name);
 
-            const name = id.name(wasm).slice(wasm);
+            const name = id.importName(wasm).slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(name.len)));
             try binary_writer.writeAll(name);
 
@@ -1458,8 +1455,8 @@ fn applyRelocs(code: []u8, code_offset: u32, relocs: Wasm.ObjectRelocation.Itera
         if (offset >= relocs.end) break;
         const sliced_code = code[offset - code_offset ..];
         switch (tag) {
-            .function_index_i32 => reloc_u32_function(sliced_code, .fromObjectFunction(wasm, pointee.function)),
-            .function_index_leb => reloc_leb_function(sliced_code, .fromObjectFunction(wasm, pointee.function)),
+            .function_index_i32 => reloc_u32_function(sliced_code, .fromObjectFunctionHandlingWeak(wasm, pointee.function)),
+            .function_index_leb => reloc_leb_function(sliced_code, .fromObjectFunctionHandlingWeak(wasm, pointee.function)),
             .function_offset_i32 => @panic("TODO this value is not known yet"),
             .function_offset_i64 => @panic("TODO this value is not known yet"),
             .table_index_i32 => @panic("TODO indirect function table needs to support object functions too"),
