@@ -8998,7 +8998,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             }) else fallback: {
                 const bin_op = air_datas[@intFromEnum(inst)].bin_op;
                 const scalar_ty = cg.typeOf(bin_op.lhs).scalarType(zcu);
-                if (scalar_ty.isRuntimeFloat() or ip.isOptionalType(scalar_ty.toIntern())) break :fallback try cg.airCmp(inst, switch (air_tag) {
+                if (intInfo(scalar_ty, cg) == null) break :fallback try cg.airCmp(inst, switch (air_tag) {
                     else => unreachable,
                     .cmp_eq, .cmp_eq_optimized => .eq,
                     .cmp_neq, .cmp_neq_optimized => .neq,
@@ -9012,136 +9012,6 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 })) {
                     else => unreachable,
                     inline .e, .ne => |cc| comptime &.{ .{
-                        .required_features = .{ .avx2, null, null, null },
-                        .src_constraints = .{ .{ .int = .yword }, .{ .int = .yword } },
-                        .patterns = &.{
-                            .{ .src = .{ .to_ymm, .mem } },
-                            .{ .src = .{ .mem, .to_ymm }, .commute = .{ 0, 1 } },
-                            .{ .src = .{ .to_ymm, .to_ymm } },
-                        },
-                        .extra_temps = .{
-                            .{ .kind = .{ .rc = .sse } },
-                            .unused,
-                            .unused,
-                            .unused,
-                            .unused,
-                            .unused,
-                        },
-                        .dst_temps = .{.{ .cc = cc }},
-                        .clobbers = .{ .eflags = true },
-                        .each = .{ .once = &.{
-                            .{ ._, .vp_, .xor, .tmp0y, .src0y, .src1y, ._ },
-                            .{ ._, .vp_, .@"test", .tmp0y, .tmp0y, ._, ._ },
-                        } },
-                    }, .{
-                        .required_features = .{ .avx, null, null, null },
-                        .src_constraints = .{ .{ .int = .yword }, .{ .int = .yword } },
-                        .patterns = &.{
-                            .{ .src = .{ .to_ymm, .mem } },
-                            .{ .src = .{ .mem, .to_ymm }, .commute = .{ 0, 1 } },
-                            .{ .src = .{ .to_ymm, .to_ymm } },
-                        },
-                        .extra_temps = .{
-                            .{ .kind = .{ .rc = .sse } },
-                            .unused,
-                            .unused,
-                            .unused,
-                            .unused,
-                            .unused,
-                        },
-                        .dst_temps = .{.{ .cc = cc }},
-                        .clobbers = .{ .eflags = true },
-                        .each = .{ .once = &.{
-                            .{ ._, .v_pd, .xor, .tmp0y, .src0y, .src1y, ._ },
-                            .{ ._, .vp_, .@"test", .tmp0y, .tmp0y, ._, ._ },
-                        } },
-                    }, .{
-                        .required_features = .{ .avx, null, null, null },
-                        .src_constraints = .{ .{ .int = .xword }, .{ .int = .xword } },
-                        .patterns = &.{
-                            .{ .src = .{ .to_xmm, .mem } },
-                            .{ .src = .{ .mem, .to_xmm }, .commute = .{ 0, 1 } },
-                            .{ .src = .{ .to_xmm, .to_xmm } },
-                        },
-                        .extra_temps = .{
-                            .{ .kind = .{ .rc = .sse } },
-                            .unused,
-                            .unused,
-                            .unused,
-                            .unused,
-                            .unused,
-                        },
-                        .dst_temps = .{.{ .cc = cc }},
-                        .clobbers = .{ .eflags = true },
-                        .each = .{ .once = &.{
-                            .{ ._, .vp_, .xor, .tmp0x, .src0x, .src1x, ._ },
-                            .{ ._, .vp_, .@"test", .tmp0x, .tmp0x, ._, ._ },
-                        } },
-                    }, .{
-                        .required_features = .{ .sse4_1, null, null, null },
-                        .src_constraints = .{ .{ .int = .xword }, .{ .int = .xword } },
-                        .patterns = &.{
-                            .{ .src = .{ .to_mut_xmm, .mem } },
-                            .{ .src = .{ .mem, .to_mut_xmm }, .commute = .{ 0, 1 } },
-                            .{ .src = .{ .to_mut_xmm, .to_xmm } },
-                        },
-                        .dst_temps = .{.{ .cc = cc }},
-                        .clobbers = .{ .eflags = true },
-                        .each = .{ .once = &.{
-                            .{ ._, .p_, .xor, .src0x, .src1x, ._, ._ },
-                            .{ ._, .p_, .@"test", .src0x, .src0x, ._, ._ },
-                        } },
-                    }, .{
-                        .required_features = .{ .sse2, null, null, null },
-                        .src_constraints = .{ .{ .int = .xword }, .{ .int = .xword } },
-                        .patterns = &.{
-                            .{ .src = .{ .to_mut_xmm, .mem } },
-                            .{ .src = .{ .mem, .to_mut_xmm }, .commute = .{ 0, 1 } },
-                            .{ .src = .{ .to_mut_xmm, .to_xmm } },
-                        },
-                        .extra_temps = .{
-                            .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
-                            .{ .kind = .{ .rc = .sse } },
-                            .unused,
-                            .unused,
-                            .unused,
-                            .unused,
-                        },
-                        .dst_temps = .{.{ .cc = cc }},
-                        .clobbers = .{ .eflags = true },
-                        .each = .{ .once = &.{
-                            .{ ._, .p_, .xor, .tmp1x, .tmp1x, ._, ._ },
-                            .{ ._, .p_, .xor, .src0x, .src1x, ._, ._ },
-                            .{ ._, .p_b, .cmpeq, .tmp1x, .src0x, ._, ._ },
-                            .{ ._, .p_b, .movmsk, .tmp0d, .tmp1x, ._, ._ },
-                            .{ ._, ._, .xor, .tmp0d, .si(0xffff), ._, ._ },
-                        } },
-                    }, .{
-                        .required_features = .{ .sse, .mmx, null, null },
-                        .src_constraints = .{ .{ .int = .qword }, .{ .int = .qword } },
-                        .patterns = &.{
-                            .{ .src = .{ .to_mut_mm, .mem } },
-                            .{ .src = .{ .mem, .to_mut_mm }, .commute = .{ 0, 1 } },
-                            .{ .src = .{ .to_mut_mm, .to_mm } },
-                        },
-                        .extra_temps = .{
-                            .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
-                            .{ .kind = .{ .rc = .mmx } },
-                            .unused,
-                            .unused,
-                            .unused,
-                            .unused,
-                        },
-                        .dst_temps = .{.{ .cc = cc }},
-                        .clobbers = .{ .eflags = true },
-                        .each = .{ .once = &.{
-                            .{ ._, .p_, .xor, .tmp1q, .tmp1q, ._, ._ },
-                            .{ ._, .p_, .xor, .src0q, .src1q, ._, ._ },
-                            .{ ._, .p_b, .cmpeq, .tmp1q, .src0q, ._, ._ },
-                            .{ ._, .p_b, .movmsk, .tmp0d, .tmp1q, ._, ._ },
-                            .{ ._, ._, .xor, .tmp0d, .si(0xff), ._, ._ },
-                        } },
-                    }, .{
                         .src_constraints = .{ .{ .int = .byte }, .{ .int = .byte } },
                         .patterns = &.{
                             .{ .src = .{ .mem, .imm8 } },
@@ -9205,6 +9075,136 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .clobbers = .{ .eflags = true },
                         .each = .{ .once = &.{
                             .{ ._, ._, .cmp, .src0q, .src1q, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .sse, .mmx, null, null },
+                        .src_constraints = .{ .{ .int = .qword }, .{ .int = .qword } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_mut_mm, .mem } },
+                            .{ .src = .{ .mem, .to_mut_mm }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .to_mut_mm, .to_mm } },
+                        },
+                        .extra_temps = .{
+                            .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
+                            .{ .kind = .{ .rc = .mmx } },
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = cc }},
+                        .clobbers = .{ .eflags = true },
+                        .each = .{ .once = &.{
+                            .{ ._, .p_, .xor, .tmp1q, .tmp1q, ._, ._ },
+                            .{ ._, .p_, .xor, .src0q, .src1q, ._, ._ },
+                            .{ ._, .p_b, .cmpeq, .tmp1q, .src0q, ._, ._ },
+                            .{ ._, .p_b, .movmsk, .tmp0d, .tmp1q, ._, ._ },
+                            .{ ._, ._, .xor, .tmp0d, .si(0xff), ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .avx, null, null, null },
+                        .src_constraints = .{ .{ .int = .xword }, .{ .int = .xword } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_xmm, .mem } },
+                            .{ .src = .{ .mem, .to_xmm }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .to_xmm, .to_xmm } },
+                        },
+                        .extra_temps = .{
+                            .{ .kind = .{ .rc = .sse } },
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = cc }},
+                        .clobbers = .{ .eflags = true },
+                        .each = .{ .once = &.{
+                            .{ ._, .vp_, .xor, .tmp0x, .src0x, .src1x, ._ },
+                            .{ ._, .vp_, .@"test", .tmp0x, .tmp0x, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .sse4_1, null, null, null },
+                        .src_constraints = .{ .{ .int = .xword }, .{ .int = .xword } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_mut_xmm, .mem } },
+                            .{ .src = .{ .mem, .to_mut_xmm }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .to_mut_xmm, .to_xmm } },
+                        },
+                        .dst_temps = .{.{ .cc = cc }},
+                        .clobbers = .{ .eflags = true },
+                        .each = .{ .once = &.{
+                            .{ ._, .p_, .xor, .src0x, .src1x, ._, ._ },
+                            .{ ._, .p_, .@"test", .src0x, .src0x, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .sse2, null, null, null },
+                        .src_constraints = .{ .{ .int = .xword }, .{ .int = .xword } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_mut_xmm, .mem } },
+                            .{ .src = .{ .mem, .to_mut_xmm }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .to_mut_xmm, .to_xmm } },
+                        },
+                        .extra_temps = .{
+                            .{ .type = .u32, .kind = .{ .rc = .general_purpose } },
+                            .{ .kind = .{ .rc = .sse } },
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = cc }},
+                        .clobbers = .{ .eflags = true },
+                        .each = .{ .once = &.{
+                            .{ ._, .p_, .xor, .tmp1x, .tmp1x, ._, ._ },
+                            .{ ._, .p_, .xor, .src0x, .src1x, ._, ._ },
+                            .{ ._, .p_b, .cmpeq, .tmp1x, .src0x, ._, ._ },
+                            .{ ._, .p_b, .movmsk, .tmp0d, .tmp1x, ._, ._ },
+                            .{ ._, ._, .xor, .tmp0d, .si(0xffff), ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .avx2, null, null, null },
+                        .src_constraints = .{ .{ .int = .yword }, .{ .int = .yword } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_ymm, .mem } },
+                            .{ .src = .{ .mem, .to_ymm }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .to_ymm, .to_ymm } },
+                        },
+                        .extra_temps = .{
+                            .{ .kind = .{ .rc = .sse } },
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = cc }},
+                        .clobbers = .{ .eflags = true },
+                        .each = .{ .once = &.{
+                            .{ ._, .vp_, .xor, .tmp0y, .src0y, .src1y, ._ },
+                            .{ ._, .vp_, .@"test", .tmp0y, .tmp0y, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .avx, null, null, null },
+                        .src_constraints = .{ .{ .int = .yword }, .{ .int = .yword } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_ymm, .mem } },
+                            .{ .src = .{ .mem, .to_ymm }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .to_ymm, .to_ymm } },
+                        },
+                        .extra_temps = .{
+                            .{ .kind = .{ .rc = .sse } },
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = cc }},
+                        .clobbers = .{ .eflags = true },
+                        .each = .{ .once = &.{
+                            .{ ._, .v_pd, .xor, .tmp0y, .src0y, .src1y, ._ },
+                            .{ ._, .vp_, .@"test", .tmp0y, .tmp0y, ._, ._ },
                         } },
                     }, .{
                         .required_features = .{ .avx2, null, null, null },
@@ -19540,9 +19540,18 @@ fn genIntMulComplexOpMir(self: *CodeGen, dst_ty: Type, dst_mcv: MCValue, src_mcv
         .air_ref,
         => unreachable, // unmodifiable destination
         .register => |dst_reg| {
-            const dst_alias = registerAlias(dst_reg, abi_size);
+            const alias_size = switch (abi_size) {
+                1 => 4,
+                else => abi_size,
+            };
+            const dst_alias = registerAlias(dst_reg, alias_size);
             const dst_lock = self.register_manager.lockReg(dst_reg);
             defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
+
+            switch (abi_size) {
+                1 => try self.asmRegisterRegister(.{ ._, .movzx }, dst_reg.to32(), dst_reg.to8()),
+                else => {},
+            }
 
             const resolved_src_mcv = switch (src_mcv) {
                 else => src_mcv,
@@ -19562,19 +19571,20 @@ fn genIntMulComplexOpMir(self: *CodeGen, dst_ty: Type, dst_mcv: MCValue, src_mcv
                 .reserved_frame,
                 .air_ref,
                 => unreachable,
-                .register => |src_reg| try self.asmRegisterRegister(
-                    .{ .i_, .mul },
-                    dst_alias,
-                    registerAlias(src_reg, abi_size),
-                ),
+                .register => |src_reg| {
+                    switch (abi_size) {
+                        1 => try self.asmRegisterRegister(.{ ._, .movzx }, src_reg.to32(), src_reg.to8()),
+                        else => {},
+                    }
+                    try self.asmRegisterRegister(
+                        .{ .i_, .mul },
+                        dst_alias,
+                        registerAlias(src_reg, alias_size),
+                    );
+                },
                 .immediate => |imm| {
-                    if (std.math.cast(i32, imm)) |small| {
-                        try self.asmRegisterRegisterImmediate(
-                            .{ .i_, .mul },
-                            dst_alias,
-                            dst_alias,
-                            .s(small),
-                        );
+                    if (std.math.cast(i32, @as(i64, @bitCast(imm)))) |small| {
+                        try self.asmRegisterRegisterImmediate(.{ .i_, .mul }, dst_alias, dst_alias, .s(small));
                     } else {
                         const src_reg = try self.copyToTmpRegister(dst_ty, resolved_src_mcv);
                         return self.genIntMulComplexOpMir(dst_ty, dst_mcv, MCValue{ .register = src_reg });
@@ -19591,47 +19601,57 @@ fn genIntMulComplexOpMir(self: *CodeGen, dst_ty: Type, dst_mcv: MCValue, src_mcv
                 .load_tlv,
                 .lea_tlv,
                 .lea_frame,
-                => try self.asmRegisterRegister(
-                    .{ .i_, .mul },
-                    dst_alias,
-                    registerAlias(try self.copyToTmpRegister(dst_ty, resolved_src_mcv), abi_size),
-                ),
-                .memory, .indirect, .load_frame => try self.asmRegisterMemory(
-                    .{ .i_, .mul },
-                    dst_alias,
-                    switch (resolved_src_mcv) {
-                        .memory => |addr| .{
-                            .base = .{ .reg = .ds },
-                            .mod = .{ .rm = .{
-                                .size = .fromSize(abi_size),
-                                .disp = std.math.cast(i32, @as(i64, @bitCast(addr))) orelse
-                                    return self.asmRegisterRegister(
-                                    .{ .i_, .mul },
-                                    dst_alias,
-                                    registerAlias(
-                                        try self.copyToTmpRegister(dst_ty, resolved_src_mcv),
-                                        abi_size,
-                                    ),
-                                ),
-                            } },
-                        },
-                        .indirect => |reg_off| .{
-                            .base = .{ .reg = reg_off.reg },
-                            .mod = .{ .rm = .{
-                                .size = .fromSize(abi_size),
-                                .disp = reg_off.off,
-                            } },
-                        },
-                        .load_frame => |frame_addr| .{
-                            .base = .{ .frame = frame_addr.index },
-                            .mod = .{ .rm = .{
-                                .size = .fromSize(abi_size),
-                                .disp = frame_addr.off,
-                            } },
-                        },
-                        else => unreachable,
+                => {
+                    const src_reg = try self.copyToTmpRegister(dst_ty, resolved_src_mcv);
+                    switch (abi_size) {
+                        1 => try self.asmRegisterRegister(.{ ._, .movzx }, src_reg.to32(), src_reg.to8()),
+                        else => {},
+                    }
+                    try self.asmRegisterRegister(.{ .i_, .mul }, dst_alias, registerAlias(src_reg, alias_size));
+                },
+                .memory, .indirect, .load_frame => switch (abi_size) {
+                    1 => {
+                        const src_reg = try self.copyToTmpRegister(dst_ty, resolved_src_mcv);
+                        try self.asmRegisterRegister(.{ ._, .movzx }, src_reg.to32(), src_reg.to8());
+                        try self.asmRegisterRegister(.{ .i_, .mul }, dst_alias, registerAlias(src_reg, alias_size));
                     },
-                ),
+                    else => try self.asmRegisterMemory(
+                        .{ .i_, .mul },
+                        dst_alias,
+                        switch (resolved_src_mcv) {
+                            .memory => |addr| .{
+                                .base = .{ .reg = .ds },
+                                .mod = .{ .rm = .{
+                                    .size = .fromSize(abi_size),
+                                    .disp = std.math.cast(i32, @as(i64, @bitCast(addr))) orelse
+                                        return self.asmRegisterRegister(
+                                        .{ .i_, .mul },
+                                        dst_alias,
+                                        registerAlias(
+                                            try self.copyToTmpRegister(dst_ty, resolved_src_mcv),
+                                            abi_size,
+                                        ),
+                                    ),
+                                } },
+                            },
+                            .indirect => |reg_off| .{
+                                .base = .{ .reg = reg_off.reg },
+                                .mod = .{ .rm = .{
+                                    .size = .fromSize(abi_size),
+                                    .disp = reg_off.off,
+                                } },
+                            },
+                            .load_frame => |frame_addr| .{
+                                .base = .{ .frame = frame_addr.index },
+                                .mod = .{ .rm = .{
+                                    .size = .fromSize(abi_size),
+                                    .disp = frame_addr.off,
+                                } },
+                            },
+                            else => unreachable,
+                        },
+                    ),
+                },
             }
         },
         .register_pair, .register_triple, .register_quadruple => unreachable, // unimplemented
@@ -27952,6 +27972,75 @@ fn promoteVarArg(self: *CodeGen, ty: Type) Type {
     }
 }
 
+fn intInfo(ty: Type, cg: *CodeGen) ?std.builtin.Type.Int {
+    const zcu = cg.pt.zcu;
+    const ip = &zcu.intern_pool;
+    var ty_index = ty.ip_index;
+    while (true) switch (ip.indexToKey(ty_index)) {
+        .int_type => |int_type| return int_type,
+        .ptr_type => |ptr_type| return switch (ptr_type.flags.size) {
+            .one, .many, .c => .{ .signedness = .unsigned, .bits = cg.target.ptrBitWidth() },
+            .slice => null,
+        },
+        .opt_type => |opt_child| return if (!Type.fromInterned(opt_child).hasRuntimeBitsIgnoreComptime(zcu))
+            .{ .signedness = .unsigned, .bits = 1 }
+        else switch (ip.indexToKey(opt_child)) {
+            .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
+                .one, .many => switch (ptr_type.flags.is_allowzero) {
+                    false => .{ .signedness = .unsigned, .bits = cg.target.ptrBitWidth() },
+                    true => null,
+                },
+                .slice, .c => null,
+            },
+            else => null,
+        },
+        .error_union_type => |error_union_type| return if (!Type.fromInterned(error_union_type.payload_type)
+            .hasRuntimeBitsIgnoreComptime(zcu)) .{ .signedness = .unsigned, .bits = zcu.errorSetBits() } else null,
+        .simple_type => |simple_type| return switch (simple_type) {
+            .bool => .{ .signedness = .unsigned, .bits = 1 },
+            .anyerror => .{ .signedness = .unsigned, .bits = zcu.errorSetBits() },
+            .isize => .{ .signedness = .signed, .bits = cg.target.ptrBitWidth() },
+            .usize => .{ .signedness = .unsigned, .bits = cg.target.ptrBitWidth() },
+            .c_char => .{ .signedness = cg.target.charSignedness(), .bits = cg.target.cTypeBitSize(.char) },
+            .c_short => .{ .signedness = .signed, .bits = cg.target.cTypeBitSize(.short) },
+            .c_ushort => .{ .signedness = .unsigned, .bits = cg.target.cTypeBitSize(.short) },
+            .c_int => .{ .signedness = .signed, .bits = cg.target.cTypeBitSize(.int) },
+            .c_uint => .{ .signedness = .unsigned, .bits = cg.target.cTypeBitSize(.int) },
+            .c_long => .{ .signedness = .signed, .bits = cg.target.cTypeBitSize(.long) },
+            .c_ulong => .{ .signedness = .unsigned, .bits = cg.target.cTypeBitSize(.long) },
+            .c_longlong => .{ .signedness = .signed, .bits = cg.target.cTypeBitSize(.longlong) },
+            .c_ulonglong => .{ .signedness = .unsigned, .bits = cg.target.cTypeBitSize(.longlong) },
+            .f16, .f32, .f64, .f80, .f128, .c_longdouble => null,
+            .anyopaque,
+            .void,
+            .type,
+            .comptime_int,
+            .comptime_float,
+            .noreturn,
+            .null,
+            .undefined,
+            .enum_literal,
+            .adhoc_inferred_error_set,
+            .generic_poison,
+            => unreachable,
+        },
+        .struct_type => {
+            const loaded_struct = ip.loadStructType(ty_index);
+            switch (loaded_struct.layout) {
+                .auto, .@"extern" => return null,
+                .@"packed" => ty_index = loaded_struct.backingIntTypeUnordered(ip),
+            }
+        },
+        .union_type => return switch (ip.loadUnionType(ty_index).flagsUnordered(ip).layout) {
+            .auto, .@"extern" => null,
+            .@"packed" => .{ .signedness = .unsigned, .bits = @intCast(ty.bitSize(zcu)) },
+        },
+        .enum_type => ty_index = ip.loadEnumType(ty_index).tag_ty,
+        .error_set_type, .inferred_error_set_type => return .{ .signedness = .unsigned, .bits = zcu.errorSetBits() },
+        else => return null,
+    };
+}
+
 const Temp = struct {
     index: Air.Inst.Index,
 
@@ -29061,197 +29150,112 @@ const Select = struct {
 
         fn accepts(constraint: Constraint, ty: Type, cg: *CodeGen) bool {
             const zcu = cg.pt.zcu;
-            switch (constraint) {
-                .any => return true,
-                .any_bool_vec => return ty.isVector(zcu) and ty.childType(zcu).toIntern() == .bool_type,
-                .any_int => return ty.toIntern() == .bool_type or ty.isPtrAtRuntime(zcu) or ty.isAbiInt(zcu),
-                .any_signed_int => return ty.isAbiInt(zcu) and ty.intInfo(zcu).signedness == .signed,
-                .any_float => return ty.isRuntimeFloat(),
-                .po2_any => return std.math.isPowerOfTwo(ty.abiSize(zcu)),
-                .bool_vec => |size| return ty.isVector(zcu) and ty.scalarType(zcu).toIntern() == .bool_type and
+            return switch (constraint) {
+                .any => true,
+                .any_bool_vec => ty.isVector(zcu) and ty.childType(zcu).toIntern() == .bool_type,
+                .any_int => intInfo(ty, cg) != null,
+                .any_signed_int => if (intInfo(ty, cg)) |int_info| int_info.signedness == .signed else false,
+                .any_float => ty.isRuntimeFloat(),
+                .po2_any => std.math.isPowerOfTwo(ty.abiSize(zcu)),
+                .bool_vec => |size| ty.isVector(zcu) and ty.scalarType(zcu).toIntern() == .bool_type and
                     size.bitSize(cg.target) >= ty.vectorLen(zcu),
-                .vec => |size| return ty.isVector(zcu) and ty.scalarType(zcu).toIntern() != .bool_type and
+                .vec => |size| ty.isVector(zcu) and ty.scalarType(zcu).toIntern() != .bool_type and
                     size.bitSize(cg.target) >= ty.abiSize(zcu),
-                .signed_int_vec => |size| {
-                    if (!ty.isVector(zcu) or size.bitSize(cg.target) < 8 * ty.abiSize(zcu)) return false;
-                    const scalar_ty = ty.scalarType(zcu);
-                    return scalar_ty.isAbiInt(zcu) and scalar_ty.intInfo(zcu).signedness == .signed;
-                },
-                .signed_int_or_full_vec => |size| {
-                    if (!ty.isVector(zcu) or size.bitSize(cg.target) < 8 * ty.abiSize(zcu)) return false;
-                    const scalar_ty = ty.scalarType(zcu);
-                    if (scalar_ty.isPtrAtRuntime(zcu)) return true;
-                    if (!scalar_ty.isAbiInt(zcu)) return false;
-                    const scalar_int_info = scalar_ty.intInfo(zcu);
-                    return switch (scalar_int_info.signedness) {
-                        .signed => true,
-                        .unsigned => scalar_int_info.bits >= 8 and std.math.isPowerOfTwo(scalar_int_info.bits),
-                    };
-                },
-                .unsigned_int_vec => |size| {
-                    if (!ty.isVector(zcu) or size.bitSize(cg.target) < ty.bitSize(zcu)) return false;
-                    const scalar_ty = ty.scalarType(zcu);
-                    if (scalar_ty.isPtrAtRuntime(zcu)) return true;
-                    return scalar_ty.isAbiInt(zcu) and scalar_ty.intInfo(zcu).signedness == .unsigned;
-                },
-                .int_or_vec => |size| {
-                    if (ty.isVector(zcu)) return ty.scalarType(zcu).toIntern() != .bool_type and
-                        size.bitSize(cg.target) >= 8 * ty.abiSize(zcu);
-                    if (ty.toIntern() == .bool_type) return true;
-                    if (ty.isPtrAtRuntime(zcu)) return size.bitSize(cg.target) >= cg.target.ptrBitWidth();
-                    return ty.isAbiInt(zcu) and size.bitSize(cg.target) >= ty.intInfo(zcu).bits;
-                },
-                .exact_remainder_int_or_vec => |of_is| {
-                    if (ty.isVector(zcu)) return ty.scalarType(zcu).toIntern() != .bool_type and
-                        of_is.is.bitSize(cg.target) == (8 * ty.abiSize(zcu) - 1) % of_is.of.bitSize(cg.target) + 1;
-                    if (ty.isPtrAtRuntime(zcu))
-                        return of_is.is.bitSize(cg.target) == (cg.target.ptrBitWidth() - 1) % of_is.of.bitSize(cg.target) + 1;
-                    if (!ty.isAbiInt(zcu)) return false;
-                    return of_is.is.bitSize(cg.target) == (ty.intInfo(zcu).bits - 1) % of_is.of.bitSize(cg.target) + 1;
-                },
-                .int => |size| {
-                    if (ty.toIntern() == .bool_type) return true;
-                    if (ty.isPtrAtRuntime(zcu)) return size.bitSize(cg.target) >= cg.target.ptrBitWidth();
-                    return ty.isAbiInt(zcu) and size.bitSize(cg.target) >= ty.intInfo(zcu).bits;
-                },
-                .scalar_int => |size| {
-                    const scalar_ty = ty.scalarType(zcu);
-                    if (scalar_ty.isPtrAtRuntime(zcu)) return size.bitSize(cg.target) >= cg.target.ptrBitWidth();
-                    return scalar_ty.isAbiInt(zcu) and size.bitSize(cg.target) >= scalar_ty.intInfo(zcu).bits;
-                },
-                .scalar_signed_int => |size| {
-                    const scalar_ty = ty.scalarType(zcu);
-                    if (!scalar_ty.isAbiInt(zcu)) return false;
-                    const scalar_int_info = scalar_ty.intInfo(zcu);
-                    return scalar_int_info.signedness == .signed and size.bitSize(cg.target) >= scalar_int_info.bits;
-                },
-                .scalar_unsigned_int => |size| {
-                    const scalar_ty = ty.scalarType(zcu);
-                    if (scalar_ty.isPtrAtRuntime(zcu)) return size.bitSize(cg.target) >= cg.target.ptrBitWidth();
-                    if (!scalar_ty.isAbiInt(zcu)) return false;
-                    const scalar_int_info = scalar_ty.intInfo(zcu);
-                    return scalar_int_info.signedness == .unsigned and size.bitSize(cg.target) >= scalar_int_info.bits;
-                },
-                .scalar_remainder_int => |of_is| {
-                    const scalar_ty = ty.scalarType(zcu);
-                    if (scalar_ty.isPtrAtRuntime(zcu))
-                        return of_is.is.bitSize(cg.target) >= (cg.target.ptrBitWidth() - 1) % of_is.of.bitSize(cg.target) + 1;
-                    if (!scalar_ty.isAbiInt(zcu)) return false;
-                    return of_is.is.bitSize(cg.target) >= (scalar_ty.intInfo(zcu).bits - 1) % of_is.of.bitSize(cg.target) + 1;
-                },
-                .exact_int => |bit_size| {
-                    if (ty.toIntern() == .bool_type) return bit_size == 1;
-                    if (ty.isPtrAtRuntime(zcu)) return bit_size == cg.target.ptrBitWidth();
-                    return ty.isAbiInt(zcu) and bit_size == ty.intInfo(zcu).bits;
-                },
-                .exact_signed_int => |bit_size| {
-                    if (!ty.isAbiInt(zcu)) return false;
-                    const int_info = ty.intInfo(zcu);
-                    return int_info.signedness == .signed and bit_size == int_info.bits;
-                },
-                .exact_unsigned_int => |bit_size| {
-                    if (ty.toIntern() == .bool_type) return bit_size == 1;
-                    if (ty.isPtrAtRuntime(zcu)) return bit_size == cg.target.ptrBitWidth();
-                    if (!ty.isAbiInt(zcu)) return false;
-                    const int_info = ty.intInfo(zcu);
-                    return int_info.signedness == .unsigned and bit_size == int_info.bits;
-                },
-                .signed_or_exact_int => |size| {
-                    if (ty.isPtrAtRuntime(zcu)) return size.bitSize(cg.target) == cg.target.ptrBitWidth();
-                    if (!ty.isAbiInt(zcu)) return false;
-                    const int_info = ty.intInfo(zcu);
-                    return switch (int_info.signedness) {
-                        .signed => size.bitSize(cg.target) >= int_info.bits,
-                        .unsigned => size.bitSize(cg.target) == int_info.bits,
-                    };
-                },
-                .unsigned_or_exact_int => |size| {
-                    if (ty.toIntern() == .bool_type or ty.isPtrAtRuntime(zcu)) return true;
-                    if (!ty.isAbiInt(zcu)) return false;
-                    const int_info = ty.intInfo(zcu);
-                    return switch (int_info.signedness) {
-                        .signed => size.bitSize(cg.target) == int_info.bits,
-                        .unsigned => size.bitSize(cg.target) >= int_info.bits,
-                    };
-                },
-                .po2_int => |size| {
-                    if (ty.toIntern() == .bool_type) return true;
-                    if (ty.isPtrAtRuntime(zcu)) return size.bitSize(cg.target) >= cg.target.ptrBitWidth();
-                    if (!ty.isAbiInt(zcu)) return false;
-                    const bit_size = ty.intInfo(zcu).bits;
-                    return std.math.isPowerOfTwo(bit_size) and size.bitSize(cg.target) >= bit_size;
-                },
-                .signed_po2_int => |size| {
-                    if (!ty.isAbiInt(zcu)) return false;
-                    const int_info = ty.intInfo(zcu);
-                    return int_info.signedness == .signed and std.math.isPowerOfTwo(int_info.bits) and
-                        size.bitSize(cg.target) >= int_info.bits;
-                },
-                .unsigned_po2_or_exact_int => |size| {
-                    if (ty.toIntern() == .bool_type) return true;
-                    if (ty.isPtrAtRuntime(zcu)) return size.bitSize(cg.target) >= cg.target.ptrBitWidth();
-                    if (!ty.isAbiInt(zcu)) return false;
-                    const int_info = ty.intInfo(zcu);
-                    return switch (int_info.signedness) {
-                        .signed => size.bitSize(cg.target) == int_info.bits,
-                        .unsigned => std.math.isPowerOfTwo(int_info.bits) and size.bitSize(cg.target) >= int_info.bits,
-                    };
-                },
-                .remainder_int => |of_is| {
-                    if (ty.toIntern() == .bool_type) return true;
-                    if (ty.isPtrAtRuntime(zcu))
-                        return of_is.is.bitSize(cg.target) >= (cg.target.ptrBitWidth() - 1) % of_is.of.bitSize(cg.target) + 1;
-                    if (!ty.isAbiInt(zcu)) return false;
-                    return of_is.is.bitSize(cg.target) >= (ty.intInfo(zcu).bits - 1) % of_is.of.bitSize(cg.target) + 1;
-                },
-                .exact_remainder_int => |of_is| {
-                    if (ty.isPtrAtRuntime(zcu))
-                        return of_is.is.bitSize(cg.target) == (cg.target.ptrBitWidth() - 1) % of_is.of.bitSize(cg.target) + 1;
-                    if (!ty.isAbiInt(zcu)) return false;
-                    return of_is.is.bitSize(cg.target) == (ty.intInfo(zcu).bits - 1) % of_is.of.bitSize(cg.target) + 1;
-                },
-                .signed_or_exact_remainder_int => |of_is| {
-                    if (ty.isPtrAtRuntime(zcu))
-                        return of_is.is.bitSize(cg.target) == (cg.target.ptrBitWidth() - 1) % of_is.of.bitSize(cg.target) + 1;
-                    if (!ty.isAbiInt(zcu)) return false;
-                    const int_info = ty.intInfo(zcu);
-                    return switch (int_info.signedness) {
-                        .signed => of_is.is.bitSize(cg.target) >= (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1,
-                        .unsigned => of_is.is.bitSize(cg.target) == (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1,
-                    };
-                },
-                .unsigned_or_exact_remainder_int => |of_is| {
-                    if (ty.toIntern() == .bool_type) return true;
-                    if (ty.isPtrAtRuntime(zcu))
-                        return of_is.is.bitSize(cg.target) >= (cg.target.ptrBitWidth() - 1) % of_is.of.bitSize(cg.target) + 1;
-                    if (!ty.isAbiInt(zcu)) return false;
-                    const int_info = ty.intInfo(zcu);
-                    return switch (int_info.signedness) {
-                        .signed => of_is.is.bitSize(cg.target) == (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1,
-                        .unsigned => of_is.is.bitSize(cg.target) >= (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1,
-                    };
-                },
-                .signed_int => |size| {
-                    if (!ty.isAbiInt(zcu)) return false;
-                    const int_info = ty.intInfo(zcu);
-                    return int_info.signedness == .signed and size.bitSize(cg.target) >= int_info.bits;
-                },
-                .unsigned_int => |size| {
-                    if (ty.toIntern() == .bool_type) return true;
-                    if (ty.isPtrAtRuntime(zcu)) return size.bitSize(cg.target) >= cg.target.ptrBitWidth();
-                    if (!ty.isAbiInt(zcu)) return false;
-                    const int_info = ty.intInfo(zcu);
-                    return int_info.signedness == .unsigned and size.bitSize(cg.target) >= int_info.bits;
-                },
-                .elem_size_is => |size| return size == ty.elemType2(zcu).abiSize(zcu),
-                .po2_elem_size => return std.math.isPowerOfTwo(ty.elemType2(zcu).abiSize(zcu)),
-                .elem_int => |size| {
-                    const elem_ty = ty.elemType2(zcu);
-                    if (elem_ty.toIntern() == .bool_type) return true;
-                    if (elem_ty.isPtrAtRuntime(zcu)) return size.bitSize(cg.target) >= cg.target.ptrBitWidth();
-                    return elem_ty.isAbiInt(zcu) and size.bitSize(cg.target) >= elem_ty.intInfo(zcu).bits;
-                },
-            }
+                .signed_int_vec => |size| ty.isVector(zcu) and size.bitSize(cg.target) >= 8 * ty.abiSize(zcu) and
+                    if (intInfo(ty.childType(zcu), cg)) |int_info| int_info.signedness == .signed else false,
+                .signed_int_or_full_vec => |size| ty.isVector(zcu) and size.bitSize(cg.target) >= 8 * ty.abiSize(zcu) and
+                    if (intInfo(ty.childType(zcu), cg)) |int_info| switch (int_info.signedness) {
+                    .signed => true,
+                    .unsigned => int_info.bits >= 8 and std.math.isPowerOfTwo(int_info.bits),
+                } else false,
+                .unsigned_int_vec => |size| ty.isVector(zcu) and size.bitSize(cg.target) >= 8 * ty.abiSize(zcu) and
+                    if (intInfo(ty.childType(zcu), cg)) |int_info| int_info.signedness == .unsigned else false,
+                .int_or_vec => |size| if (intInfo(ty, cg)) |int_info|
+                    size.bitSize(cg.target) >= int_info.bits
+                else
+                    ty.isVector(zcu) and size.bitSize(cg.target) >= 8 * ty.abiSize(zcu),
+                .exact_remainder_int_or_vec => |of_is| if (intInfo(ty, cg)) |int_info|
+                    of_is.is.bitSize(cg.target) == (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1
+                else
+                    ty.isVector(zcu) and ty.childType(zcu).toIntern() != .bool_type and
+                        of_is.is.bitSize(cg.target) == (8 * ty.abiSize(zcu) - 1) % of_is.of.bitSize(cg.target) + 1,
+                .int => |size| if (intInfo(ty, cg)) |int_info| size.bitSize(cg.target) >= int_info.bits else false,
+                .scalar_int => |size| if (intInfo(ty.scalarType(zcu), cg)) |int_info|
+                    size.bitSize(cg.target) >= int_info.bits
+                else
+                    false,
+                .scalar_signed_int => |size| if (intInfo(ty.scalarType(zcu), cg)) |int_info| switch (int_info.signedness) {
+                    .signed => size.bitSize(cg.target) >= int_info.bits,
+                    .unsigned => false,
+                } else false,
+                .scalar_unsigned_int => |size| if (intInfo(ty.scalarType(zcu), cg)) |int_info| switch (int_info.signedness) {
+                    .signed => false,
+                    .unsigned => size.bitSize(cg.target) >= int_info.bits,
+                } else false,
+                .scalar_remainder_int => |of_is| if (intInfo(ty.scalarType(zcu), cg)) |int_info|
+                    of_is.is.bitSize(cg.target) >= (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1
+                else
+                    false,
+                .exact_int => |bit_size| if (intInfo(ty, cg)) |int_info| bit_size == int_info.bits else false,
+                .exact_signed_int => |bit_size| if (intInfo(ty, cg)) |int_info| switch (int_info.signedness) {
+                    .signed => bit_size == int_info.bits,
+                    .unsigned => false,
+                } else false,
+                .exact_unsigned_int => |bit_size| if (intInfo(ty, cg)) |int_info| switch (int_info.signedness) {
+                    .signed => false,
+                    .unsigned => bit_size == int_info.bits,
+                } else false,
+                .signed_or_exact_int => |size| if (intInfo(ty, cg)) |int_info| switch (int_info.signedness) {
+                    .signed => size.bitSize(cg.target) >= int_info.bits,
+                    .unsigned => size.bitSize(cg.target) == int_info.bits,
+                } else false,
+                .unsigned_or_exact_int => |size| if (intInfo(ty, cg)) |int_info| switch (int_info.signedness) {
+                    .signed => size.bitSize(cg.target) == int_info.bits,
+                    .unsigned => size.bitSize(cg.target) >= int_info.bits,
+                } else false,
+                .po2_int => |size| if (intInfo(ty, cg)) |int_info|
+                    std.math.isPowerOfTwo(int_info.bits) and size.bitSize(cg.target) >= int_info.bits
+                else
+                    false,
+                .signed_po2_int => |size| if (intInfo(ty, cg)) |int_info| switch (int_info.signedness) {
+                    .signed => std.math.isPowerOfTwo(int_info.bits) and size.bitSize(cg.target) >= int_info.bits,
+                    .unsigned => false,
+                } else false,
+                .unsigned_po2_or_exact_int => |size| if (intInfo(ty, cg)) |int_info| switch (int_info.signedness) {
+                    .signed => size.bitSize(cg.target) == int_info.bits,
+                    .unsigned => std.math.isPowerOfTwo(int_info.bits) and size.bitSize(cg.target) >= int_info.bits,
+                } else false,
+                .remainder_int => |of_is| if (intInfo(ty, cg)) |int_info|
+                    of_is.is.bitSize(cg.target) >= (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1
+                else
+                    false,
+                .exact_remainder_int => |of_is| if (intInfo(ty, cg)) |int_info|
+                    of_is.is.bitSize(cg.target) == (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1
+                else
+                    false,
+                .signed_or_exact_remainder_int => |of_is| if (intInfo(ty, cg)) |int_info| switch (int_info.signedness) {
+                    .signed => of_is.is.bitSize(cg.target) >= (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1,
+                    .unsigned => of_is.is.bitSize(cg.target) == (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1,
+                } else false,
+                .unsigned_or_exact_remainder_int => |of_is| if (intInfo(ty, cg)) |int_info| switch (int_info.signedness) {
+                    .signed => of_is.is.bitSize(cg.target) == (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1,
+                    .unsigned => of_is.is.bitSize(cg.target) >= (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1,
+                } else false,
+                .signed_int => |size| if (intInfo(ty, cg)) |int_info| switch (int_info.signedness) {
+                    .signed => size.bitSize(cg.target) >= int_info.bits,
+                    .unsigned => false,
+                } else false,
+                .unsigned_int => |size| if (intInfo(ty, cg)) |int_info| switch (int_info.signedness) {
+                    .signed => false,
+                    .unsigned => size.bitSize(cg.target) >= int_info.bits,
+                } else false,
+                .elem_size_is => |size| size == ty.elemType2(zcu).abiSize(zcu),
+                .po2_elem_size => std.math.isPowerOfTwo(ty.elemType2(zcu).abiSize(zcu)),
+                .elem_int => |size| if (intInfo(ty.elemType2(zcu), cg)) |elem_int_info|
+                    size.bitSize(cg.target) >= elem_int_info.bits
+                else
+                    false,
+            };
         }
     };
 
@@ -29431,10 +29435,7 @@ const Select = struct {
                             }),
                         },
                         else => {
-                            const scalar_info: InternPool.Key.IntType = if (scalar_ty.isAbiInt(zcu))
-                                scalar_ty.intInfo(zcu)
-                            else
-                                .{ .signedness = .unsigned, .bits = @intCast(scalar_ty.bitSize(zcu)) };
+                            const scalar_info = intInfo(scalar_ty, cg).?;
                             const scalar_int_ty = try pt.intType(scalar_info.signedness, scalar_info.bits);
                             if (scalar_info.bits <= 64) {
                                 const int_val: i64 = switch (spec.kind) {
