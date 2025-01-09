@@ -178,7 +178,7 @@ preloaded_strings: PreloadedStrings,
 
 /// This field is used when emitting an object; `navs_exe` used otherwise.
 navs_obj: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, ZcuDataObj) = .empty,
-/// This field is unused when emitting an object; `navs_exe` used otherwise.
+/// This field is unused when emitting an object; `navs_obj` used otherwise.
 navs_exe: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, ZcuDataExe) = .empty,
 /// Tracks all InternPool values referenced by codegen. Needed for outputting
 /// the data segment. This one does not track ref count because object files
@@ -794,7 +794,6 @@ pub const ZcuDataExe = extern struct {
 /// are populated.
 const ZcuDataStarts = struct {
     uavs_i: u32,
-    navs_i: u32,
 
     fn init(wasm: *const Wasm) ZcuDataStarts {
         const comp = wasm.base.comp;
@@ -805,14 +804,12 @@ const ZcuDataStarts = struct {
     fn initObj(wasm: *const Wasm) ZcuDataStarts {
         return .{
             .uavs_i = @intCast(wasm.uavs_obj.entries.len),
-            .navs_i = @intCast(wasm.navs_obj.entries.len),
         };
     }
 
     fn initExe(wasm: *const Wasm) ZcuDataStarts {
         return .{
             .uavs_i = @intCast(wasm.uavs_exe.entries.len),
-            .navs_i = @intCast(wasm.navs_exe.entries.len),
         };
     }
 
@@ -823,51 +820,19 @@ const ZcuDataStarts = struct {
     }
 
     fn finishObj(zds: ZcuDataStarts, wasm: *Wasm, pt: Zcu.PerThread) !void {
-        const zcu = wasm.base.comp.zcu.?;
-        const ip = &zcu.intern_pool;
         var uavs_i = zds.uavs_i;
-        var navs_i = zds.navs_i;
-        while (true) {
-            while (navs_i < wasm.navs_obj.entries.len) : (navs_i += 1) {
-                const elem_nav = ip.getNav(wasm.navs_obj.keys()[navs_i]);
-                const elem_nav_init = switch (ip.indexToKey(elem_nav.status.fully_resolved.val)) {
-                    .variable => |variable| variable.init,
-                    else => elem_nav.status.fully_resolved.val,
-                };
-                // Call to `lowerZcuData` here possibly creates more entries in these tables.
-                wasm.navs_obj.values()[navs_i] = try lowerZcuData(wasm, pt, elem_nav_init);
-            }
-            while (uavs_i < wasm.uavs_obj.entries.len) : (uavs_i += 1) {
-                // Call to `lowerZcuData` here possibly creates more entries in these tables.
-                wasm.uavs_obj.values()[uavs_i] = try lowerZcuData(wasm, pt, wasm.uavs_obj.keys()[uavs_i]);
-            }
-            if (navs_i >= wasm.navs_obj.entries.len) break;
+        while (uavs_i < wasm.uavs_obj.entries.len) : (uavs_i += 1) {
+            // Call to `lowerZcuData` here possibly creates more entries in these tables.
+            wasm.uavs_obj.values()[uavs_i] = try lowerZcuData(wasm, pt, wasm.uavs_obj.keys()[uavs_i]);
         }
     }
 
     fn finishExe(zds: ZcuDataStarts, wasm: *Wasm, pt: Zcu.PerThread) !void {
-        const zcu = wasm.base.comp.zcu.?;
-        const ip = &zcu.intern_pool;
         var uavs_i = zds.uavs_i;
-        var navs_i = zds.navs_i;
-        while (true) {
-            while (navs_i < wasm.navs_exe.entries.len) : (navs_i += 1) {
-                const elem_nav = ip.getNav(wasm.navs_exe.keys()[navs_i]);
-                const elem_nav_init = switch (ip.indexToKey(elem_nav.status.fully_resolved.val)) {
-                    .variable => |variable| variable.init,
-                    else => elem_nav.status.fully_resolved.val,
-                };
-                // Call to `lowerZcuData` here possibly creates more entries in these tables.
-                const zcu_data = try lowerZcuData(wasm, pt, elem_nav_init);
-                assert(zcu_data.relocs.len == 0);
-                wasm.navs_exe.values()[navs_i].code = zcu_data.code;
-            }
-            while (uavs_i < wasm.uavs_exe.entries.len) : (uavs_i += 1) {
-                // Call to `lowerZcuData` here possibly creates more entries in these tables.
-                const zcu_data = try lowerZcuData(wasm, pt, wasm.uavs_exe.keys()[uavs_i]);
-                wasm.uavs_exe.values()[uavs_i].code = zcu_data.code;
-            }
-            if (navs_i >= wasm.navs_exe.entries.len) break;
+        while (uavs_i < wasm.uavs_exe.entries.len) : (uavs_i += 1) {
+            // Call to `lowerZcuData` here possibly creates more entries in these tables.
+            const zcu_data = try lowerZcuData(wasm, pt, wasm.uavs_exe.keys()[uavs_i]);
+            wasm.uavs_exe.values()[uavs_i].code = zcu_data.code;
         }
     }
 };
@@ -3135,7 +3100,7 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
         .variable => |variable| .{ variable.init, variable.owner_nav },
         else => .{ nav.status.fully_resolved.val, nav_index },
     };
-    //log.debug("updateNav {} {}", .{ nav.fqn.fmt(ip), chased_nav_index });
+    //log.debug("updateNav {} {d}", .{ nav.fqn.fmt(ip), chased_nav_index });
     assert(!wasm.imports.contains(chased_nav_index));
 
     if (nav_init != .none and !Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(zcu)) {
@@ -3149,11 +3114,15 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
 
     if (is_obj) {
         const zcu_data_starts: ZcuDataStarts = .initObj(wasm);
-        _ = try refNavObj(wasm, chased_nav_index); // Possibly creates an entry in `Wasm.navs_obj`.
+        const navs_i = try refNavObj(wasm, chased_nav_index);
+        const zcu_data = try lowerZcuData(wasm, pt, nav_init);
+        navs_i.value(wasm).* = zcu_data;
         try zcu_data_starts.finishObj(wasm, pt);
     } else {
         const zcu_data_starts: ZcuDataStarts = .initExe(wasm);
-        _ = try refNavExe(wasm, chased_nav_index); // Possibly creates an entry in `Wasm.navs_exe`.
+        const navs_i = try refNavExe(wasm, chased_nav_index);
+        const zcu_data = try lowerZcuData(wasm, pt, nav_init);
+        navs_i.value(wasm).code = zcu_data.code;
         try zcu_data_starts.finishExe(wasm, pt);
     }
 }
