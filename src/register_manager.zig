@@ -352,15 +352,15 @@ pub fn RegisterManager(
         ) AllocateRegistersError!void {
             log.debug("getReg {} for inst {?}", .{ regAtTrackedIndex(tracked_index), inst });
             if (!self.isRegIndexFree(tracked_index)) {
-                self.markRegIndexAllocated(tracked_index);
-
                 // Move the instruction that was previously there to a
                 // stack allocation.
-                const spilled_inst = self.registers[tracked_index];
-                if (inst) |tracked_inst| self.registers[tracked_index] = tracked_inst;
-                try self.getFunction().spillInstruction(regAtTrackedIndex(tracked_index), spilled_inst);
-                if (inst == null) self.freeRegIndex(tracked_index);
-            } else self.getRegIndexAssumeFree(tracked_index, inst);
+                try self.getFunction().spillInstruction(
+                    regAtTrackedIndex(tracked_index),
+                    self.registers[tracked_index],
+                );
+                self.freeRegIndex(tracked_index);
+            }
+            self.getRegIndexAssumeFree(tracked_index, inst);
         }
         pub fn getReg(self: *Self, reg: Register, inst: ?Air.Inst.Index) AllocateRegistersError!void {
             log.debug("getting reg: {}", .{reg});
