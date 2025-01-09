@@ -651,8 +651,8 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             try leb.writeUleb128(binary_writer, @as(u8, 0)); // represents funcref
         }
         try leb.writeUleb128(binary_writer, @as(u32, @intCast(wasm.indirect_function_table.entries.len)));
-        for (wasm.indirect_function_table.keys()) |ip_index| {
-            const func_index: Wasm.OutputFunctionIndex = .fromIpIndex(wasm, ip_index);
+        for (wasm.indirect_function_table.keys()) |nav_index| {
+            const func_index: Wasm.OutputFunctionIndex = .fromIpNav(wasm, nav_index);
             try leb.writeUleb128(binary_writer, @intFromEnum(func_index));
         }
 

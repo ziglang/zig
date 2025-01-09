@@ -260,7 +260,7 @@ table_imports: std.AutoArrayHashMapUnmanaged(String, TableImport.Index) = .empty
 
 /// All functions that have had their address taken and therefore might be
 /// called via a `call_indirect` function.
-indirect_function_table: std.AutoArrayHashMapUnmanaged(InternPool.Index, void) = .empty,
+indirect_function_table: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty,
 
 error_name_table_ref_count: u32 = 0,
 

@@ -1025,10 +1025,9 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
             const comp = wasm.base.comp;
             const zcu = comp.zcu.?;
             const ip = &zcu.intern_pool;
-            const ip_index = ip.getNav(nav_ref.nav_index).status.fully_resolved.val;
-            if (ip.isFunctionType(ip.typeOf(ip_index))) {
+            if (ip.getNav(nav_ref.nav_index).isExternOrFn(ip)) {
                 assert(nav_ref.offset == 0);
-                const gop = try wasm.indirect_function_table.getOrPut(comp.gpa, ip_index);
+                const gop = try wasm.indirect_function_table.getOrPut(comp.gpa, nav_ref.nav_index);
                 if (!gop.found_existing) gop.value_ptr.* = {};
                 try cg.addInst(.{
                     .tag = .func_ref,
@@ -1056,7 +1055,8 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
             const ip = &zcu.intern_pool;
             if (ip.isFunctionType(ip.typeOf(uav.ip_index))) {
                 assert(uav.offset == 0);
-                const gop = try wasm.indirect_function_table.getOrPut(comp.gpa, uav.ip_index);
+                const owner_nav = ip.toFunc(uav.ip_index).owner_nav;
+                const gop = try wasm.indirect_function_table.getOrPut(comp.gpa, owner_nav);
                 if (!gop.found_existing) gop.value_ptr.* = {};
                 try cg.addInst(.{
                     .tag = .func_ref,
@@ -3096,7 +3096,7 @@ fn lowerPtr(cg: *CodeGen, ptr_val: InternPool.Index, prev_offset: u64) InnerErro
     const ptr = zcu.intern_pool.indexToKey(ptr_val).ptr;
     const offset: u64 = prev_offset + ptr.byte_offset;
     return switch (ptr.base_addr) {
-        .nav => |nav| return .{ .nav_ref = .{ .nav_index = zcu.chaseNav(nav), .offset = @intCast(offset) } },
+        .nav => |nav| return .{ .nav_ref = .{ .nav_index = nav, .offset = @intCast(offset) } },
         .uav => |uav| return .{ .uav_ref = .{ .ip_index = uav.val, .offset = @intCast(offset) } },
         .int => return cg.lowerConstant(try pt.intValue(Type.usize, offset), Type.usize),
         .eu_payload => return cg.fail("Wasm TODO: lower error union payload pointer", .{}),
