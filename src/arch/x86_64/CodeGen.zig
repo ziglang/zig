@@ -2457,7 +2457,6 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .load             => try cg.airLoad(inst),
             .store            => try cg.airStore(inst, false),
             .store_safe       => try cg.airStore(inst, true),
-            .struct_field_val => try cg.airStructFieldVal(inst),
             .float_from_int   => try cg.airFloatFromInt(inst),
             .int_from_float   => try cg.airIntFromFloat(inst),
             .cmpxchg_strong   => try cg.airCmpxchg(inst),
@@ -9723,11 +9722,32 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 ), cg);
                 try ops[0].moveTo(inst, cg);
             },
+            .struct_field_val => if (use_old) try cg.airStructFieldVal(inst) else fallback: {
+                const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
+                const extra = cg.air.extraData(Air.StructField, ty_pl.payload).data;
+                const agg_ty = cg.typeOf(extra.struct_operand);
+                const field_ty = ty_pl.ty.toType();
+                const field_off: u31 = switch (agg_ty.containerLayout(zcu)) {
+                    .auto, .@"extern" => @intCast(agg_ty.structFieldOffset(extra.field_index, zcu)),
+                    .@"packed" => break :fallback try cg.airStructFieldVal(inst),
+                };
+                if (field_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+                    var ops = try cg.tempsFromOperands(inst, .{extra.struct_operand});
+                    var res = try ops[0].read(field_off, field_ty, cg);
+                    for (ops) |op| if (op.index != res.index) try op.die(cg);
+                    try res.moveTo(inst, cg);
+                } else {
+                    // hack around Sema OPV bugs
+                    const res = try cg.tempInit(field_ty, .none);
+                    try res.moveTo(inst, cg);
+                }
+            },
             .set_union_tag => if (use_old) try cg.airSetUnionTag(inst) else {
                 const bin_op = air_datas[@intFromEnum(inst)].bin_op;
                 const union_ty = cg.typeOf(bin_op.lhs).childType(zcu);
                 var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
                 const union_layout = union_ty.unionGetLayout(zcu);
+                // hack around Sema OPV bugs
                 if (union_layout.tag_size > 0) try ops[0].store(@intCast(union_layout.tagOffset()), &ops[1], cg);
                 for (ops) |op| try op.die(cg);
             },
@@ -9857,6 +9877,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     } },
                 } }) catch |err| switch (err) {
                     error.SelectFailed => switch (res_ty.abiSize(zcu)) {
+                        // hack around Sema OPV bugs
                         0 => res[0] = try cg.tempInit(res_ty, .none),
                         else => |elem_size| {
                             while (true) for (&ops) |*op| {
@@ -9917,6 +9938,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 const dst_ty = ty_pl.ty.toType();
                 if (dst_ty.ptrInfo(zcu).flags.vector_index == .none) zero_offset: {
                     const elem_size = dst_ty.childType(zcu).abiSize(zcu);
+                    // hack around Sema OPV bugs
                     if (elem_size == 0) break :zero_offset;
                     while (true) for (&ops) |*op| {
                         if (try op.toRegClass(true, .general_purpose, cg)) break;
@@ -15804,7 +15826,7 @@ fn fieldOffset(self: *CodeGen, ptr_agg_ty: Type, ptr_field_ty: Type, field_index
     return switch (agg_ty.containerLayout(zcu)) {
         .auto, .@"extern" => @intCast(agg_ty.structFieldOffset(field_index, zcu)),
         .@"packed" => @divExact(@as(i32, ptr_agg_ty.ptrInfo(zcu).packed_offset.bit_offset) +
-            (if (zcu.typeToStruct(agg_ty)) |struct_obj| pt.structPackedFieldBitOffset(struct_obj, field_index) else 0) -
+            (if (zcu.typeToStruct(agg_ty)) |loaded_struct| pt.structPackedFieldBitOffset(loaded_struct, field_index) else 0) -
             ptr_field_ty.ptrInfo(zcu).packed_offset.bit_offset, 8),
     };
 }
@@ -15828,8 +15850,8 @@ fn airStructFieldVal(self: *CodeGen, inst: Air.Inst.Index) !void {
         const src_mcv = try self.resolveInst(operand);
         const field_off: u32 = switch (container_ty.containerLayout(zcu)) {
             .auto, .@"extern" => @intCast(container_ty.structFieldOffset(extra.field_index, zcu) * 8),
-            .@"packed" => if (zcu.typeToStruct(container_ty)) |struct_obj|
-                pt.structPackedFieldBitOffset(struct_obj, extra.field_index)
+            .@"packed" => if (zcu.typeToStruct(container_ty)) |loaded_struct|
+                pt.structPackedFieldBitOffset(loaded_struct, extra.field_index)
             else
                 0,
         };
@@ -26448,7 +26470,7 @@ fn airAggregateInit(self: *CodeGen, inst: Air.Inst.Index) !void {
             .@"struct" => {
                 const frame_index = try self.allocFrameIndex(.initSpill(result_ty, zcu));
                 if (result_ty.containerLayout(zcu) == .@"packed") {
-                    const struct_obj = zcu.typeToStruct(result_ty).?;
+                    const loaded_struct = zcu.intern_pool.loadStructType(result_ty.toIntern());
                     try self.genInlineMemset(
                         .{ .lea_frame = .{ .index = frame_index } },
                         .{ .immediate = 0 },
@@ -26469,7 +26491,7 @@ fn airAggregateInit(self: *CodeGen, inst: Air.Inst.Index) !void {
                         }
                         const elem_abi_size: u32 = @intCast(elem_ty.abiSize(zcu));
                         const elem_abi_bits = elem_abi_size * 8;
-                        const elem_off = pt.structPackedFieldBitOffset(struct_obj, elem_i);
+                        const elem_off = pt.structPackedFieldBitOffset(loaded_struct, elem_i);
                         const elem_byte_off: i32 = @intCast(elem_off / elem_abi_bits * elem_abi_size);
                         const elem_bit_off = elem_off % elem_abi_bits;
                         const elem_mcv = try self.resolveInst(elem);
@@ -26651,9 +26673,9 @@ fn airUnionInit(self: *CodeGen, inst: Air.Inst.Index) !void {
 
         const dst_mcv = try self.allocRegOrMem(inst, false);
 
-        const union_obj = zcu.typeToUnion(union_ty).?;
-        const field_name = union_obj.loadTagType(ip).names.get(ip)[extra.field_index];
-        const tag_ty: Type = .fromInterned(union_obj.enum_tag_ty);
+        const loaded_union = zcu.typeToUnion(union_ty).?;
+        const field_name = loaded_union.loadTagType(ip).names.get(ip)[extra.field_index];
+        const tag_ty: Type = .fromInterned(loaded_union.enum_tag_ty);
         const field_index = tag_ty.enumFieldIndex(field_name, zcu).?;
         const tag_val = try pt.enumValueFieldIndex(tag_ty, field_index);
         const tag_int_val = try tag_val.intFromEnum(tag_ty, pt);
@@ -28393,17 +28415,43 @@ const Temp = struct {
     }
 
     fn read(src: *Temp, disp: i32, val_ty: Type, cg: *CodeGen) !Temp {
-        const val = try cg.tempAlloc(val_ty);
+        var val = try cg.tempAlloc(val_ty);
         while (try src.toBase(cg)) {}
-        const val_mcv = val.tracking(cg).short;
-        switch (val_mcv) {
-            else => |mcv| std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
-            .register => |val_reg| try src.readReg(disp, val_ty, registerAlias(
-                val_reg,
-                @intCast(val_ty.abiSize(cg.pt.zcu)),
-            ), cg),
+        val_to_gpr: while (true) : (while (try val.toRegClass(false, .general_purpose, cg)) {}) {
+            const val_mcv = val.tracking(cg).short;
+            switch (val_mcv) {
+                else => |mcv| std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
+                .register => |val_reg| try src.readReg(disp, val_ty, registerAlias(
+                    val_reg,
+                    @intCast(val_ty.abiSize(cg.pt.zcu)),
+                ), cg),
+                inline .register_pair, .register_triple, .register_quadruple => |val_regs| {
+                    var part_disp = disp;
+                    for (val_regs) |val_reg| {
+                        try src.readReg(disp, val_ty, val_reg, cg);
+                        part_disp += @divExact(val_reg.bitSize(), 8);
+                    }
+                },
+                .register_offset => |val_reg_off| switch (val_reg_off.off) {
+                    0 => try src.readReg(disp, val_ty, registerAlias(
+                        val_reg_off.reg,
+                        @intCast(val_ty.abiSize(cg.pt.zcu)),
+                    ), cg),
+                    else => continue :val_to_gpr,
+                },
+                .lea_frame, .lea_symbol => continue :val_to_gpr,
+                .memory, .indirect, .load_frame, .load_symbol => {
+                    var val_ptr = try cg.tempInit(.usize, val_mcv.address());
+                    var src_ptr = try cg.tempInit(.usize, src.tracking(cg).short.address().offset(disp));
+                    var len = try cg.tempInit(.usize, .{ .immediate = val_ty.abiSize(cg.pt.zcu) });
+                    try val_ptr.memcpy(&src_ptr, &len, cg);
+                    try val_ptr.die(cg);
+                    try src_ptr.die(cg);
+                    try len.die(cg);
+                },
+            }
+            return val;
         }
-        return val;
     }
 
     fn readReg(src: Temp, disp: i32, dst_ty: Type, dst_reg: Register, cg: *CodeGen) !void {
@@ -28466,7 +28514,7 @@ const Temp = struct {
                     try len.die(cg);
                 },
             }
-            break;
+            return;
         }
     }
 
