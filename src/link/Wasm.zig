@@ -441,6 +441,14 @@ pub const GlobalIndex = enum(u32) {
         return @enumFromInt(wasm.globals.getIndex(.fromObjectGlobal(wasm, i)).?);
     }
 
+    pub fn fromObjectGlobalHandlingWeak(wasm: *const Wasm, index: ObjectGlobalIndex) GlobalIndex {
+        const global = index.ptr(wasm);
+        return if (global.flags.binding == .weak)
+            fromSymbolName(wasm, global.name.unwrap().?)
+        else
+            fromObjectGlobal(wasm, index);
+    }
+
     pub fn fromSymbolName(wasm: *const Wasm, name: String) GlobalIndex {
         const import = wasm.object_global_imports.getPtr(name).?;
         return @enumFromInt(wasm.globals.getIndex(import.resolution).?);

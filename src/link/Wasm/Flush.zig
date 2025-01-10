@@ -1477,8 +1477,8 @@ fn applyRelocs(code: []u8, code_offset: u32, relocs: Wasm.ObjectRelocation.Itera
             .table_import_index_sleb => @panic("TODO indirect function table needs to support object functions too"),
             .table_import_index_sleb64 => @panic("TODO indirect function table needs to support object functions too"),
 
-            .global_index_i32 => reloc_u32_global(sliced_code, .fromObjectGlobal(wasm, pointee.global)),
-            .global_index_leb => reloc_leb_global(sliced_code, .fromObjectGlobal(wasm, pointee.global)),
+            .global_index_i32 => reloc_u32_global(sliced_code, .fromObjectGlobalHandlingWeak(wasm, pointee.global)),
+            .global_index_leb => reloc_leb_global(sliced_code, .fromObjectGlobalHandlingWeak(wasm, pointee.global)),
 
             .global_import_index_i32 => reloc_u32_global(sliced_code, .fromSymbolName(wasm, pointee.symbol_name)),
             .global_import_index_leb => reloc_leb_global(sliced_code, .fromSymbolName(wasm, pointee.symbol_name)),
