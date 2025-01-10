@@ -11,7 +11,7 @@ const assert = std.debug.assert;
 const DevEnv = @import("src/dev.zig").Env;
 
 const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 14, .patch = 0 };
-const stack_size = 32 * 1024 * 1024;
+const stack_size = 46 * 1024 * 1024;
 
 pub fn build(b: *std.Build) !void {
     const only_c = b.option(bool, "only-c", "Translate the Zig compiler to C code, with only the C backend enabled") orelse false;

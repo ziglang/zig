@@ -427,7 +427,7 @@ test "generic function passed as comptime argument" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
-        fn doMath(comptime f: fn (type, i32, i32) error{Overflow}!i32, a: i32, b: i32) !void {
+        fn doMath(comptime f: fn (comptime type, i32, i32) error{Overflow}!i32, a: i32, b: i32) !void {
             const result = try f(i32, a, b);
             try expect(result == 11);
         }

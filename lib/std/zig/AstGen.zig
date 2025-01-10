@@ -10209,9 +10209,6 @@ fn callExpr(
 
     const callee = try calleeExpr(gz, scope, ri.rl, call.ast.fn_expr);
     const modifier: std.builtin.CallModifier = blk: {
-        if (gz.is_comptime) {
-            break :blk .compile_time;
-        }
         if (call.async_token != null) {
             break :blk .async_kw;
         }

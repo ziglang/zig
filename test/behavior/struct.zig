@@ -1511,7 +1511,7 @@ test "if inside struct init inside if" {
 
 test "optional generic function label struct field" {
     const Options = struct {
-        isFoo: ?fn (type) u8 = defaultIsFoo,
+        isFoo: ?fn (comptime type) u8 = defaultIsFoo,
         fn defaultIsFoo(comptime _: type) u8 {
             return 123;
         }

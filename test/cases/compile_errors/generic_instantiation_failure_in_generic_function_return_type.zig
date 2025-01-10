@@ -40,3 +40,4 @@ pub fn is(comptime id: std.builtin.TypeId) TraitFn {
 // target=native
 //
 // :8:48: error: expected type 'type', found 'bool'
+// :5:21: note: called from here
