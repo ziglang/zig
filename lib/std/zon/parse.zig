@@ -19,10 +19,8 @@ const NumberLiteralError = std.zig.number_literal.Error;
 const assert = std.debug.assert;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 
-gpa: Allocator,
-ast: Ast,
-zoir: Zoir,
-status: ?*Status,
+/// Rename when adding or removing support for a type.
+const valid_types = {};
 
 /// Configuration for the runtime parser.
 pub const Options = struct {
@@ -237,8 +235,834 @@ pub const Status = struct {
     }
 };
 
+/// Parses the given slice as ZON.
+///
+/// Returns `error.OutOfMemory` on allocation failure, or `error.ParseZon` error if the ZON is
+/// invalid or can not be deserialized into type `T`.
+///
+/// When the parser returns `error.ParseZon`, it will also store a human readable explanation in
+/// `status` if non null. If status is not null, it must be initialized to `.{}`.
+pub fn fromSlice(
+    /// The type to deserialize into. May only transitively contain the following supported types:
+    /// * bools
+    /// * fixed sized numeric types
+    /// * enums
+    /// * slices
+    /// * arrays
+    /// * structures
+    /// * unions
+    /// * optionals
+    /// * null
+    comptime T: type,
+    gpa: Allocator,
+    source: [:0]const u8,
+    status: ?*Status,
+    comptime options: Options,
+) error{ OutOfMemory, ParseZon }!T {
+    if (status) |s| s.assertEmpty();
+
+    var ast = try std.zig.Ast.parse(gpa, source, .zon);
+    defer if (status == null) ast.deinit(gpa);
+    if (status) |s| s.ast = ast;
+
+    var zoir = try ZonGen.generate(gpa, ast, .{ .parse_str_lits = false });
+    defer if (status == null) zoir.deinit(gpa);
+    if (status) |s| s.zoir = zoir;
+    if (zoir.hasCompileErrors()) return error.ParseZon;
+
+    if (status) |s| s.* = .{};
+    return fromZoir(T, gpa, ast, zoir, status, options);
+}
+
+/// Like `fromSlice`, but operates on `Zoir` instead of ZON source.
+pub fn fromZoir(
+    comptime T: type,
+    gpa: Allocator,
+    ast: Ast,
+    zoir: Zoir,
+    status: ?*Status,
+    comptime options: Options,
+) error{ OutOfMemory, ParseZon }!T {
+    return fromZoirNode(T, gpa, ast, zoir, .root, status, options);
+}
+
+/// Like `fromZoir`, but the parse starts on `node` instead of root.
+pub fn fromZoirNode(
+    comptime T: type,
+    gpa: Allocator,
+    ast: Ast,
+    zoir: Zoir,
+    node: Zoir.Node.Index,
+    status: ?*Status,
+    comptime options: Options,
+) error{ OutOfMemory, ParseZon }!T {
+    if (status) |s| {
+        s.assertEmpty();
+        s.ast = ast;
+        s.zoir = zoir;
+    }
+
+    if (zoir.hasCompileErrors()) {
+        return error.ParseZon;
+    }
+
+    var parser: Parser = .{
+        .gpa = gpa,
+        .ast = ast,
+        .zoir = zoir,
+        .status = status,
+    };
+
+    return parser.parseExpr(T, options, node);
+}
+
+/// Frees ZON values.
+///
+/// Provided for convenience, you may also free these values on your own using the same allocator
+/// passed into the parser.
+///
+/// Asserts at comptime that sufficient information is available via the type system to free this
+/// value. Untagged unions, for example, will fail this assert.
+pub fn free(gpa: Allocator, value: anytype) void {
+    const Value = @TypeOf(value);
+
+    _ = valid_types;
+    switch (@typeInfo(Value)) {
+        .bool, .int, .float, .@"enum" => {},
+        .pointer => |pointer| {
+            switch (pointer.size) {
+                .One, .Many, .C => if (comptime requiresAllocator(Value)) {
+                    @compileError(@typeName(Value) ++ ": free cannot free non slice pointers");
+                },
+                .Slice => for (value) |item| {
+                    free(gpa, item);
+                },
+            }
+            return gpa.free(value);
+        },
+        .array => for (value) |item| {
+            free(gpa, item);
+        },
+        .@"struct" => |@"struct"| inline for (@"struct".fields) |field| {
+            free(gpa, @field(value, field.name));
+        },
+        .@"union" => |@"union"| if (@"union".tag_type == null) {
+            if (comptime requiresAllocator(Value)) {
+                @compileError(@typeName(Value) ++ ": free cannot free untagged unions");
+            }
+        } else switch (value) {
+            inline else => |_, tag| {
+                free(gpa, @field(value, @tagName(tag)));
+            },
+        },
+        .optional => if (value) |some| {
+            free(gpa, some);
+        },
+        .void => {},
+        .null => {},
+        else => @compileError(@typeName(Value) ++ ": free cannot free this type"),
+    }
+}
+
+fn requiresAllocator(comptime T: type) bool {
+    _ = valid_types;
+    return switch (@typeInfo(T)) {
+        .pointer => true,
+        .array => |array| requiresAllocator(array.child),
+        .@"struct" => |@"struct"| inline for (@"struct".fields) |field| {
+            if (requiresAllocator(field.type)) {
+                break true;
+            }
+        } else false,
+        .@"union" => |@"union"| inline for (@"union".fields) |field| {
+            if (requiresAllocator(field.type)) {
+                break true;
+            }
+        } else false,
+        .optional => |optional| requiresAllocator(optional.child),
+        else => false,
+    };
+}
+
+const Parser = struct {
+    gpa: Allocator,
+    ast: Ast,
+    zoir: Zoir,
+    status: ?*Status,
+
+    fn parseExpr(
+        self: *@This(),
+        comptime T: type,
+        comptime options: Options,
+        node: Zoir.Node.Index,
+    ) !T {
+        _ = valid_types;
+        switch (@typeInfo(T)) {
+            .bool => return self.parseBool(node),
+            .int => return self.parseInt(T, node),
+            .float => return self.parseFloat(T, node),
+            .@"enum" => return self.parseEnumLiteral(T, node),
+            .pointer => return self.parsePointer(T, options, node),
+            .array => return self.parseArray(T, options, node),
+            .@"struct" => |@"struct"| if (@"struct".is_tuple)
+                return self.parseTuple(T, options, node)
+            else
+                return self.parseStruct(T, options, node),
+            .@"union" => return self.parseUnion(T, options, node),
+            .optional => return self.parseOptional(T, options, node),
+
+            else => @compileError("type '" ++ @typeName(T) ++ "' is not available in ZON"),
+        }
+    }
+
+    fn parseBool(self: @This(), node: Zoir.Node.Index) !bool {
+        switch (node.get(self.zoir)) {
+            .true => return true,
+            .false => return false,
+            else => return self.failNode(node, "expected type 'bool'"),
+        }
+    }
+
+    fn parseInt(
+        self: @This(),
+        comptime T: type,
+        node: Zoir.Node.Index,
+    ) !T {
+        switch (node.get(self.zoir)) {
+            .int_literal => |int| switch (int) {
+                .small => |val| return std.math.cast(T, val) orelse
+                    self.failCannotRepresent(T, node),
+                .big => |val| return val.toInt(T) catch
+                    self.failCannotRepresent(T, node),
+            },
+            .float_literal => |val| return intFromFloatExact(T, val) orelse
+                self.failCannotRepresent(T, node),
+
+            .char_literal => |val| return std.math.cast(T, val) orelse
+                self.failCannotRepresent(T, node),
+            else => return self.failNodeFmt(node, "expected type '{s}'", .{@typeName(T)}),
+        }
+    }
+
+    fn parseFloat(
+        self: @This(),
+        comptime T: type,
+        node: Zoir.Node.Index,
+    ) !T {
+        switch (node.get(self.zoir)) {
+            .int_literal => |int| switch (int) {
+                .small => |val| return @floatFromInt(val),
+                .big => |val| return val.toFloat(T),
+            },
+            .float_literal => |val| return @floatCast(val),
+            .pos_inf => return std.math.inf(T),
+            .neg_inf => return -std.math.inf(T),
+            .nan => return std.math.nan(T),
+            .char_literal => |val| return @floatFromInt(val),
+            else => return self.failNodeFmt(node, "expected type '{s}'", .{@typeName(T)}),
+        }
+    }
+
+    fn parseEnumLiteral(
+        self: @This(),
+        comptime T: type,
+        node: Zoir.Node.Index,
+    ) !T {
+        switch (node.get(self.zoir)) {
+            .enum_literal => |string| {
+                // Create a comptime string map for the enum fields
+                const enum_fields = @typeInfo(T).@"enum".fields;
+                comptime var kvs_list: [enum_fields.len]struct { []const u8, T } = undefined;
+                inline for (enum_fields, 0..) |field, i| {
+                    kvs_list[i] = .{ field.name, @enumFromInt(field.value) };
+                }
+                const enum_tags = std.StaticStringMap(T).initComptime(kvs_list);
+
+                // Get the tag if it exists
+                return enum_tags.get(string.get(self.zoir)) orelse
+                    self.failUnexpectedField(T, node, null);
+            },
+            else => return self.failNode(node, "expected enum literal"),
+        }
+    }
+
+    fn parsePointer(
+        self: *@This(),
+        comptime T: type,
+        comptime options: Options,
+        node: Zoir.Node.Index,
+    ) !T {
+        switch (node.get(self.zoir)) {
+            .string_literal => return try self.parseString(T, node),
+            .array_literal => |nodes| return try self.parseSlice(T, options, nodes),
+            .empty_literal => return try self.parseSlice(T, options, .{ .start = node, .len = 0 }),
+            else => return self.failExpectedContainer(T, node),
+        }
+    }
+
+    fn parseString(
+        self: *@This(),
+        comptime T: type,
+        node: Zoir.Node.Index,
+    ) !T {
+        const ast_node = node.getAstNode(self.zoir);
+        const pointer = @typeInfo(T).pointer;
+        var size_hint = ZonGen.strLitSizeHint(self.ast, ast_node);
+        if (pointer.sentinel != null) size_hint += 1;
+
+        var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(self.gpa, size_hint);
+        defer buf.deinit(self.gpa);
+        switch (try ZonGen.parseStrLit(self.ast, ast_node, buf.writer(self.gpa))) {
+            .success => {},
+            .failure => |err| {
+                const token = self.ast.nodes.items(.main_token)[ast_node];
+                const raw_string = self.ast.tokenSlice(token);
+                return self.failTokenFmt(token, @intCast(err.offset()), "{s}", .{err.fmt(raw_string)});
+            },
+        }
+
+        if (pointer.child != u8 or
+            pointer.size != .Slice or
+            !pointer.is_const or
+            (pointer.sentinel != null and @as(*const u8, @ptrCast(pointer.sentinel)).* != 0) or
+            pointer.alignment != 1)
+        {
+            return self.failExpectedContainer(T, node);
+        }
+
+        if (pointer.sentinel != null) {
+            return try buf.toOwnedSliceSentinel(self.gpa, 0);
+        } else {
+            return try buf.toOwnedSlice(self.gpa);
+        }
+    }
+
+    fn parseSlice(
+        self: *@This(),
+        comptime T: type,
+        comptime options: Options,
+        nodes: Zoir.Node.Index.Range,
+    ) !T {
+        const pointer = @typeInfo(T).pointer;
+
+        // Make sure we're working with a slice
+        switch (pointer.size) {
+            .Slice => {},
+            .One, .Many, .C => @compileError(@typeName(T) ++ ": non slice pointers not supported"),
+        }
+
+        // Allocate the slice
+        const sentinel = if (pointer.sentinel) |s| @as(*const pointer.child, @ptrCast(s)).* else null;
+        const slice = try self.gpa.allocWithOptions(
+            pointer.child,
+            nodes.len,
+            pointer.alignment,
+            sentinel,
+        );
+        errdefer self.gpa.free(slice);
+
+        // Parse the elements and return the slice
+        for (0..nodes.len) |i| {
+            errdefer if (options.free_on_error) {
+                for (slice[0..i]) |item| {
+                    free(self.gpa, item);
+                }
+            };
+            slice[i] = try self.parseExpr(pointer.child, options, nodes.at(@intCast(i)));
+        }
+
+        return slice;
+    }
+
+    fn parseArray(
+        self: *@This(),
+        comptime T: type,
+        comptime options: Options,
+        node: Zoir.Node.Index,
+    ) !T {
+        const nodes: Zoir.Node.Index.Range = switch (node.get(self.zoir)) {
+            .array_literal => |nodes| nodes,
+            .empty_literal => .{ .start = node, .len = 0 },
+            else => return self.failExpectedContainer(T, node),
+        };
+
+        const array_info = @typeInfo(T).array;
+
+        // Check if the size matches
+        if (nodes.len > array_info.len) {
+            return self.failNodeFmt(
+                nodes.at(array_info.len),
+                "index {} outside of tuple length {}",
+                .{ array_info.len, array_info.len },
+            );
+        } else if (nodes.len < array_info.len) {
+            switch (nodes.len) {
+                inline 0...array_info.len => |n| {
+                    return self.failNodeFmt(node, "missing tuple field with index {}", .{n});
+                },
+                else => unreachable,
+            }
+        }
+
+        // Parse the elements and return the array
+        var result: T = undefined;
+        for (0..result.len) |i| {
+            // If we fail to parse this field, free all fields before it
+            errdefer if (options.free_on_error) {
+                for (result[0..i]) |item| {
+                    free(self.gpa, item);
+                }
+            };
+
+            result[i] = try self.parseExpr(array_info.child, options, nodes.at(@intCast(i)));
+        }
+        return result;
+    }
+
+    fn parseStruct(
+        self: *@This(),
+        comptime T: type,
+        comptime options: Options,
+        node: Zoir.Node.Index,
+    ) !T {
+        const repr = node.get(self.zoir);
+        const fields: std.meta.fieldInfo(Zoir.Node, .struct_literal).type = switch (repr) {
+            .struct_literal => |nodes| nodes,
+            .empty_literal => .{ .names = &.{}, .vals = .{ .start = node, .len = 0 } },
+            else => return self.failExpectedContainer(T, node),
+        };
+
+        const field_infos = @typeInfo(T).@"struct".fields;
+
+        // Gather info on the fields
+        const field_indices = b: {
+            comptime var kvs_list: [field_infos.len]struct { []const u8, usize } = undefined;
+            inline for (field_infos, 0..) |field, i| {
+                kvs_list[i] = .{ field.name, i };
+            }
+            break :b std.StaticStringMap(usize).initComptime(kvs_list);
+        };
+
+        // Parse the struct
+        var result: T = undefined;
+        var field_found: [field_infos.len]bool = .{false} ** field_infos.len;
+
+        // If we fail partway through, free all already initialized fields
+        var initialized: usize = 0;
+        errdefer if (options.free_on_error and field_infos.len > 0) {
+            for (fields.names[0..initialized]) |name_runtime| {
+                switch (field_indices.get(name_runtime.get(self.zoir)) orelse continue) {
+                    inline 0...(field_infos.len - 1) => |name_index| {
+                        const name = field_infos[name_index].name;
+                        free(self.gpa, @field(result, name));
+                    },
+                    else => unreachable, // Can't be out of bounds
+                }
+            }
+        };
+
+        // Fill in the fields we found
+        for (0..fields.names.len) |i| {
+            const field_index = b: {
+                const name = fields.names[i].get(self.zoir);
+                break :b field_indices.get(name) orelse if (options.ignore_unknown_fields) {
+                    continue;
+                } else {
+                    return self.failUnexpectedField(T, node, i);
+                };
+            };
+
+            // We now know the array is not zero sized (assert this so the code compiles)
+            if (field_found.len == 0) unreachable;
+
+            if (field_found[field_index]) {
+                var buf: [2]Ast.Node.Index = undefined;
+                const struct_init = self.ast.fullStructInit(&buf, node.getAstNode(self.zoir)).?;
+                const field_node = struct_init.ast.fields[i];
+                const token = self.ast.firstToken(field_node) - 2;
+                return self.failTokenFmt(token, 0, "duplicate struct field name", .{});
+            }
+            field_found[field_index] = true;
+
+            switch (field_index) {
+                inline 0...(field_infos.len - 1) => |j| {
+                    if (field_infos[j].is_comptime) {
+                        return self.failRuntimeValueComptimeVar(node, j);
+                    } else {
+                        @field(result, field_infos[j].name) = try self.parseExpr(
+                            field_infos[j].type,
+                            options,
+                            fields.vals.at(@intCast(i)),
+                        );
+                    }
+                },
+                else => unreachable, // Can't be out of bounds
+            }
+
+            initialized += 1;
+        }
+
+        // Fill in any missing default fields
+        inline for (field_found, 0..) |found, i| {
+            if (!found) {
+                const field_info = field_infos[i];
+                if (field_info.default_value) |default| {
+                    const typed: *const field_info.type = @ptrCast(@alignCast(default));
+                    @field(result, field_info.name) = typed.*;
+                } else {
+                    return self.failNodeFmt(
+                        node,
+                        "missing required field {s}",
+                        .{field_infos[i].name},
+                    );
+                }
+            }
+        }
+
+        return result;
+    }
+
+    fn parseTuple(
+        self: *@This(),
+        comptime T: type,
+        comptime options: Options,
+        node: Zoir.Node.Index,
+    ) !T {
+        const nodes: Zoir.Node.Index.Range = switch (node.get(self.zoir)) {
+            .array_literal => |nodes| nodes,
+            .empty_literal => .{ .start = node, .len = 0 },
+            else => return self.failExpectedContainer(T, node),
+        };
+
+        var result: T = undefined;
+        const field_infos = @typeInfo(T).@"struct".fields;
+
+        if (nodes.len > field_infos.len) {
+            return self.failNodeFmt(
+                nodes.at(field_infos.len),
+                "index {} outside of tuple length {}",
+                .{ field_infos.len, field_infos.len },
+            );
+        }
+
+        inline for (0..field_infos.len) |i| {
+            // Check if we're out of bounds
+            if (i >= nodes.len) {
+                if (field_infos[i].default_value) |default| {
+                    const typed: *const field_infos[i].type = @ptrCast(@alignCast(default));
+                    @field(result, field_infos[i].name) = typed.*;
+                } else {
+                    return self.failNodeFmt(node, "missing tuple field with index {}", .{i});
+                }
+            } else {
+                // If we fail to parse this field, free all fields before it
+                errdefer if (options.free_on_error) {
+                    inline for (0..i) |j| {
+                        if (j >= i) break;
+                        free(self.gpa, result[j]);
+                    }
+                };
+
+                if (field_infos[i].is_comptime) {
+                    return self.failRuntimeValueComptimeVar(node, i);
+                } else {
+                    result[i] = try self.parseExpr(field_infos[i].type, options, nodes.at(i));
+                }
+            }
+        }
+
+        return result;
+    }
+
+    fn parseUnion(
+        self: *@This(),
+        comptime T: type,
+        comptime options: Options,
+        node: Zoir.Node.Index,
+    ) !T {
+        const @"union" = @typeInfo(T).@"union";
+        const field_infos = @"union".fields;
+
+        if (field_infos.len == 0) {
+            @compileError(@typeName(T) ++ ": cannot parse unions with no fields");
+        }
+
+        // Gather info on the fields
+        const field_indices = b: {
+            comptime var kvs_list: [field_infos.len]struct { []const u8, usize } = undefined;
+            inline for (field_infos, 0..) |field, i| {
+                kvs_list[i] = .{ field.name, i };
+            }
+            break :b std.StaticStringMap(usize).initComptime(kvs_list);
+        };
+
+        // Parse the union
+        switch (node.get(self.zoir)) {
+            .enum_literal => |string| {
+                // The union must be tagged for an enum literal to coerce to it
+                if (@"union".tag_type == null) {
+                    return self.failNode(node, "expected union");
+                }
+
+                // Get the index of the named field. We don't use `parseEnum` here as
+                // the order of the enum and the order of the union might not match!
+                const field_index = b: {
+                    break :b field_indices.get(string.get(self.zoir)) orelse
+                        return self.failUnexpectedField(T, node, null);
+                };
+
+                // Initialize the union from the given field.
+                switch (field_index) {
+                    inline 0...field_infos.len - 1 => |i| {
+                        // Fail if the field is not void
+                        if (field_infos[i].type != void)
+                            return self.failNode(node, "expected union");
+
+                        // Instantiate the union
+                        return @unionInit(T, field_infos[i].name, {});
+                    },
+                    else => unreachable, // Can't be out of bounds
+                }
+            },
+            .struct_literal => |struct_fields| {
+                if (struct_fields.names.len != 1) {
+                    return self.failNode(node, "expected union");
+                }
+
+                // Fill in the field we found
+                const field_name = struct_fields.names[0];
+                const field_val = struct_fields.vals.at(0);
+                const field_index = field_indices.get(field_name.get(self.zoir)) orelse
+                    return self.failUnexpectedField(T, node, 0);
+
+                switch (field_index) {
+                    inline 0...field_infos.len - 1 => |i| {
+                        if (field_infos[i].type == void) {
+                            return self.failNode(field_val, "expected type 'void'");
+                        } else {
+                            const value = try self.parseExpr(field_infos[i].type, options, field_val);
+                            return @unionInit(T, field_infos[i].name, value);
+                        }
+                    },
+                    else => unreachable, // Can't be out of bounds
+                }
+            },
+            else => return self.failNode(node, "expected union"),
+        }
+    }
+
+    fn parseOptional(
+        self: *@This(),
+        comptime T: type,
+        comptime options: Options,
+        node: Zoir.Node.Index,
+    ) !T {
+        if (node.get(self.zoir) == .null) {
+            return null;
+        }
+
+        return try self.parseExpr(@typeInfo(T).optional.child, options, node);
+    }
+
+    fn failTokenFmt(
+        self: @This(),
+        token: Ast.TokenIndex,
+        offset: u32,
+        comptime fmt: []const u8,
+        args: anytype,
+    ) error{ OutOfMemory, ParseZon } {
+        @branchHint(.cold);
+        if (self.status) |s| s.type_check = .{
+            .token = token,
+            .offset = offset,
+            .message = try std.fmt.allocPrint(self.gpa, fmt, args),
+            .owned = true,
+        };
+        return error.ParseZon;
+    }
+
+    fn failNodeFmt(
+        self: @This(),
+        node: Zoir.Node.Index,
+        comptime fmt: []const u8,
+        args: anytype,
+    ) error{ OutOfMemory, ParseZon } {
+        @branchHint(.cold);
+        const main_tokens = self.ast.nodes.items(.main_token);
+        const token = main_tokens[node.getAstNode(self.zoir)];
+        return self.failTokenFmt(token, 0, fmt, args);
+    }
+
+    fn failToken(
+        self: @This(),
+        failure: Error.TypeCheckFailure,
+    ) error{ParseZon} {
+        @branchHint(.cold);
+        if (self.status) |s| s.type_check = failure;
+        return error.ParseZon;
+    }
+
+    fn failNode(
+        self: @This(),
+        node: Zoir.Node.Index,
+        message: []const u8,
+    ) error{ParseZon} {
+        @branchHint(.cold);
+        const main_tokens = self.ast.nodes.items(.main_token);
+        const token = main_tokens[node.getAstNode(self.zoir)];
+        return self.failToken(.{
+            .token = token,
+            .offset = 0,
+            .message = message,
+            .owned = false,
+        });
+    }
+
+    fn failCannotRepresent(
+        self: @This(),
+        comptime T: type,
+        node: Zoir.Node.Index,
+    ) error{ OutOfMemory, ParseZon } {
+        @branchHint(.cold);
+        return self.failNodeFmt(node, "type '{s}' cannot represent value", .{@typeName(T)});
+    }
+
+    fn failUnexpectedField(
+        self: @This(),
+        T: type,
+        node: Zoir.Node.Index,
+        field: ?usize,
+    ) error{ OutOfMemory, ParseZon } {
+        @branchHint(.cold);
+        const token = if (field) |f| b: {
+            var buf: [2]Ast.Node.Index = undefined;
+            const struct_init = self.ast.fullStructInit(&buf, node.getAstNode(self.zoir)).?;
+            const field_node = struct_init.ast.fields[f];
+            break :b self.ast.firstToken(field_node) - 2;
+        } else b: {
+            const main_tokens = self.ast.nodes.items(.main_token);
+            break :b main_tokens[node.getAstNode(self.zoir)];
+        };
+        switch (@typeInfo(T)) {
+            inline .@"struct", .@"union", .@"enum" => |info| {
+                if (info.fields.len == 0) {
+                    return self.failTokenFmt(token, 0, "unexpected field, no fields expected", .{});
+                } else {
+                    const msg = "unexpected field, supported fields: ";
+                    var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(self.gpa, msg.len * 2);
+                    defer buf.deinit(self.gpa);
+                    const writer = buf.writer(self.gpa);
+                    try writer.writeAll(msg);
+                    inline for (info.fields, 0..) |field_info, i| {
+                        if (i != 0) try writer.writeAll(", ");
+                        try writer.print("{}", .{std.zig.fmtId(field_info.name)});
+                    }
+                    return self.failToken(.{
+                        .token = token,
+                        .offset = 0,
+                        .message = try buf.toOwnedSlice(self.gpa),
+                        .owned = true,
+                    });
+                }
+            },
+            else => @compileError("unreachable, should not be called for type " ++ @typeName(T)),
+        }
+    }
+
+    fn failExpectedContainer(self: @This(), T: type, node: Zoir.Node.Index) error{ OutOfMemory, ParseZon } {
+        @branchHint(.cold);
+        switch (@typeInfo(T)) {
+            .@"struct" => |@"struct"| if (@"struct".is_tuple) {
+                return self.failNode(node, "expected tuple");
+            } else {
+                return self.failNode(node, "expected struct");
+            },
+            .@"union" => return self.failNode(node, "expected union"),
+            .array => return self.failNode(node, "expected tuple"),
+            .pointer => |pointer| {
+                if (pointer.child == u8 and
+                    pointer.size == .Slice and
+                    pointer.is_const and
+                    (pointer.sentinel == null or @as(*const u8, @ptrCast(pointer.sentinel)).* == 0) and
+                    pointer.alignment == 1)
+                {
+                    return self.failNode(node, "expected string");
+                } else {
+                    return self.failNode(node, "expected tuple");
+                }
+            },
+            else => {},
+        }
+        @compileError("unreachable, should not be called for type " ++ @typeName(T));
+    }
+
+    // Technically we could do this if we were willing to do a deep equal to verify
+    // the value matched, but doing so doesn't seem to support any real use cases
+    // so isn't worth the complexity at the moment.
+    fn failRuntimeValueComptimeVar(
+        self: @This(),
+        node: Zoir.Node.Index,
+        field: usize,
+    ) error{ OutOfMemory, ParseZon } {
+        @branchHint(.cold);
+        const ast_node = node.getAstNode(self.zoir);
+        var buf: [2]Ast.Node.Index = undefined;
+        const token = if (self.ast.fullStructInit(&buf, ast_node)) |struct_init| b: {
+            const field_node = struct_init.ast.fields[field];
+            break :b self.ast.firstToken(field_node);
+        } else b: {
+            const array_init = self.ast.fullArrayInit(&buf, ast_node).?;
+            const value_node = array_init.ast.elements[field];
+            break :b self.ast.firstToken(value_node);
+        };
+        return self.failTokenFmt(token, 0, "cannot store runtime value in compile time variable", .{});
+    }
+};
+
+fn intFromFloatExact(comptime T: type, value: anytype) ?T {
+    switch (@typeInfo(@TypeOf(value))) {
+        .float => {},
+        else => @compileError(@typeName(@TypeOf(value)) ++ " is not a runtime floating point type"),
+    }
+    switch (@typeInfo(T)) {
+        .int => {},
+        else => @compileError(@typeName(T) ++ " is not a runtime integer type"),
+    }
+
+    if (value > std.math.maxInt(T) or value < std.math.minInt(T)) {
+        return null;
+    }
+
+    if (std.math.isNan(value) or std.math.trunc(value) != value) {
+        return null;
+    }
+
+    return @as(T, @intFromFloat(value));
+}
+
+test "std.zon requiresAllocator" {
+    try std.testing.expect(!requiresAllocator(u8));
+    try std.testing.expect(!requiresAllocator(f32));
+    try std.testing.expect(!requiresAllocator(enum { foo }));
+    try std.testing.expect(!requiresAllocator(struct { f32 }));
+    try std.testing.expect(!requiresAllocator(struct { x: f32 }));
+    try std.testing.expect(!requiresAllocator([2]u8));
+    try std.testing.expect(!requiresAllocator(union { x: f32, y: f32 }));
+    try std.testing.expect(!requiresAllocator(union(enum) { x: f32, y: f32 }));
+    try std.testing.expect(!requiresAllocator(?f32));
+    try std.testing.expect(!requiresAllocator(void));
+    try std.testing.expect(!requiresAllocator(@TypeOf(null)));
+
+    try std.testing.expect(requiresAllocator([]u8));
+    try std.testing.expect(requiresAllocator(*struct { u8, u8 }));
+    try std.testing.expect(requiresAllocator([1][]const u8));
+    try std.testing.expect(requiresAllocator(struct { x: i32, y: []u8 }));
+    try std.testing.expect(requiresAllocator(union { x: i32, y: []u8 }));
+    try std.testing.expect(requiresAllocator(union(enum) { x: i32, y: []u8 }));
+    try std.testing.expect(requiresAllocator(?[]u8));
+}
+
 test "std.zon ast errors" {
-    // Test multiple errors
     const gpa = std.testing.allocator;
     var status: Status = .{};
     defer status.deinit(gpa);
@@ -292,223 +1116,11 @@ test "std.zon failure/oom formatting" {
     try std.testing.expectFmt("", "{}", .{status});
 }
 
-/// Parses the given slice as ZON.
-///
-/// Returns `error.OutOfMemory` on allocation failure, or `error.ParseZon` error if the ZON is
-/// invalid or can not be deserialized into type `T`.
-///
-/// When the parser returns `error.ParseZon`, it will also store a human readable explanation in
-/// `status` if non null. If status is not null, it must be initialized to `.{}`.
-pub fn fromSlice(
-    /// The type to deserialize into. May only transitively contain the following supported types:
-    /// * bools
-    /// * fixed sized numeric types
-    /// * enums
-    /// * slices
-    /// * arrays
-    /// * structures
-    /// * unions
-    /// * optionals
-    /// * null
-    comptime T: type,
-    gpa: Allocator,
-    source: [:0]const u8,
-    status: ?*Status,
-    comptime options: Options,
-) error{ OutOfMemory, ParseZon }!T {
-    if (status) |s| s.assertEmpty();
-
-    var ast = try std.zig.Ast.parse(gpa, source, .zon);
-    defer if (status == null) ast.deinit(gpa);
-    if (status) |s| s.ast = ast;
-
-    var zoir = try ZonGen.generate(gpa, ast, .{ .parse_str_lits = false });
-    defer if (status == null) zoir.deinit(gpa);
-    if (status) |s| s.zoir = zoir;
-    if (zoir.hasCompileErrors()) return error.ParseZon;
-
-    if (status) |s| s.* = .{};
-    return fromZoir(T, gpa, ast, zoir, status, options);
-}
-
 test "std.zon fromSlice syntax error" {
     try std.testing.expectError(
         error.ParseZon,
         fromSlice(u8, std.testing.allocator, ".{", null, .{}),
     );
-}
-
-/// Like `fromSlice`, but operates on `Zoir` instead of ZON source.
-pub fn fromZoir(
-    comptime T: type,
-    gpa: Allocator,
-    ast: Ast,
-    zoir: Zoir,
-    status: ?*Status,
-    comptime options: Options,
-) error{ OutOfMemory, ParseZon }!T {
-    return fromZoirNode(T, gpa, ast, zoir, .root, status, options);
-}
-
-/// Like `fromZoir`, but the parse starts on `node` instead of root.
-pub fn fromZoirNode(
-    comptime T: type,
-    gpa: Allocator,
-    ast: Ast,
-    zoir: Zoir,
-    node: Zoir.Node.Index,
-    status: ?*Status,
-    comptime options: Options,
-) error{ OutOfMemory, ParseZon }!T {
-    if (status) |s| {
-        s.assertEmpty();
-        s.ast = ast;
-        s.zoir = zoir;
-    }
-
-    if (zoir.hasCompileErrors()) {
-        return error.ParseZon;
-    }
-
-    var parser = @This(){
-        .gpa = gpa,
-        .ast = ast,
-        .zoir = zoir,
-        .status = status,
-    };
-
-    return parser.parseExpr(T, options, node);
-}
-
-fn requiresAllocator(comptime T: type) bool {
-    _ = valid_types;
-    return switch (@typeInfo(T)) {
-        .pointer => true,
-        .array => |array| requiresAllocator(array.child),
-        .@"struct" => |@"struct"| inline for (@"struct".fields) |field| {
-            if (requiresAllocator(field.type)) {
-                break true;
-            }
-        } else false,
-        .@"union" => |@"union"| inline for (@"union".fields) |field| {
-            if (requiresAllocator(field.type)) {
-                break true;
-            }
-        } else false,
-        .optional => |optional| requiresAllocator(optional.child),
-        else => false,
-    };
-}
-
-test "std.zon requiresAllocator" {
-    try std.testing.expect(!requiresAllocator(u8));
-    try std.testing.expect(!requiresAllocator(f32));
-    try std.testing.expect(!requiresAllocator(enum { foo }));
-    try std.testing.expect(!requiresAllocator(struct { f32 }));
-    try std.testing.expect(!requiresAllocator(struct { x: f32 }));
-    try std.testing.expect(!requiresAllocator([2]u8));
-    try std.testing.expect(!requiresAllocator(union { x: f32, y: f32 }));
-    try std.testing.expect(!requiresAllocator(union(enum) { x: f32, y: f32 }));
-    try std.testing.expect(!requiresAllocator(?f32));
-    try std.testing.expect(!requiresAllocator(void));
-    try std.testing.expect(!requiresAllocator(@TypeOf(null)));
-
-    try std.testing.expect(requiresAllocator([]u8));
-    try std.testing.expect(requiresAllocator(*struct { u8, u8 }));
-    try std.testing.expect(requiresAllocator([1][]const u8));
-    try std.testing.expect(requiresAllocator(struct { x: i32, y: []u8 }));
-    try std.testing.expect(requiresAllocator(union { x: i32, y: []u8 }));
-    try std.testing.expect(requiresAllocator(union(enum) { x: i32, y: []u8 }));
-    try std.testing.expect(requiresAllocator(?[]u8));
-}
-
-/// Frees ZON values.
-///
-/// Provided for convenience, you may also free these values on your own using the same allocator
-/// passed into the parser.
-///
-/// Asserts at comptime that sufficient information is available via the type system to free this
-/// value. Untagged unions, for example, will fail this assert.
-pub fn free(gpa: Allocator, value: anytype) void {
-    const Value = @TypeOf(value);
-
-    _ = valid_types;
-    switch (@typeInfo(Value)) {
-        .bool, .int, .float, .@"enum" => {},
-        .pointer => |pointer| {
-            switch (pointer.size) {
-                .One, .Many, .C => if (comptime requiresAllocator(Value)) {
-                    @compileError(@typeName(Value) ++ ": free cannot free non slice pointers");
-                },
-                .Slice => for (value) |item| {
-                    free(gpa, item);
-                },
-            }
-            return gpa.free(value);
-        },
-        .array => for (value) |item| {
-            free(gpa, item);
-        },
-        .@"struct" => |@"struct"| inline for (@"struct".fields) |field| {
-            free(gpa, @field(value, field.name));
-        },
-        .@"union" => |@"union"| if (@"union".tag_type == null) {
-            if (comptime requiresAllocator(Value)) {
-                @compileError(@typeName(Value) ++ ": free cannot free untagged unions");
-            }
-        } else switch (value) {
-            inline else => |_, tag| {
-                free(gpa, @field(value, @tagName(tag)));
-            },
-        },
-        .optional => if (value) |some| {
-            free(gpa, some);
-        },
-        .void => {},
-        .null => {},
-        else => @compileError(@typeName(Value) ++ ": free cannot free this type"),
-    }
-}
-
-/// Rename when adding or removing support for a type.
-const valid_types = {};
-
-fn parseExpr(
-    self: *@This(),
-    comptime T: type,
-    comptime options: Options,
-    node: Zoir.Node.Index,
-) !T {
-    _ = valid_types;
-    switch (@typeInfo(T)) {
-        .bool => return self.parseBool(node),
-        .int => return self.parseInt(T, node),
-        .float => return self.parseFloat(T, node),
-        .@"enum" => return self.parseEnumLiteral(T, node),
-        .pointer => return self.parsePointer(T, options, node),
-        .array => return self.parseArray(T, options, node),
-        .@"struct" => |@"struct"| if (@"struct".is_tuple)
-            return self.parseTuple(T, options, node)
-        else
-            return self.parseStruct(T, options, node),
-        .@"union" => return self.parseUnion(T, options, node),
-        .optional => return self.parseOptional(T, options, node),
-
-        else => @compileError("type '" ++ @typeName(T) ++ "' is not available in ZON"),
-    }
-}
-
-fn parseOptional(
-    self: *@This(),
-    comptime T: type,
-    comptime options: Options,
-    node: Zoir.Node.Index,
-) !T {
-    if (node.get(self.zoir) == .null) {
-        return null;
-    }
-
-    return try self.parseExpr(@typeInfo(T).optional.child, options, node);
 }
 
 test "std.zon optional" {
@@ -529,83 +1141,6 @@ test "std.zon optional" {
         const some = try fromSlice(?[]const u8, gpa, "\"foo\"", null, .{});
         defer free(gpa, some);
         try std.testing.expectEqualStrings("foo", some.?);
-    }
-}
-
-fn parseUnion(
-    self: *@This(),
-    comptime T: type,
-    comptime options: Options,
-    node: Zoir.Node.Index,
-) !T {
-    const @"union" = @typeInfo(T).@"union";
-    const field_infos = @"union".fields;
-
-    if (field_infos.len == 0) {
-        @compileError(@typeName(T) ++ ": cannot parse unions with no fields");
-    }
-
-    // Gather info on the fields
-    const field_indices = b: {
-        comptime var kvs_list: [field_infos.len]struct { []const u8, usize } = undefined;
-        inline for (field_infos, 0..) |field, i| {
-            kvs_list[i] = .{ field.name, i };
-        }
-        break :b std.StaticStringMap(usize).initComptime(kvs_list);
-    };
-
-    // Parse the union
-    switch (node.get(self.zoir)) {
-        .enum_literal => |string| {
-            // The union must be tagged for an enum literal to coerce to it
-            if (@"union".tag_type == null) {
-                return self.failNode(node, "expected union");
-            }
-
-            // Get the index of the named field. We don't use `parseEnum` here as
-            // the order of the enum and the order of the union might not match!
-            const field_index = b: {
-                break :b field_indices.get(string.get(self.zoir)) orelse
-                    return self.failUnexpectedField(T, node, null);
-            };
-
-            // Initialize the union from the given field.
-            switch (field_index) {
-                inline 0...field_infos.len - 1 => |i| {
-                    // Fail if the field is not void
-                    if (field_infos[i].type != void)
-                        return self.failNode(node, "expected union");
-
-                    // Instantiate the union
-                    return @unionInit(T, field_infos[i].name, {});
-                },
-                else => unreachable, // Can't be out of bounds
-            }
-        },
-        .struct_literal => |struct_fields| {
-            if (struct_fields.names.len != 1) {
-                return self.failNode(node, "expected union");
-            }
-
-            // Fill in the field we found
-            const field_name = struct_fields.names[0];
-            const field_val = struct_fields.vals.at(0);
-            const field_index = field_indices.get(field_name.get(self.zoir)) orelse
-                return self.failUnexpectedField(T, node, 0);
-
-            switch (field_index) {
-                inline 0...field_infos.len - 1 => |i| {
-                    if (field_infos[i].type == void) {
-                        return self.failNode(field_val, "expected type 'void'");
-                    } else {
-                        const value = try self.parseExpr(field_infos[i].type, options, field_val);
-                        return @unionInit(T, field_infos[i].name, value);
-                    }
-                },
-                else => unreachable, // Can't be out of bounds
-            }
-        },
-        else => return self.failNode(node, "expected union"),
     }
 }
 
@@ -726,101 +1261,6 @@ test "std.zon unions" {
         try std.testing.expectError(error.ParseZon, fromSlice(Union, gpa, ".x", &status, .{}));
         try std.testing.expectFmt("1:2: error: expected union\n", "{}", .{status});
     }
-}
-
-fn parseStruct(
-    self: *@This(),
-    comptime T: type,
-    comptime options: Options,
-    node: Zoir.Node.Index,
-) !T {
-    const repr = node.get(self.zoir);
-    const fields: std.meta.fieldInfo(Zoir.Node, .struct_literal).type = switch (repr) {
-        .struct_literal => |nodes| nodes,
-        .empty_literal => .{ .names = &.{}, .vals = .{ .start = node, .len = 0 } },
-        else => return self.failExpectedContainer(T, node),
-    };
-
-    const field_infos = @typeInfo(T).@"struct".fields;
-
-    // Gather info on the fields
-    const field_indices = b: {
-        comptime var kvs_list: [field_infos.len]struct { []const u8, usize } = undefined;
-        inline for (field_infos, 0..) |field, i| {
-            kvs_list[i] = .{ field.name, i };
-        }
-        break :b std.StaticStringMap(usize).initComptime(kvs_list);
-    };
-
-    // Parse the struct
-    var result: T = undefined;
-    var field_found: [field_infos.len]bool = .{false} ** field_infos.len;
-
-    // If we fail partway through, free all already initialized fields
-    var initialized: usize = 0;
-    errdefer if (options.free_on_error and field_infos.len > 0) {
-        for (fields.names[0..initialized]) |name_runtime| {
-            switch (field_indices.get(name_runtime.get(self.zoir)) orelse continue) {
-                inline 0...(field_infos.len - 1) => |name_index| {
-                    const name = field_infos[name_index].name;
-                    free(self.gpa, @field(result, name));
-                },
-                else => unreachable, // Can't be out of bounds
-            }
-        }
-    };
-
-    // Fill in the fields we found
-    for (0..fields.names.len) |i| {
-        const field_index = b: {
-            const name = fields.names[i].get(self.zoir);
-            break :b field_indices.get(name) orelse if (options.ignore_unknown_fields) {
-                continue;
-            } else {
-                return self.failUnexpectedField(T, node, i);
-            };
-        };
-
-        // We now know the array is not zero sized (assert this so the code compiles)
-        if (field_found.len == 0) unreachable;
-
-        if (field_found[field_index]) {
-            return self.failDuplicateField(node, i);
-        }
-        field_found[field_index] = true;
-
-        switch (field_index) {
-            inline 0...(field_infos.len - 1) => |j| {
-                if (field_infos[j].is_comptime) {
-                    return self.failRuntimeValueComptimeVar(node, j);
-                } else {
-                    @field(result, field_infos[j].name) = try self.parseExpr(
-                        field_infos[j].type,
-                        options,
-                        fields.vals.at(@intCast(i)),
-                    );
-                }
-            },
-            else => unreachable, // Can't be out of bounds
-        }
-
-        initialized += 1;
-    }
-
-    // Fill in any missing default fields
-    inline for (field_found, 0..) |found, i| {
-        if (!found) {
-            const field_info = field_infos[i];
-            if (field_info.default_value) |default| {
-                const typed: *const field_info.type = @ptrCast(@alignCast(default));
-                @field(result, field_info.name) = typed.*;
-            } else {
-                return self.failMissingField(field_infos[i].name, node);
-            }
-        }
-    }
-
-    return result;
 }
 
 test "std.zon structs" {
@@ -1039,58 +1479,6 @@ test "std.zon structs" {
     }
 }
 
-fn parseTuple(
-    self: *@This(),
-    comptime T: type,
-    comptime options: Options,
-    node: Zoir.Node.Index,
-) !T {
-    const nodes: Zoir.Node.Index.Range = switch (node.get(self.zoir)) {
-        .array_literal => |nodes| nodes,
-        .empty_literal => .{ .start = node, .len = 0 },
-        else => return self.failExpectedContainer(T, node),
-    };
-
-    var result: T = undefined;
-    const field_infos = @typeInfo(T).@"struct".fields;
-
-    if (nodes.len > field_infos.len) {
-        return self.failNodeFmt(
-            nodes.at(field_infos.len),
-            "index {} outside of tuple length {}",
-            .{ field_infos.len, field_infos.len },
-        );
-    }
-
-    inline for (0..field_infos.len) |i| {
-        // Check if we're out of bounds
-        if (i >= nodes.len) {
-            if (field_infos[i].default_value) |default| {
-                const typed: *const field_infos[i].type = @ptrCast(@alignCast(default));
-                @field(result, field_infos[i].name) = typed.*;
-            } else {
-                return self.failNodeFmt(node, "missing tuple field with index {}", .{i});
-            }
-        } else {
-            // If we fail to parse this field, free all fields before it
-            errdefer if (options.free_on_error) {
-                inline for (0..i) |j| {
-                    if (j >= i) break;
-                    free(self.gpa, result[j]);
-                }
-            };
-
-            if (field_infos[i].is_comptime) {
-                return self.failRuntimeValueComptimeVar(node, i);
-            } else {
-                result[i] = try self.parseExpr(field_infos[i].type, options, nodes.at(i));
-            }
-        }
-    }
-
-    return result;
-}
-
 test "std.zon tuples" {
     const gpa = std.testing.allocator;
 
@@ -1193,51 +1581,6 @@ test "std.zon tuples" {
             \\
         , "{}", .{status});
     }
-}
-
-fn parseArray(
-    self: *@This(),
-    comptime T: type,
-    comptime options: Options,
-    node: Zoir.Node.Index,
-) !T {
-    const nodes: Zoir.Node.Index.Range = switch (node.get(self.zoir)) {
-        .array_literal => |nodes| nodes,
-        .empty_literal => .{ .start = node, .len = 0 },
-        else => return self.failExpectedContainer(T, node),
-    };
-
-    const array_info = @typeInfo(T).array;
-
-    // Check if the size matches
-    if (nodes.len > array_info.len) {
-        return self.failNodeFmt(
-            nodes.at(array_info.len),
-            "index {} outside of tuple length {}",
-            .{ array_info.len, array_info.len },
-        );
-    } else if (nodes.len < array_info.len) {
-        switch (nodes.len) {
-            inline 0...array_info.len => |n| {
-                return self.failNodeFmt(node, "missing tuple field with index {}", .{n});
-            },
-            else => unreachable,
-        }
-    }
-
-    // Parse the elements and return the array
-    var result: T = undefined;
-    for (0..result.len) |i| {
-        // If we fail to parse this field, free all fields before it
-        errdefer if (options.free_on_error) {
-            for (result[0..i]) |item| {
-                free(self.gpa, item);
-            }
-        };
-
-        result[i] = try self.parseExpr(array_info.child, options, nodes.at(@intCast(i)));
-    }
-    return result;
 }
 
 // Test sizes 0 to 3 since small sizes get parsed differently
@@ -1455,94 +1798,6 @@ test "std.zon arrays and slices" {
             .{status},
         );
     }
-}
-
-fn parsePointer(
-    self: *@This(),
-    comptime T: type,
-    comptime options: Options,
-    node: Zoir.Node.Index,
-) !T {
-    switch (node.get(self.zoir)) {
-        .string_literal => return try self.parseString(T, node),
-        .array_literal => |nodes| return try self.parseSlice(T, options, nodes),
-        .empty_literal => return try self.parseSlice(T, options, .{ .start = node, .len = 0 }),
-        else => return self.failExpectedContainer(T, node),
-    }
-}
-
-fn parseString(
-    self: *@This(),
-    comptime T: type,
-    node: Zoir.Node.Index,
-) !T {
-    const ast_node = node.getAstNode(self.zoir);
-    const pointer = @typeInfo(T).pointer;
-    var size_hint = ZonGen.strLitSizeHint(self.ast, ast_node);
-    if (pointer.sentinel != null) size_hint += 1;
-
-    var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(self.gpa, size_hint);
-    defer buf.deinit(self.gpa);
-    switch (try ZonGen.parseStrLit(self.ast, ast_node, buf.writer(self.gpa))) {
-        .success => {},
-        .failure => |err| {
-            const token = self.ast.nodes.items(.main_token)[ast_node];
-            const raw_string = self.ast.tokenSlice(token);
-            return self.failTokenFmt(token, @intCast(err.offset()), "{s}", .{err.fmt(raw_string)});
-        },
-    }
-
-    if (pointer.child != u8 or
-        pointer.size != .Slice or
-        !pointer.is_const or
-        (pointer.sentinel != null and @as(*const u8, @ptrCast(pointer.sentinel)).* != 0) or
-        pointer.alignment != 1)
-    {
-        return self.failExpectedContainer(T, node);
-    }
-
-    if (pointer.sentinel != null) {
-        return try buf.toOwnedSliceSentinel(self.gpa, 0);
-    } else {
-        return try buf.toOwnedSlice(self.gpa);
-    }
-}
-
-fn parseSlice(
-    self: *@This(),
-    comptime T: type,
-    comptime options: Options,
-    nodes: Zoir.Node.Index.Range,
-) !T {
-    const pointer = @typeInfo(T).pointer;
-
-    // Make sure we're working with a slice
-    switch (pointer.size) {
-        .Slice => {},
-        .One, .Many, .C => @compileError(@typeName(T) ++ ": non slice pointers not supported"),
-    }
-
-    // Allocate the slice
-    const sentinel = if (pointer.sentinel) |s| @as(*const pointer.child, @ptrCast(s)).* else null;
-    const slice = try self.gpa.allocWithOptions(
-        pointer.child,
-        nodes.len,
-        pointer.alignment,
-        sentinel,
-    );
-    errdefer self.gpa.free(slice);
-
-    // Parse the elements and return the slice
-    for (0..nodes.len) |i| {
-        errdefer if (options.free_on_error) {
-            for (slice[0..i]) |item| {
-                free(self.gpa, item);
-            }
-        };
-        slice[i] = try self.parseExpr(pointer.child, options, nodes.at(@intCast(i)));
-    }
-
-    return slice;
 }
 
 test "std.zon string literal" {
@@ -1788,29 +2043,6 @@ test "std.zon string literal" {
     }
 }
 
-fn parseEnumLiteral(
-    self: @This(),
-    comptime T: type,
-    node: Zoir.Node.Index,
-) !T {
-    switch (node.get(self.zoir)) {
-        .enum_literal => |string| {
-            // Create a comptime string map for the enum fields
-            const enum_fields = @typeInfo(T).@"enum".fields;
-            comptime var kvs_list: [enum_fields.len]struct { []const u8, T } = undefined;
-            inline for (enum_fields, 0..) |field, i| {
-                kvs_list[i] = .{ field.name, @enumFromInt(field.value) };
-            }
-            const enum_tags = std.StaticStringMap(T).initComptime(kvs_list);
-
-            // Get the tag if it exists
-            return enum_tags.get(string.get(self.zoir)) orelse
-                self.failUnexpectedField(T, node, null);
-        },
-        else => return self.failNode(node, "expected enum literal"),
-    }
-}
-
 test "std.zon enum literals" {
     const gpa = std.testing.allocator;
 
@@ -1887,194 +2119,6 @@ test "std.zon enum literals" {
     }
 }
 
-fn failTokenFmt(
-    self: @This(),
-    token: Ast.TokenIndex,
-    offset: u32,
-    comptime fmt: []const u8,
-    args: anytype,
-) error{ OutOfMemory, ParseZon } {
-    @branchHint(.cold);
-    if (self.status) |s| s.type_check = .{
-        .token = token,
-        .offset = offset,
-        .message = try std.fmt.allocPrint(self.gpa, fmt, args),
-        .owned = true,
-    };
-    return error.ParseZon;
-}
-
-fn failNodeFmt(
-    self: @This(),
-    node: Zoir.Node.Index,
-    comptime fmt: []const u8,
-    args: anytype,
-) error{ OutOfMemory, ParseZon } {
-    @branchHint(.cold);
-    const main_tokens = self.ast.nodes.items(.main_token);
-    const token = main_tokens[node.getAstNode(self.zoir)];
-    return self.failTokenFmt(token, 0, fmt, args);
-}
-
-fn failToken(
-    self: @This(),
-    failure: Error.TypeCheckFailure,
-) error{ParseZon} {
-    @branchHint(.cold);
-    if (self.status) |s| s.type_check = failure;
-    return error.ParseZon;
-}
-
-fn failNode(
-    self: @This(),
-    node: Zoir.Node.Index,
-    message: []const u8,
-) error{ParseZon} {
-    @branchHint(.cold);
-    const main_tokens = self.ast.nodes.items(.main_token);
-    const token = main_tokens[node.getAstNode(self.zoir)];
-    return self.failToken(.{
-        .token = token,
-        .offset = 0,
-        .message = message,
-        .owned = false,
-    });
-}
-
-fn failCannotRepresent(
-    self: @This(),
-    comptime T: type,
-    node: Zoir.Node.Index,
-) error{ OutOfMemory, ParseZon } {
-    @branchHint(.cold);
-    return self.failNodeFmt(node, "type '{s}' cannot represent value", .{@typeName(T)});
-}
-
-fn failUnexpectedField(
-    self: @This(),
-    T: type,
-    node: Zoir.Node.Index,
-    field: ?usize,
-) error{ OutOfMemory, ParseZon } {
-    @branchHint(.cold);
-    const token = if (field) |f| b: {
-        var buf: [2]Ast.Node.Index = undefined;
-        const struct_init = self.ast.fullStructInit(&buf, node.getAstNode(self.zoir)).?;
-        const field_node = struct_init.ast.fields[f];
-        break :b self.ast.firstToken(field_node) - 2;
-    } else b: {
-        const main_tokens = self.ast.nodes.items(.main_token);
-        break :b main_tokens[node.getAstNode(self.zoir)];
-    };
-    switch (@typeInfo(T)) {
-        inline .@"struct", .@"union", .@"enum" => |info| {
-            if (info.fields.len == 0) {
-                return self.failTokenFmt(token, 0, "unexpected field, no fields expected", .{});
-            } else {
-                const msg = "unexpected field, supported fields: ";
-                var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(self.gpa, msg.len * 2);
-                defer buf.deinit(self.gpa);
-                const writer = buf.writer(self.gpa);
-                try writer.writeAll(msg);
-                inline for (info.fields, 0..) |field_info, i| {
-                    if (i != 0) try writer.writeAll(", ");
-                    try writer.print("{}", .{std.zig.fmtId(field_info.name)});
-                }
-                return self.failToken(.{
-                    .token = token,
-                    .offset = 0,
-                    .message = try buf.toOwnedSlice(self.gpa),
-                    .owned = true,
-                });
-            }
-        },
-        else => @compileError("unreachable, should not be called for type " ++ @typeName(T)),
-    }
-}
-
-fn failExpectedContainer(self: @This(), T: type, node: Zoir.Node.Index) error{ OutOfMemory, ParseZon } {
-    @branchHint(.cold);
-    switch (@typeInfo(T)) {
-        .@"struct" => |@"struct"| if (@"struct".is_tuple) {
-            return self.failNode(node, "expected tuple");
-        } else {
-            return self.failNode(node, "expected struct");
-        },
-        .@"union" => return self.failNode(node, "expected union"),
-        .array => return self.failNode(node, "expected tuple"),
-        .pointer => |pointer| {
-            if (pointer.child == u8 and
-                pointer.size == .Slice and
-                pointer.is_const and
-                (pointer.sentinel == null or @as(*const u8, @ptrCast(pointer.sentinel)).* == 0) and
-                pointer.alignment == 1)
-            {
-                return self.failNode(node, "expected string");
-            } else {
-                return self.failNode(node, "expected tuple");
-            }
-        },
-        else => {},
-    }
-    @compileError("unreachable, should not be called for type " ++ @typeName(T));
-}
-
-fn failMissingField(
-    self: @This(),
-    comptime name: []const u8,
-    node: Zoir.Node.Index,
-) error{ OutOfMemory, ParseZon } {
-    @branchHint(.cold);
-    return self.failNodeFmt(
-        node,
-        "missing required field {s}",
-        .{name},
-    );
-}
-
-fn failDuplicateField(
-    self: @This(),
-    node: Zoir.Node.Index,
-    field: usize,
-) error{ OutOfMemory, ParseZon } {
-    @branchHint(.cold);
-    var buf: [2]Ast.Node.Index = undefined;
-    const struct_init = self.ast.fullStructInit(&buf, node.getAstNode(self.zoir)).?;
-    const field_node = struct_init.ast.fields[field];
-    const token = self.ast.firstToken(field_node) - 2;
-    return self.failTokenFmt(token, 0, "duplicate struct field name", .{});
-}
-
-// Technically we could do this if we were willing to do a deep equal to verify
-// the value matched, but doing so doesn't seem to support any real use cases
-// so isn't worth the complexity at the moment.
-fn failRuntimeValueComptimeVar(
-    self: @This(),
-    node: Zoir.Node.Index,
-    field: usize,
-) error{ OutOfMemory, ParseZon } {
-    @branchHint(.cold);
-    const ast_node = node.getAstNode(self.zoir);
-    var buf: [2]Ast.Node.Index = undefined;
-    const token = if (self.ast.fullStructInit(&buf, ast_node)) |struct_init| b: {
-        const field_node = struct_init.ast.fields[field];
-        break :b self.ast.firstToken(field_node);
-    } else b: {
-        const array_init = self.ast.fullArrayInit(&buf, ast_node).?;
-        const value_node = array_init.ast.elements[field];
-        break :b self.ast.firstToken(value_node);
-    };
-    return self.failTokenFmt(token, 0, "cannot store runtime value in compile time variable", .{});
-}
-
-fn parseBool(self: @This(), node: Zoir.Node.Index) !bool {
-    switch (node.get(self.zoir)) {
-        .true => return true,
-        .false => return false,
-        else => return self.failNode(node, "expected type 'bool'"),
-    }
-}
-
 test "std.zon parse bool" {
     const gpa = std.testing.allocator;
 
@@ -2103,67 +2147,6 @@ test "std.zon parse bool" {
         try std.testing.expectError(error.ParseZon, fromSlice(bool, gpa, "123", &status, .{}));
         try std.testing.expectFmt("1:1: error: expected type 'bool'\n", "{}", .{status});
     }
-}
-
-fn parseInt(
-    self: @This(),
-    comptime T: type,
-    node: Zoir.Node.Index,
-) !T {
-    switch (node.get(self.zoir)) {
-        .int_literal => |int| switch (int) {
-            .small => |val| return std.math.cast(T, val) orelse
-                self.failCannotRepresent(T, node),
-            .big => |val| return val.toInt(T) catch
-                self.failCannotRepresent(T, node),
-        },
-        .float_literal => |val| return intFromFloatExact(T, val) orelse
-            self.failCannotRepresent(T, node),
-
-        .char_literal => |val| return std.math.cast(T, val) orelse
-            self.failCannotRepresent(T, node),
-        else => return self.failNodeFmt(node, "expected type '{s}'", .{@typeName(T)}),
-    }
-}
-
-fn parseFloat(
-    self: @This(),
-    comptime T: type,
-    node: Zoir.Node.Index,
-) !T {
-    switch (node.get(self.zoir)) {
-        .int_literal => |int| switch (int) {
-            .small => |val| return @floatFromInt(val),
-            .big => |val| return val.toFloat(T),
-        },
-        .float_literal => |val| return @floatCast(val),
-        .pos_inf => return std.math.inf(T),
-        .neg_inf => return -std.math.inf(T),
-        .nan => return std.math.nan(T),
-        .char_literal => |val| return @floatFromInt(val),
-        else => return self.failNodeFmt(node, "expected type '{s}'", .{@typeName(T)}),
-    }
-}
-
-fn intFromFloatExact(comptime T: type, value: anytype) ?T {
-    switch (@typeInfo(@TypeOf(value))) {
-        .float => {},
-        else => @compileError(@typeName(@TypeOf(value)) ++ " is not a runtime floating point type"),
-    }
-    switch (@typeInfo(T)) {
-        .int => {},
-        else => @compileError(@typeName(T) ++ " is not a runtime integer type"),
-    }
-
-    if (value > std.math.maxInt(T) or value < std.math.minInt(T)) {
-        return null;
-    }
-
-    if (std.math.isNan(value) or std.math.trunc(value) != value) {
-        return null;
-    }
-
-    return @as(T, @intFromFloat(value));
 }
 
 test "std.zon intFromFloatExact" {
