@@ -7419,7 +7419,9 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                 .@"packed" => {
                     try f.writeCValue(writer, local, .Other);
                     try writer.writeAll(" = ");
-                    const int_info = inst_ty.intInfo(zcu);
+
+                    const backing_int_ty: Type = .fromInterned(loaded_struct.backingIntTypeUnordered(ip));
+                    const int_info = backing_int_ty.intInfo(zcu);
 
                     const bit_offset_ty = try pt.intType(.unsigned, Type.smallestUnsignedBits(int_info.bits - 1));
 
@@ -7450,6 +7452,12 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                         try f.object.dg.renderTypeForBuiltinFnName(writer, inst_ty);
                         try writer.writeByte('(');
 
+                        if (field_ty.isAbiInt(zcu)) {
+                            try writer.writeAll("zig_and_");
+                            try f.object.dg.renderTypeForBuiltinFnName(writer, inst_ty);
+                            try writer.writeByte('(');
+                        }
+
                         if (inst_ty.isAbiInt(zcu) and (field_ty.isAbiInt(zcu) or field_ty.isPtrAtRuntime(zcu))) {
                             try f.renderIntCast(writer, inst_ty, element, .{}, field_ty, .FunctionArgument);
                         } else {
@@ -7465,6 +7473,17 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                                 try writer.writeByte(')');
                             }
                             try f.writeCValue(writer, element, .Other);
+                        }
+
+                        if (field_ty.isAbiInt(zcu)) {
+                            try writer.writeAll(", ");
+                            const field_int_info = field_ty.intInfo(zcu);
+                            const field_mask = if (int_info.signedness == .signed and int_info.bits == field_int_info.bits)
+                                try pt.intValue(backing_int_ty, -1)
+                            else
+                                try (try pt.intType(.unsigned, field_int_info.bits)).maxIntScalar(pt, backing_int_ty);
+                            try f.object.dg.renderValue(writer, field_mask, .FunctionArgument);
+                            try writer.writeByte(')');
                         }
 
                         try writer.print(", {}", .{

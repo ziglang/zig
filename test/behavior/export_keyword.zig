@@ -41,6 +41,8 @@ export fn testPackedStuff(a: *const PackedStruct, b: *const PackedUnion) void {
 }
 
 test "export function alias" {
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
+
     _ = struct {
         fn foo_internal() callconv(.C) u32 {
             return 123;

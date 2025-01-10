@@ -251,7 +251,12 @@ reference_trace: ?u32 = null,
 libcxx_abi_version: libcxx.AbiVersion = libcxx.AbiVersion.default,
 
 /// This mutex guards all `Compilation` mutable state.
-mutex: std.Thread.Mutex = .{},
+/// Disabled in single-threaded mode because the thread pool spawns in the same thread.
+mutex: if (builtin.single_threaded) struct {
+    pub inline fn tryLock(_: @This()) void {}
+    pub inline fn lock(_: @This()) void {}
+    pub inline fn unlock(_: @This()) void {}
+} else std.Thread.Mutex = .{},
 
 test_filters: []const []const u8,
 test_name_prefix: ?[]const u8,
