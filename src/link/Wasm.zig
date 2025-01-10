@@ -117,7 +117,7 @@ object_memories: std.ArrayListUnmanaged(ObjectMemory) = .empty,
 object_relocations: std.MultiArrayList(ObjectRelocation) = .empty,
 
 /// List of initialization functions. These must be called in order of priority
-/// by the (synthetic) __wasm_call_ctors function.
+/// by the (synthetic) `__wasm_call_ctors` function.
 object_init_funcs: std.ArrayListUnmanaged(InitFunc) = .empty,
 
 /// The data section of an object has many segments. Each segment corresponds
@@ -3308,7 +3308,10 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
     }
     // Also treat init functions as roots.
     for (wasm.object_init_funcs.items) |init_func| {
-        try markFunction(wasm, init_func.function_index);
+        const func = init_func.function_index.ptr(wasm);
+        if (func.object_index.ptr(wasm).is_included) {
+            try markFunction(wasm, init_func.function_index);
+        }
     }
     wasm.functions_end_prelink = @intCast(wasm.functions.entries.len);
     wasm.function_exports_len = @intCast(wasm.function_exports.items.len);
@@ -3383,6 +3386,7 @@ fn markFunction(wasm: *Wasm, i: ObjectFunctionIndex) link.File.FlushError!void {
     const rdynamic = comp.config.rdynamic;
     const is_obj = comp.config.output_mode == .Obj;
     const function = i.ptr(wasm);
+    markObject(wasm, function.object_index);
 
     if (!is_obj and function.flags.isExported(rdynamic)) try wasm.function_exports.append(gpa, .{
         .name = function.name.unwrap().?,
@@ -3390,6 +3394,10 @@ fn markFunction(wasm: *Wasm, i: ObjectFunctionIndex) link.File.FlushError!void {
     });
 
     try wasm.markRelocations(function.relocations(wasm));
+}
+
+fn markObject(wasm: *Wasm, i: ObjectIndex) void {
+    i.ptr(wasm).is_included = true;
 }
 
 /// Recursively mark alive everything referenced by the global.

@@ -48,6 +48,7 @@ code_section_index: ?Wasm.ObjectSectionIndex,
 global_section_index: ?Wasm.ObjectSectionIndex,
 /// Guaranteed to be non-null when data segments has nonzero length.
 data_section_index: ?Wasm.ObjectSectionIndex,
+is_included: bool,
 
 pub const RelativeSlice = struct {
     off: u32,
@@ -1414,6 +1415,7 @@ pub fn parse(
         .code_section_index = code_section_index,
         .global_section_index = global_section_index,
         .data_section_index = data_section_index,
+        .is_included = must_link,
     };
 }
 

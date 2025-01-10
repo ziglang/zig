@@ -188,8 +188,6 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     for (wasm.object_indirect_function_set.keys()) |object_function_index|
         f.indirect_function_table.putAssumeCapacity(.fromObjectFunction(wasm, object_function_index), {});
 
-    // TODO only include init functions for objects with must_link=true or
-    // which have any alive functions inside them.
     if (wasm.object_init_funcs.items.len > 0) {
         // Zig has no constructors so these are only for object file inputs.
         mem.sortUnstable(Wasm.InitFunc, wasm.object_init_funcs.items, {}, Wasm.InitFunc.lessThan);
@@ -692,7 +690,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     }
 
     // When the shared-memory option is enabled, we *must* emit the 'data count' section.
-    if (f.data_segment_groups.items.len > 0 and shared_memory) {
+    {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
         replaceVecSectionHeader(binary_bytes, header_offset, .data_count, @intCast(f.data_segment_groups.items.len));
     }
@@ -1644,6 +1642,7 @@ fn emitCallCtorsFunction(wasm: *const Wasm, binary_bytes: *std.ArrayListUnmanage
 
     for (wasm.object_init_funcs.items) |init_func| {
         const func = init_func.function_index.ptr(wasm);
+        if (!func.object_index.ptr(wasm).is_included) continue;
         const ty = func.type_index.ptr(wasm);
         const n_returns = ty.returns.slice(wasm).len;
 
