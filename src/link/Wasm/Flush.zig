@@ -34,8 +34,27 @@ function_imports: std.AutoArrayHashMapUnmanaged(String, Wasm.FunctionImportId) =
 global_imports: std.AutoArrayHashMapUnmanaged(String, Wasm.GlobalImportId) = .empty,
 data_imports: std.AutoArrayHashMapUnmanaged(String, Wasm.DataImportId) = .empty,
 
+indirect_function_table: std.AutoArrayHashMapUnmanaged(Wasm.OutputFunctionIndex, void) = .empty,
+
 /// For debug purposes only.
 memory_layout_finished: bool = false,
+
+/// Index into `indirect_function_table`.
+const IndirectFunctionTableIndex = enum(u32) {
+    _,
+
+    fn fromObjectFunctionHandlingWeak(wasm: *const Wasm, index: Wasm.ObjectFunctionIndex) IndirectFunctionTableIndex {
+        return fromOutputFunctionIndex(&wasm.flush_buffer, .fromObjectFunctionHandlingWeak(wasm, index));
+    }
+
+    fn fromSymbolName(wasm: *const Wasm, name: String) IndirectFunctionTableIndex {
+        return fromOutputFunctionIndex(&wasm.flush_buffer, .fromSymbolName(wasm, name));
+    }
+
+    fn fromOutputFunctionIndex(f: *const Flush, i: Wasm.OutputFunctionIndex) IndirectFunctionTableIndex {
+        return @enumFromInt(f.indirect_function_table.getIndex(i).?);
+    }
+};
 
 const DataSegmentGroup = struct {
     first_segment: Wasm.DataSegmentId,
@@ -46,6 +65,7 @@ pub fn clear(f: *Flush) void {
     f.data_segments.clearRetainingCapacity();
     f.data_segment_groups.clearRetainingCapacity();
     f.binary_bytes.clearRetainingCapacity();
+    f.indirect_function_table.clearRetainingCapacity();
     f.memory_layout_finished = false;
 }
 
@@ -57,6 +77,7 @@ pub fn deinit(f: *Flush, gpa: Allocator) void {
     f.function_imports.deinit(gpa);
     f.global_imports.deinit(gpa);
     f.data_imports.deinit(gpa);
+    f.indirect_function_table.deinit(gpa);
     f.* = undefined;
 }
 
@@ -156,6 +177,17 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
 
     if (diags.hasErrors()) return error.LinkFailure;
 
+    // Merge indirect function tables.
+    try f.indirect_function_table.ensureUnusedCapacity(gpa, wasm.zcu_indirect_function_set.entries.len +
+        wasm.object_indirect_function_import_set.entries.len + wasm.object_indirect_function_set.entries.len);
+    // This one goes first so the indexes can be stable for MIR lowering.
+    for (wasm.zcu_indirect_function_set.keys()) |nav_index|
+        f.indirect_function_table.putAssumeCapacity(.fromIpNav(wasm, nav_index), {});
+    for (wasm.object_indirect_function_import_set.keys()) |symbol_name|
+        f.indirect_function_table.putAssumeCapacity(.fromSymbolName(wasm, symbol_name), {});
+    for (wasm.object_indirect_function_set.keys()) |object_function_index|
+        f.indirect_function_table.putAssumeCapacity(.fromObjectFunction(wasm, object_function_index), {});
+
     // TODO only include init functions for objects with must_link=true or
     // which have any alive functions inside them.
     if (wasm.object_init_funcs.items.len > 0) {
@@ -213,7 +245,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
 
     try wasm.tables.ensureUnusedCapacity(gpa, 1);
 
-    if (wasm.indirect_function_table.entries.len > 0) {
+    if (f.indirect_function_table.entries.len > 0) {
         wasm.tables.putAssumeCapacity(.__indirect_function_table, {});
     }
 
@@ -634,7 +666,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     }
 
     // element section
-    if (wasm.indirect_function_table.entries.len > 0) {
+    if (f.indirect_function_table.entries.len > 0) {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
 
         // indirect function table elements
@@ -650,9 +682,8 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         if (flags == 0x02) {
             try leb.writeUleb128(binary_writer, @as(u8, 0)); // represents funcref
         }
-        try leb.writeUleb128(binary_writer, @as(u32, @intCast(wasm.indirect_function_table.entries.len)));
-        for (wasm.indirect_function_table.keys()) |nav_index| {
-            const func_index: Wasm.OutputFunctionIndex = .fromIpNav(wasm, nav_index);
+        try leb.writeUleb128(binary_writer, @as(u32, @intCast(f.indirect_function_table.entries.len)));
+        for (f.indirect_function_table.keys()) |func_index| {
             try leb.writeUleb128(binary_writer, @intFromEnum(func_index));
         }
 
@@ -1459,23 +1490,23 @@ fn applyRelocs(code: []u8, code_offset: u32, relocs: Wasm.ObjectRelocation.Itera
             .function_index_leb => reloc_leb_function(sliced_code, .fromObjectFunctionHandlingWeak(wasm, pointee.function)),
             .function_offset_i32 => @panic("TODO this value is not known yet"),
             .function_offset_i64 => @panic("TODO this value is not known yet"),
-            .table_index_i32 => @panic("TODO indirect function table needs to support object functions too"),
-            .table_index_i64 => @panic("TODO indirect function table needs to support object functions too"),
-            .table_index_rel_sleb => @panic("TODO indirect function table needs to support object functions too"),
-            .table_index_rel_sleb64 => @panic("TODO indirect function table needs to support object functions too"),
-            .table_index_sleb => @panic("TODO indirect function table needs to support object functions too"),
-            .table_index_sleb64 => @panic("TODO indirect function table needs to support object functions too"),
+            .table_index_i32 => reloc_u32_table_index(sliced_code, .fromObjectFunctionHandlingWeak(wasm, pointee.function)),
+            .table_index_i64 => reloc_u64_table_index(sliced_code, .fromObjectFunctionHandlingWeak(wasm, pointee.function)),
+            .table_index_rel_sleb => @panic("TODO what does this reloc tag mean?"),
+            .table_index_rel_sleb64 => @panic("TODO what does this reloc tag mean?"),
+            .table_index_sleb => reloc_sleb_table_index(sliced_code, .fromObjectFunctionHandlingWeak(wasm, pointee.function)),
+            .table_index_sleb64 => reloc_sleb64_table_index(sliced_code, .fromObjectFunctionHandlingWeak(wasm, pointee.function)),
 
             .function_import_index_i32 => reloc_u32_function(sliced_code, .fromSymbolName(wasm, pointee.symbol_name)),
             .function_import_index_leb => reloc_leb_function(sliced_code, .fromSymbolName(wasm, pointee.symbol_name)),
             .function_import_offset_i32 => @panic("TODO this value is not known yet"),
             .function_import_offset_i64 => @panic("TODO this value is not known yet"),
-            .table_import_index_i32 => @panic("TODO indirect function table needs to support object functions too"),
-            .table_import_index_i64 => @panic("TODO indirect function table needs to support object functions too"),
-            .table_import_index_rel_sleb => @panic("TODO indirect function table needs to support object functions too"),
-            .table_import_index_rel_sleb64 => @panic("TODO indirect function table needs to support object functions too"),
-            .table_import_index_sleb => @panic("TODO indirect function table needs to support object functions too"),
-            .table_import_index_sleb64 => @panic("TODO indirect function table needs to support object functions too"),
+            .table_import_index_i32 => reloc_u32_table_index(sliced_code, .fromSymbolName(wasm, pointee.symbol_name)),
+            .table_import_index_i64 => reloc_u64_table_index(sliced_code, .fromSymbolName(wasm, pointee.symbol_name)),
+            .table_import_index_rel_sleb => @panic("TODO what does this reloc tag mean?"),
+            .table_import_index_rel_sleb64 => @panic("TODO what does this reloc tag mean?"),
+            .table_import_index_sleb => reloc_sleb_table_index(sliced_code, .fromSymbolName(wasm, pointee.symbol_name)),
+            .table_import_index_sleb64 => reloc_sleb64_table_index(sliced_code, .fromSymbolName(wasm, pointee.symbol_name)),
 
             .global_index_i32 => reloc_u32_global(sliced_code, .fromObjectGlobalHandlingWeak(wasm, pointee.global)),
             .global_index_leb => reloc_leb_global(sliced_code, .fromObjectGlobalHandlingWeak(wasm, pointee.global)),
@@ -1515,6 +1546,22 @@ fn applyRelocs(code: []u8, code_offset: u32, relocs: Wasm.ObjectRelocation.Itera
             .type_index_leb => reloc_leb_type(sliced_code, pointee.type_index),
         }
     }
+}
+
+fn reloc_u32_table_index(code: []u8, i: IndirectFunctionTableIndex) void {
+    mem.writeInt(u32, code[0..4], @intFromEnum(i), .little);
+}
+
+fn reloc_u64_table_index(code: []u8, i: IndirectFunctionTableIndex) void {
+    mem.writeInt(u64, code[0..8], @intFromEnum(i), .little);
+}
+
+fn reloc_sleb_table_index(code: []u8, i: IndirectFunctionTableIndex) void {
+    leb.writeSignedFixed(5, code[0..5], @intFromEnum(i));
+}
+
+fn reloc_sleb64_table_index(code: []u8, i: IndirectFunctionTableIndex) void {
+    leb.writeSignedFixed(11, code[0..11], @intFromEnum(i));
 }
 
 fn reloc_u32_function(code: []u8, function: Wasm.OutputFunctionIndex) void {

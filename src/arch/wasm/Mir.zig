@@ -615,7 +615,7 @@ pub const Inst = struct {
         intrinsic: Intrinsic,
         uav_obj: Wasm.UavsObjIndex,
         uav_exe: Wasm.UavsExeIndex,
-        indirect_function_table_index: Wasm.IndirectFunctionTableIndex,
+        indirect_function_table_index: Wasm.ZcuIndirectFunctionSetIndex,
 
         comptime {
             switch (builtin.mode) {

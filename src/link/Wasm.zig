@@ -260,7 +260,9 @@ table_imports: std.AutoArrayHashMapUnmanaged(String, TableImport.Index) = .empty
 
 /// All functions that have had their address taken and therefore might be
 /// called via a `call_indirect` function.
-indirect_function_table: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty,
+zcu_indirect_function_set: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty,
+object_indirect_function_import_set: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
+object_indirect_function_set: std.AutoArrayHashMapUnmanaged(ObjectFunctionIndex, void) = .empty,
 
 error_name_table_ref_count: u32 = 0,
 
@@ -288,8 +290,8 @@ error_name_bytes: std.ArrayListUnmanaged(u8) = .empty,
 /// is stored. No need to serialize; trivially reconstructed.
 error_name_offs: std.ArrayListUnmanaged(u32) = .empty,
 
-/// Index into `Wasm.indirect_function_table`.
-pub const IndirectFunctionTableIndex = enum(u32) {
+/// Index into `Wasm.zcu_indirect_function_set`.
+pub const ZcuIndirectFunctionSetIndex = enum(u32) {
     _,
 };
 
@@ -1312,8 +1314,8 @@ pub const TableImport = extern struct {
                 .unresolved => unreachable,
                 .__indirect_function_table => .{
                     .flags = .{ .has_max = true, .is_shared = false },
-                    .min = @intCast(wasm.indirect_function_table.entries.len + 1),
-                    .max = @intCast(wasm.indirect_function_table.entries.len + 1),
+                    .min = @intCast(wasm.flush_buffer.indirect_function_table.entries.len + 1),
+                    .max = @intCast(wasm.flush_buffer.indirect_function_table.entries.len + 1),
                 },
                 .object_table => |i| i.ptr(wasm).limits(),
             };
@@ -3025,7 +3027,10 @@ pub fn deinit(wasm: *Wasm) void {
     wasm.out_relocs.deinit(gpa);
     wasm.uav_fixups.deinit(gpa);
     wasm.nav_fixups.deinit(gpa);
-    wasm.indirect_function_table.deinit(gpa);
+
+    wasm.zcu_indirect_function_set.deinit(gpa);
+    wasm.object_indirect_function_import_set.deinit(gpa);
+    wasm.object_indirect_function_set.deinit(gpa);
 
     wasm.string_bytes.deinit(gpa);
     wasm.string_table.deinit(gpa);
@@ -3515,6 +3520,7 @@ fn markDataImport(
 }
 
 fn markRelocations(wasm: *Wasm, relocs: ObjectRelocation.IterableSlice) link.File.FlushError!void {
+    const gpa = wasm.base.comp.gpa;
     for (relocs.slice.tags(wasm), relocs.slice.pointees(wasm), relocs.slice.offsets(wasm)) |tag, pointee, offset| {
         if (offset >= relocs.end) break;
         switch (tag) {
@@ -3522,6 +3528,11 @@ fn markRelocations(wasm: *Wasm, relocs: ObjectRelocation.IterableSlice) link.Fil
             .function_import_index_i32,
             .function_import_offset_i32,
             .function_import_offset_i64,
+            => {
+                const name = pointee.symbol_name;
+                const i: FunctionImport.Index = @enumFromInt(wasm.object_function_imports.getIndex(name).?);
+                try markFunctionImport(wasm, name, i.value(wasm), i);
+            },
             .table_import_index_sleb,
             .table_import_index_i32,
             .table_import_index_sleb64,
@@ -3530,6 +3541,7 @@ fn markRelocations(wasm: *Wasm, relocs: ObjectRelocation.IterableSlice) link.Fil
             .table_import_index_rel_sleb64,
             => {
                 const name = pointee.symbol_name;
+                try wasm.object_indirect_function_import_set.put(gpa, name, {});
                 const i: FunctionImport.Index = @enumFromInt(wasm.object_function_imports.getIndex(name).?);
                 try markFunctionImport(wasm, name, i.value(wasm), i);
             },
@@ -3564,13 +3576,18 @@ fn markRelocations(wasm: *Wasm, relocs: ObjectRelocation.IterableSlice) link.Fil
             .function_index_i32,
             .function_offset_i32,
             .function_offset_i64,
+            => try markFunction(wasm, pointee.function.chaseWeak(wasm)),
             .table_index_sleb,
             .table_index_i32,
             .table_index_sleb64,
             .table_index_i64,
             .table_index_rel_sleb,
             .table_index_rel_sleb64,
-            => try markFunction(wasm, pointee.function.chaseWeak(wasm)),
+            => {
+                const function = pointee.function;
+                try wasm.object_indirect_function_set.put(gpa, function, {});
+                try markFunction(wasm, function.chaseWeak(wasm));
+            },
             .global_index_leb,
             .global_index_i32,
             => try markGlobal(wasm, pointee.global.chaseWeak(wasm)),

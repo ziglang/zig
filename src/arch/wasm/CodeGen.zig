@@ -1027,7 +1027,7 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
             const ip = &zcu.intern_pool;
             if (ip.getNav(nav_ref.nav_index).isExternOrFn(ip)) {
                 assert(nav_ref.offset == 0);
-                const gop = try wasm.indirect_function_table.getOrPut(comp.gpa, nav_ref.nav_index);
+                const gop = try wasm.zcu_indirect_function_set.getOrPut(comp.gpa, nav_ref.nav_index);
                 if (!gop.found_existing) gop.value_ptr.* = {};
                 try cg.addInst(.{
                     .tag = .func_ref,
@@ -1056,7 +1056,7 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
             if (ip.isFunctionType(ip.typeOf(uav.ip_index))) {
                 assert(uav.offset == 0);
                 const owner_nav = ip.toFunc(uav.ip_index).owner_nav;
-                const gop = try wasm.indirect_function_table.getOrPut(comp.gpa, owner_nav);
+                const gop = try wasm.zcu_indirect_function_set.getOrPut(comp.gpa, owner_nav);
                 if (!gop.found_existing) gop.value_ptr.* = {};
                 try cg.addInst(.{
                     .tag = .func_ref,
