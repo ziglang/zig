@@ -5538,7 +5538,7 @@ pub const Tag = enum(u8) {
             },
         },
         .type_union = .{
-            .summary = .@"{.payload.name%summary#\"#\"}",
+            .summary = .@"{.payload.name%summary#\"}",
             .payload = TypeUnion,
             .trailing = struct {
                 captures_len: ?u32,
@@ -6584,7 +6584,7 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
 }
 
 pub fn deinit(ip: *InternPool, gpa: Allocator) void {
-    if (!builtin.strip_debug_info) std.debug.assert(debug_state.intern_pool == null);
+    if (debug_state.enable_checks) std.debug.assert(debug_state.intern_pool == null);
 
     ip.file_deps.deinit(gpa);
     ip.src_hash_deps.deinit(gpa);
@@ -6629,7 +6629,7 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
 }
 
 pub fn activate(ip: *const InternPool) void {
-    if (builtin.strip_debug_info) return;
+    if (!debug_state.enable) return;
     _ = Index.Unwrapped.debug_state;
     _ = String.debug_state;
     _ = OptionalString.debug_state;
@@ -6639,18 +6639,23 @@ pub fn activate(ip: *const InternPool) void {
     _ = TrackedInst.Index.Optional.debug_state;
     _ = Nav.Index.debug_state;
     _ = Nav.Index.Optional.debug_state;
-    std.debug.assert(debug_state.intern_pool == null);
+    if (debug_state.enable_checks) std.debug.assert(debug_state.intern_pool == null);
     debug_state.intern_pool = ip;
 }
 
 pub fn deactivate(ip: *const InternPool) void {
-    if (builtin.strip_debug_info) return;
+    if (!debug_state.enable) return;
     std.debug.assert(debug_state.intern_pool == ip);
-    debug_state.intern_pool = null;
+    if (debug_state.enable_checks) debug_state.intern_pool = null;
 }
 
 /// For debugger access only.
 const debug_state = struct {
+    const enable = switch (builtin.zig_backend) {
+        else => false,
+        .stage2_x86_64 => !builtin.strip_debug_info,
+    };
+    const enable_checks = enable and !builtin.single_threaded;
     threadlocal var intern_pool: ?*const InternPool = null;
 };
 
