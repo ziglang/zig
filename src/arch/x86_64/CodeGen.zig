@@ -13,6 +13,7 @@ const math = std.math;
 const mem = std.mem;
 const target_util = @import("../../target.zig");
 const trace = @import("../../tracy.zig").trace;
+const crash_report = @import("../../crash_report.zig");
 
 const Air = @import("../../Air.zig");
 const Allocator = mem.Allocator;
@@ -2277,10 +2278,15 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
         else => break,
     };
 
+    var crash_info = crash_report.prepCodeGenState(pt, body, self.air, self.liveness, if (self.owner == .nav_index) self.owner.nav_index else null);
+    crash_info.push();
+    defer crash_info.pop();
+
     if (self.arg_index == 0) try self.airDbgVarArgs();
     self.arg_index = 0;
-    for (body) |inst| {
+    for (body, 0..) |inst, i| {
         if (self.liveness.isUnused(inst) and !self.air.mustLower(inst, ip)) continue;
+        crash_info.setBodyIndex(i);
         wip_mir_log.debug("{}", .{self.fmtAir(inst)});
         verbose_tracking_log.debug("{}", .{self.fmtTracking()});
 
