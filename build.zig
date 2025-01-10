@@ -433,6 +433,7 @@ pub fn build(b: *std.Build) !void {
     test_step.dependOn(test_cases_step);
 
     const test_modules_step = b.step("test-modules", "Run the per-target module tests");
+    test_step.dependOn(test_modules_step);
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
         .test_filters = test_filters,
@@ -509,22 +510,24 @@ pub fn build(b: *std.Build) !void {
         .max_rss = 5029889638,
     }));
 
-    test_modules_step.dependOn(tests.addModuleTests(b, .{
-        .test_filters = test_filters,
-        .test_target_filters = test_target_filters,
-        .test_slow_targets = test_slow_targets,
-        .root_src = "src/main.zig",
-        .name = "compiler-internals",
-        .desc = "Run the compiler internals tests",
-        .optimize_modes = optimization_modes,
-        .include_paths = &.{},
-        .skip_single_threaded = skip_single_threaded,
-        .skip_non_native = true,
-        .skip_libc = skip_libc,
-        .build_options = exe_options,
-    }));
+    const unit_tests_step = b.step("test-unit", "Run the compiler source unit tests");
+    test_step.dependOn(unit_tests_step);
 
-    test_step.dependOn(test_modules_step);
+    const unit_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .optimize = optimize,
+            .target = target,
+            .link_libc = link_libc,
+            .single_threaded = single_threaded,
+        }),
+        .filters = test_filters,
+        .use_llvm = use_llvm,
+        .use_lld = use_llvm,
+        .zig_lib_dir = b.path("lib"),
+    });
+    unit_tests.root_module.addOptions("build_options", exe_options);
+    unit_tests_step.dependOn(&b.addRunArtifact(unit_tests).step);
 
     test_step.dependOn(tests.addCompareOutputTests(b, test_filters, optimization_modes));
     test_step.dependOn(tests.addStandaloneTests(
