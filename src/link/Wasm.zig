@@ -151,7 +151,11 @@ uav_fixups: std.ArrayListUnmanaged(UavFixup) = .empty,
 /// List of locations within `string_bytes` that must be patched with the virtual
 /// memory address of a Nav during `flush`.
 /// When emitting an object file, `out_relocs` is used instead.
+/// No functions here only global variables.
 nav_fixups: std.ArrayListUnmanaged(NavFixup) = .empty,
+/// When a nav reference is a function pointer, this tracks the required function
+/// table entry index that needs to overwrite the code in the final output.
+func_table_fixups: std.ArrayListUnmanaged(FuncTableFixup) = .empty,
 /// Symbols to be emitted into an object file. Remains empty when not emitting
 /// an object file.
 symbol_table: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
@@ -303,6 +307,12 @@ pub const UavFixup = extern struct {
 
 pub const NavFixup = extern struct {
     navs_exe_index: NavsExeIndex,
+    /// Index into `string_bytes`.
+    offset: u32,
+};
+
+pub const FuncTableFixup = extern struct {
+    table_index: ZcuIndirectFunctionSetIndex,
     /// Index into `string_bytes`.
     offset: u32,
 };
@@ -2208,7 +2218,7 @@ pub const FunctionImportId = enum(u32) {
     pub fn pack(unpacked: Unpacked, wasm: *const Wasm) FunctionImportId {
         return switch (unpacked) {
             .object_function_import => |i| @enumFromInt(@intFromEnum(i)),
-            .zcu_import => |i| @enumFromInt(@intFromEnum(i) - wasm.object_function_imports.entries.len),
+            .zcu_import => |i| @enumFromInt(@intFromEnum(i) + wasm.object_function_imports.entries.len),
         };
     }
 
@@ -2295,7 +2305,7 @@ pub const GlobalImportId = enum(u32) {
     pub fn pack(unpacked: Unpacked, wasm: *const Wasm) GlobalImportId {
         return switch (unpacked) {
             .object_global_import => |i| @enumFromInt(@intFromEnum(i)),
-            .zcu_import => |i| @enumFromInt(@intFromEnum(i) - wasm.object_global_imports.entries.len),
+            .zcu_import => |i| @enumFromInt(@intFromEnum(i) + wasm.object_global_imports.entries.len),
         };
     }
 
@@ -2360,7 +2370,7 @@ pub const DataImportId = enum(u32) {
     pub fn pack(unpacked: Unpacked, wasm: *const Wasm) DataImportId {
         return switch (unpacked) {
             .object_data_import => |i| @enumFromInt(@intFromEnum(i)),
-            .zcu_import => |i| @enumFromInt(@intFromEnum(i) - wasm.object_data_imports.entries.len),
+            .zcu_import => |i| @enumFromInt(@intFromEnum(i) + wasm.object_data_imports.entries.len),
         };
     }
 
@@ -3027,6 +3037,7 @@ pub fn deinit(wasm: *Wasm) void {
     wasm.out_relocs.deinit(gpa);
     wasm.uav_fixups.deinit(gpa);
     wasm.nav_fixups.deinit(gpa);
+    wasm.func_table_fixups.deinit(gpa);
 
     wasm.zcu_indirect_function_set.deinit(gpa);
     wasm.object_indirect_function_import_set.deinit(gpa);

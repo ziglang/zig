@@ -54,6 +54,11 @@ const IndirectFunctionTableIndex = enum(u32) {
     fn fromOutputFunctionIndex(f: *const Flush, i: Wasm.OutputFunctionIndex) IndirectFunctionTableIndex {
         return @enumFromInt(f.indirect_function_table.getIndex(i).?);
     }
+
+    fn fromZcuIndirectFunctionSetIndex(i: Wasm.ZcuIndirectFunctionSetIndex) IndirectFunctionTableIndex {
+        // These are the same since those are added to the table first.
+        return @enumFromInt(@intFromEnum(i));
+    }
 };
 
 const DataSegmentGroup = struct {
@@ -753,6 +758,14 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 mem.writeInt(u32, wasm.string_bytes.items[nav_fixup.offset..][0..4], vaddr, .little);
             } else {
                 mem.writeInt(u64, wasm.string_bytes.items[nav_fixup.offset..][0..8], vaddr, .little);
+            }
+        }
+        for (wasm.func_table_fixups.items) |fixup| {
+            const table_index: IndirectFunctionTableIndex = .fromZcuIndirectFunctionSetIndex(fixup.table_index);
+            if (!is64) {
+                mem.writeInt(u32, wasm.string_bytes.items[fixup.offset..][0..4], @intFromEnum(table_index), .little);
+            } else {
+                mem.writeInt(u64, wasm.string_bytes.items[fixup.offset..][0..8], @intFromEnum(table_index), .little);
             }
         }
     }

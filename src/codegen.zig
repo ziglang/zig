@@ -738,19 +738,32 @@ fn lowerNavRef(
             dev.check(link.File.Tag.wasm.devFeature());
             const wasm = lf.cast(.wasm).?;
             assert(reloc_parent == .none);
-            if (is_obj) {
-                try wasm.out_relocs.append(gpa, .{
-                    .offset = @intCast(code.items.len),
-                    .pointee = .{ .symbol_index = try wasm.navSymbolIndex(nav_index) },
-                    .tag = if (ptr_width_bytes == 4) .memory_addr_i32 else .memory_addr_i64,
-                    .addend = @intCast(offset),
-                });
+            if (is_fn_body) {
+                const gop = try wasm.zcu_indirect_function_set.getOrPut(gpa, nav_index);
+                if (!gop.found_existing) gop.value_ptr.* = {};
+                if (is_obj) {
+                    @panic("TODO add out_reloc for this");
+                } else {
+                    try wasm.func_table_fixups.append(gpa, .{
+                        .table_index = @enumFromInt(gop.index),
+                        .offset = @intCast(code.items.len),
+                    });
+                }
             } else {
-                try wasm.nav_fixups.ensureUnusedCapacity(gpa, 1);
-                wasm.nav_fixups.appendAssumeCapacity(.{
-                    .navs_exe_index = try wasm.refNavExe(nav_index),
-                    .offset = @intCast(code.items.len),
-                });
+                if (is_obj) {
+                    try wasm.out_relocs.append(gpa, .{
+                        .offset = @intCast(code.items.len),
+                        .pointee = .{ .symbol_index = try wasm.navSymbolIndex(nav_index) },
+                        .tag = if (ptr_width_bytes == 4) .memory_addr_i32 else .memory_addr_i64,
+                        .addend = @intCast(offset),
+                    });
+                } else {
+                    try wasm.nav_fixups.ensureUnusedCapacity(gpa, 1);
+                    wasm.nav_fixups.appendAssumeCapacity(.{
+                        .navs_exe_index = try wasm.refNavExe(nav_index),
+                        .offset = @intCast(code.items.len),
+                    });
+                }
             }
             code.appendNTimesAssumeCapacity(0, ptr_width_bytes);
             return;
