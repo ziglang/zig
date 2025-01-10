@@ -1182,8 +1182,16 @@ fn emitProducerSection(gpa: Allocator, binary_bytes: *std.ArrayListUnmanaged(u8)
 
 fn splitSegmentName(name: []const u8) struct { []const u8, []const u8 } {
     const start = @intFromBool(name.len >= 1 and name[0] == '.');
-    const pivot = mem.indexOfScalarPos(u8, name, start, '.') orelse 0;
+    const pivot = mem.indexOfScalarPos(u8, name, start, '.') orelse name.len;
     return .{ name[0..pivot], name[pivot..] };
+}
+
+test splitSegmentName {
+    {
+        const a, const b = splitSegmentName(".data");
+        try std.testing.expectEqualStrings(".data", a);
+        try std.testing.expectEqualStrings("", b);
+    }
 }
 
 fn wantSegmentMerge(
