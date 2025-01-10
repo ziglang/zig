@@ -1584,7 +1584,6 @@ test parseInt {
     try std.testing.expectEqual(@as(i5, -16), try std.fmt.parseInt(i5, "-10", 16));
 }
 
-/// Like `parseIntWithGenericCharacter`, but with a sign argument.
 fn parseIntWithSign(
     comptime Result: type,
     comptime Character: type,
