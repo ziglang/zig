@@ -77,6 +77,7 @@ mir_instructions: *std.MultiArrayList(Mir.Inst),
 /// Contains extra data for MIR
 mir_extra: *std.ArrayListUnmanaged(u32),
 start_mir_extra_off: u32,
+start_locals_off: u32,
 /// List of all locals' types generated throughout this declaration
 /// used to emit locals count at start of 'code' section.
 locals: *std.ArrayListUnmanaged(u8),
@@ -209,7 +210,7 @@ const WValue = union(enum) {
         if (local_value < reserved + 2) return; // reserved locals may never be re-used. Also accounts for 2 stack locals.
 
         const index = local_value - reserved;
-        const valtype: std.wasm.Valtype = @enumFromInt(gen.locals.items[index]);
+        const valtype: std.wasm.Valtype = @enumFromInt(gen.locals.items[gen.start_locals_off + index]);
         switch (valtype) {
             .i32 => gen.free_locals_i32.append(gen.gpa, local_value) catch return, // It's ok to fail any of those, a new local can be allocated instead
             .i64 => gen.free_locals_i64.append(gen.gpa, local_value) catch return,
@@ -1295,6 +1296,7 @@ pub fn function(
         .mir_extra = &wasm.mir_extra,
         .locals = &wasm.all_zcu_locals,
         .start_mir_extra_off = @intCast(wasm.mir_extra.items.len),
+        .start_locals_off = @intCast(wasm.all_zcu_locals.items.len),
     };
     defer code_gen.deinit();
 
@@ -1309,7 +1311,6 @@ fn functionInner(cg: *CodeGen, any_returns: bool) InnerError!Function {
     const zcu = cg.pt.zcu;
 
     const start_mir_off: u32 = @intCast(wasm.mir_instructions.len);
-    const start_locals_off: u32 = @intCast(wasm.all_zcu_locals.items.len);
 
     try cg.branches.append(cg.gpa, .{});
     // clean up outer branch
@@ -1339,8 +1340,8 @@ fn functionInner(cg: *CodeGen, any_returns: bool) InnerError!Function {
         .mir_len = @intCast(wasm.mir_instructions.len - start_mir_off),
         .mir_extra_off = cg.start_mir_extra_off,
         .mir_extra_len = cg.extraLen(),
-        .locals_off = start_locals_off,
-        .locals_len = @intCast(wasm.all_zcu_locals.items.len - start_locals_off),
+        .locals_off = cg.start_locals_off,
+        .locals_len = @intCast(wasm.all_zcu_locals.items.len - cg.start_locals_off),
         .prologue = if (cg.initial_stack_value == .none) .none else .{
             .sp_local = cg.initial_stack_value.local.value,
             .flags = .{ .stack_alignment = cg.stack_alignment },
