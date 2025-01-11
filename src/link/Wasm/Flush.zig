@@ -59,6 +59,10 @@ const IndirectFunctionTableIndex = enum(u32) {
         // These are the same since those are added to the table first.
         return @enumFromInt(@intFromEnum(i));
     }
+
+    fn toAbi(i: IndirectFunctionTableIndex) u32 {
+        return @intFromEnum(i) + 1;
+    }
 };
 
 const DataSegmentGroup = struct {
@@ -777,9 +781,9 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         for (wasm.func_table_fixups.items) |fixup| {
             const table_index: IndirectFunctionTableIndex = .fromZcuIndirectFunctionSetIndex(fixup.table_index);
             if (!is64) {
-                mem.writeInt(u32, wasm.string_bytes.items[fixup.offset..][0..4], @intFromEnum(table_index), .little);
+                mem.writeInt(u32, wasm.string_bytes.items[fixup.offset..][0..4], table_index.toAbi(), .little);
             } else {
-                mem.writeInt(u64, wasm.string_bytes.items[fixup.offset..][0..8], @intFromEnum(table_index), .little);
+                mem.writeInt(u64, wasm.string_bytes.items[fixup.offset..][0..8], table_index.toAbi(), .little);
             }
         }
     }
@@ -1582,19 +1586,19 @@ fn applyRelocs(code: []u8, code_offset: u32, relocs: Wasm.ObjectRelocation.Itera
 }
 
 fn reloc_u32_table_index(code: []u8, i: IndirectFunctionTableIndex) void {
-    mem.writeInt(u32, code[0..4], @intFromEnum(i), .little);
+    mem.writeInt(u32, code[0..4], i.toAbi(), .little);
 }
 
 fn reloc_u64_table_index(code: []u8, i: IndirectFunctionTableIndex) void {
-    mem.writeInt(u64, code[0..8], @intFromEnum(i), .little);
+    mem.writeInt(u64, code[0..8], i.toAbi(), .little);
 }
 
 fn reloc_sleb_table_index(code: []u8, i: IndirectFunctionTableIndex) void {
-    leb.writeSignedFixed(5, code[0..5], @intFromEnum(i));
+    leb.writeSignedFixed(5, code[0..5], i.toAbi());
 }
 
 fn reloc_sleb64_table_index(code: []u8, i: IndirectFunctionTableIndex) void {
-    leb.writeSignedFixed(11, code[0..11], @intFromEnum(i));
+    leb.writeSignedFixed(11, code[0..11], i.toAbi());
 }
 
 fn reloc_u32_function(code: []u8, function: Wasm.OutputFunctionIndex) void {

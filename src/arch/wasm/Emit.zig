@@ -81,7 +81,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             if (is_obj) {
                 @panic("TODO");
             } else {
-                leb.writeUleb128(code.fixedWriter(), @intFromEnum(datas[inst].indirect_function_table_index)) catch unreachable;
+                leb.writeUleb128(code.fixedWriter(), 1 + @intFromEnum(datas[inst].indirect_function_table_index)) catch unreachable;
             }
             inst += 1;
             continue :loop tags[inst];
