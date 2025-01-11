@@ -104,6 +104,20 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
 
     const entry_name = if (wasm.entry_resolution.isNavOrUnresolved(wasm)) wasm.entry_name else .none;
 
+    // Detect any intrinsics that were called; they need to have dependencies on the symbols marked.
+    for (wasm.mir_instructions.items(.tag), wasm.mir_instructions.items(.data)) |tag, *data| switch (tag) {
+        .call_intrinsic => {
+            const symbol_name = try wasm.internString(@tagName(data.intrinsic));
+            const i: Wasm.FunctionImport.Index = @enumFromInt(wasm.object_function_imports.getIndex(symbol_name) orelse {
+                return diags.fail("missing compiler runtime intrinsic '{s}' (undefined linker symbol)", .{
+                    @tagName(data.intrinsic),
+                });
+            });
+            try wasm.markFunctionImport(symbol_name, i.value(wasm), i);
+        },
+        else => continue,
+    };
+
     if (comp.zcu) |zcu| {
         const ip: *const InternPool = &zcu.intern_pool; // No mutations allowed!
 
