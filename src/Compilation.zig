@@ -1884,7 +1884,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 for (0..count) |i| {
                     try comp.queueJob(.{ .windows_import_lib = i });
                 }
-                comp.remaining_prelink_tasks += @intCast(count);
             }
             if (comp.wantBuildLibUnwindFromSource()) {
                 try comp.queueJob(.{ .libunwind = {} });
@@ -4003,6 +4002,7 @@ fn dispatchCodegenTask(comp: *Compilation, tid: usize, link_task: link.Task) voi
     if (comp.separateCodegenThreadOk()) {
         comp.queueLinkTasks(&.{link_task});
     } else {
+        assert(comp.remaining_prelink_tasks == 0);
         link.doTask(comp, tid, link_task);
     }
 }
