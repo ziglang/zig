@@ -3064,7 +3064,8 @@ pub fn updateFunc(wasm: *Wasm, pt: Zcu.PerThread, func_index: InternPool.Index, 
 
     dev.check(.wasm_backend);
 
-    const gpa = pt.zcu.gpa;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
     try wasm.functions.ensureUnusedCapacity(gpa, 1);
     try wasm.zcu_funcs.ensureUnusedCapacity(gpa, 1);
 
@@ -3074,9 +3075,8 @@ pub fn updateFunc(wasm: *Wasm, pt: Zcu.PerThread, func_index: InternPool.Index, 
     // That lowering happens during `flush`, after garbage collection, which
     // can affect function and global indexes, which affects the LEB integer
     // encoding, which affects the output binary size.
-    wasm.zcu_funcs.putAssumeCapacity(func_index, .{
-        .function = try CodeGen.function(wasm, pt, func_index, air, liveness),
-    });
+    const function = try CodeGen.function(wasm, pt, func_index, air, liveness);
+    wasm.zcu_funcs.putAssumeCapacity(func_index, .{ .function = function });
     wasm.functions.putAssumeCapacity(.pack(wasm, .{ .zcu_func = @enumFromInt(wasm.zcu_funcs.entries.len - 1) }), {});
 
     try zds.finish(wasm, pt);
@@ -3356,7 +3356,7 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
     }
 }
 
-fn markFunctionImport(
+pub fn markFunctionImport(
     wasm: *Wasm,
     name: String,
     import: *FunctionImport,
@@ -4455,12 +4455,19 @@ pub fn isBss(wasm: *const Wasm, optional_name: OptionalString) bool {
 fn lowerZcuData(wasm: *Wasm, pt: Zcu.PerThread, ip_index: InternPool.Index) !ZcuDataObj {
     const code_start: u32 = @intCast(wasm.string_bytes.items.len);
     const relocs_start: u32 = @intCast(wasm.out_relocs.len);
+    const uav_fixups_start: u32 = @intCast(wasm.uav_fixups.items.len);
+    const nav_fixups_start: u32 = @intCast(wasm.nav_fixups.items.len);
+    const func_table_fixups_start: u32 = @intCast(wasm.func_table_fixups.items.len);
     wasm.string_bytes_lock.lock();
 
     try codegen.generateSymbol(&wasm.base, pt, .unneeded, .fromInterned(ip_index), &wasm.string_bytes, .none);
 
     const code_len: u32 = @intCast(wasm.string_bytes.items.len - code_start);
     const relocs_len: u32 = @intCast(wasm.out_relocs.len - relocs_start);
+    const any_fixups =
+        uav_fixups_start != wasm.uav_fixups.items.len or
+        nav_fixups_start != wasm.nav_fixups.items.len or
+        func_table_fixups_start != wasm.func_table_fixups.items.len;
     wasm.string_bytes_lock.unlock();
 
     const naive_code: DataPayload = .{
@@ -4469,8 +4476,9 @@ fn lowerZcuData(wasm: *Wasm, pt: Zcu.PerThread, ip_index: InternPool.Index) !Zcu
     };
 
     // Only nonzero init values need to take up space in the output.
-    const all_zeroes = std.mem.allEqual(u8, naive_code.slice(wasm), 0);
-    const code: DataPayload = if (!all_zeroes) naive_code else c: {
+    // If any fixups are present, we still need the string bytes allocated since
+    // that is the staging area for the fixups.
+    const code: DataPayload = if (!any_fixups and std.mem.allEqual(u8, naive_code.slice(wasm), 0)) c: {
         wasm.string_bytes.shrinkRetainingCapacity(code_start);
         // Indicate empty by making off and len the same value, however, still
         // transmit the data size by using the size as that value.
@@ -4478,7 +4486,7 @@ fn lowerZcuData(wasm: *Wasm, pt: Zcu.PerThread, ip_index: InternPool.Index) !Zcu
             .off = .none,
             .len = naive_code.len,
         };
-    };
+    } else naive_code;
 
     return .{
         .code = code,
