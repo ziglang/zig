@@ -3069,6 +3069,10 @@ pub fn updateFunc(wasm: *Wasm, pt: Zcu.PerThread, func_index: InternPool.Index, 
     try wasm.functions.ensureUnusedCapacity(gpa, 1);
     try wasm.zcu_funcs.ensureUnusedCapacity(gpa, 1);
 
+    const ip = &zcu.intern_pool;
+    const owner_nav = zcu.funcInfo(func_index).owner_nav;
+    log.debug("updateFunc {}", .{ip.getNav(owner_nav).fqn.fmt(ip)});
+
     const zds: ZcuDataStarts = .init(wasm);
 
     // This converts AIR to MIR but does not yet lower to wasm code.
