@@ -7983,7 +7983,13 @@ fn analyzeCall(
         }
 
         if (call_tag == .call_always_tail) {
-            return sema.handleTailCall(block, call_src, sema.typeOf(runtime_func), result);
+            const func_or_ptr_ty = sema.typeOf(runtime_func);
+            const runtime_func_ty = switch (func_or_ptr_ty.zigTypeTag(zcu)) {
+                .@"fn" => func_or_ptr_ty,
+                .pointer => func_or_ptr_ty.childType(zcu),
+                else => unreachable,
+            };
+            return sema.handleTailCall(block, call_src, runtime_func_ty, result);
         }
 
         if (resolved_ret_ty.toIntern() == .noreturn_type) {
