@@ -4376,7 +4376,8 @@ pub fn navAddr(wasm: *Wasm, nav_index: InternPool.Nav.Index) u32 {
     assert(wasm.flush_buffer.memory_layout_finished);
     const comp = wasm.base.comp;
     assert(comp.config.output_mode != .Obj);
-    const navs_exe_index: NavsExeIndex = @enumFromInt(wasm.navs_exe.getIndex(nav_index).?);
+    // If there is no entry it means the value is zero bits so any address will do.
+    const navs_exe_index: NavsExeIndex = @enumFromInt(wasm.navs_exe.getIndex(nav_index) orelse return 0);
     log.debug("navAddr {s} {}", .{ navs_exe_index.name(wasm), nav_index });
     const ds_id: DataSegmentId = .pack(wasm, .{ .nav_exe = navs_exe_index });
     return wasm.flush_buffer.data_segments.get(ds_id).?;
