@@ -5754,10 +5754,12 @@ pub const FuncGen = struct {
         const o = fg.ng.object;
         const zcu = o.pt.zcu;
         const ip = &zcu.intern_pool;
-        const panic_msg_val = zcu.builtin_decl_values.get(panic_id.toBuiltin());
-        assert(panic_msg_val != .none);
-        const msg_len = Value.fromInterned(panic_msg_val).typeOf(zcu).childType(zcu).arrayLen(zcu);
-        const msg_ptr = try o.lowerValue(panic_msg_val);
+        const msg_len: u64, const msg_ptr: Builder.Constant = msg: {
+            const str_val = zcu.builtin_decl_values.get(panic_id.toBuiltin());
+            assert(str_val != .none);
+            const slice = ip.indexToKey(str_val).slice;
+            break :msg .{ Value.fromInterned(slice.len).toUnsignedInt(zcu), try o.lowerValue(slice.ptr) };
+        };
         const null_opt_addr_global = try fg.resolveNullOptUsize();
         const target = zcu.getTarget();
         const llvm_usize = try o.lowerType(Type.usize);
