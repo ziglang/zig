@@ -8417,6 +8417,7 @@ fn zirArrayTypeSentinel(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compil
         .sentinel = sentinel_val.toIntern(),
         .child = elem_type.toIntern(),
     });
+    try sema.checkSentinelType(block, sentinel_src, elem_type);
 
     return Air.internedToRef(array_ty.toIntern());
 }
@@ -21644,6 +21645,7 @@ fn zirReify(
                     const sentinel_ptr_val = sentinel_val.optionalValue(zcu).?;
                     const ptr_ty = try pt.singleMutPtrType(elem_ty);
                     const sent_val = (try sema.pointerDeref(block, src, sentinel_ptr_val, ptr_ty)).?;
+                    try sema.checkSentinelType(block, src, elem_ty);
                     break :s sent_val.toIntern();
                 }
                 break :s .none;
@@ -21708,6 +21710,7 @@ fn zirReify(
             const child_ty = child_val.toType();
             const sentinel = if (sentinel_val.optionalValue(zcu)) |p| blk: {
                 const ptr_ty = try pt.singleMutPtrType(child_ty);
+                try sema.checkSentinelType(block, src, child_ty);
                 break :blk (try sema.pointerDeref(block, src, p, ptr_ty)).?;
             } else null;
 
