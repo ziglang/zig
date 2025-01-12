@@ -23353,7 +23353,7 @@ fn ptrCastFull(
             if (src_info.flags.size == .C) break :check_size;
             if (dest_info.flags.size == .C) break :check_size;
             return sema.failWithOwnedErrorMsg(block, msg: {
-                const msg = try sema.errMsg(src, "cannot implicitly convert {s} pointer to {s} pointer", .{
+                const msg = try sema.errMsg(src, "cannot implicitly convert {s} to {s}", .{
                     pointerSizeString(src_info.flags.size),
                     pointerSizeString(dest_info.flags.size),
                 });
@@ -30145,7 +30145,7 @@ const InMemoryCoercionResult = union(enum) {
                 break;
             },
             .ptr_size => |size| {
-                try sema.errNote(src, msg, "a {s} pointer cannot cast into a {s} pointer", .{ pointerSizeString(size.actual), pointerSizeString(size.wanted) });
+                try sema.errNote(src, msg, "a {s} cannot cast into a {s}", .{ pointerSizeString(size.actual), pointerSizeString(size.wanted) });
                 break;
             },
             .ptr_allowzero => |pair| {
@@ -30224,10 +30224,10 @@ const InMemoryCoercionResult = union(enum) {
 
 fn pointerSizeString(size: std.builtin.Type.Pointer.Size) []const u8 {
     return switch (size) {
-        .One => "single",
-        .Many => "many",
-        .C => "C",
-        .Slice => unreachable,
+        .One => "single pointer",
+        .Many => "many pointer",
+        .C => "C pointer",
+        .Slice => "slice",
     };
 }
 
