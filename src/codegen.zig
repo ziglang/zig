@@ -225,13 +225,12 @@ pub fn generateSymbol(
 
         .undef => unreachable, // handled above
         .simple_value => |simple_value| switch (simple_value) {
-            .undefined,
-            .void,
-            .null,
-            .empty_tuple,
-            .@"unreachable",
-            .generic_poison,
-            => unreachable, // non-runtime values
+            .undefined => unreachable, // non-runtime value
+            .void => unreachable, // non-runtime value
+            .null => unreachable, // non-runtime value
+            .@"unreachable" => unreachable, // non-runtime value
+            .generic_poison => unreachable, // non-runtime value
+            .empty_tuple => return,
             .false, .true => try code.append(gpa, switch (simple_value) {
                 .false => 0,
                 .true => 1,
