@@ -46,7 +46,6 @@ const lldMain = @import("../main.zig").lldMain;
 const trace = @import("../tracy.zig").trace;
 const wasi_libc = @import("../wasi_libc.zig");
 const Value = @import("../Value.zig");
-const ZcuType = @import("../Type.zig");
 
 base: link.File,
 /// Null-terminated strings, indexes have type String and string_table provides
@@ -190,6 +189,7 @@ navs_exe: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, ZcuDataExe) = .emp
 uavs_obj: std.AutoArrayHashMapUnmanaged(InternPool.Index, ZcuDataObj) = .empty,
 /// Tracks ref count to optimize LEB encodings for UAV references.
 uavs_exe: std.AutoArrayHashMapUnmanaged(InternPool.Index, ZcuDataExe) = .empty,
+/// When the key is an enum type, this represents a `@tagName` function.
 zcu_funcs: std.AutoArrayHashMapUnmanaged(InternPool.Index, ZcuFunc) = .empty,
 nav_exports: std.AutoArrayHashMapUnmanaged(NavExport, Zcu.Export.Index) = .empty,
 uav_exports: std.AutoArrayHashMapUnmanaged(UavExport, Zcu.Export.Index) = .empty,
@@ -269,6 +269,7 @@ object_indirect_function_import_set: std.AutoArrayHashMapUnmanaged(String, void)
 object_indirect_function_set: std.AutoArrayHashMapUnmanaged(ObjectFunctionIndex, void) = .empty,
 
 error_name_table_ref_count: u32 = 0,
+tag_name_table_ref_count: u32 = 0,
 
 /// Set to true if any `GLOBAL_INDEX` relocation is encountered with
 /// `SymbolFlags.tls` set to true. This is for objects only; final
@@ -293,6 +294,14 @@ error_name_bytes: std.ArrayListUnmanaged(u8) = .empty,
 /// For each Zcu error, in order, offset into `error_name_bytes` where the name
 /// is stored. No need to serialize; trivially reconstructed.
 error_name_offs: std.ArrayListUnmanaged(u32) = .empty,
+
+tag_name_bytes: std.ArrayListUnmanaged(u8) = .empty,
+tag_name_offs: std.ArrayListUnmanaged(u32) = .empty,
+
+pub const TagNameOff = extern struct {
+    off: u32,
+    len: u32,
+};
 
 /// Index into `Wasm.zcu_indirect_function_set`.
 pub const ZcuIndirectFunctionSetIndex = enum(u32) {
@@ -857,8 +866,16 @@ const ZcuDataStarts = struct {
     }
 };
 
-pub const ZcuFunc = extern struct {
+pub const ZcuFunc = union {
     function: CodeGen.Function,
+    tag_name: TagName,
+
+    pub const TagName = extern struct {
+        symbol_name: String,
+        type_index: FunctionType.Index,
+        /// Index into `Wasm.tag_name_offs`.
+        table_index: u32,
+    };
 
     /// Index into `Wasm.zcu_funcs`.
     /// Note that swapRemove is sometimes performed on `zcu_funcs`.
@@ -876,20 +893,35 @@ pub const ZcuFunc = extern struct {
         pub fn name(i: @This(), wasm: *const Wasm) [:0]const u8 {
             const zcu = wasm.base.comp.zcu.?;
             const ip = &zcu.intern_pool;
-            const func = ip.toFunc(i.key(wasm).*);
-            const nav = ip.getNav(func.owner_nav);
-            return nav.fqn.toSlice(ip);
+            const ip_index = i.key(wasm).*;
+            switch (ip.indexToKey(ip_index)) {
+                .func => |func| {
+                    const nav = ip.getNav(func.owner_nav);
+                    return nav.fqn.toSlice(ip);
+                },
+                .enum_type => {
+                    return i.value(wasm).tag_name.symbol_name.slice(wasm);
+                },
+                else => unreachable,
+            }
         }
 
-        pub fn typeIndex(i: @This(), wasm: *Wasm) ?FunctionType.Index {
+        pub fn typeIndex(i: @This(), wasm: *Wasm) FunctionType.Index {
             const comp = wasm.base.comp;
             const zcu = comp.zcu.?;
             const target = &comp.root_mod.resolved_target.result;
             const ip = &zcu.intern_pool;
-            const func = ip.toFunc(i.key(wasm).*);
-            const fn_ty = zcu.navValue(func.owner_nav).typeOf(zcu);
-            const fn_info = zcu.typeToFunc(fn_ty).?;
-            return wasm.getExistingFunctionType(fn_info.cc, fn_info.param_types.get(ip), .fromInterned(fn_info.return_type), target);
+            switch (ip.indexToKey(i.key(wasm).*)) {
+                .func => |func| {
+                    const fn_ty = zcu.navValue(func.owner_nav).typeOf(zcu);
+                    const fn_info = zcu.typeToFunc(fn_ty).?;
+                    return wasm.getExistingFunctionType(fn_info.cc, fn_info.param_types.get(ip), .fromInterned(fn_info.return_type), target).?;
+                },
+                .enum_type => {
+                    return i.value(wasm).tag_name.type_index;
+                },
+                else => unreachable,
+            }
         }
     };
 };
@@ -988,8 +1020,12 @@ pub const FunctionImport = extern struct {
             return fromIpIndex(wasm, ip.getNav(nav_index).status.fully_resolved.val);
         }
 
+        pub fn fromZcuFunc(wasm: *const Wasm, i: ZcuFunc.Index) Resolution {
+            return pack(wasm, .{ .zcu_func = i });
+        }
+
         pub fn fromIpIndex(wasm: *const Wasm, ip_index: InternPool.Index) Resolution {
-            return pack(wasm, .{ .zcu_func = @enumFromInt(wasm.zcu_funcs.getIndex(ip_index).?) });
+            return fromZcuFunc(wasm, @enumFromInt(wasm.zcu_funcs.getIndex(ip_index).?));
         }
 
         pub fn fromObjectFunction(wasm: *const Wasm, object_function: ObjectFunctionIndex) Resolution {
@@ -1012,7 +1048,7 @@ pub const FunctionImport = extern struct {
                 => getExistingFuncType2(wasm, &.{}, &.{}),
                 .__wasm_init_tls => getExistingFuncType2(wasm, &.{.i32}, &.{}),
                 .object_function => |i| i.ptr(wasm).type_index,
-                .zcu_func => |i| i.typeIndex(wasm).?,
+                .zcu_func => |i| i.typeIndex(wasm),
             };
         }
 
@@ -1717,6 +1753,10 @@ pub const DataPayload = extern struct {
 pub const DataSegmentId = enum(u32) {
     __zig_error_names,
     __zig_error_name_table,
+    /// All name string bytes for all `@tagName` implementations, concatenated together.
+    __zig_tag_names,
+    /// All tag name slices for all `@tagName` implementations, concatenated together.
+    __zig_tag_name_table,
     /// This and `__heap_end` are better retrieved via a global, but there is
     /// some suboptimal code out there (wasi libc) that additionally needs them
     /// as data symbols.
@@ -1742,6 +1782,8 @@ pub const DataSegmentId = enum(u32) {
     pub const Unpacked = union(enum) {
         __zig_error_names,
         __zig_error_name_table,
+        __zig_tag_names,
+        __zig_tag_name_table,
         __heap_base,
         __heap_end,
         object: ObjectDataSegment.Index,
@@ -1755,6 +1797,8 @@ pub const DataSegmentId = enum(u32) {
         return switch (unpacked) {
             .__zig_error_names => .__zig_error_names,
             .__zig_error_name_table => .__zig_error_name_table,
+            .__zig_tag_names => .__zig_tag_names,
+            .__zig_tag_name_table => .__zig_tag_name_table,
             .__heap_base => .__heap_base,
             .__heap_end => .__heap_end,
             .object => |i| @enumFromInt(first_object + @intFromEnum(i)),
@@ -1768,6 +1812,8 @@ pub const DataSegmentId = enum(u32) {
         return switch (id) {
             .__zig_error_names => .__zig_error_names,
             .__zig_error_name_table => .__zig_error_name_table,
+            .__zig_tag_names => .__zig_tag_names,
+            .__zig_tag_name_table => .__zig_tag_name_table,
             .__heap_base => .__heap_base,
             .__heap_end => .__heap_end,
             _ => {
@@ -1815,7 +1861,14 @@ pub const DataSegmentId = enum(u32) {
 
     pub fn category(id: DataSegmentId, wasm: *const Wasm) Category {
         return switch (unpack(id, wasm)) {
-            .__zig_error_names, .__zig_error_name_table, .__heap_base, .__heap_end => .data,
+            .__zig_error_names,
+            .__zig_error_name_table,
+            .__zig_tag_names,
+            .__zig_tag_name_table,
+            .__heap_base,
+            .__heap_end,
+            => .data,
+
             .object => |i| {
                 const ptr = i.ptr(wasm);
                 if (ptr.flags.tls) return .tls;
@@ -1836,7 +1889,14 @@ pub const DataSegmentId = enum(u32) {
 
     pub fn isTls(id: DataSegmentId, wasm: *const Wasm) bool {
         return switch (unpack(id, wasm)) {
-            .__zig_error_names, .__zig_error_name_table, .__heap_base, .__heap_end => false,
+            .__zig_error_names,
+            .__zig_error_name_table,
+            .__zig_tag_names,
+            .__zig_tag_name_table,
+            .__heap_base,
+            .__heap_end,
+            => false,
+
             .object => |i| i.ptr(wasm).flags.tls,
             .uav_exe, .uav_obj => false,
             inline .nav_exe, .nav_obj => |i| {
@@ -1854,7 +1914,16 @@ pub const DataSegmentId = enum(u32) {
 
     pub fn name(id: DataSegmentId, wasm: *const Wasm) []const u8 {
         return switch (unpack(id, wasm)) {
-            .__zig_error_names, .__zig_error_name_table, .uav_exe, .uav_obj, .__heap_base, .__heap_end => ".data",
+            .__zig_error_names,
+            .__zig_error_name_table,
+            .__zig_tag_names,
+            .__zig_tag_name_table,
+            .uav_exe,
+            .uav_obj,
+            .__heap_base,
+            .__heap_end,
+            => ".data",
+
             .object => |i| i.ptr(wasm).name.unwrap().?.slice(wasm),
             inline .nav_exe, .nav_obj => |i| {
                 const zcu = wasm.base.comp.zcu.?;
@@ -1867,14 +1936,14 @@ pub const DataSegmentId = enum(u32) {
 
     pub fn alignment(id: DataSegmentId, wasm: *const Wasm) Alignment {
         return switch (unpack(id, wasm)) {
-            .__zig_error_names => .@"1",
-            .__zig_error_name_table, .__heap_base, .__heap_end => wasm.pointerAlignment(),
+            .__zig_error_names, .__zig_tag_names => .@"1",
+            .__zig_error_name_table, .__zig_tag_name_table, .__heap_base, .__heap_end => wasm.pointerAlignment(),
             .object => |i| i.ptr(wasm).flags.alignment,
             inline .uav_exe, .uav_obj => |i| {
                 const zcu = wasm.base.comp.zcu.?;
                 const ip = &zcu.intern_pool;
                 const ip_index = i.key(wasm).*;
-                const ty: ZcuType = .fromInterned(ip.typeOf(ip_index));
+                const ty: Zcu.Type = .fromInterned(ip.typeOf(ip_index));
                 const result = ty.abiAlignment(zcu);
                 assert(result != .none);
                 return result;
@@ -1885,7 +1954,7 @@ pub const DataSegmentId = enum(u32) {
                 const nav = ip.getNav(i.key(wasm).*);
                 const explicit = nav.getAlignment();
                 if (explicit != .none) return explicit;
-                const ty: ZcuType = .fromInterned(nav.typeOf(ip));
+                const ty: Zcu.Type = .fromInterned(nav.typeOf(ip));
                 const result = ty.abiAlignment(zcu);
                 assert(result != .none);
                 return result;
@@ -1897,6 +1966,8 @@ pub const DataSegmentId = enum(u32) {
         return switch (unpack(id, wasm)) {
             .__zig_error_names => @intCast(wasm.error_name_offs.items.len),
             .__zig_error_name_table => wasm.error_name_table_ref_count,
+            .__zig_tag_names => @intCast(wasm.tag_name_offs.items.len),
+            .__zig_tag_name_table => wasm.tag_name_table_ref_count,
             .object, .uav_obj, .nav_obj, .__heap_base, .__heap_end => 0,
             inline .uav_exe, .nav_exe => |i| i.value(wasm).count,
         };
@@ -1906,7 +1977,14 @@ pub const DataSegmentId = enum(u32) {
         const comp = wasm.base.comp;
         if (comp.config.import_memory and !id.isBss(wasm)) return true;
         return switch (unpack(id, wasm)) {
-            .__zig_error_names, .__zig_error_name_table, .__heap_base, .__heap_end => false,
+            .__zig_error_names,
+            .__zig_error_name_table,
+            .__zig_tag_names,
+            .__zig_tag_name_table,
+            .__heap_base,
+            .__heap_end,
+            => false,
+
             .object => |i| i.ptr(wasm).flags.is_passive,
             .uav_exe, .uav_obj, .nav_exe, .nav_obj => false,
         };
@@ -1914,7 +1992,14 @@ pub const DataSegmentId = enum(u32) {
 
     pub fn isEmpty(id: DataSegmentId, wasm: *const Wasm) bool {
         return switch (unpack(id, wasm)) {
-            .__zig_error_names, .__zig_error_name_table, .__heap_base, .__heap_end => false,
+            .__zig_error_names,
+            .__zig_error_name_table,
+            .__zig_tag_names,
+            .__zig_tag_name_table,
+            .__heap_base,
+            .__heap_end,
+            => false,
+
             .object => |i| i.ptr(wasm).payload.off == .none,
             inline .uav_exe, .uav_obj, .nav_exe, .nav_obj => |i| i.value(wasm).code.off == .none,
         };
@@ -1927,8 +2012,16 @@ pub const DataSegmentId = enum(u32) {
                 const comp = wasm.base.comp;
                 const zcu = comp.zcu.?;
                 const errors_len = wasm.error_name_offs.items.len;
-                const elem_size = ZcuType.slice_const_u8_sentinel_0.abiSize(zcu);
+                const elem_size = Zcu.Type.slice_const_u8_sentinel_0.abiSize(zcu);
                 return @intCast(errors_len * elem_size);
+            },
+            .__zig_tag_names => @intCast(wasm.tag_name_bytes.items.len),
+            .__zig_tag_name_table => {
+                const comp = wasm.base.comp;
+                const zcu = comp.zcu.?;
+                const table_len = wasm.tag_name_offs.items.len;
+                const elem_size = Zcu.Type.slice_const_u8_sentinel_0.abiSize(zcu);
+                return @intCast(table_len * elem_size);
             },
             .__heap_base, .__heap_end => wasm.pointerSize(),
             .object => |i| i.ptr(wasm).payload.len,
@@ -3052,6 +3145,8 @@ pub fn deinit(wasm: *Wasm) void {
 
     wasm.error_name_bytes.deinit(gpa);
     wasm.error_name_offs.deinit(gpa);
+    wasm.tag_name_bytes.deinit(gpa);
+    wasm.tag_name_offs.deinit(gpa);
 
     wasm.missing_exports.deinit(gpa);
 }
@@ -4197,7 +4292,7 @@ pub fn internFunctionType(
     wasm: *Wasm,
     cc: std.builtin.CallingConvention,
     params: []const InternPool.Index,
-    return_type: ZcuType,
+    return_type: Zcu.Type,
     target: *const std.Target,
 ) Allocator.Error!FunctionType.Index {
     try convertZcuFnType(wasm.base.comp, cc, params, return_type, target, &wasm.params_scratch, &wasm.returns_scratch);
@@ -4211,7 +4306,7 @@ pub fn getExistingFunctionType(
     wasm: *Wasm,
     cc: std.builtin.CallingConvention,
     params: []const InternPool.Index,
-    return_type: ZcuType,
+    return_type: Zcu.Type,
     target: *const std.Target,
 ) ?FunctionType.Index {
     convertZcuFnType(wasm.base.comp, cc, params, return_type, target, &wasm.params_scratch, &wasm.returns_scratch) catch |err| switch (err) {
@@ -4395,7 +4490,7 @@ fn convertZcuFnType(
     comp: *Compilation,
     cc: std.builtin.CallingConvention,
     params: []const InternPool.Index,
-    return_type: ZcuType,
+    return_type: Zcu.Type,
     target: *const std.Target,
     params_buffer: *std.ArrayListUnmanaged(std.wasm.Valtype),
     returns_buffer: *std.ArrayListUnmanaged(std.wasm.Valtype),
@@ -4423,7 +4518,7 @@ fn convertZcuFnType(
 
     // param types
     for (params) |param_type_ip| {
-        const param_type = ZcuType.fromInterned(param_type_ip);
+        const param_type = Zcu.Type.fromInterned(param_type_ip);
         if (!param_type.hasRuntimeBitsIgnoreComptime(zcu)) continue;
 
         switch (cc) {
