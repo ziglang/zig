@@ -38581,7 +38581,7 @@ pub fn resolveNavPtrModifiers(
     };
 }
 
-pub fn analyzeMemoizedState(sema: *Sema, block: *Block, src: LazySrcLoc, builtin_namespace: InternPool.NamespaceIndex, stage: InternPool.MemoizedStateStage) CompileError!bool {
+pub fn analyzeMemoizedState(sema: *Sema, block: *Block, simple_src: LazySrcLoc, builtin_namespace: InternPool.NamespaceIndex, stage: InternPool.MemoizedStateStage) CompileError!bool {
     const pt = sema.pt;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -38596,38 +38596,47 @@ pub fn analyzeMemoizedState(sema: *Sema, block: *Block, src: LazySrcLoc, builtin
                 .nested => |nested| access: {
                     const parent_ty: Type = .fromInterned(zcu.builtin_decl_values.get(nested[0]));
                     const parent_ns = parent_ty.getNamespace(zcu).unwrap() orelse {
-                        return sema.fail(block, src, "std.builtin.{s} is not a container type", .{@tagName(nested[0])});
+                        return sema.fail(block, simple_src, "std.builtin.{s} is not a container type", .{@tagName(nested[0])});
                     };
                     break :access .{ parent_ns, "std.builtin." ++ @tagName(nested[0]), nested[1] };
                 },
             };
 
             const name_nts = try ip.getOrPutString(gpa, pt.tid, name, .no_embedded_nulls);
-            const result = try sema.namespaceLookupVal(block, src, parent_ns, name_nts) orelse
-                return sema.fail(block, src, "{s} missing {s}", .{ parent_name, name });
+            const nav = try sema.namespaceLookup(block, simple_src, parent_ns, name_nts) orelse
+                return sema.fail(block, simple_src, "{s} missing {s}", .{ parent_name, name });
 
-            const val = try sema.resolveConstDefinedValue(block, src, result, null);
+            const src: LazySrcLoc = .{
+                .base_node_inst = ip.getNav(nav).srcInst(ip),
+                .offset = .nodeOffset(0),
+            };
 
-            switch (builtin_decl.kind()) {
-                .type => if (val.typeOf(zcu).zigTypeTag(zcu) != .type) {
+            const result = try sema.analyzeNavVal(block, src, nav);
+
+            const uncoerced_val = try sema.resolveConstDefinedValue(block, src, result, null);
+            const maybe_lazy_val: Value = switch (builtin_decl.kind()) {
+                .type => if (uncoerced_val.typeOf(zcu).zigTypeTag(zcu) != .type) {
                     return sema.fail(block, src, "{s}.{s} is not a type", .{ parent_name, name });
-                } else {
-                    try val.toType().resolveFully(pt);
+                } else val: {
+                    try uncoerced_val.toType().resolveFully(pt);
+                    break :val uncoerced_val;
                 },
-                .func => if (val.typeOf(zcu).zigTypeTag(zcu) != .@"fn") {
-                    return sema.fail(block, src, "{s}.{s} is not a function", .{ parent_name, name });
-                },
-                .string => {
-                    const ty = val.typeOf(zcu);
-                    if (!ty.isSinglePointer(zcu) or
-                        !ty.isConstPtr(zcu) or
-                        ty.childType(zcu).zigTypeTag(zcu) != .array or
-                        ty.childType(zcu).childType(zcu).toIntern() != .u8_type)
-                    {
-                        return sema.fail(block, src, "{s}.{s} is not a valid string", .{ parent_name, name });
+                .func => val: {
+                    if (try sema.getExpectedBuiltinFnType(src, builtin_decl)) |func_ty| {
+                        const coerced = try sema.coerce(block, func_ty, Air.internedToRef(uncoerced_val.toIntern()), src);
+                        break :val .fromInterned(coerced.toInterned().?);
                     }
+                    if (uncoerced_val.typeOf(zcu).zigTypeTag(zcu) != .@"fn") {
+                        return sema.fail(block, src, "{s}.{s} is not a function", .{ parent_name, name });
+                    }
+                    break :val uncoerced_val;
                 },
-            }
+                .string => val: {
+                    const coerced = try sema.coerce(block, .slice_const_u8, Air.internedToRef(uncoerced_val.toIntern()), src);
+                    break :val .fromInterned(coerced.toInterned().?);
+                },
+            };
+            const val = try sema.resolveLazyValue(maybe_lazy_val);
 
             const prev = zcu.builtin_decl_values.get(builtin_decl);
             if (val.toIntern() != prev) {
@@ -38639,7 +38648,7 @@ pub fn analyzeMemoizedState(sema: *Sema, block: *Block, src: LazySrcLoc, builtin
 
     if (stage == .panic) {
         // We use `getBuiltinType` because this is from an earlier stage.
-        const stack_trace_ty = try sema.getBuiltinType(src, .StackTrace);
+        const stack_trace_ty = try sema.getBuiltinType(simple_src, .StackTrace);
         const ptr_stack_trace_ty = try pt.singleMutPtrType(stack_trace_ty);
         const opt_ptr_stack_trace_ty = try pt.optionalType(ptr_stack_trace_ty.toIntern());
         const null_stack_trace = try pt.intern(.{ .opt = .{
@@ -38653,4 +38662,60 @@ pub fn analyzeMemoizedState(sema: *Sema, block: *Block, src: LazySrcLoc, builtin
     }
 
     return any_changed;
+}
+
+/// Given that `decl.kind() == .func`, get the type expected of the function if necessary.
+/// If this will be type checked by `Sema` anyway, this function may return `null`. In
+/// particular, generic functions should return `null`, as `Sema` will necessarily check
+/// them at instantiation time. Returning non-null is necessary only when backends can emit
+/// calls to the function, as is the case with the panic handler.
+fn getExpectedBuiltinFnType(sema: *Sema, src: LazySrcLoc, decl: Zcu.BuiltinDecl) CompileError!?Type {
+    const pt = sema.pt;
+    return switch (decl) {
+        // `fn ([]const u8, ?*StackTrace, ?usize) noreturn`
+        .@"Panic.call" => try pt.funcType(.{
+            .param_types = &.{
+                .slice_const_u8_type,
+                (try pt.optionalType(
+                    (try pt.singleMutPtrType(
+                        try sema.getBuiltinType(src, .StackTrace),
+                    )).toIntern(),
+                )).toIntern(),
+                (try pt.optionalType(.usize_type)).toIntern(),
+            },
+            .return_type = .noreturn_type,
+        }),
+
+        // `fn (?*StackTrace, anyerror) noreturn`
+        .@"Panic.unwrapError" => try pt.funcType(.{
+            .param_types = &.{
+                (try pt.optionalType(
+                    (try pt.singleMutPtrType(
+                        try sema.getBuiltinType(src, .StackTrace),
+                    )).toIntern(),
+                )).toIntern(),
+                .anyerror_type,
+            },
+            .return_type = .noreturn_type,
+        }),
+
+        // `fn (usize, usize) noreturn`
+        .@"Panic.outOfBounds",
+        .@"Panic.startGreaterThanEnd",
+        => try pt.funcType(.{
+            .param_types = &.{ .usize_type, .usize_type },
+            .return_type = .noreturn_type,
+        }),
+
+        // Generic functions, so calls are necessarily validated by Sema
+        .@"Panic.sentinelMismatch",
+        .@"Panic.inactiveUnionField",
+        => null,
+
+        // Other functions called exclusively by Sema
+        .returnError,
+        => null,
+
+        else => unreachable,
+    };
 }
