@@ -723,11 +723,7 @@ pub fn hasWellDefinedLayout(ty: Type, zcu: *const Zcu) bool {
             .generic_poison,
             => false,
         },
-        .struct_type => {
-            const struct_type = ip.loadStructType(ty.toIntern());
-            // Struct with no fields have a well-defined layout of no bits.
-            return struct_type.layout != .auto or struct_type.field_types.len == 0;
-        },
+        .struct_type => ip.loadStructType(ty.toIntern()).layout != .auto,
         .union_type => {
             const union_type = ip.loadUnionType(ty.toIntern());
             return switch (union_type.flagsUnordered(ip).runtime_tag) {
