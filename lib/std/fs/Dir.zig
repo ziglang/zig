@@ -1353,7 +1353,7 @@ pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) RealPathErr
     defer w.CloseHandle(h_file);
 
     var wide_buf: [w.PATH_MAX_WIDE]u16 = undefined;
-    const wide_slice = try w.GetFinalPathNameByHandle(h_file, .{}, &wide_buf);
+    const wide_slice = try w.GetFinalPathNameByHandle(h_file, .{ .volume_name = .Nt }, &wide_buf);
     var big_out_buf: [fs.max_path_bytes]u8 = undefined;
     const end_index = std.unicode.wtf16LeToWtf8(&big_out_buf, wide_slice);
     if (end_index > out_buffer.len)
