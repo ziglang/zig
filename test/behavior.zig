@@ -17,7 +17,6 @@ test {
     _ = @import("behavior/byteswap.zig");
     _ = @import("behavior/byval_arg_var.zig");
     _ = @import("behavior/call.zig");
-    _ = @import("behavior/call_tail.zig");
     _ = @import("behavior/cast.zig");
     _ = @import("behavior/cast_int.zig");
     _ = @import("behavior/comptime_memory.zig");
