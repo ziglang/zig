@@ -154,14 +154,15 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 if (nav_export.name.toOptional() == entry_name)
                     wasm.entry_resolution = .fromIpNav(wasm, nav_export.nav_index);
             } else {
-                try wasm.global_exports.append(gpa, .{
-                    .name = nav_export.name,
-                    .global_index = Wasm.GlobalIndex.fromIpNav(wasm, nav_export.nav_index).?,
-                });
+                // This is a data export because Zcu currently has no way to
+                // export wasm globals.
                 _ = f.missing_exports.swapRemove(nav_export.name);
                 _ = f.data_imports.swapRemove(nav_export.name);
-                // `f.global_imports` is ignored because Zcu has no way to
-                // export wasm globals.
+                if (!is_obj) {
+                    diags.addError("unable to export data symbol '{s}'; not emitting a relocatable", .{
+                        nav_export.name.slice(wasm),
+                    });
+                }
             }
         }
 
