@@ -381,6 +381,11 @@ test "extern function used as generic parameter" {
             };
         }
     };
+    const E = struct {
+        export fn usedAsGenericParameterFoo() void {}
+        export fn usedAsGenericParameterBar() void {}
+    };
+    _ = E;
     try expect(S.usedAsGenericParameterBaz(S.usedAsGenericParameterFoo) !=
         S.usedAsGenericParameterBaz(S.usedAsGenericParameterBar));
 }
