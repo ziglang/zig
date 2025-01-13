@@ -80,7 +80,7 @@ start_mir_extra_off: u32,
 start_locals_off: u32,
 /// List of all locals' types generated throughout this declaration
 /// used to emit locals count at start of 'code' section.
-locals: *std.ArrayListUnmanaged(u8),
+locals: *std.ArrayListUnmanaged(std.wasm.Valtype),
 /// When a function is executing, we store the the current stack pointer's value within this local.
 /// This value is then used to restore the stack pointer to the original value at the return of the function.
 initial_stack_value: WValue = .none,
@@ -210,7 +210,7 @@ const WValue = union(enum) {
         if (local_value < reserved + 2) return; // reserved locals may never be re-used. Also accounts for 2 stack locals.
 
         const index = local_value - reserved;
-        const valtype: std.wasm.Valtype = @enumFromInt(gen.locals.items[gen.start_locals_off + index]);
+        const valtype = gen.locals.items[gen.start_locals_off + index];
         switch (valtype) {
             .i32 => gen.free_locals_i32.append(gen.gpa, local_value) catch return, // It's ok to fail any of those, a new local can be allocated instead
             .i64 => gen.free_locals_i64.append(gen.gpa, local_value) catch return,
@@ -995,18 +995,13 @@ pub fn typeToValtype(ty: Type, zcu: *const Zcu, target: *const std.Target) std.w
     };
 }
 
-/// Using a given `Type`, returns the byte representation of its wasm value type
-fn genValtype(ty: Type, zcu: *const Zcu, target: *const std.Target) u8 {
-    return @intFromEnum(typeToValtype(ty, zcu, target));
-}
-
 /// Using a given `Type`, returns the corresponding wasm value type
-/// Differently from `genValtype` this also allows `void` to create a block
+/// Differently from `typeToValtype` this also allows `void` to create a block
 /// with no return type
-fn genBlockType(ty: Type, zcu: *const Zcu, target: *const std.Target) u8 {
+fn genBlockType(ty: Type, zcu: *const Zcu, target: *const std.Target) std.wasm.BlockType {
     return switch (ty.ip_index) {
-        .void_type, .noreturn_type => std.wasm.block_empty,
-        else => genValtype(ty, zcu, target),
+        .void_type, .noreturn_type => .empty,
+        else => .fromValtype(typeToValtype(ty, zcu, target)),
     };
 }
 
@@ -1145,7 +1140,7 @@ fn allocLocal(cg: *CodeGen, ty: Type) InnerError!WValue {
 /// to use a zero-initialized local.
 fn ensureAllocLocal(cg: *CodeGen, ty: Type) InnerError!WValue {
     const zcu = cg.pt.zcu;
-    try cg.locals.append(cg.gpa, genValtype(ty, zcu, cg.target));
+    try cg.locals.append(cg.gpa, typeToValtype(ty, zcu, cg.target));
     const initial_index = cg.local_index;
     cg.local_index += 1;
     return .{ .local = .{ .value = initial_index, .references = 1 } };
@@ -1197,7 +1192,7 @@ pub const Function = extern struct {
         std.leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(locals.len))) catch unreachable;
         for (locals) |local| {
             std.leb.writeUleb128(code.fixedWriter(), @as(u32, 1)) catch unreachable;
-            code.appendAssumeCapacity(local);
+            code.appendAssumeCapacity(@intFromEnum(local));
         }
 
         // Stack management section of function prologue.
@@ -1651,8 +1646,8 @@ fn memcpy(cg: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
     try cg.addLocal(.local_set, offset.local.value);
 
     // outer block to jump to when loop is done
-    try cg.startBlock(.block, std.wasm.block_empty);
-    try cg.startBlock(.loop, std.wasm.block_empty);
+    try cg.startBlock(.block, .empty);
+    try cg.startBlock(.loop, .empty);
 
     // loop condition (offset == length -> break)
     {
@@ -3387,12 +3382,12 @@ fn lowerBlock(cg: *CodeGen, inst: Air.Inst.Index, block_ty: Type, body: []const 
     const wasm_block_ty = genBlockType(block_ty, zcu, cg.target);
 
     // if wasm_block_ty is non-empty, we create a register to store the temporary value
-    const block_result: WValue = if (wasm_block_ty != std.wasm.block_empty) blk: {
+    const block_result: WValue = if (wasm_block_ty != .empty) blk: {
         const ty: Type = if (isByRef(block_ty, zcu, cg.target)) Type.u32 else block_ty;
         break :blk try cg.ensureAllocLocal(ty); // make sure it's a clean local as it may never get overwritten
     } else .none;
 
-    try cg.startBlock(.block, std.wasm.block_empty);
+    try cg.startBlock(.block, .empty);
     // Here we set the current block idx, so breaks know the depth to jump
     // to when breaking out.
     try cg.blocks.putNoClobber(cg.gpa, inst, .{
@@ -3410,11 +3405,11 @@ fn lowerBlock(cg: *CodeGen, inst: Air.Inst.Index, block_ty: Type, body: []const 
 }
 
 /// appends a new wasm block to the code section and increases the `block_depth` by 1
-fn startBlock(cg: *CodeGen, block_tag: std.wasm.Opcode, valtype: u8) !void {
+fn startBlock(cg: *CodeGen, block_tag: std.wasm.Opcode, block_type: std.wasm.BlockType) !void {
     cg.block_depth += 1;
     try cg.addInst(.{
         .tag = Mir.Inst.Tag.fromOpcode(block_tag),
-        .data = .{ .block_type = valtype },
+        .data = .{ .block_type = block_type },
     });
 }
 
@@ -3431,7 +3426,7 @@ fn airLoop(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     // result type of loop is always 'noreturn', meaning we can always
     // emit the wasm type 'block_empty'.
-    try cg.startBlock(.loop, std.wasm.block_empty);
+    try cg.startBlock(.loop, .empty);
 
     try cg.loops.putNoClobber(cg.gpa, inst, cg.block_depth);
     defer assert(cg.loops.remove(inst));
@@ -3451,7 +3446,7 @@ fn airCondBr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const liveness_condbr = cg.liveness.getCondBr(inst);
 
     // result type is always noreturn, so use `block_empty` as type.
-    try cg.startBlock(.block, std.wasm.block_empty);
+    try cg.startBlock(.block, .empty);
     // emit the conditional value
     try cg.emitWValue(condition);
 
@@ -3940,7 +3935,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const pt = cg.pt;
     const zcu = pt.zcu;
     // result type is always 'noreturn'
-    const blocktype = std.wasm.block_empty;
+    const blocktype: std.wasm.BlockType = .empty;
     const switch_br = cg.air.unwrapSwitch(inst);
     const target = try cg.resolveInst(switch_br.operand);
     const target_ty = cg.typeOf(switch_br.operand);
@@ -4832,8 +4827,8 @@ fn memset(cg: *CodeGen, elem_ty: Type, ptr: WValue, len: WValue, value: WValue) 
     try cg.addLocal(.local_set, end_ptr.local.value);
 
     // outer block to jump to when loop is done
-    try cg.startBlock(.block, std.wasm.block_empty);
-    try cg.startBlock(.loop, std.wasm.block_empty);
+    try cg.startBlock(.block, .empty);
+    try cg.startBlock(.loop, .empty);
 
     // check for condition for loop end
     try cg.emitWValue(new_ptr);
@@ -5410,7 +5405,7 @@ fn cmpOptionals(cg: *CodeGen, lhs: WValue, rhs: WValue, operand_ty: Type, op: st
     var result = try cg.ensureAllocLocal(Type.i32);
     defer result.free(cg);
 
-    try cg.startBlock(.block, std.wasm.block_empty);
+    try cg.startBlock(.block, .empty);
     _ = try cg.isNull(lhs, operand_ty, .i32_eq);
     _ = try cg.isNull(rhs, operand_ty, .i32_eq);
     try cg.addTag(.i32_ne); // inverse so we can exit early
@@ -6420,7 +6415,7 @@ fn lowerTry(
 
     if (!err_union_ty.errorUnionSet(zcu).errorSetIsEmpty(zcu)) {
         // Block we can jump out of when error is not set
-        try cg.startBlock(.block, std.wasm.block_empty);
+        try cg.startBlock(.block, .empty);
 
         // check if the error tag is set for the error union.
         try cg.emitWValue(err_union);
@@ -7105,11 +7100,11 @@ fn airErrorSetHasValue(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     }
 
     // start block for 'true' branch
-    try cg.startBlock(.block, std.wasm.block_empty);
+    try cg.startBlock(.block, .empty);
     // start block for 'false' branch
-    try cg.startBlock(.block, std.wasm.block_empty);
+    try cg.startBlock(.block, .empty);
     // block for the jump table itself
-    try cg.startBlock(.block, std.wasm.block_empty);
+    try cg.startBlock(.block, .empty);
 
     // lower operand to determine jump table target
     try cg.emitWValue(operand);
@@ -7274,7 +7269,7 @@ fn airAtomicRmw(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                 const value = try tmp.toLocal(cg, ty);
 
                 // create a loop to cmpxchg the new value
-                try cg.startBlock(.loop, std.wasm.block_empty);
+                try cg.startBlock(.loop, .empty);
 
                 try cg.emitWValue(ptr);
                 try cg.emitWValue(value);

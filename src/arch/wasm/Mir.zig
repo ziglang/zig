@@ -588,7 +588,7 @@ pub const Inst = struct {
         /// Uses no additional data
         tag: void,
         /// Contains the result type of a block
-        block_type: u8,
+        block_type: std.wasm.BlockType,
         /// Label: Each structured control instruction introduces an implicit label.
         /// Labels are targets for branch instructions that reference them with
         /// label indices. Unlike with other index spaces, indexing of labels

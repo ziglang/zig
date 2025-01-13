@@ -655,7 +655,18 @@ pub const function_type: u8 = 0x60;
 pub const result_type: u8 = 0x40;
 
 /// Represents a block which will not return a value
-pub const block_empty: u8 = 0x40;
+pub const BlockType = enum(u8) {
+    empty = 0x40,
+    i32 = 0x7F,
+    i64 = 0x7E,
+    f32 = 0x7D,
+    f64 = 0x7C,
+    v128 = 0x7B,
+
+    pub fn fromValtype(valtype: Valtype) BlockType {
+        return @enumFromInt(@intFromEnum(valtype));
+    }
+};
 
 // binary constants
 pub const magic = [_]u8{ 0x00, 0x61, 0x73, 0x6D }; // \0asm

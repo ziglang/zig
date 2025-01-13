@@ -43,7 +43,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             const block_type = datas[inst].block_type;
             try code.ensureUnusedCapacity(gpa, 2);
             code.appendAssumeCapacity(@intFromEnum(tags[inst]));
-            code.appendAssumeCapacity(block_type);
+            code.appendAssumeCapacity(@intFromEnum(block_type));
 
             inst += 1;
             continue :loop tags[inst];

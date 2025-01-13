@@ -283,7 +283,7 @@ mir_instructions: std.MultiArrayList(Mir.Inst) = .{},
 /// Corresponds to `mir_instructions`.
 mir_extra: std.ArrayListUnmanaged(u32) = .empty,
 /// All local types for all Zcu functions.
-all_zcu_locals: std.ArrayListUnmanaged(u8) = .empty,
+all_zcu_locals: std.ArrayListUnmanaged(std.wasm.Valtype) = .empty,
 
 params_scratch: std.ArrayListUnmanaged(std.wasm.Valtype) = .empty,
 returns_scratch: std.ArrayListUnmanaged(std.wasm.Valtype) = .empty,
