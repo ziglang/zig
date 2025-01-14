@@ -207,7 +207,7 @@ missing_exports: std.AutoArrayHashMapUnmanaged(String, void) = .empty,
 entry_resolution: FunctionImport.Resolution = .unresolved,
 
 /// Empty when outputting an object.
-function_exports: std.ArrayListUnmanaged(FunctionExport) = .empty,
+function_exports: std.AutoArrayHashMapUnmanaged(String, FunctionIndex) = .empty,
 /// Tracks the value at the end of prelink.
 function_exports_len: u32 = 0,
 global_exports: std.ArrayListUnmanaged(GlobalExport) = .empty,
@@ -353,19 +353,19 @@ pub const FunctionIndex = enum(u32) {
     }
 
     pub fn fromSymbolName(wasm: *const Wasm, name: String) ?FunctionIndex {
-        const import = wasm.object_function_imports.getPtr(name) orelse return null;
-        return fromResolution(wasm, import.resolution);
+        if (wasm.object_function_imports.getPtr(name)) |import| {
+            return fromResolution(wasm, import.resolution);
+        }
+        if (wasm.function_exports.get(name)) |index| {
+            return index;
+        }
+        return null;
     }
 
     pub fn fromResolution(wasm: *const Wasm, resolution: FunctionImport.Resolution) ?FunctionIndex {
         const i = wasm.functions.getIndex(resolution) orelse return null;
         return @enumFromInt(i);
     }
-};
-
-pub const FunctionExport = extern struct {
-    name: String,
-    function_index: FunctionIndex,
 };
 
 pub const GlobalExport = extern struct {
@@ -386,7 +386,7 @@ pub const OutputFunctionIndex = enum(u32) {
     }
 
     pub fn fromFunctionIndex(wasm: *const Wasm, index: FunctionIndex) OutputFunctionIndex {
-        return @enumFromInt(wasm.function_imports.entries.len + @intFromEnum(index));
+        return @enumFromInt(wasm.flush_buffer.function_imports.entries.len + @intFromEnum(index));
     }
 
     pub fn fromObjectFunction(wasm: *const Wasm, index: ObjectFunctionIndex) OutputFunctionIndex {
@@ -410,8 +410,7 @@ pub const OutputFunctionIndex = enum(u32) {
         return switch (ip.indexToKey(ip_index)) {
             .@"extern" => |ext| {
                 const name = wasm.getExistingString(ext.name.toSlice(ip)).?;
-                if (wasm.function_imports.getIndex(name)) |i| return @enumFromInt(i);
-                return fromFunctionIndex(wasm, FunctionIndex.fromSymbolName(wasm, name).?);
+                return fromSymbolName(wasm, name);
             },
             else => fromResolution(wasm, .fromIpIndex(wasm, ip_index)).?,
         };
@@ -3424,7 +3423,7 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
         }
     }
     wasm.functions_end_prelink = @intCast(wasm.functions.entries.len);
-    wasm.function_exports_len = @intCast(wasm.function_exports.items.len);
+    wasm.function_exports_len = @intCast(wasm.function_exports.entries.len);
 
     for (wasm.object_global_imports.keys(), wasm.object_global_imports.values(), 0..) |name, *import, i| {
         if (import.flags.isIncluded(rdynamic)) {
@@ -3498,10 +3497,8 @@ fn markFunction(wasm: *Wasm, i: ObjectFunctionIndex) link.File.FlushError!void {
     const function = i.ptr(wasm);
     markObject(wasm, function.object_index);
 
-    if (!is_obj and function.flags.isExported(rdynamic)) try wasm.function_exports.append(gpa, .{
-        .name = function.name.unwrap().?,
-        .function_index = @enumFromInt(gop.index),
-    });
+    if (!is_obj and function.flags.isExported(rdynamic))
+        try wasm.function_exports.put(gpa, function.name.unwrap().?, @enumFromInt(gop.index));
 
     try wasm.markRelocations(function.relocations(wasm));
 }

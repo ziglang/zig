@@ -167,10 +167,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         for (wasm.nav_exports.keys()) |*nav_export| {
             if (ip.isFunctionType(ip.getNav(nav_export.nav_index).typeOf(ip))) {
                 log.debug("flush export '{s}' nav={d}", .{ nav_export.name.slice(wasm), nav_export.nav_index });
-                try wasm.function_exports.append(gpa, .{
-                    .name = nav_export.name,
-                    .function_index = Wasm.FunctionIndex.fromIpNav(wasm, nav_export.nav_index).?,
-                });
+                try wasm.function_exports.put(gpa, nav_export.name, Wasm.FunctionIndex.fromIpNav(wasm, nav_export.nav_index).?);
                 _ = f.missing_exports.swapRemove(nav_export.name);
                 _ = f.function_imports.swapRemove(nav_export.name);
 
@@ -671,15 +668,15 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
         var exports_len: usize = 0;
 
-        for (wasm.function_exports.items) |exp| {
-            const name = exp.name.slice(wasm);
+        for (wasm.function_exports.keys(), wasm.function_exports.values()) |exp_name, function_index| {
+            const name = exp_name.slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(name.len)));
             try binary_bytes.appendSlice(gpa, name);
             try binary_bytes.append(gpa, @intFromEnum(std.wasm.ExternalKind.function));
-            const func_index = Wasm.OutputFunctionIndex.fromFunctionIndex(wasm, exp.function_index);
+            const func_index = Wasm.OutputFunctionIndex.fromFunctionIndex(wasm, function_index);
             try leb.writeUleb128(binary_writer, @intFromEnum(func_index));
         }
-        exports_len += wasm.function_exports.items.len;
+        exports_len += wasm.function_exports.entries.len;
 
         // No table exports.
 
@@ -709,6 +706,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         }
     }
 
+    // start section
     if (Wasm.OutputFunctionIndex.fromResolution(wasm, wasm.entry_resolution)) |func_index| {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
         replaceVecSectionHeader(binary_bytes, header_offset, .start, @intFromEnum(func_index));
