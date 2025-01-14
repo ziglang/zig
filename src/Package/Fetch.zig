@@ -1829,12 +1829,13 @@ test FileHeader {
     var h: FileHeader = .{};
     try std.testing.expect(!h.isExecutable());
 
-    h.update(FileHeader.elf_magic[0..2]);
+    const elf_magic = std.elf.MAGIC;
+    h.update(elf_magic[0..2]);
     try std.testing.expect(!h.isExecutable());
-    h.update(FileHeader.elf_magic[2..4]);
+    h.update(elf_magic[2..4]);
     try std.testing.expect(h.isExecutable());
 
-    h.update(FileHeader.elf_magic[2..4]);
+    h.update(elf_magic[2..4]);
     try std.testing.expect(h.isExecutable());
 
     const macho64_magic_bytes = [_]u8{ 0xCF, 0xFA, 0xED, 0xFE };
