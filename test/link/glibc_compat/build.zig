@@ -22,6 +22,8 @@ pub fn build(b: *std.Build) void {
                 .link_libc = true,
             }),
         });
+        exe.bundle_ubsan_rt = false;
+        exe.root_module.sanitize_c = false;
         exe.root_module.addCSourceFile(.{ .file = b.path("main.c") });
         // TODO: actually test the output
         _ = exe.getEmittedBin();
@@ -62,6 +64,8 @@ pub fn build(b: *std.Build) void {
                 .link_libc = true,
             }),
         });
+        exe.bundle_ubsan_rt = false;
+        exe.root_module.sanitize_c = false;
         exe.root_module.addCSourceFile(.{ .file = b.path("glibc_runtime_check.c") });
 
         // Only try running the test if the host glibc is known to be good enough.  Ideally, the Zig
@@ -161,6 +165,8 @@ pub fn build(b: *std.Build) void {
                 .link_libc = true,
             }),
         });
+        exe.bundle_ubsan_rt = false;
+        exe.root_module.sanitize_c = false;
 
         // Only try running the test if the host glibc is known to be good enough.  Ideally, the Zig
         // test runner would be able to check this, but see https://github.com/ziglang/zig/pull/17702#issuecomment-1831310453
