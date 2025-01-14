@@ -796,7 +796,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     if (!is_obj) {
         for (wasm.uav_fixups.items) |uav_fixup| {
             const ds_id: Wasm.DataSegmentId = .pack(wasm, .{ .uav_exe = uav_fixup.uavs_exe_index });
-            const vaddr = f.data_segments.get(ds_id).?;
+            const vaddr = f.data_segments.get(ds_id).? + uav_fixup.addend;
             if (!is64) {
                 mem.writeInt(u32, wasm.string_bytes.items[uav_fixup.offset..][0..4], vaddr, .little);
             } else {
@@ -805,7 +805,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         }
         for (wasm.nav_fixups.items) |nav_fixup| {
             const ds_id: Wasm.DataSegmentId = .pack(wasm, .{ .nav_exe = nav_fixup.navs_exe_index });
-            const vaddr = f.data_segments.get(ds_id).?;
+            const vaddr = f.data_segments.get(ds_id).? + nav_fixup.addend;
             if (!is64) {
                 mem.writeInt(u32, wasm.string_bytes.items[nav_fixup.offset..][0..4], vaddr, .little);
             } else {

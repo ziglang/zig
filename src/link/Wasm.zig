@@ -312,12 +312,14 @@ pub const UavFixup = extern struct {
     uavs_exe_index: UavsExeIndex,
     /// Index into `string_bytes`.
     offset: u32,
+    addend: u32,
 };
 
 pub const NavFixup = extern struct {
     navs_exe_index: NavsExeIndex,
     /// Index into `string_bytes`.
     offset: u32,
+    addend: u32,
 };
 
 pub const FuncTableFixup = extern struct {

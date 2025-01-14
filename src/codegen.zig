@@ -677,6 +677,7 @@ fn lowerUavRef(
                 wasm.uav_fixups.appendAssumeCapacity(.{
                     .uavs_exe_index = try wasm.refUavExe(uav.val),
                     .offset = @intCast(code.items.len),
+                    .addend = @intCast(offset),
                 });
             }
             code.appendNTimesAssumeCapacity(0, ptr_width_bytes);
@@ -761,6 +762,7 @@ fn lowerNavRef(
                     wasm.nav_fixups.appendAssumeCapacity(.{
                         .navs_exe_index = try wasm.refNavExe(nav_index),
                         .offset = @intCast(code.items.len),
+                        .addend = @intCast(offset),
                     });
                 }
             }
