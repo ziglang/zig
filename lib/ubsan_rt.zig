@@ -79,12 +79,16 @@ const Value = extern struct {
         };
     }
 
-    fn getFloat(value: Value) c_longdouble {
+    fn getFloat(value: Value) f128 {
         assert(value.td.kind == .float);
         const size = value.td.info.float;
         const max_inline_size = @bitSizeOf(ValueHandle);
         if (size <= max_inline_size) {
-            return @bitCast(@intFromPtr(value.handle));
+            return @as(switch (@bitSizeOf(usize)) {
+                32 => f32,
+                64 => f64,
+                else => @compileError("unsupported target"),
+            }, @bitCast(@intFromPtr(value.handle)));
         }
         return @floatCast(switch (size) {
             64 => @as(*const f64, @alignCast(@ptrCast(value.handle))).*,
@@ -122,6 +126,11 @@ const Value = extern struct {
     ) !void {
         comptime assert(fmt.len == 0);
 
+        if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) {
+            try writer.writeAll("(unknown)");
+            return;
+        }
+
         switch (value.td.kind) {
             .integer => {
                 if (value.td.isSigned()) {
@@ -146,6 +155,14 @@ fn overflowHandler(
     comptime operator: []const u8,
 ) void {
     const S = struct {
+        fn abort(
+            data: *const OverflowData,
+            lhs_handle: ValueHandle,
+            rhs_handle: ValueHandle,
+        ) callconv(.c) noreturn {
+            handler(data, lhs_handle, rhs_handle);
+        }
+
         fn handler(
             data: *const OverflowData,
             lhs_handle: ValueHandle,
@@ -167,7 +184,14 @@ fn overflowHandler(
         }
     };
 
-    exportHandler(&S.handler, sym_name, true);
+    exportHandlerWithAbort(&S.handler, &S.abort, sym_name);
+}
+
+fn negationHandlerAbort(
+    data: *const OverflowData,
+    value_handle: ValueHandle,
+) callconv(.c) noreturn {
+    negationHandler(data, value_handle);
 }
 
 fn negationHandler(
@@ -179,6 +203,14 @@ fn negationHandler(
         "negation of {} cannot be represented in type {s}",
         .{ value, data.td.getName() },
     );
+}
+
+fn divRemHandlerAbort(
+    data: *const OverflowData,
+    lhs_handle: ValueHandle,
+    rhs_handle: ValueHandle,
+) callconv(.c) noreturn {
+    divRemHandler(data, lhs_handle, rhs_handle);
 }
 
 fn divRemHandler(
@@ -202,6 +234,20 @@ const AlignmentAssumptionData = extern struct {
     assumption_loc: SourceLocation,
     td: *const TypeDescriptor,
 };
+
+fn alignmentAssumptionHandlerAbort(
+    data: *const AlignmentAssumptionData,
+    pointer: ValueHandle,
+    alignment_handle: ValueHandle,
+    maybe_offset: ?ValueHandle,
+) callconv(.c) noreturn {
+    alignmentAssumptionHandler(
+        data,
+        pointer,
+        alignment_handle,
+        maybe_offset,
+    );
+}
 
 fn alignmentAssumptionHandler(
     data: *const AlignmentAssumptionData,
@@ -248,6 +294,14 @@ const ShiftOobData = extern struct {
     rhs_type: *const TypeDescriptor,
 };
 
+fn shiftOobAbort(
+    data: *const ShiftOobData,
+    lhs_handle: ValueHandle,
+    rhs_handle: ValueHandle,
+) callconv(.c) noreturn {
+    shiftOob(data, lhs_handle, rhs_handle);
+}
+
 fn shiftOob(
     data: *const ShiftOobData,
     lhs_handle: ValueHandle,
@@ -285,7 +339,17 @@ const OutOfBoundsData = extern struct {
     index_type: *const TypeDescriptor,
 };
 
-fn outOfBounds(data: *const OutOfBoundsData, index_handle: ValueHandle) callconv(.c) noreturn {
+fn outOfBoundsAbort(
+    data: *const OutOfBoundsData,
+    index_handle: ValueHandle,
+) callconv(.c) noreturn {
+    outOfBounds(data, index_handle);
+}
+
+fn outOfBounds(
+    data: *const OutOfBoundsData,
+    index_handle: ValueHandle,
+) callconv(.c) noreturn {
     const index: Value = .{ .handle = index_handle, .td = data.index_type };
     logMessage(
         "index {} out of bounds for type {s}",
@@ -296,6 +360,14 @@ fn outOfBounds(data: *const OutOfBoundsData, index_handle: ValueHandle) callconv
 const PointerOverflowData = extern struct {
     loc: SourceLocation,
 };
+
+fn pointerOverflowAbort(
+    data: *const PointerOverflowData,
+    base: usize,
+    result: usize,
+) callconv(.c) noreturn {
+    pointerOverflow(data, base, result);
+}
 
 fn pointerOverflow(
     _: *const PointerOverflowData,
@@ -375,6 +447,13 @@ const TypeMismatchData = extern struct {
     },
 };
 
+fn typeMismatchAbort(
+    data: *const TypeMismatchData,
+    pointer: ?ValueHandle,
+) callconv(.c) noreturn {
+    typeMismatch(data, pointer);
+}
+
 fn typeMismatch(
     data: *const TypeMismatchData,
     pointer: ?ValueHandle,
@@ -416,6 +495,9 @@ const NonNullReturnData = extern struct {
     attribute_loc: SourceLocation,
 };
 
+fn nonNullReturnAbort(data: *const NonNullReturnData) callconv(.c) noreturn {
+    nonNullReturn(data);
+}
 fn nonNullReturn(_: *const NonNullReturnData) callconv(.c) noreturn {
     logMessage("null pointer returned from function declared to never return null", .{});
 }
@@ -425,6 +507,10 @@ const NonNullArgData = extern struct {
     attribute_loc: SourceLocation,
     arg_index: i32,
 };
+
+fn nonNullArgAbort(data: *const NonNullArgData) callconv(.c) noreturn {
+    nonNullArg(data);
+}
 
 fn nonNullArg(data: *const NonNullArgData) callconv(.c) noreturn {
     logMessage(
@@ -437,6 +523,13 @@ const InvalidValueData = extern struct {
     loc: SourceLocation,
     td: *const TypeDescriptor,
 };
+
+fn loadInvalidValueAbort(
+    data: *const InvalidValueData,
+    value_handle: ValueHandle,
+) callconv(.c) noreturn {
+    loadInvalidValue(data, value_handle);
+}
 
 fn loadInvalidValue(
     data: *const InvalidValueData,
@@ -456,6 +549,9 @@ const InvalidBuiltinData = extern struct {
         clz,
     },
 };
+fn invalidBuiltinAbort(data: *const InvalidBuiltinData) callconv(.c) noreturn {
+    invalidBuiltin(data);
+}
 
 fn invalidBuiltin(data: *const InvalidBuiltinData) callconv(.c) noreturn {
     logMessage(
@@ -468,6 +564,13 @@ const VlaBoundNotPositive = extern struct {
     loc: SourceLocation,
     td: *const TypeDescriptor,
 };
+
+fn vlaBoundNotPositiveAbort(
+    data: *const VlaBoundNotPositive,
+    bound_handle: ValueHandle,
+) callconv(.c) noreturn {
+    vlaBoundNotPositive(data, bound_handle);
+}
 
 fn vlaBoundNotPositive(
     data: *const VlaBoundNotPositive,
@@ -490,6 +593,13 @@ const FloatCastOverflowDataV2 = extern struct {
     from: *const TypeDescriptor,
     to: *const TypeDescriptor,
 };
+
+fn floatCastOverflowAbort(
+    data_handle: *align(8) const anyopaque,
+    from_handle: ValueHandle,
+) callconv(.c) noreturn {
+    floatCastOverflow(data_handle, from_handle);
+}
 
 fn floatCastOverflow(
     data_handle: *align(8) const anyopaque,
@@ -514,22 +624,31 @@ fn floatCastOverflow(
 }
 
 inline fn logMessage(comptime fmt: []const u8, args: anytype) noreturn {
-    std.debug.panicExtra(null, @returnAddress(), fmt, args);
+    std.debug.panicExtra(@returnAddress(), fmt, args);
 }
 
 fn exportHandler(
     handler: anytype,
     comptime sym_name: []const u8,
-    comptime abort: bool,
 ) void {
-    const linkage = if (builtin.is_test) .internal else .weak;
+    const linkage = if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) .internal else .weak;
+    const N = "__ubsan_handle_" ++ sym_name;
+    @export(handler, .{ .name = N, .linkage = linkage });
+}
+
+fn exportHandlerWithAbort(
+    handler: anytype,
+    abort_handler: anytype,
+    comptime sym_name: []const u8,
+) void {
+    const linkage = if (builtin.zig_backend == .stage2_x86_64 and builtin.os.tag == .windows) .internal else .weak;
     {
         const N = "__ubsan_handle_" ++ sym_name;
         @export(handler, .{ .name = N, .linkage = linkage });
     }
-    if (abort) {
+    {
         const N = "__ubsan_handle_" ++ sym_name ++ "_abort";
-        @export(handler, .{ .name = N, .linkage = linkage });
+        @export(abort_handler, .{ .name = N, .linkage = linkage });
     }
 }
 
@@ -539,24 +658,29 @@ const can_build_ubsan = switch (builtin.zig_backend) {
 };
 
 comptime {
-    overflowHandler("add_overflow", "+");
-    overflowHandler("mul_overflow", "*");
-    overflowHandler("sub_overflow", "-");
-    exportHandler(&alignmentAssumptionHandler, "alignment_assumption", true);
-    exportHandler(&builtinUnreachable, "builtin_unreachable", false);
-    exportHandler(&divRemHandler, "divrem_overflow", true);
-    exportHandler(&floatCastOverflow, "float_cast_overflow", true);
-    exportHandler(&invalidBuiltin, "invalid_builtin", true);
-    exportHandler(&loadInvalidValue, "load_invalid_value", true);
-    exportHandler(&missingReturn, "missing_return", false);
-    exportHandler(&negationHandler, "negate_overflow", true);
-    exportHandler(&nonNullArg, "nonnull_arg", true);
-    exportHandler(&nonNullReturn, "nonnull_return_v1", true);
-    exportHandler(&outOfBounds, "out_of_bounds", true);
-    exportHandler(&pointerOverflow, "pointer_overflow", true);
-    exportHandler(&shiftOob, "shift_out_of_bounds", true);
-    exportHandler(&typeMismatch, "type_mismatch_v1", true);
-    exportHandler(&vlaBoundNotPositive, "vla_bound_not_positive", true);
+    if (can_build_ubsan) {
+        overflowHandler("add_overflow", "+");
+        overflowHandler("mul_overflow", "*");
+        overflowHandler("sub_overflow", "-");
+        exportHandlerWithAbort(&alignmentAssumptionHandler, &alignmentAssumptionHandlerAbort, "alignment_assumption");
+
+        exportHandlerWithAbort(&divRemHandler, &divRemHandlerAbort, "divrem_overflow");
+        exportHandlerWithAbort(&floatCastOverflow, &floatCastOverflowAbort, "float_cast_overflow");
+        exportHandlerWithAbort(&invalidBuiltin, &invalidBuiltinAbort, "invalid_builtin");
+        exportHandlerWithAbort(&loadInvalidValue, &loadInvalidValueAbort, "load_invalid_value");
+
+        exportHandlerWithAbort(&negationHandler, &negationHandlerAbort, "negate_overflow");
+        exportHandlerWithAbort(&nonNullArg, &nonNullArgAbort, "nonnull_arg");
+        exportHandlerWithAbort(&nonNullReturn, &nonNullReturnAbort, "nonnull_return_v1");
+        exportHandlerWithAbort(&outOfBounds, &outOfBoundsAbort, "out_of_bounds");
+        exportHandlerWithAbort(&pointerOverflow, &pointerOverflowAbort, "pointer_overflow");
+        exportHandlerWithAbort(&shiftOob, &shiftOobAbort, "shift_out_of_bounds");
+        exportHandlerWithAbort(&typeMismatch, &typeMismatchAbort, "type_mismatch_v1");
+        exportHandlerWithAbort(&vlaBoundNotPositive, &vlaBoundNotPositiveAbort, "vla_bound_not_positive");
+
+        exportHandler(&builtinUnreachable, "builtin_unreachable");
+        exportHandler(&missingReturn, "missing_return");
+    }
 
     // these checks are nearly impossible to duplicate in zig, as they rely on nuances
     // in the Itanium C++ ABI.
