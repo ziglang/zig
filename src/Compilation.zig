@@ -1317,15 +1317,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             break :s .obj;
         };
 
-        const ubsan_rt_strat: RtStrat = s: {
-            const want_ubsan_rt = options.want_ubsan_rt orelse (any_sanitize_c and output_mode != .Obj);
-            if (!want_ubsan_rt) break :s .none;
-            if (options.skip_linker_dependencies) break :s .none;
-            if (have_zcu) break :s .zcu;
-            if (is_exe_or_dyn_lib) break :s .lib;
-            break :s .obj;
-        };
-
         if (compiler_rt_strat == .zcu) {
             // For objects, this mechanism relies on essentially `_ = @import("compiler-rt");`
             // injected into the object.
@@ -1355,6 +1346,15 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         // unlike compiler_rt, we always want to go through the `_ = @import("ubsan-rt")`
         // approach, since the ubsan runtime uses quite a lot of the standard library
         // and this reduces unnecessary bloat.
+        const ubsan_rt_strat: RtStrat = s: {
+            const want_ubsan_rt = options.want_ubsan_rt orelse (any_sanitize_c and output_mode != .Obj);
+            if (!want_ubsan_rt) break :s .none;
+            if (options.skip_linker_dependencies) break :s .none;
+            if (have_zcu) break :s .zcu;
+            if (is_exe_or_dyn_lib) break :s .lib;
+            break :s .obj;
+        };
+
         if (ubsan_rt_strat == .zcu) {
             const ubsan_rt_mod = try Package.Module.create(arena, .{
                 .global_cache_directory = options.global_cache_directory,
@@ -1362,7 +1362,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     .root = .{
                         .root_dir = options.zig_lib_directory,
                     },
-                    .root_src_path = "ubsan.zig",
+                    .root_src_path = "ubsan_rt.zig",
                 },
                 .fully_qualified_name = "ubsan_rt",
                 .cc_argv = &.{},
@@ -1925,25 +1925,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 comp.remaining_prelink_tasks += 1;
             }
 
-<<<<<<< HEAD
-            if (comp.include_compiler_rt and capable_of_building_compiler_rt) {
-                if (is_exe_or_dyn_lib) {
-=======
-            if (target.isMinGW() and comp.config.any_non_single_threaded) {
-                // LLD might drop some symbols as unused during LTO and GCing, therefore,
-                // we force mark them for resolution here.
-
-                const tls_index_sym = switch (target.cpu.arch) {
-                    .x86 => "__tls_index",
-                    else => "_tls_index",
-                };
-
-                try comp.force_undefined_symbols.put(comp.gpa, tls_index_sym, {});
-            }
-
             if (capable_of_building_compiler_rt) {
                 if (comp.compiler_rt_strat == .lib) {
->>>>>>> 050e3e69ac (Compilation: correct when to include ubsan)
                     log.debug("queuing a job to build compiler_rt_lib", .{});
                     comp.queued_jobs.compiler_rt_lib = true;
                     comp.remaining_prelink_tasks += 1;
@@ -1957,11 +1940,11 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
                 if (comp.ubsan_rt_strat == .lib) {
                     log.debug("queuing a job to build ubsan_rt_lib", .{});
-                    comp.job_queued_ubsan_rt_lib = true;
+                    comp.queued_jobs.ubsan_rt_lib = true;
                     comp.remaining_prelink_tasks += 1;
                 } else if (comp.ubsan_rt_strat == .obj) {
                     log.debug("queuing a job to build ubsan_rt_obj", .{});
-                    comp.job_queued_ubsan_rt_obj = true;
+                    comp.queued_jobs.ubsan_rt_obj = true;
                     comp.remaining_prelink_tasks += 1;
                 }
 
@@ -3782,11 +3765,11 @@ fn performAllTheWorkInner(
     }
 
     if (comp.queued_jobs.ubsan_rt_lib and comp.ubsan_rt_lib == null) {
-        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "ubsan_rt.zig", .libubsan, .Lib, &comp.ubsan_rt_lib, main_progress_node });
+        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "ubsan_rt.zig", .libubsan, .Lib, false, &comp.ubsan_rt_lib, main_progress_node });
     }
 
     if (comp.queued_jobs.ubsan_rt_obj and comp.ubsan_rt_obj == null) {
-        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "ubsan_rt.zig", .libubsan, .Obj, &comp.ubsan_rt_obj, main_progress_node });
+        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "ubsan_rt.zig", .libubsan, .Obj, false, &comp.ubsan_rt_obj, main_progress_node });
     }
 
     if (comp.queued_jobs.glibc_shared_objects) {
@@ -6037,9 +6020,16 @@ pub fn addCCArgs(
                         try argv.append("-fno-sanitize=function");
 
                         // It's recommended to use the minimal runtime in production environments
-                        // due to the security implications of the full runtime.
+                        // due to the security implications of the full runtime. The minimal runtime
+                        // doesn't provide much benefit over simply trapping.
                         if (mod.optimize_mode == .ReleaseSafe) {
-                            try argv.append("-fsanitize-minimal-runtime");
+                            try argv.append("-fsanitize-trap=undefined");
+                        }
+
+                        // This is necessary because, by default, Clang instructs LLVM to embed a COFF link
+                        // dependency on `libclang_rt.ubsan_standalone.a` when the UBSan runtime is used.
+                        if (target.os.tag == .windows) {
+                            try argv.append("-fno-rtlib-defaultlib");
                         }
                     }
                 }

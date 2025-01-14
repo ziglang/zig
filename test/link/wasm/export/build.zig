@@ -19,6 +19,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     no_export.entry = .disabled;
     no_export.use_llvm = false;
     no_export.use_lld = false;
+    no_export.bundle_ubsan_rt = false;
 
     const dynamic_export = b.addExecutable(.{
         .name = "dynamic",
@@ -32,6 +33,8 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     dynamic_export.rdynamic = true;
     dynamic_export.use_llvm = false;
     dynamic_export.use_lld = false;
+    // don't pull in ubsan, since we're just expecting a minimal executable
+    dynamic_export.bundle_ubsan_rt = false;
 
     const force_export = b.addExecutable(.{
         .name = "force",
@@ -45,6 +48,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     force_export.root_module.export_symbol_names = &.{"foo"};
     force_export.use_llvm = false;
     force_export.use_lld = false;
+    force_export.bundle_ubsan_rt = false;
 
     const check_no_export = no_export.checkObject();
     check_no_export.checkInHeaders();
