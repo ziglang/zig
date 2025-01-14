@@ -842,10 +842,10 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 group_end_addr = f.data_segment_groups.items[group_index].end_addr;
                 segment_offset = 0;
             }
+            const flags: Object.DataSegmentFlags = if (segment_id.isPassive(wasm)) .passive else .active;
             if (segment_offset == 0) {
                 const group_size = group_end_addr - group_start_addr;
                 log.debug("emit data section group, {d} bytes", .{group_size});
-                const flags: Object.DataSegmentFlags = if (segment_id.isPassive(wasm)) .passive else .active;
                 try leb.writeUleb128(binary_writer, @intFromEnum(flags));
                 // Passive segments are initialized at runtime.
                 if (flags != .passive) {
@@ -853,7 +853,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 }
                 try leb.writeUleb128(binary_writer, group_size);
             }
-            if (segment_id.isEmpty(wasm)) {
+            if (flags == .passive or segment_id.isEmpty(wasm)) {
                 // It counted for virtual memory but it does not go into the binary.
                 continue;
             }
@@ -933,7 +933,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         //        try wasm.emitDataRelocations(binary_bytes, data_index, symbol_table);
         //}
     } else if (comp.config.debug_format != .strip) {
-        try emitNameSection(wasm, &f.data_segments, binary_bytes);
+        try emitNameSection(wasm, f.data_segment_groups.items, binary_bytes);
     }
 
     if (comp.config.debug_format != .strip) {
@@ -992,7 +992,7 @@ const VirtualAddrs = struct {
 
 fn emitNameSection(
     wasm: *Wasm,
-    data_segments: *const std.AutoArrayHashMapUnmanaged(Wasm.DataSegmentId, u32),
+    data_segment_groups: []const DataSegmentGroup,
     binary_bytes: *std.ArrayListUnmanaged(u8),
 ) !void {
     const f = &wasm.flush_buffer;
@@ -1052,11 +1052,11 @@ fn emitNameSection(
         const sub_offset = try reserveCustomSectionHeader(gpa, binary_bytes);
         defer replaceHeader(binary_bytes, sub_offset, @intFromEnum(std.wasm.NameSubsection.data_segment));
 
-        const total_globals: u32 = @intCast(f.global_imports.entries.len + wasm.globals.entries.len);
-        try leb.writeUleb128(binary_bytes.writer(gpa), total_globals);
+        const total_data_segments: u32 = @intCast(data_segment_groups.len);
+        try leb.writeUleb128(binary_bytes.writer(gpa), total_data_segments);
 
-        for (data_segments.keys(), 0..) |ds, i| {
-            const name = ds.name(wasm);
+        for (data_segment_groups, 0..) |group, i| {
+            const name = group.first_segment.name(wasm);
             try leb.writeUleb128(binary_bytes.writer(gpa), @as(u32, @intCast(i)));
             try leb.writeUleb128(binary_bytes.writer(gpa), @as(u32, @intCast(name.len)));
             try binary_bytes.appendSlice(gpa, name);

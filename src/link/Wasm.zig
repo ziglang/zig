@@ -1930,7 +1930,8 @@ pub const DataSegmentId = enum(u32) {
                 const zcu = wasm.base.comp.zcu.?;
                 const ip = &zcu.intern_pool;
                 const nav = ip.getNav(i.key(wasm).*);
-                return nav.getLinkSection().toSlice(ip) orelse ".data";
+                return nav.getLinkSection().toSlice(ip) orelse
+                    if (nav.isThreadlocal(ip)) ".tdata" else ".data";
             },
         };
     }
