@@ -3748,4 +3748,27 @@ const Value = @import("../Value.zig");
 const AnalUnit = InternPool.AnalUnit;
 const dev = @import("../dev.zig");
 
-const msdos_stub = @embedFile("msdos-stub.bin");
+// A (the?) minimal 120 bytes necessary to satisfy the MS-DOS/Windows loaders:
+//  a suitable header for PEs (Portable Executable).
+// First, the MS-DOS header: 2 byte signature 'MZ', a page count (1),
+//  and header size in paragraphs (4).
+// The PE Extension follows, including the 4 byte starting address of the
+//  PE header (0x78 == 120 in our case).
+// Finally, the 64 byte stub program. The MS-DOS loader runs this tiny
+//  program, only to see its dreams idled and its hopes dashed.
+// See https://wiki.osdev.org/MZ or https://osandamalith.com/2020/07/19/exploring-the-ms-dos-stub
+const msdos_stub = {
+ '\x4d', '\x5a', '\x78', '\x00', '\x01', '\x00', '\x00', '\x00', '\x04',
+ '\x00', '\x00', '\x00', '\x00', '\x00', '\x00', '\x00', '\x00', '\x00',
+ '\x00', '\x00', '\x00', '\x00', '\x00', '\x00', '\x40', '\x00', '\x00',
+ '\x00', '\x00', '\x00', '\x00', '\x00', '\x00', '\x00', '\x00', '\x00',
+ '\x00', '\x00', '\x00', '\x00', '\x00', '\x00', '\x00', '\x00', '\x00',
+ '\x00', '\x00', '\x00', '\x00', '\x00', '\x00', '\x00', '\x00', '\x00',
+ '\x00', '\x00', '\x00', '\x00', '\x00', '\x00', '\x78', '\x00', '\x00',
+ '\x00', '\x0e', '\x1f', '\xba', '\x0e', '\x00', '\xb4', '\x09', '\xcd',
+ '\x21', '\xb8', '\x01', '\x4c', '\xcd', '\x21',
+ 'T', 'h', 'i', 's', ' ', 'p', 'r', 'o', 'g', 'r', 'a', 'm', ' ', 'c', 'a',
+ 'n', 'n', 'o', 't', ' ', 'b', 'e', ' ', 'r', 'u', 'n', ' ', 'i', 'n', ' ',
+ 'D', 'O', 'S', ' ', 'm', 'o', 'd', 'e', '.', '$',
+ '\x00', '\x00'
+;
