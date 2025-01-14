@@ -47,16 +47,14 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
         check_lib.checkInHeaders();
         check_lib.checkExact("Section custom");
         check_lib.checkExact("type data_segment");
-        check_lib.checkExact("names 2");
-        check_lib.checkExact("index 0");
-        check_lib.checkExact("name .rodata");
+        check_lib.checkExact("names 1");
         // for safe optimization modes `undefined` is stored in data instead of bss.
         if (is_safe) {
-            check_lib.checkExact("index 1");
+            check_lib.checkExact("index 0");
             check_lib.checkExact("name .data");
             check_lib.checkNotPresent("name .bss");
         } else {
-            check_lib.checkExact("index 1"); // bss section always last
+            check_lib.checkExact("index 0"); // bss section always last
             check_lib.checkExact("name .bss");
         }
         test_step.dependOn(&check_lib.step);
@@ -84,10 +82,8 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
         check_lib.checkInHeaders();
         check_lib.checkExact("Section custom");
         check_lib.checkExact("type data_segment");
-        check_lib.checkExact("names 2");
+        check_lib.checkExact("names 1");
         check_lib.checkExact("index 0");
-        check_lib.checkExact("name .rodata");
-        check_lib.checkExact("index 1");
         check_lib.checkExact("name .bss");
 
         test_step.dependOn(&check_lib.step);

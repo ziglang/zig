@@ -3066,7 +3066,7 @@ pub fn saveState(comp: *Compilation) !void {
         .wasm => {
             const wasm = lf.cast(.wasm).?;
             const is_obj = comp.config.output_mode == .Obj;
-            try bufs.ensureUnusedCapacity(83);
+            try bufs.ensureUnusedCapacity(85);
             addBuf(&bufs, wasm.string_bytes.items);
             // TODO make it well-defined memory layout
             //addBuf(&bufs, mem.sliceAsBytes(wasm.objects.items));
@@ -3133,6 +3133,8 @@ pub fn saveState(comp: *Compilation) !void {
             addBuf(&bufs, mem.sliceAsBytes(wasm.missing_exports.keys()));
             addBuf(&bufs, mem.sliceAsBytes(wasm.function_exports.keys()));
             addBuf(&bufs, mem.sliceAsBytes(wasm.function_exports.values()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.hidden_function_exports.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.hidden_function_exports.values()));
             addBuf(&bufs, mem.sliceAsBytes(wasm.global_exports.items));
             addBuf(&bufs, mem.sliceAsBytes(wasm.functions.keys()));
             addBuf(&bufs, mem.sliceAsBytes(wasm.function_imports.keys()));

@@ -210,8 +210,7 @@ entry_resolution: FunctionImport.Resolution = .unresolved,
 
 /// Empty when outputting an object.
 function_exports: std.AutoArrayHashMapUnmanaged(String, FunctionIndex) = .empty,
-/// Tracks the value at the end of prelink.
-function_exports_len: u32 = 0,
+hidden_function_exports: std.AutoArrayHashMapUnmanaged(String, FunctionIndex) = .empty,
 global_exports: std.ArrayListUnmanaged(GlobalExport) = .empty,
 /// Tracks the value at the end of prelink.
 global_exports_len: u32 = 0,
@@ -360,9 +359,8 @@ pub const FunctionIndex = enum(u32) {
         if (wasm.object_function_imports.getPtr(name)) |import| {
             return fromResolution(wasm, import.resolution);
         }
-        if (wasm.function_exports.get(name)) |index| {
-            return index;
-        }
+        if (wasm.function_exports.get(name)) |index| return index;
+        if (wasm.hidden_function_exports.get(name)) |index| return index;
         return null;
     }
 
@@ -1919,8 +1917,11 @@ pub const DataSegmentId = enum(u32) {
                 const zcu = wasm.base.comp.zcu.?;
                 const ip = &zcu.intern_pool;
                 const nav = ip.getNav(i.key(wasm).*);
-                return nav.getLinkSection().toSlice(ip) orelse
-                    if (nav.isThreadlocal(ip)) ".tdata" else ".data";
+                return nav.getLinkSection().toSlice(ip) orelse switch (category(id, wasm)) {
+                    .tls => ".tdata",
+                    .data => ".data",
+                    .zero => ".bss",
+                };
             },
         };
     }
@@ -3110,6 +3111,7 @@ pub fn deinit(wasm: *Wasm) void {
 
     wasm.func_types.deinit(gpa);
     wasm.function_exports.deinit(gpa);
+    wasm.hidden_function_exports.deinit(gpa);
     wasm.function_imports.deinit(gpa);
     wasm.functions.deinit(gpa);
     wasm.globals.deinit(gpa);
@@ -3417,7 +3419,6 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
         }
     }
     wasm.functions_end_prelink = @intCast(wasm.functions.entries.len);
-    wasm.function_exports_len = @intCast(wasm.function_exports.entries.len);
 
     for (wasm.object_global_imports.keys(), wasm.object_global_imports.values(), 0..) |name, *import, i| {
         if (import.flags.isIncluded(rdynamic)) {
@@ -3491,8 +3492,14 @@ fn markFunction(wasm: *Wasm, i: ObjectFunctionIndex) link.File.FlushError!void {
     const function = i.ptr(wasm);
     markObject(wasm, function.object_index);
 
-    if (!is_obj and function.flags.isExported(rdynamic))
-        try wasm.function_exports.put(gpa, function.name.unwrap().?, @enumFromInt(gop.index));
+    if (!is_obj and function.flags.isExported(rdynamic)) {
+        const symbol_name = function.name.unwrap().?;
+        if (function.flags.visibility_hidden) {
+            try wasm.hidden_function_exports.put(gpa, symbol_name, @enumFromInt(gop.index));
+        } else {
+            try wasm.function_exports.put(gpa, symbol_name, @enumFromInt(gop.index));
+        }
+    }
 
     try wasm.markRelocations(function.relocations(wasm));
 }
@@ -3777,6 +3784,9 @@ pub fn flushModule(
 
     const function_exports_end_zcu: u32 = @intCast(wasm.function_exports.entries.len);
     defer wasm.function_exports.shrinkRetainingCapacity(function_exports_end_zcu);
+
+    const hidden_function_exports_end_zcu: u32 = @intCast(wasm.hidden_function_exports.entries.len);
+    defer wasm.hidden_function_exports.shrinkRetainingCapacity(hidden_function_exports_end_zcu);
 
     wasm.flush_buffer.clear();
     try wasm.flush_buffer.missing_exports.reinit(gpa, wasm.missing_exports.keys(), &.{});

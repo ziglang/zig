@@ -164,10 +164,14 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             }
         }
 
-        for (wasm.nav_exports.keys()) |*nav_export| {
+        for (wasm.nav_exports.keys(), wasm.nav_exports.values()) |*nav_export, export_index| {
             if (ip.isFunctionType(ip.getNav(nav_export.nav_index).typeOf(ip))) {
                 log.debug("flush export '{s}' nav={d}", .{ nav_export.name.slice(wasm), nav_export.nav_index });
-                try wasm.function_exports.put(gpa, nav_export.name, Wasm.FunctionIndex.fromIpNav(wasm, nav_export.nav_index).?);
+                const function_index = Wasm.FunctionIndex.fromIpNav(wasm, nav_export.nav_index).?;
+                switch (export_index.ptr(zcu).opts.visibility) {
+                    .default, .protected => try wasm.function_exports.put(gpa, nav_export.name, function_index),
+                    .hidden => try wasm.hidden_function_exports.put(gpa, nav_export.name, function_index),
+                }
                 _ = f.missing_exports.swapRemove(nav_export.name);
                 _ = f.function_imports.swapRemove(nav_export.name);
 
