@@ -3789,6 +3789,9 @@ pub fn flushModule(
     const globals_end_zcu: u32 = @intCast(wasm.globals.entries.len);
     defer wasm.globals.shrinkRetainingCapacity(globals_end_zcu);
 
+    const function_exports_end_zcu: u32 = @intCast(wasm.function_exports.entries.len);
+    defer wasm.function_exports.shrinkRetainingCapacity(function_exports_end_zcu);
+
     wasm.flush_buffer.clear();
     try wasm.flush_buffer.missing_exports.reinit(gpa, wasm.missing_exports.keys(), &.{});
     try wasm.flush_buffer.function_imports.reinit(gpa, wasm.function_imports.keys(), wasm.function_imports.values());
