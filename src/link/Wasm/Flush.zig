@@ -1909,14 +1909,15 @@ fn emitTagNameFunction(
     const zcu = comp.zcu.?;
     const ip = &zcu.intern_pool;
     const enum_type = ip.loadEnumType(enum_type_ip);
+    const tag_values = enum_type.values.get(ip);
 
     try code.ensureUnusedCapacity(gpa, 7 * 5 + 6 + 1 * 6);
     appendReservedUleb32(code, 0); // no locals
 
     const slice_abi_size = 8;
     const encoded_alignment = @ctz(@as(u32, 4));
-    if (enum_type.tag_mode == .auto) {
-        // Then it's a direct table lookup.
+    if (tag_values.len == 0) {
+        // Then it's auto-numbered and therefore a direct table lookup.
         code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_get));
         appendReservedUleb32(code, 0);
 
@@ -1948,7 +1949,7 @@ fn emitTagNameFunction(
         code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.block));
         code.appendAssumeCapacity(@intFromEnum(outer_block_type));
 
-        for (enum_type.values.get(ip), 0..) |tag_value, tag_index| {
+        for (tag_values, 0..) |tag_value, tag_index| {
             // block for this if case
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.block));
             code.appendAssumeCapacity(@intFromEnum(std.wasm.BlockType.empty));
