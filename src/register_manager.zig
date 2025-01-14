@@ -58,11 +58,6 @@ pub fn RegisterManager(
             return @alignCast(@fieldParentPtr("register_manager", self));
         }
 
-        fn excludeRegister(reg: Register, register_class: RegisterBitSet) bool {
-            const index = indexOfRegIntoTracked(reg) orelse return true;
-            return !register_class.isSet(index);
-        }
-
         fn markRegIndexAllocated(self: *Self, tracked_index: TrackedIndex) void {
             self.allocated_registers.set(tracked_index);
         }
@@ -234,28 +229,20 @@ pub fn RegisterManager(
         ) ?[count]Register {
             comptime assert(count > 0 and count <= tracked_registers.len);
 
-            var free_and_not_locked_registers = self.free_registers;
-            free_and_not_locked_registers.setIntersection(register_class);
-
-            var unlocked_registers = self.locked_registers;
-            unlocked_registers.toggleAll();
-
-            free_and_not_locked_registers.setIntersection(unlocked_registers);
-
-            if (free_and_not_locked_registers.count() < count) return null;
+            var free_and_unlocked_registers = self.locked_registers;
+            free_and_unlocked_registers.toggleAll();
+            free_and_unlocked_registers.setIntersection(self.free_registers);
+            free_and_unlocked_registers.setIntersection(register_class);
 
             var regs: [count]Register = undefined;
             var i: usize = 0;
-            for (tracked_registers) |reg| {
-                if (i >= count) break;
-                if (excludeRegister(reg, register_class)) continue;
-                if (self.isRegLocked(reg)) continue;
-                if (!self.isRegFree(reg)) continue;
-
-                regs[i] = reg;
+            var it = free_and_unlocked_registers.iterator(.{});
+            while (it.next()) |reg_index| {
+                regs[i] = regAtTrackedIndex(@intCast(reg_index));
                 i += 1;
+                if (i >= count) break;
             }
-            assert(i == count);
+            if (i < count) return null;
 
             for (regs, insts) |reg, inst| {
                 log.debug("tryAllocReg {} for inst {?}", .{ reg, inst });
@@ -290,46 +277,27 @@ pub fn RegisterManager(
         ) AllocationError![count]Register {
             comptime assert(count > 0 and count <= tracked_registers.len);
 
-            var locked_registers = self.locked_registers;
-            locked_registers.setIntersection(register_class);
-
-            if (count > register_class.count() - locked_registers.count()) return error.OutOfRegisters;
-
             const result = self.tryAllocRegs(count, insts, register_class) orelse blk: {
+                var unlocked_registers = self.locked_registers;
+                unlocked_registers.toggleAll();
+                unlocked_registers.setIntersection(register_class);
+
                 // We'll take over the first count registers. Spill
                 // the instructions that were previously there to a
                 // stack allocations.
                 var regs: [count]Register = undefined;
                 var i: usize = 0;
-                for (tracked_registers) |reg| {
-                    if (i >= count) break;
-                    if (excludeRegister(reg, register_class)) break;
-                    if (self.isRegLocked(reg)) continue;
-
-                    log.debug("allocReg {} for inst {?}", .{ reg, insts[i] });
-                    regs[i] = reg;
-                    self.markRegAllocated(reg);
-                    const index = indexOfRegIntoTracked(reg).?; // indexOfReg() on a callee-preserved reg should never return null
-                    if (insts[i]) |inst| {
-                        // Track the register
-                        if (self.isRegFree(reg)) {
-                            self.markRegUsed(reg);
-                        } else {
-                            const spilled_inst = self.registers[index];
-                            try self.getFunction().spillInstruction(reg, spilled_inst);
-                        }
-                        self.registers[index] = inst;
-                    } else {
-                        // Don't track the register
-                        if (!self.isRegFree(reg)) {
-                            const spilled_inst = self.registers[index];
-                            try self.getFunction().spillInstruction(reg, spilled_inst);
-                            self.freeReg(reg);
-                        }
-                    }
-
+                var it = unlocked_registers.iterator(.{});
+                while (it.next()) |reg_index| {
+                    const tracked_index: TrackedIndex = @intCast(reg_index);
+                    if (!self.isRegIndexFree(tracked_index) and
+                        self.registers[tracked_index].unwrap() == .target) continue;
+                    try self.getRegIndex(tracked_index, insts[i]);
+                    regs[i] = regAtTrackedIndex(tracked_index);
                     i += 1;
+                    if (i >= count) break;
                 }
+                if (i < count) return error.OutOfRegisters;
 
                 break :blk regs;
             };
@@ -351,7 +319,7 @@ pub fn RegisterManager(
         /// Spills the register if it is currently allocated. If a
         /// corresponding instruction is passed, will also track this
         /// register.
-        fn getRegIndex(
+        pub fn getRegIndex(
             self: *Self,
             tracked_index: TrackedIndex,
             inst: ?Air.Inst.Index,

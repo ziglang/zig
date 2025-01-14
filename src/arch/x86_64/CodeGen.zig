@@ -634,42 +634,14 @@ const InstTracking = struct {
     }
 
     fn reuseFrame(self: *InstTracking) void {
-        switch (self.long) {
-            .reserved_frame => |index| self.long = .{ .load_frame = .{ .index = index } },
-            else => {},
-        }
-        self.short = switch (self.long) {
-            .none,
-            .unreach,
-            .undef,
-            .immediate,
-            .memory,
-            .load_direct,
-            .lea_direct,
-            .load_got,
-            .lea_got,
-            .load_tlv,
-            .lea_tlv,
-            .load_frame,
-            .lea_frame,
-            .load_symbol,
-            .lea_symbol,
-            => self.long,
-            .dead,
-            .eflags,
-            .register,
-            .register_pair,
-            .register_triple,
-            .register_quadruple,
-            .register_offset,
-            .register_overflow,
-            .register_mask,
-            .indirect,
-            .elementwise_regs_then_frame,
-            .reserved_frame,
-            .air_ref,
-            => unreachable,
-        };
+        self.* = .init(switch (self.long) {
+            .none => switch (self.short) {
+                .dead => .none,
+                else => |short| short,
+            },
+            .reserved_frame => |index| .{ .load_frame = .{ .index = index } },
+            else => |long| long,
+        });
     }
 
     fn trackSpill(self: *InstTracking, function: *CodeGen, inst: Air.Inst.Index) !void {
@@ -681,6 +653,15 @@ const InstTracking = struct {
     fn verifyMaterialize(self: InstTracking, target: InstTracking) void {
         switch (self.long) {
             .none,
+            .load_frame,
+            .reserved_frame,
+            => switch (target.long) {
+                .none,
+                .load_frame,
+                .reserved_frame,
+                => {},
+                else => unreachable,
+            },
             .unreach,
             .undef,
             .immediate,
@@ -695,15 +676,6 @@ const InstTracking = struct {
             .load_symbol,
             .lea_symbol,
             => assert(std.meta.eql(self.long, target.long)),
-            .load_frame,
-            .reserved_frame,
-            => switch (target.long) {
-                .none,
-                .load_frame,
-                .reserved_frame,
-                => {},
-                else => unreachable,
-            },
             .dead,
             .eflags,
             .register,
@@ -754,10 +726,11 @@ const InstTracking = struct {
         tracking_log.debug("{} => {} (materialize)", .{ inst, self.* });
     }
 
-    fn resurrect(self: *InstTracking, inst: Air.Inst.Index, scope_generation: u32) void {
+    fn resurrect(self: *InstTracking, function: *CodeGen, inst: Air.Inst.Index, scope_generation: u32) !void {
         switch (self.short) {
             .dead => |die_generation| if (die_generation >= scope_generation) {
                 self.reuseFrame();
+                try function.getValue(self.short, inst);
                 tracking_log.debug("{} => {} (resurrect)", .{ inst, self.* });
             },
             else => {},
@@ -767,6 +740,7 @@ const InstTracking = struct {
     fn die(self: *InstTracking, function: *CodeGen, inst: Air.Inst.Index) !void {
         if (self.short == .dead) return;
         try function.freeValue(self.short);
+        if (self.long == .none) self.long = self.short;
         self.short = .{ .dead = function.scope_generation };
         tracking_log.debug("{} => {} (death)", .{ inst, self.* });
     }
@@ -2359,7 +2333,7 @@ fn genBodyBlock(self: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
 }
 
 fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
-    @setEvalBranchQuota(1_600);
+    @setEvalBranchQuota(1_700);
     const pt = cg.pt;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -2520,7 +2494,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
                 try ops[0].toSlicePtr(cg);
                 var res: [1]Temp = undefined;
-                cg.select(&res, &.{ty_pl.ty.toType()}, &ops, comptime &.{ .{
+                if (ty_pl.ty.toType().elemType2(zcu).hasRuntimeBitsIgnoreComptime(zcu)) cg.select(&res, &.{ty_pl.ty.toType()}, &ops, comptime &.{ .{
                     .patterns = &.{
                         .{ .src = .{ .to_gpr, .simm32 } },
                     },
@@ -2625,7 +2599,9 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         ops[1].tracking(cg),
                     }),
                     else => |e| return e,
-                };
+                } else { // hack around Sema OPV bugs
+                    res[0] = ops[0];
+                }
                 for (ops) |op| for (res) |r| {
                     if (op.index == r.index) break;
                 } else try op.die(cg);
@@ -2637,7 +2613,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
                 try ops[0].toSlicePtr(cg);
                 var res: [1]Temp = undefined;
-                cg.select(&res, &.{ty_pl.ty.toType()}, &ops, comptime &.{ .{
+                if (ty_pl.ty.toType().elemType2(zcu).hasRuntimeBitsIgnoreComptime(zcu)) cg.select(&res, &.{ty_pl.ty.toType()}, &ops, comptime &.{ .{
                     .patterns = &.{
                         .{ .src = .{ .to_gpr, .simm32 } },
                     },
@@ -2757,7 +2733,10 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         ops[1].tracking(cg),
                     }),
                     else => |e| return e,
-                };
+                } else {
+                    // hack around Sema OPV bugs
+                    res[0] = ops[0];
+                }
                 for (ops) |op| for (res) |r| {
                     if (op.index == r.index) break;
                 } else try op.die(cg);
@@ -2799,79 +2778,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 })) {
                     else => unreachable,
                     inline .@"and", .@"or", .xor => |mir_tag| comptime &.{ .{
-                        .required_features = .{ .avx2, null, null, null },
-                        .src_constraints = .{ .{ .int_or_vec = .yword }, .{ .int_or_vec = .yword } },
-                        .patterns = &.{
-                            .{ .src = .{ .to_ymm, .mem } },
-                            .{ .src = .{ .mem, .to_ymm }, .commute = .{ 0, 1 } },
-                            .{ .src = .{ .to_ymm, .to_ymm } },
-                        },
-                        .dst_temps = .{.{ .rc = .sse }},
-                        .each = .{ .once = &.{
-                            .{ ._, .vp_, mir_tag, .dst0y, .src0y, .src1y, ._ },
-                        } },
-                    }, .{
-                        .required_features = .{ .avx, null, null, null },
-                        .src_constraints = .{ .{ .int_or_vec = .yword }, .{ .int_or_vec = .yword } },
-                        .patterns = &.{
-                            .{ .src = .{ .to_ymm, .mem } },
-                            .{ .src = .{ .mem, .to_ymm }, .commute = .{ 0, 1 } },
-                            .{ .src = .{ .to_ymm, .to_ymm } },
-                        },
-                        .dst_temps = .{.{ .rc = .sse }},
-                        .each = .{ .once = &.{
-                            .{ ._, .v_pd, mir_tag, .dst0y, .src0y, .src1y, ._ },
-                        } },
-                    }, .{
-                        .required_features = .{ .avx, null, null, null },
-                        .src_constraints = .{ .{ .int_or_vec = .xword }, .{ .int_or_vec = .xword } },
-                        .patterns = &.{
-                            .{ .src = .{ .to_xmm, .mem } },
-                            .{ .src = .{ .mem, .to_xmm }, .commute = .{ 0, 1 } },
-                            .{ .src = .{ .to_xmm, .to_xmm } },
-                        },
-                        .dst_temps = .{.{ .rc = .sse }},
-                        .each = .{ .once = &.{
-                            .{ ._, .vp_, mir_tag, .dst0x, .src0x, .src1x, ._ },
-                        } },
-                    }, .{
-                        .required_features = .{ .sse2, null, null, null },
-                        .src_constraints = .{ .{ .int_or_vec = .xword }, .{ .int_or_vec = .xword } },
-                        .patterns = &.{
-                            .{ .src = .{ .to_mut_xmm, .mem } },
-                            .{ .src = .{ .mem, .to_mut_xmm }, .commute = .{ 0, 1 } },
-                            .{ .src = .{ .to_mut_xmm, .to_xmm } },
-                        },
-                        .dst_temps = .{.{ .ref = .src0 }},
-                        .each = .{ .once = &.{
-                            .{ ._, .p_, mir_tag, .dst0x, .src1x, ._, ._ },
-                        } },
-                    }, .{
-                        .required_features = .{ .sse, null, null, null },
-                        .src_constraints = .{ .{ .int_or_vec = .xword }, .{ .int_or_vec = .xword } },
-                        .patterns = &.{
-                            .{ .src = .{ .to_mut_xmm, .mem } },
-                            .{ .src = .{ .mem, .to_mut_xmm }, .commute = .{ 0, 1 } },
-                            .{ .src = .{ .to_mut_xmm, .to_xmm } },
-                        },
-                        .dst_temps = .{.{ .ref = .src0 }},
-                        .each = .{ .once = &.{
-                            .{ ._, ._ps, mir_tag, .dst0x, .src1x, ._, ._ },
-                        } },
-                    }, .{
-                        .required_features = .{ .mmx, null, null, null },
-                        .src_constraints = .{ .{ .int_or_vec = .qword }, .{ .int_or_vec = .qword } },
-                        .patterns = &.{
-                            .{ .src = .{ .to_mut_mm, .mem } },
-                            .{ .src = .{ .mem, .to_mut_mm }, .commute = .{ 0, 1 } },
-                            .{ .src = .{ .to_mut_mm, .to_mm } },
-                        },
-                        .dst_temps = .{.{ .ref = .src0 }},
-                        .each = .{ .once = &.{
-                            .{ ._, .p_, mir_tag, .dst0q, .src1q, ._, ._ },
-                        } },
-                    }, .{
-                        .src_constraints = .{ .{ .int_or_vec = .byte }, .{ .int_or_vec = .byte } },
+                        .src_constraints = .{ .{ .size = .byte }, .{ .size = .byte } },
                         .patterns = &.{
                             .{ .src = .{ .mut_mem, .imm8 } },
                             .{ .src = .{ .imm8, .mut_mem }, .commute = .{ 0, 1 } },
@@ -2889,7 +2796,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ ._, ._, mir_tag, .dst0b, .src1b, ._, ._ },
                         } },
                     }, .{
-                        .src_constraints = .{ .{ .int_or_vec = .word }, .{ .int_or_vec = .word } },
+                        .src_constraints = .{ .{ .size = .word }, .{ .size = .word } },
                         .patterns = &.{
                             .{ .src = .{ .mut_mem, .imm16 } },
                             .{ .src = .{ .imm16, .mut_mem }, .commute = .{ 0, 1 } },
@@ -2907,7 +2814,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ ._, ._, mir_tag, .dst0w, .src1w, ._, ._ },
                         } },
                     }, .{
-                        .src_constraints = .{ .{ .int_or_vec = .dword }, .{ .int_or_vec = .dword } },
+                        .src_constraints = .{ .{ .size = .dword }, .{ .size = .dword } },
                         .patterns = &.{
                             .{ .src = .{ .mut_mem, .imm32 } },
                             .{ .src = .{ .imm32, .mut_mem }, .commute = .{ 0, 1 } },
@@ -2926,7 +2833,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         } },
                     }, .{
                         .required_features = .{ .@"64bit", null, null, null },
-                        .src_constraints = .{ .{ .int_or_vec = .qword }, .{ .int_or_vec = .qword } },
+                        .src_constraints = .{ .{ .size = .qword }, .{ .size = .qword } },
                         .patterns = &.{
                             .{ .src = .{ .mut_mem, .simm32 } },
                             .{ .src = .{ .simm32, .mut_mem }, .commute = .{ 0, 1 } },
@@ -2944,11 +2851,80 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ ._, ._, mir_tag, .dst0q, .src1q, ._, ._ },
                         } },
                     }, .{
-                        .required_features = .{ .avx2, null, null, null },
-                        .src_constraints = .{
-                            .{ .exact_remainder_int_or_vec = .{ .of = .yword, .is = .yword } },
-                            .{ .exact_remainder_int_or_vec = .{ .of = .yword, .is = .yword } },
+                        .required_features = .{ .mmx, null, null, null },
+                        .src_constraints = .{ .{ .size = .qword }, .{ .size = .qword } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_mut_mm, .mem } },
+                            .{ .src = .{ .mem, .to_mut_mm }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .to_mut_mm, .to_mm } },
                         },
+                        .dst_temps = .{.{ .ref = .src0 }},
+                        .each = .{ .once = &.{
+                            .{ ._, .p_, mir_tag, .dst0q, .src1q, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .avx, null, null, null },
+                        .src_constraints = .{ .{ .size = .xword }, .{ .size = .xword } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_xmm, .mem } },
+                            .{ .src = .{ .mem, .to_xmm }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .to_xmm, .to_xmm } },
+                        },
+                        .dst_temps = .{.{ .rc = .sse }},
+                        .each = .{ .once = &.{
+                            .{ ._, .vp_, mir_tag, .dst0x, .src0x, .src1x, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .sse2, null, null, null },
+                        .src_constraints = .{ .{ .size = .xword }, .{ .size = .xword } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_mut_xmm, .mem } },
+                            .{ .src = .{ .mem, .to_mut_xmm }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .to_mut_xmm, .to_xmm } },
+                        },
+                        .dst_temps = .{.{ .ref = .src0 }},
+                        .each = .{ .once = &.{
+                            .{ ._, .p_, mir_tag, .dst0x, .src1x, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .sse, null, null, null },
+                        .src_constraints = .{ .{ .size = .xword }, .{ .size = .xword } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_mut_xmm, .mem } },
+                            .{ .src = .{ .mem, .to_mut_xmm }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .to_mut_xmm, .to_xmm } },
+                        },
+                        .dst_temps = .{.{ .ref = .src0 }},
+                        .each = .{ .once = &.{
+                            .{ ._, ._ps, mir_tag, .dst0x, .src1x, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .avx2, null, null, null },
+                        .src_constraints = .{ .{ .size = .yword }, .{ .size = .yword } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_ymm, .mem } },
+                            .{ .src = .{ .mem, .to_ymm }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .to_ymm, .to_ymm } },
+                        },
+                        .dst_temps = .{.{ .rc = .sse }},
+                        .each = .{ .once = &.{
+                            .{ ._, .vp_, mir_tag, .dst0y, .src0y, .src1y, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .avx, null, null, null },
+                        .src_constraints = .{ .{ .size = .yword }, .{ .size = .yword } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_ymm, .mem } },
+                            .{ .src = .{ .mem, .to_ymm }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .to_ymm, .to_ymm } },
+                        },
+                        .dst_temps = .{.{ .rc = .sse }},
+                        .each = .{ .once = &.{
+                            .{ ._, .v_pd, mir_tag, .dst0y, .src0y, .src1y, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .avx2, null, null, null },
+                        .src_constraints = .{ .{ .multiple_size = .yword }, .{ .multiple_size = .yword } },
                         .patterns = &.{
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
@@ -2972,10 +2948,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         } },
                     }, .{
                         .required_features = .{ .avx, null, null, null },
-                        .src_constraints = .{
-                            .{ .exact_remainder_int_or_vec = .{ .of = .yword, .is = .yword } },
-                            .{ .exact_remainder_int_or_vec = .{ .of = .yword, .is = .yword } },
-                        },
+                        .src_constraints = .{ .{ .multiple_size = .yword }, .{ .multiple_size = .yword } },
                         .patterns = &.{
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
@@ -2999,10 +2972,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         } },
                     }, .{
                         .required_features = .{ .avx, null, null, null },
-                        .src_constraints = .{
-                            .{ .exact_remainder_int_or_vec = .{ .of = .xword, .is = .xword } },
-                            .{ .exact_remainder_int_or_vec = .{ .of = .xword, .is = .xword } },
-                        },
+                        .src_constraints = .{ .{ .multiple_size = .xword }, .{ .multiple_size = .xword } },
                         .patterns = &.{
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
@@ -3026,10 +2996,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         } },
                     }, .{
                         .required_features = .{ .sse2, null, null, null },
-                        .src_constraints = .{
-                            .{ .exact_remainder_int_or_vec = .{ .of = .xword, .is = .xword } },
-                            .{ .exact_remainder_int_or_vec = .{ .of = .xword, .is = .xword } },
-                        },
+                        .src_constraints = .{ .{ .multiple_size = .xword }, .{ .multiple_size = .xword } },
                         .patterns = &.{
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
@@ -3053,10 +3020,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         } },
                     }, .{
                         .required_features = .{ .sse, null, null, null },
-                        .src_constraints = .{
-                            .{ .exact_remainder_int_or_vec = .{ .of = .xword, .is = .xword } },
-                            .{ .exact_remainder_int_or_vec = .{ .of = .xword, .is = .xword } },
-                        },
+                        .src_constraints = .{ .{ .multiple_size = .xword }, .{ .multiple_size = .xword } },
                         .patterns = &.{
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
@@ -3080,10 +3044,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         } },
                     }, .{
                         .required_features = .{ .mmx, null, null, null },
-                        .src_constraints = .{
-                            .{ .exact_remainder_int_or_vec = .{ .of = .qword, .is = .qword } },
-                            .{ .exact_remainder_int_or_vec = .{ .of = .qword, .is = .qword } },
-                        },
+                        .src_constraints = .{ .{ .multiple_size = .qword }, .{ .multiple_size = .qword } },
                         .patterns = &.{
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
@@ -3106,10 +3067,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
                         } },
                     }, .{
-                        .src_constraints = .{
-                            .{ .exact_remainder_int_or_vec = .{ .of = .qword, .is = .qword } },
-                            .{ .exact_remainder_int_or_vec = .{ .of = .qword, .is = .qword } },
-                        },
+                        .src_constraints = .{ .{ .multiple_size = .qword }, .{ .multiple_size = .qword } },
                         .patterns = &.{
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
@@ -6983,7 +6941,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
                 const extra = cg.air.extraData(Air.VectorCmp, ty_pl.payload).data;
                 switch (extra.compareOperator()) {
-                    .eq, .neq => {},
+                    .eq, .neq => if (cg.typeOf(extra.lhs).scalarType(zcu).isRuntimeFloat())
+                        break :fallback try cg.airCmpVector(inst),
                     else => break :fallback try cg.airCmpVector(inst),
                 }
                 var ops = try cg.tempsFromOperands(inst, .{ extra.lhs, extra.rhs });
@@ -9763,22 +9722,20 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     .auto, .@"extern" => @intCast(agg_ty.structFieldOffset(extra.field_index, zcu)),
                     .@"packed" => break :fallback try cg.airStructFieldVal(inst),
                 };
-                if (field_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-                    var ops = try cg.tempsFromOperands(inst, .{extra.struct_operand});
-                    var res = try ops[0].read(field_ty, .{ .disp = field_off }, cg);
-                    for (ops) |op| if (op.index != res.index) try op.die(cg);
-                    try res.moveTo(inst, cg);
-                } else {
-                    // hack around Sema OPV bugs
-                    const res = try cg.tempInit(field_ty, .none);
-                    try res.moveTo(inst, cg);
-                }
+                var ops = try cg.tempsFromOperands(inst, .{extra.struct_operand});
+                // hack around Sema OPV bugs
+                var res = if (field_ty.hasRuntimeBitsIgnoreComptime(zcu))
+                    try ops[0].read(field_ty, .{ .disp = field_off }, cg)
+                else
+                    try cg.tempInit(field_ty, .none);
+                for (ops) |op| if (op.index != res.index) try op.die(cg);
+                try res.moveTo(inst, cg);
             },
             .set_union_tag => if (use_old) try cg.airSetUnionTag(inst) else {
                 const bin_op = air_datas[@intFromEnum(inst)].bin_op;
                 const union_ty = cg.typeOf(bin_op.lhs).childType(zcu);
-                var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
                 const union_layout = union_ty.unionGetLayout(zcu);
+                var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
                 // hack around Sema OPV bugs
                 if (union_layout.tag_size > 0) try ops[0].store(&ops[1], .{
                     .disp = @intCast(union_layout.tagOffset()),
@@ -9834,11 +9791,11 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 .ptr_elem_val => try cg.airPtrElemVal(inst),
             } else {
                 const bin_op = air_datas[@intFromEnum(inst)].bin_op;
+                const res_ty = cg.typeOf(bin_op.lhs).elemType2(zcu);
                 var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
                 try ops[0].toSlicePtr(cg);
                 var res: [1]Temp = undefined;
-                const res_ty = cg.typeOf(bin_op.lhs).elemType2(zcu);
-                cg.select(&res, &.{res_ty}, &ops, comptime &.{ .{
+                if (res_ty.hasRuntimeBitsIgnoreComptime(zcu)) cg.select(&res, &.{res_ty}, &ops, comptime &.{ .{
                     .dst_constraints = .{.{ .int = .byte }},
                     .patterns = &.{
                         .{ .src = .{ .to_gpr, .simm32 } },
@@ -9912,51 +9869,51 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ ._, ._, .mov, .dst0q, .leasi(.qword, .src0, .@"8", .src1), ._, ._ },
                     } },
                 } }) catch |err| switch (err) {
-                    error.SelectFailed => switch (res_ty.abiSize(zcu)) {
-                        // hack around Sema OPV bugs
-                        0 => res[0] = try cg.tempInit(res_ty, .none),
-                        else => |elem_size| {
-                            while (true) for (&ops) |*op| {
-                                if (try op.toRegClass(true, .general_purpose, cg)) break;
-                            } else break;
-                            const lhs_reg = ops[0].unwrap(cg).temp.tracking(cg).short.register.to64();
-                            const rhs_reg = ops[1].unwrap(cg).temp.tracking(cg).short.register.to64();
-                            if (!std.math.isPowerOfTwo(elem_size)) {
-                                try cg.spillEflagsIfOccupied();
-                                try cg.asmRegisterRegisterImmediate(
-                                    .{ .i_, .mul },
-                                    rhs_reg,
-                                    rhs_reg,
-                                    .u(elem_size),
-                                );
-                                try cg.asmRegisterMemory(.{ ._, .lea }, lhs_reg, .{
-                                    .base = .{ .reg = lhs_reg },
-                                    .mod = .{ .rm = .{ .size = .qword, .index = rhs_reg } },
-                                });
-                            } else if (elem_size > 8) {
-                                try cg.spillEflagsIfOccupied();
-                                try cg.asmRegisterImmediate(
-                                    .{ ._l, .sh },
-                                    rhs_reg,
-                                    .u(std.math.log2_int(u64, elem_size)),
-                                );
-                                try cg.asmRegisterMemory(.{ ._, .lea }, lhs_reg, .{
-                                    .base = .{ .reg = lhs_reg },
-                                    .mod = .{ .rm = .{ .size = .qword, .index = rhs_reg } },
-                                });
-                            } else try cg.asmRegisterMemory(.{ ._, .lea }, lhs_reg, .{
+                    error.SelectFailed => {
+                        const elem_size = res_ty.abiSize(zcu);
+                        while (true) for (&ops) |*op| {
+                            if (try op.toRegClass(true, .general_purpose, cg)) break;
+                        } else break;
+                        const lhs_reg = ops[0].unwrap(cg).temp.tracking(cg).short.register.to64();
+                        const rhs_reg = ops[1].unwrap(cg).temp.tracking(cg).short.register.to64();
+                        if (!std.math.isPowerOfTwo(elem_size)) {
+                            try cg.spillEflagsIfOccupied();
+                            try cg.asmRegisterRegisterImmediate(
+                                .{ .i_, .mul },
+                                rhs_reg,
+                                rhs_reg,
+                                .u(elem_size),
+                            );
+                            try cg.asmRegisterMemory(.{ ._, .lea }, lhs_reg, .{
                                 .base = .{ .reg = lhs_reg },
-                                .mod = .{ .rm = .{
-                                    .size = .qword,
-                                    .index = rhs_reg,
-                                    .scale = .fromFactor(@intCast(elem_size)),
-                                } },
+                                .mod = .{ .rm = .{ .size = .qword, .index = rhs_reg } },
                             });
-                            res[0] = try ops[0].load(res_ty, .{}, cg);
-                        },
+                        } else if (elem_size > 8) {
+                            try cg.spillEflagsIfOccupied();
+                            try cg.asmRegisterImmediate(
+                                .{ ._l, .sh },
+                                rhs_reg,
+                                .u(std.math.log2_int(u64, elem_size)),
+                            );
+                            try cg.asmRegisterMemory(.{ ._, .lea }, lhs_reg, .{
+                                .base = .{ .reg = lhs_reg },
+                                .mod = .{ .rm = .{ .size = .qword, .index = rhs_reg } },
+                            });
+                        } else try cg.asmRegisterMemory(.{ ._, .lea }, lhs_reg, .{
+                            .base = .{ .reg = lhs_reg },
+                            .mod = .{ .rm = .{
+                                .size = .qword,
+                                .index = rhs_reg,
+                                .scale = .fromFactor(@intCast(elem_size)),
+                            } },
+                        });
+                        res[0] = try ops[0].load(res_ty, .{}, cg);
                     },
                     else => |e| return e,
-                };
+                } else {
+                    // hack around Sema OPV bugs
+                    res[0] = try cg.tempInit(res_ty, .none);
+                }
                 for (ops) |op| for (res) |r| {
                     if (op.index == r.index) break;
                 } else try op.die(cg);
@@ -10499,7 +10456,7 @@ fn restoreState(self: *CodeGen, state: State, deaths: []const Air.Inst.Index, co
     if (opts.resurrect) for (
         self.inst_tracking.keys()[Temp.Index.max..state.inst_tracking_len],
         self.inst_tracking.values()[Temp.Index.max..state.inst_tracking_len],
-    ) |inst, *tracking| tracking.resurrect(inst, state.scope_generation);
+    ) |inst, *tracking| try tracking.resurrect(self, inst, state.scope_generation);
     for (deaths) |death| try self.processDeath(death);
 
     const ExpectedContents = [@typeInfo(RegisterManager.TrackedRegisters).array.len]RegisterLock;
@@ -10879,7 +10836,8 @@ fn airIntCast(self: *CodeGen, inst: Air.Inst.Index) !void {
     const dst_ty = self.typeOfIndex(inst);
 
     const result = @as(?MCValue, result: {
-        const dst_abi_size: u32 = @intCast(dst_ty.abiSize(zcu));
+        const src_abi_size: u31 = @intCast(src_ty.abiSize(zcu));
+        const dst_abi_size: u31 = @intCast(dst_ty.abiSize(zcu));
 
         const src_int_info = src_ty.intInfo(zcu);
         const dst_int_info = dst_ty.intInfo(zcu);
@@ -10890,7 +10848,6 @@ fn airIntCast(self: *CodeGen, inst: Air.Inst.Index) !void {
 
         const src_mcv = try self.resolveInst(ty_op.operand);
         if (dst_ty.isVector(zcu)) {
-            const src_abi_size: u32 = @intCast(src_ty.abiSize(zcu));
             const max_abi_size = @max(dst_abi_size, src_abi_size);
             if (max_abi_size > self.vectorSize(.int)) break :result null;
             const has_avx = self.hasFeature(.avx);
@@ -11060,7 +11017,8 @@ fn airIntCast(self: *CodeGen, inst: Air.Inst.Index) !void {
             else => src_int_info.bits,
         };
 
-        const dst_mcv = if (dst_int_info.bits <= src_storage_bits and
+        const dst_mcv = if ((if (src_mcv.getReg()) |src_reg| src_reg.class() == .general_purpose else src_abi_size > 8) and
+            dst_int_info.bits <= src_storage_bits and
             std.math.divCeil(u16, dst_int_info.bits, 64) catch unreachable ==
             std.math.divCeil(u32, src_storage_bits, 64) catch unreachable and
             self.reuseOperand(inst, ty_op.operand, 0, src_mcv)) src_mcv else dst: {
@@ -11079,8 +11037,8 @@ fn airIntCast(self: *CodeGen, inst: Air.Inst.Index) !void {
             break :result .{ .register = registerAlias(dst_mcv.getReg().?, dst_abi_size) };
         }
 
-        const src_limbs_len = std.math.divCeil(u16, src_int_info.bits, 64) catch unreachable;
-        const dst_limbs_len = std.math.divCeil(u16, dst_int_info.bits, 64) catch unreachable;
+        const src_limbs_len = std.math.divCeil(u31, src_abi_size, 8) catch unreachable;
+        const dst_limbs_len = @divExact(dst_abi_size, 8);
 
         const high_mcv: MCValue = if (dst_mcv.isBase())
             dst_mcv.address().offset((src_limbs_len - 1) * 8).deref()
@@ -12067,6 +12025,7 @@ fn genSetFrameTruncatedOverflowCompare(
     defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
 
     const ty = tuple_ty.fieldType(0, zcu);
+    const ty_size = ty.abiSize(zcu);
     const int_info = ty.intInfo(zcu);
 
     const hi_bits = (int_info.bits - 1) % 64 + 1;
@@ -12100,6 +12059,13 @@ fn genSetFrameTruncatedOverflowCompare(
         try self.asmSetccRegister(.ne, eq_reg.to8());
         try self.genBinOpMir(.{ ._, .@"or" }, .u8, .{ .register = overflow_reg }, .{ .register = eq_reg });
     }
+    try self.genSetMem(
+        .{ .frame = frame_index },
+        @intCast(tuple_ty.structFieldOffset(1, zcu)),
+        tuple_ty.fieldType(1, zcu),
+        if (overflow_cc) |_| .{ .register = overflow_reg.to8() } else .{ .eflags = .ne },
+        .{},
+    );
 
     const payload_off: i32 = @intCast(tuple_ty.structFieldOffset(0, zcu));
     if (hi_limb_off > 0) try self.genSetMem(
@@ -12116,13 +12082,20 @@ fn genSetFrameTruncatedOverflowCompare(
         .{ .register = scratch_reg },
         .{},
     );
-    try self.genSetMem(
-        .{ .frame = frame_index },
-        @intCast(tuple_ty.structFieldOffset(1, zcu)),
-        tuple_ty.fieldType(1, zcu),
-        if (overflow_cc) |_| .{ .register = overflow_reg.to8() } else .{ .eflags = .ne },
-        .{},
-    );
+    var ext_off: i32 = hi_limb_off + 8;
+    if (ext_off < ty_size) {
+        switch (int_info.signedness) {
+            .signed => try self.asmRegisterImmediate(.{ ._r, .sa }, scratch_reg.to64(), .s(63)),
+            .unsigned => try self.asmRegisterRegister(.{ ._, .xor }, scratch_reg.to32(), scratch_reg.to32()),
+        }
+        while (ext_off < ty_size) : (ext_off += 8) try self.genSetMem(
+            .{ .frame = frame_index },
+            payload_off + ext_off,
+            limb_ty,
+            .{ .register = scratch_reg },
+            .{},
+        );
+    }
 }
 
 fn airMulWithOverflow(self: *CodeGen, inst: Air.Inst.Index) !void {
@@ -13581,9 +13554,12 @@ fn airArrayElemVal(self: *CodeGen, inst: Air.Inst.Index) !void {
                                 .{ ._, .bt },
                                 .{
                                     .base = .{ .frame = frame_index },
-                                    .mod = .{ .rm = .{ .size = .qword } },
+                                    .mod = .{ .rm = .{
+                                        .size = .qword,
+                                        .disp = @intCast(index_imm / 64 * 8),
+                                    } },
                                 },
-                                .u(index_imm),
+                                .u(index_imm % 64),
                             ),
                             else => try self.asmMemoryRegister(
                                 .{ ._, .bt },
@@ -13603,8 +13579,11 @@ fn airArrayElemVal(self: *CodeGen, inst: Air.Inst.Index) !void {
                 .load_frame => switch (index_mcv) {
                     .immediate => |index_imm| try self.asmMemoryImmediate(
                         .{ ._, .bt },
-                        try array_mat_mcv.mem(self, .{ .size = .qword }),
-                        .u(index_imm),
+                        try array_mat_mcv.mem(self, .{
+                            .size = .qword,
+                            .disp = @intCast(index_imm / 64 * 8),
+                        }),
+                        .u(index_imm % 64),
                     ),
                     else => try self.asmMemoryRegister(
                         .{ ._, .bt },
@@ -13622,9 +13601,12 @@ fn airArrayElemVal(self: *CodeGen, inst: Air.Inst.Index) !void {
                             .base = .{
                                 .reg = try self.copyToTmpRegister(.usize, array_mat_mcv.address()),
                             },
-                            .mod = .{ .rm = .{ .size = .qword } },
+                            .mod = .{ .rm = .{
+                                .size = .qword,
+                                .disp = @intCast(index_imm / 64 * 8),
+                            } },
                         },
-                        .u(index_imm),
+                        .u(index_imm % 64),
                     ),
                     else => try self.asmMemoryRegister(
                         .{ ._, .bt },
@@ -14451,13 +14433,18 @@ fn genByteSwap(
             return src_mcv;
         },
         9...16 => {
-            switch (src_mcv) {
+            const mat_src_mcv: MCValue = mat_src_mcv: switch (src_mcv) {
+                .register => {
+                    const frame_index = try self.allocFrameIndex(.initSpill(src_ty, zcu));
+                    try self.genSetMem(.{ .frame = frame_index }, 0, src_ty, src_mcv, .{});
+                    break :mat_src_mcv .{ .load_frame = .{ .index = frame_index } };
+                },
                 .register_pair => |src_regs| if (self.reuseOperand(inst, ty_op.operand, 0, src_mcv)) {
                     for (src_regs) |src_reg| try self.asmRegister(.{ ._, .bswap }, src_reg.to64());
                     return .{ .register_pair = .{ src_regs[1], src_regs[0] } };
-                },
-                else => {},
-            }
+                } else src_mcv,
+                else => src_mcv,
+            };
 
             const dst_regs =
                 try self.register_manager.allocRegs(2, .{ inst, inst }, abi.RegisterClass.gp);
@@ -14465,18 +14452,18 @@ fn genByteSwap(
             defer for (dst_locks) |lock| self.register_manager.unlockReg(lock);
 
             for (dst_regs, 0..) |dst_reg, limb_index| {
-                if (src_mcv.isBase()) {
+                if (mat_src_mcv.isBase()) {
                     try self.asmRegisterMemory(
                         .{ ._, if (has_movbe) .movbe else .mov },
                         dst_reg.to64(),
-                        try src_mcv.address().offset(@intCast(limb_index * 8)).deref().mem(self, .{ .size = .qword }),
+                        try mat_src_mcv.address().offset(@intCast(limb_index * 8)).deref().mem(self, .{ .size = .qword }),
                     );
                     if (!has_movbe) try self.asmRegister(.{ ._, .bswap }, dst_reg.to64());
                 } else {
                     try self.asmRegisterRegister(
                         .{ ._, .mov },
                         dst_reg.to64(),
-                        src_mcv.register_pair[limb_index].to64(),
+                        mat_src_mcv.register_pair[limb_index].to64(),
                     );
                     try self.asmRegister(.{ ._, .bswap }, dst_reg.to64());
                 }
@@ -15680,6 +15667,15 @@ fn packedStore(self: *CodeGen, ptr_ty: Type, ptr_mcv: MCValue, src_mcv: MCValue)
     const ptr_lock = self.register_manager.lockRegAssumeUnused(ptr_reg);
     defer self.register_manager.unlockReg(ptr_lock);
 
+    const mat_src_mcv: MCValue = mat_src_mcv: switch (src_mcv) {
+        .register => if (src_bit_size > 64) {
+            const frame_index = try self.allocFrameIndex(.initSpill(src_ty, self.pt.zcu));
+            try self.genSetMem(.{ .frame = frame_index }, 0, src_ty, src_mcv, .{});
+            break :mat_src_mcv .{ .load_frame = .{ .index = frame_index } };
+        } else src_mcv,
+        else => src_mcv,
+    };
+
     var limb_i: u16 = 0;
     while (limb_i * limb_abi_bits < src_bit_off + src_bit_size) : (limb_i += 1) {
         const part_bit_off = if (limb_i == 0) src_bit_off else 0;
@@ -15712,7 +15708,7 @@ fn packedStore(self: *CodeGen, ptr_ty: Type, ptr_mcv: MCValue, src_mcv: MCValue)
             const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
             defer self.register_manager.unlockReg(tmp_lock);
 
-            try self.genSetReg(tmp_reg, limb_ty, src_mcv, .{});
+            try self.genSetReg(tmp_reg, limb_ty, mat_src_mcv, .{});
             switch (limb_i) {
                 0 => try self.genShiftBinOpMir(
                     .{ ._l, .sh },
@@ -15743,8 +15739,8 @@ fn packedStore(self: *CodeGen, ptr_ty: Type, ptr_mcv: MCValue, src_mcv: MCValue)
             defer self.register_manager.unlockReg(tmp_lock);
 
             try self.genSetReg(tmp_reg, limb_ty, switch (limb_i) {
-                0 => src_mcv,
-                else => src_mcv.address().offset(limb_i * limb_abi_size).deref(),
+                0 => mat_src_mcv,
+                else => mat_src_mcv.address().offset(limb_i * limb_abi_size).deref(),
             }, .{});
             try self.genBinOpMir(.{ ._, .@"and" }, limb_ty, tmp_mcv, .{ .immediate = part_mask });
             try self.asmMemoryRegister(
@@ -17228,7 +17224,7 @@ fn genMulDivBinOp(
                         dst_mcv.address(),
                         lhs_mcv.address(),
                         rhs_mcv.address(),
-                        .{ .immediate = src_info.bits },
+                        .{ .immediate = 8 * src_abi_size },
                     }, .{});
                     return dst_mcv;
                 },
@@ -17246,7 +17242,8 @@ fn genMulDivBinOp(
     const reg_locks = self.register_manager.lockRegs(2, .{ .rax, .rdx });
     defer for (reg_locks) |reg_lock| if (reg_lock) |lock| self.register_manager.unlockReg(lock);
 
-    const signedness = ty.intInfo(zcu).signedness;
+    const int_info = ty.intInfo(zcu);
+    const signedness = int_info.signedness;
     switch (tag) {
         .mul,
         .mul_wrap,
@@ -17278,6 +17275,15 @@ fn genMulDivBinOp(
                     else => unreachable,
                 },
             }, ty, lhs_mcv, rhs_mcv);
+
+            switch (tag) {
+                .mul, .rem, .div_trunc, .div_exact => {},
+                .mul_wrap => if (dst_ty.intInfo(zcu).bits < 8 * dst_abi_size) try self.truncateRegister(
+                    dst_ty,
+                    if (dst_abi_size <= 8) .rax else .rdx,
+                ),
+                else => unreachable,
+            }
 
             if (dst_abi_size <= 8) return .{ .register = registerAlias(switch (tag) {
                 .mul, .mul_wrap, .div_trunc, .div_exact => .rax,
@@ -21954,8 +21960,9 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
                 break :arg .{ .indirect = .{ .reg = try self.copyToTmpRegister(.usize, ptr_mcv) } };
             };
         };
-        if (arg_mcv.getReg()) |reg| if (RegisterManager.indexOfRegIntoTracked(reg)) |_| {
-            _ = self.register_manager.lockReg(reg);
+        if (arg_mcv.getReg()) |reg| if (RegisterManager.indexOfRegIntoTracked(reg)) |tracked_index| {
+            try self.register_manager.getRegIndex(tracked_index, if (output == .none) inst else null);
+            _ = self.register_manager.lockRegIndexAssumeUnused(tracked_index);
         };
         if (!std.mem.eql(u8, name, "_"))
             arg_map.putAssumeCapacityNoClobber(name, @intCast(args.items.len));
@@ -22881,7 +22888,7 @@ fn genCopy(self: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue, opts: C
 
                                 try self.asmRegisterRegister(.{ ._q, .mov }, dst_regs[0].to64(), src_reg.to128());
                                 try self.asmRegisterRegister(.{ ._ps, .movhl }, tmp_reg.to128(), src_reg.to128());
-                                try self.asmRegisterRegister(.{ ._q, .mov }, dst_regs[1].to64(), src_reg.to128());
+                                try self.asmRegisterRegister(.{ ._q, .mov }, dst_regs[1].to64(), tmp_reg.to128());
                             }
                             return;
                         } else unreachable,
@@ -23831,10 +23838,12 @@ fn airBitCast(self: *CodeGen, inst: Air.Inst.Index) !void {
         const dst_rc = self.regSetForType(dst_ty);
         const src_rc = self.regSetForType(src_ty);
 
-        const src_lock = if (src_mcv.getReg()) |reg| self.register_manager.lockReg(reg) else null;
+        const src_lock = if (src_mcv.getReg()) |src_reg| self.register_manager.lockReg(src_reg) else null;
         defer if (src_lock) |lock| self.register_manager.unlockReg(lock);
 
-        const dst_mcv = if (dst_rc.supersetOf(src_rc) and dst_ty.abiSize(zcu) <= src_ty.abiSize(zcu) and
+        const dst_mcv = if ((if (src_mcv.getReg()) |src_reg| src_reg.class() == .general_purpose else true) and
+            dst_rc.supersetOf(src_rc) and dst_ty.abiSize(zcu) <= src_ty.abiSize(zcu) and
+            dst_ty.abiAlignment(zcu).order(src_ty.abiAlignment(zcu)).compare(.lte) and
             self.reuseOperand(inst, ty_op.operand, 0, src_mcv)) src_mcv else dst: {
             const dst_mcv = try self.allocRegOrMem(inst, true);
             try self.genCopy(switch (std.math.order(dst_ty.abiSize(zcu), src_ty.abiSize(zcu))) {
@@ -27702,7 +27711,7 @@ fn registerAlias(reg: Register, size_bytes: u32) Register {
             reg
         else
             unreachable,
-        .x87 => if (size_bytes == 16)
+        .x87 => if (size_bytes >= 10 and size_bytes <= 16)
             reg
         else
             unreachable,
@@ -28574,23 +28583,19 @@ const Temp = struct {
                         try ptr.tracking(cg).short.deref().mem(cg, .{ .size = .byte }),
                     );
                 },
-                .register => |val_reg| try ptr.storeReg(val_ty, registerAlias(
+                .register => |val_reg| try ptr.storeRegs(val_ty, &.{registerAlias(
                     val_reg,
                     @intCast(val_ty.abiSize(cg.pt.zcu)),
-                ), cg),
+                )}, cg),
                 inline .register_pair,
                 .register_triple,
                 .register_quadruple,
-                => |val_regs| for (val_regs) |val_reg| {
-                    try ptr.storeReg(val_ty, val_reg, cg);
-                    try ptr.toOffset(@divExact(val_reg.bitSize(), 8), cg);
-                    while (try ptr.toLea(cg)) {}
-                },
+                => |val_regs| try ptr.storeRegs(val_ty, &val_regs, cg),
                 .register_offset => |val_reg_off| switch (val_reg_off.off) {
-                    0 => try ptr.storeReg(val_ty, registerAlias(
+                    0 => try ptr.storeRegs(val_ty, &.{registerAlias(
                         val_reg_off.reg,
                         @intCast(val_ty.abiSize(cg.pt.zcu)),
-                    ), cg),
+                    )}, cg),
                     else => continue :val_to_gpr,
                 },
                 .register_overflow => |val_reg_ov| {
@@ -28608,7 +28613,7 @@ const Temp = struct {
                         else => std.debug.panic("{s}: {}\n", .{ @src().fn_name, val_ty.fmt(cg.pt) }),
                     });
                     const first_size: u31 = @intCast(first_ty.abiSize(cg.pt.zcu));
-                    try ptr.storeReg(first_ty, registerAlias(val_reg_ov.reg, first_size), cg);
+                    try ptr.storeRegs(first_ty, &.{registerAlias(val_reg_ov.reg, first_size)}, cg);
                     try ptr.toOffset(first_size, cg);
                     try cg.asmSetccMemory(
                         val_reg_ov.eflags,
@@ -28675,6 +28680,15 @@ const Temp = struct {
             const val_mcv = val.tracking(cg).short;
             switch (val_mcv) {
                 else => |mcv| std.debug.panic("{s}: {}\n", .{ @src().fn_name, mcv }),
+                .undef => if (opts.safe) {
+                    var dst_ptr = try cg.tempInit(.usize, dst.tracking(cg).short.address().offset(opts.disp));
+                    var pat = try cg.tempInit(.u8, .{ .immediate = 0xaa });
+                    var len = try cg.tempInit(.usize, .{ .immediate = val_ty.abiSize(cg.pt.zcu) });
+                    try dst_ptr.memset(&pat, &len, cg);
+                    try dst_ptr.die(cg);
+                    try pat.die(cg);
+                    try len.die(cg);
+                },
                 .immediate => |val_imm| {
                     const val_op: Immediate = if (std.math.cast(u31, val_imm)) |val_uimm31|
                         .u(val_uimm31)
@@ -28691,23 +28705,51 @@ const Temp = struct {
                         val_op,
                     );
                 },
-                .register => |val_reg| try dst.writeReg(opts.disp, val_ty, registerAlias(
+                .eflags => |cc| try cg.asmSetccMemory(
+                    cc,
+                    try dst.tracking(cg).short.mem(cg, .{
+                        .size = .byte,
+                        .disp = opts.disp,
+                    }),
+                ),
+                .register => |val_reg| try dst.writeRegs(opts.disp, val_ty, &.{registerAlias(
                     val_reg,
                     @intCast(val_ty.abiSize(cg.pt.zcu)),
-                ), cg),
-                inline .register_pair, .register_triple, .register_quadruple => |val_regs| {
-                    var disp = opts.disp;
-                    for (val_regs) |val_reg| {
-                        try dst.writeReg(disp, val_ty, val_reg, cg);
-                        disp += @divExact(val_reg.bitSize(), 8);
-                    }
-                },
+                )}, cg),
+                inline .register_pair,
+                .register_triple,
+                .register_quadruple,
+                => |val_regs| try dst.writeRegs(opts.disp, val_ty, &val_regs, cg),
                 .register_offset => |val_reg_off| switch (val_reg_off.off) {
-                    0 => try dst.writeReg(opts.disp, val_ty, registerAlias(
+                    0 => try dst.writeRegs(opts.disp, val_ty, &.{registerAlias(
                         val_reg_off.reg,
                         @intCast(val_ty.abiSize(cg.pt.zcu)),
-                    ), cg),
+                    )}, cg),
                     else => continue :val_to_gpr,
+                },
+                .register_overflow => |val_reg_ov| {
+                    const ip = &cg.pt.zcu.intern_pool;
+                    const first_ty: Type = .fromInterned(first_ty: switch (ip.indexToKey(val_ty.toIntern())) {
+                        .tuple_type => |tuple_type| {
+                            const tuple_field_types = tuple_type.types.get(ip);
+                            assert(tuple_field_types.len == 2 and tuple_field_types[1] == .u1_type);
+                            break :first_ty tuple_field_types[0];
+                        },
+                        .opt_type => |opt_child| {
+                            assert(!val_ty.optionalReprIsPayload(cg.pt.zcu));
+                            break :first_ty opt_child;
+                        },
+                        else => std.debug.panic("{s}: {}\n", .{ @src().fn_name, val_ty.fmt(cg.pt) }),
+                    });
+                    const first_size: u31 = @intCast(first_ty.abiSize(cg.pt.zcu));
+                    try dst.writeRegs(opts.disp, first_ty, &.{registerAlias(val_reg_ov.reg, first_size)}, cg);
+                    try cg.asmSetccMemory(
+                        val_reg_ov.eflags,
+                        try dst.tracking(cg).short.mem(cg, .{
+                            .size = .byte,
+                            .disp = opts.disp + first_size,
+                        }),
+                    );
                 },
                 .lea_frame, .lea_symbol => continue :val_to_gpr,
                 .memory, .indirect, .load_frame, .load_symbol => {
@@ -28739,33 +28781,47 @@ const Temp = struct {
         }));
     }
 
-    fn storeReg(ptr: *Temp, src_ty: Type, src_reg: Register, cg: *CodeGen) !void {
-        const src_rc = src_reg.class();
-        const src_abi_size = src_ty.abiSize(cg.pt.zcu);
-        const strat = try cg.moveStrategy(src_ty, src_rc, false);
-        // hack around linker relocation bugs
-        switch (ptr.tracking(cg).short) {
-            else => {},
-            .lea_symbol => |sym_off| if (src_rc != .general_purpose or sym_off.off != 0)
-                while (try ptr.toRegClass(false, .general_purpose, cg)) {},
-        }
-        if (src_rc == .x87 or std.math.isPowerOfTwo(src_abi_size)) {
-            try strat.write(cg, try ptr.tracking(cg).short.deref().mem(cg, .{
-                .size = .fromBitSize(@min(8 * src_abi_size, src_reg.bitSize())),
-            }), src_reg);
-        } else {
-            const frame_alloc: FrameAlloc = .initSpill(src_ty, cg.pt.zcu);
-            const frame_index = try cg.allocFrameIndex(frame_alloc);
-            const frame_size: Memory.Size = .fromSize(frame_alloc.abi_size);
-            try strat.write(cg, .{
-                .base = .{ .frame = frame_index },
-                .mod = .{ .rm = .{ .size = frame_size } },
-            }, src_reg);
-            var src_ptr = try cg.tempInit(.usize, .{ .lea_frame = .{ .index = frame_index } });
-            var len = try cg.tempInit(.usize, .{ .immediate = src_abi_size });
-            try ptr.memcpy(&src_ptr, &len, cg);
-            try src_ptr.die(cg);
-            try len.die(cg);
+    fn storeRegs(ptr: *Temp, src_ty: Type, src_regs: []const Register, cg: *CodeGen) !void {
+        var part_disp: u31 = 0;
+        var deferred_disp: u31 = 0;
+        var src_abi_size: u32 = @intCast(src_ty.abiSize(cg.pt.zcu));
+        for (src_regs) |src_reg| {
+            const src_rc = src_reg.class();
+            const part_bit_size = @min(8 * src_abi_size, src_reg.bitSize());
+            const part_size = @divExact(part_bit_size, 8);
+            if (src_rc == .x87 or std.math.isPowerOfTwo(part_size)) {
+                // hack around linker relocation bugs
+                switch (ptr.tracking(cg).short) {
+                    else => {},
+                    .lea_symbol => while (try ptr.toRegClass(false, .general_purpose, cg)) {},
+                }
+                const strat = try cg.moveStrategy(src_ty, src_rc, false);
+                try strat.write(cg, try ptr.tracking(cg).short.deref().mem(cg, .{
+                    .size = .fromBitSize(part_bit_size),
+                    .disp = part_disp,
+                }), registerAlias(src_reg, part_size));
+            } else {
+                const frame_size = std.math.ceilPowerOfTwoAssert(u32, part_size);
+                const frame_index = try cg.allocFrameIndex(.init(.{
+                    .size = frame_size,
+                    .alignment = .fromNonzeroByteUnits(frame_size),
+                }));
+                const strat = try cg.moveStrategy(src_ty, src_rc, true);
+                try strat.write(cg, .{
+                    .base = .{ .frame = frame_index },
+                    .mod = .{ .rm = .{ .size = .fromSize(frame_size) } },
+                }, registerAlias(src_reg, frame_size));
+                try ptr.toOffset(deferred_disp, cg);
+                deferred_disp = 0;
+                var src_ptr = try cg.tempInit(.usize, .{ .lea_frame = .{ .index = frame_index } });
+                var len = try cg.tempInit(.usize, .{ .immediate = src_abi_size });
+                try ptr.memcpy(&src_ptr, &len, cg);
+                try src_ptr.die(cg);
+                try len.die(cg);
+            }
+            part_disp += part_size;
+            deferred_disp += part_size;
+            src_abi_size -= part_size;
         }
     }
 
@@ -28777,30 +28833,41 @@ const Temp = struct {
         }));
     }
 
-    fn writeReg(dst: Temp, disp: i32, src_ty: Type, src_reg: Register, cg: *CodeGen) !void {
-        const src_rc = src_reg.class();
-        const src_abi_size = src_ty.abiSize(cg.pt.zcu);
-        const strat = try cg.moveStrategy(src_ty, src_rc, false);
-        if (src_rc == .x87 or std.math.isPowerOfTwo(src_abi_size)) {
-            try strat.write(cg, try dst.tracking(cg).short.mem(cg, .{
-                .size = .fromBitSize(@min(8 * src_abi_size, src_reg.bitSize())),
-                .disp = disp,
-            }), src_reg);
-        } else {
-            const frame_alloc: FrameAlloc = .initSpill(src_ty, cg.pt.zcu);
-            const frame_index = try cg.allocFrameIndex(frame_alloc);
-            const frame_size: Memory.Size = .fromSize(frame_alloc.abi_size);
-            try strat.write(cg, .{
-                .base = .{ .frame = frame_index },
-                .mod = .{ .rm = .{ .size = frame_size } },
-            }, src_reg);
-            var dst_ptr = try cg.tempInit(.usize, dst.tracking(cg).short.address());
-            var src_ptr = try cg.tempInit(.usize, .{ .lea_frame = .{ .index = frame_index } });
-            var len = try cg.tempInit(.usize, .{ .immediate = src_abi_size });
-            try dst_ptr.memcpy(&src_ptr, &len, cg);
-            try dst_ptr.die(cg);
-            try src_ptr.die(cg);
-            try len.die(cg);
+    fn writeRegs(dst: Temp, disp: i32, src_ty: Type, src_regs: []const Register, cg: *CodeGen) !void {
+        var part_disp = disp;
+        var src_abi_size: u32 = @intCast(src_ty.abiSize(cg.pt.zcu));
+        for (src_regs) |src_reg| {
+            const src_rc = src_reg.class();
+            const part_bit_size = @min(8 * src_abi_size, src_reg.bitSize());
+            const part_size = @divExact(part_bit_size, 8);
+            if (src_rc == .x87 or std.math.isPowerOfTwo(part_size)) {
+                const strat = try cg.moveStrategy(src_ty, src_rc, false);
+                try strat.write(cg, try dst.tracking(cg).short.mem(cg, .{
+                    .size = .fromBitSize(part_bit_size),
+                    .disp = part_disp,
+                }), registerAlias(src_reg, part_size));
+            } else {
+                const frame_size = std.math.ceilPowerOfTwoAssert(u32, part_size);
+                const frame_index = try cg.allocFrameIndex(.init(.{
+                    .size = frame_size,
+                    .alignment = .fromNonzeroByteUnits(frame_size),
+                }));
+                const strat = try cg.moveStrategy(src_ty, src_rc, true);
+                try strat.write(cg, .{
+                    .base = .{ .frame = frame_index },
+                    .mod = .{ .rm = .{ .size = .fromSize(frame_size) } },
+                }, registerAlias(src_reg, frame_size));
+                var dst_ptr = try cg.tempInit(.usize, dst.tracking(cg).short.address());
+                try dst_ptr.toOffset(part_disp, cg);
+                var src_ptr = try cg.tempInit(.usize, .{ .lea_frame = .{ .index = frame_index } });
+                var len = try cg.tempInit(.usize, .{ .immediate = src_abi_size });
+                try dst_ptr.memcpy(&src_ptr, &len, cg);
+                try dst_ptr.die(cg);
+                try src_ptr.die(cg);
+                try len.die(cg);
+            }
+            part_disp += part_size;
+            src_abi_size -= part_size;
         }
     }
 
@@ -29123,8 +29190,8 @@ const Select = struct {
         signed_int_vec: Memory.Size,
         signed_int_or_full_vec: Memory.Size,
         unsigned_int_vec: Memory.Size,
-        int_or_vec: Memory.Size,
-        exact_remainder_int_or_vec: struct { of: Memory.Size, is: Memory.Size },
+        size: Memory.Size,
+        multiple_size: Memory.Size,
         int: Memory.Size,
         scalar_int: Memory.Size,
         scalar_signed_int: Memory.Size,
@@ -29170,15 +29237,8 @@ const Select = struct {
                 } else false,
                 .unsigned_int_vec => |size| ty.isVector(zcu) and size.bitSize(cg.target) >= 8 * ty.abiSize(zcu) and
                     if (intInfo(ty.childType(zcu), cg)) |int_info| int_info.signedness == .unsigned else false,
-                .int_or_vec => |size| if (intInfo(ty, cg)) |int_info|
-                    size.bitSize(cg.target) >= int_info.bits
-                else
-                    ty.isVector(zcu) and size.bitSize(cg.target) >= 8 * ty.abiSize(zcu),
-                .exact_remainder_int_or_vec => |of_is| if (intInfo(ty, cg)) |int_info|
-                    of_is.is.bitSize(cg.target) == (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1
-                else
-                    ty.isVector(zcu) and ty.childType(zcu).toIntern() != .bool_type and
-                        of_is.is.bitSize(cg.target) == (8 * ty.abiSize(zcu) - 1) % of_is.of.bitSize(cg.target) + 1,
+                .size => |size| size.bitSize(cg.target) >= 8 * ty.abiSize(zcu),
+                .multiple_size => |size| size.bitSize(cg.target) % 8 * ty.abiSize(zcu) == 0,
                 .int => |size| if (intInfo(ty, cg)) |int_info| size.bitSize(cg.target) >= int_info.bits else false,
                 .scalar_int => |size| if (intInfo(ty.scalarType(zcu), cg)) |int_info|
                     size.bitSize(cg.target) >= int_info.bits

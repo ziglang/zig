@@ -540,8 +540,12 @@ pub fn getCAbiSseReturnRegs(cc: std.builtin.CallingConvention.Tag) []const Regis
 }
 
 pub fn getCAbiLinkerScratchReg(cc: std.builtin.CallingConvention.Tag) Register {
-    const int_return_regs = getCAbiIntReturnRegs(cc);
-    return int_return_regs[int_return_regs.len - 1];
+    return switch (cc) {
+        .auto => zigcc.int_return_regs[zigcc.int_return_regs.len - 1],
+        .x86_64_sysv => SysV.c_abi_int_return_regs[0],
+        .x86_64_win => Win64.c_abi_int_return_regs[0],
+        else => unreachable,
+    };
 }
 
 const gp_regs = [_]Register{
