@@ -3,6 +3,7 @@ const Encoding = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const math = std.math;
+const log = std.log.scoped(.x86_64_encoder);
 
 const bits = @import("bits.zig");
 const encoder = @import("encoder.zig");
@@ -30,6 +31,7 @@ pub fn findByMnemonic(
     prefix: Instruction.Prefix,
     mnemonic: Mnemonic,
     ops: []const Instruction.Operand,
+    show_canditates: bool,
 ) !?Encoding {
     var input_ops = [1]Op{.none} ** 4;
     for (input_ops[0..ops.len], ops) |*input_op, op| input_op.* = Op.fromOperand(op);
@@ -56,13 +58,47 @@ pub fn findByMnemonic(
 
     var shortest_enc: ?Encoding = null;
     var shortest_len: ?usize = null;
+
     next: for (mnemonic_to_encodings_map[@intFromEnum(mnemonic)]) |data| {
         switch (data.mode) {
-            .none, .short => if (rex_required) continue,
-            .rex, .rex_short => if (!rex_required) continue,
+            .none, .short => if (rex_required) {
+                if (show_canditates) {
+                    @branchHint(.unlikely);
+                    reportCandidateMismatch(
+                        data,
+                        &input_ops,
+                        "data.mode ({s}) doesn't make sense with rex_required = {}",
+                        .{ @tagName(data.mode), rex_required },
+                    );
+                }
+                continue :next;
+            },
+            .rex, .rex_short => if (!rex_required) {
+                if (show_canditates) {
+                    @branchHint(.unlikely);
+                    reportCandidateMismatch(
+                        data,
+                        &input_ops,
+                        "data.mode ({s}) doesn't make sense with rex_required = {}",
+                        .{ @tagName(data.mode), rex_required },
+                    );
+                }
+            },
             else => {},
         }
-        for (input_ops, data.ops) |input_op, data_op| if (!input_op.isSubset(data_op)) continue :next;
+
+        for (input_ops, data.ops) |input_op, data_op| if (!input_op.isSubset(data_op)) {
+            if (show_canditates) {
+                @branchHint(.unlikely);
+                reportCandidateMismatch(
+                    data,
+                    &input_ops,
+                    "input_ops are not a subset of data.ops (!{s}.isSubset({s}))",
+                    .{ @tagName(input_op), @tagName(data_op) },
+                );
+            }
+            continue :next;
+        };
 
         const enc = Encoding{ .mnemonic = mnemonic, .data = data };
         if (shortest_enc) |previous_shortest_enc| {
@@ -692,6 +728,21 @@ pub const Op = enum {
         };
     }
 
+    pub fn takesRegisterOrMemoryAndCanFit(target: Op, op: Op) bool {
+        if (!(op.isMemory() or op.isRegister())) return false;
+
+        return switch (target) {
+            .rm8, .r32_m8, .xmm_m8 => op == .m8 or op.regBitSize() == 8,
+            .rm16, .r32_m16, .r64_m16, .xmm_m16 => op == .m16 or op.regBitSize() == 16,
+            .rm32, .xmm_m32 => op == .m32 or op.regBitSize() == 32,
+            .rm64, .mm_m64, .xmm_m64 => op == .m64 or op.regBitSize() == 64,
+            .xmm_m128 => op == .m128 or op.regBitSize() == 128,
+            .ymm_m256 => op == .m256 or op.regBitSize() == 256,
+
+            else => false,
+        };
+    }
+
     /// Given an operand `op` checks if `target` is a subset for the purposes of the encoding.
     pub fn isSubset(op: Op, target: Op) bool {
         switch (op) {
@@ -705,7 +756,9 @@ pub const Op = enum {
                 if (op.isRegister() and target.isRegister()) {
                     return switch (target) {
                         .cl, .al, .ax, .eax, .rax, .xmm0 => op == target,
-                        else => op.class() == target.class() and op.regBitSize() == target.regBitSize(),
+                        else => (op.class() == target.class() and
+                            op.regBitSize() == target.regBitSize()) or
+                            target.takesRegisterOrMemoryAndCanFit(op),
                     };
                 }
                 if (op.isMemory() and target.isMemory()) {
@@ -880,3 +933,29 @@ const mnemonic_to_encodings_map = init: {
     }
     break :init final_map;
 };
+
+fn reportCandidateMismatch(
+    data: Data,
+    input_ops: []const Op,
+    comptime reason_fmt: []const u8,
+    reason_args: anytype,
+) void {
+    var buf: [256]u8 = undefined;
+    const reason = std.fmt.bufPrint(&buf, reason_fmt, reason_args) catch
+        "reason for mismatch was longer than 256 characters";
+
+    log.warn(
+        "candidate:\n  candidate_ops = {s} {s} {s} {s}\n    input_ops = {s} {s} {s} {s}\n  mismatch: {s}",
+        .{
+            @tagName(data.ops[0]),
+            @tagName(data.ops[1]),
+            @tagName(data.ops[2]),
+            @tagName(data.ops[3]),
+            @tagName(input_ops[0]),
+            @tagName(input_ops[1]),
+            @tagName(input_ops[2]),
+            @tagName(input_ops[3]),
+            reason,
+        },
+    );
+}

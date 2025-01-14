@@ -316,7 +316,7 @@ pub const Instruction = struct {
 
     pub fn new(prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand) !Instruction {
         const encoding: Encoding = switch (prefix) {
-            else => (try Encoding.findByMnemonic(prefix, mnemonic, ops)) orelse {
+            else => (try Encoding.findByMnemonic(prefix, mnemonic, ops, false)) orelse {
                 log.err("no encoding found for: {s} {s} {s} {s} {s} {s}", .{
                     @tagName(prefix),
                     @tagName(mnemonic),
@@ -325,6 +325,8 @@ pub const Instruction = struct {
                     @tagName(if (ops.len > 2) Encoding.Op.fromOperand(ops[2]) else .none),
                     @tagName(if (ops.len > 3) Encoding.Op.fromOperand(ops[3]) else .none),
                 });
+                _ = try Encoding.findByMnemonic(prefix, mnemonic, ops, true);
+
                 return error.InvalidInstruction;
             },
             .directive => .{
