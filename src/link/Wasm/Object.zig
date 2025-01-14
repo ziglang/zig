@@ -856,7 +856,7 @@ pub fn parse(
                 start_function = @enumFromInt(functions_start + index);
             },
             .element => {
-                log.warn("unimplemented: element section in {} {s}", .{ path, archive_member_name.? });
+                log.warn("unimplemented: element section in {} {?s}", .{ path, archive_member_name });
                 pos = section_end;
             },
             .code => {

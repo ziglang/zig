@@ -3059,8 +3059,118 @@ pub fn saveState(comp: *Compilation) !void {
         //// TODO: compilation errors
         //// TODO: namespaces
         //// TODO: decls
-        //// TODO: linker state
     }
+
+    // linker state
+    switch (lf.tag) {
+        .wasm => {
+            const wasm = lf.cast(.wasm).?;
+            const is_obj = comp.config.output_mode == .Obj;
+            try bufs.ensureUnusedCapacity(83);
+            addBuf(&bufs, wasm.string_bytes.items);
+            // TODO make it well-defined memory layout
+            //addBuf(&bufs, mem.sliceAsBytes(wasm.objects.items));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.func_types.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_function_imports.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_function_imports.values()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_functions.items));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_global_imports.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_global_imports.values()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_globals.items));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_table_imports.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_table_imports.values()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_tables.items));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_memory_imports.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_memory_imports.values()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_memories.items));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_relocations.items(.tag)));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_relocations.items(.offset)));
+            // TODO handle the union safety field
+            //addBuf(&bufs, mem.sliceAsBytes(wasm.object_relocations.items(.pointee)));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_relocations.items(.addend)));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_init_funcs.items));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_data_segments.items));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_datas.items));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_data_imports.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_data_imports.values()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_custom_segments.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_custom_segments.values()));
+            // TODO make it well-defined memory layout
+            // addBuf(&bufs, mem.sliceAsBytes(wasm.object_comdats.items));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_relocations_table.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_relocations_table.values()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_comdat_symbols.items(.kind)));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_comdat_symbols.items(.index)));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.out_relocs.items(.tag)));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.out_relocs.items(.offset)));
+            // TODO handle the union safety field
+            //addBuf(&bufs, mem.sliceAsBytes(wasm.out_relocs.items(.pointee)));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.out_relocs.items(.addend)));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.uav_fixups.items));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.nav_fixups.items));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.func_table_fixups.items));
+            if (is_obj) {
+                addBuf(&bufs, mem.sliceAsBytes(wasm.navs_obj.keys()));
+                addBuf(&bufs, mem.sliceAsBytes(wasm.navs_obj.values()));
+                addBuf(&bufs, mem.sliceAsBytes(wasm.uavs_obj.keys()));
+                addBuf(&bufs, mem.sliceAsBytes(wasm.uavs_obj.values()));
+            } else {
+                addBuf(&bufs, mem.sliceAsBytes(wasm.navs_exe.keys()));
+                addBuf(&bufs, mem.sliceAsBytes(wasm.navs_exe.values()));
+                addBuf(&bufs, mem.sliceAsBytes(wasm.uavs_exe.keys()));
+                addBuf(&bufs, mem.sliceAsBytes(wasm.uavs_exe.values()));
+            }
+            addBuf(&bufs, mem.sliceAsBytes(wasm.overaligned_uavs.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.overaligned_uavs.values()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.zcu_funcs.keys()));
+            // TODO handle the union safety field
+            // addBuf(&bufs, mem.sliceAsBytes(wasm.zcu_funcs.values()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.nav_exports.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.nav_exports.values()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.uav_exports.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.uav_exports.values()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.imports.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.missing_exports.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.function_exports.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.function_exports.values()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.global_exports.items));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.functions.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.function_imports.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.function_imports.values()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.data_imports.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.data_imports.values()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.data_segments.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.globals.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.global_imports.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.global_imports.values()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.tables.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.table_imports.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.table_imports.values()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.zcu_indirect_function_set.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_indirect_function_import_set.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.object_indirect_function_set.keys()));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.mir_instructions.items(.tag)));
+            // TODO handle the union safety field
+            //addBuf(&bufs, mem.sliceAsBytes(wasm.mir_instructions.items(.data)));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.mir_extra.items));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.all_zcu_locals.items));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.tag_name_bytes.items));
+            addBuf(&bufs, mem.sliceAsBytes(wasm.tag_name_offs.items));
+
+            // TODO add as header fields
+            // entry_resolution: FunctionImport.Resolution
+            // function_exports_len: u32
+            // global_exports_len: u32
+            // functions_end_prelink: u32
+            // globals_end_prelink: u32
+            // error_name_table_ref_count: u32
+            // tag_name_table_ref_count: u32
+            // any_tls_relocs: bool
+            // any_passive_inits: bool
+        },
+        else => log.err("TODO implement saving linker state for {s}", .{@tagName(lf.tag)}),
+    }
+
     var basename_buf: [255]u8 = undefined;
     const basename = std.fmt.bufPrint(&basename_buf, "{s}.zcs", .{
         comp.root_name,

@@ -199,7 +199,6 @@ uav_exports: std.AutoArrayHashMapUnmanaged(UavExport, Zcu.Export.Index) = .empty
 imports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void) = .empty,
 
 dwarf: ?Dwarf = null,
-debug_sections: DebugSections = .{},
 
 flush_buffer: Flush = .{},
 
@@ -939,19 +938,6 @@ pub const UavExport = extern struct {
     name: String,
     uav_index: InternPool.Index,
 };
-
-const DebugSections = struct {
-    abbrev: DebugSection = .{},
-    info: DebugSection = .{},
-    line: DebugSection = .{},
-    loc: DebugSection = .{},
-    pubnames: DebugSection = .{},
-    pubtypes: DebugSection = .{},
-    ranges: DebugSection = .{},
-    str: DebugSection = .{},
-};
-
-const DebugSection = struct {};
 
 pub const FunctionImport = extern struct {
     flags: SymbolFlags,
