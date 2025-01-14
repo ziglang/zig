@@ -161,6 +161,7 @@ const WValue = union(enum) {
     uav_ref: struct {
         ip_index: InternPool.Index,
         offset: i32 = 0,
+        orig_ptr_ty: InternPool.Index = .none,
     },
     /// Offset from the bottom of the virtual stack, with the offset
     /// pointing to where the value lives.
@@ -1062,9 +1063,9 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
                 try cg.addInst(.{
                     .tag = .uav_ref,
                     .data = if (is_obj) .{
-                        .uav_obj = try wasm.refUavObj(uav.ip_index),
+                        .uav_obj = try wasm.refUavObj(uav.ip_index, uav.orig_ptr_ty),
                     } else .{
-                        .uav_exe = try wasm.refUavExe(uav.ip_index),
+                        .uav_exe = try wasm.refUavExe(uav.ip_index, uav.orig_ptr_ty),
                     },
                 });
             } else {
@@ -1072,10 +1073,10 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
                     .tag = .uav_ref_off,
                     .data = .{
                         .payload = if (is_obj) try cg.addExtra(Mir.UavRefOffObj{
-                            .uav_obj = try wasm.refUavObj(uav.ip_index),
+                            .uav_obj = try wasm.refUavObj(uav.ip_index, uav.orig_ptr_ty),
                             .offset = uav.offset,
                         }) else try cg.addExtra(Mir.UavRefOffExe{
-                            .uav_exe = try wasm.refUavExe(uav.ip_index),
+                            .uav_exe = try wasm.refUavExe(uav.ip_index, uav.orig_ptr_ty),
                             .offset = uav.offset,
                         }),
                     },
@@ -3093,7 +3094,7 @@ fn lowerPtr(cg: *CodeGen, ptr_val: InternPool.Index, prev_offset: u64) InnerErro
     const offset: u64 = prev_offset + ptr.byte_offset;
     return switch (ptr.base_addr) {
         .nav => |nav| return .{ .nav_ref = .{ .nav_index = nav, .offset = @intCast(offset) } },
-        .uav => |uav| return .{ .uav_ref = .{ .ip_index = uav.val, .offset = @intCast(offset) } },
+        .uav => |uav| return .{ .uav_ref = .{ .ip_index = uav.val, .offset = @intCast(offset), .orig_ptr_ty = uav.orig_ty } },
         .int => return cg.lowerConstant(try pt.intValue(Type.usize, offset), Type.usize),
         .eu_payload => return cg.fail("Wasm TODO: lower error union payload pointer", .{}),
         .opt_payload => |opt_ptr| return cg.lowerPtr(opt_ptr, offset),

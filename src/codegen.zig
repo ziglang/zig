@@ -675,7 +675,7 @@ fn lowerUavRef(
             } else {
                 try wasm.uav_fixups.ensureUnusedCapacity(gpa, 1);
                 wasm.uav_fixups.appendAssumeCapacity(.{
-                    .uavs_exe_index = try wasm.refUavExe(uav.val),
+                    .uavs_exe_index = try wasm.refUavExe(uav.val, uav.orig_ty),
                     .offset = @intCast(code.items.len),
                     .addend = @intCast(offset),
                 });

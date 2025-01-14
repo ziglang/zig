@@ -189,6 +189,9 @@ navs_exe: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, ZcuDataExe) = .emp
 uavs_obj: std.AutoArrayHashMapUnmanaged(InternPool.Index, ZcuDataObj) = .empty,
 /// Tracks ref count to optimize LEB encodings for UAV references.
 uavs_exe: std.AutoArrayHashMapUnmanaged(InternPool.Index, ZcuDataExe) = .empty,
+/// Sparse table of uavs that need to be emitted with greater alignment than
+/// the default for the type.
+overaligned_uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment) = .empty,
 /// When the key is an enum type, this represents a `@tagName` function.
 zcu_funcs: std.AutoArrayHashMapUnmanaged(InternPool.Index, ZcuFunc) = .empty,
 nav_exports: std.AutoArrayHashMapUnmanaged(NavExport, Zcu.Export.Index) = .empty,
@@ -1945,6 +1948,7 @@ pub const DataSegmentId = enum(u32) {
                 const zcu = wasm.base.comp.zcu.?;
                 const ip = &zcu.intern_pool;
                 const ip_index = i.key(wasm).*;
+                if (wasm.overaligned_uavs.get(ip_index)) |a| return a;
                 const ty: Zcu.Type = .fromInterned(ip.typeOf(ip_index));
                 const result = ty.abiAlignment(zcu);
                 assert(result != .none);
@@ -3085,6 +3089,7 @@ pub fn deinit(wasm: *Wasm) void {
     wasm.navs_obj.deinit(gpa);
     wasm.uavs_exe.deinit(gpa);
     wasm.uavs_obj.deinit(gpa);
+    wasm.overaligned_uavs.deinit(gpa);
     wasm.zcu_funcs.deinit(gpa);
     wasm.nav_exports.deinit(gpa);
     wasm.uav_exports.deinit(gpa);
@@ -4397,10 +4402,22 @@ pub fn symbolNameIndex(wasm: *Wasm, name: String) Allocator.Error!SymbolTableInd
     return @enumFromInt(gop.index);
 }
 
-pub fn refUavObj(wasm: *Wasm, ip_index: InternPool.Index) !UavsObjIndex {
+pub fn refUavObj(wasm: *Wasm, ip_index: InternPool.Index, orig_ptr_ty: InternPool.Index) !UavsObjIndex {
     const comp = wasm.base.comp;
+    const zcu = comp.zcu.?;
+    const ip = &zcu.intern_pool;
     const gpa = comp.gpa;
     assert(comp.config.output_mode == .Obj);
+
+    if (orig_ptr_ty != .none) {
+        const abi_alignment = Zcu.Type.fromInterned(ip.typeOf(ip_index)).abiAlignment(zcu);
+        const explicit_alignment = ip.indexToKey(orig_ptr_ty).ptr_type.flags.alignment;
+        if (explicit_alignment.compare(.gt, abi_alignment)) {
+            const gop = try wasm.overaligned_uavs.getOrPut(gpa, ip_index);
+            gop.value_ptr.* = if (gop.found_existing) gop.value_ptr.maxStrict(explicit_alignment) else explicit_alignment;
+        }
+    }
+
     const gop = try wasm.uavs_obj.getOrPut(gpa, ip_index);
     if (!gop.found_existing) gop.value_ptr.* = .{
         // Lowering the value is delayed to avoid recursion.
@@ -4410,10 +4427,22 @@ pub fn refUavObj(wasm: *Wasm, ip_index: InternPool.Index) !UavsObjIndex {
     return @enumFromInt(gop.index);
 }
 
-pub fn refUavExe(wasm: *Wasm, ip_index: InternPool.Index) !UavsExeIndex {
+pub fn refUavExe(wasm: *Wasm, ip_index: InternPool.Index, orig_ptr_ty: InternPool.Index) !UavsExeIndex {
     const comp = wasm.base.comp;
+    const zcu = comp.zcu.?;
+    const ip = &zcu.intern_pool;
     const gpa = comp.gpa;
     assert(comp.config.output_mode != .Obj);
+
+    if (orig_ptr_ty != .none) {
+        const abi_alignment = Zcu.Type.fromInterned(ip.typeOf(ip_index)).abiAlignment(zcu);
+        const explicit_alignment = ip.indexToKey(orig_ptr_ty).ptr_type.flags.alignment;
+        if (explicit_alignment.compare(.gt, abi_alignment)) {
+            const gop = try wasm.overaligned_uavs.getOrPut(gpa, ip_index);
+            gop.value_ptr.* = if (gop.found_existing) gop.value_ptr.maxStrict(explicit_alignment) else explicit_alignment;
+        }
+    }
+
     const gop = try wasm.uavs_exe.getOrPut(gpa, ip_index);
     if (gop.found_existing) {
         gop.value_ptr.count += 1;
