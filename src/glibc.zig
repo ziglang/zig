@@ -1233,6 +1233,7 @@ fn buildSharedLib(
             .stack_protector = 0,
             .sanitize_c = false,
             .sanitize_thread = false,
+            .sanitize_address = false,
             .red_zone = comp.root_mod.red_zone,
             .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
             .valgrind = false,

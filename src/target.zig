@@ -407,7 +407,7 @@ pub fn clangSupportsNoImplicitFloatArg(target: std.Target) bool {
     };
 }
 
-pub fn defaultUnwindTables(target: std.Target, libunwind: bool, libtsan: bool) std.builtin.UnwindTables {
+pub fn defaultUnwindTables(target: std.Target, libunwind: bool, libtsan: bool, libasan: bool) std.builtin.UnwindTables {
     if (target.os.tag == .windows) {
         // The old 32-bit x86 variant of SEH doesn't use tables.
         return if (target.cpu.arch != .x86) .@"async" else .none;
@@ -415,6 +415,7 @@ pub fn defaultUnwindTables(target: std.Target, libunwind: bool, libtsan: bool) s
     if (target.os.tag.isDarwin()) return .@"async";
     if (libunwind) return .@"async";
     if (libtsan) return .@"async";
+    if (libasan) return .@"async";
     if (std.debug.Dwarf.abi.supportsUnwinding(target)) return .@"async";
     return .none;
 }

@@ -1055,6 +1055,7 @@ pub const Object = struct {
         is_small: bool,
         time_report: bool,
         sanitize_thread: bool,
+        sanitize_address: bool,
         fuzz: bool,
         lto: Compilation.Config.LtoMode,
     };
@@ -1335,6 +1336,7 @@ pub const Object = struct {
             .is_small = options.is_small,
             .time_report = options.time_report,
             .tsan = options.sanitize_thread,
+            .asan = options.sanitize_address,
             .sancov = options.fuzz,
             .lto = options.lto != .none,
             // https://github.com/ziglang/zig/issues/21215
@@ -1436,6 +1438,11 @@ pub const Object = struct {
             try attributes.addFnAttr(.sanitize_thread, &o.builder);
         } else {
             _ = try attributes.removeFnAttr(.sanitize_thread);
+        }
+        if (owner_mod.sanitize_address and !func_analysis.disable_instrumentation) {
+            try attributes.addFnAttr(.sanitize_address, &o.builder);
+        } else {
+            _ = try attributes.removeFnAttr(.sanitize_address);
         }
         const is_naked = fn_info.cc == .naked;
         if (owner_mod.fuzz and !func_analysis.disable_instrumentation and !is_naked) {

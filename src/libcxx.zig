@@ -167,6 +167,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         .link_libc = true,
         .lto = comp.config.lto,
         .any_sanitize_thread = comp.config.any_sanitize_thread,
+        .any_sanitize_address = comp.config.any_sanitize_address,
     }) catch |err| {
         comp.setMiscFailure(
             .libcxx,
@@ -190,6 +191,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
             .stack_protector = 0,
             .sanitize_c = false,
             .sanitize_thread = comp.config.any_sanitize_thread,
+            .sanitize_address = comp.config.any_sanitize_address,
             .red_zone = comp.root_mod.red_zone,
             .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
             .valgrind = false,
@@ -416,6 +418,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .any_unwind_tables = unwind_tables != .none,
         .lto = comp.config.lto,
         .any_sanitize_thread = comp.config.any_sanitize_thread,
+        .any_sanitize_address = comp.config.any_sanitize_address,
     }) catch |err| {
         comp.setMiscFailure(
             .libcxxabi,
@@ -439,6 +442,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             .stack_protector = 0,
             .sanitize_c = false,
             .sanitize_thread = comp.config.any_sanitize_thread,
+            .sanitize_address = comp.config.any_sanitize_address,
             .red_zone = comp.root_mod.red_zone,
             .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
             .valgrind = false,

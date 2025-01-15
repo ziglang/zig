@@ -81,6 +81,17 @@ pub fn calcLoadCommandsSize(macho_file: *MachO, assume_max_path_len: bool) !u32 
                 assume_max_path_len,
             );
         }
+        // TODO: link asan automatically
+        // if (comp.config.any_sanitize_address) {
+        //     const path = try comp.asan_lib.?.full_object_path.toString(gpa);
+        //     defer gpa.free(path);
+        //     const rpath = std.fs.path.dirname(path) orelse ".";
+        //     sizeofcmds += calcInstallNameLen(
+        //         @sizeOf(macho.rpath_command),
+        //         rpath,
+        //         assume_max_path_len,
+        //     );
+        // }
     }
     // LC_SOURCE_VERSION
     sizeofcmds += @sizeOf(macho.source_version_command);

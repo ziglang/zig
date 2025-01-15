@@ -89,6 +89,7 @@ pub const TargetMachine = opaque {
         is_small: bool,
         time_report: bool,
         tsan: bool,
+        asan: bool,
         sancov: bool,
         lto: bool,
         allow_fast_isel: bool,

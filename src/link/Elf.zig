@@ -1576,6 +1576,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         try man.addOptionalFile(module_obj_path);
         try man.addOptionalFilePath(compiler_rt_path);
         try man.addOptionalFilePath(if (comp.tsan_lib) |l| l.full_object_path else null);
+        try man.addOptionalFilePath(if (comp.asan_lib) |l| l.full_object_path else null);
         try man.addOptionalFilePath(if (comp.fuzzer_lib) |l| l.full_object_path else null);
 
         // We can skip hashing libc and libc++ components that we are in charge of building from Zig
@@ -1621,6 +1622,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         man.hash.add(self.bind_global_refs_locally);
         man.hash.add(self.compress_debug_sections);
         man.hash.add(comp.config.any_sanitize_thread);
+        man.hash.add(comp.config.any_sanitize_address);
         man.hash.add(comp.config.any_fuzz);
         man.hash.addOptionalBytes(comp.sysroot);
 
@@ -1966,6 +1968,11 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
 
         if (comp.tsan_lib) |lib| {
             assert(comp.config.any_sanitize_thread);
+            try argv.append(try lib.full_object_path.toString(arena));
+        }
+
+        if (comp.asan_lib) |lib| {
+            assert(comp.config.any_sanitize_address);
             try argv.append(try lib.full_object_path.toString(arena));
         }
 

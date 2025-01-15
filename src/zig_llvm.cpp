@@ -55,6 +55,7 @@
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/IPO/AlwaysInliner.h>
 #include <llvm/Transforms/Instrumentation/ThreadSanitizer.h>
+#include <llvm/Transforms/Instrumentation/AddressSanitizer.h>
 #include <llvm/Transforms/Instrumentation/SanitizerCoverage.h>
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/Utils.h>
@@ -212,6 +213,17 @@ static SanitizerCoverageOptions getSanCovOptions(ZigLLVMCoverageOptions z) {
     o.CollectControlFlow = z.CollectControlFlow;
     return o;
 }
+static AddressSanitizerOptions getAsanOptions(void) {
+    AddressSanitizerOptions o;
+    o.CompileKernel = false;
+    o.Recover = false;
+    o.UseAfterScope = false;
+    o.UseAfterReturn = AsanDetectStackUseAfterReturnMode::Always;
+    o.InstrumentationWithCallsThreshold = 7000;
+    o.MaxInlinePoisoningSize = 64;
+    o.InsertVersionCheck = true;
+    return o;
+}
 
 ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
     char **error_message, const ZigLLVMEmitOptions *options)
@@ -324,6 +336,17 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
         if (options->tsan) {
             module_pm.addPass(ModuleThreadSanitizerPass());
             module_pm.addPass(createModuleToFunctionPassAdaptor(ThreadSanitizerPass()));
+        }
+
+        // Address sanitizer
+        if (options->asan) {
+            bool UseOdrIndicator = false;
+            AddressSanitizerOptions Opts;
+            Opts.CompileKernel = false;
+            Opts.Recover = false;
+            Opts.UseAfterScope = false;
+            Opts.UseAfterReturn = AsanDetectStackUseAfterReturnMode::Runtime;
+            module_pm.addPass(AddressSanitizerPass(Opts, true, UseOdrIndicator, AsanDtorKind::Global, AsanCtorKind::Global));
         }
 
         // Verify the output
