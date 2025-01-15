@@ -419,17 +419,17 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 _ = lower.reloc(.{ .linker_tlsld = sym_index }, 0);
                                 lower.result_insts[lower.result_insts_len] =
                                     try Instruction.new(.none, .lea, &[_]Operand{
-                                    .{ .reg = .rdi },
-                                    .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) },
-                                });
+                                        .{ .reg = .rdi },
+                                        .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) },
+                                    });
                                 lower.result_insts_len += 1;
                                 _ = lower.reloc(.{
                                     .linker_extern_fn = try elf_file.getGlobalSymbol("__tls_get_addr", null),
                                 }, 0);
                                 lower.result_insts[lower.result_insts_len] =
                                     try Instruction.new(.none, .call, &[_]Operand{
-                                    .{ .imm = Immediate.s(0) },
-                                });
+                                        .{ .imm = Immediate.s(0) },
+                                    });
                                 lower.result_insts_len += 1;
                                 _ = lower.reloc(.{ .linker_dtpoff = sym_index }, 0);
                                 emit_mnemonic = .lea;
@@ -441,9 +441,9 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 // Since we are linking statically, we emit LE model directly.
                                 lower.result_insts[lower.result_insts_len] =
                                     try Instruction.new(.none, .mov, &[_]Operand{
-                                    .{ .reg = .rax },
-                                    .{ .mem = Memory.initSib(.qword, .{ .base = .{ .reg = .fs } }) },
-                                });
+                                        .{ .reg = .rax },
+                                        .{ .mem = Memory.initSib(.qword, .{ .base = .{ .reg = .fs } }) },
+                                    });
                                 lower.result_insts_len += 1;
                                 _ = lower.reloc(.{ .linker_reloc = sym_index }, 0);
                                 emit_mnemonic = .lea;
@@ -465,9 +465,9 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                     const reg = ops[0].reg;
                                     lower.result_insts[lower.result_insts_len] =
                                         try Instruction.new(.none, .mov, &[_]Operand{
-                                        .{ .reg = reg.to64() },
-                                        .{ .mem = Memory.initRip(.qword, 0) },
-                                    });
+                                            .{ .reg = reg.to64() },
+                                            .{ .mem = Memory.initRip(.qword, 0) },
+                                        });
                                     lower.result_insts_len += 1;
                                     break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{ .base = .{
                                         .reg = reg.to64(),
@@ -497,14 +497,14 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             _ = lower.reloc(.{ .linker_reloc = sym_index }, 0);
                             lower.result_insts[lower.result_insts_len] =
                                 try Instruction.new(.none, .mov, &[_]Operand{
-                                .{ .reg = .rdi },
-                                .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) },
-                            });
+                                    .{ .reg = .rdi },
+                                    .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) },
+                                });
                             lower.result_insts_len += 1;
                             lower.result_insts[lower.result_insts_len] =
                                 try Instruction.new(.none, .call, &[_]Operand{
-                                .{ .mem = Memory.initSib(.qword, .{ .base = .{ .reg = .rdi } }) },
-                            });
+                                    .{ .mem = Memory.initSib(.qword, .{ .base = .{ .reg = .rdi } }) },
+                                });
                             lower.result_insts_len += 1;
                             emit_mnemonic = .mov;
                             break :op .{ .reg = .rax };
@@ -521,9 +521,9 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                     const reg = ops[0].reg;
                                     lower.result_insts[lower.result_insts_len] =
                                         try Instruction.new(.none, .mov, &[_]Operand{
-                                        .{ .reg = reg.to64() },
-                                        .{ .mem = Memory.initRip(.qword, 0) },
-                                    });
+                                            .{ .reg = reg.to64() },
+                                            .{ .mem = Memory.initRip(.qword, 0) },
+                                        });
                                     lower.result_insts_len += 1;
                                     break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{ .base = .{
                                         .reg = reg.to64(),

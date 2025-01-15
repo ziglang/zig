@@ -761,7 +761,7 @@ pub fn main() anyerror!void {
             if ((std.mem.startsWith(u8, name, "mno-") and
                 llvm_to_zig_cpu_features.contains(name["mno-".len..])) or
                 (std.mem.startsWith(u8, name, "m") and
-                llvm_to_zig_cpu_features.contains(name["m".len..])))
+                    llvm_to_zig_cpu_features.contains(name["m".len..])))
             {
                 try stdout.print("m(\"{s}\"),\n", .{name});
             } else {
