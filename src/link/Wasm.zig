@@ -180,8 +180,10 @@ dump_argv_list: std.ArrayListUnmanaged([]const u8),
 preloaded_strings: PreloadedStrings,
 
 /// This field is used when emitting an object; `navs_exe` used otherwise.
+/// Does not include externs since that data lives elsewhere.
 navs_obj: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, ZcuDataObj) = .empty,
 /// This field is unused when emitting an object; `navs_obj` used otherwise.
+/// Does not include externs since that data lives elsewhere.
 navs_exe: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, ZcuDataExe) = .empty,
 /// Tracks all InternPool values referenced by codegen. Needed for outputting
 /// the data segment. This one does not track ref count because object files
@@ -221,6 +223,9 @@ functions: std.AutoArrayHashMapUnmanaged(FunctionImport.Resolution, void) = .emp
 /// Tracks the value at the end of prelink, at which point `functions`
 /// contains only object file functions, and nothing from the Zcu yet.
 functions_end_prelink: u32 = 0,
+
+function_imports_len_prelink: u32 = 0,
+data_imports_len_prelink: u32 = 0,
 /// At the end of prelink, this is populated with needed functions from
 /// objects.
 ///
@@ -3447,6 +3452,9 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
         wasm.memories.limits.max = @max(wasm.memories.limits.max, memory_import.limits_max);
         wasm.memories.limits.flags.has_max = wasm.memories.limits.flags.has_max or memory_import.limits_has_max;
     }
+
+    wasm.function_imports_len_prelink = @intCast(wasm.function_imports.entries.len);
+    wasm.data_imports_len_prelink = @intCast(wasm.data_imports.entries.len);
 }
 
 pub fn markFunctionImport(
@@ -3608,7 +3616,7 @@ fn markDataSegment(wasm: *Wasm, segment_index: ObjectDataSegment.Index) link.Fil
     try wasm.markRelocations(segment.relocations(wasm));
 }
 
-fn markDataImport(
+pub fn markDataImport(
     wasm: *Wasm,
     name: String,
     import: *ObjectDataImport,
@@ -4499,11 +4507,40 @@ pub fn navAddr(wasm: *Wasm, nav_index: InternPool.Nav.Index) u32 {
     assert(wasm.flush_buffer.memory_layout_finished);
     const comp = wasm.base.comp;
     assert(comp.config.output_mode != .Obj);
-    // If there is no entry it means the value is zero bits so any address will do.
-    const navs_exe_index: NavsExeIndex = @enumFromInt(wasm.navs_exe.getIndex(nav_index) orelse return 0);
-    log.debug("navAddr {s} {}", .{ navs_exe_index.name(wasm), nav_index });
-    const ds_id: DataSegmentId = .pack(wasm, .{ .nav_exe = navs_exe_index });
-    return wasm.flush_buffer.data_segments.get(ds_id).?;
+    if (wasm.navs_exe.getIndex(nav_index)) |i| {
+        const navs_exe_index: NavsExeIndex = @enumFromInt(i);
+        log.debug("navAddr {s} {}", .{ navs_exe_index.name(wasm), nav_index });
+        const ds_id: DataSegmentId = .pack(wasm, .{ .nav_exe = navs_exe_index });
+        return wasm.flush_buffer.data_segments.get(ds_id).?;
+    }
+    const zcu = comp.zcu.?;
+    const ip = &zcu.intern_pool;
+    const nav = ip.getNav(nav_index);
+    if (nav.getResolvedExtern(ip)) |ext| {
+        if (wasm.getExistingString(ext.name.toSlice(ip))) |symbol_name| {
+            if (wasm.object_data_imports.getPtr(symbol_name)) |import| {
+                switch (import.resolution.unpack(wasm)) {
+                    .unresolved => unreachable,
+                    .object => |object_data_index| {
+                        const object_data = object_data_index.ptr(wasm);
+                        const ds_id: DataSegmentId = .fromObjectDataSegment(wasm, object_data.segment);
+                        const segment_base_addr = wasm.flush_buffer.data_segments.get(ds_id).?;
+                        return segment_base_addr + object_data.offset;
+                    },
+                    .__zig_error_names => @panic("TODO"),
+                    .__zig_error_name_table => @panic("TODO"),
+                    .__heap_base => @panic("TODO"),
+                    .__heap_end => @panic("TODO"),
+                    .uav_exe => @panic("TODO"),
+                    .uav_obj => @panic("TODO"),
+                    .nav_exe => @panic("TODO"),
+                    .nav_obj => @panic("TODO"),
+                }
+            }
+        }
+    }
+    // Otherwise it's a zero bit type; any address will do.
+    return 0;
 }
 
 /// Asserts it is called after `Flush.data_segments` is fully populated and sorted.

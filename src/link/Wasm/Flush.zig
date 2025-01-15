@@ -122,45 +122,71 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
 
     const entry_name = if (wasm.entry_resolution.isNavOrUnresolved(wasm)) wasm.entry_name else .none;
 
-    // Detect any intrinsics that were called; they need to have dependencies on the symbols marked.
-    // Likewise detect `@tagName` calls so those functions can be included in the output and synthesized.
-    for (wasm.mir_instructions.items(.tag), wasm.mir_instructions.items(.data)) |tag, *data| switch (tag) {
-        .call_intrinsic => {
-            const symbol_name = try wasm.internString(@tagName(data.intrinsic));
-            const i: Wasm.FunctionImport.Index = @enumFromInt(wasm.object_function_imports.getIndex(symbol_name) orelse {
-                return diags.fail("missing compiler runtime intrinsic '{s}' (undefined linker symbol)", .{
-                    @tagName(data.intrinsic),
-                });
-            });
-            try wasm.markFunctionImport(symbol_name, i.value(wasm), i);
-        },
-        .call_tag_name => {
-            const zcu = comp.zcu.?;
-            const ip = &zcu.intern_pool;
-            assert(ip.indexToKey(data.ip_index) == .enum_type);
-            const gop = try wasm.zcu_funcs.getOrPut(gpa, data.ip_index);
-            if (!gop.found_existing) {
-                wasm.tag_name_table_ref_count += 1;
-                const int_tag_ty = Zcu.Type.fromInterned(data.ip_index).intTagType(zcu);
-                gop.value_ptr.* = .{ .tag_name = .{
-                    .symbol_name = try wasm.internStringFmt("__zig_tag_name_{d}", .{@intFromEnum(data.ip_index)}),
-                    .type_index = try wasm.internFunctionType(.Unspecified, &.{int_tag_ty.ip_index}, .slice_const_u8_sentinel_0, target),
-                    .table_index = @intCast(wasm.tag_name_offs.items.len),
-                } };
-                try wasm.functions.put(gpa, .fromZcuFunc(wasm, @enumFromInt(gop.index)), {});
-                const tag_names = ip.loadEnumType(data.ip_index).names;
-                for (tag_names.get(ip)) |tag_name| {
-                    const slice = tag_name.toSlice(ip);
-                    try wasm.tag_name_offs.append(gpa, @intCast(wasm.tag_name_bytes.items.len));
-                    try wasm.tag_name_bytes.appendSlice(gpa, slice[0 .. slice.len + 1]);
-                }
-            }
-        },
-        else => continue,
-    };
-
     if (comp.zcu) |zcu| {
         const ip: *const InternPool = &zcu.intern_pool; // No mutations allowed!
+
+        // Detect any intrinsics that were called; they need to have dependencies on the symbols marked.
+        // Likewise detect `@tagName` calls so those functions can be included in the output and synthesized.
+        for (wasm.mir_instructions.items(.tag), wasm.mir_instructions.items(.data)) |tag, *data| switch (tag) {
+            .call_intrinsic => {
+                const symbol_name = try wasm.internString(@tagName(data.intrinsic));
+                const i: Wasm.FunctionImport.Index = @enumFromInt(wasm.object_function_imports.getIndex(symbol_name) orelse {
+                    return diags.fail("missing compiler runtime intrinsic '{s}' (undefined linker symbol)", .{
+                        @tagName(data.intrinsic),
+                    });
+                });
+                try wasm.markFunctionImport(symbol_name, i.value(wasm), i);
+            },
+            .call_tag_name => {
+                assert(ip.indexToKey(data.ip_index) == .enum_type);
+                const gop = try wasm.zcu_funcs.getOrPut(gpa, data.ip_index);
+                if (!gop.found_existing) {
+                    wasm.tag_name_table_ref_count += 1;
+                    const int_tag_ty = Zcu.Type.fromInterned(data.ip_index).intTagType(zcu);
+                    gop.value_ptr.* = .{ .tag_name = .{
+                        .symbol_name = try wasm.internStringFmt("__zig_tag_name_{d}", .{@intFromEnum(data.ip_index)}),
+                        .type_index = try wasm.internFunctionType(.Unspecified, &.{int_tag_ty.ip_index}, .slice_const_u8_sentinel_0, target),
+                        .table_index = @intCast(wasm.tag_name_offs.items.len),
+                    } };
+                    try wasm.functions.put(gpa, .fromZcuFunc(wasm, @enumFromInt(gop.index)), {});
+                    const tag_names = ip.loadEnumType(data.ip_index).names;
+                    for (tag_names.get(ip)) |tag_name| {
+                        const slice = tag_name.toSlice(ip);
+                        try wasm.tag_name_offs.append(gpa, @intCast(wasm.tag_name_bytes.items.len));
+                        try wasm.tag_name_bytes.appendSlice(gpa, slice[0 .. slice.len + 1]);
+                    }
+                }
+            },
+            else => continue,
+        };
+
+        {
+            var i = wasm.function_imports_len_prelink;
+            while (i < f.function_imports.entries.len) {
+                const symbol_name = f.function_imports.keys()[i];
+                if (wasm.object_function_imports.getIndex(symbol_name)) |import_index_usize| {
+                    const import_index: Wasm.FunctionImport.Index = @enumFromInt(import_index_usize);
+                    try wasm.markFunctionImport(symbol_name, import_index.value(wasm), import_index);
+                    f.function_imports.swapRemoveAt(i);
+                    continue;
+                }
+                i += 1;
+            }
+        }
+
+        {
+            var i = wasm.data_imports_len_prelink;
+            while (i < f.data_imports.entries.len) {
+                const symbol_name = f.data_imports.keys()[i];
+                if (wasm.object_data_imports.getIndex(symbol_name)) |import_index_usize| {
+                    const import_index: Wasm.ObjectDataImport.Index = @enumFromInt(import_index_usize);
+                    try wasm.markDataImport(symbol_name, import_index.value(wasm), import_index);
+                    f.data_imports.swapRemoveAt(i);
+                    continue;
+                }
+                i += 1;
+            }
+        }
 
         if (wasm.error_name_table_ref_count > 0) {
             // Ensure Zcu error name structures are populated.
@@ -437,7 +463,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 break :b i >= 1 and !wantSegmentMerge(wasm, segment_ids[i - 1], segment_id, category);
             };
             if (want_new_segment) {
-                log.debug("new segment at 0x{x} {} {s} {}", .{ start_addr, segment_id, segment_id.name(wasm), category });
+                log.debug("new segment group at 0x{x} {} {s} {}", .{ start_addr, segment_id, segment_id.name(wasm), category });
                 try f.data_segment_groups.append(gpa, .{
                     .end_addr = @intCast(memory_ptr),
                     .first_segment = first_segment,
@@ -447,6 +473,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
 
             const size = segment_id.size(wasm);
             segment_vaddr.* = @intCast(start_addr);
+            log.debug("0x{x} {d} {s}", .{ start_addr, @intFromEnum(segment_id), segment_id.name(wasm) });
             memory_ptr = start_addr + size;
         }
         if (category != .zero) try f.data_segment_groups.append(gpa, .{
