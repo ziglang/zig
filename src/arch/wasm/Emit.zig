@@ -187,7 +187,8 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 });
                 code.appendNTimesAssumeCapacity(0, 5);
             } else {
-                leb.writeUleb128(code.fixedWriter(), @intFromEnum(func_ty_index)) catch unreachable;
+                const index: Wasm.Flush.FuncTypeIndex = .fromTypeIndex(func_ty_index, &wasm.flush_buffer);
+                leb.writeUleb128(code.fixedWriter(), @intFromEnum(index)) catch unreachable;
             }
             leb.writeUleb128(code.fixedWriter(), @as(u32, 0)) catch unreachable; // table index
 

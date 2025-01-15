@@ -36,8 +36,20 @@ data_imports: std.AutoArrayHashMapUnmanaged(String, Wasm.DataImportId) = .empty,
 
 indirect_function_table: std.AutoArrayHashMapUnmanaged(Wasm.OutputFunctionIndex, void) = .empty,
 
+/// A subset of the full interned function type list created only during flush.
+func_types: std.AutoArrayHashMapUnmanaged(Wasm.FunctionType.Index, void) = .empty,
+
 /// For debug purposes only.
 memory_layout_finished: bool = false,
+
+/// Index into `func_types`.
+pub const FuncTypeIndex = enum(u32) {
+    _,
+
+    pub fn fromTypeIndex(i: Wasm.FunctionType.Index, f: *const Flush) FuncTypeIndex {
+        return @enumFromInt(f.func_types.getIndex(i).?);
+    }
+};
 
 /// Index into `indirect_function_table`.
 const IndirectFunctionTableIndex = enum(u32) {
@@ -75,6 +87,7 @@ pub fn clear(f: *Flush) void {
     f.data_segment_groups.clearRetainingCapacity();
     f.binary_bytes.clearRetainingCapacity();
     f.indirect_function_table.clearRetainingCapacity();
+    f.func_types.clearRetainingCapacity();
     f.memory_layout_finished = false;
 }
 
@@ -87,6 +100,7 @@ pub fn deinit(f: *Flush, gpa: Allocator) void {
     f.global_imports.deinit(gpa);
     f.data_imports.deinit(gpa);
     f.indirect_function_table.deinit(gpa);
+    f.func_types.deinit(gpa);
     f.* = undefined;
 }
 
@@ -510,11 +524,17 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
 
     const binary_writer = binary_bytes.writer(gpa);
 
-    // Type section
-    if (wasm.func_types.entries.len != 0) {
+    // Type section.
+    for (f.function_imports.values()) |id| {
+        try f.func_types.put(gpa, id.functionType(wasm), {});
+    }
+    for (wasm.functions.keys()) |function| {
+        try f.func_types.put(gpa, function.typeIndex(wasm), {});
+    }
+    if (f.func_types.entries.len != 0) {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
-        log.debug("Writing type section. Count: ({d})", .{wasm.func_types.entries.len});
-        for (wasm.func_types.keys()) |func_type| {
+        for (f.func_types.keys()) |func_type_index| {
+            const func_type = func_type_index.ptr(wasm);
             try leb.writeUleb128(binary_writer, std.wasm.function_type);
             const params = func_type.params.slice(wasm);
             try leb.writeUleb128(binary_writer, @as(u32, @intCast(params.len)));
@@ -527,8 +547,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 try leb.writeUleb128(binary_writer, @intFromEnum(ret_ty));
             }
         }
-
-        replaceVecSectionHeader(binary_bytes, header_offset, .type, @intCast(wasm.func_types.entries.len));
+        replaceVecSectionHeader(binary_bytes, header_offset, .type, @intCast(f.func_types.entries.len));
         section_index += 1;
     }
 
@@ -553,7 +572,8 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             try binary_writer.writeAll(name);
 
             try binary_writer.writeByte(@intFromEnum(std.wasm.ExternalKind.function));
-            try leb.writeUleb128(binary_writer, @intFromEnum(id.functionType(wasm)));
+            const type_index: FuncTypeIndex = .fromTypeIndex(id.functionType(wasm), f);
+            try leb.writeUleb128(binary_writer, @intFromEnum(type_index));
         }
         total_imports += f.function_imports.entries.len;
 
@@ -615,7 +635,8 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     if (wasm.functions.count() != 0) {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
         for (wasm.functions.keys()) |function| {
-            try leb.writeUleb128(binary_writer, @intFromEnum(function.typeIndex(wasm)));
+            const index: FuncTypeIndex = .fromTypeIndex(function.typeIndex(wasm), f);
+            try leb.writeUleb128(binary_writer, @intFromEnum(index));
         }
 
         replaceVecSectionHeader(binary_bytes, header_offset, .function, @intCast(wasm.functions.count()));
@@ -1644,7 +1665,7 @@ fn applyRelocs(code: []u8, code_offset: u32, relocs: Wasm.ObjectRelocation.Itera
             .table_number_leb => reloc_leb_table(sliced_code, .fromObjectTable(wasm, pointee.table)),
             .table_import_number_leb => reloc_leb_table(sliced_code, .fromSymbolName(wasm, pointee.symbol_name)),
 
-            .type_index_leb => reloc_leb_type(sliced_code, pointee.type_index),
+            .type_index_leb => reloc_leb_type(sliced_code, .fromTypeIndex(pointee.type_index, &wasm.flush_buffer)),
         }
     }
 }
@@ -1733,7 +1754,7 @@ fn reloc_leb_table(code: []u8, table: Wasm.TableIndex) void {
     leb.writeUnsignedFixed(5, code[0..5], @intFromEnum(table));
 }
 
-fn reloc_leb_type(code: []u8, index: Wasm.FunctionType.Index) void {
+fn reloc_leb_type(code: []u8, index: FuncTypeIndex) void {
     leb.writeUnsignedFixed(5, code[0..5], @intFromEnum(index));
 }
 
