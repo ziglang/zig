@@ -31,7 +31,7 @@ pub fn findByMnemonic(
     prefix: Instruction.Prefix,
     mnemonic: Mnemonic,
     ops: []const Instruction.Operand,
-    show_canditates: bool,
+    show_candidates: bool,
 ) !?Encoding {
     var input_ops = [1]Op{.none} ** 4;
     for (input_ops[0..ops.len], ops) |*input_op, op| input_op.* = Op.fromOperand(op);
@@ -62,7 +62,7 @@ pub fn findByMnemonic(
     next: for (mnemonic_to_encodings_map[@intFromEnum(mnemonic)]) |data| {
         switch (data.mode) {
             .none, .short => if (rex_required) {
-                if (show_canditates) {
+                if (show_candidates) {
                     @branchHint(.unlikely);
                     reportCandidateMismatch(
                         data,
@@ -74,7 +74,7 @@ pub fn findByMnemonic(
                 continue :next;
             },
             .rex, .rex_short => if (!rex_required) {
-                if (show_canditates) {
+                if (show_candidates) {
                     @branchHint(.unlikely);
                     reportCandidateMismatch(
                         data,
@@ -89,7 +89,7 @@ pub fn findByMnemonic(
         }
 
         for (input_ops, data.ops) |input_op, data_op| if (!input_op.isSubset(data_op)) {
-            if (show_canditates) {
+            if (show_candidates) {
                 @branchHint(.unlikely);
                 reportCandidateMismatch(
                     data,
