@@ -83,6 +83,7 @@ pub fn findByMnemonic(
                         .{ @tagName(data.mode), rex_required },
                     );
                 }
+                continue :next;
             },
             else => {},
         }
