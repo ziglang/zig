@@ -168,11 +168,17 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             if (ip.isFunctionType(ip.getNav(nav_export.nav_index).typeOf(ip))) {
                 log.debug("flush export '{s}' nav={d}", .{ nav_export.name.slice(wasm), nav_export.nav_index });
                 const function_index = Wasm.FunctionIndex.fromIpNav(wasm, nav_export.nav_index).?;
-                switch (export_index.ptr(zcu).opts.visibility) {
-                    .default, .protected => try wasm.function_exports.put(gpa, nav_export.name, function_index),
-                    .hidden => try wasm.hidden_function_exports.put(gpa, nav_export.name, function_index),
+                const explicit = f.missing_exports.swapRemove(nav_export.name);
+                const is_hidden = !explicit and switch (export_index.ptr(zcu).opts.visibility) {
+                    .protected => false,
+                    .hidden => true,
+                    .default => !comp.config.rdynamic,
+                };
+                if (is_hidden) {
+                    try wasm.hidden_function_exports.put(gpa, nav_export.name, function_index);
+                } else {
+                    try wasm.function_exports.put(gpa, nav_export.name, function_index);
                 }
-                _ = f.missing_exports.swapRemove(nav_export.name);
                 _ = f.function_imports.swapRemove(nav_export.name);
 
                 if (nav_export.name.toOptional() == entry_name)
@@ -281,9 +287,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     // We also initialize bss segments (using memory.fill) as part of this
     // function.
     if (wasm.any_passive_inits) {
-        wasm.functions.putAssumeCapacity(.__wasm_init_memory, {});
-        const empty = try wasm.internValtypeList(&.{});
-        _ = try wasm.addFuncType(.{ .params = empty, .returns = empty });
+        try wasm.addFunction(.__wasm_init_memory, &.{}, &.{});
     }
 
     // When we have TLS GOT entries and shared memory is enabled,
@@ -291,8 +295,8 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     if (shared_memory) {
         // This logic that checks `any_tls_relocs` is missing the part where it
         // also notices threadlocal globals from Zcu code.
-        if (wasm.any_tls_relocs) wasm.functions.putAssumeCapacity(.__wasm_apply_global_tls_relocs, {});
-        wasm.functions.putAssumeCapacity(.__wasm_init_tls, {});
+        if (wasm.any_tls_relocs) try wasm.addFunction(.__wasm_apply_global_tls_relocs, &.{}, &.{});
+        try wasm.addFunction(.__wasm_init_tls, &.{.i32}, &.{});
     }
 
     try wasm.tables.ensureUnusedCapacity(gpa, 1);

@@ -4674,3 +4674,16 @@ fn resolveFunctionSynthetic(
         });
     }
 }
+
+pub fn addFunction(
+    wasm: *Wasm,
+    resolution: FunctionImport.Resolution,
+    params: []const std.wasm.Valtype,
+    returns: []const std.wasm.Valtype,
+) Allocator.Error!void {
+    wasm.functions.putAssumeCapacity(resolution, {});
+    _ = try wasm.addFuncType(.{
+        .params = try wasm.internValtypeList(params),
+        .returns = try wasm.internValtypeList(returns),
+    });
+}
