@@ -3724,7 +3724,7 @@ pub fn ptrOptPayload(parent_ptr: Value, pt: Zcu.PerThread) !Value {
     const parent_ptr_ty = parent_ptr.typeOf(zcu);
     const opt_ty = parent_ptr_ty.childType(zcu);
 
-    assert(parent_ptr_ty.ptrSize(zcu) == .One);
+    assert(parent_ptr_ty.ptrSize(zcu) == .one);
     assert(opt_ty.zigTypeTag(zcu) == .optional);
 
     const result_ty = try pt.ptrTypeSema(info: {
@@ -3742,7 +3742,7 @@ pub fn ptrOptPayload(parent_ptr: Value, pt: Zcu.PerThread) !Value {
         return pt.getCoerced(parent_ptr, result_ty);
     }
 
-    const base_ptr = try parent_ptr.canonicalizeBasePtr(.One, opt_ty, pt);
+    const base_ptr = try parent_ptr.canonicalizeBasePtr(.one, opt_ty, pt);
     return Value.fromInterned(try pt.intern(.{ .ptr = .{
         .ty = result_ty.toIntern(),
         .base_addr = .{ .opt_payload = base_ptr.toIntern() },
@@ -3758,7 +3758,7 @@ pub fn ptrEuPayload(parent_ptr: Value, pt: Zcu.PerThread) !Value {
     const parent_ptr_ty = parent_ptr.typeOf(zcu);
     const eu_ty = parent_ptr_ty.childType(zcu);
 
-    assert(parent_ptr_ty.ptrSize(zcu) == .One);
+    assert(parent_ptr_ty.ptrSize(zcu) == .one);
     assert(eu_ty.zigTypeTag(zcu) == .error_union);
 
     const result_ty = try pt.ptrTypeSema(info: {
@@ -3771,7 +3771,7 @@ pub fn ptrEuPayload(parent_ptr: Value, pt: Zcu.PerThread) !Value {
 
     if (parent_ptr.isUndef(zcu)) return pt.undefValue(result_ty);
 
-    const base_ptr = try parent_ptr.canonicalizeBasePtr(.One, eu_ty, pt);
+    const base_ptr = try parent_ptr.canonicalizeBasePtr(.one, eu_ty, pt);
     return Value.fromInterned(try pt.intern(.{ .ptr = .{
         .ty = result_ty.toIntern(),
         .base_addr = .{ .eu_payload = base_ptr.toIntern() },
@@ -3789,7 +3789,7 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
     const aggregate_ty = parent_ptr_ty.childType(zcu);
 
     const parent_ptr_info = parent_ptr_ty.ptrInfo(zcu);
-    assert(parent_ptr_info.flags.size == .One);
+    assert(parent_ptr_info.flags.size == .one);
 
     // Exiting this `switch` indicates that the `field` pointer representation should be used.
     // `field_align` may be `.none` to represent the natural alignment of `field_ty`, but is not necessarily.
@@ -3920,7 +3920,7 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
 
     if (parent_ptr.isUndef(zcu)) return pt.undefValue(result_ty);
 
-    const base_ptr = try parent_ptr.canonicalizeBasePtr(.One, aggregate_ty, pt);
+    const base_ptr = try parent_ptr.canonicalizeBasePtr(.one, aggregate_ty, pt);
     return Value.fromInterned(try pt.intern(.{ .ptr = .{
         .ty = result_ty.toIntern(),
         .base_addr = .{ .field = .{
@@ -3937,8 +3937,8 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
 pub fn ptrElem(orig_parent_ptr: Value, field_idx: u64, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     const parent_ptr = switch (orig_parent_ptr.typeOf(zcu).ptrSize(zcu)) {
-        .One, .Many, .C => orig_parent_ptr,
-        .Slice => orig_parent_ptr.slicePtr(zcu),
+        .one, .many, .c => orig_parent_ptr,
+        .slice => orig_parent_ptr.slicePtr(zcu),
     };
 
     const parent_ptr_ty = parent_ptr.typeOf(zcu);
@@ -3959,7 +3959,7 @@ pub fn ptrElem(orig_parent_ptr: Value, field_idx: u64, pt: Zcu.PerThread) !Value
     };
 
     const strat: PtrStrat = switch (parent_ptr_ty.ptrSize(zcu)) {
-        .One => switch (elem_ty.zigTypeTag(zcu)) {
+        .one => switch (elem_ty.zigTypeTag(zcu)) {
             .vector => .{ .offset = field_idx * @divExact(try elem_ty.childType(zcu).bitSizeSema(pt), 8) },
             .array => strat: {
                 const arr_elem_ty = elem_ty.childType(zcu);
@@ -3971,12 +3971,12 @@ pub fn ptrElem(orig_parent_ptr: Value, field_idx: u64, pt: Zcu.PerThread) !Value
             else => unreachable,
         },
 
-        .Many, .C => if (try elem_ty.comptimeOnlySema(pt))
+        .many, .c => if (try elem_ty.comptimeOnlySema(pt))
             .{ .elem_ptr = elem_ty }
         else
             .{ .offset = field_idx * (try elem_ty.abiSizeInner(.sema, zcu, pt.tid)).scalar },
 
-        .Slice => unreachable,
+        .slice => unreachable,
     };
 
     switch (strat) {
@@ -4004,7 +4004,7 @@ pub fn ptrElem(orig_parent_ptr: Value, field_idx: u64, pt: Zcu.PerThread) !Value
                 },
                 else => {},
             }
-            const base_ptr = try parent_ptr.canonicalizeBasePtr(.Many, arr_base_ty, pt);
+            const base_ptr = try parent_ptr.canonicalizeBasePtr(.many, arr_base_ty, pt);
             return Value.fromInterned(try pt.intern(.{ .ptr = .{
                 .ty = result_ty.toIntern(),
                 .base_addr = .{ .arr_elem = .{
@@ -4234,7 +4234,7 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
                 .child = parent_ptr_info.child,
                 .flags = flags: {
                     var flags = parent_ptr_info.flags;
-                    flags.size = .One;
+                    flags.size = .one;
                     break :flags flags;
                 },
             });
@@ -4304,8 +4304,8 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
                     if (!cur_ty.isPtrLikeOptional(zcu)) break :ptr_opt;
                     if (need_child.zigTypeTag(zcu) != .pointer) break :ptr_opt;
                     switch (need_child.ptrSize(zcu)) {
-                        .One, .Many => {},
-                        .Slice, .C => break :ptr_opt,
+                        .one, .many => {},
+                        .slice, .c => break :ptr_opt,
                     }
                     const parent = try arena.create(PointerDeriveStep);
                     parent.* = cur_derive;
@@ -4323,7 +4323,7 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
                 const elem_size = elem_ty.abiSize(zcu);
                 const start_idx = cur_offset / elem_size;
                 const end_idx = (cur_offset + need_bytes + elem_size - 1) / elem_size;
-                if (end_idx == start_idx + 1 and ptr_ty_info.flags.size == .One) {
+                if (end_idx == start_idx + 1 and ptr_ty_info.flags.size == .one) {
                     const parent = try arena.create(PointerDeriveStep);
                     parent.* = cur_derive;
                     cur_derive = .{ .elem_ptr = .{

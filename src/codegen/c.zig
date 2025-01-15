@@ -1589,14 +1589,14 @@ pub const DeclGen = struct {
                     try dg.fmtIntLiteral(try pt.undefValue(ty), location),
                 }),
                 .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-                    .One, .Many, .C => {
+                    .one, .many, .c => {
                         try writer.writeAll("((");
                         try dg.renderCType(writer, ctype);
                         return writer.print("){x})", .{
                             try dg.fmtIntLiteral(try pt.undefValue(Type.usize), .Other),
                         });
                     },
-                    .Slice => {
+                    .slice => {
                         if (!location.isInitializer()) {
                             try writer.writeByte('(');
                             try dg.renderCType(writer, ctype);
@@ -3570,7 +3570,7 @@ fn airPtrElemPtr(f: *Function, inst: Air.Inst.Index) !CValue {
     try f.renderType(writer, inst_ty);
     try writer.writeByte(')');
     if (elem_has_bits) try writer.writeByte('&');
-    if (elem_has_bits and ptr_ty.ptrSize(zcu) == .One) {
+    if (elem_has_bits and ptr_ty.ptrSize(zcu) == .one) {
         // It's a pointer to an array, so we need to de-reference.
         try f.writeCValueDeref(writer, ptr);
     } else try f.writeCValue(writer, ptr, .Other);
@@ -5798,8 +5798,8 @@ fn fieldLocation(
             }
         },
         .ptr_type => |ptr_info| switch (ptr_info.flags.size) {
-            .One, .Many, .C => unreachable,
-            .Slice => switch (field_index) {
+            .one, .many, .c => unreachable,
+            .slice => switch (field_index) {
                 0 => return .{ .field = .{ .identifier = "ptr" } },
                 1 => return .{ .field = .{ .identifier = "len" } },
                 else => unreachable,
@@ -6902,7 +6902,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
 
         try writer.writeAll("memset(");
         switch (dest_ty.ptrSize(zcu)) {
-            .Slice => {
+            .slice => {
                 try f.writeCValueMember(writer, dest_slice, .{ .identifier = "ptr" });
                 try writer.writeAll(", 0xaa, ");
                 try f.writeCValueMember(writer, dest_slice, .{ .identifier = "len" });
@@ -6912,14 +6912,14 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
                     try writer.writeAll(");\n");
                 }
             },
-            .One => {
+            .one => {
                 const array_ty = dest_ty.childType(zcu);
                 const len = array_ty.arrayLen(zcu) * elem_abi_size;
 
                 try f.writeCValue(writer, dest_slice, .FunctionArgument);
                 try writer.print(", 0xaa, {d});\n", .{len});
             },
-            .Many, .C => unreachable,
+            .many, .c => unreachable,
         }
         try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
         return .none;
@@ -6932,7 +6932,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
         const elem_ptr_ty = try pt.ptrType(.{
             .child = elem_ty.toIntern(),
             .flags = .{
-                .size = .C,
+                .size = .c,
             },
         });
 
@@ -6946,14 +6946,14 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
         try f.writeCValue(writer, index, .Other);
         try writer.writeAll(" != ");
         switch (dest_ty.ptrSize(zcu)) {
-            .Slice => {
+            .slice => {
                 try f.writeCValueMember(writer, dest_slice, .{ .identifier = "len" });
             },
-            .One => {
+            .one => {
                 const array_ty = dest_ty.childType(zcu);
                 try writer.print("{d}", .{array_ty.arrayLen(zcu)});
             },
-            .Many, .C => unreachable,
+            .many, .c => unreachable,
         }
         try writer.writeAll("; ++");
         try f.writeCValue(writer, index, .Other);
@@ -6981,7 +6981,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
 
     try writer.writeAll("memset(");
     switch (dest_ty.ptrSize(zcu)) {
-        .Slice => {
+        .slice => {
             try f.writeCValueMember(writer, dest_slice, .{ .identifier = "ptr" });
             try writer.writeAll(", ");
             try f.writeCValue(writer, bitcasted, .FunctionArgument);
@@ -6989,7 +6989,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
             try f.writeCValueMember(writer, dest_slice, .{ .identifier = "len" });
             try writer.writeAll(");\n");
         },
-        .One => {
+        .one => {
             const array_ty = dest_ty.childType(zcu);
             const len = array_ty.arrayLen(zcu) * elem_abi_size;
 
@@ -6998,7 +6998,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
             try f.writeCValue(writer, bitcasted, .FunctionArgument);
             try writer.print(", {d});\n", .{len});
         },
-        .Many, .C => unreachable,
+        .many, .c => unreachable,
     }
     try f.freeCValue(inst, bitcasted);
     try reap(f, inst, &.{ bin_op.lhs, bin_op.rhs });
@@ -7015,7 +7015,7 @@ fn airMemcpy(f: *Function, inst: Air.Inst.Index) !CValue {
     const src_ty = f.typeOf(bin_op.rhs);
     const writer = f.object.writer();
 
-    if (dest_ty.ptrSize(zcu) != .One) {
+    if (dest_ty.ptrSize(zcu) != .one) {
         try writer.writeAll("if (");
         try writeArrayLen(f, writer, dest_ptr, dest_ty);
         try writer.writeAll(" != 0) ");
@@ -7038,11 +7038,11 @@ fn writeArrayLen(f: *Function, writer: ArrayListWriter, dest_ptr: CValue, dest_t
     const pt = f.object.dg.pt;
     const zcu = pt.zcu;
     switch (dest_ty.ptrSize(zcu)) {
-        .One => try writer.print("{}", .{
+        .one => try writer.print("{}", .{
             try f.fmtIntLiteral(try pt.intValue(Type.usize, dest_ty.childType(zcu).arrayLen(zcu))),
         }),
-        .Many, .C => unreachable,
-        .Slice => try f.writeCValueMember(writer, dest_ptr, .{ .identifier = "len" }),
+        .many, .c => unreachable,
+        .slice => try f.writeCValueMember(writer, dest_ptr, .{ .identifier = "len" }),
     }
 }
 

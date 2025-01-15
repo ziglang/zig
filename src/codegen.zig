@@ -945,7 +945,7 @@ pub fn genTypedValue(
     switch (ty.zigTypeTag(zcu)) {
         .void => return .{ .mcv = .none },
         .pointer => switch (ty.ptrSize(zcu)) {
-            .Slice => {},
+            .slice => {},
             else => switch (val.toIntern()) {
                 .null_value => {
                     return .{ .mcv = .{ .immediate = 0 } };

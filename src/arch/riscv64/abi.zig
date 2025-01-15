@@ -109,7 +109,7 @@ pub fn classifySystem(ty: Type, zcu: *Zcu) [8]SystemClass {
             return result;
         },
         .pointer => switch (ty.ptrSize(zcu)) {
-            .Slice => {
+            .slice => {
                 result[0] = .integer;
                 result[1] = .integer;
                 return result;

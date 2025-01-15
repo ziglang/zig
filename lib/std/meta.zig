@@ -103,12 +103,12 @@ pub fn Elem(comptime T: type) type {
         .array => |info| return info.child,
         .vector => |info| return info.child,
         .pointer => |info| switch (info.size) {
-            .One => switch (@typeInfo(info.child)) {
+            .one => switch (@typeInfo(info.child)) {
                 .array => |array_info| return array_info.child,
                 .vector => |vector_info| return vector_info.child,
                 else => {},
             },
-            .Many, .C, .Slice => return info.child,
+            .many, .c, .slice => return info.child,
         },
         .optional => |info| return Elem(info.child),
         else => {},
@@ -135,8 +135,8 @@ pub inline fn sentinel(comptime T: type) ?Elem(T) {
         .array => |info| return info.sentinel(),
         .pointer => |info| {
             switch (info.size) {
-                .Many, .Slice => return info.sentinel(),
-                .One => switch (@typeInfo(info.child)) {
+                .many, .slice => return info.sentinel(),
+                .one => switch (@typeInfo(info.child)) {
                     .array => |array_info| return array_info.sentinel(),
                     else => {},
                 },
@@ -169,7 +169,7 @@ fn testSentinel() !void {
 pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
     switch (@typeInfo(T)) {
         .pointer => |info| switch (info.size) {
-            .One => switch (@typeInfo(info.child)) {
+            .one => switch (@typeInfo(info.child)) {
                 .array => |array_info| return @Type(.{
                     .pointer = .{
                         .size = info.size,
@@ -190,7 +190,7 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
                 }),
                 else => {},
             },
-            .Many, .Slice => return @Type(.{
+            .many, .slice => return @Type(.{
                 .pointer = .{
                     .size = info.size,
                     .is_const = info.is_const,
@@ -206,7 +206,7 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
         },
         .optional => |info| switch (@typeInfo(info.child)) {
             .pointer => |ptr_info| switch (ptr_info.size) {
-                .Many => return @Type(.{
+                .many => return @Type(.{
                     .optional = .{
                         .child = @Type(.{
                             .pointer = .{
@@ -777,8 +777,8 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
         },
         .pointer => |info| {
             return switch (info.size) {
-                .One, .Many, .C => a == b,
-                .Slice => a.ptr == b.ptr and a.len == b.len,
+                .one, .many, .c => a == b,
+                .slice => a.ptr == b.ptr and a.len == b.len,
             };
         },
         .optional => {
@@ -1081,7 +1081,7 @@ test "Tuple deduplication" {
 test "ArgsTuple forwarding" {
     const T1 = std.meta.Tuple(&.{ u32, f32, i8 });
     const T2 = std.meta.ArgsTuple(fn (u32, f32, i8) void);
-    const T3 = std.meta.ArgsTuple(fn (u32, f32, i8) callconv(.C) noreturn);
+    const T3 = std.meta.ArgsTuple(fn (u32, f32, i8) callconv(.c) noreturn);
 
     if (T1 != T2) {
         @compileError("std.meta.ArgsTuple produces different types than std.meta.Tuple");
@@ -1135,8 +1135,8 @@ test hasFn {
 pub inline fn hasMethod(comptime T: type, comptime name: []const u8) bool {
     return switch (@typeInfo(T)) {
         .pointer => |P| switch (P.size) {
-            .One => hasFn(P.child, name),
-            .Many, .Slice, .C => false,
+            .one => hasFn(P.child, name),
+            .many, .slice, .c => false,
         },
         else => hasFn(T, name),
     };
@@ -1191,12 +1191,12 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
 
         .int => |info| @sizeOf(T) * 8 == info.bits,
 
-        .pointer => |info| info.size != .Slice,
+        .pointer => |info| info.size != .slice,
 
         .optional => |info| switch (@typeInfo(info.child)) {
             .pointer => |ptr| !ptr.is_allowzero and switch (ptr.size) {
-                .Slice, .C => false,
-                .One, .Many => true,
+                .slice, .c => false,
+                .one, .many => true,
             },
             else => false,
         },

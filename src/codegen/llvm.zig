@@ -2109,7 +2109,7 @@ pub const Object = struct {
                     ptr_info.flags.is_allowzero or
                     ptr_info.flags.is_const or
                     ptr_info.flags.is_volatile or
-                    ptr_info.flags.size == .Many or ptr_info.flags.size == .C or
+                    ptr_info.flags.size == .many or ptr_info.flags.size == .c or
                     !Type.fromInterned(ptr_info.child).hasRuntimeBitsIgnoreComptime(zcu))
                 {
                     const bland_ptr_ty = try pt.ptrType(.{
@@ -2120,8 +2120,8 @@ pub const Object = struct {
                         .flags = .{
                             .alignment = ptr_info.flags.alignment,
                             .size = switch (ptr_info.flags.size) {
-                                .Many, .C, .One => .One,
-                                .Slice => .Slice,
+                                .many, .c, .one => .one,
+                                .slice => .slice,
                             },
                         },
                     });
@@ -3382,8 +3382,8 @@ pub const Object = struct {
                         toLlvmAddressSpace(ptr_type.flags.address_space, target),
                     );
                     break :type switch (ptr_type.flags.size) {
-                        .One, .Many, .C => ptr_ty,
-                        .Slice => try o.builder.structType(.normal, &.{
+                        .one, .many, .c => ptr_ty,
+                        .slice => try o.builder.structType(.normal, &.{
                             ptr_ty,
                             try o.lowerType(Type.usize),
                         }),
@@ -6988,7 +6988,7 @@ pub const FuncGen = struct {
         const zcu = pt.zcu;
         const llvm_usize = try o.lowerType(Type.usize);
         switch (ty.ptrSize(zcu)) {
-            .Slice => {
+            .slice => {
                 const len = try fg.wip.extractValue(ptr, &.{1}, "");
                 const elem_ty = ty.childType(zcu);
                 const abi_size = elem_ty.abiSize(zcu);
@@ -6996,13 +6996,13 @@ pub const FuncGen = struct {
                 const abi_size_llvm_val = try o.builder.intValue(llvm_usize, abi_size);
                 return fg.wip.bin(.@"mul nuw", len, abi_size_llvm_val, "");
             },
-            .One => {
+            .one => {
                 const array_ty = ty.childType(zcu);
                 const elem_ty = array_ty.childType(zcu);
                 const abi_size = elem_ty.abiSize(zcu);
                 return o.builder.intValue(llvm_usize, array_ty.arrayLen(zcu) * abi_size);
             },
-            .Many, .C => unreachable,
+            .many, .c => unreachable,
         }
     }
 
@@ -8670,11 +8670,11 @@ pub const FuncGen = struct {
         const llvm_elem_ty = try o.lowerPtrElemTy(ptr_ty.childType(zcu));
         switch (ptr_ty.ptrSize(zcu)) {
             // It's a pointer to an array, so according to LLVM we need an extra GEP index.
-            .One => return self.wip.gep(.inbounds, llvm_elem_ty, ptr, &.{
+            .one => return self.wip.gep(.inbounds, llvm_elem_ty, ptr, &.{
                 try o.builder.intValue(try o.lowerType(Type.usize), 0), offset,
             }, ""),
-            .C, .Many => return self.wip.gep(.inbounds, llvm_elem_ty, ptr, &.{offset}, ""),
-            .Slice => {
+            .c, .many => return self.wip.gep(.inbounds, llvm_elem_ty, ptr, &.{offset}, ""),
+            .slice => {
                 const base = try self.wip.extractValue(ptr, &.{0}, "");
                 return self.wip.gep(.inbounds, llvm_elem_ty, base, &.{offset}, "");
             },
@@ -8693,11 +8693,11 @@ pub const FuncGen = struct {
         const llvm_elem_ty = try o.lowerPtrElemTy(ptr_ty.childType(zcu));
         switch (ptr_ty.ptrSize(zcu)) {
             // It's a pointer to an array, so according to LLVM we need an extra GEP index.
-            .One => return self.wip.gep(.inbounds, llvm_elem_ty, ptr, &.{
+            .one => return self.wip.gep(.inbounds, llvm_elem_ty, ptr, &.{
                 try o.builder.intValue(try o.lowerType(Type.usize), 0), negative_offset,
             }, ""),
-            .C, .Many => return self.wip.gep(.inbounds, llvm_elem_ty, ptr, &.{negative_offset}, ""),
-            .Slice => {
+            .c, .many => return self.wip.gep(.inbounds, llvm_elem_ty, ptr, &.{negative_offset}, ""),
+            .slice => {
                 const base = try self.wip.extractValue(ptr, &.{0}, "");
                 return self.wip.gep(.inbounds, llvm_elem_ty, base, &.{negative_offset}, "");
             },
@@ -10034,9 +10034,9 @@ pub const FuncGen = struct {
 
         const llvm_usize_ty = try o.lowerType(Type.usize);
         const len = switch (ptr_ty.ptrSize(zcu)) {
-            .Slice => try self.wip.extractValue(dest_slice, &.{1}, ""),
-            .One => try o.builder.intValue(llvm_usize_ty, ptr_ty.childType(zcu).arrayLen(zcu)),
-            .Many, .C => unreachable,
+            .slice => try self.wip.extractValue(dest_slice, &.{1}, ""),
+            .one => try o.builder.intValue(llvm_usize_ty, ptr_ty.childType(zcu).arrayLen(zcu)),
+            .many, .c => unreachable,
         };
         const elem_llvm_ty = try o.lowerType(elem_ty);
         const end_ptr = try self.wip.gep(.inbounds, elem_llvm_ty, dest_ptr, &.{len}, "");

@@ -1118,7 +1118,7 @@ test "compile time int to ptr of function" {
 // On some architectures function pointers must be aligned.
 const hardcoded_fn_addr = maxInt(usize) & ~@as(usize, 0xf);
 pub const FUNCTION_CONSTANT = @as(PFN_void, @ptrFromInt(hardcoded_fn_addr));
-pub const PFN_void = *const fn (*anyopaque) callconv(.C) void;
+pub const PFN_void = *const fn (*anyopaque) callconv(.c) void;
 
 fn foobar(func: PFN_void) !void {
     try std.testing.expect(@intFromPtr(func) == hardcoded_fn_addr);
@@ -1281,11 +1281,11 @@ test "implicit cast *[0]T to E![]const u8" {
 
 var global_array: [4]u8 = undefined;
 test "cast from array reference to fn: comptime fn ptr" {
-    const f = @as(*align(1) const fn () callconv(.C) void, @ptrCast(&global_array));
+    const f = @as(*align(1) const fn () callconv(.c) void, @ptrCast(&global_array));
     try expect(@intFromPtr(f) == @intFromPtr(&global_array));
 }
 test "cast from array reference to fn: runtime fn ptr" {
-    var f = @as(*align(1) const fn () callconv(.C) void, @ptrCast(&global_array));
+    var f = @as(*align(1) const fn () callconv(.c) void, @ptrCast(&global_array));
     _ = &f;
     try expect(@intFromPtr(f) == @intFromPtr(&global_array));
 }
@@ -1309,12 +1309,12 @@ test "*const [N]null u8 to ?[]const u8" {
 
 test "cast between [*c]T and ?[*:0]T on fn parameter" {
     const S = struct {
-        const Handler = ?fn ([*c]const u8) callconv(.C) void;
+        const Handler = ?fn ([*c]const u8) callconv(.c) void;
         fn addCallback(comptime handler: Handler) void {
             _ = handler;
         }
 
-        fn myCallback(cstr: ?[*:0]const u8) callconv(.C) void {
+        fn myCallback(cstr: ?[*:0]const u8) callconv(.c) void {
             _ = cstr;
         }
 

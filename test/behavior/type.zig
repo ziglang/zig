@@ -141,7 +141,7 @@ test "Type.Array" {
 test "@Type create slice with null sentinel" {
     const Slice = @Type(.{
         .pointer = .{
-            .size = .Slice,
+            .size = .slice,
             .is_const = true,
             .is_volatile = false,
             .is_allowzero = false,
@@ -548,11 +548,11 @@ test "Type.Fn" {
 
     const some_opaque = opaque {};
     const some_ptr = *some_opaque;
-    const T = fn (c_int, some_ptr) callconv(.C) void;
+    const T = fn (c_int, some_ptr) callconv(.c) void;
 
     {
         const fn_info = std.builtin.Type{ .@"fn" = .{
-            .calling_convention = .C,
+            .calling_convention = .c,
             .is_generic = false,
             .is_var_args = false,
             .return_type = void,

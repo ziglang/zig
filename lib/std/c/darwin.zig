@@ -379,7 +379,7 @@ pub const MACH_MSG_TYPE = enum(mach_msg_type_name_t) {
 };
 
 extern "c" var mach_task_self_: mach_port_t;
-pub fn mach_task_self() callconv(.C) mach_port_t {
+pub fn mach_task_self() callconv(.c) mach_port_t {
     return mach_task_self_;
 }
 
@@ -873,7 +873,7 @@ pub const DISPATCH_TIME_FOREVER = ~@as(dispatch_time_t, 0);
 pub extern "c" fn dispatch_time(when: dispatch_time_t, delta: i64) dispatch_time_t;
 
 const dispatch_once_t = usize;
-const dispatch_function_t = fn (?*anyopaque) callconv(.C) void;
+const dispatch_function_t = fn (?*anyopaque) callconv(.c) void;
 pub extern fn dispatch_once_f(
     predicate: *dispatch_once_t,
     context: ?*anyopaque,

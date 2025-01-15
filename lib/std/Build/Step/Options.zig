@@ -172,7 +172,7 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
             return;
         },
         .pointer => |p| {
-            if (p.size != .Slice) {
+            if (p.size != .slice) {
                 @compileError("Non-slice pointers are not yet supported in build options");
             }
 

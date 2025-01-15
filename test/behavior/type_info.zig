@@ -44,7 +44,7 @@ test "type info: C pointer type info" {
 fn testCPtr() !void {
     const ptr_info = @typeInfo([*c]align(4) const i8);
     try expect(ptr_info == .pointer);
-    try expect(ptr_info.pointer.size == .C);
+    try expect(ptr_info.pointer.size == .c);
     try expect(ptr_info.pointer.is_const);
     try expect(!ptr_info.pointer.is_volatile);
     try expect(ptr_info.pointer.alignment == 4);
@@ -54,8 +54,8 @@ fn testCPtr() !void {
 test "type info: value is correctly copied" {
     comptime {
         var ptrInfo = @typeInfo([]u32);
-        ptrInfo.pointer.size = .One;
-        try expect(@typeInfo([]u32).pointer.size == .Slice);
+        ptrInfo.pointer.size = .one;
+        try expect(@typeInfo([]u32).pointer.size == .slice);
     }
 }
 
@@ -79,7 +79,7 @@ test "type info: pointer type info" {
 fn testPointer() !void {
     const u32_ptr_info = @typeInfo(*u32);
     try expect(u32_ptr_info == .pointer);
-    try expect(u32_ptr_info.pointer.size == .One);
+    try expect(u32_ptr_info.pointer.size == .one);
     try expect(u32_ptr_info.pointer.is_const == false);
     try expect(u32_ptr_info.pointer.is_volatile == false);
     try expect(u32_ptr_info.pointer.alignment == @alignOf(u32));
@@ -95,7 +95,7 @@ test "type info: unknown length pointer type info" {
 fn testUnknownLenPtr() !void {
     const u32_ptr_info = @typeInfo([*]const volatile f64);
     try expect(u32_ptr_info == .pointer);
-    try expect(u32_ptr_info.pointer.size == .Many);
+    try expect(u32_ptr_info.pointer.size == .many);
     try expect(u32_ptr_info.pointer.is_const == true);
     try expect(u32_ptr_info.pointer.is_volatile == true);
     try expect(u32_ptr_info.pointer.sentinel() == null);
@@ -111,7 +111,7 @@ test "type info: null terminated pointer type info" {
 fn testNullTerminatedPtr() !void {
     const ptr_info = @typeInfo([*:0]u8);
     try expect(ptr_info == .pointer);
-    try expect(ptr_info.pointer.size == .Many);
+    try expect(ptr_info.pointer.size == .many);
     try expect(ptr_info.pointer.is_const == false);
     try expect(ptr_info.pointer.is_volatile == false);
     try expect(ptr_info.pointer.sentinel().? == 0);
@@ -127,7 +127,7 @@ test "type info: slice type info" {
 fn testSlice() !void {
     const u32_slice_info = @typeInfo([]u32);
     try expect(u32_slice_info == .pointer);
-    try expect(u32_slice_info.pointer.size == .Slice);
+    try expect(u32_slice_info.pointer.size == .slice);
     try expect(u32_slice_info.pointer.is_const == false);
     try expect(u32_slice_info.pointer.is_volatile == false);
     try expect(u32_slice_info.pointer.alignment == 4);
@@ -374,7 +374,7 @@ fn testFunction() !void {
     try expect(foo_fn_info.@"fn".is_var_args);
     try expect(foo_fn_info.@"fn".return_type.? == usize);
     const foo_ptr_fn_info = @typeInfo(@TypeOf(&typeInfoFoo));
-    try expect(foo_ptr_fn_info.pointer.size == .One);
+    try expect(foo_ptr_fn_info.pointer.size == .one);
     try expect(foo_ptr_fn_info.pointer.is_const);
     try expect(!foo_ptr_fn_info.pointer.is_volatile);
     try expect(foo_ptr_fn_info.pointer.address_space == .generic);
@@ -401,7 +401,7 @@ fn testFunction() !void {
     try expect(aligned_foo_fn_info.@"fn".is_var_args);
     try expect(aligned_foo_fn_info.@"fn".return_type.? == usize);
     const aligned_foo_ptr_fn_info = @typeInfo(@TypeOf(&typeInfoFooAligned));
-    try expect(aligned_foo_ptr_fn_info.pointer.size == .One);
+    try expect(aligned_foo_ptr_fn_info.pointer.size == .one);
     try expect(aligned_foo_ptr_fn_info.pointer.is_const);
     try expect(!aligned_foo_ptr_fn_info.pointer.is_volatile);
     try expect(aligned_foo_ptr_fn_info.pointer.alignment == 4);

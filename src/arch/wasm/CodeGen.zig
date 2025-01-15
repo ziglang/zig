@@ -4726,7 +4726,7 @@ fn airPtrBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
     const offset = try cg.resolveInst(bin_op.rhs);
     const ptr_ty = cg.typeOf(bin_op.lhs);
     const pointee_ty = switch (ptr_ty.ptrSize(zcu)) {
-        .One => ptr_ty.childType(zcu).childType(zcu), // ptr to array, so get array element type
+        .one => ptr_ty.childType(zcu).childType(zcu), // ptr to array, so get array element type
         else => ptr_ty.childType(zcu),
     };
 
@@ -4756,12 +4756,12 @@ fn airMemset(cg: *CodeGen, inst: Air.Inst.Index, safety: bool) InnerError!void {
     const ptr_ty = cg.typeOf(bin_op.lhs);
     const value = try cg.resolveInst(bin_op.rhs);
     const len = switch (ptr_ty.ptrSize(zcu)) {
-        .Slice => try cg.sliceLen(ptr),
-        .One => @as(WValue, .{ .imm32 = @as(u32, @intCast(ptr_ty.childType(zcu).arrayLen(zcu))) }),
-        .C, .Many => unreachable,
+        .slice => try cg.sliceLen(ptr),
+        .one => @as(WValue, .{ .imm32 = @as(u32, @intCast(ptr_ty.childType(zcu).arrayLen(zcu))) }),
+        .c, .many => unreachable,
     };
 
-    const elem_ty = if (ptr_ty.ptrSize(zcu) == .One)
+    const elem_ty = if (ptr_ty.ptrSize(zcu) == .one)
         ptr_ty.childType(zcu).childType(zcu)
     else
         ptr_ty.childType(zcu);
@@ -5688,7 +5688,7 @@ fn airMemcpy(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const src = try cg.resolveInst(bin_op.rhs);
     const src_ty = cg.typeOf(bin_op.rhs);
     const len = switch (dst_ty.ptrSize(zcu)) {
-        .Slice => blk: {
+        .slice => blk: {
             const slice_len = try cg.sliceLen(dst);
             if (ptr_elem_ty.abiSize(zcu) != 1) {
                 try cg.emitWValue(slice_len);
@@ -5698,10 +5698,10 @@ fn airMemcpy(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             }
             break :blk slice_len;
         },
-        .One => @as(WValue, .{
+        .one => @as(WValue, .{
             .imm32 = @as(u32, @intCast(ptr_elem_ty.arrayLen(zcu) * ptr_elem_ty.childType(zcu).abiSize(zcu))),
         }),
-        .C, .Many => unreachable,
+        .c, .many => unreachable,
     };
     const dst_ptr = try cg.sliceOrArrayPtr(dst, dst_ty);
     const src_ptr = try cg.sliceOrArrayPtr(src, src_ty);

@@ -3182,7 +3182,7 @@ fn updateLazyType(
             try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
         },
         .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-            .One, .Many, .C => {
+            .one, .many, .c => {
                 const ptr_child_type: Type = .fromInterned(ptr_type.child);
                 try wip_nav.abbrevCode(if (ptr_type.sentinel == .none) .ptr_type else .ptr_sentinel_type);
                 try wip_nav.strp(name);
@@ -3210,7 +3210,7 @@ fn updateLazyType(
                     try wip_nav.refType(ptr_child_type);
                 }
             },
-            .Slice => {
+            .slice => {
                 try wip_nav.abbrevCode(.generated_struct_type);
                 try wip_nav.strp(name);
                 try uleb128(diw, ty.abiSize(zcu));
