@@ -1859,7 +1859,7 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         if (comp.version) |version| {
             try argv.append(try allocPrint(arena, "-VERSION:{}.{}", .{ version.major, version.minor }));
         }
-        if (comp.config.lto) {
+        if (comp.config.lto != .none) {
             switch (optimize_mode) {
                 .Debug => {},
                 .ReleaseSmall => try argv.append("-OPT:lldlto=2"),
@@ -2484,11 +2484,11 @@ pub fn getGlobalSymbol(coff: *Coff, name: []const u8, lib_name_name: ?[]const u8
     return global_index;
 }
 
-pub fn updateDeclLineNumber(coff: *Coff, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
+pub fn updateLineNumber(coff: *Coff, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
     _ = coff;
     _ = pt;
-    _ = decl_index;
-    log.debug("TODO implement updateDeclLineNumber", .{});
+    _ = ti_id;
+    log.debug("TODO implement updateLineNumber", .{});
 }
 
 /// TODO: note if we need to rewrite base relocations by dirtying any of the entries in the global table
@@ -2784,7 +2784,7 @@ fn writeHeader(coff: *Coff) !void {
     const writer = buffer.writer();
 
     try buffer.ensureTotalCapacity(coff.getSizeOfHeaders());
-    writer.writeAll(msdos_stub) catch unreachable;
+    writer.writeAll(&msdos_stub) catch unreachable;
     mem.writeInt(u32, buffer.items[0x3c..][0..4], msdos_stub.len, .little);
 
     writer.writeAll("PE\x00\x00") catch unreachable;
@@ -3748,4 +3748,63 @@ const Value = @import("../Value.zig");
 const AnalUnit = InternPool.AnalUnit;
 const dev = @import("../dev.zig");
 
-const msdos_stub = @embedFile("msdos-stub.bin");
+/// This is the start of a Portable Executable (PE) file.
+/// It starts with a MS-DOS header followed by a MS-DOS stub program.
+/// This data does not change so we include it as follows in all binaries.
+///
+/// In this context,
+/// A "paragraph" is 16 bytes.
+/// A "page" is 512 bytes.
+/// A "long" is 4 bytes.
+/// A "word" is 2 bytes.
+const msdos_stub: [120]u8 = .{
+    'M', 'Z', // Magic number. Stands for Mark Zbikowski (designer of the MS-DOS executable format).
+    0x78, 0x00, // Number of bytes in the last page. This matches the size of this entire MS-DOS stub.
+    0x01, 0x00, // Number of pages.
+    0x00, 0x00, // Number of entries in the relocation table.
+    0x04, 0x00, // The number of paragraphs taken up by the header. 4 * 16 = 64, which matches the header size (all bytes before the MS-DOS stub program).
+    0x00, 0x00, // The number of paragraphs required by the program.
+    0x00, 0x00, // The number of paragraphs requested by the program.
+    0x00, 0x00, // Initial value for SS (relocatable segment address).
+    0x00, 0x00, // Initial value for SP.
+    0x00, 0x00, // Checksum.
+    0x00, 0x00, // Initial value for IP.
+    0x00, 0x00, // Initial value for CS (relocatable segment address).
+    0x40, 0x00, // Absolute offset to relocation table. 64 matches the header size (all bytes before the MS-DOS stub program).
+    0x00, 0x00, // Overlay number. Zero means this is the main executable.
+}
+// Reserved words.
+++ .{ 0x00, 0x00 } ** 4
+// OEM-related fields.
+++ .{
+    0x00, 0x00, // OEM identifier.
+    0x00, 0x00, // OEM information.
+}
+// Reserved words.
+++ .{ 0x00, 0x00 } ** 10
+// Address of the PE header (a long). This matches the size of this entire MS-DOS stub, so that's the address of what's after this MS-DOS stub.
+++ .{ 0x78, 0x00, 0x00, 0x00 }
+// What follows is a 16-bit x86 MS-DOS program of 7 instructions that prints the bytes after these instructions and then exits.
+++ .{
+    // Set the value of the data segment to the same value as the code segment.
+    0x0e, // push cs
+    0x1f, // pop ds
+    // Set the DX register to the address of the message.
+    // If you count all bytes of these 7 instructions you get 14, so that's the address of what's after these instructions.
+    0xba, 14, 0x00, // mov dx, 14
+    // Set AH to the system call code for printing a message.
+    0xb4, 0x09, // mov ah, 0x09
+    // Perform the system call to print the message.
+    0xcd, 0x21, // int 0x21
+    // Set AH to 0x4c which is the system call code for exiting, and set AL to 0x01 which is the exit code.
+    0xb8, 0x01, 0x4c, // mov ax, 0x4c01
+    // Peform the system call to exit the program with exit code 1.
+    0xcd, 0x21, // int 0x21
+}
+// Message to print.
+++ "This program cannot be run in DOS mode.".*
+// Message terminators.
+++ .{
+    '$', // We do not pass a length to the print system call; the string is terminated by this character.
+    0x00, 0x00, // Terminating zero bytes.
+};

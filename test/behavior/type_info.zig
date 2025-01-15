@@ -357,6 +357,15 @@ test "type info: function type info" {
 }
 
 fn testFunction() !void {
+    const S = struct {
+        export fn typeInfoFoo() callconv(.c) usize {
+            unreachable;
+        }
+        export fn typeInfoFooAligned() callconv(.c) usize {
+            unreachable;
+        }
+    };
+    _ = S;
     const foo_fn_type = @TypeOf(typeInfoFoo);
     const foo_fn_info = @typeInfo(foo_fn_type);
     try expect(foo_fn_info.@"fn".calling_convention.eql(.c));

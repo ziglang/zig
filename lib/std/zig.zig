@@ -749,6 +749,8 @@ pub const SimpleComptimeReason = enum(u32) {
     array_mul_factor,
     slice_cat_operand,
     comptime_call_target,
+    inline_call_target,
+    generic_call_target,
     wasm_memory_index,
     work_group_dim_index,
 
@@ -791,7 +793,6 @@ pub const SimpleComptimeReason = enum(u32) {
     struct_field_default_value,
     enum_field_tag_value,
     slice_single_item_ptr_bounds,
-    comptime_param_arg,
     stored_to_comptime_field,
     stored_to_comptime_var,
     casted_to_comptime_enum,
@@ -828,6 +829,8 @@ pub const SimpleComptimeReason = enum(u32) {
             .array_mul_factor     => "array multiplication factor must be comptime-known",
             .slice_cat_operand    => "slice being concatenated must be comptime-known",
             .comptime_call_target => "function being called at comptime must be comptime-known",
+            .inline_call_target   => "function being called inline must be comptime-known",
+            .generic_call_target  => "generic function being called must be comptime-known",
             .wasm_memory_index    => "wasm memory index must be comptime-known",
             .work_group_dim_index => "work group dimension index must be comptime-known",
 
@@ -865,7 +868,6 @@ pub const SimpleComptimeReason = enum(u32) {
             .struct_field_default_value   => "struct field default value must be comptime-known",
             .enum_field_tag_value         => "enum field tag value must be comptime-known",
             .slice_single_item_ptr_bounds => "slice of single-item pointer must have comptime-known bounds",
-            .comptime_param_arg           => "argument to comptime parameter must be comptime-known",
             .stored_to_comptime_field     => "value stored to a comptime field must be comptime-known",
             .stored_to_comptime_var       => "value stored to a comptime variable must be comptime-known",
             .casted_to_comptime_enum      => "value casted to enum with 'comptime_int' tag type must be comptime-known",

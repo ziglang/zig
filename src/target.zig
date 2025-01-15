@@ -312,8 +312,6 @@ pub fn hasRedZone(target: std.Target) bool {
         .powerpcle,
         .powerpc64,
         .powerpc64le,
-        .wasm32,
-        .wasm64,
         .x86_64,
         .x86,
         => true,
@@ -326,7 +324,7 @@ pub fn libcFullLinkFlags(target: std.Target) []const []const u8 {
     // The linking order of these is significant and should match the order other
     // c compilers such as gcc or clang use.
     const result: []const []const u8 = switch (target.os.tag) {
-        .netbsd, .openbsd => &.{ "-lm", "-lpthread", "-lc", "-lutil" },
+        .dragonfly, .freebsd, .netbsd, .openbsd => &.{ "-lm", "-lpthread", "-lc", "-lutil" },
         // Solaris releases after 10 merged the threading libraries into libc.
         .solaris, .illumos => &.{ "-lm", "-lsocket", "-lnsl", "-lc" },
         .haiku => &.{ "-lm", "-lroot", "-lpthread", "-lc", "-lnetwork" },

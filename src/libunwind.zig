@@ -37,7 +37,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .root_strip = comp.compilerRtStrip(),
         .link_libc = true,
         // Disable LTO to avoid https://github.com/llvm/llvm-project/issues/56825
-        .lto = false,
+        .lto = .none,
     }) catch |err| {
         comp.setMiscFailure(
             .libunwind,

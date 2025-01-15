@@ -1317,3 +1317,30 @@ test "packed struct equality" {
     try S.doTest(x, y);
     comptime try S.doTest(x, y);
 }
+
+test "packed struct with signed field" {
+    var s: packed struct {
+        a: i2,
+        b: u6,
+    } = .{ .a = -1, .b = 42 };
+    s = s;
+    try expect(s.a == -1);
+    try expect(s.b == 42);
+}
+
+test "assign packed struct initialized with RLS to packed struct literal field" {
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch.isWasm()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    const Inner = packed struct { x: u17 };
+    const Outer = packed struct { inner: Inner, x: u15 };
+
+    var x: u15 = undefined;
+    x = 23385;
+    var inner: Inner = undefined;
+    inner = .{ .x = x };
+    const outer = Outer{ .x = x, .inner = inner };
+    try expect(outer.inner.x == x);
+    try expect(outer.x == x);
+}

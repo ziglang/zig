@@ -105,7 +105,7 @@ pub const CValue = union(enum) {
 };
 
 const BlockData = struct {
-    block_id: usize,
+    block_id: u32,
     result: CValue,
 };
 
@@ -359,8 +359,8 @@ pub const Function = struct {
     liveness: Liveness,
     value_map: CValueMap,
     blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .empty,
-    next_arg_index: usize = 0,
-    next_block_index: usize = 0,
+    next_arg_index: u32 = 0,
+    next_block_index: u32 = 0,
     object: Object,
     lazy_fns: LazyFnMap,
     func_index: InternPool.Index,
@@ -663,6 +663,7 @@ pub const DeclGen = struct {
     mod: *Module,
     pass: Pass,
     is_naked_fn: bool,
+    expected_block: ?u32,
     /// This is a borrowed reference from `link.C`.
     fwd_decl: std.ArrayList(u8),
     error_msg: ?*Zcu.ErrorMsg,
@@ -1399,12 +1400,24 @@ pub const DeclGen = struct {
                                         .repeated_elem => |elem| elem,
                                     };
 
+                                    const field_int_info: std.builtin.Type.Int = if (field_ty.isAbiInt(zcu))
+                                        field_ty.intInfo(zcu)
+                                    else
+                                        .{ .signedness = .unsigned, .bits = undefined };
+                                    switch (field_int_info.signedness) {
+                                        .signed => {
+                                            try writer.writeByte('(');
+                                            try dg.renderValue(writer, Value.fromInterned(field_val), .Other);
+                                            try writer.writeAll(" & ");
+                                            const field_uint_ty = try pt.intType(.unsigned, field_int_info.bits);
+                                            try dg.renderValue(writer, try field_uint_ty.maxIntScalar(pt, field_uint_ty), .Other);
+                                            try writer.writeByte(')');
+                                        },
+                                        .unsigned => try dg.renderValue(writer, Value.fromInterned(field_val), .Other),
+                                    }
                                     if (bit_offset != 0) {
-                                        try dg.renderValue(writer, Value.fromInterned(field_val), .Other);
                                         try writer.writeAll(" << ");
                                         try dg.renderValue(writer, try pt.intValue(bit_offset_ty, bit_offset), .FunctionArgument);
-                                    } else {
-                                        try dg.renderValue(writer, Value.fromInterned(field_val), .Other);
                                     }
 
                                     bit_offset += field_ty.bitSize(zcu);
@@ -2899,6 +2912,8 @@ pub fn genFunc(f: *Function) !void {
     const main_body = f.air.getMainBody();
     try genBodyResolveState(f, undefined, &.{}, main_body, false);
     try o.indent_writer.insertNewline();
+    if (o.dg.expected_block) |_|
+        return f.fail("runtime code not allowed in naked function", .{});
 
     // Take advantage of the free_locals map to bucket locals per type. All
     // locals corresponding to AIR instructions should be in there due to
@@ -3189,6 +3204,8 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
     const air_datas = f.air.instructions.items(.data);
 
     for (body) |inst| {
+        if (f.object.dg.expected_block) |_|
+            return f.fail("runtime code not allowed in naked function", .{});
         if (f.liveness.isUnused(inst) and !f.air.mustLower(inst, ip))
             continue;
 
@@ -4517,6 +4534,7 @@ fn airCall(
 ) !CValue {
     const pt = f.object.dg.pt;
     const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
     // Not even allowed to call panic in a naked function.
     if (f.object.dg.is_naked_fn) return .none;
 
@@ -4562,11 +4580,12 @@ fn airCall(
     }
 
     const callee_ty = f.typeOf(pl_op.operand);
-    const fn_info = zcu.typeToFunc(switch (callee_ty.zigTypeTag(zcu)) {
-        .@"fn" => callee_ty,
-        .pointer => callee_ty.childType(zcu),
+    const callee_is_ptr = switch (callee_ty.zigTypeTag(zcu)) {
+        .@"fn" => false,
+        .pointer => true,
         else => unreachable,
-    }).?;
+    };
+    const fn_info = zcu.typeToFunc(if (callee_is_ptr) callee_ty.childType(zcu) else callee_ty).?;
     const ret_ty = Type.fromInterned(fn_info.return_type);
     const ret_ctype: CType = if (ret_ty.isNoReturn(zcu))
         CType.void
@@ -4598,20 +4617,29 @@ fn airCall(
     callee: {
         known: {
             const callee_val = (try f.air.value(pl_op.operand, pt)) orelse break :known;
-            const fn_nav = switch (zcu.intern_pool.indexToKey(callee_val.toIntern())) {
-                .@"extern" => |@"extern"| @"extern".owner_nav,
-                .func => |func| func.owner_nav,
+            const fn_nav, const need_cast = switch (ip.indexToKey(callee_val.toIntern())) {
+                .@"extern" => |@"extern"| .{ @"extern".owner_nav, false },
+                .func => |func| .{ func.owner_nav, Type.fromInterned(func.ty).fnCallingConvention(zcu) != .naked and
+                    Type.fromInterned(func.uncoerced_ty).fnCallingConvention(zcu) == .naked },
                 .ptr => |ptr| if (ptr.byte_offset == 0) switch (ptr.base_addr) {
-                    .nav => |nav| nav,
+                    .nav => |nav| .{ nav, Type.fromInterned(ptr.ty).childType(zcu).fnCallingConvention(zcu) != .naked and
+                        zcu.navValue(nav).typeOf(zcu).fnCallingConvention(zcu) == .naked },
                     else => break :known,
                 } else break :known,
                 else => break :known,
             };
+            if (need_cast) {
+                try writer.writeAll("((");
+                try f.renderType(writer, if (callee_is_ptr) callee_ty else try pt.singleConstPtrType(callee_ty));
+                try writer.writeByte(')');
+                if (!callee_is_ptr) try writer.writeByte('&');
+            }
             switch (modifier) {
                 .auto, .always_tail => try f.object.dg.renderNavName(writer, fn_nav),
                 inline .never_tail, .never_inline => |m| try writer.writeAll(try f.getLazyFnName(@unionInit(LazyFnKey, @tagName(m), fn_nav))),
                 else => unreachable,
             }
+            if (need_cast) try writer.writeByte(')');
             break :callee;
         }
         switch (modifier) {
@@ -4712,7 +4740,7 @@ fn lowerBlock(f: *Function, inst: Air.Inst.Index, body: []const Air.Inst.Index) 
     const zcu = pt.zcu;
     const liveness_block = f.liveness.getBlock(inst);
 
-    const block_id: usize = f.next_block_index;
+    const block_id = f.next_block_index;
     f.next_block_index += 1;
     const writer = f.object.writer();
 
@@ -4739,7 +4767,13 @@ fn lowerBlock(f: *Function, inst: Air.Inst.Index, body: []const Air.Inst.Index) 
     try f.object.indent_writer.insertNewline();
 
     // noreturn blocks have no `br` instructions reaching them, so we don't want a label
-    if (!f.typeOfIndex(inst).isNoReturn(zcu)) {
+    if (f.object.dg.is_naked_fn) {
+        if (f.object.dg.expected_block) |expected_block| {
+            if (block_id != expected_block)
+                return f.fail("runtime code not allowed in naked function", .{});
+            f.object.dg.expected_block = null;
+        }
+    } else if (!f.typeOfIndex(inst).isNoReturn(zcu)) {
         // label must be followed by an expression, include an empty one.
         try writer.print("zig_block_{d}:;\n", .{block_id});
     }
@@ -4803,6 +4837,8 @@ fn lowerTry(
 
         try genBodyResolveState(f, inst, liveness_condbr.else_deaths, body, false);
         try f.object.indent_writer.insertNewline();
+        if (f.object.dg.expected_block) |_|
+            return f.fail("runtime code not allowed in naked function", .{});
     }
 
     // Now we have the "then branch" (in terms of the liveness data); process any deaths.
@@ -4820,9 +4856,7 @@ fn lowerTry(
 
     try reap(f, inst, &.{operand});
 
-    if (f.liveness.isUnused(inst)) {
-        return .none;
-    }
+    if (f.liveness.isUnused(inst)) return .none;
 
     const local = try f.allocLocal(inst, inst_ty);
     const a = try Assignment.start(f, writer, try f.ctypeFromType(inst_ty, .complete));
@@ -4841,6 +4875,12 @@ fn airBr(f: *Function, inst: Air.Inst.Index) !void {
     const block = f.blocks.get(branch.block_inst).?;
     const result = block.result;
     const writer = f.object.writer();
+
+    if (f.object.dg.is_naked_fn) {
+        if (result != .none) return f.fail("runtime code not allowed in naked function", .{});
+        f.object.dg.expected_block = block.block_id;
+        return;
+    }
 
     // If result is .none then the value of the block is unused.
     if (result != .none) {
@@ -5096,6 +5136,8 @@ fn airCondBr(f: *Function, inst: Air.Inst.Index) !void {
 
     try genBodyResolveState(f, inst, liveness_condbr.then_deaths, then_body, false);
     try writer.writeByte('\n');
+    if (else_body.len > 0) if (f.object.dg.expected_block) |_|
+        return f.fail("runtime code not allowed in naked function", .{});
 
     // We don't need to use `genBodyResolveState` for the else block, because this instruction is
     // noreturn so must terminate a body, therefore we don't need to leave `value_map` or
@@ -5193,6 +5235,8 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index, is_dispatch_loop: bool) !void
         try genBodyResolveState(f, inst, liveness.deaths[case.idx], case.body, true);
         f.object.indent_writer.popIndent();
         try writer.writeByte('}');
+        if (f.object.dg.expected_block) |_|
+            return f.fail("runtime code not allowed in naked function", .{});
 
         // The case body must be noreturn so we don't need to insert a break.
     }
@@ -5236,6 +5280,8 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index, is_dispatch_loop: bool) !void
             try genBodyResolveState(f, inst, liveness.deaths[case.idx], case.body, true);
             f.object.indent_writer.popIndent();
             try writer.writeByte('}');
+            if (f.object.dg.expected_block) |_|
+                return f.fail("runtime code not allowed in naked function", .{});
         }
     }
     if (is_dispatch_loop) {
@@ -5248,6 +5294,8 @@ fn airSwitchBr(f: *Function, inst: Air.Inst.Index, is_dispatch_loop: bool) !void
             try die(f, inst, death.toRef());
         }
         try genBody(f, else_body);
+        if (f.object.dg.expected_block) |_|
+            return f.fail("runtime code not allowed in naked function", .{});
     } else {
         try writer.writeAll("zig_unreachable();");
     }
@@ -7371,7 +7419,9 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                 .@"packed" => {
                     try f.writeCValue(writer, local, .Other);
                     try writer.writeAll(" = ");
-                    const int_info = inst_ty.intInfo(zcu);
+
+                    const backing_int_ty: Type = .fromInterned(loaded_struct.backingIntTypeUnordered(ip));
+                    const int_info = backing_int_ty.intInfo(zcu);
 
                     const bit_offset_ty = try pt.intType(.unsigned, Type.smallestUnsignedBits(int_info.bits - 1));
 
@@ -7402,6 +7452,12 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                         try f.object.dg.renderTypeForBuiltinFnName(writer, inst_ty);
                         try writer.writeByte('(');
 
+                        if (field_ty.isAbiInt(zcu)) {
+                            try writer.writeAll("zig_and_");
+                            try f.object.dg.renderTypeForBuiltinFnName(writer, inst_ty);
+                            try writer.writeByte('(');
+                        }
+
                         if (inst_ty.isAbiInt(zcu) and (field_ty.isAbiInt(zcu) or field_ty.isPtrAtRuntime(zcu))) {
                             try f.renderIntCast(writer, inst_ty, element, .{}, field_ty, .FunctionArgument);
                         } else {
@@ -7417,6 +7473,17 @@ fn airAggregateInit(f: *Function, inst: Air.Inst.Index) !CValue {
                                 try writer.writeByte(')');
                             }
                             try f.writeCValue(writer, element, .Other);
+                        }
+
+                        if (field_ty.isAbiInt(zcu)) {
+                            try writer.writeAll(", ");
+                            const field_int_info = field_ty.intInfo(zcu);
+                            const field_mask = if (int_info.signedness == .signed and int_info.bits == field_int_info.bits)
+                                try pt.intValue(backing_int_ty, -1)
+                            else
+                                try (try pt.intType(.unsigned, field_int_info.bits)).maxIntScalar(pt, backing_int_ty);
+                            try f.object.dg.renderValue(writer, field_mask, .FunctionArgument);
+                            try writer.writeByte(')');
                         }
 
                         try writer.print(", {}", .{

@@ -1354,11 +1354,10 @@ pub fn writeSyms(self: *Plan9, buf: *std.ArrayList(u8)) !void {
     }
 }
 
-/// Must be called only after a successful call to `updateDecl`.
-pub fn updateDeclLineNumber(self: *Plan9, pt: Zcu.PerThread, decl_index: InternPool.DeclIndex) !void {
+pub fn updateLineNumber(self: *Plan9, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
     _ = self;
     _ = pt;
-    _ = decl_index;
+    _ = ti_id;
 }
 
 pub fn getNavVAddr(

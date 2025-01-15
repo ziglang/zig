@@ -1574,9 +1574,9 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !voi
     try wasm.zig_object.?.updateNav(wasm, pt, nav);
 }
 
-pub fn updateNavLineNumber(wasm: *Wasm, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !void {
+pub fn updateLineNumber(wasm: *Wasm, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
     if (wasm.llvm_object) |_| return;
-    try wasm.zig_object.?.updateNavLineNumber(pt, nav);
+    try wasm.zig_object.?.updateLineNumber(pt, ti_id);
 }
 
 /// From a given symbol location, returns its `wasm.GlobalType`.
@@ -3537,7 +3537,7 @@ fn linkWithLLD(wasm: *Wasm, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
         try argv.appendSlice(&[_][]const u8{ comp.self_exe_path.?, linker_command });
         try argv.append("--error-limit=0");
 
-        if (comp.config.lto) {
+        if (comp.config.lto != .none) {
             switch (comp.root_mod.optimize_mode) {
                 .Debug => {},
                 .ReleaseSmall => try argv.append("-O2"),

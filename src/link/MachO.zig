@@ -3014,9 +3014,9 @@ pub fn updateNav(self: *MachO, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !vo
     return self.getZigObject().?.updateNav(self, pt, nav);
 }
 
-pub fn updateNavLineNumber(self: *MachO, pt: Zcu.PerThread, nav: InternPool.NavIndex) !void {
+pub fn updateLineNumber(self: *MachO, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
     if (self.llvm_object) |_| return;
-    return self.getZigObject().?.updateNavLineNumber(pt, nav);
+    return self.getZigObject().?.updateLineNumber(pt, ti_id);
 }
 
 pub fn updateExports(

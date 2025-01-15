@@ -218,6 +218,7 @@ pub fn updateFunc(
                 .error_msg = null,
                 .pass = .{ .nav = func.owner_nav },
                 .is_naked_fn = Type.fromInterned(func.ty).fnCallingConvention(zcu) == .naked,
+                .expected_block = null,
                 .fwd_decl = fwd_decl.toManaged(gpa),
                 .ctype_pool = ctype_pool.*,
                 .scratch = .{},
@@ -272,6 +273,7 @@ fn updateUav(self: *C, pt: Zcu.PerThread, i: usize) !void {
             .error_msg = null,
             .pass = .{ .uav = uav },
             .is_naked_fn = false,
+            .expected_block = null,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctype_pool = codegen.CType.Pool.empty,
             .scratch = .{},
@@ -347,6 +349,7 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !
             .error_msg = null,
             .pass = .{ .nav = nav_index },
             .is_naked_fn = false,
+            .expected_block = null,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctype_pool = ctype_pool.*,
             .scratch = .{},
@@ -379,12 +382,12 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !
     gop.value_ptr.fwd_decl = try self.addString(object.dg.fwd_decl.items);
 }
 
-pub fn updateNavLineNumber(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
+pub fn updateLineNumber(self: *C, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
     // The C backend does not have the ability to fix line numbers without re-generating
     // the entire Decl.
     _ = self;
     _ = pt;
-    _ = nav_index;
+    _ = ti_id;
 }
 
 pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
@@ -675,6 +678,7 @@ fn flushErrDecls(self: *C, pt: Zcu.PerThread, ctype_pool: *codegen.CType.Pool) F
             .error_msg = null,
             .pass = .flush,
             .is_naked_fn = false,
+            .expected_block = null,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctype_pool = ctype_pool.*,
             .scratch = .{},
@@ -722,6 +726,7 @@ fn flushLazyFn(
             .error_msg = null,
             .pass = .flush,
             .is_naked_fn = false,
+            .expected_block = null,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctype_pool = ctype_pool.*,
             .scratch = .{},
@@ -868,6 +873,7 @@ pub fn updateExports(
         .error_msg = null,
         .pass = pass,
         .is_naked_fn = false,
+        .expected_block = null,
         .fwd_decl = fwd_decl.toManaged(gpa),
         .ctype_pool = decl_block.ctype_pool,
         .scratch = .{},

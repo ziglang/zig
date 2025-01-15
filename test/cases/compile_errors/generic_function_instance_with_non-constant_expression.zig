@@ -10,8 +10,7 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// :5:16: error: runtime-known argument passed to comptime parameter
-// :1:17: note: declared comptime here
+// :5:16: error: unable to resolve comptime value
+// :5:16: note: argument to comptime parameter must be comptime-known
+// :1:8: note: parameter declared comptime here

@@ -4194,6 +4194,7 @@ pub const PointerDeriveStep = union(enum) {
     nav_ptr: InternPool.Nav.Index,
     uav_ptr: InternPool.Key.Ptr.BaseAddr.Uav,
     comptime_alloc_ptr: struct {
+        idx: InternPool.ComptimeAllocIndex,
         val: Value,
         ptr_ty: Type,
     },
@@ -4240,7 +4241,7 @@ pub const PointerDeriveStep = union(enum) {
 };
 
 pub fn pointerDerivation(ptr_val: Value, arena: Allocator, pt: Zcu.PerThread) Allocator.Error!PointerDeriveStep {
-    return ptr_val.pointerDerivationAdvanced(arena, pt, false, {}) catch |err| switch (err) {
+    return ptr_val.pointerDerivationAdvanced(arena, pt, false, null) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
         error.AnalysisFail => unreachable,
     };
@@ -4250,7 +4251,7 @@ pub fn pointerDerivation(ptr_val: Value, arena: Allocator, pt: Zcu.PerThread) Al
 /// only field and element pointers with no casts. This can be used by codegen backends
 /// which prefer field/elem accesses when lowering constant pointer values.
 /// It is also used by the Value printing logic for pointers.
-pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerThread, comptime have_sema: bool, sema: if (have_sema) *Sema else void) !PointerDeriveStep {
+pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerThread, comptime resolve_types: bool, opt_sema: ?*Sema) !PointerDeriveStep {
     const zcu = pt.zcu;
     const ptr = zcu.intern_pool.indexToKey(ptr_val.toIntern()).ptr;
     const base_derive: PointerDeriveStep = switch (ptr.base_addr) {
@@ -4273,11 +4274,12 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
             } };
         },
         .comptime_alloc => |idx| base: {
-            if (!have_sema) unreachable;
+            const sema = opt_sema.?;
             const alloc = sema.getComptimeAlloc(idx);
             const val = try alloc.val.intern(pt, sema.arena);
             const ty = val.typeOf(zcu);
             break :base .{ .comptime_alloc_ptr = .{
+                .idx = idx,
                 .val = val,
                 .ptr_ty = try pt.ptrType(.{
                     .child = ty.toIntern(),
@@ -4292,7 +4294,7 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
             const base_ptr = Value.fromInterned(eu_ptr);
             const base_ptr_ty = base_ptr.typeOf(zcu);
             const parent_step = try arena.create(PointerDeriveStep);
-            parent_step.* = try pointerDerivationAdvanced(Value.fromInterned(eu_ptr), arena, pt, have_sema, sema);
+            parent_step.* = try pointerDerivationAdvanced(Value.fromInterned(eu_ptr), arena, pt, resolve_types, opt_sema);
             break :base .{ .eu_payload_ptr = .{
                 .parent = parent_step,
                 .result_ptr_ty = try pt.adjustPtrTypeChild(base_ptr_ty, base_ptr_ty.childType(zcu).errorUnionPayload(zcu)),
@@ -4302,7 +4304,7 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
             const base_ptr = Value.fromInterned(opt_ptr);
             const base_ptr_ty = base_ptr.typeOf(zcu);
             const parent_step = try arena.create(PointerDeriveStep);
-            parent_step.* = try pointerDerivationAdvanced(Value.fromInterned(opt_ptr), arena, pt, have_sema, sema);
+            parent_step.* = try pointerDerivationAdvanced(Value.fromInterned(opt_ptr), arena, pt, resolve_types, opt_sema);
             break :base .{ .opt_payload_ptr = .{
                 .parent = parent_step,
                 .result_ptr_ty = try pt.adjustPtrTypeChild(base_ptr_ty, base_ptr_ty.childType(zcu).optionalChild(zcu)),
@@ -4315,15 +4317,15 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
             const field_ty, const field_align = switch (agg_ty.zigTypeTag(zcu)) {
                 .@"struct" => .{ agg_ty.fieldType(@intCast(field.index), zcu), try agg_ty.fieldAlignmentInner(
                     @intCast(field.index),
-                    if (have_sema) .sema else .normal,
+                    if (resolve_types) .sema else .normal,
                     pt.zcu,
-                    if (have_sema) pt.tid else {},
+                    if (resolve_types) pt.tid else {},
                 ) },
                 .@"union" => .{ agg_ty.unionFieldTypeByIndex(@intCast(field.index), zcu), try agg_ty.fieldAlignmentInner(
                     @intCast(field.index),
-                    if (have_sema) .sema else .normal,
+                    if (resolve_types) .sema else .normal,
                     pt.zcu,
-                    if (have_sema) pt.tid else {},
+                    if (resolve_types) pt.tid else {},
                 ) },
                 .pointer => .{ switch (field.index) {
                     Value.slice_ptr_index => agg_ty.slicePtrFieldType(zcu),
@@ -4347,7 +4349,7 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
                 },
             });
             const parent_step = try arena.create(PointerDeriveStep);
-            parent_step.* = try pointerDerivationAdvanced(base_ptr, arena, pt, have_sema, sema);
+            parent_step.* = try pointerDerivationAdvanced(base_ptr, arena, pt, resolve_types, opt_sema);
             break :base .{ .field_ptr = .{
                 .parent = parent_step,
                 .field_idx = @intCast(field.index),
@@ -4356,7 +4358,7 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
         },
         .arr_elem => |arr_elem| base: {
             const parent_step = try arena.create(PointerDeriveStep);
-            parent_step.* = try pointerDerivationAdvanced(Value.fromInterned(arr_elem.base), arena, pt, have_sema, sema);
+            parent_step.* = try pointerDerivationAdvanced(Value.fromInterned(arr_elem.base), arena, pt, resolve_types, opt_sema);
             const parent_ptr_info = (try parent_step.ptrType(pt)).ptrInfo(zcu);
             const result_ptr_ty = try pt.ptrType(.{
                 .child = parent_ptr_info.child,
@@ -4378,7 +4380,8 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
         return base_derive;
     }
 
-    const need_child = Type.fromInterned(ptr.ty).childType(zcu);
+    const ptr_ty_info = Type.fromInterned(ptr.ty).ptrInfo(zcu);
+    const need_child: Type = .fromInterned(ptr_ty_info.child);
     if (need_child.comptimeOnly(zcu)) {
         // No refinement can happen - this pointer is presumably invalid.
         // Just offset it.
@@ -4423,16 +4426,34 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
             .frame,
             .@"enum",
             .vector,
-            .optional,
             .@"union",
             => break,
+
+            .optional => {
+                ptr_opt: {
+                    if (!cur_ty.isPtrLikeOptional(zcu)) break :ptr_opt;
+                    if (need_child.zigTypeTag(zcu) != .pointer) break :ptr_opt;
+                    switch (need_child.ptrSize(zcu)) {
+                        .One, .Many => {},
+                        .Slice, .C => break :ptr_opt,
+                    }
+                    const parent = try arena.create(PointerDeriveStep);
+                    parent.* = cur_derive;
+                    cur_derive = .{ .opt_payload_ptr = .{
+                        .parent = parent,
+                        .result_ptr_ty = try pt.adjustPtrTypeChild(try parent.ptrType(pt), cur_ty.optionalChild(zcu)),
+                    } };
+                    continue;
+                }
+                break;
+            },
 
             .array => {
                 const elem_ty = cur_ty.childType(zcu);
                 const elem_size = elem_ty.abiSize(zcu);
                 const start_idx = cur_offset / elem_size;
                 const end_idx = (cur_offset + need_bytes + elem_size - 1) / elem_size;
-                if (end_idx == start_idx + 1) {
+                if (end_idx == start_idx + 1 and ptr_ty_info.flags.size == .One) {
                     const parent = try arena.create(PointerDeriveStep);
                     parent.* = cur_derive;
                     cur_derive = .{ .elem_ptr = .{
@@ -4493,7 +4514,22 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
         }
     };
 
-    if (cur_offset == 0 and (try cur_derive.ptrType(pt)).toIntern() == ptr.ty) {
+    if (cur_offset == 0) compatible: {
+        const src_ptr_ty_info = (try cur_derive.ptrType(pt)).ptrInfo(zcu);
+        // We allow silently doing some "coercible" pointer things.
+        // In particular, we only give up if cv qualifiers are *removed*.
+        if (src_ptr_ty_info.flags.is_const and !ptr_ty_info.flags.is_const) break :compatible;
+        if (src_ptr_ty_info.flags.is_volatile and !ptr_ty_info.flags.is_volatile) break :compatible;
+        if (src_ptr_ty_info.flags.is_allowzero and !ptr_ty_info.flags.is_allowzero) break :compatible;
+        // Everything else has to match exactly.
+        if (src_ptr_ty_info.child != ptr_ty_info.child) break :compatible;
+        if (src_ptr_ty_info.sentinel != ptr_ty_info.sentinel) break :compatible;
+        if (src_ptr_ty_info.packed_offset != ptr_ty_info.packed_offset) break :compatible;
+        if (src_ptr_ty_info.flags.size != ptr_ty_info.flags.size) break :compatible;
+        if (src_ptr_ty_info.flags.alignment != ptr_ty_info.flags.alignment) break :compatible;
+        if (src_ptr_ty_info.flags.address_space != ptr_ty_info.flags.address_space) break :compatible;
+        if (src_ptr_ty_info.flags.vector_index != ptr_ty_info.flags.vector_index) break :compatible;
+
         return cur_derive;
     }
 

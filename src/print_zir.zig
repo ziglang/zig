@@ -1430,19 +1430,8 @@ const Writer = struct {
 
         try stream.print("{s}, ", .{@tagName(small.name_strategy)});
 
-        if (captures_len == 0) {
-            try stream.writeAll("{}, ");
-        } else {
-            try stream.writeAll("{ ");
-            try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
-            extra_index += 1;
-            for (1..captures_len) |_| {
-                try stream.writeAll(", ");
-                try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
-                extra_index += 1;
-            }
-            try stream.writeAll(" }, ");
-        }
+        extra_index = try self.writeCaptures(stream, extra_index, captures_len);
+        try stream.writeAll(", ");
 
         if (small.has_backing_int) {
             const backing_int_body_len = self.code.extra[extra_index];
@@ -1645,19 +1634,8 @@ const Writer = struct {
         });
         try self.writeFlag(stream, "autoenum, ", small.auto_enum_tag);
 
-        if (captures_len == 0) {
-            try stream.writeAll("{}, ");
-        } else {
-            try stream.writeAll("{ ");
-            try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
-            extra_index += 1;
-            for (1..captures_len) |_| {
-                try stream.writeAll(", ");
-                try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
-                extra_index += 1;
-            }
-            try stream.writeAll(" }, ");
-        }
+        extra_index = try self.writeCaptures(stream, extra_index, captures_len);
+        try stream.writeAll(", ");
 
         if (decls_len == 0) {
             try stream.writeAll("{}");
@@ -1805,19 +1783,8 @@ const Writer = struct {
         try stream.print("{s}, ", .{@tagName(small.name_strategy)});
         try self.writeFlag(stream, "nonexhaustive, ", small.nonexhaustive);
 
-        if (captures_len == 0) {
-            try stream.writeAll("{}, ");
-        } else {
-            try stream.writeAll("{ ");
-            try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
-            extra_index += 1;
-            for (1..captures_len) |_| {
-                try stream.writeAll(", ");
-                try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
-                extra_index += 1;
-            }
-            try stream.writeAll(" }, ");
-        }
+        extra_index = try self.writeCaptures(stream, extra_index, captures_len);
+        try stream.writeAll(", ");
 
         if (decls_len == 0) {
             try stream.writeAll("{}, ");
@@ -1910,19 +1877,8 @@ const Writer = struct {
 
         try stream.print("{s}, ", .{@tagName(small.name_strategy)});
 
-        if (captures_len == 0) {
-            try stream.writeAll("{}, ");
-        } else {
-            try stream.writeAll("{ ");
-            try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
-            extra_index += 1;
-            for (1..captures_len) |_| {
-                try stream.writeAll(", ");
-                try self.writeCapture(stream, @bitCast(self.code.extra[extra_index]));
-                extra_index += 1;
-            }
-            try stream.writeAll(" }, ");
-        }
+        extra_index = try self.writeCaptures(stream, extra_index, captures_len);
+        try stream.writeAll(", ");
 
         if (decls_len == 0) {
             try stream.writeAll("{}) ");
@@ -2718,6 +2674,26 @@ const Writer = struct {
     fn writeInstIndex(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         _ = self;
         return stream.print("%{d}", .{@intFromEnum(inst)});
+    }
+
+    fn writeCaptures(self: *Writer, stream: anytype, extra_index: usize, captures_len: u32) !usize {
+        if (captures_len == 0) {
+            try stream.writeAll("{}");
+            return extra_index;
+        }
+
+        const captures: []const Zir.Inst.Capture = @ptrCast(self.code.extra[extra_index..][0..captures_len]);
+        const capture_names: []const Zir.NullTerminatedString = @ptrCast(self.code.extra[extra_index + captures_len ..][0..captures_len]);
+        for (captures, capture_names) |capture, name| {
+            try stream.writeAll("{ ");
+            if (name != .empty) {
+                const name_slice = self.code.nullTerminatedString(name);
+                try stream.print("{s} = ", .{name_slice});
+            }
+            try self.writeCapture(stream, capture);
+        }
+
+        return extra_index + 2 * captures_len;
     }
 
     fn writeCapture(self: *Writer, stream: anytype, capture: Zir.Inst.Capture) !void {

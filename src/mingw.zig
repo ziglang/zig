@@ -487,6 +487,7 @@ const mingw32_generic_src = [_][]const u8{
     "crt" ++ path.sep_str ++ "cxa_atexit.c",
     "crt" ++ path.sep_str ++ "cxa_thread_atexit.c",
     "crt" ++ path.sep_str ++ "tls_atexit.c",
+    "crt" ++ path.sep_str ++ "intrincs" ++ path.sep_str ++ "RtlSecureZeroMemory.c",
     // mingwex
     "cfguard" ++ path.sep_str ++ "mingw_cfguard_support.c",
     "complex" ++ path.sep_str ++ "_cabs.c",

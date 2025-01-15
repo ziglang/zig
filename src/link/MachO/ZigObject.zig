@@ -780,8 +780,8 @@ pub fn updateFunc(
     var code_buffer = std.ArrayList(u8).init(gpa);
     defer code_buffer.deinit();
 
-    var dwarf_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, func.owner_nav, sym_index) else null;
-    defer if (dwarf_wip_nav) |*wip_nav| wip_nav.deinit();
+    var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, func.owner_nav, sym_index) else null;
+    defer if (debug_wip_nav) |*wip_nav| wip_nav.deinit();
 
     const res = try codegen.generateFunction(
         &macho_file.base,
@@ -791,7 +791,7 @@ pub fn updateFunc(
         air,
         liveness,
         &code_buffer,
-        if (dwarf_wip_nav) |*wip_nav| .{ .dwarf = wip_nav } else .none,
+        if (debug_wip_nav) |*wip_nav| .{ .dwarf = wip_nav } else .none,
     );
 
     const code = switch (res) {
@@ -813,19 +813,7 @@ pub fn updateFunc(
         break :blk .{ atom.value, atom.alignment };
     };
 
-    if (dwarf_wip_nav) |*wip_nav| {
-        const sym = self.symbols.items[sym_index];
-        try self.dwarf.?.finishWipNav(
-            pt,
-            func.owner_nav,
-            .{
-                .index = sym_index,
-                .addr = sym.getAddress(.{}, macho_file),
-                .size = sym.getAtom(macho_file).?.size,
-            },
-            wip_nav,
-        );
-    }
+    if (debug_wip_nav) |*wip_nav| try self.dwarf.?.finishWipNavFunc(pt, func.owner_nav, code.len, wip_nav);
 
     // Exports will be updated by `Zcu.processExports` after the update.
     if (old_rva != new_rva and old_rva > 0) {
@@ -883,13 +871,20 @@ pub fn updateNav(
         .func => .none,
         .variable => |variable| variable.init,
         .@"extern" => |@"extern"| {
-            if (ip.isFunctionType(@"extern".ty)) return;
             // Extern variable gets a __got entry only
             const name = @"extern".name.toSlice(ip);
             const lib_name = @"extern".lib_name.toSlice(ip);
-            const index = try self.getGlobalSymbol(macho_file, name, lib_name);
-            const sym = &self.symbols.items[index];
-            sym.flags.is_extern_ptr = true;
+            const sym_index = try self.getGlobalSymbol(macho_file, name, lib_name);
+            if (!ip.isFunctionType(@"extern".ty)) {
+                const sym = &self.symbols.items[sym_index];
+                sym.flags.is_extern_ptr = true;
+                if (@"extern".is_threadlocal) sym.flags.tlv = true;
+            }
+            if (self.dwarf) |*dwarf| dwarf: {
+                var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, sym_index) orelse break :dwarf;
+                defer debug_wip_nav.deinit();
+                try dwarf.finishWipNav(pt, nav_index, &debug_wip_nav);
+            }
             return;
         },
         else => nav.status.fully_resolved.val,
@@ -927,19 +922,7 @@ pub fn updateNav(
         else
             try self.updateNavCode(macho_file, pt, nav_index, sym_index, sect_index, code);
 
-        if (debug_wip_nav) |*wip_nav| {
-            const sym = self.symbols.items[sym_index];
-            try self.dwarf.?.finishWipNav(
-                pt,
-                nav_index,
-                .{
-                    .index = sym_index,
-                    .addr = sym.getAddress(.{}, macho_file),
-                    .size = sym.getAtom(macho_file).?.size,
-                },
-                wip_nav,
-            );
-        }
+        if (debug_wip_nav) |*wip_nav| try self.dwarf.?.finishWipNav(pt, nav_index, wip_nav);
     } else if (self.dwarf) |*dwarf| try dwarf.updateComptimeNav(pt, nav_index);
 
     // Exports will be updated by `Zcu.processExports` after the update.
@@ -1432,14 +1415,9 @@ fn updateLazySymbol(
     try macho_file.base.file.?.pwriteAll(code, file_offset);
 }
 
-/// Must be called only after a successful call to `updateNav`.
-pub fn updateNavLineNumber(
-    self: *ZigObject,
-    pt: Zcu.PerThread,
-    nav_index: InternPool.Nav.Index,
-) !void {
+pub fn updateLineNumber(self: *ZigObject, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
     if (self.dwarf) |*dwarf| {
-        try dwarf.updateNavLineNumber(pt.zcu, nav_index);
+        try dwarf.updateLineNumber(pt.zcu, ti_id);
     }
 }
 

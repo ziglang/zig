@@ -363,7 +363,7 @@ test "comptime modification of const struct field" {
 }
 
 test "refer to the type of a generic function" {
-    const Func = fn (type) void;
+    const Func = fn (comptime type) void;
     const f: Func = doNothingWithType;
     f(i32);
 }

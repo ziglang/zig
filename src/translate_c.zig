@@ -160,6 +160,7 @@ pub fn translate(
         context.pattern_list.deinit(gpa);
     }
 
+    @setEvalBranchQuota(2000);
     inline for (@typeInfo(std.zig.c_builtins).@"struct".decls) |decl| {
         const builtin = try Tag.pub_var_simple.create(arena, .{
             .name = decl.name,

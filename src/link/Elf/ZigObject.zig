@@ -1463,19 +1463,7 @@ pub fn updateFunc(
         break :blk .{ atom_ptr.value, atom_ptr.alignment };
     };
 
-    if (debug_wip_nav) |*wip_nav| {
-        const sym = self.symbol(sym_index);
-        try self.dwarf.?.finishWipNav(
-            pt,
-            func.owner_nav,
-            .{
-                .index = sym_index,
-                .addr = @intCast(sym.address(.{}, elf_file)),
-                .size = self.atom(sym.ref.index).?.size,
-            },
-            wip_nav,
-        );
-    }
+    if (debug_wip_nav) |*wip_nav| try self.dwarf.?.finishWipNavFunc(pt, func.owner_nav, code.len, wip_nav);
 
     // Exports will be updated by `Zcu.processExports` after the update.
 
@@ -1546,13 +1534,21 @@ pub fn updateNav(
         .func => .none,
         .variable => |variable| variable.init,
         .@"extern" => |@"extern"| {
-            if (ip.isFunctionType(@"extern".ty)) return;
             const sym_index = try self.getGlobalSymbol(
                 elf_file,
                 nav.name.toSlice(ip),
                 @"extern".lib_name.toSlice(ip),
             );
-            self.symbol(sym_index).flags.is_extern_ptr = true;
+            if (!ip.isFunctionType(@"extern".ty)) {
+                const sym = self.symbol(sym_index);
+                sym.flags.is_extern_ptr = true;
+                if (@"extern".is_threadlocal) sym.flags.is_tls = true;
+            }
+            if (self.dwarf) |*dwarf| dwarf: {
+                var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, sym_index) orelse break :dwarf;
+                defer debug_wip_nav.deinit();
+                try dwarf.finishWipNav(pt, nav_index, &debug_wip_nav);
+            }
             return;
         },
         else => nav.status.fully_resolved.val,
@@ -1596,19 +1592,7 @@ pub fn updateNav(
         else
             try self.updateNavCode(elf_file, pt, nav_index, sym_index, shndx, code, elf.STT_OBJECT);
 
-        if (debug_wip_nav) |*wip_nav| {
-            const sym = self.symbol(sym_index);
-            try self.dwarf.?.finishWipNav(
-                pt,
-                nav_index,
-                .{
-                    .index = sym_index,
-                    .addr = @intCast(sym.address(.{}, elf_file)),
-                    .size = sym.atom(elf_file).?.size,
-                },
-                wip_nav,
-            );
-        }
+        if (debug_wip_nav) |*wip_nav| try self.dwarf.?.finishWipNav(pt, nav_index, wip_nav);
     } else if (self.dwarf) |*dwarf| try dwarf.updateComptimeNav(pt, nav_index);
 
     // Exports will be updated by `Zcu.processExports` after the update.
@@ -1863,22 +1847,9 @@ pub fn updateExports(
     }
 }
 
-/// Must be called only after a successful call to `updateNav`.
-pub fn updateNavLineNumber(
-    self: *ZigObject,
-    pt: Zcu.PerThread,
-    nav_index: InternPool.Nav.Index,
-) !void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const ip = &pt.zcu.intern_pool;
-    const nav = ip.getNav(nav_index);
-
-    log.debug("updateNavLineNumber {}({d})", .{ nav.fqn.fmt(ip), nav_index });
-
+pub fn updateLineNumber(self: *ZigObject, pt: Zcu.PerThread, ti_id: InternPool.TrackedInst.Index) !void {
     if (self.dwarf) |*dwarf| {
-        try dwarf.updateNavLineNumber(pt.zcu, nav_index);
+        try dwarf.updateLineNumber(pt.zcu, ti_id);
     }
 }
 

@@ -1,0 +1,74 @@
+#target=x86_64-linux-selfhosted
+#target=x86_64-linux-cbe
+#target=x86_64-windows-cbe
+#update=initial version
+#file=main.zig
+pub fn main() !u8 {
+    var a: u8 = undefined;
+    a = 255;
+    _ = a + 1;
+    return 1;
+}
+pub const Panic = struct {
+    pub const call = myPanic;
+    pub const sentinelMismatch = std.debug.FormattedPanic.sentinelMismatch;
+    pub const unwrapError = std.debug.FormattedPanic.unwrapError;
+    pub const outOfBounds = std.debug.FormattedPanic.outOfBounds;
+    pub const startGreaterThanEnd = std.debug.FormattedPanic.startGreaterThanEnd;
+    pub const inactiveUnionField = std.debug.FormattedPanic.inactiveUnionField;
+    pub const messages = std.debug.FormattedPanic.messages;
+};
+fn myPanic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+    std.io.getStdOut().writer().print("panic message: {s}\n", .{msg}) catch {};
+    std.process.exit(0);
+}
+const std = @import("std");
+#expect_stdout="panic message: integer overflow\n"
+
+#update=change the panic handler body
+#file=main.zig
+pub fn main() !u8 {
+    var a: u8 = undefined;
+    a = 255;
+    _ = a + 1;
+    return 1;
+}
+pub const Panic = struct {
+    pub const call = myPanic;
+    pub const sentinelMismatch = std.debug.FormattedPanic.sentinelMismatch;
+    pub const unwrapError = std.debug.FormattedPanic.unwrapError;
+    pub const outOfBounds = std.debug.FormattedPanic.outOfBounds;
+    pub const startGreaterThanEnd = std.debug.FormattedPanic.startGreaterThanEnd;
+    pub const inactiveUnionField = std.debug.FormattedPanic.inactiveUnionField;
+    pub const messages = std.debug.FormattedPanic.messages;
+};
+fn myPanic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+    std.io.getStdOut().writer().print("new panic message: {s}\n", .{msg}) catch {};
+    std.process.exit(0);
+}
+const std = @import("std");
+#expect_stdout="new panic message: integer overflow\n"
+
+#update=change the panic handler function value
+#file=main.zig
+pub fn main() !u8 {
+    var a: u8 = undefined;
+    a = 255;
+    _ = a + 1;
+    return 1;
+}
+pub const Panic = struct {
+    pub const call = myPanicNew;
+    pub const sentinelMismatch = std.debug.FormattedPanic.sentinelMismatch;
+    pub const unwrapError = std.debug.FormattedPanic.unwrapError;
+    pub const outOfBounds = std.debug.FormattedPanic.outOfBounds;
+    pub const startGreaterThanEnd = std.debug.FormattedPanic.startGreaterThanEnd;
+    pub const inactiveUnionField = std.debug.FormattedPanic.inactiveUnionField;
+    pub const messages = std.debug.FormattedPanic.messages;
+};
+fn myPanicNew(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+    std.io.getStdOut().writer().print("third panic message: {s}\n", .{msg}) catch {};
+    std.process.exit(0);
+}
+const std = @import("std");
+#expect_stdout="third panic message: integer overflow\n"
