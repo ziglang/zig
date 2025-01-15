@@ -130,16 +130,23 @@ pub fn print(
             inline else => |x| try writer.print("{d}", .{@as(f64, @floatCast(x))}),
         },
         .slice => |slice| {
-            const print_contents = switch (ip.getBackingAddrTag(slice.ptr).?) {
-                .field, .arr_elem, .eu_payload, .opt_payload => unreachable,
-                .uav, .comptime_alloc, .comptime_field => true,
-                .nav, .int => false,
-            };
-            if (print_contents) {
-                // TODO: eventually we want to load the slice as an array with `sema`, but that's
-                // currently not possible without e.g. triggering compile errors.
+            if (ip.isUndef(slice.ptr)) {
+                if (slice.len == .zero_usize) {
+                    return writer.writeAll("&.{}");
+                }
+                try print(.fromInterned(slice.ptr), writer, level - 1, pt, opt_sema);
+            } else {
+                const print_contents = switch (ip.getBackingAddrTag(slice.ptr).?) {
+                    .field, .arr_elem, .eu_payload, .opt_payload => unreachable,
+                    .uav, .comptime_alloc, .comptime_field => true,
+                    .nav, .int => false,
+                };
+                if (print_contents) {
+                    // TODO: eventually we want to load the slice as an array with `sema`, but that's
+                    // currently not possible without e.g. triggering compile errors.
+                }
+                try printPtr(Value.fromInterned(slice.ptr), null, writer, level, pt, opt_sema);
             }
-            try printPtr(Value.fromInterned(slice.ptr), null, writer, level, pt, opt_sema);
             try writer.writeAll("[0..");
             if (level == 0) {
                 try writer.writeAll("(...)");
