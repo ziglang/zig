@@ -24,9 +24,6 @@
         .wasm_basic_features = .{
             .path = "wasm/basic-features",
         },
-        .wasm_bss = .{
-            .path = "wasm/bss",
-        },
         .wasm_export = .{
             .path = "wasm/export",
         },
