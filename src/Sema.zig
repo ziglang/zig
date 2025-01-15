@@ -2479,7 +2479,7 @@ fn typeSupportsFieldAccess(zcu: *const Zcu, ty: Type, field_name: InternPool.Nul
         .array => return field_name.eqlSlice("len", ip),
         .pointer => {
             const ptr_info = ty.ptrInfo(zcu);
-            if (ptr_info.flags.size == .Slice) {
+            if (ptr_info.flags.size == .slice) {
                 return field_name.eqlSlice("ptr", ip) or field_name.eqlSlice("len", ip);
             } else if (Type.fromInterned(ptr_info.child).zigTypeTag(zcu) == .array) {
                 return field_name.eqlSlice("len", ip);
@@ -3653,7 +3653,7 @@ fn indexablePtrLenOrNone(
     const zcu = pt.zcu;
     const operand_ty = sema.typeOf(operand);
     try checkMemOperand(sema, block, src, operand_ty);
-    if (operand_ty.ptrSize(zcu) == .Many) return .none;
+    if (operand_ty.ptrSize(zcu) == .many) return .none;
     const field_name = try zcu.intern_pool.getOrPutString(sema.gpa, pt.tid, "len", .no_embedded_nulls);
     return sema.fieldVal(block, src, operand, field_name, src);
 }
@@ -4544,7 +4544,7 @@ fn zirCoercePtrElemTy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
     assert(ptr_ty.zigTypeTag(zcu) == .pointer); // validated by a previous instruction
     const elem_ty = ptr_ty.childType(zcu);
     switch (ptr_ty.ptrSize(zcu)) {
-        .One => {
+        .one => {
             const uncoerced_ty = sema.typeOf(uncoerced_val);
             if (elem_ty.zigTypeTag(zcu) == .array and elem_ty.childType(zcu).toIntern() == uncoerced_ty.toIntern()) {
                 // We're trying to initialize a *[1]T with a reference to a T - don't perform any coercion.
@@ -4557,7 +4557,7 @@ fn zirCoercePtrElemTy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
                 return sema.coerce(block, elem_ty, uncoerced_val, src);
             }
         },
-        .Slice, .Many => {
+        .slice, .many => {
             // Our goal is to coerce `uncoerced_val` to an array of `elem_ty`.
             const val_ty = sema.typeOf(uncoerced_val);
             switch (val_ty.zigTypeTag(zcu)) {
@@ -4573,7 +4573,7 @@ fn zirCoercePtrElemTy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
             });
             return sema.coerce(block, want_ty, uncoerced_val, src);
         },
-        .C => {
+        .c => {
             // There's nothing meaningful to do here, because we don't know if this is meant to be a
             // single-pointer or a many-pointer.
             return uncoerced_val;
@@ -4685,7 +4685,7 @@ fn zirValidateArrayInitRefTy(
     assert(ptr_ty.zigTypeTag(zcu) == .pointer); // validated by a previous instruction
     switch (zcu.intern_pool.indexToKey(ptr_ty.toIntern())) {
         .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-            .Slice, .Many => {
+            .slice, .many => {
                 // Use array of correct length
                 const arr_ty = try pt.arrayType(.{
                     .len = extra.elem_count,
@@ -5502,9 +5502,9 @@ fn zirValidateDeref(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     if (operand_ty.zigTypeTag(zcu) != .pointer) {
         return sema.fail(block, src, "cannot dereference non-pointer type '{}'", .{operand_ty.fmt(pt)});
     } else switch (operand_ty.ptrSize(zcu)) {
-        .One, .C => {},
-        .Many => return sema.fail(block, src, "index syntax required for unknown-length pointer type '{}'", .{operand_ty.fmt(pt)}),
-        .Slice => return sema.fail(block, src, "index syntax required for slice type '{}'", .{operand_ty.fmt(pt)}),
+        .one, .c => {},
+        .many => return sema.fail(block, src, "index syntax required for unknown-length pointer type '{}'", .{operand_ty.fmt(pt)}),
+        .slice => return sema.fail(block, src, "index syntax required for slice type '{}'", .{operand_ty.fmt(pt)}),
     }
 
     if ((try sema.typeHasOnePossibleValue(operand_ty.childType(zcu))) != null) {
@@ -6521,7 +6521,7 @@ fn zirExport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
             return sema.fail(block, ptr_src, "expected pointer type, found '{}'", .{ptr_ty.fmt(pt)});
         }
         const ptr_ty_info = ptr_ty.ptrInfo(zcu);
-        if (ptr_ty_info.flags.size == .Slice) {
+        if (ptr_ty_info.flags.size == .slice) {
             return sema.fail(block, ptr_src, "export target cannot be slice", .{});
         }
         if (ptr_ty_info.packed_offset.host_size != 0) {
@@ -7271,7 +7271,7 @@ fn checkCallArgumentCount(
             .@"fn" => break :func_ty callee_ty,
             .pointer => {
                 const ptr_info = callee_ty.ptrInfo(zcu);
-                if (ptr_info.flags.size == .One and Type.fromInterned(ptr_info.child).zigTypeTag(zcu) == .@"fn") {
+                if (ptr_info.flags.size == .one and Type.fromInterned(ptr_info.child).zigTypeTag(zcu) == .@"fn") {
                     break :func_ty Type.fromInterned(ptr_info.child);
                 }
             },
@@ -7350,7 +7350,7 @@ fn callBuiltin(
             .@"fn" => break :func_ty callee_ty,
             .pointer => {
                 const ptr_info = callee_ty.ptrInfo(zcu);
-                if (ptr_info.flags.size == .One and Type.fromInterned(ptr_info.child).zigTypeTag(zcu) == .@"fn") {
+                if (ptr_info.flags.size == .one and Type.fromInterned(ptr_info.child).zigTypeTag(zcu) == .@"fn") {
                     break :func_ty Type.fromInterned(ptr_info.child);
                 }
             },
@@ -8344,8 +8344,8 @@ fn zirIndexablePtrElemType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Com
     };
     try sema.checkMemOperand(block, src, ptr_ty);
     const elem_ty = switch (ptr_ty.ptrSize(zcu)) {
-        .Slice, .Many, .C => ptr_ty.childType(zcu),
-        .One => ptr_ty.childType(zcu).childType(zcu),
+        .slice, .many, .c => ptr_ty.childType(zcu),
+        .one => ptr_ty.childType(zcu).childType(zcu),
     };
     return Air.internedToRef(elem_ty.toIntern());
 }
@@ -8943,7 +8943,7 @@ fn zirOptionalPayload(
     const result_ty = switch (operand_ty.zigTypeTag(zcu)) {
         .optional => operand_ty.optionalChild(zcu),
         .pointer => t: {
-            if (operand_ty.ptrSize(zcu) != .C) {
+            if (operand_ty.ptrSize(zcu) != .c) {
                 return sema.failWithExpectedOptionalType(block, src, operand_ty);
             }
             // TODO https://github.com/ziglang/zig/issues/6597
@@ -13972,7 +13972,7 @@ fn zirHasField(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
     const has_field = hf: {
         switch (ip.indexToKey(ty.toIntern())) {
             .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-                .Slice => {
+                .slice => {
                     if (field_name.eqlSlice("ptr", ip)) break :hf true;
                     if (field_name.eqlSlice("len", ip)) break :hf true;
                     break :hf false;
@@ -14797,7 +14797,7 @@ fn zirArrayCat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const slice_ty = try pt.ptrTypeSema(.{
                 .child = resolved_elem_ty.toIntern(),
                 .flags = .{
-                    .size = .Slice,
+                    .size = .slice,
                     .address_space = ptr_as,
                 },
             });
@@ -14925,7 +14925,7 @@ fn getArrayCatInfo(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air.Ins
         .pointer => {
             const ptr_info = operand_ty.ptrInfo(zcu);
             switch (ptr_info.flags.size) {
-                .Slice => {
+                .slice => {
                     const val = try sema.resolveConstDefinedValue(block, src, operand, .{ .simple = .slice_cat_operand });
                     return Type.ArrayInfo{
                         .elem_type = Type.fromInterned(ptr_info.child),
@@ -14936,12 +14936,12 @@ fn getArrayCatInfo(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air.Ins
                         .len = try val.sliceLen(pt),
                     };
                 },
-                .One => {
+                .one => {
                     if (Type.fromInterned(ptr_info.child).zigTypeTag(zcu) == .array) {
                         return Type.fromInterned(ptr_info.child).arrayInfo(zcu);
                     }
                 },
-                .C, .Many => {},
+                .c, .many => {},
             }
         },
         .@"struct" => {
@@ -16610,7 +16610,7 @@ fn analyzeArithmetic(
 
     if (lhs_zig_ty_tag == .pointer) {
         if (rhs_zig_ty_tag == .pointer) {
-            if (lhs_ty.ptrSize(zcu) != .Slice and rhs_ty.ptrSize(zcu) != .Slice) {
+            if (lhs_ty.ptrSize(zcu) != .slice and rhs_ty.ptrSize(zcu) != .slice) {
                 if (zir_tag != .sub) {
                     return sema.failWithInvalidPtrArithmetic(block, src, "pointer-pointer", "subtraction");
                 }
@@ -16662,8 +16662,8 @@ fn analyzeArithmetic(
             }
         } else {
             switch (lhs_ty.ptrSize(zcu)) {
-                .One, .Slice => {},
-                .Many, .C => {
+                .one, .slice => {},
+                .many, .c => {
                     const air_tag: Air.Inst.Tag = switch (zir_tag) {
                         .add => .ptr_add,
                         .sub => .ptr_sub,
@@ -17160,7 +17160,7 @@ fn analyzePtrArithmetic(
     const opt_off_val = try sema.resolveDefinedValue(block, offset_src, offset);
     const ptr_ty = sema.typeOf(ptr);
     const ptr_info = ptr_ty.ptrInfo(zcu);
-    assert(ptr_info.flags.size == .Many or ptr_info.flags.size == .C);
+    assert(ptr_info.flags.size == .many or ptr_info.flags.size == .c);
 
     const new_ptr_ty = t: {
         // Calculate the new pointer alignment.
@@ -18092,7 +18092,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 const slice_ty = (try pt.ptrTypeSema(.{
                     .child = param_info_ty.toIntern(),
                     .flags = .{
-                        .size = .Slice,
+                        .size = .slice,
                         .is_const = true,
                     },
                 })).toIntern();
@@ -18335,7 +18335,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             const slice_errors_ty = try pt.ptrTypeSema(.{
                 .child = error_field_ty.toIntern(),
                 .flags = .{
-                    .size = .Slice,
+                    .size = .slice,
                     .is_const = true,
                 },
             });
@@ -18462,7 +18462,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 const slice_ty = (try pt.ptrTypeSema(.{
                     .child = enum_field_ty.toIntern(),
                     .flags = .{
-                        .size = .Slice,
+                        .size = .slice,
                         .is_const = true,
                     },
                 })).toIntern();
@@ -18575,7 +18575,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 const slice_ty = (try pt.ptrTypeSema(.{
                     .child = union_field_ty.toIntern(),
                     .flags = .{
-                        .size = .Slice,
+                        .size = .slice,
                         .is_const = true,
                     },
                 })).toIntern();
@@ -18770,7 +18770,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 const slice_ty = (try pt.ptrTypeSema(.{
                     .child = struct_field_ty.toIntern(),
                     .flags = .{
-                        .size = .Slice,
+                        .size = .slice,
                         .is_const = true,
                     },
                 })).toIntern();
@@ -18879,7 +18879,7 @@ fn typeInfoDecls(
     const slice_ty = (try pt.ptrTypeSema(.{
         .child = declaration_ty.toIntern(),
         .flags = .{
-            .size = .Slice,
+            .size = .slice,
             .is_const = true,
         },
     })).toIntern();
@@ -20138,12 +20138,12 @@ fn zirPtrType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     }
 
     if (elem_ty.zigTypeTag(zcu) == .@"fn") {
-        if (inst_data.size != .One) {
+        if (inst_data.size != .one) {
             return sema.fail(block, elem_ty_src, "function pointers must be single pointers", .{});
         }
-    } else if (inst_data.size == .Many and elem_ty.zigTypeTag(zcu) == .@"opaque") {
+    } else if (inst_data.size == .many and elem_ty.zigTypeTag(zcu) == .@"opaque") {
         return sema.fail(block, elem_ty_src, "unknown-length pointer to opaque not allowed", .{});
-    } else if (inst_data.size == .C) {
+    } else if (inst_data.size == .c) {
         if (!try sema.validateExternType(elem_ty, .other)) {
             const msg = msg: {
                 const msg = try sema.errMsg(elem_ty_src, "C pointers cannot point to non-C-ABI-compatible type '{}'", .{elem_ty.fmt(pt)});
@@ -21645,7 +21645,7 @@ fn zirReify(
 
             const actual_sentinel: InternPool.Index = s: {
                 if (!sentinel_val.isNull(zcu)) {
-                    if (ptr_size == .One or ptr_size == .C) {
+                    if (ptr_size == .one or ptr_size == .c) {
                         return sema.fail(block, src, "sentinels are only allowed on slices and unknown-length pointers", .{});
                     }
                     const sentinel_ptr_val = sentinel_val.optionalValue(zcu).?;
@@ -21660,12 +21660,12 @@ fn zirReify(
             if (elem_ty.zigTypeTag(zcu) == .noreturn) {
                 return sema.fail(block, src, "pointer to noreturn not allowed", .{});
             } else if (elem_ty.zigTypeTag(zcu) == .@"fn") {
-                if (ptr_size != .One) {
+                if (ptr_size != .one) {
                     return sema.fail(block, src, "function pointers must be single pointers", .{});
                 }
-            } else if (ptr_size == .Many and elem_ty.zigTypeTag(zcu) == .@"opaque") {
+            } else if (ptr_size == .many and elem_ty.zigTypeTag(zcu) == .@"opaque") {
                 return sema.fail(block, src, "unknown-length pointer to opaque not allowed", .{});
-            } else if (ptr_size == .C) {
+            } else if (ptr_size == .c) {
                 if (!try sema.validateExternType(elem_ty, .other)) {
                     const msg = msg: {
                         const msg = try sema.errMsg(src, "C pointers cannot point to non-C-ABI-compatible type '{}'", .{elem_ty.fmt(pt)});
@@ -23321,21 +23321,21 @@ fn ptrCastFull(
     try Type.fromInterned(src_info.child).resolveLayout(pt);
     try Type.fromInterned(dest_info.child).resolveLayout(pt);
 
-    const src_slice_like = src_info.flags.size == .Slice or
-        (src_info.flags.size == .One and Type.fromInterned(src_info.child).zigTypeTag(zcu) == .array);
+    const src_slice_like = src_info.flags.size == .slice or
+        (src_info.flags.size == .one and Type.fromInterned(src_info.child).zigTypeTag(zcu) == .array);
 
-    const dest_slice_like = dest_info.flags.size == .Slice or
-        (dest_info.flags.size == .One and Type.fromInterned(dest_info.child).zigTypeTag(zcu) == .array);
+    const dest_slice_like = dest_info.flags.size == .slice or
+        (dest_info.flags.size == .one and Type.fromInterned(dest_info.child).zigTypeTag(zcu) == .array);
 
-    if (dest_info.flags.size == .Slice and !src_slice_like) {
+    if (dest_info.flags.size == .slice and !src_slice_like) {
         return sema.fail(block, src, "illegal pointer cast to slice", .{});
     }
 
-    if (dest_info.flags.size == .Slice) {
+    if (dest_info.flags.size == .slice) {
         const src_elem_size = switch (src_info.flags.size) {
-            .Slice => Type.fromInterned(src_info.child).abiSize(zcu),
+            .slice => Type.fromInterned(src_info.child).abiSize(zcu),
             // pointer to array
-            .One => Type.fromInterned(src_info.child).childType(zcu).abiSize(zcu),
+            .one => Type.fromInterned(src_info.child).childType(zcu).abiSize(zcu),
             else => unreachable,
         };
         const dest_elem_size = Type.fromInterned(dest_info.child).abiSize(zcu);
@@ -23350,17 +23350,17 @@ fn ptrCastFull(
         check_size: {
             if (src_info.flags.size == dest_info.flags.size) break :check_size;
             if (src_slice_like and dest_slice_like) break :check_size;
-            if (src_info.flags.size == .C) break :check_size;
-            if (dest_info.flags.size == .C) break :check_size;
+            if (src_info.flags.size == .c) break :check_size;
+            if (dest_info.flags.size == .c) break :check_size;
             return sema.failWithOwnedErrorMsg(block, msg: {
                 const msg = try sema.errMsg(src, "cannot implicitly convert {s} to {s}", .{
                     pointerSizeString(src_info.flags.size),
                     pointerSizeString(dest_info.flags.size),
                 });
                 errdefer msg.destroy(sema.gpa);
-                if (dest_info.flags.size == .Many and
-                    (src_info.flags.size == .Slice or
-                    (src_info.flags.size == .One and Type.fromInterned(src_info.child).zigTypeTag(zcu) == .array)))
+                if (dest_info.flags.size == .many and
+                    (src_info.flags.size == .slice or
+                    (src_info.flags.size == .one and Type.fromInterned(src_info.child).zigTypeTag(zcu) == .array)))
                 {
                     try sema.errNote(src, msg, "use 'ptr' field to convert slice to many pointer", .{});
                 } else {
@@ -23371,7 +23371,7 @@ fn ptrCastFull(
         }
 
         check_child: {
-            const src_child = if (dest_info.flags.size == .Slice and src_info.flags.size == .One) blk: {
+            const src_child = if (dest_info.flags.size == .slice and src_info.flags.size == .one) blk: {
                 // *[n]T -> []T
                 break :blk Type.fromInterned(src_info.child).childType(zcu);
             } else Type.fromInterned(src_info.child);
@@ -23402,12 +23402,12 @@ fn ptrCastFull(
 
         check_sent: {
             if (dest_info.sentinel == .none) break :check_sent;
-            if (src_info.flags.size == .C) break :check_sent;
+            if (src_info.flags.size == .c) break :check_sent;
             if (src_info.sentinel != .none) {
                 const coerced_sent = try zcu.intern_pool.getCoerced(sema.gpa, pt.tid, src_info.sentinel, dest_info.child);
                 if (dest_info.sentinel == coerced_sent) break :check_sent;
             }
-            if (src_slice_like and src_info.flags.size == .One and dest_info.flags.size == .Slice) {
+            if (src_slice_like and src_info.flags.size == .one and dest_info.flags.size == .slice) {
                 // [*]nT -> []T
                 const arr_ty = Type.fromInterned(src_info.child);
                 if (arr_ty.sentinel(zcu)) |src_sentinel| {
@@ -23555,7 +23555,7 @@ fn ptrCastFull(
         }
     }
 
-    const ptr = if (src_info.flags.size == .Slice and dest_info.flags.size != .Slice) ptr: {
+    const ptr = if (src_info.flags.size == .slice and dest_info.flags.size != .slice) ptr: {
         if (operand_ty.zigTypeTag(zcu) == .optional) {
             break :ptr try sema.analyzeOptionalSlicePtr(block, operand_src, operand, operand_ty);
         } else {
@@ -23563,10 +23563,10 @@ fn ptrCastFull(
         }
     } else operand;
 
-    const dest_ptr_ty = if (dest_info.flags.size == .Slice and src_info.flags.size != .Slice) blk: {
+    const dest_ptr_ty = if (dest_info.flags.size == .slice and src_info.flags.size != .slice) blk: {
         // Only convert to a many-pointer at first
         var info = dest_info;
-        info.flags.size = .Many;
+        info.flags.size = .many;
         const ty = try pt.ptrTypeSema(info);
         if (dest_ty.zigTypeTag(zcu) == .optional) {
             break :blk try pt.optionalType(ty.toIntern());
@@ -23594,7 +23594,7 @@ fn ptrCastFull(
                     }
                 }
             }
-            if (dest_info.flags.size == .Slice and src_info.flags.size != .Slice) {
+            if (dest_info.flags.size == .slice and src_info.flags.size != .slice) {
                 if (ptr_val.isUndef(zcu)) return pt.undefRef(dest_ty);
                 const arr_len = try pt.intValue(Type.usize, Type.fromInterned(src_info.child).arrayLen(zcu));
                 const ptr_val_key = zcu.intern_pool.indexToKey(ptr_val.toIntern()).ptr;
@@ -23622,7 +23622,7 @@ fn ptrCastFull(
     {
         const ptr_int = try block.addUnOp(.int_from_ptr, ptr);
         const is_non_zero = try block.addBinOp(.cmp_neq, ptr_int, .zero_usize);
-        const ok = if (src_info.flags.size == .Slice and dest_info.flags.size == .Slice) ok: {
+        const ok = if (src_info.flags.size == .slice and dest_info.flags.size == .slice) ok: {
             const len = try sema.analyzeSliceLen(block, operand_src, ptr);
             const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
             break :ok try block.addBinOp(.bool_or, len_zero, is_non_zero);
@@ -23639,7 +23639,7 @@ fn ptrCastFull(
         const ptr_int = try block.addUnOp(.int_from_ptr, ptr);
         const remainder = try block.addBinOp(.bit_and, ptr_int, align_minus_1);
         const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
-        const ok = if (src_info.flags.size == .Slice and dest_info.flags.size == .Slice) ok: {
+        const ok = if (src_info.flags.size == .slice and dest_info.flags.size == .slice) ok: {
             const len = try sema.analyzeSliceLen(block, operand_src, ptr);
             const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
             break :ok try block.addBinOp(.bool_or, len_zero, is_aligned);
@@ -23672,7 +23672,7 @@ fn ptrCastFull(
         break :ptr try block.addBitCast(dest_ptr_ty, ptr);
     };
 
-    if (dest_info.flags.size == .Slice and src_info.flags.size != .Slice) {
+    if (dest_info.flags.size == .slice and src_info.flags.size != .slice) {
         // We have to construct a slice using the operand's child's array length
         // Note that we know from the check at the start of the function that operand_ty is slice-like
         const arr_len = Air.internedToRef((try pt.intValue(Type.usize, Type.fromInterned(src_info.child).arrayLen(zcu))).toIntern());
@@ -24066,8 +24066,8 @@ fn checkInvalidPtrIntArithmetic(
     const zcu = pt.zcu;
     switch (try ty.zigTypeTagOrPoison(zcu)) {
         .pointer => switch (ty.ptrSize(zcu)) {
-            .One, .Slice => return,
-            .Many, .C => return sema.failWithInvalidPtrArithmetic(block, src, "pointer-integer", "addition and subtraction"),
+            .one, .slice => return,
+            .many, .c => return sema.failWithInvalidPtrArithmetic(block, src, "pointer-integer", "addition and subtraction"),
         },
         else => return,
     }
@@ -25384,7 +25384,7 @@ fn zirFieldParentPtr(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.Ins
     const parent_ptr_ty = try sema.resolveDestType(block, inst_src, extra.parent_ptr_type, .remove_eu, "@fieldParentPtr");
     try sema.checkPtrType(block, inst_src, parent_ptr_ty, true);
     const parent_ptr_info = parent_ptr_ty.ptrInfo(zcu);
-    if (parent_ptr_info.flags.size != .One) {
+    if (parent_ptr_info.flags.size != .one) {
         return sema.fail(block, inst_src, "expected single pointer type, found '{}'", .{parent_ptr_ty.fmt(pt)});
     }
     const parent_ty = Type.fromInterned(parent_ptr_info.child);
@@ -25862,7 +25862,7 @@ fn upgradeToArrayPtr(sema: *Sema, block: *Block, ptr: Air.Inst.Ref, len: u64) !A
     const zcu = pt.zcu;
     const ptr_ty = sema.typeOf(ptr);
     const info = ptr_ty.ptrInfo(zcu);
-    if (info.flags.size == .One) {
+    if (info.flags.size == .one) {
         // Already an array pointer.
         return ptr;
     }
@@ -25880,7 +25880,7 @@ fn upgradeToArrayPtr(sema: *Sema, block: *Block, ptr: Air.Inst.Ref, len: u64) !A
             .address_space = info.flags.address_space,
         },
     });
-    const non_slice_ptr = if (info.flags.size == .Slice)
+    const non_slice_ptr = if (info.flags.size == .slice)
         try block.addTyOp(.slice_ptr, ptr_ty.slicePtrFieldType(zcu), ptr)
     else
         ptr;
@@ -26069,22 +26069,22 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         const new_dest_ptr_ty = sema.typeOf(new_dest_ptr);
         const raw_dest_ptr = if (new_dest_ptr_ty.isSlice(zcu))
             try sema.analyzeSlicePtr(block, dest_src, new_dest_ptr, new_dest_ptr_ty)
-        else if (new_dest_ptr_ty.ptrSize(zcu) == .One) ptr: {
+        else if (new_dest_ptr_ty.ptrSize(zcu) == .one) ptr: {
             var dest_manyptr_ty_key = zcu.intern_pool.indexToKey(new_dest_ptr_ty.toIntern()).ptr_type;
-            assert(dest_manyptr_ty_key.flags.size == .One);
+            assert(dest_manyptr_ty_key.flags.size == .one);
             dest_manyptr_ty_key.child = dest_elem_ty.toIntern();
-            dest_manyptr_ty_key.flags.size = .Many;
+            dest_manyptr_ty_key.flags.size = .many;
             break :ptr try sema.coerceCompatiblePtrs(block, try pt.ptrTypeSema(dest_manyptr_ty_key), new_dest_ptr, dest_src);
         } else new_dest_ptr;
 
         const new_src_ptr_ty = sema.typeOf(new_src_ptr);
         const raw_src_ptr = if (new_src_ptr_ty.isSlice(zcu))
             try sema.analyzeSlicePtr(block, src_src, new_src_ptr, new_src_ptr_ty)
-        else if (new_src_ptr_ty.ptrSize(zcu) == .One) ptr: {
+        else if (new_src_ptr_ty.ptrSize(zcu) == .one) ptr: {
             var src_manyptr_ty_key = zcu.intern_pool.indexToKey(new_src_ptr_ty.toIntern()).ptr_type;
-            assert(src_manyptr_ty_key.flags.size == .One);
+            assert(src_manyptr_ty_key.flags.size == .one);
             src_manyptr_ty_key.child = src_elem_ty.toIntern();
-            src_manyptr_ty_key.flags.size = .Many;
+            src_manyptr_ty_key.flags.size = .many;
             break :ptr try sema.coerceCompatiblePtrs(block, try pt.ptrTypeSema(src_manyptr_ty_key), new_src_ptr, src_src);
         } else new_src_ptr;
 
@@ -26129,13 +26129,13 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     const dest_elem_ty: Type = dest_elem_ty: {
         const ptr_info = dest_ptr_ty.ptrInfo(zcu);
         switch (ptr_info.flags.size) {
-            .Slice => break :dest_elem_ty Type.fromInterned(ptr_info.child),
-            .One => {
+            .slice => break :dest_elem_ty Type.fromInterned(ptr_info.child),
+            .one => {
                 if (Type.fromInterned(ptr_info.child).zigTypeTag(zcu) == .array) {
                     break :dest_elem_ty Type.fromInterned(ptr_info.child).childType(zcu);
                 }
             },
-            .Many, .C => {},
+            .many, .c => {},
         }
         return sema.failWithOwnedErrorMsg(block, msg: {
             const msg = try sema.errMsg(src, "unknown @memset length", .{});
@@ -26172,7 +26172,7 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         } }));
         const array_ptr_ty = ty: {
             var info = dest_ptr_ty.ptrInfo(zcu);
-            info.flags.size = .One;
+            info.flags.size = .one;
             info.child = array_ty.toIntern();
             break :ty try pt.ptrType(info);
         };
@@ -26754,15 +26754,15 @@ fn zirInplaceArithResultTy(sema: *Sema, extended: Zir.Inst.Extended.InstData) Co
         .add_eq => ty: {
             const ptr_size = lhs_ty.ptrSizeOrNull(zcu) orelse break :ty lhs_ty;
             switch (ptr_size) {
-                .One, .Slice => break :ty lhs_ty, // invalid, let it error
-                .Many, .C => break :ty .usize, // `[*]T + usize`
+                .one, .slice => break :ty lhs_ty, // invalid, let it error
+                .many, .c => break :ty .usize, // `[*]T + usize`
             }
         },
         .sub_eq => ty: {
             const ptr_size = lhs_ty.ptrSizeOrNull(zcu) orelse break :ty lhs_ty;
             switch (ptr_size) {
-                .One, .Slice => break :ty lhs_ty, // invalid, let it error
-                .Many, .C => break :ty .generic_poison, // could be `[*]T - [*]T` or `[*]T - usize`
+                .one, .slice => break :ty lhs_ty, // invalid, let it error
+                .many, .c => break :ty .generic_poison, // could be `[*]T - [*]T` or `[*]T - usize`
             }
         },
     };
@@ -27556,7 +27556,7 @@ fn fieldVal(
                     .child = Type.fromInterned(ptr_info.child).childType(zcu).toIntern(),
                     .sentinel = if (inner_ty.sentinel(zcu)) |s| s.toIntern() else .none,
                     .flags = .{
-                        .size = .Many,
+                        .size = .many,
                         .alignment = ptr_info.flags.alignment,
                         .is_const = ptr_info.flags.is_const,
                         .is_volatile = ptr_info.flags.is_volatile,
@@ -27578,7 +27578,7 @@ fn fieldVal(
         },
         .pointer => {
             const ptr_info = inner_ty.ptrInfo(zcu);
-            if (ptr_info.flags.size == .Slice) {
+            if (ptr_info.flags.size == .slice) {
                 if (field_name.eqlSlice("ptr", ip)) {
                     const slice = if (is_pointer_to)
                         try sema.analyzeLoad(block, src, object, object_src)
@@ -27740,7 +27740,7 @@ fn fieldPtr(
                     .child = Type.fromInterned(ptr_info.child).childType(zcu).toIntern(),
                     .sentinel = if (object_ty.sentinel(zcu)) |s| s.toIntern() else .none,
                     .flags = .{
-                        .size = .Many,
+                        .size = .many,
                         .alignment = ptr_info.flags.alignment,
                         .is_const = ptr_info.flags.is_const,
                         .is_volatile = ptr_info.flags.is_volatile,
@@ -27953,13 +27953,13 @@ fn fieldCallBind(
     const ip = &zcu.intern_pool;
     const raw_ptr_src = src; // TODO better source location
     const raw_ptr_ty = sema.typeOf(raw_ptr);
-    const inner_ty = if (raw_ptr_ty.zigTypeTag(zcu) == .pointer and (raw_ptr_ty.ptrSize(zcu) == .One or raw_ptr_ty.ptrSize(zcu) == .C))
+    const inner_ty = if (raw_ptr_ty.zigTypeTag(zcu) == .pointer and (raw_ptr_ty.ptrSize(zcu) == .one or raw_ptr_ty.ptrSize(zcu) == .c))
         raw_ptr_ty.childType(zcu)
     else
         return sema.fail(block, raw_ptr_src, "expected single pointer, found '{}'", .{raw_ptr_ty.fmt(pt)});
 
     // Optionally dereference a second pointer to get the concrete type.
-    const is_double_ptr = inner_ty.zigTypeTag(zcu) == .pointer and inner_ty.ptrSize(zcu) == .One;
+    const is_double_ptr = inner_ty.zigTypeTag(zcu) == .pointer and inner_ty.ptrSize(zcu) == .one;
     const concrete_ty = if (is_double_ptr) inner_ty.childType(zcu) else inner_ty;
     const ptr_ty = if (is_double_ptr) inner_ty else raw_ptr_ty;
     const object_ptr = if (is_double_ptr)
@@ -28025,8 +28025,8 @@ fn fieldCallBind(
             const first_param_type = Type.fromInterned(func_type.param_types.get(ip)[0]);
             if (first_param_type.isGenericPoison() or
                 (first_param_type.zigTypeTag(zcu) == .pointer and
-                (first_param_type.ptrSize(zcu) == .One or
-                first_param_type.ptrSize(zcu) == .C) and
+                (first_param_type.ptrSize(zcu) == .one or
+                first_param_type.ptrSize(zcu) == .c) and
                 first_param_type.childType(zcu).eql(concrete_ty, zcu)))
             {
                 // Note that if the param type is generic poison, we know that it must
@@ -28053,7 +28053,7 @@ fn fieldCallBind(
                         .arg0_inst = deref,
                     } };
                 } else if (child.zigTypeTag(zcu) == .pointer and
-                    child.ptrSize(zcu) == .One and
+                    child.ptrSize(zcu) == .one and
                     child.childType(zcu).eql(concrete_ty, zcu))
                 {
                     return .{ .method = .{
@@ -28673,8 +28673,8 @@ fn elemPtrOneLayerOnly(
     try checkIndexable(sema, block, src, indexable_ty);
 
     switch (indexable_ty.ptrSize(zcu)) {
-        .Slice => return sema.elemPtrSlice(block, src, indexable_src, indexable, elem_index_src, elem_index, oob_safety),
-        .Many, .C => {
+        .slice => return sema.elemPtrSlice(block, src, indexable_src, indexable, elem_index_src, elem_index, oob_safety),
+        .many, .c => {
             const maybe_ptr_val = try sema.resolveDefinedValue(block, indexable_src, indexable);
             const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
             ct: {
@@ -28688,7 +28688,7 @@ fn elemPtrOneLayerOnly(
 
             return block.addPtrElemPtr(indexable, elem_index, result_ty);
         },
-        .One => {
+        .one => {
             const child_ty = indexable_ty.childType(zcu);
             const elem_ptr = switch (child_ty.zigTypeTag(zcu)) {
                 .array, .vector => try sema.elemPtrArray(block, src, indexable_src, indexable, elem_index_src, elem_index, init, oob_safety),
@@ -28728,8 +28728,8 @@ fn elemVal(
 
     switch (indexable_ty.zigTypeTag(zcu)) {
         .pointer => switch (indexable_ty.ptrSize(zcu)) {
-            .Slice => return sema.elemValSlice(block, src, indexable_src, indexable, elem_index_src, elem_index, oob_safety),
-            .Many, .C => {
+            .slice => return sema.elemValSlice(block, src, indexable_src, indexable, elem_index_src, elem_index, oob_safety),
+            .many, .c => {
                 const maybe_indexable_val = try sema.resolveDefinedValue(block, indexable_src, indexable);
                 const maybe_index_val = try sema.resolveDefinedValue(block, elem_index_src, elem_index);
 
@@ -28748,7 +28748,7 @@ fn elemVal(
 
                 return block.addBinOp(.ptr_elem_val, indexable, elem_index);
             },
-            .One => {
+            .one => {
                 arr_sent: {
                     const inner_ty = indexable_ty.childType(zcu);
                     if (inner_ty.zigTypeTag(zcu) != .array) break :arr_sent;
@@ -29293,7 +29293,7 @@ fn coerceExtra(
 
             // *T to *[1]T
             single_item: {
-                if (dest_info.flags.size != .One) break :single_item;
+                if (dest_info.flags.size != .one) break :single_item;
                 if (!inst_ty.isSinglePointer(zcu)) break :single_item;
                 if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :pointer;
                 const ptr_elem_ty = inst_ty.childType(zcu);
@@ -29312,7 +29312,7 @@ fn coerceExtra(
             // Coercions where the source is a single pointer to an array.
             src_array_ptr: {
                 if (!inst_ty.isSinglePointer(zcu)) break :src_array_ptr;
-                if (dest_info.flags.size == .One) break :src_array_ptr; // `*[n]T` -> `*T` isn't valid
+                if (dest_info.flags.size == .one) break :src_array_ptr; // `*[n]T` -> `*T` isn't valid
                 if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :pointer;
                 const array_ty = inst_ty.childType(zcu);
                 if (array_ty.zigTypeTag(zcu) != .array) break :src_array_ptr;
@@ -29356,25 +29356,25 @@ fn coerceExtra(
                 }
 
                 switch (dest_info.flags.size) {
-                    .Slice => {
+                    .slice => {
                         // *[N]T to []T
                         return sema.coerceArrayPtrToSlice(block, dest_ty, inst, inst_src);
                     },
-                    .C => {
+                    .c => {
                         // *[N]T to [*c]T
                         return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
                     },
-                    .Many => {
+                    .many => {
                         // *[N]T to [*]T
                         return sema.coerceCompatiblePtrs(block, dest_ty, inst, inst_src);
                     },
-                    .One => unreachable, // early exit at top of block
+                    .one => unreachable, // early exit at top of block
                 }
             }
 
             // coercion from C pointer
             if (inst_ty.isCPtr(zcu)) src_c_ptr: {
-                if (dest_info.flags.size == .Slice) break :src_c_ptr;
+                if (dest_info.flags.size == .slice) break :src_c_ptr;
                 if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :src_c_ptr;
                 // In this case we must add a safety check because the C pointer
                 // could be null.
@@ -29413,7 +29413,7 @@ fn coerceExtra(
 
             switch (dest_info.flags.size) {
                 // coercion to C pointer
-                .C => switch (inst_ty.zigTypeTag(zcu)) {
+                .c => switch (inst_ty.zigTypeTag(zcu)) {
                     .null => return Air.internedToRef(try pt.intern(.{ .ptr = .{
                         .ty = dest_ty.toIntern(),
                         .base_addr = .int,
@@ -29457,7 +29457,7 @@ fn coerceExtra(
                             .ok => {},
                             else => break :p,
                         }
-                        if (inst_info.flags.size == .Slice) {
+                        if (inst_info.flags.size == .slice) {
                             assert(dest_info.sentinel == .none);
                             if (inst_info.sentinel == .none or
                                 inst_info.sentinel != (try pt.intValue(Type.fromInterned(inst_info.child), 0)).toIntern())
@@ -29470,8 +29470,8 @@ fn coerceExtra(
                     },
                     else => {},
                 },
-                .One => {},
-                .Slice => to_slice: {
+                .one => {},
+                .slice => to_slice: {
                     if (inst_ty.zigTypeTag(zcu) == .array) {
                         return sema.fail(
                             block,
@@ -29512,7 +29512,7 @@ fn coerceExtra(
                     }
                     return sema.coerceTupleToSlicePtrs(block, dest_ty, dest_ty_src, inst, inst_src);
                 },
-                .Many => p: {
+                .many => p: {
                     if (!inst_ty.isSlice(zcu)) break :p;
                     if (!sema.checkPtrAttributes(dest_ty, inst_ty, &in_memory_result)) break :p;
                     const inst_info = inst_ty.ptrInfo(zcu);
@@ -30224,10 +30224,10 @@ const InMemoryCoercionResult = union(enum) {
 
 fn pointerSizeString(size: std.builtin.Type.Pointer.Size) []const u8 {
     return switch (size) {
-        .One => "single pointer",
-        .Many => "many pointer",
-        .C => "C pointer",
-        .Slice => "slice",
+        .one => "single pointer",
+        .many => "many pointer",
+        .c => "C pointer",
+        .slice => "slice",
     };
 }
 
@@ -30775,7 +30775,7 @@ fn coerceInMemoryAllowedPtrs(
     const src_info = src_ptr_ty.ptrInfo(zcu);
 
     const ok_ptr_size = src_info.flags.size == dest_info.flags.size or
-        src_info.flags.size == .C or dest_info.flags.size == .C;
+        src_info.flags.size == .c or dest_info.flags.size == .c;
     if (!ok_ptr_size) {
         return InMemoryCoercionResult{ .ptr_size = .{
             .actual = src_info.flags.size,
@@ -30874,7 +30874,7 @@ fn coerceInMemoryAllowedPtrs(
         if (ss != .none and ds != .none) {
             if (ds == try zcu.intern_pool.getCoerced(sema.gpa, pt.tid, ss, dest_info.child)) break :ok true;
         }
-        if (src_info.flags.size == .C) break :ok true;
+        if (src_info.flags.size == .c) break :ok true;
         if (!dest_is_mut and dest_info.sentinel == .none) break :ok true;
         break :ok false;
     };
@@ -31392,7 +31392,7 @@ fn checkPtrAttributes(sema: *Sema, dest_ty: Type, inst_ty: Type, in_memory_resul
     const dest_info = dest_ty.ptrInfo(zcu);
     const inst_info = inst_ty.ptrInfo(zcu);
     const len0 = (Type.fromInterned(inst_info.child).zigTypeTag(zcu) == .array and (Type.fromInterned(inst_info.child).arrayLenIncludingSentinel(zcu) == 0 or
-        (Type.fromInterned(inst_info.child).arrayLen(zcu) == 0 and dest_info.sentinel == .none and dest_info.flags.size != .C and dest_info.flags.size != .Many))) or
+        (Type.fromInterned(inst_info.child).arrayLen(zcu) == 0 and dest_info.sentinel == .none and dest_info.flags.size != .c and dest_info.flags.size != .many))) or
         (Type.fromInterned(inst_info.child).isTuple(zcu) and Type.fromInterned(inst_info.child).structFieldCount(zcu) == 0);
 
     const ok_const = (!inst_info.flags.is_const or dest_info.flags.is_const) or len0;
@@ -32631,7 +32631,7 @@ fn analyzeSlice(
             elem_ty = ptr_ptr_child_ty.childType(zcu);
         },
         .pointer => switch (ptr_ptr_child_ty.ptrSize(zcu)) {
-            .One => {
+            .one => {
                 const double_child_ty = ptr_ptr_child_ty.childType(zcu);
                 ptr_or_slice = try sema.analyzeLoad(block, src, ptr_ptr, ptr_src);
                 if (double_child_ty.zigTypeTag(zcu) == .array) {
@@ -32721,14 +32721,14 @@ fn analyzeSlice(
                     elem_ty = double_child_ty;
                 }
             },
-            .Many, .C => {
+            .many, .c => {
                 ptr_sentinel = ptr_ptr_child_ty.sentinel(zcu);
                 ptr_or_slice = try sema.analyzeLoad(block, src, ptr_ptr, ptr_src);
                 slice_ty = ptr_ptr_child_ty;
                 array_ty = ptr_ptr_child_ty;
                 elem_ty = ptr_ptr_child_ty.childType(zcu);
 
-                if (ptr_ptr_child_ty.ptrSize(zcu) == .C) {
+                if (ptr_ptr_child_ty.ptrSize(zcu) == .c) {
                     if (try sema.resolveDefinedValue(block, ptr_src, ptr_or_slice)) |ptr_val| {
                         if (ptr_val.isNull(zcu)) {
                             return sema.fail(block, src, "slice of null pointer", .{});
@@ -32736,7 +32736,7 @@ fn analyzeSlice(
                     }
                 }
             },
-            .Slice => {
+            .slice => {
                 ptr_sentinel = ptr_ptr_child_ty.sentinel(zcu);
                 ptr_or_slice = try sema.analyzeLoad(block, src, ptr_ptr, ptr_src);
                 slice_ty = ptr_ptr_child_ty;
@@ -32752,9 +32752,9 @@ fn analyzeSlice(
     else if (array_ty.zigTypeTag(zcu) == .array) ptr: {
         var manyptr_ty_key = zcu.intern_pool.indexToKey(slice_ty.toIntern()).ptr_type;
         assert(manyptr_ty_key.child == array_ty.toIntern());
-        assert(manyptr_ty_key.flags.size == .One);
+        assert(manyptr_ty_key.flags.size == .one);
         manyptr_ty_key.child = elem_ty.toIntern();
-        manyptr_ty_key.flags.size = .Many;
+        manyptr_ty_key.flags.size = .many;
         break :ptr try sema.coerceCompatiblePtrs(block, try pt.ptrTypeSema(manyptr_ty_key), ptr_or_slice, ptr_src);
     } else ptr_or_slice;
 
@@ -32967,7 +32967,7 @@ fn analyzeSlice(
     const opt_new_len_val = try sema.resolveDefinedValue(block, src, new_len);
 
     const new_ptr_ty_info = new_ptr_ty.ptrInfo(zcu);
-    const new_allowzero = new_ptr_ty_info.flags.is_allowzero and sema.typeOf(ptr).ptrSize(zcu) != .C;
+    const new_allowzero = new_ptr_ty_info.flags.is_allowzero and sema.typeOf(ptr).ptrSize(zcu) != .c;
 
     if (opt_new_len_val) |new_len_val| {
         const new_len_int = try new_len_val.toUnsignedIntSema(pt);
@@ -33038,7 +33038,7 @@ fn analyzeSlice(
         .child = elem_ty.toIntern(),
         .sentinel = if (sentinel) |s| s.toIntern() else .none,
         .flags = .{
-            .size = .Slice,
+            .size = .slice,
             .alignment = new_ptr_ty_info.flags.alignment,
             .is_const = new_ptr_ty_info.flags.is_const,
             .is_volatile = new_ptr_ty_info.flags.is_volatile,
@@ -33739,7 +33739,7 @@ const PeerResolveStrategy = enum {
             .int => .fixed_int,
             .comptime_float => .comptime_float,
             .float => .fixed_float,
-            .pointer => if (ty.ptrInfo(zcu).flags.size == .C) .c_ptr else .ptr,
+            .pointer => if (ty.ptrInfo(zcu).flags.size == .c) .c_ptr else .ptr,
             .array => .array,
             .vector => .vector,
             .optional => .optional,
@@ -34235,7 +34235,7 @@ fn resolvePeerTypesInner(
 
                 var ptr_info = opt_ptr_info orelse {
                     opt_ptr_info = peer_info;
-                    opt_ptr_info.?.flags.size = .C;
+                    opt_ptr_info.?.flags.size = .c;
                     first_idx = i;
                     continue;
                 };
@@ -34323,9 +34323,9 @@ fn resolvePeerTypesInner(
                 };
 
                 switch (peer_info.flags.size) {
-                    .One, .Many => {},
-                    .Slice => opt_slice_idx = i,
-                    .C => return .{ .conflict = .{
+                    .one, .many => {},
+                    .slice => opt_slice_idx = i,
+                    .c => return .{ .conflict = .{
                         .peer_idx_a = strat_reason,
                         .peer_idx_b = i,
                     } },
@@ -34370,21 +34370,21 @@ fn resolvePeerTypesInner(
                 ptr_info.flags.is_allowzero = ptr_info.flags.is_allowzero or peer_info.flags.is_allowzero;
 
                 const peer_sentinel: InternPool.Index = switch (peer_info.flags.size) {
-                    .One => switch (ip.indexToKey(peer_info.child)) {
+                    .one => switch (ip.indexToKey(peer_info.child)) {
                         .array_type => |array_type| array_type.sentinel,
                         else => .none,
                     },
-                    .Many, .Slice => peer_info.sentinel,
-                    .C => unreachable,
+                    .many, .slice => peer_info.sentinel,
+                    .c => unreachable,
                 };
 
                 const cur_sentinel: InternPool.Index = switch (ptr_info.flags.size) {
-                    .One => switch (ip.indexToKey(ptr_info.child)) {
+                    .one => switch (ip.indexToKey(ptr_info.child)) {
                         .array_type => |array_type| array_type.sentinel,
                         else => .none,
                     },
-                    .Many, .Slice => ptr_info.sentinel,
-                    .C => unreachable,
+                    .many, .slice => ptr_info.sentinel,
+                    .c => unreachable,
                 };
 
                 // We abstract array handling slightly so that tuple pointers can work like array pointers
@@ -34395,8 +34395,8 @@ fn resolvePeerTypesInner(
                 // single-pointer array sentinel).
                 good: {
                     switch (peer_info.flags.size) {
-                        .One => switch (ptr_info.flags.size) {
-                            .One => {
+                        .one => switch (ptr_info.flags.size) {
+                            .one => {
                                 if (try sema.resolvePairInMemoryCoercible(block, src, Type.fromInterned(ptr_info.child), Type.fromInterned(peer_info.child))) |pointee| {
                                     ptr_info.child = pointee.toIntern();
                                     break :good;
@@ -34415,28 +34415,28 @@ fn resolvePeerTypesInner(
                                         break :good;
                                     }
                                     // *[a]T + *[b]T = []T
-                                    ptr_info.flags.size = .Slice;
+                                    ptr_info.flags.size = .slice;
                                     ptr_info.child = elem_ty.toIntern();
                                     break :good;
                                 }
 
                                 if (peer_arr.elem_ty.toIntern() == .noreturn_type) {
                                     // *struct{} + *[a]T = []T
-                                    ptr_info.flags.size = .Slice;
+                                    ptr_info.flags.size = .slice;
                                     ptr_info.child = cur_arr.elem_ty.toIntern();
                                     break :good;
                                 }
 
                                 if (cur_arr.elem_ty.toIntern() == .noreturn_type) {
                                     // *[a]T + *struct{} = []T
-                                    ptr_info.flags.size = .Slice;
+                                    ptr_info.flags.size = .slice;
                                     ptr_info.child = peer_arr.elem_ty.toIntern();
                                     break :good;
                                 }
 
                                 return generic_err;
                             },
-                            .Many => {
+                            .many => {
                                 // Only works for *[n]T + [*]T -> [*]T
                                 const arr = peer_pointee_array orelse return generic_err;
                                 if (try sema.resolvePairInMemoryCoercible(block, src, Type.fromInterned(ptr_info.child), arr.elem_ty)) |pointee| {
@@ -34449,7 +34449,7 @@ fn resolvePeerTypesInner(
                                 }
                                 return generic_err;
                             },
-                            .Slice => {
+                            .slice => {
                                 // Only works for *[n]T + []T -> []T
                                 const arr = peer_pointee_array orelse return generic_err;
                                 if (try sema.resolvePairInMemoryCoercible(block, src, Type.fromInterned(ptr_info.child), arr.elem_ty)) |pointee| {
@@ -34462,33 +34462,33 @@ fn resolvePeerTypesInner(
                                 }
                                 return generic_err;
                             },
-                            .C => unreachable,
+                            .c => unreachable,
                         },
-                        .Many => switch (ptr_info.flags.size) {
-                            .One => {
+                        .many => switch (ptr_info.flags.size) {
+                            .one => {
                                 // Only works for [*]T + *[n]T -> [*]T
                                 const arr = cur_pointee_array orelse return generic_err;
                                 if (try sema.resolvePairInMemoryCoercible(block, src, arr.elem_ty, Type.fromInterned(peer_info.child))) |pointee| {
-                                    ptr_info.flags.size = .Many;
+                                    ptr_info.flags.size = .many;
                                     ptr_info.child = pointee.toIntern();
                                     break :good;
                                 }
                                 if (arr.elem_ty.toIntern() == .noreturn_type) {
                                     // [*]T + *struct{} -> [*]T
-                                    ptr_info.flags.size = .Many;
+                                    ptr_info.flags.size = .many;
                                     ptr_info.child = peer_info.child;
                                     break :good;
                                 }
                                 return generic_err;
                             },
-                            .Many => {
+                            .many => {
                                 if (try sema.resolvePairInMemoryCoercible(block, src, Type.fromInterned(ptr_info.child), Type.fromInterned(peer_info.child))) |pointee| {
                                     ptr_info.child = pointee.toIntern();
                                     break :good;
                                 }
                                 return generic_err;
                             },
-                            .Slice => {
+                            .slice => {
                                 // Only works if no peers are actually slices
                                 if (opt_slice_idx) |slice_idx| {
                                     return .{ .conflict = .{
@@ -34498,54 +34498,54 @@ fn resolvePeerTypesInner(
                                 }
                                 // Okay, then works for [*]T + "[]T" -> [*]T
                                 if (try sema.resolvePairInMemoryCoercible(block, src, Type.fromInterned(ptr_info.child), Type.fromInterned(peer_info.child))) |pointee| {
-                                    ptr_info.flags.size = .Many;
+                                    ptr_info.flags.size = .many;
                                     ptr_info.child = pointee.toIntern();
                                     break :good;
                                 }
                                 return generic_err;
                             },
-                            .C => unreachable,
+                            .c => unreachable,
                         },
-                        .Slice => switch (ptr_info.flags.size) {
-                            .One => {
+                        .slice => switch (ptr_info.flags.size) {
+                            .one => {
                                 // Only works for []T + *[n]T -> []T
                                 const arr = cur_pointee_array orelse return generic_err;
                                 if (try sema.resolvePairInMemoryCoercible(block, src, arr.elem_ty, Type.fromInterned(peer_info.child))) |pointee| {
-                                    ptr_info.flags.size = .Slice;
+                                    ptr_info.flags.size = .slice;
                                     ptr_info.child = pointee.toIntern();
                                     break :good;
                                 }
                                 if (arr.elem_ty.toIntern() == .noreturn_type) {
                                     // []T + *struct{} -> []T
-                                    ptr_info.flags.size = .Slice;
+                                    ptr_info.flags.size = .slice;
                                     ptr_info.child = peer_info.child;
                                     break :good;
                                 }
                                 return generic_err;
                             },
-                            .Many => {
+                            .many => {
                                 // Impossible! (current peer is an actual slice)
                                 return generic_err;
                             },
-                            .Slice => {
+                            .slice => {
                                 if (try sema.resolvePairInMemoryCoercible(block, src, Type.fromInterned(ptr_info.child), Type.fromInterned(peer_info.child))) |pointee| {
                                     ptr_info.child = pointee.toIntern();
                                     break :good;
                                 }
                                 return generic_err;
                             },
-                            .C => unreachable,
+                            .c => unreachable,
                         },
-                        .C => unreachable,
+                        .c => unreachable,
                     }
                 }
 
                 const sentinel_ty = switch (ptr_info.flags.size) {
-                    .One => switch (ip.indexToKey(ptr_info.child)) {
+                    .one => switch (ip.indexToKey(ptr_info.child)) {
                         .array_type => |array_type| array_type.child,
                         else => ptr_info.child,
                     },
-                    .Many, .Slice, .C => ptr_info.child,
+                    .many, .slice, .c => ptr_info.child,
                 };
 
                 sentinel: {
@@ -34556,7 +34556,7 @@ fn resolvePeerTypesInner(
                         const cur_sent_coerced = try ip.getCoerced(sema.gpa, pt.tid, cur_sentinel, sentinel_ty);
                         if (peer_sent_coerced != cur_sent_coerced) break :no_sentinel;
                         // Sentinels match
-                        if (ptr_info.flags.size == .One) switch (ip.indexToKey(ptr_info.child)) {
+                        if (ptr_info.flags.size == .one) switch (ip.indexToKey(ptr_info.child)) {
                             .array_type => |array_type| ptr_info.child = (try pt.arrayType(.{
                                 .len = array_type.len,
                                 .child = array_type.child,
@@ -35416,8 +35416,8 @@ fn checkMemOperand(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !void 
     const zcu = pt.zcu;
     if (ty.zigTypeTag(zcu) == .pointer) {
         switch (ty.ptrSize(zcu)) {
-            .Slice, .Many, .C => return,
-            .One => {
+            .slice, .many, .c => return,
+            .one => {
                 const elem_ty = ty.childType(zcu);
                 if (elem_ty.zigTypeTag(zcu) == .array) return;
                 // TODO https://github.com/ziglang/zig/issues/15479
@@ -37248,13 +37248,13 @@ fn typePtrOrOptionalPtrTy(sema: *Sema, ty: Type) !?Type {
     const zcu = pt.zcu;
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-            .One, .Many, .C => ty,
-            .Slice => null,
+            .one, .many, .c => ty,
+            .slice => null,
         },
         .opt_type => |opt_child| switch (zcu.intern_pool.indexToKey(opt_child)) {
             .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-                .Slice, .C => null,
-                .Many, .One => {
+                .slice, .c => null,
+                .many, .one => {
                     if (ptr_type.flags.is_allowzero) return null;
 
                     // optionals of zero sized types behave like bools, not pointers
@@ -38260,7 +38260,7 @@ fn maybeDerefSliceAsArray(
     });
     const ptr_ty = try pt.ptrTypeSema(p: {
         var p = Type.fromInterned(slice.ty).ptrInfo(zcu);
-        p.flags.size = .One;
+        p.flags.size = .one;
         p.child = array_ty.toIntern();
         p.sentinel = .none;
         break :p p;

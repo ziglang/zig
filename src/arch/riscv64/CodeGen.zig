@@ -7843,15 +7843,15 @@ fn airMemset(func: *Func, inst: Air.Inst.Index, safety: bool) !void {
         if (elem_abi_size == 1) {
             const ptr: MCValue = switch (dst_ptr_ty.ptrSize(zcu)) {
                 // TODO: this only handles slices stored in the stack
-                .Slice => dst_ptr,
-                .One => dst_ptr,
-                .C, .Many => unreachable,
+                .slice => dst_ptr,
+                .one => dst_ptr,
+                .c, .many => unreachable,
             };
             const len: MCValue = switch (dst_ptr_ty.ptrSize(zcu)) {
                 // TODO: this only handles slices stored in the stack
-                .Slice => dst_ptr.address().offset(8).deref(),
-                .One => .{ .immediate = dst_ptr_ty.childType(zcu).arrayLen(zcu) },
-                .C, .Many => unreachable,
+                .slice => dst_ptr.address().offset(8).deref(),
+                .one => .{ .immediate = dst_ptr_ty.childType(zcu).arrayLen(zcu) },
+                .c, .many => unreachable,
             };
             const len_lock: ?RegisterLock = switch (len) {
                 .register => |reg| func.register_manager.lockRegAssumeUnused(reg),
@@ -7867,8 +7867,8 @@ fn airMemset(func: *Func, inst: Air.Inst.Index, safety: bool) !void {
         // Length zero requires a runtime check - so we handle arrays specially
         // here to elide it.
         switch (dst_ptr_ty.ptrSize(zcu)) {
-            .Slice => return func.fail("TODO: airMemset Slices", .{}),
-            .One => {
+            .slice => return func.fail("TODO: airMemset Slices", .{}),
+            .one => {
                 const elem_ptr_ty = try pt.singleMutPtrType(elem_ty);
 
                 const len = dst_ptr_ty.childType(zcu).arrayLen(zcu);
@@ -7889,7 +7889,7 @@ fn airMemset(func: *Func, inst: Air.Inst.Index, safety: bool) !void {
                 const bytes_to_copy: MCValue = .{ .immediate = elem_abi_size * (len - 1) };
                 try func.genInlineMemcpy(second_elem_ptr_mcv, dst_ptr, bytes_to_copy);
             },
-            .C, .Many => unreachable,
+            .c, .many => unreachable,
         }
     }
     return func.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -7906,7 +7906,7 @@ fn airMemcpy(func: *Func, inst: Air.Inst.Index) !void {
     const dst_ty = func.typeOf(bin_op.lhs);
 
     const len_mcv: MCValue = switch (dst_ty.ptrSize(zcu)) {
-        .Slice => len: {
+        .slice => len: {
             const len_reg, const len_lock = try func.allocReg(.int);
             defer func.register_manager.unlockReg(len_lock);
 
@@ -7921,7 +7921,7 @@ fn airMemcpy(func: *Func, inst: Air.Inst.Index) !void {
             );
             break :len .{ .register = len_reg };
         },
-        .One => len: {
+        .one => len: {
             const array_ty = dst_ty.childType(zcu);
             break :len .{ .immediate = array_ty.arrayLen(zcu) * array_ty.childType(zcu).abiSize(zcu) };
         },

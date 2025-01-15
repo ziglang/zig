@@ -3917,7 +3917,7 @@ fn ptrType(
     node: Ast.Node.Index,
     ptr_info: Ast.full.PtrType,
 ) InnerError!Zir.Inst.Ref {
-    if (ptr_info.size == .C and ptr_info.allowzero_token != null) {
+    if (ptr_info.size == .c and ptr_info.allowzero_token != null) {
         return gz.astgen.failTok(ptr_info.allowzero_token.?, "C pointers always allow address zero", .{});
     }
 
@@ -3946,7 +3946,7 @@ fn ptrType(
             .{ .rl = .{ .ty = elem_type } },
             ptr_info.ast.sentinel,
             switch (ptr_info.size) {
-                .Slice => .slice_sentinel,
+                .slice => .slice_sentinel,
                 else => .pointer_sentinel,
             },
         );

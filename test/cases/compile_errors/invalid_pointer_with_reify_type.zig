@@ -1,6 +1,6 @@
 export fn entry() void {
     _ = @Type(.{ .pointer = .{
-        .size = .One,
+        .size = .one,
         .is_const = false,
         .is_volatile = false,
         .alignment = 1,
@@ -12,7 +12,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:9: error: sentinels are only allowed on slices and unknown-length pointers

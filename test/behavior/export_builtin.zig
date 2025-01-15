@@ -26,7 +26,7 @@ test "exporting with internal linkage" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const S = struct {
-        fn foo() callconv(.C) void {}
+        fn foo() callconv(.c) void {}
         comptime {
             @export(&foo, .{ .name = "exporting_with_internal_linkage_foo", .linkage = .internal });
         }

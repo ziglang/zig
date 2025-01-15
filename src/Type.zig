@@ -192,16 +192,16 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             const info = ty.ptrInfo(zcu);
 
             if (info.sentinel != .none) switch (info.flags.size) {
-                .One, .C => unreachable,
-                .Many => try writer.print("[*:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
-                .Slice => try writer.print("[:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
+                .one, .c => unreachable,
+                .many => try writer.print("[*:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
+                .slice => try writer.print("[:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
             } else switch (info.flags.size) {
-                .One => try writer.writeAll("*"),
-                .Many => try writer.writeAll("[*]"),
-                .C => try writer.writeAll("[*c]"),
-                .Slice => try writer.writeAll("[]"),
+                .one => try writer.writeAll("*"),
+                .many => try writer.writeAll("[*]"),
+                .c => try writer.writeAll("[*c]"),
+                .slice => try writer.writeAll("[]"),
             }
-            if (info.flags.is_allowzero and info.flags.size != .C) try writer.writeAll("allowzero ");
+            if (info.flags.is_allowzero and info.flags.size != .c) try writer.writeAll("allowzero ");
             if (info.flags.alignment != .none or
                 info.packed_offset.host_size != 0 or
                 info.flags.vector_index != .none)
@@ -686,7 +686,7 @@ pub fn hasWellDefinedLayout(ty: Type, zcu: *const Zcu) bool {
 
         .array_type => |array_type| Type.fromInterned(array_type.child).hasWellDefinedLayout(zcu),
         .opt_type => ty.isPtrLikeOptional(zcu),
-        .ptr_type => |ptr_type| ptr_type.flags.size != .Slice,
+        .ptr_type => |ptr_type| ptr_type.flags.size != .slice,
 
         .simple_type => |t| switch (t) {
             .f16,
@@ -1303,7 +1303,7 @@ pub fn abiSizeInner(
                 return .{ .scalar = intAbiSize(int_type.bits, target, use_llvm) };
             },
             .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-                .Slice => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
+                .slice => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
                 else => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) },
             },
             .anyframe_type => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) },
@@ -1741,7 +1741,7 @@ pub fn bitSizeInner(
     switch (ip.indexToKey(ty.toIntern())) {
         .int_type => |int_type| return int_type.bits,
         .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-            .Slice => return target.ptrBitWidth() * 2,
+            .slice => return target.ptrBitWidth() * 2,
             else => return target.ptrBitWidth(),
         },
         .anyframe_type => return target.ptrBitWidth(),
@@ -1903,7 +1903,7 @@ pub fn layoutIsResolved(ty: Type, zcu: *const Zcu) bool {
 
 pub fn isSinglePointer(ty: Type, zcu: *const Zcu) bool {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
-        .ptr_type => |ptr_info| ptr_info.flags.size == .One,
+        .ptr_type => |ptr_info| ptr_info.flags.size == .one,
         else => false,
     };
 }
@@ -1923,7 +1923,7 @@ pub fn ptrSizeOrNull(ty: Type, zcu: *const Zcu) ?std.builtin.Type.Pointer.Size {
 
 pub fn isSlice(ty: Type, zcu: *const Zcu) bool {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
-        .ptr_type => |ptr_type| ptr_type.flags.size == .Slice,
+        .ptr_type => |ptr_type| ptr_type.flags.size == .slice,
         else => false,
     };
 }
@@ -1960,7 +1960,7 @@ pub fn isAllowzeroPtr(ty: Type, zcu: *const Zcu) bool {
 
 pub fn isCPtr(ty: Type, zcu: *const Zcu) bool {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
-        .ptr_type => |ptr_type| ptr_type.flags.size == .C,
+        .ptr_type => |ptr_type| ptr_type.flags.size == .c,
         else => false,
     };
 }
@@ -1968,13 +1968,13 @@ pub fn isCPtr(ty: Type, zcu: *const Zcu) bool {
 pub fn isPtrAtRuntime(ty: Type, zcu: *const Zcu) bool {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-            .Slice => false,
-            .One, .Many, .C => true,
+            .slice => false,
+            .one, .many, .c => true,
         },
         .opt_type => |child| switch (zcu.intern_pool.indexToKey(child)) {
             .ptr_type => |p| switch (p.flags.size) {
-                .Slice, .C => false,
-                .Many, .One => !p.flags.is_allowzero,
+                .slice, .c => false,
+                .many, .one => !p.flags.is_allowzero,
             },
             else => false,
         },
@@ -1995,11 +1995,11 @@ pub fn ptrAllowsZero(ty: Type, zcu: *const Zcu) bool {
 pub fn optionalReprIsPayload(ty: Type, zcu: *const Zcu) bool {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .opt_type => |child_type| child_type == .anyerror_type or switch (zcu.intern_pool.indexToKey(child_type)) {
-            .ptr_type => |ptr_type| ptr_type.flags.size != .C and !ptr_type.flags.is_allowzero,
+            .ptr_type => |ptr_type| ptr_type.flags.size != .c and !ptr_type.flags.is_allowzero,
             .error_set_type, .inferred_error_set_type => true,
             else => false,
         },
-        .ptr_type => |ptr_type| ptr_type.flags.size == .C,
+        .ptr_type => |ptr_type| ptr_type.flags.size == .c,
         else => false,
     };
 }
@@ -2009,11 +2009,11 @@ pub fn optionalReprIsPayload(ty: Type, zcu: *const Zcu) bool {
 /// This function must be kept in sync with `Sema.typePtrOrOptionalPtrTy`.
 pub fn isPtrLikeOptional(ty: Type, zcu: *const Zcu) bool {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
-        .ptr_type => |ptr_type| ptr_type.flags.size == .C,
+        .ptr_type => |ptr_type| ptr_type.flags.size == .c,
         .opt_type => |child| switch (zcu.intern_pool.indexToKey(child)) {
             .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-                .Slice, .C => false,
-                .Many, .One => !ptr_type.flags.is_allowzero,
+                .slice, .c => false,
+                .many, .one => !ptr_type.flags.is_allowzero,
             },
             else => false,
         },
@@ -2044,8 +2044,8 @@ pub fn childTypeIp(ty: Type, ip: *const InternPool) Type {
 pub fn elemType2(ty: Type, zcu: *const Zcu) Type {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-            .One => Type.fromInterned(ptr_type.child).shallowElemType(zcu),
-            .Many, .C, .Slice => Type.fromInterned(ptr_type.child),
+            .one => Type.fromInterned(ptr_type.child).shallowElemType(zcu),
+            .many, .c, .slice => Type.fromInterned(ptr_type.child),
         },
         .anyframe_type => |child| {
             assert(child != .none);
@@ -2079,7 +2079,7 @@ pub fn optionalChild(ty: Type, zcu: *const Zcu) Type {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .opt_type => |child| Type.fromInterned(child),
         .ptr_type => |ptr_type| b: {
-            assert(ptr_type.flags.size == .C);
+            assert(ptr_type.flags.size == .c);
             break :b ty;
         },
         else => unreachable,
@@ -2991,8 +2991,8 @@ pub fn isIndexable(ty: Type, zcu: *const Zcu) bool {
     return switch (ty.zigTypeTag(zcu)) {
         .array, .vector => true,
         .pointer => switch (ty.ptrSize(zcu)) {
-            .Slice, .Many, .C => true,
-            .One => switch (ty.childType(zcu).zigTypeTag(zcu)) {
+            .slice, .many, .c => true,
+            .one => switch (ty.childType(zcu).zigTypeTag(zcu)) {
                 .array, .vector => true,
                 .@"struct" => ty.childType(zcu).isTuple(zcu),
                 else => false,
@@ -3007,9 +3007,9 @@ pub fn indexableHasLen(ty: Type, zcu: *const Zcu) bool {
     return switch (ty.zigTypeTag(zcu)) {
         .array, .vector => true,
         .pointer => switch (ty.ptrSize(zcu)) {
-            .Many, .C => false,
-            .Slice => true,
-            .One => switch (ty.childType(zcu).zigTypeTag(zcu)) {
+            .many, .c => false,
+            .slice => true,
+            .one => switch (ty.childType(zcu).zigTypeTag(zcu)) {
                 .array, .vector => true,
                 .@"struct" => ty.childType(zcu).isTuple(zcu),
                 else => false,
@@ -4049,7 +4049,7 @@ pub fn elemPtrType(ptr_ty: Type, offset: ?usize, pt: Zcu.PerThread) !Type {
         host_size: u16 = 0,
         alignment: Alignment = .none,
         vector_index: VI = .none,
-    } = if (parent_ty.isVector(zcu) and ptr_info.flags.size == .One) blk: {
+    } = if (parent_ty.isVector(zcu) and ptr_info.flags.size == .one) blk: {
         const elem_bits = elem_ty.bitSize(zcu);
         if (elem_bits == 0) break :blk .{};
         const is_packed = elem_bits < 8 or !std.math.isPowerOfTwo(elem_bits);

@@ -1229,7 +1229,7 @@ test "return an extern union from C calling convention" {
             s: S,
         };
 
-        fn bar(arg_u: U) callconv(.C) U {
+        fn bar(arg_u: U) callconv(.c) U {
             var u = arg_u;
             _ = &u;
             return u;

@@ -1176,17 +1176,17 @@ const Local = struct {
                     } });
                 }
 
-                pub fn addOne(mutable: Mutable) Allocator.Error!PtrElem(.{ .size = .One }) {
+                pub fn addOne(mutable: Mutable) Allocator.Error!PtrElem(.{ .size = .one }) {
                     try mutable.ensureUnusedCapacity(1);
                     return mutable.addOneAssumeCapacity();
                 }
 
-                pub fn addOneAssumeCapacity(mutable: Mutable) PtrElem(.{ .size = .One }) {
+                pub fn addOneAssumeCapacity(mutable: Mutable) PtrElem(.{ .size = .one }) {
                     const index = mutable.mutate.len;
                     assert(index < mutable.list.header().capacity);
                     mutable.mutate.len = index + 1;
                     const mutable_view = mutable.view().slice();
-                    var ptr: PtrElem(.{ .size = .One }) = undefined;
+                    var ptr: PtrElem(.{ .size = .one }) = undefined;
                     inline for (fields) |field| {
                         @field(ptr, @tagName(field)) = &mutable_view.items(field)[index];
                     }
@@ -1206,7 +1206,7 @@ const Local = struct {
 
                 pub fn appendSliceAssumeCapacity(
                     mutable: Mutable,
-                    slice: PtrElem(.{ .size = .Slice, .is_const = true }),
+                    slice: PtrElem(.{ .size = .slice, .is_const = true }),
                 ) void {
                     if (fields.len == 0) return;
                     const start = mutable.mutate.len;
@@ -1253,17 +1253,17 @@ const Local = struct {
                     return ptr_array;
                 }
 
-                pub fn addManyAsSlice(mutable: Mutable, len: usize) Allocator.Error!PtrElem(.{ .size = .Slice }) {
+                pub fn addManyAsSlice(mutable: Mutable, len: usize) Allocator.Error!PtrElem(.{ .size = .slice }) {
                     try mutable.ensureUnusedCapacity(len);
                     return mutable.addManyAsSliceAssumeCapacity(len);
                 }
 
-                pub fn addManyAsSliceAssumeCapacity(mutable: Mutable, len: usize) PtrElem(.{ .size = .Slice }) {
+                pub fn addManyAsSliceAssumeCapacity(mutable: Mutable, len: usize) PtrElem(.{ .size = .slice }) {
                     const start = mutable.mutate.len;
                     assert(len <= mutable.list.header().capacity - start);
                     mutable.mutate.len = @intCast(start + len);
                     const mutable_view = mutable.view().slice();
-                    var slice: PtrElem(.{ .size = .Slice }) = undefined;
+                    var slice: PtrElem(.{ .size = .slice }) = undefined;
                     inline for (fields) |field| {
                         @field(slice, @tagName(field)) = mutable_view.items(field)[start..][0..len];
                     }
@@ -2060,7 +2060,7 @@ pub const Key = union(enum) {
         };
 
         pub const Flags = packed struct(u32) {
-            size: Size = .One,
+            size: Size = .one,
             /// `none` indicates the ABI alignment of the pointee_type. In this
             /// case, this field *must* be set to `none`, otherwise the
             /// `InternPool` equality and hashing functions will return incorrect
@@ -4891,7 +4891,7 @@ pub const Index = enum(u32) {
                                     checkField(name ++ ".?", info.child);
                                 },
                                 .pointer => |info| {
-                                    assert(info.size == .Slice);
+                                    assert(info.size == .slice);
                                     checkConfig(name ++ ".len");
                                     checkField(name ++ "[0]", info.child);
                                 },
@@ -5016,7 +5016,7 @@ pub const static_keys = [_]Key{
     .{ .ptr_type = .{
         .child = .u8_type,
         .flags = .{
-            .size = .Many,
+            .size = .many,
         },
     } },
 
@@ -5024,7 +5024,7 @@ pub const static_keys = [_]Key{
     .{ .ptr_type = .{
         .child = .u8_type,
         .flags = .{
-            .size = .Many,
+            .size = .many,
             .is_const = true,
         },
     } },
@@ -5034,7 +5034,7 @@ pub const static_keys = [_]Key{
         .child = .u8_type,
         .sentinel = .zero_u8,
         .flags = .{
-            .size = .Many,
+            .size = .many,
             .is_const = true,
         },
     } },
@@ -5043,7 +5043,7 @@ pub const static_keys = [_]Key{
     .{ .ptr_type = .{
         .child = .comptime_int_type,
         .flags = .{
-            .size = .One,
+            .size = .one,
             .is_const = true,
         },
     } },
@@ -5052,7 +5052,7 @@ pub const static_keys = [_]Key{
     .{ .ptr_type = .{
         .child = .u8_type,
         .flags = .{
-            .size = .Slice,
+            .size = .slice,
             .is_const = true,
         },
     } },
@@ -5062,7 +5062,7 @@ pub const static_keys = [_]Key{
         .child = .u8_type,
         .sentinel = .zero_u8,
         .flags = .{
-            .size = .Slice,
+            .size = .slice,
             .is_const = true,
         },
     } },
@@ -6749,7 +6749,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
             const many_ptr_item = many_ptr_unwrapped.getItem(ip);
             assert(many_ptr_item.tag == .type_pointer);
             var ptr_info = extraData(many_ptr_unwrapped.getExtra(ip), Tag.TypePointer, many_ptr_item.data);
-            ptr_info.flags.size = .Slice;
+            ptr_info.flags.size = .slice;
             return .{ .ptr_type = ptr_info };
         },
 
@@ -7572,10 +7572,10 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             assert(ptr_type.child != .none);
             assert(ptr_type.sentinel == .none or ip.typeOf(ptr_type.sentinel) == ptr_type.child);
 
-            if (ptr_type.flags.size == .Slice) {
+            if (ptr_type.flags.size == .slice) {
                 gop.cancel();
                 var new_key = key;
-                new_key.ptr_type.flags.size = .Many;
+                new_key.ptr_type.flags.size = .many;
                 const ptr_type_index = try ip.get(gpa, tid, new_key);
                 gop = try ip.getOrPutKey(gpa, tid, key);
 
@@ -7588,7 +7588,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             }
 
             var ptr_type_adjusted = ptr_type;
-            if (ptr_type.flags.size == .C) ptr_type_adjusted.flags.is_allowzero = true;
+            if (ptr_type.flags.size == .c) ptr_type_adjusted.flags.is_allowzero = true;
 
             items.appendAssumeCapacity(.{
                 .tag = .type_pointer,
@@ -7731,8 +7731,8 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
         },
 
         .slice => |slice| {
-            assert(ip.indexToKey(slice.ty).ptr_type.flags.size == .Slice);
-            assert(ip.indexToKey(ip.typeOf(slice.ptr)).ptr_type.flags.size == .Many);
+            assert(ip.indexToKey(slice.ty).ptr_type.flags.size == .slice);
+            assert(ip.indexToKey(ip.typeOf(slice.ptr)).ptr_type.flags.size == .many);
             items.appendAssumeCapacity(.{
                 .tag = .ptr_slice,
                 .data = try addExtra(extra, PtrSlice{
@@ -7745,7 +7745,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
 
         .ptr => |ptr| {
             const ptr_type = ip.indexToKey(ptr.ty).ptr_type;
-            assert(ptr_type.flags.size != .Slice);
+            assert(ptr_type.flags.size != .slice);
             items.appendAssumeCapacity(switch (ptr.base_addr) {
                 .nav => |nav| .{
                     .tag = .ptr_nav,
@@ -7804,9 +7804,9 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                 .arr_elem, .field => |base_index| {
                     const base_ptr_type = ip.indexToKey(ip.typeOf(base_index.base)).ptr_type;
                     switch (ptr.base_addr) {
-                        .arr_elem => assert(base_ptr_type.flags.size == .Many),
+                        .arr_elem => assert(base_ptr_type.flags.size == .many),
                         .field => {
-                            assert(base_ptr_type.flags.size == .One);
+                            assert(base_ptr_type.flags.size == .one);
                             switch (ip.indexToKey(base_ptr_type.child)) {
                                 .tuple_type => |tuple_type| {
                                     assert(ptr.base_addr == .field);
@@ -7823,7 +7823,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                                 },
                                 .ptr_type => |slice_type| {
                                     assert(ptr.base_addr == .field);
-                                    assert(slice_type.flags.size == .Slice);
+                                    assert(slice_type.flags.size == .slice);
                                     assert(base_index.index < 2);
                                 },
                                 else => unreachable,
@@ -10314,12 +10314,12 @@ pub fn getCoerced(
             } });
 
             if (ip.isPointerType(new_ty)) switch (ip.indexToKey(new_ty).ptr_type.flags.size) {
-                .One, .Many, .C => return ip.get(gpa, tid, .{ .ptr = .{
+                .one, .many, .c => return ip.get(gpa, tid, .{ .ptr = .{
                     .ty = new_ty,
                     .base_addr = .int,
                     .byte_offset = 0,
                 } }),
-                .Slice => return ip.get(gpa, tid, .{ .slice = .{
+                .slice => return ip.get(gpa, tid, .{ .slice = .{
                     .ty = new_ty,
                     .ptr = try ip.get(gpa, tid, .{ .ptr = .{
                         .ty = ip.slicePtrType(new_ty),
@@ -10408,7 +10408,7 @@ pub fn getCoerced(
             },
             else => {},
         },
-        .slice => |slice| if (ip.isPointerType(new_ty) and ip.indexToKey(new_ty).ptr_type.flags.size == .Slice)
+        .slice => |slice| if (ip.isPointerType(new_ty) and ip.indexToKey(new_ty).ptr_type.flags.size == .slice)
             return ip.get(gpa, tid, .{ .slice = .{
                 .ty = new_ty,
                 .ptr = try ip.getCoerced(gpa, tid, slice.ptr, ip.slicePtrType(new_ty)),
@@ -10416,7 +10416,7 @@ pub fn getCoerced(
             } })
         else if (ip.isIntegerType(new_ty))
             return ip.getCoerced(gpa, tid, slice.ptr, new_ty),
-        .ptr => |ptr| if (ip.isPointerType(new_ty) and ip.indexToKey(new_ty).ptr_type.flags.size != .Slice)
+        .ptr => |ptr| if (ip.isPointerType(new_ty) and ip.indexToKey(new_ty).ptr_type.flags.size != .slice)
             return ip.get(gpa, tid, .{ .ptr = .{
                 .ty = new_ty,
                 .base_addr = ptr.base_addr,
@@ -10433,12 +10433,12 @@ pub fn getCoerced(
         .opt => |opt| switch (ip.indexToKey(new_ty)) {
             .ptr_type => |ptr_type| return switch (opt.val) {
                 .none => switch (ptr_type.flags.size) {
-                    .One, .Many, .C => try ip.get(gpa, tid, .{ .ptr = .{
+                    .one, .many, .c => try ip.get(gpa, tid, .{ .ptr = .{
                         .ty = new_ty,
                         .base_addr = .int,
                         .byte_offset = 0,
                     } }),
-                    .Slice => try ip.get(gpa, tid, .{ .slice = .{
+                    .slice => try ip.get(gpa, tid, .{ .slice = .{
                         .ty = new_ty,
                         .ptr = try ip.get(gpa, tid, .{ .ptr = .{
                             .ty = ip.slicePtrType(new_ty),

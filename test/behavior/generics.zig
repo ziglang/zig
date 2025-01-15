@@ -324,7 +324,7 @@ test "generic function instantiation non-duplicates" {
             for (source, 0..) |s, i| dest[i] = s;
         }
 
-        fn foo() callconv(.C) void {}
+        fn foo() callconv(.c) void {}
     };
     var buffer: [100]u8 = undefined;
     S.copy(u8, &buffer, "hello");
@@ -471,13 +471,13 @@ test "coerced function body has inequal value with its uncoerced body" {
     try expect(S.A.do() == 1234);
 }
 
-test "generic function returns value from callconv(.C) function" {
+test "generic function returns value from callconv(.c) function" {
     const S = struct {
-        fn getU8() callconv(.C) u8 {
+        fn getU8() callconv(.c) u8 {
             return 123;
         }
 
-        fn getGeneric(comptime T: type, supplier: fn () callconv(.C) T) T {
+        fn getGeneric(comptime T: type, supplier: fn () callconv(.c) T) T {
             return supplier();
         }
     };
@@ -521,11 +521,11 @@ test "function argument tuple used as struct field" {
     try expect(c.t[0] == null);
 }
 
-test "comptime callconv(.C) function ptr uses comptime type argument" {
+test "comptime callconv(.c) function ptr uses comptime type argument" {
     const S = struct {
         fn A(
             comptime T: type,
-            comptime destroycb: ?*const fn (?*T) callconv(.C) void,
+            comptime destroycb: ?*const fn (?*T) callconv(.c) void,
         ) !void {
             try expect(destroycb == null);
         }

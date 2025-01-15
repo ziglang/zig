@@ -451,12 +451,12 @@ pub fn innerParse(
 
         .pointer => |ptrInfo| {
             switch (ptrInfo.size) {
-                .One => {
+                .one => {
                     const r: *ptrInfo.child = try allocator.create(ptrInfo.child);
                     r.* = try innerParse(ptrInfo.child, allocator, source, options);
                     return r;
                 },
-                .Slice => {
+                .slice => {
                     switch (try source.peekNextTokenType()) {
                         .array_begin => {
                             _ = try source.next();
@@ -706,12 +706,12 @@ pub fn innerParseFromValue(
 
         .pointer => |ptrInfo| {
             switch (ptrInfo.size) {
-                .One => {
+                .one => {
                     const r: *ptrInfo.child = try allocator.create(ptrInfo.child);
                     r.* = try innerParseFromValue(ptrInfo.child, allocator, source, options);
                     return r;
                 },
-                .Slice => {
+                .slice => {
                     switch (source) {
                         .array => |array| {
                             const r = if (ptrInfo.sentinel) |sentinel_ptr|

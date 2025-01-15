@@ -631,7 +631,7 @@ pub fn WriteStream(
                 },
                 .error_set => return self.stringValue(@errorName(value)),
                 .pointer => |ptr_info| switch (ptr_info.size) {
-                    .One => switch (@typeInfo(ptr_info.child)) {
+                    .one => switch (@typeInfo(ptr_info.child)) {
                         .array => {
                             // Coerce `*[N]T` to `[]const T`.
                             const Slice = []const std.meta.Elem(ptr_info.child);
@@ -641,10 +641,10 @@ pub fn WriteStream(
                             return self.write(value.*);
                         },
                     },
-                    .Many, .Slice => {
-                        if (ptr_info.size == .Many and ptr_info.sentinel == null)
+                    .many, .slice => {
+                        if (ptr_info.size == .many and ptr_info.sentinel == null)
                             @compileError("unable to stringify type '" ++ @typeName(T) ++ "' without sentinel");
-                        const slice = if (ptr_info.size == .Many) std.mem.span(value) else value;
+                        const slice = if (ptr_info.size == .many) std.mem.span(value) else value;
 
                         if (ptr_info.child == u8) {
                             // This is a []const u8, or some similar Zig string.

@@ -849,7 +849,7 @@ test "sigaction" {
     const S = struct {
         var handler_called_count: u32 = 0;
 
-        fn handler(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.C) void {
+        fn handler(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
             _ = ctx_ptr;
             // Check that we received the correct signal.
             switch (native_os) {

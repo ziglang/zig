@@ -170,7 +170,7 @@ pub fn sizeof(target: anytype) usize {
             }
         },
         .pointer => |ptr| {
-            if (ptr.size == .Slice) {
+            if (ptr.size == .slice) {
                 @compileError("Cannot use C sizeof on slice type " ++ @typeName(T));
             }
             // for strings, sizeof("a") returns 2.
@@ -178,7 +178,7 @@ pub fn sizeof(target: anytype) usize {
             // in the .array case above, but strings remain literals
             // and are therefore always pointers, so they need to be
             // specially handled here.
-            if (ptr.size == .One and ptr.is_const and @typeInfo(ptr.child) == .array) {
+            if (ptr.size == .one and ptr.is_const and @typeInfo(ptr.child) == .array) {
                 const array_info = @typeInfo(ptr.child).array;
                 if ((array_info.child == u8 or array_info.child == u16) and
                     array_info.sentinel != null and
@@ -341,7 +341,7 @@ pub fn FlexibleArrayType(comptime SelfType: type, comptime ElementType: type) ty
     switch (@typeInfo(SelfType)) {
         .pointer => |ptr| {
             return @Type(.{ .pointer = .{
-                .size = .C,
+                .size = .c,
                 .is_const = ptr.is_const,
                 .is_volatile = ptr.is_volatile,
                 .alignment = @alignOf(ElementType),
