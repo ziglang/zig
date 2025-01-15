@@ -616,6 +616,20 @@ pub const Nav = struct {
         };
     }
 
+    pub fn isFn(nav: Nav, ip: *const InternPool) bool {
+        return switch (nav.status) {
+            .unresolved => unreachable,
+            .type_resolved => |r| {
+                const tag = ip.zigTypeTagOrPoison(r.type) catch unreachable;
+                return tag == .@"fn";
+            },
+            .fully_resolved => |r| {
+                const tag = ip.zigTypeTagOrPoison(ip.typeOf(r.val)) catch unreachable;
+                return tag == .@"fn";
+            },
+        };
+    }
+
     /// If this returns `true`, then a pointer to this `Nav` might actually be encoded as a pointer
     /// to some other `Nav` due to an extern definition or extern alias (see #21027).
     /// This query is valid on `Nav`s for whom only the type is resolved.

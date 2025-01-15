@@ -1022,7 +1022,7 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
             const comp = wasm.base.comp;
             const zcu = comp.zcu.?;
             const ip = &zcu.intern_pool;
-            if (ip.getNav(nav_ref.nav_index).isExternOrFn(ip)) {
+            if (ip.getNav(nav_ref.nav_index).isFn(ip)) {
                 assert(nav_ref.offset == 0);
                 const gop = try wasm.zcu_indirect_function_set.getOrPut(comp.gpa, nav_ref.nav_index);
                 if (!gop.found_existing) gop.value_ptr.* = {};
