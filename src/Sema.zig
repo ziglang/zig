@@ -21623,7 +21623,7 @@ fn zirReify(
             ).?);
             const sentinel_val = try Value.fromInterned(union_val.val).fieldValue(pt, struct_type.nameIndex(
                 ip,
-                try ip.getOrPutString(gpa, pt.tid, "sentinel", .no_embedded_nulls),
+                try ip.getOrPutString(gpa, pt.tid, "sentinel_ptr", .no_embedded_nulls),
             ).?);
 
             if (!try sema.intFitsInType(alignment_val, Type.u32, null)) {
@@ -21709,7 +21709,7 @@ fn zirReify(
             ).?);
             const sentinel_val = try Value.fromInterned(union_val.val).fieldValue(pt, struct_type.nameIndex(
                 ip,
-                try ip.getOrPutString(gpa, pt.tid, "sentinel", .no_embedded_nulls),
+                try ip.getOrPutString(gpa, pt.tid, "sentinel_ptr", .no_embedded_nulls),
             ).?);
 
             const len = try len_val.toUnsignedIntSema(pt);
