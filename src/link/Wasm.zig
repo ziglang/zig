@@ -1968,7 +1968,7 @@ pub const DataSegmentId = enum(u32) {
 
     pub fn isPassive(id: DataSegmentId, wasm: *const Wasm) bool {
         const comp = wasm.base.comp;
-        if (comp.config.import_memory and !id.isBss(wasm)) return true;
+        if (comp.config.import_memory) return true;
         return switch (unpack(id, wasm)) {
             .__zig_error_names,
             .__zig_error_name_table,
@@ -4614,7 +4614,10 @@ fn lowerZcuData(wasm: *Wasm, pt: Zcu.PerThread, ip_index: InternPool.Index) !Zcu
             .off = .none,
             .len = naive_code.len,
         };
-    } else naive_code;
+    } else c: {
+        wasm.any_passive_inits = wasm.any_passive_inits or wasm.base.comp.config.import_memory;
+        break :c naive_code;
+    };
 
     return .{
         .code = code,

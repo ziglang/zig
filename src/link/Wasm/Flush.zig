@@ -282,6 +282,8 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     // function.
     if (wasm.any_passive_inits) {
         wasm.functions.putAssumeCapacity(.__wasm_init_memory, {});
+        const empty = try wasm.internValtypeList(&.{});
+        _ = try wasm.addFuncType(.{ .params = empty, .returns = empty });
     }
 
     // When we have TLS GOT entries and shared memory is enabled,
@@ -711,9 +713,10 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     }
 
     // start section
-    if (Wasm.OutputFunctionIndex.fromResolution(wasm, wasm.entry_resolution)) |func_index| {
-        const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
-        replaceVecSectionHeader(binary_bytes, header_offset, .start, @intFromEnum(func_index));
+    if (wasm.functions.getIndex(.__wasm_init_memory)) |func_index| {
+        try emitStartSection(gpa, binary_bytes, .fromFunctionIndex(wasm, @enumFromInt(func_index)));
+    } else if (Wasm.OutputFunctionIndex.fromResolution(wasm, wasm.entry_resolution)) |func_index| {
+        try emitStartSection(gpa, binary_bytes, func_index);
     }
 
     // element section
@@ -846,10 +849,10 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 group_end_addr = f.data_segment_groups.items[group_index].end_addr;
                 segment_offset = 0;
             }
-            const flags: Object.DataSegmentFlags = if (segment_id.isPassive(wasm)) .passive else .active;
             if (segment_offset == 0) {
                 const group_size = group_end_addr - group_start_addr;
                 log.debug("emit data section group, {d} bytes", .{group_size});
+                const flags: Object.DataSegmentFlags = if (segment_id.isPassive(wasm)) .passive else .active;
                 try leb.writeUleb128(binary_writer, @intFromEnum(flags));
                 // Passive segments are initialized at runtime.
                 if (flags != .passive) {
@@ -857,7 +860,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 }
                 try leb.writeUleb128(binary_writer, group_size);
             }
-            if (flags == .passive or segment_id.isEmpty(wasm)) {
+            if (segment_id.isEmpty(wasm)) {
                 // It counted for virtual memory but it does not go into the binary.
                 continue;
             }
@@ -1898,6 +1901,11 @@ fn emitInitMemoryFunction(
 
     // End of the function body
     binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.end));
+}
+
+fn emitStartSection(gpa: Allocator, bytes: *std.ArrayListUnmanaged(u8), i: Wasm.OutputFunctionIndex) !void {
+    const header_offset = try reserveVecSectionHeader(gpa, bytes);
+    replaceVecSectionHeader(bytes, header_offset, .start, @intFromEnum(i));
 }
 
 fn emitTagNameFunction(
