@@ -710,7 +710,15 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         }
         exports_len += wasm.function_exports.entries.len;
 
-        // No table exports.
+        if (wasm.export_table and f.indirect_function_table.entries.len > 0) {
+            const name = "__indirect_function_table";
+            const index: u32 = @intCast(wasm.tables.getIndex(.__indirect_function_table).?);
+            try leb.writeUleb128(binary_writer, @as(u32, @intCast(name.len)));
+            try binary_bytes.appendSlice(gpa, name);
+            try binary_bytes.append(gpa, @intFromEnum(std.wasm.ExternalKind.table));
+            try leb.writeUleb128(binary_writer, index);
+            exports_len += 1;
+        }
 
         if (export_memory) {
             const name = "memory";
