@@ -297,6 +297,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         // also notices threadlocal globals from Zcu code.
         if (wasm.any_tls_relocs) try wasm.addFunction(.__wasm_apply_global_tls_relocs, &.{}, &.{});
         try wasm.addFunction(.__wasm_init_tls, &.{.i32}, &.{});
+        try wasm.globals.put(gpa, .__tls_base, {});
     }
 
     try wasm.tables.ensureUnusedCapacity(gpa, 1);
@@ -642,7 +643,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         section_index += 1;
     }
 
-    // Global section (used to emit stack pointer)
+    // Global section.
     const globals_len: u32 = @intCast(wasm.globals.entries.len);
     if (globals_len > 0) {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
@@ -653,9 +654,9 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 .__heap_base => try appendGlobal(gpa, binary_bytes, 0, virtual_addrs.heap_base),
                 .__heap_end => try appendGlobal(gpa, binary_bytes, 0, virtual_addrs.heap_end),
                 .__stack_pointer => try appendGlobal(gpa, binary_bytes, 1, virtual_addrs.stack_pointer),
-                .__tls_align => @panic("TODO"),
-                .__tls_base => @panic("TODO"),
-                .__tls_size => @panic("TODO"),
+                .__tls_align => try appendGlobal(gpa, binary_bytes, 0, @intCast(virtual_addrs.tls_align.toByteUnits().?)),
+                .__tls_base => try appendGlobal(gpa, binary_bytes, 1, virtual_addrs.tls_base.?),
+                .__tls_size => try appendGlobal(gpa, binary_bytes, 0, virtual_addrs.tls_size.?),
                 .object_global => |i| {
                     const global = i.ptr(wasm);
                     try binary_bytes.appendSlice(gpa, &.{
@@ -664,8 +665,8 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                     });
                     try emitExpr(wasm, binary_bytes, global.expr);
                 },
-                .nav_exe => @panic("TODO"),
-                .nav_obj => @panic("TODO"),
+                .nav_exe => unreachable, // Zig source code currently cannot represent this.
+                .nav_obj => unreachable, // Zig source code currently cannot represent this.
             }
         }
 
@@ -772,7 +773,11 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 defer replaceSize(binary_bytes, code_start);
                 try emitInitMemoryFunction(wasm, binary_bytes, &virtual_addrs);
             },
-            .__wasm_init_tls => @panic("TODO lower __wasm_init_tls "),
+            .__wasm_init_tls => {
+                const code_start = try reserveSize(gpa, binary_bytes);
+                defer replaceSize(binary_bytes, code_start);
+                try emitInitTlsFunction(wasm, binary_bytes);
+            },
             .object_function => |i| {
                 const ptr = i.ptr(wasm);
                 const code = ptr.code.slice(wasm);
@@ -1905,6 +1910,67 @@ fn emitInitMemoryFunction(
 
     // End of the function body
     binary_bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.end));
+}
+
+fn emitInitTlsFunction(wasm: *const Wasm, bytes: *std.ArrayListUnmanaged(u8)) Allocator.Error!void {
+    const comp = wasm.base.comp;
+    const gpa = comp.gpa;
+
+    assert(comp.config.shared_memory);
+
+    try bytes.ensureUnusedCapacity(gpa, 5 * 10 + 8);
+
+    appendReservedUleb32(bytes, 0); // no locals
+
+    // If there's a TLS segment, initialize it during runtime using the bulk-memory feature
+    // TLS segment is always the first one due to how we sort the data segments.
+    const data_segments = wasm.flush_buffer.data_segments.keys();
+    if (data_segments.len > 0 and data_segments[0].isTls(wasm)) {
+        const start_addr = wasm.flush_buffer.data_segments.values()[0];
+        const end_addr = wasm.flush_buffer.data_segment_groups.items[0].end_addr;
+        const group_size = end_addr - start_addr;
+        const data_segment_index = 0;
+
+        const param_local: u32 = 0;
+
+        bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_get));
+        appendReservedUleb32(bytes, param_local);
+
+        const tls_base_global_index: Wasm.GlobalIndex = @enumFromInt(wasm.globals.getIndex(.__tls_base).?);
+        bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_set));
+        appendReservedUleb32(bytes, @intFromEnum(tls_base_global_index));
+
+        // load stack values for the bulk-memory operation
+        {
+            bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_get));
+            appendReservedUleb32(bytes, param_local);
+
+            bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
+            appendReservedUleb32(bytes, 0); //segment offset
+
+            bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
+            appendReservedUleb32(bytes, group_size); //segment offset
+        }
+
+        // perform the bulk-memory operation to initialize the data segment
+        bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.misc_prefix));
+        appendReservedUleb32(bytes, @intFromEnum(std.wasm.MiscOpcode.memory_init));
+        // segment immediate
+        appendReservedUleb32(bytes, data_segment_index);
+        // memory index immediate (always 0)
+        appendReservedUleb32(bytes, 0);
+    }
+
+    // If we have to perform any TLS relocations, call the corresponding function
+    // which performs all runtime TLS relocations. This is a synthetic function,
+    // generated by the linker.
+    if (wasm.functions.getIndex(.__wasm_apply_global_tls_relocs)) |function_index| {
+        const output_function_index: Wasm.OutputFunctionIndex = .fromFunctionIndex(wasm, @enumFromInt(function_index));
+        bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.call));
+        appendReservedUleb32(bytes, @intFromEnum(output_function_index));
+    }
+
+    bytes.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.end));
 }
 
 fn emitStartSection(gpa: Allocator, bytes: *std.ArrayListUnmanaged(u8), i: Wasm.OutputFunctionIndex) !void {
