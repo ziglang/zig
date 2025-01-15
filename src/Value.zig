@@ -4641,10 +4641,7 @@ pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMe
                     @field(result, field.name) = if (struct_obj.nameIndex(ip, field_name_ip)) |field_idx| f: {
                         const field_val = try val.fieldValue(pt, field_idx);
                         break :f try field_val.interpret(field.type, pt);
-                    } else if (field.default_value) |ptr| f: {
-                        const typed_ptr: *const field.type = @ptrCast(@alignCast(ptr));
-                        break :f typed_ptr.*;
-                    } else return error.TypeMismatch;
+                    } else (field.defaultValue() orelse return error.TypeMismatch);
                 }
                 return result;
             },

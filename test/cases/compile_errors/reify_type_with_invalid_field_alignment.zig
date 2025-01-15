@@ -17,7 +17,7 @@ comptime {
             .fields = &.{.{
                 .name = "0",
                 .type = u32,
-                .default_value = null,
+                .default_value_ptr = null,
                 .is_comptime = true,
                 .alignment = 5,
             }},
@@ -36,7 +36,7 @@ comptime {
             .address_space = .generic,
             .child = u8,
             .is_allowzero = false,
-            .sentinel = null,
+            .sentinel_ptr = null,
         },
     });
 }

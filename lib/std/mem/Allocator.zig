@@ -307,7 +307,7 @@ pub fn reallocAdvanced(
 pub fn free(self: Allocator, memory: anytype) void {
     const Slice = @typeInfo(@TypeOf(memory)).pointer;
     const bytes = mem.sliceAsBytes(memory);
-    const bytes_len = bytes.len + if (Slice.sentinel != null) @sizeOf(Slice.child) else 0;
+    const bytes_len = bytes.len + if (Slice.sentinel() != null) @sizeOf(Slice.child) else 0;
     if (bytes_len == 0) return;
     const non_const_ptr = @constCast(bytes.ptr);
     // TODO: https://github.com/ziglang/zig/issues/4298

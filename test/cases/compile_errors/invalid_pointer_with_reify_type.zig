@@ -7,7 +7,7 @@ export fn entry() void {
         .address_space = .generic,
         .child = u8,
         .is_allowzero = false,
-        .sentinel = &@as(u8, 0),
+        .sentinel_ptr = &@as(u8, 0),
     } });
 }
 

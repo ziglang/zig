@@ -633,7 +633,7 @@ pub fn formatType(
             .many, .c => {
                 if (actual_fmt.len == 0)
                     @compileError("cannot format pointer without a specifier (i.e. {s} or {*})");
-                if (ptr_info.sentinel) |_| {
+                if (ptr_info.sentinel() != null) {
                     return formatType(mem.span(value), actual_fmt, options, writer, max_depth);
                 }
                 if (actual_fmt[0] == 's' and ptr_info.child == u8) {
