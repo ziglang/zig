@@ -1,7 +1,5 @@
 const std = @import("std");
 
-pub const requires_stage2 = true;
-
 pub fn build(b: *std.Build) void {
     // Wasm Object file which we will use to infer the features from
     const c_obj = b.addObject(.{

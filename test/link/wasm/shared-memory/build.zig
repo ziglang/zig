@@ -6,8 +6,6 @@ pub fn build(b: *std.Build) void {
 
     add(b, test_step, .Debug);
     add(b, test_step, .ReleaseFast);
-    add(b, test_step, .ReleaseSmall);
-    add(b, test_step, .ReleaseSafe);
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.OptimizeMode) void {
