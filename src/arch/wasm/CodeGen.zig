@@ -675,12 +675,10 @@ fn buildOpcode(args: OpcodeBuildArguments) std.wasm.Opcode {
 test "Wasm - buildOpcode" {
     // Make sure buildOpcode is referenced, and test some examples
     const i32_const = buildOpcode(.{ .op = .@"const", .valtype1 = .i32 });
-    const end = buildOpcode(.{ .op = .end });
     const i64_extend32_s = buildOpcode(.{ .op = .extend, .valtype1 = .i64, .width = 32, .signedness = .signed });
     const f64_reinterpret_i64 = buildOpcode(.{ .op = .reinterpret, .valtype1 = .f64, .valtype2 = .i64 });
 
     try testing.expectEqual(@as(std.wasm.Opcode, .i32_const), i32_const);
-    try testing.expectEqual(@as(std.wasm.Opcode, .end), end);
     try testing.expectEqual(@as(std.wasm.Opcode, .i64_extend32_s), i64_extend32_s);
     try testing.expectEqual(@as(std.wasm.Opcode, .f64_reinterpret_i64), f64_reinterpret_i64);
 }
