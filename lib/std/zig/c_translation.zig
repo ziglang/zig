@@ -180,10 +180,7 @@ pub fn sizeof(target: anytype) usize {
             // specially handled here.
             if (ptr.size == .One and ptr.is_const and @typeInfo(ptr.child) == .array) {
                 const array_info = @typeInfo(ptr.child).array;
-                if ((array_info.child == u8 or array_info.child == u16) and
-                    array_info.sentinel != null and
-                    @as(*align(1) const array_info.child, @ptrCast(array_info.sentinel.?)).* == 0)
-                {
+                if ((array_info.child == u8 or array_info.child == u16) and array_info.sentinel() == 0) {
                     // length of the string plus one for the null terminator.
                     return (array_info.len + 1) * @sizeOf(array_info.child);
                 }
@@ -348,7 +345,7 @@ pub fn FlexibleArrayType(comptime SelfType: type, comptime ElementType: type) ty
                 .address_space = .generic,
                 .child = ElementType,
                 .is_allowzero = true,
-                .sentinel = null,
+                .sentinel_ptr = null,
             } });
         },
         else => |info| @compileError("Invalid self type \"" ++ @tagName(info) ++ "\" for flexible array getter: " ++ @typeName(SelfType)),

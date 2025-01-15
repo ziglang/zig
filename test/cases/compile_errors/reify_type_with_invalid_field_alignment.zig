@@ -36,7 +36,7 @@ comptime {
             .address_space = .generic,
             .child = u8,
             .is_allowzero = false,
-            .sentinel = null,
+            .sentinel_ptr = null,
         },
     });
 }

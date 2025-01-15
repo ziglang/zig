@@ -1134,7 +1134,7 @@ const Local = struct {
                     for (&new_fields, elem_fields) |*new_field, elem_field| new_field.* = .{
                         .name = elem_field.name,
                         .type = *[len]elem_field.type,
-                        .default_value = null,
+                        .default_value_ptr = null,
                         .is_comptime = false,
                         .alignment = 0,
                     };
@@ -1162,9 +1162,9 @@ const Local = struct {
                             .address_space = .generic,
                             .child = elem_field.type,
                             .is_allowzero = false,
-                            .sentinel = null,
+                            .sentinel_ptr = null,
                         } }),
-                        .default_value = null,
+                        .default_value_ptr = null,
                         .is_comptime = false,
                         .alignment = 0,
                     };

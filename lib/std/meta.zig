@@ -132,21 +132,12 @@ test Elem {
 /// Result is always comptime-known.
 pub inline fn sentinel(comptime T: type) ?Elem(T) {
     switch (@typeInfo(T)) {
-        .array => |info| {
-            const sentinel_ptr = info.sentinel orelse return null;
-            return @as(*const info.child, @ptrCast(sentinel_ptr)).*;
-        },
+        .array => |info| return info.sentinel(),
         .pointer => |info| {
             switch (info.size) {
-                .Many, .Slice => {
-                    const sentinel_ptr = info.sentinel orelse return null;
-                    return @as(*align(1) const info.child, @ptrCast(sentinel_ptr)).*;
-                },
+                .Many, .Slice => return info.sentinel(),
                 .One => switch (@typeInfo(info.child)) {
-                    .array => |array_info| {
-                        const sentinel_ptr = array_info.sentinel orelse return null;
-                        return @as(*align(1) const array_info.child, @ptrCast(sentinel_ptr)).*;
-                    },
+                    .array => |array_info| return array_info.sentinel(),
                     else => {},
                 },
                 else => {},
@@ -190,11 +181,11 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
                             .array = .{
                                 .len = array_info.len,
                                 .child = array_info.child,
-                                .sentinel = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
+                                .sentinel_ptr = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
                             },
                         }),
                         .is_allowzero = info.is_allowzero,
-                        .sentinel = info.sentinel,
+                        .sentinel_ptr = info.sentinel_ptr,
                     },
                 }),
                 else => {},
@@ -208,7 +199,7 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
                     .address_space = info.address_space,
                     .child = info.child,
                     .is_allowzero = info.is_allowzero,
-                    .sentinel = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
+                    .sentinel_ptr = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
                 },
             }),
             else => {},
@@ -226,7 +217,7 @@ pub fn Sentinel(comptime T: type, comptime sentinel_val: Elem(T)) type {
                                 .address_space = ptr_info.address_space,
                                 .child = ptr_info.child,
                                 .is_allowzero = ptr_info.is_allowzero,
-                                .sentinel = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
+                                .sentinel_ptr = @as(?*const anyopaque, @ptrCast(&sentinel_val)),
                             },
                         }),
                     },
@@ -1018,7 +1009,7 @@ fn CreateUniqueTuple(comptime N: comptime_int, comptime types: [N]type) type {
         tuple_fields[i] = .{
             .name = std.fmt.bufPrintZ(&num_buf, "{d}", .{i}) catch unreachable,
             .type = T,
-            .default_value = null,
+            .default_value_ptr = null,
             .is_comptime = false,
             .alignment = 0,
         };

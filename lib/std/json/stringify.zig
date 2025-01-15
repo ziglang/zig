@@ -642,7 +642,7 @@ pub fn WriteStream(
                         },
                     },
                     .Many, .Slice => {
-                        if (ptr_info.size == .Many and ptr_info.sentinel == null)
+                        if (ptr_info.size == .Many and ptr_info.sentinel() == null)
                             @compileError("unable to stringify type '" ++ @typeName(T) ++ "' without sentinel");
                         const slice = if (ptr_info.size == .Many) std.mem.span(value) else value;
 

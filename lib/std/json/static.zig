@@ -476,9 +476,8 @@ pub fn innerParse(
                                 arraylist.appendAssumeCapacity(try innerParse(ptrInfo.child, allocator, source, options));
                             }
 
-                            if (ptrInfo.sentinel) |some| {
-                                const sentinel_value = @as(*align(1) const ptrInfo.child, @ptrCast(some)).*;
-                                return try arraylist.toOwnedSliceSentinel(sentinel_value);
+                            if (ptrInfo.sentinel()) |s| {
+                                return try arraylist.toOwnedSliceSentinel(s);
                             }
 
                             return try arraylist.toOwnedSlice();
@@ -487,11 +486,11 @@ pub fn innerParse(
                             if (ptrInfo.child != u8) return error.UnexpectedToken;
 
                             // Dynamic length string.
-                            if (ptrInfo.sentinel) |sentinel_ptr| {
+                            if (ptrInfo.sentinel()) |s| {
                                 // Use our own array list so we can append the sentinel.
                                 var value_list = ArrayList(u8).init(allocator);
                                 _ = try source.allocNextIntoArrayList(&value_list, .alloc_always);
-                                return try value_list.toOwnedSliceSentinel(@as(*const u8, @ptrCast(sentinel_ptr)).*);
+                                return try value_list.toOwnedSliceSentinel(s);
                             }
                             if (ptrInfo.is_const) {
                                 switch (try source.nextAllocMax(allocator, options.allocate.?, options.max_value_len.?)) {
@@ -714,8 +713,8 @@ pub fn innerParseFromValue(
                 .Slice => {
                     switch (source) {
                         .array => |array| {
-                            const r = if (ptrInfo.sentinel) |sentinel_ptr|
-                                try allocator.allocSentinel(ptrInfo.child, array.items.len, @as(*align(1) const ptrInfo.child, @ptrCast(sentinel_ptr)).*)
+                            const r = if (ptrInfo.sentinel()) |sentinel|
+                                try allocator.allocSentinel(ptrInfo.child, array.items.len, sentinel)
                             else
                                 try allocator.alloc(ptrInfo.child, array.items.len);
 
@@ -729,8 +728,8 @@ pub fn innerParseFromValue(
                             if (ptrInfo.child != u8) return error.UnexpectedToken;
                             // Dynamic length string.
 
-                            const r = if (ptrInfo.sentinel) |sentinel_ptr|
-                                try allocator.allocSentinel(ptrInfo.child, s.len, @as(*align(1) const ptrInfo.child, @ptrCast(sentinel_ptr)).*)
+                            const r = if (ptrInfo.sentinel()) |sentinel|
+                                try allocator.allocSentinel(ptrInfo.child, s.len, sentinel)
                             else
                                 try allocator.alloc(ptrInfo.child, s.len);
                             @memcpy(r[0..], s);
@@ -787,8 +786,7 @@ fn sliceToEnum(comptime T: type, slice: []const u8) !T {
 fn fillDefaultStructValues(comptime T: type, r: *T, fields_seen: *[@typeInfo(T).@"struct".fields.len]bool) !void {
     inline for (@typeInfo(T).@"struct".fields, 0..) |field, i| {
         if (!fields_seen[i]) {
-            if (field.default_value) |default_ptr| {
-                const default = @as(*align(1) const field.type, @ptrCast(default_ptr)).*;
+            if (field.defaultValue()) |default| {
                 @field(r, field.name) = default;
             } else {
                 return error.MissingField;

@@ -12,18 +12,18 @@ comptime {
 }
 
 comptime {
-    _ = @Type(.{ .array = .{ .child = S, .len = 0, .sentinel = &sentinel } });
+    _ = @Type(.{ .array = .{ .child = S, .len = 0, .sentinel_ptr = &sentinel } });
 }
 comptime {
     _ = @Type(.{ .pointer = .{
-        .size = .Many,
+        .size = .Slice,
         .is_const = false,
         .is_volatile = false,
         .alignment = @alignOf(S),
         .address_space = .generic,
         .child = S,
         .is_allowzero = false,
-        .sentinel = &sentinel,
+        .sentinel_ptr = &sentinel,
     } });
 }
 comptime {
@@ -35,7 +35,7 @@ comptime {
         .address_space = .generic,
         .child = S,
         .is_allowzero = false,
-        .sentinel = &sentinel,
+        .sentinel_ptr = &sentinel,
     } });
 }
 

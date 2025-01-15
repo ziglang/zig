@@ -318,9 +318,7 @@ fn printStruct(options: *Options, out: anytype, comptime T: type, comptime val: 
             try out.print("    {p_}: {s}", .{ std.zig.fmtId(field.name), type_name });
         }
 
-        if (field.default_value != null) {
-            const default_value = @as(*field.type, @ptrCast(@alignCast(@constCast(field.default_value.?)))).*;
-
+        if (field.defaultValue()) |default_value| {
             try out.writeAll(" = ");
             switch (@typeInfo(@TypeOf(default_value))) {
                 .@"enum" => try out.print(".{s},\n", .{@tagName(default_value)}),
