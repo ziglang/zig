@@ -3420,7 +3420,7 @@ pub fn prelink(wasm: *Wasm, prog_node: std.Progress.Node) link.File.FlushError!v
     for (wasm.object_init_funcs.items) |init_func| {
         const func = init_func.function_index.ptr(wasm);
         if (func.object_index.ptr(wasm).is_included) {
-            try markFunction(wasm, init_func.function_index);
+            try markFunction(wasm, init_func.function_index, false);
         }
     }
     wasm.functions_end_prelink = @intCast(wasm.functions.entries.len);
@@ -3484,12 +3484,12 @@ pub fn markFunctionImport(
             try wasm.function_imports.put(gpa, name, .fromObject(func_index, wasm));
         }
     } else {
-        try markFunction(wasm, import.resolution.unpack(wasm).object_function);
+        try markFunction(wasm, import.resolution.unpack(wasm).object_function, import.flags.exported);
     }
 }
 
 /// Recursively mark alive everything referenced by the function.
-fn markFunction(wasm: *Wasm, i: ObjectFunctionIndex) link.File.FlushError!void {
+fn markFunction(wasm: *Wasm, i: ObjectFunctionIndex, override_export: bool) link.File.FlushError!void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const gop = try wasm.functions.getOrPut(gpa, .fromObjectFunction(wasm, i));
@@ -3500,7 +3500,7 @@ fn markFunction(wasm: *Wasm, i: ObjectFunctionIndex) link.File.FlushError!void {
     const function = i.ptr(wasm);
     markObject(wasm, function.object_index);
 
-    if (!is_obj and function.flags.isExported(rdynamic)) {
+    if (!is_obj and (override_export or function.flags.isExported(rdynamic))) {
         const symbol_name = function.name.unwrap().?;
         if (function.flags.visibility_hidden) {
             try wasm.hidden_function_exports.put(gpa, symbol_name, @enumFromInt(gop.index));
@@ -3554,11 +3554,11 @@ fn markGlobalImport(
             try wasm.global_imports.put(gpa, name, .fromObject(global_index, wasm));
         }
     } else {
-        try markGlobal(wasm, import.resolution.unpack(wasm).object_global);
+        try markGlobal(wasm, import.resolution.unpack(wasm).object_global, import.flags.exported);
     }
 }
 
-fn markGlobal(wasm: *Wasm, i: ObjectGlobalIndex) link.File.FlushError!void {
+fn markGlobal(wasm: *Wasm, i: ObjectGlobalIndex, override_export: bool) link.File.FlushError!void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const gop = try wasm.globals.getOrPut(gpa, .fromObjectGlobal(wasm, i));
@@ -3568,7 +3568,7 @@ fn markGlobal(wasm: *Wasm, i: ObjectGlobalIndex) link.File.FlushError!void {
     const is_obj = comp.config.output_mode == .Obj;
     const global = i.ptr(wasm);
 
-    if (!is_obj and global.flags.isExported(rdynamic)) try wasm.global_exports.append(gpa, .{
+    if (!is_obj and (override_export or global.flags.isExported(rdynamic))) try wasm.global_exports.append(gpa, .{
         .name = global.name.unwrap().?,
         .global_index = @enumFromInt(gop.index),
     });
@@ -3700,7 +3700,7 @@ fn markRelocations(wasm: *Wasm, relocs: ObjectRelocation.IterableSlice) link.Fil
             .function_index_i32,
             .function_offset_i32,
             .function_offset_i64,
-            => try markFunction(wasm, pointee.function.chaseWeak(wasm)),
+            => try markFunction(wasm, pointee.function.chaseWeak(wasm), false),
             .table_index_sleb,
             .table_index_i32,
             .table_index_sleb64,
@@ -3710,11 +3710,11 @@ fn markRelocations(wasm: *Wasm, relocs: ObjectRelocation.IterableSlice) link.Fil
             => {
                 const function = pointee.function;
                 try wasm.object_indirect_function_set.put(gpa, function, {});
-                try markFunction(wasm, function.chaseWeak(wasm));
+                try markFunction(wasm, function.chaseWeak(wasm), false);
             },
             .global_index_leb,
             .global_index_i32,
-            => try markGlobal(wasm, pointee.global.chaseWeak(wasm)),
+            => try markGlobal(wasm, pointee.global.chaseWeak(wasm), false),
             .table_number_leb,
             => try markTable(wasm, pointee.table.chaseWeak(wasm)),
 
