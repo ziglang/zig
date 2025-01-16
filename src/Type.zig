@@ -441,7 +441,7 @@ pub fn toValue(self: Type) Value {
 
 const RuntimeBitsError = SemaError || error{NeedLazy};
 
-pub fn hasRuntimeBits(ty: Type, zcu: *Zcu) bool {
+pub fn hasRuntimeBits(ty: Type, zcu: *const Zcu) bool {
     return hasRuntimeBitsInner(ty, false, .eager, zcu, {}) catch unreachable;
 }
 
@@ -452,7 +452,7 @@ pub fn hasRuntimeBitsSema(ty: Type, pt: Zcu.PerThread) SemaError!bool {
     };
 }
 
-pub fn hasRuntimeBitsIgnoreComptime(ty: Type, zcu: *Zcu) bool {
+pub fn hasRuntimeBitsIgnoreComptime(ty: Type, zcu: *const Zcu) bool {
     return hasRuntimeBitsInner(ty, true, .eager, zcu, {}) catch unreachable;
 }
 
@@ -471,7 +471,7 @@ pub fn hasRuntimeBitsInner(
     ty: Type,
     ignore_comptime_only: bool,
     comptime strat: ResolveStratLazy,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) RuntimeBitsError!bool {
     const ip = &zcu.intern_pool;
@@ -560,7 +560,7 @@ pub fn hasRuntimeBitsInner(
             },
             .struct_type => {
                 const struct_type = ip.loadStructType(ty.toIntern());
-                if (struct_type.assumeRuntimeBitsIfFieldTypesWip(ip)) {
+                if (strat != .eager and struct_type.assumeRuntimeBitsIfFieldTypesWip(ip)) {
                     // In this case, we guess that hasRuntimeBits() for this type is true,
                     // and then later if our guess was incorrect, we emit a compile error.
                     return true;
@@ -596,7 +596,7 @@ pub fn hasRuntimeBitsInner(
                 const union_type = ip.loadUnionType(ty.toIntern());
                 const union_flags = union_type.flagsUnordered(ip);
                 switch (union_flags.runtime_tag) {
-                    .none => {
+                    .none => if (strat != .eager) {
                         // In this case, we guess that hasRuntimeBits() for this type is true,
                         // and then later if our guess was incorrect, we emit a compile error.
                         if (union_type.assumeRuntimeBitsIfFieldTypesWip(ip)) return true;
@@ -774,7 +774,7 @@ pub fn fnHasRuntimeBitsSema(ty: Type, pt: Zcu.PerThread) SemaError!bool {
 pub fn fnHasRuntimeBitsInner(
     ty: Type,
     comptime strat: ResolveStrat,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!bool {
     const fn_info = zcu.typeToFunc(ty).?;
@@ -815,7 +815,7 @@ pub fn ptrAlignmentSema(ty: Type, pt: Zcu.PerThread) SemaError!Alignment {
 pub fn ptrAlignmentInner(
     ty: Type,
     comptime strat: ResolveStrat,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) !Alignment {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
@@ -868,14 +868,25 @@ pub const ResolveStratLazy = enum {
     /// This should typically be used from semantic analysis.
     sema,
 
-    pub fn Tid(comptime strat: ResolveStratLazy) type {
+    pub fn Tid(strat: ResolveStratLazy) type {
         return switch (strat) {
             .lazy, .sema => Zcu.PerThread.Id,
             .eager => void,
         };
     }
 
-    pub fn pt(comptime strat: ResolveStratLazy, zcu: *Zcu, tid: strat.Tid()) switch (strat) {
+    pub fn ZcuPtr(strat: ResolveStratLazy) type {
+        return switch (strat) {
+            .eager => *const Zcu,
+            .sema, .lazy => *Zcu,
+        };
+    }
+
+    pub fn pt(
+        comptime strat: ResolveStratLazy,
+        zcu: strat.ZcuPtr(),
+        tid: strat.Tid(),
+    ) switch (strat) {
         .lazy, .sema => Zcu.PerThread,
         .eager => void,
     } {
@@ -896,14 +907,21 @@ pub const ResolveStrat = enum {
     /// This should typically be used from semantic analysis.
     sema,
 
-    pub fn Tid(comptime strat: ResolveStrat) type {
+    pub fn Tid(strat: ResolveStrat) type {
         return switch (strat) {
             .sema => Zcu.PerThread.Id,
             .normal => void,
         };
     }
 
-    pub fn pt(comptime strat: ResolveStrat, zcu: *Zcu, tid: strat.Tid()) switch (strat) {
+    pub fn ZcuPtr(strat: ResolveStrat) type {
+        return switch (strat) {
+            .normal => *const Zcu,
+            .sema => *Zcu,
+        };
+    }
+
+    pub fn pt(comptime strat: ResolveStrat, zcu: strat.ZcuPtr(), tid: strat.Tid()) switch (strat) {
         .sema => Zcu.PerThread,
         .normal => void,
     } {
@@ -922,7 +940,7 @@ pub const ResolveStrat = enum {
 };
 
 /// Never returns `none`. Asserts that all necessary type resolution is already done.
-pub fn abiAlignment(ty: Type, zcu: *Zcu) Alignment {
+pub fn abiAlignment(ty: Type, zcu: *const Zcu) Alignment {
     return (ty.abiAlignmentInner(.eager, zcu, {}) catch unreachable).scalar;
 }
 
@@ -939,7 +957,7 @@ pub fn abiAlignmentSema(ty: Type, pt: Zcu.PerThread) SemaError!Alignment {
 pub fn abiAlignmentInner(
     ty: Type,
     comptime strat: ResolveStratLazy,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!AbiAlignmentInner {
     const pt = strat.pt(zcu, tid);
@@ -1156,7 +1174,7 @@ pub fn abiAlignmentInner(
 fn abiAlignmentInnerErrorUnion(
     ty: Type,
     comptime strat: ResolveStratLazy,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
     payload_ty: Type,
 ) SemaError!AbiAlignmentInner {
@@ -1198,7 +1216,7 @@ fn abiAlignmentInnerErrorUnion(
 fn abiAlignmentInnerOptional(
     ty: Type,
     comptime strat: ResolveStratLazy,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!AbiAlignmentInner {
     const pt = strat.pt(zcu, tid);
@@ -1244,7 +1262,7 @@ const AbiSizeInner = union(enum) {
 
 /// Asserts the type has the ABI size already resolved.
 /// Types that return false for hasRuntimeBits() return 0.
-pub fn abiSize(ty: Type, zcu: *Zcu) u64 {
+pub fn abiSize(ty: Type, zcu: *const Zcu) u64 {
     return (abiSizeInner(ty, .eager, zcu, {}) catch unreachable).scalar;
 }
 
@@ -1269,7 +1287,7 @@ pub fn abiSizeSema(ty: Type, pt: Zcu.PerThread) SemaError!u64 {
 pub fn abiSizeInner(
     ty: Type,
     comptime strat: ResolveStratLazy,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!AbiSizeInner {
     const target = zcu.getTarget();
@@ -1542,7 +1560,7 @@ pub fn abiSizeInner(
 fn abiSizeInnerOptional(
     ty: Type,
     comptime strat: ResolveStratLazy,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!AbiSizeInner {
     const child_ty = ty.optionalChild(zcu);
@@ -1701,7 +1719,7 @@ pub fn maxIntAlignment(target: std.Target, use_llvm: bool) u16 {
     };
 }
 
-pub fn bitSize(ty: Type, zcu: *Zcu) u64 {
+pub fn bitSize(ty: Type, zcu: *const Zcu) u64 {
     return bitSizeInner(ty, .normal, zcu, {}) catch unreachable;
 }
 
@@ -1712,7 +1730,7 @@ pub fn bitSizeSema(ty: Type, pt: Zcu.PerThread) SemaError!u64 {
 pub fn bitSizeInner(
     ty: Type,
     comptime strat: ResolveStrat,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!u64 {
     const target = zcu.getTarget();
@@ -2148,7 +2166,7 @@ pub fn unionBackingType(ty: Type, pt: Zcu.PerThread) !Type {
     };
 }
 
-pub fn unionGetLayout(ty: Type, zcu: *Zcu) Zcu.UnionLayout {
+pub fn unionGetLayout(ty: Type, zcu: *const Zcu) Zcu.UnionLayout {
     const union_obj = zcu.intern_pool.loadUnionType(ty.toIntern());
     return Type.getUnionLayout(union_obj, zcu);
 }
@@ -2746,7 +2764,7 @@ pub fn onePossibleValue(starting_type: Type, pt: Zcu.PerThread) !?Value {
 
 /// During semantic analysis, instead call `ty.comptimeOnlySema` which
 /// resolves field types rather than asserting they are already resolved.
-pub fn comptimeOnly(ty: Type, zcu: *Zcu) bool {
+pub fn comptimeOnly(ty: Type, zcu: *const Zcu) bool {
     return ty.comptimeOnlyInner(.normal, zcu, {}) catch unreachable;
 }
 
@@ -2759,7 +2777,7 @@ pub fn comptimeOnlySema(ty: Type, pt: Zcu.PerThread) SemaError!bool {
 pub fn comptimeOnlyInner(
     ty: Type,
     comptime strat: ResolveStrat,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!bool {
     const ip = &zcu.intern_pool;
@@ -2834,40 +2852,44 @@ pub fn comptimeOnlyInner(
                 if (struct_type.layout == .@"packed")
                     return false;
 
-                // A struct with no fields is not comptime-only.
-                return switch (struct_type.setRequiresComptimeWip(ip)) {
-                    .no, .wip => false,
-                    .yes => true,
-                    .unknown => {
-                        // Inlined `assert` so that the resolution calls below are not statically reachable.
-                        if (strat != .sema) unreachable;
-
-                        if (struct_type.flagsUnordered(ip).field_types_wip) {
-                            struct_type.setRequiresComptime(ip, .unknown);
-                            return false;
-                        }
-
-                        errdefer struct_type.setRequiresComptime(ip, .unknown);
-
-                        const pt = strat.pt(zcu, tid);
-                        try ty.resolveFields(pt);
-
-                        for (0..struct_type.field_types.len) |i_usize| {
-                            const i: u32 = @intCast(i_usize);
-                            if (struct_type.fieldIsComptime(ip, i)) continue;
-                            const field_ty = struct_type.field_types.get(ip)[i];
-                            if (try Type.fromInterned(field_ty).comptimeOnlyInner(strat, zcu, tid)) {
-                                // Note that this does not cause the layout to
-                                // be considered resolved. Comptime-only types
-                                // still maintain a layout of their
-                                // runtime-known fields.
-                                struct_type.setRequiresComptime(ip, .yes);
-                                return true;
+                return switch (strat) {
+                    .normal => switch (struct_type.requiresComptime(ip)) {
+                        .wip => unreachable,
+                        .no => false,
+                        .yes => true,
+                        .unknown => unreachable,
+                    },
+                    .sema => switch (struct_type.setRequiresComptimeWip(ip)) {
+                        .no, .wip => false,
+                        .yes => true,
+                        .unknown => {
+                            if (struct_type.flagsUnordered(ip).field_types_wip) {
+                                struct_type.setRequiresComptime(ip, .unknown);
+                                return false;
                             }
-                        }
 
-                        struct_type.setRequiresComptime(ip, .no);
-                        return false;
+                            errdefer struct_type.setRequiresComptime(ip, .unknown);
+
+                            const pt = strat.pt(zcu, tid);
+                            try ty.resolveFields(pt);
+
+                            for (0..struct_type.field_types.len) |i_usize| {
+                                const i: u32 = @intCast(i_usize);
+                                if (struct_type.fieldIsComptime(ip, i)) continue;
+                                const field_ty = struct_type.field_types.get(ip)[i];
+                                if (try Type.fromInterned(field_ty).comptimeOnlyInner(strat, zcu, tid)) {
+                                    // Note that this does not cause the layout to
+                                    // be considered resolved. Comptime-only types
+                                    // still maintain a layout of their
+                                    // runtime-known fields.
+                                    struct_type.setRequiresComptime(ip, .yes);
+                                    return true;
+                                }
+                            }
+
+                            struct_type.setRequiresComptime(ip, .no);
+                            return false;
+                        },
                     },
                 };
             },
@@ -2882,35 +2904,40 @@ pub fn comptimeOnlyInner(
 
             .union_type => {
                 const union_type = ip.loadUnionType(ty.toIntern());
-                switch (union_type.setRequiresComptimeWip(ip)) {
-                    .no, .wip => return false,
-                    .yes => return true,
-                    .unknown => {
-                        // Inlined `assert` so that the resolution calls below are not statically reachable.
-                        if (strat != .sema) unreachable;
-
-                        if (union_type.flagsUnordered(ip).status == .field_types_wip) {
-                            union_type.setRequiresComptime(ip, .unknown);
-                            return false;
-                        }
-
-                        errdefer union_type.setRequiresComptime(ip, .unknown);
-
-                        const pt = strat.pt(zcu, tid);
-                        try ty.resolveFields(pt);
-
-                        for (0..union_type.field_types.len) |field_idx| {
-                            const field_ty = union_type.field_types.get(ip)[field_idx];
-                            if (try Type.fromInterned(field_ty).comptimeOnlyInner(strat, zcu, tid)) {
-                                union_type.setRequiresComptime(ip, .yes);
-                                return true;
-                            }
-                        }
-
-                        union_type.setRequiresComptime(ip, .no);
-                        return false;
+                return switch (strat) {
+                    .normal => switch (union_type.requiresComptime(ip)) {
+                        .wip => unreachable,
+                        .no => false,
+                        .yes => true,
+                        .unknown => unreachable,
                     },
-                }
+                    .sema => switch (union_type.setRequiresComptimeWip(ip)) {
+                        .no, .wip => return false,
+                        .yes => return true,
+                        .unknown => {
+                            if (union_type.flagsUnordered(ip).status == .field_types_wip) {
+                                union_type.setRequiresComptime(ip, .unknown);
+                                return false;
+                            }
+
+                            errdefer union_type.setRequiresComptime(ip, .unknown);
+
+                            const pt = strat.pt(zcu, tid);
+                            try ty.resolveFields(pt);
+
+                            for (0..union_type.field_types.len) |field_idx| {
+                                const field_ty = union_type.field_types.get(ip)[field_idx];
+                                if (try Type.fromInterned(field_ty).comptimeOnlyInner(strat, zcu, tid)) {
+                                    union_type.setRequiresComptime(ip, .yes);
+                                    return true;
+                                }
+                            }
+
+                            union_type.setRequiresComptime(ip, .no);
+                            return false;
+                        },
+                    },
+                };
             },
 
             .opaque_type => false,
@@ -3207,7 +3234,7 @@ pub fn fieldAlignmentInner(
     ty: Type,
     index: usize,
     comptime strat: ResolveStrat,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!Alignment {
     const ip = &zcu.intern_pool;
@@ -3281,7 +3308,7 @@ pub fn structFieldAlignmentInner(
     explicit_alignment: Alignment,
     layout: std.builtin.Type.ContainerLayout,
     comptime strat: Type.ResolveStrat,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!Alignment {
     assert(layout != .@"packed");
@@ -3323,7 +3350,7 @@ pub fn unionFieldAlignmentInner(
     explicit_alignment: Alignment,
     layout: std.builtin.Type.ContainerLayout,
     comptime strat: Type.ResolveStrat,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!Alignment {
     assert(layout != .@"packed");
@@ -3392,11 +3419,7 @@ pub const FieldOffset = struct {
 };
 
 /// Supports structs and unions.
-pub fn structFieldOffset(
-    ty: Type,
-    index: usize,
-    zcu: *Zcu,
-) u64 {
+pub fn structFieldOffset(ty: Type, index: usize, zcu: *const Zcu) u64 {
     const ip = &zcu.intern_pool;
     switch (ip.indexToKey(ty.toIntern())) {
         .struct_type => {
@@ -3944,7 +3967,7 @@ fn resolveUnionInner(
     };
 }
 
-pub fn getUnionLayout(loaded_union: InternPool.LoadedUnionType, zcu: *Zcu) Zcu.UnionLayout {
+pub fn getUnionLayout(loaded_union: InternPool.LoadedUnionType, zcu: *const Zcu) Zcu.UnionLayout {
     const ip = &zcu.intern_pool;
     assert(loaded_union.haveLayout(ip));
     var most_aligned_field: u32 = undefined;

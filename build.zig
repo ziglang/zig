@@ -447,6 +447,7 @@ pub fn build(b: *std.Build) !void {
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
         .skip_libc = skip_libc,
+        .use_llvm = use_llvm,
         .max_rss = 1 * 1024 * 1024 * 1024,
     }));
 
@@ -462,6 +463,7 @@ pub fn build(b: *std.Build) !void {
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
         .skip_libc = skip_libc,
+        .use_llvm = use_llvm,
     }));
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
@@ -476,6 +478,7 @@ pub fn build(b: *std.Build) !void {
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
         .skip_libc = true,
+        .use_llvm = use_llvm,
         .no_builtin = true,
     }));
 
@@ -491,6 +494,7 @@ pub fn build(b: *std.Build) !void {
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
         .skip_libc = true,
+        .use_llvm = use_llvm,
         .no_builtin = true,
     }));
 
@@ -506,6 +510,7 @@ pub fn build(b: *std.Build) !void {
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
         .skip_libc = skip_libc,
+        .use_llvm = use_llvm,
         // I observed a value of 4572626944 on the M2 CI.
         .max_rss = 5029889638,
     }));

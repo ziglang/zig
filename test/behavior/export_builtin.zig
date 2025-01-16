@@ -6,6 +6,11 @@ test "exporting enum value" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
+    if (builtin.cpu.arch.isWasm()) {
+        // https://github.com/ziglang/zig/issues/4866
+        return error.SkipZigTest;
+    }
+
     const S = struct {
         const E = enum(c_int) { one, two };
         const e: E = .two;
@@ -33,6 +38,11 @@ test "exporting using namespace access" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
+    if (builtin.cpu.arch.isWasm()) {
+        // https://github.com/ziglang/zig/issues/4866
+        return error.SkipZigTest;
+    }
+
     const S = struct {
         const Inner = struct {
             const x: u32 = 5;
@@ -46,7 +56,6 @@ test "exporting using namespace access" {
 }
 
 test "exporting comptime-known value" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and
         (builtin.target.ofmt != .elf and
@@ -55,6 +64,11 @@ test "exporting comptime-known value" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    if (builtin.cpu.arch.isWasm()) {
+        // https://github.com/ziglang/zig/issues/4866
+        return error.SkipZigTest;
+    }
 
     const x: u32 = 10;
     @export(&x, .{ .name = "exporting_comptime_known_value_foo" });

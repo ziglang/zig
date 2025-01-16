@@ -1375,6 +1375,7 @@ const ModuleTestOptions = struct {
     skip_single_threaded: bool,
     skip_non_native: bool,
     skip_libc: bool,
+    use_llvm: ?bool = null,
     max_rss: usize = 0,
     no_builtin: bool = false,
     build_options: ?*std.Build.Step.Options = null,
@@ -1410,6 +1411,10 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
         if (options.skip_single_threaded and test_target.single_threaded == true)
             continue;
+
+        if (options.use_llvm) |use_llvm| {
+            if (test_target.use_llvm != use_llvm) continue;
+        }
 
         // TODO get compiler-rt tests passing for self-hosted backends.
         if ((target.cpu.arch != .x86_64 or target.ofmt != .elf) and

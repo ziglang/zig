@@ -523,7 +523,7 @@ fn reportUnhandledRelocError(self: Atom, rel: elf.Elf64_Rela, elf_file: *Elf) Re
         relocation.fmtRelocType(rel.r_type(), elf_file.getTarget().cpu.arch),
         rel.r_offset,
     });
-    try err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
+    err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
     return error.RelocFailure;
 }
 
@@ -539,7 +539,7 @@ fn reportTextRelocError(
         rel.r_offset,
         symbol.name(elf_file),
     });
-    try err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
+    err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
     return error.RelocFailure;
 }
 
@@ -555,8 +555,8 @@ fn reportPicError(
         rel.r_offset,
         symbol.name(elf_file),
     });
-    try err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
-    try err.addNote("recompile with -fPIC", .{});
+    err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
+    err.addNote("recompile with -fPIC", .{});
     return error.RelocFailure;
 }
 
@@ -572,8 +572,8 @@ fn reportNoPicError(
         rel.r_offset,
         symbol.name(elf_file),
     });
-    try err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
-    try err.addNote("recompile with -fno-PIC", .{});
+    err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
+    err.addNote("recompile with -fno-PIC", .{});
     return error.RelocFailure;
 }
 
@@ -1187,7 +1187,7 @@ const x86_64 = struct {
                     x86_64.relaxGotPcTlsDesc(code[r_offset - 3 ..]) catch {
                         var err = try diags.addErrorWithNotes(1);
                         try err.addMsg("could not relax {s}", .{@tagName(r_type)});
-                        try err.addNote("in {}:{s} at offset 0x{x}", .{
+                        err.addNote("in {}:{s} at offset 0x{x}", .{
                             atom.file(elf_file).?.fmtPath(),
                             atom.name(elf_file),
                             rel.r_offset,
@@ -1332,7 +1332,7 @@ const x86_64 = struct {
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
                 });
-                try err.addNote("in {}:{s} at offset 0x{x}", .{
+                err.addNote("in {}:{s} at offset 0x{x}", .{
                     self.file(elf_file).?.fmtPath(),
                     self.name(elf_file),
                     rels[0].r_offset,
@@ -1388,7 +1388,7 @@ const x86_64 = struct {
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
                 });
-                try err.addNote("in {}:{s} at offset 0x{x}", .{
+                err.addNote("in {}:{s} at offset 0x{x}", .{
                     self.file(elf_file).?.fmtPath(),
                     self.name(elf_file),
                     rels[0].r_offset,
@@ -1485,7 +1485,7 @@ const x86_64 = struct {
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
                 });
-                try err.addNote("in {}:{s} at offset 0x{x}", .{
+                err.addNote("in {}:{s} at offset 0x{x}", .{
                     self.file(elf_file).?.fmtPath(),
                     self.name(elf_file),
                     rels[0].r_offset,
@@ -1672,7 +1672,7 @@ const aarch64 = struct {
                 // TODO: relax
                 var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("TODO: relax ADR_GOT_PAGE", .{});
-                try err.addNote("in {}:{s} at offset 0x{x}", .{
+                err.addNote("in {}:{s} at offset 0x{x}", .{
                     atom.file(elf_file).?.fmtPath(),
                     atom.name(elf_file),
                     r_offset,
@@ -1959,7 +1959,7 @@ const riscv = struct {
                     // TODO: implement searching forward
                     var err = try diags.addErrorWithNotes(1);
                     try err.addMsg("TODO: find HI20 paired reloc scanning forward", .{});
-                    try err.addNote("in {}:{s} at offset 0x{x}", .{
+                    err.addNote("in {}:{s} at offset 0x{x}", .{
                         atom.file(elf_file).?.fmtPath(),
                         atom.name(elf_file),
                         rel.r_offset,

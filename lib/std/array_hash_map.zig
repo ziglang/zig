@@ -641,10 +641,13 @@ pub fn ArrayHashMapUnmanaged(
             return self;
         }
 
+        /// An empty `value_list` may be passed, in which case the values array becomes `undefined`.
         pub fn reinit(self: *Self, gpa: Allocator, key_list: []const K, value_list: []const V) Oom!void {
             try self.entries.resize(gpa, key_list.len);
             @memcpy(self.keys(), key_list);
-            if (@sizeOf(V) != 0) {
+            if (value_list.len == 0) {
+                @memset(self.values(), undefined);
+            } else {
                 assert(key_list.len == value_list.len);
                 @memcpy(self.values(), value_list);
             }

@@ -552,6 +552,15 @@ pub const Nav = struct {
         };
     }
 
+    /// This function is intended to be used by code generation, since semantic
+    /// analysis will ensure that any `Nav` which is potentially `extern` is
+    /// fully resolved.
+    /// Asserts that `status == .fully_resolved`.
+    pub fn getResolvedExtern(nav: Nav, ip: *const InternPool) ?Key.Extern {
+        assert(nav.status == .fully_resolved);
+        return nav.getExtern(ip);
+    }
+
     /// Always returns `null` for `status == .type_resolved`. This function is inteded
     /// to be used by code generation, since semantic analysis will ensure that any `Nav`
     /// which is potentially `extern` is fully resolved.
@@ -586,6 +595,15 @@ pub const Nav = struct {
     }
 
     /// Asserts that `status != .unresolved`.
+    pub fn getLinkSection(nav: Nav) OptionalNullTerminatedString {
+        return switch (nav.status) {
+            .unresolved => unreachable,
+            .type_resolved => |r| r.@"linksection",
+            .fully_resolved => |r| r.@"linksection",
+        };
+    }
+
+    /// Asserts that `status != .unresolved`.
     pub fn isThreadlocal(nav: Nav, ip: *const InternPool) bool {
         return switch (nav.status) {
             .unresolved => unreachable,
@@ -594,6 +612,20 @@ pub const Nav = struct {
                 .@"extern" => |e| e.is_threadlocal,
                 .variable => |v| v.is_threadlocal,
                 else => false,
+            },
+        };
+    }
+
+    pub fn isFn(nav: Nav, ip: *const InternPool) bool {
+        return switch (nav.status) {
+            .unresolved => unreachable,
+            .type_resolved => |r| {
+                const tag = ip.zigTypeTagOrPoison(r.type) catch unreachable;
+                return tag == .@"fn";
+            },
+            .fully_resolved => |r| {
+                const tag = ip.zigTypeTagOrPoison(ip.typeOf(r.val)) catch unreachable;
+                return tag == .@"fn";
             },
         };
     }
@@ -3360,6 +3392,10 @@ pub const LoadedUnionType = struct {
         return flags.status == .field_types_wip;
     }
 
+    pub fn requiresComptime(u: LoadedUnionType, ip: *const InternPool) RequiresComptime {
+        return u.flagsUnordered(ip).requires_comptime;
+    }
+
     pub fn setRequiresComptimeWip(u: LoadedUnionType, ip: *InternPool) RequiresComptime {
         const extra_mutex = &ip.getLocal(u.tid).mutate.extra.mutex;
         extra_mutex.lock();
@@ -4014,7 +4050,7 @@ pub const LoadedStructType = struct {
         }
     }
 
-    pub fn haveLayout(s: LoadedStructType, ip: *InternPool) bool {
+    pub fn haveLayout(s: LoadedStructType, ip: *const InternPool) bool {
         return switch (s.layout) {
             .@"packed" => s.backingIntTypeUnordered(ip) != .none,
             .auto, .@"extern" => s.flagsUnordered(ip).layout_resolved,
@@ -11795,6 +11831,10 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
 pub fn toEnum(ip: *const InternPool, comptime E: type, i: Index) E {
     const int = ip.indexToKey(i).enum_tag.int;
     return @enumFromInt(ip.indexToKey(int).int.storage.u64);
+}
+
+pub fn toFunc(ip: *const InternPool, i: Index) Key.Func {
+    return ip.indexToKey(i).func;
 }
 
 pub fn aggregateTypeLen(ip: *const InternPool, ty: Index) u64 {

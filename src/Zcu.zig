@@ -19,8 +19,8 @@ const Ast = std.zig.Ast;
 const Zcu = @This();
 const Compilation = @import("Compilation.zig");
 const Cache = std.Build.Cache;
-const Value = @import("Value.zig");
-const Type = @import("Type.zig");
+pub const Value = @import("Value.zig");
+pub const Type = @import("Type.zig");
 const Package = @import("Package.zig");
 const link = @import("link.zig");
 const Air = @import("Air.zig");
@@ -79,11 +79,11 @@ local_zir_cache: Compilation.Directory,
 all_exports: std.ArrayListUnmanaged(Export) = .empty,
 /// This is a list of free indices in `all_exports`. These indices may be reused by exports from
 /// future semantic analysis.
-free_exports: std.ArrayListUnmanaged(u32) = .empty,
+free_exports: std.ArrayListUnmanaged(Export.Index) = .empty,
 /// Maps from an `AnalUnit` which performs a single export, to the index into `all_exports` of
 /// the export it performs. Note that the key is not the `Decl` being exported, but the `AnalUnit`
 /// whose analysis triggered the export.
-single_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
+single_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, Export.Index) = .empty,
 /// Like `single_exports`, but for `AnalUnit`s which perform multiple exports.
 /// The exports are `all_exports.items[index..][0..len]`.
 multi_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
@@ -127,6 +127,7 @@ transitive_failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .emp
 /// This may be a simple "value" `Nav`, or it may be a function.
 /// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
 failed_codegen: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, *ErrorMsg) = .empty,
+failed_types: std.AutoArrayHashMapUnmanaged(InternPool.Index, *ErrorMsg) = .empty,
 /// Keep track of one `@compileLog` callsite per `AnalUnit`.
 /// The value is the source location of the `@compileLog` call, convertible to a `LazySrcLoc`.
 compile_log_sources: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
@@ -144,8 +145,7 @@ compile_log_sources: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
 failed_files: std.AutoArrayHashMapUnmanaged(*File, ?*ErrorMsg) = .empty,
 /// The ErrorMsg memory is owned by the `EmbedFile`, using Module's general purpose allocator.
 failed_embed_files: std.AutoArrayHashMapUnmanaged(*EmbedFile, *ErrorMsg) = .empty,
-/// Key is index into `all_exports`.
-failed_exports: std.AutoArrayHashMapUnmanaged(u32, *ErrorMsg) = .empty,
+failed_exports: std.AutoArrayHashMapUnmanaged(Export.Index, *ErrorMsg) = .empty,
 /// If analysis failed due to a cimport error, the corresponding Clang errors
 /// are stored here.
 cimport_errors: std.AutoArrayHashMapUnmanaged(AnalUnit, std.zig.ErrorBundle) = .empty,
@@ -523,6 +523,15 @@ pub const Export = struct {
         linkage: std.builtin.GlobalLinkage = .strong,
         section: InternPool.OptionalNullTerminatedString = .none,
         visibility: std.builtin.SymbolVisibility = .default,
+    };
+
+    /// Index into `all_exports`.
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn ptr(i: Index, zcu: *const Zcu) *Export {
+            return &zcu.all_exports.items[@intFromEnum(i)];
+        }
     };
 };
 
@@ -2439,16 +2448,14 @@ pub fn deinit(zcu: *Zcu) void {
         zcu.local_zir_cache.handle.close();
         zcu.global_zir_cache.handle.close();
 
-        for (zcu.failed_analysis.values()) |value| {
-            value.destroy(gpa);
-        }
-        for (zcu.failed_codegen.values()) |value| {
-            value.destroy(gpa);
-        }
+        for (zcu.failed_analysis.values()) |value| value.destroy(gpa);
+        for (zcu.failed_codegen.values()) |value| value.destroy(gpa);
+        for (zcu.failed_types.values()) |value| value.destroy(gpa);
         zcu.analysis_in_progress.deinit(gpa);
         zcu.failed_analysis.deinit(gpa);
         zcu.transitive_failed_analysis.deinit(gpa);
         zcu.failed_codegen.deinit(gpa);
+        zcu.failed_types.deinit(gpa);
 
         for (zcu.failed_files.values()) |value| {
             if (value) |msg| msg.destroy(gpa);
@@ -3093,7 +3100,7 @@ pub fn deleteUnitExports(zcu: *Zcu, anal_unit: AnalUnit) void {
     const gpa = zcu.gpa;
 
     const exports_base, const exports_len = if (zcu.single_exports.fetchSwapRemove(anal_unit)) |kv|
-        .{ kv.value, 1 }
+        .{ @intFromEnum(kv.value), 1 }
     else if (zcu.multi_exports.fetchSwapRemove(anal_unit)) |info|
         .{ info.value.index, info.value.len }
     else
@@ -3107,11 +3114,12 @@ pub fn deleteUnitExports(zcu: *Zcu, anal_unit: AnalUnit) void {
     // This case is needed because in some rare edge cases, `Sema` wants to add and delete exports
     // within a single update.
     if (dev.env.supports(.incremental)) {
-        for (exports, exports_base..) |exp, export_idx| {
+        for (exports, exports_base..) |exp, export_index_usize| {
+            const export_idx: Export.Index = @enumFromInt(export_index_usize);
             if (zcu.comp.bin_file) |lf| {
                 lf.deleteExport(exp.exported, exp.opts.name);
             }
-            if (zcu.failed_exports.fetchSwapRemove(@intCast(export_idx))) |failed_kv| {
+            if (zcu.failed_exports.fetchSwapRemove(export_idx)) |failed_kv| {
                 failed_kv.value.destroy(gpa);
             }
         }
@@ -3123,7 +3131,7 @@ pub fn deleteUnitExports(zcu: *Zcu, anal_unit: AnalUnit) void {
         return;
     };
     for (exports_base..exports_base + exports_len) |export_idx| {
-        zcu.free_exports.appendAssumeCapacity(@intCast(export_idx));
+        zcu.free_exports.appendAssumeCapacity(@enumFromInt(export_idx));
     }
 }
 
@@ -3269,7 +3277,7 @@ fn lockAndClearFileCompileError(zcu: *Zcu, file: *File) void {
 
 pub fn handleUpdateExports(
     zcu: *Zcu,
-    export_indices: []const u32,
+    export_indices: []const Export.Index,
     result: link.File.UpdateExportsError!void,
 ) Allocator.Error!void {
     const gpa = zcu.gpa;
@@ -3277,12 +3285,10 @@ pub fn handleUpdateExports(
         error.OutOfMemory => return error.OutOfMemory,
         error.AnalysisFail => {
             const export_idx = export_indices[0];
-            const new_export = &zcu.all_exports.items[export_idx];
+            const new_export = export_idx.ptr(zcu);
             new_export.status = .failed_retryable;
             try zcu.failed_exports.ensureUnusedCapacity(gpa, 1);
-            const msg = try ErrorMsg.create(gpa, new_export.src, "unable to export: {s}", .{
-                @errorName(err),
-            });
+            const msg = try ErrorMsg.create(gpa, new_export.src, "unable to export: {s}", .{@errorName(err)});
             zcu.failed_exports.putAssumeCapacityNoClobber(export_idx, msg);
         },
     };
@@ -3443,7 +3449,7 @@ pub fn atomicPtrAlignment(
 /// * `@TypeOf(.{})`
 /// * A struct which has no fields (`struct {}`).
 /// * Not a struct.
-pub fn typeToStruct(zcu: *Zcu, ty: Type) ?InternPool.LoadedStructType {
+pub fn typeToStruct(zcu: *const Zcu, ty: Type) ?InternPool.LoadedStructType {
     if (ty.ip_index == .none) return null;
     const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.ip_index)) {
@@ -3452,7 +3458,7 @@ pub fn typeToStruct(zcu: *Zcu, ty: Type) ?InternPool.LoadedStructType {
     };
 }
 
-pub fn typeToPackedStruct(zcu: *Zcu, ty: Type) ?InternPool.LoadedStructType {
+pub fn typeToPackedStruct(zcu: *const Zcu, ty: Type) ?InternPool.LoadedStructType {
     const s = zcu.typeToStruct(ty) orelse return null;
     if (s.layout != .@"packed") return null;
     return s;
@@ -3477,7 +3483,7 @@ pub fn iesFuncIndex(zcu: *const Zcu, ies_index: InternPool.Index) InternPool.Ind
 }
 
 pub fn funcInfo(zcu: *const Zcu, func_index: InternPool.Index) InternPool.Key.Func {
-    return zcu.intern_pool.indexToKey(func_index).func;
+    return zcu.intern_pool.toFunc(func_index);
 }
 
 pub fn toEnum(zcu: *const Zcu, comptime E: type, val: Value) E {
@@ -3791,6 +3797,18 @@ pub fn navSrcLoc(zcu: *const Zcu, nav_index: InternPool.Nav.Index) LazySrcLoc {
     };
 }
 
+pub fn typeSrcLoc(zcu: *const Zcu, ty_index: InternPool.Index) LazySrcLoc {
+    _ = zcu;
+    _ = ty_index;
+    @panic("TODO");
+}
+
+pub fn typeFileScope(zcu: *Zcu, ty_index: InternPool.Index) *File {
+    _ = zcu;
+    _ = ty_index;
+    @panic("TODO");
+}
+
 pub fn navSrcLine(zcu: *Zcu, nav_index: InternPool.Nav.Index) u32 {
     const ip = &zcu.intern_pool;
     const inst_info = ip.getNav(nav_index).srcInst(ip).resolveFull(ip).?;
@@ -4050,4 +4068,55 @@ pub fn navValIsConst(zcu: *const Zcu, val: InternPool.Index) bool {
         .@"extern" => |e| e.is_const,
         else => true,
     };
+}
+
+pub const CodegenFailError = error{
+    /// Indicates the error message has been already stored at `Zcu.failed_codegen`.
+    CodegenFail,
+    OutOfMemory,
+};
+
+pub fn codegenFail(
+    zcu: *Zcu,
+    nav_index: InternPool.Nav.Index,
+    comptime format: []const u8,
+    args: anytype,
+) CodegenFailError {
+    const gpa = zcu.gpa;
+    try zcu.failed_codegen.ensureUnusedCapacity(gpa, 1);
+    const msg = try Zcu.ErrorMsg.create(gpa, zcu.navSrcLoc(nav_index), format, args);
+    zcu.failed_codegen.putAssumeCapacityNoClobber(nav_index, msg);
+    return error.CodegenFail;
+}
+
+pub fn codegenFailMsg(zcu: *Zcu, nav_index: InternPool.Nav.Index, msg: *ErrorMsg) CodegenFailError {
+    const gpa = zcu.gpa;
+    {
+        errdefer msg.deinit(gpa);
+        try zcu.failed_codegen.putNoClobber(gpa, nav_index, msg);
+    }
+    return error.CodegenFail;
+}
+
+pub fn codegenFailType(
+    zcu: *Zcu,
+    ty_index: InternPool.Index,
+    comptime format: []const u8,
+    args: anytype,
+) CodegenFailError {
+    const gpa = zcu.gpa;
+    try zcu.failed_types.ensureUnusedCapacity(gpa, 1);
+    const msg = try Zcu.ErrorMsg.create(gpa, zcu.typeSrcLoc(ty_index), format, args);
+    zcu.failed_types.putAssumeCapacityNoClobber(ty_index, msg);
+    return error.CodegenFail;
+}
+
+pub fn codegenFailTypeMsg(zcu: *Zcu, ty_index: InternPool.Index, msg: *ErrorMsg) CodegenFailError {
+    const gpa = zcu.gpa;
+    {
+        errdefer msg.deinit(gpa);
+        try zcu.failed_types.ensureUnusedCapacity(gpa, 1);
+    }
+    zcu.failed_types.putAssumeCapacityNoClobber(ty_index, msg);
+    return error.CodegenFail;
 }

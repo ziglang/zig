@@ -1722,22 +1722,18 @@ pub fn linkerUpdateFunc(pt: Zcu.PerThread, func_index: InternPool.Index, air: Ai
         // Correcting this failure will involve changing a type this function
         // depends on, hence triggering re-analysis of this function, so this
         // interacts correctly with incremental compilation.
-        // TODO: do we need to mark this failure anywhere? I don't think so, since compilation
-        // will fail due to the type error anyway.
     } else if (comp.bin_file) |lf| {
         lf.updateFunc(pt, func_index, air, liveness) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
-            error.AnalysisFail => {
-                assert(zcu.failed_codegen.contains(nav_index));
-            },
-            else => {
+            error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
+            error.Overflow => {
                 try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
                     gpa,
                     zcu.navSrcLoc(nav_index),
                     "unable to codegen: {s}",
                     .{@errorName(err)},
                 ));
-                try zcu.retryable_failures.append(zcu.gpa, AnalUnit.wrap(.{ .func = func_index }));
+                // Not a retryable failure.
             },
         };
     } else if (zcu.llvm_object) |llvm_object| {
@@ -2819,8 +2815,8 @@ pub fn processExports(pt: Zcu.PerThread) !void {
     const gpa = zcu.gpa;
 
     // First, construct a mapping of every exported value and Nav to the indices of all its different exports.
-    var nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, std.ArrayListUnmanaged(u32)) = .empty;
-    var uav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Index, std.ArrayListUnmanaged(u32)) = .empty;
+    var nav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, std.ArrayListUnmanaged(Zcu.Export.Index)) = .empty;
+    var uav_exports: std.AutoArrayHashMapUnmanaged(InternPool.Index, std.ArrayListUnmanaged(Zcu.Export.Index)) = .empty;
     defer {
         for (nav_exports.values()) |*exports| {
             exports.deinit(gpa);
@@ -2839,7 +2835,7 @@ pub fn processExports(pt: Zcu.PerThread) !void {
     try nav_exports.ensureTotalCapacity(gpa, zcu.single_exports.count() + zcu.multi_exports.count());
 
     for (zcu.single_exports.values()) |export_idx| {
-        const exp = zcu.all_exports.items[export_idx];
+        const exp = export_idx.ptr(zcu);
         const value_ptr, const found_existing = switch (exp.exported) {
             .nav => |nav| gop: {
                 const gop = try nav_exports.getOrPut(gpa, nav);
@@ -2867,7 +2863,7 @@ pub fn processExports(pt: Zcu.PerThread) !void {
                 },
             };
             if (!found_existing) value_ptr.* = .{};
-            try value_ptr.append(gpa, @intCast(export_idx));
+            try value_ptr.append(gpa, @enumFromInt(export_idx));
         }
     }
 
@@ -2886,20 +2882,20 @@ pub fn processExports(pt: Zcu.PerThread) !void {
     }
 }
 
-const SymbolExports = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, u32);
+const SymbolExports = std.AutoArrayHashMapUnmanaged(InternPool.NullTerminatedString, Zcu.Export.Index);
 
 fn processExportsInner(
     pt: Zcu.PerThread,
     symbol_exports: *SymbolExports,
     exported: Zcu.Exported,
-    export_indices: []const u32,
+    export_indices: []const Zcu.Export.Index,
 ) error{OutOfMemory}!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
 
     for (export_indices) |export_idx| {
-        const new_export = &zcu.all_exports.items[export_idx];
+        const new_export = export_idx.ptr(zcu);
         const gop = try symbol_exports.getOrPut(gpa, new_export.opts.name);
         if (gop.found_existing) {
             new_export.status = .failed_retryable;
@@ -2908,7 +2904,7 @@ fn processExportsInner(
                 new_export.opts.name.fmt(ip),
             });
             errdefer msg.destroy(gpa);
-            const other_export = zcu.all_exports.items[gop.value_ptr.*];
+            const other_export = gop.value_ptr.ptr(zcu);
             try zcu.errNote(other_export.src, msg, "other symbol here", .{});
             zcu.failed_exports.putAssumeCapacityNoClobber(export_idx, msg);
             new_export.status = .failed;
@@ -3100,6 +3096,7 @@ pub fn populateTestFunctions(
 pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) error{OutOfMemory}!void {
     const zcu = pt.zcu;
     const comp = zcu.comp;
+    const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
 
     const nav = zcu.intern_pool.getNav(nav_index);
@@ -3113,26 +3110,15 @@ pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) error
     } else if (comp.bin_file) |lf| {
         lf.updateNav(pt, nav_index) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
-            error.AnalysisFail => {
-                assert(zcu.failed_codegen.contains(nav_index));
-            },
-            else => {
-                const gpa = zcu.gpa;
-                try zcu.failed_codegen.ensureUnusedCapacity(gpa, 1);
-                zcu.failed_codegen.putAssumeCapacityNoClobber(nav_index, try Zcu.ErrorMsg.create(
+            error.CodegenFail => assert(zcu.failed_codegen.contains(nav_index)),
+            error.Overflow => {
+                try zcu.failed_codegen.putNoClobber(gpa, nav_index, try Zcu.ErrorMsg.create(
                     gpa,
                     zcu.navSrcLoc(nav_index),
                     "unable to codegen: {s}",
                     .{@errorName(err)},
                 ));
-                if (nav.analysis != null) {
-                    try zcu.retryable_failures.append(zcu.gpa, .wrap(.{ .nav_val = nav_index }));
-                } else {
-                    // TODO: we don't have a way to indicate that this failure is retryable!
-                    // Since these are really rare, we could as a cop-out retry the whole build next update.
-                    // But perhaps we can do better...
-                    @panic("TODO: retryable failure codegenning non-declaration Nav");
-                }
+                // Not a retryable failure.
             },
         };
     } else if (zcu.llvm_object) |llvm_object| {
@@ -3142,24 +3128,26 @@ pub fn linkerUpdateNav(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) error
     }
 }
 
-pub fn linkerUpdateContainerType(pt: Zcu.PerThread, ty: InternPool.Index) !void {
+pub fn linkerUpdateContainerType(pt: Zcu.PerThread, ty: InternPool.Index) error{OutOfMemory}!void {
     const zcu = pt.zcu;
+    const gpa = zcu.gpa;
     const comp = zcu.comp;
     const ip = &zcu.intern_pool;
 
     const codegen_prog_node = zcu.codegen_prog_node.start(Type.fromInterned(ty).containerTypeName(ip).toSlice(ip), 0);
     defer codegen_prog_node.end();
 
+    if (zcu.failed_types.fetchSwapRemove(ty)) |*entry| entry.value.deinit(gpa);
+
     if (!Air.typeFullyResolved(Type.fromInterned(ty), zcu)) {
         // This type failed to resolve. This is a transitive failure.
-        // TODO: do we need to mark this failure anywhere? I don't think so, since compilation
-        // will fail due to the type error anyway.
-    } else if (comp.bin_file) |lf| {
-        lf.updateContainerType(pt, ty) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            else => |e| log.err("codegen type failed: {s}", .{@errorName(e)}),
-        };
+        return;
     }
+
+    if (comp.bin_file) |lf| lf.updateContainerType(pt, ty) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.TypeFailureReported => assert(zcu.failed_types.contains(ty)),
+    };
 }
 
 pub fn linkerUpdateLineNumber(pt: Zcu.PerThread, ti: InternPool.TrackedInst.Index) !void {

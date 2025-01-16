@@ -1018,12 +1018,15 @@ const WasiThreadImpl = struct {
         return .{ .thread = &instance.thread };
     }
 
-    /// Bootstrap procedure, called by the host environment after thread creation.
-    export fn wasi_thread_start(tid: i32, arg: *Instance) void {
-        if (builtin.single_threaded) {
-            // ensure function is not analyzed in single-threaded mode
-            return;
+    comptime {
+        if (!builtin.single_threaded) {
+            @export(wasi_thread_start, .{ .name = "wasi_thread_start" });
         }
+    }
+
+    /// Called by the host environment after thread creation.
+    fn wasi_thread_start(tid: i32, arg: *Instance) callconv(.c) void {
+        comptime assert(!builtin.single_threaded);
         __set_stack_pointer(arg.thread.memory.ptr + arg.stack_offset);
         __wasm_init_tls(arg.thread.memory.ptr + arg.tls_offset);
         @atomicStore(u32, &WasiThreadImpl.tls_thread_id, @intCast(tid), .seq_cst);

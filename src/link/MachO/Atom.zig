@@ -909,8 +909,8 @@ const x86_64 = struct {
                     rel.offset,
                     rel.fmtPretty(.x86_64),
                 });
-                try err.addNote("expected .mov instruction but found .{s}", .{@tagName(x)});
-                try err.addNote("while parsing {}", .{self.getFile(macho_file).fmtPath()});
+                err.addNote("expected .mov instruction but found .{s}", .{@tagName(x)});
+                err.addNote("while parsing {}", .{self.getFile(macho_file).fmtPath()});
                 return error.RelaxFailUnexpectedInstruction;
             },
         }
@@ -971,7 +971,7 @@ pub fn calcNumRelocs(self: Atom, macho_file: *MachO) u32 {
     }
 }
 
-pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.relocation_info) !void {
+pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.relocation_info) error{ LinkFailure, OutOfMemory }!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -983,15 +983,15 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
     var i: usize = 0;
     for (relocs) |rel| {
         defer i += 1;
-        const rel_offset = math.cast(usize, rel.offset - self.off) orelse return error.Overflow;
-        const r_address: i32 = math.cast(i32, self.value + rel_offset) orelse return error.Overflow;
+        const rel_offset = try macho_file.cast(usize, rel.offset - self.off);
+        const r_address: i32 = try macho_file.cast(i32, self.value + rel_offset);
         assert(r_address >= 0);
         const r_symbolnum = r_symbolnum: {
             const r_symbolnum: u32 = switch (rel.tag) {
                 .local => rel.getTargetAtom(self, macho_file).out_n_sect + 1,
                 .@"extern" => rel.getTargetSymbol(self, macho_file).getOutputSymtabIndex(macho_file).?,
             };
-            break :r_symbolnum math.cast(u24, r_symbolnum) orelse return error.Overflow;
+            break :r_symbolnum try macho_file.cast(u24, r_symbolnum);
         };
         const r_extern = rel.tag == .@"extern";
         var addend = rel.addend + rel.getRelocAddend(cpu_arch);
@@ -1027,7 +1027,7 @@ pub fn writeRelocs(self: Atom, macho_file: *MachO, code: []u8, buffer: []macho.r
                 } else if (addend > 0) {
                     buffer[i] = .{
                         .r_address = r_address,
-                        .r_symbolnum = @bitCast(math.cast(i24, addend) orelse return error.Overflow),
+                        .r_symbolnum = @bitCast(try macho_file.cast(i24, addend)),
                         .r_pcrel = 0,
                         .r_length = 2,
                         .r_extern = 0,

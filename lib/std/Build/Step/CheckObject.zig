@@ -2424,7 +2424,22 @@ const WasmDumper = struct {
         }
 
         var output = std.ArrayList(u8).init(gpa);
-        errdefer output.deinit();
+        defer output.deinit();
+        parseAndDumpInner(step, check, bytes, &fbs, &output) catch |err| switch (err) {
+            error.EndOfStream => try output.appendSlice("\n<UnexpectedEndOfStream>"),
+            else => |e| return e,
+        };
+        return output.toOwnedSlice();
+    }
+
+    fn parseAndDumpInner(
+        step: *Step,
+        check: Check,
+        bytes: []const u8,
+        fbs: *std.io.FixedBufferStream([]const u8),
+        output: *std.ArrayList(u8),
+    ) !void {
+        const reader = fbs.reader();
         const writer = output.writer();
 
         switch (check.kind) {
@@ -2442,8 +2457,6 @@ const WasmDumper = struct {
 
             else => return step.fail("invalid check kind for Wasm file format: {s}", .{@tagName(check.kind)}),
         }
-
-        return output.toOwnedSlice();
     }
 
     fn parseAndDumpSection(
@@ -2682,7 +2695,7 @@ const WasmDumper = struct {
             else => unreachable,
         }
         const end_opcode = try std.leb.readUleb128(u8, reader);
-        if (end_opcode != std.wasm.opcode(.end)) {
+        if (end_opcode != @intFromEnum(std.wasm.Opcode.end)) {
             return step.fail("expected 'end' opcode in init expression", .{});
         }
     }

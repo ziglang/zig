@@ -16,10 +16,6 @@ const Allocator = std.mem.Allocator;
 
 fn getStdOutHandle() posix.fd_t {
     if (is_windows) {
-        if (builtin.zig_backend == .stage2_aarch64) {
-            // TODO: this is just a temporary workaround until we advance aarch64 backend further along.
-            return windows.GetStdHandle(windows.STD_OUTPUT_HANDLE) catch windows.INVALID_HANDLE_VALUE;
-        }
         return windows.peb().ProcessParameters.hStdOutput;
     }
 
@@ -36,10 +32,6 @@ pub fn getStdOut() File {
 
 fn getStdErrHandle() posix.fd_t {
     if (is_windows) {
-        if (builtin.zig_backend == .stage2_aarch64) {
-            // TODO: this is just a temporary workaround until we advance aarch64 backend further along.
-            return windows.GetStdHandle(windows.STD_ERROR_HANDLE) catch windows.INVALID_HANDLE_VALUE;
-        }
         return windows.peb().ProcessParameters.hStdError;
     }
 
@@ -56,10 +48,6 @@ pub fn getStdErr() File {
 
 fn getStdInHandle() posix.fd_t {
     if (is_windows) {
-        if (builtin.zig_backend == .stage2_aarch64) {
-            // TODO: this is just a temporary workaround until we advance aarch64 backend further along.
-            return windows.GetStdHandle(windows.STD_INPUT_HANDLE) catch windows.INVALID_HANDLE_VALUE;
-        }
         return windows.peb().ProcessParameters.hStdInput;
     }
 

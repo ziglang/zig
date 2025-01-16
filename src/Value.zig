@@ -241,12 +241,12 @@ pub fn getVariable(val: Value, mod: *Zcu) ?InternPool.Key.Variable {
 
 /// If the value fits in a u64, return it, otherwise null.
 /// Asserts not undefined.
-pub fn getUnsignedInt(val: Value, zcu: *Zcu) ?u64 {
+pub fn getUnsignedInt(val: Value, zcu: *const Zcu) ?u64 {
     return getUnsignedIntInner(val, .normal, zcu, {}) catch unreachable;
 }
 
 /// Asserts the value is an integer and it fits in a u64
-pub fn toUnsignedInt(val: Value, zcu: *Zcu) u64 {
+pub fn toUnsignedInt(val: Value, zcu: *const Zcu) u64 {
     return getUnsignedInt(val, zcu).?;
 }
 
@@ -259,7 +259,7 @@ pub fn getUnsignedIntSema(val: Value, pt: Zcu.PerThread) !?u64 {
 pub fn getUnsignedIntInner(
     val: Value,
     comptime strat: ResolveStrat,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) !?u64 {
     return switch (val.toIntern()) {
@@ -304,7 +304,7 @@ pub fn toUnsignedIntSema(val: Value, pt: Zcu.PerThread) !u64 {
 }
 
 /// Asserts the value is an integer and it fits in a i64
-pub fn toSignedInt(val: Value, zcu: *Zcu) i64 {
+pub fn toSignedInt(val: Value, zcu: *const Zcu) i64 {
     return switch (val.toIntern()) {
         .bool_false => 0,
         .bool_true => 1,
