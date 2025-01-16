@@ -2243,7 +2243,7 @@ or
       {#code|test_aligned_struct_fields.zig#}
 
       <p>
-      Equating packed structs results in a comparison of the backing integer, 
+      Equating packed structs results in a comparison of the backing integer,
       and only works for the `==` and `!=` operators.
       </p>
       {#code|test_packed_struct_equality.zig#}
@@ -4199,11 +4199,73 @@ pub fn print(self: *Writer, arg0: []const u8, arg1: i32) !void {
       {#header_close#}
       {#header_close#}
 
-      {#header_open|Atomics#}
-      <p>TODO: @atomic rmw</p>
-      <p>TODO: builtin atomic memory ordering enum</p>
+      {#header_open|Multithreading#}
+      <p>
+      The {#link|Zig Standard Library#} contains an abstraction of OS threads as {#syntax#}std.Thread{#endsyntax#}, as well
+      as a number of concurrency primitives under that namespace.
+      </p>
 
-      {#see_also|@atomicLoad|@atomicStore|@atomicRmw|@cmpxchgWeak|@cmpxchgStrong#}
+      <p>
+      Zig currently inherits LLVM's memory model, but <a href="https://github.com/ziglang/zig/issues/6396">may
+      define its own one</a> (most likely compatible with LLVM). Until then,
+      <a href="https://llvm.org/docs/LangRef.html#memory-model-for-concurrent-operations">LLVM's documentation</a> is
+      the ground truth.
+      </p>
+      <p>
+      All operations performed within a thread <em>happen</em> in the regular program order, as far as it is concerned.
+      Operations in different threads are only
+      <a href="https://en.wikipedia.org/wiki/Partially_ordered_set#Strict_partial_orders">partially ordered</a>:
+      they need to synchronize in some way, via atomics or system functions, to rely on each other's results. Multiple
+      threads operating on a memory location without sufficient synchronization create a race condition: threads may
+      appear to run operations in the wrong order, and values may be read that were never written (e.g. because a store
+      was split into multiple operations).
+      </p>
+      <ul>
+        <li>A read from a particular location can <em>see</em> any write W to the location that does not <em>happen</em>
+        after it and for which no other write to the location <em>happens</em> between W and the read.</li>
+        <li>An atomic read may <em>see</em> multiple writes if they are all atomic; it returns the value an arbitrary one of them.</li>
+        <li>Any other non-volatile read <strong>may only <em>see</em> a single write; otherwise, the resulting value is
+        undefined</strong>, <em>even if all writes it can see would have the same value</em>.</li>
+      </ul>
+      <p>
+      For the purposes of this definition, the allocation of a heap location writes an undefined value to it. Reads
+      and writes happen byte-wise, and if a race condition happens only on part of a read, then only those bytes of the
+      returned value are undefined.
+      </p>
+
+      {#header_open|Atomics#}
+      <p>
+      {#link|@atomicRmw#}, {#link|@cmpxchgWeak#} and {#link|@cmpxchgStrong#} make up the building blocks of concurrency
+      primitives by performing some operations in an <em>atomic</em> step, uninterrupted by other threads or signals.
+      </p>
+      <p>
+      Those builtins, as well as {#link|@atomicLoad#} and {#link|@atomicStore#}, also provide synchronization and
+      ordering guarantees as requested in their <code>AtomicOrder</code> parameters. The <code>AtomicOrder</code> enum,
+      found at {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}, mirrors
+      <a href="https://llvm.org/docs/LangRef.html#atomic-memory-ordering-constraints">the options defined by LLVM</a>:
+      </p>
+      <ul>
+        <li><code>unordered</code> operations provide just the basic atomic behavior, with no other ordering or synchronization guarantees.</li>
+        <li><code>monotonic</code> reads and writes on a memory location additionally observe a consistent ordering on
+        that single location, but still do not provide any <em>happens</em>-synchronization.</li>
+        <li>A <code>release</code> write <em>happens</em> before all <code>acquire</code>s reading the written value.
+        For operations that combine a read and a write, <code>acq_rel</code> provides both behaviors.</li>
+        <li><code>seq_cst</code> operations provide <code>release</code> and <code>acquire</code> guarantees;
+        additionally, all threads observe the same global ordering of <code>seq_cst</code> operations.</li>
+      </ul>
+      {#header_close#}
+
+      {#header_open|Single Threaded Builds#}
+      <p>Zig has a compile option <kbd>-fsingle-threaded</kbd> which has the following effects:</p>
+      <ul>
+        <li>All {#link|Thread Local Variables#} are treated as regular {#link|Container Level Variables#}.</li>
+        <li>The overhead of {#link|Async Functions#} becomes equivalent to function call overhead.</li>
+        <li>The {#syntax#}@import("builtin").single_threaded{#endsyntax#} becomes {#syntax#}true{#endsyntax#}
+          and therefore various userland APIs which read this variable become more efficient.
+          For example {#syntax#}std.Mutex{#endsyntax#} becomes
+          an empty data structure and all of its functions become no-ops.</li>
+      </ul>
+      {#header_close#}
 
       {#header_close#}
 
@@ -4281,42 +4343,36 @@ comptime {
       {#header_open|@atomicLoad#}
       <pre>{#syntax#}@atomicLoad(comptime T: type, ptr: *const T, comptime ordering: AtomicOrder) T{#endsyntax#}</pre>
       <p>
-      This builtin function atomically dereferences a pointer to a {#syntax#}T{#endsyntax#} and returns the value.
+      This builtin function {#link|atomically|Atomics#} dereferences a pointer to a {#syntax#}T{#endsyntax#} and returns the value.
       </p>
       <p>
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
-      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicRmw||@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@atomicRmw#}
       <pre>{#syntax#}@atomicRmw(comptime T: type, ptr: *T, comptime op: AtomicRmwOp, operand: T, comptime ordering: AtomicOrder) T{#endsyntax#}</pre>
       <p>
-      This builtin function dereferences a pointer to a {#syntax#}T{#endsyntax#} and atomically
+      This builtin function dereferences a pointer to a {#syntax#}T{#endsyntax#} and {#link|atomically|Atomics#}
       modifies the value and returns the previous value.
       </p>
       <p>
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
-      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
       <p>{#syntax#}AtomicRmwOp{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicRmwOp{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicLoad|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@atomicStore#}
       <pre>{#syntax#}@atomicStore(comptime T: type, ptr: *T, value: T, comptime ordering: AtomicOrder) void{#endsyntax#}</pre>
       <p>
-      This builtin function dereferences a pointer to a {#syntax#}T{#endsyntax#} and atomically stores the given value.
+      This builtin function dereferences a pointer to a {#syntax#}T{#endsyntax#} and {#link|atomically|Atomics#} stores the given value.
       </p>
       <p>
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
       an integer or an enum.
       </p>
-      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicLoad|@atomicRmw|@cmpxchgWeak|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@bitCast#}
@@ -4535,7 +4591,7 @@ comptime {
       <p>
       This function performs a strong atomic compare-and-exchange operation, returning {#syntax#}null{#endsyntax#}
       if the current value is not the given expected value. It's the equivalent of this code,
-      except atomic:
+      except {#link|atomic|Atomics#}:
       </p>
       {#code|not_atomic_cmpxchgStrong.zig#}
 
@@ -4548,8 +4604,6 @@ comptime {
       an integer or an enum.
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
-      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@cmpxchgWeak#}
       {#header_close#}
 
       {#header_open|@cmpxchgWeak#}
@@ -4557,7 +4611,7 @@ comptime {
       <p>
       This function performs a weak atomic compare-and-exchange operation, returning {#syntax#}null{#endsyntax#}
       if the current value is not the given expected value. It's the equivalent of this code,
-      except atomic:
+      except {#link|atomic|Atomics#}:
       </p>
       {#syntax_block|zig|cmpxchgWeakButNotAtomic#}
 fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_value: T) ?T {
@@ -4580,8 +4634,6 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       an integer or an enum.
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
-      <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
-      {#see_also|@atomicStore|@atomicLoad|@atomicRmw|@cmpxchgStrong#}
       {#header_close#}
 
       {#header_open|@compileError#}
@@ -5885,18 +5937,6 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </ul>
       {#header_close#}
       {#see_also|Compile Variables|Zig Build System|Undefined Behavior#}
-      {#header_close#}
-
-      {#header_open|Single Threaded Builds#}
-      <p>Zig has a compile option <kbd>-fsingle-threaded</kbd> which has the following effects:</p>
-      <ul>
-        <li>All {#link|Thread Local Variables#} are treated as regular {#link|Container Level Variables#}.</li>
-        <li>The overhead of {#link|Async Functions#} becomes equivalent to function call overhead.</li>
-        <li>The {#syntax#}@import("builtin").single_threaded{#endsyntax#} becomes {#syntax#}true{#endsyntax#}
-          and therefore various userland APIs which read this variable become more efficient.
-          For example {#syntax#}std.Mutex{#endsyntax#} becomes
-          an empty data structure and all of its functions become no-ops.</li>
-      </ul>
       {#header_close#}
 
       {#header_open|Undefined Behavior#}
