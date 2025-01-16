@@ -43,6 +43,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
     check_exe.checkInHeaders();
     check_exe.checkExact("Section export");
     check_exe.checkExact("entries 2");
+    check_exe.checkExact("name foo");
     check_exe.checkExact("name memory"); // ensure we also export memory again
 
     // This section *must* be emit as the start function is set to the index

@@ -330,16 +330,6 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         try wasm.addFunction(.__wasm_init_memory, &.{}, &.{});
     }
 
-    // When we have TLS GOT entries and shared memory is enabled,
-    // we must perform runtime relocations or else we don't create the function.
-    if (shared_memory) {
-        // This logic that checks `any_tls_relocs` is missing the part where it
-        // also notices threadlocal globals from Zcu code.
-        if (wasm.any_tls_relocs) try wasm.addFunction(.__wasm_apply_global_tls_relocs, &.{}, &.{});
-        try wasm.addFunction(.__wasm_init_tls, &.{.i32}, &.{});
-        try wasm.globals.put(gpa, .__tls_base, {});
-    }
-
     try wasm.tables.ensureUnusedCapacity(gpa, 1);
 
     if (f.indirect_function_table.entries.len > 0) {
@@ -446,17 +436,25 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             const want_new_segment = b: {
                 if (is_obj) break :b false;
                 switch (seen_tls) {
-                    .before => if (category == .tls) {
-                        virtual_addrs.tls_base = if (shared_memory) 0 else @intCast(start_addr);
-                        virtual_addrs.tls_align = alignment;
-                        seen_tls = .during;
-                        break :b f.data_segment_groups.items.len > 0;
+                    .before => switch (category) {
+                        .tls => {
+                            virtual_addrs.tls_base = if (shared_memory) 0 else @intCast(start_addr);
+                            virtual_addrs.tls_align = alignment;
+                            seen_tls = .during;
+                            break :b f.data_segment_groups.items.len > 0;
+                        },
+                        else => {},
                     },
-                    .during => if (category != .tls) {
-                        virtual_addrs.tls_size = @intCast(start_addr - virtual_addrs.tls_base.?);
-                        virtual_addrs.tls_align = virtual_addrs.tls_align.maxStrict(alignment);
-                        seen_tls = .after;
-                        break :b true;
+                    .during => switch (category) {
+                        .tls => {
+                            virtual_addrs.tls_align = virtual_addrs.tls_align.maxStrict(alignment);
+                            virtual_addrs.tls_size = @intCast(memory_ptr - virtual_addrs.tls_base.?);
+                            break :b false;
+                        },
+                        else => {
+                            seen_tls = .after;
+                            break :b true;
+                        },
                     },
                     .after => {},
                 }
@@ -480,6 +478,9 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             .first_segment = first_segment,
             .end_addr = @intCast(memory_ptr),
         });
+        if (category == .tls and seen_tls == .during) {
+            virtual_addrs.tls_size = @intCast(memory_ptr - virtual_addrs.tls_base.?);
+        }
     }
 
     if (shared_memory and wasm.any_passive_inits) {
@@ -536,6 +537,19 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         log.debug("maximum memory pages: {?d}", .{wasm.memories.limits.max});
     }
     f.memory_layout_finished = true;
+
+    // When we have TLS GOT entries and shared memory is enabled, we must
+    // perform runtime relocations or else we don't create the function.
+    if (shared_memory and virtual_addrs.tls_base != null) {
+        // This logic that checks `any_tls_relocs` is missing the part where it
+        // also notices threadlocal globals from Zcu code.
+        if (wasm.any_tls_relocs) try wasm.addFunction(.__wasm_apply_global_tls_relocs, &.{}, &.{});
+        try wasm.addFunction(.__wasm_init_tls, &.{.i32}, &.{});
+        try wasm.globals.ensureUnusedCapacity(gpa, 3);
+        wasm.globals.putAssumeCapacity(.__tls_base, {});
+        wasm.globals.putAssumeCapacity(.__tls_size, {});
+        wasm.globals.putAssumeCapacity(.__tls_align, {});
+    }
 
     var section_index: u32 = 0;
     // Index of the code section. Used to tell relocation table where the section lives.
@@ -986,9 +1000,8 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             }
             segment_offset += @intCast(binary_bytes.items.len - code_start);
         }
-        assert(group_index == f.data_segment_groups.items.len);
 
-        replaceVecSectionHeader(binary_bytes, header_offset, .data, group_index);
+        replaceVecSectionHeader(binary_bytes, header_offset, .data, @intCast(f.data_segment_groups.items.len));
         data_section_index = section_index;
         section_index += 1;
     }
@@ -1128,7 +1141,7 @@ fn emitNameSection(
         try leb.writeUleb128(binary_bytes.writer(gpa), total_data_segments);
 
         for (data_segment_groups, 0..) |group, i| {
-            const name = group.first_segment.name(wasm);
+            const name, _ = splitSegmentName(group.first_segment.name(wasm));
             try leb.writeUleb128(binary_bytes.writer(gpa), @as(u32, @intCast(i)));
             try leb.writeUleb128(binary_bytes.writer(gpa), @as(u32, @intCast(name.len)));
             try binary_bytes.appendSlice(gpa, name);
@@ -1680,8 +1693,8 @@ fn applyRelocs(code: []u8, code_offset: u32, relocs: Wasm.ObjectRelocation.Itera
             .memory_addr_rel_sleb64 => @panic("TODO implement relocation memory_addr_rel_sleb64"),
             .memory_addr_sleb => reloc_sleb_addr(sliced_code, .fromObjectData(wasm, pointee.data, addend.*)),
             .memory_addr_sleb64 => reloc_sleb64_addr(sliced_code, .fromObjectData(wasm, pointee.data, addend.*)),
-            .memory_addr_tls_sleb => @panic("TODO implement relocation memory_addr_tls_sleb"),
-            .memory_addr_tls_sleb64 => @panic("TODO implement relocation memory_addr_tls_sleb64"),
+            .memory_addr_tls_sleb => reloc_sleb_addr(sliced_code, .fromObjectData(wasm, pointee.data, addend.*)),
+            .memory_addr_tls_sleb64 => reloc_sleb64_addr(sliced_code, .fromObjectData(wasm, pointee.data, addend.*)),
 
             .memory_addr_import_i32 => reloc_u32_addr(sliced_code, .fromSymbolName(wasm, pointee.symbol_name, addend.*)),
             .memory_addr_import_i64 => reloc_u64_addr(sliced_code, .fromSymbolName(wasm, pointee.symbol_name, addend.*)),
