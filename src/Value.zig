@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 const Type = @import("Type.zig");
 const assert = std.debug.assert;
 const BigIntConst = std.math.big.int.Const;
@@ -4531,6 +4532,20 @@ pub fn resolveLazy(
     }
 }
 
+const InterpretMode = enum {
+    /// In this mode, types are assumed to match what the compiler was built with in terms of field
+    /// order, field types, etc. This improves compiler performance. However, it means that certain
+    /// modifications to `std.builtin` will result in compiler crashes.
+    direct,
+    /// In this mode, various details of the type are allowed to differ from what the compiler was built
+    /// with. Fields are matched by name rather than index; added struct fields are ignored, and removed
+    /// struct fields use their default value if one exists. This is slower than `.direct`, but permits
+    /// making certain changes to `std.builtin` (in particular reordering/adding/removing fields), so it
+    /// is useful when applying breaking changes.
+    by_name,
+};
+const interpret_mode: InterpretMode = @field(InterpretMode, @tagName(build_options.value_interpret_mode));
+
 /// Given a `Value` representing a comptime-known value of type `T`, unwrap it into an actual `T` known to the compiler.
 /// This is useful for accessing `std.builtin` structures received from comptime logic.
 /// `val` must be fully resolved.
@@ -4583,11 +4598,20 @@ pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMe
         else
             null,
 
-        .@"enum" => zcu.toEnum(T, val),
+        .@"enum" => switch (interpret_mode) {
+            .direct => {
+                const int = val.getUnsignedInt(zcu) orelse return error.TypeMismatch;
+                return std.meta.intToEnum(T, int) catch error.TypeMismatch;
+            },
+            .by_name => {
+                const field_index = ty.enumTagFieldIndex(val, zcu) orelse return error.TypeMismatch;
+                const field_name = ty.enumFieldName(field_index, zcu);
+                return std.meta.stringToEnum(T, field_name.toSlice(ip)) orelse error.TypeMismatch;
+            },
+        },
 
         .@"union" => |@"union"| {
-            const union_obj = zcu.typeToUnion(ty) orelse return error.TypeMismatch;
-            if (union_obj.field_types.len != @"union".fields.len) return error.TypeMismatch;
+            // No need to handle `interpret_mode`, because the `.@"enum"` handling already deals with it.
             const tag_val = val.unionTag(zcu) orelse return error.TypeMismatch;
             const tag = try tag_val.interpret(@"union".tag_type.?, pt);
             return switch (tag) {
@@ -4599,14 +4623,31 @@ pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMe
             };
         },
 
-        .@"struct" => |@"struct"| {
-            if (ty.structFieldCount(zcu) != @"struct".fields.len) return error.TypeMismatch;
-            var result: T = undefined;
-            inline for (@"struct".fields, 0..) |field, field_idx| {
-                const field_val = try val.fieldValue(pt, field_idx);
-                @field(result, field.name) = try field_val.interpret(field.type, pt);
-            }
-            return result;
+        .@"struct" => |@"struct"| switch (interpret_mode) {
+            .direct => {
+                if (ty.structFieldCount(zcu) != @"struct".fields.len) return error.TypeMismatch;
+                var result: T = undefined;
+                inline for (@"struct".fields, 0..) |field, field_idx| {
+                    const field_val = try val.fieldValue(pt, field_idx);
+                    @field(result, field.name) = try field_val.interpret(field.type, pt);
+                }
+                return result;
+            },
+            .by_name => {
+                const struct_obj = zcu.typeToStruct(ty) orelse return error.TypeMismatch;
+                var result: T = undefined;
+                inline for (@"struct".fields) |field| {
+                    const field_name_ip = try ip.getOrPutString(zcu.gpa, pt.tid, field.name, .no_embedded_nulls);
+                    @field(result, field.name) = if (struct_obj.nameIndex(ip, field_name_ip)) |field_idx| f: {
+                        const field_val = try val.fieldValue(pt, field_idx);
+                        break :f try field_val.interpret(field.type, pt);
+                    } else if (field.default_value) |ptr| f: {
+                        const typed_ptr: *const field.type = @ptrCast(@alignCast(ptr));
+                        break :f typed_ptr.*;
+                    } else return error.TypeMismatch;
+                }
+                return result;
+            },
         },
     };
 }
@@ -4618,6 +4659,7 @@ pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory
     const T = @TypeOf(val);
 
     const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
     if (ty.zigTypeTag(zcu) != @typeInfo(T)) return error.TypeMismatch;
 
     return switch (@typeInfo(T)) {
@@ -4657,9 +4699,17 @@ pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory
         else
             try pt.nullValue(ty),
 
-        .@"enum" => try pt.enumValue(ty, (try uninterpret(@intFromEnum(val), ty.intTagType(zcu), pt)).toIntern()),
+        .@"enum" => switch (interpret_mode) {
+            .direct => try pt.enumValue(ty, (try uninterpret(@intFromEnum(val), ty.intTagType(zcu), pt)).toIntern()),
+            .by_name => {
+                const field_name_ip = try ip.getOrPutString(zcu.gpa, pt.tid, @tagName(val), .no_embedded_nulls);
+                const field_idx = ty.enumFieldIndex(field_name_ip, zcu) orelse return error.TypeMismatch;
+                return pt.enumValueFieldIndex(ty, field_idx);
+            },
+        },
 
         .@"union" => |@"union"| {
+            // No need to handle `interpret_mode`, because the `.@"enum"` handling already deals with it.
             const tag: @"union".tag_type.? = val;
             const tag_val = try uninterpret(tag, ty.unionTagType(zcu).?, pt);
             const field_ty = ty.unionFieldType(tag_val, zcu) orelse return error.TypeMismatch;
@@ -4672,17 +4722,44 @@ pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory
             };
         },
 
-        .@"struct" => |@"struct"| {
-            if (ty.structFieldCount(zcu) != @"struct".fields.len) return error.TypeMismatch;
-            var field_vals: [@"struct".fields.len]InternPool.Index = undefined;
-            inline for (&field_vals, @"struct".fields, 0..) |*field_val, field, field_idx| {
-                const field_ty = ty.fieldType(field_idx, zcu);
-                field_val.* = (try uninterpret(@field(val, field.name), field_ty, pt)).toIntern();
-            }
-            return .fromInterned(try pt.intern(.{ .aggregate = .{
-                .ty = ty.toIntern(),
-                .storage = .{ .elems = &field_vals },
-            } }));
+        .@"struct" => |@"struct"| switch (interpret_mode) {
+            .direct => {
+                if (ty.structFieldCount(zcu) != @"struct".fields.len) return error.TypeMismatch;
+                var field_vals: [@"struct".fields.len]InternPool.Index = undefined;
+                inline for (&field_vals, @"struct".fields, 0..) |*field_val, field, field_idx| {
+                    const field_ty = ty.fieldType(field_idx, zcu);
+                    field_val.* = (try uninterpret(@field(val, field.name), field_ty, pt)).toIntern();
+                }
+                return .fromInterned(try pt.intern(.{ .aggregate = .{
+                    .ty = ty.toIntern(),
+                    .storage = .{ .elems = &field_vals },
+                } }));
+            },
+            .by_name => {
+                const struct_obj = zcu.typeToStruct(ty) orelse return error.TypeMismatch;
+                const want_fields_len = struct_obj.field_types.len;
+                const field_vals = try zcu.gpa.alloc(InternPool.Index, want_fields_len);
+                defer zcu.gpa.free(field_vals);
+                @memset(field_vals, .none);
+                inline for (@"struct".fields) |field| {
+                    const field_name_ip = try ip.getOrPutString(zcu.gpa, pt.tid, field.name, .no_embedded_nulls);
+                    if (struct_obj.nameIndex(ip, field_name_ip)) |field_idx| {
+                        const field_ty = ty.fieldType(field_idx, zcu);
+                        field_vals[field_idx] = (try uninterpret(@field(val, field.name), field_ty, pt)).toIntern();
+                    }
+                }
+                for (field_vals, 0..) |*field_val, field_idx| {
+                    if (field_val.* == .none) {
+                        const default_init = struct_obj.field_inits.get(ip)[field_idx];
+                        if (default_init == .none) return error.TypeMismatch;
+                        field_val.* = default_init;
+                    }
+                }
+                return .fromInterned(try pt.intern(.{ .aggregate = .{
+                    .ty = ty.toIntern(),
+                    .storage = .{ .elems = field_vals },
+                } }));
+            },
         },
     };
 }

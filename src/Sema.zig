@@ -2713,8 +2713,18 @@ fn analyzeValueAsCallconv(
     src: LazySrcLoc,
     unresolved_val: Value,
 ) !std.builtin.CallingConvention {
+    return interpretBuiltinType(sema, block, src, unresolved_val, std.builtin.CallingConvention);
+}
+
+fn interpretBuiltinType(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    unresolved_val: Value,
+    comptime T: type,
+) !T {
     const resolved_val = try sema.resolveLazyValue(unresolved_val);
-    return resolved_val.interpret(std.builtin.CallingConvention, sema.pt) catch |err| switch (err) {
+    return resolved_val.interpret(T, sema.pt) catch |err| switch (err) {
         error.OutOfMemory => |e| return e,
         error.UndefinedValue => return sema.failWithUseOfUndef(block, src),
         error.TypeMismatch => @panic("std.builtin is corrupt"),
@@ -21536,19 +21546,8 @@ fn zirReify(
         .@"anyframe" => return sema.failWithUseOfAsync(block, src),
         .enum_literal => return .enum_literal_type,
         .int => {
-            const struct_type = ip.loadStructType(ip.typeOf(union_val.val));
-            const signedness_val = try Value.fromInterned(union_val.val).fieldValue(
-                pt,
-                struct_type.nameIndex(ip, try ip.getOrPutString(gpa, pt.tid, "signedness", .no_embedded_nulls)).?,
-            );
-            const bits_val = try Value.fromInterned(union_val.val).fieldValue(
-                pt,
-                struct_type.nameIndex(ip, try ip.getOrPutString(gpa, pt.tid, "bits", .no_embedded_nulls)).?,
-            );
-
-            const signedness = zcu.toEnum(std.builtin.Signedness, signedness_val);
-            const bits: u16 = @intCast(try bits_val.toUnsignedIntSema(pt));
-            const ty = try pt.intType(signedness, bits);
+            const int = try sema.interpretBuiltinType(block, operand_src, .fromInterned(union_val.val), std.builtin.Type.Int);
+            const ty = try pt.intType(int.signedness, int.bits);
             return Air.internedToRef(ty.toIntern());
         },
         .vector => {
@@ -21574,20 +21573,15 @@ fn zirReify(
             return Air.internedToRef(ty.toIntern());
         },
         .float => {
-            const struct_type = ip.loadStructType(ip.typeOf(union_val.val));
-            const bits_val = try Value.fromInterned(union_val.val).fieldValue(pt, struct_type.nameIndex(
-                ip,
-                try ip.getOrPutString(gpa, pt.tid, "bits", .no_embedded_nulls),
-            ).?);
+            const float = try sema.interpretBuiltinType(block, operand_src, .fromInterned(union_val.val), std.builtin.Type.Float);
 
-            const bits: u16 = @intCast(try bits_val.toUnsignedIntSema(pt));
-            const ty = switch (bits) {
+            const ty = switch (float.bits) {
                 16 => Type.f16,
                 32 => Type.f32,
                 64 => Type.f64,
                 80 => Type.f80,
                 128 => Type.f128,
-                else => return sema.fail(block, src, "{}-bit float unsupported", .{bits}),
+                else => return sema.fail(block, src, "{}-bit float unsupported", .{float.bits}),
             };
             return Air.internedToRef(ty.toIntern());
         },
@@ -21641,7 +21635,7 @@ fn zirReify(
                 try elem_ty.resolveLayout(pt);
             }
 
-            const ptr_size = zcu.toEnum(std.builtin.Type.Pointer.Size, size_val);
+            const ptr_size = try sema.interpretBuiltinType(block, operand_src, size_val, std.builtin.Type.Pointer.Size);
 
             const actual_sentinel: InternPool.Index = s: {
                 if (!sentinel_val.isNull(zcu)) {
@@ -21691,7 +21685,7 @@ fn zirReify(
                     .is_const = is_const_val.toBool(),
                     .is_volatile = is_volatile_val.toBool(),
                     .alignment = abi_align,
-                    .address_space = zcu.toEnum(std.builtin.AddressSpace, address_space_val),
+                    .address_space = try sema.interpretBuiltinType(block, operand_src, address_space_val, std.builtin.AddressSpace),
                     .is_allowzero = is_allowzero_val.toBool(),
                 },
             });
@@ -21813,7 +21807,7 @@ fn zirReify(
                 try ip.getOrPutString(gpa, pt.tid, "is_tuple", .no_embedded_nulls),
             ).?);
 
-            const layout = zcu.toEnum(std.builtin.Type.ContainerLayout, layout_val);
+            const layout = try sema.interpretBuiltinType(block, operand_src, layout_val, std.builtin.Type.ContainerLayout);
 
             // Decls
             if (try decls_val.sliceLen(pt) > 0) {
@@ -21929,7 +21923,7 @@ fn zirReify(
             if (try decls_val.sliceLen(pt) > 0) {
                 return sema.fail(block, src, "reified unions must have no decls", .{});
             }
-            const layout = zcu.toEnum(std.builtin.Type.ContainerLayout, layout_val);
+            const layout = try sema.interpretBuiltinType(block, operand_src, layout_val, std.builtin.Type.ContainerLayout);
 
             const fields_arr = try sema.derefSliceAsArray(block, operand_src, fields_val, .{ .simple = .union_fields });
 
@@ -24456,7 +24450,7 @@ fn resolveExportOptions(
 
     const linkage_operand = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, pt.tid, "linkage", .no_embedded_nulls), linkage_src);
     const linkage_val = try sema.resolveConstDefinedValue(block, linkage_src, linkage_operand, .{ .simple = .export_options });
-    const linkage = zcu.toEnum(std.builtin.GlobalLinkage, linkage_val);
+    const linkage = try sema.interpretBuiltinType(block, linkage_src, linkage_val, std.builtin.GlobalLinkage);
 
     const section_operand = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, pt.tid, "section", .no_embedded_nulls), section_src);
     const section_opt_val = try sema.resolveConstDefinedValue(block, section_src, section_operand, .{ .simple = .export_options });
@@ -24467,7 +24461,7 @@ fn resolveExportOptions(
 
     const visibility_operand = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, pt.tid, "visibility", .no_embedded_nulls), visibility_src);
     const visibility_val = try sema.resolveConstDefinedValue(block, visibility_src, visibility_operand, .{ .simple = .export_options });
-    const visibility = zcu.toEnum(std.builtin.SymbolVisibility, visibility_val);
+    const visibility = try sema.interpretBuiltinType(block, visibility_src, visibility_val, std.builtin.SymbolVisibility);
 
     if (name.len < 1) {
         return sema.fail(block, name_src, "exported symbol name cannot be empty", .{});
@@ -24495,12 +24489,11 @@ fn resolveBuiltinEnum(
     comptime name: Zcu.BuiltinDecl,
     reason: ComptimeReason,
 ) CompileError!@field(std.builtin, @tagName(name)) {
-    const pt = sema.pt;
     const ty = try sema.getBuiltinType(src, name);
     const air_ref = try sema.resolveInst(zir_ref);
     const coerced = try sema.coerce(block, ty, air_ref, src);
     const val = try sema.resolveConstDefinedValue(block, src, coerced, reason);
-    return pt.zcu.toEnum(@field(std.builtin, @tagName(name)), val);
+    return sema.interpretBuiltinType(block, src, val, @field(std.builtin, @tagName(name)));
 }
 
 fn resolveAtomicOrder(
@@ -25293,7 +25286,7 @@ fn zirBuiltinCall(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const air_ref = try sema.resolveInst(extra.modifier);
     const modifier_ref = try sema.coerce(block, modifier_ty, air_ref, modifier_src);
     const modifier_val = try sema.resolveConstDefinedValue(block, modifier_src, modifier_ref, .{ .simple = .call_modifier });
-    var modifier = zcu.toEnum(std.builtin.CallModifier, modifier_val);
+    var modifier = try sema.interpretBuiltinType(block, modifier_src, modifier_val, std.builtin.CallModifier);
     switch (modifier) {
         // These can be upgraded to comptime or nosuspend calls.
         .auto, .never_tail, .no_async => {
@@ -26468,9 +26461,9 @@ fn resolvePrefetchOptions(
     const cache_val = try sema.resolveConstDefinedValue(block, cache_src, cache, .{ .simple = .prefetch_options });
 
     return std.builtin.PrefetchOptions{
-        .rw = zcu.toEnum(std.builtin.PrefetchOptions.Rw, rw_val),
+        .rw = try sema.interpretBuiltinType(block, rw_src, rw_val, std.builtin.PrefetchOptions.Rw),
         .locality = @intCast(try locality_val.toUnsignedIntSema(pt)),
-        .cache = zcu.toEnum(std.builtin.PrefetchOptions.Cache, cache_val),
+        .cache = try sema.interpretBuiltinType(block, cache_src, cache_val, std.builtin.PrefetchOptions.Cache),
     };
 }
 
@@ -26536,7 +26529,7 @@ fn resolveExternOptions(
 
     const linkage_ref = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, pt.tid, "linkage", .no_embedded_nulls), linkage_src);
     const linkage_val = try sema.resolveConstDefinedValue(block, linkage_src, linkage_ref, .{ .simple = .extern_options });
-    const linkage = zcu.toEnum(std.builtin.GlobalLinkage, linkage_val);
+    const linkage = try sema.interpretBuiltinType(block, linkage_src, linkage_val, std.builtin.GlobalLinkage);
 
     const is_thread_local = try sema.fieldVal(block, src, options, try ip.getOrPutString(gpa, pt.tid, "is_thread_local", .no_embedded_nulls), thread_local_src);
     const is_thread_local_val = try sema.resolveConstDefinedValue(block, thread_local_src, is_thread_local, .{ .simple = .extern_options });
@@ -26770,9 +26763,6 @@ fn zirInplaceArithResultTy(sema: *Sema, extended: Zir.Inst.Extended.InstData) Co
 }
 
 fn zirBranchHint(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!void {
-    const pt = sema.pt;
-    const zcu = pt.zcu;
-
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
     const uncoerced_hint = try sema.resolveInst(extra.operand);
     const operand_src = block.builtinCallArgSrc(extra.node, 0);
@@ -26784,7 +26774,7 @@ fn zirBranchHint(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     // We only apply the first hint in a branch.
     // This allows user-provided hints to override implicit cold hints.
     if (sema.branch_hint == null) {
-        sema.branch_hint = zcu.toEnum(std.builtin.BranchHint, hint_val);
+        sema.branch_hint = try sema.interpretBuiltinType(block, operand_src, hint_val, std.builtin.BranchHint);
     }
 }
 
@@ -37136,11 +37126,10 @@ pub fn analyzeAsAddressSpace(
     ctx: AddressSpaceContext,
 ) !std.builtin.AddressSpace {
     const pt = sema.pt;
-    const zcu = pt.zcu;
     const addrspace_ty = try sema.getBuiltinType(src, .AddressSpace);
     const coerced = try sema.coerce(block, addrspace_ty, air_ref, src);
     const addrspace_val = try sema.resolveConstDefinedValue(block, src, coerced, .{ .simple = .@"addrspace" });
-    const address_space = zcu.toEnum(std.builtin.AddressSpace, addrspace_val);
+    const address_space = try sema.interpretBuiltinType(block, src, addrspace_val, std.builtin.AddressSpace);
     const target = pt.zcu.getTarget();
     const arch = target.cpu.arch;
 

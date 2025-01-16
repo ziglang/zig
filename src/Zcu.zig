@@ -3486,10 +3486,6 @@ pub fn funcInfo(zcu: *const Zcu, func_index: InternPool.Index) InternPool.Key.Fu
     return zcu.intern_pool.toFunc(func_index);
 }
 
-pub fn toEnum(zcu: *const Zcu, comptime E: type, val: Value) E {
-    return zcu.intern_pool.toEnum(E, val.toIntern());
-}
-
 pub const UnionLayout = struct {
     abi_size: u64,
     abi_align: Alignment,
