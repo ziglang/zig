@@ -820,7 +820,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
     }
 
     // When the shared-memory option is enabled, we *must* emit the 'data count' section.
-    {
+    if (f.data_segment_groups.items.len > 0) {
         const header_offset = try reserveVecSectionHeader(gpa, binary_bytes);
         replaceVecSectionHeader(binary_bytes, header_offset, .data_count, @intCast(f.data_segment_groups.items.len));
     }
