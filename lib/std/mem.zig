@@ -262,9 +262,9 @@ pub fn zeroes(comptime T: type) T {
         },
         .pointer => |ptr_info| {
             switch (ptr_info.size) {
-                .Slice => {
-                    if (ptr_info.sentinel) |sentinel| {
-                        if (ptr_info.child == u8 and @as(*const u8, @ptrCast(sentinel)).* == 0) {
+                .slice => {
+                    if (ptr_info.sentinel()) |sentinel| {
+                        if (ptr_info.child == u8 and sentinel == 0) {
                             return ""; // A special case for the most common use-case: null-terminated strings.
                         }
                         @compileError("Can't set a sentinel slice to zero. This would require allocating memory.");
@@ -272,21 +272,17 @@ pub fn zeroes(comptime T: type) T {
                         return &[_]ptr_info.child{};
                     }
                 },
-                .C => {
+                .c => {
                     return null;
                 },
-                .One, .Many => {
+                .one, .many => {
                     if (ptr_info.is_allowzero) return @ptrFromInt(0);
                     @compileError("Only nullable and allowzero pointers can be set to zero.");
                 },
             }
         },
         .array => |info| {
-            if (info.sentinel) |sentinel_ptr| {
-                const sentinel = @as(*align(1) const info.child, @ptrCast(sentinel_ptr)).*;
-                return [_:sentinel]info.child{zeroes(info.child)} ** info.len;
-            }
-            return [_]info.child{zeroes(info.child)} ** info.len;
+            return @splat(zeroes(info.child));
         },
         .vector => |info| {
             return @splat(zeroes(info.child));
@@ -456,9 +452,8 @@ pub fn zeroInit(comptime T: type, init: anytype) T {
                                     @field(value, field.name) = @field(init, field.name);
                                 },
                             }
-                        } else if (field.default_value) |default_value_ptr| {
-                            const default_value = @as(*align(1) const field.type, @ptrCast(default_value_ptr)).*;
-                            @field(value, field.name) = default_value;
+                        } else if (field.defaultValue()) |val| {
+                            @field(value, field.name) = val;
                         } else {
                             switch (@typeInfo(field.type)) {
                                 .@"struct" => {
@@ -781,14 +776,14 @@ fn Span(comptime T: type) type {
         .pointer => |ptr_info| {
             var new_ptr_info = ptr_info;
             switch (ptr_info.size) {
-                .C => {
-                    new_ptr_info.sentinel = &@as(ptr_info.child, 0);
+                .c => {
+                    new_ptr_info.sentinel_ptr = &@as(ptr_info.child, 0);
                     new_ptr_info.is_allowzero = false;
                 },
-                .Many => if (ptr_info.sentinel == null) @compileError("invalid type given to std.mem.span: " ++ @typeName(T)),
-                .One, .Slice => @compileError("invalid type given to std.mem.span: " ++ @typeName(T)),
+                .many => if (ptr_info.sentinel() == null) @compileError("invalid type given to std.mem.span: " ++ @typeName(T)),
+                .one, .slice => @compileError("invalid type given to std.mem.span: " ++ @typeName(T)),
             }
-            new_ptr_info.size = .Slice;
+            new_ptr_info.size = .slice;
             return @Type(.{ .pointer = new_ptr_info });
         },
         else => {},
@@ -822,8 +817,7 @@ pub fn span(ptr: anytype) Span(@TypeOf(ptr)) {
     const Result = Span(@TypeOf(ptr));
     const l = len(ptr);
     const ptr_info = @typeInfo(Result).pointer;
-    if (ptr_info.sentinel) |s_ptr| {
-        const s = @as(*align(1) const ptr_info.child, @ptrCast(s_ptr)).*;
+    if (ptr_info.sentinel()) |s| {
         return ptr[0..l :s];
     } else {
         return ptr[0..l];
@@ -845,40 +839,38 @@ fn SliceTo(comptime T: type, comptime end: std.meta.Elem(T)) type {
         },
         .pointer => |ptr_info| {
             var new_ptr_info = ptr_info;
-            new_ptr_info.size = .Slice;
+            new_ptr_info.size = .slice;
             switch (ptr_info.size) {
-                .One => switch (@typeInfo(ptr_info.child)) {
+                .one => switch (@typeInfo(ptr_info.child)) {
                     .array => |array_info| {
                         new_ptr_info.child = array_info.child;
                         // The return type must only be sentinel terminated if we are guaranteed
                         // to find the value searched for, which is only the case if it matches
                         // the sentinel of the type passed.
-                        if (array_info.sentinel) |sentinel_ptr| {
-                            const sentinel = @as(*align(1) const array_info.child, @ptrCast(sentinel_ptr)).*;
-                            if (end == sentinel) {
-                                new_ptr_info.sentinel = &end;
+                        if (array_info.sentinel()) |s| {
+                            if (end == s) {
+                                new_ptr_info.sentinel_ptr = &end;
                             } else {
-                                new_ptr_info.sentinel = null;
+                                new_ptr_info.sentinel_ptr = null;
                             }
                         }
                     },
                     else => {},
                 },
-                .Many, .Slice => {
+                .many, .slice => {
                     // The return type must only be sentinel terminated if we are guaranteed
                     // to find the value searched for, which is only the case if it matches
                     // the sentinel of the type passed.
-                    if (ptr_info.sentinel) |sentinel_ptr| {
-                        const sentinel = @as(*align(1) const ptr_info.child, @ptrCast(sentinel_ptr)).*;
-                        if (end == sentinel) {
-                            new_ptr_info.sentinel = &end;
+                    if (ptr_info.sentinel()) |s| {
+                        if (end == s) {
+                            new_ptr_info.sentinel_ptr = &end;
                         } else {
-                            new_ptr_info.sentinel = null;
+                            new_ptr_info.sentinel_ptr = null;
                         }
                     }
                 },
-                .C => {
-                    new_ptr_info.sentinel = &end;
+                .c => {
+                    new_ptr_info.sentinel_ptr = &end;
                     // C pointers are always allowzero, but we don't want the return type to be.
                     assert(new_ptr_info.is_allowzero);
                     new_ptr_info.is_allowzero = false;
@@ -906,8 +898,7 @@ pub fn sliceTo(ptr: anytype, comptime end: std.meta.Elem(@TypeOf(ptr))) SliceTo(
     const Result = SliceTo(@TypeOf(ptr), end);
     const length = lenSliceTo(ptr, end);
     const ptr_info = @typeInfo(Result).pointer;
-    if (ptr_info.sentinel) |s_ptr| {
-        const s = @as(*align(1) const ptr_info.child, @ptrCast(s_ptr)).*;
+    if (ptr_info.sentinel()) |s| {
         return ptr[0..length :s];
     } else {
         return ptr[0..length];
@@ -957,11 +948,10 @@ test sliceTo {
 fn lenSliceTo(ptr: anytype, comptime end: std.meta.Elem(@TypeOf(ptr))) usize {
     switch (@typeInfo(@TypeOf(ptr))) {
         .pointer => |ptr_info| switch (ptr_info.size) {
-            .One => switch (@typeInfo(ptr_info.child)) {
+            .one => switch (@typeInfo(ptr_info.child)) {
                 .array => |array_info| {
-                    if (array_info.sentinel) |sentinel_ptr| {
-                        const sentinel = @as(*align(1) const array_info.child, @ptrCast(sentinel_ptr)).*;
-                        if (sentinel == end) {
+                    if (array_info.sentinel()) |s| {
+                        if (s == end) {
                             return indexOfSentinel(array_info.child, end, ptr);
                         }
                     }
@@ -969,27 +959,25 @@ fn lenSliceTo(ptr: anytype, comptime end: std.meta.Elem(@TypeOf(ptr))) usize {
                 },
                 else => {},
             },
-            .Many => if (ptr_info.sentinel) |sentinel_ptr| {
-                const sentinel = @as(*align(1) const ptr_info.child, @ptrCast(sentinel_ptr)).*;
-                if (sentinel == end) {
+            .many => if (ptr_info.sentinel()) |s| {
+                if (s == end) {
                     return indexOfSentinel(ptr_info.child, end, ptr);
                 }
                 // We're looking for something other than the sentinel,
                 // but iterating past the sentinel would be a bug so we need
                 // to check for both.
                 var i: usize = 0;
-                while (ptr[i] != end and ptr[i] != sentinel) i += 1;
+                while (ptr[i] != end and ptr[i] != s) i += 1;
                 return i;
             },
-            .C => {
+            .c => {
                 assert(ptr != null);
                 return indexOfSentinel(ptr_info.child, end, ptr);
             },
-            .Slice => {
-                if (ptr_info.sentinel) |sentinel_ptr| {
-                    const sentinel = @as(*align(1) const ptr_info.child, @ptrCast(sentinel_ptr)).*;
-                    if (sentinel == end) {
-                        return indexOfSentinel(ptr_info.child, sentinel, ptr);
+            .slice => {
+                if (ptr_info.sentinel()) |s| {
+                    if (s == end) {
+                        return indexOfSentinel(ptr_info.child, s, ptr);
                     }
                 }
                 return indexOfScalar(ptr_info.child, ptr, end) orelse ptr.len;
@@ -1039,13 +1027,12 @@ test lenSliceTo {
 pub fn len(value: anytype) usize {
     switch (@typeInfo(@TypeOf(value))) {
         .pointer => |info| switch (info.size) {
-            .Many => {
-                const sentinel_ptr = info.sentinel orelse
+            .many => {
+                const sentinel = info.sentinel() orelse
                     @compileError("invalid type given to std.mem.len: " ++ @typeName(@TypeOf(value)));
-                const sentinel = @as(*align(1) const info.child, @ptrCast(sentinel_ptr)).*;
                 return indexOfSentinel(info.child, sentinel, value);
             },
-            .C => {
+            .c => {
                 assert(value != null);
                 return indexOfSentinel(info.child, 0, value);
             },
@@ -3582,19 +3569,19 @@ fn ReverseIterator(comptime T: type) type {
     const Pointer = blk: {
         switch (@typeInfo(T)) {
             .pointer => |ptr_info| switch (ptr_info.size) {
-                .One => switch (@typeInfo(ptr_info.child)) {
+                .one => switch (@typeInfo(ptr_info.child)) {
                     .array => |array_info| {
                         var new_ptr_info = ptr_info;
-                        new_ptr_info.size = .Many;
+                        new_ptr_info.size = .many;
                         new_ptr_info.child = array_info.child;
-                        new_ptr_info.sentinel = array_info.sentinel;
+                        new_ptr_info.sentinel_ptr = array_info.sentinel_ptr;
                         break :blk @Type(.{ .pointer = new_ptr_info });
                     },
                     else => {},
                 },
-                .Slice => {
+                .slice => {
                     var new_ptr_info = ptr_info;
-                    new_ptr_info.size = .Many;
+                    new_ptr_info.size = .many;
                     break :blk @Type(.{ .pointer = new_ptr_info });
                 },
                 else => {},
@@ -3606,9 +3593,9 @@ fn ReverseIterator(comptime T: type) type {
     const Element = std.meta.Elem(Pointer);
     const ElementPointer = @Type(.{ .pointer = ptr: {
         var ptr = @typeInfo(Pointer).pointer;
-        ptr.size = .One;
+        ptr.size = .one;
         ptr.child = Element;
-        ptr.sentinel = null;
+        ptr.sentinel_ptr = null;
         break :ptr ptr;
     } });
     return struct {
@@ -3912,7 +3899,7 @@ pub fn alignPointerOffset(ptr: anytype, align_to: usize) ?usize {
 
     const T = @TypeOf(ptr);
     const info = @typeInfo(T);
-    if (info != .pointer or info.pointer.size != .Many)
+    if (info != .pointer or info.pointer.size != .many)
         @compileError("expected many item pointer, got " ++ @typeName(T));
 
     // Do nothing if the pointer is already well-aligned.
@@ -3979,16 +3966,16 @@ fn CopyPtrAttrs(
             .alignment = info.alignment,
             .address_space = info.address_space,
             .child = child,
-            .sentinel = null,
+            .sentinel_ptr = null,
         },
     });
 }
 
 fn AsBytesReturnType(comptime P: type) type {
     const pointer = @typeInfo(P).pointer;
-    assert(pointer.size == .One);
+    assert(pointer.size == .one);
     const size = @sizeOf(pointer.child);
-    return CopyPtrAttrs(P, .One, [size]u8);
+    return CopyPtrAttrs(P, .one, [size]u8);
 }
 
 /// Given a pointer to a single item, returns a slice of the underlying bytes, preserving pointer attributes.
@@ -4071,7 +4058,7 @@ test toBytes {
 }
 
 fn BytesAsValueReturnType(comptime T: type, comptime B: type) type {
-    return CopyPtrAttrs(B, .One, T);
+    return CopyPtrAttrs(B, .one, T);
 }
 
 /// Given a pointer to an array of bytes, returns a pointer to a value of the specified type
@@ -4150,7 +4137,7 @@ test bytesToValue {
 }
 
 fn BytesAsSliceReturnType(comptime T: type, comptime bytesType: type) type {
-    return CopyPtrAttrs(bytesType, .Slice, T);
+    return CopyPtrAttrs(bytesType, .slice, T);
 }
 
 /// Given a slice of bytes, returns a slice of the specified type
@@ -4162,7 +4149,7 @@ pub fn bytesAsSlice(comptime T: type, bytes: anytype) BytesAsSliceReturnType(T, 
         return &[0]T{};
     }
 
-    const cast_target = CopyPtrAttrs(@TypeOf(bytes), .Many, T);
+    const cast_target = CopyPtrAttrs(@TypeOf(bytes), .many, T);
 
     return @as(cast_target, @ptrCast(bytes))[0..@divExact(bytes.len, @sizeOf(T))];
 }
@@ -4237,7 +4224,7 @@ test "bytesAsSlice preserves pointer attributes" {
 }
 
 fn SliceAsBytesReturnType(comptime Slice: type) type {
-    return CopyPtrAttrs(Slice, .Slice, u8);
+    return CopyPtrAttrs(Slice, .slice, u8);
 }
 
 /// Given a slice, returns a slice of the underlying bytes, preserving pointer attributes.
@@ -4251,7 +4238,7 @@ pub fn sliceAsBytes(slice: anytype) SliceAsBytesReturnType(@TypeOf(slice)) {
     // it may be equal to zero and fail a null check
     if (slice.len == 0 and std.meta.sentinel(Slice) == null) return &[0]u8{};
 
-    const cast_target = CopyPtrAttrs(Slice, .Many, u8);
+    const cast_target = CopyPtrAttrs(Slice, .many, u8);
 
     return @as(cast_target, @ptrCast(slice))[0 .. slice.len * @sizeOf(std.meta.Elem(Slice))];
 }
@@ -4540,14 +4527,14 @@ fn AlignedSlice(comptime AttributeSource: type, comptime new_alignment: usize) t
     const info = @typeInfo(AttributeSource).pointer;
     return @Type(.{
         .pointer = .{
-            .size = .Slice,
+            .size = .slice,
             .is_const = info.is_const,
             .is_volatile = info.is_volatile,
             .is_allowzero = info.is_allowzero,
             .alignment = new_alignment,
             .address_space = info.address_space,
             .child = info.child,
-            .sentinel = null,
+            .sentinel_ptr = null,
         },
     });
 }

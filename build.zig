@@ -9,6 +9,7 @@ const fs = std.fs;
 const InstallDirectoryOptions = std.Build.InstallDirectoryOptions;
 const assert = std.debug.assert;
 const DevEnv = @import("src/dev.zig").Env;
+const ValueInterpretMode = enum { direct, by_name };
 
 const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 14, .patch = 0 };
 const stack_size = 46 * 1024 * 1024;
@@ -177,6 +178,7 @@ pub fn build(b: *std.Build) !void {
     const strip = b.option(bool, "strip", "Omit debug information");
     const valgrind = b.option(bool, "valgrind", "Enable valgrind integration");
     const pie = b.option(bool, "pie", "Produce a Position Independent Executable");
+    const value_interpret_mode = b.option(ValueInterpretMode, "value-interpret-mode", "How the compiler translates between 'std.builtin' types and its internal datastructures") orelse .direct;
     const value_tracing = b.option(bool, "value-tracing", "Enable extra state tracking to help troubleshoot bugs in the compiler (using the std.debug.Trace API)") orelse false;
 
     const mem_leak_frames: u32 = b.option(u32, "mem-leak-frames", "How many stack frames to print when a memory leak occurs. Tests get 2x this amount.") orelse blk: {
@@ -234,6 +236,7 @@ pub fn build(b: *std.Build) !void {
     exe_options.addOption(bool, "llvm_has_xtensa", llvm_has_xtensa);
     exe_options.addOption(bool, "force_gpa", force_gpa);
     exe_options.addOption(DevEnv, "dev", b.option(DevEnv, "dev", "Build a compiler with a reduced feature set for development of specific features") orelse if (only_c) .bootstrap else .full);
+    exe_options.addOption(ValueInterpretMode, "value_interpret_mode", value_interpret_mode);
 
     if (link_libc) {
         exe.root_module.link_libc = true;
@@ -619,6 +622,23 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
     exe_options.addOption(u32, "tracy_callstack_depth", 0);
     exe_options.addOption(bool, "value_tracing", false);
     exe_options.addOption(DevEnv, "dev", .bootstrap);
+
+    // zig1 chooses to interpret values by name. The tradeoff is as follows:
+    //
+    // * We lose a small amount of performance. This is essentially irrelevant for zig1.
+    //
+    // * We lose the ability to perform trivial renames on certain `std.builtin` types without
+    //   zig1.wasm updates. For instance, we cannot rename an enum from PascalCase fields to
+    //   snake_case fields without an update.
+    //
+    // * We gain the ability to add and remove fields to and from `std.builtin` types without
+    //   zig1.wasm updates. For instance, we can add a new tag to `CallingConvention` without
+    //   an update.
+    //
+    // Because field renames only happen when we apply a breaking change to the language (which
+    // is becoming progressively rarer), but tags may be added to or removed from target-dependent
+    // types over time in response to new targets coming into use, we gain more than we lose here.
+    exe_options.addOption(ValueInterpretMode, "value_interpret_mode", .by_name);
 
     const run_opt = b.addSystemCommand(&.{
         "wasm-opt",

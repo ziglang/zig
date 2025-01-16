@@ -108,7 +108,7 @@ pub fn classifySystemV(ty: Type, zcu: *Zcu, target: std.Target, ctx: Context) [8
     var result = [1]Class{.none} ** 8;
     switch (ty.zigTypeTag(zcu)) {
         .pointer => switch (ty.ptrSize(zcu)) {
-            .Slice => {
+            .slice => {
                 result[0] = .integer;
                 result[1] = .integer;
                 return result;

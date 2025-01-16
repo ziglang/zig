@@ -805,7 +805,7 @@ pub fn PollFiles(comptime StreamEnum: type) type {
         struct_field.* = .{
             .name = enum_field.name ++ "",
             .type = fs.File,
-            .default_value = null,
+            .default_value_ptr = null,
             .is_comptime = false,
             .alignment = @alignOf(fs.File),
         };

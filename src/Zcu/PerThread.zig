@@ -3068,7 +3068,7 @@ pub fn populateTestFunctions(
             .child = test_fn_ty.toIntern(),
             .flags = .{
                 .is_const = true,
-                .size = .Slice,
+                .size = .slice,
             },
         });
         const new_init = try pt.intern(.{ .slice = .{
@@ -3303,7 +3303,7 @@ pub fn optionalType(pt: Zcu.PerThread, child_type: InternPool.Index) Allocator.E
 pub fn ptrType(pt: Zcu.PerThread, info: InternPool.Key.PtrType) Allocator.Error!Type {
     var canon_info = info;
 
-    if (info.flags.size == .C) canon_info.flags.is_allowzero = true;
+    if (info.flags.size == .c) canon_info.flags.is_allowzero = true;
 
     // Canonicalize non-zero alignment. If it matches the ABI alignment of the pointee
     // type, we change it to 0 here. If this causes an assertion trip because the
@@ -3360,7 +3360,7 @@ pub fn manyConstPtrType(pt: Zcu.PerThread, child_type: Type) Allocator.Error!Typ
     return pt.ptrType(.{
         .child = child_type.toIntern(),
         .flags = .{
-            .size = .Many,
+            .size = .many,
             .is_const = true,
         },
     });

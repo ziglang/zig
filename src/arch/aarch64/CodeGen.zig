@@ -2398,7 +2398,7 @@ fn ptrArithmetic(
 
             const ptr_ty = lhs_ty;
             const elem_ty = switch (ptr_ty.ptrSize(zcu)) {
-                .One => ptr_ty.childType(zcu).childType(zcu), // ptr to array, so get array element type
+                .one => ptr_ty.childType(zcu).childType(zcu), // ptr to array, so get array element type
                 else => ptr_ty.childType(zcu),
             };
             const elem_size = elem_ty.abiSize(zcu);

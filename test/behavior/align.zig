@@ -410,11 +410,11 @@ test "alignment of function with c calling convention" {
     var runtime_nothing = &nothing;
     _ = &runtime_nothing;
     const casted1: *align(a) const u8 = @ptrCast(runtime_nothing);
-    const casted2: *const fn () callconv(.C) void = @ptrCast(casted1);
+    const casted2: *const fn () callconv(.c) void = @ptrCast(casted1);
     casted2();
 }
 
-fn nothing() callconv(.C) void {}
+fn nothing() callconv(.c) void {}
 
 const DefaultAligned = struct {
     nevermind: u32,

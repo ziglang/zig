@@ -1458,7 +1458,7 @@ pub const Pool = struct {
             _ => |ip_index| switch (ip.indexToKey(ip_index)) {
                 .int_type => |int_info| return pool.fromIntInfo(allocator, int_info, mod, kind),
                 .ptr_type => |ptr_info| switch (ptr_info.flags.size) {
-                    .One, .Many, .C => {
+                    .one, .many, .c => {
                         const elem_ctype = elem_ctype: {
                             if (ptr_info.packed_offset.host_size > 0 and
                                 ptr_info.flags.vector_index == .none)
@@ -1505,7 +1505,7 @@ pub const Pool = struct {
                             .@"volatile" = ptr_info.flags.is_volatile,
                         });
                     },
-                    .Slice => {
+                    .slice => {
                         const target = &mod.resolved_target.result;
                         var fields = [_]Info.Field{
                             .{
@@ -1598,7 +1598,7 @@ pub const Pool = struct {
                     switch (payload_type) {
                         .anyerror_type => return payload_ctype,
                         else => switch (ip.indexToKey(payload_type)) {
-                            .ptr_type => |payload_ptr_info| if (payload_ptr_info.flags.size != .C and
+                            .ptr_type => |payload_ptr_info| if (payload_ptr_info.flags.size != .c and
                                 !payload_ptr_info.flags.is_allowzero) return payload_ctype,
                             .error_set_type, .inferred_error_set_type => return payload_ctype,
                             else => {},

@@ -233,7 +233,7 @@ pub const restore = restore_rt;
 
 // Need to use C ABI here instead of naked
 // to prevent an infinite loop when calling rt_sigreturn.
-pub fn restore_rt() callconv(.C) void {
+pub fn restore_rt() callconv(.c) void {
     return asm volatile ("t 0x6d"
         :
         : [number] "{g1}" (@intFromEnum(SYS.rt_sigreturn)),

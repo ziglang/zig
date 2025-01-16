@@ -44,7 +44,7 @@ test "type info: C pointer type info" {
 fn testCPtr() !void {
     const ptr_info = @typeInfo([*c]align(4) const i8);
     try expect(ptr_info == .pointer);
-    try expect(ptr_info.pointer.size == .C);
+    try expect(ptr_info.pointer.size == .c);
     try expect(ptr_info.pointer.is_const);
     try expect(!ptr_info.pointer.is_volatile);
     try expect(ptr_info.pointer.alignment == 4);
@@ -54,8 +54,8 @@ fn testCPtr() !void {
 test "type info: value is correctly copied" {
     comptime {
         var ptrInfo = @typeInfo([]u32);
-        ptrInfo.pointer.size = .One;
-        try expect(@typeInfo([]u32).pointer.size == .Slice);
+        ptrInfo.pointer.size = .one;
+        try expect(@typeInfo([]u32).pointer.size == .slice);
     }
 }
 
@@ -79,12 +79,12 @@ test "type info: pointer type info" {
 fn testPointer() !void {
     const u32_ptr_info = @typeInfo(*u32);
     try expect(u32_ptr_info == .pointer);
-    try expect(u32_ptr_info.pointer.size == .One);
+    try expect(u32_ptr_info.pointer.size == .one);
     try expect(u32_ptr_info.pointer.is_const == false);
     try expect(u32_ptr_info.pointer.is_volatile == false);
     try expect(u32_ptr_info.pointer.alignment == @alignOf(u32));
     try expect(u32_ptr_info.pointer.child == u32);
-    try expect(u32_ptr_info.pointer.sentinel == null);
+    try expect(u32_ptr_info.pointer.sentinel() == null);
 }
 
 test "type info: unknown length pointer type info" {
@@ -95,10 +95,10 @@ test "type info: unknown length pointer type info" {
 fn testUnknownLenPtr() !void {
     const u32_ptr_info = @typeInfo([*]const volatile f64);
     try expect(u32_ptr_info == .pointer);
-    try expect(u32_ptr_info.pointer.size == .Many);
+    try expect(u32_ptr_info.pointer.size == .many);
     try expect(u32_ptr_info.pointer.is_const == true);
     try expect(u32_ptr_info.pointer.is_volatile == true);
-    try expect(u32_ptr_info.pointer.sentinel == null);
+    try expect(u32_ptr_info.pointer.sentinel() == null);
     try expect(u32_ptr_info.pointer.alignment == @alignOf(f64));
     try expect(u32_ptr_info.pointer.child == f64);
 }
@@ -111,12 +111,12 @@ test "type info: null terminated pointer type info" {
 fn testNullTerminatedPtr() !void {
     const ptr_info = @typeInfo([*:0]u8);
     try expect(ptr_info == .pointer);
-    try expect(ptr_info.pointer.size == .Many);
+    try expect(ptr_info.pointer.size == .many);
     try expect(ptr_info.pointer.is_const == false);
     try expect(ptr_info.pointer.is_volatile == false);
-    try expect(@as(*const u8, @ptrCast(ptr_info.pointer.sentinel.?)).* == 0);
+    try expect(ptr_info.pointer.sentinel().? == 0);
 
-    try expect(@typeInfo([:0]u8).pointer.sentinel != null);
+    try expect(@typeInfo([:0]u8).pointer.sentinel() != null);
 }
 
 test "type info: slice type info" {
@@ -127,7 +127,7 @@ test "type info: slice type info" {
 fn testSlice() !void {
     const u32_slice_info = @typeInfo([]u32);
     try expect(u32_slice_info == .pointer);
-    try expect(u32_slice_info.pointer.size == .Slice);
+    try expect(u32_slice_info.pointer.size == .slice);
     try expect(u32_slice_info.pointer.is_const == false);
     try expect(u32_slice_info.pointer.is_volatile == false);
     try expect(u32_slice_info.pointer.alignment == 4);
@@ -145,14 +145,14 @@ fn testArray() !void {
         try expect(info == .array);
         try expect(info.array.len == 42);
         try expect(info.array.child == u8);
-        try expect(info.array.sentinel == null);
+        try expect(info.array.sentinel() == null);
     }
 
     {
         const info = @typeInfo([10:0]u8);
         try expect(info.array.len == 10);
         try expect(info.array.child == u8);
-        try expect(@as(*const u8, @ptrCast(info.array.sentinel.?)).* == @as(u8, 0));
+        try expect(info.array.sentinel().? == @as(u8, 0));
         try expect(@sizeOf([10:0]u8) == info.array.len + 1);
     }
 }
@@ -292,8 +292,8 @@ fn testStruct() !void {
     try expect(unpacked_struct_info.@"struct".is_tuple == false);
     try expect(unpacked_struct_info.@"struct".backing_integer == null);
     try expect(unpacked_struct_info.@"struct".fields[0].alignment == @alignOf(u32));
-    try expect(@as(*align(1) const u32, @ptrCast(unpacked_struct_info.@"struct".fields[0].default_value.?)).* == 4);
-    try expect(mem.eql(u8, "foobar", @as(*align(1) const *const [6:0]u8, @ptrCast(unpacked_struct_info.@"struct".fields[1].default_value.?)).*));
+    try expect(unpacked_struct_info.@"struct".fields[0].defaultValue().? == 4);
+    try expect(mem.eql(u8, "foobar", unpacked_struct_info.@"struct".fields[1].defaultValue().?));
 }
 
 const TestStruct = struct {
@@ -315,8 +315,8 @@ fn testPackedStruct() !void {
     try expect(struct_info.@"struct".fields.len == 4);
     try expect(struct_info.@"struct".fields[0].alignment == 0);
     try expect(struct_info.@"struct".fields[2].type == f32);
-    try expect(struct_info.@"struct".fields[2].default_value == null);
-    try expect(@as(*align(1) const u32, @ptrCast(struct_info.@"struct".fields[3].default_value.?)).* == 4);
+    try expect(struct_info.@"struct".fields[2].defaultValue() == null);
+    try expect(struct_info.@"struct".fields[3].defaultValue().? == 4);
     try expect(struct_info.@"struct".fields[3].alignment == 0);
     try expect(struct_info.@"struct".decls.len == 1);
 }
@@ -374,13 +374,13 @@ fn testFunction() !void {
     try expect(foo_fn_info.@"fn".is_var_args);
     try expect(foo_fn_info.@"fn".return_type.? == usize);
     const foo_ptr_fn_info = @typeInfo(@TypeOf(&typeInfoFoo));
-    try expect(foo_ptr_fn_info.pointer.size == .One);
+    try expect(foo_ptr_fn_info.pointer.size == .one);
     try expect(foo_ptr_fn_info.pointer.is_const);
     try expect(!foo_ptr_fn_info.pointer.is_volatile);
     try expect(foo_ptr_fn_info.pointer.address_space == .generic);
     try expect(foo_ptr_fn_info.pointer.child == foo_fn_type);
     try expect(!foo_ptr_fn_info.pointer.is_allowzero);
-    try expect(foo_ptr_fn_info.pointer.sentinel == null);
+    try expect(foo_ptr_fn_info.pointer.sentinel() == null);
 
     // Avoid looking at `typeInfoFooAligned` on targets which don't support function alignment.
     switch (builtin.target.cpu.arch) {
@@ -401,14 +401,14 @@ fn testFunction() !void {
     try expect(aligned_foo_fn_info.@"fn".is_var_args);
     try expect(aligned_foo_fn_info.@"fn".return_type.? == usize);
     const aligned_foo_ptr_fn_info = @typeInfo(@TypeOf(&typeInfoFooAligned));
-    try expect(aligned_foo_ptr_fn_info.pointer.size == .One);
+    try expect(aligned_foo_ptr_fn_info.pointer.size == .one);
     try expect(aligned_foo_ptr_fn_info.pointer.is_const);
     try expect(!aligned_foo_ptr_fn_info.pointer.is_volatile);
     try expect(aligned_foo_ptr_fn_info.pointer.alignment == 4);
     try expect(aligned_foo_ptr_fn_info.pointer.address_space == .generic);
     try expect(aligned_foo_ptr_fn_info.pointer.child == aligned_foo_fn_type);
     try expect(!aligned_foo_ptr_fn_info.pointer.is_allowzero);
-    try expect(aligned_foo_ptr_fn_info.pointer.sentinel == null);
+    try expect(aligned_foo_ptr_fn_info.pointer.sentinel() == null);
 }
 
 extern fn typeInfoFoo(a: usize, b: bool, ...) callconv(.c) usize;
@@ -517,7 +517,7 @@ test "type info: TypeId -> Type impl cast" {
 
 test "sentinel of opaque pointer type" {
     const c_void_info = @typeInfo(*anyopaque);
-    try expect(c_void_info.pointer.sentinel == null);
+    try expect(c_void_info.pointer.sentinel_ptr == null);
 }
 
 test "@typeInfo does not force declarations into existence" {
@@ -601,9 +601,9 @@ test "typeInfo resolves usingnamespace declarations" {
     try expectEqualStrings(decls[1].name, "f1");
 }
 
-test "value from struct @typeInfo default_value can be loaded at comptime" {
+test "value from struct @typeInfo default_value_ptr can be loaded at comptime" {
     comptime {
-        const a = @typeInfo(@TypeOf(.{ .foo = @as(u8, 1) })).@"struct".fields[0].default_value;
+        const a = @typeInfo(@TypeOf(.{ .foo = @as(u8, 1) })).@"struct".fields[0].default_value_ptr;
         try expect(@as(*const u8, @ptrCast(a)).* == 1);
     }
 }
@@ -646,7 +646,7 @@ test "@typeInfo decls ignore dependency loops" {
 
 test "type info of tuple of string literal default value" {
     const struct_field = @typeInfo(@TypeOf(.{"hi"})).@"struct".fields[0];
-    const value = @as(*align(1) const *const [2:0]u8, @ptrCast(struct_field.default_value.?)).*;
+    const value = struct_field.defaultValue().?;
     comptime std.debug.assert(value[0] == 'h');
 }
 

@@ -803,7 +803,7 @@ test "fn with C calling convention returns struct by value" {
             handle: i32,
         };
 
-        fn makeBar(t: i32) callconv(.C) ExternBar {
+        fn makeBar(t: i32) callconv(.c) ExternBar {
             return ExternBar{
                 .handle = t,
             };

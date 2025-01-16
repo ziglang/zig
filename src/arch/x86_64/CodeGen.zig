@@ -9607,13 +9607,13 @@ fn genMulDivBinOp(
                     const manyptr_u32_ty = try pt.ptrType(.{
                         .child = .u32_type,
                         .flags = .{
-                            .size = .Many,
+                            .size = .many,
                         },
                     });
                     const manyptr_const_u32_ty = try pt.ptrType(.{
                         .child = .u32_type,
                         .flags = .{
-                            .size = .Many,
+                            .size = .many,
                             .is_const = true,
                         },
                     });
@@ -16614,15 +16614,15 @@ fn airMemset(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
         if (elem_abi_size == 1) {
             const ptr: MCValue = switch (dst_ptr_ty.ptrSize(zcu)) {
                 // TODO: this only handles slices stored in the stack
-                .Slice => dst_ptr,
-                .One => dst_ptr,
-                .C, .Many => unreachable,
+                .slice => dst_ptr,
+                .one => dst_ptr,
+                .c, .many => unreachable,
             };
             const len: MCValue = switch (dst_ptr_ty.ptrSize(zcu)) {
                 // TODO: this only handles slices stored in the stack
-                .Slice => dst_ptr.address().offset(8).deref(),
-                .One => .{ .immediate = dst_ptr_ty.childType(zcu).arrayLen(zcu) },
-                .C, .Many => unreachable,
+                .slice => dst_ptr.address().offset(8).deref(),
+                .one => .{ .immediate = dst_ptr_ty.childType(zcu).arrayLen(zcu) },
+                .c, .many => unreachable,
             };
             const len_lock: ?RegisterLock = switch (len) {
                 .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
@@ -16638,7 +16638,7 @@ fn airMemset(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
         // Length zero requires a runtime check - so we handle arrays specially
         // here to elide it.
         switch (dst_ptr_ty.ptrSize(zcu)) {
-            .Slice => {
+            .slice => {
                 const slice_ptr_ty = dst_ptr_ty.slicePtrFieldType(zcu);
 
                 // TODO: this only handles slices stored in the stack
@@ -16681,7 +16681,7 @@ fn airMemset(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
 
                 self.performReloc(skip_reloc);
             },
-            .One => {
+            .one => {
                 const elem_ptr_ty = try pt.singleMutPtrType(elem_ty);
 
                 const len = dst_ptr_ty.childType(zcu).arrayLen(zcu);
@@ -16704,7 +16704,7 @@ fn airMemset(self: *Self, inst: Air.Inst.Index, safety: bool) !void {
                 const bytes_to_copy: MCValue = .{ .immediate = elem_abi_size * (len - 1) };
                 try self.genInlineMemcpy(second_elem_ptr_mcv, dst_ptr, bytes_to_copy);
             },
-            .C, .Many => unreachable,
+            .c, .many => unreachable,
         }
     }
     return self.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -16735,7 +16735,7 @@ fn airMemcpy(self: *Self, inst: Air.Inst.Index) !void {
     defer if (src_ptr_lock) |lock| self.register_manager.unlockReg(lock);
 
     const len: MCValue = switch (dst_ptr_ty.ptrSize(zcu)) {
-        .Slice => len: {
+        .slice => len: {
             const len_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
             const len_lock = self.register_manager.lockRegAssumeUnused(len_reg);
             defer self.register_manager.unlockReg(len_lock);
@@ -16748,11 +16748,11 @@ fn airMemcpy(self: *Self, inst: Air.Inst.Index) !void {
             );
             break :len .{ .register = len_reg };
         },
-        .One => len: {
+        .one => len: {
             const array_ty = dst_ptr_ty.childType(zcu);
             break :len .{ .immediate = array_ty.arrayLen(zcu) * array_ty.childType(zcu).abiSize(zcu) };
         },
-        .C, .Many => unreachable,
+        .c, .many => unreachable,
     };
     const len_lock: ?RegisterLock = switch (len) {
         .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
