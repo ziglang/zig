@@ -1008,15 +1008,6 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
 
     if (is_obj) {
         @panic("TODO emit link section for object file and emit modified relocations");
-        //var symbol_table = std.AutoArrayHashMap(SymbolLoc, u32).init(arena);
-        //try wasm.emitLinkSection(binary_bytes, &symbol_table);
-        //if (code_section_index) |code_index| {
-        //    try wasm.emitCodeRelocations(binary_bytes, code_index, symbol_table);
-        //}
-        //if (data_section_index) |data_index| {
-        //    if (f.data_segments.count() > 0)
-        //        try wasm.emitDataRelocations(binary_bytes, data_index, symbol_table);
-        //}
     } else if (comp.config.debug_format != .strip) {
         try emitNameSection(wasm, f.data_segment_groups.items, binary_bytes);
     }
@@ -1245,105 +1236,6 @@ fn emitProducerSection(gpa: Allocator, binary_bytes: *std.ArrayListUnmanaged(u8)
     }
 }
 
-///// For each relocatable section, emits a custom "relocation.<section_name>" section
-//fn emitCodeRelocations(
-//    wasm: *Wasm,
-//    binary_bytes: *std.ArrayListUnmanaged(u8),
-//    section_index: u32,
-//    symbol_table: std.AutoArrayHashMapUnmanaged(SymbolLoc, u32),
-//) !void {
-//    const comp = wasm.base.comp;
-//    const gpa = comp.gpa;
-//    const code_index = wasm.code_section_index.unwrap() orelse return;
-//    const writer = binary_bytes.writer(gpa);
-//    const header_offset = try reserveCustomSectionHeader(gpa, binary_bytes);
-//
-//    // write custom section information
-//    const name = "reloc.CODE";
-//    try leb.writeUleb128(writer, @as(u32, @intCast(name.len)));
-//    try writer.writeAll(name);
-//    try leb.writeUleb128(writer, section_index);
-//    const reloc_start = binary_bytes.items.len;
-//
-//    var count: u32 = 0;
-//    var atom: *Atom = wasm.atoms.get(code_index).?.ptr(wasm);
-//    // for each atom, we calculate the uleb size and append that
-//    var size_offset: u32 = 5; // account for code section size leb128
-//    while (true) {
-//        size_offset += getUleb128Size(atom.code.len);
-//        for (atom.relocSlice(wasm)) |relocation| {
-//            count += 1;
-//            const sym_loc: SymbolLoc = .{ .file = atom.file, .index = @enumFromInt(relocation.index) };
-//            const symbol_index = symbol_table.get(sym_loc).?;
-//            try leb.writeUleb128(writer, @intFromEnum(relocation.tag));
-//            const offset = atom.offset + relocation.offset + size_offset;
-//            try leb.writeUleb128(writer, offset);
-//            try leb.writeUleb128(writer, symbol_index);
-//            if (relocation.tag.addendIsPresent()) {
-//                try leb.writeIleb128(writer, relocation.addend);
-//            }
-//            log.debug("Emit relocation: {}", .{relocation});
-//        }
-//        if (atom.prev == .none) break;
-//        atom = atom.prev.ptr(wasm);
-//    }
-//    if (count == 0) return;
-//    var buf: [5]u8 = undefined;
-//    leb.writeUnsignedFixed(5, &buf, count);
-//    try binary_bytes.insertSlice(reloc_start, &buf);
-//    writeCustomSectionHeader(binary_bytes, header_offset);
-//}
-
-//fn emitDataRelocations(
-//    wasm: *Wasm,
-//    binary_bytes: *std.ArrayList(u8),
-//    section_index: u32,
-//    symbol_table: std.AutoArrayHashMap(SymbolLoc, u32),
-//) !void {
-//    const comp = wasm.base.comp;
-//    const gpa = comp.gpa;
-//    const writer = binary_bytes.writer(gpa);
-//    const header_offset = try reserveCustomSectionHeader(gpa, binary_bytes);
-//
-//    // write custom section information
-//    const name = "reloc.DATA";
-//    try leb.writeUleb128(writer, @as(u32, @intCast(name.len)));
-//    try writer.writeAll(name);
-//    try leb.writeUleb128(writer, section_index);
-//    const reloc_start = binary_bytes.items.len;
-//
-//    var count: u32 = 0;
-//    // for each atom, we calculate the uleb size and append that
-//    var size_offset: u32 = 5; // account for code section size leb128
-//    for (f.data_segments.values()) |segment_index| {
-//        var atom: *Atom = wasm.atoms.get(segment_index).?.ptr(wasm);
-//        while (true) {
-//            size_offset += getUleb128Size(atom.code.len);
-//            for (atom.relocSlice(wasm)) |relocation| {
-//                count += 1;
-//                const sym_loc: SymbolLoc = .{ .file = atom.file, .index = @enumFromInt(relocation.index) };
-//                const symbol_index = symbol_table.get(sym_loc).?;
-//                try leb.writeUleb128(writer, @intFromEnum(relocation.tag));
-//                const offset = atom.offset + relocation.offset + size_offset;
-//                try leb.writeUleb128(writer, offset);
-//                try leb.writeUleb128(writer, symbol_index);
-//                if (relocation.tag.addendIsPresent()) {
-//                    try leb.writeIleb128(writer, relocation.addend);
-//                }
-//                log.debug("Emit relocation: {}", .{relocation});
-//            }
-//            if (atom.prev == .none) break;
-//            atom = atom.prev.ptr(wasm);
-//        }
-//    }
-//    if (count == 0) return;
-//
-//    var buf: [5]u8 = undefined;
-//    leb.writeUnsignedFixed(5, &buf, count);
-//    try binary_bytes.insertSlice(reloc_start, &buf);
-//    writeCustomSectionHeader(binary_bytes, header_offset);
-//}
-
 fn splitSegmentName(name: []const u8) struct { []const u8, []const u8 } {
     const start = @intFromBool(name.len >= 1 and name[0] == '.');
     const pivot = mem.indexOfScalarPos(u8, name, start, '.') orelse name.len;
@@ -1496,31 +1388,6 @@ pub fn emitExpr(wasm: *const Wasm, binary_bytes: *std.ArrayListUnmanaged(u8), ex
     try binary_bytes.appendSlice(gpa, slice[0 .. slice.len + 1]); // +1 to include end opcode
 }
 
-//fn emitLinkSection(
-//    wasm: *Wasm,
-//    binary_bytes: *std.ArrayListUnmanaged(u8),
-//    symbol_table: *std.AutoArrayHashMapUnmanaged(SymbolLoc, u32),
-//) !void {
-//    const gpa = wasm.base.comp.gpa;
-//    const offset = try reserveCustomSectionHeader(gpa, binary_bytes);
-//    const writer = binary_bytes.writer(gpa);
-//    // emit "linking" custom section name
-//    const section_name = "linking";
-//    try leb.writeUleb128(writer, section_name.len);
-//    try writer.writeAll(section_name);
-//
-//    // meta data version, which is currently '2'
-//    try leb.writeUleb128(writer, @as(u32, 2));
-//
-//    // For each subsection type (found in Subsection) we can emit a section.
-//    // Currently, we only support emitting segment info and the symbol table.
-//    try wasm.emitSymbolTable(binary_bytes, symbol_table);
-//    try wasm.emitSegmentInfo(binary_bytes);
-//
-//    const size: u32 = @intCast(binary_bytes.items.len - offset - 6);
-//    writeCustomSectionHeader(binary_bytes, offset, size);
-//}
-
 fn emitSegmentInfo(wasm: *Wasm, binary_bytes: *std.ArrayList(u8)) !void {
     const gpa = wasm.base.comp.gpa;
     const writer = binary_bytes.writer(gpa);
@@ -1544,83 +1411,6 @@ fn emitSegmentInfo(wasm: *Wasm, binary_bytes: *std.ArrayList(u8)) !void {
     leb.writeUnsignedFixed(5, &buf, @as(u32, @intCast(binary_bytes.items.len - segment_offset)));
     try binary_bytes.insertSlice(segment_offset, &buf);
 }
-
-//fn emitSymbolTable(
-//    wasm: *Wasm,
-//    binary_bytes: *std.ArrayListUnmanaged(u8),
-//    symbol_table: *std.AutoArrayHashMapUnmanaged(SymbolLoc, u32),
-//) !void {
-//    const gpa = wasm.base.comp.gpa;
-//    const writer = binary_bytes.writer(gpa);
-//
-//    try leb.writeUleb128(writer, @intFromEnum(SubsectionType.symbol_table));
-//    const table_offset = binary_bytes.items.len;
-//
-//    var symbol_count: u32 = 0;
-//    for (wasm.resolved_symbols.keys()) |sym_loc| {
-//        const symbol = wasm.finalSymbolByLoc(sym_loc).*;
-//        if (symbol.tag == .dead) continue;
-//        try symbol_table.putNoClobber(gpa, sym_loc, symbol_count);
-//        symbol_count += 1;
-//        log.debug("emit symbol: {}", .{symbol});
-//        try leb.writeUleb128(writer, @intFromEnum(symbol.tag));
-//        try leb.writeUleb128(writer, symbol.flags);
-//
-//        const sym_name = wasm.symbolLocName(sym_loc);
-//        switch (symbol.tag) {
-//            .data => {
-//                try leb.writeUleb128(writer, @as(u32, @intCast(sym_name.len)));
-//                try writer.writeAll(sym_name);
-//
-//                if (!symbol.flags.undefined) {
-//                    try leb.writeUleb128(writer, @intFromEnum(symbol.pointee.data_out));
-//                    const atom_index = wasm.symbol_atom.get(sym_loc).?;
-//                    const atom = wasm.getAtom(atom_index);
-//                    try leb.writeUleb128(writer, @as(u32, atom.offset));
-//                    try leb.writeUleb128(writer, @as(u32, atom.code.len));
-//                }
-//            },
-//            .section => {
-//                try leb.writeUleb128(writer, @intFromEnum(symbol.pointee.section));
-//            },
-//            .function => {
-//                if (symbol.flags.undefined) {
-//                    try leb.writeUleb128(writer, @intFromEnum(symbol.pointee.function_import));
-//                } else {
-//                    try leb.writeUleb128(writer, @intFromEnum(symbol.pointee.function));
-//                    try leb.writeUleb128(writer, @as(u32, @intCast(sym_name.len)));
-//                    try writer.writeAll(sym_name);
-//                }
-//            },
-//            .global => {
-//                if (symbol.flags.undefined) {
-//                    try leb.writeUleb128(writer, @intFromEnum(symbol.pointee.global_import));
-//                } else {
-//                    try leb.writeUleb128(writer, @intFromEnum(symbol.pointee.global));
-//                    try leb.writeUleb128(writer, @as(u32, @intCast(sym_name.len)));
-//                    try writer.writeAll(sym_name);
-//                }
-//            },
-//            .table => {
-//                if (symbol.flags.undefined) {
-//                    try leb.writeUleb128(writer, @intFromEnum(symbol.pointee.table_import));
-//                } else {
-//                    try leb.writeUleb128(writer, @intFromEnum(symbol.pointee.table));
-//                    try leb.writeUleb128(writer, @as(u32, @intCast(sym_name.len)));
-//                    try writer.writeAll(sym_name);
-//                }
-//            },
-//            .event => unreachable,
-//            .dead => unreachable,
-//            .uninitialized => unreachable,
-//        }
-//    }
-//
-//    var buf: [10]u8 = undefined;
-//    leb.writeUnsignedFixed(5, buf[0..5], @intCast(binary_bytes.items.len - table_offset + 5));
-//    leb.writeUnsignedFixed(5, buf[5..], symbol_count);
-//    try binary_bytes.insertSlice(table_offset, &buf);
-//}
 
 fn uleb128size(x: u32) u32 {
     var value = x;
