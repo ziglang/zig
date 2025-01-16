@@ -137,7 +137,8 @@ inline fn copyRange4(
     const d2 = src[pen..][0..copy_len].*;
     const d3 = src[last..][0..copy_len].*;
 
-    dest[0..copy_len].* = d0;
+    // the slice dest[0..len] is needed to workaround -ODebug miscompilation
+    dest[0..len][0..copy_len].* = d0;
     dest[b..][0..copy_len].* = d1;
     dest[pen..][0..copy_len].* = d2;
     dest[last..][0..copy_len].* = d3;
