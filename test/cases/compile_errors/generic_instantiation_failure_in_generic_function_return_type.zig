@@ -21,7 +21,7 @@ pub fn isPtrTo(comptime id: std.builtin.TypeId) TraitFn {
 
 pub fn isSingleItemPtr(comptime T: type) bool {
     if (comptime is(.pointer)(T)) {
-        return @typeInfo(T).pointer.size == .One;
+        return @typeInfo(T).pointer.size == .one;
     }
     return false;
 }

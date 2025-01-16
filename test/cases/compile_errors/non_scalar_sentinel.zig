@@ -16,7 +16,7 @@ comptime {
 }
 comptime {
     _ = @Type(.{ .pointer = .{
-        .size = .Slice,
+        .size = .slice,
         .is_const = false,
         .is_volatile = false,
         .alignment = @alignOf(S),
@@ -28,7 +28,7 @@ comptime {
 }
 comptime {
     _ = @Type(.{ .pointer = .{
-        .size = .Many,
+        .size = .many,
         .is_const = false,
         .is_volatile = false,
         .alignment = @alignOf(S),
