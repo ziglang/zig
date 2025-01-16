@@ -608,7 +608,10 @@ pub fn flushModule(self: *MachO, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
             else => |e| return diags.fail("failed to write code signature: {s}", .{@errorName(e)}),
         };
         const emit = self.base.emit;
-        try invalidateKernelCache(emit.root_dir.handle, emit.sub_path);
+        invalidateKernelCache(emit.root_dir.handle, emit.sub_path) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => |e| return diags.fail("failed to invalidate kernel cache: {s}", .{@errorName(e)}),
+        };
     }
 }
 
