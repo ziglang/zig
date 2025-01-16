@@ -3502,7 +3502,7 @@ fn markFunction(wasm: *Wasm, i: ObjectFunctionIndex, override_export: bool) link
 
     if (!is_obj and (override_export or function.flags.isExported(rdynamic))) {
         const symbol_name = function.name.unwrap().?;
-        if (function.flags.visibility_hidden) {
+        if (!override_export and function.flags.visibility_hidden) {
             try wasm.hidden_function_exports.put(gpa, symbol_name, @enumFromInt(gop.index));
         } else {
             try wasm.function_exports.put(gpa, symbol_name, @enumFromInt(gop.index));

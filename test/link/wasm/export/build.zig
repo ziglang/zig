@@ -11,7 +11,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const no_export = b.addExecutable(.{
         .name = "no-export",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("main.zig"),
+            .root_source_file = b.path("main-hidden.zig"),
             .optimize = optimize,
             .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
         }),
@@ -36,7 +36,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     const force_export = b.addExecutable(.{
         .name = "force",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("main.zig"),
+            .root_source_file = b.path("main-hidden.zig"),
             .optimize = optimize,
             .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
         }),

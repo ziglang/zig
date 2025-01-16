@@ -210,9 +210,8 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 const function_index = Wasm.FunctionIndex.fromIpNav(wasm, nav_export.nav_index).?;
                 const explicit = f.missing_exports.swapRemove(nav_export.name);
                 const is_hidden = !explicit and switch (export_index.ptr(zcu).opts.visibility) {
-                    .protected => false,
                     .hidden => true,
-                    .default => !comp.config.rdynamic,
+                    .default, .protected => false,
                 };
                 if (is_hidden) {
                     try wasm.hidden_function_exports.put(gpa, nav_export.name, function_index);

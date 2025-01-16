@@ -40,7 +40,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
 
     check_export.checkInHeaders();
     check_export.checkExact("Section export");
-    check_export.checkExact("entries 2");
+    check_export.checkExact("entries 3");
     check_export.checkExact("name __indirect_function_table"); // as per linker specification
     check_export.checkExact("kind table");
 
