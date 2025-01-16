@@ -1339,7 +1339,7 @@ fn updateNavCode(
                     else => |errno| log.warn("process_vm_writev failure: {s}", .{@tagName(errno)}),
                 }
             },
-            else => return error.HotSwapUnavailableOnHostOperatingSystem,
+            else => return elf_file.base.cgFail(nav_index, "ELF hot swap unavailable on host operating system '{s}'", .{@tagName(builtin.os.tag)}),
         }
     }
 
