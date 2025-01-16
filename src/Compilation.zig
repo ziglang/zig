@@ -1733,6 +1733,10 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
     if (win32_resource_count > 0) {
         dev.check(.win32_resource);
         try comp.win32_resource_table.ensureTotalCapacity(gpa, win32_resource_count);
+        // Add this after adding logic to updateWin32Resource to pass the
+        // result into link.loadInput. loadInput integration is not implemented
+        // for Windows linking logic yet.
+        //comp.remaining_prelink_tasks += @intCast(win32_resource_count);
         for (options.rc_source_files) |rc_source_file| {
             const win32_resource = try gpa.create(Win32Resource);
             errdefer gpa.destroy(win32_resource);
@@ -1743,7 +1747,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             };
             comp.win32_resource_table.putAssumeCapacityNoClobber(win32_resource, {});
         }
-        comp.remaining_prelink_tasks += @intCast(comp.win32_resource_table.count());
 
         if (options.manifest_file) |manifest_path| {
             const win32_resource = try gpa.create(Win32Resource);
@@ -1754,7 +1757,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 .src = .{ .manifest = manifest_path },
             };
             comp.win32_resource_table.putAssumeCapacityNoClobber(win32_resource, {});
-            comp.remaining_prelink_tasks += 1;
         }
     }
 
@@ -1935,6 +1937,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         try comp.link_task_queue.shared.append(gpa, .load_explicitly_provided);
         comp.remaining_prelink_tasks += 1;
     }
+    log.debug("total prelink tasks: {d}", .{comp.remaining_prelink_tasks});
 
     return comp;
 }
