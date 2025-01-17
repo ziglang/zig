@@ -1,5 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const build_options = @import("build_options");
 const Type = @import("Type.zig");
 const assert = std.debug.assert;
 const BigIntConst = std.math.big.int.Const;
@@ -241,12 +242,12 @@ pub fn getVariable(val: Value, mod: *Zcu) ?InternPool.Key.Variable {
 
 /// If the value fits in a u64, return it, otherwise null.
 /// Asserts not undefined.
-pub fn getUnsignedInt(val: Value, zcu: *Zcu) ?u64 {
+pub fn getUnsignedInt(val: Value, zcu: *const Zcu) ?u64 {
     return getUnsignedIntInner(val, .normal, zcu, {}) catch unreachable;
 }
 
 /// Asserts the value is an integer and it fits in a u64
-pub fn toUnsignedInt(val: Value, zcu: *Zcu) u64 {
+pub fn toUnsignedInt(val: Value, zcu: *const Zcu) u64 {
     return getUnsignedInt(val, zcu).?;
 }
 
@@ -259,7 +260,7 @@ pub fn getUnsignedIntSema(val: Value, pt: Zcu.PerThread) !?u64 {
 pub fn getUnsignedIntInner(
     val: Value,
     comptime strat: ResolveStrat,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) !?u64 {
     return switch (val.toIntern()) {
@@ -304,7 +305,7 @@ pub fn toUnsignedIntSema(val: Value, pt: Zcu.PerThread) !u64 {
 }
 
 /// Asserts the value is an integer and it fits in a i64
-pub fn toSignedInt(val: Value, zcu: *Zcu) i64 {
+pub fn toSignedInt(val: Value, zcu: *const Zcu) i64 {
     return switch (val.toIntern()) {
         .bool_false => 0,
         .bool_true => 1,
@@ -3854,7 +3855,7 @@ pub fn ptrOptPayload(parent_ptr: Value, pt: Zcu.PerThread) !Value {
     const parent_ptr_ty = parent_ptr.typeOf(zcu);
     const opt_ty = parent_ptr_ty.childType(zcu);
 
-    assert(parent_ptr_ty.ptrSize(zcu) == .One);
+    assert(parent_ptr_ty.ptrSize(zcu) == .one);
     assert(opt_ty.zigTypeTag(zcu) == .optional);
 
     const result_ty = try pt.ptrTypeSema(info: {
@@ -3872,7 +3873,7 @@ pub fn ptrOptPayload(parent_ptr: Value, pt: Zcu.PerThread) !Value {
         return pt.getCoerced(parent_ptr, result_ty);
     }
 
-    const base_ptr = try parent_ptr.canonicalizeBasePtr(.One, opt_ty, pt);
+    const base_ptr = try parent_ptr.canonicalizeBasePtr(.one, opt_ty, pt);
     return Value.fromInterned(try pt.intern(.{ .ptr = .{
         .ty = result_ty.toIntern(),
         .base_addr = .{ .opt_payload = base_ptr.toIntern() },
@@ -3888,7 +3889,7 @@ pub fn ptrEuPayload(parent_ptr: Value, pt: Zcu.PerThread) !Value {
     const parent_ptr_ty = parent_ptr.typeOf(zcu);
     const eu_ty = parent_ptr_ty.childType(zcu);
 
-    assert(parent_ptr_ty.ptrSize(zcu) == .One);
+    assert(parent_ptr_ty.ptrSize(zcu) == .one);
     assert(eu_ty.zigTypeTag(zcu) == .error_union);
 
     const result_ty = try pt.ptrTypeSema(info: {
@@ -3901,7 +3902,7 @@ pub fn ptrEuPayload(parent_ptr: Value, pt: Zcu.PerThread) !Value {
 
     if (parent_ptr.isUndef(zcu)) return pt.undefValue(result_ty);
 
-    const base_ptr = try parent_ptr.canonicalizeBasePtr(.One, eu_ty, pt);
+    const base_ptr = try parent_ptr.canonicalizeBasePtr(.one, eu_ty, pt);
     return Value.fromInterned(try pt.intern(.{ .ptr = .{
         .ty = result_ty.toIntern(),
         .base_addr = .{ .eu_payload = base_ptr.toIntern() },
@@ -3919,7 +3920,7 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
     const aggregate_ty = parent_ptr_ty.childType(zcu);
 
     const parent_ptr_info = parent_ptr_ty.ptrInfo(zcu);
-    assert(parent_ptr_info.flags.size == .One);
+    assert(parent_ptr_info.flags.size == .one);
 
     // Exiting this `switch` indicates that the `field` pointer representation should be used.
     // `field_align` may be `.none` to represent the natural alignment of `field_ty`, but is not necessarily.
@@ -4050,7 +4051,7 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
 
     if (parent_ptr.isUndef(zcu)) return pt.undefValue(result_ty);
 
-    const base_ptr = try parent_ptr.canonicalizeBasePtr(.One, aggregate_ty, pt);
+    const base_ptr = try parent_ptr.canonicalizeBasePtr(.one, aggregate_ty, pt);
     return Value.fromInterned(try pt.intern(.{ .ptr = .{
         .ty = result_ty.toIntern(),
         .base_addr = .{ .field = .{
@@ -4067,8 +4068,8 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
 pub fn ptrElem(orig_parent_ptr: Value, field_idx: u64, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     const parent_ptr = switch (orig_parent_ptr.typeOf(zcu).ptrSize(zcu)) {
-        .One, .Many, .C => orig_parent_ptr,
-        .Slice => orig_parent_ptr.slicePtr(zcu),
+        .one, .many, .c => orig_parent_ptr,
+        .slice => orig_parent_ptr.slicePtr(zcu),
     };
 
     const parent_ptr_ty = parent_ptr.typeOf(zcu);
@@ -4089,7 +4090,7 @@ pub fn ptrElem(orig_parent_ptr: Value, field_idx: u64, pt: Zcu.PerThread) !Value
     };
 
     const strat: PtrStrat = switch (parent_ptr_ty.ptrSize(zcu)) {
-        .One => switch (elem_ty.zigTypeTag(zcu)) {
+        .one => switch (elem_ty.zigTypeTag(zcu)) {
             .vector => .{ .offset = field_idx * @divExact(try elem_ty.childType(zcu).bitSizeSema(pt), 8) },
             .array => strat: {
                 const arr_elem_ty = elem_ty.childType(zcu);
@@ -4101,12 +4102,12 @@ pub fn ptrElem(orig_parent_ptr: Value, field_idx: u64, pt: Zcu.PerThread) !Value
             else => unreachable,
         },
 
-        .Many, .C => if (try elem_ty.comptimeOnlySema(pt))
+        .many, .c => if (try elem_ty.comptimeOnlySema(pt))
             .{ .elem_ptr = elem_ty }
         else
             .{ .offset = field_idx * (try elem_ty.abiSizeInner(.sema, zcu, pt.tid)).scalar },
 
-        .Slice => unreachable,
+        .slice => unreachable,
     };
 
     switch (strat) {
@@ -4134,7 +4135,7 @@ pub fn ptrElem(orig_parent_ptr: Value, field_idx: u64, pt: Zcu.PerThread) !Value
                 },
                 else => {},
             }
-            const base_ptr = try parent_ptr.canonicalizeBasePtr(.Many, arr_base_ty, pt);
+            const base_ptr = try parent_ptr.canonicalizeBasePtr(.many, arr_base_ty, pt);
             return Value.fromInterned(try pt.intern(.{ .ptr = .{
                 .ty = result_ty.toIntern(),
                 .base_addr = .{ .arr_elem = .{
@@ -4364,7 +4365,7 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
                 .child = parent_ptr_info.child,
                 .flags = flags: {
                     var flags = parent_ptr_info.flags;
-                    flags.size = .One;
+                    flags.size = .one;
                     break :flags flags;
                 },
             });
@@ -4434,8 +4435,8 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
                     if (!cur_ty.isPtrLikeOptional(zcu)) break :ptr_opt;
                     if (need_child.zigTypeTag(zcu) != .pointer) break :ptr_opt;
                     switch (need_child.ptrSize(zcu)) {
-                        .One, .Many => {},
-                        .Slice, .C => break :ptr_opt,
+                        .one, .many => {},
+                        .slice, .c => break :ptr_opt,
                     }
                     const parent = try arena.create(PointerDeriveStep);
                     parent.* = cur_derive;
@@ -4453,7 +4454,7 @@ pub fn pointerDerivationAdvanced(ptr_val: Value, arena: Allocator, pt: Zcu.PerTh
                 const elem_size = elem_ty.abiSize(zcu);
                 const start_idx = cur_offset / elem_size;
                 const end_idx = (cur_offset + need_bytes + elem_size - 1) / elem_size;
-                if (end_idx == start_idx + 1 and ptr_ty_info.flags.size == .One) {
+                if (end_idx == start_idx + 1 and ptr_ty_info.flags.size == .one) {
                     const parent = try arena.create(PointerDeriveStep);
                     parent.* = cur_derive;
                     cur_derive = .{ .elem_ptr = .{
@@ -4661,6 +4662,20 @@ pub fn resolveLazy(
     }
 }
 
+const InterpretMode = enum {
+    /// In this mode, types are assumed to match what the compiler was built with in terms of field
+    /// order, field types, etc. This improves compiler performance. However, it means that certain
+    /// modifications to `std.builtin` will result in compiler crashes.
+    direct,
+    /// In this mode, various details of the type are allowed to differ from what the compiler was built
+    /// with. Fields are matched by name rather than index; added struct fields are ignored, and removed
+    /// struct fields use their default value if one exists. This is slower than `.direct`, but permits
+    /// making certain changes to `std.builtin` (in particular reordering/adding/removing fields), so it
+    /// is useful when applying breaking changes.
+    by_name,
+};
+const interpret_mode: InterpretMode = @field(InterpretMode, @tagName(build_options.value_interpret_mode));
+
 /// Given a `Value` representing a comptime-known value of type `T`, unwrap it into an actual `T` known to the compiler.
 /// This is useful for accessing `std.builtin` structures received from comptime logic.
 /// `val` must be fully resolved.
@@ -4713,11 +4728,20 @@ pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMe
         else
             null,
 
-        .@"enum" => zcu.toEnum(T, val),
+        .@"enum" => switch (interpret_mode) {
+            .direct => {
+                const int = val.getUnsignedInt(zcu) orelse return error.TypeMismatch;
+                return std.meta.intToEnum(T, int) catch error.TypeMismatch;
+            },
+            .by_name => {
+                const field_index = ty.enumTagFieldIndex(val, zcu) orelse return error.TypeMismatch;
+                const field_name = ty.enumFieldName(field_index, zcu);
+                return std.meta.stringToEnum(T, field_name.toSlice(ip)) orelse error.TypeMismatch;
+            },
+        },
 
         .@"union" => |@"union"| {
-            const union_obj = zcu.typeToUnion(ty) orelse return error.TypeMismatch;
-            if (union_obj.field_types.len != @"union".fields.len) return error.TypeMismatch;
+            // No need to handle `interpret_mode`, because the `.@"enum"` handling already deals with it.
             const tag_val = val.unionTag(zcu) orelse return error.TypeMismatch;
             const tag = try tag_val.interpret(@"union".tag_type.?, pt);
             return switch (tag) {
@@ -4729,14 +4753,28 @@ pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMe
             };
         },
 
-        .@"struct" => |@"struct"| {
-            if (ty.structFieldCount(zcu) != @"struct".fields.len) return error.TypeMismatch;
-            var result: T = undefined;
-            inline for (@"struct".fields, 0..) |field, field_idx| {
-                const field_val = try val.fieldValue(pt, field_idx);
-                @field(result, field.name) = try field_val.interpret(field.type, pt);
-            }
-            return result;
+        .@"struct" => |@"struct"| switch (interpret_mode) {
+            .direct => {
+                if (ty.structFieldCount(zcu) != @"struct".fields.len) return error.TypeMismatch;
+                var result: T = undefined;
+                inline for (@"struct".fields, 0..) |field, field_idx| {
+                    const field_val = try val.fieldValue(pt, field_idx);
+                    @field(result, field.name) = try field_val.interpret(field.type, pt);
+                }
+                return result;
+            },
+            .by_name => {
+                const struct_obj = zcu.typeToStruct(ty) orelse return error.TypeMismatch;
+                var result: T = undefined;
+                inline for (@"struct".fields) |field| {
+                    const field_name_ip = try ip.getOrPutString(zcu.gpa, pt.tid, field.name, .no_embedded_nulls);
+                    @field(result, field.name) = if (struct_obj.nameIndex(ip, field_name_ip)) |field_idx| f: {
+                        const field_val = try val.fieldValue(pt, field_idx);
+                        break :f try field_val.interpret(field.type, pt);
+                    } else (field.defaultValue() orelse return error.TypeMismatch);
+                }
+                return result;
+            },
         },
     };
 }
@@ -4748,6 +4786,7 @@ pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory
     const T = @TypeOf(val);
 
     const zcu = pt.zcu;
+    const ip = &zcu.intern_pool;
     if (ty.zigTypeTag(zcu) != @typeInfo(T)) return error.TypeMismatch;
 
     return switch (@typeInfo(T)) {
@@ -4787,9 +4826,17 @@ pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory
         else
             try pt.nullValue(ty),
 
-        .@"enum" => try pt.enumValue(ty, (try uninterpret(@intFromEnum(val), ty.intTagType(zcu), pt)).toIntern()),
+        .@"enum" => switch (interpret_mode) {
+            .direct => try pt.enumValue(ty, (try uninterpret(@intFromEnum(val), ty.intTagType(zcu), pt)).toIntern()),
+            .by_name => {
+                const field_name_ip = try ip.getOrPutString(zcu.gpa, pt.tid, @tagName(val), .no_embedded_nulls);
+                const field_idx = ty.enumFieldIndex(field_name_ip, zcu) orelse return error.TypeMismatch;
+                return pt.enumValueFieldIndex(ty, field_idx);
+            },
+        },
 
         .@"union" => |@"union"| {
+            // No need to handle `interpret_mode`, because the `.@"enum"` handling already deals with it.
             const tag: @"union".tag_type.? = val;
             const tag_val = try uninterpret(tag, ty.unionTagType(zcu).?, pt);
             const field_ty = ty.unionFieldType(tag_val, zcu) orelse return error.TypeMismatch;
@@ -4802,17 +4849,44 @@ pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory
             };
         },
 
-        .@"struct" => |@"struct"| {
-            if (ty.structFieldCount(zcu) != @"struct".fields.len) return error.TypeMismatch;
-            var field_vals: [@"struct".fields.len]InternPool.Index = undefined;
-            inline for (&field_vals, @"struct".fields, 0..) |*field_val, field, field_idx| {
-                const field_ty = ty.fieldType(field_idx, zcu);
-                field_val.* = (try uninterpret(@field(val, field.name), field_ty, pt)).toIntern();
-            }
-            return .fromInterned(try pt.intern(.{ .aggregate = .{
-                .ty = ty.toIntern(),
-                .storage = .{ .elems = &field_vals },
-            } }));
+        .@"struct" => |@"struct"| switch (interpret_mode) {
+            .direct => {
+                if (ty.structFieldCount(zcu) != @"struct".fields.len) return error.TypeMismatch;
+                var field_vals: [@"struct".fields.len]InternPool.Index = undefined;
+                inline for (&field_vals, @"struct".fields, 0..) |*field_val, field, field_idx| {
+                    const field_ty = ty.fieldType(field_idx, zcu);
+                    field_val.* = (try uninterpret(@field(val, field.name), field_ty, pt)).toIntern();
+                }
+                return .fromInterned(try pt.intern(.{ .aggregate = .{
+                    .ty = ty.toIntern(),
+                    .storage = .{ .elems = &field_vals },
+                } }));
+            },
+            .by_name => {
+                const struct_obj = zcu.typeToStruct(ty) orelse return error.TypeMismatch;
+                const want_fields_len = struct_obj.field_types.len;
+                const field_vals = try zcu.gpa.alloc(InternPool.Index, want_fields_len);
+                defer zcu.gpa.free(field_vals);
+                @memset(field_vals, .none);
+                inline for (@"struct".fields) |field| {
+                    const field_name_ip = try ip.getOrPutString(zcu.gpa, pt.tid, field.name, .no_embedded_nulls);
+                    if (struct_obj.nameIndex(ip, field_name_ip)) |field_idx| {
+                        const field_ty = ty.fieldType(field_idx, zcu);
+                        field_vals[field_idx] = (try uninterpret(@field(val, field.name), field_ty, pt)).toIntern();
+                    }
+                }
+                for (field_vals, 0..) |*field_val, field_idx| {
+                    if (field_val.* == .none) {
+                        const default_init = struct_obj.field_inits.get(ip)[field_idx];
+                        if (default_init == .none) return error.TypeMismatch;
+                        field_val.* = default_init;
+                    }
+                }
+                return .fromInterned(try pt.intern(.{ .aggregate = .{
+                    .ty = ty.toIntern(),
+                    .storage = .{ .elems = field_vals },
+                } }));
+            },
         },
     };
 }

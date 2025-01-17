@@ -118,21 +118,21 @@ test "Type.Array" {
         .array = .{
             .len = 123,
             .child = u8,
-            .sentinel = null,
+            .sentinel_ptr = null,
         },
     }));
     try testing.expect([2]u32 == @Type(.{
         .array = .{
             .len = 2,
             .child = u32,
-            .sentinel = null,
+            .sentinel_ptr = null,
         },
     }));
     try testing.expect([2:0]u32 == @Type(.{
         .array = .{
             .len = 2,
             .child = u32,
-            .sentinel = &@as(u32, 0),
+            .sentinel_ptr = &@as(u32, 0),
         },
     }));
     try testTypes(&[_]type{ [1]u8, [30]usize, [7]bool });
@@ -141,14 +141,14 @@ test "Type.Array" {
 test "@Type create slice with null sentinel" {
     const Slice = @Type(.{
         .pointer = .{
-            .size = .Slice,
+            .size = .slice,
             .is_const = true,
             .is_volatile = false,
             .is_allowzero = false,
             .alignment = 8,
             .address_space = .generic,
             .child = *i32,
-            .sentinel = null,
+            .sentinel_ptr = null,
         },
     });
     try testing.expect(Slice == []align(8) const *i32);
@@ -266,10 +266,10 @@ test "Type.Struct" {
     try testing.expectEqual(Type.ContainerLayout.auto, infoA.layout);
     try testing.expectEqualSlices(u8, "x", infoA.fields[0].name);
     try testing.expectEqual(u8, infoA.fields[0].type);
-    try testing.expectEqual(@as(?*const anyopaque, null), infoA.fields[0].default_value);
+    try testing.expectEqual(@as(?*const anyopaque, null), infoA.fields[0].default_value_ptr);
     try testing.expectEqualSlices(u8, "y", infoA.fields[1].name);
     try testing.expectEqual(u32, infoA.fields[1].type);
-    try testing.expectEqual(@as(?*const anyopaque, null), infoA.fields[1].default_value);
+    try testing.expectEqual(@as(?*const anyopaque, null), infoA.fields[1].default_value_ptr);
     try testing.expectEqualSlices(Type.Declaration, &.{}, infoA.decls);
     try testing.expectEqual(@as(bool, false), infoA.is_tuple);
 
@@ -284,10 +284,10 @@ test "Type.Struct" {
     try testing.expectEqual(Type.ContainerLayout.@"extern", infoB.layout);
     try testing.expectEqualSlices(u8, "x", infoB.fields[0].name);
     try testing.expectEqual(u8, infoB.fields[0].type);
-    try testing.expectEqual(@as(?*const anyopaque, null), infoB.fields[0].default_value);
+    try testing.expectEqual(@as(?*const anyopaque, null), infoB.fields[0].default_value_ptr);
     try testing.expectEqualSlices(u8, "y", infoB.fields[1].name);
     try testing.expectEqual(u32, infoB.fields[1].type);
-    try testing.expectEqual(@as(u32, 5), @as(*align(1) const u32, @ptrCast(infoB.fields[1].default_value.?)).*);
+    try testing.expectEqual(@as(u32, 5), infoB.fields[1].defaultValue().?);
     try testing.expectEqual(@as(usize, 0), infoB.decls.len);
     try testing.expectEqual(@as(bool, false), infoB.is_tuple);
 
@@ -296,10 +296,10 @@ test "Type.Struct" {
     try testing.expectEqual(Type.ContainerLayout.@"packed", infoC.layout);
     try testing.expectEqualSlices(u8, "x", infoC.fields[0].name);
     try testing.expectEqual(u8, infoC.fields[0].type);
-    try testing.expectEqual(@as(u8, 3), @as(*const u8, @ptrCast(infoC.fields[0].default_value.?)).*);
+    try testing.expectEqual(@as(u8, 3), infoC.fields[0].defaultValue().?);
     try testing.expectEqualSlices(u8, "y", infoC.fields[1].name);
     try testing.expectEqual(u32, infoC.fields[1].type);
-    try testing.expectEqual(@as(u32, 5), @as(*align(1) const u32, @ptrCast(infoC.fields[1].default_value.?)).*);
+    try testing.expectEqual(@as(u32, 5), infoC.fields[1].defaultValue().?);
     try testing.expectEqual(@as(usize, 0), infoC.decls.len);
     try testing.expectEqual(@as(bool, false), infoC.is_tuple);
 
@@ -309,10 +309,10 @@ test "Type.Struct" {
     try testing.expectEqual(Type.ContainerLayout.auto, infoD.layout);
     try testing.expectEqualSlices(u8, "x", infoD.fields[0].name);
     try testing.expectEqual(comptime_int, infoD.fields[0].type);
-    try testing.expectEqual(@as(comptime_int, 3), @as(*const comptime_int, @ptrCast(infoD.fields[0].default_value.?)).*);
+    try testing.expectEqual(@as(comptime_int, 3), infoD.fields[0].defaultValue().?);
     try testing.expectEqualSlices(u8, "y", infoD.fields[1].name);
     try testing.expectEqual(comptime_int, infoD.fields[1].type);
-    try testing.expectEqual(@as(comptime_int, 5), @as(*const comptime_int, @ptrCast(infoD.fields[1].default_value.?)).*);
+    try testing.expectEqual(@as(comptime_int, 5), infoD.fields[1].defaultValue().?);
     try testing.expectEqual(@as(usize, 0), infoD.decls.len);
     try testing.expectEqual(@as(bool, false), infoD.is_tuple);
 
@@ -322,10 +322,10 @@ test "Type.Struct" {
     try testing.expectEqual(Type.ContainerLayout.auto, infoE.layout);
     try testing.expectEqualSlices(u8, "0", infoE.fields[0].name);
     try testing.expectEqual(comptime_int, infoE.fields[0].type);
-    try testing.expectEqual(@as(comptime_int, 1), @as(*const comptime_int, @ptrCast(infoE.fields[0].default_value.?)).*);
+    try testing.expectEqual(@as(comptime_int, 1), infoE.fields[0].defaultValue().?);
     try testing.expectEqualSlices(u8, "1", infoE.fields[1].name);
     try testing.expectEqual(comptime_int, infoE.fields[1].type);
-    try testing.expectEqual(@as(comptime_int, 2), @as(*const comptime_int, @ptrCast(infoE.fields[1].default_value.?)).*);
+    try testing.expectEqual(@as(comptime_int, 2), infoE.fields[1].defaultValue().?);
     try testing.expectEqual(@as(usize, 0), infoE.decls.len);
     try testing.expectEqual(@as(bool, true), infoE.is_tuple);
 
@@ -548,11 +548,11 @@ test "Type.Fn" {
 
     const some_opaque = opaque {};
     const some_ptr = *some_opaque;
-    const T = fn (c_int, some_ptr) callconv(.C) void;
+    const T = fn (c_int, some_ptr) callconv(.c) void;
 
     {
         const fn_info = std.builtin.Type{ .@"fn" = .{
-            .calling_convention = .C,
+            .calling_convention = .c,
             .is_generic = false,
             .is_var_args = false,
             .return_type = void,
@@ -582,7 +582,7 @@ test "reified struct field name from optional payload" {
                 .fields = &.{.{
                     .name = name,
                     .type = u8,
-                    .default_value = null,
+                    .default_value_ptr = null,
                     .is_comptime = false,
                     .alignment = 1,
                 }},
@@ -628,7 +628,7 @@ test "reified struct uses @alignOf" {
                         .{
                             .name = "globals",
                             .type = modules.mach.globals,
-                            .default_value = null,
+                            .default_value_ptr = null,
                             .is_comptime = false,
                             .alignment = @alignOf(modules.mach.globals),
                         },
@@ -688,7 +688,7 @@ test "empty struct assigned to reified struct field" {
                     .fields = &.{.{
                         .name = "components",
                         .type = @TypeOf(modules.components),
-                        .default_value = null,
+                        .default_value_ptr = null,
                         .is_comptime = false,
                         .alignment = @alignOf(@TypeOf(modules.components)),
                     }},
@@ -738,7 +738,7 @@ test "struct field names sliced at comptime from larger string" {
                 .alignment = 0,
                 .name = name ++ "",
                 .type = usize,
-                .default_value = null,
+                .default_value_ptr = null,
                 .is_comptime = false,
             }};
         }

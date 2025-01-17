@@ -1312,10 +1312,10 @@ pub const Pool = struct {
             },
             else => {
                 const target = &mod.resolved_target.result;
-                const abi_align = Type.intAbiAlignment(int_info.bits, target.*, false);
+                const abi_align = Type.intAbiAlignment(int_info.bits, target.*);
                 const abi_align_bytes = abi_align.toByteUnits().?;
                 const array_ctype = try pool.getArray(allocator, .{
-                    .len = @divExact(Type.intAbiSize(int_info.bits, target.*, false), abi_align_bytes),
+                    .len = @divExact(Type.intAbiSize(int_info.bits, target.*), abi_align_bytes),
                     .elem_ctype = try pool.fromIntInfo(allocator, .{
                         .signedness = .unsigned,
                         .bits = @intCast(abi_align_bytes * 8),
@@ -1429,7 +1429,7 @@ pub const Pool = struct {
                         .name = .{ .index = .len },
                         .ctype = CType.usize,
                         .alignas = AlignAs.fromAbiAlignment(
-                            Type.intAbiAlignment(target.ptrBitWidth(), target.*, false),
+                            Type.intAbiAlignment(target.ptrBitWidth(), target.*),
                         ),
                     },
                 };
@@ -1458,7 +1458,7 @@ pub const Pool = struct {
             _ => |ip_index| switch (ip.indexToKey(ip_index)) {
                 .int_type => |int_info| return pool.fromIntInfo(allocator, int_info, mod, kind),
                 .ptr_type => |ptr_info| switch (ptr_info.flags.size) {
-                    .One, .Many, .C => {
+                    .one, .many, .c => {
                         const elem_ctype = elem_ctype: {
                             if (ptr_info.packed_offset.host_size > 0 and
                                 ptr_info.flags.vector_index == .none)
@@ -1505,7 +1505,7 @@ pub const Pool = struct {
                             .@"volatile" = ptr_info.flags.is_volatile,
                         });
                     },
-                    .Slice => {
+                    .slice => {
                         const target = &mod.resolved_target.result;
                         var fields = [_]Info.Field{
                             .{
@@ -1524,7 +1524,7 @@ pub const Pool = struct {
                                 .name = .{ .index = .len },
                                 .ctype = CType.usize,
                                 .alignas = AlignAs.fromAbiAlignment(
-                                    Type.intAbiAlignment(target.ptrBitWidth(), target.*, false),
+                                    Type.intAbiAlignment(target.ptrBitWidth(), target.*),
                                 ),
                             },
                         };
@@ -1598,7 +1598,7 @@ pub const Pool = struct {
                     switch (payload_type) {
                         .anyerror_type => return payload_ctype,
                         else => switch (ip.indexToKey(payload_type)) {
-                            .ptr_type => |payload_ptr_info| if (payload_ptr_info.flags.size != .C and
+                            .ptr_type => |payload_ptr_info| if (payload_ptr_info.flags.size != .c and
                                 !payload_ptr_info.flags.is_allowzero) return payload_ctype,
                             .error_set_type, .inferred_error_set_type => return payload_ctype,
                             else => {},
@@ -1644,7 +1644,7 @@ pub const Pool = struct {
                             .name = .{ .index = .@"error" },
                             .ctype = error_set_ctype,
                             .alignas = AlignAs.fromAbiAlignment(
-                                Type.intAbiAlignment(error_set_bits, target.*, false),
+                                Type.intAbiAlignment(error_set_bits, target.*),
                             ),
                         },
                         .{

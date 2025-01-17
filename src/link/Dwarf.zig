@@ -21,7 +21,6 @@ debug_rnglists: DebugRngLists,
 debug_str: StringSection,
 
 pub const UpdateError = error{
-    CodegenFail,
     ReinterpretDeclRef,
     Unimplemented,
     OutOfMemory,
@@ -451,7 +450,6 @@ pub const Section = struct {
             const zo = elf_file.zigObjectPtr().?;
             const atom = zo.symbol(sec.index).atom(elf_file).?;
             if (atom.prevAtom(elf_file)) |_| {
-                // FIXME:JK trimming/shrinking has to be reworked on ZigObject/Elf level
                 atom.value += len;
             } else {
                 const shdr = &elf_file.sections.items(.shdr)[atom.output_section_index];
@@ -600,12 +598,13 @@ const Unit = struct {
 
     fn move(unit: *Unit, sec: *Section, dwarf: *Dwarf, new_off: u32) UpdateError!void {
         if (unit.off == new_off) return;
-        if (try dwarf.getFile().?.copyRangeAll(
+        const n = try dwarf.getFile().?.copyRangeAll(
             sec.off(dwarf) + unit.off,
             dwarf.getFile().?,
             sec.off(dwarf) + new_off,
             unit.len,
-        ) != unit.len) return error.InputOutput;
+        );
+        if (n != unit.len) return error.InputOutput;
         unit.off = new_off;
     }
 
@@ -1891,19 +1890,16 @@ pub const WipNav = struct {
         const bytes = if (ty.hasRuntimeBits(wip_nav.pt.zcu)) ty.abiSize(wip_nav.pt.zcu) else 0;
         try uleb128(diw, bytes);
         if (bytes == 0) return;
-        var dim = wip_nav.debug_info.toManaged(wip_nav.dwarf.gpa);
-        defer wip_nav.debug_info = dim.moveToUnmanaged();
-        switch (try codegen.generateSymbol(
+        const old_len = wip_nav.debug_info.items.len;
+        try codegen.generateSymbol(
             wip_nav.dwarf.bin_file,
             wip_nav.pt,
             src_loc,
             val,
-            &dim,
+            &wip_nav.debug_info,
             .{ .debug_output = .{ .dwarf = wip_nav } },
-        )) {
-            .ok => assert(dim.items.len == wip_nav.debug_info.items.len + bytes),
-            .fail => unreachable,
-        }
+        );
+        assert(old_len + bytes == wip_nav.debug_info.items.len);
     }
 
     const AbbrevCodeForForm = struct {
@@ -2278,7 +2274,7 @@ pub fn deinit(dwarf: *Dwarf) void {
     dwarf.* = undefined;
 }
 
-fn getUnit(dwarf: *Dwarf, mod: *Module) UpdateError!Unit.Index {
+fn getUnit(dwarf: *Dwarf, mod: *Module) !Unit.Index {
     const mod_gop = try dwarf.mods.getOrPut(dwarf.gpa, mod);
     const unit: Unit.Index = @enumFromInt(mod_gop.index);
     if (!mod_gop.found_existing) {
@@ -2338,7 +2334,24 @@ fn getModInfo(dwarf: *Dwarf, unit: Unit.Index) *ModInfo {
     return &dwarf.mods.values()[@intFromEnum(unit)];
 }
 
-pub fn initWipNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index, sym_index: u32) UpdateError!?WipNav {
+pub fn initWipNav(
+    dwarf: *Dwarf,
+    pt: Zcu.PerThread,
+    nav_index: InternPool.Nav.Index,
+    sym_index: u32,
+) error{ OutOfMemory, CodegenFail }!?WipNav {
+    return initWipNavInner(dwarf, pt, nav_index, sym_index) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| return pt.zcu.codegenFail(nav_index, "failed to init dwarf: {s}", .{@errorName(e)}),
+    };
+}
+
+fn initWipNavInner(
+    dwarf: *Dwarf,
+    pt: Zcu.PerThread,
+    nav_index: InternPool.Nav.Index,
+    sym_index: u32,
+) !?WipNav {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
@@ -2667,7 +2680,14 @@ pub fn finishWipNav(
     try wip_nav.updateLazy(zcu.navSrcLoc(nav_index));
 }
 
-pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) UpdateError!void {
+pub fn updateComptimeNav(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) error{ OutOfMemory, CodegenFail }!void {
+    return updateComptimeNavInner(dwarf, pt, nav_index) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| return pt.zcu.codegenFail(nav_index, "failed to update dwarf: {s}", .{@errorName(e)}),
+    };
+}
+
+fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav_src_loc = zcu.navSrcLoc(nav_index);
@@ -3162,7 +3182,7 @@ fn updateLazyType(
             try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
         },
         .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-            .One, .Many, .C => {
+            .one, .many, .c => {
                 const ptr_child_type: Type = .fromInterned(ptr_type.child);
                 try wip_nav.abbrevCode(if (ptr_type.sentinel == .none) .ptr_type else .ptr_sentinel_type);
                 try wip_nav.strp(name);
@@ -3190,7 +3210,7 @@ fn updateLazyType(
                     try wip_nav.refType(ptr_child_type);
                 }
             },
-            .Slice => {
+            .slice => {
                 try wip_nav.abbrevCode(.generated_struct_type);
                 try wip_nav.strp(name);
                 try uleb128(diw, ty.abiSize(zcu));

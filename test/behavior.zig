@@ -31,8 +31,6 @@ test {
     _ = @import("behavior/error.zig");
     _ = @import("behavior/eval.zig");
     _ = @import("behavior/export_builtin.zig");
-    _ = @import("behavior/export_self_referential_type_info.zig");
-    _ = @import("behavior/extern.zig");
     _ = @import("behavior/field_parent_ptr.zig");
     _ = @import("behavior/floatop.zig");
     _ = @import("behavior/fn.zig");
@@ -45,7 +43,6 @@ test {
     _ = @import("behavior/hasfield.zig");
     _ = @import("behavior/if.zig");
     _ = @import("behavior/import.zig");
-    _ = @import("behavior/import_c_keywords.zig");
     _ = @import("behavior/incomplete_struct_param_tld.zig");
     _ = @import("behavior/inline_switch.zig");
     _ = @import("behavior/int128.zig");
@@ -113,6 +110,8 @@ test {
     _ = @import("behavior/widening.zig");
     _ = @import("behavior/abs.zig");
 
+    _ = @import("behavior/x86_64.zig");
+
     if (builtin.cpu.arch == .wasm32) {
         _ = @import("behavior/wasm.zig");
     }
@@ -126,6 +125,16 @@ test {
         builtin.zig_backend != .stage2_spirv64)
     {
         _ = @import("behavior/export_keyword.zig");
+    }
+
+    if (!builtin.cpu.arch.isWasm()) {
+        // Due to lack of import/export of global support
+        // (https://github.com/ziglang/zig/issues/4866), these tests correctly
+        // cause linker errors, since a data symbol cannot be exported when
+        // building an executable.
+        _ = @import("behavior/export_self_referential_type_info.zig");
+        _ = @import("behavior/extern.zig");
+        _ = @import("behavior/import_c_keywords.zig");
     }
 }
 

@@ -643,9 +643,8 @@ set(ZIG_STAGE2_SOURCES
     src/link/StringTable.zig
     src/link/Wasm.zig
     src/link/Wasm/Archive.zig
+    src/link/Wasm/Flush.zig
     src/link/Wasm/Object.zig
-    src/link/Wasm/Symbol.zig
-    src/link/Wasm/ZigObject.zig
     src/link/aarch64.zig
     src/link/riscv.zig
     src/link/table_section.zig

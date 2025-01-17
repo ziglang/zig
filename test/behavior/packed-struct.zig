@@ -891,7 +891,7 @@ test "runtime init of unnamed packed struct type" {
     }{ .x = z }).m();
 }
 
-test "packed struct passed to callconv(.C) function" {
+test "packed struct passed to callconv(.c) function" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -906,7 +906,7 @@ test "packed struct passed to callconv(.C) function" {
             d: u46 = 0,
         };
 
-        fn foo(p: Packed, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) callconv(.C) bool {
+        fn foo(p: Packed, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) callconv(.c) bool {
             return p.a == 12345 and p.b == true and p.c == true and p.d == 0 and a1 == 5 and a2 == 4 and a3 == 3 and a4 == 2 and a5 == 1;
         }
     };
@@ -1270,7 +1270,7 @@ test "2-byte packed struct argument in C calling convention" {
         x: u15 = 0,
         y: u1 = 0,
 
-        fn foo(s: @This()) callconv(.C) i32 {
+        fn foo(s: @This()) callconv(.c) i32 {
             return s.x;
         }
         fn bar(s: @This()) !void {

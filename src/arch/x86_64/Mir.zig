@@ -9,6 +9,7 @@
 instructions: std.MultiArrayList(Inst).Slice,
 /// The meaning of this data is determined by `Inst.Tag` value.
 extra: []const u32,
+table: []const Inst.Index,
 frame_locs: std.MultiArrayList(FrameLoc).Slice,
 
 pub const Inst = struct {
@@ -22,17 +23,26 @@ pub const Inst = struct {
         /// ___
         @"_",
 
-        /// Integer __
+        /// Integer ___
         i_,
 
         /// ___ Left
         _l,
         /// ___ Left Double
         _ld,
+        /// ___ Left Without Affecting Flags
+        _lx,
         /// ___ Right
         _r,
         /// ___ Right Double
         _rd,
+        /// ___ Right Without Affecting Flags
+        _rx,
+
+        /// ___ Forward
+        _f,
+        /// ___ Reverse
+        //_r,
 
         /// ___ Above
         _a,
@@ -43,6 +53,7 @@ pub const Inst = struct {
         /// ___ Below Or Equal
         _be,
         /// ___ Carry
+        /// ___ Carry Flag
         _c,
         /// ___ Equal
         _e,
@@ -94,6 +105,14 @@ pub const Inst = struct {
         _s,
         /// ___ Zero
         _z,
+        /// ___ Alignment Check Flag
+        _ac,
+        /// ___ Direction Flag
+        //_d,
+        /// ___ Interrupt Flag
+        _i,
+        /// ___ User Interrupt Flag
+        _ui,
 
         /// ___ Byte
         //_b,
@@ -210,6 +229,10 @@ pub const Inst = struct {
         p_q,
         /// Packed ___ Double Quadword
         p_dq,
+        /// ___ Aligned Packed Integer Values
+        _dqa,
+        /// ___ Unaligned Packed Integer Values
+        _dqu,
 
         /// ___ Scalar Single-Precision Values
         _ss,
@@ -230,6 +253,10 @@ pub const Inst = struct {
         v_d,
         /// VEX-Encoded ___ QuadWord
         v_q,
+        /// VEX-Encoded ___ Aligned Packed Integer Values
+        v_dqa,
+        /// VEX-Encoded ___ Unaligned Packed Integer Values
+        v_dqu,
         /// VEX-Encoded ___ Integer Data
         v_i128,
         /// VEX-Encoded Packed ___
@@ -287,9 +314,8 @@ pub const Inst = struct {
         /// Bitwise logical and of packed double-precision floating-point values
         @"and",
         /// Bit scan forward
-        bsf,
         /// Bit scan reverse
-        bsr,
+        bs,
         /// Byte swap
         bswap,
         /// Bit test
@@ -305,6 +331,10 @@ pub const Inst = struct {
         cdq,
         /// Convert doubleword to quadword
         cdqe,
+        /// Clear carry flag
+        /// Clear direction flag
+        /// Clear interrupt flag
+        cl,
         /// Flush cache line
         clflush,
         /// Conditional move
@@ -358,6 +388,8 @@ pub const Inst = struct {
         /// Move scalar double-precision floating-point value
         /// Move doubleword
         /// Move quadword
+        /// Move aligned packed integer values
+        /// Move unaligned packed integer values
         mov,
         /// Move data after swapping bytes
         movbe,
@@ -401,9 +433,11 @@ pub const Inst = struct {
         ret,
         /// Rotate left
         /// Rotate right
+        /// Rotate right logical without affecting flags
         ro,
         /// Arithmetic shift left
         /// Arithmetic shift right
+        /// Shift left arithmetic without affecting flags
         sa,
         /// Integer subtraction with borrow
         sbb,
@@ -417,6 +451,8 @@ pub const Inst = struct {
         /// Double precision shift left
         /// Logical shift right
         /// Double precision shift right
+        /// Shift left logical without affecting flags
+        /// Shift right logical without affecting flags
         sh,
         /// Subtract
         /// Subtract packed integers
@@ -425,6 +461,11 @@ pub const Inst = struct {
         /// Subtract packed double-precision floating-point values
         /// Subtract scalar double-precision floating-point values
         sub,
+        /// Set carry flag
+        /// Set direction flag
+        /// Set interrupt flag
+        /// Store floating-point value
+        st,
         /// Store string
         sto,
         /// Syscall
@@ -460,8 +501,6 @@ pub const Inst = struct {
         ldenv,
         /// Store x87 FPU environment
         nstenv,
-        /// Store floating-point value
-        st,
         /// Store x87 FPU environment
         stenv,
 
@@ -542,8 +581,14 @@ pub const Inst = struct {
         /// Move aligned packed single-precision floating-point values
         /// Move aligned packed double-precision floating-point values
         mova,
+        /// Move high packed single-precision floating-point values
+        /// Move high packed double-precision floating-point values
+        movh,
         /// Move packed single-precision floating-point values high to low
         movhl,
+        /// Move low packed single-precision floating-point values
+        /// Move low packed double-precision floating-point values
+        movl,
         /// Move packed single-precision floating-point values low to high
         movlh,
         /// Move unaligned packed single-precision floating-point values
@@ -601,10 +646,6 @@ pub const Inst = struct {
         cvttps2dq,
         /// Convert with truncation scalar double-precision floating-point value to doubleword integer
         cvttsd2si,
-        /// Move aligned packed integer values
-        movdqa,
-        /// Move unaligned packed integer values
-        movdqu,
         /// Packed interleave shuffle of quadruplets of single-precision floating-point values
         /// Packed interleave shuffle of pairs of double-precision floating-point values
         /// Shuffle packed doublewords
@@ -1127,10 +1168,12 @@ pub const AirOffset = struct { air_inst: Air.Inst.Index, off: i32 };
 
 /// Used in conjunction with payload to transfer a list of used registers in a compact manner.
 pub const RegisterList = struct {
-    bitset: BitSet = BitSet.initEmpty(),
+    bitset: BitSet,
 
     const BitSet = IntegerBitSet(32);
     const Self = @This();
+
+    pub const empty: RegisterList = .{ .bitset = .initEmpty() };
 
     fn getIndexForReg(registers: []const Register, reg: Register) BitSet.MaskInt {
         for (registers, 0..) |cpreg, i| {
@@ -1157,8 +1200,12 @@ pub const RegisterList = struct {
         return @intCast(self.bitset.count());
     }
 
-    pub fn size(self: Self) i32 {
-        return @intCast(self.bitset.count() * 8);
+    pub fn size(self: Self, target: *const std.Target) i32 {
+        return @intCast(self.bitset.count() * @as(u4, switch (target.cpu.arch) {
+            else => unreachable,
+            .x86 => 4,
+            .x86_64 => 8,
+        }));
     }
 };
 
@@ -1197,7 +1244,7 @@ pub const Memory = struct {
         size: bits.Memory.Size,
         index: Register,
         scale: bits.Memory.Scale,
-        _: u16 = undefined,
+        _: u15 = undefined,
     };
 
     pub fn encode(mem: bits.Memory) Memory {
@@ -1220,7 +1267,7 @@ pub const Memory = struct {
                 },
             },
             .base = switch (mem.base) {
-                .none => undefined,
+                .none, .table => undefined,
                 .reg => |reg| @intFromEnum(reg),
                 .frame => |frame_index| @intFromEnum(frame_index),
                 .reloc => |sym_index| sym_index,
@@ -1249,6 +1296,7 @@ pub const Memory = struct {
                         .none => .none,
                         .reg => .{ .reg = @enumFromInt(mem.base) },
                         .frame => .{ .frame = @enumFromInt(mem.base) },
+                        .table => .table,
                         .reloc => .{ .reloc = mem.base },
                     },
                     .scale_index = switch (mem.info.index) {
@@ -1277,6 +1325,7 @@ pub const Memory = struct {
 pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.instructions.deinit(gpa);
     gpa.free(mir.extra);
+    gpa.free(mir.table);
     mir.frame_locs.deinit(gpa);
     mir.* = undefined;
 }
@@ -1312,7 +1361,7 @@ pub fn resolveFrameAddr(mir: Mir, frame_addr: bits.FrameAddr) bits.RegisterOffse
 
 pub fn resolveFrameLoc(mir: Mir, mem: Memory) Memory {
     return switch (mem.info.base) {
-        .none, .reg, .reloc => mem,
+        .none, .reg, .table, .reloc => mem,
         .frame => if (mir.frame_locs.len > 0) .{
             .info = .{
                 .base = .reg,

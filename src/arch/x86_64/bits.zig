@@ -150,6 +150,31 @@ pub const Condition = enum(u5) {
             .nz_or_p => .z_and_np,
         };
     }
+
+    /// Returns the equivalent condition when the operands are swapped.
+    pub fn commute(cond: Condition) Condition {
+        return switch (cond) {
+            else => cond,
+            .a => .b,
+            .ae => .be,
+            .b => .a,
+            .be => .ae,
+            .c => .a,
+            .g => .l,
+            .ge => .le,
+            .l => .g,
+            .le => .ge,
+            .na => .nb,
+            .nae => .nbe,
+            .nb => .na,
+            .nbe => .nae,
+            .nc => .na,
+            .ng => .nl,
+            .nge => .nle,
+            .nl => .ng,
+            .nle => .nge,
+        };
+    }
 };
 
 pub const Register = enum(u7) {
@@ -454,37 +479,41 @@ pub const RegisterOffset = struct { reg: Register, off: i32 = 0 };
 pub const SymbolOffset = struct { sym_index: u32, off: i32 = 0 };
 
 pub const Memory = struct {
-    base: Base,
-    mod: Mod,
+    base: Base = .none,
+    mod: Mod = .{ .rm = .{} },
 
-    pub const Base = union(enum(u2)) {
+    pub const Base = union(enum(u3)) {
         none,
         reg: Register,
         frame: FrameIndex,
+        table,
         reloc: u32,
 
         pub const Tag = @typeInfo(Base).@"union".tag_type.?;
 
         pub fn isExtended(self: Base) bool {
             return switch (self) {
-                .none, .frame, .reloc => false, // rsp, rbp, and rip are not extended
+                .none, .frame, .table, .reloc => false, // rsp, rbp, and rip are not extended
                 .reg => |reg| reg.isExtended(),
             };
         }
     };
 
     pub const Mod = union(enum(u1)) {
-        rm: struct {
-            size: Size,
+        rm: Rm,
+        off: u64,
+
+        pub const Rm = struct {
+            size: Size = .none,
             index: Register = .none,
             scale: Scale = .@"1",
             disp: i32 = 0,
-        },
-        off: u64,
+        };
     };
 
     pub const Size = enum(u4) {
         none,
+        ptr,
         byte,
         word,
         dword,
@@ -521,9 +550,10 @@ pub const Memory = struct {
             };
         }
 
-        pub fn bitSize(s: Size) u64 {
+        pub fn bitSize(s: Size, target: *const std.Target) u64 {
             return switch (s) {
                 .none => 0,
+                .ptr => target.ptrBitWidth(),
                 .byte => 8,
                 .word => 16,
                 .dword => 32,
@@ -543,11 +573,50 @@ pub const Memory = struct {
         ) @TypeOf(writer).Error!void {
             if (s == .none) return;
             try writer.writeAll(@tagName(s));
-            try writer.writeAll(" ptr");
+            switch (s) {
+                .none => unreachable,
+                .ptr => {},
+                else => {
+                    try writer.writeByte(' ');
+                    try writer.writeAll("ptr");
+                },
+            }
         }
     };
 
-    pub const Scale = enum(u2) { @"1", @"2", @"4", @"8" };
+    pub const Scale = enum(u2) {
+        @"1",
+        @"2",
+        @"4",
+        @"8",
+
+        pub fn fromFactor(factor: u4) Scale {
+            return switch (factor) {
+                else => unreachable,
+                1 => .@"1",
+                2 => .@"2",
+                4 => .@"4",
+                8 => .@"8",
+            };
+        }
+
+        pub fn toFactor(scale: Scale) u4 {
+            return switch (scale) {
+                .@"1" => 1,
+                .@"2" => 2,
+                .@"4" => 4,
+                .@"8" => 8,
+            };
+        }
+
+        pub fn fromLog2(log2: u2) Scale {
+            return @enumFromInt(log2);
+        }
+
+        pub fn toLog2(scale: Scale) u2 {
+            return @intFromEnum(scale);
+        }
+    };
 };
 
 pub const Immediate = union(enum) {

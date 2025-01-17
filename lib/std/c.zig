@@ -2733,8 +2733,8 @@ pub const Sigaction = switch (native_os) {
         => if (builtin.target.isMusl())
             linux.Sigaction
         else if (builtin.target.ptrBitWidth() == 64) extern struct {
-            pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+            pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
             flags: c_uint,
             handler: extern union {
@@ -2742,10 +2742,10 @@ pub const Sigaction = switch (native_os) {
                 sigaction: ?sigaction_fn,
             },
             mask: sigset_t,
-            restorer: ?*const fn () callconv(.C) void = null,
+            restorer: ?*const fn () callconv(.c) void = null,
         } else extern struct {
-            pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+            pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
             flags: c_uint,
             handler: extern union {
@@ -2753,12 +2753,12 @@ pub const Sigaction = switch (native_os) {
                 sigaction: ?sigaction_fn,
             },
             mask: sigset_t,
-            restorer: ?*const fn () callconv(.C) void = null,
+            restorer: ?*const fn () callconv(.c) void = null,
             __resv: [1]c_int = .{0},
         },
         .s390x => if (builtin.abi == .gnu) extern struct {
-            pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+            pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
             handler: extern union {
                 handler: ?handler_fn,
@@ -2766,15 +2766,15 @@ pub const Sigaction = switch (native_os) {
             },
             __glibc_reserved0: c_int = 0,
             flags: c_uint,
-            restorer: ?*const fn () callconv(.C) void = null,
+            restorer: ?*const fn () callconv(.c) void = null,
             mask: sigset_t,
         } else linux.Sigaction,
         else => linux.Sigaction,
     },
     .emscripten => emscripten.Sigaction,
     .netbsd, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
-        pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+        pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
         handler: extern union {
             handler: ?handler_fn,
@@ -2784,8 +2784,8 @@ pub const Sigaction = switch (native_os) {
         flags: c_uint,
     },
     .dragonfly, .freebsd => extern struct {
-        pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+        pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
         /// signal handler
         handler: extern union {
@@ -2798,8 +2798,8 @@ pub const Sigaction = switch (native_os) {
         mask: sigset_t,
     },
     .solaris, .illumos => extern struct {
-        pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+        pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
         /// signal options
         flags: c_uint,
@@ -2812,8 +2812,8 @@ pub const Sigaction = switch (native_os) {
         mask: sigset_t,
     },
     .haiku => extern struct {
-        pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+        pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
         /// signal handler
         handler: extern union {
@@ -2831,8 +2831,8 @@ pub const Sigaction = switch (native_os) {
         userdata: *allowzero anyopaque = undefined,
     },
     .openbsd => extern struct {
-        pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+        pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
         /// signal handler
         handler: extern union {
@@ -6410,7 +6410,7 @@ pub const EAI = switch (native_os) {
     else => void,
 };
 
-pub const dl_iterate_phdr_callback = *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
+pub const dl_iterate_phdr_callback = *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.c) c_int;
 
 pub const Stat = switch (native_os) {
     .linux => switch (native_arch) {
@@ -9396,7 +9396,7 @@ pub extern "c" fn futimens(fd: fd_t, times: *const [2]timespec) c_int;
 pub extern "c" fn pthread_create(
     noalias newthread: *pthread_t,
     noalias attr: ?*const pthread_attr_t,
-    start_routine: *const fn (?*anyopaque) callconv(.C) ?*anyopaque,
+    start_routine: *const fn (?*anyopaque) callconv(.c) ?*anyopaque,
     noalias arg: ?*anyopaque,
 ) E;
 pub extern "c" fn pthread_attr_init(attr: *pthread_attr_t) E;
@@ -9408,13 +9408,13 @@ pub extern "c" fn pthread_self() pthread_t;
 pub extern "c" fn pthread_join(thread: pthread_t, arg_return: ?*?*anyopaque) E;
 pub extern "c" fn pthread_detach(thread: pthread_t) E;
 pub extern "c" fn pthread_atfork(
-    prepare: ?*const fn () callconv(.C) void,
-    parent: ?*const fn () callconv(.C) void,
-    child: ?*const fn () callconv(.C) void,
+    prepare: ?*const fn () callconv(.c) void,
+    parent: ?*const fn () callconv(.c) void,
+    child: ?*const fn () callconv(.c) void,
 ) c_int;
 pub extern "c" fn pthread_key_create(
     key: *pthread_key_t,
-    destructor: ?*const fn (value: *anyopaque) callconv(.C) void,
+    destructor: ?*const fn (value: *anyopaque) callconv(.c) void,
 ) E;
 pub extern "c" fn pthread_key_delete(key: pthread_key_t) E;
 pub extern "c" fn pthread_getspecific(key: pthread_key_t) ?*anyopaque;
@@ -9530,12 +9530,12 @@ pub extern "c" fn pthread_cond_signal(cond: *pthread_cond_t) E;
 pub extern "c" fn pthread_cond_broadcast(cond: *pthread_cond_t) E;
 pub extern "c" fn pthread_cond_destroy(cond: *pthread_cond_t) E;
 
-pub extern "c" fn pthread_rwlock_destroy(rwl: *pthread_rwlock_t) callconv(.C) E;
-pub extern "c" fn pthread_rwlock_rdlock(rwl: *pthread_rwlock_t) callconv(.C) E;
-pub extern "c" fn pthread_rwlock_wrlock(rwl: *pthread_rwlock_t) callconv(.C) E;
-pub extern "c" fn pthread_rwlock_tryrdlock(rwl: *pthread_rwlock_t) callconv(.C) E;
-pub extern "c" fn pthread_rwlock_trywrlock(rwl: *pthread_rwlock_t) callconv(.C) E;
-pub extern "c" fn pthread_rwlock_unlock(rwl: *pthread_rwlock_t) callconv(.C) E;
+pub extern "c" fn pthread_rwlock_destroy(rwl: *pthread_rwlock_t) callconv(.c) E;
+pub extern "c" fn pthread_rwlock_rdlock(rwl: *pthread_rwlock_t) callconv(.c) E;
+pub extern "c" fn pthread_rwlock_wrlock(rwl: *pthread_rwlock_t) callconv(.c) E;
+pub extern "c" fn pthread_rwlock_tryrdlock(rwl: *pthread_rwlock_t) callconv(.c) E;
+pub extern "c" fn pthread_rwlock_trywrlock(rwl: *pthread_rwlock_t) callconv(.c) E;
+pub extern "c" fn pthread_rwlock_unlock(rwl: *pthread_rwlock_t) callconv(.c) E;
 
 pub const pthread_t = *opaque {};
 pub const FILE = opaque {};

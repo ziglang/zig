@@ -153,9 +153,9 @@ test "extern struct with stdcallcc fn pointer" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = extern struct {
-        ptr: *const fn () callconv(if (builtin.target.cpu.arch == .x86) .Stdcall else .C) i32,
+        ptr: *const fn () callconv(if (builtin.target.cpu.arch == .x86) .Stdcall else .c) i32,
 
-        fn foo() callconv(if (builtin.target.cpu.arch == .x86) .Stdcall else .C) i32 {
+        fn foo() callconv(if (builtin.target.cpu.arch == .x86) .Stdcall else .c) i32 {
             return 1234;
         }
     };
@@ -169,7 +169,7 @@ const nComplexCallconv = 100;
 fn fComplexCallconvRet(x: u32) callconv(blk: {
     const s: struct { n: u32 } = .{ .n = nComplexCallconv };
     break :blk switch (s.n) {
-        0 => .C,
+        0 => .c,
         1 => .Inline,
         else => .Unspecified,
     };
@@ -435,13 +435,13 @@ test "implicit cast function to function ptr" {
             return 123;
         }
     };
-    var fnPtr1: *const fn () callconv(.C) c_int = S1.someFunctionThatReturnsAValue;
+    var fnPtr1: *const fn () callconv(.c) c_int = S1.someFunctionThatReturnsAValue;
     _ = &fnPtr1;
     try expect(fnPtr1() == 123);
     const S2 = struct {
         extern fn someFunctionThatReturnsAValue() c_int;
     };
-    var fnPtr2: *const fn () callconv(.C) c_int = S2.someFunctionThatReturnsAValue;
+    var fnPtr2: *const fn () callconv(.c) c_int = S2.someFunctionThatReturnsAValue;
     _ = &fnPtr2;
     try expect(fnPtr2() == 123);
 }
