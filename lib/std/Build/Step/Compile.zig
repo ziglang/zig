@@ -823,7 +823,12 @@ pub fn setVerboseCC(compile: *Compile, value: bool) void {
 
 pub fn setLibCFile(compile: *Compile, libc_file: ?LazyPath) void {
     const b = compile.step.owner;
-    compile.libc_file = if (libc_file) |f| f.dupe(b) else null;
+    if (libc_file) |f| {
+        compile.libc_file = f.dupe(b);
+        f.addStepDependencies(&compile.step);
+    } else {
+        compile.libc_file = null;
+    }
 }
 
 fn getEmittedFileGeneric(compile: *Compile, output_file: *?*GeneratedFile) LazyPath {
