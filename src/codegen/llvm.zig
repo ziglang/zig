@@ -581,7 +581,7 @@ const DataLayoutBuilder = struct {
         switch (kind) {
             .integer => {
                 if (self.target.ptrBitWidth() <= 16 and size >= 128) return;
-                abi = @min(abi, Type.maxIntAlignment(self.target, true) * 8);
+                abi = @min(abi, Type.maxIntAlignment(self.target) * 8);
                 switch (self.target.cpu.arch) {
                     .aarch64,
                     .aarch64_be,

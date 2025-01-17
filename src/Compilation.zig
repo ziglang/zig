@@ -3067,6 +3067,7 @@ pub fn saveState(comp: *Compilation) !void {
     // linker state
     switch (lf.tag) {
         .wasm => {
+            dev.check(link.File.Tag.wasm.devFeature());
             const wasm = lf.cast(.wasm).?;
             const is_obj = comp.config.output_mode == .Obj;
             try bufs.ensureUnusedCapacity(85);

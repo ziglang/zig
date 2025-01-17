@@ -893,14 +893,38 @@ pub const Inst = struct {
     pub const Index = enum(u32) {
         _,
 
-        pub fn toRef(i: Index) Inst.Ref {
-            assert(@intFromEnum(i) >> 31 == 0);
-            return @enumFromInt((1 << 31) | @intFromEnum(i));
+        pub fn unwrap(index: Index) union(enum) { ref: Inst.Ref, target: u31 } {
+            const low_index: u31 = @truncate(@intFromEnum(index));
+            return switch (@as(u1, @intCast(@intFromEnum(index) >> 31))) {
+                0 => .{ .ref = @enumFromInt(@as(u32, 1 << 31) | low_index) },
+                1 => .{ .target = low_index },
+            };
         }
 
-        pub fn toTargetIndex(i: Index) u31 {
-            assert(@intFromEnum(i) >> 31 == 1);
-            return @truncate(@intFromEnum(i));
+        pub fn toRef(index: Index) Inst.Ref {
+            return index.unwrap().ref;
+        }
+
+        pub fn fromTargetIndex(index: u31) Index {
+            return @enumFromInt((1 << 31) | @as(u32, index));
+        }
+
+        pub fn toTargetIndex(index: Index) u31 {
+            return index.unwrap().target;
+        }
+
+        pub fn format(
+            index: Index,
+            comptime _: []const u8,
+            _: std.fmt.FormatOptions,
+            writer: anytype,
+        ) @TypeOf(writer).Error!void {
+            try writer.writeByte('%');
+            switch (index.unwrap()) {
+                .ref => {},
+                .target => try writer.writeByte('t'),
+            }
+            try writer.print("{d}", .{@as(u31, @truncate(@intFromEnum(index)))});
         }
     };
 
@@ -1205,7 +1229,7 @@ pub const VectorCmp = struct {
     op: u32,
 
     pub fn compareOperator(self: VectorCmp) std.math.CompareOperator {
-        return @as(std.math.CompareOperator, @enumFromInt(@as(u3, @truncate(self.op))));
+        return @enumFromInt(@as(u3, @intCast(self.op)));
     }
 
     pub fn encodeOp(compare_operator: std.math.CompareOperator) u32 {
@@ -1250,11 +1274,11 @@ pub const Cmpxchg = struct {
     flags: u32,
 
     pub fn successOrder(self: Cmpxchg) std.builtin.AtomicOrder {
-        return @as(std.builtin.AtomicOrder, @enumFromInt(@as(u3, @truncate(self.flags))));
+        return @enumFromInt(@as(u3, @truncate(self.flags)));
     }
 
     pub fn failureOrder(self: Cmpxchg) std.builtin.AtomicOrder {
-        return @as(std.builtin.AtomicOrder, @enumFromInt(@as(u3, @truncate(self.flags >> 3))));
+        return @enumFromInt(@as(u3, @intCast(self.flags >> 3)));
     }
 };
 
@@ -1265,11 +1289,11 @@ pub const AtomicRmw = struct {
     flags: u32,
 
     pub fn ordering(self: AtomicRmw) std.builtin.AtomicOrder {
-        return @as(std.builtin.AtomicOrder, @enumFromInt(@as(u3, @truncate(self.flags))));
+        return @enumFromInt(@as(u3, @truncate(self.flags)));
     }
 
     pub fn op(self: AtomicRmw) std.builtin.AtomicRmwOp {
-        return @as(std.builtin.AtomicRmwOp, @enumFromInt(@as(u4, @truncate(self.flags >> 3))));
+        return @enumFromInt(@as(u4, @intCast(self.flags >> 3)));
     }
 };
 

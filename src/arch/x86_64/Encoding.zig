@@ -30,9 +30,10 @@ pub fn findByMnemonic(
     prefix: Instruction.Prefix,
     mnemonic: Mnemonic,
     ops: []const Instruction.Operand,
+    target: *const std.Target,
 ) !?Encoding {
-    var input_ops = [1]Op{.none} ** 4;
-    for (input_ops[0..ops.len], ops) |*input_op, op| input_op.* = Op.fromOperand(op);
+    var input_ops: [4]Op = @splat(.none);
+    for (input_ops[0..ops.len], ops) |*input_op, op| input_op.* = Op.fromOperand(op, target);
 
     const rex_required = for (ops) |op| switch (op) {
         .reg => |r| switch (r) {
@@ -57,6 +58,16 @@ pub fn findByMnemonic(
     var shortest_enc: ?Encoding = null;
     var shortest_len: ?usize = null;
     next: for (mnemonic_to_encodings_map[@intFromEnum(mnemonic)]) |data| {
+        if (!switch (data.feature) {
+            .none => true,
+            inline else => |tag| has_features: {
+                comptime var feature_it = std.mem.splitScalar(u8, @tagName(tag), ' ');
+                comptime var features: []const std.Target.x86.Feature = &.{};
+                inline while (comptime feature_it.next()) |feature| features = features ++ .{@field(std.Target.x86.Feature, feature)};
+                break :has_features std.Target.x86.featureSetHasAll(target.cpu.features, features[0..].*);
+            },
+        }) continue;
+
         switch (data.mode) {
             .none, .short => if (rex_required) continue,
             .rex, .rex_short => if (!rex_required) continue,
@@ -64,7 +75,7 @@ pub fn findByMnemonic(
         }
         for (input_ops, data.ops) |input_op, data_op| if (!input_op.isSubset(data_op)) continue :next;
 
-        const enc = Encoding{ .mnemonic = mnemonic, .data = data };
+        const enc: Encoding = .{ .mnemonic = mnemonic, .data = data };
         if (shortest_enc) |previous_shortest_enc| {
             const len = estimateInstructionLength(prefix, enc, ops);
             const previous_shortest_len = shortest_len orelse
@@ -165,9 +176,14 @@ pub fn format(
     for (opc) |byte| try writer.print("{x:0>2} ", .{byte});
 
     switch (encoding.data.op_en) {
-        .zo, .fd, .td, .i, .zi, .d => {},
-        .o, .oi => {
-            const tag = switch (encoding.data.ops[0]) {
+        .z, .fd, .td, .i, .zi, .d => {},
+        .o, .zo, .oz, .oi => {
+            const op = switch (encoding.data.op_en) {
+                .o, .oz, .oi => encoding.data.ops[0],
+                .zo => encoding.data.ops[1],
+                else => unreachable,
+            };
+            const tag = switch (op) {
                 .r8 => "rb",
                 .r16 => "rw",
                 .r32 => "rd",
@@ -177,7 +193,7 @@ pub fn format(
             try writer.print("+{s} ", .{tag});
         },
         .m, .mi, .m1, .mc, .vmi => try writer.print("/{d} ", .{encoding.modRmExt()}),
-        .mr, .rm, .rmi, .mri, .mrc, .rm0, .rvm, .rvmr, .rvmi, .mvr => try writer.writeAll("/r "),
+        .mr, .rm, .rmi, .mri, .mrc, .rm0, .rvm, .rvmr, .rvmi, .mvr, .rmv => try writer.writeAll("/r "),
     }
 
     switch (encoding.data.op_en) {
@@ -202,7 +218,7 @@ pub fn format(
             try writer.print("{s} ", .{tag});
         },
         .rvmr => try writer.writeAll("/is4 "),
-        .zo, .fd, .td, .o, .m, .m1, .mc, .mr, .rm, .mrc, .rm0, .rvm, .mvr => {},
+        .z, .fd, .td, .o, .zo, .oz, .m, .m1, .mc, .mr, .rm, .mrc, .rm0, .rvm, .mvr, .rmv => {},
     }
 
     try writer.print("{s} ", .{@tagName(encoding.mnemonic)});
@@ -239,7 +255,8 @@ pub const Mnemonic = enum {
     // General-purpose
     adc, add, @"and",
     bsf, bsr, bswap, bt, btc, btr, bts,
-    call, cbw, cdq, cdqe, clflush,
+    call, cbw, cdq, cdqe,
+    clac, clc, cld, clflush, cli, clts, clui,
     cmova, cmovae, cmovb, cmovbe, cmovc, cmove, cmovg, cmovge, cmovl, cmovle, cmovna,
     cmovnae, cmovnb, cmovnbe, cmovnc, cmovne, cmovng, cmovnge, cmovnl, cmovnle, cmovno,
     cmovnp, cmovns, cmovnz, cmovo, cmovp, cmovpe, cmovpo, cmovs, cmovz,
@@ -260,10 +277,12 @@ pub const Mnemonic = enum {
     neg, nop, not,
     @"or",
     pause, pop, popcnt, popfq, push, pushfq,
-    rcl, rcr, ret, rol, ror,
-    sal, sar, sbb,
+    rcl, rcr, ret, rol, ror, rorx,
+    sal, sar, sarx, sbb,
     scas, scasb, scasd, scasq, scasw,
-    shl, shld, shr, shrd, sub, syscall,
+    shl, shld, shlx, shr, shrd, shrx,
+    stac, stc, std, sti, stui,
+    sub, syscall,
     seta, setae, setb, setbe, setc, sete, setg, setge, setl, setle, setna, setnae,
     setnb, setnbe, setnc, setne, setng, setnge, setnl, setnle, setno, setnp, setns,
     setnz, seto, setp, setpe, setpo, sets, setz,
@@ -296,7 +315,7 @@ pub const Mnemonic = enum {
     ldmxcsr,
     maxps, maxss,
     minps, minss,
-    movaps, movhlps, movlhps,
+    movaps, movhlps, movhps, movlhps, movlps,
     movmskps,
     movss, movups,
     mulps, mulss,
@@ -322,6 +341,7 @@ pub const Mnemonic = enum {
     minpd, minsd,
     movapd,
     movdqa, movdqu,
+    movhpd, movlpd,
     movmskpd,
     //movsd,
     movupd,
@@ -353,6 +373,7 @@ pub const Mnemonic = enum {
     pmovsxbd, pmovsxbq, pmovsxbw, pmovsxdq, pmovsxwd, pmovsxwq,
     pmovzxbd, pmovzxbq, pmovzxbw, pmovzxdq, pmovzxwd, pmovzxwq,
     pmulld,
+    ptest,
     roundpd, roundps, roundsd, roundss,
     // SSE4.2
     pcmpgtq,
@@ -383,7 +404,7 @@ pub const Mnemonic = enum {
     vmovd,
     vmovddup,
     vmovdqa, vmovdqu,
-    vmovhlps, vmovlhps,
+    vmovhlps, vmovhpd, vmovhps, vmovlhps, vmovlpd, vmovlps,
     vmovmskpd, vmovmskps,
     vmovq,
     vmovsd,
@@ -413,6 +434,7 @@ pub const Mnemonic = enum {
     vpsrad, vpsraq, vpsraw,
     vpsrld, vpsrldq, vpsrlq, vpsrlw,
     vpsubb, vpsubd, vpsubq, vpsubsb, vpsubsw, vpsubusb, vpsubusw, vpsubw,
+    vptest,
     vpunpckhbw, vpunpckhdq, vpunpckhqdq, vpunpckhwd,
     vpunpcklbw, vpunpckldq, vpunpcklqdq, vpunpcklwd,
     vpxor,
@@ -421,6 +443,7 @@ pub const Mnemonic = enum {
     vsqrtpd, vsqrtps, vsqrtsd, vsqrtss,
     vstmxcsr,
     vsubpd, vsubps, vsubsd, vsubss,
+    vtestpd, vtestps,
     vxorpd, vxorps,
     // F16C
     vcvtph2ps, vcvtps2ph,
@@ -437,14 +460,14 @@ pub const Mnemonic = enum {
 
 pub const OpEn = enum {
     // zig fmt: off
-    zo,
-    o, oi,
+    z,
+    o, zo, oz, oi,
     i, zi,
     d, m,
     fd, td,
     m1, mc, mi, mr, rm,
     rmi, mri, mrc,
-    rm0, vmi, rvm, rvmr, rvmi, mvr,
+    rm0, vmi, rvm, rvmr, rvmi, mvr, rmv,
     // zig fmt: on
 };
 
@@ -471,7 +494,7 @@ pub const Op = enum {
     ymm, ymm_m256,
     // zig fmt: on
 
-    pub fn fromOperand(operand: Instruction.Operand) Op {
+    pub fn fromOperand(operand: Instruction.Operand, target: *const std.Target) Op {
         return switch (operand) {
             .none => .none,
 
@@ -513,7 +536,7 @@ pub const Op = enum {
 
             .mem => |mem| switch (mem) {
                 .moffs => .moffs,
-                .sib, .rip => switch (mem.bitSize()) {
+                .sib, .rip => switch (mem.bitSize(target)) {
                     0 => .m,
                     8 => .m8,
                     16 => .m16,
@@ -554,6 +577,21 @@ pub const Op = enum {
             },
 
             .bytes => unreachable,
+        };
+    }
+
+    pub fn toReg(op: Op) Register {
+        return switch (op) {
+            else => .none,
+            .al => .al,
+            .ax => .ax,
+            .eax => .eax,
+            .rax => .rax,
+            .cl => .cl,
+            .rip => .rip,
+            .eip => .eip,
+            .ip => .ip,
+            .xmm0 => .xmm0,
         };
     }
 
@@ -808,6 +846,8 @@ pub const Feature = enum {
     avx,
     avx2,
     bmi,
+    bmi2,
+    cmov,
     f16c,
     fma,
     lzcnt,
@@ -815,6 +855,7 @@ pub const Feature = enum {
     pclmul,
     @"pclmul avx",
     popcnt,
+    smap,
     sse,
     sse2,
     sse3,
@@ -822,6 +863,7 @@ pub const Feature = enum {
     sse4_2,
     ssse3,
     sha,
+    uintr,
     vaes,
     vpclmulqdq,
     x87,
@@ -831,7 +873,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
     var inst = Instruction{
         .prefix = prefix,
         .encoding = encoding,
-        .ops = [1]Operand{.none} ** 4,
+        .ops = @splat(.none),
     };
     @memcpy(inst.ops[0..ops.len], ops);
 
@@ -846,7 +888,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
 const mnemonic_to_encodings_map = init: {
     @setEvalBranchQuota(5_000);
     const mnemonic_count = @typeInfo(Mnemonic).@"enum".fields.len;
-    var mnemonic_map: [mnemonic_count][]Data = .{&.{}} ** mnemonic_count;
+    var mnemonic_map: [mnemonic_count][]Data = @splat(&.{});
     const encodings = @import("encodings.zig");
     for (encodings.table) |entry| mnemonic_map[@intFromEnum(entry[0])].len += 1;
     var data_storage: [encodings.table.len]Data = undefined;
@@ -855,7 +897,7 @@ const mnemonic_to_encodings_map = init: {
         value.ptr = data_storage[storage_i..].ptr;
         storage_i += value.len;
     }
-    var mnemonic_i: [mnemonic_count]usize = .{0} ** mnemonic_count;
+    var mnemonic_i: [mnemonic_count]usize = @splat(0);
     const ops_len = @typeInfo(std.meta.FieldType(Data, .ops)).array.len;
     const opc_len = @typeInfo(std.meta.FieldType(Data, .opc)).array.len;
     for (encodings.table) |entry| {
@@ -872,7 +914,7 @@ const mnemonic_to_encodings_map = init: {
         i.* += 1;
     }
     const final_storage = data_storage;
-    var final_map: [mnemonic_count][]const Data = .{&.{}} ** mnemonic_count;
+    var final_map: [mnemonic_count][]const Data = @splat(&.{});
     storage_i = 0;
     for (&final_map, mnemonic_map) |*final_value, value| {
         final_value.* = final_storage[storage_i..][0..value.len];

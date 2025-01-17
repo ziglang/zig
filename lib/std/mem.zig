@@ -883,8 +883,8 @@ fn SliceTo(comptime T: type, comptime end: std.meta.Elem(T)) type {
     @compileError("invalid type given to std.mem.sliceTo: " ++ @typeName(T));
 }
 
-/// Takes an array, a pointer to an array, a sentinel-terminated pointer, or a slice and
-/// iterates searching for the first occurrence of `end`, returning the scanned slice.
+/// Takes a pointer to an array, a sentinel-terminated pointer, or a slice and iterates searching for
+/// the first occurrence of `end`, returning the scanned slice.
 /// If `end` is not found, the full length of the array/slice/sentinel terminated pointer is returned.
 /// If the pointer type is sentinel terminated and `end` matches that terminator, the
 /// resulting slice is also sentinel terminated.

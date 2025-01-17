@@ -372,9 +372,11 @@ pub const SpawnConfig = struct {
     // https://github.com/ziglang/zig/issues/157
 
     /// Size in bytes of the Thread's stack
-    stack_size: usize = 16 * 1024 * 1024,
+    stack_size: usize = default_stack_size,
     /// The allocator to be used to allocate memory for the to-be-spawned thread
     allocator: ?std.mem.Allocator = null,
+
+    pub const default_stack_size = 16 * 1024 * 1024;
 };
 
 pub const SpawnError = error{
