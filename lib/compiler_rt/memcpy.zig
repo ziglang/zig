@@ -5,19 +5,23 @@ const builtin = @import("builtin");
 comptime {
     if (builtin.object_format != .c) {
         @export(&memcpy, .{ .name = "memcpy", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&memcpy, .{ .name = "memmove", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&memmove, .{ .name = "memmove", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
-// a port of https://github.com/facebook/folly/blob/1c8bc50e88804e2a7361a57cd9b551dd10f6c5fd/folly/memcpy.S
-pub fn memcpy(maybe_dest: ?[*]u8, maybe_src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
+fn memcpy(noalias opt_dest: ?[*]u8, noalias opt_src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
+    return memmove(opt_dest, opt_src, len);
+}
+
+fn memmove(opt_dest: ?[*]u8, opt_src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
+    // a port of https://github.com/facebook/folly/blob/1c8bc50e88804e2a7361a57cd9b551dd10f6c5fd/folly/memcpy.S
     if (len == 0) {
         @branchHint(.unlikely);
-        return maybe_dest;
+        return opt_dest;
     }
 
-    const dest = maybe_dest.?;
-    const src = maybe_src.?;
+    const dest = opt_dest.?;
+    const src = opt_src.?;
 
     if (len < 8) {
         @branchHint(.unlikely);
