@@ -9,12 +9,36 @@ comptime {
     }
 }
 
+const llvm_cannot_lower = switch (builtin.cpu.arch) {
+    .arm, .armeb, .thumb, .thumbeb => builtin.zig_backend == .stage2_llvm,
+    else => false,
+};
+
 fn memcpy(noalias opt_dest: ?[*]u8, noalias opt_src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
-    return memmove(opt_dest, opt_src, len);
+    if (llvm_cannot_lower) {
+        for (0..len) |i| opt_dest.?[i] = opt_src.?[i];
+        return opt_dest;
+    } else {
+        return memmove(opt_dest, opt_src, len);
+    }
 }
 
+/// A port of https://github.com/facebook/folly/blob/1c8bc50e88804e2a7361a57cd9b551dd10f6c5fd/folly/memcpy.S
 fn memmove(opt_dest: ?[*]u8, opt_src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
-    // a port of https://github.com/facebook/folly/blob/1c8bc50e88804e2a7361a57cd9b551dd10f6c5fd/folly/memcpy.S
+    if (llvm_cannot_lower) {
+        if (@intFromPtr(opt_dest) < @intFromPtr(opt_src)) {
+            for (0..len) |i| opt_dest.?[i] = opt_src.?[i];
+            return opt_dest;
+        } else {
+            var index = len;
+            while (index != 0) {
+                index -= 1;
+                opt_dest.?[index] = opt_src.?[index];
+            }
+            return opt_dest;
+        }
+    }
+
     if (len == 0) {
         @branchHint(.unlikely);
         return opt_dest;
