@@ -149,8 +149,12 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
                     cpu.model = &Target.x86.cpu.broadwell;
                     return;
                 },
-                0x4e, 0x5e, 0x8e, 0x9e => {
+                0x4e, 0x5e, 0x8e, 0x9e, 0xa5, 0xa6 => {
                     cpu.model = &Target.x86.cpu.skylake;
+                    return;
+                },
+                0xa7 => {
+                    cpu.model = &Target.x86.cpu.rocketlake;
                     return;
                 },
                 0x55 => {
@@ -177,6 +181,58 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
                     cpu.model = &Target.x86.cpu.icelake_server;
                     return;
                 },
+                0x8c, 0x8d => {
+                    cpu.model = &Target.x86.cpu.tigerlake;
+                    return;
+                },
+                0x97, 0x9a => {
+                    cpu.model = &Target.x86.cpu.alderlake;
+                    return;
+                },
+                0xbe => {
+                    cpu.model = &Target.x86.cpu.gracemont;
+                    return;
+                },
+                0xb7, 0xba, 0xbf => {
+                    cpu.model = &Target.x86.cpu.raptorlake;
+                    return;
+                },
+                0xaa, 0xac => {
+                    cpu.model = &Target.x86.cpu.meteorlake;
+                    return;
+                },
+                0xc5, 0xb5 => {
+                    cpu.model = &Target.x86.cpu.arrowlake;
+                    return;
+                },
+                0xc6 => {
+                    cpu.model = &Target.x86.cpu.arrowlake_s;
+                    return;
+                },
+                0xbd => {
+                    cpu.model = &Target.x86.cpu.lunarlake;
+                    return;
+                },
+                0xcc => {
+                    cpu.model = &Target.x86.cpu.pantherlake;
+                    return;
+                },
+                0xad => {
+                    cpu.model = &Target.x86.cpu.graniterapids;
+                    return;
+                },
+                0xae => {
+                    cpu.model = &Target.x86.cpu.graniterapids_d;
+                    return;
+                },
+                0xcf => {
+                    cpu.model = &Target.x86.cpu.emeraldrapids;
+                    return;
+                },
+                0x8f => {
+                    cpu.model = &Target.x86.cpu.sapphirerapids;
+                    return;
+                },
                 0x1c, 0x26, 0x27, 0x35, 0x36 => {
                     cpu.model = &Target.x86.cpu.bonnell;
                     return;
@@ -193,8 +249,20 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
                     cpu.model = &Target.x86.cpu.goldmont_plus;
                     return;
                 },
-                0x86 => {
+                0x86, 0x8a, 0x96, 0x9c => {
                     cpu.model = &Target.x86.cpu.tremont;
+                    return;
+                },
+                0xaf => {
+                    cpu.model = &Target.x86.cpu.sierraforest;
+                    return;
+                },
+                0xb6 => {
+                    cpu.model = &Target.x86.cpu.grandridge;
+                    return;
+                },
+                0xdd => {
+                    cpu.model = &Target.x86.cpu.clearwaterforest;
                     return;
                 },
                 0x57 => {
@@ -242,7 +310,7 @@ fn detectAMDProcessor(features: Target.Cpu.Feature.Set, family: u32, model: u32)
             &Target.x86.cpu.k8_sse3
         else
             &Target.x86.cpu.k8,
-        16 => &Target.x86.cpu.amdfam10,
+        16, 18 => &Target.x86.cpu.amdfam10,
         20 => &Target.x86.cpu.btver1,
         21 => switch (model) {
             0x60...0x7f => &Target.x86.cpu.bdver4,
@@ -252,13 +320,14 @@ fn detectAMDProcessor(features: Target.Cpu.Feature.Set, family: u32, model: u32)
         },
         22 => &Target.x86.cpu.btver2,
         23 => switch (model) {
-            0x30...0x3f, 0x71 => &Target.x86.cpu.znver2,
+            0x30...0x3f, 0x47, 0x60...0x6f, 0x70...0x7f, 0x84...0x87, 0x90...0x9f, 0xa0...0xaf => &Target.x86.cpu.znver2,
             else => &Target.x86.cpu.znver1,
         },
         25 => switch (model) {
-            0x10...0x1f, 0x60...0x6f, 0x70...0x77, 0x78...0x7f, 0xa0...0xaf => &Target.x86.cpu.znver4,
+            0x10...0x1f, 0x60...0x6f, 0x70...0x7f, 0xa0...0xaf => &Target.x86.cpu.znver4,
             else => &Target.x86.cpu.znver3,
         },
+        26 => &Target.x86.cpu.znver5,
         else => null,
     };
 }
