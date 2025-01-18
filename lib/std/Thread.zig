@@ -1022,7 +1022,7 @@ const WasiThreadImpl = struct {
 
     comptime {
         if (!builtin.single_threaded) {
-            @export(wasi_thread_start, .{ .name = "wasi_thread_start" });
+            @export(&wasi_thread_start, .{ .name = "wasi_thread_start" });
         }
     }
 
