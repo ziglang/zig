@@ -419,6 +419,7 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
         // detecting features using the "-march=native" flag.
         // For more info, see X86 ISA docs.
         setFeature(cpu, .pconfig, bit(leaf.edx, 18));
+        setFeature(cpu, .uintr, bit(leaf.edx, 5));
 
         // TODO I feel unsure about this check.
         //      It doesn't really seem to check for 7.1, just for 7.
