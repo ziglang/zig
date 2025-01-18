@@ -1770,12 +1770,14 @@ pub fn charToDigit(c: u8, base: u8) (error{InvalidCharacter}!u8) {
     return value;
 }
 
-pub fn digitToChar(digit: u8, case: Case) u8 {
-    return switch (digit) {
+pub fn digitToChar(digit: u8, case: Case) (error{InvalidDigit}!u8) {
+    const value = switch (digit) {
         0...9 => digit + '0',
         10...35 => digit + ((if (case == .upper) @as(u8, 'A') else @as(u8, 'a')) - 10),
-        else => unreachable,
+        else => return error.InvalidDigit,
     };
+
+    return value;
 }
 
 pub const BufPrintError = error{
