@@ -2844,8 +2844,8 @@ pub const Managed = struct {
         return a.toConst().orderAbs(b.toConst());
     }
 
-    /// Returns math.Order.lt, math.Order.eq, math.Order.gt if a < b, a == b or a
-    /// > b respectively.
+    /// Returns math.Order.lt, math.Order.eq, math.Order.gt if a < b, a == b or a > b
+    /// respectively.
     pub fn order(a: Managed, b: Managed) math.Order {
         return a.toConst().order(b.toConst());
     }
