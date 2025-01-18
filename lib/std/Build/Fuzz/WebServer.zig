@@ -576,7 +576,7 @@ fn prepareTables(
     ws: *WebServer,
     run_step: *Step.Run,
     coverage_id: u64,
-) error{ OutOfMemory, AlreadyReported }!void {
+) error{ OutOfMemory, AlreadyReported, CoverageFileTooLarge }!void {
     const gpa = ws.gpa;
 
     ws.coverage_mutex.lock();
@@ -628,9 +628,14 @@ fn prepareTables(
         return error.AlreadyReported;
     };
 
+    const map_size = std.math.cast(usize, file_size) orelse {
+        log.err("unable to memory-map coverage file '{}': too large for {}-bit system", .{ coverage_file_path, @bitSizeOf(usize) });
+        return error.CoverageFileTooLarge;
+    };
+
     const mapped_memory = std.posix.mmap(
         null,
-        file_size,
+        map_size,
         std.posix.PROT.READ,
         .{ .TYPE = .SHARED },
         coverage_file.handle,
