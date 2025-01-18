@@ -64,7 +64,7 @@ pub fn main() !void {
 
         if (!zig_integration) {
             // print any warnings/notes
-            cli_diagnostics.renderToStdErr(args, stderr_config);
+            cli_diagnostics.renderToStdErr(cli_args, stderr_config);
             // If there was something printed, then add an extra newline separator
             // so that there is a clear separation between the cli diagnostics and whatever
             // gets printed after
