@@ -28498,6 +28498,10 @@ fn unionFieldPtr(
     if (try sema.resolveDefinedValue(block, src, union_ptr)) |union_ptr_val| ct: {
         switch (union_obj.flagsUnordered(ip).layout) {
             .auto => if (initializing) {
+                if (!sema.isComptimeMutablePtr(union_ptr_val)) {
+                    // The initialization is a runtime operation.
+                    break :ct;
+                }
                 // Store to the union to initialize the tag.
                 const field_tag = try pt.enumValueFieldIndex(Type.fromInterned(union_obj.enum_tag_ty), enum_field_index);
                 const payload_ty = Type.fromInterned(union_obj.field_types.get(ip)[field_index]);
