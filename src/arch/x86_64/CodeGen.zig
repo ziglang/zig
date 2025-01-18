@@ -1375,6 +1375,14 @@ fn asmOps(self: *CodeGen, tag: Mir.Inst.FixedTag, ops: [4]Operand) !void {
         },
         .imm => |imm0| switch (ops[1]) {
             .none => self.asmImmediate(tag, imm0),
+            .reg => |reg1| switch (ops[2]) {
+                .none => self.asmImmediateRegister(tag, imm0, reg1),
+                else => error.InvalidInstruction,
+            },
+            .imm => |imm1| switch (ops[2]) {
+                .none => self.asmImmediateImmediate(tag, imm0, imm1),
+                else => error.InvalidInstruction,
+            },
             else => error.InvalidInstruction,
         },
         .inst => |inst0| switch (ops[1]) {
@@ -1491,9 +1499,10 @@ fn asmSetccMemory(self: *CodeGen, cc: Condition, m: Memory) !void {
 
 fn asmJmpReloc(self: *CodeGen, target: Mir.Inst.Index) !Mir.Inst.Index {
     return self.addInst(.{
-        .tag = .jmp,
+        .tag = .j,
         .ops = .inst,
         .data = .{ .inst = .{
+            .fixes = ._mp,
             .inst = target,
         } },
     });
@@ -1750,6 +1759,42 @@ fn asmImmediate(self: *CodeGen, tag: Mir.Inst.FixedTag, imm: Immediate) !void {
                 },
             } },
         },
+    });
+}
+
+fn asmImmediateRegister(self: *CodeGen, tag: Mir.Inst.FixedTag, imm: Immediate, reg: Register) !void {
+    _ = try self.addInst(.{
+        .tag = tag[1],
+        .ops = .ir,
+        .data = .{ .ri = .{
+            .fixes = tag[0],
+            .r1 = reg,
+            .i = @as(u8, switch (imm) {
+                .signed => |s| @bitCast(@as(i8, @intCast(s))),
+                .unsigned => |u| @intCast(u),
+                .reloc => unreachable,
+            }),
+        } },
+    });
+}
+
+fn asmImmediateImmediate(self: *CodeGen, tag: Mir.Inst.FixedTag, imm1: Immediate, imm2: Immediate) !void {
+    _ = try self.addInst(.{
+        .tag = tag[1],
+        .ops = .ii,
+        .data = .{ .ii = .{
+            .fixes = tag[0],
+            .i1 = switch (imm1) {
+                .signed => |s| @bitCast(@as(i16, @intCast(s))),
+                .unsigned => |u| @intCast(u),
+                .reloc => unreachable,
+            },
+            .i2 = switch (imm2) {
+                .signed => |s| @bitCast(@as(i8, @intCast(s))),
+                .unsigned => |u| @intCast(u),
+                .reloc => unreachable,
+            },
+        } },
     });
 }
 
@@ -4188,8 +4233,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 _ = try cg.asmJmpReloc(loop.target);
             },
             .br => try cg.airBr(inst),
-            .trap => try cg.asmOpOnly(.{ ._, .ud2 }),
-            .breakpoint => try cg.asmOpOnly(.{ ._, .int3 }),
+            .trap => try cg.asmOpOnly(.{ ._2, .ud }),
+            .breakpoint => try cg.asmOpOnly(.{ ._3, .int }),
             .ret_addr => if (use_old) try cg.airRetAddr(inst) else {
                 var slot = try cg.tempInit(.usize, .{ .load_frame = .{
                     .index = .ret_addr,
@@ -4233,7 +4278,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     .dst_temps = .{.{ .ref = .src0 }},
                     .clobbers = .{ .eflags = true },
                     .each = .{ .once = &.{
-                        .{ ._, ._, .inc, .dst0b, ._, ._, ._ },
+                        .{ ._, ._c, .in, .dst0b, ._, ._, ._ },
                     } },
                 }, .{
                     .src_constraints = .{ .{ .exact_unsigned_int = 1 }, .any },
@@ -5643,7 +5688,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ ._, ._, .lzcnt, .tmp1d, .tmp1d, ._, ._ },
                         .{ ._, ._, .sub, .tmp1b, .sia(32, .src0, .sub_bit_size), ._, ._ },
                         .{ ._, ._, .mov, .memia(.dst0b, .tmp0, .add_len), .tmp1b, ._, ._ },
-                        .{ ._, ._, .inc, .tmp0p, ._, ._, ._ },
+                        .{ ._, ._c, .in, .tmp0p, ._, ._, ._ },
                         .{ ._, ._nz, .j, .@"0b", ._, ._, ._ },
                     } },
                 }, .{
@@ -5695,7 +5740,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ ._, ._, .lzcnt, .tmp1d, .tmp1d, ._, ._ },
                         .{ ._, ._, .sub, .tmp1b, .sia(32, .src0, .sub_bit_size), ._, ._ },
                         .{ ._, ._, .mov, .memia(.dst0b, .tmp0, .add_len), .tmp1b, ._, ._ },
-                        .{ ._, ._, .inc, .tmp0p, ._, ._, ._ },
+                        .{ ._, ._c, .in, .tmp0p, ._, ._, ._ },
                         .{ ._, ._nz, .j, .@"0b", ._, ._, ._ },
                     } },
                 }, .{
@@ -5747,7 +5792,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ ._, ._, .lzcnt, .tmp1d, .tmp1d, ._, ._ },
                         .{ ._, ._, .sub, .tmp1b, .sia(32, .src0, .sub_bit_size), ._, ._ },
                         .{ ._, ._, .mov, .memia(.dst0b, .tmp0, .add_len), .tmp1b, ._, ._ },
-                        .{ ._, ._, .inc, .tmp0p, ._, ._, ._ },
+                        .{ ._, ._c, .in, .tmp0p, ._, ._, ._ },
                         .{ ._, ._nz, .j, .@"0b", ._, ._, ._ },
                     } },
                 }, .{
@@ -5799,7 +5844,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ ._, ._, .lzcnt, .tmp1q, .tmp1q, ._, ._ },
                         .{ ._, ._, .sub, .tmp1b, .sia(64, .src0, .sub_bit_size), ._, ._ },
                         .{ ._, ._, .mov, .memia(.dst0b, .tmp0, .add_len), .tmp1b, ._, ._ },
-                        .{ ._, ._, .inc, .tmp0p, ._, ._, ._ },
+                        .{ ._, ._c, .in, .tmp0p, ._, ._, ._ },
                         .{ ._, ._nz, .j, .@"0b", ._, ._, ._ },
                     } },
                 }, .{
@@ -5857,7 +5902,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ ._, ._, .mov, .tmp3b, .sia(-1, .src0, .add_bit_size), ._, ._ },
                         .{ ._, ._, .sub, .tmp3b, .tmp2b, ._, ._ },
                         .{ ._, ._, .mov, .memia(.dst0b, .tmp0, .add_len), .tmp3b, ._, ._ },
-                        .{ ._, ._, .inc, .tmp0p, ._, ._, ._ },
+                        .{ ._, ._c, .in, .tmp0p, ._, ._, ._ },
                         .{ ._, ._nz, .j, .@"0b", ._, ._, ._ },
                     } },
                 }, .{
@@ -5915,7 +5960,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ ._, ._c, .st, ._, ._, ._, ._ },
                         .{ ._, ._, .sbb, .tmp2b, .tmp1b, ._, ._ },
                         .{ .@"1:", ._, .mov, .memia(.dst0b, .tmp0, .add_len), .tmp2b, ._, ._ },
-                        .{ ._, ._, .inc, .tmp0p, ._, ._, ._ },
+                        .{ ._, ._c, .in, .tmp0p, ._, ._, ._ },
                         .{ ._, ._nz, .j, .@"0b", ._, ._, ._ },
                     } },
                 }, .{
@@ -5970,7 +6015,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ ._, ._, .mov, .tmp1b, .sia(-1, .src0, .add_bit_size), ._, ._ },
                         .{ ._, ._, .sub, .tmp1b, .tmp2b, ._, ._ },
                         .{ ._, ._, .mov, .memia(.dst0b, .tmp0, .add_len), .tmp1b, ._, ._ },
-                        .{ ._, ._, .inc, .tmp0p, ._, ._, ._ },
+                        .{ ._, ._c, .in, .tmp0p, ._, ._, ._ },
                         .{ ._, ._nz, .j, .@"0b", ._, ._, ._ },
                     } },
                 }, .{
@@ -6028,7 +6073,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ ._, ._, .mov, .tmp3b, .sia(-1, .src0, .add_bit_size), ._, ._ },
                         .{ ._, ._, .sub, .tmp3b, .tmp2b, ._, ._ },
                         .{ ._, ._, .mov, .memia(.dst0b, .tmp0, .add_len), .tmp3b, ._, ._ },
-                        .{ ._, ._, .inc, .tmp0p, ._, ._, ._ },
+                        .{ ._, ._c, .in, .tmp0p, ._, ._, ._ },
                         .{ ._, ._nz, .j, .@"0b", ._, ._, ._ },
                     } },
                 }, .{
@@ -6086,7 +6131,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ ._, ._c, .st, ._, ._, ._, ._ },
                         .{ ._, ._, .sbb, .tmp2b, .tmp1b, ._, ._ },
                         .{ .@"1:", ._, .mov, .memia(.dst0b, .tmp0, .add_len), .tmp2b, ._, ._ },
-                        .{ ._, ._, .inc, .tmp0p, ._, ._, ._ },
+                        .{ ._, ._c, .in, .tmp0p, ._, ._, ._ },
                         .{ ._, ._nz, .j, .@"0b", ._, ._, ._ },
                     } },
                 }, .{
@@ -6141,7 +6186,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ ._, ._, .mov, .tmp1b, .sia(-1, .src0, .add_bit_size), ._, ._ },
                         .{ ._, ._, .sub, .tmp1b, .tmp2b, ._, ._ },
                         .{ ._, ._, .mov, .memia(.dst0b, .tmp0, .add_len), .tmp1b, ._, ._ },
-                        .{ ._, ._, .inc, .tmp0p, ._, ._, ._ },
+                        .{ ._, ._c, .in, .tmp0p, ._, ._, ._ },
                         .{ ._, ._nz, .j, .@"0b", ._, ._, ._ },
                     } },
                 }, .{
@@ -6199,7 +6244,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ ._, ._, .mov, .tmp3b, .sia(-1, .src0, .add_bit_size), ._, ._ },
                         .{ ._, ._, .sub, .tmp3b, .tmp2b, ._, ._ },
                         .{ ._, ._, .mov, .memia(.dst0b, .tmp0, .add_len), .tmp3b, ._, ._ },
-                        .{ ._, ._, .inc, .tmp0p, ._, ._, ._ },
+                        .{ ._, ._c, .in, .tmp0p, ._, ._, ._ },
                         .{ ._, ._nz, .j, .@"0b", ._, ._, ._ },
                     } },
                 }, .{
@@ -6257,7 +6302,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ ._, ._c, .st, ._, ._, ._, ._ },
                         .{ ._, ._, .sbb, .tmp2b, .tmp1b, ._, ._ },
                         .{ .@"1:", ._, .mov, .memia(.dst0b, .tmp0, .add_len), .tmp2b, ._, ._ },
-                        .{ ._, ._, .inc, .tmp0p, ._, ._, ._ },
+                        .{ ._, ._c, .in, .tmp0p, ._, ._, ._ },
                         .{ ._, ._nz, .j, .@"0b", ._, ._, ._ },
                     } },
                 }, .{
@@ -6312,7 +6357,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ ._, ._, .mov, .tmp1b, .sia(-1, .src0, .add_bit_size), ._, ._ },
                         .{ ._, ._, .sub, .tmp1b, .tmp2b, ._, ._ },
                         .{ ._, ._, .mov, .memia(.dst0b, .tmp0, .add_len), .tmp1b, ._, ._ },
-                        .{ ._, ._, .inc, .tmp0p, ._, ._, ._ },
+                        .{ ._, ._c, .in, .tmp0p, ._, ._, ._ },
                         .{ ._, ._nz, .j, .@"0b", ._, ._, ._ },
                     } },
                 }, .{
@@ -6370,7 +6415,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ ._, ._, .mov, .tmp3b, .sia(-1, .src0, .add_bit_size), ._, ._ },
                         .{ ._, ._, .sub, .tmp3b, .tmp2b, ._, ._ },
                         .{ ._, ._, .mov, .memia(.dst0b, .tmp0, .add_len), .tmp3b, ._, ._ },
-                        .{ ._, ._, .inc, .tmp0p, ._, ._, ._ },
+                        .{ ._, ._c, .in, .tmp0p, ._, ._, ._ },
                         .{ ._, ._nz, .j, .@"0b", ._, ._, ._ },
                     } },
                 }, .{
@@ -6428,7 +6473,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ ._, ._c, .st, ._, ._, ._, ._ },
                         .{ ._, ._, .sbb, .tmp2b, .tmp1b, ._, ._ },
                         .{ .@"1:", ._, .mov, .memia(.dst0b, .tmp0, .add_len), .tmp2b, ._, ._ },
-                        .{ ._, ._, .inc, .tmp0p, ._, ._, ._ },
+                        .{ ._, ._c, .in, .tmp0p, ._, ._, ._ },
                         .{ ._, ._nz, .j, .@"0b", ._, ._, ._ },
                     } },
                 }, .{
@@ -6484,7 +6529,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .{ ._, ._, .mov, .tmp1b, .sia(-1, .src0, .add_bit_size), ._, ._ },
                         .{ ._, ._, .sub, .tmp1b, .tmp2b, ._, ._ },
                         .{ ._, ._, .mov, .memia(.dst0b, .tmp0, .add_len), .tmp1b, ._, ._ },
-                        .{ ._, ._, .inc, .tmp0p, ._, ._, ._ },
+                        .{ ._, ._c, .in, .tmp0p, ._, ._, ._ },
                         .{ ._, ._nz, .j, .@"0b", ._, ._, ._ },
                     } },
                 }, .{
@@ -10094,7 +10139,7 @@ fn genLazy(self: *CodeGen, lazy_sym: link.File.LazySymbol) InnerError!void {
                 data_off += @intCast(tag_name_len + 1);
             }
 
-            try self.asmOpOnly(.{ ._, .ud2 });
+            try self.asmOpOnly(.{ ._2, .ud });
 
             for (epilogue_relocs) |reloc| self.performReloc(reloc);
             try self.asmOpOnly(.{ ._, .ret });
@@ -10373,7 +10418,7 @@ fn regClassForType(self: *CodeGen, ty: Type) Register.Class {
 fn regSetForRegClass(rc: Register.Class) RegisterManager.RegisterBitSet {
     return switch (rc) {
         .general_purpose => abi.RegisterClass.gp,
-        .segment, .ip => unreachable,
+        .segment, .ip, .cr, .dr => unreachable,
         .x87 => abi.RegisterClass.x87,
         .mmx => @panic("TODO"),
         .sse => abi.RegisterClass.sse,
@@ -12195,8 +12240,8 @@ fn airMulWithOverflow(self: *CodeGen, inst: Air.Inst.Index) !void {
                     try self.asmRegisterImmediate(.{ ._, .add }, temp_regs[2].to32(), .u(1));
                     try self.asmRegisterImmediate(.{ ._, .add }, temp_regs[3].to32(), .u(1));
                 } else {
-                    try self.asmRegister(.{ ._, .inc }, temp_regs[2].to32());
-                    try self.asmRegister(.{ ._, .inc }, temp_regs[3].to32());
+                    try self.asmRegister(.{ ._c, .in }, temp_regs[2].to32());
+                    try self.asmRegister(.{ ._c, .in }, temp_regs[3].to32());
                 }
                 try self.asmRegisterImmediate(.{ ._, .cmp }, temp_regs[3].to32(), .u(limb_len));
                 _ = try self.asmJccReloc(.b, inner_loop);
@@ -12209,7 +12254,7 @@ fn airMulWithOverflow(self: *CodeGen, inst: Air.Inst.Index) !void {
                 if (slow_inc) {
                     try self.asmRegisterImmediate(.{ ._, .add }, temp_regs[2].to32(), .u(1));
                 } else {
-                    try self.asmRegister(.{ ._, .inc }, temp_regs[2].to32());
+                    try self.asmRegister(.{ ._c, .in }, temp_regs[2].to32());
                 }
                 try self.asmMemoryImmediate(.{ ._, .cmp }, .{
                     .base = .{ .frame = lhs_mcv.load_frame.index },
@@ -12236,7 +12281,7 @@ fn airMulWithOverflow(self: *CodeGen, inst: Air.Inst.Index) !void {
                 if (slow_inc) {
                     try self.asmRegisterImmediate(.{ ._, .add }, temp_regs[0].to32(), .u(1));
                 } else {
-                    try self.asmRegister(.{ ._, .inc }, temp_regs[0].to32());
+                    try self.asmRegister(.{ ._c, .in }, temp_regs[0].to32());
                 }
                 try self.asmRegisterImmediate(.{ ._, .cmp }, temp_regs[0].to32(), .u(limb_len));
                 _ = try self.asmJccReloc(.b, outer_loop);
@@ -13938,7 +13983,7 @@ fn airClz(self: *CodeGen, inst: Air.Inst.Index) !void {
             if (self.hasFeature(.slow_incdec)) {
                 try self.asmRegisterImmediate(.{ ._, .sub }, index_reg.to32(), .u(1));
             } else {
-                try self.asmRegister(.{ ._, .dec }, index_reg.to32());
+                try self.asmRegister(.{ ._c, .de }, index_reg.to32());
             }
             try self.asmMemoryImmediate(.{ ._, .cmp }, .{
                 .base = .{ .frame = src_frame_addr.index },
@@ -14133,7 +14178,7 @@ fn airCtz(self: *CodeGen, inst: Air.Inst.Index) !void {
             if (self.hasFeature(.slow_incdec)) {
                 try self.asmRegisterImmediate(.{ ._, .add }, index_reg.to32(), .u(1));
             } else {
-                try self.asmRegister(.{ ._, .inc }, index_reg.to32());
+                try self.asmRegister(.{ ._c, .in }, index_reg.to32());
             }
             try self.asmRegisterImmediate(.{ ._, .cmp }, index_reg.to32(), .u(limbs_len));
             const zero = try self.asmJccReloc(.nb, undefined);
@@ -14535,8 +14580,8 @@ fn genByteSwap(
                 try self.asmRegisterImmediate(.{ ._, .add }, temp_regs[0].to32(), .u(1));
                 try self.asmRegisterImmediate(.{ ._, .sub }, temp_regs[1].to32(), .u(1));
             } else {
-                try self.asmRegister(.{ ._, .inc }, temp_regs[0].to32());
-                try self.asmRegister(.{ ._, .dec }, temp_regs[1].to32());
+                try self.asmRegister(.{ ._c, .in }, temp_regs[0].to32());
+                try self.asmRegister(.{ ._c, .de }, temp_regs[1].to32());
             }
             try self.asmRegisterRegister(.{ ._, .cmp }, temp_regs[0].to32(), temp_regs[1].to32());
             _ = try self.asmJccReloc(.be, loop);
@@ -15113,7 +15158,7 @@ fn airAbs(self: *CodeGen, inst: Air.Inst.Index) !void {
                     if (self.hasFeature(.slow_incdec)) {
                         try self.asmRegisterImmediate(.{ ._, .add }, tmp_regs[0].to32(), .u(1));
                     } else {
-                        try self.asmRegister(.{ ._, .inc }, tmp_regs[0].to32());
+                        try self.asmRegister(.{ ._c, .in }, tmp_regs[0].to32());
                     }
                     try self.asmRegisterImmediate(.{ ._, .cmp }, tmp_regs[0].to32(), .u(limb_len));
                     _ = try self.asmJccReloc(.b, neg_loop);
@@ -16452,8 +16497,8 @@ fn genShiftBinOpMir(
                         try self.asmRegisterImmediate(.{ ._, .sub }, temp_regs[1].to32(), .u(1));
                         try self.asmRegisterImmediate(.{ ._, .sub }, temp_regs[0].to32(), .u(1));
                     } else {
-                        try self.asmRegister(.{ ._, .dec }, temp_regs[1].to32());
-                        try self.asmRegister(.{ ._, .dec }, temp_regs[0].to32());
+                        try self.asmRegister(.{ ._c, .de }, temp_regs[1].to32());
+                        try self.asmRegister(.{ ._c, .de }, temp_regs[0].to32());
                     }
                     _ = try self.asmJccReloc(.nz, loop);
                 },
@@ -16462,8 +16507,8 @@ fn genShiftBinOpMir(
                         try self.asmRegisterImmediate(.{ ._, .add }, temp_regs[1].to32(), .u(1));
                         try self.asmRegisterImmediate(.{ ._, .add }, temp_regs[0].to32(), .u(1));
                     } else {
-                        try self.asmRegister(.{ ._, .inc }, temp_regs[1].to32());
-                        try self.asmRegister(.{ ._, .inc }, temp_regs[0].to32());
+                        try self.asmRegister(.{ ._c, .in }, temp_regs[1].to32());
+                        try self.asmRegister(.{ ._c, .in }, temp_regs[0].to32());
                     }
                     try self.asmRegisterImmediate(
                         .{ ._, .cmp },
@@ -16532,12 +16577,12 @@ fn genShiftBinOpMir(
                 ._l => if (slow_inc_dec) {
                     try self.asmRegisterImmediate(.{ ._, .sub }, temp_regs[1].to32(), .u(1));
                 } else {
-                    try self.asmRegister(.{ ._, .dec }, temp_regs[1].to32());
+                    try self.asmRegister(.{ ._c, .de }, temp_regs[1].to32());
                 },
                 ._r => if (slow_inc_dec) {
                     try self.asmRegisterImmediate(.{ ._, .add }, temp_regs[1].to32(), .u(1));
                 } else {
-                    try self.asmRegister(.{ ._, .inc }, temp_regs[1].to32());
+                    try self.asmRegister(.{ ._c, .in }, temp_regs[1].to32());
                 },
                 else => unreachable,
             }
@@ -17163,8 +17208,8 @@ fn genMulDivBinOp(
                     try self.asmRegisterImmediate(.{ ._, .add }, temp_regs[2].to32(), .u(1));
                     try self.asmRegisterImmediate(.{ ._, .add }, temp_regs[3].to32(), .u(1));
                 } else {
-                    try self.asmRegister(.{ ._, .inc }, temp_regs[2].to32());
-                    try self.asmRegister(.{ ._, .inc }, temp_regs[3].to32());
+                    try self.asmRegister(.{ ._c, .in }, temp_regs[2].to32());
+                    try self.asmRegister(.{ ._c, .in }, temp_regs[3].to32());
                 }
                 try self.asmRegisterImmediate(.{ ._, .cmp }, temp_regs[3].to32(), .u(limb_len));
                 _ = try self.asmJccReloc(.b, inner_loop);
@@ -17173,7 +17218,7 @@ fn genMulDivBinOp(
                 if (slow_inc) {
                     try self.asmRegisterImmediate(.{ ._, .add }, temp_regs[0].to32(), .u(1));
                 } else {
-                    try self.asmRegister(.{ ._, .inc }, temp_regs[0].to32());
+                    try self.asmRegister(.{ ._c, .in }, temp_regs[0].to32());
                 }
                 try self.asmRegisterImmediate(.{ ._, .cmp }, temp_regs[0].to32(), .u(limb_len));
                 _ = try self.asmJccReloc(.b, outer_loop);
@@ -19765,7 +19810,7 @@ fn airArg(self: *CodeGen, inst: Air.Inst.Index) !void {
                 if (self.hasFeature(.slow_incdec)) {
                     try self.asmRegisterImmediate(.{ ._, .add }, index_reg.to32(), .u(1));
                 } else {
-                    try self.asmRegister(.{ ._, .inc }, index_reg.to32());
+                    try self.asmRegister(.{ ._c, .in }, index_reg.to32());
                 }
                 try self.asmRegisterImmediate(
                     .{ ._, .cmp },
@@ -20042,7 +20087,7 @@ fn genCall(self: *CodeGen, info: union(enum) {
                 if (self.hasFeature(.slow_incdec)) {
                     try self.asmRegisterImmediate(.{ ._, .add }, index_reg.to32(), .u(1));
                 } else {
-                    try self.asmRegister(.{ ._, .inc }, index_reg.to32());
+                    try self.asmRegister(.{ ._c, .in }, index_reg.to32());
                 }
                 try self.asmRegisterImmediate(
                     .{ ._, .cmp },
@@ -21423,7 +21468,7 @@ fn lowerSwitchBr(
             defer if (condition_index_lock) |lock| self.register_manager.unlockReg(lock);
             try self.truncateRegister(condition_ty, condition_index_reg);
             const ptr_size = @divExact(self.target.ptrBitWidth(), 8);
-            try self.asmMemory(.{ ._, .jmp }, .{
+            try self.asmMemory(.{ ._mp, .j }, .{
                 .base = .table,
                 .mod = .{ .rm = .{
                     .size = .ptr,
@@ -21720,7 +21765,7 @@ fn airSwitchDispatch(self: *CodeGen, inst: Air.Inst.Index) !void {
             defer if (condition_index_lock) |lock| self.register_manager.unlockReg(lock);
             try self.truncateRegister(condition_ty, condition_index_reg);
             const ptr_size = @divExact(self.target.ptrBitWidth(), 8);
-            try self.asmMemory(.{ ._, .jmp }, .{
+            try self.asmMemory(.{ ._mp, .j }, .{
                 .base = .table,
                 .mod = .{ .rm = .{
                     .size = .ptr,
@@ -21777,7 +21822,7 @@ fn airSwitchDispatch(self: *CodeGen, inst: Air.Inst.Index) !void {
 fn performReloc(self: *CodeGen, reloc: Mir.Inst.Index) void {
     const next_inst: u32 = @intCast(self.mir_instructions.len);
     switch (self.mir_instructions.items(.tag)[reloc]) {
-        .j, .jmp => {},
+        .j => {},
         .pseudo => switch (self.mir_instructions.items(.ops)[reloc]) {
             .pseudo_j_z_and_np_inst, .pseudo_j_nz_or_p_inst => {},
             else => unreachable,
@@ -22149,65 +22194,52 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
             prefix = .directive;
         }
 
-        var mnem_size: ?Memory.Size = if (prefix == .directive)
-            null
-        else if (std.mem.endsWith(u8, mnem_str, "b"))
-            .byte
-        else if (std.mem.endsWith(u8, mnem_str, "w"))
-            .word
-        else if (std.mem.endsWith(u8, mnem_str, "l"))
-            .dword
-        else if (std.mem.endsWith(u8, mnem_str, "q") and
-            (std.mem.indexOfScalar(u8, "vp", mnem_str[0]) == null or !std.mem.endsWith(u8, mnem_str, "dq")))
-            .qword
-        else if (std.mem.endsWith(u8, mnem_str, "t"))
-            .tbyte
-        else
-            null;
-        const mnem_tag = while (true) break std.meta.stringToEnum(
+        var mnem_size: struct {
+            used: bool,
+            size: ?Memory.Size,
+            fn use(size: *@This()) ?Memory.Size {
+                size.used = true;
+                return size.size;
+            }
+        } = .{
+            .used = false,
+            .size = if (prefix == .directive)
+                null
+            else if (std.mem.endsWith(u8, mnem_str, "b"))
+                .byte
+            else if (std.mem.endsWith(u8, mnem_str, "w"))
+                .word
+            else if (std.mem.endsWith(u8, mnem_str, "l"))
+                .dword
+            else if (std.mem.endsWith(u8, mnem_str, "q") and
+                (std.mem.indexOfScalar(u8, "vp", mnem_str[0]) == null or !std.mem.endsWith(u8, mnem_str, "dq")))
+                .qword
+            else if (std.mem.endsWith(u8, mnem_str, "t"))
+                .tbyte
+            else
+                null,
+        };
+        var mnem_tag = while (true) break std.meta.stringToEnum(
             encoder.Instruction.Mnemonic,
-            mnem_str[0 .. mnem_str.len - @intFromBool(mnem_size != null)],
-        ) orelse if (mnem_size) |_| {
-            mnem_size = null;
+            mnem_str[0 .. mnem_str.len - @intFromBool(mnem_size.size != null)],
+        ) orelse if (mnem_size.size) |_| {
+            mnem_size.size = null;
             continue;
         } else return self.fail("invalid mnemonic: '{s}'", .{mnem_str});
         if (@as(?Memory.Size, switch (mnem_tag) {
             .clflush => .byte,
+            .fldcw, .fnstcw, .fstcw, .fnstsw, .fstsw => .word,
             .fldenv, .fnstenv, .fstenv => .none,
+            .frstor, .fsave, .fnsave, .fxrstor, .fxrstor64, .fxsave, .fxsave64 => .none,
+            .invlpg => .none,
+            .invpcid => .xword,
             .ldmxcsr, .stmxcsr, .vldmxcsr, .vstmxcsr => .dword,
             else => null,
         })) |fixed_mnem_size| {
-            if (mnem_size) |size| if (size != fixed_mnem_size)
+            if (mnem_size.size) |size| if (size != fixed_mnem_size)
                 return self.fail("invalid size: '{s}'", .{mnem_str});
-            mnem_size = fixed_mnem_size;
+            mnem_size.size = fixed_mnem_size;
         }
-        const mnem_name = @tagName(mnem_tag);
-        const mnem_fixed_tag: Mir.Inst.FixedTag = if (prefix == .directive)
-            .{ ._, .pseudo }
-        else for (std.enums.values(Mir.Inst.Fixes)) |fixes| {
-            const fixes_name = @tagName(fixes);
-            const space_i = std.mem.indexOfScalar(u8, fixes_name, ' ');
-            const fixes_prefix = if (space_i) |i|
-                std.meta.stringToEnum(encoder.Instruction.Prefix, fixes_name[0..i]).?
-            else
-                .none;
-            if (fixes_prefix != prefix) continue;
-            const pattern = fixes_name[if (space_i) |i| i + " ".len else 0..];
-            const wildcard_i = std.mem.indexOfScalar(u8, pattern, '_').?;
-            const mnem_prefix = pattern[0..wildcard_i];
-            const mnem_suffix = pattern[wildcard_i + "_".len ..];
-            if (!std.mem.startsWith(u8, mnem_name, mnem_prefix)) continue;
-            if (!std.mem.endsWith(u8, mnem_name, mnem_suffix)) continue;
-            break .{ fixes, std.meta.stringToEnum(
-                Mir.Inst.Tag,
-                mnem_name[mnem_prefix.len .. mnem_name.len - mnem_suffix.len],
-            ) orelse continue };
-        } else {
-            assert(prefix != .none); // no combination of fixes produced a known mnemonic
-            return self.fail("invalid prefix for mnemonic: '{s} {s}'", .{
-                @tagName(prefix), mnem_name,
-            });
-        };
 
         var ops: [4]Operand = @splat(.none);
         var ops_len: usize = 0;
@@ -22236,12 +22268,13 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
                     op.* = .{ .mem = .{
                         .base = .{ .reg = reg },
                         .mod = .{ .rm = .{
-                            .size = mnem_size orelse return self.fail("unknown size: '{s}'", .{op_str}),
+                            .size = mnem_size.use() orelse
+                                return self.fail("unknown size: '{s}'", .{op_str}),
                             .disp = disp,
                         } },
                     } };
                 } else {
-                    if (mnem_size) |size| if (reg.bitSize() != size.bitSize(self.target))
+                    if (mnem_size.use()) |size| if (reg.bitSize() != size.bitSize(self.target))
                         return self.fail("invalid register size: '{s}'", .{op_str});
                     op.* = .{ .reg = reg };
                 }
@@ -22260,14 +22293,17 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
                     else
                         return self.fail("invalid modifier: '{s}'", .{modifier}),
                     .register => |reg| if (std.mem.eql(u8, modifier, ""))
-                        .{ .reg = reg }
+                        .{ .reg = if (mnem_size.use()) |size|
+                            registerAlias(reg, @intCast(@divExact(size.bitSize(self.target), 8)))
+                        else
+                            reg }
                     else
                         return self.fail("invalid modifier: '{s}'", .{modifier}),
                     .memory => |addr| if (std.mem.eql(u8, modifier, "") or std.mem.eql(u8, modifier, "P"))
                         .{ .mem = .{
                             .base = .{ .reg = .ds },
                             .mod = .{ .rm = .{
-                                .size = mnem_size orelse
+                                .size = mnem_size.use() orelse
                                     return self.fail("unknown size: '{s}'", .{op_str}),
                                 .disp = @intCast(@as(i64, @bitCast(addr))),
                             } },
@@ -22278,7 +22314,7 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
                         .{ .mem = .{
                             .base = .{ .reg = reg_off.reg },
                             .mod = .{ .rm = .{
-                                .size = mnem_size orelse
+                                .size = mnem_size.use() orelse
                                     return self.fail("unknown size: '{s}'", .{op_str}),
                                 .disp = reg_off.off,
                             } },
@@ -22289,7 +22325,7 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
                         .{ .mem = .{
                             .base = .{ .frame = frame_addr.index },
                             .mod = .{ .rm = .{
-                                .size = mnem_size orelse
+                                .size = mnem_size.use() orelse
                                     return self.fail("unknown size: '{s}'", .{op_str}),
                                 .disp = frame_addr.off,
                             } },
@@ -22307,21 +22343,12 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
                     else => return self.fail("invalid constraint: '{s}'", .{op_str}),
                 };
             } else if (std.mem.startsWith(u8, op_str, "$")) {
-                if (std.fmt.parseInt(i32, op_str["$".len..], 0)) |s| {
-                    if (mnem_size) |size| {
-                        const max = @as(u64, std.math.maxInt(u64)) >> @intCast(64 - (size.bitSize(self.target) - 1));
-                        if ((if (s < 0) ~s else s) > max)
-                            return self.fail("invalid immediate size: '{s}'", .{op_str});
-                    }
-                    op.* = .{ .imm = .s(s) };
-                } else |_| if (std.fmt.parseInt(u64, op_str["$".len..], 0)) |u| {
-                    if (mnem_size) |size| {
-                        const max = @as(u64, std.math.maxInt(u64)) >> @intCast(64 - size.bitSize(self.target));
-                        if (u > max)
-                            return self.fail("invalid immediate size: '{s}'", .{op_str});
-                    }
-                    op.* = .{ .imm = .u(u) };
-                } else |_| return self.fail("invalid immediate: '{s}'", .{op_str});
+                op.* = if (std.fmt.parseInt(u64, op_str["$".len..], 0)) |u|
+                    .{ .imm = .u(u) }
+                else |_| if (std.fmt.parseInt(i32, op_str["$".len..], 0)) |s|
+                    .{ .imm = .s(s) }
+                else |_|
+                    return self.fail("invalid immediate: '{s}'", .{op_str});
             } else if (std.mem.endsWith(u8, op_str, ")")) {
                 const open = std.mem.indexOfScalar(u8, op_str, '(') orelse
                     return self.fail("invalid operand: '{s}'", .{op_str});
@@ -22348,49 +22375,47 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
                 else
                     .@"1";
                 if (sib_it.next()) |_| return self.fail("invalid memory operand: '{s}'", .{op_str});
-                op.* = .{
-                    .mem = .{
-                        .base = if (base_str.len > 0)
-                            .{ .reg = parseRegName(base_str["%%".len..]) orelse
-                                return self.fail("invalid base register: '{s}'", .{base_str}) }
+                op.* = if (std.mem.eql(u8, base_str, "%%dx") and index_str.len == 0) .{ .reg = .dx } else .{ .mem = .{
+                    .base = if (base_str.len > 0)
+                        .{ .reg = parseRegName(base_str["%%".len..]) orelse
+                            return self.fail("invalid base register: '{s}'", .{base_str}) }
+                    else
+                        .none,
+                    .mod = .{ .rm = .{
+                        .size = mnem_size.use() orelse return self.fail("unknown size: '{s}'", .{op_str}),
+                        .index = if (index_str.len > 0)
+                            parseRegName(index_str["%%".len..]) orelse
+                                return self.fail("invalid index register: '{s}'", .{op_str})
                         else
                             .none,
-                        .mod = .{ .rm = .{
-                            .size = mnem_size orelse return self.fail("unknown size: '{s}'", .{op_str}),
-                            .index = if (index_str.len > 0)
-                                parseRegName(index_str["%%".len..]) orelse
-                                    return self.fail("invalid index register: '{s}'", .{op_str})
+                        .scale = scale,
+                        .disp = if (std.mem.startsWith(u8, op_str[0..open], "%[") and
+                            std.mem.endsWith(u8, op_str[0..open], "]"))
+                        disp: {
+                            const colon = std.mem.indexOfScalarPos(u8, op_str[0..open], "%[".len, ':');
+                            const modifier = if (colon) |colon_pos|
+                                op_str[colon_pos + ":".len .. open - "]".len]
                             else
-                                .none,
-                            .scale = scale,
-                            .disp = if (std.mem.startsWith(u8, op_str[0..open], "%[") and
-                                std.mem.endsWith(u8, op_str[0..open], "]"))
-                            disp: {
-                                const colon = std.mem.indexOfScalarPos(u8, op_str[0..open], "%[".len, ':');
-                                const modifier = if (colon) |colon_pos|
-                                    op_str[colon_pos + ":".len .. open - "]".len]
+                                "";
+                            break :disp switch (args.items[
+                                arg_map.get(op_str["%[".len .. colon orelse open - "]".len]) orelse
+                                    return self.fail("no matching constraint: '{s}'", .{op_str})
+                            ]) {
+                                .immediate => |imm| if (std.mem.eql(u8, modifier, "") or
+                                    std.mem.eql(u8, modifier, "c"))
+                                    std.math.cast(i32, @as(i64, @bitCast(imm))) orelse
+                                        return self.fail("invalid displacement: '{s}'", .{op_str})
                                 else
-                                    "";
-                                break :disp switch (args.items[
-                                    arg_map.get(op_str["%[".len .. colon orelse open - "]".len]) orelse
-                                        return self.fail("no matching constraint: '{s}'", .{op_str})
-                                ]) {
-                                    .immediate => |imm| if (std.mem.eql(u8, modifier, "") or
-                                        std.mem.eql(u8, modifier, "c"))
-                                        std.math.cast(i32, @as(i64, @bitCast(imm))) orelse
-                                            return self.fail("invalid displacement: '{s}'", .{op_str})
-                                    else
-                                        return self.fail("invalid modifier: '{s}'", .{modifier}),
-                                    else => return self.fail("invalid constraint: '{s}'", .{op_str}),
-                                };
-                            } else if (open > 0)
-                                std.fmt.parseInt(i32, op_str[0..open], 0) catch
-                                    return self.fail("invalid displacement: '{s}'", .{op_str})
-                            else
-                                0,
-                        } },
-                    },
-                };
+                                    return self.fail("invalid modifier: '{s}'", .{modifier}),
+                                else => return self.fail("invalid constraint: '{s}'", .{op_str}),
+                            };
+                        } else if (open > 0)
+                            std.fmt.parseInt(i32, op_str[0..open], 0) catch
+                                return self.fail("invalid displacement: '{s}'", .{op_str})
+                        else
+                            0,
+                    } },
+                } };
             } else if (Label.isValid(.reference, op_str)) {
                 const anon = std.ascii.isDigit(op_str[0]);
                 const label_gop = try labels.getOrPut(self.gpa, op_str[0..if (anon) 1 else op_str.len]);
@@ -22410,6 +22435,51 @@ fn airAsm(self: *CodeGen, inst: Air.Inst.Index) !void {
 
         // convert from att syntax to intel syntax
         std.mem.reverse(Operand, ops[0..ops_len]);
+        if (!mnem_size.used) if (mnem_size.size) |size| {
+            comptime var max_mnem_len: usize = 0;
+            inline for (@typeInfo(encoder.Instruction.Mnemonic).@"enum".fields) |mnem|
+                max_mnem_len = @max(mnem.name.len, max_mnem_len);
+            var intel_mnem_buf: [max_mnem_len + 1]u8 = undefined;
+            const intel_mnem_str = std.fmt.bufPrint(&intel_mnem_buf, "{s}{c}", .{
+                @tagName(mnem_tag),
+                @as(u8, switch (size) {
+                    .byte => 'b',
+                    .word => 'w',
+                    .dword => 'd',
+                    .qword => 'q',
+                    .tbyte => 't',
+                    else => unreachable,
+                }),
+            }) catch unreachable;
+            if (std.meta.stringToEnum(encoder.Instruction.Mnemonic, intel_mnem_str)) |intel_mnem_tag| mnem_tag = intel_mnem_tag;
+        };
+        const mnem_name = @tagName(mnem_tag);
+        const mnem_fixed_tag: Mir.Inst.FixedTag = if (prefix == .directive)
+            .{ ._, .pseudo }
+        else for (std.enums.values(Mir.Inst.Fixes)) |fixes| {
+            const fixes_name = @tagName(fixes);
+            const space_i = std.mem.indexOfScalar(u8, fixes_name, ' ');
+            const fixes_prefix = if (space_i) |i|
+                std.meta.stringToEnum(encoder.Instruction.Prefix, fixes_name[0..i]).?
+            else
+                .none;
+            if (fixes_prefix != prefix) continue;
+            const pattern = fixes_name[if (space_i) |i| i + " ".len else 0..];
+            const wildcard_i = std.mem.indexOfScalar(u8, pattern, '_').?;
+            const mnem_prefix = pattern[0..wildcard_i];
+            const mnem_suffix = pattern[wildcard_i + "_".len ..];
+            if (!std.mem.startsWith(u8, mnem_name, mnem_prefix)) continue;
+            if (!std.mem.endsWith(u8, mnem_name, mnem_suffix)) continue;
+            break .{ fixes, std.meta.stringToEnum(
+                Mir.Inst.Tag,
+                mnem_name[mnem_prefix.len .. mnem_name.len - mnem_suffix.len],
+            ) orelse continue };
+        } else {
+            assert(prefix != .none); // no combination of fixes produced a known mnemonic
+            return self.fail("invalid prefix for mnemonic: '{s} {s}'", .{
+                @tagName(prefix), mnem_name,
+            });
+        };
 
         (if (prefix == .directive) switch (mnem_tag) {
             .@".cfi_def_cfa" => if (ops[0] == .reg and ops[1] == .imm and ops[2] == .none)
@@ -22815,7 +22885,7 @@ fn moveStrategy(self: *CodeGen, ty: Type, class: Register.Class, aligned: bool) 
                 else => {},
             },
         },
-        .ip => {},
+        .ip, .cr, .dr => {},
     }
     return self.fail("TODO moveStrategy for {}", .{ty.fmt(pt)});
 }
@@ -22900,13 +22970,13 @@ fn genCopy(self: *CodeGen, ty: Type, dst_mcv: MCValue, src_mcv: MCValue, opts: C
                     for (dst_regs, &hazard_regs, 1..) |dst_reg, src_reg, hazard_index| {
                         const dst_id = dst_reg.id();
                         if (dst_id == src_reg.id()) continue;
-                        var mir_tag: Mir.Inst.Tag = .mov;
+                        var mir_tag: Mir.Inst.FixedTag = .{ ._, .mov };
                         for (hazard_regs[hazard_index..]) |*hazard_reg| {
                             if (dst_id != hazard_reg.id()) continue;
-                            mir_tag = .xchg;
+                            mir_tag = .{ ._g, .xch };
                             hazard_reg.* = src_reg;
                         }
-                        try self.asmRegisterRegister(.{ ._, mir_tag }, dst_reg.to64(), src_reg.to64());
+                        try self.asmRegisterRegister(mir_tag, dst_reg.to64(), src_reg.to64());
                     }
                     return;
                 },
@@ -23025,7 +23095,7 @@ fn genSetReg(
                 else => unreachable,
             },
             .segment, .x87, .mmx, .sse => try self.genSetReg(dst_reg, ty, try self.genTypedValue(try pt.undefValue(ty)), opts),
-            .ip => unreachable,
+            .ip, .cr, .dr => unreachable,
         },
         .eflags => |cc| try self.asmSetccRegister(cc, dst_reg.to8()),
         .immediate => |imm| {
@@ -23063,7 +23133,7 @@ fn genSetReg(
                     registerAlias(dst_reg, abi_size),
                     src_reg,
                 ),
-                .x87, .mmx, .ip => unreachable,
+                .x87, .mmx, .ip, .cr, .dr => unreachable,
                 .sse => if (self.hasFeature(.sse2)) try self.asmRegisterRegister(
                     switch (abi_size) {
                         1...4 => if (self.hasFeature(.avx)) .{ .v_d, .mov } else .{ ._d, .mov },
@@ -23092,7 +23162,7 @@ fn genSetReg(
                 dst_reg,
                 switch (src_reg.class()) {
                     .general_purpose, .segment => registerAlias(src_reg, abi_size),
-                    .x87, .mmx, .ip => unreachable,
+                    .x87, .mmx, .ip, .cr, .dr => unreachable,
                     .sse => try self.copyToTmpRegister(ty, src_mcv),
                 },
             ),
@@ -23107,7 +23177,7 @@ fn genSetReg(
                     },
                     else => unreachable,
                 },
-                .mmx, .sse, .ip => unreachable,
+                .mmx, .sse, .ip, .cr, .dr => unreachable,
             },
             .mmx => unreachable,
             .sse => switch (src_reg.class()) {
@@ -23126,7 +23196,7 @@ fn genSetReg(
                     .{ .register = try self.copyToTmpRegister(ty, src_mcv) },
                     opts,
                 ),
-                .x87, .mmx, .ip => unreachable,
+                .x87, .mmx, .ip, .cr, .dr => unreachable,
                 .sse => try self.asmRegisterRegister(
                     @as(?Mir.Inst.FixedTag, switch (ty.scalarType(zcu).zigTypeTag(zcu)) {
                         else => switch (abi_size) {
@@ -23153,7 +23223,7 @@ fn genSetReg(
                     registerAlias(src_reg, abi_size),
                 ),
             },
-            .ip => unreachable,
+            .ip, .cr, .dr => unreachable,
         },
         inline .register_pair,
         .register_triple,
@@ -23294,7 +23364,7 @@ fn genSetReg(
                         });
                         return;
                     },
-                    .segment, .mmx, .ip => unreachable,
+                    .segment, .mmx, .ip, .cr, .dr => unreachable,
                     .x87, .sse => {},
                 },
                 .load_direct => |sym_index| switch (dst_reg.class()) {
@@ -23309,7 +23379,7 @@ fn genSetReg(
                         });
                         return;
                     },
-                    .segment, .mmx, .ip => unreachable,
+                    .segment, .mmx, .ip, .cr, .dr => unreachable,
                     .x87, .sse => {},
                 },
                 .load_got, .load_tlv => {},
@@ -23456,7 +23526,7 @@ fn genSetMem(
             };
             const src_alias = registerAlias(src_reg, abi_size);
             const src_size: u32 = @intCast(switch (src_alias.class()) {
-                .general_purpose, .segment, .x87, .ip => @divExact(src_alias.bitSize(), 8),
+                .general_purpose, .segment, .x87, .ip, .cr, .dr => @divExact(src_alias.bitSize(), 8),
                 .mmx, .sse => abi_size,
             });
             const src_align: InternPool.Alignment = .fromNonzeroByteUnits(
@@ -24240,18 +24310,18 @@ fn atomicOp(
     };
     switch (strat) {
         .lock => {
-            const tag: Mir.Inst.Tag = if (rmw_op) |op| switch (op) {
-                .Xchg => if (unused) .mov else .xchg,
-                .Add => if (unused) .add else .xadd,
-                .Sub => if (unused) .sub else .xadd,
-                .And => .@"and",
-                .Or => .@"or",
-                .Xor => .xor,
+            const mir_tag: Mir.Inst.FixedTag = if (rmw_op) |op| switch (op) {
+                .Xchg => if (unused) .{ ._, .mov } else .{ ._g, .xch },
+                .Add => .{ .@"lock _", if (unused) .add else .xadd },
+                .Sub => .{ .@"lock _", if (unused) .sub else .xadd },
+                .And => .{ .@"lock _", .@"and" },
+                .Or => .{ .@"lock _", .@"or" },
+                .Xor => .{ .@"lock _", .xor },
                 else => unreachable,
             } else switch (order) {
-                .unordered, .monotonic, .release, .acq_rel => .mov,
+                .unordered, .monotonic, .release, .acq_rel => .{ ._, .mov },
                 .acquire => unreachable,
-                .seq_cst => .xchg,
+                .seq_cst => .{ ._g, .xch },
             };
 
             const dst_reg = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
@@ -24260,18 +24330,10 @@ fn atomicOp(
             defer self.register_manager.unlockReg(dst_lock);
 
             try self.genSetReg(dst_reg, val_ty, val_mcv, .{});
-            if (rmw_op == std.builtin.AtomicRmwOp.Sub and tag == .xadd) {
+            if (rmw_op == std.builtin.AtomicRmwOp.Sub and mir_tag[1] == .xadd) {
                 try self.genUnOpMir(.{ ._, .neg }, val_ty, dst_mcv);
             }
-            try self.asmMemoryRegister(
-                switch (tag) {
-                    .mov, .xchg => .{ ._, tag },
-                    .xadd, .add, .sub, .@"and", .@"or", .xor => .{ .@"lock _", tag },
-                    else => unreachable,
-                },
-                ptr_mem,
-                registerAlias(dst_reg, val_abi_size),
-            );
+            try self.asmMemoryRegister(mir_tag, ptr_mem, registerAlias(dst_reg, val_abi_size));
 
             return if (unused) .unreach else dst_mcv;
         },
@@ -27599,7 +27661,7 @@ fn resolveCallingConventionValues(
                         break :return_value .init(.{ .register = registerAlias(ret_gpr[0], ret_size) })
                     else if (ret_gpr.len >= 2 and ret_ty.isSliceAtRuntime(zcu))
                         break :return_value .init(.{ .register_pair = ret_gpr[0..2].* }),
-                    .segment, .mmx, .ip => unreachable,
+                    .segment, .mmx, .ip, .cr, .dr => unreachable,
                     .x87 => break :return_value .init(.{ .register = .st0 }),
                     .sse => if (ret_size <= self.vectorSize(.float)) break :return_value .init(.{
                         .register = registerAlias(abi.getCAbiSseReturnRegs(cc)[0], @max(ret_size, 16)),
@@ -27634,7 +27696,7 @@ fn resolveCallingConventionValues(
                         param_gpr = param_gpr[2..];
                         continue;
                     },
-                    .segment, .mmx, .ip => unreachable,
+                    .segment, .mmx, .ip, .cr, .dr => unreachable,
                     .x87 => if (param_x87.len >= 1) {
                         arg.* = .{ .register = param_x87[0] };
                         param_x87 = param_x87[1..];
@@ -27686,9 +27748,9 @@ fn failMsg(self: *CodeGen, msg: *Zcu.ErrorMsg) error{ OutOfMemory, CodegenFail }
 }
 
 fn parseRegName(name: []const u8) ?Register {
-    if (@hasDecl(Register, "parseRegName")) {
-        return Register.parseRegName(name);
-    }
+    if (std.mem.startsWith(u8, name, "db")) return @enumFromInt(
+        @intFromEnum(Register.dr0) + (std.fmt.parseInt(u4, name["db".len..], 0) catch return null),
+    );
     return std.meta.stringToEnum(Register, name);
 }
 
@@ -27731,6 +27793,14 @@ fn registerAlias(reg: Register, size_bytes: u32) Register {
             .eip
         else if (size_bytes <= 8)
             .rip
+        else
+            unreachable,
+        .cr => if (size_bytes <= 8)
+            reg
+        else
+            unreachable,
+        .dr => if (size_bytes <= 8)
+            reg
         else
             unreachable,
     };

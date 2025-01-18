@@ -359,6 +359,8 @@ pub fn imm(lower: *const Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
         .pseudo_dbg_local_ai_s,
         => .s(@bitCast(i)),
 
+        .ii,
+        .ir,
         .rrri,
         .rri_u,
         .ri_u,
@@ -548,17 +550,19 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
 }
 
 fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
+    @setEvalBranchQuota(2_400);
     const fixes = switch (inst.ops) {
         .none => inst.data.none.fixes,
         .inst => inst.data.inst.fixes,
         .i_s, .i_u => inst.data.i.fixes,
+        .ii => inst.data.ii.fixes,
         .r => inst.data.r.fixes,
         .rr => inst.data.rr.fixes,
         .rrr => inst.data.rrr.fixes,
         .rrrr => inst.data.rrrr.fixes,
         .rrri => inst.data.rrri.fixes,
         .rri_s, .rri_u => inst.data.rri.fixes,
-        .ri_s, .ri_u, .ri_64 => inst.data.ri.fixes,
+        .ri_s, .ri_u, .ri_64, .ir => inst.data.ri.fixes,
         .rm, .rmi_s, .mr => inst.data.rx.fixes,
         .mrr, .rrm, .rmr => inst.data.rrx.fixes,
         .rmi, .mri => inst.data.rix.fixes,
@@ -575,8 +579,6 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         else
             .none,
     }, mnemonic: {
-        @setEvalBranchQuota(2_000);
-
         comptime var max_len = 0;
         inline for (@typeInfo(Mnemonic).@"enum".fields) |field| max_len = @max(field.name.len, max_len);
         var buf: [max_len]u8 = undefined;
@@ -597,6 +599,14 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         },
         .i_s, .i_u => &.{
             .{ .imm = lower.imm(inst.ops, inst.data.i.i) },
+        },
+        .ii => &.{
+            .{ .imm = lower.imm(inst.ops, inst.data.ii.i1) },
+            .{ .imm = lower.imm(inst.ops, inst.data.ii.i2) },
+        },
+        .ir => &.{
+            .{ .imm = lower.imm(inst.ops, inst.data.ri.i) },
+            .{ .reg = inst.data.ri.r1 },
         },
         .r => &.{
             .{ .reg = inst.data.r.r1 },

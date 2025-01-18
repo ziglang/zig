@@ -80,6 +80,21 @@ pub fn next(dis: *Disassembler) Error!?Instruction {
                 .op2 = .{ .imm = imm },
             });
         },
+        .ii => {
+            const imm1 = try dis.parseImm(enc.data.ops[0]);
+            const imm2 = try dis.parseImm(enc.data.ops[1]);
+            return inst(enc, .{
+                .op1 = .{ .imm = imm1 },
+                .op2 = .{ .imm = imm2 },
+            });
+        },
+        .ia => {
+            const imm = try dis.parseImm(enc.data.ops[0]);
+            return inst(enc, .{
+                .op1 = .{ .imm = imm },
+                .op2 = .{ .reg = .eax },
+            });
+        },
         .m, .mi, .m1, .mc => {
             const modrm = try dis.parseModRmByte();
             const act_enc = Encoding.findByOpcode(enc.opcode(), .{
@@ -241,7 +256,7 @@ pub fn next(dis: *Disassembler) Error!?Instruction {
                 .op3 = op3,
             });
         },
-        .rm0, .vmi, .rvm, .rvmr, .rvmi, .mvr, .rmv => unreachable, // TODO
+        .rm0, .vm, .vmi, .rvm, .rvmr, .rvmi, .mvr, .rmv => unreachable, // TODO
     }
 }
 
