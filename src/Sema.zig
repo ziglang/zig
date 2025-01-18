@@ -3190,6 +3190,15 @@ fn zirEnumDecl(
 
             try sema.declareDependency(.{ .interned = new_ty });
             try sema.addTypeReferenceEntry(src, new_ty);
+
+            // Since this is an enum, it has to be resolved immediately.
+            // `ensureTypeUpToDate` has resolved the new type if necessary.
+            // We just need to check for resolution failures.
+            const ty_unit: AnalUnit = .wrap(.{ .type = new_ty });
+            if (zcu.failed_analysis.contains(ty_unit) or zcu.transitive_failed_analysis.contains(ty_unit)) {
+                return error.AnalysisFail;
+            }
+
             return Air.internedToRef(new_ty);
         },
         .wip => |wip| wip,
@@ -17801,12 +17810,23 @@ fn zirThis(
 ) CompileError!Air.Inst.Ref {
     _ = extended;
     const pt = sema.pt;
+    const zcu = pt.zcu;
     const namespace = pt.zcu.namespacePtr(block.namespace);
 
     const new_ty = try pt.ensureTypeUpToDate(namespace.owner_type);
 
     switch (pt.zcu.intern_pool.indexToKey(new_ty)) {
-        .struct_type, .union_type, .enum_type => try sema.declareDependency(.{ .interned = new_ty }),
+        .struct_type, .union_type => try sema.declareDependency(.{ .interned = new_ty }),
+        .enum_type => {
+            try sema.declareDependency(.{ .interned = new_ty });
+            // Since this is an enum, it has to be resolved immediately.
+            // `ensureTypeUpToDate` has resolved the new type if necessary.
+            // We just need to check for resolution failures.
+            const ty_unit: AnalUnit = .wrap(.{ .type = new_ty });
+            if (zcu.failed_analysis.contains(ty_unit) or zcu.transitive_failed_analysis.contains(ty_unit)) {
+                return error.AnalysisFail;
+            }
+        },
         .opaque_type => {},
         else => unreachable,
     }
@@ -38330,22 +38350,16 @@ pub fn resolveDeclaredEnum(
     fields_len: u32,
     zir: Zir,
     body_end: usize,
-) Zcu.CompileError!void {
+) Zcu.SemaError!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
-    const ip = &zcu.intern_pool;
-
-    const bit_bags_count = std.math.divCeil(usize, fields_len, 32) catch unreachable;
 
     const src: LazySrcLoc = .{ .base_node_inst = tracked_inst, .offset = LazySrcLoc.Offset.nodeOffset(0) };
-    const tag_ty_src: LazySrcLoc = .{ .base_node_inst = tracked_inst, .offset = .{ .node_offset_container_tag = 0 } };
 
-    const anal_unit = AnalUnit.wrap(.{ .type = wip_ty.index });
-
-    var arena = std.heap.ArenaAllocator.init(gpa);
+    var arena: std.heap.ArenaAllocator = .init(gpa);
     defer arena.deinit();
 
-    var comptime_err_ret_trace = std.ArrayList(Zcu.LazySrcLoc).init(gpa);
+    var comptime_err_ret_trace: std.ArrayList(Zcu.LazySrcLoc) = .init(gpa);
     defer comptime_err_ret_trace.deinit();
 
     var sema: Sema = .{
@@ -38353,7 +38367,7 @@ pub fn resolveDeclaredEnum(
         .gpa = gpa,
         .arena = arena.allocator(),
         .code = zir,
-        .owner = anal_unit,
+        .owner = .wrap(.{ .type = wip_ty.index }),
         .func_index = .none,
         .func_is_naked = false,
         .fn_ret_ty = Type.void,
@@ -38379,15 +38393,66 @@ pub fn resolveDeclaredEnum(
     };
     defer block.instructions.deinit(gpa);
 
+    sema.resolveDeclaredEnumInner(
+        &block,
+        wip_ty,
+        inst,
+        tracked_inst,
+        src,
+        small,
+        body,
+        tag_type_ref,
+        any_values,
+        fields_len,
+        zir,
+        body_end,
+    ) catch |err| switch (err) {
+        error.GenericPoison => unreachable,
+        error.ComptimeBreak => unreachable,
+        error.ComptimeReturn => unreachable,
+        error.OutOfMemory => |e| return e,
+        error.AnalysisFail => {
+            if (!zcu.failed_analysis.contains(sema.owner)) {
+                try zcu.transitive_failed_analysis.put(gpa, sema.owner, {});
+            }
+            return error.AnalysisFail;
+        },
+    };
+}
+
+fn resolveDeclaredEnumInner(
+    sema: *Sema,
+    block: *Block,
+    wip_ty: InternPool.WipEnumType,
+    inst: Zir.Inst.Index,
+    tracked_inst: InternPool.TrackedInst.Index,
+    src: LazySrcLoc,
+    small: Zir.Inst.EnumDecl.Small,
+    body: []const Zir.Inst.Index,
+    tag_type_ref: Zir.Inst.Ref,
+    any_values: bool,
+    fields_len: u32,
+    zir: Zir,
+    body_end: usize,
+) Zcu.CompileError!void {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
+
+    const bit_bags_count = std.math.divCeil(usize, fields_len, 32) catch unreachable;
+
+    const tag_ty_src: LazySrcLoc = .{ .base_node_inst = tracked_inst, .offset = .{ .node_offset_container_tag = 0 } };
+
     const int_tag_ty = ty: {
         if (body.len != 0) {
-            _ = try sema.analyzeInlineBody(&block, body, inst);
+            _ = try sema.analyzeInlineBody(block, body, inst);
         }
 
         if (tag_type_ref != .none) {
-            const ty = try sema.resolveType(&block, tag_ty_src, tag_type_ref);
+            const ty = try sema.resolveType(block, tag_ty_src, tag_type_ref);
             if (ty.zigTypeTag(zcu) != .int and ty.zigTypeTag(zcu) != .comptime_int) {
-                return sema.fail(&block, tag_ty_src, "expected integer tag type, found '{}'", .{ty.fmt(pt)});
+                return sema.fail(block, tag_ty_src, "expected integer tag type, found '{}'", .{ty.fmt(pt)});
             }
             break :ty ty;
         } else if (fields_len == 0) {
@@ -38402,7 +38467,7 @@ pub fn resolveDeclaredEnum(
 
     if (small.nonexhaustive and int_tag_ty.toIntern() != .comptime_int_type) {
         if (fields_len > 1 and std.math.log2_int(u64, fields_len) == int_tag_ty.bitSize(zcu)) {
-            return sema.fail(&block, src, "non-exhaustive enum specifies every value", .{});
+            return sema.fail(block, src, "non-exhaustive enum specifies every value", .{});
         }
     }
 
@@ -38434,7 +38499,7 @@ pub fn resolveDeclaredEnum(
             const tag_val_ref: Zir.Inst.Ref = @enumFromInt(zir.extra[extra_index]);
             extra_index += 1;
             const tag_inst = try sema.resolveInst(tag_val_ref);
-            last_tag_val = try sema.resolveConstDefinedValue(&block, .{
+            last_tag_val = try sema.resolveConstDefinedValue(block, .{
                 .base_node_inst = tracked_inst,
                 .offset = .{ .container_field_name = field_i },
             }, tag_inst, .{ .simple = .enum_field_tag_value });
@@ -38447,12 +38512,12 @@ pub fn resolveDeclaredEnum(
                     .offset = .{ .container_field_value = conflict.prev_field_idx },
                 };
                 const msg = msg: {
-                    const msg = try sema.errMsg(value_src, "enum tag value {} already taken", .{last_tag_val.?.fmtValueSema(pt, &sema)});
+                    const msg = try sema.errMsg(value_src, "enum tag value {} already taken", .{last_tag_val.?.fmtValueSema(pt, sema)});
                     errdefer msg.destroy(gpa);
                     try sema.errNote(other_field_src, msg, "other occurrence here", .{});
                     break :msg msg;
                 };
-                return sema.failWithOwnedErrorMsg(&block, msg);
+                return sema.failWithOwnedErrorMsg(block, msg);
             }
             break :overflow false;
         } else if (any_values) overflow: {
@@ -38469,12 +38534,12 @@ pub fn resolveDeclaredEnum(
                     .offset = .{ .container_field_value = conflict.prev_field_idx },
                 };
                 const msg = msg: {
-                    const msg = try sema.errMsg(value_src, "enum tag value {} already taken", .{last_tag_val.?.fmtValueSema(pt, &sema)});
+                    const msg = try sema.errMsg(value_src, "enum tag value {} already taken", .{last_tag_val.?.fmtValueSema(pt, sema)});
                     errdefer msg.destroy(gpa);
                     try sema.errNote(other_field_src, msg, "other occurrence here", .{});
                     break :msg msg;
                 };
-                return sema.failWithOwnedErrorMsg(&block, msg);
+                return sema.failWithOwnedErrorMsg(block, msg);
             }
             break :overflow false;
         } else overflow: {
@@ -38487,9 +38552,9 @@ pub fn resolveDeclaredEnum(
 
         if (tag_overflow) {
             const msg = try sema.errMsg(value_src, "enumeration value '{}' too large for type '{}'", .{
-                last_tag_val.?.fmtValueSema(pt, &sema), int_tag_ty.fmt(pt),
+                last_tag_val.?.fmtValueSema(pt, sema), int_tag_ty.fmt(pt),
             });
-            return sema.failWithOwnedErrorMsg(&block, msg);
+            return sema.failWithOwnedErrorMsg(block, msg);
         }
     }
 }

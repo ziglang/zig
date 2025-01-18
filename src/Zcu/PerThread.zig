@@ -3669,6 +3669,8 @@ pub fn navAlignment(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) InternPo
 /// If the type cannot be recreated because it has been lost, `error.AnalysisFail` is returned.
 /// If `ty` is not outdated, that same `InternPool.Index` is returned.
 /// If `ty` has already been replaced by this function, the new index will not be returned again.
+/// Also, if `ty` is an enum, this function will resolve the new type if needed, and the call site
+/// is responsible for checking `[transitive_]failed_analysis` to detect resolution failures.
 pub fn ensureTypeUpToDate(pt: Zcu.PerThread, ty: InternPool.Index) Zcu.SemaError!InternPool.Index {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -3878,12 +3880,14 @@ fn recreateUnionType(
     return wip_ty.finish(ip, namespace_index);
 }
 
-// TODO: is it safe for this to return `SemaError`? enum type resolution is a bit weird...
+/// This *does* call `Sema.resolveDeclaredEnum`, but errors from it are not propagated.
+/// Call sites are resposible for checking `[transitive_]failed_analysis` after `ensureTypeUpToDate`
+/// returns in order to detect resolution failures.
 fn recreateEnumType(
     pt: Zcu.PerThread,
     old_ty: InternPool.Index,
     key: InternPool.Key.NamespaceType.Declared,
-) Zcu.SemaError!InternPool.Index {
+) Allocator.Error!InternPool.Index {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
@@ -3993,10 +3997,8 @@ fn recreateEnumType(
         zir,
         body_end,
     ) catch |err| switch (err) {
-        error.GenericPoison => unreachable,
-        error.ComptimeBreak => unreachable,
-        error.ComptimeReturn => unreachable,
-        error.AnalysisFail, error.OutOfMemory => |e| return e,
+        error.OutOfMemory => |e| return e,
+        error.AnalysisFail => {}, // call sites are responsible for checking `[transitive_]failed_analysis` to detect this
     };
 
     return wip_ty.index;
