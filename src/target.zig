@@ -720,7 +720,7 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
             else => false,
         },
         .field_reordering => switch (backend) {
-            .stage2_c, .stage2_llvm => true,
+            .stage2_c, .stage2_llvm, .stage2_x86_64 => true,
             else => false,
         },
         .safety_checked_instructions => switch (backend) {
