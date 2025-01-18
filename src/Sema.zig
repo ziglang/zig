@@ -7777,8 +7777,8 @@ fn analyzeCall(
             const param_inst_idx = fn_zir_info.param_body[arg_idx];
             const declared_comptime = if (std.math.cast(u5, arg_idx)) |i| func_ty_info.paramIsComptime(i) else false;
             const param_is_comptime = declared_comptime or try arg_ty.comptimeOnlySema(pt);
-            if (param_is_comptime) {
-                if (!try sema.isComptimeKnown(arg.*)) {
+            if (param_is_comptime or inline_requested) {
+                if (param_is_comptime and !try sema.isComptimeKnown(arg.*)) {
                     assert(!declared_comptime); // `analyzeArg` handles this
                     const arg_src = args_info.argSrc(block, arg_idx);
                     const param_ty_src: LazySrcLoc = .{

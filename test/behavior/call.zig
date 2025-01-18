@@ -755,3 +755,24 @@ test "tail call function pointer" {
 
     S.foo(100);
 }
+
+test "inline call of generic function with parameter and return type that evaluate prior parameter" {
+    const S = struct {
+        inline fn foo1(x: anytype, y: Bar(x)) Bar(x) {
+            return x + y;
+        }
+        fn foo2(x: anytype, y: Bar(x)) Bar(x) {
+            return x + y;
+        }
+        fn Bar(comptime x: comptime_int) type {
+            _ = x;
+            return u32;
+        }
+    };
+    const result1 = S.foo1(@as(u32, 1), @as(u32, 1233));
+    comptime assert(@TypeOf(result1) == u32);
+    try expect(result1 == 1234);
+    const result2 = @call(.always_inline, S.foo2, .{ @as(u32, 1), @as(u32, 1233) });
+    comptime assert(@TypeOf(result2) == u32);
+    try expect(result2 == 1234);
+}
