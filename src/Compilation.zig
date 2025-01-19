@@ -289,12 +289,12 @@ const QueuedJobs = struct {
     compiler_rt_obj: bool = false,
     fuzzer_lib: bool = false,
     update_builtin_zig: bool,
-    musl_crt_file: [@typeInfo(musl.CrtFile).@"enum".fields.len]bool = [1]bool{false} ** @typeInfo(musl.CrtFile).@"enum".fields.len,
-    glibc_crt_file: [@typeInfo(glibc.CrtFile).@"enum".fields.len]bool = [1]bool{false} ** @typeInfo(glibc.CrtFile).@"enum".fields.len,
+    musl_crt_file: [@typeInfo(musl.CrtFile).@"enum".fields.len]bool = @splat(false),
+    glibc_crt_file: [@typeInfo(glibc.CrtFile).@"enum".fields.len]bool = @splat(false),
     /// one of WASI libc static objects
-    wasi_libc_crt_file: [@typeInfo(wasi_libc.CrtFile).@"enum".fields.len]bool = [1]bool{false} ** @typeInfo(wasi_libc.CrtFile).@"enum".fields.len,
+    wasi_libc_crt_file: [@typeInfo(wasi_libc.CrtFile).@"enum".fields.len]bool = @splat(false),
     /// one of the mingw-w64 static objects
-    mingw_crt_file: [@typeInfo(mingw.CrtFile).@"enum".fields.len]bool = [1]bool{false} ** @typeInfo(mingw.CrtFile).@"enum".fields.len,
+    mingw_crt_file: [@typeInfo(mingw.CrtFile).@"enum".fields.len]bool = @splat(false),
     /// all of the glibc shared objects
     glibc_shared_objects: bool = false,
     /// libunwind.a, usually needed when linking libc
