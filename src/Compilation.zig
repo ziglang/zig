@@ -290,6 +290,9 @@ const QueuedJobs = struct {
     fuzzer_lib: bool = false,
     update_builtin_zig: bool,
     musl_crt_file: [@typeInfo(musl.CrtFile).@"enum".fields.len]bool = [1]bool{false} ** @typeInfo(musl.CrtFile).@"enum".fields.len,
+    glibc_crt_file: [@typeInfo(glibc.CrtFile).@"enum".fields.len]bool = [1]bool{false} ** @typeInfo(glibc.CrtFile).@"enum".fields.len,
+    /// all of the glibc shared objects
+    glibc_shared_objects: bool = false,
 };
 
 pub const default_stack_protector_buffer_size = target_util.default_stack_protector_buffer_size;
@@ -385,10 +388,6 @@ const Job = union(enum) {
     /// Fully resolve the given `struct` or `union` type.
     resolve_type_fully: InternPool.Index,
 
-    /// one of the glibc static objects
-    glibc_crt_file: glibc.CrtFile,
-    /// all of the glibc shared objects
-    glibc_shared_objects,
     /// one of the mingw-w64 static objects
     mingw_crt_file: mingw.CrtFile,
 
@@ -1830,22 +1829,19 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     if (glibc.needsCrtiCrtn(target)) {
-                        try comp.queueJobs(&[_]Job{
-                            .{ .glibc_crt_file = .crti_o },
-                            .{ .glibc_crt_file = .crtn_o },
-                        });
+                        comp.queued_jobs.glibc_crt_file[@intFromEnum(glibc.CrtFile.crti_o)] = true;
+                        comp.queued_jobs.glibc_crt_file[@intFromEnum(glibc.CrtFile.crtn_o)] = true;
                         comp.remaining_prelink_tasks += 2;
                     }
                     if (glibc.needsCrt0(comp.config.output_mode)) |f| {
-                        try comp.queueJobs(&.{.{ .glibc_crt_file = f }});
+                        comp.queued_jobs.glibc_crt_file[@intFromEnum(f)] = true;
                         comp.remaining_prelink_tasks += 1;
                     }
-                    try comp.queueJobs(&[_]Job{
-                        .{ .glibc_shared_objects = {} },
-                        .{ .glibc_crt_file = .libc_nonshared_a },
-                    });
-                    comp.remaining_prelink_tasks += 1;
+                    comp.queued_jobs.glibc_shared_objects = true;
                     comp.remaining_prelink_tasks += glibc.sharedObjectsCount(&target);
+
+                    comp.queued_jobs.glibc_crt_file[@intFromEnum(glibc.CrtFile.libc_nonshared_a)] = true;
+                    comp.remaining_prelink_tasks += 1;
                 } else if (target.isWasm() and target.os.tag == .wasi) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
@@ -3730,10 +3726,22 @@ fn performAllTheWorkInner(
         comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "fuzzer.zig", .libfuzzer, .Lib, &comp.fuzzer_lib, main_progress_node });
     }
 
-    inline for (@typeInfo(musl.CrtFile).@"enum".fields) |field| {
-        const tag = @field(musl.CrtFile, field.name);
-        if (testAndClear(&comp.queued_jobs.musl_crt_file[@intFromEnum(tag)]))
+    for (0..@typeInfo(musl.CrtFile).@"enum".fields.len) |i| {
+        if (testAndClear(&comp.queued_jobs.musl_crt_file[i])) {
+            const tag: musl.CrtFile = @enumFromInt(i);
             comp.link_task_wait_group.spawnManager(buildMuslCrtFile, .{ comp, tag, main_progress_node });
+        }
+    }
+
+    for (0..@typeInfo(glibc.CrtFile).@"enum".fields.len) |i| {
+        if (testAndClear(&comp.queued_jobs.glibc_crt_file[i])) {
+            const tag: glibc.CrtFile = @enumFromInt(i);
+            comp.link_task_wait_group.spawnManager(buildGlibcCrtFile, .{ comp, tag, main_progress_node });
+        }
+    }
+
+    if (testAndClear(&comp.queued_jobs.glibc_shared_objects)) {
+        comp.link_task_wait_group.spawnManager(buildGlibcSharedObjects, .{ comp, main_progress_node });
     }
 
     {
@@ -3964,30 +3972,6 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
             pt.semaPkg(mod) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.AnalysisFail => return,
-            };
-        },
-        .glibc_crt_file => |crt_file| {
-            const named_frame = tracy.namedFrame("glibc_crt_file");
-            defer named_frame.end();
-
-            glibc.buildCrtFile(comp, crt_file, prog_node) catch |err| {
-                // TODO Surface more error details.
-                comp.lockAndSetMiscFailure(.glibc_crt_file, "unable to build glibc CRT file: {s}", .{
-                    @errorName(err),
-                });
-            };
-        },
-        .glibc_shared_objects => {
-            const named_frame = tracy.namedFrame("glibc_shared_objects");
-            defer named_frame.end();
-
-            glibc.buildSharedObjects(comp, prog_node) catch |err| {
-                // TODO Surface more error details.
-                comp.lockAndSetMiscFailure(
-                    .glibc_shared_objects,
-                    "unable to build glibc shared objects: {s}",
-                    .{@errorName(err)},
-                );
             };
         },
         .mingw_crt_file => |crt_file| {
@@ -4767,6 +4751,28 @@ fn buildMuslCrtFile(
         error.SubCompilationFailed => return, // error reported already
         else => comp.lockAndSetMiscFailure(.musl_crt_file, "unable to build musl {s}: {s}", .{
             @tagName(crt_file), @errorName(err),
+        }),
+    };
+}
+
+fn buildGlibcCrtFile(
+    comp: *Compilation,
+    crt_file: glibc.CrtFile,
+    prog_node: std.Progress.Node,
+) void {
+    glibc.buildCrtFile(comp, crt_file, prog_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return, // error reported already
+        else => comp.lockAndSetMiscFailure(.glibc_crt_file, "unable to build glibc {s}: {s}", .{
+            @tagName(crt_file), @errorName(err),
+        }),
+    };
+}
+
+fn buildGlibcSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) void {
+    glibc.buildSharedObjects(comp, prog_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return, // error reported already
+        else => comp.lockAndSetMiscFailure(.glibc_shared_objects, "unable to build glibc shared objects: {s}", .{
+            @errorName(err),
         }),
     };
 }
