@@ -122,6 +122,10 @@ link_task_queue_postponed: std.ArrayListUnmanaged(link.Task) = .empty,
 /// the linker task thread.
 remaining_prelink_tasks: u32,
 
+/// Set of work that can be represented by only flags to determine whether the
+/// work is queued or not.
+queued_jobs: QueuedJobs,
+
 work_queues: [
     len: {
         var len: usize = 0;
@@ -193,10 +197,6 @@ stack_report: bool,
 debug_compiler_runtime_libs: bool,
 debug_compile_errors: bool,
 incremental: bool,
-job_queued_compiler_rt_lib: bool = false,
-job_queued_compiler_rt_obj: bool = false,
-job_queued_fuzzer_lib: bool = false,
-job_queued_update_builtin_zig: bool,
 alloc_failure_occurred: bool = false,
 last_update_was_cache_hit: bool = false,
 
@@ -234,13 +234,13 @@ tsan_lib: ?CrtFile = null,
 /// and resolved before calling linker.flush().
 libc_static_lib: ?CrtFile = null,
 /// Populated when we build the libcompiler_rt static library. A Job to build this is indicated
-/// by setting `job_queued_compiler_rt_lib` and resolved before calling linker.flush().
+/// by setting `queued_jobs.compiler_rt_lib` and resolved before calling linker.flush().
 compiler_rt_lib: ?CrtFile = null,
 /// Populated when we build the compiler_rt_obj object. A Job to build this is indicated
-/// by setting `job_queued_compiler_rt_obj` and resolved before calling linker.flush().
+/// by setting `queued_jobs.compiler_rt_obj` and resolved before calling linker.flush().
 compiler_rt_obj: ?CrtFile = null,
 /// Populated when we build the libfuzzer static library. A Job to build this
-/// is indicated by setting `job_queued_fuzzer_lib` and resolved before
+/// is indicated by setting `queued_jobs.fuzzer_lib` and resolved before
 /// calling linker.flush().
 fuzzer_lib: ?CrtFile = null,
 
@@ -283,6 +283,14 @@ file_system_inputs: ?*std.ArrayListUnmanaged(u8),
 /// This is the digest of the cache for the current compilation.
 /// This digest will be known after update() is called.
 digest: ?[Cache.bin_digest_len]u8 = null,
+
+const QueuedJobs = struct {
+    compiler_rt_lib: bool = false,
+    compiler_rt_obj: bool = false,
+    fuzzer_lib: bool = false,
+    update_builtin_zig: bool,
+    musl_crt_file: [@typeInfo(musl.CrtFile).@"enum".fields.len]bool = [1]bool{false} ** @typeInfo(musl.CrtFile).@"enum".fields.len,
+};
 
 pub const default_stack_protector_buffer_size = target_util.default_stack_protector_buffer_size;
 pub const SemaError = Zcu.SemaError;
@@ -381,8 +389,6 @@ const Job = union(enum) {
     glibc_crt_file: glibc.CrtFile,
     /// all of the glibc shared objects
     glibc_shared_objects,
-    /// one of the musl static objects
-    musl_crt_file: musl.CrtFile,
     /// one of the mingw-w64 static objects
     mingw_crt_file: mingw.CrtFile,
 
@@ -1512,7 +1518,9 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .framework_dirs = options.framework_dirs,
             .llvm_opt_bisect_limit = options.llvm_opt_bisect_limit,
             .skip_linker_dependencies = options.skip_linker_dependencies,
-            .job_queued_update_builtin_zig = have_zcu,
+            .queued_jobs = .{
+                .update_builtin_zig = have_zcu,
+            },
             .function_sections = options.function_sections,
             .data_sections = options.data_sections,
             .native_system_include_paths = options.native_system_include_paths,
@@ -1805,20 +1813,18 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     if (musl.needsCrtiCrtn(target)) {
-                        try comp.queueJobs(&[_]Job{
-                            .{ .musl_crt_file = .crti_o },
-                            .{ .musl_crt_file = .crtn_o },
-                        });
+                        comp.queued_jobs.musl_crt_file[@intFromEnum(musl.CrtFile.crti_o)] = true;
+                        comp.queued_jobs.musl_crt_file[@intFromEnum(musl.CrtFile.crtn_o)] = true;
                         comp.remaining_prelink_tasks += 2;
                     }
                     if (musl.needsCrt0(comp.config.output_mode, comp.config.link_mode, comp.config.pie)) |f| {
-                        try comp.queueJobs(&.{.{ .musl_crt_file = f }});
+                        comp.queued_jobs.musl_crt_file[@intFromEnum(f)] = true;
                         comp.remaining_prelink_tasks += 1;
                     }
-                    try comp.queueJobs(&.{.{ .musl_crt_file = switch (comp.config.link_mode) {
-                        .static => .libc_a,
-                        .dynamic => .libc_so,
-                    } }});
+                    switch (comp.config.link_mode) {
+                        .static => comp.queued_jobs.musl_crt_file[@intFromEnum(musl.CrtFile.libc_a)] = true,
+                        .dynamic => comp.queued_jobs.musl_crt_file[@intFromEnum(musl.CrtFile.libc_so)] = true,
+                    }
                     comp.remaining_prelink_tasks += 1;
                 } else if (target.isGnuLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
@@ -1916,20 +1922,20 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             if (comp.include_compiler_rt and capable_of_building_compiler_rt) {
                 if (is_exe_or_dyn_lib) {
                     log.debug("queuing a job to build compiler_rt_lib", .{});
-                    comp.job_queued_compiler_rt_lib = true;
+                    comp.queued_jobs.compiler_rt_lib = true;
                     comp.remaining_prelink_tasks += 1;
                 } else if (output_mode != .Obj) {
                     log.debug("queuing a job to build compiler_rt_obj", .{});
                     // In this case we are making a static library, so we ask
                     // for a compiler-rt object to put in it.
-                    comp.job_queued_compiler_rt_obj = true;
+                    comp.queued_jobs.compiler_rt_obj = true;
                     comp.remaining_prelink_tasks += 1;
                 }
             }
 
             if (is_exe_or_dyn_lib and comp.config.any_fuzz and capable_of_building_compiler_rt) {
                 log.debug("queuing a job to build libfuzzer", .{});
-                comp.job_queued_fuzzer_lib = true;
+                comp.queued_jobs.fuzzer_lib = true;
                 comp.remaining_prelink_tasks += 1;
             }
         }
@@ -3712,19 +3718,22 @@ fn performAllTheWorkInner(
         work_queue_wait_group.spawnManager(workerDocsWasm, .{ comp, main_progress_node });
     }
 
-    if (comp.job_queued_compiler_rt_lib) {
-        comp.job_queued_compiler_rt_lib = false;
+    if (testAndClear(&comp.queued_jobs.compiler_rt_lib)) {
         comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Lib, &comp.compiler_rt_lib, main_progress_node });
     }
 
-    if (comp.job_queued_compiler_rt_obj) {
-        comp.job_queued_compiler_rt_obj = false;
+    if (testAndClear(&comp.queued_jobs.compiler_rt_obj)) {
         comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Obj, &comp.compiler_rt_obj, main_progress_node });
     }
 
-    if (comp.job_queued_fuzzer_lib) {
-        comp.job_queued_fuzzer_lib = false;
+    if (testAndClear(&comp.queued_jobs.fuzzer_lib)) {
         comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "fuzzer.zig", .libfuzzer, .Lib, &comp.fuzzer_lib, main_progress_node });
+    }
+
+    inline for (@typeInfo(musl.CrtFile).@"enum".fields) |field| {
+        const tag = @field(musl.CrtFile, field.name);
+        if (testAndClear(&comp.queued_jobs.musl_crt_file[@intFromEnum(tag)]))
+            comp.link_task_wait_group.spawnManager(buildMuslCrtFile, .{ comp, tag, main_progress_node });
     }
 
     {
@@ -3741,8 +3750,8 @@ fn performAllTheWorkInner(
         // 1. to avoid race condition of zig processes truncating each other's builtin.zig files
         // 2. optimization; in the hot path it only incurs a stat() syscall, which happens
         //    in the `astgen_wait_group`.
-        if (comp.job_queued_update_builtin_zig) b: {
-            comp.job_queued_update_builtin_zig = false;
+        if (comp.queued_jobs.update_builtin_zig) b: {
+            comp.queued_jobs.update_builtin_zig = false;
             if (comp.zcu == null) break :b;
             // TODO put all the modules in a flat array to make them easy to iterate.
             var seen: std.AutoArrayHashMapUnmanaged(*Package.Module, void) = .empty;
@@ -3821,6 +3830,7 @@ fn performAllTheWorkInner(
         comp.link_task_wait_group.wait();
         comp.link_task_wait_group.reset();
         std.log.scoped(.link).debug("finished waiting for link_task_wait_group", .{});
+        assert(comp.remaining_prelink_tasks == 0);
     }
 
     work: while (true) {
@@ -3976,19 +3986,6 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
                 comp.lockAndSetMiscFailure(
                     .glibc_shared_objects,
                     "unable to build glibc shared objects: {s}",
-                    .{@errorName(err)},
-                );
-            };
-        },
-        .musl_crt_file => |crt_file| {
-            const named_frame = tracy.namedFrame("musl_crt_file");
-            defer named_frame.end();
-
-            musl.buildCrtFile(comp, crt_file, prog_node) catch |err| {
-                // TODO Surface more error details.
-                comp.lockAndSetMiscFailure(
-                    .musl_crt_file,
-                    "unable to build musl CRT file: {s}",
                     .{@errorName(err)},
                 );
             };
@@ -4757,6 +4754,19 @@ fn buildRt(
         error.SubCompilationFailed => return, // error reported already
         else => comp.lockAndSetMiscFailure(misc_task, "unable to build {s}: {s}", .{
             @tagName(misc_task), @errorName(err),
+        }),
+    };
+}
+
+fn buildMuslCrtFile(
+    comp: *Compilation,
+    crt_file: musl.CrtFile,
+    prog_node: std.Progress.Node,
+) void {
+    musl.buildCrtFile(comp, crt_file, prog_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return, // error reported already
+        else => comp.lockAndSetMiscFailure(.musl_crt_file, "unable to build musl {s}: {s}", .{
+            @tagName(crt_file), @errorName(err),
         }),
     };
 }
@@ -6804,4 +6814,10 @@ pub fn compilerRtOptMode(comp: Compilation) std.builtin.OptimizeMode {
 /// compiler-rt, libcxx, libc, libunwind, etc.
 pub fn compilerRtStrip(comp: Compilation) bool {
     return comp.root_mod.strip;
+}
+
+fn testAndClear(b: *bool) bool {
+    const result = b.*;
+    b.* = false;
+    return result;
 }
