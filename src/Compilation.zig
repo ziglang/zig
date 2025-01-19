@@ -291,8 +291,18 @@ const QueuedJobs = struct {
     update_builtin_zig: bool,
     musl_crt_file: [@typeInfo(musl.CrtFile).@"enum".fields.len]bool = [1]bool{false} ** @typeInfo(musl.CrtFile).@"enum".fields.len,
     glibc_crt_file: [@typeInfo(glibc.CrtFile).@"enum".fields.len]bool = [1]bool{false} ** @typeInfo(glibc.CrtFile).@"enum".fields.len,
+    /// one of WASI libc static objects
+    wasi_libc_crt_file: [@typeInfo(wasi_libc.CrtFile).@"enum".fields.len]bool = [1]bool{false} ** @typeInfo(wasi_libc.CrtFile).@"enum".fields.len,
+    /// one of the mingw-w64 static objects
+    mingw_crt_file: [@typeInfo(mingw.CrtFile).@"enum".fields.len]bool = [1]bool{false} ** @typeInfo(mingw.CrtFile).@"enum".fields.len,
     /// all of the glibc shared objects
     glibc_shared_objects: bool = false,
+    /// libunwind.a, usually needed when linking libc
+    libunwind: bool = false,
+    libcxx: bool = false,
+    libcxxabi: bool = false,
+    libtsan: bool = false,
+    zig_libc: bool = false,
 };
 
 pub const default_stack_protector_buffer_size = target_util.default_stack_protector_buffer_size;
@@ -387,20 +397,6 @@ const Job = union(enum) {
     analyze_mod: *Package.Module,
     /// Fully resolve the given `struct` or `union` type.
     resolve_type_fully: InternPool.Index,
-
-    /// one of the mingw-w64 static objects
-    mingw_crt_file: mingw.CrtFile,
-
-    /// libunwind.a, usually needed when linking libc
-    libunwind: void,
-    libcxx: void,
-    libcxxabi: void,
-    libtsan: void,
-    /// needed when not linking libc and using LLVM for code generation because it generates
-    /// calls to, for example, memcpy and memset.
-    zig_libc: void,
-    /// one of WASI libc static objects
-    wasi_libc_crt_file: wasi_libc.CrtFile,
 
     /// The value is the index into `windows_libs`.
     windows_import_lib: usize,
@@ -1846,24 +1842,19 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     for (comp.wasi_emulated_libs) |crt_file| {
-                        try comp.queueJob(.{
-                            .wasi_libc_crt_file = crt_file,
-                        });
-                        comp.remaining_prelink_tasks += 1;
+                        comp.queued_jobs.wasi_libc_crt_file[@intFromEnum(crt_file)] = true;
                     }
-                    try comp.queueJobs(&[_]Job{
-                        .{ .wasi_libc_crt_file = wasi_libc.execModelCrtFile(comp.config.wasi_exec_model) },
-                        .{ .wasi_libc_crt_file = .libc_a },
-                    });
+                    comp.remaining_prelink_tasks += @intCast(comp.wasi_emulated_libs.len);
+
+                    comp.queued_jobs.wasi_libc_crt_file[@intFromEnum(wasi_libc.execModelCrtFile(comp.config.wasi_exec_model))] = true;
+                    comp.queued_jobs.wasi_libc_crt_file[@intFromEnum(wasi_libc.CrtFile.libc_a)] = true;
                     comp.remaining_prelink_tasks += 2;
                 } else if (target.isMinGW()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
-                    const crt_job: Job = .{ .mingw_crt_file = if (is_dyn_lib) .dllcrt2_o else .crt2_o };
-                    try comp.queueJobs(&.{
-                        .{ .mingw_crt_file = .mingw32_lib },
-                        crt_job,
-                    });
+                    const main_crt_file: mingw.CrtFile = if (is_dyn_lib) .dllcrt2_o else .crt2_o;
+                    comp.queued_jobs.mingw_crt_file[@intFromEnum(main_crt_file)] = true;
+                    comp.queued_jobs.mingw_crt_file[@intFromEnum(mingw.CrtFile.mingw32_lib)] = true;
                     comp.remaining_prelink_tasks += 2;
 
                     // When linking mingw-w64 there are some import libs we always need.
@@ -1875,7 +1866,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                         else => return error.LibCUnavailable,
                     }
                 } else if (target.os.tag == .freestanding and capable_of_building_zig_libc) {
-                    try comp.queueJob(.{ .zig_libc = {} });
+                    comp.queued_jobs.zig_libc = true;
                     comp.remaining_prelink_tasks += 1;
                 } else {
                     return error.LibCUnavailable;
@@ -1888,18 +1879,22 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 for (0..count) |i| {
                     try comp.queueJob(.{ .windows_import_lib = i });
                 }
+                // when integrating coff linker with prelink, the above
+                // queueJob will need to change into something else since those
+                // jobs are dispatched *after* the link_task_wait_group.wait()
+                // that happens when separateCodegenThreadOk() is false.
             }
             if (comp.wantBuildLibUnwindFromSource()) {
-                try comp.queueJob(.{ .libunwind = {} });
+                comp.queued_jobs.libunwind = true;
                 comp.remaining_prelink_tasks += 1;
             }
             if (build_options.have_llvm and is_exe_or_dyn_lib and comp.config.link_libcpp) {
-                try comp.queueJob(.libcxx);
-                try comp.queueJob(.libcxxabi);
+                comp.queued_jobs.libcxx = true;
+                comp.queued_jobs.libcxxabi = true;
                 comp.remaining_prelink_tasks += 2;
             }
             if (build_options.have_llvm and is_exe_or_dyn_lib and comp.config.any_sanitize_thread) {
-                try comp.queueJob(.libtsan);
+                comp.queued_jobs.libtsan = true;
                 comp.remaining_prelink_tasks += 1;
             }
 
@@ -3726,6 +3721,30 @@ fn performAllTheWorkInner(
         comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "fuzzer.zig", .libfuzzer, .Lib, &comp.fuzzer_lib, main_progress_node });
     }
 
+    if (testAndClear(&comp.queued_jobs.glibc_shared_objects)) {
+        comp.link_task_wait_group.spawnManager(buildGlibcSharedObjects, .{ comp, main_progress_node });
+    }
+
+    if (testAndClear(&comp.queued_jobs.libunwind)) {
+        comp.link_task_wait_group.spawnManager(buildLibUnwind, .{ comp, main_progress_node });
+    }
+
+    if (testAndClear(&comp.queued_jobs.libcxx)) {
+        comp.link_task_wait_group.spawnManager(buildLibCxx, .{ comp, main_progress_node });
+    }
+
+    if (testAndClear(&comp.queued_jobs.libcxxabi)) {
+        comp.link_task_wait_group.spawnManager(buildLibCxxAbi, .{ comp, main_progress_node });
+    }
+
+    if (testAndClear(&comp.queued_jobs.libtsan)) {
+        comp.link_task_wait_group.spawnManager(buildLibTsan, .{ comp, main_progress_node });
+    }
+
+    if (testAndClear(&comp.queued_jobs.zig_libc)) {
+        comp.link_task_wait_group.spawnManager(buildZigLibc, .{ comp, main_progress_node });
+    }
+
     for (0..@typeInfo(musl.CrtFile).@"enum".fields.len) |i| {
         if (testAndClear(&comp.queued_jobs.musl_crt_file[i])) {
             const tag: musl.CrtFile = @enumFromInt(i);
@@ -3740,8 +3759,18 @@ fn performAllTheWorkInner(
         }
     }
 
-    if (testAndClear(&comp.queued_jobs.glibc_shared_objects)) {
-        comp.link_task_wait_group.spawnManager(buildGlibcSharedObjects, .{ comp, main_progress_node });
+    for (0..@typeInfo(wasi_libc.CrtFile).@"enum".fields.len) |i| {
+        if (testAndClear(&comp.queued_jobs.wasi_libc_crt_file[i])) {
+            const tag: wasi_libc.CrtFile = @enumFromInt(i);
+            comp.link_task_wait_group.spawnManager(buildWasiLibcCrtFile, .{ comp, tag, main_progress_node });
+        }
+    }
+
+    for (0..@typeInfo(mingw.CrtFile).@"enum".fields.len) |i| {
+        if (testAndClear(&comp.queued_jobs.mingw_crt_file[i])) {
+            const tag: mingw.CrtFile = @enumFromInt(i);
+            comp.link_task_wait_group.spawnManager(buildMingwCrtFile, .{ comp, tag, main_progress_node });
+        }
     }
 
     {
@@ -3843,7 +3872,7 @@ fn performAllTheWorkInner(
 
     work: while (true) {
         for (&comp.work_queues) |*work_queue| if (work_queue.readItem()) |job| {
-            try processOneJob(@intFromEnum(Zcu.PerThread.Id.main), comp, job, main_progress_node);
+            try processOneJob(@intFromEnum(Zcu.PerThread.Id.main), comp, job);
             continue :work;
         };
         if (comp.zcu) |zcu| {
@@ -3878,7 +3907,7 @@ pub fn queueJobs(comp: *Compilation, jobs: []const Job) !void {
     for (jobs) |job| try comp.queueJob(job);
 }
 
-fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progress.Node) JobError!void {
+fn processOneJob(tid: usize, comp: *Compilation, job: Job) JobError!void {
     switch (job) {
         .codegen_nav => |nav_index| {
             const zcu = comp.zcu.?;
@@ -3974,19 +4003,6 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
                 error.AnalysisFail => return,
             };
         },
-        .mingw_crt_file => |crt_file| {
-            const named_frame = tracy.namedFrame("mingw_crt_file");
-            defer named_frame.end();
-
-            mingw.buildCrtFile(comp, crt_file, prog_node) catch |err| {
-                // TODO Surface more error details.
-                comp.lockAndSetMiscFailure(
-                    .mingw_crt_file,
-                    "unable to build mingw-w64 CRT file {s}: {s}",
-                    .{ @tagName(crt_file), @errorName(err) },
-                );
-            };
-        },
         .windows_import_lib => |index| {
             const named_frame = tracy.namedFrame("windows_import_lib");
             defer named_frame.end();
@@ -3999,95 +4015,6 @@ fn processOneJob(tid: usize, comp: *Compilation, job: Job, prog_node: std.Progre
                     "unable to generate DLL import .lib file for {s}: {s}",
                     .{ link_lib, @errorName(err) },
                 );
-            };
-        },
-        .libunwind => {
-            const named_frame = tracy.namedFrame("libunwind");
-            defer named_frame.end();
-
-            libunwind.buildStaticLib(comp, prog_node) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.SubCompilationFailed => return, // error reported already
-                else => comp.lockAndSetMiscFailure(
-                    .libunwind,
-                    "unable to build libunwind: {s}",
-                    .{@errorName(err)},
-                ),
-            };
-        },
-        .libcxx => {
-            const named_frame = tracy.namedFrame("libcxx");
-            defer named_frame.end();
-
-            libcxx.buildLibCXX(comp, prog_node) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.SubCompilationFailed => return, // error reported already
-                else => comp.lockAndSetMiscFailure(
-                    .libcxx,
-                    "unable to build libcxx: {s}",
-                    .{@errorName(err)},
-                ),
-            };
-        },
-        .libcxxabi => {
-            const named_frame = tracy.namedFrame("libcxxabi");
-            defer named_frame.end();
-
-            libcxx.buildLibCXXABI(comp, prog_node) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.SubCompilationFailed => return, // error reported already
-                else => comp.lockAndSetMiscFailure(
-                    .libcxxabi,
-                    "unable to build libcxxabi: {s}",
-                    .{@errorName(err)},
-                ),
-            };
-        },
-        .libtsan => {
-            const named_frame = tracy.namedFrame("libtsan");
-            defer named_frame.end();
-
-            libtsan.buildTsan(comp, prog_node) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.SubCompilationFailed => return, // error reported already
-                else => comp.lockAndSetMiscFailure(
-                    .libtsan,
-                    "unable to build TSAN library: {s}",
-                    .{@errorName(err)},
-                ),
-            };
-        },
-        .wasi_libc_crt_file => |crt_file| {
-            const named_frame = tracy.namedFrame("wasi_libc_crt_file");
-            defer named_frame.end();
-
-            wasi_libc.buildCrtFile(comp, crt_file, prog_node) catch |err| {
-                // TODO Surface more error details.
-                comp.lockAndSetMiscFailure(
-                    .wasi_libc_crt_file,
-                    "unable to build WASI libc CRT file: {s}",
-                    .{@errorName(err)},
-                );
-            };
-        },
-        .zig_libc => {
-            const named_frame = tracy.namedFrame("zig_libc");
-            defer named_frame.end();
-
-            comp.buildOutputFromZig(
-                "c.zig",
-                .Lib,
-                &comp.libc_static_lib,
-                .zig_libc,
-                prog_node,
-            ) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.SubCompilationFailed => return, // error reported already
-                else => comp.lockAndSetMiscFailure(
-                    .zig_libc,
-                    "unable to build zig's multitarget libc: {s}",
-                    .{@errorName(err)},
-                ),
             };
         },
     }
@@ -4742,11 +4669,7 @@ fn buildRt(
     };
 }
 
-fn buildMuslCrtFile(
-    comp: *Compilation,
-    crt_file: musl.CrtFile,
-    prog_node: std.Progress.Node,
-) void {
+fn buildMuslCrtFile(comp: *Compilation, crt_file: musl.CrtFile, prog_node: std.Progress.Node) void {
     musl.buildCrtFile(comp, crt_file, prog_node) catch |err| switch (err) {
         error.SubCompilationFailed => return, // error reported already
         else => comp.lockAndSetMiscFailure(.musl_crt_file, "unable to build musl {s}: {s}", .{
@@ -4755,11 +4678,7 @@ fn buildMuslCrtFile(
     };
 }
 
-fn buildGlibcCrtFile(
-    comp: *Compilation,
-    crt_file: glibc.CrtFile,
-    prog_node: std.Progress.Node,
-) void {
+fn buildGlibcCrtFile(comp: *Compilation, crt_file: glibc.CrtFile, prog_node: std.Progress.Node) void {
     glibc.buildCrtFile(comp, crt_file, prog_node) catch |err| switch (err) {
         error.SubCompilationFailed => return, // error reported already
         else => comp.lockAndSetMiscFailure(.glibc_crt_file, "unable to build glibc {s}: {s}", .{
@@ -4774,6 +4693,65 @@ fn buildGlibcSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) voi
         else => comp.lockAndSetMiscFailure(.glibc_shared_objects, "unable to build glibc shared objects: {s}", .{
             @errorName(err),
         }),
+    };
+}
+
+fn buildMingwCrtFile(comp: *Compilation, crt_file: mingw.CrtFile, prog_node: std.Progress.Node) void {
+    mingw.buildCrtFile(comp, crt_file, prog_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return, // error reported already
+        else => comp.lockAndSetMiscFailure(.mingw_crt_file, "unable to build mingw-w64 {s}: {s}", .{
+            @tagName(crt_file), @errorName(err),
+        }),
+    };
+}
+
+fn buildWasiLibcCrtFile(comp: *Compilation, crt_file: wasi_libc.CrtFile, prog_node: std.Progress.Node) void {
+    wasi_libc.buildCrtFile(comp, crt_file, prog_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return, // error reported already
+        else => comp.lockAndSetMiscFailure(.wasi_libc_crt_file, "unable to build WASI libc {s}: {s}", .{
+            @tagName(crt_file), @errorName(err),
+        }),
+    };
+}
+
+fn buildLibUnwind(comp: *Compilation, prog_node: std.Progress.Node) void {
+    libunwind.buildStaticLib(comp, prog_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return, // error reported already
+        else => comp.lockAndSetMiscFailure(.libunwind, "unable to build libunwind: {s}", .{@errorName(err)}),
+    };
+}
+
+fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) void {
+    libcxx.buildLibCxx(comp, prog_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return, // error reported already
+        else => comp.lockAndSetMiscFailure(.libcxx, "unable to build libcxx: {s}", .{@errorName(err)}),
+    };
+}
+
+fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) void {
+    libcxx.buildLibCxxAbi(comp, prog_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return, // error reported already
+        else => comp.lockAndSetMiscFailure(.libcxxabi, "unable to build libcxxabi: {s}", .{@errorName(err)}),
+    };
+}
+
+fn buildLibTsan(comp: *Compilation, prog_node: std.Progress.Node) void {
+    libtsan.buildTsan(comp, prog_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return, // error reported already
+        else => comp.lockAndSetMiscFailure(.libtsan, "unable to build TSAN library: {s}", .{@errorName(err)}),
+    };
+}
+
+fn buildZigLibc(comp: *Compilation, prog_node: std.Progress.Node) void {
+    comp.buildOutputFromZig(
+        "c.zig",
+        .Lib,
+        &comp.libc_static_lib,
+        .zig_libc,
+        prog_node,
+    ) catch |err| switch (err) {
+        error.SubCompilationFailed => return, // error reported already
+        else => comp.lockAndSetMiscFailure(.zig_libc, "unable to build zig's multitarget libc: {s}", .{@errorName(err)}),
     };
 }
 
