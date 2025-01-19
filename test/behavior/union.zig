@@ -2303,3 +2303,22 @@ test "extern union @FieldType" {
     comptime assert(@FieldType(U, "b") == f64);
     comptime assert(@FieldType(U, "c") == *U);
 }
+
+test "assign global tagged union" {
+    const U = union(enum) {
+        a: u16,
+        b: u32,
+
+        var global: @This() = undefined;
+    };
+
+    U.global = .{ .a = 123 };
+    try expect(U.global == .a);
+    try expect(U.global != .b);
+    try expect(U.global.a == 123);
+
+    U.global = .{ .b = 123456 };
+    try expect(U.global != .a);
+    try expect(U.global == .b);
+    try expect(U.global.b == 123456);
+}
