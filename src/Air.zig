@@ -1004,7 +1004,6 @@ pub const Inst = struct {
         bool_true = @intFromEnum(InternPool.Index.bool_true),
         bool_false = @intFromEnum(InternPool.Index.bool_false),
         empty_tuple = @intFromEnum(InternPool.Index.empty_tuple),
-        generic_poison = @intFromEnum(InternPool.Index.generic_poison),
 
         /// This Ref does not correspond to any AIR instruction or constant
         /// value and may instead be used as a sentinel to indicate null.

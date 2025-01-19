@@ -89,6 +89,8 @@ pub fn extraData(code: Zir, comptime T: type, index: usize) ExtraData(T) {
             Inst.SwitchBlockErrUnion.Bits,
             Inst.FuncFancy.Bits,
             Inst.Declaration.Flags,
+            Inst.Param.Type,
+            Inst.Func.RetTy,
             => @bitCast(code.extra[i]),
 
             else => @compileError("bad field type"),
@@ -2126,7 +2128,7 @@ pub const Inst = struct {
         ref_start_index = static_len,
         _,
 
-        pub const static_len = 71;
+        pub const static_len = 70;
 
         pub fn toRef(i: Index) Inst.Ref {
             return @enumFromInt(@intFromEnum(Index.ref_start_index) + @intFromEnum(i));
@@ -2229,7 +2231,6 @@ pub const Inst = struct {
         bool_true,
         bool_false,
         empty_tuple,
-        generic_poison,
 
         /// This Ref does not correspond to any ZIR instruction or constant
         /// value and may instead be used as a sentinel to indicate null.
@@ -2472,23 +2473,30 @@ pub const Inst = struct {
     };
 
     /// Trailing:
-    /// if (ret_body_len == 1) {
+    /// if (ret_ty.body_len == 1) {
     ///   0. return_type: Ref
     /// }
-    /// if (ret_body_len > 1) {
-    ///   1. return_type: Index // for each ret_body_len
+    /// if (ret_ty.body_len > 1) {
+    ///   1. return_type: Index // for each ret_ty.body_len
     /// }
     /// 2. body: Index // for each body_len
     /// 3. src_locs: SrcLocs // if body_len != 0
     /// 4. proto_hash: std.zig.SrcHash // if body_len != 0; hash of function prototype
     pub const Func = struct {
-        /// If this is 0 it means a void return type.
-        /// If this is 1 it means return_type is a simple Ref
-        ret_body_len: u32,
+        ret_ty: RetTy,
         /// Points to the block that contains the param instructions for this function.
         /// If this is a `declaration`, it refers to the declaration's value body.
         param_block: Index,
         body_len: u32,
+
+        pub const RetTy = packed struct(u32) {
+            /// 0 means `void`.
+            /// 1 means the type is a simple `Ref`.
+            /// Otherwise, the length of a trailing body.
+            body_len: u31,
+            /// Whether the return type is generic, i.e. refers to one or more previous parameters.
+            is_generic: bool,
+        };
 
         pub const SrcLocs = struct {
             /// Line index in the source file relative to the parent decl.
@@ -2539,7 +2547,8 @@ pub const Inst = struct {
             has_ret_ty_ref: bool,
             has_ret_ty_body: bool,
             has_any_noalias: bool,
-            _: u24 = undefined,
+            ret_ty_is_generic: bool,
+            _: u23 = undefined,
         };
     };
 
@@ -3708,8 +3717,14 @@ pub const Inst = struct {
     pub const Param = struct {
         /// Null-terminated string index.
         name: NullTerminatedString,
-        /// The body contains the type of the parameter.
-        body_len: u32,
+        type: Type,
+
+        pub const Type = packed struct(u32) {
+            /// The body contains the type of the parameter.
+            body_len: u31,
+            /// Whether the type is generic, i.e. refers to one or more previous parameters.
+            is_generic: bool,
+        };
     };
 
     /// Trailing:
@@ -4492,7 +4507,7 @@ fn findTrackableInner(
 
             if (extra.data.body_len == 0) {
                 // This is just a prototype. No need to track.
-                assert(extra.data.ret_body_len < 2);
+                assert(extra.data.ret_ty.body_len < 2);
                 return;
             }
 
@@ -4500,11 +4515,11 @@ fn findTrackableInner(
             contents.func_decl = inst;
 
             var extra_index: usize = extra.end;
-            switch (extra.data.ret_body_len) {
+            switch (extra.data.ret_ty.body_len) {
                 0 => {},
                 1 => extra_index += 1,
                 else => {
-                    const body = zir.bodySlice(extra_index, extra.data.ret_body_len);
+                    const body = zir.bodySlice(extra_index, extra.data.ret_ty.body_len);
                     extra_index += body.len;
                     try zir.findTrackableBody(gpa, contents, defers, body);
                 },
@@ -4595,7 +4610,7 @@ fn findTrackableInner(
         .param, .param_comptime => {
             const inst_data = datas[@intFromEnum(inst)].pl_tok;
             const extra = zir.extraData(Inst.Param, inst_data.payload_index);
-            const body = zir.bodySlice(extra.end, extra.data.body_len);
+            const body = zir.bodySlice(extra.end, extra.data.type.body_len);
             try zir.findTrackableBody(gpa, contents, defers, body);
         },
 
@@ -4738,6 +4753,7 @@ pub const FnInfo = struct {
     ret_ty_body: []const Inst.Index,
     body: []const Inst.Index,
     ret_ty_ref: Zir.Inst.Ref,
+    ret_ty_is_generic: bool,
     total_params_len: u32,
     inferred_error_set: bool,
 };
@@ -4779,6 +4795,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
         body: []const Inst.Index,
         ret_ty_ref: Inst.Ref,
         ret_ty_body: []const Inst.Index,
+        ret_ty_is_generic: bool,
         ies: bool,
     } = switch (tags[@intFromEnum(fn_inst)]) {
         .func, .func_inferred => |tag| blk: {
@@ -4789,7 +4806,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
             var ret_ty_ref: Inst.Ref = .none;
             var ret_ty_body: []const Inst.Index = &.{};
 
-            switch (extra.data.ret_body_len) {
+            switch (extra.data.ret_ty.body_len) {
                 0 => {
                     ret_ty_ref = .void_type;
                 },
@@ -4798,7 +4815,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
                     extra_index += 1;
                 },
                 else => {
-                    ret_ty_body = zir.bodySlice(extra_index, extra.data.ret_body_len);
+                    ret_ty_body = zir.bodySlice(extra_index, extra.data.ret_ty.body_len);
                     extra_index += ret_ty_body.len;
                 },
             }
@@ -4811,6 +4828,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
                 .ret_ty_ref = ret_ty_ref,
                 .ret_ty_body = ret_ty_body,
                 .body = body,
+                .ret_ty_is_generic = extra.data.ret_ty.is_generic,
                 .ies = tag == .func_inferred,
             };
         },
@@ -4848,6 +4866,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
                 .ret_ty_ref = ret_ty_ref,
                 .ret_ty_body = ret_ty_body,
                 .body = body,
+                .ret_ty_is_generic = extra.data.bits.ret_ty_is_generic,
                 .ies = extra.data.bits.is_inferred_error,
             };
         },
@@ -4870,6 +4889,7 @@ pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {
         .ret_ty_ref = info.ret_ty_ref,
         .body = info.body,
         .total_params_len = total_params_len,
+        .ret_ty_is_generic = info.ret_ty_is_generic,
         .inferred_error_set = info.ies,
     };
 }
@@ -4967,7 +4987,7 @@ pub fn getAssociatedSrcHash(zir: Zir, inst: Zir.Inst.Index) ?std.zig.SrcHash {
                 return null;
             }
             const extra_index = extra.end +
-                extra.data.ret_body_len +
+                extra.data.ret_ty.body_len +
                 extra.data.body_len +
                 @typeInfo(Inst.Func.SrcLocs).@"struct".fields.len;
             return @bitCast([4]u32{

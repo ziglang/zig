@@ -2404,10 +2404,6 @@ pub const CompileError = error{
     OutOfMemory,
     /// When this is returned, the compile error for the failure has already been recorded.
     AnalysisFail,
-    /// A Type or Value was needed to be used during semantic analysis, but it was not available
-    /// because the function is generic. This is only seen when analyzing the body of a param
-    /// instruction.
-    GenericPoison,
     /// In a comptime scope, a return instruction was encountered. This error is only seen when
     /// doing a comptime function call.
     ComptimeReturn,
