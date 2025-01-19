@@ -3170,7 +3170,6 @@ fn lowerConstant(cg: *CodeGen, val: Value, ty: Type) InnerError!WValue {
             .null,
             .empty_tuple,
             .@"unreachable",
-            .generic_poison,
             => unreachable, // non-runtime values
             .false, .true => return .{ .imm32 = switch (simple_value) {
                 .false => 0,

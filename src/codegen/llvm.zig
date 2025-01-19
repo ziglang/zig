@@ -3372,7 +3372,6 @@ pub const Object = struct {
             .bool_true,
             .bool_false,
             .empty_tuple,
-            .generic_poison,
             .none,
             => unreachable,
             else => switch (ip.indexToKey(t.toIntern())) {
@@ -3923,7 +3922,6 @@ pub const Object = struct {
                 .null => unreachable, // non-runtime value
                 .empty_tuple => unreachable, // non-runtime value
                 .@"unreachable" => unreachable, // non-runtime value
-                .generic_poison => unreachable, // non-runtime value
 
                 .false => .false,
                 .true => .true,
