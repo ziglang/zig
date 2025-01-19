@@ -165,6 +165,7 @@ comptime {
         .{ "x86_64_v2", {} },
         .{ "x86_64_v3", {} },
         .{ "x86_64_v4", {} },
+        .{ "apxf", {} },
     });
 
     var errors: []const u8 = "";
@@ -198,7 +199,7 @@ fn getAmdTypeAndSubtype(
     var s: Subtype = .unknown;
 
     switch (family) {
-        16 => {
+        16, 18 => {
             t = .amdfam10h;
             switch (model) {
                 2 => s = .amdfam10h_barcelona,
@@ -211,15 +212,9 @@ fn getAmdTypeAndSubtype(
         21 => {
             t = .amdfam15h;
             switch (model) {
-                0x60...0x7f, // 60h-7Fh: Excavator
-                => s = .amdfam15h_bdver4,
-
-                0x30...0x3f, // 30h-3Fh: Steamroller
-                => s = .amdfam15h_bdver3,
-
-                0x10...0x1f, // 10h-1Fh: Piledriver
-                => s = .amdfam15h_bdver2,
-
+                0x60...0x7f => s = .amdfam15h_bdver4, // 60h-7Fh: Excavator
+                0x30...0x3f => s = .amdfam15h_bdver3, // 30h-3Fh: Steamroller
+                0x10...0x1f => s = .amdfam15h_bdver2, // 10h-1Fh: Piledriver
                 0x00...0x0f => s = if (model == 0x02)
                     .amdfam15h_bdver2 // 02h: Piledriver
                 else
@@ -266,6 +261,12 @@ fn getAmdTypeAndSubtype(
                 0xa0...0xaf, // Family 19h Models A0h-AFh (Stones-Dense) Zen 4
                 => s = .amdfam19h_znver4,
                 else => {},
+            }
+        },
+        26 => {
+            t = .amdfam1ah;
+            if (model <= 0x77) { // Models 00h-77h
+                s = .amdfam1ah_znver5;
             }
         },
         else => {},
@@ -338,15 +339,56 @@ fn getIntelTypeAndSubtype(
                 t = .intel_corei7;
                 s = .intel_corei7_tigerlake;
             },
-            0x97, 0x9a, 0xb7, 0xba, 0xbf, 0xaa, 0xac, 0xbe => {
+            0x97, 0x9a => {
                 t = .intel_corei7;
                 s = .intel_corei7_alderlake;
             },
+            // Raptorlake
+            0xb7, 0xba, 0xbf => {
+                t = .intel_corei7;
+                s = .intel_corei7_alderlake;
+            },
+            // Meteorlake
+            0xaa, 0xac => {
+                t = .intel_corei7;
+                s = .intel_corei7_alderlake;
+            },
+            // Gracemont
+            0xbe => {
+                t = .intel_corei7;
+                s = .intel_corei7_alderlake;
+            },
+            // Arrowlake and Arrowlake U
+            0xc5, 0xb5 => {
+                t = .intel_corei7;
+                s = .intel_corei7_arrowlake;
+            },
+            // Arrowlake S
+            0xc6 => {
+                t = .intel_corei7;
+                s = .intel_corei7_arrowlake_s;
+            },
+            // Lunarlake
+            0xbd => {
+                t = .intel_corei7;
+                s = .intel_corei7_arrowlake_s;
+            },
+            0xcc => {
+                t = .intel_corei7;
+                s = .intel_corei7_pantherlake;
+            },
+            // Icelake Xeon
             0x6a, 0x6c => {
                 t = .intel_corei7;
                 s = .intel_corei7_icelake_server;
             },
-            0xcf, 0x8f => {
+            // Emerald Rapids
+            0xcf => {
+                t = .intel_corei7;
+                s = .intel_corei7_sapphirerapids;
+            },
+            // Sapphire Rapids
+            0x8f => {
                 t = .intel_corei7;
                 s = .intel_corei7_sapphirerapids;
             },
