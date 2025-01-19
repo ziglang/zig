@@ -8571,19 +8571,37 @@ pub const FuncGen = struct {
         }
         if (scalar_ty.isSignedInt(zcu)) {
             const inst_llvm_ty = try o.lowerType(inst_ty);
-            const bit_size_minus_one = try o.builder.splatValue(inst_llvm_ty, try o.builder.intConst(
+
+            const ExpectedContents = [std.math.big.int.calcTwosCompLimbCount(256)]std.math.big.Limb;
+            var stack align(@max(
+                @alignOf(std.heap.StackFallbackAllocator(0)),
+                @alignOf(ExpectedContents),
+            )) = std.heap.stackFallback(@sizeOf(ExpectedContents), self.gpa);
+            const allocator = stack.get();
+
+            const scalar_bits = inst_llvm_ty.scalarBits(&o.builder);
+            var smin_big_int: std.math.big.int.Mutable = .{
+                .limbs = try allocator.alloc(
+                    std.math.big.Limb,
+                    std.math.big.int.calcTwosCompLimbCount(scalar_bits),
+                ),
+                .len = undefined,
+                .positive = undefined,
+            };
+            defer allocator.free(smin_big_int.limbs);
+            smin_big_int.setTwosCompIntLimit(.min, .signed, scalar_bits);
+            const smin = try o.builder.splatValue(inst_llvm_ty, try o.builder.bigIntConst(
                 inst_llvm_ty.scalarType(&o.builder),
-                inst_llvm_ty.scalarBits(&o.builder) - 1,
+                smin_big_int.toConst(),
             ));
 
-            const div = try self.wip.bin(.sdiv, lhs, rhs, "");
-            const rem = try self.wip.bin(.srem, lhs, rhs, "");
-            const div_sign = try self.wip.bin(.xor, lhs, rhs, "");
-            const div_sign_mask = try self.wip.bin(.ashr, div_sign, bit_size_minus_one, "");
-            const zero = try o.builder.zeroInitValue(inst_llvm_ty);
-            const rem_nonzero = try self.wip.icmp(.ne, rem, zero, "");
-            const correction = try self.wip.select(.normal, rem_nonzero, div_sign_mask, zero, "");
-            return self.wip.bin(.@"add nsw", div, correction, "");
+            const div = try self.wip.bin(.sdiv, lhs, rhs, "divFloor.div");
+            const rem = try self.wip.bin(.srem, lhs, rhs, "divFloor.rem");
+            const rhs_sign = try self.wip.bin(.@"and", rhs, smin, "divFloor.rhs_sign");
+            const rem_xor_rhs_sign = try self.wip.bin(.xor, rem, rhs_sign, "divFloor.rem_xor_rhs_sign");
+            const need_correction = try self.wip.icmp(.ugt, rem_xor_rhs_sign, smin, "divFloor.need_correction");
+            const correction = try self.wip.cast(.sext, need_correction, inst_llvm_ty, "divFloor.correction");
+            return self.wip.bin(.@"add nsw", div, correction, "divFloor");
         }
         return self.wip.bin(.udiv, lhs, rhs, "");
     }
@@ -8642,19 +8660,36 @@ pub const FuncGen = struct {
             return self.wip.select(fast, ltz, c, a, "");
         }
         if (scalar_ty.isSignedInt(zcu)) {
-            const bit_size_minus_one = try o.builder.splatValue(inst_llvm_ty, try o.builder.intConst(
+            const ExpectedContents = [std.math.big.int.calcTwosCompLimbCount(256)]std.math.big.Limb;
+            var stack align(@max(
+                @alignOf(std.heap.StackFallbackAllocator(0)),
+                @alignOf(ExpectedContents),
+            )) = std.heap.stackFallback(@sizeOf(ExpectedContents), self.gpa);
+            const allocator = stack.get();
+
+            const scalar_bits = inst_llvm_ty.scalarBits(&o.builder);
+            var smin_big_int: std.math.big.int.Mutable = .{
+                .limbs = try allocator.alloc(
+                    std.math.big.Limb,
+                    std.math.big.int.calcTwosCompLimbCount(scalar_bits),
+                ),
+                .len = undefined,
+                .positive = undefined,
+            };
+            defer allocator.free(smin_big_int.limbs);
+            smin_big_int.setTwosCompIntLimit(.min, .signed, scalar_bits);
+            const smin = try o.builder.splatValue(inst_llvm_ty, try o.builder.bigIntConst(
                 inst_llvm_ty.scalarType(&o.builder),
-                inst_llvm_ty.scalarBits(&o.builder) - 1,
+                smin_big_int.toConst(),
             ));
 
-            const rem = try self.wip.bin(.srem, lhs, rhs, "");
-            const div_sign = try self.wip.bin(.xor, lhs, rhs, "");
-            const div_sign_mask = try self.wip.bin(.ashr, div_sign, bit_size_minus_one, "");
-            const rhs_masked = try self.wip.bin(.@"and", rhs, div_sign_mask, "");
+            const rem = try self.wip.bin(.srem, lhs, rhs, "mod.rem");
+            const rhs_sign = try self.wip.bin(.@"and", rhs, smin, "mod.rhs_sign");
+            const rem_xor_rhs_sign = try self.wip.bin(.xor, rem, rhs_sign, "mod.rem_xor_rhs_sign");
+            const need_correction = try self.wip.icmp(.ugt, rem_xor_rhs_sign, smin, "mod.need_correction");
             const zero = try o.builder.zeroInitValue(inst_llvm_ty);
-            const rem_nonzero = try self.wip.icmp(.ne, rem, zero, "");
-            const correction = try self.wip.select(.normal, rem_nonzero, rhs_masked, zero, "");
-            return self.wip.bin(.@"add nsw", rem, correction, "");
+            const correction = try self.wip.select(.normal, need_correction, rhs, zero, "mod.correction");
+            return self.wip.bin(.@"add nsw", correction, rem, "mod");
         }
         return self.wip.bin(.urem, lhs, rhs, "");
     }
