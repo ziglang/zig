@@ -120,33 +120,33 @@ pub fn main() !void {
 
         var enum_fields = std.ArrayList(EnumField).init(arena);
 
-        for (raw_enum_names, 0..) |raw, i| {
+        var i: u32 = 0;
+        for (raw_enum_names) |raw| {
             assert(raw.len > 0);
             switch (raw[0]) {
                 '^' => {
                     // X86_FEATURE(...): does not contribute to compiler-rt feature enum
                 },
-                '"' => if (mem.indexOfScalar(u8, raw, '=')) |eq_pos| {
-                    // X86_MICROARCH_LEVEL(...): line is of the form `"name"=prio'
-                    assert(raw[eq_pos - 1] == '"');
-                    const raw_name = raw[1 .. eq_pos - 1];
-                    const raw_prio = raw[eq_pos + 1 ..];
-
+                '"' => {
+                    const raw_name, const value = if (mem.indexOfScalar(u8, raw, '=')) |eq_pos| raw_blk: {
+                        // X86_MICROARCH_LEVEL(...): line is of the form `"name"=prio'
+                        assert(raw[eq_pos - 1] == '"');
+                        const value = std.fmt.parseUnsigned(u32, raw[eq_pos + 1 ..], 10) catch unreachable;
+                        break :raw_blk .{ raw[1 .. eq_pos - 1], value };
+                    } else raw_blk: {
+                        // X86_FEATURE_COMPAT(...): line is of the form `"name"'
+                        assert(raw[raw.len - 1] == '"');
+                        break :raw_blk .{ raw[1 .. raw.len - 1], i };
+                    };
+                    i = value;
                     try enum_fields.append(.{
                         .name = try llvmNameToZigName(arena, raw_name),
-                        .value = std.fmt.parseUnsigned(u32, raw_prio, 10) catch unreachable,
-                    });
-                } else {
-                    // X86_FEATURE_COMPAT(...): line is of the form `"name"'
-
-                    assert(raw[raw.len - 1] == '"');
-                    try enum_fields.append(.{
-                        .name = try llvmNameToZigName(arena, raw[1 .. raw.len - 1]),
-                        .value = @intCast(i),
+                        .value = i,
                     });
                 },
                 else => unreachable,
             }
+            i += 1;
         }
 
         break :blk enum_fields.toOwnedSlice() catch unreachable;
