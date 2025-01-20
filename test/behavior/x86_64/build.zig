@@ -6,7 +6,8 @@ pub fn build(b: *std.Build) void {
         "Skip tests that do not match any filter",
     ) orelse &[0][]const u8{};
 
-    const compiler_rt_lib = b.addStaticLibrary(.{
+    const compiler_rt_lib = b.addLibrary(.{
+        .linkage = .static,
         .name = "compiler_rt",
         .use_llvm = false,
         .use_lld = false,
