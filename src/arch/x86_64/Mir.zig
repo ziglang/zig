@@ -55,9 +55,9 @@ pub const Inst = struct {
         _pkru,
         /// ___ Performance-Monitoring Counters
         _pmc,
-        /// ___ Rondam Number
+        /// ___ Random Number
         _rand,
-        /// ___ Rondam Seed
+        /// ___ Random Seed
         _seed,
         /// ___ Shadow Stack Pointer Doubleword
         _sspd,
