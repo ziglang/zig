@@ -4114,6 +4114,16 @@ pub fn containerTypeName(ty: Type, ip: *const InternPool) InternPool.NullTermina
     };
 }
 
+/// Returns `true` if a value of this type is always `null`.
+/// Returns `false` if a value of this type is neve `null`.
+/// Returns `null` otherwise.
+pub fn isNullFromType(ty: Type, zcu: *const Zcu) ?bool {
+    if (ty.zigTypeTag(zcu) != .optional and !ty.isCPtr(zcu)) return false;
+    const child = ty.optionalChild(zcu);
+    if (child.zigTypeTag(zcu) == .noreturn) return true; // `?noreturn` is always null
+    return null;
+}
+
 pub const @"u1": Type = .{ .ip_index = .u1_type };
 pub const @"u8": Type = .{ .ip_index = .u8_type };
 pub const @"u16": Type = .{ .ip_index = .u16_type };
