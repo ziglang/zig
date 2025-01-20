@@ -1049,7 +1049,10 @@ fn echoTests(client: *http.Client, port: u16) !void {
         var body = std.ArrayList(u8).init(gpa);
         defer body.deinit();
 
+        var server_header_buffer: [16 * 1024]u8 = undefined;
+
         const res = try client.fetch(.{
+            .server_header_buffer = &server_header_buffer,
             .location = .{ .url = location },
             .method = .POST,
             .payload = "Hello, World!\n",
@@ -1115,7 +1118,9 @@ fn echoTests(client: *http.Client, port: u16) !void {
         try expectEqual(.expectation_failed, req.response.status);
     }
 
+    var server_header_buffer: [1024]u8 = undefined;
     _ = try client.fetch(.{
+        .server_header_buffer = &server_header_buffer,
         .location = .{
             .url = try std.fmt.bufPrint(&location_buffer, "http://127.0.0.1:{d}/end", .{port}),
         },
