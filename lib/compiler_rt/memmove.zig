@@ -4,11 +4,37 @@ const builtin = @import("builtin");
 
 comptime {
     if (builtin.object_format != .c) {
-        @export(&memmove, .{ .name = "memmove", .linkage = common.linkage, .visibility = common.visibility });
+        const export_options: std.builtin.ExportOptions = .{
+            .name = "memmove",
+            .linkage = common.linkage,
+            .visibility = common.visibility,
+        };
+
+        if (builtin.mode == .ReleaseSmall)
+            @export(&memmoveSmall, export_options)
+        else
+            @export(&memmoveFast, export_options);
     }
 }
 
-pub fn memmove(opt_dest: ?[*]u8, opt_src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
+fn memmoveSmall(opt_dest: ?[*]u8, opt_src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
+    const dest = opt_dest.?;
+    const src = opt_src.?;
+
+    if (@intFromPtr(dest) < @intFromPtr(src)) {
+        for (0..len) |i| {
+            dest[i] = src[i];
+        }
+    } else {
+        for (0..len) |i| {
+            dest[len - 1 - i] = src[len - 1 - i];
+        }
+    }
+
+    return dest;
+}
+
+pub fn memmoveFast(opt_dest: ?[*]u8, opt_src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
     // a port of https://github.com/facebook/folly/blob/1c8bc50e88804e2a7361a57cd9b551dd10f6c5fd/folly/memcpy.S
     if (len == 0) {
         @branchHint(.unlikely);
