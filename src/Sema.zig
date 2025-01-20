@@ -17477,10 +17477,10 @@ fn zirCmpEq(
 
     // comparing null with optionals
     if (lhs_ty_tag == .null and (rhs_ty_tag == .optional or rhs_ty.isCPtr(zcu))) {
-        return sema.analyzeIsNull(block, src, rhs, op == .neq);
+        return sema.analyzeIsNull(block, rhs, op == .neq);
     }
     if (rhs_ty_tag == .null and (lhs_ty_tag == .optional or lhs_ty.isCPtr(zcu))) {
-        return sema.analyzeIsNull(block, src, lhs, op == .neq);
+        return sema.analyzeIsNull(block, lhs, op == .neq);
     }
 
     if (lhs_ty_tag == .null or rhs_ty_tag == .null) {
@@ -19326,7 +19326,7 @@ fn zirIsNonNull(
     const src = block.nodeOffset(inst_data.src_node);
     const operand = try sema.resolveInst(inst_data.operand);
     try sema.checkNullableType(block, src, sema.typeOf(operand));
-    return sema.analyzeIsNull(block, src, operand, true);
+    return sema.analyzeIsNull(block, operand, true);
 }
 
 fn zirIsNonNullPtr(
@@ -19342,12 +19342,17 @@ fn zirIsNonNullPtr(
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const src = block.nodeOffset(inst_data.src_node);
     const ptr = try sema.resolveInst(inst_data.operand);
+    const ptr_ty = sema.typeOf(ptr);
     try sema.checkNullableType(block, src, sema.typeOf(ptr).elemType2(zcu));
-    if ((try sema.resolveValue(ptr)) == null) {
-        return block.addUnOp(.is_non_null_ptr, ptr);
+    if (try sema.resolveValue(ptr)) |ptr_val| {
+        if (try sema.pointerDeref(block, src, ptr_val, ptr_ty)) |loaded_val| {
+            return sema.analyzeIsNull(block, Air.internedToRef(loaded_val.toIntern()), true);
+        }
     }
-    const loaded = try sema.analyzeLoad(block, src, ptr, src);
-    return sema.analyzeIsNull(block, src, loaded, true);
+    if (ptr_ty.childType(zcu).isNullFromType(zcu)) |is_null| {
+        return if (is_null) .bool_false else .bool_true;
+    }
+    return block.addUnOp(.is_non_null_ptr, ptr);
 }
 
 fn checkErrorType(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Type) !void {
@@ -32405,7 +32410,6 @@ fn analyzeSliceLen(
 fn analyzeIsNull(
     sema: *Sema,
     block: *Block,
-    src: LazySrcLoc,
     operand: Air.Inst.Ref,
     invert_logic: bool,
 ) CompileError!Air.Inst.Ref {
@@ -32421,15 +32425,10 @@ fn analyzeIsNull(
         return if (bool_value) .bool_true else .bool_false;
     }
 
-    const inverted_non_null_res: Air.Inst.Ref = if (invert_logic) .bool_true else .bool_false;
-    const operand_ty = sema.typeOf(operand);
-    if (operand_ty.zigTypeTag(zcu) == .optional and operand_ty.optionalChild(zcu).zigTypeTag(zcu) == .noreturn) {
-        return inverted_non_null_res;
+    if (sema.typeOf(operand).isNullFromType(zcu)) |is_null| {
+        const result = is_null != invert_logic;
+        return if (result) .bool_true else .bool_false;
     }
-    if (operand_ty.zigTypeTag(zcu) != .optional and !operand_ty.isPtrLikeOptional(zcu)) {
-        return inverted_non_null_res;
-    }
-    try sema.requireRuntimeBlock(block, src, null);
     const air_tag: Air.Inst.Tag = if (invert_logic) .is_non_null else .is_null;
     return block.addUnOp(air_tag, operand);
 }
@@ -33007,7 +33006,7 @@ fn analyzeSlice(
             if (block.wantSafety()) {
                 // requirement: slicing C ptr is non-null
                 if (ptr_ptr_child_ty.isCPtr(zcu)) {
-                    const is_non_null = try sema.analyzeIsNull(block, ptr_src, ptr, true);
+                    const is_non_null = try sema.analyzeIsNull(block, ptr, true);
                     try sema.addSafetyCheck(block, src, is_non_null, .unwrap_null);
                 }
 
@@ -33065,7 +33064,7 @@ fn analyzeSlice(
     if (block.wantSafety()) {
         // requirement: slicing C ptr is non-null
         if (ptr_ptr_child_ty.isCPtr(zcu)) {
-            const is_non_null = try sema.analyzeIsNull(block, ptr_src, ptr, true);
+            const is_non_null = try sema.analyzeIsNull(block, ptr, true);
             try sema.addSafetyCheck(block, src, is_non_null, .unwrap_null);
         }
 
