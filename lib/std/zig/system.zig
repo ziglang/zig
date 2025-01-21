@@ -1020,8 +1020,8 @@ fn resolveElfFileRecursively(cwd: fs.Dir, start_path: []const u8) error{UnableTo
     var buffer: [255 + 1]u8 = undefined;
     while (true) {
         // Interpreter path can be relative on Linux, but
-        // for simplicity we are asserting it is an absolute path.
-        assert(std.fs.path.isAbsolute(current_path));
+        // for simplicity we are assuming it is an absolute path.
+        // It can also be a relative path from PATH environment variable.
         const file = cwd.openFile(current_path, .{}) catch |err| switch (err) {
             error.NoSpaceLeft => unreachable,
             error.NameTooLong => unreachable,
