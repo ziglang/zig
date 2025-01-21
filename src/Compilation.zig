@@ -6743,8 +6743,10 @@ fn getCrtPathsInner(
 
     return .{
         .crt0 = if (basenames.crt0) |basename| try crtFilePath(crt_files, basename) else null,
+        .crti = if (basenames.crti) |basename| try crtFilePath(crt_files, basename) else null,
         .crtbegin = if (basenames.crtbegin) |basename| try crtFilePath(crt_files, basename) else null,
         .crtend = if (basenames.crtend) |basename| try crtFilePath(crt_files, basename) else null,
+        .crtn = if (basenames.crtn) |basename| try crtFilePath(crt_files, basename) else null,
     };
 }
 
