@@ -9,8 +9,6 @@ const Compilation = @import("Compilation.zig");
 const build_options = @import("build_options");
 
 pub const CrtFile = enum {
-    crti_o,
-    crtn_o,
     crt1_o,
     rcrt1_o,
     scrt1_o,
@@ -18,7 +16,9 @@ pub const CrtFile = enum {
     libc_so,
 };
 
-pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Progress.Node) !void {
+/// TODO replace anyerror with explicit error set, recording user-friendly errors with
+/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Progress.Node) anyerror!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -28,40 +28,6 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
     const arena = arena_allocator.allocator();
 
     switch (in_crt_file) {
-        .crti_o => {
-            var args = std.ArrayList([]const u8).init(arena);
-            try addCcArgs(comp, arena, &args, false);
-            var files = [_]Compilation.CSourceFile{
-                .{
-                    .src_path = try start_asm_path(comp, arena, "crti.s"),
-                    .extra_flags = args.items,
-                    .owner = undefined,
-                },
-            };
-            return comp.build_crt_file("crti", .Obj, .@"musl crti.o", prog_node, &files, .{
-                .function_sections = true,
-                .data_sections = true,
-                .omit_frame_pointer = true,
-                .no_builtin = true,
-            });
-        },
-        .crtn_o => {
-            var args = std.ArrayList([]const u8).init(arena);
-            try addCcArgs(comp, arena, &args, false);
-            var files = [_]Compilation.CSourceFile{
-                .{
-                    .src_path = try start_asm_path(comp, arena, "crtn.s"),
-                    .extra_flags = args.items,
-                    .owner = undefined,
-                },
-            };
-            return comp.build_crt_file("crtn", .Obj, .@"musl crtn.o", prog_node, &files, .{
-                .function_sections = true,
-                .data_sections = true,
-                .omit_frame_pointer = true,
-                .no_builtin = true,
-            });
-        },
         .crt1_o => {
             var args = std.ArrayList([]const u8).init(arena);
             try addCcArgs(comp, arena, &args, false);
@@ -325,21 +291,6 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
             }
         },
     }
-}
-
-/// Return true if musl has arch-specific crti/crtn sources.
-/// See lib/libc/musl/crt/ARCH/crt?.s .
-pub fn needsCrtiCrtn(target: std.Target) bool {
-    return switch (target.cpu.arch) {
-        .loongarch64,
-        .m68k,
-        .riscv32,
-        .riscv64,
-        .wasm32,
-        .wasm64,
-        => false,
-        else => true,
-    };
 }
 
 pub fn needsCrt0(output_mode: std.builtin.OutputMode, link_mode: std.builtin.LinkMode, pie: bool) ?CrtFile {
