@@ -672,3 +672,42 @@ test "function parameter self equality" {
     try expect(!S.greaterThan(42));
     try expect(S.greaterThanOrEqual(42));
 }
+
+test "inline call propagates comptime-known argument to generic parameter and return types" {
+    const S = struct {
+        inline fn f(x: bool, y: if (x) u8 else u16) if (x) bool else u32 {
+            if (x) {
+                comptime assert(@TypeOf(y) == u8);
+                return y == 0;
+            } else {
+                comptime assert(@TypeOf(y) == u16);
+                return y * 10;
+            }
+        }
+        fn g(x: bool, y: if (x) u8 else u16) if (x) bool else u32 {
+            if (x) {
+                comptime assert(@TypeOf(y) == u8);
+                return y == 0;
+            } else {
+                comptime assert(@TypeOf(y) == u16);
+                return y * 10;
+            }
+        }
+    };
+
+    const a0 = S.f(true, 200); // false
+    const a1 = S.f(false, 1234); // 12340
+
+    const b0 = @call(.always_inline, S.g, .{ true, 200 }); // false
+    const b1 = @call(.always_inline, S.g, .{ false, 1234 }); // 12340
+
+    comptime assert(@TypeOf(a0) == bool);
+    comptime assert(@TypeOf(b0) == bool);
+    try expect(a0 == false);
+    try expect(b0 == false);
+
+    comptime assert(@TypeOf(a1) == u32);
+    comptime assert(@TypeOf(b1) == u32);
+    try expect(a1 == 12340);
+    try expect(b1 == 12340);
+}

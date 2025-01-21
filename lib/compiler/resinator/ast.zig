@@ -1,7 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Token = @import("lex.zig").Token;
-const CodePage = @import("code_pages.zig").CodePage;
+const SupportedCodePage = @import("code_pages.zig").SupportedCodePage;
 
 pub const Tree = struct {
     node: *Node,
@@ -28,11 +28,11 @@ pub const Tree = struct {
 };
 
 pub const CodePageLookup = struct {
-    lookup: std.ArrayListUnmanaged(CodePage) = .empty,
+    lookup: std.ArrayListUnmanaged(SupportedCodePage) = .empty,
     allocator: Allocator,
-    default_code_page: CodePage,
+    default_code_page: SupportedCodePage,
 
-    pub fn init(allocator: Allocator, default_code_page: CodePage) CodePageLookup {
+    pub fn init(allocator: Allocator, default_code_page: SupportedCodePage) CodePageLookup {
         return .{
             .allocator = allocator,
             .default_code_page = default_code_page,
@@ -44,7 +44,7 @@ pub const CodePageLookup = struct {
     }
 
     /// line_num is 1-indexed
-    pub fn setForLineNum(self: *CodePageLookup, line_num: usize, code_page: CodePage) !void {
+    pub fn setForLineNum(self: *CodePageLookup, line_num: usize, code_page: SupportedCodePage) !void {
         const index = line_num - 1;
         if (index >= self.lookup.items.len) {
             const new_size = line_num;
@@ -66,16 +66,16 @@ pub const CodePageLookup = struct {
         self.lookup.items[index] = code_page;
     }
 
-    pub fn setForToken(self: *CodePageLookup, token: Token, code_page: CodePage) !void {
+    pub fn setForToken(self: *CodePageLookup, token: Token, code_page: SupportedCodePage) !void {
         return self.setForLineNum(token.line_number, code_page);
     }
 
     /// line_num is 1-indexed
-    pub fn getForLineNum(self: CodePageLookup, line_num: usize) CodePage {
+    pub fn getForLineNum(self: CodePageLookup, line_num: usize) SupportedCodePage {
         return self.lookup.items[line_num - 1];
     }
 
-    pub fn getForToken(self: CodePageLookup, token: Token) CodePage {
+    pub fn getForToken(self: CodePageLookup, token: Token) SupportedCodePage {
         return self.getForLineNum(token.line_number);
     }
 };
@@ -85,21 +85,21 @@ test "CodePageLookup" {
     defer lookup.deinit();
 
     try lookup.setForLineNum(5, .utf8);
-    try std.testing.expectEqual(CodePage.windows1252, lookup.getForLineNum(1));
-    try std.testing.expectEqual(CodePage.windows1252, lookup.getForLineNum(2));
-    try std.testing.expectEqual(CodePage.windows1252, lookup.getForLineNum(3));
-    try std.testing.expectEqual(CodePage.windows1252, lookup.getForLineNum(4));
-    try std.testing.expectEqual(CodePage.utf8, lookup.getForLineNum(5));
+    try std.testing.expectEqual(SupportedCodePage.windows1252, lookup.getForLineNum(1));
+    try std.testing.expectEqual(SupportedCodePage.windows1252, lookup.getForLineNum(2));
+    try std.testing.expectEqual(SupportedCodePage.windows1252, lookup.getForLineNum(3));
+    try std.testing.expectEqual(SupportedCodePage.windows1252, lookup.getForLineNum(4));
+    try std.testing.expectEqual(SupportedCodePage.utf8, lookup.getForLineNum(5));
     try std.testing.expectEqual(@as(usize, 5), lookup.lookup.items.len);
 
     try lookup.setForLineNum(7, .windows1252);
-    try std.testing.expectEqual(CodePage.windows1252, lookup.getForLineNum(1));
-    try std.testing.expectEqual(CodePage.windows1252, lookup.getForLineNum(2));
-    try std.testing.expectEqual(CodePage.windows1252, lookup.getForLineNum(3));
-    try std.testing.expectEqual(CodePage.windows1252, lookup.getForLineNum(4));
-    try std.testing.expectEqual(CodePage.utf8, lookup.getForLineNum(5));
-    try std.testing.expectEqual(CodePage.utf8, lookup.getForLineNum(6));
-    try std.testing.expectEqual(CodePage.windows1252, lookup.getForLineNum(7));
+    try std.testing.expectEqual(SupportedCodePage.windows1252, lookup.getForLineNum(1));
+    try std.testing.expectEqual(SupportedCodePage.windows1252, lookup.getForLineNum(2));
+    try std.testing.expectEqual(SupportedCodePage.windows1252, lookup.getForLineNum(3));
+    try std.testing.expectEqual(SupportedCodePage.windows1252, lookup.getForLineNum(4));
+    try std.testing.expectEqual(SupportedCodePage.utf8, lookup.getForLineNum(5));
+    try std.testing.expectEqual(SupportedCodePage.utf8, lookup.getForLineNum(6));
+    try std.testing.expectEqual(SupportedCodePage.windows1252, lookup.getForLineNum(7));
     try std.testing.expectEqual(@as(usize, 7), lookup.lookup.items.len);
 }
 
@@ -734,31 +734,31 @@ pub const Node = struct {
         switch (node.id) {
             .root => {
                 try writer.writeAll("\n");
-                const root: *Node.Root = @alignCast(@fieldParentPtr("base", node));
+                const root: *const Node.Root = @alignCast(@fieldParentPtr("base", node));
                 for (root.body) |body_node| {
                     try body_node.dump(tree, writer, indent + 1);
                 }
             },
             .resource_external => {
-                const resource: *Node.ResourceExternal = @alignCast(@fieldParentPtr("base", node));
+                const resource: *const Node.ResourceExternal = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} common_resource_attributes]\n", .{ resource.id.slice(tree.source), resource.type.slice(tree.source), resource.common_resource_attributes.len });
                 try resource.filename.dump(tree, writer, indent + 1);
             },
             .resource_raw_data => {
-                const resource: *Node.ResourceRawData = @alignCast(@fieldParentPtr("base", node));
+                const resource: *const Node.ResourceRawData = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} common_resource_attributes] raw data: {}\n", .{ resource.id.slice(tree.source), resource.type.slice(tree.source), resource.common_resource_attributes.len, resource.raw_data.len });
                 for (resource.raw_data) |data_expression| {
                     try data_expression.dump(tree, writer, indent + 1);
                 }
             },
             .literal => {
-                const literal: *Node.Literal = @alignCast(@fieldParentPtr("base", node));
+                const literal: *const Node.Literal = @alignCast(@fieldParentPtr("base", node));
                 try writer.writeAll(" ");
                 try writer.writeAll(literal.token.slice(tree.source));
                 try writer.writeAll("\n");
             },
             .binary_expression => {
-                const binary: *Node.BinaryExpression = @alignCast(@fieldParentPtr("base", node));
+                const binary: *const Node.BinaryExpression = @alignCast(@fieldParentPtr("base", node));
                 try writer.writeAll(" ");
                 try writer.writeAll(binary.operator.slice(tree.source));
                 try writer.writeAll("\n");
@@ -766,7 +766,7 @@ pub const Node = struct {
                 try binary.right.dump(tree, writer, indent + 1);
             },
             .grouped_expression => {
-                const grouped: *Node.GroupedExpression = @alignCast(@fieldParentPtr("base", node));
+                const grouped: *const Node.GroupedExpression = @alignCast(@fieldParentPtr("base", node));
                 try writer.writeAll("\n");
                 try writer.writeByteNTimes(' ', indent);
                 try writer.writeAll(grouped.open_token.slice(tree.source));
@@ -777,7 +777,7 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .not_expression => {
-                const not: *Node.NotExpression = @alignCast(@fieldParentPtr("base", node));
+                const not: *const Node.NotExpression = @alignCast(@fieldParentPtr("base", node));
                 try writer.writeAll(" ");
                 try writer.writeAll(not.not_token.slice(tree.source));
                 try writer.writeAll(" ");
@@ -785,7 +785,7 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .accelerators => {
-                const accelerators: *Node.Accelerators = @alignCast(@fieldParentPtr("base", node));
+                const accelerators: *const Node.Accelerators = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} common_resource_attributes]\n", .{ accelerators.id.slice(tree.source), accelerators.type.slice(tree.source), accelerators.common_resource_attributes.len });
                 for (accelerators.optional_statements) |statement| {
                     try statement.dump(tree, writer, indent + 1);
@@ -801,7 +801,7 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .accelerator => {
-                const accelerator: *Node.Accelerator = @alignCast(@fieldParentPtr("base", node));
+                const accelerator: *const Node.Accelerator = @alignCast(@fieldParentPtr("base", node));
                 for (accelerator.type_and_options, 0..) |option, i| {
                     if (i != 0) try writer.writeAll(",");
                     try writer.writeByte(' ');
@@ -812,7 +812,7 @@ pub const Node = struct {
                 try accelerator.idvalue.dump(tree, writer, indent + 1);
             },
             .dialog => {
-                const dialog: *Node.Dialog = @alignCast(@fieldParentPtr("base", node));
+                const dialog: *const Node.Dialog = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} common_resource_attributes]\n", .{ dialog.id.slice(tree.source), dialog.type.slice(tree.source), dialog.common_resource_attributes.len });
                 inline for (.{ "x", "y", "width", "height" }) |arg| {
                     try writer.writeByteNTimes(' ', indent + 1);
@@ -838,7 +838,7 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .control_statement => {
-                const control: *Node.ControlStatement = @alignCast(@fieldParentPtr("base", node));
+                const control: *const Node.ControlStatement = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s}", .{control.type.slice(tree.source)});
                 if (control.text) |text| {
                     try writer.print(" text: {s}", .{text.slice(tree.source)});
@@ -874,7 +874,7 @@ pub const Node = struct {
                 }
             },
             .toolbar => {
-                const toolbar: *Node.Toolbar = @alignCast(@fieldParentPtr("base", node));
+                const toolbar: *const Node.Toolbar = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} common_resource_attributes]\n", .{ toolbar.id.slice(tree.source), toolbar.type.slice(tree.source), toolbar.common_resource_attributes.len });
                 inline for (.{ "button_width", "button_height" }) |arg| {
                     try writer.writeByteNTimes(' ', indent + 1);
@@ -892,7 +892,7 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .menu => {
-                const menu: *Node.Menu = @alignCast(@fieldParentPtr("base", node));
+                const menu: *const Node.Menu = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} common_resource_attributes]\n", .{ menu.id.slice(tree.source), menu.type.slice(tree.source), menu.common_resource_attributes.len });
                 for (menu.optional_statements) |statement| {
                     try statement.dump(tree, writer, indent + 1);
@@ -913,16 +913,16 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .menu_item => {
-                const menu_item: *Node.MenuItem = @alignCast(@fieldParentPtr("base", node));
+                const menu_item: *const Node.MenuItem = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} options]\n", .{ menu_item.menuitem.slice(tree.source), menu_item.text.slice(tree.source), menu_item.option_list.len });
                 try menu_item.result.dump(tree, writer, indent + 1);
             },
             .menu_item_separator => {
-                const menu_item: *Node.MenuItemSeparator = @alignCast(@fieldParentPtr("base", node));
+                const menu_item: *const Node.MenuItemSeparator = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s}\n", .{ menu_item.menuitem.slice(tree.source), menu_item.separator.slice(tree.source) });
             },
             .menu_item_ex => {
-                const menu_item: *Node.MenuItemEx = @alignCast(@fieldParentPtr("base", node));
+                const menu_item: *const Node.MenuItemEx = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s}\n", .{ menu_item.menuitem.slice(tree.source), menu_item.text.slice(tree.source) });
                 inline for (.{ "id", "type", "state" }) |arg| {
                     if (@field(menu_item, arg)) |val_node| {
@@ -933,7 +933,7 @@ pub const Node = struct {
                 }
             },
             .popup => {
-                const popup: *Node.Popup = @alignCast(@fieldParentPtr("base", node));
+                const popup: *const Node.Popup = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} options]\n", .{ popup.popup.slice(tree.source), popup.text.slice(tree.source), popup.option_list.len });
                 try writer.writeByteNTimes(' ', indent);
                 try writer.writeAll(popup.begin_token.slice(tree.source));
@@ -946,7 +946,7 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .popup_ex => {
-                const popup: *Node.PopupEx = @alignCast(@fieldParentPtr("base", node));
+                const popup: *const Node.PopupEx = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s}\n", .{ popup.popup.slice(tree.source), popup.text.slice(tree.source) });
                 inline for (.{ "id", "type", "state", "help_id" }) |arg| {
                     if (@field(popup, arg)) |val_node| {
@@ -966,7 +966,7 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .version_info => {
-                const version_info: *Node.VersionInfo = @alignCast(@fieldParentPtr("base", node));
+                const version_info: *const Node.VersionInfo = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} common_resource_attributes]\n", .{ version_info.id.slice(tree.source), version_info.versioninfo.slice(tree.source), version_info.common_resource_attributes.len });
                 for (version_info.fixed_info) |fixed_info| {
                     try fixed_info.dump(tree, writer, indent + 1);
@@ -982,14 +982,14 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .version_statement => {
-                const version_statement: *Node.VersionStatement = @alignCast(@fieldParentPtr("base", node));
+                const version_statement: *const Node.VersionStatement = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s}\n", .{version_statement.type.slice(tree.source)});
                 for (version_statement.parts) |part| {
                     try part.dump(tree, writer, indent + 1);
                 }
             },
             .block => {
-                const block: *Node.Block = @alignCast(@fieldParentPtr("base", node));
+                const block: *const Node.Block = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s}\n", .{ block.identifier.slice(tree.source), block.key.slice(tree.source) });
                 for (block.values) |value| {
                     try value.dump(tree, writer, indent + 1);
@@ -1005,14 +1005,14 @@ pub const Node = struct {
                 try writer.writeAll("\n");
             },
             .block_value => {
-                const block_value: *Node.BlockValue = @alignCast(@fieldParentPtr("base", node));
+                const block_value: *const Node.BlockValue = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s}\n", .{ block_value.identifier.slice(tree.source), block_value.key.slice(tree.source) });
                 for (block_value.values) |value| {
                     try value.dump(tree, writer, indent + 1);
                 }
             },
             .block_value_value => {
-                const block_value: *Node.BlockValueValue = @alignCast(@fieldParentPtr("base", node));
+                const block_value: *const Node.BlockValueValue = @alignCast(@fieldParentPtr("base", node));
                 if (block_value.trailing_comma) {
                     try writer.writeAll(" ,");
                 }
@@ -1020,7 +1020,7 @@ pub const Node = struct {
                 try block_value.expression.dump(tree, writer, indent + 1);
             },
             .string_table => {
-                const string_table: *Node.StringTable = @alignCast(@fieldParentPtr("base", node));
+                const string_table: *const Node.StringTable = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} [{d} common_resource_attributes]\n", .{ string_table.type.slice(tree.source), string_table.common_resource_attributes.len });
                 for (string_table.optional_statements) |statement| {
                     try statement.dump(tree, writer, indent + 1);
@@ -1037,19 +1037,19 @@ pub const Node = struct {
             },
             .string_table_string => {
                 try writer.writeAll("\n");
-                const string: *Node.StringTableString = @alignCast(@fieldParentPtr("base", node));
+                const string: *const Node.StringTableString = @alignCast(@fieldParentPtr("base", node));
                 try string.id.dump(tree, writer, indent + 1);
                 try writer.writeByteNTimes(' ', indent + 1);
                 try writer.print("{s}\n", .{string.string.slice(tree.source)});
             },
             .language_statement => {
-                const language: *Node.LanguageStatement = @alignCast(@fieldParentPtr("base", node));
+                const language: *const Node.LanguageStatement = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s}\n", .{language.language_token.slice(tree.source)});
                 try language.primary_language_id.dump(tree, writer, indent + 1);
                 try language.sublanguage_id.dump(tree, writer, indent + 1);
             },
             .font_statement => {
-                const font: *Node.FontStatement = @alignCast(@fieldParentPtr("base", node));
+                const font: *const Node.FontStatement = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} typeface: {s}\n", .{ font.identifier.slice(tree.source), font.typeface.slice(tree.source) });
                 try writer.writeByteNTimes(' ', indent + 1);
                 try writer.writeAll("point_size:\n");
@@ -1063,12 +1063,12 @@ pub const Node = struct {
                 }
             },
             .simple_statement => {
-                const statement: *Node.SimpleStatement = @alignCast(@fieldParentPtr("base", node));
+                const statement: *const Node.SimpleStatement = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s}\n", .{statement.identifier.slice(tree.source)});
                 try statement.value.dump(tree, writer, indent + 1);
             },
             .invalid => {
-                const invalid: *Node.Invalid = @alignCast(@fieldParentPtr("base", node));
+                const invalid: *const Node.Invalid = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" context.len: {}\n", .{invalid.context.len});
                 for (invalid.context) |context_token| {
                     try writer.writeByteNTimes(' ', indent + 1);

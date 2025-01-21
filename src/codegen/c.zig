@@ -968,7 +968,6 @@ pub const DeclGen = struct {
                 .null => unreachable,
                 .empty_tuple => unreachable,
                 .@"unreachable" => unreachable,
-                .generic_poison => unreachable,
 
                 .false => try writer.writeAll("false"),
                 .true => try writer.writeAll("true"),

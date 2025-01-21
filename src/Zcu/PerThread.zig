@@ -627,7 +627,6 @@ pub fn ensureMemoizedStateUpToDate(pt: Zcu.PerThread, stage: InternPool.Memoized
             // TODO: same as for `ensureComptimeUnitUpToDate` etc
             return error.OutOfMemory;
         },
-        error.GenericPoison => unreachable,
         error.ComptimeReturn => unreachable,
         error.ComptimeBreak => unreachable,
     };
@@ -781,7 +780,6 @@ pub fn ensureComptimeUnitUpToDate(pt: Zcu.PerThread, cu_id: InternPool.ComptimeU
             // for reporting OOM errors without allocating.
             return error.OutOfMemory;
         },
-        error.GenericPoison => unreachable,
         error.ComptimeReturn => unreachable,
         error.ComptimeBreak => unreachable,
     };
@@ -967,7 +965,6 @@ pub fn ensureNavValUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu
             // for reporting OOM errors without allocating.
             return error.OutOfMemory;
         },
-        error.GenericPoison => unreachable,
         error.ComptimeReturn => unreachable,
         error.ComptimeBreak => unreachable,
     };
@@ -1168,7 +1165,6 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
     };
 
     switch (nav_val.toIntern()) {
-        .generic_poison => unreachable, // assertion failure
         .unreachable_value => unreachable, // assertion failure
         else => {},
     }
@@ -1347,7 +1343,6 @@ pub fn ensureNavTypeUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zc
             // for reporting OOM errors without allocating.
             return error.OutOfMemory;
         },
-        error.GenericPoison => unreachable,
         error.ComptimeReturn => unreachable,
         error.ComptimeBreak => unreachable,
     };
@@ -2665,7 +2660,6 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
         runtime_param_index += 1;
 
         const opt_opv = sema.typeHasOnePossibleValue(Type.fromInterned(param_ty)) catch |err| switch (err) {
-            error.GenericPoison => unreachable,
             error.ComptimeReturn => unreachable,
             error.ComptimeBreak => unreachable,
             else => |e| return e,
@@ -2698,7 +2692,6 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
     inner_block.error_return_trace_index = error_return_trace_index;
 
     sema.analyzeFnBody(&inner_block, fn_info.body) catch |err| switch (err) {
-        error.GenericPoison => unreachable,
         error.ComptimeReturn => unreachable,
         else => |e| return e,
     };
@@ -2720,7 +2713,6 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
         !sema.fn_ret_ty.isError(zcu))
     {
         sema.setupErrorReturnTrace(&inner_block, last_arg_index) catch |err| switch (err) {
-            error.GenericPoison => unreachable,
             error.ComptimeReturn => unreachable,
             error.ComptimeBreak => unreachable,
             else => |e| return e,
@@ -2744,7 +2736,6 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
             .base_node_inst = inner_block.src_base_inst,
             .offset = Zcu.LazySrcLoc.Offset.nodeOffset(0),
         }, ies) catch |err| switch (err) {
-            error.GenericPoison => unreachable,
             error.ComptimeReturn => unreachable,
             error.ComptimeBreak => unreachable,
             else => |e| return e,
@@ -2763,7 +2754,6 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
     // TODO: this can go away once we fix backends having to resolve `StackTrace`.
     // The codegen timing guarantees that the parameter types will be populated.
     sema.resolveFnTypes(fn_ty, inner_block.nodeOffset(0)) catch |err| switch (err) {
-        error.GenericPoison => unreachable,
         error.ComptimeReturn => unreachable,
         error.ComptimeBreak => unreachable,
         else => |e| return e,
@@ -3669,6 +3659,8 @@ pub fn navAlignment(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) InternPo
 /// If the type cannot be recreated because it has been lost, `error.AnalysisFail` is returned.
 /// If `ty` is not outdated, that same `InternPool.Index` is returned.
 /// If `ty` has already been replaced by this function, the new index will not be returned again.
+/// Also, if `ty` is an enum, this function will resolve the new type if needed, and the call site
+/// is responsible for checking `[transitive_]failed_analysis` to detect resolution failures.
 pub fn ensureTypeUpToDate(pt: Zcu.PerThread, ty: InternPool.Index) Zcu.SemaError!InternPool.Index {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -3878,12 +3870,14 @@ fn recreateUnionType(
     return wip_ty.finish(ip, namespace_index);
 }
 
-// TODO: is it safe for this to return `SemaError`? enum type resolution is a bit weird...
+/// This *does* call `Sema.resolveDeclaredEnum`, but errors from it are not propagated.
+/// Call sites are resposible for checking `[transitive_]failed_analysis` after `ensureTypeUpToDate`
+/// returns in order to detect resolution failures.
 fn recreateEnumType(
     pt: Zcu.PerThread,
     old_ty: InternPool.Index,
     key: InternPool.Key.NamespaceType.Declared,
-) Zcu.SemaError!InternPool.Index {
+) Allocator.Error!InternPool.Index {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
@@ -3993,10 +3987,8 @@ fn recreateEnumType(
         zir,
         body_end,
     ) catch |err| switch (err) {
-        error.GenericPoison => unreachable,
-        error.ComptimeBreak => unreachable,
-        error.ComptimeReturn => unreachable,
-        error.AnalysisFail, error.OutOfMemory => |e| return e,
+        error.OutOfMemory => |e| return e,
+        error.AnalysisFail => {}, // call sites are responsible for checking `[transitive_]failed_analysis` to detect this
     };
 
     return wip_ty.index;

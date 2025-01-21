@@ -640,7 +640,8 @@ fn resolveRelocInner(
     macho_file: *MachO,
     writer: anytype,
 ) ResolveError!void {
-    const cpu_arch = macho_file.getTarget().cpu.arch;
+    const t = &macho_file.base.comp.root_mod.resolved_target.result;
+    const cpu_arch = t.cpu.arch;
     const rel_offset = math.cast(usize, rel.offset - self.off) orelse return error.Overflow;
     const P = @as(i64, @intCast(self.getAddress(macho_file))) + @as(i64, @intCast(rel_offset));
     const A = rel.addend + rel.getRelocAddend(cpu_arch);
@@ -747,7 +748,7 @@ fn resolveRelocInner(
                 const S_: i64 = @intCast(sym.getTlvPtrAddress(macho_file));
                 try writer.writeInt(i32, @intCast(S_ + A - P), .little);
             } else {
-                try x86_64.relaxTlv(code[rel_offset - 3 ..]);
+                try x86_64.relaxTlv(code[rel_offset - 3 ..], t);
                 try writer.writeInt(i32, @intCast(S + A - P), .little);
             }
         },
@@ -893,11 +894,12 @@ fn resolveRelocInner(
 const x86_64 = struct {
     fn relaxGotLoad(self: Atom, code: []u8, rel: Relocation, macho_file: *MachO) ResolveError!void {
         dev.check(.x86_64_backend);
+        const t = &macho_file.base.comp.root_mod.resolved_target.result;
         const diags = &macho_file.base.comp.link_diags;
         const old_inst = disassemble(code) orelse return error.RelaxFail;
         switch (old_inst.encoding.mnemonic) {
             .mov => {
-                const inst = Instruction.new(old_inst.prefix, .lea, &old_inst.ops) catch return error.RelaxFail;
+                const inst = Instruction.new(old_inst.prefix, .lea, &old_inst.ops, t) catch return error.RelaxFail;
                 relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
                 encode(&.{inst}, code) catch return error.RelaxFail;
             },
@@ -916,12 +918,12 @@ const x86_64 = struct {
         }
     }
 
-    fn relaxTlv(code: []u8) error{RelaxFail}!void {
+    fn relaxTlv(code: []u8, t: *const std.Target) error{RelaxFail}!void {
         dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return error.RelaxFail;
         switch (old_inst.encoding.mnemonic) {
             .mov => {
-                const inst = Instruction.new(old_inst.prefix, .lea, &old_inst.ops) catch return error.RelaxFail;
+                const inst = Instruction.new(old_inst.prefix, .lea, &old_inst.ops, t) catch return error.RelaxFail;
                 relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
                 encode(&.{inst}, code) catch return error.RelaxFail;
             },

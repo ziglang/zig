@@ -82,6 +82,8 @@ scope_generation: u32,
 /// which is a relative jump, based on the address following the reloc.
 exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .empty,
 
+reused_operands: std.StaticBitSet(Liveness.bpi - 1) = undefined,
+
 /// Whenever there is a runtime branch, we push a Branch onto this stack,
 /// and pop it off when the runtime branch joins. This provides an "overlay"
 /// of the table of mappings from instructions to `MCValue` from within the branch.
@@ -1443,8 +1445,11 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
         verbose_tracking_log.debug("{}", .{func.fmtTracking()});
 
         const old_air_bookkeeping = func.air_bookkeeping;
+        try func.ensureProcessDeathCapacity(Liveness.bpi);
+
+        func.reused_operands = @TypeOf(func.reused_operands).initEmpty();
         try func.inst_tracking.ensureUnusedCapacity(func.gpa, 1);
-        const tag: Air.Inst.Tag = air_tags[@intFromEnum(inst)];
+        const tag = air_tags[@intFromEnum(inst)];
         switch (tag) {
             // zig fmt: off
             .add,
@@ -1783,11 +1788,10 @@ fn finishAir(
     result: MCValue,
     operands: [Liveness.bpi - 1]Air.Inst.Ref,
 ) !void {
-    var tomb_bits = func.liveness.getTombBits(inst);
-    for (operands) |op| {
-        const dies = @as(u1, @truncate(tomb_bits)) != 0;
-        tomb_bits >>= 1;
-        if (!dies) continue;
+    const tomb_bits = func.liveness.getTombBits(inst);
+    for (0.., operands) |op_index, op| {
+        if (tomb_bits & @as(Liveness.Bpi, 1) << @intCast(op_index) == 0) continue;
+        if (func.reused_operands.isSet(op_index)) continue;
         try func.processDeath(op.toIndexAllowNone() orelse continue);
     }
     func.finishAirResult(inst, result);
@@ -4424,7 +4428,7 @@ fn reuseOperandAdvanced(
     }
 
     // Prevent the operand deaths processing code from deallocating it.
-    func.liveness.clearOperandDeath(inst, op_index);
+    func.reused_operands.set(op_index);
     const op_inst = operand.toIndex().?;
     func.getResolvedInstValue(op_inst).reuse(func, maybe_tracked_inst, op_inst);
 

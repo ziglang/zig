@@ -107,6 +107,8 @@ fn setExtra(astgen: *AstGen, index: usize, extra: anytype) void {
             Zir.Inst.SwitchBlock.Bits,
             Zir.Inst.SwitchBlockErrUnion.Bits,
             Zir.Inst.FuncFancy.Bits,
+            Zir.Inst.Param.Type,
+            Zir.Inst.Func.RetTy,
             => @bitCast(@field(extra, field.name)),
 
             else => @compileError("bad field type"),
@@ -1384,7 +1386,7 @@ fn fnProtoExprInner(
                 const tag: Zir.Inst.Tag = if (is_comptime) .param_comptime else .param;
                 // We pass `prev_param_insts` as `&.{}` here because a function prototype can't refer to previous
                 // arguments (we haven't set up scopes here).
-                const param_inst = try block_scope.addParam(&param_gz, &.{}, tag, name_token, param_name);
+                const param_inst = try block_scope.addParam(&param_gz, &.{}, false, tag, name_token, param_name);
                 assert(param_inst_expected == param_inst);
             }
         }
@@ -1416,6 +1418,7 @@ fn fnProtoExprInner(
 
         .ret_param_refs = &.{},
         .param_insts = &.{},
+        .ret_ty_is_generic = false,
 
         .param_block = block_inst,
         .body_gz = null,
@@ -4336,6 +4339,9 @@ fn fnDeclInner(
     // Note that the capacity here may not be sufficient, as this does not include `anytype` parameters.
     var param_insts: std.ArrayListUnmanaged(Zir.Inst.Index) = try .initCapacity(astgen.arena, fn_proto.ast.params.len);
 
+    // We use this as `is_used_or_discarded` to figure out if parameters / return types are generic.
+    var any_param_used = false;
+
     var noalias_bits: u32 = 0;
     var params_scope = scope;
     const is_var_args = is_var_args: {
@@ -4409,16 +4415,18 @@ fn fnDeclInner(
             } else param: {
                 const param_type_node = param.type_expr;
                 assert(param_type_node != 0);
+                any_param_used = false; // we will check this later
                 var param_gz = decl_gz.makeSubBlock(scope);
                 defer param_gz.unstack();
                 const param_type = try fullBodyExpr(&param_gz, params_scope, coerced_type_ri, param_type_node, .normal);
                 const param_inst_expected: Zir.Inst.Index = @enumFromInt(astgen.instructions.len + 1);
                 _ = try param_gz.addBreakWithSrcNode(.break_inline, param_inst_expected, param_type, param_type_node);
+                const param_type_is_generic = any_param_used;
 
                 const main_tokens = tree.nodes.items(.main_token);
                 const name_token = param.name_token orelse main_tokens[param_type_node];
                 const tag: Zir.Inst.Tag = if (is_comptime) .param_comptime else .param;
-                const param_inst = try decl_gz.addParam(&param_gz, param_insts.items, tag, name_token, param_name);
+                const param_inst = try decl_gz.addParam(&param_gz, param_insts.items, param_type_is_generic, tag, name_token, param_name);
                 assert(param_inst_expected == param_inst);
                 break :param param_inst.toRef();
             };
@@ -4433,6 +4441,7 @@ fn fnDeclInner(
                 .inst = param_inst,
                 .token_src = param.name_token.?,
                 .id_cat = .@"function parameter",
+                .is_used_or_discarded = &any_param_used,
             };
             params_scope = &sub_scope.base;
             try param_insts.append(astgen.arena, param_inst.toIndex().?);
@@ -4446,6 +4455,7 @@ fn fnDeclInner(
 
     var ret_gz = decl_gz.makeSubBlock(params_scope);
     defer ret_gz.unstack();
+    any_param_used = false; // we will check this later
     const ret_ref: Zir.Inst.Ref = inst: {
         // Parameters are in scope for the return type, so we use `params_scope` here.
         // The calling convention will not have parameters in scope, so we'll just use `scope`.
@@ -4459,6 +4469,7 @@ fn fnDeclInner(
         break :inst inst;
     };
     const ret_body_param_refs = try astgen.fetchRemoveRefEntries(param_insts.items);
+    const ret_ty_is_generic = any_param_used;
 
     // We're jumping back in source, so restore the cursor.
     astgen.restoreSourceCursor(saved_cursor);
@@ -4556,6 +4567,7 @@ fn fnDeclInner(
         .ret_ref = ret_ref,
         .ret_gz = &ret_gz,
         .ret_param_refs = ret_body_param_refs,
+        .ret_ty_is_generic = ret_ty_is_generic,
         .lbrace_line = lbrace_line,
         .lbrace_column = lbrace_column,
         .param_block = decl_inst,
@@ -5028,6 +5040,7 @@ fn testDecl(
 
         .ret_param_refs = &.{},
         .param_insts = &.{},
+        .ret_ty_is_generic = false,
 
         .lbrace_line = lbrace_line,
         .lbrace_column = lbrace_column,
@@ -8546,6 +8559,8 @@ fn localVarRef(
                     local_val.used = ident_token;
                 }
 
+                if (local_val.is_used_or_discarded) |ptr| ptr.* = true;
+
                 const value_inst = if (num_namespaces_out != 0) try tunnelThroughClosure(
                     gz,
                     ident,
@@ -11876,6 +11891,7 @@ const Scope = struct {
         /// Track the identifier where it is discarded, like this `_ = foo;`.
         /// 0 means never discarded.
         discarded: Ast.TokenIndex = 0,
+        is_used_or_discarded: ?*bool = null,
         /// String table index.
         name: Zir.NullTerminatedString,
         id_cat: IdCat,
@@ -12223,6 +12239,7 @@ const GenZir = struct {
 
             ret_param_refs: []Zir.Inst.Index,
             param_insts: []Zir.Inst.Index, // refs to params in `body_gz` should still be in `astgen.ref_table`
+            ret_ty_is_generic: bool,
 
             cc_ref: Zir.Inst.Ref,
             ret_ref: Zir.Inst.Ref,
@@ -12322,6 +12339,8 @@ const GenZir = struct {
 
                     .has_cc_body = cc_body.len != 0,
                     .has_ret_ty_body = ret_body.len != 0,
+
+                    .ret_ty_is_generic = args.ret_ty_is_generic,
                 },
             });
 
@@ -12372,7 +12391,10 @@ const GenZir = struct {
 
             const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.Func{
                 .param_block = args.param_block,
-                .ret_body_len = ret_body_len,
+                .ret_ty = .{
+                    .body_len = @intCast(ret_body_len),
+                    .is_generic = args.ret_ty_is_generic,
+                },
                 .body_len = body_len,
             });
             const zir_datas = astgen.instructions.items(.data);
@@ -12535,6 +12557,7 @@ const GenZir = struct {
         /// Previous parameters, which might be referenced in `param_gz` (the new parameter type).
         /// `ref`s of these instructions will be put into this param's type body, and removed from `AstGen.ref_table`.
         prev_param_insts: []const Zir.Inst.Index,
+        ty_is_generic: bool,
         tag: Zir.Inst.Tag,
         /// Absolute token index. This function does the conversion to Decl offset.
         abs_tok_index: Ast.TokenIndex,
@@ -12548,7 +12571,10 @@ const GenZir = struct {
 
         const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Param{
             .name = name,
-            .body_len = @intCast(body_len),
+            .type = .{
+                .body_len = @intCast(body_len),
+                .is_generic = ty_is_generic,
+            },
         });
         gz.astgen.appendBodyWithFixupsExtraRefsArrayList(&gz.astgen.extra, param_body, prev_param_insts);
         param_gz.unstack();

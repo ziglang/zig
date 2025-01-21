@@ -22,11 +22,7 @@ const SemaError = Zcu.SemaError;
 ip_index: InternPool.Index,
 
 pub fn zigTypeTag(ty: Type, zcu: *const Zcu) std.builtin.TypeId {
-    return ty.zigTypeTagOrPoison(zcu) catch unreachable;
-}
-
-pub fn zigTypeTagOrPoison(ty: Type, zcu: *const Zcu) error{GenericPoison}!std.builtin.TypeId {
-    return zcu.intern_pool.zigTypeTagOrPoison(ty.toIntern());
+    return zcu.intern_pool.zigTypeTag(ty.toIntern());
 }
 
 pub fn baseZigTypeTag(self: Type, mod: *Zcu) std.builtin.TypeId {
@@ -962,7 +958,6 @@ pub fn abiAlignmentInner(
 ) SemaError!AbiAlignmentInner {
     const pt = strat.pt(zcu, tid);
     const target = zcu.getTarget();
-    const use_llvm = zcu.comp.config.use_llvm;
     const ip = &zcu.intern_pool;
 
     switch (ty.toIntern()) {
@@ -970,7 +965,7 @@ pub fn abiAlignmentInner(
         else => switch (ip.indexToKey(ty.toIntern())) {
             .int_type => |int_type| {
                 if (int_type.bits == 0) return .{ .scalar = .@"1" };
-                return .{ .scalar = intAbiAlignment(int_type.bits, target, use_llvm) };
+                return .{ .scalar = intAbiAlignment(int_type.bits, target) };
             },
             .ptr_type, .anyframe_type => {
                 return .{ .scalar = ptrAbiAlignment(target) };
@@ -1023,7 +1018,7 @@ pub fn abiAlignmentInner(
             .error_set_type, .inferred_error_set_type => {
                 const bits = zcu.errorSetBits();
                 if (bits == 0) return .{ .scalar = .@"1" };
-                return .{ .scalar = intAbiAlignment(bits, target, use_llvm) };
+                return .{ .scalar = intAbiAlignment(bits, target) };
             },
 
             // represents machine code; not a pointer
@@ -1036,7 +1031,7 @@ pub fn abiAlignmentInner(
 
                 .usize,
                 .isize,
-                => return .{ .scalar = intAbiAlignment(target.ptrBitWidth(), target, use_llvm) },
+                => return .{ .scalar = intAbiAlignment(target.ptrBitWidth(), target) },
 
                 .c_char => return .{ .scalar = cTypeAlign(target, .char) },
                 .c_short => return .{ .scalar = cTypeAlign(target, .short) },
@@ -1067,7 +1062,7 @@ pub fn abiAlignmentInner(
                 .anyerror, .adhoc_inferred_error_set => {
                     const bits = zcu.errorSetBits();
                     if (bits == 0) return .{ .scalar = .@"1" };
-                    return .{ .scalar = intAbiAlignment(bits, target, use_llvm) };
+                    return .{ .scalar = intAbiAlignment(bits, target) };
                 },
 
                 .void,
@@ -1291,7 +1286,6 @@ pub fn abiSizeInner(
     tid: strat.Tid(),
 ) SemaError!AbiSizeInner {
     const target = zcu.getTarget();
-    const use_llvm = zcu.comp.config.use_llvm;
     const ip = &zcu.intern_pool;
 
     switch (ty.toIntern()) {
@@ -1300,7 +1294,7 @@ pub fn abiSizeInner(
         else => switch (ip.indexToKey(ty.toIntern())) {
             .int_type => |int_type| {
                 if (int_type.bits == 0) return .{ .scalar = 0 };
-                return .{ .scalar = intAbiSize(int_type.bits, target, use_llvm) };
+                return .{ .scalar = intAbiSize(int_type.bits, target) };
             },
             .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
                 .slice => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
@@ -1362,7 +1356,7 @@ pub fn abiSizeInner(
             .error_set_type, .inferred_error_set_type => {
                 const bits = zcu.errorSetBits();
                 if (bits == 0) return .{ .scalar = 0 };
-                return .{ .scalar = intAbiSize(bits, target, use_llvm) };
+                return .{ .scalar = intAbiSize(bits, target) };
             },
 
             .error_union_type => |error_union_type| {
@@ -1455,7 +1449,7 @@ pub fn abiSizeInner(
                 .anyerror, .adhoc_inferred_error_set => {
                     const bits = zcu.errorSetBits();
                     if (bits == 0) return .{ .scalar = 0 };
-                    return .{ .scalar = intAbiSize(bits, target, use_llvm) };
+                    return .{ .scalar = intAbiSize(bits, target) };
                 },
 
                 .noreturn => unreachable,
@@ -1609,11 +1603,11 @@ pub fn ptrAbiAlignment(target: Target) Alignment {
     return Alignment.fromNonzeroByteUnits(@divExact(target.ptrBitWidth(), 8));
 }
 
-pub fn intAbiSize(bits: u16, target: Target, use_llvm: bool) u64 {
-    return intAbiAlignment(bits, target, use_llvm).forward(@as(u16, @intCast((@as(u17, bits) + 7) / 8)));
+pub fn intAbiSize(bits: u16, target: Target) u64 {
+    return intAbiAlignment(bits, target).forward(@as(u16, @intCast((@as(u17, bits) + 7) / 8)));
 }
 
-pub fn intAbiAlignment(bits: u16, target: Target, use_llvm: bool) Alignment {
+pub fn intAbiAlignment(bits: u16, target: Target) Alignment {
     return switch (target.cpu.arch) {
         .x86 => switch (bits) {
             0 => .none,
@@ -1632,19 +1626,16 @@ pub fn intAbiAlignment(bits: u16, target: Target, use_llvm: bool) Alignment {
             9...16 => .@"2",
             17...32 => .@"4",
             33...64 => .@"8",
-            else => switch (target_util.zigBackend(target, use_llvm)) {
-                .stage2_x86_64 => .@"8",
-                else => .@"16",
-            },
+            else => .@"16",
         },
         else => return Alignment.fromByteUnits(@min(
             std.math.ceilPowerOfTwoPromote(u16, @as(u16, @intCast((@as(u17, bits) + 7) / 8))),
-            maxIntAlignment(target, use_llvm),
+            maxIntAlignment(target),
         )),
     };
 }
 
-pub fn maxIntAlignment(target: std.Target, use_llvm: bool) u16 {
+pub fn maxIntAlignment(target: std.Target) u16 {
     return switch (target.cpu.arch) {
         .avr => 1,
         .msp430 => 2,
@@ -1685,10 +1676,7 @@ pub fn maxIntAlignment(target: std.Target, use_llvm: bool) u16 {
             else => 8,
         },
 
-        .x86_64 => switch (target_util.zigBackend(target, use_llvm)) {
-            .stage2_x86_64 => 8,
-            else => 16,
-        },
+        .x86_64 => 16,
 
         // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
         .x86,
@@ -1924,6 +1912,17 @@ pub fn ptrSizeOrNull(ty: Type, zcu: *const Zcu) ?std.builtin.Type.Pointer.Size {
 pub fn isSlice(ty: Type, zcu: *const Zcu) bool {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .ptr_type => |ptr_type| ptr_type.flags.size == .slice,
+        else => false,
+    };
+}
+
+pub fn isSliceAtRuntime(ty: Type, zcu: *const Zcu) bool {
+    return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
+        .ptr_type => |ptr_type| ptr_type.flags.size == .slice,
+        .opt_type => |child| switch (zcu.intern_pool.indexToKey(child)) {
+            .ptr_type => |ptr_type| !ptr_type.flags.is_allowzero and ptr_type.flags.size == .slice,
+            else => false,
+        },
         else => false,
     };
 }
@@ -2500,14 +2499,16 @@ pub fn fnCallingConvention(ty: Type, zcu: *const Zcu) std.builtin.CallingConvent
 }
 
 pub fn isValidParamType(self: Type, zcu: *const Zcu) bool {
-    return switch (self.zigTypeTagOrPoison(zcu) catch return true) {
+    if (self.toIntern() == .generic_poison_type) return true;
+    return switch (self.zigTypeTag(zcu)) {
         .@"opaque", .noreturn => false,
         else => true,
     };
 }
 
 pub fn isValidReturnType(self: Type, zcu: *const Zcu) bool {
-    return switch (self.zigTypeTagOrPoison(zcu) catch return true) {
+    if (self.toIntern() == .generic_poison_type) return true;
+    return switch (self.zigTypeTag(zcu)) {
         .@"opaque" => false,
         else => true,
     };
@@ -3781,7 +3782,6 @@ pub fn resolveFields(ty: Type, pt: Zcu.PerThread) SemaError!void {
         .bool_true => unreachable,
         .bool_false => unreachable,
         .empty_tuple => unreachable,
-        .generic_poison => unreachable,
 
         else => switch (ty_ip.unwrap(ip).getTag(ip)) {
             .type_struct,
@@ -4109,6 +4109,16 @@ pub fn containerTypeName(ty: Type, ip: *const InternPool) InternPool.NullTermina
         .opaque_type => ip.loadOpaqueType(ty.toIntern()).name,
         else => unreachable,
     };
+}
+
+/// Returns `true` if a value of this type is always `null`.
+/// Returns `false` if a value of this type is neve `null`.
+/// Returns `null` otherwise.
+pub fn isNullFromType(ty: Type, zcu: *const Zcu) ?bool {
+    if (ty.zigTypeTag(zcu) != .optional and !ty.isCPtr(zcu)) return false;
+    const child = ty.optionalChild(zcu);
+    if (child.zigTypeTag(zcu) == .noreturn) return true; // `?noreturn` is always null
+    return null;
 }
 
 pub const @"u1": Type = .{ .ip_index = .u1_type };

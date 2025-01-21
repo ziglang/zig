@@ -8,7 +8,7 @@ export fn entry() void {
 fn makeLlamas(count: usize) [count]u8 {}
 
 // error
-// target=native
 //
 // :8:30: error: unable to resolve comptime value
 // :8:30: note: array length must be comptime-known
+// :2:31: note: called from here

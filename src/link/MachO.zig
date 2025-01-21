@@ -3548,7 +3548,7 @@ pub fn getTarget(self: MachO) std.Target {
 pub fn invalidateKernelCache(dir: fs.Dir, sub_path: []const u8) !void {
     const tracy = trace(@src());
     defer tracy.end();
-    if (comptime builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
+    if (builtin.target.isDarwin() and builtin.target.cpu.arch == .aarch64) {
         try dir.copyFile(sub_path, dir, sub_path, .{});
     }
 }

@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
@@ -134,7 +135,11 @@ pub fn clone() callconv(.Naked) usize {
         \\bnzr %%r14
         \\
         \\# we're the child
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
         \\.cfi_undefined %%r14
+    );
+    asm volatile (
         \\lghi %%r11, 0
         \\lghi %%r14, 0
         \\

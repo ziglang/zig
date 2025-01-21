@@ -383,7 +383,7 @@ def InstRef_SummaryProvider(value, _=None):
         'InternPool.Index(%d)' % value.unsigned if value.unsigned < 0x80000000 else 'instructions[%d]' % (value.unsigned - 0x80000000))
 
 def InstIndex_SummaryProvider(value, _=None):
-    return 'instructions[%d]' % value.unsigned
+    return 'instructions[%d]' % value.unsigned if value.unsigned < 0x80000000 else 'temps[%d]' % (value.unsigned - 0x80000000)
 
 class zig_DeclIndex_SynthProvider:
     def __init__(self, value, _=None): self.value = value

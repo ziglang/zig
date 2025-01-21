@@ -8,7 +8,10 @@ pub fn build(b: *std.Build) void {
         .target = b.graph.host,
         .root_source_file = b.path("test.zig"),
     }) });
-    test_exe.test_runner = b.path("test_runner.zig");
+    test_exe.test_runner = .{
+        .path = b.path("test_runner.zig"),
+        .mode = .simple,
+    };
 
     const test_run = b.addRunArtifact(test_exe);
     test_step.dependOn(&test_run.step);

@@ -84,7 +84,6 @@ pub fn print(
         .simple_value => |simple_value| switch (simple_value) {
             .void => try writer.writeAll("{}"),
             .empty_tuple => try writer.writeAll(".{}"),
-            .generic_poison => try writer.writeAll("(generic poison)"),
             else => try writer.writeAll(@tagName(simple_value)),
         },
         .variable => try writer.writeAll("(variable)"),

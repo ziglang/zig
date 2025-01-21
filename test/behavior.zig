@@ -110,6 +110,8 @@ test {
     _ = @import("behavior/widening.zig");
     _ = @import("behavior/abs.zig");
 
+    _ = @import("behavior/x86_64.zig");
+
     if (builtin.cpu.arch == .wasm32) {
         _ = @import("behavior/wasm.zig");
     }

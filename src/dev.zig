@@ -135,6 +135,7 @@ pub const Env = enum {
                 else => Env.ast_gen.supports(feature),
             },
             .@"x86_64-linux" => switch (feature) {
+                .build_command,
                 .stdio_listen,
                 .incremental,
                 .x86_64_backend,

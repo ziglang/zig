@@ -948,10 +948,12 @@ const Writer = struct {
     fn writeParam(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
         const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_tok;
         const extra = self.code.extraData(Zir.Inst.Param, inst_data.payload_index);
-        const body = self.code.bodySlice(extra.end, extra.data.body_len);
+        const body = self.code.bodySlice(extra.end, extra.data.type.body_len);
         try stream.print("\"{}\", ", .{
             std.zig.fmtEscapes(self.code.nullTerminatedString(extra.data.name)),
         });
+
+        if (extra.data.type.is_generic) try stream.writeAll("[generic] ");
 
         try self.writeBracedBody(stream, body);
         try stream.writeAll(") ");
@@ -2283,7 +2285,7 @@ const Writer = struct {
         var ret_ty_ref: Zir.Inst.Ref = .none;
         var ret_ty_body: []const Zir.Inst.Index = &.{};
 
-        switch (extra.data.ret_body_len) {
+        switch (extra.data.ret_ty.body_len) {
             0 => {
                 ret_ty_ref = .void_type;
             },
@@ -2292,7 +2294,7 @@ const Writer = struct {
                 extra_index += 1;
             },
             else => {
-                ret_ty_body = self.code.bodySlice(extra_index, extra.data.ret_body_len);
+                ret_ty_body = self.code.bodySlice(extra_index, extra.data.ret_ty.body_len);
                 extra_index += ret_ty_body.len;
             },
         }
@@ -2314,6 +2316,7 @@ const Writer = struct {
             &.{},
             ret_ty_ref,
             ret_ty_body,
+            extra.data.ret_ty.is_generic,
 
             body,
             inst_data.src_node,
@@ -2373,6 +2376,7 @@ const Writer = struct {
             cc_body,
             ret_ty_ref,
             ret_ty_body,
+            extra.data.bits.ret_ty_is_generic,
             body,
             inst_data.src_node,
             src_locs,
@@ -2532,12 +2536,14 @@ const Writer = struct {
         cc_body: []const Zir.Inst.Index,
         ret_ty_ref: Zir.Inst.Ref,
         ret_ty_body: []const Zir.Inst.Index,
+        ret_ty_is_generic: bool,
         body: []const Zir.Inst.Index,
         src_node: i32,
         src_locs: Zir.Inst.Func.SrcLocs,
         noalias_bits: u32,
     ) !void {
         try self.writeOptionalInstRefOrBody(stream, "cc=", cc_ref, cc_body);
+        if (ret_ty_is_generic) try stream.writeAll("[generic] ");
         try self.writeOptionalInstRefOrBody(stream, "ret_ty=", ret_ty_ref, ret_ty_body);
         try self.writeFlag(stream, "vargs, ", var_args);
         try self.writeFlag(stream, "inferror, ", inferred_error_set);

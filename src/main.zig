@@ -39,6 +39,11 @@ test {
     _ = Package;
 }
 
+const thread_stack_size = switch (builtin.zig_backend) {
+    else => std.Thread.SpawnConfig.default_stack_size,
+    .stage2_x86_64 => 32 << 20,
+};
+
 pub const std_options: std.Options = .{
     .wasiCwd = wasi_cwd,
     .logFn = log,
@@ -3320,6 +3325,7 @@ fn buildOutputType(
         .allocator = gpa,
         .n_jobs = @min(@max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(Zcu.PerThread.IdBacking)),
         .track_ids = true,
+        .stack_size = thread_stack_size,
     });
     defer thread_pool.deinit();
 
@@ -5024,6 +5030,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         .allocator = gpa,
         .n_jobs = @min(@max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(Zcu.PerThread.IdBacking)),
         .track_ids = true,
+        .stack_size = thread_stack_size,
     });
     defer thread_pool.deinit();
 
@@ -5460,6 +5467,7 @@ fn jitCmd(
         .allocator = gpa,
         .n_jobs = @min(@max(std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(Zcu.PerThread.IdBacking)),
         .track_ids = true,
+        .stack_size = thread_stack_size,
     });
     defer thread_pool.deinit();
 

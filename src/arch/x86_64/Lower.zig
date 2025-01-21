@@ -1,6 +1,7 @@
 //! This file contains the functionality for lowering x86_64 MIR to Instructions
 
 bin_file: *link.File,
+target: *const std.Target,
 output_mode: std.builtin.OutputMode,
 link_mode: std.builtin.LinkMode,
 pic: bool,
@@ -56,6 +57,7 @@ pub const Reloc = struct {
 
     const Target = union(enum) {
         inst: Mir.Inst.Index,
+        table,
         linker_reloc: u32,
         linker_tlsld: u32,
         linker_dtpoff: u32,
@@ -193,7 +195,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
             .pseudo_probe_align_ri_s => {
                 try lower.emit(.none, .@"test", &.{
                     .{ .reg = inst.data.ri.r1 },
-                    .{ .imm = Immediate.s(@bitCast(inst.data.ri.i)) },
+                    .{ .imm = .s(@bitCast(inst.data.ri.i)) },
                 });
                 try lower.emit(.none, .jz, &.{
                     .{ .imm = lower.reloc(.{ .inst = index + 1 }, 0) },
@@ -229,14 +231,14 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 }
                 try lower.emit(.none, .sub, &.{
                     .{ .reg = inst.data.ri.r1 },
-                    .{ .imm = Immediate.s(@bitCast(inst.data.ri.i)) },
+                    .{ .imm = .s(@bitCast(inst.data.ri.i)) },
                 });
                 assert(lower.result_insts_len <= pseudo_probe_adjust_unrolled_max_insts);
             },
             .pseudo_probe_adjust_setup_rri_s => {
                 try lower.emit(.none, .mov, &.{
                     .{ .reg = inst.data.rri.r2.to32() },
-                    .{ .imm = Immediate.s(@bitCast(inst.data.rri.i)) },
+                    .{ .imm = .s(@bitCast(inst.data.rri.i)) },
                 });
                 try lower.emit(.none, .sub, &.{
                     .{ .reg = inst.data.rri.r1 },
@@ -255,7 +257,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index) Error!struct {
                 });
                 try lower.emit(.none, .sub, &.{
                     .{ .reg = inst.data.rr.r2 },
-                    .{ .imm = Immediate.s(page_size) },
+                    .{ .imm = .s(page_size) },
                 });
                 try lower.emit(.none, .jae, &.{
                     .{ .imm = lower.reloc(.{ .inst = index }, 0) },
@@ -347,7 +349,7 @@ pub fn fail(lower: *Lower, comptime format: []const u8, args: anytype) Error {
     return error.LowerFail;
 }
 
-pub fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
+pub fn imm(lower: *const Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
     return switch (ops) {
         .rri_s,
         .ri_s,
@@ -355,8 +357,10 @@ pub fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
         .mi_s,
         .rmi_s,
         .pseudo_dbg_local_ai_s,
-        => Immediate.s(@bitCast(i)),
+        => .s(@bitCast(i)),
 
+        .ii,
+        .ir,
         .rrri,
         .rri_u,
         .ri_u,
@@ -368,18 +372,26 @@ pub fn imm(lower: Lower, ops: Mir.Inst.Ops, i: u32) Immediate {
         .rrm,
         .rrmi,
         .pseudo_dbg_local_ai_u,
-        => Immediate.u(i),
+        => .u(i),
 
         .ri_64,
         .pseudo_dbg_local_ai_64,
-        => Immediate.u(lower.mir.extraData(Mir.Imm64, i).data.decode()),
+        => .u(lower.mir.extraData(Mir.Imm64, i).data.decode()),
 
         else => unreachable,
     };
 }
 
-pub fn mem(lower: Lower, payload: u32) Memory {
-    return lower.mir.resolveFrameLoc(lower.mir.extraData(Mir.Memory, payload).data).decode();
+pub fn mem(lower: *Lower, payload: u32) Memory {
+    var m = lower.mir.resolveFrameLoc(lower.mir.extraData(Mir.Memory, payload).data).decode();
+    switch (m) {
+        .sib => |*sib| switch (sib.base) {
+            else => {},
+            .table => sib.disp = lower.reloc(.table, sib.disp).signed,
+        },
+        else => {},
+    }
+    return m;
 }
 
 fn reloc(lower: *Lower, target: Reloc.Target, off: i32) Immediate {
@@ -389,7 +401,7 @@ fn reloc(lower: *Lower, target: Reloc.Target, off: i32) Immediate {
         .off = off,
     };
     lower.result_relocs_len += 1;
-    return Immediate.s(0);
+    return .s(0);
 }
 
 fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand) Error!void {
@@ -417,19 +429,17 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 // Here, we currently assume local dynamic TLS vars, and so
                                 // we emit LD model.
                                 _ = lower.reloc(.{ .linker_tlsld = sym_index }, 0);
-                                lower.result_insts[lower.result_insts_len] =
-                                    try Instruction.new(.none, .lea, &[_]Operand{
+                                lower.result_insts[lower.result_insts_len] = try .new(.none, .lea, &.{
                                     .{ .reg = .rdi },
                                     .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) },
-                                });
+                                }, lower.target);
                                 lower.result_insts_len += 1;
                                 _ = lower.reloc(.{
                                     .linker_extern_fn = try elf_file.getGlobalSymbol("__tls_get_addr", null),
                                 }, 0);
-                                lower.result_insts[lower.result_insts_len] =
-                                    try Instruction.new(.none, .call, &[_]Operand{
-                                    .{ .imm = Immediate.s(0) },
-                                });
+                                lower.result_insts[lower.result_insts_len] = try .new(.none, .call, &.{
+                                    .{ .imm = .s(0) },
+                                }, lower.target);
                                 lower.result_insts_len += 1;
                                 _ = lower.reloc(.{ .linker_dtpoff = sym_index }, 0);
                                 emit_mnemonic = .lea;
@@ -439,11 +449,10 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 }) };
                             } else {
                                 // Since we are linking statically, we emit LE model directly.
-                                lower.result_insts[lower.result_insts_len] =
-                                    try Instruction.new(.none, .mov, &[_]Operand{
+                                lower.result_insts[lower.result_insts_len] = try .new(.none, .mov, &.{
                                     .{ .reg = .rax },
                                     .{ .mem = Memory.initSib(.qword, .{ .base = .{ .reg = .fs } }) },
-                                });
+                                }, lower.target);
                                 lower.result_insts_len += 1;
                                 _ = lower.reloc(.{ .linker_reloc = sym_index }, 0);
                                 emit_mnemonic = .lea;
@@ -463,11 +472,10 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             .mov => {
                                 if (elf_sym.flags.is_extern_ptr) {
                                     const reg = ops[0].reg;
-                                    lower.result_insts[lower.result_insts_len] =
-                                        try Instruction.new(.none, .mov, &[_]Operand{
+                                    lower.result_insts[lower.result_insts_len] = try .new(.none, .mov, &.{
                                         .{ .reg = reg.to64() },
                                         .{ .mem = Memory.initRip(.qword, 0) },
-                                    });
+                                    }, lower.target);
                                     lower.result_insts_len += 1;
                                     break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{ .base = .{
                                         .reg = reg.to64(),
@@ -482,7 +490,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             }) },
                             .lea => {
                                 emit_mnemonic = .mov;
-                                break :op .{ .imm = Immediate.s(0) };
+                                break :op .{ .imm = .s(0) };
                             },
                             .mov => break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{
                                 .base = .{ .reg = .ds },
@@ -495,16 +503,14 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
 
                         if (macho_sym.flags.tlv) {
                             _ = lower.reloc(.{ .linker_reloc = sym_index }, 0);
-                            lower.result_insts[lower.result_insts_len] =
-                                try Instruction.new(.none, .mov, &[_]Operand{
+                            lower.result_insts[lower.result_insts_len] = try .new(.none, .mov, &.{
                                 .{ .reg = .rdi },
                                 .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) },
-                            });
+                            }, lower.target);
                             lower.result_insts_len += 1;
-                            lower.result_insts[lower.result_insts_len] =
-                                try Instruction.new(.none, .call, &[_]Operand{
+                            lower.result_insts[lower.result_insts_len] = try .new(.none, .call, &.{
                                 .{ .mem = Memory.initSib(.qword, .{ .base = .{ .reg = .rdi } }) },
-                            });
+                            }, lower.target);
                             lower.result_insts_len += 1;
                             emit_mnemonic = .mov;
                             break :op .{ .reg = .rax };
@@ -519,11 +525,10 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             .mov => {
                                 if (macho_sym.flags.is_extern_ptr) {
                                     const reg = ops[0].reg;
-                                    lower.result_insts[lower.result_insts_len] =
-                                        try Instruction.new(.none, .mov, &[_]Operand{
+                                    lower.result_insts[lower.result_insts_len] = try .new(.none, .mov, &.{
                                         .{ .reg = reg.to64() },
                                         .{ .mem = Memory.initRip(.qword, 0) },
-                                    });
+                                    }, lower.target);
                                     lower.result_insts_len += 1;
                                     break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{ .base = .{
                                         .reg = reg.to64(),
@@ -540,23 +545,24 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
             },
         };
     }
-    lower.result_insts[lower.result_insts_len] =
-        try Instruction.new(emit_prefix, emit_mnemonic, emit_ops);
+    lower.result_insts[lower.result_insts_len] = try .new(emit_prefix, emit_mnemonic, emit_ops, lower.target);
     lower.result_insts_len += 1;
 }
 
 fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
+    @setEvalBranchQuota(2_400);
     const fixes = switch (inst.ops) {
         .none => inst.data.none.fixes,
         .inst => inst.data.inst.fixes,
         .i_s, .i_u => inst.data.i.fixes,
+        .ii => inst.data.ii.fixes,
         .r => inst.data.r.fixes,
         .rr => inst.data.rr.fixes,
         .rrr => inst.data.rrr.fixes,
         .rrrr => inst.data.rrrr.fixes,
         .rrri => inst.data.rrri.fixes,
         .rri_s, .rri_u => inst.data.rri.fixes,
-        .ri_s, .ri_u, .ri_64 => inst.data.ri.fixes,
+        .ri_s, .ri_u, .ri_64, .ir => inst.data.ri.fixes,
         .rm, .rmi_s, .mr => inst.data.rx.fixes,
         .mrr, .rrm, .rmr => inst.data.rrx.fixes,
         .rmi, .mri => inst.data.rix.fixes,
@@ -573,8 +579,6 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         else
             .none,
     }, mnemonic: {
-        @setEvalBranchQuota(2_000);
-
         comptime var max_len = 0;
         inline for (@typeInfo(Mnemonic).@"enum".fields) |field| max_len = @max(field.name.len, max_len);
         var buf: [max_len]u8 = undefined;
@@ -595,6 +599,14 @@ fn generic(lower: *Lower, inst: Mir.Inst) Error!void {
         },
         .i_s, .i_u => &.{
             .{ .imm = lower.imm(inst.ops, inst.data.i.i) },
+        },
+        .ii => &.{
+            .{ .imm = lower.imm(inst.ops, inst.data.ii.i1) },
+            .{ .imm = lower.imm(inst.ops, inst.data.ii.i2) },
+        },
+        .ir => &.{
+            .{ .imm = lower.imm(inst.ops, inst.data.ri.i) },
+            .{ .reg = inst.data.ri.r1 },
         },
         .r => &.{
             .{ .reg = inst.data.r.r1 },
@@ -743,7 +755,7 @@ fn pushPopRegList(lower: *Lower, comptime mnemonic: Mnemonic, inst: Mir.Inst) Er
             while (it.next()) |i| {
                 try lower.emit(.directive, .@".cfi_rel_offset", &.{
                     .{ .reg = callee_preserved_regs[i] },
-                    .{ .imm = Immediate.s(off) },
+                    .{ .imm = .s(off) },
                 });
                 off += 8;
             }

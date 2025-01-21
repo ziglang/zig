@@ -1169,8 +1169,7 @@ pub const WriteError = error{
     DeviceBusy,
     InvalidArgument,
 
-    /// In WASI, this error may occur when the file descriptor does
-    /// not hold the required rights to write to it.
+    /// File descriptor does not hold the required rights to write to it.
     AccessDenied,
     BrokenPipe,
     SystemResources,
@@ -1269,6 +1268,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             .FBIG => return error.FileTooBig,
             .IO => return error.InputOutput,
             .NOSPC => return error.NoSpaceLeft,
+            .ACCES => return error.AccessDenied,
             .PERM => return error.AccessDenied,
             .PIPE => return error.BrokenPipe,
             .CONNRESET => return error.ConnectionResetByPeer,
@@ -6819,7 +6819,7 @@ pub fn memfd_createZ(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
             }
         },
         .freebsd => {
-            if (comptime builtin.os.version_range.semver.max.order(.{ .major = 13, .minor = 0, .patch = 0 }) == .lt)
+            if (builtin.os.version_range.semver.max.order(.{ .major = 13, .minor = 0, .patch = 0 }) == .lt)
                 @compileError("memfd_create is unavailable on FreeBSD < 13.0");
             const rc = system.memfd_create(name, flags);
             switch (errno(rc)) {

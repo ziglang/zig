@@ -660,6 +660,7 @@ test "arguments pointed to on stack into tailcall" {
 
     switch (builtin.cpu.arch) {
         .wasm32,
+        .wasm64,
         .mips,
         .mipsel,
         .mips64,
