@@ -610,7 +610,7 @@ pub fn forceUndefinedSymbol(compile: *Compile, symbol_name: []const u8) void {
 
 /// Returns whether the library, executable, or object depends on a particular system library.
 /// Includes transitive dependencies.
-pub fn dependsOnSystemLibrary(compile: *const Compile, name: []const u8) bool {
+pub fn dependsOnSystemLibrary(compile: *Compile, name: []const u8) bool {
     var is_linking_libc = false;
     var is_linking_libcpp = false;
 
@@ -622,8 +622,8 @@ pub fn dependsOnSystemLibrary(compile: *const Compile, name: []const u8) bool {
                     else => {},
                 }
             }
-            if (mod.link_libc) is_linking_libc = true;
-            if (mod.link_libcpp) is_linking_libcpp = true;
+            if (mod.link_libc orelse false) is_linking_libc = true;
+            if (mod.link_libcpp orelse false) is_linking_libcpp = true;
         }
     }
 
