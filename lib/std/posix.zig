@@ -1169,8 +1169,7 @@ pub const WriteError = error{
     DeviceBusy,
     InvalidArgument,
 
-    /// In WASI, this error may occur when the file descriptor does
-    /// not hold the required rights to write to it.
+    /// File descriptor does not hold the required rights to write to it.
     AccessDenied,
     BrokenPipe,
     SystemResources,
