@@ -1869,7 +1869,6 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
         // csu prelude
         const csu = try comp.getCrtPaths(arena);
         if (csu.crt0) |p| try argv.append(try p.toString(arena));
-        if (csu.crti) |p| try argv.append(try p.toString(arena));
         if (csu.crtbegin) |p| try argv.append(try p.toString(arena));
 
         for (self.rpath_table.keys()) |rpath| {
@@ -2061,7 +2060,6 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
 
         // crt postlude
         if (csu.crtend) |p| try argv.append(try p.toString(arena));
-        if (csu.crtn) |p| try argv.append(try p.toString(arena));
 
         if (self.base.allow_shlib_undefined) {
             try argv.append("--allow-shlib-undefined");

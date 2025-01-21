@@ -694,10 +694,8 @@ fn appendCcExe(args: *std.ArrayList([]const u8), skip_cc_env_var: bool) !void {
 /// `CsuPaths`.
 pub const CrtBasenames = struct {
     crt0: ?[]const u8 = null,
-    crti: ?[]const u8 = null,
     crtbegin: ?[]const u8 = null,
     crtend: ?[]const u8 = null,
-    crtn: ?[]const u8 = null,
 
     pub const GetArgs = struct {
         target: std.Target,
@@ -751,137 +749,96 @@ pub const CrtBasenames = struct {
 
         return switch (target.os.tag) {
             .linux => switch (mode) {
-                .dynamic_lib => .{
-                    .crti = "crti.o",
-                    .crtn = "crtn.o",
-                },
+                .dynamic_lib => .{},
                 .dynamic_exe => .{
                     .crt0 = "crt1.o",
-                    .crti = "crti.o",
-                    .crtn = "crtn.o",
                 },
                 .dynamic_pie => .{
                     .crt0 = "Scrt1.o",
-                    .crti = "crti.o",
-                    .crtn = "crtn.o",
                 },
                 .static_exe => .{
                     .crt0 = "crt1.o",
-                    .crti = "crti.o",
-                    .crtn = "crtn.o",
                 },
                 .static_pie => .{
                     .crt0 = "rcrt1.o",
-                    .crti = "crti.o",
-                    .crtn = "crtn.o",
                 },
             },
             .dragonfly => switch (mode) {
                 .dynamic_lib => .{
-                    .crti = "crti.o",
                     .crtbegin = "crtbeginS.o",
                     .crtend = "crtendS.o",
-                    .crtn = "crtn.o",
                 },
                 .dynamic_exe => .{
                     .crt0 = "crt1.o",
-                    .crti = "crti.o",
                     .crtbegin = "crtbegin.o",
                     .crtend = "crtend.o",
-                    .crtn = "crtn.o",
                 },
                 .dynamic_pie => .{
                     .crt0 = "Scrt1.o",
-                    .crti = "crti.o",
                     .crtbegin = "crtbeginS.o",
                     .crtend = "crtendS.o",
-                    .crtn = "crtn.o",
                 },
                 .static_exe => .{
                     .crt0 = "crt1.o",
-                    .crti = "crti.o",
                     .crtbegin = "crtbegin.o",
                     .crtend = "crtend.o",
-                    .crtn = "crtn.o",
                 },
                 .static_pie => .{
                     .crt0 = "Scrt1.o",
-                    .crti = "crti.o",
                     .crtbegin = "crtbeginS.o",
                     .crtend = "crtendS.o",
-                    .crtn = "crtn.o",
                 },
             },
             .freebsd => switch (mode) {
                 .dynamic_lib => .{
-                    .crti = "crti.o",
                     .crtbegin = "crtbeginS.o",
                     .crtend = "crtendS.o",
-                    .crtn = "crtn.o",
                 },
                 .dynamic_exe => .{
                     .crt0 = "crt1.o",
-                    .crti = "crti.o",
                     .crtbegin = "crtbegin.o",
                     .crtend = "crtend.o",
-                    .crtn = "crtn.o",
                 },
                 .dynamic_pie => .{
                     .crt0 = "Scrt1.o",
-                    .crti = "crti.o",
                     .crtbegin = "crtbeginS.o",
                     .crtend = "crtendS.o",
-                    .crtn = "crtn.o",
                 },
                 .static_exe => .{
                     .crt0 = "crt1.o",
-                    .crti = "crti.o",
                     .crtbegin = "crtbeginT.o",
                     .crtend = "crtend.o",
-                    .crtn = "crtn.o",
                 },
                 .static_pie => .{
                     .crt0 = "Scrt1.o",
-                    .crti = "crti.o",
                     .crtbegin = "crtbeginS.o",
                     .crtend = "crtendS.o",
-                    .crtn = "crtn.o",
                 },
             },
             .netbsd => switch (mode) {
                 .dynamic_lib => .{
-                    .crti = "crti.o",
                     .crtbegin = "crtbeginS.o",
                     .crtend = "crtendS.o",
-                    .crtn = "crtn.o",
                 },
                 .dynamic_exe => .{
                     .crt0 = "crt0.o",
-                    .crti = "crti.o",
                     .crtbegin = "crtbegin.o",
                     .crtend = "crtend.o",
-                    .crtn = "crtn.o",
                 },
                 .dynamic_pie => .{
                     .crt0 = "crt0.o",
-                    .crti = "crti.o",
                     .crtbegin = "crtbeginS.o",
                     .crtend = "crtendS.o",
-                    .crtn = "crtn.o",
                 },
                 .static_exe => .{
                     .crt0 = "crt0.o",
-                    .crti = "crti.o",
                     .crtbegin = "crtbeginT.o",
                     .crtend = "crtend.o",
-                    .crtn = "crtn.o",
                 },
                 .static_pie => .{
                     .crt0 = "crt0.o",
-                    .crti = "crti.o",
                     .crtbegin = "crtbeginT.o",
                     .crtend = "crtendS.o",
-                    .crtn = "crtn.o",
                 },
             },
             .openbsd => switch (mode) {
@@ -902,49 +859,34 @@ pub const CrtBasenames = struct {
             },
             .haiku => switch (mode) {
                 .dynamic_lib => .{
-                    .crti = "crti.o",
                     .crtbegin = "crtbeginS.o",
                     .crtend = "crtendS.o",
-                    .crtn = "crtn.o",
                 },
                 .dynamic_exe => .{
                     .crt0 = "start_dyn.o",
-                    .crti = "crti.o",
                     .crtbegin = "crtbegin.o",
                     .crtend = "crtend.o",
-                    .crtn = "crtn.o",
                 },
                 .dynamic_pie => .{
                     .crt0 = "start_dyn.o",
-                    .crti = "crti.o",
                     .crtbegin = "crtbeginS.o",
                     .crtend = "crtendS.o",
-                    .crtn = "crtn.o",
                 },
                 .static_exe => .{
                     .crt0 = "start_dyn.o",
-                    .crti = "crti.o",
                     .crtbegin = "crtbegin.o",
                     .crtend = "crtend.o",
-                    .crtn = "crtn.o",
                 },
                 .static_pie => .{
                     .crt0 = "start_dyn.o",
-                    .crti = "crti.o",
                     .crtbegin = "crtbeginS.o",
                     .crtend = "crtendS.o",
-                    .crtn = "crtn.o",
                 },
             },
             .solaris, .illumos => switch (mode) {
-                .dynamic_lib => .{
-                    .crti = "crti.o",
-                    .crtn = "crtn.o",
-                },
+                .dynamic_lib => .{},
                 .dynamic_exe, .dynamic_pie => .{
                     .crt0 = "crt1.o",
-                    .crti = "crti.o",
-                    .crtn = "crtn.o",
                 },
                 .static_exe, .static_pie => .{},
             },
@@ -955,10 +897,8 @@ pub const CrtBasenames = struct {
 
 pub const CrtPaths = struct {
     crt0: ?Path = null,
-    crti: ?Path = null,
     crtbegin: ?Path = null,
     crtend: ?Path = null,
-    crtn: ?Path = null,
 };
 
 pub fn resolveCrtPaths(
@@ -980,7 +920,6 @@ pub fn resolveCrtPaths(
             }) orelse true) "gcc80" else "gcc54";
             return .{
                 .crt0 = if (crt_basenames.crt0) |basename| try crt_dir_path.join(arena, basename) else null,
-                .crti = if (crt_basenames.crti) |basename| try crt_dir_path.join(arena, basename) else null,
                 .crtbegin = if (crt_basenames.crtbegin) |basename| .{
                     .root_dir = crt_dir_path.root_dir,
                     .sub_path = try fs.path.join(arena, &.{ crt_dir_path.sub_path, gccv, basename }),
@@ -989,7 +928,6 @@ pub fn resolveCrtPaths(
                     .root_dir = crt_dir_path.root_dir,
                     .sub_path = try fs.path.join(arena, &.{ crt_dir_path.sub_path, gccv, basename }),
                 } else null,
-                .crtn = if (crt_basenames.crtn) |basename| try crt_dir_path.join(arena, basename) else null,
             };
         },
         .haiku => {
@@ -999,19 +937,15 @@ pub fn resolveCrtPaths(
             };
             return .{
                 .crt0 = if (crt_basenames.crt0) |basename| try crt_dir_path.join(arena, basename) else null,
-                .crti = if (crt_basenames.crti) |basename| try crt_dir_path.join(arena, basename) else null,
                 .crtbegin = if (crt_basenames.crtbegin) |basename| try gcc_dir_path.join(arena, basename) else null,
                 .crtend = if (crt_basenames.crtend) |basename| try gcc_dir_path.join(arena, basename) else null,
-                .crtn = if (crt_basenames.crtn) |basename| try crt_dir_path.join(arena, basename) else null,
             };
         },
         else => {
             return .{
                 .crt0 = if (crt_basenames.crt0) |basename| try crt_dir_path.join(arena, basename) else null,
-                .crti = if (crt_basenames.crti) |basename| try crt_dir_path.join(arena, basename) else null,
                 .crtbegin = if (crt_basenames.crtbegin) |basename| try crt_dir_path.join(arena, basename) else null,
                 .crtend = if (crt_basenames.crtend) |basename| try crt_dir_path.join(arena, basename) else null,
-                .crtn = if (crt_basenames.crtn) |basename| try crt_dir_path.join(arena, basename) else null,
             };
         },
     }

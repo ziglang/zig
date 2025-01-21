@@ -801,8 +801,6 @@ pub const MiscTask = enum {
     docs_copy,
     docs_wasm,
 
-    @"musl crti.o",
-    @"musl crtn.o",
     @"musl crt1.o",
     @"musl rcrt1.o",
     @"musl Scrt1.o",
@@ -817,8 +815,6 @@ pub const MiscTask = enum {
     @"libwasi-emulated-mman.a",
     @"libwasi-emulated-signal.a",
 
-    @"glibc crti.o",
-    @"glibc crtn.o",
     @"glibc Scrt1.o",
     @"glibc libc_nonshared.a",
     @"glibc shared object",
@@ -1807,11 +1803,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 } else if (target.isMusl() and !target.isWasm()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
-                    if (musl.needsCrtiCrtn(target)) {
-                        comp.queued_jobs.musl_crt_file[@intFromEnum(musl.CrtFile.crti_o)] = true;
-                        comp.queued_jobs.musl_crt_file[@intFromEnum(musl.CrtFile.crtn_o)] = true;
-                        comp.remaining_prelink_tasks += 2;
-                    }
                     if (musl.needsCrt0(comp.config.output_mode, comp.config.link_mode, comp.config.pie)) |f| {
                         comp.queued_jobs.musl_crt_file[@intFromEnum(f)] = true;
                         comp.remaining_prelink_tasks += 1;
@@ -1824,11 +1815,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 } else if (target.isGnuLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
-                    if (glibc.needsCrtiCrtn(target)) {
-                        comp.queued_jobs.glibc_crt_file[@intFromEnum(glibc.CrtFile.crti_o)] = true;
-                        comp.queued_jobs.glibc_crt_file[@intFromEnum(glibc.CrtFile.crtn_o)] = true;
-                        comp.remaining_prelink_tasks += 2;
-                    }
                     if (glibc.needsCrt0(comp.config.output_mode)) |f| {
                         comp.queued_jobs.glibc_crt_file[@intFromEnum(f)] = true;
                         comp.remaining_prelink_tasks += 1;
@@ -6757,10 +6743,8 @@ fn getCrtPathsInner(
 
     return .{
         .crt0 = if (basenames.crt0) |basename| try crtFilePath(crt_files, basename) else null,
-        .crti = if (basenames.crti) |basename| try crtFilePath(crt_files, basename) else null,
         .crtbegin = if (basenames.crtbegin) |basename| try crtFilePath(crt_files, basename) else null,
         .crtend = if (basenames.crtend) |basename| try crtFilePath(crt_files, basename) else null,
-        .crtn = if (basenames.crtn) |basename| try crtFilePath(crt_files, basename) else null,
     };
 }
 

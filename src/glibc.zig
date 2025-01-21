@@ -156,24 +156,7 @@ pub fn loadMetaData(gpa: Allocator, contents: []const u8) LoadMetaDataError!*ABI
     return abi;
 }
 
-fn useElfInitFini(target: std.Target) bool {
-    // Legacy architectures use _init/_fini.
-    return switch (target.cpu.arch) {
-        .arm, .armeb => true,
-        .aarch64, .aarch64_be => true,
-        .m68k => true,
-        .mips, .mipsel, .mips64, .mips64el => true,
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => true,
-        .s390x => true,
-        .sparc, .sparc64 => true,
-        .x86, .x86_64 => true,
-        else => false,
-    };
-}
-
 pub const CrtFile = enum {
-    crti_o,
-    crtn_o,
     scrt1_o,
     libc_nonshared_a,
 };
@@ -201,51 +184,6 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
     // waste computation and create false negatives.
 
     switch (crt_file) {
-        .crti_o => {
-            var args = std.ArrayList([]const u8).init(arena);
-            try add_include_dirs(comp, arena, &args);
-            try args.appendSlice(&[_][]const u8{
-                "-D_LIBC_REENTRANT",
-                "-include",
-                try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-modules.h"),
-                "-DMODULE_NAME=libc",
-                "-Wno-nonportable-include-path",
-                "-include",
-                try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
-                "-DTOP_NAMESPACE=glibc",
-                "-DASSEMBLER",
-                "-Wa,--noexecstack",
-            });
-            var files = [_]Compilation.CSourceFile{
-                .{
-                    .src_path = try start_asm_path(comp, arena, "crti.S"),
-                    .cache_exempt_flags = args.items,
-                    .owner = comp.root_mod,
-                },
-            };
-            return comp.build_crt_file("crti", .Obj, .@"glibc crti.o", prog_node, &files, .{});
-        },
-        .crtn_o => {
-            var args = std.ArrayList([]const u8).init(arena);
-            try add_include_dirs(comp, arena, &args);
-            try args.appendSlice(&[_][]const u8{
-                "-D_LIBC_REENTRANT",
-                "-DMODULE_NAME=libc",
-                "-include",
-                try lib_path(comp, arena, lib_libc_glibc ++ "include" ++ path.sep_str ++ "libc-symbols.h"),
-                "-DTOP_NAMESPACE=glibc",
-                "-DASSEMBLER",
-                "-Wa,--noexecstack",
-            });
-            var files = [_]Compilation.CSourceFile{
-                .{
-                    .src_path = try start_asm_path(comp, arena, "crtn.S"),
-                    .cache_exempt_flags = args.items,
-                    .owner = undefined,
-                },
-            };
-            return comp.build_crt_file("crtn", .Obj, .@"glibc crtn.o", prog_node, &files, .{});
-        },
         .scrt1_o => {
             const start_o: Compilation.CSourceFile = blk: {
                 var args = std.ArrayList([]const u8).init(arena);
@@ -383,9 +321,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 });
                 try add_include_dirs(comp, arena, &args);
 
-                if (!useElfInitFini(target)) {
-                    try args.append("-DNO_INITFINI");
-                }
+                try args.append("-DNO_INITFINI");
 
                 if (target.cpu.arch == .x86) {
                     // This prevents i386/sysdep.h from trying to do some
@@ -432,32 +368,15 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
     try result.appendSlice(comp.zig_lib_directory.path.?);
     try result.appendSlice(s ++ "libc" ++ s ++ "glibc" ++ s ++ "sysdeps" ++ s);
     if (is_sparc) {
-        if (mem.eql(u8, basename, "crti.S") or mem.eql(u8, basename, "crtn.S")) {
-            try result.appendSlice("sparc");
+        if (is_64) {
+            try result.appendSlice("sparc" ++ s ++ "sparc64");
         } else {
-            if (is_64) {
-                try result.appendSlice("sparc" ++ s ++ "sparc64");
-            } else {
-                try result.appendSlice("sparc" ++ s ++ "sparc32");
-            }
+            try result.appendSlice("sparc" ++ s ++ "sparc32");
         }
     } else if (arch.isArm()) {
         try result.appendSlice("arm");
     } else if (arch.isMIPS()) {
-        if (!mem.eql(u8, basename, "crti.S") and !mem.eql(u8, basename, "crtn.S")) {
-            try result.appendSlice("mips");
-        } else {
-            if (is_64) {
-                const abi_dir = if (comp.getTarget().abi == .gnuabin32)
-                    "n32"
-                else
-                    "n64";
-                try result.appendSlice("mips" ++ s ++ "mips64" ++ s);
-                try result.appendSlice(abi_dir);
-            } else {
-                try result.appendSlice("mips" ++ s ++ "mips32");
-            }
-        }
+        try result.appendSlice("mips");
     } else if (arch == .x86_64) {
         try result.appendSlice("x86_64");
     } else if (arch == .x86) {
@@ -1364,15 +1283,6 @@ fn buildSharedLib(
     defer sub_compilation.destroy();
 
     try comp.updateSubCompilation(sub_compilation, .@"glibc shared object", prog_node);
-}
-
-// Return true if glibc has crti/crtn sources for that architecture.
-pub fn needsCrtiCrtn(target: std.Target) bool {
-    return switch (target.cpu.arch) {
-        .riscv32, .riscv64 => false,
-        .loongarch64 => false,
-        else => true,
-    };
 }
 
 pub fn needsCrt0(output_mode: std.builtin.OutputMode) ?CrtFile {
