@@ -17,8 +17,23 @@ const Sse = if (std.Target.x86.featureSetHas(builtin.cpu.features, .avx))
 else
     @Vector(16, u8);
 
-inline fn sign(rhs: anytype) bool {
-    return @call(.always_inline, math.signbit, .{rhs});
+inline fn sign(rhs: anytype) switch (@typeInfo(@TypeOf(rhs))) {
+    else => bool,
+    .vector => |vector| @Vector(vector.len, bool),
+} {
+    switch (@typeInfo(@TypeOf(rhs))) {
+        else => return @as(@Type(.{ .int = .{
+            .signedness = .signed,
+            .bits = @bitSizeOf(@TypeOf(rhs)),
+        } }), @bitCast(rhs)) < 0,
+        .vector => |vector| {
+            const V = @Vector(vector.len, @Type(.{ .int = .{
+                .signedness = .signed,
+                .bits = @bitSizeOf(vector.child),
+            } }));
+            return @as(V, @bitCast(rhs)) < @as(V, @splat(0));
+        },
+    }
 }
 inline fn boolAnd(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
     switch (@typeInfo(@TypeOf(lhs))) {
@@ -69,12 +84,40 @@ noinline fn checkExpected(expected: anytype, actual: @TypeOf(expected)) !void {
     }) return error.Unexpected;
 }
 test checkExpected {
+    if (checkExpected(nan(f16), nan(f16)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f16), -nan(f16)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, 0.0), @as(f16, 0.0)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, -0.0), @as(f16, -0.0)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, -0.0), @as(f16, 0.0)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, 0.0), @as(f16, -0.0)) != error.Unexpected) return error.Unexpected;
+
     if (checkExpected(nan(f32), nan(f32)) == error.Unexpected) return error.Unexpected;
     if (checkExpected(nan(f32), -nan(f32)) != error.Unexpected) return error.Unexpected;
     if (checkExpected(@as(f32, 0.0), @as(f32, 0.0)) == error.Unexpected) return error.Unexpected;
     if (checkExpected(@as(f32, -0.0), @as(f32, -0.0)) == error.Unexpected) return error.Unexpected;
     if (checkExpected(@as(f32, -0.0), @as(f32, 0.0)) != error.Unexpected) return error.Unexpected;
     if (checkExpected(@as(f32, 0.0), @as(f32, -0.0)) != error.Unexpected) return error.Unexpected;
+
+    if (checkExpected(nan(f64), nan(f64)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f64), -nan(f64)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, 0.0), @as(f64, 0.0)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, -0.0), @as(f64, -0.0)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, -0.0), @as(f64, 0.0)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, 0.0), @as(f64, -0.0)) != error.Unexpected) return error.Unexpected;
+
+    if (checkExpected(nan(f80), nan(f80)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f80), -nan(f80)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, 0.0), @as(f80, 0.0)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, -0.0), @as(f80, -0.0)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, -0.0), @as(f80, 0.0)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, 0.0), @as(f80, -0.0)) != error.Unexpected) return error.Unexpected;
+
+    if (checkExpected(nan(f128), nan(f128)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f128), -nan(f128)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, 0.0), @as(f128, 0.0)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, -0.0), @as(f128, -0.0)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, -0.0), @as(f128, 0.0)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, 0.0), @as(f128, -0.0)) != error.Unexpected) return error.Unexpected;
 }
 
 fn Unary(comptime op: anytype) type {

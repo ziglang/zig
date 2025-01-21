@@ -150,7 +150,7 @@ const Owner = union(enum) {
 };
 
 const MaskKind = enum(u1) { sign, all };
-const MaskInfo = packed struct { kind: MaskKind, inverted: bool, scalar: Memory.Size };
+const MaskInfo = packed struct { kind: MaskKind, inverted: bool = false, scalar: Memory.Size };
 
 pub const MCValue = union(enum) {
     /// No runtime bits. `void` types, empty structs, u0, enums with 1 tag, etc.
@@ -2657,10 +2657,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 } else { // hack around Sema OPV bugs
                     res[0] = ops[0];
                 }
-                for (ops) |op| for (res) |r| {
-                    if (op.index == r.index) break;
-                } else try op.die(cg);
-                try res[0].moveTo(inst, cg);
+                try res[0].finish(inst, &.{ bin_op.lhs, bin_op.rhs }, &ops, cg);
             },
             .ptr_sub => |air_tag| if (use_old) try cg.airPtrArithmetic(inst, air_tag) else {
                 const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
@@ -2792,17 +2789,14 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     // hack around Sema OPV bugs
                     res[0] = ops[0];
                 }
-                for (ops) |op| for (res) |r| {
-                    if (op.index == r.index) break;
-                } else try op.die(cg);
-                try res[0].moveTo(inst, cg);
+                try res[0].finish(inst, &.{ bin_op.lhs, bin_op.rhs }, &ops, cg);
             },
             .alloc => if (use_old) try cg.airAlloc(inst) else {
                 const ty = air_datas[@intFromEnum(inst)].ty;
-                var slot = try cg.tempInit(ty, .{ .lea_frame = .{
+                const slot = try cg.tempInit(ty, .{ .lea_frame = .{
                     .index = try cg.allocMemPtr(inst),
                 } });
-                try slot.moveTo(inst, cg);
+                try slot.finish(inst, &.{}, &.{}, cg);
             },
             .inferred_alloc, .inferred_alloc_comptime => unreachable,
             .ret_ptr => if (use_old) try cg.airRetPtr(inst) else {
@@ -2818,7 +2812,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         break :slot slot;
                     },
                 };
-                try slot.moveTo(inst, cg);
+                try slot.finish(inst, &.{}, &.{}, cg);
             },
             .assembly => try cg.airAsm(inst),
             .bit_and, .bit_or, .xor, .bool_and, .bool_or => |air_tag| if (use_old) try cg.airBinOp(inst, air_tag) else {
@@ -3154,10 +3148,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     }),
                     else => |e| return e,
                 };
-                for (ops) |op| for (res) |r| {
-                    if (op.index == r.index) break;
-                } else try op.die(cg);
-                try res[0].moveTo(inst, cg);
+                try res[0].finish(inst, &.{ bin_op.lhs, bin_op.rhs }, &ops, cg);
             },
             .not => |air_tag| if (use_old) try cg.airUnOp(inst, air_tag) else {
                 const ty_op = air_datas[@intFromEnum(inst)].ty_op;
@@ -4207,10 +4198,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     }),
                     else => |e| return e,
                 };
-                for (ops) |op| for (res) |r| {
-                    if (op.index == r.index) break;
-                } else try op.die(cg);
-                try res[0].moveTo(inst, cg);
+                try res[0].finish(inst, &.{ty_op.operand}, &ops, cg);
             },
 
             .block => if (use_old) try cg.airBlock(inst) else {
@@ -4250,13 +4238,13 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     .index = .ret_addr,
                 } });
                 while (try slot.toRegClass(true, .general_purpose, cg)) {}
-                try slot.moveTo(inst, cg);
+                try slot.finish(inst, &.{}, &.{}, cg);
             },
             .frame_addr => if (use_old) try cg.airFrameAddress(inst) else {
-                var slot = try cg.tempInit(.usize, .{ .lea_frame = .{
+                const slot = try cg.tempInit(.usize, .{ .lea_frame = .{
                     .index = .base_ptr,
                 } });
-                try slot.moveTo(inst, cg);
+                try slot.finish(inst, &.{}, &.{}, cg);
             },
             .call => try cg.airCall(inst, .auto, .{ .safety = true }),
             .call_always_tail => try cg.airCall(inst, .always_tail, .{ .safety = true }),
@@ -6986,10 +6974,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     }),
                     else => |e| return e,
                 };
-                for (ops) |op| for (res) |r| {
-                    if (op.index == r.index) break;
-                } else try op.die(cg);
-                try res[0].moveTo(inst, cg);
+                try res[0].finish(inst, &.{ty_op.operand}, &ops, cg);
             },
 
             .cmp_vector, .cmp_vector_optimized => |air_tag| if (use_old) try cg.airCmpVector(inst) else fallback: {
@@ -8394,6 +8379,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             } },
                         }, .{
                             .dst_constraints = .{.{ .bool_vec = .byte }},
+                            .src_constraints = .{ .any_scalar_int, .any_scalar_int },
                             .patterns = &.{
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
@@ -8550,6 +8536,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             } },
                         }, .{
                             .dst_constraints = .{.{ .bool_vec = .dword }},
+                            .src_constraints = .{ .any_scalar_int, .any_scalar_int },
                             .patterns = &.{
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
@@ -8710,6 +8697,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         }, .{
                             .required_features = .{ .@"64bit", null, null, null },
                             .dst_constraints = .{.{ .bool_vec = .qword }},
+                            .src_constraints = .{ .any_scalar_int, .any_scalar_int },
                             .patterns = &.{
                                 .{ .src = .{ .to_mem, .to_mem } },
                             },
@@ -8784,6 +8772,72 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                                 .{ ._, ._r, .sh, .tmp3d, .si(3), ._, ._ },
                                 .{ ._, ._, .mov, .memi(.dst0p, .tmp3), .tmp2p, ._, ._ },
                             } },
+                        }, .{
+                            .required_features = .{ .f16c, null, null, null },
+                            .src_constraints = .{
+                                .{ .scalar_exact_float = .{ .of = .qword, .is = .word } },
+                                .{ .scalar_exact_float = .{ .of = .qword, .is = .word } },
+                            },
+                            .patterns = &.{
+                                .{ .src = .{ .mem, .mem } },
+                                .{ .src = .{ .sse, .mem } },
+                                .{ .src = .{ .mem, .sse } },
+                                .{ .src = .{ .to_sse, .to_sse } },
+                            },
+                            .extra_temps = .{
+                                .{ .kind = .{ .rc = .sse } },
+                                .unused,
+                                .unused,
+                                .unused,
+                                .unused,
+                                .unused,
+                            },
+                            .dst_temps = .{.{ .rc_mask = .{ .rc = .sse, .info = .{
+                                .kind = .all,
+                                .scalar = .dword,
+                            } } }},
+                            .each = .{ .once = &.{
+                                .{ ._, .v_ps, .cvtph2, .dst0x, .src0q, ._, ._ },
+                                .{ ._, .v_ps, .cvtph2, .tmp0x, .src1q, ._, ._ },
+                                .{ ._, .v_ps, .cmp, .dst0x, .dst0x, .tmp0x, .si(switch (cc) {
+                                    else => unreachable,
+                                    .e => 0b00000,
+                                    .ne => 0b00100,
+                                }) },
+                            } },
+                        }, .{
+                            .required_features = .{ .f16c, null, null, null },
+                            .src_constraints = .{
+                                .{ .scalar_exact_float = .{ .of = .xword, .is = .word } },
+                                .{ .scalar_exact_float = .{ .of = .xword, .is = .word } },
+                            },
+                            .patterns = &.{
+                                .{ .src = .{ .mem, .mem } },
+                                .{ .src = .{ .to_sse, .mem } },
+                                .{ .src = .{ .mem, .to_sse } },
+                                .{ .src = .{ .to_sse, .to_sse } },
+                            },
+                            .extra_temps = .{
+                                .{ .kind = .{ .rc = .sse } },
+                                .unused,
+                                .unused,
+                                .unused,
+                                .unused,
+                                .unused,
+                            },
+                            .dst_temps = .{.{ .rc_mask = .{ .rc = .sse, .info = .{
+                                .kind = .all,
+                                .scalar = .dword,
+                            } } }},
+                            .each = .{ .once = &.{
+                                .{ ._, .v_ps, .cvtph2, .dst0y, .src0x, ._, ._ },
+                                .{ ._, .v_ps, .cvtph2, .tmp0y, .src1x, ._, ._ },
+                                .{ ._, .v_ps, .cmp, .dst0y, .dst0y, .tmp0y, .si(switch (cc) {
+                                    else => unreachable,
+                                    .e => 0b00000,
+                                    .ne => 0b00100,
+                                }) },
+                            } },
                         } },
                     }) catch |err| switch (err) {
                         error.SelectFailed => return cg.fail("failed to select {s} {} {} {}", .{
@@ -8797,10 +8851,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     .gte => unreachable,
                     .gt => unreachable,
                 }
-                for (ops) |op| for (res) |r| {
-                    if (op.index == r.index) break;
-                } else try op.die(cg);
-                try res[0].moveTo(inst, cg);
+                try res[0].finish(inst, &.{ extra.lhs, extra.rhs }, &ops, cg);
             },
 
             .abs => |air_tag| if (use_old) try cg.airAbs(inst) else fallback: {
@@ -9836,10 +9887,18 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     .required_features = .{ .x87, null, null, null },
                     .src_constraints = .{ .{ .scalar_exact_float = .{ .of = .xword, .is = .tbyte } }, .any },
                     .patterns = &.{
+                        .{ .src = .{ .mem, .none } },
                         .{ .src = .{ .to_x87, .none } },
                     },
+                    .extra_temps = .{
+                        .{ .type = .f80, .kind = .{ .reg = .st7 } },
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                    },
                     .dst_temps = .{.{ .mut_reg = .{ .ref = .src0, .rc = .x87 } }},
-                    .clobbers = .{ .st = 1 },
                     .each = .{ .once = &.{
                         .{ ._, .f_, .ld, .src0t, ._, ._, ._ },
                         .{ ._, .f_, .abs, ._, ._, ._, ._ },
@@ -9967,10 +10026,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     }),
                     else => |e| return e,
                 };
-                for (ops) |op| for (res) |r| {
-                    if (op.index == r.index) break;
-                } else try op.die(cg);
-                try res[0].moveTo(inst, cg);
+                try res[0].finish(inst, &.{ty_op.operand}, &ops, cg);
             },
 
             .cmp_lt,
@@ -10166,10 +10222,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     }),
                     else => |e| return e,
                 };
-                for (ops) |op| for (res) |r| {
-                    if (op.index == r.index) break;
-                } else try op.die(cg);
-                try res[0].moveTo(inst, cg);
+                try res[0].finish(inst, &.{ bin_op.lhs, bin_op.rhs }, &ops, cg);
             },
             .cmp_eq,
             .cmp_eq_optimized,
@@ -10182,7 +10235,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             }) else fallback: {
                 const bin_op = air_datas[@intFromEnum(inst)].bin_op;
                 const scalar_ty = cg.typeOf(bin_op.lhs).scalarType(zcu);
-                if (cg.intInfo(scalar_ty) == null) break :fallback try cg.airCmp(inst, switch (air_tag) {
+                if (cg.intInfo(scalar_ty) == null and cg.floatBits(scalar_ty) == null) break :fallback try cg.airCmp(inst, switch (air_tag) {
                     else => unreachable,
                     .cmp_eq, .cmp_eq_optimized => .eq,
                     .cmp_neq, .cmp_neq_optimized => .neq,
@@ -10424,6 +10477,10 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         } },
                     }, .{
                         .required_features = .{ .avx2, null, null, null },
+                        .src_constraints = .{
+                            .{ .remainder_int = .{ .of = .yword, .is = .yword } },
+                            .{ .remainder_int = .{ .of = .yword, .is = .yword } },
+                        },
                         .patterns = &.{
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
@@ -10481,6 +10538,10 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         } },
                     }, .{
                         .required_features = .{ .avx, null, null, null },
+                        .src_constraints = .{
+                            .{ .remainder_int = .{ .of = .yword, .is = .yword } },
+                            .{ .remainder_int = .{ .of = .yword, .is = .yword } },
+                        },
                         .patterns = &.{
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
@@ -10506,6 +10567,10 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         } },
                     }, .{
                         .required_features = .{ .avx, null, null, null },
+                        .src_constraints = .{
+                            .{ .remainder_int = .{ .of = .xword, .is = .xword } },
+                            .{ .remainder_int = .{ .of = .xword, .is = .xword } },
+                        },
                         .patterns = &.{
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
@@ -10531,6 +10596,10 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         } },
                     }, .{
                         .required_features = .{ .sse4_1, null, null, null },
+                        .src_constraints = .{
+                            .{ .remainder_int = .{ .of = .xword, .is = .xword } },
+                            .{ .remainder_int = .{ .of = .xword, .is = .xword } },
+                        },
                         .patterns = &.{
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
@@ -10556,6 +10625,10 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         } },
                     }, .{
                         .required_features = .{ .sse2, null, null, null },
+                        .src_constraints = .{
+                            .{ .remainder_int = .{ .of = .xword, .is = .xword } },
+                            .{ .remainder_int = .{ .of = .xword, .is = .xword } },
+                        },
                         .patterns = &.{
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
@@ -10584,6 +10657,10 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         } },
                     }, .{
                         .required_features = .{ .sse, .mmx, null, null },
+                        .src_constraints = .{
+                            .{ .remainder_int = .{ .of = .qword, .is = .qword } },
+                            .{ .remainder_int = .{ .of = .qword, .is = .qword } },
+                        },
                         .patterns = &.{
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
@@ -10611,6 +10688,10 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ ._, ._, .cmp, .tmp0d, .si(0xff), ._, ._ },
                         } },
                     }, .{
+                        .src_constraints = .{
+                            .{ .remainder_int = .{ .of = .qword, .is = .qword } },
+                            .{ .remainder_int = .{ .of = .qword, .is = .qword } },
+                        },
                         .patterns = &.{
                             .{ .src = .{ .to_mem, .to_mem } },
                         },
@@ -10634,6 +10715,443 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ ._, ._nc, .j, .@"0b", ._, ._, ._ },
                             .{ ._, ._, .@"test", .tmp1p, .tmp1p, ._, ._ },
                         } },
+                    }, .{
+                        .required_features = .{ .f16c, null, null, null },
+                        .src_constraints = .{ .{ .float = .word }, .{ .float = .word } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_sse, .to_sse } },
+                        },
+                        .extra_temps = .{
+                            .{ .kind = .{ .rc = .sse } },
+                            .{ .kind = .{ .rc = .sse } },
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = switch (cc) {
+                            else => unreachable,
+                            .e => .z_and_np,
+                            .ne => .nz_or_p,
+                        } }},
+                        .clobbers = .{ .eflags = true },
+                        .each = .{ .once = &.{
+                            .{ ._, .vp_, .unpcklwd, .tmp0x, .src0x, .src1x, ._ },
+                            .{ ._, .v_ps, .cvtph2, .tmp0x, .tmp0x, ._, ._ },
+                            .{ ._, .v_, .movshdup, .tmp1x, .tmp0x, ._, ._ },
+                            .{ ._, .v_ss, .ucomi, .tmp0x, .tmp1x, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .sse, null, null, null },
+                        .src_constraints = .{ .{ .float = .word }, .{ .float = .word } },
+                        .patterns = &.{
+                            .{ .src = .{ .{ .to_reg = .xmm0 }, .{ .to_reg = .xmm1 } } },
+                        },
+                        .call_frame = .{ .size = 0, .alignment = .@"16" },
+                        .extra_temps = .{
+                            .{ .type = .usize, .kind = .{ .symbol = &.{ .name = switch (cc) {
+                                else => unreachable,
+                                .e => "__eqhf2",
+                                .ne => "__nehf2",
+                            } } } },
+                            .{ .type = .i32, .kind = .{ .reg = .eax } },
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = cc }},
+                        .clobbers = .{ .eflags = true, .caller_preserved = .ccc },
+                        .each = .{ .once = &.{
+                            .{ ._, ._, .call, .tmp0p, ._, ._, ._ },
+                            .{ ._, ._, .@"test", .tmp1d, .tmp1d, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .avx, null, null, null },
+                        .src_constraints = .{ .{ .float = .dword }, .{ .float = .dword } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_sse, .mem } },
+                            .{ .src = .{ .mem, .to_sse }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .to_sse, .to_sse } },
+                        },
+                        .extra_temps = .{
+                            .{ .type = .f16, .kind = .{ .rc = .sse } },
+                            .{ .type = .f16, .kind = .{ .rc = .sse } },
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = switch (cc) {
+                            else => unreachable,
+                            .e => .z_and_np,
+                            .ne => .nz_or_p,
+                        } }},
+                        .clobbers = .{ .eflags = true },
+                        .each = .{ .once = &.{
+                            .{ ._, .v_ss, .ucomi, .src0x, .src1d, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .sse, null, null, null },
+                        .src_constraints = .{ .{ .float = .dword }, .{ .float = .dword } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_sse, .mem } },
+                            .{ .src = .{ .mem, .to_sse }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .to_sse, .to_sse } },
+                        },
+                        .extra_temps = .{
+                            .{ .type = .f16, .kind = .{ .rc = .sse } },
+                            .{ .type = .f16, .kind = .{ .rc = .sse } },
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = switch (cc) {
+                            else => unreachable,
+                            .e => .z_and_np,
+                            .ne => .nz_or_p,
+                        } }},
+                        .clobbers = .{ .eflags = true },
+                        .each = .{ .once = &.{
+                            .{ ._, ._ss, .ucomi, .src0x, .src1d, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .sse, null, null, null },
+                        .src_constraints = .{ .{ .float = .dword }, .{ .float = .word } },
+                        .patterns = &.{
+                            .{ .src = .{ .{ .to_reg = .xmm0 }, .{ .to_reg = .xmm1 } } },
+                        },
+                        .call_frame = .{ .size = 0, .alignment = .@"16" },
+                        .extra_temps = .{
+                            .{ .type = .usize, .kind = .{ .symbol = &.{ .name = switch (cc) {
+                                else => unreachable,
+                                .e => "__eqsf2",
+                                .ne => "__nesf2",
+                            } } } },
+                            .{ .type = .i32, .kind = .{ .reg = .eax } },
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = cc }},
+                        .clobbers = .{ .eflags = true, .caller_preserved = .ccc },
+                        .each = .{ .once = &.{
+                            .{ ._, ._, .call, .tmp0p, ._, ._, ._ },
+                            .{ ._, ._, .@"test", .tmp1d, .tmp1d, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .avx, null, null, null },
+                        .src_constraints = .{ .{ .float = .qword }, .{ .float = .qword } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_sse, .mem } },
+                            .{ .src = .{ .mem, .to_sse }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .to_sse, .to_sse } },
+                        },
+                        .extra_temps = .{
+                            .{ .type = .f16, .kind = .{ .rc = .sse } },
+                            .{ .type = .f16, .kind = .{ .rc = .sse } },
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = switch (cc) {
+                            else => unreachable,
+                            .e => .z_and_np,
+                            .ne => .nz_or_p,
+                        } }},
+                        .clobbers = .{ .eflags = true },
+                        .each = .{ .once = &.{
+                            .{ ._, .v_sd, .ucomi, .src0x, .src1q, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .sse2, null, null, null },
+                        .src_constraints = .{ .{ .float = .qword }, .{ .float = .qword } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_sse, .mem } },
+                            .{ .src = .{ .mem, .to_sse }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .to_sse, .to_sse } },
+                        },
+                        .extra_temps = .{
+                            .{ .type = .f16, .kind = .{ .rc = .sse } },
+                            .{ .type = .f16, .kind = .{ .rc = .sse } },
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = switch (cc) {
+                            else => unreachable,
+                            .e => .z_and_np,
+                            .ne => .nz_or_p,
+                        } }},
+                        .clobbers = .{ .eflags = true },
+                        .each = .{ .once = &.{
+                            .{ ._, ._sd, .ucomi, .src0x, .src1q, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .sse, null, null, null },
+                        .src_constraints = .{ .{ .float = .qword }, .{ .float = .qword } },
+                        .patterns = &.{
+                            .{ .src = .{ .{ .to_reg = .xmm0 }, .{ .to_reg = .xmm1 } } },
+                        },
+                        .call_frame = .{ .size = 0, .alignment = .@"16" },
+                        .extra_temps = .{
+                            .{ .type = .usize, .kind = .{ .symbol = &.{ .name = switch (cc) {
+                                else => unreachable,
+                                .e => "__eqdf2",
+                                .ne => "__nedf2",
+                            } } } },
+                            .{ .type = .i32, .kind = .{ .reg = .eax } },
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = cc }},
+                        .clobbers = .{ .eflags = true, .caller_preserved = .ccc },
+                        .each = .{ .once = &.{
+                            .{ ._, ._, .call, .tmp0p, ._, ._, ._ },
+                            .{ ._, ._, .@"test", .tmp1d, .tmp1d, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .x87, .cmov, null, null },
+                        .src_constraints = .{ .{ .float = .tbyte }, .{ .float = .tbyte } },
+                        .patterns = &.{
+                            .{ .src = .{ .mem, .mem } },
+                        },
+                        .extra_temps = .{
+                            .{ .type = .f80, .kind = .{ .reg = .st6 } },
+                            .{ .type = .f80, .kind = .{ .reg = .st7 } },
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = switch (cc) {
+                            else => unreachable,
+                            .e => .z_and_np,
+                            .ne => .nz_or_p,
+                        } }},
+                        .clobbers = .{ .eflags = true },
+                        .each = .{ .once = &.{
+                            .{ ._, .f_, .ld, .src1t, ._, ._, ._ },
+                            .{ ._, .f_, .ld, .src0t, ._, ._, ._ },
+                            .{ ._, .f_p, .ucomi, .tmp0t, .tmp1t, ._, ._ },
+                            .{ ._, .f_p, .st, .tmp1t, ._, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .x87, .cmov, null, null },
+                        .src_constraints = .{ .{ .float = .tbyte }, .{ .float = .tbyte } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_x87, .mem }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .mem, .to_x87 } },
+                            .{ .src = .{ .to_x87, .to_x87 } },
+                        },
+                        .extra_temps = .{
+                            .{ .type = .f80, .kind = .{ .reg = .st7 } },
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = switch (cc) {
+                            else => unreachable,
+                            .e => .z_and_np,
+                            .ne => .nz_or_p,
+                        } }},
+                        .clobbers = .{ .eflags = true },
+                        .each = .{ .once = &.{
+                            .{ ._, .f_, .ld, .src0t, ._, ._, ._ },
+                            .{ ._, .f_p, .ucomi, .tmp0t, .src1t, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .sahf, .x87, null, null },
+                        .src_constraints = .{ .{ .float = .tbyte }, .{ .float = .tbyte } },
+                        .patterns = &.{
+                            .{ .src = .{ .mem, .mem } },
+                        },
+                        .extra_temps = .{
+                            .{ .type = .f80, .kind = .{ .reg = .st6 } },
+                            .{ .type = .f80, .kind = .{ .reg = .st7 } },
+                            .{ .type = .u16, .kind = .{ .reg = .ax } },
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = switch (cc) {
+                            else => unreachable,
+                            .e => .z_and_np,
+                            .ne => .nz_or_p,
+                        } }},
+                        .clobbers = .{ .eflags = true },
+                        .each = .{ .once = &.{
+                            .{ ._, .f_, .ld, .src1t, ._, ._, ._ },
+                            .{ ._, .f_, .ld, .src0t, ._, ._, ._ },
+                            .{ ._, .f_pp, .ucom, ._, ._, ._, ._ },
+                            .{ ._, .fn_sw, .st, .tmp2w, ._, ._, ._ },
+                            .{ ._, ._, .sahf, ._, ._, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .@"64bit", .x87, null, null },
+                        .src_constraints = .{ .{ .float = .tbyte }, .{ .float = .tbyte } },
+                        .patterns = &.{
+                            .{ .src = .{ .mem, .mem } },
+                        },
+                        .extra_temps = .{
+                            .{ .type = .f80, .kind = .{ .reg = .st6 } },
+                            .{ .type = .f80, .kind = .{ .reg = .st7 } },
+                            .{ .type = .u16, .kind = .{ .reg = .ax } },
+                            .{ .type = .u8, .kind = .{ .reg = .ah } },
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = cc }},
+                        .clobbers = .{ .eflags = true },
+                        .each = .{ .once = &.{
+                            .{ ._, .f_, .ld, .src1t, ._, ._, ._ },
+                            .{ ._, .f_, .ld, .src0t, ._, ._, ._ },
+                            .{ ._, .f_pp, .ucom, ._, ._, ._, ._ },
+                            .{ ._, .fn_sw, .st, .tmp2w, ._, ._, ._ },
+                            .{ ._, ._, .xor, .tmp3b, .si(0b0_1_000_000), ._, ._ },
+                            .{ ._, ._, .@"test", .tmp3b, .si(0b0_1_000_100), ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .x87, null, null, null },
+                        .src_constraints = .{ .{ .float = .tbyte }, .{ .float = .tbyte } },
+                        .patterns = &.{
+                            .{ .src = .{ .mem, .mem } },
+                        },
+                        .extra_temps = .{
+                            .{ .type = .f80, .kind = .{ .reg = .st6 } },
+                            .{ .type = .f80, .kind = .{ .reg = .st7 } },
+                            .{ .type = .u16, .kind = .{ .reg = .ax } },
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = switch (cc) {
+                            else => unreachable,
+                            .e => .z_and_np,
+                            .ne => .nz_or_p,
+                        } }},
+                        .clobbers = .{ .eflags = true },
+                        .each = .{ .once = &.{
+                            .{ ._, .f_, .ld, .src1t, ._, ._, ._ },
+                            .{ ._, .f_, .ld, .src0t, ._, ._, ._ },
+                            .{ ._, .f_pp, .ucom, ._, ._, ._, ._ },
+                            .{ ._, .fn_sw, .st, .tmp2w, ._, ._, ._ },
+                            .{ ._, ._, .sahf, ._, ._, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .sahf, .x87, null, null },
+                        .src_constraints = .{ .{ .float = .tbyte }, .{ .float = .tbyte } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_x87, .mem }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .mem, .to_x87 } },
+                            .{ .src = .{ .to_x87, .to_x87 } },
+                        },
+                        .extra_temps = .{
+                            .{ .type = .f80, .kind = .{ .reg = .st6 } },
+                            .{ .type = .f80, .kind = .{ .reg = .st7 } },
+                            .{ .type = .u16, .kind = .{ .reg = .ax } },
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = switch (cc) {
+                            else => unreachable,
+                            .e => .z_and_np,
+                            .ne => .nz_or_p,
+                        } }},
+                        .clobbers = .{ .eflags = true },
+                        .each = .{ .once = &.{
+                            .{ ._, .f_, .ld, .src0t, ._, ._, ._ },
+                            .{ ._, .f_p, .ucom, .src1t, ._, ._, ._ },
+                            .{ ._, .fn_sw, .st, .tmp2w, ._, ._, ._ },
+                            .{ ._, ._, .sahf, ._, ._, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .@"64bit", .x87, null, null },
+                        .src_constraints = .{ .{ .float = .tbyte }, .{ .float = .tbyte } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_x87, .mem }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .mem, .to_x87 } },
+                            .{ .src = .{ .to_x87, .to_x87 } },
+                        },
+                        .extra_temps = .{
+                            .{ .type = .f80, .kind = .{ .reg = .st6 } },
+                            .{ .type = .f80, .kind = .{ .reg = .st7 } },
+                            .{ .type = .u16, .kind = .{ .reg = .ax } },
+                            .{ .type = .u8, .kind = .{ .reg = .ah } },
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = cc }},
+                        .clobbers = .{ .eflags = true },
+                        .each = .{ .once = &.{
+                            .{ ._, .f_, .ld, .src0t, ._, ._, ._ },
+                            .{ ._, .f_p, .ucom, .src1t, ._, ._, ._ },
+                            .{ ._, .fn_sw, .st, .tmp2w, ._, ._, ._ },
+                            .{ ._, ._, .xor, .tmp3b, .si(0b0_1_000_000), ._, ._ },
+                            .{ ._, ._, .@"test", .tmp3b, .si(0b0_1_000_100), ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .x87, null, null, null },
+                        .src_constraints = .{ .{ .float = .tbyte }, .{ .float = .tbyte } },
+                        .patterns = &.{
+                            .{ .src = .{ .to_x87, .mem }, .commute = .{ 0, 1 } },
+                            .{ .src = .{ .mem, .to_x87 } },
+                            .{ .src = .{ .to_x87, .to_x87 } },
+                        },
+                        .extra_temps = .{
+                            .{ .type = .f80, .kind = .{ .reg = .st6 } },
+                            .{ .type = .f80, .kind = .{ .reg = .st7 } },
+                            .{ .type = .u16, .kind = .{ .reg = .ax } },
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = switch (cc) {
+                            else => unreachable,
+                            .e => .z_and_np,
+                            .ne => .nz_or_p,
+                        } }},
+                        .clobbers = .{ .eflags = true },
+                        .each = .{ .once = &.{
+                            .{ ._, .f_, .ld, .src0t, ._, ._, ._ },
+                            .{ ._, .f_p, .ucom, .src1t, ._, ._, ._ },
+                            .{ ._, .fn_sw, .st, .tmp2w, ._, ._, ._ },
+                            .{ ._, ._, .sahf, ._, ._, ._, ._ },
+                        } },
+                    }, .{
+                        .required_features = .{ .sse, null, null, null },
+                        .src_constraints = .{ .{ .float = .xword }, .{ .float = .xword } },
+                        .patterns = &.{
+                            .{ .src = .{ .{ .to_reg = .xmm0 }, .{ .to_reg = .xmm1 } } },
+                        },
+                        .call_frame = .{ .size = 0, .alignment = .@"16" },
+                        .extra_temps = .{
+                            .{ .type = .usize, .kind = .{ .symbol = &.{ .name = switch (cc) {
+                                else => unreachable,
+                                .e => "__eqtf2",
+                                .ne => "__netf2",
+                            } } } },
+                            .{ .type = .i32, .kind = .{ .reg = .eax } },
+                            .unused,
+                            .unused,
+                            .unused,
+                            .unused,
+                        },
+                        .dst_temps = .{.{ .cc = cc }},
+                        .clobbers = .{ .eflags = true, .caller_preserved = .ccc },
+                        .each = .{ .once = &.{
+                            .{ ._, ._, .call, .tmp0p, ._, ._, ._ },
+                            .{ ._, ._, .@"test", .tmp1d, .tmp1d, ._, ._ },
+                        } },
                     } },
                 }) catch |err| switch (err) {
                     error.SelectFailed => return cg.fail("failed to select {s} {} {} {}", .{
@@ -10644,10 +11162,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     }),
                     else => |e| return e,
                 };
-                for (ops) |op| for (res) |r| {
-                    if (op.index == r.index) break;
-                } else try op.die(cg);
-                try res[0].moveTo(inst, cg);
+                try res[0].finish(inst, &.{ bin_op.lhs, bin_op.rhs }, &ops, cg);
             },
 
             .cond_br => try cg.airCondBr(inst),
@@ -10718,9 +11233,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .fromSize(opt_child_abi_size) }),
                     .u(0),
                 );
-                var is_null = try cg.tempInit(.bool, .{ .eflags = .e });
-                try ops[0].die(cg);
-                try is_null.moveTo(inst, cg);
+                const is_null = try cg.tempInit(.bool, .{ .eflags = .e });
+                try is_null.finish(inst, &.{un_op}, &ops, cg);
             },
             .is_non_null_ptr => if (use_old) try cg.airIsNonNullPtr(inst) else {
                 const un_op = air_datas[@intFromEnum(inst)].un_op;
@@ -10741,9 +11255,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .fromSize(opt_child_abi_size) }),
                     .u(0),
                 );
-                var is_non_null = try cg.tempInit(.bool, .{ .eflags = .ne });
-                try ops[0].die(cg);
-                try is_non_null.moveTo(inst, cg);
+                const is_non_null = try cg.tempInit(.bool, .{ .eflags = .ne });
+                try is_non_null.finish(inst, &.{un_op}, &ops, cg);
             },
             .is_err_ptr => if (use_old) try cg.airIsErrPtr(inst) else {
                 const un_op = air_datas[@intFromEnum(inst)].un_op;
@@ -10759,9 +11272,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     try ops[0].tracking(cg).short.deref().mem(cg, .{ .size = cg.memSize(eu_err_ty) }),
                     .u(0),
                 );
-                var is_err = try cg.tempInit(.bool, .{ .eflags = .ne });
-                try ops[0].die(cg);
-                try is_err.moveTo(inst, cg);
+                const is_err = try cg.tempInit(.bool, .{ .eflags = .ne });
+                try is_err.finish(inst, &.{un_op}, &ops, cg);
             },
             .is_non_err_ptr => if (use_old) try cg.airIsNonErrPtr(inst) else {
                 const un_op = air_datas[@intFromEnum(inst)].un_op;
@@ -10777,9 +11289,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     try ops[0].tracking(cg).short.deref().mem(cg, .{ .size = cg.memSize(eu_err_ty) }),
                     .u(0),
                 );
-                var is_non_err = try cg.tempInit(.bool, .{ .eflags = .e });
-                try ops[0].die(cg);
-                try is_non_err.moveTo(inst, cg);
+                const is_non_err = try cg.tempInit(.bool, .{ .eflags = .e });
+                try is_non_err.finish(inst, &.{un_op}, &ops, cg);
             },
             .load => if (use_old) try cg.airLoad(inst) else fallback: {
                 const ty_op = air_datas[@intFromEnum(inst)].ty_op;
@@ -10790,26 +11301,25 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     (ptr_info.flags.vector_index == .none or val_ty.toIntern() == .bool_type))
                     break :fallback try cg.airLoad(inst);
                 var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
-                var res = try ops[0].load(val_ty, .{
+                const res = try ops[0].load(val_ty, .{
                     .disp = switch (ptr_info.flags.vector_index) {
                         .none => 0,
                         .runtime => unreachable,
                         else => |vector_index| @intCast(val_ty.abiSize(zcu) * @intFromEnum(vector_index)),
                     },
                 }, cg);
-                for (ops) |op| if (op.index != res.index) try op.die(cg);
-                try res.moveTo(inst, cg);
+                try res.finish(inst, &.{ty_op.operand}, &ops, cg);
             },
             .int_from_ptr => if (use_old) try cg.airIntFromPtr(inst) else {
                 const un_op = air_datas[@intFromEnum(inst)].un_op;
                 var ops = try cg.tempsFromOperands(inst, .{un_op});
                 try ops[0].toSlicePtr(cg);
-                try ops[0].moveTo(inst, cg);
+                try ops[0].finish(inst, &.{un_op}, &ops, cg);
             },
             .int_from_bool => if (use_old) try cg.airIntFromBool(inst) else {
                 const un_op = air_datas[@intFromEnum(inst)].un_op;
-                var ops = try cg.tempsFromOperands(inst, .{un_op});
-                try ops[0].moveTo(inst, cg);
+                const ops = try cg.tempsFromOperands(inst, .{un_op});
+                try ops[0].finish(inst, &.{un_op}, &ops, cg);
             },
             .ret => try cg.airRet(inst, false),
             .ret_safe => try cg.airRet(inst, true),
@@ -10848,8 +11358,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .unreach => {},
             .optional_payload_ptr => if (use_old) try cg.airOptionalPayloadPtr(inst) else {
                 const ty_op = air_datas[@intFromEnum(inst)].ty_op;
-                var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
-                try ops[0].moveTo(inst, cg);
+                const ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
+                try ops[0].finish(inst, &.{ty_op.operand}, &ops, cg);
             },
             .optional_payload_ptr_set => if (use_old) try cg.airOptionalPayloadPtrSet(inst) else {
                 const ty_op = air_datas[@intFromEnum(inst)].ty_op;
@@ -10864,7 +11374,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     try has_value.die(cg);
                     try ops[0].toOffset(-opt_child_abi_size, cg);
                 }
-                try ops[0].moveTo(inst, cg);
+                try ops[0].finish(inst, &.{ty_op.operand}, &ops, cg);
             },
             .unwrap_errunion_payload_ptr => if (use_old) try cg.airUnwrapErrUnionPayloadPtr(inst) else {
                 const ty_op = air_datas[@intFromEnum(inst)].ty_op;
@@ -10873,7 +11383,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 const eu_pl_off: i32 = @intCast(codegen.errUnionPayloadOffset(eu_pl_ty, zcu));
                 var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
                 try ops[0].toOffset(eu_pl_off, cg);
-                try ops[0].moveTo(inst, cg);
+                try ops[0].finish(inst, &.{ty_op.operand}, &ops, cg);
             },
             .unwrap_errunion_err_ptr => if (use_old) try cg.airUnwrapErrUnionErrPtr(inst) else {
                 const ty_op = air_datas[@intFromEnum(inst)].ty_op;
@@ -10882,9 +11392,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 const eu_err_off: i32 = @intCast(codegen.errUnionErrorOffset(eu_pl_ty, zcu));
                 var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
                 try ops[0].toOffset(eu_err_off, cg);
-                var err = try ops[0].load(eu_ty.errorUnionSet(zcu), .{}, cg);
-                try ops[0].die(cg);
-                try err.moveTo(inst, cg);
+                const err = try ops[0].load(eu_ty.errorUnionSet(zcu), .{}, cg);
+                try err.finish(inst, &.{ty_op.operand}, &ops, cg);
             },
             .errunion_payload_ptr_set => if (use_old) try cg.airErrUnionPayloadPtrSet(inst) else {
                 const ty_op = air_datas[@intFromEnum(inst)].ty_op;
@@ -10899,7 +11408,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 try ops[0].store(&no_err, .{}, cg);
                 try no_err.die(cg);
                 try ops[0].toOffset(eu_pl_off - eu_err_off, cg);
-                try ops[0].moveTo(inst, cg);
+                try ops[0].finish(inst, &.{ty_op.operand}, &ops, cg);
             },
             .struct_field_ptr => if (use_old) try cg.airStructFieldPtr(inst) else {
                 const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
@@ -10910,7 +11419,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     ty_pl.ty.toType(),
                     extra.field_index,
                 ), cg);
-                try ops[0].moveTo(inst, cg);
+                try ops[0].finish(inst, &.{extra.struct_operand}, &ops, cg);
             },
             .struct_field_ptr_index_0,
             .struct_field_ptr_index_1,
@@ -10936,7 +11445,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         .struct_field_ptr_index_3 => 3,
                     },
                 ), cg);
-                try ops[0].moveTo(inst, cg);
+                try ops[0].finish(inst, &.{ty_op.operand}, &ops, cg);
             },
             .struct_field_val => if (use_old) try cg.airStructFieldVal(inst) else fallback: {
                 const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
@@ -10953,8 +11462,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     try ops[0].read(field_ty, .{ .disp = field_off }, cg)
                 else
                     try cg.tempInit(field_ty, .none);
-                for (ops) |op| if (op.index != res.index) try op.die(cg);
-                try res.moveTo(inst, cg);
+                try res.finish(inst, &.{extra.struct_operand}, &ops, cg);
             },
             .set_union_tag => if (use_old) try cg.airSetUnionTag(inst) else {
                 const bin_op = air_datas[@intFromEnum(inst)].bin_op;
@@ -10965,7 +11473,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 if (union_layout.tag_size > 0) try ops[0].store(&ops[1], .{
                     .disp = @intCast(union_layout.tagOffset()),
                 }, cg);
-                for (ops) |op| try op.die(cg);
+                const res = try cg.tempInit(.void, .none);
+                try res.finish(inst, &.{ bin_op.lhs, bin_op.rhs }, &ops, cg);
             },
             .get_union_tag => if (use_old) try cg.airGetUnionTag(inst) else {
                 const ty_op = air_datas[@intFromEnum(inst)].ty_op;
@@ -10973,42 +11482,41 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
                 const union_layout = union_ty.unionGetLayout(zcu);
                 assert(union_layout.tag_size > 0);
-                var res = try ops[0].read(ty_op.ty.toType(), .{
+                const res = try ops[0].read(ty_op.ty.toType(), .{
                     .disp = @intCast(union_layout.tagOffset()),
                 }, cg);
-                for (ops) |op| if (op.index != res.index) try op.die(cg);
-                try res.moveTo(inst, cg);
+                try res.finish(inst, &.{ty_op.operand}, &ops, cg);
             },
             .slice => if (use_old) try cg.airSlice(inst) else {
                 const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
                 const bin_op = cg.air.extraData(Air.Bin, ty_pl.payload).data;
                 var ops = try cg.tempsFromOperands(inst, .{ bin_op.lhs, bin_op.rhs });
                 try ops[0].toPair(&ops[1], cg);
-                try ops[0].moveTo(inst, cg);
+                try ops[0].finish(inst, &.{ bin_op.lhs, bin_op.rhs }, &ops, cg);
             },
             .slice_len => if (use_old) try cg.airSliceLen(inst) else {
                 const ty_op = air_datas[@intFromEnum(inst)].ty_op;
                 var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
                 try ops[0].toSliceLen(cg);
-                try ops[0].moveTo(inst, cg);
+                try ops[0].finish(inst, &.{ty_op.operand}, &ops, cg);
             },
             .slice_ptr => if (use_old) try cg.airSlicePtr(inst) else {
                 const ty_op = air_datas[@intFromEnum(inst)].ty_op;
                 var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
                 try ops[0].toSlicePtr(cg);
-                try ops[0].moveTo(inst, cg);
+                try ops[0].finish(inst, &.{ty_op.operand}, &ops, cg);
             },
             .ptr_slice_len_ptr => if (use_old) try cg.airPtrSliceLenPtr(inst) else {
                 const ty_op = air_datas[@intFromEnum(inst)].ty_op;
                 var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
                 try ops[0].toOffset(8, cg);
-                try ops[0].moveTo(inst, cg);
+                try ops[0].finish(inst, &.{ty_op.operand}, &ops, cg);
             },
             .ptr_slice_ptr_ptr => if (use_old) try cg.airPtrSlicePtrPtr(inst) else {
                 const ty_op = air_datas[@intFromEnum(inst)].ty_op;
                 var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
                 try ops[0].toOffset(0, cg);
-                try ops[0].moveTo(inst, cg);
+                try ops[0].finish(inst, &.{ty_op.operand}, &ops, cg);
             },
             .slice_elem_val, .ptr_elem_val => |air_tag| if (use_old) switch (air_tag) {
                 else => unreachable,
@@ -11139,10 +11647,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     // hack around Sema OPV bugs
                     res[0] = try cg.tempInit(res_ty, .none);
                 }
-                for (ops) |op| for (res) |r| {
-                    if (op.index == r.index) break;
-                } else try op.die(cg);
-                try res[0].moveTo(inst, cg);
+                try res[0].finish(inst, &.{ bin_op.lhs, bin_op.rhs }, &ops, cg);
             },
             .slice_elem_ptr, .ptr_elem_ptr => |air_tag| if (use_old) switch (air_tag) {
                 else => unreachable,
@@ -11195,8 +11700,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         } },
                     });
                 }
-                try ops[1].die(cg);
-                try ops[0].moveTo(inst, cg);
+                try ops[0].finish(inst, &.{ bin_op.lhs, bin_op.rhs }, &ops, cg);
             },
             .array_to_slice => if (use_old) try cg.airArrayToSlice(inst) else {
                 const ty_op = air_datas[@intFromEnum(inst)].ty_op;
@@ -11205,7 +11709,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     .immediate = cg.typeOf(ty_op.operand).childType(zcu).arrayLen(zcu),
                 });
                 try ops[0].toPair(&len, cg);
-                try ops[0].moveTo(inst, cg);
+                try ops[0].finish(inst, &.{ty_op.operand}, &ops, cg);
             },
             .error_set_has_value => return cg.fail("TODO implement error_set_has_value", .{}),
             .union_init => if (use_old) try cg.airUnionInit(inst) else {
@@ -11228,8 +11732,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 try res.write(&ops[0], .{
                     .disp = @intCast(union_layout.payloadOffset()),
                 }, cg);
-                try ops[0].die(cg);
-                try res.moveTo(inst, cg);
+                try res.finish(inst, &.{extra.init}, &ops, cg);
             },
             .field_parent_ptr => if (use_old) try cg.airFieldParentPtr(inst) else {
                 const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
@@ -11240,7 +11743,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     cg.typeOf(extra.field_ptr),
                     extra.field_index,
                 ), cg);
-                try ops[0].moveTo(inst, cg);
+                try ops[0].finish(inst, &.{extra.field_ptr}, &ops, cg);
             },
 
             .is_named_enum_value => return cg.fail("TODO implement is_named_enum_value", .{}),
@@ -11274,8 +11777,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
 
             .addrspace_cast => {
                 const ty_op = air_datas[@intFromEnum(inst)].ty_op;
-                var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
-                try ops[0].moveTo(inst, cg);
+                const ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
+                try ops[0].finish(inst, &.{ty_op.operand}, &ops, cg);
             },
 
             .save_err_return_trace_index => {
@@ -21474,11 +21977,16 @@ fn airRet(self: *CodeGen, inst: Air.Inst.Index, safety: bool) !void {
     const ret_ty = self.fn_type.fnReturnType(zcu);
     switch (self.ret_mcv.short) {
         .none => {},
-        .register,
-        .register_pair,
-        .register_triple,
-        .register_quadruple,
-        => try self.genCopy(ret_ty, self.ret_mcv.short, .{ .air_ref = un_op }, .{ .safety = safety }),
+        .register => |reg| {
+            const reg_lock = self.register_manager.lockRegAssumeUnused(reg);
+            defer self.register_manager.unlockReg(reg_lock);
+            try self.genCopy(ret_ty, self.ret_mcv.short, .{ .air_ref = un_op }, .{ .safety = safety });
+        },
+        inline .register_pair, .register_triple, .register_quadruple => |regs| {
+            const reg_locks = self.register_manager.lockRegsAssumeUnused(regs.len, regs);
+            defer for (reg_locks) |reg_lock| self.register_manager.unlockReg(reg_lock);
+            try self.genCopy(ret_ty, self.ret_mcv.short, .{ .air_ref = un_op }, .{ .safety = safety });
+        },
         .indirect => |reg_off| {
             try self.register_manager.getReg(reg_off.reg, null);
             const lock = self.register_manager.lockRegAssumeUnused(reg_off.reg);
@@ -29772,6 +30280,7 @@ const Temp = struct {
         cg.temp_type[@intFromEnum(result_temp_index)] = .slice_const_u8;
         result_temp_index.tracking(cg).* = .init(result);
         first_temp.* = result_temp;
+        second_temp.* = result_temp;
     }
 
     fn asMask(temp: Temp, info: MaskInfo, cg: *CodeGen) void {
@@ -30248,7 +30757,20 @@ const Temp = struct {
         try cg.asmOpOnly(.{ .@"rep _sb", .sto });
     }
 
-    fn moveTo(temp: Temp, inst: Air.Inst.Index, cg: *CodeGen) !void {
+    fn finish(
+        temp: Temp,
+        inst: Air.Inst.Index,
+        op_refs: []const Air.Inst.Ref,
+        op_temps: []const Temp,
+        cg: *CodeGen,
+    ) !void {
+        const tomb_bits = cg.liveness.getTombBits(inst);
+        for (0.., op_refs, op_temps) |op_index, op_ref, op_temp| {
+            if (op_temp.index != temp.index) try op_temp.die(cg);
+            if (tomb_bits & @as(Liveness.Bpi, 1) << @intCast(op_index) == 0) continue;
+            if (cg.reused_operands.isSet(op_index)) continue;
+            try cg.processDeath(op_ref.toIndexAllowNone() orelse continue);
+        }
         if (cg.liveness.isUnused(inst)) try temp.die(cg) else switch (temp.unwrap(cg)) {
             .ref, .err_ret_trace => {
                 const result = try cg.allocRegOrMem(inst, true);
@@ -30529,81 +31051,112 @@ const Select = struct {
         };
         switch (mir_tag[0]) {
             .f_ => switch (mir_tag[1]) {
-                .abs, .st => {},
+                .@"2xm1",
+                .abs,
+                .add,
+                .chs,
+                .clex,
+                .com,
+                .comi,
+                .cos,
+                .div,
+                .divr,
+                .free,
+                .mul,
+                .nop,
+                .prem,
+                .rndint,
+                .scale,
+                .sin,
+                .sqrt,
+                .st,
+                .sub,
+                .subr,
+                .tst,
+                .ucom,
+                .ucomi,
+                .wait,
+                .xam,
+                .xch,
+                => {},
+                .init, .save => s.top = 0,
+                .ld, .ptan, .sincos, .xtract => s.top -%= 1,
+                .patan, .yl2x => s.top +%= 1,
+                .rstor => unreachable,
+                else => unreachable,
+            },
+            .f_1 => switch (mir_tag[1]) {
                 .ld => s.top -%= 1,
-                else => {
-                    const fixes = @tagName(mir_tag[0]);
-                    const fixes_blank = std.mem.indexOfScalar(u8, fixes, '_').?;
-                    std.debug.panic("{s}: {s}{s}{s}\n", .{
-                        @src().fn_name,
-                        fixes[0..fixes_blank],
-                        @tagName(mir_tag[1]),
-                        fixes[fixes_blank + 1 ..],
-                    });
-                },
+                .prem => {},
+                else => unreachable,
             },
-            .f_p => switch (mir_tag[1]) {
-                .st => s.top +%= 1,
-                else => {
-                    const fixes = @tagName(mir_tag[0]);
-                    const fixes_blank = std.mem.indexOfScalar(u8, fixes, '_').?;
-                    std.debug.panic("{s}: {s}{s}{s}\n", .{
-                        @src().fn_name,
-                        fixes[0..fixes_blank],
-                        @tagName(mir_tag[1]),
-                        fixes[fixes_blank + 1 ..],
-                    });
-                },
+            .f_b, .f_be, .f_e, .f_nb, .f_nbe, .f_ne, .f_nu, .f_u => switch (mir_tag[1]) {
+                .cmov => {},
+                else => unreachable,
             },
-            .f_1,
-            => switch (mir_tag[1]) {
-                .ld => s.top -%= 1,
-                else => {
-                    const fixes = @tagName(mir_tag[0]);
-                    const fixes_blank = std.mem.indexOfScalar(u8, fixes, '_').?;
-                    std.debug.panic("{s}: {s}{s}{s}\n", .{
-                        @src().fn_name,
-                        fixes[0..fixes_blank],
-                        @tagName(mir_tag[1]),
-                        fixes[fixes_blank + 1 ..],
-                    });
-                },
+            .f_cw, .f_env, .f_sw => switch (mir_tag[1]) {
+                .ld, .st => {},
+                else => unreachable,
             },
-            .f_l2e,
-            .f_l2t,
-            .f_lg2,
-            .f_ln2,
-            .f_pi,
-            .f_z,
-            => switch (mir_tag[1]) {
+            .f_p1 => switch (mir_tag[1]) {
+                .yl2x => s.top +%= 1,
+                else => unreachable,
+            },
+            .fb_ => switch (mir_tag[1]) {
                 .ld => s.top -%= 1,
                 else => unreachable,
             },
-            .f_b,
-            .f_be,
-            .f_cw,
-            .f_e,
-            .f_env,
-            .f_nb,
-            .f_nbe,
-            .f_ne,
-            .f_nu,
-            .f_p1,
-            .f_pp,
-            .f_sw,
-            .f_u,
-            .fb_,
-            .fb_p,
-            .fi_,
-            .fi_p,
-            .fn_,
-            .fn_cw,
-            .fn_env,
-            .fn_sw,
-            => {},
+            .fb_p => switch (mir_tag[1]) {
+                .st => s.top +%= 1,
+                else => unreachable,
+            },
+            .fi_ => switch (mir_tag[1]) {
+                .add, .com, .div, .divr, .mul, .st, .stt, .sub, .subr => {},
+                .ld => s.top -%= 1,
+                else => unreachable,
+            },
+            .fi_p => switch (mir_tag[1]) {
+                .com, .st => s.top +%= 1,
+                else => unreachable,
+            },
+            .fn_ => switch (mir_tag[1]) {
+                .clex => {},
+                .init, .save => s.top = 0,
+                else => unreachable,
+            },
+            .fn_cw, .fn_env, .fn_sw => switch (mir_tag[1]) {
+                .st => {},
+                else => unreachable,
+            },
             .f_cstp => switch (mir_tag[1]) {
                 .de => s.top -%= 1,
                 .in => s.top +%= 1,
+                else => unreachable,
+            },
+            .f_l2e, .f_l2t, .f_lg2, .f_ln2, .f_pi, .f_z => switch (mir_tag[1]) {
+                .ld => s.top -%= 1,
+                else => unreachable,
+            },
+            .f_p => switch (mir_tag[1]) {
+                .add, .com, .comi, .div, .divr, .mul, .st, .sub, .subr, .ucom, .ucomi => s.top +%= 1,
+                else => {
+                    const fixes = @tagName(mir_tag[0]);
+                    const fixes_blank = std.mem.indexOfScalar(u8, fixes, '_').?;
+                    std.debug.panic("{s}: {s}{s}{s}\n", .{
+                        @src().fn_name,
+                        fixes[0..fixes_blank],
+                        @tagName(mir_tag[1]),
+                        fixes[fixes_blank + 1 ..],
+                    });
+                },
+            },
+            .f_pp => switch (mir_tag[1]) {
+                .com, .ucom => s.top +%= 2,
+                else => unreachable,
+            },
+            .fx_ => switch (mir_tag[1]) {
+                .rstor => unreachable,
+                .save => {},
                 else => unreachable,
             },
             else => {},
@@ -30620,9 +31173,13 @@ const Select = struct {
         dst_constraints: [@intFromEnum(Select.Operand.Ref.src0) - @intFromEnum(Select.Operand.Ref.dst0)]Constraint = @splat(.any),
         src_constraints: [@intFromEnum(Select.Operand.Ref.none) - @intFromEnum(Select.Operand.Ref.src0)]Constraint = @splat(.any),
         patterns: []const Select.Pattern,
+        call_frame: packed struct(u16) { size: u10, alignment: InternPool.Alignment } = .{ .size = 0, .alignment = .none },
         extra_temps: [@intFromEnum(Select.Operand.Ref.dst0) - @intFromEnum(Select.Operand.Ref.tmp0)]TempSpec = @splat(.unused),
         dst_temps: [@intFromEnum(Select.Operand.Ref.src0) - @intFromEnum(Select.Operand.Ref.dst0)]TempSpec.Kind = @splat(.unused),
-        clobbers: struct { eflags: bool = false, st: u3 = 0 } = .{},
+        clobbers: packed struct {
+            eflags: bool = false,
+            caller_preserved: enum(u2) { none, ccc, zigcc } = .none,
+        } = .{},
         each: union(enum) {
             once: []const Instruction,
         },
@@ -30649,6 +31206,7 @@ const Select = struct {
         scalar_signed_int: Memory.Size,
         scalar_unsigned_int: Memory.Size,
         scalar_remainder_int: struct { of: Memory.Size, is: Memory.Size },
+        float: Memory.Size,
         scalar_float: struct { of: Memory.Size, is: Memory.Size },
         scalar_exact_float: struct { of: Memory.Size, is: Memory.Size },
         multiple_scalar_int: struct { of: Memory.Size, is: Memory.Size },
@@ -30716,6 +31274,7 @@ const Select = struct {
                     of_is.is.bitSize(cg.target) >= (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1
                 else
                     false,
+                .float => |size| if (cg.floatBits(ty)) |float_bits| size.bitSize(cg.target) == float_bits else false,
                 .scalar_float => |of_is| @divExact(of_is.of.bitSize(cg.target), 8) >= ty.abiSize(zcu) and
                     if (cg.floatBits(ty.scalarType(zcu))) |float_bits| of_is.is.bitSize(cg.target) >= float_bits else false,
                 .scalar_exact_float => |of_is| @divExact(of_is.of.bitSize(cg.target), 8) >= ty.abiSize(zcu) and
@@ -30787,13 +31346,14 @@ const Select = struct {
         src: [2]Src,
         commute: struct { u8, u8 } = .{ 0, 0 },
 
-        const Src = enum {
+        const Src = union(enum) {
             none,
             any,
             imm8,
             imm16,
             imm32,
             simm32,
+            to_reg: Register,
             mem,
             to_mem,
             mut_mem,
@@ -30846,6 +31406,7 @@ const Select = struct {
                     .mem => temp.tracking(cg).short.isMemory(),
                     .to_mem, .to_mut_mem => true,
                     .mut_mem => temp.isMut(cg) and temp.tracking(cg).short.isMemory(),
+                    .to_reg => true,
                     .gpr => temp.typeOf(cg).abiSize(cg.pt.zcu) <= 8 and switch (temp.tracking(cg).short) {
                         .register => |reg| reg.class() == .general_purpose,
                         .register_offset => |reg_off| reg_off.reg.class() == .general_purpose and reg_off.off == 0,
@@ -30920,6 +31481,7 @@ const Select = struct {
                     .none => unreachable,
                     .any, .imm8, .imm16, .imm32, .simm32 => false,
                     .mem, .to_mem, .mut_mem, .to_mut_mem => try temp.toBase(cg),
+                    .to_reg => |reg| try temp.toReg(reg, cg),
                     .gpr, .to_gpr => try temp.toRegClass(false, .general_purpose, cg),
                     .mut_gpr, .to_mut_gpr => try temp.toRegClass(true, .general_purpose, cg),
                     .x87, .to_x87 => try temp.toRegClass(false, .x87, cg),
@@ -30954,6 +31516,7 @@ const Select = struct {
             ref: Select.Operand.Ref,
             ref_mask: struct { ref: Select.Operand.Ref, info: MaskInfo },
             mut_reg: struct { ref: Select.Operand.Ref, rc: Register.Class },
+            symbol: *const struct { lib: ?[]const u8 = null, name: []const u8 },
 
             const ConstInfo = struct { ref: Select.Operand.Ref, vectorize: bool = false };
 
@@ -31048,6 +31611,11 @@ const Select = struct {
                     };
                     return try cg.tempAllocReg(spec.type, regSetForRegClass(ref_rc.rc));
                 },
+                .symbol => |symbol| if (cg.bin_file.cast(.elf)) |elf_file| try cg.tempInit(spec.type, .{ .lea_symbol = .{
+                    .sym_index = try elf_file.getGlobalSymbol(symbol.name, symbol.lib),
+                } }) else if (cg.bin_file.cast(.macho)) |macho_file| try cg.tempInit(spec.type, .{ .lea_symbol = .{
+                    .sym_index = try macho_file.getGlobalSymbol(symbol.name, symbol.lib),
+                } }) else cg.fail("external symbols unimplemented for {s}", .{@tagName(cg.bin_file.tag)}),
             };
         }
     };
@@ -31566,6 +32134,7 @@ const Select = struct {
                     } },
                     else => |mcv| .{ .mem = try mcv.mem(s.cg, .{ .size = op.base.size }) },
                     .register => |reg| .{ .reg = s.lowerReg(registerAlias(reg, @intCast(@divExact(op.base.size.bitSize(s.cg.target), 8)))) },
+                    .lea_symbol => |sym_off| .{ .imm = .rel(sym_off) },
                 },
                 .simm => .{ .imm = .s(op.adjustedImm(i32, s)) },
                 .uimm => .{ .imm = .u(@bitCast(op.adjustedImm(i64, s))) },
@@ -31601,6 +32170,7 @@ fn select(
     src_temps: []Temp,
     cases: []const Select.Case,
 ) !void {
+    @setEvalBranchQuota(33_600);
     cases: for (cases) |case| {
         for (case.required_features) |required_feature| if (required_feature) |feature| if (!cg.hasFeature(feature)) continue :cases;
         for (case.dst_constraints[0..dst_temps.len], dst_tys) |dst_constraint, dst_ty| if (!dst_constraint.accepts(dst_ty, cg)) continue :cases;
@@ -31613,6 +32183,16 @@ fn select(
             for (pattern.src[0..src_temps.len], src_temps) |src_pattern, src_temp| if (!src_pattern.matches(src_temp, cg)) continue :patterns;
             if (std.debug.runtime_safety) for (pattern.src[src_temps.len..]) |src_pattern| assert(src_pattern == .none);
 
+            if (case.call_frame.alignment != .none) {
+                const frame_allocs_slice = cg.frame_allocs.slice();
+                const stack_frame_size =
+                    &frame_allocs_slice.items(.abi_size)[@intFromEnum(FrameIndex.call_frame)];
+                stack_frame_size.* = @max(stack_frame_size.*, case.call_frame.size);
+                const stack_frame_align =
+                    &frame_allocs_slice.items(.abi_align)[@intFromEnum(FrameIndex.call_frame)];
+                stack_frame_align.* = stack_frame_align.max(case.call_frame.alignment);
+            }
+
             var s: Select = .{
                 .cg = cg,
                 .temps = undefined,
@@ -31623,10 +32203,19 @@ fn select(
             const dst_slots = s.temps[@intFromEnum(Select.Operand.Ref.dst0)..@intFromEnum(Select.Operand.Ref.src0)];
             const src_slots = s.temps[@intFromEnum(Select.Operand.Ref.src0)..@intFromEnum(Select.Operand.Ref.none)];
 
-            for (0..case.clobbers.st -| 1) |i| {
-                const tracked_index: RegisterManager.TrackedIndex = @intCast(RegisterManager.indexOfKnownRegIntoTracked(.st6).? - i);
-                try cg.register_manager.getRegIndex(tracked_index, null);
-                _ = cg.register_manager.lockRegIndexAssumeUnused(tracked_index);
+            caller_preserved: {
+                switch (switch (case.clobbers.caller_preserved) {
+                    .none => break :caller_preserved,
+                    .ccc => cg.target.cCallingConvention().?,
+                    .zigcc => .auto,
+                }) {
+                    else => unreachable,
+                    inline .x86_64_sysv, .x86_64_win, .auto => |_, tag| inline for (comptime abi.getCallerPreservedRegs(tag)) |reg| {
+                        const tracked_index = RegisterManager.indexOfKnownRegIntoTracked(reg) orelse continue;
+                        try cg.register_manager.getRegIndex(tracked_index, null);
+                        assert(cg.register_manager.lockRegIndexAssumeUnused(tracked_index).tracked_index == tracked_index);
+                    },
+                }
             }
 
             @memcpy(src_slots[0..src_temps.len], src_temps);
@@ -31653,9 +32242,20 @@ fn select(
             }
             assert(s.top == 0);
 
-            for (0..case.clobbers.st -| 1) |i| cg.register_manager.unlockReg(.{
-                .tracked_index = @intCast(RegisterManager.indexOfKnownRegIntoTracked(.st6).? - i),
-            });
+            caller_preserved: {
+                switch (switch (case.clobbers.caller_preserved) {
+                    .none => break :caller_preserved,
+                    .ccc => cg.target.cCallingConvention().?,
+                    .zigcc => .auto,
+                }) {
+                    else => unreachable,
+                    inline .x86_64_sysv, .x86_64_win, .auto => |_, tag| inline for (comptime abi.getCallerPreservedRegs(tag)) |reg| {
+                        cg.register_manager.unlockReg(.{
+                            .tracked_index = RegisterManager.indexOfKnownRegIntoTracked(reg) orelse continue,
+                        });
+                    },
+                }
+            }
             for (dst_temps, case.dst_temps[0..dst_temps.len]) |dst_temp, dst_kind| dst_kind.finish(dst_temp, &s);
             for (case.extra_temps, tmp_slots) |spec, temp| if (spec.kind != .unused) try temp.die(cg);
             return;
