@@ -56,8 +56,7 @@ global_base: ?u64 = null,
 zig_lib_dir: ?LazyPath,
 exec_cmd_args: ?[]const ?[]const u8,
 filters: []const []const u8,
-test_runner: ?LazyPath,
-test_server_mode: bool,
+test_runner: ?TestRunner,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
 
 installed_headers: ArrayList(HeaderInstallation),
@@ -268,7 +267,7 @@ pub const Options = struct {
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     filters: []const []const u8 = &.{},
-    test_runner: ?LazyPath = null,
+    test_runner: ?TestRunner = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -347,6 +346,14 @@ pub const HeaderInstallation = union(enum) {
     }
 };
 
+pub const TestRunner = struct {
+    path: LazyPath,
+    /// Test runners can either be "simple", running tests when spawned and terminating when the
+    /// tests are complete, or they can use `std.zig.Server` over stdio to interact more closely
+    /// with the build system.
+    mode: enum { simple, server },
+};
+
 pub fn create(owner: *std.Build, options: Options) *Compile {
     const name = owner.dupe(options.name);
     if (mem.indexOf(u8, name, "/") != null or mem.indexOf(u8, name, "\\") != null) {
@@ -411,8 +418,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .zig_lib_dir = null,
         .exec_cmd_args = null,
         .filters = options.filters,
-        .test_runner = null,
-        .test_server_mode = options.test_runner == null,
+        .test_runner = null, // set below
         .rdynamic = false,
         .installed_path = null,
         .force_undefined_symbols = StringHashMap(void).init(owner.allocator),
@@ -438,9 +444,12 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         lp.addStepDependencies(&compile.step);
     }
 
-    if (options.test_runner) |lp| {
-        compile.test_runner = lp.dupe(compile.step.owner);
-        lp.addStepDependencies(&compile.step);
+    if (options.test_runner) |runner| {
+        compile.test_runner = .{
+            .path = runner.path.dupe(compile.step.owner),
+            .mode = runner.mode,
+        };
+        runner.path.addStepDependencies(&compile.step);
     }
 
     // Only the PE/COFF format has a Resource Table which is where the manifest
@@ -1399,7 +1408,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     if (compile.test_runner) |test_runner| {
         try zig_args.append("--test-runner");
-        try zig_args.append(test_runner.getPath2(b, step));
+        try zig_args.append(test_runner.path.getPath2(b, step));
     }
 
     for (b.debug_log_scopes) |log_scope| {
