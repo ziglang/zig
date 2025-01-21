@@ -1932,6 +1932,7 @@ pub const AddrSpace = enum(u24) {
         pub const constant_32bit: AddrSpace = @enumFromInt(6);
         pub const buffer_fat_pointer: AddrSpace = @enumFromInt(7);
         pub const buffer_resource: AddrSpace = @enumFromInt(8);
+        pub const buffer_strided_pointer: AddrSpace = @enumFromInt(9);
         pub const param_d: AddrSpace = @enumFromInt(6);
         pub const param_i: AddrSpace = @enumFromInt(7);
         pub const constant_buffer_0: AddrSpace = @enumFromInt(8);
@@ -1950,10 +1951,23 @@ pub const AddrSpace = enum(u24) {
         pub const constant_buffer_13: AddrSpace = @enumFromInt(21);
         pub const constant_buffer_14: AddrSpace = @enumFromInt(22);
         pub const constant_buffer_15: AddrSpace = @enumFromInt(23);
+        pub const streamout_register: AddrSpace = @enumFromInt(128);
+    };
+
+    pub const spirv = struct {
+        pub const function: AddrSpace = @enumFromInt(0);
+        pub const cross_workgroup: AddrSpace = @enumFromInt(1);
+        pub const uniform_constant: AddrSpace = @enumFromInt(2);
+        pub const workgroup: AddrSpace = @enumFromInt(3);
+        pub const generic: AddrSpace = @enumFromInt(4);
+        pub const device_only_intel: AddrSpace = @enumFromInt(5);
+        pub const host_only_intel: AddrSpace = @enumFromInt(6);
+        pub const input: AddrSpace = @enumFromInt(7);
     };
 
     // See llvm/include/llvm/CodeGen/WasmAddressSpaces.h
     pub const wasm = struct {
+        pub const default: AddrSpace = @enumFromInt(0);
         pub const variable: AddrSpace = @enumFromInt(1);
         pub const externref: AddrSpace = @enumFromInt(10);
         pub const funcref: AddrSpace = @enumFromInt(20);
@@ -2052,6 +2066,7 @@ pub const CallConv = enum(u10) {
     x86_intrcc,
     avr_intrcc,
     avr_signalcc,
+    avr_builtincc,
 
     amdgpu_vs = 87,
     amdgpu_gs,
@@ -2060,6 +2075,7 @@ pub const CallConv = enum(u10) {
     amdgpu_kernel,
     x86_regcallcc,
     amdgpu_hs,
+    msp430_builtincc,
 
     amdgpu_ls = 95,
     amdgpu_es,
@@ -2068,8 +2084,14 @@ pub const CallConv = enum(u10) {
 
     amdgpu_gfx = 100,
 
+    m68k_intrcc,
+
     aarch64_sme_preservemost_from_x0 = 102,
     aarch64_sme_preservemost_from_x2,
+
+    m68k_rtdcc = 106,
+
+    riscv_vectorcallcc = 110,
 
     _,
 
@@ -2115,6 +2137,7 @@ pub const CallConv = enum(u10) {
             .x86_intrcc,
             .avr_intrcc,
             .avr_signalcc,
+            .avr_builtincc,
             .amdgpu_vs,
             .amdgpu_gs,
             .amdgpu_ps,
@@ -2122,13 +2145,17 @@ pub const CallConv = enum(u10) {
             .amdgpu_kernel,
             .x86_regcallcc,
             .amdgpu_hs,
+            .msp430_builtincc,
             .amdgpu_ls,
             .amdgpu_es,
             .aarch64_vector_pcs,
             .aarch64_sve_vector_pcs,
             .amdgpu_gfx,
+            .m68k_intrcc,
             .aarch64_sme_preservemost_from_x0,
             .aarch64_sme_preservemost_from_x2,
+            .m68k_rtdcc,
+            .riscv_vectorcallcc,
             => try writer.print(" {s}", .{@tagName(self)}),
             _ => try writer.print(" cc{d}", .{@intFromEnum(self)}),
         }
@@ -2526,6 +2553,10 @@ pub const Variable = struct {
 
         pub fn setLinkage(self: Index, linkage: Linkage, builder: *Builder) void {
             return self.ptrConst(builder).global.setLinkage(linkage, builder);
+        }
+
+        pub fn setDllStorageClass(self: Index, class: DllStorageClass, builder: *Builder) void {
+            return self.ptrConst(builder).global.setDllStorageClass(class, builder);
         }
 
         pub fn setUnnamedAddr(self: Index, unnamed_addr: UnnamedAddr, builder: *Builder) void {
@@ -8432,7 +8463,7 @@ pub const Metadata = enum(u32) {
                 field.* = .{
                     .name = name,
                     .type = []const u8,
-                    .default_value = null,
+                    .default_value_ptr = null,
                     .is_comptime = false,
                     .alignment = 0,
                 };
@@ -8443,7 +8474,7 @@ pub const Metadata = enum(u32) {
                 field.* = .{
                     .name = name,
                     .type = std.fmt.Formatter(format),
-                    .default_value = null,
+                    .default_value_ptr = null,
                     .is_comptime = false,
                     .alignment = 0,
                 };
@@ -9798,11 +9829,13 @@ pub fn printUnbuffered(
                             extra.then.toInst(&function).fmt(function_index, self),
                             extra.@"else".toInst(&function).fmt(function_index, self),
                         });
+                        metadata_formatter.need_comma = true;
+                        defer metadata_formatter.need_comma = undefined;
                         switch (extra.weights) {
                             .none => {},
-                            .unpredictable => try writer.writeAll(", !unpredictable !{}"),
+                            .unpredictable => try writer.writeAll("!unpredictable !{}"),
                             _ => try writer.print("{}", .{
-                                try metadata_formatter.fmt(", !prof ", @as(Metadata, @enumFromInt(@intFromEnum(extra.weights)))),
+                                try metadata_formatter.fmt("!prof ", @as(Metadata, @enumFromInt(@intFromEnum(extra.weights)))),
                             }),
                         }
                     },
@@ -10079,11 +10112,13 @@ pub fn printUnbuffered(
                             },
                         );
                         try writer.writeAll("  ]");
+                        metadata_formatter.need_comma = true;
+                        defer metadata_formatter.need_comma = undefined;
                         switch (extra.data.weights) {
                             .none => {},
-                            .unpredictable => try writer.writeAll(", !unpredictable !{}"),
+                            .unpredictable => try writer.writeAll("!unpredictable !{}"),
                             _ => try writer.print("{}", .{
-                                try metadata_formatter.fmt(", !prof ", @as(Metadata, @enumFromInt(@intFromEnum(extra.data.weights)))),
+                                try metadata_formatter.fmt("!prof ", @as(Metadata, @enumFromInt(@intFromEnum(extra.data.weights)))),
                             }),
                         }
                     },

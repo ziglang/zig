@@ -157,7 +157,7 @@ fn createType(desc: TypeDescription, it: *TypeDescription.TypeIterator, comp: *c
                 .len = element_count,
                 .elem = child_ty,
             };
-            const vector_ty = .{ .specifier = .vector, .data = .{ .array = arr_ty } };
+            const vector_ty: Type = .{ .specifier = .vector, .data = .{ .array = arr_ty } };
             builder.specifier = Type.Builder.fromType(vector_ty);
         },
         .q => {

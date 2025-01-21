@@ -12,13 +12,14 @@ link_libunwind: bool,
 /// True if and only if the c_source_files field will have nonzero length when
 /// calling Compilation.create.
 any_c_source_files: bool,
-/// This is true if any Module has unwind_tables set explicitly to true. Until
-/// Compilation.create is called, it is possible for this to be false while in
-/// fact all Module instances have unwind_tables=true due to the default
-/// being unwind_tables=true. After Compilation.create is called this will
-/// also take into account the default setting, making this value true if and
-/// only if any Module has unwind_tables set to true.
-any_unwind_tables: bool,
+/// This is not `.none` if any `Module` has `unwind_tables` set explicitly to a
+/// value other than `.none`. Until `Compilation.create()` is called, it is
+/// possible for this to be `.none` while in fact all `Module` instances have
+/// `unwind_tables != .none` due to the default. After `Compilation.create()` is
+/// called, this will also take into account the default setting, making this
+/// value `.sync` or `.@"async"` if and only if any `Module` has
+/// `unwind_tables != .none`.
+any_unwind_tables: std.builtin.UnwindTables,
 /// This is true if any Module has single_threaded set explicitly to false. Until
 /// Compilation.create is called, it is possible for this to be false while in
 /// fact all Module instances have single_threaded=false due to the default
@@ -47,7 +48,7 @@ use_lib_llvm: bool,
 /// and updates the final binary.
 use_lld: bool,
 c_frontend: CFrontend,
-lto: bool,
+lto: LtoMode,
 /// WASI-only. Type of WASI execution model ("command" or "reactor").
 /// Always set to `command` for non-WASI targets.
 wasi_exec_model: std.builtin.WasiExecModel,
@@ -63,6 +64,8 @@ rdynamic: bool,
 san_cov_trace_pc_guard: bool,
 
 pub const CFrontend = enum { clang, aro };
+
+pub const LtoMode = enum { none, full, thin };
 
 pub const DebugFormat = union(enum) {
     strip,
@@ -85,7 +88,7 @@ pub const Options = struct {
     any_non_single_threaded: bool = false,
     any_sanitize_thread: bool = false,
     any_fuzz: bool = false,
-    any_unwind_tables: bool = false,
+    any_unwind_tables: std.builtin.UnwindTables = .none,
     any_dyn_libs: bool = false,
     any_c_source_files: bool = false,
     any_non_stripped: bool = false,
@@ -100,7 +103,7 @@ pub const Options = struct {
     use_lib_llvm: ?bool = null,
     use_lld: ?bool = null,
     use_clang: ?bool = null,
-    lto: ?bool = null,
+    lto: ?LtoMode = null,
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
     import_memory: ?bool = null,
@@ -257,7 +260,7 @@ pub fn resolve(options: Options) ResolveError!Config {
             break :b false;
         }
 
-        if (options.lto == true) {
+        if (options.lto != null and options.lto != .none) {
             if (options.use_lld == false) return error.LtoRequiresLld;
             break :b true;
         }
@@ -283,30 +286,34 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b .clang;
     };
 
-    const lto = b: {
+    const lto: LtoMode = b: {
         if (!use_lld) {
             // zig ld LTO support is tracked by
             // https://github.com/ziglang/zig/issues/8680
-            if (options.lto == true) return error.LtoRequiresLld;
-            break :b false;
+            if (options.lto != null and options.lto != .none) return error.LtoRequiresLld;
+            break :b .none;
         }
 
         if (options.lto) |x| break :b x;
-        if (!options.any_c_source_files) break :b false;
+        if (!options.any_c_source_files) break :b .none;
 
-        if (target.cpu.arch.isRISCV()) {
-            // Clang and LLVM currently don't support RISC-V target-abi for LTO.
-            // Compiling with LTO may fail or produce undesired results.
-            // See https://reviews.llvm.org/D71387
-            // See https://reviews.llvm.org/D102582
-            break :b false;
+        // https://github.com/llvm/llvm-project/pull/116537
+        switch (target.abi) {
+            .gnuabin32,
+            .gnuilp32,
+            .gnux32,
+            .ilp32,
+            .muslabin32,
+            .muslx32,
+            => break :b .none,
+            else => {},
         }
 
         break :b switch (options.output_mode) {
-            .Lib, .Obj => false,
+            .Lib, .Obj => .none,
             .Exe => switch (root_optimize_mode) {
-                .Debug => false,
-                .ReleaseSafe, .ReleaseFast, .ReleaseSmall => true,
+                .Debug => .none,
+                .ReleaseSafe, .ReleaseFast, .ReleaseSmall => .full,
             },
         };
     };
@@ -352,8 +359,11 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b false;
     };
 
-    const any_unwind_tables = options.any_unwind_tables or
-        link_libunwind or target_util.needUnwindTables(target);
+    const any_unwind_tables = b: {
+        if (options.any_unwind_tables != .none) break :b options.any_unwind_tables;
+
+        break :b target_util.needUnwindTables(target, link_libunwind, options.any_sanitize_thread);
+    };
 
     const link_mode = b: {
         const explicitly_exe_or_dyn_lib = switch (options.output_mode) {
@@ -433,6 +443,7 @@ pub fn resolve(options: Options) ResolveError!Config {
 
     const debug_format: DebugFormat = b: {
         if (root_strip and !options.any_non_stripped) break :b .strip;
+        if (options.debug_format) |x| break :b x;
         break :b switch (target.ofmt) {
             .elf, .goff, .macho, .wasm, .xcoff => .{ .dwarf = .@"32" },
             .coff => .code_view,

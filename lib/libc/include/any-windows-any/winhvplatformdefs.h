@@ -7,33 +7,69 @@
 #define _WINHVAPIDEFS_H_
 
 typedef enum WHV_CAPABILITY_CODE {
-    WHvCapabilityCodeHypervisorPresent = 0x00000000,
-    WHvCapabilityCodeFeatures = 0x00000001,
-    WHvCapabilityCodeExtendedVmExits = 0x00000002,
-    WHvCapabilityCodeExceptionExitBitmap = 0x00000003,
-    WHvCapabilityCodeX64MsrExitBitmap = 0x00000004,
-    WHvCapabilityCodeGpaRangePopulateFlags = 0x00000005,
-    WHvCapabilityCodeSchedulerFeatures = 0x00000006,
-    WHvCapabilityCodeProcessorVendor = 0x00001000,
-    WHvCapabilityCodeProcessorFeatures = 0x00001001,
-    WHvCapabilityCodeProcessorClFlushSize = 0x00001002,
-    WHvCapabilityCodeProcessorXsaveFeatures = 0x00001003,
-    WHvCapabilityCodeProcessorClockFrequency = 0x00001004,
-    WHvCapabilityCodeInterruptClockFrequency = 0x00001005,
-    WHvCapabilityCodeProcessorFeaturesBanks = 0x00001006,
-    WHvCapabilityCodeProcessorFrequencyCap = 0x00001007,
-    WHvCapabilityCodeSyntheticProcessorFeaturesBanks = 0x00001008,
-    WHvCapabilityCodeProcessorPerfmonFeatures = 0x00001009
+    WHvCapabilityCodeHypervisorPresent = 0x00000000
+    ,WHvCapabilityCodeFeatures = 0x00000001
+    ,WHvCapabilityCodeExtendedVmExits = 0x00000002
+#if defined(__x86_64__)
+    ,WHvCapabilityCodeExceptionExitBitmap = 0x00000003
+    ,WHvCapabilityCodeX64MsrExitBitmap = 0x00000004
+#endif
+    ,WHvCapabilityCodeGpaRangePopulateFlags = 0x00000005
+    ,WHvCapabilityCodeSchedulerFeatures = 0x00000006
+    ,WHvCapabilityCodeProcessorVendor = 0x00001000
+    ,WHvCapabilityCodeProcessorFeatures = 0x00001001
+    ,WHvCapabilityCodeProcessorClFlushSize = 0x00001002
+#if defined(__x86_64__)
+    ,WHvCapabilityCodeProcessorXsaveFeatures = 0x00001003
+#endif
+    ,WHvCapabilityCodeProcessorClockFrequency = 0x00001004
+#if defined(__x86_64__)
+    ,WHvCapabilityCodeInterruptClockFrequency = 0x00001005
+#endif
+    ,WHvCapabilityCodeProcessorFeaturesBanks = 0x00001006
+    ,WHvCapabilityCodeProcessorFrequencyCap = 0x00001007
+    ,WHvCapabilityCodeSyntheticProcessorFeaturesBanks = 0x00001008
+#if defined(__x86_64__)
+    ,WHvCapabilityCodeProcessorPerfmonFeatures = 0x00001009
+#endif
+    ,WHvCapabilityCodePhysicalAddressWidth = 0x0000100A
+#if defined(__x86_64__)
+    ,WHvCapabilityCodeVmxBasic = 0x00002000
+    ,WHvCapabilityCodeVmxPinbasedCtls = 0x00002001
+    ,WHvCapabilityCodeVmxProcbasedCtls = 0x00002002
+    ,WHvCapabilityCodeVmxExitCtls = 0x00002003
+    ,WHvCapabilityCodeVmxEntryCtls = 0x00002004
+    ,WHvCapabilityCodeVmxMisc = 0x00002005
+    ,WHvCapabilityCodeVmxCr0Fixed0 = 0x00002006
+    ,WHvCapabilityCodeVmxCr0Fixed1 = 0x00002007
+    ,WHvCapabilityCodeVmxCr4Fixed0 = 0x00002008
+    ,WHvCapabilityCodeVmxCr4Fixed1 = 0x00002009
+    ,WHvCapabilityCodeVmxVmcsEnum = 0x0000200A
+    ,WHvCapabilityCodeVmxProcbasedCtls2 = 0x0000200B
+    ,WHvCapabilityCodeVmxEptVpidCap = 0x0000200C
+    ,WHvCapabilityCodeVmxTruePinbasedCtls = 0x0000200D
+    ,WHvCapabilityCodeVmxTrueProcbasedCtls = 0x0000200E
+    ,WHvCapabilityCodeVmxTrueExitCtls = 0x0000200F
+    ,WHvCapabilityCodeVmxTrueEntryCtls = 0x00002010
+#endif
 } WHV_CAPABILITY_CODE;
 
 typedef union WHV_CAPABILITY_FEATURES {
     __C89_NAMELESS struct {
         UINT64 PartialUnmap : 1;
+#if defined(__x86_64__)
         UINT64 LocalApicEmulation : 1;
         UINT64 Xsave : 1;
+#else
+        UINT64 ReservedArm0 : 2;
+#endif
         UINT64 DirtyPageTracking : 1;
         UINT64 SpeculationControl : 1;
+#if defined(__x86_64__)
         UINT64 ApicRemoteRead : 1;
+#else
+        UINT64 ReservedArm1 : 1;
+#endif
         UINT64 IdleSuspend : 1;
         UINT64 VirtualPciDeviceSupport : 1;
         UINT64 IommuSupport : 1;
@@ -47,20 +83,32 @@ C_ASSERT(sizeof(WHV_CAPABILITY_FEATURES) == sizeof(UINT64));
 
 typedef union WHV_EXTENDED_VM_EXITS {
     __C89_NAMELESS struct {
+#if defined(__x86_64__)
         UINT64 X64CpuidExit : 1;
         UINT64 X64MsrExit : 1;
         UINT64 ExceptionExit : 1;
         UINT64 X64RdtscExit : 1;
         UINT64 X64ApicSmiExitTrap : 1;
+#else
+        UINT64 ReservedArm0 : 5;
+#endif
         UINT64 HypercallExit : 1;
+#if defined(__x86_64__)
         UINT64 X64ApicInitSipiExitTrap : 1;
         UINT64 X64ApicWriteLint0ExitTrap : 1;
         UINT64 X64ApicWriteLint1ExitTrap : 1;
         UINT64 X64ApicWriteSvrExitTrap : 1;
+#else
+        UINT64 ReservedArm1 : 4;
+#endif
         UINT64 UnknownSynicConnection : 1;
         UINT64 RetargetUnknownVpciDevice : 1;
+#if defined(__x86_64__)
         UINT64 X64ApicWriteLdrExitTrap : 1;
         UINT64 X64ApicWriteDfrExitTrap : 1;
+#else
+        UINT64 ReservedArm2 : 2;
+#endif
         UINT64 GpaAccessFaultExit : 1;
         UINT64 Reserved : 49;
     };
@@ -72,10 +120,13 @@ C_ASSERT(sizeof(WHV_EXTENDED_VM_EXITS) == sizeof(UINT64));
 typedef enum WHV_PROCESSOR_VENDOR {
     WHvProcessorVendorAmd = 0x0000,
     WHvProcessorVendorIntel = 0x0001,
-    WHvProcessorVendorHygon = 0x0002
+    WHvProcessorVendorHygon = 0x0002,
+    WHvProcessorVendorArm = 0x0010
 } WHV_PROCESSOR_VENDOR;
 
-typedef union WHV_PROCESSOR_FEATURES {
+#if defined(__x86_64__)
+
+typedef union WHV_X64_PROCESSOR_FEATURES {
     __C89_NAMELESS struct {
         UINT64 Sse3Support : 1;
         UINT64 LahfSahfSupport : 1;
@@ -123,7 +174,7 @@ typedef union WHV_PROCESSOR_FEATURES {
         UINT64 IbrsSupport : 1;
         UINT64 StibpSupport : 1;
         UINT64 IbpbSupport : 1;
-        UINT64 Reserved2 : 1;
+        UINT64 UnrestrictedGuestSupport : 1;
         UINT64 SsbdSupport : 1;
         UINT64 FastShortRepMovSupport : 1;
         UINT64 Reserved3 : 1;
@@ -142,23 +193,24 @@ typedef union WHV_PROCESSOR_FEATURES {
         UINT64 Reserved6 : 1;
     };
     UINT64 AsUINT64;
-} WHV_PROCESSOR_FEATURES;
+} WHV_X64_PROCESSOR_FEATURES, WHV_PROCESSOR_FEATURES;
 
-C_ASSERT(sizeof(WHV_PROCESSOR_FEATURES) == sizeof(UINT64));
+C_ASSERT(sizeof(WHV_X64_PROCESSOR_FEATURES) == sizeof(UINT64));
 
-typedef union WHV_PROCESSOR_FEATURES1 {
+typedef union WHV_X64_PROCESSOR_FEATURES1 {
     __C89_NAMELESS struct {
         UINT64 ACountMCountSupport : 1;
         UINT64 TscInvariantSupport : 1;
         UINT64 ClZeroSupport : 1;
         UINT64 RdpruSupport : 1;
-        UINT64 Reserved2 : 2;
+        UINT64 La57Support : 1;
+        UINT64 MbecSupport : 1;
         UINT64 NestedVirtSupport : 1;
         UINT64 PsfdSupport: 1;
         UINT64 CetSsSupport : 1;
         UINT64 CetIbtSupport : 1;
         UINT64 VmxExceptionInjectSupport : 1;
-        UINT64 Reserved4 : 1;
+        UINT64 Reserved2 : 1;
         UINT64 UmwaitTpauseSupport : 1;
         UINT64 MovdiriSupport : 1;
         UINT64 Movdir64bSupport : 1;
@@ -170,12 +222,106 @@ typedef union WHV_PROCESSOR_FEATURES1 {
         UINT64 FSRepStosb : 1;
         UINT64 FSRepCmpsb : 1;
         UINT64 TsxLdTrkSupport : 1;
-        UINT64 Reserved5 : 41;
+        UINT64 VmxInsOutsExitInfoSupport : 1;
+        UINT64 Reserved3 : 1;
+        UINT64 SbdrSsdpNoSupport : 1;
+        UINT64 FbsdpNoSupport : 1;
+        UINT64 PsdpNoSupport : 1;
+        UINT64 FbClearSupport : 1;
+        UINT64 BtcNoSupport : 1;
+        UINT64 IbpbRsbFlushSupport : 1;
+        UINT64 StibpAlwaysOnSupport : 1;
+        UINT64 PerfGlobalCtrlSupport : 1;
+        UINT64 NptExecuteOnlySupport : 1;
+        UINT64 NptADFlagsSupport : 1;
+        UINT64 Npt1GbPageSupport : 1;
+        UINT64 Reserved4 : 1;
+        UINT64 Reserved5 : 1;
+        UINT64 Reserved6 : 1;
+        UINT64 Reserved7 : 1;
+        UINT64 CmpccxaddSupport : 1;
+        UINT64 Reserved8 : 1;
+        UINT64 Reserved9 : 1;
+        UINT64 Reserved10 : 1;
+        UINT64 Reserved11 : 1;
+        UINT64 PrefetchISupport : 1;
+        UINT64 Sha512Support : 1;
+        UINT64 Reserved12 : 1;
+        UINT64 Reserved13 : 1;
+        UINT64 Reserved14 : 1;
+        UINT64 SM3Support : 1;
+        UINT64 SM4Support : 1;
+        UINT64 Reserved15 : 12;
     };
     UINT64 AsUINT64;
-} WHV_PROCESSOR_FEATURES1;
+} WHV_X64_PROCESSOR_FEATURES1, WHV_PROCESSOR_FEATURES1;
 
-C_ASSERT(sizeof(WHV_PROCESSOR_FEATURES1) == sizeof(UINT64));
+C_ASSERT(sizeof(WHV_X64_PROCESSOR_FEATURES1) == sizeof(UINT64));
+
+#elif defined(__aarch64__)
+
+typedef union WHV_ARM64_PROCESSOR_FEATURES {
+    __C89_NAMELESS struct {
+        UINT64 Asid16 : 1;
+        UINT64 TGran16 : 1;
+        UINT64 TGran64 : 1;
+        UINT64 Haf : 1;
+        UINT64 Hdbs : 1;
+        UINT64 Pan : 1;
+        UINT64 AtS1E1 : 1;
+        UINT64 Uao : 1;
+        UINT64 El0Aarch32 : 1;
+        UINT64 Fp : 1;
+        UINT64 FpHp : 1;
+        UINT64 AdvSimd : 1;
+        UINT64 AdvSimdHp : 1;
+        UINT64 GicV3V4 : 1;
+        UINT64 GicV41 : 1;
+        UINT64 Ras : 1;
+        UINT64 PmuV3 : 1;
+        UINT64 PmuV3ArmV81 : 1;
+        UINT64 PmuV3ArmV84 : 1;
+        UINT64 PmuV3ArmV85 : 1;
+        UINT64 Aes : 1;
+        UINT64 PolyMul : 1;
+        UINT64 Sha1 : 1;
+        UINT64 Sha256 : 1;
+        UINT64 Sha512 : 1;
+        UINT64 Crc32 : 1;
+        UINT64 Atomic : 1;
+        UINT64 Rdm : 1;
+        UINT64 Sha3 : 1;
+        UINT64 Sm3 : 1;
+        UINT64 Sm4 : 1;
+        UINT64 Dp : 1;
+        UINT64 Fhm : 1;
+        UINT64 DcCvap : 1;
+        UINT64 DcCvadp : 1;
+        UINT64 ApaBase : 1;
+        UINT64 ApaEp : 1;
+        UINT64 ApaEp2 : 1;
+        UINT64 ApaEp2Fp : 1;
+        UINT64 ApaEp2Fpc : 1;
+        UINT64 Jscvt : 1;
+        UINT64 Fcma : 1;
+        UINT64 RcpcV83 : 1;
+        UINT64 RcpcV84 : 1;
+        UINT64 Gpa : 1;
+        UINT64 L1ipPipt : 1;
+        UINT64 DzPermitted : 1;
+        UINT64 Reserved : 17;
+    };
+    UINT64 AsUINT64;
+} WHV_ARM64_PROCESSOR_FEATURES, WHV_PROCESSOR_FEATURES;
+
+typedef union WHV_ARM64_PROCESSOR_FEATURES1 {
+    __C89_NAMELESS struct {
+        UINT64 Reserved : 64;
+    };
+    UINT64 AsUINT64;
+} WHV_ARM64_PROCESSOR_FEATURES1, WHV_PROCESSOR_FEATURES1;
+
+#endif /* __x86_64__ || __aarch64__ */
 
 #define WHV_PROCESSOR_FEATURES_BANKS_COUNT 2
 
@@ -195,55 +341,73 @@ C_ASSERT(sizeof(WHV_PROCESSOR_FEATURES_BANKS) == sizeof(UINT64) * (WHV_PROCESSOR
 
 typedef union WHV_SYNTHETIC_PROCESSOR_FEATURES {
     __C89_NAMELESS struct {
-        UINT64 HypervisorPresent:1;
-        UINT64 Hv1:1;
-        UINT64 AccessVpRunTimeReg:1;
-        UINT64 AccessPartitionReferenceCounter:1;
-        UINT64 AccessSynicRegs:1;
-        UINT64 AccessSyntheticTimerRegs:1;
+        UINT64 HypervisorPresent : 1;
+        UINT64 Hv1 : 1;
+        UINT64 AccessVpRunTimeReg : 1;
+        UINT64 AccessPartitionReferenceCounter : 1;
+        UINT64 AccessSynicRegs : 1;
+        UINT64 AccessSyntheticTimerRegs : 1;
+        UINT64 AccessIntrCtrlRegs : 1;
+        UINT64 AccessHypercallRegs : 1;
+        UINT64 AccessVpIndex : 1;
+        UINT64 AccessPartitionReferenceTsc : 1;
 #ifdef __x86_64__
-        UINT64 AccessIntrCtrlRegs:1;
+        UINT64 AccessGuestIdleReg : 1;
+        UINT64 AccessFrequencyRegs : 1;
 #else
-        UINT64 ReservedZ6:1;
+        UINT64 ReservedZ10 : 1;
+        UINT64 ReservedZ11 : 1;
 #endif
-        UINT64 AccessHypercallRegs:1;
-        UINT64 AccessVpIndex:1;
-        UINT64 AccessPartitionReferenceTsc:1;
+        UINT64 ReservedZ12 : 1;
+        UINT64 ReservedZ13 : 1;
+        UINT64 ReservedZ14 : 1;
 #ifdef __x86_64__
-        UINT64 AccessGuestIdleReg:1;
-        UINT64 AccessFrequencyRegs:1;
+        UINT64 EnableExtendedGvaRangesForFlushVirtualAddressList : 1;
 #else
-        UINT64 ReservedZ10:1;
-        UINT64 ReservedZ11:1;
+        UINT64 ReservedZ15 : 1;
 #endif
-        UINT64 ReservedZ12:1;
-        UINT64 ReservedZ13:1;
-        UINT64 ReservedZ14:1;
+        UINT64 ReservedZ16 : 1;
+        UINT64 ReservedZ17 : 1;
+        UINT64 FastHypercallOutput : 1;
+        UINT64 ReservedZ19 : 1;
+        UINT64 ReservedZ20 : 1;
+        UINT64 ReservedZ21 : 1;
+        UINT64 DirectSyntheticTimers : 1;
+        UINT64 ReservedZ23 : 1;
+        UINT64 ExtendedProcessorMasks : 1;
 #ifdef __x86_64__
-        UINT64 EnableExtendedGvaRangesForFlushVirtualAddressList:1;
+        UINT64 TbFlushHypercalls : 1;
 #else
-        UINT64 ReservedZ15:1;
+        UINT64 ReservedZ25 : 1;
 #endif
-        UINT64 ReservedZ16:1;
-        UINT64 ReservedZ17:1;
-        UINT64 FastHypercallOutput:1;
-        UINT64 ReservedZ19:1;
-        UINT64 ReservedZ20:1;
-        UINT64 ReservedZ21:1;
-        UINT64 DirectSyntheticTimers:1;
-        UINT64 ReservedZ23:1;
-        UINT64 ExtendedProcessorMasks:1;
+        UINT64 SyntheticClusterIpi : 1;
+        UINT64 NotifyLongSpinWait : 1;
+        UINT64 QueryNumaDistance : 1;
+        UINT64 SignalEvents : 1;
+        UINT64 RetargetDeviceInterrupt : 1;
 #ifdef __x86_64__
-        UINT64 TbFlushHypercalls:1;
+        UINT64 RestoreTime : 1;
+        UINT64 EnlightenedVmcs : 1;
+        UINT64 NestedDebugCtl : 1;
+        UINT64 SyntheticTimeUnhaltedTimer : 1;
+        UINT64 IdleSpecCtrl : 1;
 #else
-        UINT64 ReservedZ25:1;
+        UINT64 ReservedZ31 : 1;
+        UINT64 ReservedZ32 : 1;
+        UINT64 ReservedZ33 : 1;
+        UINT64 ReservedZ34 : 1;
+        UINT64 ReservedZ35 : 1;
 #endif
-        UINT64 SyntheticClusterIpi:1;
-        UINT64 NotifyLongSpinWait:1;
-        UINT64 QueryNumaDistance:1;
-        UINT64 SignalEvents:1;
-        UINT64 RetargetDeviceInterrupt:1;
-        UINT64 Reserved:33;
+        UINT64 ReservedZ36 : 1;
+        UINT64 WakeVps : 1;
+        UINT64 AccessVpRegs : 1;
+#ifdef __aarch64__
+        UINT64 SyncContext : 1;
+#else
+        UINT64 ReservedZ39 : 1;
+#endif
+        UINT64 ReservedZ40 : 1;
+        UINT64 Reserved : 23;
     };
     UINT64 AsUINT64;
 } WHV_SYNTHETIC_PROCESSOR_FEATURES;
@@ -627,6 +791,8 @@ C_ASSERT(sizeof(WHV_ACCESS_GPA_CONTROLS) == 8);
 
 #define WHV_READ_WRITE_GPA_RANGE_MAX_SIZE 16
 
+#if defined(__x86_64__)
+
 typedef enum WHV_REGISTER_NAME {
     WHvX64RegisterRax = 0x00000000,
     WHvX64RegisterRcx = 0x00000001,
@@ -778,6 +944,27 @@ typedef enum WHV_REGISTER_NAME {
     WHvX64RegisterUmwaitControl = 0x00002098,
     WHvX64RegisterXfd = 0x00002099,
     WHvX64RegisterXfdErr = 0x0000209A,
+    WHvX64RegisterMsrIa32MiscEnable = 0x000020A0,
+    WHvX64RegisterIa32FeatureControl = 0x000020A1,
+    WHvX64RegisterIa32VmxBasic = 0x000020A2,
+    WHvX64RegisterIa32VmxPinbasedCtls = 0x000020A3,
+    WHvX64RegisterIa32VmxProcbasedCtls = 0x000020A4,
+    WHvX64RegisterIa32VmxExitCtls = 0x000020A5,
+    WHvX64RegisterIa32VmxEntryCtls = 0x000020A6,
+    WHvX64RegisterIa32VmxMisc = 0x000020A7,
+    WHvX64RegisterIa32VmxCr0Fixed0 = 0x000020A8,
+    WHvX64RegisterIa32VmxCr0Fixed1 = 0x000020A9,
+    WHvX64RegisterIa32VmxCr4Fixed0 = 0x000020AA,
+    WHvX64RegisterIa32VmxCr4Fixed1 = 0x000020AB,
+    WHvX64RegisterIa32VmxVmcsEnum = 0x000020AC,
+    WHvX64RegisterIa32VmxProcbasedCtls2 = 0x000020AD,
+    WHvX64RegisterIa32VmxEptVpidCap = 0x000020AE,
+    WHvX64RegisterIa32VmxTruePinbasedCtls = 0x000020AF,
+    WHvX64RegisterIa32VmxTrueProcbasedCtls = 0x000020B0,
+    WHvX64RegisterIa32VmxTrueExitCtls = 0x000020B1,
+    WHvX64RegisterIa32VmxTrueEntryCtls = 0x000020B2,
+    WHvX64RegisterAmdVmHsavePa = 0x000020B3,
+    WHvX64RegisterAmdVmCr = 0x000020B4,
     WHvX64RegisterApicId = 0x00003002,
     WHvX64RegisterApicVersion = 0x00003003,
     WHvX64RegisterApicTpr = 0x00003008,
@@ -848,13 +1035,386 @@ typedef enum WHV_REGISTER_NAME {
     WHvRegisterVpAssistPage = 0x00005013,
     WHvRegisterReferenceTsc = 0x00005017,
     WHvRegisterReferenceTscSequence = 0x0000501A,
+    WHvX64RegisterNestedGuestState = 0x00005050,
+    WHvX64RegisterNestedCurrentVmGpa = 0x00005051,
+    WHvX64RegisterNestedVmxInvEpt = 0x00005052,
+    WHvX64RegisterNestedVmxInvVpid = 0x00005053,
     WHvRegisterPendingInterruption = 0x80000000,
     WHvRegisterInterruptState = 0x80000001,
     WHvRegisterPendingEvent = 0x80000002,
+    WHvRegisterPendingEvent1 = 0x80000003,
     WHvX64RegisterDeliverabilityNotifications = 0x80000004,
+    WHvRegisterDeliverabilityNotifications = 0x80000004,
     WHvRegisterInternalActivityState = 0x80000005,
-    WHvX64RegisterPendingDebugException = 0x80000006
+    WHvX64RegisterPendingDebugException = 0x80000006,
+    WHvRegisterPendingEvent2 = 0x80000007,
+    WHvRegisterPendingEvent3 = 0x80000008
 } WHV_REGISTER_NAME;
+
+#elif defined (__aarch64__)
+
+typedef enum WHV_REGISTER_NAME {
+    WHvArm64RegisterX0 = 0x00020000,
+    WHvArm64RegisterX1 = 0x00020001,
+    WHvArm64RegisterX2 = 0x00020002,
+    WHvArm64RegisterX3 = 0x00020003,
+    WHvArm64RegisterX4 = 0x00020004,
+    WHvArm64RegisterX5 = 0x00020005,
+    WHvArm64RegisterX6 = 0x00020006,
+    WHvArm64RegisterX7 = 0x00020007,
+    WHvArm64RegisterX8 = 0x00020008,
+    WHvArm64RegisterX9 = 0x00020009,
+    WHvArm64RegisterX10 = 0x0002000A,
+    WHvArm64RegisterX11 = 0x0002000B,
+    WHvArm64RegisterX12 = 0x0002000C,
+    WHvArm64RegisterX13 = 0x0002000D,
+    WHvArm64RegisterX14 = 0x0002000E,
+    WHvArm64RegisterX15 = 0x0002000F,
+    WHvArm64RegisterX16 = 0x00020010,
+    WHvArm64RegisterX17 = 0x00020011,
+    WHvArm64RegisterX18 = 0x00020012,
+    WHvArm64RegisterX19 = 0x00020013,
+    WHvArm64RegisterX20 = 0x00020014,
+    WHvArm64RegisterX21 = 0x00020015,
+    WHvArm64RegisterX22 = 0x00020016,
+    WHvArm64RegisterX23 = 0x00020017,
+    WHvArm64RegisterX24 = 0x00020018,
+    WHvArm64RegisterX25 = 0x00020019,
+    WHvArm64RegisterX26 = 0x0002001A,
+    WHvArm64RegisterX27 = 0x0002001B,
+    WHvArm64RegisterX28 = 0x0002001C,
+    WHvArm64RegisterFp = 0x0002001D,
+    WHvArm64RegisterLr = 0x0002001E,
+    WHvArm64RegisterPc = 0x00020022,
+    WHvArm64RegisterXzr = 0x0002FFFE,
+    WHvArm64RegisterQ0 = 0x00030000,
+    WHvArm64RegisterQ1 = 0x00030001,
+    WHvArm64RegisterQ2 = 0x00030002,
+    WHvArm64RegisterQ3 = 0x00030003,
+    WHvArm64RegisterQ4 = 0x00030004,
+    WHvArm64RegisterQ5 = 0x00030005,
+    WHvArm64RegisterQ6 = 0x00030006,
+    WHvArm64RegisterQ7 = 0x00030007,
+    WHvArm64RegisterQ8 = 0x00030008,
+    WHvArm64RegisterQ9 = 0x00030009,
+    WHvArm64RegisterQ10 = 0x0003000A,
+    WHvArm64RegisterQ11 = 0x0003000B,
+    WHvArm64RegisterQ12 = 0x0003000C,
+    WHvArm64RegisterQ13 = 0x0003000D,
+    WHvArm64RegisterQ14 = 0x0003000E,
+    WHvArm64RegisterQ15 = 0x0003000F,
+    WHvArm64RegisterQ16 = 0x00030010,
+    WHvArm64RegisterQ17 = 0x00030011,
+    WHvArm64RegisterQ18 = 0x00030012,
+    WHvArm64RegisterQ19 = 0x00030013,
+    WHvArm64RegisterQ20 = 0x00030014,
+    WHvArm64RegisterQ21 = 0x00030015,
+    WHvArm64RegisterQ22 = 0x00030016,
+    WHvArm64RegisterQ23 = 0x00030017,
+    WHvArm64RegisterQ24 = 0x00030018,
+    WHvArm64RegisterQ25 = 0x00030019,
+    WHvArm64RegisterQ26 = 0x0003001A,
+    WHvArm64RegisterQ27 = 0x0003001B,
+    WHvArm64RegisterQ28 = 0x0003001C,
+    WHvArm64RegisterQ29 = 0x0003001D,
+    WHvArm64RegisterQ30 = 0x0003001E,
+    WHvArm64RegisterQ31 = 0x0003001F,
+    WHvArm64RegisterCurrentEl = 0x00021003,
+    WHvArm64RegisterDaif = 0x00021004,
+    WHvArm64RegisterDit = 0x00021005,
+    WHvArm64RegisterPstate = 0x00020023,
+    WHvArm64RegisterElrEl1 = 0x00040015,
+    WHvArm64RegisterFpcr = 0x00040012,
+    WHvArm64RegisterFpsr = 0x00040013,
+    WHvArm64RegisterNzcv = 0x00021006,
+    WHvArm64RegisterPan = 0x00021007,
+    WHvArm64RegisterSp = 0x0002001F,
+    WHvArm64RegisterSpEl0 = 0x00020020,
+    WHvArm64RegisterSpEl1 = 0x00020021,
+    WHvArm64RegisterSpSel = 0x00021008,
+    WHvArm64RegisterSpsrEl1 = 0x00040014,
+    WHvArm64RegisterSsbs = 0x00021009,
+    WHvArm64RegisterTco = 0x0002100A,
+    WHvArm64RegisterUao = 0x0002100B,
+    WHvArm64RegisterIdAa64Dfr0El1 = 0x00022028,
+    WHvArm64RegisterIdAa64Dfr1El1 = 0x00022029,
+    WHvArm64RegisterIdAa64Isar0El1 = 0x00022030,
+    WHvArm64RegisterIdAa64Isar1El1 = 0x00022031,
+    WHvArm64RegisterIdAa64Isar2El1 = 0x00022032,
+    WHvArm64RegisterIdAa64Mmfr0El1 = 0x00022038,
+    WHvArm64RegisterIdAa64Mmfr1El1 = 0x00022039,
+    WHvArm64RegisterIdAa64Mmfr2El1 = 0x0002203A,
+    WHvArm64RegisterIdAa64Mmfr3El1 = 0x0002203B,
+    WHvArm64RegisterIdAa64Mmfr4El1 = 0x0002203C,
+    WHvArm64RegisterIdAa64Pfr0El1 = 0x00022020,
+    WHvArm64RegisterIdAa64Pfr1El1 = 0x00022021,
+    WHvArm64RegisterIdAa64Pfr2El1 = 0x00022022,
+    WHvArm64RegisterIdAa64Smfr0El1 = 0x00022025,
+    WHvArm64RegisterIdAa64Zfr0El1 = 0x00022024,
+    WHvArm64RegisterIdDfr0El1 = 0x0002200A,
+    WHvArm64RegisterIdIsar0El1 = 0x00022010,
+    WHvArm64RegisterIdIsar1El1 = 0x00022011,
+    WHvArm64RegisterIdIsar2El1 = 0x00022012,
+    WHvArm64RegisterIdIsar3El1 = 0x00022013,
+    WHvArm64RegisterIdIsar4El1 = 0x00022014,
+    WHvArm64RegisterIdIsar5El1 = 0x00022015,
+    WHvArm64RegisterIdMmfr0El1 = 0x0002200C,
+    WHvArm64RegisterIdMmfr1El1 = 0x0002200D,
+    WHvArm64RegisterIdMmfr2El1 = 0x0002200E,
+    WHvArm64RegisterIdMmfr3El1 = 0x0002200F,
+    WHvArm64RegisterIdPfr0El1 = 0x00022008,
+    WHvArm64RegisterIdPfr1El1 = 0x00022009,
+    WHvArm64RegisterIdPfr2El1 = 0x0002201C,
+    WHvArm64RegisterApdAKeyHiEl1 = 0x00040026,
+    WHvArm64RegisterApdAKeyLoEl1 = 0x00040027,
+    WHvArm64RegisterApdBKeyHiEl1 = 0x00040028,
+    WHvArm64RegisterApdBKeyLoEl1 = 0x00040029,
+    WHvArm64RegisterApgAKeyHiEl1 = 0x0004002A,
+    WHvArm64RegisterApgAKeyLoEl1 = 0x0004002B,
+    WHvArm64RegisterApiAKeyHiEl1 = 0x0004002C,
+    WHvArm64RegisterApiAKeyLoEl1 = 0x0004002D,
+    WHvArm64RegisterApiBKeyHiEl1 = 0x0004002E,
+    WHvArm64RegisterApiBKeyLoEl1 = 0x0004002F,
+    WHvArm64RegisterCcsidrEl1 = 0x00040030,
+    WHvArm64RegisterCcsidr2El1 = 0x00040031,
+    WHvArm64RegisterClidrEl1 = 0x00040032,
+    WHvArm64RegisterContextidrEl1 = 0x0004000D,
+    WHvArm64RegisterCpacrEl1 = 0x00040004,
+    WHvArm64RegisterCsselrEl1 = 0x00040035,
+    WHvArm64RegisterCtrEl0 = 0x00040036,
+    WHvArm64RegisterDczidEl0 = 0x00040038,
+    WHvArm64RegisterEsrEl1 = 0x00040008,
+    WHvArm64RegisterFarEl1 = 0x00040009,
+    WHvArm64RegisterIsrEl1 = 0x0004004A,
+    WHvArm64RegisterMairEl1 = 0x0004000B,
+    WHvArm64RegisterMidrEl1 = 0x00040051,
+    WHvArm64RegisterMpidrEl1 = 0x00040001,
+    WHvArm64RegisterMvfr0El1 = 0x00040052,
+    WHvArm64RegisterMvfr1El1 = 0x00040053,
+    WHvArm64RegisterMvfr2El1 = 0x00040054,
+    WHvArm64RegisterParEl1 = 0x0004000A,
+    WHvArm64RegisterRevidrEl1 = 0x00040055,
+    WHvArm64RegisterRgsrEl1 = 0x00040056,
+    WHvArm64RegisterRndr = 0x00040057,
+    WHvArm64RegisterRndrrs = 0x00040058,
+    WHvArm64RegisterSctlrEl1 = 0x00040002,
+    WHvArm64RegisterTcrEl1 = 0x00040007,
+    WHvArm64RegisterTpidrEl0 = 0x00040011,
+    WHvArm64RegisterTpidrEl1 = 0x0004000E,
+    WHvArm64RegisterTpidrroEl0 = 0x00040010,
+    WHvArm64RegisterTtbr0El1 = 0x00040005,
+    WHvArm64RegisterTtbr1El1 = 0x00040006,
+    WHvArm64RegisterVbarEl1 = 0x0004000C,
+    WHvArm64RegisterDbgbcr0El1 = 0x00050000,
+    WHvArm64RegisterDbgbcr1El1 = 0x00050001,
+    WHvArm64RegisterDbgbcr2El1 = 0x00050002,
+    WHvArm64RegisterDbgbcr3El1 = 0x00050003,
+    WHvArm64RegisterDbgbcr4El1 = 0x00050004,
+    WHvArm64RegisterDbgbcr5El1 = 0x00050005,
+    WHvArm64RegisterDbgbcr6El1 = 0x00050006,
+    WHvArm64RegisterDbgbcr7El1 = 0x00050007,
+    WHvArm64RegisterDbgbcr8El1 = 0x00050008,
+    WHvArm64RegisterDbgbcr9El1 = 0x00050009,
+    WHvArm64RegisterDbgbcr10El1 = 0x0005000A,
+    WHvArm64RegisterDbgbcr11El1 = 0x0005000B,
+    WHvArm64RegisterDbgbcr12El1 = 0x0005000C,
+    WHvArm64RegisterDbgbcr13El1 = 0x0005000D,
+    WHvArm64RegisterDbgbcr14El1 = 0x0005000E,
+    WHvArm64RegisterDbgbcr15El1 = 0x0005000F,
+    WHvArm64RegisterDbgbvr0El1 = 0x00050020,
+    WHvArm64RegisterDbgbvr1El1 = 0x00050021,
+    WHvArm64RegisterDbgbvr2El1 = 0x00050022,
+    WHvArm64RegisterDbgbvr3El1 = 0x00050023,
+    WHvArm64RegisterDbgbvr4El1 = 0x00050024,
+    WHvArm64RegisterDbgbvr5El1 = 0x00050025,
+    WHvArm64RegisterDbgbvr6El1 = 0x00050026,
+    WHvArm64RegisterDbgbvr7El1 = 0x00050027,
+    WHvArm64RegisterDbgbvr8El1 = 0x00050028,
+    WHvArm64RegisterDbgbvr9El1 = 0x00050029,
+    WHvArm64RegisterDbgbvr10El1 = 0x0005002A,
+    WHvArm64RegisterDbgbvr11El1 = 0x0005002B,
+    WHvArm64RegisterDbgbvr12El1 = 0x0005002C,
+    WHvArm64RegisterDbgbvr13El1 = 0x0005002D,
+    WHvArm64RegisterDbgbvr14El1 = 0x0005002E,
+    WHvArm64RegisterDbgbvr15El1 = 0x0005002F,
+    WHvArm64RegisterDbgprcrEl1 = 0x00050045,
+    WHvArm64RegisterDbgwcr0El1 = 0x00050010,
+    WHvArm64RegisterDbgwcr1El1 = 0x00050011,
+    WHvArm64RegisterDbgwcr2El1 = 0x00050012,
+    WHvArm64RegisterDbgwcr3El1 = 0x00050013,
+    WHvArm64RegisterDbgwcr4El1 = 0x00050014,
+    WHvArm64RegisterDbgwcr5El1 = 0x00050015,
+    WHvArm64RegisterDbgwcr6El1 = 0x00050016,
+    WHvArm64RegisterDbgwcr7El1 = 0x00050017,
+    WHvArm64RegisterDbgwcr8El1 = 0x00050018,
+    WHvArm64RegisterDbgwcr9El1 = 0x00050019,
+    WHvArm64RegisterDbgwcr10El1 = 0x0005001A,
+    WHvArm64RegisterDbgwcr11El1 = 0x0005001B,
+    WHvArm64RegisterDbgwcr12El1 = 0x0005001C,
+    WHvArm64RegisterDbgwcr13El1 = 0x0005001D,
+    WHvArm64RegisterDbgwcr14El1 = 0x0005001E,
+    WHvArm64RegisterDbgwcr15El1 = 0x0005001F,
+    WHvArm64RegisterDbgwvr0El1 = 0x00050030,
+    WHvArm64RegisterDbgwvr1El1 = 0x00050031,
+    WHvArm64RegisterDbgwvr2El1 = 0x00050032,
+    WHvArm64RegisterDbgwvr3El1 = 0x00050033,
+    WHvArm64RegisterDbgwvr4El1 = 0x00050034,
+    WHvArm64RegisterDbgwvr5El1 = 0x00050035,
+    WHvArm64RegisterDbgwvr6El1 = 0x00050036,
+    WHvArm64RegisterDbgwvr7El1 = 0x00050037,
+    WHvArm64RegisterDbgwvr8El1 = 0x00050038,
+    WHvArm64RegisterDbgwvr9El1 = 0x00050039,
+    WHvArm64RegisterDbgwvr10El1 = 0x0005003A,
+    WHvArm64RegisterDbgwvr11El1 = 0x0005003B,
+    WHvArm64RegisterDbgwvr12El1 = 0x0005003C,
+    WHvArm64RegisterDbgwvr13El1 = 0x0005003D,
+    WHvArm64RegisterDbgwvr14El1 = 0x0005003E,
+    WHvArm64RegisterDbgwvr15El1 = 0x0005003F,
+    WHvArm64RegisterMdrarEl1 = 0x0005004C,
+    WHvArm64RegisterMdscrEl1 = 0x0005004D,
+    WHvArm64RegisterOsdlrEl1 = 0x0005004E,
+    WHvArm64RegisterOslarEl1 = 0x00050052,
+    WHvArm64RegisterOslsrEl1 = 0x00050053,
+    WHvArm64RegisterPmccfiltrEl0 = 0x00052000,
+    WHvArm64RegisterPmccntrEl0 = 0x00052001,
+    WHvArm64RegisterPmceid0El0 = 0x00052002,
+    WHvArm64RegisterPmceid1El0 = 0x00052003,
+    WHvArm64RegisterPmcntenclrEl0 = 0x00052004,
+    WHvArm64RegisterPmcntensetEl0 = 0x00052005,
+    WHvArm64RegisterPmcrEl0 = 0x00052006,
+    WHvArm64RegisterPmevcntr0El0 = 0x00052007,
+    WHvArm64RegisterPmevcntr1El0 = 0x00052008,
+    WHvArm64RegisterPmevcntr2El0 = 0x00052009,
+    WHvArm64RegisterPmevcntr3El0 = 0x0005200A,
+    WHvArm64RegisterPmevcntr4El0 = 0x0005200B,
+    WHvArm64RegisterPmevcntr5El0 = 0x0005200C,
+    WHvArm64RegisterPmevcntr6El0 = 0x0005200D,
+    WHvArm64RegisterPmevcntr7El0 = 0x0005200E,
+    WHvArm64RegisterPmevcntr8El0 = 0x0005200F,
+    WHvArm64RegisterPmevcntr9El0 = 0x00052010,
+    WHvArm64RegisterPmevcntr10El0 = 0x00052011,
+    WHvArm64RegisterPmevcntr11El0 = 0x00052012,
+    WHvArm64RegisterPmevcntr12El0 = 0x00052013,
+    WHvArm64RegisterPmevcntr13El0 = 0x00052014,
+    WHvArm64RegisterPmevcntr14El0 = 0x00052015,
+    WHvArm64RegisterPmevcntr15El0 = 0x00052016,
+    WHvArm64RegisterPmevcntr16El0 = 0x00052017,
+    WHvArm64RegisterPmevcntr17El0 = 0x00052018,
+    WHvArm64RegisterPmevcntr18El0 = 0x00052019,
+    WHvArm64RegisterPmevcntr19El0 = 0x0005201A,
+    WHvArm64RegisterPmevcntr20El0 = 0x0005201B,
+    WHvArm64RegisterPmevcntr21El0 = 0x0005201C,
+    WHvArm64RegisterPmevcntr22El0 = 0x0005201D,
+    WHvArm64RegisterPmevcntr23El0 = 0x0005201E,
+    WHvArm64RegisterPmevcntr24El0 = 0x0005201F,
+    WHvArm64RegisterPmevcntr25El0 = 0x00052020,
+    WHvArm64RegisterPmevcntr26El0 = 0x00052021,
+    WHvArm64RegisterPmevcntr27El0 = 0x00052022,
+    WHvArm64RegisterPmevcntr28El0 = 0x00052023,
+    WHvArm64RegisterPmevcntr29El0 = 0x00052024,
+    WHvArm64RegisterPmevcntr30El0 = 0x00052025,
+    WHvArm64RegisterPmevtyper0El0 = 0x00052026,
+    WHvArm64RegisterPmevtyper1El0 = 0x00052027,
+    WHvArm64RegisterPmevtyper2El0 = 0x00052028,
+    WHvArm64RegisterPmevtyper3El0 = 0x00052029,
+    WHvArm64RegisterPmevtyper4El0 = 0x0005202A,
+    WHvArm64RegisterPmevtyper5El0 = 0x0005202B,
+    WHvArm64RegisterPmevtyper6El0 = 0x0005202C,
+    WHvArm64RegisterPmevtyper7El0 = 0x0005202D,
+    WHvArm64RegisterPmevtyper8El0 = 0x0005202E,
+    WHvArm64RegisterPmevtyper9El0 = 0x0005202F,
+    WHvArm64RegisterPmevtyper10El0 = 0x00052030,
+    WHvArm64RegisterPmevtyper11El0 = 0x00052031,
+    WHvArm64RegisterPmevtyper12El0 = 0x00052032,
+    WHvArm64RegisterPmevtyper13El0 = 0x00052033,
+    WHvArm64RegisterPmevtyper14El0 = 0x00052034,
+    WHvArm64RegisterPmevtyper15El0 = 0x00052035,
+    WHvArm64RegisterPmevtyper16El0 = 0x00052036,
+    WHvArm64RegisterPmevtyper17El0 = 0x00052037,
+    WHvArm64RegisterPmevtyper18El0 = 0x00052038,
+    WHvArm64RegisterPmevtyper19El0 = 0x00052039,
+    WHvArm64RegisterPmevtyper20El0 = 0x0005203A,
+    WHvArm64RegisterPmevtyper21El0 = 0x0005203B,
+    WHvArm64RegisterPmevtyper22El0 = 0x0005203C,
+    WHvArm64RegisterPmevtyper23El0 = 0x0005203D,
+    WHvArm64RegisterPmevtyper24El0 = 0x0005203E,
+    WHvArm64RegisterPmevtyper25El0 = 0x0005203F,
+    WHvArm64RegisterPmevtyper26El0 = 0x00052040,
+    WHvArm64RegisterPmevtyper27El0 = 0x00052041,
+    WHvArm64RegisterPmevtyper28El0 = 0x00052042,
+    WHvArm64RegisterPmevtyper29El0 = 0x00052043,
+    WHvArm64RegisterPmevtyper30El0 = 0x00052044,
+    WHvArm64RegisterPmintenclrEl1 = 0x00052045,
+    WHvArm64RegisterPmintensetEl1 = 0x00052046,
+    WHvArm64RegisterPmovsclrEl0 = 0x00052048,
+    WHvArm64RegisterPmovssetEl0 = 0x00052049,
+    WHvArm64RegisterPmselrEl0 = 0x0005204A,
+    WHvArm64RegisterPmswincEl0 = 0x0005204B,
+    WHvArm64RegisterPmuserenrEl0 = 0x0005204C,
+    WHvArm64RegisterPmxevcntrEl0 = 0x0005204D,
+    WHvArm64RegisterPmxevtyperEl0 = 0x0005204E,
+    WHvArm64RegisterCntfrqEl0 = 0x00058000,
+    WHvArm64RegisterCntkctlEl1 = 0x00058008,
+    WHvArm64RegisterCntvCtlEl0 = 0x0005800E,
+    WHvArm64RegisterCntvCvalEl0 = 0x0005800F,
+    WHvArm64RegisterCntvTvalEl0 = 0x00058010,
+    WHvArm64RegisterCntvctEl0 = 0x00058011,
+    WHvArm64RegisterIccAp1R0El1 = 0x00060000,
+    WHvArm64RegisterIccAp1R1El1 = 0x00060001,
+    WHvArm64RegisterIccAp1R2El1 = 0x00060002,
+    WHvArm64RegisterIccAp1R3El1 = 0x00060003,
+    WHvArm64RegisterIccAsgi1REl1 = 0x00060004,
+    WHvArm64RegisterIccBpr1El1 = 0x00060005,
+    WHvArm64RegisterIccCtlrEl1 = 0x00060006,
+    WHvArm64RegisterIccDirEl1 = 0x00060007,
+    WHvArm64RegisterIccEoir1El1 = 0x00060008,
+    WHvArm64RegisterIccHppir1El1 = 0x00060009,
+    WHvArm64RegisterIccIar1El1 = 0x0006000A,
+    WHvArm64RegisterIccIgrpen1El1 = 0x0006000B,
+    WHvArm64RegisterIccPmrEl1 = 0x0006000C,
+    WHvArm64RegisterIccRprEl1 = 0x0006000D,
+    WHvArm64RegisterIccSgi1REl1 = 0x0006000E,
+    WHvArm64RegisterIccSreEl1 = 0x0006000F,
+    WHvRegisterSint0 = 0x000A0000,
+    WHvRegisterSint1 = 0x000A0001,
+    WHvRegisterSint2 = 0x000A0002,
+    WHvRegisterSint3 = 0x000A0003,
+    WHvRegisterSint4 = 0x000A0004,
+    WHvRegisterSint5 = 0x000A0005,
+    WHvRegisterSint6 = 0x000A0006,
+    WHvRegisterSint7 = 0x000A0007,
+    WHvRegisterSint8 = 0x000A0008,
+    WHvRegisterSint9 = 0x000A0009,
+    WHvRegisterSint10 = 0x000A000A,
+    WHvRegisterSint11 = 0x000A000B,
+    WHvRegisterSint12 = 0x000A000C,
+    WHvRegisterSint13 = 0x000A000D,
+    WHvRegisterSint14 = 0x000A000E,
+    WHvRegisterSint15 = 0x000A000F,
+    WHvRegisterScontrol = 0x000A0010,
+    WHvRegisterSversion = 0x000A0011,
+    WHvRegisterSifp = 0x000A0012,
+    WHvRegisterSipp = 0x000A0013,
+    WHvRegisterEom = 0x000A0014,
+    WHvRegisterVpRuntime = 0x00090000,
+    WHvRegisterGuestOsId = 0x00090002,
+    WHvRegisterVpAssistPage = 0x00090013,
+    WHvArm64RegisterPartitionInfoPage = 0x00090015,
+    WHvRegisterReferenceTsc = 0x00090017,
+    WHvRegisterReferenceTscSequence = 0x0009001A,
+    WHvRegisterPendingEvent0 = 0x00010004,
+    WHvRegisterPendingEvent1 = 0x00010005,
+    WHvRegisterDeliverabilityNotifications = 0x00010006,
+    WHvRegisterInternalActivityState = 0x00000004,
+    WHvRegisterPendingEvent2 = 0x00010008,
+    WHvRegisterPendingEvent3 = 0x00010009
+} WHV_REGISTER_NAME;
+
+#define WHvRegisterSiefp WHvRegisterSifp
+#define WHvRegisterSimp WHvRegisterSipp
+#define WHvRegisterPendingEvent WHvRegisterPendingEvent0
+
+#endif /* __x86_64__ || __aarch64__ */
 
 typedef union DECLSPEC_ALIGN(16) WHV_UINT128 {
     __C89_NAMELESS struct {
@@ -974,22 +1534,28 @@ typedef union WHV_X64_PENDING_INTERRUPTION_REGISTER {
 
 C_ASSERT(sizeof(WHV_X64_PENDING_INTERRUPTION_REGISTER) == sizeof(UINT64));
 
-typedef union WHV_X64_DELIVERABILITY_NOTIFICATIONS_REGISTER {
+typedef union WHV_DELIVERABILITY_NOTIFICATIONS_REGISTER {
     __C89_NAMELESS struct {
+#if defined(__x86_64__)
         UINT64 NmiNotification:1;
         UINT64 InterruptNotification:1;
         UINT64 InterruptPriority:4;
         UINT64 Reserved:42;
+#elif defined(__aarch64__)
+        UINT64 Reserved:48;
+#endif
         UINT64 Sint:16;
     };
     UINT64 AsUINT64;
-} WHV_X64_DELIVERABILITY_NOTIFICATIONS_REGISTER;
+} WHV_DELIVERABILITY_NOTIFICATIONS_REGISTER, WHV_X64_DELIVERABILITY_NOTIFICATIONS_REGISTER;
 
-C_ASSERT(sizeof(WHV_X64_DELIVERABILITY_NOTIFICATIONS_REGISTER) == sizeof(UINT64));
+C_ASSERT(sizeof(WHV_DELIVERABILITY_NOTIFICATIONS_REGISTER) == sizeof(UINT64));
 
 typedef enum WHV_X64_PENDING_EVENT_TYPE {
     WHvX64PendingEventException = 0,
-    WHvX64PendingEventExtInt = 5
+    WHvX64PendingEventExtInt = 5,
+    WHvX64PendingEventSvmNestedExit = 7,
+    WHvX64PendingEventVmxNestedExit = 8
 } WHV_X64_PENDING_EVENT_TYPE;
 
 typedef union WHV_X64_PENDING_EXCEPTION_EVENT {
@@ -1021,6 +1587,117 @@ typedef union WHV_X64_PENDING_EXT_INT_EVENT {
 } WHV_X64_PENDING_EXT_INT_EVENT;
 
 C_ASSERT(sizeof(WHV_X64_PENDING_EXT_INT_EVENT) == sizeof(WHV_UINT128));
+
+typedef union WHV_X64_PENDING_SVM_NESTED_EXIT_EVENT0 {
+    __C89_NAMELESS struct {
+        UINT64 EventPending : 1;
+        UINT64 EventType : 4;
+        UINT64 Reserved0 : 3;
+        UINT64 InstructionBytesValid : 1;
+        UINT64 Reserved1 : 55;
+        UINT64 ExitCode;
+    };
+    WHV_UINT128 AsUINT128;
+} WHV_X64_PENDING_SVM_NESTED_EXIT_EVENT0;
+
+typedef union WHV_X64_PENDING_SVM_NESTED_EXIT_EVENT1 {
+    __C89_NAMELESS struct {
+        UINT64 ExitInfo1;
+        UINT64 ExitInfo2;
+    };
+    WHV_UINT128 AsUINT128;
+} WHV_X64_PENDING_SVM_NESTED_EXIT_EVENT1;
+
+typedef union WHV_X64_PENDING_SVM_NESTED_EXIT_EVENT2 {
+    __C89_NAMELESS struct {
+        UINT64 NextRip;
+        UINT8 InstructionBytesFetchedCount;
+        UINT8 InstructionBytes[7];
+    };
+    WHV_UINT128 AsUINT128;
+} WHV_X64_PENDING_SVM_NESTED_EXIT_EVENT2;
+
+typedef union WHV_X64_PENDING_SVM_NESTED_EXIT_EVENT3 {
+    __C89_NAMELESS struct {
+        UINT8 InstructionBytes[8];
+        UINT64 Reserved2;
+    };
+    WHV_UINT128 AsUINT128;
+} WHV_X64_PENDING_SVM_NESTED_EXIT_EVENT3;
+
+C_ASSERT(sizeof(WHV_X64_PENDING_SVM_NESTED_EXIT_EVENT0) == 16);
+C_ASSERT(sizeof(WHV_X64_PENDING_SVM_NESTED_EXIT_EVENT1) == 16);
+C_ASSERT(sizeof(WHV_X64_PENDING_SVM_NESTED_EXIT_EVENT2) == 16);
+C_ASSERT(sizeof(WHV_X64_PENDING_SVM_NESTED_EXIT_EVENT3) == 16);
+
+typedef union WHV_X64_PENDING_VMX_NESTED_EXIT_EVENT0 {
+    __C89_NAMELESS struct {
+        UINT32 EventPending : 1;
+        UINT32 EventType : 4;
+        UINT32 Reserved0 : 27;
+        UINT32 ExitReason;
+        UINT64 ExitQualification;
+    };
+    WHV_UINT128 AsUINT128;
+} WHV_X64_PENDING_VMX_NESTED_EXIT_EVENT0;
+
+typedef union WHV_X64_PENDING_VMX_NESTED_EXIT_EVENT1 {
+    __C89_NAMELESS struct {
+        UINT32 InstructionLength;
+        UINT32 InstructionInfo;
+        UINT32 ExitInterruptionInfo;
+        UINT32 ExitExceptionErrorCode;
+    };
+    WHV_UINT128 AsUINT128;
+} WHV_X64_PENDING_VMX_NESTED_EXIT_EVENT1;
+
+typedef union WHV_X64_PENDING_VMX_NESTED_EXIT_EVENT2 {
+    __C89_NAMELESS struct {
+        UINT64 GuestLinearAddress;
+        UINT64 GuestPhysicalAddress;
+    };
+    WHV_UINT128 AsUINT128;
+} WHV_X64_PENDING_VMX_NESTED_EXIT_EVENT2;
+
+C_ASSERT(sizeof(WHV_X64_PENDING_VMX_NESTED_EXIT_EVENT0) == 16);
+C_ASSERT(sizeof(WHV_X64_PENDING_VMX_NESTED_EXIT_EVENT1) == 16);
+C_ASSERT(sizeof(WHV_X64_PENDING_VMX_NESTED_EXIT_EVENT2) == 16);
+
+typedef union WHV_X64_NESTED_INVEPT_REGISTER {
+    __C89_NAMELESS struct {
+        UINT8 Type;
+        UINT8 Reserved[7];
+        UINT64 Eptp;
+    };
+    WHV_UINT128 AsUINT128;
+} WHV_X64_NESTED_INVEPT_REGISTER;
+
+C_ASSERT(sizeof(WHV_X64_NESTED_INVEPT_REGISTER) == 16);
+
+typedef union WHV_X64_NESTED_INVVPID_REGISTER {
+    __C89_NAMELESS struct {
+        UINT8 Type;
+        UINT8 Reserved[3];
+        UINT32 Vpid;
+        UINT64 LinearAddress;
+    };
+    WHV_UINT128 AsUINT128;
+} WHV_X64_NESTED_INVVPID_REGISTER;
+
+C_ASSERT(sizeof(WHV_X64_NESTED_INVVPID_REGISTER) == 16);
+
+typedef union WHV_X64_NESTED_GUEST_STATE {
+    __C89_NAMELESS struct {
+        UINT64 NestedVirtActive : 1;
+        UINT64 NestedGuestMode : 1;
+        UINT64 VmEntryPending : 1;
+        UINT64 Reserved0 : 61;
+        UINT64 Reserved1;
+    };
+    WHV_UINT128 AsUINT128;
+} WHV_X64_NESTED_GUEST_STATE;
+
+C_ASSERT(sizeof(WHV_X64_NESTED_GUEST_STATE) == 16);
 
 typedef union WHV_INTERNAL_ACTIVITY_REGISTER {
     __C89_NAMELESS struct {
@@ -1062,6 +1739,9 @@ typedef union WHV_REGISTER_VALUE {
     UINT32 Reg32;
     UINT16 Reg16;
     UINT8 Reg8;
+    WHV_INTERNAL_ACTIVITY_REGISTER InternalActivity;
+    WHV_DELIVERABILITY_NOTIFICATIONS_REGISTER DeliverabilityNotifications;
+#if defined(__x86_64__)
     WHV_X64_FP_REGISTER Fp;
     WHV_X64_FP_CONTROL_STATUS_REGISTER FpControlStatus;
     WHV_X64_XMM_CONTROL_STATUS_REGISTER XmmControlStatus;
@@ -1069,11 +1749,20 @@ typedef union WHV_REGISTER_VALUE {
     WHV_X64_TABLE_REGISTER Table;
     WHV_X64_INTERRUPT_STATE_REGISTER InterruptState;
     WHV_X64_PENDING_INTERRUPTION_REGISTER PendingInterruption;
-    WHV_X64_DELIVERABILITY_NOTIFICATIONS_REGISTER DeliverabilityNotifications;
     WHV_X64_PENDING_EXCEPTION_EVENT ExceptionEvent;
     WHV_X64_PENDING_EXT_INT_EVENT ExtIntEvent;
-    WHV_INTERNAL_ACTIVITY_REGISTER InternalActivity;
     WHV_X64_PENDING_DEBUG_EXCEPTION PendingDebugException;
+    WHV_X64_NESTED_GUEST_STATE NestedState;
+    WHV_X64_NESTED_INVEPT_REGISTER InvEpt;
+    WHV_X64_NESTED_INVVPID_REGISTER InvVpid;
+    WHV_X64_PENDING_SVM_NESTED_EXIT_EVENT0 SvmNestedExit0;
+    WHV_X64_PENDING_SVM_NESTED_EXIT_EVENT1 SvmNestedExit1;
+    WHV_X64_PENDING_SVM_NESTED_EXIT_EVENT2 SvmNestedExit2;
+    WHV_X64_PENDING_SVM_NESTED_EXIT_EVENT3 SvmNestedExit3;
+    WHV_X64_PENDING_VMX_NESTED_EXIT_EVENT0 VmxNestedExit0;
+    WHV_X64_PENDING_VMX_NESTED_EXIT_EVENT1 VmxNestedExit1;
+    WHV_X64_PENDING_VMX_NESTED_EXIT_EVENT2 VmxNestedExit2;
+#endif
 } WHV_REGISTER_VALUE;
 
 C_ASSERT(sizeof(WHV_REGISTER_VALUE) == 16);

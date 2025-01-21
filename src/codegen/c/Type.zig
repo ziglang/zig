@@ -1312,10 +1312,10 @@ pub const Pool = struct {
             },
             else => {
                 const target = &mod.resolved_target.result;
-                const abi_align = Type.intAbiAlignment(int_info.bits, target.*, false);
+                const abi_align = Type.intAbiAlignment(int_info.bits, target.*);
                 const abi_align_bytes = abi_align.toByteUnits().?;
                 const array_ctype = try pool.getArray(allocator, .{
-                    .len = @divExact(Type.intAbiSize(int_info.bits, target.*, false), abi_align_bytes),
+                    .len = @divExact(Type.intAbiSize(int_info.bits, target.*), abi_align_bytes),
                     .elem_ctype = try pool.fromIntInfo(allocator, .{
                         .signedness = .unsigned,
                         .bits = @intCast(abi_align_bytes * 8),
@@ -1350,7 +1350,7 @@ pub const Pool = struct {
             .i0_type,
             .anyopaque_type,
             .void_type,
-            .empty_struct_type,
+            .empty_tuple_type,
             .type_type,
             .comptime_int_type,
             .comptime_float_type,
@@ -1429,7 +1429,7 @@ pub const Pool = struct {
                         .name = .{ .index = .len },
                         .ctype = CType.usize,
                         .alignas = AlignAs.fromAbiAlignment(
-                            Type.intAbiAlignment(target.ptrBitWidth(), target.*, false),
+                            Type.intAbiAlignment(target.ptrBitWidth(), target.*),
                         ),
                     },
                 };
@@ -1450,15 +1450,14 @@ pub const Pool = struct {
             .null_value,
             .bool_true,
             .bool_false,
-            .empty_struct,
-            .generic_poison,
+            .empty_tuple,
             .none,
             => unreachable,
 
             _ => |ip_index| switch (ip.indexToKey(ip_index)) {
                 .int_type => |int_info| return pool.fromIntInfo(allocator, int_info, mod, kind),
                 .ptr_type => |ptr_info| switch (ptr_info.flags.size) {
-                    .One, .Many, .C => {
+                    .one, .many, .c => {
                         const elem_ctype = elem_ctype: {
                             if (ptr_info.packed_offset.host_size > 0 and
                                 ptr_info.flags.vector_index == .none)
@@ -1505,7 +1504,7 @@ pub const Pool = struct {
                             .@"volatile" = ptr_info.flags.is_volatile,
                         });
                     },
-                    .Slice => {
+                    .slice => {
                         const target = &mod.resolved_target.result;
                         var fields = [_]Info.Field{
                             .{
@@ -1524,7 +1523,7 @@ pub const Pool = struct {
                                 .name = .{ .index = .len },
                                 .ctype = CType.usize,
                                 .alignas = AlignAs.fromAbiAlignment(
-                                    Type.intAbiAlignment(target.ptrBitWidth(), target.*, false),
+                                    Type.intAbiAlignment(target.ptrBitWidth(), target.*),
                                 ),
                             },
                         };
@@ -1598,7 +1597,7 @@ pub const Pool = struct {
                     switch (payload_type) {
                         .anyerror_type => return payload_ctype,
                         else => switch (ip.indexToKey(payload_type)) {
-                            .ptr_type => |payload_ptr_info| if (payload_ptr_info.flags.size != .C and
+                            .ptr_type => |payload_ptr_info| if (payload_ptr_info.flags.size != .c and
                                 !payload_ptr_info.flags.is_allowzero) return payload_ctype,
                             .error_set_type, .inferred_error_set_type => return payload_ctype,
                             else => {},
@@ -1644,7 +1643,7 @@ pub const Pool = struct {
                             .name = .{ .index = .@"error" },
                             .ctype = error_set_ctype,
                             .alignas = AlignAs.fromAbiAlignment(
-                                Type.intAbiAlignment(error_set_bits, target.*, false),
+                                Type.intAbiAlignment(error_set_bits, target.*),
                             ),
                         },
                         .{
@@ -1730,16 +1729,16 @@ pub const Pool = struct {
                         ),
                     }
                 },
-                .anon_struct_type => |anon_struct_info| {
+                .tuple_type => |tuple_info| {
                     const scratch_top = scratch.items.len;
                     defer scratch.shrinkRetainingCapacity(scratch_top);
-                    try scratch.ensureUnusedCapacity(allocator, anon_struct_info.types.len *
+                    try scratch.ensureUnusedCapacity(allocator, tuple_info.types.len *
                         @typeInfo(Field).@"struct".fields.len);
                     var hasher = Hasher.init;
-                    for (0..anon_struct_info.types.len) |field_index| {
-                        if (anon_struct_info.values.get(ip)[field_index] != .none) continue;
+                    for (0..tuple_info.types.len) |field_index| {
+                        if (tuple_info.values.get(ip)[field_index] != .none) continue;
                         const field_type = Type.fromInterned(
-                            anon_struct_info.types.get(ip)[field_index],
+                            tuple_info.types.get(ip)[field_index],
                         );
                         const field_ctype = try pool.fromType(
                             allocator,
@@ -1750,11 +1749,7 @@ pub const Pool = struct {
                             kind.noParameter(),
                         );
                         if (field_ctype.index == .void) continue;
-                        const field_name = if (anon_struct_info.fieldName(ip, @intCast(field_index))
-                            .unwrap()) |field_name|
-                            try pool.string(allocator, field_name.toSlice(ip))
-                        else
-                            try pool.fmt(allocator, "f{d}", .{field_index});
+                        const field_name = try pool.fmt(allocator, "f{d}", .{field_index});
                         pool.addHashedExtraAssumeCapacityTo(scratch, &hasher, Field, .{
                             .name = field_name.index,
                             .ctype = field_ctype.index,

@@ -133,7 +133,7 @@ fn setupPthreadAtforkAndFill(buffer: []u8) void {
     return initAndFill(buffer);
 }
 
-fn childAtForkHandler() callconv(.C) void {
+fn childAtForkHandler() callconv(.c) void {
     // The atfork handler is global, this function may be called after
     // fork()-ing threads that never initialized the CSPRNG context.
     if (wipe_mem.len == 0) return;

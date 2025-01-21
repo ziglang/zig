@@ -110,7 +110,7 @@ pub fn create(self: Allocator, comptime T: type) Error!*T {
 /// have the same address and alignment property.
 pub fn destroy(self: Allocator, ptr: anytype) void {
     const info = @typeInfo(@TypeOf(ptr)).pointer;
-    if (info.size != .One) @compileError("ptr must be a single item pointer");
+    if (info.size != .one) @compileError("ptr must be a single item pointer");
     const T = info.child;
     if (@sizeOf(T) == 0) return;
     const non_const_ptr = @as([*]u8, @ptrCast(@constCast(ptr)));
@@ -301,12 +301,13 @@ pub fn reallocAdvanced(
     return mem.bytesAsSlice(T, new_bytes);
 }
 
-/// Free an array allocated with `alloc`. To free a single item,
-/// see `destroy`.
+/// Free an array allocated with `alloc`.
+/// If memory has length 0, free is a no-op.
+/// To free a single item, see `destroy`.
 pub fn free(self: Allocator, memory: anytype) void {
     const Slice = @typeInfo(@TypeOf(memory)).pointer;
     const bytes = mem.sliceAsBytes(memory);
-    const bytes_len = bytes.len + if (Slice.sentinel != null) @sizeOf(Slice.child) else 0;
+    const bytes_len = bytes.len + if (Slice.sentinel() != null) @sizeOf(Slice.child) else 0;
     if (bytes_len == 0) return;
     const non_const_ptr = @constCast(bytes.ptr);
     // TODO: https://github.com/ziglang/zig/issues/4298

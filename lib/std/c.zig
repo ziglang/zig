@@ -44,22 +44,25 @@ comptime {
     }
 }
 
-/// If not linking libc, returns false.
-/// If linking musl libc, returns true.
-/// If linking gnu libc (glibc), returns true if the target version is greater
-/// than or equal to `glibc_version`.
-/// If linking a libc other than these, returns `false`.
-pub inline fn versionCheck(comptime glibc_version: std.SemanticVersion) bool {
+/// * If not linking libc, returns `false`.
+/// * If linking musl libc, returns `true`.
+/// * If linking GNU libc (glibc), returns `true` if the target version is greater than or equal to
+///   `version`.
+/// * If linking Android libc (bionic), returns `true` if the target API level is greater than or
+///   equal to `version.major`, ignoring other components.
+/// * If linking a libc other than these, returns `false`.
+pub inline fn versionCheck(comptime version: std.SemanticVersion) bool {
     return comptime blk: {
         if (!builtin.link_libc) break :blk false;
         if (native_abi.isMusl()) break :blk true;
         if (builtin.target.isGnuLibC()) {
-            const ver = builtin.os.version_range.linux.glibc;
-            const order = ver.order(glibc_version);
-            break :blk switch (order) {
+            const ver = builtin.os.versionRange().gnuLibCVersion().?;
+            break :blk switch (ver.order(version)) {
                 .gt, .eq => true,
                 .lt => false,
             };
+        } else if (builtin.abi.isAndroid()) {
+            break :blk builtin.os.version_range.linux.android >= version.major;
         } else {
             break :blk false;
         }
@@ -2730,8 +2733,8 @@ pub const Sigaction = switch (native_os) {
         => if (builtin.target.isMusl())
             linux.Sigaction
         else if (builtin.target.ptrBitWidth() == 64) extern struct {
-            pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+            pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
             flags: c_uint,
             handler: extern union {
@@ -2739,10 +2742,10 @@ pub const Sigaction = switch (native_os) {
                 sigaction: ?sigaction_fn,
             },
             mask: sigset_t,
-            restorer: ?*const fn () callconv(.C) void = null,
+            restorer: ?*const fn () callconv(.c) void = null,
         } else extern struct {
-            pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+            pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
             flags: c_uint,
             handler: extern union {
@@ -2750,12 +2753,12 @@ pub const Sigaction = switch (native_os) {
                 sigaction: ?sigaction_fn,
             },
             mask: sigset_t,
-            restorer: ?*const fn () callconv(.C) void = null,
+            restorer: ?*const fn () callconv(.c) void = null,
             __resv: [1]c_int = .{0},
         },
         .s390x => if (builtin.abi == .gnu) extern struct {
-            pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+            pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+            pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
             handler: extern union {
                 handler: ?handler_fn,
@@ -2763,15 +2766,15 @@ pub const Sigaction = switch (native_os) {
             },
             __glibc_reserved0: c_int = 0,
             flags: c_uint,
-            restorer: ?*const fn () callconv(.C) void = null,
+            restorer: ?*const fn () callconv(.c) void = null,
             mask: sigset_t,
         } else linux.Sigaction,
         else => linux.Sigaction,
     },
     .emscripten => emscripten.Sigaction,
     .netbsd, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
-        pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+        pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
         handler: extern union {
             handler: ?handler_fn,
@@ -2781,8 +2784,8 @@ pub const Sigaction = switch (native_os) {
         flags: c_uint,
     },
     .dragonfly, .freebsd => extern struct {
-        pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+        pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
         /// signal handler
         handler: extern union {
@@ -2795,8 +2798,8 @@ pub const Sigaction = switch (native_os) {
         mask: sigset_t,
     },
     .solaris, .illumos => extern struct {
-        pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+        pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
         /// signal options
         flags: c_uint,
@@ -2809,8 +2812,8 @@ pub const Sigaction = switch (native_os) {
         mask: sigset_t,
     },
     .haiku => extern struct {
-        pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+        pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
         /// signal handler
         handler: extern union {
@@ -2828,8 +2831,8 @@ pub const Sigaction = switch (native_os) {
         userdata: *allowzero anyopaque = undefined,
     },
     .openbsd => extern struct {
-        pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+        pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+        pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
         /// signal handler
         handler: extern union {
@@ -6017,6 +6020,13 @@ pub const utsname = switch (native_os) {
         machine: [256:0]u8,
         domainname: [256:0]u8,
     },
+    .macos => extern struct {
+        sysname: [256:0]u8,
+        nodename: [256:0]u8,
+        release: [256:0]u8,
+        version: [256:0]u8,
+        machine: [256:0]u8,
+    },
     else => void,
 };
 pub const PR = switch (native_os) {
@@ -6400,7 +6410,7 @@ pub const EAI = switch (native_os) {
     else => void,
 };
 
-pub const dl_iterate_phdr_callback = *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int;
+pub const dl_iterate_phdr_callback = *const fn (info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.c) c_int;
 
 pub const Stat = switch (native_os) {
     .linux => switch (native_arch) {
@@ -7017,6 +7027,7 @@ pub const pthread_attr_t = switch (native_os) {
 
 pub const pthread_key_t = switch (native_os) {
     .linux, .emscripten => c_uint,
+    .macos, .ios, .tvos, .watchos, .visionos => c_ulong,
     .openbsd, .solaris, .illumos => c_int,
     else => void,
 };
@@ -8802,7 +8813,7 @@ pub const NOTE = switch (native_os) {
         pub const EXIT_DETAIL = 0x02000000;
         /// mask for signal & exit status
         pub const PDATAMASK = 0x000fffff;
-        pub const PCTRLMASK = (~PDATAMASK);
+        pub const PCTRLMASK = 0xf0000000;
         pub const EXIT_DETAIL_MASK = 0x00070000;
         pub const EXIT_DECRYPTFAIL = 0x00010000;
         pub const EXIT_MEMORY = 0x00020000;
@@ -8936,7 +8947,7 @@ pub const NOTE = switch (native_os) {
         pub const EXEC = 0x20000000;
         /// mask for signal & exit status
         pub const PDATAMASK = 0x000fffff;
-        pub const PCTRLMASK = (~PDATAMASK);
+        pub const PCTRLMASK = 0xf0000000;
         /// data is seconds
         pub const SECONDS = 0x00000001;
         /// data is milliseconds
@@ -9385,7 +9396,7 @@ pub extern "c" fn futimens(fd: fd_t, times: *const [2]timespec) c_int;
 pub extern "c" fn pthread_create(
     noalias newthread: *pthread_t,
     noalias attr: ?*const pthread_attr_t,
-    start_routine: *const fn (?*anyopaque) callconv(.C) ?*anyopaque,
+    start_routine: *const fn (?*anyopaque) callconv(.c) ?*anyopaque,
     noalias arg: ?*anyopaque,
 ) E;
 pub extern "c" fn pthread_attr_init(attr: *pthread_attr_t) E;
@@ -9397,13 +9408,13 @@ pub extern "c" fn pthread_self() pthread_t;
 pub extern "c" fn pthread_join(thread: pthread_t, arg_return: ?*?*anyopaque) E;
 pub extern "c" fn pthread_detach(thread: pthread_t) E;
 pub extern "c" fn pthread_atfork(
-    prepare: ?*const fn () callconv(.C) void,
-    parent: ?*const fn () callconv(.C) void,
-    child: ?*const fn () callconv(.C) void,
+    prepare: ?*const fn () callconv(.c) void,
+    parent: ?*const fn () callconv(.c) void,
+    child: ?*const fn () callconv(.c) void,
 ) c_int;
 pub extern "c" fn pthread_key_create(
     key: *pthread_key_t,
-    destructor: ?*const fn (value: *anyopaque) callconv(.C) void,
+    destructor: ?*const fn (value: *anyopaque) callconv(.c) void,
 ) E;
 pub extern "c" fn pthread_key_delete(key: pthread_key_t) E;
 pub extern "c" fn pthread_getspecific(key: pthread_key_t) ?*anyopaque;
@@ -9519,12 +9530,12 @@ pub extern "c" fn pthread_cond_signal(cond: *pthread_cond_t) E;
 pub extern "c" fn pthread_cond_broadcast(cond: *pthread_cond_t) E;
 pub extern "c" fn pthread_cond_destroy(cond: *pthread_cond_t) E;
 
-pub extern "c" fn pthread_rwlock_destroy(rwl: *pthread_rwlock_t) callconv(.C) E;
-pub extern "c" fn pthread_rwlock_rdlock(rwl: *pthread_rwlock_t) callconv(.C) E;
-pub extern "c" fn pthread_rwlock_wrlock(rwl: *pthread_rwlock_t) callconv(.C) E;
-pub extern "c" fn pthread_rwlock_tryrdlock(rwl: *pthread_rwlock_t) callconv(.C) E;
-pub extern "c" fn pthread_rwlock_trywrlock(rwl: *pthread_rwlock_t) callconv(.C) E;
-pub extern "c" fn pthread_rwlock_unlock(rwl: *pthread_rwlock_t) callconv(.C) E;
+pub extern "c" fn pthread_rwlock_destroy(rwl: *pthread_rwlock_t) callconv(.c) E;
+pub extern "c" fn pthread_rwlock_rdlock(rwl: *pthread_rwlock_t) callconv(.c) E;
+pub extern "c" fn pthread_rwlock_wrlock(rwl: *pthread_rwlock_t) callconv(.c) E;
+pub extern "c" fn pthread_rwlock_tryrdlock(rwl: *pthread_rwlock_t) callconv(.c) E;
+pub extern "c" fn pthread_rwlock_trywrlock(rwl: *pthread_rwlock_t) callconv(.c) E;
+pub extern "c" fn pthread_rwlock_unlock(rwl: *pthread_rwlock_t) callconv(.c) E;
 
 pub const pthread_t = *opaque {};
 pub const FILE = opaque {};
@@ -9658,7 +9669,6 @@ pub const system_info = haiku.system_info;
 pub const team_id = haiku.team_id;
 pub const team_info = haiku.team_info;
 pub const thread_id = haiku.thread_id;
-pub const vregs = haiku.vregs;
 
 pub const AUTH = openbsd.AUTH;
 pub const BI = openbsd.BI;
@@ -9784,6 +9794,8 @@ pub const dispatch_semaphore_signal = darwin.dispatch_semaphore_signal;
 pub const dispatch_semaphore_wait = darwin.dispatch_semaphore_wait;
 pub const dispatch_time = darwin.dispatch_time;
 pub const fcopyfile = darwin.fcopyfile;
+pub const ipc_space_t = darwin.ipc_space_t;
+pub const ipc_space_port_t = darwin.ipc_space_port_t;
 pub const kern_return_t = darwin.kern_return_t;
 pub const kevent64 = darwin.kevent64;
 pub const mach_absolute_time = darwin.mach_absolute_time;
@@ -9801,10 +9813,13 @@ pub const mach_port_t = darwin.mach_port_t;
 pub const mach_task_basic_info = darwin.mach_task_basic_info;
 pub const mach_task_self = darwin.mach_task_self;
 pub const mach_timebase_info = darwin.mach_timebase_info;
+pub const mach_timebase_info_data = darwin.mach_timebase_info_data;
+pub const mach_vm_address_t = darwin.mach_vm_address_t;
 pub const mach_vm_protect = darwin.mach_vm_protect;
 pub const mach_vm_read = darwin.mach_vm_read;
 pub const mach_vm_region = darwin.mach_vm_region;
 pub const mach_vm_region_recurse = darwin.mach_vm_region_recurse;
+pub const mach_vm_size_t = darwin.mach_vm_size_t;
 pub const mach_vm_write = darwin.mach_vm_write;
 pub const os_log_create = darwin.os_log_create;
 pub const os_log_type_enabled = darwin.os_log_type_enabled;
@@ -9861,6 +9876,7 @@ pub const thread_set_state = darwin.thread_set_state;
 pub const vm_deallocate = darwin.vm_deallocate;
 pub const vm_machine_attribute = darwin.vm_machine_attribute;
 pub const vm_machine_attribute_val_t = darwin.vm_machine_attribute_val_t;
+pub const vm_map_t = darwin.vm_map_t;
 pub const vm_offset_t = darwin.vm_offset_t;
 pub const vm_prot_t = darwin.vm_prot_t;
 pub const vm_region_basic_info_64 = darwin.vm_region_basic_info_64;
@@ -9870,6 +9886,46 @@ pub const vm_region_recurse_info_t = darwin.vm_region_recurse_info_t;
 pub const vm_region_submap_info_64 = darwin.vm_region_submap_info_64;
 pub const vm_region_submap_short_info_64 = darwin.vm_region_submap_short_info_64;
 pub const vm_region_top_info = darwin.vm_region_top_info;
+
+pub const caddr_t = darwin.caddr_t;
+pub const exception_behavior_array_t = darwin.exception_behavior_array_t;
+pub const exception_behavior_t = darwin.exception_behavior_t;
+pub const exception_data_t = darwin.exception_data_t;
+pub const exception_data_type_t = darwin.exception_data_type_t;
+pub const exception_flavor_array_t = darwin.exception_flavor_array_t;
+pub const exception_handler_array_t = darwin.exception_handler_array_t;
+pub const exception_handler_t = darwin.exception_handler_t;
+pub const exception_mask_array_t = darwin.exception_mask_array_t;
+pub const exception_mask_t = darwin.exception_mask_t;
+pub const exception_port_array_t = darwin.exception_port_array_t;
+pub const exception_port_t = darwin.exception_port_t;
+pub const mach_exception_data_t = darwin.mach_exception_data_t;
+pub const mach_exception_data_type_t = darwin.mach_exception_data_type_t;
+pub const mach_msg_bits_t = darwin.mach_msg_bits_t;
+pub const mach_msg_id_t = darwin.mach_msg_id_t;
+pub const mach_msg_option_t = darwin.mach_msg_option_t;
+pub const mach_msg_size_t = darwin.mach_msg_size_t;
+pub const mach_msg_timeout_t = darwin.mach_msg_timeout_t;
+pub const mach_msg_type_name_t = darwin.mach_msg_type_name_t;
+pub const mach_port_right_t = darwin.mach_port_right_t;
+pub const memory_object_offset_t = darwin.memory_object_offset_t;
+pub const policy_t = darwin.policy_t;
+pub const task_policy_flavor_t = darwin.task_policy_flavor_t;
+pub const task_policy_t = darwin.task_policy_t;
+pub const task_t = darwin.task_t;
+pub const thread_act_t = darwin.thread_act_t;
+pub const thread_flavor_t = darwin.thread_flavor_t;
+pub const thread_port_t = darwin.thread_port_t;
+pub const thread_state_flavor_t = darwin.thread_state_flavor_t;
+pub const thread_state_t = darwin.thread_state_t;
+pub const thread_t = darwin.thread_t;
+pub const time_value_t = darwin.time_value_t;
+pub const vm32_object_id_t = darwin.vm32_object_id_t;
+pub const vm_behavior_t = darwin.vm_behavior_t;
+pub const vm_inherit_t = darwin.vm_inherit_t;
+pub const vm_map_read_t = darwin.vm_map_read_t;
+pub const vm_object_id_t = darwin.vm_object_id_t;
+pub const vm_region_flavor_t = darwin.vm_region_flavor_t;
 
 pub const _ksiginfo = netbsd._ksiginfo;
 pub const _lwp_self = netbsd._lwp_self;

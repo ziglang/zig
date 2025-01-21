@@ -4,6 +4,7 @@ root_step: *std.Build.Step,
 
 pub const Options = struct {
     test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
     gdb: ?[]const u8,
     lldb: ?[]const u8,
     optimize_modes: []const std.builtin.OptimizeMode,
@@ -655,10 +656,17 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             .{
                 .path = "storage.zig",
                 .source =
+                \\comptime {
+                \\    _ = @import("externs.zig");
+                \\}
                 \\const global_const: u64 = 0x19e50dc8d6002077;
                 \\var global_var: u64 = 0xcc423cec08622e32;
                 \\threadlocal var global_threadlocal1: u64 = 0xb4d643528c042121;
                 \\threadlocal var global_threadlocal2: u64 = 0x43faea1cf5ad7a22;
+                \\extern const extern_const: u64;
+                \\extern var extern_var: u64;
+                \\extern threadlocal var extern_threadlocal1: u64;
+                \\extern threadlocal var extern_threadlocal2: u64;
                 \\fn testStorage(
                 \\    param1: u64,
                 \\    param2: u64,
@@ -672,6 +680,7 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
                 \\    const local_comptime_val: u64 = global_const *% global_const;
                 \\    const local_comptime_ptr: struct { u64 } = .{ local_comptime_val *% local_comptime_val };
                 \\    const local_const: u64 = global_var ^ global_threadlocal1 ^ global_threadlocal2 ^
+                \\        extern_const ^ extern_var ^ extern_threadlocal1 ^ extern_threadlocal2 ^
                 \\        param1 ^ param2 ^ param3 ^ param4 ^ param5 ^ param6 ^ param7 ^ param8;
                 \\    var local_var: u64 = local_comptime_ptr[0] ^ local_const;
                 \\    local_var = local_var;
@@ -691,19 +700,37 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
                 \\
                 ,
             },
+            .{
+                .path = "externs.zig",
+                .source =
+                \\export const extern_const: u64 = 0x1b0c91ea0470b0b2;
+                \\export var extern_var: u64 = 0x19bc17b3f0b61ebc;
+                \\export threadlocal var extern_threadlocal1: u64 = 0x3034c4ce967ed64d;
+                \\export threadlocal var extern_threadlocal2: u64 = 0xfd330ab00b4bc5eb;
+                \\
+                ,
+            },
         },
         \\breakpoint set --file storage.zig --source-pattern-regexp 'local_var = local_var;'
         \\process launch
-        \\target variable --show-types --format hex -- global_const global_var global_threadlocal1 global_threadlocal2
+        \\target variable --show-types --format hex -- global_const global_var global_threadlocal1 global_threadlocal2 extern_const extern_var extern_threadlocal1 extern_threadlocal2
         \\frame variable --show-types --format hex -- param1 param2 param3 param4 param5 param6 param7 param8 local_comptime_val local_comptime_ptr.0 local_const local_var
         \\breakpoint delete --force 1
     ,
         &.{
-            \\(lldb) target variable --show-types --format hex -- global_const global_var global_threadlocal1 global_threadlocal2
+            \\(lldb) target variable --show-types --format hex -- global_const global_var global_threadlocal1 global_threadlocal2 extern_const extern_var extern_threadlocal1 extern_threadlocal2
             \\(u64) global_const = 0x19e50dc8d6002077
             \\(u64) global_var = 0xcc423cec08622e32
             \\(u64) global_threadlocal1 = 0xb4d643528c042121
             \\(u64) global_threadlocal2 = 0x43faea1cf5ad7a22
+            \\(u64) extern_const = 0x1b0c91ea0470b0b2
+            \\(u64) extern_const = 0x1b0c91ea0470b0b2
+            \\(u64) extern_var = 0x19bc17b3f0b61ebc
+            \\(u64) extern_var = 0x19bc17b3f0b61ebc
+            \\(u64) extern_threadlocal1 = 0x3034c4ce967ed64d
+            \\(u64) extern_threadlocal1 = 0x3034c4ce967ed64d
+            \\(u64) extern_threadlocal2 = 0xfd330ab00b4bc5eb
+            \\(u64) extern_threadlocal2 = 0xfd330ab00b4bc5eb
             \\(lldb) frame variable --show-types --format hex -- param1 param2 param3 param4 param5 param6 param7 param8 local_comptime_val local_comptime_ptr.0 local_const local_var
             \\(u64) param1 = 0x6a607e08125c7e00
             \\(u64) param2 = 0x98944cb2a45a8b51
@@ -715,8 +742,8 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\(u64) param8 = 0xc88533722601e481
             \\(u64) local_comptime_val = 0x69490636f81df751
             \\(u64) local_comptime_ptr.0 = 0x82e834dae74767a1
-            \\(u64) local_const = 0xdffceb8b2f41e205
-            \\(u64) local_var = 0x5d14df51c80685a4
+            \\(u64) local_const = 0x104ba3ac46b25fad
+            \\(u64) local_var = 0x92a39776a1f5380c
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
         },
@@ -806,6 +833,424 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\(f32) x = 4.5
             \\(lldb) breakpoint delete --force 1
             \\1 breakpoints deleted; 0 breakpoint locations disabled.
+        },
+    );
+    db.addLldbTest(
+        "step_single_stmt_loops",
+        target,
+        &.{
+            .{
+                .path = "step_single_stmt_loops.zig",
+                .source =
+                \\pub fn main() void {
+                \\    var x: u32 = 0;
+                \\    for (0..3) |_| {
+                \\        x +%= 1;
+                \\    }
+                \\    {
+                \\        var i: u32 = 0;
+                \\        while (i < 3) : (i +%= 1) {
+                \\            x +%= 1;
+                \\        }
+                \\    }
+                \\    {
+                \\        var i: u32 = 0;
+                \\        while (i < 3) {
+                \\            i +%= 1;
+                \\        }
+                \\    }
+                \\    inline for (0..3) |_| {
+                \\        x +%= 1;
+                \\    }
+                \\    {
+                \\        comptime var i: u32 = 0;
+                \\        inline while (i < 3) : (i +%= 1) {
+                \\            x +%= 1;
+                \\        }
+                \\    }
+                \\    {
+                \\        comptime var i: u32 = 0;
+                \\        inline while (i < 3) {
+                \\            i +%= 1;
+                \\        }
+                \\    }
+                \\    x +%= 1;
+                \\}
+                \\
+                ,
+            },
+        },
+        \\breakpoint set --name step_single_stmt_loops.main
+        \\process launch
+        \\thread step-in
+        \\#00
+        \\frame variable x
+        \\thread step-in
+        \\#01
+        \\frame variable x
+        \\thread step-in
+        \\#02
+        \\frame variable x
+        \\thread step-in
+        \\#03
+        \\frame variable x
+        \\thread step-in
+        \\#04
+        \\frame variable x
+        \\thread step-in
+        \\#05
+        \\frame variable x
+        \\thread step-in
+        \\#06
+        \\frame variable x
+        \\thread step-in
+        \\#07
+        \\frame variable x
+        \\thread step-in
+        \\#08
+        \\frame variable x
+        \\thread step-in
+        \\#09
+        \\frame variable x
+        \\thread step-in
+        \\#10
+        \\frame variable x
+        \\thread step-in
+        \\#11
+        \\frame variable x
+        \\thread step-in
+        \\#12
+        \\frame variable x
+        \\thread step-in
+        \\#13
+        \\frame variable x
+        \\thread step-in
+        \\#14
+        \\frame variable x
+        \\thread step-in
+        \\#15
+        \\frame variable x
+        \\thread step-in
+        \\#16
+        \\frame variable x
+        \\thread step-in
+        \\#17
+        \\frame variable x
+        \\thread step-in
+        \\#18
+        \\frame variable x
+        \\thread step-in
+        \\#19
+        \\frame variable x
+        \\thread step-in
+        \\#20
+        \\frame variable x
+        \\thread step-in
+        \\#21
+        \\frame variable x
+        \\thread step-in
+        \\#22
+        \\frame variable x
+        \\thread step-in
+        \\#23
+        \\frame variable x
+        \\thread step-in
+        \\#24
+        \\frame variable x
+        \\thread step-in
+        \\#25
+        \\frame variable x
+        \\thread step-in
+        \\#26
+        \\frame variable x
+        \\thread step-in
+        \\#27
+        \\frame variable x
+        \\thread step-in
+        \\#28
+        \\frame variable x
+        \\thread step-in
+        \\#29
+        \\frame variable x
+        \\thread step-in
+        \\#30
+        \\frame variable x
+        \\thread step-in
+        \\#31
+        \\frame variable x
+        \\thread step-in
+        \\#32
+        \\frame variable x
+        \\thread step-in
+        \\#33
+        \\frame variable x
+        \\thread step-in
+        \\#34
+        \\frame variable x
+        \\thread step-in
+        \\#35
+        \\frame variable x
+        \\thread step-in
+        \\#36
+        \\frame variable x
+        \\thread step-in
+        \\#37
+        \\frame variable x
+        \\thread step-in
+        \\#38
+        \\frame variable x
+        \\thread step-in
+        \\#39
+        \\frame variable x
+        \\thread step-in
+        \\#40
+        \\frame variable x
+        \\thread step-in
+        \\#41
+        \\frame variable x
+        \\thread step-in
+        \\#42
+        \\frame variable x
+        \\thread step-in
+        \\#43
+        \\frame variable x
+        \\thread step-in
+        \\#44
+        \\frame variable x
+        \\thread step-in
+        \\#45
+        \\frame variable x
+        \\
+    ,
+        &.{
+            \\(lldb) #00
+            \\(lldb) frame variable x
+            \\(u32) x = 0
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #01
+            \\(lldb) frame variable x
+            \\(u32) x = 0
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #02
+            \\(lldb) frame variable x
+            \\(u32) x = 1
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #03
+            \\(lldb) frame variable x
+            \\(u32) x = 1
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #04
+            \\(lldb) frame variable x
+            \\(u32) x = 1
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #05
+            \\(lldb) frame variable x
+            \\(u32) x = 2
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #06
+            \\(lldb) frame variable x
+            \\(u32) x = 2
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #07
+            \\(lldb) frame variable x
+            \\(u32) x = 2
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #08
+            \\(lldb) frame variable x
+            \\(u32) x = 3
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #09
+            \\(lldb) frame variable x
+            \\(u32) x = 3
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #10
+            \\(lldb) frame variable x
+            \\(u32) x = 3
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #11
+            \\(lldb) frame variable x
+            \\(u32) x = 3
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #12
+            \\(lldb) frame variable x
+            \\(u32) x = 3
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #13
+            \\(lldb) frame variable x
+            \\(u32) x = 4
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #14
+            \\(lldb) frame variable x
+            \\(u32) x = 4
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #15
+            \\(lldb) frame variable x
+            \\(u32) x = 4
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #16
+            \\(lldb) frame variable x
+            \\(u32) x = 5
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #17
+            \\(lldb) frame variable x
+            \\(u32) x = 5
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #18
+            \\(lldb) frame variable x
+            \\(u32) x = 5
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #19
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #20
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #21
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #22
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #23
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #24
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #25
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #26
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #27
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #28
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #29
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #30
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #31
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #32
+            \\(lldb) frame variable x
+            \\(u32) x = 6
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #33
+            \\(lldb) frame variable x
+            \\(u32) x = 7
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #34
+            \\(lldb) frame variable x
+            \\(u32) x = 7
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #35
+            \\(lldb) frame variable x
+            \\(u32) x = 8
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #36
+            \\(lldb) frame variable x
+            \\(u32) x = 8
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #37
+            \\(lldb) frame variable x
+            \\(u32) x = 9
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #38
+            \\(lldb) frame variable x
+            \\(u32) x = 9
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #39
+            \\(lldb) frame variable x
+            \\(u32) x = 10
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #40
+            \\(lldb) frame variable x
+            \\(u32) x = 10
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #41
+            \\(lldb) frame variable x
+            \\(u32) x = 11
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #42
+            \\(lldb) frame variable x
+            \\(u32) x = 11
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #43
+            \\(lldb) frame variable x
+            \\(u32) x = 12
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #44
+            \\(lldb) frame variable x
+            \\(u32) x = 12
+            \\(lldb) thread step-in
+            ,
+            \\(lldb) #45
+            \\(lldb) frame variable x
+            \\(u32) x = 12
         },
     );
     db.addLldbTest(
@@ -1532,18 +1977,18 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
     ,
         &.{
             \\(lldb) frame variable --show-types -- list0 list0.len list0.capacity list0[0] list0[1] list0[2] list0.0 list0.1 list0.2
-            \\(std.multi_array_list.MultiArrayList(main.Elem0)) list0 = len=3 capacity=8 {
-            \\  (root.main.Elem0) [0] = {
+            \\(std.multi_array_list.MultiArrayList(struct { u32, u8, u16 })) list0 = len=3 capacity=8 {
+            \\  (struct { u32, u8, u16 }) [0] = {
             \\    (u32) .@"0" = 1
             \\    (u8) .@"1" = 2
             \\    (u16) .@"2" = 3
             \\  }
-            \\  (root.main.Elem0) [1] = {
+            \\  (struct { u32, u8, u16 }) [1] = {
             \\    (u32) .@"0" = 4
             \\    (u8) .@"1" = 5
             \\    (u16) .@"2" = 6
             \\  }
-            \\  (root.main.Elem0) [2] = {
+            \\  (struct { u32, u8, u16 }) [2] = {
             \\    (u32) .@"0" = 7
             \\    (u8) .@"1" = 8
             \\    (u16) .@"2" = 9
@@ -1551,17 +1996,17 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\}
             \\(usize) list0.len = 3
             \\(usize) list0.capacity = 8
-            \\(root.main.Elem0) list0[0] = {
+            \\(struct { u32, u8, u16 }) list0[0] = {
             \\  (u32) .@"0" = 1
             \\  (u8) .@"1" = 2
             \\  (u16) .@"2" = 3
             \\}
-            \\(root.main.Elem0) list0[1] = {
+            \\(struct { u32, u8, u16 }) list0[1] = {
             \\  (u32) .@"0" = 4
             \\  (u8) .@"1" = 5
             \\  (u16) .@"2" = 6
             \\}
-            \\(root.main.Elem0) list0[2] = {
+            \\(struct { u32, u8, u16 }) list0[2] = {
             \\  (u32) .@"0" = 7
             \\  (u8) .@"1" = 8
             \\  (u16) .@"2" = 9
@@ -1582,18 +2027,18 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\  (u16) [2] = 9
             \\}
             \\(lldb) frame variable --show-types -- slice0 slice0.len slice0.capacity slice0[0] slice0[1] slice0[2] slice0.0 slice0.1 slice0.2
-            \\(std.multi_array_list.MultiArrayList(main.Elem0).Slice) slice0 = len=3 capacity=8 {
-            \\  (root.main.Elem0) [0] = {
+            \\(std.multi_array_list.MultiArrayList(struct { u32, u8, u16 }).Slice) slice0 = len=3 capacity=8 {
+            \\  (struct { u32, u8, u16 }) [0] = {
             \\    (u32) .@"0" = 1
             \\    (u8) .@"1" = 2
             \\    (u16) .@"2" = 3
             \\  }
-            \\  (root.main.Elem0) [1] = {
+            \\  (struct { u32, u8, u16 }) [1] = {
             \\    (u32) .@"0" = 4
             \\    (u8) .@"1" = 5
             \\    (u16) .@"2" = 6
             \\  }
-            \\  (root.main.Elem0) [2] = {
+            \\  (struct { u32, u8, u16 }) [2] = {
             \\    (u32) .@"0" = 7
             \\    (u8) .@"1" = 8
             \\    (u16) .@"2" = 9
@@ -1601,17 +2046,17 @@ pub fn addTestsForTarget(db: *Debugger, target: Target) void {
             \\}
             \\(usize) slice0.len = 3
             \\(usize) slice0.capacity = 8
-            \\(root.main.Elem0) slice0[0] = {
+            \\(struct { u32, u8, u16 }) slice0[0] = {
             \\  (u32) .@"0" = 1
             \\  (u8) .@"1" = 2
             \\  (u16) .@"2" = 3
             \\}
-            \\(root.main.Elem0) slice0[1] = {
+            \\(struct { u32, u8, u16 }) slice0[1] = {
             \\  (u32) .@"0" = 4
             \\  (u8) .@"1" = 5
             \\  (u16) .@"2" = 6
             \\}
-            \\(root.main.Elem0) slice0[2] = {
+            \\(struct { u32, u8, u16 }) slice0[2] = {
             \\  (u32) .@"0" = 7
             \\  (u8) .@"1" = 8
             \\  (u16) .@"2" = 9
@@ -1988,9 +2433,15 @@ fn addTest(
     for (db.options.test_filters) |test_filter| {
         if (std.mem.indexOf(u8, name, test_filter)) |_| return;
     }
+    if (db.options.test_target_filters.len > 0) {
+        const triple_txt = target.resolved.result.zigTriple(db.b.allocator) catch @panic("OOM");
+        for (db.options.test_target_filters) |filter| {
+            if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+        } else return;
+    }
     const files_wf = db.b.addWriteFiles();
-    const exe = db.b.addExecutable(.{
-        .name = name,
+
+    const mod = db.b.createModule(.{
         .target = target.resolved,
         .root_source_file = files_wf.add(files[0].path, files[0].source),
         .optimize = target.optimize_mode,
@@ -1998,15 +2449,21 @@ fn addTest(
         .single_threaded = target.single_threaded,
         .pic = target.pic,
         .strip = false,
-        .use_llvm = false,
-        .use_lld = false,
     });
     for (files[1..]) |file| {
         const path = files_wf.add(file.path, file.source);
-        if (file.import) |import| exe.root_module.addImport(import, db.b.createModule(.{
+        if (file.import) |import| mod.addImport(import, db.b.createModule(.{
             .root_source_file = path,
         }));
     }
+
+    const exe = db.b.addExecutable(.{
+        .name = name,
+        .root_module = mod,
+        .use_llvm = false,
+        .use_lld = false,
+    });
+
     const commands_wf = db.b.addWriteFiles();
     const run = std.Build.Step.Run.create(db.b, db.b.fmt("run {s} {s}", .{ name, target.test_name_suffix }));
     run.addArgs(db_argv1);

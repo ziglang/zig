@@ -88,6 +88,8 @@ pub const Case = struct {
     expect_exact: bool = false,
     backend: Backend = .stage2,
     link_libc: bool = false,
+    pic: ?bool = null,
+    pie: ?bool = null,
 
     deps: std.ArrayList(DepModule),
 
@@ -202,30 +204,14 @@ pub fn exeFromCompiledC(ctx: *Cases, name: []const u8, target_query: std.Target.
     return &ctx.cases.items[ctx.cases.items.len - 1];
 }
 
-pub fn noEmitUsingLlvmBackend(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Case {
+pub fn addObjLlvm(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Case {
     ctx.cases.append(Case{
         .name = name,
         .target = target,
         .updates = std.ArrayList(Update).init(ctx.cases.allocator),
         .output_mode = .Obj,
-        .emit_bin = false,
         .deps = std.ArrayList(DepModule).init(ctx.arena),
         .backend = .llvm,
-    }) catch @panic("out of memory");
-    return &ctx.cases.items[ctx.cases.items.len - 1];
-}
-
-/// Adds a test case that uses the LLVM backend to emit an executable.
-/// Currently this implies linking libc, because only then we can generate a testable executable.
-pub fn exeUsingLlvmBackend(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Case {
-    ctx.cases.append(Case{
-        .name = name,
-        .target = target,
-        .updates = std.ArrayList(Update).init(ctx.cases.allocator),
-        .output_mode = .Exe,
-        .deps = std.ArrayList(DepModule).init(ctx.arena),
-        .backend = .llvm,
-        .link_libc = true,
     }) catch @panic("out of memory");
     return &ctx.cases.items[ctx.cases.items.len - 1];
 }
@@ -425,6 +411,9 @@ fn addFromDirInner(
         const is_test = try manifest.getConfigForKeyAssertSingle("is_test", bool);
         const link_libc = try manifest.getConfigForKeyAssertSingle("link_libc", bool);
         const output_mode = try manifest.getConfigForKeyAssertSingle("output_mode", std.builtin.OutputMode);
+        const pic = try manifest.getConfigForKeyAssertSingle("pic", ?bool);
+        const pie = try manifest.getConfigForKeyAssertSingle("pie", ?bool);
+        const emit_bin = try manifest.getConfigForKeyAssertSingle("emit_bin", bool);
 
         if (manifest.type == .translate_c) {
             for (c_frontends) |c_frontend| {
@@ -467,7 +456,7 @@ fn addFromDirInner(
             const target = resolved_target.result;
             for (backends) |backend| {
                 if (backend == .stage2 and
-                    target.cpu.arch != .wasm32 and target.cpu.arch != .x86_64)
+                    target.cpu.arch != .wasm32 and target.cpu.arch != .x86_64 and target.cpu.arch != .spirv64)
                 {
                     // Other backends don't support new liveness format
                     continue;
@@ -485,9 +474,12 @@ fn addFromDirInner(
                     .target = resolved_target,
                     .backend = backend,
                     .updates = std.ArrayList(Cases.Update).init(ctx.cases.allocator),
+                    .emit_bin = emit_bin,
                     .is_test = is_test,
                     .output_mode = output_mode,
                     .link_libc = link_libc,
+                    .pic = pic,
+                    .pie = pie,
                     .deps = std.ArrayList(DepModule).init(ctx.cases.allocator),
                 });
                 try cases.append(next);
@@ -539,13 +531,14 @@ pub fn lowerToTranslateCSteps(
     b: *std.Build,
     parent_step: *std.Build.Step,
     test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
     target: std.Build.ResolvedTarget,
     translate_c_options: TranslateCOptions,
 ) void {
     const tests = @import("../tests.zig");
     const test_translate_c_step = b.step("test-translate-c", "Run the C translation tests");
     if (!translate_c_options.skip_translate_c) {
-        tests.addTranslateCTests(b, test_translate_c_step, test_filters);
+        tests.addTranslateCTests(b, test_translate_c_step, test_filters, test_target_filters);
         parent_step.dependOn(test_translate_c_step);
     }
 
@@ -579,7 +572,10 @@ pub fn lowerToTranslateCSteps(
             });
             translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
 
-            const run_exe = translate_c.addExecutable(.{});
+            const run_exe = b.addExecutable(.{
+                .name = "translated_c",
+                .root_module = translate_c.createModule(),
+            });
             run_exe.step.name = b.fmt("{s} build-exe", .{annotated_case_name});
             run_exe.linkLibC();
             const run = b.addRunArtifact(run_exe);
@@ -620,6 +616,7 @@ pub fn lowerToBuildSteps(
     b: *std.Build,
     parent_step: *std.Build.Step,
     test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
 ) void {
     const host = std.zig.system.resolveTargetQuery(.{}) catch |err|
         std.debug.panic("unable to detect native host: {s}\n", .{@errorName(err)});
@@ -648,6 +645,14 @@ pub fn lowerToBuildSteps(
             if (std.mem.indexOf(u8, case.name, test_filter)) |_| break;
         } else if (test_filters.len > 0) continue;
 
+        const triple_txt = case.target.result.zigTriple(b.allocator) catch @panic("OOM");
+
+        if (test_target_filters.len > 0) {
+            for (test_target_filters) |filter| {
+                if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+            } else continue;
+        }
+
         const writefiles = b.addWriteFiles();
         var file_sources = std.StringHashMap(std.Build.LazyPath).init(b.allocator);
         defer file_sources.deinit();
@@ -658,33 +663,38 @@ pub fn lowerToBuildSteps(
             file_sources.put(file.path, writefiles.add(file.path, file.src)) catch @panic("OOM");
         }
 
-        const artifact = if (case.is_test) b.addTest(.{
+        const mod = b.createModule(.{
             .root_source_file = root_source_file,
-            .name = case.name,
             .target = case.target,
             .optimize = case.optimize_mode,
+        });
+        if (case.link_libc) mod.link_libc = true;
+        if (case.pic) |pic| mod.pic = pic;
+        for (case.deps.items) |dep| {
+            mod.addAnonymousImport(dep.name, .{
+                .root_source_file = file_sources.get(dep.path).?,
+            });
+        }
+
+        const artifact = if (case.is_test) b.addTest(.{
+            .name = case.name,
+            .root_module = mod,
         }) else switch (case.output_mode) {
             .Obj => b.addObject(.{
-                .root_source_file = root_source_file,
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = mod,
             }),
             .Lib => b.addStaticLibrary(.{
-                .root_source_file = root_source_file,
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = mod,
             }),
             .Exe => b.addExecutable(.{
-                .root_source_file = root_source_file,
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = mod,
             }),
         };
 
-        if (case.link_libc) artifact.linkLibC();
+        if (case.pie) |pie| artifact.pie = pie;
 
         switch (case.backend) {
             .stage1 => continue,
@@ -697,14 +707,12 @@ pub fn lowerToBuildSteps(
             },
         }
 
-        for (case.deps.items) |dep| {
-            artifact.root_module.addAnonymousImport(dep.name, .{
-                .root_source_file = file_sources.get(dep.path).?,
-            });
-        }
-
         switch (update.case) {
             .Compile => {
+                // Force the binary to be emitted if requested.
+                if (case.emit_bin) {
+                    _ = artifact.getEmittedBin();
+                }
                 parent_step.dependOn(&artifact.step);
             },
             .CompareObjectFile => |expected_output| {
@@ -740,7 +748,7 @@ pub fn lowerToBuildSteps(
                         "--",
                         "-lc",
                         "-target",
-                        case.target.result.zigTriple(b.allocator) catch @panic("OOM"),
+                        triple_txt,
                     });
                     run_c.addArtifactArg(artifact);
                     break :run_step run_c;
@@ -942,12 +950,18 @@ const TestManifestConfigDefaults = struct {
                 .run_translated_c => "Obj",
                 .cli => @panic("TODO test harness for CLI tests"),
             };
+        } else if (std.mem.eql(u8, key, "emit_bin")) {
+            return "true";
         } else if (std.mem.eql(u8, key, "is_test")) {
             return "false";
         } else if (std.mem.eql(u8, key, "link_libc")) {
             return "false";
         } else if (std.mem.eql(u8, key, "c_frontend")) {
             return "clang";
+        } else if (std.mem.eql(u8, key, "pic")) {
+            return "null";
+        } else if (std.mem.eql(u8, key, "pie")) {
+            return "null";
         } else unreachable;
     }
 };
@@ -975,12 +989,15 @@ const TestManifest = struct {
     trailing_bytes: []const u8 = "",
 
     const valid_keys = std.StaticStringMap(void).initComptime(.{
+        .{ "emit_bin", {} },
         .{ "is_test", {} },
         .{ "output_mode", {} },
         .{ "target", {} },
         .{ "c_frontend", {} },
         .{ "link_libc", {} },
         .{ "backend", {} },
+        .{ "pic", {} },
+        .{ "pie", {} },
     });
 
     const Type = enum {
@@ -1209,7 +1226,12 @@ const TestManifest = struct {
                     };
                 }
             }.parse,
-            .@"struct" => @compileError("no default parser for " ++ @typeName(T)),
+            .optional => |o| return struct {
+                fn parse(str: []const u8) anyerror!T {
+                    if (std.mem.eql(u8, str, "null")) return null;
+                    return try getDefaultParser(o.child)(str);
+                }
+            }.parse,
             else => @compileError("no default parser for " ++ @typeName(T)),
         }
     }

@@ -71,8 +71,10 @@
 #ifndef _MACH_MESSAGE_H_
 #define _MACH_MESSAGE_H_
 
+#include <stddef.h>
 #include <stdint.h>
 #include <machine/limits.h>
+#include <machine/types.h> /* user_addr_t */
 #include <mach/port.h>
 #include <mach/boolean.h>
 #include <mach/kern_return.h>
@@ -81,6 +83,9 @@
 #include <sys/cdefs.h>
 #include <sys/appleapiopts.h>
 #include <Availability.h>
+#if __has_feature(ptrauth_calls)
+#include <ptrauth.h>
+#endif
 
 /*
  *  The timeout mechanism uses mach_msg_timeout_t values,
@@ -281,6 +286,8 @@ typedef unsigned int mach_msg_descriptor_type_t;
 
 #define MACH_MSG_DESCRIPTOR_MAX MACH_MSG_GUARDED_PORT_DESCRIPTOR
 
+#define __ipc_desc_sign(d)
+
 #pragma pack(push, 4)
 
 typedef struct {
@@ -292,7 +299,6 @@ typedef struct {
 
 typedef struct {
 	mach_port_t                   name;
-// Pad to 8 bytes everywhere except the K64 kernel where mach_port_t is 8 bytes
 	mach_msg_size_t               pad1;
 	unsigned int                  pad2 : 16;
 	mach_msg_type_name_t          disposition : 8;
@@ -319,7 +325,7 @@ typedef struct {
 } mach_msg_ool_descriptor64_t;
 
 typedef struct {
-	void*                         address;
+	void                         *address;
 #if !defined(__LP64__)
 	mach_msg_size_t               size;
 #endif
@@ -351,7 +357,7 @@ typedef struct {
 } mach_msg_ool_ports_descriptor64_t;
 
 typedef struct {
-	void*                         address;
+	void                         *address;
 #if !defined(__LP64__)
 	mach_msg_size_t               count;
 #endif
@@ -398,7 +404,7 @@ typedef struct {
  * appropriate in LP64 mode because not all descriptors
  * are of the same size in that environment.
  */
-typedef union{
+typedef union {
 	mach_msg_port_descriptor_t            port;
 	mach_msg_ool_descriptor_t             out_of_line;
 	mach_msg_ool_ports_descriptor_t       ool_ports;
@@ -666,6 +672,10 @@ typedef natural_t mach_msg_type_number_t;
 #define MACH_MSG_TYPE_PORT_ANY_SEND(x)                  \
 	(((x) >= MACH_MSG_TYPE_MOVE_SEND) &&            \
 	 ((x) <= MACH_MSG_TYPE_MAKE_SEND_ONCE))
+
+#define MACH_MSG_TYPE_PORT_ANY_SEND_ONCE(x)             \
+	(((x) == MACH_MSG_TYPE_MOVE_SEND_ONCE) ||       \
+	 ((x) == MACH_MSG_TYPE_MAKE_SEND_ONCE))
 
 #define MACH_MSG_TYPE_PORT_ANY_RIGHT(x)                 \
 	(((x) >= MACH_MSG_TYPE_MOVE_RECEIVE) &&         \

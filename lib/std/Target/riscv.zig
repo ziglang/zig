@@ -1909,7 +1909,7 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const baseline_rv32 = CpuModel{
+    pub const baseline_rv32: CpuModel = .{
         .name = "baseline_rv32",
         .llvm_name = null,
         .features = featureSet(&[_]Feature{
@@ -1921,7 +1921,7 @@ pub const cpu = struct {
             .m,
         }),
     };
-    pub const baseline_rv64 = CpuModel{
+    pub const baseline_rv64: CpuModel = .{
         .name = "baseline_rv64",
         .llvm_name = null,
         .features = featureSet(&[_]Feature{
@@ -1933,12 +1933,12 @@ pub const cpu = struct {
             .m,
         }),
     };
-    pub const generic = CpuModel{
+    pub const generic: CpuModel = .{
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const generic_rv32 = CpuModel{
+    pub const generic_rv32: CpuModel = .{
         .name = "generic_rv32",
         .llvm_name = "generic-rv32",
         .features = featureSet(&[_]Feature{
@@ -1946,7 +1946,7 @@ pub const cpu = struct {
             .i,
         }),
     };
-    pub const generic_rv64 = CpuModel{
+    pub const generic_rv64: CpuModel = .{
         .name = "generic_rv64",
         .llvm_name = "generic-rv64",
         .features = featureSet(&[_]Feature{
@@ -1954,12 +1954,12 @@ pub const cpu = struct {
             .i,
         }),
     };
-    pub const rocket = CpuModel{
+    pub const rocket: CpuModel = .{
         .name = "rocket",
         .llvm_name = "rocket",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const rocket_rv32 = CpuModel{
+    pub const rocket_rv32: CpuModel = .{
         .name = "rocket_rv32",
         .llvm_name = "rocket-rv32",
         .features = featureSet(&[_]Feature{
@@ -1969,7 +1969,7 @@ pub const cpu = struct {
             .zifencei,
         }),
     };
-    pub const rocket_rv64 = CpuModel{
+    pub const rocket_rv64: CpuModel = .{
         .name = "rocket_rv64",
         .llvm_name = "rocket-rv64",
         .features = featureSet(&[_]Feature{
@@ -1979,7 +1979,7 @@ pub const cpu = struct {
             .zifencei,
         }),
     };
-    pub const sifive_7_series = CpuModel{
+    pub const sifive_7_series: CpuModel = .{
         .name = "sifive_7_series",
         .llvm_name = "sifive-7-series",
         .features = featureSet(&[_]Feature{
@@ -1988,7 +1988,7 @@ pub const cpu = struct {
             .use_postra_scheduler,
         }),
     };
-    pub const sifive_e20 = CpuModel{
+    pub const sifive_e20: CpuModel = .{
         .name = "sifive_e20",
         .llvm_name = "sifive-e20",
         .features = featureSet(&[_]Feature{
@@ -2000,7 +2000,7 @@ pub const cpu = struct {
             .zifencei,
         }),
     };
-    pub const sifive_e21 = CpuModel{
+    pub const sifive_e21: CpuModel = .{
         .name = "sifive_e21",
         .llvm_name = "sifive-e21",
         .features = featureSet(&[_]Feature{
@@ -2013,7 +2013,7 @@ pub const cpu = struct {
             .zifencei,
         }),
     };
-    pub const sifive_e24 = CpuModel{
+    pub const sifive_e24: CpuModel = .{
         .name = "sifive_e24",
         .llvm_name = "sifive-e24",
         .features = featureSet(&[_]Feature{
@@ -2026,7 +2026,7 @@ pub const cpu = struct {
             .zifencei,
         }),
     };
-    pub const sifive_e31 = CpuModel{
+    pub const sifive_e31: CpuModel = .{
         .name = "sifive_e31",
         .llvm_name = "sifive-e31",
         .features = featureSet(&[_]Feature{
@@ -2039,7 +2039,7 @@ pub const cpu = struct {
             .zifencei,
         }),
     };
-    pub const sifive_e34 = CpuModel{
+    pub const sifive_e34: CpuModel = .{
         .name = "sifive_e34",
         .llvm_name = "sifive-e34",
         .features = featureSet(&[_]Feature{
@@ -2052,7 +2052,7 @@ pub const cpu = struct {
             .zifencei,
         }),
     };
-    pub const sifive_e76 = CpuModel{
+    pub const sifive_e76: CpuModel = .{
         .name = "sifive_e76",
         .llvm_name = "sifive-e76",
         .features = featureSet(&[_]Feature{
@@ -2068,7 +2068,7 @@ pub const cpu = struct {
             .zifencei,
         }),
     };
-    pub const sifive_p450 = CpuModel{
+    pub const sifive_p450: CpuModel = .{
         .name = "sifive_p450",
         .llvm_name = "sifive-p450",
         .features = featureSet(&[_]Feature{
@@ -2104,7 +2104,7 @@ pub const cpu = struct {
             .zihpm,
         }),
     };
-    pub const sifive_p670 = CpuModel{
+    pub const sifive_p670: CpuModel = .{
         .name = "sifive_p670",
         .llvm_name = "sifive-p670",
         .features = featureSet(&[_]Feature{
@@ -2146,7 +2146,7 @@ pub const cpu = struct {
             .zvksg,
         }),
     };
-    pub const sifive_s21 = CpuModel{
+    pub const sifive_s21: CpuModel = .{
         .name = "sifive_s21",
         .llvm_name = "sifive-s21",
         .features = featureSet(&[_]Feature{
@@ -2159,7 +2159,7 @@ pub const cpu = struct {
             .zifencei,
         }),
     };
-    pub const sifive_s51 = CpuModel{
+    pub const sifive_s51: CpuModel = .{
         .name = "sifive_s51",
         .llvm_name = "sifive-s51",
         .features = featureSet(&[_]Feature{
@@ -2172,7 +2172,7 @@ pub const cpu = struct {
             .zifencei,
         }),
     };
-    pub const sifive_s54 = CpuModel{
+    pub const sifive_s54: CpuModel = .{
         .name = "sifive_s54",
         .llvm_name = "sifive-s54",
         .features = featureSet(&[_]Feature{
@@ -2185,7 +2185,7 @@ pub const cpu = struct {
             .zifencei,
         }),
     };
-    pub const sifive_s76 = CpuModel{
+    pub const sifive_s76: CpuModel = .{
         .name = "sifive_s76",
         .llvm_name = "sifive-s76",
         .features = featureSet(&[_]Feature{
@@ -2202,7 +2202,7 @@ pub const cpu = struct {
             .zihintpause,
         }),
     };
-    pub const sifive_u54 = CpuModel{
+    pub const sifive_u54: CpuModel = .{
         .name = "sifive_u54",
         .llvm_name = "sifive-u54",
         .features = featureSet(&[_]Feature{
@@ -2215,7 +2215,7 @@ pub const cpu = struct {
             .zifencei,
         }),
     };
-    pub const sifive_u74 = CpuModel{
+    pub const sifive_u74: CpuModel = .{
         .name = "sifive_u74",
         .llvm_name = "sifive-u74",
         .features = featureSet(&[_]Feature{
@@ -2231,7 +2231,7 @@ pub const cpu = struct {
             .zifencei,
         }),
     };
-    pub const sifive_x280 = CpuModel{
+    pub const sifive_x280: CpuModel = .{
         .name = "sifive_x280",
         .llvm_name = "sifive-x280",
         .features = featureSet(&[_]Feature{
@@ -2254,7 +2254,7 @@ pub const cpu = struct {
             .zvl512b,
         }),
     };
-    pub const spacemit_x60 = CpuModel{
+    pub const spacemit_x60: CpuModel = .{
         .name = "spacemit_x60",
         .llvm_name = "spacemit-x60",
         .features = featureSet(&[_]Feature{
@@ -2302,7 +2302,7 @@ pub const cpu = struct {
             .zvl256b,
         }),
     };
-    pub const syntacore_scr1_base = CpuModel{
+    pub const syntacore_scr1_base: CpuModel = .{
         .name = "syntacore_scr1_base",
         .llvm_name = "syntacore-scr1-base",
         .features = featureSet(&[_]Feature{
@@ -2314,7 +2314,7 @@ pub const cpu = struct {
             .zifencei,
         }),
     };
-    pub const syntacore_scr1_max = CpuModel{
+    pub const syntacore_scr1_max: CpuModel = .{
         .name = "syntacore_scr1_max",
         .llvm_name = "syntacore-scr1-max",
         .features = featureSet(&[_]Feature{
@@ -2327,7 +2327,7 @@ pub const cpu = struct {
             .zifencei,
         }),
     };
-    pub const syntacore_scr3_rv32 = CpuModel{
+    pub const syntacore_scr3_rv32: CpuModel = .{
         .name = "syntacore_scr3_rv32",
         .llvm_name = "syntacore-scr3-rv32",
         .features = featureSet(&[_]Feature{
@@ -2341,7 +2341,7 @@ pub const cpu = struct {
             .zifencei,
         }),
     };
-    pub const syntacore_scr3_rv64 = CpuModel{
+    pub const syntacore_scr3_rv64: CpuModel = .{
         .name = "syntacore_scr3_rv64",
         .llvm_name = "syntacore-scr3-rv64",
         .features = featureSet(&[_]Feature{
@@ -2356,7 +2356,7 @@ pub const cpu = struct {
             .zifencei,
         }),
     };
-    pub const veyron_v1 = CpuModel{
+    pub const veyron_v1: CpuModel = .{
         .name = "veyron_v1",
         .llvm_name = "veyron-v1",
         .features = featureSet(&[_]Feature{
@@ -2387,7 +2387,7 @@ pub const cpu = struct {
             .zihpm,
         }),
     };
-    pub const xiangshan_nanhu = CpuModel{
+    pub const xiangshan_nanhu: CpuModel = .{
         .name = "xiangshan_nanhu",
         .llvm_name = "xiangshan-nanhu",
         .features = featureSet(&[_]Feature{

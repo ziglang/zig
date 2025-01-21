@@ -10,24 +10,23 @@ pub fn build(b: *std.Build) void {
 
     if (builtin.os.tag == .wasi) return;
 
-    if (builtin.os.tag == .windows) {
-        // https://github.com/ziglang/zig/issues/16960
-        return;
-    }
-
     const lib = b.addSharedLibrary(.{
         .name = "add",
-        .root_source_file = b.path("add.zig"),
         .version = .{ .major = 1, .minor = 0, .patch = 0 },
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("add.zig"),
+            .optimize = optimize,
+            .target = target,
+        }),
     });
 
     const main = b.addExecutable(.{
         .name = "main",
-        .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .optimize = optimize,
+            .target = target,
+        }),
     });
 
     const run = b.addRunArtifact(main);

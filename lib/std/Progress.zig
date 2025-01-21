@@ -188,7 +188,8 @@ pub const Node = struct {
         var opt_free_index = @atomicLoad(Node.OptionalIndex, freelist_head, .seq_cst);
         while (opt_free_index.unwrap()) |free_index| {
             const freelist_ptr = freelistByIndex(free_index);
-            opt_free_index = @cmpxchgWeak(Node.OptionalIndex, freelist_head, opt_free_index, freelist_ptr.*, .seq_cst, .seq_cst) orelse {
+            const next = @atomicLoad(Node.OptionalIndex, freelist_ptr, .seq_cst);
+            opt_free_index = @cmpxchgWeak(Node.OptionalIndex, freelist_head, opt_free_index, next, .seq_cst, .seq_cst) orelse {
                 // We won the allocation race.
                 return init(free_index, parent, name, estimated_total_items);
             };
@@ -249,7 +250,7 @@ pub const Node = struct {
             const freelist_head = &global_progress.node_freelist_first;
             var first = @atomicLoad(Node.OptionalIndex, freelist_head, .seq_cst);
             while (true) {
-                freelistByIndex(index).* = first;
+                @atomicStore(Node.OptionalIndex, freelistByIndex(index), first, .seq_cst);
                 first = @cmpxchgWeak(Node.OptionalIndex, freelist_head, first, index.toOptional(), .seq_cst, .seq_cst) orelse break;
             }
         } else {
@@ -1365,7 +1366,7 @@ fn maybeUpdateSize(resize_flag: bool) void {
     }
 }
 
-fn handleSigWinch(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.C) void {
+fn handleSigWinch(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
     _ = info;
     _ = ctx_ptr;
     assert(sig == posix.SIG.WINCH);

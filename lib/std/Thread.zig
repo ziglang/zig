@@ -372,9 +372,11 @@ pub const SpawnConfig = struct {
     // https://github.com/ziglang/zig/issues/157
 
     /// Size in bytes of the Thread's stack
-    stack_size: usize = 16 * 1024 * 1024,
+    stack_size: usize = default_stack_size,
     /// The allocator to be used to allocate memory for the to-be-spawned thread
     allocator: ?std.mem.Allocator = null,
+
+    pub const default_stack_size = 16 * 1024 * 1024;
 };
 
 pub const SpawnError = error{
@@ -589,7 +591,7 @@ const WindowsThreadImpl = struct {
             fn_args: Args,
             thread: ThreadCompletion,
 
-            fn entryFn(raw_ptr: windows.PVOID) callconv(.C) windows.DWORD {
+            fn entryFn(raw_ptr: windows.PVOID) callconv(.winapi) windows.DWORD {
                 const self: *@This() = @ptrCast(@alignCast(raw_ptr));
                 defer switch (self.thread.completion.swap(.completed, .seq_cst)) {
                     .running => {},
@@ -749,7 +751,7 @@ const PosixThreadImpl = struct {
         const allocator = std.heap.c_allocator;
 
         const Instance = struct {
-            fn entryFn(raw_arg: ?*anyopaque) callconv(.C) ?*anyopaque {
+            fn entryFn(raw_arg: ?*anyopaque) callconv(.c) ?*anyopaque {
                 const args_ptr: *Args = @ptrCast(@alignCast(raw_arg));
                 defer allocator.destroy(args_ptr);
                 return callFn(f, args_ptr.*);
@@ -1018,12 +1020,15 @@ const WasiThreadImpl = struct {
         return .{ .thread = &instance.thread };
     }
 
-    /// Bootstrap procedure, called by the host environment after thread creation.
-    export fn wasi_thread_start(tid: i32, arg: *Instance) void {
-        if (builtin.single_threaded) {
-            // ensure function is not analyzed in single-threaded mode
-            return;
+    comptime {
+        if (!builtin.single_threaded) {
+            @export(&wasi_thread_start, .{ .name = "wasi_thread_start" });
         }
+    }
+
+    /// Called by the host environment after thread creation.
+    fn wasi_thread_start(tid: i32, arg: *Instance) callconv(.c) void {
+        comptime assert(!builtin.single_threaded);
         __set_stack_pointer(arg.thread.memory.ptr + arg.stack_offset);
         __wasm_init_tls(arg.thread.memory.ptr + arg.tls_offset);
         @atomicStore(u32, &WasiThreadImpl.tls_thread_id, @intCast(tid), .seq_cst);
@@ -1141,8 +1146,7 @@ const LinuxThreadImpl = struct {
 
     fn getCpuCount() !usize {
         const cpu_set = try posix.sched_getaffinity(0);
-        // TODO: should not need this usize cast
-        return @as(usize, posix.CPU_COUNT(cpu_set));
+        return posix.CPU_COUNT(cpu_set);
     }
 
     thread: *ThreadCompletion,
@@ -1338,7 +1342,7 @@ const LinuxThreadImpl = struct {
                       [len] "r" (self.mapped.len),
                     : "memory"
                 ),
-                .loongarch64 => asm volatile (
+                .loongarch32, .loongarch64 => asm volatile (
                     \\ or      $a0, $zero, %[ptr]
                     \\ or      $a1, $zero, %[len]
                     \\ ori     $a7, $zero, 215     # SYS_munmap
@@ -1364,7 +1368,7 @@ const LinuxThreadImpl = struct {
             fn_args: Args,
             thread: ThreadCompletion,
 
-            fn entryFn(raw_arg: usize) callconv(.C) u8 {
+            fn entryFn(raw_arg: usize) callconv(.c) u8 {
                 const self = @as(*@This(), @ptrFromInt(raw_arg));
                 defer switch (self.thread.completion.swap(.completed, .seq_cst)) {
                     .running => {},

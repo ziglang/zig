@@ -51,6 +51,7 @@ pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
         elf_step.dependOn(testEmitRelocatable(b, .{ .target = musl_target }));
         elf_step.dependOn(testRelocatableArchive(b, .{ .target = musl_target }));
         elf_step.dependOn(testRelocatableEhFrame(b, .{ .target = musl_target }));
+        elf_step.dependOn(testRelocatableEhFrameComdatHeavy(b, .{ .target = musl_target }));
         elf_step.dependOn(testRelocatableNoEhFrame(b, .{ .target = musl_target }));
 
         // Exercise linker in ar mode
@@ -2145,6 +2146,7 @@ fn testLdScript(b: *Build, opts: Options) *Step {
     exe.addLibraryPath(dso.getEmittedBinDirectory());
     exe.addRPath(dso.getEmittedBinDirectory());
     exe.linkLibC();
+    exe.allow_so_scripts = true;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -2164,14 +2166,13 @@ fn testLdScriptPathError(b: *Build, opts: Options) *Step {
     exe.linkSystemLibrary2("a", .{});
     exe.addLibraryPath(scripts.getDirectory());
     exe.linkLibC();
+    exe.allow_so_scripts = true;
 
-    expectLinkErrors(
-        exe,
-        test_step,
-        .{
-            .contains = "error: missing library dependency: GNU ld script '/?/liba.so' requires 'libfoo.so', but file not found",
-        },
-    );
+    // TODO: A future enhancement could make this error message also mention
+    // the file that references the missing library.
+    expectLinkErrors(exe, test_step, .{
+        .stderr_contains = "error: unable to find dynamic system library 'foo' using strategy 'no_fallback'. searched paths:",
+    });
 
     return test_step;
 }
@@ -2203,6 +2204,7 @@ fn testLdScriptAllowUndefinedVersion(b: *Build, opts: Options) *Step {
     });
     exe.linkLibrary(so);
     exe.linkLibC();
+    exe.allow_so_scripts = true;
 
     const run = addRunArtifact(exe);
     run.expectStdErrEqual("3\n");
@@ -2225,6 +2227,7 @@ fn testLdScriptDisallowUndefinedVersion(b: *Build, opts: Options) *Step {
     const ld = b.addWriteFiles().add("add.ld", "VERSION { ADD_1.0 { global: add; sub; local: *; }; }");
     so.setLinkerScript(ld);
     so.linker_allow_undefined_version = false;
+    so.allow_so_scripts = true;
 
     expectLinkErrors(
         so,
@@ -2721,38 +2724,49 @@ fn testRelocatableArchive(b: *Build, opts: Options) *Step {
 fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "relocatable-eh-frame", opts);
 
+    const obj1 = addObject(b, opts, .{
+        .name = "obj1",
+        .cpp_source_bytes =
+        \\#include <stdexcept>
+        \\int try_me() {
+        \\  throw std::runtime_error("Oh no!");
+        \\}
+        ,
+    });
+    obj1.linkLibCpp();
+    const obj2 = addObject(b, opts, .{
+        .name = "obj2",
+        .cpp_source_bytes =
+        \\extern int try_me();
+        \\int try_again() {
+        \\  return try_me();
+        \\}
+        ,
+    });
+    obj2.linkLibCpp();
+    const obj3 = addObject(b, opts, .{ .name = "obj3", .cpp_source_bytes = 
+    \\#include <iostream>
+    \\#include <stdexcept>
+    \\extern int try_again();
+    \\int main() {
+    \\  try {
+    \\    try_again();
+    \\  } catch (const std::exception &e) {
+    \\    std::cout << "exception=" << e.what();
+    \\  }
+    \\  return 0;
+    \\}
+    });
+    obj3.linkLibCpp();
+
     {
-        const obj = addObject(b, opts, .{
-            .name = "obj1",
-            .cpp_source_bytes =
-            \\#include <stdexcept>
-            \\int try_me() {
-            \\  throw std::runtime_error("Oh no!");
-            \\}
-            ,
-        });
-        addCppSourceBytes(obj,
-            \\extern int try_me();
-            \\int try_again() {
-            \\  return try_me();
-            \\}
-        , &.{});
+        const obj = addObject(b, opts, .{ .name = "obj" });
+        obj.addObject(obj1);
+        obj.addObject(obj2);
         obj.linkLibCpp();
 
         const exe = addExecutable(b, opts, .{ .name = "test1" });
-        addCppSourceBytes(exe,
-            \\#include <iostream>
-            \\#include <stdexcept>
-            \\extern int try_again();
-            \\int main() {
-            \\  try {
-            \\    try_again();
-            \\  } catch (const std::exception &e) {
-            \\    std::cout << "exception=" << e.what();
-            \\  }
-            \\  return 0;
-            \\}
-        , &.{});
+        exe.addObject(obj3);
         exe.addObject(obj);
         exe.linkLibCpp();
 
@@ -2760,40 +2774,15 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
         run.expectStdOutEqual("exception=Oh no!");
         test_step.dependOn(&run.step);
     }
-
     {
-        // Let's make the object file COMDAT group heavy!
-        const obj = addObject(b, opts, .{
-            .name = "obj2",
-            .cpp_source_bytes =
-            \\#include <stdexcept>
-            \\int try_me() {
-            \\  throw std::runtime_error("Oh no!");
-            \\}
-            ,
-        });
-        addCppSourceBytes(obj,
-            \\extern int try_me();
-            \\int try_again() {
-            \\  return try_me();
-            \\}
-        , &.{});
-        addCppSourceBytes(obj,
-            \\#include <iostream>
-            \\#include <stdexcept>
-            \\extern int try_again();
-            \\int main() {
-            \\  try {
-            \\    try_again();
-            \\  } catch (const std::exception &e) {
-            \\    std::cout << "exception=" << e.what();
-            \\  }
-            \\  return 0;
-            \\}
-        , &.{});
+        // Flipping the order should not influence the end result.
+        const obj = addObject(b, opts, .{ .name = "obj" });
+        obj.addObject(obj2);
+        obj.addObject(obj1);
         obj.linkLibCpp();
 
         const exe = addExecutable(b, opts, .{ .name = "test2" });
+        exe.addObject(obj3);
         exe.addObject(obj);
         exe.linkLibCpp();
 
@@ -2801,6 +2790,64 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
         run.expectStdOutEqual("exception=Oh no!");
         test_step.dependOn(&run.step);
     }
+
+    return test_step;
+}
+
+fn testRelocatableEhFrameComdatHeavy(b: *Build, opts: Options) *Step {
+    const test_step = addTestStep(b, "relocatable-eh-frame-comdat-heavy", opts);
+
+    const obj1 = addObject(b, opts, .{
+        .name = "obj1",
+        .cpp_source_bytes =
+        \\#include <stdexcept>
+        \\int try_me() {
+        \\  throw std::runtime_error("Oh no!");
+        \\}
+        ,
+    });
+    obj1.linkLibCpp();
+    const obj2 = addObject(b, opts, .{
+        .name = "obj2",
+        .cpp_source_bytes =
+        \\extern int try_me();
+        \\int try_again() {
+        \\  return try_me();
+        \\}
+        ,
+    });
+    obj2.linkLibCpp();
+    const obj3 = addObject(b, opts, .{
+        .name = "obj3",
+        .cpp_source_bytes =
+        \\#include <iostream>
+        \\#include <stdexcept>
+        \\extern int try_again();
+        \\int main() {
+        \\  try {
+        \\    try_again();
+        \\  } catch (const std::exception &e) {
+        \\    std::cout << "exception=" << e.what();
+        \\  }
+        \\  return 0;
+        \\}
+        ,
+    });
+    obj3.linkLibCpp();
+
+    const obj = addObject(b, opts, .{ .name = "obj" });
+    obj.addObject(obj1);
+    obj.addObject(obj2);
+    obj.addObject(obj3);
+    obj.linkLibCpp();
+
+    const exe = addExecutable(b, opts, .{ .name = "test2" });
+    exe.addObject(obj);
+    exe.linkLibCpp();
+
+    const run = addRunArtifact(exe);
+    run.expectStdOutEqual("exception=Oh no!");
+    test_step.dependOn(&run.step);
 
     return test_step;
 }
@@ -3730,11 +3777,15 @@ fn testTlsOffsetAlignment(b: *Build, opts: Options) *Step {
         \\#include <pthread.h>
         \\#include <dlfcn.h>
         \\#include <assert.h>
+        \\#include <stdio.h>
         \\void *(*verify)(void *);
         \\
         \\int main() {
         \\  void *handle = dlopen("liba.so", RTLD_NOW);
-        \\  assert(handle);
+        \\  if (!handle) {
+        \\    fprintf(stderr, "dlopen failed: %s\n", dlerror());
+        \\    return 1;
+        \\  }
         \\  *(void**)(&verify) = dlsym(handle, "verify");
         \\  assert(verify);
         \\
@@ -3907,16 +3958,8 @@ fn testUnknownFileTypeError(b: *Build, opts: Options) *Step {
     exe.linkLibrary(dylib);
     exe.linkLibC();
 
-    // TODO: improve the test harness to be able to selectively match lines in error output
-    // while avoiding jankiness
-    // expectLinkErrors(exe, test_step, .{ .exact = &.{
-    //     "error: invalid token in LD script: '\\x00\\x00\\x00\\x0c\\x00\\x00\\x00/usr/lib/dyld\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x0d' (0:989)",
-    //     "note: while parsing /?/liba.dylib",
-    //     "error: unexpected error: parsing input file failed with error InvalidLdScript",
-    //     "note: while parsing /?/liba.dylib",
-    // } });
     expectLinkErrors(exe, test_step, .{
-        .starts_with = "error: invalid token in LD script: '\\x00\\x00\\x00\\x0c\\x00\\x00\\x00/usr/lib/dyld\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x0d' (",
+        .contains = "error: failed to parse shared library: BadMagic",
     });
 
     return test_step;

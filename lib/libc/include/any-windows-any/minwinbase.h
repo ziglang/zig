@@ -120,13 +120,17 @@ extern "C" {
 #endif
 
 #if _WIN32_WINNT >= 0x0400
-#if NTDDI_VERSION >= 0x0A000004
+#if NTDDI_VERSION >= NTDDI_WIN10_RS3
   typedef enum _READ_DIRECTORY_NOTIFY_INFORMATION_CLASS {
     ReadDirectoryNotifyInformation = 1,
     ReadDirectoryNotifyExtendedInformation = 2
+#if NTDDI_VERSION >= NTDDI_WIN10_NI
+    ,ReadDirectoryNotifyFullInformation
+#endif
+    ,ReadDirectoryNotifyMaximumInformation
   } READ_DIRECTORY_NOTIFY_INFORMATION_CLASS, *PREAD_DIRECTORY_NOTIFY_INFORMATION_CLASS;
 #endif
-#endif
+#endif /* _WIN32_WINNT >= 0x0400 */
 
   typedef enum _GET_FILEEX_INFO_LEVELS {
     GetFileExInfoStandard,
@@ -158,14 +162,26 @@ extern "C" {
     FileIdExtdDirectoryInfo,
     FileIdExtdDirectoryRestartInfo,
 #endif
-#if _WIN32_WINNT >= 0x0A000002
+#if NTDDI_VERSION >= 0x0A000002
     FileDispositionInfoEx,
     FileRenameInfoEx,
 #endif
+#if NTDDI_VERSION >= 0x0A000007
     FileCaseSensitiveInfo,
     FileNormalizedNameInfo,
+#endif
     MaximumFileInfoByHandleClass
   } FILE_INFO_BY_HANDLE_CLASS, *PFILE_INFO_BY_HANDLE_CLASS;
+#endif
+
+#if NTDDI_VERSION >= NTDDI_WIN11_ZN
+  typedef enum _FILE_INFO_BY_NAME_CLASS {
+    FileStatByNameInfo,
+    FileStatLxByNameInfo,
+    FileCaseSensitiveByNameInfo,
+    FileStatBasicByNameInfo,
+    MaximumFileInfoByNameClass
+  } FILE_INFO_BY_NAME_CLASS, *PFILE_INFO_BY_NAME_CLASS;
 #endif
 
   typedef RTL_CRITICAL_SECTION CRITICAL_SECTION;

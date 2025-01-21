@@ -90,9 +90,7 @@ fn joinSepMaybeZ(allocator: Allocator, separator: u8, comptime sepPredicate: fn 
         var sum: usize = paths[first_path_index].len;
         var prev_path = paths[first_path_index];
         assert(prev_path.len > 0);
-        var i: usize = first_path_index + 1;
-        while (i < paths.len) : (i += 1) {
-            const this_path = paths[i];
+        for (paths[first_path_index + 1 ..]) |this_path| {
             if (this_path.len == 0) continue;
             const prev_sep = sepPredicate(prev_path[prev_path.len - 1]);
             const this_sep = sepPredicate(this_path[0]);
@@ -112,9 +110,7 @@ fn joinSepMaybeZ(allocator: Allocator, separator: u8, comptime sepPredicate: fn 
     var buf_index: usize = paths[first_path_index].len;
     var prev_path = paths[first_path_index];
     assert(prev_path.len > 0);
-    var i: usize = first_path_index + 1;
-    while (i < paths.len) : (i += 1) {
-        const this_path = paths[i];
+    for (paths[first_path_index + 1 ..]) |this_path| {
         if (this_path.len == 0) continue;
         const prev_sep = sepPredicate(prev_path[prev_path.len - 1]);
         const this_sep = sepPredicate(this_path[0]);

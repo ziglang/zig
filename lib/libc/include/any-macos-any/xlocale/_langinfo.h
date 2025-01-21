@@ -26,7 +26,7 @@
 
 #include <sys/cdefs.h>
 #include <_types/_nl_item.h>
-#include <_xlocale.h>
+#include <__xlocale.h>
 
 __BEGIN_DECLS
 char	*nl_langinfo_l(nl_item, locale_t);

@@ -184,8 +184,9 @@ fn renderMember(
                         tree.extraData(datas[fn_proto].lhs, Ast.Node.FnProtoOne).callconv_expr
                     else
                         tree.extraData(datas[fn_proto].lhs, Ast.Node.FnProto).callconv_expr;
+                    // Keep in sync with logic in `renderFnProto`. Search this file for the marker PROMOTE_CALLCONV_INLINE
                     if (callconv_expr != 0 and tree.nodes.items(.tag)[callconv_expr] == .enum_literal) {
-                        if (mem.eql(u8, "Inline", tree.tokenSlice(main_tokens[callconv_expr]))) {
+                        if (mem.eql(u8, "@\"inline\"", tree.tokenSlice(main_tokens[callconv_expr]))) {
                             try ais.writer().writeAll("inline ");
                         }
                     }
@@ -937,7 +938,7 @@ fn renderArrayType(
 fn renderPtrType(r: *Render, ptr_type: Ast.full.PtrType, space: Space) Error!void {
     const tree = r.tree;
     switch (ptr_type.size) {
-        .One => {
+        .one => {
             // Since ** tokens exist and the same token is shared by two
             // nested pointer types, we check to see if we are the parent
             // in such a relationship. If so, skip rendering anything for
@@ -950,7 +951,7 @@ fn renderPtrType(r: *Render, ptr_type: Ast.full.PtrType, space: Space) Error!voi
             }
             try renderToken(r, ptr_type.ast.main_token, .none); // asterisk
         },
-        .Many => {
+        .many => {
             if (ptr_type.ast.sentinel == 0) {
                 try renderToken(r, ptr_type.ast.main_token, .none); // lbracket
                 try renderToken(r, ptr_type.ast.main_token + 1, .none); // asterisk
@@ -963,13 +964,13 @@ fn renderPtrType(r: *Render, ptr_type: Ast.full.PtrType, space: Space) Error!voi
                 try renderToken(r, tree.lastToken(ptr_type.ast.sentinel) + 1, .none); // rbracket
             }
         },
-        .C => {
+        .c => {
             try renderToken(r, ptr_type.ast.main_token, .none); // lbracket
             try renderToken(r, ptr_type.ast.main_token + 1, .none); // asterisk
             try renderToken(r, ptr_type.ast.main_token + 2, .none); // c
             try renderToken(r, ptr_type.ast.main_token + 3, .none); // rbracket
         },
-        .Slice => {
+        .slice => {
             if (ptr_type.ast.sentinel == 0) {
                 try renderToken(r, ptr_type.ast.main_token, .none); // lbracket
                 try renderToken(r, ptr_type.ast.main_token + 1, .none); // rbracket
@@ -1839,7 +1840,8 @@ fn renderFnProto(r: *Render, fn_proto: Ast.full.FnProto, space: Space) Error!voi
         try renderToken(r, section_rparen, .space); // )
     }
 
-    const is_callconv_inline = mem.eql(u8, "Inline", tree.tokenSlice(tree.nodes.items(.main_token)[fn_proto.ast.callconv_expr]));
+    // Keep in sync with logic in `renderMember`. Search this file for the marker PROMOTE_CALLCONV_INLINE
+    const is_callconv_inline = mem.eql(u8, "@\"inline\"", tree.tokenSlice(tree.nodes.items(.main_token)[fn_proto.ast.callconv_expr]));
     const is_declaration = fn_proto.name_token != null;
     if (fn_proto.ast.callconv_expr != 0 and !(is_declaration and is_callconv_inline)) {
         const callconv_lparen = tree.firstToken(fn_proto.ast.callconv_expr) - 1;

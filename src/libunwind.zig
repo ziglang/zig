@@ -36,8 +36,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .root_optimize_mode = comp.compilerRtOptMode(),
         .root_strip = comp.compilerRtStrip(),
         .link_libc = true,
-        // Disable LTO to avoid https://github.com/llvm/llvm-project/issues/56825
-        .lto = false,
+        .lto = comp.config.lto,
     }) catch |err| {
         comp.setMiscFailure(
             .libunwind,
@@ -46,6 +45,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         );
         return error.SubCompilationFailed;
     };
+    const target = comp.root_mod.resolved_target.result;
     const root_mod = Module.create(arena, .{
         .global_cache_directory = comp.global_cache_directory,
         .paths = .{
@@ -63,8 +63,10 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             .valgrind = false,
             .sanitize_c = false,
             .sanitize_thread = false,
-            .unwind_tables = false,
-            .pic = comp.root_mod.pic,
+            // necessary so that libunwind can unwind through its own stack frames
+            // The old 32-bit x86 variant of SEH doesn't use tables.
+            .unwind_tables = if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .@"async",
+            .pic = if (target_util.supports_fpic(target)) true else null,
             .optimize_mode = comp.compilerRtOptMode(),
         },
         .global = config,
@@ -83,7 +85,6 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
 
     const root_name = "unwind";
     const link_mode = .static;
-    const target = comp.root_mod.resolved_target.result;
     const basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
         .target = target,
@@ -100,30 +101,25 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
 
         switch (Compilation.classifyFileExt(unwind_src)) {
             .c => {
-                try cflags.append("-std=c17");
-            },
-            .cpp => {
-                try cflags.appendSlice(&[_][]const u8{
-                    "-std=c++17",
-                    "-fno-rtti",
+                try cflags.appendSlice(&.{
+                    "-std=c99",
+                    "-fexceptions",
                 });
             },
+            .cpp => {
+                try cflags.append("-fno-exceptions");
+                try cflags.append("-fno-rtti");
+            },
             .assembly_with_cpp => {},
-            else => unreachable, // You can see the entire list of files just above.
+            else => unreachable, // See `unwind_src_list`.
         }
-        try cflags.append("-fno-exceptions");
         try cflags.append("-I");
         try cflags.append(try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libunwind", "include" }));
-        if (target_util.supports_fpic(target)) {
-            try cflags.append("-fPIC");
-        }
         try cflags.append("-D_LIBUNWIND_DISABLE_VISIBILITY_ANNOTATIONS");
         try cflags.append("-Wa,--noexecstack");
         try cflags.append("-fvisibility=hidden");
         try cflags.append("-fvisibility-inlines-hidden");
         try cflags.append("-fvisibility-global-new-delete=force-hidden");
-        // necessary so that libunwind can unwind through its own stack frames
-        try cflags.append("-funwind-tables");
 
         // This is intentionally always defined because the macro definition means, should it only
         // build for the target specified by compiler defines. Since we pass -target the compiler
@@ -136,7 +132,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         if (!comp.config.any_non_single_threaded) {
             try cflags.append("-D_LIBUNWIND_HAS_NO_THREADS");
         }
-        if (target.cpu.arch.isArmOrThumb() and target.abi.floatAbi() == .hard) {
+        if (target.cpu.arch.isArm() and target.abi.floatAbi() == .hard) {
             try cflags.append("-DCOMPILER_RT_ARMHF_TARGET");
         }
         try cflags.append("-Wno-bitwise-conditional-parentheses");
@@ -199,8 +195,10 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         },
     };
 
+    const crt_file = try sub_compilation.toCrtFile();
+    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
     assert(comp.libunwind_static_lib == null);
-    comp.libunwind_static_lib = try sub_compilation.toCrtFile();
+    comp.libunwind_static_lib = crt_file;
 }
 
 const unwind_src_list = [_][]const u8{

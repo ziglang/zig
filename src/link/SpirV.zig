@@ -122,7 +122,13 @@ pub fn deinit(self: *SpirV) void {
     self.object.deinit();
 }
 
-pub fn updateFunc(self: *SpirV, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(
+    self: *SpirV,
+    pt: Zcu.PerThread,
+    func_index: InternPool.Index,
+    air: Air,
+    liveness: Liveness,
+) link.File.UpdateNavError!void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
@@ -134,7 +140,7 @@ pub fn updateFunc(self: *SpirV, pt: Zcu.PerThread, func_index: InternPool.Index,
     try self.object.updateFunc(pt, func_index, air, liveness);
 }
 
-pub fn updateNav(self: *SpirV, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !void {
+pub fn updateNav(self: *SpirV, pt: Zcu.PerThread, nav: InternPool.Nav.Index) link.File.UpdateNavError!void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
@@ -149,7 +155,7 @@ pub fn updateExports(
     self: *SpirV,
     pt: Zcu.PerThread,
     exported: Zcu.Exported,
-    export_indices: []const u32,
+    export_indices: []const Zcu.Export.Index,
 ) !void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -161,45 +167,56 @@ pub fn updateExports(
         },
     };
     const nav_ty = ip.getNav(nav_index).typeOf(ip);
+    const target = zcu.getTarget();
     if (ip.isFunctionType(nav_ty)) {
-        const target = zcu.getTarget();
         const spv_decl_index = try self.object.resolveNav(zcu, nav_index);
-        const execution_model = switch (Type.fromInterned(nav_ty).fnCallingConvention(zcu)) {
-            .Vertex => spec.ExecutionModel.Vertex,
-            .Fragment => spec.ExecutionModel.Fragment,
-            .Kernel => spec.ExecutionModel.Kernel,
-            .C => return, // TODO: What to do here?
+        const cc = Type.fromInterned(nav_ty).fnCallingConvention(zcu);
+        const execution_model: spec.ExecutionModel = switch (target.os.tag) {
+            .vulkan => switch (cc) {
+                .spirv_vertex => .Vertex,
+                .spirv_fragment => .Fragment,
+                .spirv_kernel => .GLCompute,
+                // TODO: We should integrate with the Linkage capability and export this function
+                .spirv_device => return,
+                else => unreachable,
+            },
+            .opencl => switch (cc) {
+                .spirv_kernel => .Kernel,
+                // TODO: We should integrate with the Linkage capability and export this function
+                .spirv_device => return,
+                else => unreachable,
+            },
             else => unreachable,
         };
-        const is_vulkan = target.os.tag == .vulkan;
 
-        if ((!is_vulkan and execution_model == .Kernel) or
-            (is_vulkan and (execution_model == .Fragment or execution_model == .Vertex)))
-        {
-            for (export_indices) |export_idx| {
-                const exp = zcu.all_exports.items[export_idx];
-                try self.object.spv.declareEntryPoint(
-                    spv_decl_index,
-                    exp.opts.name.toSlice(ip),
-                    execution_model,
-                );
-            }
+        for (export_indices) |export_idx| {
+            const exp = export_idx.ptr(zcu);
+            try self.object.spv.declareEntryPoint(
+                spv_decl_index,
+                exp.opts.name.toSlice(ip),
+                execution_model,
+            );
         }
     }
 
     // TODO: Export regular functions, variables, etc using Linkage attributes.
 }
 
-pub fn freeDecl(self: *SpirV, decl_index: InternPool.DeclIndex) void {
-    _ = self;
-    _ = decl_index;
-}
-
 pub fn flush(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     return self.flushModule(arena, tid, prog_node);
 }
 
-pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(
+    self: *SpirV,
+    arena: Allocator,
+    tid: Zcu.PerThread.Id,
+    prog_node: std.Progress.Node,
+) link.File.FlushError!void {
+    // The goal is to never use this because it's only needed if we need to
+    // write to InternPool, but flushModule is too late to be writing to the
+    // InternPool.
+    _ = tid;
+
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
@@ -210,12 +227,11 @@ pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     const sub_prog_node = prog_node.start("Flush Module", 0);
     defer sub_prog_node.end();
 
-    const spv = &self.object.spv;
-
     const comp = self.base.comp;
+    const spv = &self.object.spv;
+    const diags = &comp.link_diags;
     const gpa = comp.gpa;
     const target = comp.getTarget();
-    _ = tid;
 
     try writeCapabilities(spv, target);
     try writeMemoryModel(spv, target);
@@ -258,13 +274,11 @@ pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
 
     const linked_module = self.linkModule(arena, module, sub_prog_node) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        else => |other| {
-            log.err("error while linking: {s}\n", .{@errorName(other)});
-            return error.FlushFailure;
-        },
+        else => |other| return diags.fail("error while linking: {s}", .{@errorName(other)}),
     };
 
-    try self.base.file.?.writeAll(std.mem.sliceAsBytes(linked_module));
+    self.base.file.?.writeAll(std.mem.sliceAsBytes(linked_module)) catch |err|
+        return diags.fail("failed to write: {s}", .{@errorName(err)});
 }
 
 fn linkModule(self: *SpirV, a: Allocator, module: []Word, progress: std.Progress.Node) ![]Word {
@@ -290,9 +304,8 @@ fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
     // TODO: Integrate with a hypothetical feature system
     const caps: []const spec.Capability = switch (target.os.tag) {
         .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .Float16, .Vector16, .GenericPointer },
-        .opengl => &.{.Shader},
-        .vulkan => &.{ .Shader, .VariablePointersStorageBuffer, .Int8, .Int16, .Int64, .Float64, .Float16 },
-        else => unreachable, // TODO
+        .vulkan => &.{ .Shader, .PhysicalStorageBufferAddresses, .Int8, .Int16, .Int64, .Float64, .Float16, .VariablePointers, .VariablePointersStorageBuffer },
+        else => unreachable,
     };
 
     for (caps) |cap| {
@@ -300,19 +313,32 @@ fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
             .capability = cap,
         });
     }
+
+    switch (target.os.tag) {
+        .vulkan => {
+            try spv.sections.extensions.emit(gpa, .OpExtension, .{
+                .name = "SPV_KHR_physical_storage_buffer",
+            });
+        },
+        else => {},
+    }
 }
 
 fn writeMemoryModel(spv: *SpvModule, target: std.Target) !void {
     const gpa = spv.gpa;
 
-    const addressing_model = switch (target.os.tag) {
+    const addressing_model: spec.AddressingModel = switch (target.os.tag) {
         .opencl => switch (target.cpu.arch) {
-            .spirv32 => spec.AddressingModel.Physical32,
-            .spirv64 => spec.AddressingModel.Physical64,
-            else => unreachable, // TODO
+            .spirv32 => .Physical32,
+            .spirv64 => .Physical64,
+            else => unreachable,
         },
-        .opengl, .vulkan => spec.AddressingModel.Logical,
-        else => unreachable, // TODO
+        .opengl, .vulkan => switch (target.cpu.arch) {
+            .spirv32 => .Logical, // TODO: I don't think this will ever be implemented.
+            .spirv64 => .PhysicalStorageBuffer64,
+            else => unreachable,
+        },
+        else => unreachable,
     };
 
     const memory_model: spec.MemoryModel = switch (target.os.tag) {

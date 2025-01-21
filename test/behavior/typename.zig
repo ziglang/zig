@@ -79,9 +79,9 @@ test "basic" {
     try expectEqualStrings("fn (comptime u32) void", @typeName(fn (comptime u32) void));
     try expectEqualStrings("fn (noalias []u8) void", @typeName(fn (noalias []u8) void));
 
-    try expectEqualStrings("fn () callconv(.C) void", @typeName(fn () callconv(.C) void));
-    try expectEqualStrings("fn (...) callconv(.C) void", @typeName(fn (...) callconv(.C) void));
-    try expectEqualStrings("fn (u32, ...) callconv(.C) void", @typeName(fn (u32, ...) callconv(.C) void));
+    try expectEqualStrings("fn () callconv(.c) void", @typeName(fn () callconv(.c) void));
+    try expectEqualStrings("fn (...) callconv(.c) void", @typeName(fn (...) callconv(.c) void));
+    try expectEqualStrings("fn (u32, ...) callconv(.c) void", @typeName(fn (u32, ...) callconv(.c) void));
 }
 
 test "top level decl" {
@@ -238,7 +238,7 @@ test "comptime parameters not converted to anytype in function type" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
-    const T = fn (fn (type) void, void) void;
+    const T = fn (comptime fn (comptime type) void, void) void;
     try expectEqualStrings("fn (comptime fn (comptime type) void, void) void", @typeName(T));
 }
 

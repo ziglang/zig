@@ -195,7 +195,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
             .valgrind = false,
             .optimize_mode = optimize_mode,
             .structured_cfg = comp.root_mod.structured_cfg,
-            .pic = comp.root_mod.pic,
+            .pic = if (target_util.supports_fpic(target)) true else null,
         },
         .global = config,
         .cc_argv = &.{},
@@ -262,7 +262,7 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
 
         if (target.isGnuLibC()) {
             // glibc 2.16 introduced aligned_alloc
-            if (target.os.version_range.linux.glibc.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
+            if (target.os.versionRange().gnuLibCVersion().?.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
                 try cflags.append("-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION");
             }
         }
@@ -278,9 +278,6 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
             try cflags.append("-faligned-allocation");
         }
 
-        if (target_util.supports_fpic(target)) {
-            try cflags.append("-fPIC");
-        }
         try cflags.append("-nostdinc++");
         try cflags.append("-std=c++23");
         try cflags.append("-Wno-user-defined-literals");
@@ -355,7 +352,9 @@ pub fn buildLibCXX(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     };
 
     assert(comp.libcxx_static_lib == null);
-    comp.libcxx_static_lib = try sub_compilation.toCrtFile();
+    const crt_file = try sub_compilation.toCrtFile();
+    comp.libcxx_static_lib = crt_file;
+    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
 }
 
 pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildError!void {
@@ -398,7 +397,6 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
 
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
-    const unwind_tables = true;
 
     const config = Compilation.Config.resolve(.{
         .output_mode = output_mode,
@@ -410,7 +408,6 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .root_optimize_mode = optimize_mode,
         .root_strip = strip,
         .link_libc = true,
-        .any_unwind_tables = unwind_tables,
         .lto = comp.config.lto,
         .any_sanitize_thread = comp.config.any_sanitize_thread,
     }) catch |err| {
@@ -441,7 +438,12 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             .valgrind = false,
             .optimize_mode = optimize_mode,
             .structured_cfg = comp.root_mod.structured_cfg,
-            .unwind_tables = unwind_tables,
+            // See the `-fno-exceptions` logic for WASI.
+            // The old 32-bit x86 variant of SEH doesn't use tables.
+            .unwind_tables = if (target.os.tag == .wasi or (target.cpu.arch == .x86 and target.os.tag == .windows))
+                .none
+            else
+                .@"async",
             .pic = comp.root_mod.pic,
         },
         .global = config,
@@ -478,7 +480,7 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             }
             try cflags.append("-D_LIBCXXABI_HAS_NO_THREADS");
         } else if (target.abi.isGnu()) {
-            if (target.os.tag != .linux or !(target.os.version_range.linux.glibc.order(.{ .major = 2, .minor = 18, .patch = 0 }) == .lt))
+            if (target.os.tag != .linux or !(target.os.versionRange().gnuLibCVersion().?.order(.{ .major = 2, .minor = 18, .patch = 0 }) == .lt))
                 try cflags.append("-DHAVE___CXA_THREAD_ATEXIT_IMPL");
         }
 
@@ -501,7 +503,7 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
 
         if (target.isGnuLibC()) {
             // glibc 2.16 introduced aligned_alloc
-            if (target.os.version_range.linux.glibc.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
+            if (target.os.versionRange().gnuLibCVersion().?.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
                 try cflags.append("-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION");
             }
         }
@@ -584,7 +586,9 @@ pub fn buildLibCXXABI(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     };
 
     assert(comp.libcxxabi_static_lib == null);
-    comp.libcxxabi_static_lib = try sub_compilation.toCrtFile();
+    const crt_file = try sub_compilation.toCrtFile();
+    comp.libcxxabi_static_lib = crt_file;
+    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
 }
 
 pub fn hardeningModeFlag(optimize_mode: std.builtin.OptimizeMode) []const u8 {

@@ -15,7 +15,7 @@ WspiapiGetNameInfo (const struct sockaddr *sa, socklen_t salen,
   int err;
 
   if (!pfGetNameInfo)
-    pfGetNameInfo = (WSPIAPI_PGETNAMEINFO) WspiapiLoad(1);
+    pfGetNameInfo = (void*) WspiapiLoad(1);
   err = (*pfGetNameInfo) (sa, salen, host, hostlen, serv, servlen, flags);
   WSASetLastError (err);
   return err;

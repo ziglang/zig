@@ -2001,6 +2001,15 @@ or
       the pointer is never dereferenced:</p>
       {#code|test_comptime_pointer_conversion.zig#}
 
+      <p>
+      {#link|@ptrCast#} converts a pointer's element type to another. This
+      creates a new pointer that can cause undetectable illegal behavior
+      depending on the loads and stores that pass through it. Generally, other
+      kinds of type conversions are preferable to
+      {#syntax#}@ptrCast{#endsyntax#} if possible.
+      </p>
+      {#code|test_pointer_casting.zig#}
+
       {#see_also|Optional Pointers|@ptrFromInt|@intFromPtr|C Pointers#}
       {#header_open|volatile#}
       <p>Loads and stores are assumed to not have side effects. If a given load or store
@@ -2015,14 +2024,6 @@ or
       Input/Output, it is probably a bug.
       </p>
       {#header_close#}
-      <p>
-      {#link|@ptrCast#} converts a pointer's element type to another. This
-      creates a new pointer that can cause undetectable illegal behavior
-      depending on the loads and stores that pass through it. Generally, other
-      kinds of type conversions are preferable to
-      {#syntax#}@ptrCast{#endsyntax#} if possible.
-      </p>
-      {#code|test_pointer_casting.zig#}
 
       {#header_open|Alignment#}
       <p>
@@ -3052,32 +3053,6 @@ fn createFoo(param: i32) !Foo {
       The {#syntax#}errdefer{#endsyntax#} statement can optionally capture the error:
       </p>
       {#code|test_errdefer_capture.zig#}
-      {#header_close#}
-      {#header_open|Common errdefer Slip-Ups#}
-      <p>
-      It should be noted that {#syntax#}errdefer{#endsyntax#} statements only last until the end of the block
-      they are written in, and therefore are not run if an error is returned outside of that block:
-      </p>
-      {#code|test_errdefer_slip_ups.zig#}
-
-      <p>
-      To ensure that {#syntax#}deallocateFoo{#endsyntax#} is properly called
-      when returning an error, you must add an {#syntax#}errdefer{#endsyntax#} outside of the block:
-      </p>
-      {#code|test_errdefer_block.zig#}
-
-      <p>
-      The fact that errdefers only last for the block they are declared in is
-      especially important when using loops:
-      </p>
-      {#code|test_errdefer_loop_leak.zig#}
-
-      <p>
-      Special care must be taken with code that allocates in a loop
-      to make sure that no memory is leaked when returning an error:
-      </p>
-      {#code|test_errdefer_loop.zig#}
-
       {#header_close#}
       <p>
       A couple of other tidbits about error handling:
@@ -4623,7 +4598,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@compileLog#}
-      <pre>{#syntax#}@compileLog(args: ...) void{#endsyntax#}</pre>
+      <pre>{#syntax#}@compileLog(...) void{#endsyntax#}</pre>
       <p>
       This function prints the arguments passed to it at compile-time.
       </p>
@@ -4879,6 +4854,13 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       </p>
       {#header_close#}
 
+      {#header_open|@FieldType#}
+      <pre>{#syntax#}@FieldType(comptime Type: type, comptime field_name: []const u8) type{#endsyntax#}</pre>
+      <p>
+      Given a type and the name of one of its fields, returns the type of that field.
+      </p>
+      {#header_close#}
+
       {#header_open|@floatCast#}
       <pre>{#syntax#}@floatCast(value: anytype) anytype{#endsyntax#}</pre>
       <p>
@@ -5061,12 +5043,12 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@max#}
-      <pre>{#syntax#}@max(a: T, b: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@max(...) T{#endsyntax#}</pre>
       <p>
-      Returns the maximum value of {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#}. This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
+      Takes two or more arguments and returns the biggest value included (the maximum). This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
       </p>
       <p>
-      NaNs are handled as follows: if one of the operands of a (pairwise) operation is NaN, the other operand is returned. If both operands are NaN, NaN is returned.
+      NaNs are handled as follows: return the biggest non-NaN value included. If all operands are NaN, return NaN.
       </p>
       {#see_also|@min|Vectors#}
       {#header_close#}
@@ -5100,12 +5082,12 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@min#}
-      <pre>{#syntax#}@min(a: T, b: T) T{#endsyntax#}</pre>
+      <pre>{#syntax#}@min(...) T{#endsyntax#}</pre>
       <p>
-      Returns the minimum value of {#syntax#}a{#endsyntax#} and {#syntax#}b{#endsyntax#}. This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
+      Takes two or more arguments and returns the smallest value included (the minimum). This builtin accepts integers, floats, and vectors of either. In the latter case, the operation is performed element wise.
       </p>
       <p>
-      NaNs are handled as follows: if one of the operands of a (pairwise) operation is NaN, the other operand is returned. If both operands are NaN, NaN is returned.
+      NaNs are handled as follows: return the smallest non-NaN value included. If all operands are NaN, return NaN.
       </p>
       {#see_also|@max|Vectors#}
       {#header_close#}
@@ -5286,13 +5268,6 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       Selects values element-wise from {#syntax#}a{#endsyntax#} or {#syntax#}b{#endsyntax#} based on {#syntax#}pred{#endsyntax#}. If {#syntax#}pred[i]{#endsyntax#} is {#syntax#}true{#endsyntax#}, the corresponding element in the result will be {#syntax#}a[i]{#endsyntax#} and otherwise {#syntax#}b[i]{#endsyntax#}.
       </p>
       {#see_also|Vectors#}
-      {#header_close#}
-
-      {#header_open|@setAlignStack#}
-      <pre>{#syntax#}@setAlignStack(comptime alignment: u29) void{#endsyntax#}</pre>
-      <p>
-      Ensures that a function will have a stack alignment of at least {#syntax#}alignment{#endsyntax#} bytes.
-      </p>
       {#header_close#}
 
       {#header_open|@setEvalBranchQuota#}
@@ -5788,7 +5763,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@TypeOf#}
       <pre>{#syntax#}@TypeOf(...) type{#endsyntax#}</pre>
       <p>
-      {#syntax#}@TypeOf{#endsyntax#} is a special builtin function that takes any (nonzero) number of expressions
+      {#syntax#}@TypeOf{#endsyntax#} is a special builtin function that takes any (non-zero) number of expressions
       as parameters and returns the type of the result, using {#link|Peer Type Resolution#}.
       </p>
       <p>

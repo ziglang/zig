@@ -20,7 +20,7 @@ debug_output: link.File.DebugInfoOutput,
 target: *const std.Target,
 err_msg: ?*ErrorMsg = null,
 src_loc: Zcu.LazySrcLoc,
-code: *std.ArrayList(u8),
+code: *std.ArrayListUnmanaged(u8),
 
 prev_di_line: u32,
 prev_di_column: u32,
@@ -424,8 +424,10 @@ fn lowerBranches(emit: *Emit) !void {
 }
 
 fn writeInstruction(emit: *Emit, instruction: Instruction) !void {
+    const comp = emit.bin_file.comp;
+    const gpa = comp.gpa;
     const endian = emit.target.cpu.arch.endian();
-    std.mem.writeInt(u32, try emit.code.addManyAsArray(4), instruction.toU32(), endian);
+    std.mem.writeInt(u32, try emit.code.addManyAsArray(gpa, 4), instruction.toU32(), endian);
 }
 
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) InnerError {
@@ -942,7 +944,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
             .load_memory_import => coff_file.getGlobalByIndex(data.sym_index),
             else => unreachable,
         };
-        try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
+        try coff_file.addRelocation(atom_index, .{
             .target = target,
             .offset = offset,
             .addend = 0,
@@ -959,7 +961,7 @@ fn mirLoadMemoryPie(emit: *Emit, inst: Mir.Inst.Index) !void {
                 else => unreachable,
             },
         });
-        try link.File.Coff.Atom.addRelocation(coff_file, atom_index, .{
+        try coff_file.addRelocation(atom_index, .{
             .target = target,
             .offset = offset + 4,
             .addend = 0,

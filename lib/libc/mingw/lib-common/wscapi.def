@@ -5,11 +5,16 @@
 ;
 LIBRARY "WSCAPI.dll"
 EXPORTS
+wscLaunchAdminMakeDefaultUI
 wscShowAMSCN
-CLSID_WSCProductList
-IID_IWSCProductList
-IID_IWscProduct
-LIBID_wscAPILib
+CLSID_WSCDefaultProduct DATA
+CLSID_WSCProductList DATA
+; DllCanUnloadNow
+; DllGetClassObject
+IID_IWSCDefaultProduct DATA
+IID_IWSCProductList DATA
+IID_IWscProduct DATA
+LIBID_wscAPILib DATA
 WscGetAntiMalwareUri
 WscGetSecurityProviderHealth
 WscQueryAntiMalwareUri
@@ -26,13 +31,18 @@ wscGeneralSecurityGetStatus
 wscGetAlertStatus
 wscIcfEnable
 wscIeSettingsFix
+wscInitiateOfflineCleaning
 wscIsDefenderAntivirusSupported
 wscLuaSettingsFix
+wscMakeDefaultProductRequest
+wscNotifyUserForNearExpiration
 wscOverrideComponentStatus
 wscPing
 wscProductInfoFree
 wscRegisterChangeNotification
 wscRegisterSecurityProduct
+wscSetDefaultProduct
 wscUnRegisterChangeNotification
 wscUnregisterSecurityProduct
 wscUpdateProductStatus
+wscUpdateProductSubStatus

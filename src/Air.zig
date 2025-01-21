@@ -460,6 +460,8 @@ pub const Inst = struct {
         /// Result type is always void.
         /// Uses the `dbg_stmt` field.
         dbg_stmt,
+        /// Marks a statement that can be stepped to but produces no code.
+        dbg_empty_stmt,
         /// A block that represents an inlined function call.
         /// Uses the `ty_pl` field. Payload is `DbgInlineBlock`.
         dbg_inline_block,
@@ -891,14 +893,38 @@ pub const Inst = struct {
     pub const Index = enum(u32) {
         _,
 
-        pub fn toRef(i: Index) Inst.Ref {
-            assert(@intFromEnum(i) >> 31 == 0);
-            return @enumFromInt((1 << 31) | @intFromEnum(i));
+        pub fn unwrap(index: Index) union(enum) { ref: Inst.Ref, target: u31 } {
+            const low_index: u31 = @truncate(@intFromEnum(index));
+            return switch (@as(u1, @intCast(@intFromEnum(index) >> 31))) {
+                0 => .{ .ref = @enumFromInt(@as(u32, 1 << 31) | low_index) },
+                1 => .{ .target = low_index },
+            };
         }
 
-        pub fn toTargetIndex(i: Index) u31 {
-            assert(@intFromEnum(i) >> 31 == 1);
-            return @truncate(@intFromEnum(i));
+        pub fn toRef(index: Index) Inst.Ref {
+            return index.unwrap().ref;
+        }
+
+        pub fn fromTargetIndex(index: u31) Index {
+            return @enumFromInt((1 << 31) | @as(u32, index));
+        }
+
+        pub fn toTargetIndex(index: Index) u31 {
+            return index.unwrap().target;
+        }
+
+        pub fn format(
+            index: Index,
+            comptime _: []const u8,
+            _: std.fmt.FormatOptions,
+            writer: anytype,
+        ) @TypeOf(writer).Error!void {
+            try writer.writeByte('%');
+            switch (index.unwrap()) {
+                .ref => {},
+                .target => try writer.writeByte('t'),
+            }
+            try writer.print("{d}", .{@as(u31, @truncate(@intFromEnum(index)))});
         }
     };
 
@@ -962,7 +988,7 @@ pub const Inst = struct {
         anyerror_void_error_union_type = @intFromEnum(InternPool.Index.anyerror_void_error_union_type),
         adhoc_inferred_error_set_type = @intFromEnum(InternPool.Index.adhoc_inferred_error_set_type),
         generic_poison_type = @intFromEnum(InternPool.Index.generic_poison_type),
-        empty_struct_type = @intFromEnum(InternPool.Index.empty_struct_type),
+        empty_tuple_type = @intFromEnum(InternPool.Index.empty_tuple_type),
         undef = @intFromEnum(InternPool.Index.undef),
         zero = @intFromEnum(InternPool.Index.zero),
         zero_usize = @intFromEnum(InternPool.Index.zero_usize),
@@ -977,8 +1003,7 @@ pub const Inst = struct {
         null_value = @intFromEnum(InternPool.Index.null_value),
         bool_true = @intFromEnum(InternPool.Index.bool_true),
         bool_false = @intFromEnum(InternPool.Index.bool_false),
-        empty_struct = @intFromEnum(InternPool.Index.empty_struct),
-        generic_poison = @intFromEnum(InternPool.Index.generic_poison),
+        empty_tuple = @intFromEnum(InternPool.Index.empty_tuple),
 
         /// This Ref does not correspond to any AIR instruction or constant
         /// value and may instead be used as a sentinel to indicate null.
@@ -1203,7 +1228,7 @@ pub const VectorCmp = struct {
     op: u32,
 
     pub fn compareOperator(self: VectorCmp) std.math.CompareOperator {
-        return @as(std.math.CompareOperator, @enumFromInt(@as(u3, @truncate(self.op))));
+        return @enumFromInt(@as(u3, @intCast(self.op)));
     }
 
     pub fn encodeOp(compare_operator: std.math.CompareOperator) u32 {
@@ -1248,11 +1273,11 @@ pub const Cmpxchg = struct {
     flags: u32,
 
     pub fn successOrder(self: Cmpxchg) std.builtin.AtomicOrder {
-        return @as(std.builtin.AtomicOrder, @enumFromInt(@as(u3, @truncate(self.flags))));
+        return @enumFromInt(@as(u3, @truncate(self.flags)));
     }
 
     pub fn failureOrder(self: Cmpxchg) std.builtin.AtomicOrder {
-        return @as(std.builtin.AtomicOrder, @enumFromInt(@as(u3, @truncate(self.flags >> 3))));
+        return @enumFromInt(@as(u3, @intCast(self.flags >> 3)));
     }
 };
 
@@ -1263,11 +1288,11 @@ pub const AtomicRmw = struct {
     flags: u32,
 
     pub fn ordering(self: AtomicRmw) std.builtin.AtomicOrder {
-        return @as(std.builtin.AtomicOrder, @enumFromInt(@as(u3, @truncate(self.flags))));
+        return @enumFromInt(@as(u3, @truncate(self.flags)));
     }
 
     pub fn op(self: AtomicRmw) std.builtin.AtomicRmwOp {
-        return @as(std.builtin.AtomicRmwOp, @enumFromInt(@as(u4, @truncate(self.flags >> 3))));
+        return @enumFromInt(@as(u4, @intCast(self.flags >> 3)));
     }
 };
 
@@ -1468,6 +1493,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 
         .breakpoint,
         .dbg_stmt,
+        .dbg_empty_stmt,
         .dbg_var_ptr,
         .dbg_var_val,
         .dbg_arg_inline,
@@ -1629,6 +1655,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .try_ptr,
         .try_ptr_cold,
         .dbg_stmt,
+        .dbg_empty_stmt,
         .dbg_inline_block,
         .dbg_var_ptr,
         .dbg_var_val,

@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const linux = std.os.linux;
@@ -231,6 +232,14 @@ pub fn clone() callconv(.Naked) usize {
         \\  jr $ra
         \\  nop
         \\1:
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
+        \\  .cfi_undefined $ra
+    );
+    asm volatile (
+        \\  move $fp, $zero
+        \\  move $ra, $zero
+        \\
         \\  lw $25, 0($sp)
         \\  lw $4, 4($sp)
         \\  jalr $25

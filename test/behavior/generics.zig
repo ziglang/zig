@@ -324,7 +324,7 @@ test "generic function instantiation non-duplicates" {
             for (source, 0..) |s, i| dest[i] = s;
         }
 
-        fn foo() callconv(.C) void {}
+        fn foo() callconv(.c) void {}
     };
     var buffer: [100]u8 = undefined;
     S.copy(u8, &buffer, "hello");
@@ -381,6 +381,11 @@ test "extern function used as generic parameter" {
             };
         }
     };
+    const E = struct {
+        export fn usedAsGenericParameterFoo() void {}
+        export fn usedAsGenericParameterBar() void {}
+    };
+    _ = E;
     try expect(S.usedAsGenericParameterBaz(S.usedAsGenericParameterFoo) !=
         S.usedAsGenericParameterBaz(S.usedAsGenericParameterBar));
 }
@@ -427,7 +432,7 @@ test "generic function passed as comptime argument" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
-        fn doMath(comptime f: fn (type, i32, i32) error{Overflow}!i32, a: i32, b: i32) !void {
+        fn doMath(comptime f: fn (comptime type, i32, i32) error{Overflow}!i32, a: i32, b: i32) !void {
             const result = try f(i32, a, b);
             try expect(result == 11);
         }
@@ -466,13 +471,13 @@ test "coerced function body has inequal value with its uncoerced body" {
     try expect(S.A.do() == 1234);
 }
 
-test "generic function returns value from callconv(.C) function" {
+test "generic function returns value from callconv(.c) function" {
     const S = struct {
-        fn getU8() callconv(.C) u8 {
+        fn getU8() callconv(.c) u8 {
             return 123;
         }
 
-        fn getGeneric(comptime T: type, supplier: fn () callconv(.C) T) T {
+        fn getGeneric(comptime T: type, supplier: fn () callconv(.c) T) T {
             return supplier();
         }
     };
@@ -516,11 +521,11 @@ test "function argument tuple used as struct field" {
     try expect(c.t[0] == null);
 }
 
-test "comptime callconv(.C) function ptr uses comptime type argument" {
+test "comptime callconv(.c) function ptr uses comptime type argument" {
     const S = struct {
         fn A(
             comptime T: type,
-            comptime destroycb: ?*const fn (?*T) callconv(.C) void,
+            comptime destroycb: ?*const fn (?*T) callconv(.c) void,
         ) !void {
             try expect(destroycb == null);
         }
@@ -532,8 +537,6 @@ test "call generic function with from function called by the generic function" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_llvm and
-        builtin.cpu.arch == .aarch64 and builtin.os.tag == .windows) return error.SkipZigTest;
 
     const GET = struct {
         key: []const u8,

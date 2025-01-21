@@ -1,29 +1,46 @@
-objects: std.ArrayListUnmanaged(Object) = .empty,
-strtab: std.ArrayListUnmanaged(u8) = .empty,
+objects: []const Object,
+/// '\n'-delimited
+strtab: []const u8,
 
-pub fn deinit(self: *Archive, allocator: Allocator) void {
-    self.objects.deinit(allocator);
-    self.strtab.deinit(allocator);
+pub fn deinit(a: *Archive, gpa: Allocator) void {
+    gpa.free(a.objects);
+    gpa.free(a.strtab);
+    a.* = undefined;
 }
 
-pub fn parse(self: *Archive, elf_file: *Elf, path: Path, handle_index: File.HandleIndex) !void {
-    const comp = elf_file.base.comp;
-    const gpa = comp.gpa;
-    const diags = &comp.link_diags;
-    const handle = elf_file.fileHandle(handle_index);
+pub fn parse(
+    gpa: Allocator,
+    diags: *Diags,
+    file_handles: *const std.ArrayListUnmanaged(File.Handle),
+    path: Path,
+    handle_index: File.HandleIndex,
+) !Archive {
+    const handle = file_handles.items[handle_index];
+    var pos: usize = 0;
+    {
+        var magic_buffer: [elf.ARMAG.len]u8 = undefined;
+        const n = try handle.preadAll(&magic_buffer, pos);
+        if (n != magic_buffer.len) return error.BadMagic;
+        if (!mem.eql(u8, &magic_buffer, elf.ARMAG)) return error.BadMagic;
+        pos += magic_buffer.len;
+    }
+
     const size = (try handle.stat()).size;
 
-    var pos: usize = elf.ARMAG.len;
-    while (true) {
-        if (pos >= size) break;
-        if (!mem.isAligned(pos, 2)) pos += 1;
+    var objects: std.ArrayListUnmanaged(Object) = .empty;
+    defer objects.deinit(gpa);
 
-        var hdr_buffer: [@sizeOf(elf.ar_hdr)]u8 = undefined;
+    var strtab: std.ArrayListUnmanaged(u8) = .empty;
+    defer strtab.deinit(gpa);
+
+    while (pos < size) {
+        pos = mem.alignForward(usize, pos, 2);
+
+        var hdr: elf.ar_hdr = undefined;
         {
-            const amt = try handle.preadAll(&hdr_buffer, pos);
-            if (amt != @sizeOf(elf.ar_hdr)) return error.InputOutput;
+            const n = try handle.preadAll(mem.asBytes(&hdr), pos);
+            if (n != @sizeOf(elf.ar_hdr)) return error.UnexpectedEndOfFile;
         }
-        const hdr = @as(*align(1) const elf.ar_hdr, @ptrCast(&hdr_buffer)).*;
         pos += @sizeOf(elf.ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, elf.ARFMAG)) {
@@ -37,8 +54,8 @@ pub fn parse(self: *Archive, elf_file: *Elf, path: Path, handle_index: File.Hand
 
         if (hdr.isSymtab() or hdr.isSymtab64()) continue;
         if (hdr.isStrtab()) {
-            try self.strtab.resize(gpa, obj_size);
-            const amt = try handle.preadAll(self.strtab.items, pos);
+            try strtab.resize(gpa, obj_size);
+            const amt = try handle.preadAll(strtab.items, pos);
             if (amt != obj_size) return error.InputOutput;
             continue;
         }
@@ -47,7 +64,7 @@ pub fn parse(self: *Archive, elf_file: *Elf, path: Path, handle_index: File.Hand
         const name = if (hdr.name()) |name|
             name
         else if (try hdr.nameOffset()) |off|
-            self.getString(off)
+            stringTableLookup(strtab.items, off)
         else
             unreachable;
 
@@ -70,14 +87,18 @@ pub fn parse(self: *Archive, elf_file: *Elf, path: Path, handle_index: File.Hand
             @as(Path, object.path), @as(Path, path),
         });
 
-        try self.objects.append(gpa, object);
+        try objects.append(gpa, object);
     }
+
+    return .{
+        .objects = try objects.toOwnedSlice(gpa),
+        .strtab = try strtab.toOwnedSlice(gpa),
+    };
 }
 
-fn getString(self: Archive, off: u32) []const u8 {
-    assert(off < self.strtab.items.len);
-    const name = mem.sliceTo(@as([*:'\n']const u8, @ptrCast(self.strtab.items.ptr + off)), 0);
-    return name[0 .. name.len - 1];
+pub fn stringTableLookup(strtab: []const u8, off: u32) [:'\n']const u8 {
+    const slice = strtab[off..];
+    return slice[0..mem.indexOfScalar(u8, slice, '\n').? :'\n'];
 }
 
 pub fn setArHdr(opts: struct {
@@ -290,8 +311,9 @@ const fs = std.fs;
 const log = std.log.scoped(.link);
 const mem = std.mem;
 const Path = std.Build.Cache.Path;
+const Allocator = std.mem.Allocator;
 
-const Allocator = mem.Allocator;
+const Diags = @import("../../link.zig").Diags;
 const Archive = @This();
 const Elf = @import("../Elf.zig");
 const File = @import("file.zig").File;

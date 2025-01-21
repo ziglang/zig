@@ -164,7 +164,7 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
     // with default values
     var expected_fields: usize = 0;
     inline for (comptime meta.fields(HashResult)) |p| {
-        if (@typeInfo(p.type) != .optional and p.default_value == null) {
+        if (@typeInfo(p.type) != .optional and p.default_value_ptr == null) {
             expected_fields += 1;
         }
     }
@@ -258,8 +258,7 @@ fn kvSplit(str: []const u8) !struct { key: []const u8, value: []const u8 } {
     var it = mem.splitScalar(u8, str, kv_delimiter_scalar);
     const key = it.first();
     const value = it.next() orelse return Error.InvalidEncoding;
-    const ret = .{ .key = key, .value = value };
-    return ret;
+    return .{ .key = key, .value = value };
 }
 
 test "phc format - encoding/decoding" {

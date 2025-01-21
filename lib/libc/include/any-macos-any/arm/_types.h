@@ -6,6 +6,19 @@
 
 #if defined (__arm__) || defined (__arm64__)
 
+#if defined(__has_feature) && __has_feature(modules)
+#define USE_CLANG_TYPES 1
+#else
+#define USE_CLANG_TYPES 0
+#endif
+
+#if USE_CLANG_TYPES
+#include <sys/_types/_ptrdiff_t.h>
+#include <sys/_types/_size_t.h>
+#include <sys/_types/_va_list.h>
+#include <sys/_types/_wchar_t.h>
+#endif
+
 /*
  * This header file contains integer types.  It's intended to also contain
  * flotaing point and other arithmetic types, as needed, later.
@@ -58,7 +71,9 @@ typedef union {
 
 typedef __mbstate_t             __darwin_mbstate_t;     /* mbstate_t */
 
-#if defined(__PTRDIFF_TYPE__)
+#if USE_CLANG_TYPES
+typedef ptrdiff_t               __darwin_ptrdiff_t;     /* ptr1 - ptr2 */
+#elif defined(__PTRDIFF_TYPE__)
 typedef __PTRDIFF_TYPE__        __darwin_ptrdiff_t;     /* ptr1 - ptr2 */
 #elif defined(__LP64__)
 typedef long                    __darwin_ptrdiff_t;     /* ptr1 - ptr2 */
@@ -66,19 +81,25 @@ typedef long                    __darwin_ptrdiff_t;     /* ptr1 - ptr2 */
 typedef int                     __darwin_ptrdiff_t;     /* ptr1 - ptr2 */
 #endif /* __GNUC__ */
 
-#if defined(__SIZE_TYPE__)
+#if USE_CLANG_TYPES
+typedef size_t                  __darwin_size_t;        /* sizeof() */
+#elif defined(__SIZE_TYPE__)
 typedef __SIZE_TYPE__           __darwin_size_t;        /* sizeof() */
 #else
 typedef unsigned long           __darwin_size_t;        /* sizeof() */
 #endif
 
-#if (__GNUC__ > 2)
+#if USE_CLANG_TYPES
+typedef va_list                 __darwin_va_list;       /* va_list */
+#elif (__GNUC__ > 2)
 typedef __builtin_va_list       __darwin_va_list;       /* va_list */
 #else
 typedef void *                  __darwin_va_list;       /* va_list */
 #endif
 
-#if defined(__WCHAR_TYPE__)
+#if USE_CLANG_TYPES
+typedef wchar_t                 __darwin_wchar_t;       /* wchar_t */
+#elif defined(__WCHAR_TYPE__)
 typedef __WCHAR_TYPE__          __darwin_wchar_t;       /* wchar_t */
 #else
 typedef __darwin_ct_rune_t      __darwin_wchar_t;       /* wchar_t */
@@ -96,6 +117,8 @@ typedef unsigned long           __darwin_clock_t;       /* clock() */
 typedef __uint32_t              __darwin_socklen_t;     /* socklen_t (duh) */
 typedef long                    __darwin_ssize_t;       /* byte count or error */
 typedef long                    __darwin_time_t;        /* time() */
+
+#undef USE_CLANG_TYPES
 
 #endif /* defined (__arm__) || defined (__arm64__) */
 
