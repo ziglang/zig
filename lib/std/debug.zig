@@ -413,16 +413,9 @@ pub fn assertReadable(slice: []const volatile u8) void {
     for (slice) |*byte| _ = byte.*;
 }
 
-/// By including a call to this function, the caller gains an error return trace
-/// secret parameter, making `@errorReturnTrace()` more useful. This is not
-/// necessary if the function already contains a call to an errorable function
-/// elsewhere.
-pub fn errorReturnTraceHelper() anyerror!void {}
-
 /// Equivalent to `@panic` but with a formatted message.
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
     @branchHint(.cold);
-    errorReturnTraceHelper() catch unreachable;
     panicExtra(@errorReturnTrace(), @returnAddress(), format, args);
 }
 
