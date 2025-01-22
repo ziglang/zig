@@ -11,7 +11,8 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
-    const lib_a = b.addStaticLibrary(.{
+    const lib_a = b.addLibrary(.{
+        .linkage = .static,
         .name = "a",
         .root_module = b.createModule(.{
             .root_source_file = null,
@@ -22,7 +23,8 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     lib_a.root_module.addCSourceFile(.{ .file = b.path("a.c"), .flags = &[_][]const u8{} });
     lib_a.root_module.addIncludePath(b.path("."));
 
-    const lib_b = b.addStaticLibrary(.{
+    const lib_b = b.addLibrary(.{
+        .linkage = .static,
         .name = "b",
         .root_module = b.createModule(.{
             .root_source_file = null,

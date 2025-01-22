@@ -23,7 +23,8 @@ pub fn build(b: *std.Build) void {
     lib_mod.addImport("mod", shared_mod);
     exe_mod.addImport("mod", shared_mod);
 
-    const lib = b.addStaticLibrary(.{
+    const lib = b.addLibrary(.{
+        .linkage = .static,
         .name = "lib",
         .root_module = lib_mod,
     });
