@@ -2294,17 +2294,6 @@ pub const Key = union(enum) {
             return @atomicLoad(FuncAnalysis, func.analysisPtr(ip), .unordered);
         }
 
-        pub fn setCallsOrAwaitsErrorableFn(func: Func, ip: *InternPool, value: bool) void {
-            const extra_mutex = &ip.getLocal(func.tid).mutate.extra.mutex;
-            extra_mutex.lock();
-            defer extra_mutex.unlock();
-
-            const analysis_ptr = func.analysisPtr(ip);
-            var analysis = analysis_ptr.*;
-            analysis.calls_or_awaits_errorable_fn = value;
-            @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
-        }
-
         pub fn setBranchHint(func: Func, ip: *InternPool, hint: std.builtin.BranchHint) void {
             const extra_mutex = &ip.getLocal(func.tid).mutate.extra.mutex;
             extra_mutex.lock();
@@ -5975,7 +5964,7 @@ pub const FuncAnalysis = packed struct(u32) {
     is_analyzed: bool,
     branch_hint: std.builtin.BranchHint,
     is_noinline: bool,
-    calls_or_awaits_errorable_fn: bool,
+    has_error_trace: bool,
     /// True if this function has an inferred error set.
     inferred_error_set: bool,
     disable_instrumentation: bool,
@@ -9007,7 +8996,7 @@ pub fn getFuncDecl(
             .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = key.is_noinline,
-            .calls_or_awaits_errorable_fn = false,
+            .has_error_trace = false,
             .inferred_error_set = false,
             .disable_instrumentation = false,
         },
@@ -9116,7 +9105,7 @@ pub fn getFuncDeclIes(
             .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = key.is_noinline,
-            .calls_or_awaits_errorable_fn = false,
+            .has_error_trace = false,
             .inferred_error_set = true,
             .disable_instrumentation = false,
         },
@@ -9312,7 +9301,7 @@ pub fn getFuncInstance(
             .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = arg.is_noinline,
-            .calls_or_awaits_errorable_fn = false,
+            .has_error_trace = false,
             .inferred_error_set = false,
             .disable_instrumentation = false,
         },
@@ -9410,7 +9399,7 @@ pub fn getFuncInstanceIes(
             .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = arg.is_noinline,
-            .calls_or_awaits_errorable_fn = false,
+            .has_error_trace = false,
             .inferred_error_set = true,
             .disable_instrumentation = false,
         },
@@ -12174,7 +12163,7 @@ pub fn funcAnalysisUnordered(ip: *const InternPool, func: Index) FuncAnalysis {
     return @atomicLoad(FuncAnalysis, ip.funcAnalysisPtr(func), .unordered);
 }
 
-pub fn funcSetCallsOrAwaitsErrorableFn(ip: *InternPool, func: Index) void {
+pub fn funcSetHasErrorTrace(ip: *InternPool, func: Index, has_error_trace: bool) void {
     const unwrapped_func = func.unwrap(ip);
     const extra_mutex = &ip.getLocal(unwrapped_func.tid).mutate.extra.mutex;
     extra_mutex.lock();
@@ -12182,7 +12171,7 @@ pub fn funcSetCallsOrAwaitsErrorableFn(ip: *InternPool, func: Index) void {
 
     const analysis_ptr = ip.funcAnalysisPtr(func);
     var analysis = analysis_ptr.*;
-    analysis.calls_or_awaits_errorable_fn = true;
+    analysis.has_error_trace = has_error_trace;
     @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
 }
 

@@ -7191,14 +7191,6 @@ fn zirCall(
     const call_dbg_node: Zir.Inst.Index = @enumFromInt(@intFromEnum(inst) - 1);
     const call_inst = try sema.analyzeCall(block, func, func_ty, callee_src, call_src, modifier, ensure_result_used, args_info, call_dbg_node, .call);
 
-    switch (sema.owner.unwrap()) {
-        .@"comptime", .type, .memoized_state, .nav_ty, .nav_val => input_is_error = false,
-        .func => |owner_func| if (!zcu.intern_pool.funcAnalysisUnordered(owner_func).calls_or_awaits_errorable_fn) {
-            // No errorable fn actually called; we have no error return trace
-            input_is_error = false;
-        },
-    }
-
     if (block.ownerModule().error_tracing and
         !block.isComptime() and !block.is_typeof and (input_is_error or pop_error_return_trace))
     {
@@ -7865,6 +7857,12 @@ fn analyzeCall(
             }
             break :msg msg;
         });
+        if (func_ty_info.cc == .auto) {
+            switch (sema.owner.unwrap()) {
+                .@"comptime", .nav_ty, .nav_val, .type, .memoized_state => {},
+                .func => |owner_func| ip.funcSetHasErrorTrace(owner_func, true),
+            }
+        }
         for (args, 0..) |arg, arg_idx| {
             try sema.validateRuntimeValue(block, args_info.argSrc(block, arg_idx), arg);
         }
@@ -7937,13 +7935,6 @@ fn analyzeCall(
             if (!ip.isFuncBody(runtime_func_val.toIntern())) break :ref_func;
             try sema.addReferenceEntry(call_src, .wrap(.{ .func = runtime_func_val.toIntern() }));
             try zcu.ensureFuncBodyAnalysisQueued(runtime_func_val.toIntern());
-        }
-
-        switch (sema.owner.unwrap()) {
-            .@"comptime", .nav_ty, .nav_val, .type, .memoized_state => {},
-            .func => |owner_func| if (resolved_ret_ty.isError(zcu)) {
-                ip.funcSetCallsOrAwaitsErrorableFn(owner_func);
-            },
         }
 
         const call_tag: Air.Inst.Tag = switch (modifier) {
@@ -19699,16 +19690,16 @@ fn retWithErrTracing(
         .bool_false => false,
         else => true,
     };
+
+    // This means we're returning something that might be an error!
+    // This should only be possible with the `auto` cc, so we definitely have an error trace.
+    assert(pt.zcu.intern_pool.funcAnalysisUnordered(sema.owner.unwrap().func).has_error_trace);
+
     const gpa = sema.gpa;
-    const stack_trace_ty = try sema.getBuiltinType(src, .StackTrace);
-    try stack_trace_ty.resolveFields(pt);
-    const ptr_stack_trace_ty = try pt.singleMutPtrType(stack_trace_ty);
-    const err_return_trace = try block.addTy(.err_return_trace, ptr_stack_trace_ty);
     const return_err_fn = Air.internedToRef(try sema.getBuiltin(src, .returnError));
-    const args: [1]Air.Inst.Ref = .{err_return_trace};
 
     if (!need_check) {
-        try sema.callBuiltin(block, src, return_err_fn, .never_inline, &args, .@"error return");
+        try sema.callBuiltin(block, src, return_err_fn, .never_inline, &.{}, .@"error return");
         _ = try block.addUnOp(ret_tag, operand);
         return;
     }
@@ -19719,7 +19710,7 @@ fn retWithErrTracing(
 
     var else_block = block.makeSubBlock();
     defer else_block.instructions.deinit(gpa);
-    try sema.callBuiltin(&else_block, src, return_err_fn, .never_inline, &args, .@"error return");
+    try sema.callBuiltin(&else_block, src, return_err_fn, .never_inline, &.{}, .@"error return");
     _ = try else_block.addUnOp(ret_tag, operand);
 
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).@"struct".fields.len +
@@ -19830,7 +19821,7 @@ fn restoreErrRetIndex(sema: *Sema, start_block: *Block, src: LazySrcLoc, target_
         return;
     }
 
-    if (!zcu.intern_pool.funcAnalysisUnordered(sema.owner.unwrap().func).calls_or_awaits_errorable_fn) return;
+    if (!zcu.intern_pool.funcAnalysisUnordered(sema.owner.unwrap().func).has_error_trace) return;
     if (!start_block.ownerModule().error_tracing) return;
 
     assert(saved_index != .none); // The .error_return_trace_index field was dropped somewhere
@@ -21116,7 +21107,7 @@ fn getErrorReturnTrace(sema: *Sema, block: *Block) CompileError!Air.Inst.Ref {
     const opt_ptr_stack_trace_ty = try pt.optionalType(ptr_stack_trace_ty.toIntern());
 
     switch (sema.owner.unwrap()) {
-        .func => |func| if (ip.funcAnalysisUnordered(func).calls_or_awaits_errorable_fn and block.ownerModule().error_tracing) {
+        .func => |func| if (ip.funcAnalysisUnordered(func).has_error_trace and block.ownerModule().error_tracing) {
             return block.addTy(.err_return_trace, opt_ptr_stack_trace_ty);
         },
         .@"comptime", .nav_ty, .nav_val, .type, .memoized_state => {},
@@ -27089,6 +27080,10 @@ fn preparePanicId(sema: *Sema, src: LazySrcLoc, panic_id: Zcu.PanicId) !InternPo
     const zcu = sema.pt.zcu;
     try sema.ensureMemoizedStateResolved(src, .panic);
     try zcu.ensureFuncBodyAnalysisQueued(zcu.builtin_decl_values.get(.@"Panic.call"));
+    switch (sema.owner.unwrap()) {
+        .@"comptime", .nav_ty, .nav_val, .type, .memoized_state => {},
+        .func => |owner_func| zcu.intern_pool.funcSetHasErrorTrace(owner_func, true),
+    }
     return zcu.builtin_decl_values.get(panic_id.toBuiltin());
 }
 

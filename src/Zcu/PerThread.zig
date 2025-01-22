@@ -2596,7 +2596,7 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
     }
 
     // reset in case calls to errorable functions are removed.
-    func.setCallsOrAwaitsErrorableFn(ip, false);
+    ip.funcSetHasErrorTrace(func_index, fn_ty_info.cc == .auto);
 
     // First few indexes of extra are reserved and set at the end.
     const reserved_count = @typeInfo(Air.ExtraIndex).@"enum".fields.len;
@@ -2707,11 +2707,9 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
 
     func.setBranchHint(ip, sema.branch_hint orelse .none);
 
-    // If we don't get an error return trace from a caller, create our own.
-    if (func.analysisUnordered(ip).calls_or_awaits_errorable_fn and
-        zcu.comp.config.any_error_tracing and
-        !sema.fn_ret_ty.isError(zcu))
-    {
+    if (zcu.comp.config.any_error_tracing and func.analysisUnordered(ip).has_error_trace and fn_ty_info.cc != .auto) {
+        // We're using an error trace, but didn't start out with one from the caller.
+        // We'll have to create it at the start of the function.
         sema.setupErrorReturnTrace(&inner_block, last_arg_index) catch |err| switch (err) {
             error.ComptimeReturn => unreachable,
             error.ComptimeBreak => unreachable,

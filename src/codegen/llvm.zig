@@ -1497,8 +1497,7 @@ pub const Object = struct {
             .unsigned => try attributes.addRetAttr(.zeroext, &o.builder),
         };
 
-        const err_return_tracing = Type.fromInterned(fn_info.return_type).isError(zcu) and
-            comp.config.any_error_tracing;
+        const err_return_tracing = fn_info.cc == .auto and comp.config.any_error_tracing;
 
         const err_ret_trace: Builder.Value = if (err_return_tracing) param: {
             const param = wip.arg(llvm_arg_i);
@@ -2805,9 +2804,7 @@ pub const Object = struct {
                     debug_param_types.appendAssumeCapacity(try o.lowerDebugType(Type.void));
                 }
 
-                if (Type.fromInterned(fn_info.return_type).isError(zcu) and
-                    zcu.comp.config.any_error_tracing)
-                {
+                if (fn_info.cc == .auto and zcu.comp.config.any_error_tracing) {
                     const ptr_ty = try pt.singleMutPtrType(try o.getStackTraceType());
                     debug_param_types.appendAssumeCapacity(try o.lowerDebugType(ptr_ty));
                 }
@@ -2970,8 +2967,7 @@ pub const Object = struct {
             llvm_arg_i += 1;
         }
 
-        const err_return_tracing = Type.fromInterned(fn_info.return_type).isError(zcu) and
-            zcu.comp.config.any_error_tracing;
+        const err_return_tracing = fn_info.cc == .auto and zcu.comp.config.any_error_tracing;
 
         if (err_return_tracing) {
             try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
@@ -3736,9 +3732,7 @@ pub const Object = struct {
             try llvm_params.append(o.gpa, .ptr);
         }
 
-        if (Type.fromInterned(fn_info.return_type).isError(zcu) and
-            zcu.comp.config.any_error_tracing)
-        {
+        if (fn_info.cc == .auto and zcu.comp.config.any_error_tracing) {
             const ptr_ty = try pt.singleMutPtrType(try o.getStackTraceType());
             try llvm_params.append(o.gpa, try o.lowerType(ptr_ty));
         }
@@ -5483,7 +5477,7 @@ pub const FuncGen = struct {
             break :blk ret_ptr;
         };
 
-        const err_return_tracing = return_type.isError(zcu) and zcu.comp.config.any_error_tracing;
+        const err_return_tracing = fn_info.cc == .auto and zcu.comp.config.any_error_tracing;
         if (err_return_tracing) {
             assert(self.err_ret_trace != .none);
             try llvm_args.append(self.err_ret_trace);
@@ -5762,6 +5756,8 @@ pub const FuncGen = struct {
         const panic_nav = ip.getNav(panic_func.owner_nav);
         const fn_info = zcu.typeToFunc(Type.fromInterned(panic_nav.typeOf(ip))).?;
         const panic_global = try o.resolveLlvmFunction(panic_func.owner_nav);
+        const has_err_trace = zcu.comp.config.any_error_tracing and fn_info.cc == .auto;
+        if (has_err_trace) assert(fg.err_ret_trace != .none);
         _ = try fg.wip.callIntrinsicAssumeCold();
         _ = try fg.wip.call(
             .normal,
@@ -5769,7 +5765,13 @@ pub const FuncGen = struct {
             .none,
             panic_global.typeOf(&o.builder),
             panic_global.toValue(&o.builder),
-            &.{
+            if (has_err_trace) &.{
+                fg.err_ret_trace,
+                msg_ptr.toValue(),
+                try o.builder.intValue(llvm_usize, msg_len),
+                try o.builder.nullValue(.ptr),
+                null_opt_addr_global.toValue(),
+            } else &.{
                 msg_ptr.toValue(),
                 try o.builder.intValue(llvm_usize, msg_len),
                 try o.builder.nullValue(.ptr),
