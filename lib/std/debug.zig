@@ -1513,7 +1513,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
         }
 
         pub fn format(
-            t: Trace,
+            t: @This(),
             comptime fmt: []const u8,
             options: std.fmt.FormatOptions,
             writer: anytype,

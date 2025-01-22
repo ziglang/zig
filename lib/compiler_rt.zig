@@ -233,6 +233,7 @@ comptime {
 
         _ = @import("compiler_rt/memcpy.zig");
         _ = @import("compiler_rt/memset.zig");
+        _ = @import("compiler_rt/memmove.zig");
         _ = @import("compiler_rt/memcmp.zig");
         _ = @import("compiler_rt/bcmp.zig");
         _ = @import("compiler_rt/ssp.zig");

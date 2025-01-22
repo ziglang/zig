@@ -10,27 +10,27 @@ pub fn call(_: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     @trap();
 }
 
-pub inline fn sentinelMismatch(_: anytype, _: anytype) noreturn {
+pub fn sentinelMismatch(_: anytype, _: anytype) noreturn {
     @branchHint(.cold);
     @trap();
 }
 
-pub inline fn unwrapError(_: ?*std.builtin.StackTrace, _: anyerror) noreturn {
+pub fn unwrapError(_: ?*std.builtin.StackTrace, _: anyerror) noreturn {
     @branchHint(.cold);
     @trap();
 }
 
-pub inline fn outOfBounds(_: usize, _: usize) noreturn {
+pub fn outOfBounds(_: usize, _: usize) noreturn {
     @branchHint(.cold);
     @trap();
 }
 
-pub inline fn startGreaterThanEnd(_: usize, _: usize) noreturn {
+pub fn startGreaterThanEnd(_: usize, _: usize) noreturn {
     @branchHint(.cold);
     @trap();
 }
 
-pub inline fn inactiveUnionField(_: anytype, _: anytype) noreturn {
+pub fn inactiveUnionField(_: anytype, _: anytype) noreturn {
     @branchHint(.cold);
     @trap();
 }

@@ -183,6 +183,9 @@
         .empty_global_error_set = .{
             .path = "empty_global_error_set",
         },
+        .omit_cfi = .{
+            .path = "omit_cfi",
+        },
     },
     .paths = .{
         "build.zig",

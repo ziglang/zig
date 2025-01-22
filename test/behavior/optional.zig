@@ -498,6 +498,20 @@ test "optional of noreturn used with orelse" {
     try expect(val == 123);
 }
 
+test "mutable optional of noreturn" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    var a: ?noreturn = null;
+    if (a) |*ptr| {
+        _ = ptr;
+        @compileError("bad");
+    } else {
+        // this is what we expect to hit
+        return;
+    }
+    @compileError("bad");
+}
+
 test "orelse on C pointer" {
 
     // TODO https://github.com/ziglang/zig/issues/6597

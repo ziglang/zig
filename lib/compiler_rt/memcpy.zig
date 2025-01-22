@@ -1,173 +1,213 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const common = @import("./common.zig");
 const builtin = @import("builtin");
 
 comptime {
     if (builtin.object_format != .c) {
-        @export(&memcpy, .{ .name = "memcpy", .linkage = common.linkage, .visibility = common.visibility });
-        @export(&memmove, .{ .name = "memmove", .linkage = common.linkage, .visibility = common.visibility });
+        const export_options: std.builtin.ExportOptions = .{
+            .name = "memcpy",
+            .linkage = common.linkage,
+            .visibility = common.visibility,
+        };
+
+        if (builtin.mode == .ReleaseSmall)
+            @export(&memcpySmall, export_options)
+        else
+            @export(&memcpyFast, export_options);
     }
 }
 
-const llvm_cannot_lower = switch (builtin.cpu.arch) {
-    .arm, .armeb, .thumb, .thumbeb => builtin.zig_backend == .stage2_llvm,
-    else => false,
-};
+const Element = if (std.simd.suggestVectorLength(u8)) |vec_size|
+    @Type(.{ .vector = .{
+        .child = u8,
+        .len = vec_size,
+    } })
+else
+    usize;
 
-fn memcpy(noalias opt_dest: ?[*]u8, noalias opt_src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
-    if (llvm_cannot_lower) {
-        for (0..len) |i| opt_dest.?[i] = opt_src.?[i];
-        return opt_dest;
-    } else {
-        return memmove(opt_dest, opt_src, len);
-    }
+comptime {
+    assert(@sizeOf(Element) >= @alignOf(Element));
+    assert(std.math.isPowerOfTwo(@sizeOf(Element)));
 }
 
-/// A port of https://github.com/facebook/folly/blob/1c8bc50e88804e2a7361a57cd9b551dd10f6c5fd/folly/memcpy.S
-fn memmove(opt_dest: ?[*]u8, opt_src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
-    if (llvm_cannot_lower) {
-        if (@intFromPtr(opt_dest) < @intFromPtr(opt_src)) {
-            for (0..len) |i| opt_dest.?[i] = opt_src.?[i];
-            return opt_dest;
-        } else {
-            var index = len;
-            while (index != 0) {
-                index -= 1;
-                opt_dest.?[index] = opt_src.?[index];
-            }
-            return opt_dest;
-        }
+fn memcpySmall(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
+    @setRuntimeSafety(builtin.is_test);
+
+    for (0..len) |i| {
+        dest.?[i] = src.?[i];
     }
-
-    if (len == 0) {
-        @branchHint(.unlikely);
-        return opt_dest;
-    }
-
-    const dest = opt_dest.?;
-    const src = opt_src.?;
-
-    if (len < 8) {
-        @branchHint(.unlikely);
-        if (len == 1) {
-            @branchHint(.unlikely);
-            dest[0] = src[0];
-        } else if (len >= 4) {
-            @branchHint(.unlikely);
-            blockCopy(dest, src, 4, len);
-        } else {
-            blockCopy(dest, src, 2, len);
-        }
-        return dest;
-    }
-
-    if (len > 32) {
-        @branchHint(.unlikely);
-        if (len > 256) {
-            @branchHint(.unlikely);
-            copyMove(dest, src, len);
-            return dest;
-        }
-        copyLong(dest, src, len);
-        return dest;
-    }
-
-    if (len > 16) {
-        @branchHint(.unlikely);
-        blockCopy(dest, src, 16, len);
-        return dest;
-    }
-
-    blockCopy(dest, src, 8, len);
 
     return dest;
 }
 
-inline fn blockCopy(dest: [*]u8, src: [*]const u8, block_size: comptime_int, len: usize) void {
-    const first = @as(*align(1) const @Vector(block_size, u8), src[0..block_size]).*;
-    const second = @as(*align(1) const @Vector(block_size, u8), src[len - block_size ..][0..block_size]).*;
-    dest[0..block_size].* = first;
-    dest[len - block_size ..][0..block_size].* = second;
+fn memcpyFast(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
+    @setRuntimeSafety(builtin.is_test);
+
+    const small_limit = 2 * @sizeOf(Element);
+
+    if (copySmallLength(small_limit, dest.?, src.?, len)) return dest;
+
+    copyForwards(dest.?, src.?, len);
+
+    return dest;
 }
 
-inline fn copyLong(dest: [*]u8, src: [*]const u8, len: usize) void {
-    var array: [8]@Vector(32, u8) = undefined;
+inline fn copySmallLength(
+    comptime small_limit: comptime_int,
+    dest: [*]u8,
+    src: [*]const u8,
+    len: usize,
+) bool {
+    if (len < 16) {
+        copyLessThan16(dest, src, len);
+        return true;
+    }
 
-    inline for (.{ 64, 128, 192, 256 }, 0..) |N, i| {
-        array[i * 2] = src[(N / 2) - 32 ..][0..32].*;
-        array[(i * 2) + 1] = src[len - N / 2 ..][0..32].*;
+    if (comptime 2 < (std.math.log2(small_limit) + 1) / 2) {
+        if (copy16ToSmallLimit(small_limit, dest, src, len)) return true;
+    }
 
-        if (len <= N) {
-            @branchHint(.unlikely);
-            for (0..i + 1) |j| {
-                dest[j * 32 ..][0..32].* = array[j * 2];
-                dest[len - ((j * 32) + 32) ..][0..32].* = array[(j * 2) + 1];
-            }
-            return;
+    return false;
+}
+
+inline fn copyLessThan16(
+    dest: [*]u8,
+    src: [*]const u8,
+    len: usize,
+) void {
+    @setRuntimeSafety(builtin.is_test);
+    if (len < 4) {
+        if (len == 0) return;
+        dest[0] = src[0];
+        dest[len / 2] = src[len / 2];
+        dest[len - 1] = src[len - 1];
+        return;
+    }
+    copyRange4(4, dest, src, len);
+}
+
+inline fn copy16ToSmallLimit(
+    comptime small_limit: comptime_int,
+    dest: [*]u8,
+    src: [*]const u8,
+    len: usize,
+) bool {
+    @setRuntimeSafety(builtin.is_test);
+    inline for (2..(std.math.log2(small_limit) + 1) / 2 + 1) |p| {
+        const limit = 1 << (2 * p);
+        if (len < limit) {
+            copyRange4(limit / 4, dest, src, len);
+            return true;
         }
     }
+    return false;
 }
 
-inline fn copyMove(dest: [*]u8, src: [*]const u8, len: usize) void {
-    if (@intFromPtr(src) >= @intFromPtr(dest)) {
-        @branchHint(.unlikely);
-        copyForward(dest, src, len);
-    } else if (@intFromPtr(src) + len > @intFromPtr(dest)) {
-        @branchHint(.unlikely);
-        overlapBwd(dest, src, len);
-    } else {
-        copyForward(dest, src, len);
+inline fn copyForwards(
+    noalias dest: [*]u8,
+    noalias src: [*]const u8,
+    len: usize,
+) void {
+    @setRuntimeSafety(builtin.is_test);
+    assert(len >= 2 * @sizeOf(Element));
+
+    dest[0..@sizeOf(Element)].* = src[0..@sizeOf(Element)].*;
+    const alignment_offset = @alignOf(Element) - @intFromPtr(src) % @alignOf(Element);
+    const n = len - alignment_offset;
+    const d = dest + alignment_offset;
+    const s = src + alignment_offset;
+
+    copyBlocksAlignedSource(@ptrCast(d), @alignCast(@ptrCast(s)), n);
+
+    // copy last `@sizeOf(Element)` bytes unconditionally, since block copy
+    // methods only copy a multiple of `@sizeOf(Element)` bytes.
+    const offset = len - @sizeOf(Element);
+    dest[offset..][0..@sizeOf(Element)].* = src[offset..][0..@sizeOf(Element)].*;
+}
+
+inline fn copyBlocksAlignedSource(
+    noalias dest: [*]align(1) Element,
+    noalias src: [*]const Element,
+    max_bytes: usize,
+) void {
+    copyBlocks(dest, src, max_bytes);
+}
+
+/// Copies the largest multiple of `@sizeOf(T)` bytes from `src` to `dest`,
+/// that is less than `max_bytes` where `T` is the child type of `src` and
+/// `dest`.
+inline fn copyBlocks(
+    noalias dest: anytype,
+    noalias src: anytype,
+    max_bytes: usize,
+) void {
+    @setRuntimeSafety(builtin.is_test);
+
+    const T = @typeInfo(@TypeOf(dest)).pointer.child;
+    comptime assert(T == @typeInfo(@TypeOf(src)).pointer.child);
+
+    const loop_count = max_bytes / @sizeOf(T);
+
+    for (dest[0..loop_count], src[0..loop_count]) |*d, s| {
+        d.* = s;
     }
 }
 
-inline fn copyForward(dest: [*]u8, src: [*]const u8, len: usize) void {
-    const tail: @Vector(32, u8) = src[len - 32 ..][0..32].*;
+/// copy `len` bytes from `src` to `dest`; `len` must be in the range
+/// `[copy_len, 4 * copy_len)`.
+inline fn copyRange4(
+    comptime copy_len: comptime_int,
+    noalias dest: [*]u8,
+    noalias src: [*]const u8,
+    len: usize,
+) void {
+    @setRuntimeSafety(builtin.is_test);
+    comptime assert(std.math.isPowerOfTwo(copy_len));
+    assert(len >= copy_len);
+    assert(len < 4 * copy_len);
 
-    const N: usize = len & ~@as(usize, 127);
-    var i: usize = 0;
+    const a = len & (copy_len * 2);
+    const b = a / 2;
 
-    while (i < N) : (i += 128) {
-        dest[i..][0..32].* = src[i..][0..32].*;
-        dest[i + 32 ..][0..32].* = src[i + 32 ..][0..32].*;
-        dest[i + 64 ..][0..32].* = src[i + 64 ..][0..32].*;
-        dest[i + 96 ..][0..32].* = src[i + 96 ..][0..32].*;
-    }
+    const last = len - copy_len;
+    const pen = last - b;
 
-    if (len - i <= 32) {
-        @branchHint(.unlikely);
-        dest[len - 32 ..][0..32].* = tail;
-    } else {
-        copyLong(dest[i..], src[i..], len - i);
-    }
+    dest[0..copy_len].* = src[0..copy_len].*;
+    dest[b..][0..copy_len].* = src[b..][0..copy_len].*;
+    dest[pen..][0..copy_len].* = src[pen..][0..copy_len].*;
+    dest[last..][0..copy_len].* = src[last..][0..copy_len].*;
 }
 
-inline fn overlapBwd(dest: [*]u8, src: [*]const u8, len: usize) void {
-    var array: [5]@Vector(32, u8) = undefined;
-    array[0] = src[len - 32 ..][0..32].*;
-    inline for (1..5) |i| array[i] = src[(i - 1) << 5 ..][0..32].*;
+test {
+    const S = struct {
+        fn testFunc(comptime copy_func: anytype) !void {
+            const max_len = 1024;
+            var buffer: [max_len + @alignOf(Element) - 1]u8 align(@alignOf(Element)) = undefined;
+            for (&buffer, 0..) |*b, i| {
+                b.* = @intCast(i % 97);
+            }
+            var dest: [max_len + @alignOf(Element) - 1]u8 align(@alignOf(Element)) = undefined;
 
-    const end: usize = (@intFromPtr(dest) + len - 32) & 31;
-    const range = len - end;
-    var s = src + range;
-    var d = dest + range;
+            for (0..max_len) |copy_len| {
+                for (0..@alignOf(Element)) |s_offset| {
+                    for (0..@alignOf(Element)) |d_offset| {
+                        @memset(&dest, 0xff);
+                        const s = buffer[s_offset..][0..copy_len];
+                        const d = dest[d_offset..][0..copy_len];
+                        _ = copy_func(@ptrCast(d.ptr), @ptrCast(s.ptr), s.len);
+                        std.testing.expectEqualSlices(u8, s, d) catch |e| {
+                            std.debug.print("error encountered for length={d}, s_offset={d}, d_offset={d}\n", .{
+                                copy_len, s_offset, d_offset,
+                            });
+                            return e;
+                        };
+                    }
+                }
+            }
+        }
+    };
 
-    while (@intFromPtr(s) > @intFromPtr(src + 128)) {
-        // zig fmt: off
-        const first  = @as(*align(1) const @Vector(32, u8), @ptrCast(s - 32)).*;
-        const second = @as(*align(1) const @Vector(32, u8), @ptrCast(s - 64)).*;
-        const third  = @as(*align(1) const @Vector(32, u8), @ptrCast(s - 96)).*;
-        const fourth = @as(*align(1) const @Vector(32, u8), @ptrCast(s - 128)).*;
-
-        @as(*align(32) @Vector(32, u8), @alignCast(@ptrCast(d - 32))).*  = first;
-        @as(*align(32) @Vector(32, u8), @alignCast(@ptrCast(d - 64))).*  = second;
-        @as(*align(32) @Vector(32, u8), @alignCast(@ptrCast(d - 96))).*  = third;
-        @as(*align(32) @Vector(32, u8), @alignCast(@ptrCast(d - 128))).* = fourth;
-        // zig fmt: on
-
-        s -= 128;
-        d -= 128;
-    }
-
-    inline for (array[1..], 0..) |vec, i| dest[i * 32 ..][0..32].* = vec;
-    dest[len - 32 ..][0..32].* = array[0];
+    try S.testFunc(memcpySmall);
+    try S.testFunc(memcpyFast);
 }

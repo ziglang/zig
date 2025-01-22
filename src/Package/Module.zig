@@ -387,7 +387,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .zig_backend = zig_backend,
             .output_mode = options.global.output_mode,
             .link_mode = options.global.link_mode,
-            .unwind_tables = options.global.any_unwind_tables,
+            .unwind_tables = unwind_tables,
             .is_test = options.global.is_test,
             .single_threaded = single_threaded,
             .link_libc = options.global.link_libc,
