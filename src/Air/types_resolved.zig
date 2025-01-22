@@ -83,6 +83,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .memset,
             .memset_safe,
             .memcpy,
+            .memmove,
             .atomic_store_unordered,
             .atomic_store_monotonic,
             .atomic_store_release,

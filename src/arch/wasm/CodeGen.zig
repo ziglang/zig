@@ -2061,6 +2061,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .c_va_copy,
         .c_va_end,
         .c_va_start,
+        .memmove,
         => |tag| return cg.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
 
         .atomic_load => cg.airAtomicLoad(inst),

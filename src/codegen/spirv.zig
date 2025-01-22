@@ -3344,6 +3344,7 @@ const NavGen = struct {
             .slice          => try self.airSlice(inst),
             .aggregate_init => try self.airAggregateInit(inst),
             .memcpy         => return self.airMemcpy(inst),
+            .memmove        => return self.airMemmove(inst),
 
             .slice_ptr      => try self.airSliceField(inst, 0),
             .slice_len      => try self.airSliceField(inst, 1),
@@ -4912,6 +4913,11 @@ const NavGen = struct {
             .source = src_ptr,
             .size = len,
         });
+    }
+
+    fn airMemmove(self: *NavGen, inst: Air.Inst.Index) !void {
+        _ = inst;
+        return self.fail("TODO implement airMemcpy for spirv", .{});
     }
 
     fn airSliceField(self: *NavGen, inst: Air.Inst.Index, field: u32) !?IdRef {
