@@ -708,7 +708,7 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
             else => false,
         },
         .error_return_trace => switch (backend) {
-            .stage2_llvm => true,
+            .stage2_llvm, .stage2_x86_64 => true,
             else => false,
         },
         .is_named_enum_value => switch (backend) {
