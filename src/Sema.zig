@@ -8436,16 +8436,20 @@ fn zirErrorUnionType(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileEr
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const lhs_src = block.src(.{ .node_offset_bin_lhs = inst_data.src_node });
     const rhs_src = block.src(.{ .node_offset_bin_rhs = inst_data.src_node });
-    const error_set = try sema.resolveType(block, lhs_src, extra.lhs);
+    // Do not resolve as type yet, so that we can give a more useful message
+    // when someone writes `error.XYZ` instead of `error{XYZ}` as the LHS.
+    const error_set = try sema.resolveConstDefinedValue(block, lhs_src, try sema.resolveInst(extra.lhs), .{
+        .needed_comptime_reason = "types must be comptime-known",
+    });
     const payload = try sema.resolveType(block, rhs_src, extra.rhs);
 
-    if (error_set.zigTypeTag(zcu) != .error_set) {
+    if (error_set.typeOf(zcu).ip_index != .type_type or error_set.toType().zigTypeTag(zcu) != .error_set) {
         return sema.fail(block, lhs_src, "expected error set type, found '{}'", .{
-            error_set.fmt(pt),
+            error_set.fmtValue(pt),
         });
     }
     try sema.validateErrorUnionPayloadType(block, payload, rhs_src);
-    const err_union_ty = try pt.errorUnionType(error_set, payload);
+    const err_union_ty = try pt.errorUnionType(error_set.toType(), payload);
     return Air.internedToRef(err_union_ty.toIntern());
 }
 
@@ -27065,8 +27069,8 @@ fn explainWhyTypeIsNotPacked(
         .error_set,
         .@"anyframe",
         .optional,
-        .array,
         => try sema.errNote(src_loc, msg, "type has no guaranteed in-memory representation", .{}),
+        .array => try sema.errNote(src_loc, msg, "packed fields are ordered according to machine endianness, array elements are not", .{}),
         .pointer => if (ty.isSlice(zcu)) {
             try sema.errNote(src_loc, msg, "slices have no guaranteed in-memory representation", .{});
         } else {
