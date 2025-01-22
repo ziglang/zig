@@ -2826,6 +2826,7 @@ pub const Feature = packed struct(u8) {
         multimemory,
         multivalue,
         @"mutable-globals",
+        @"nontrapping-bulk-memory-len0",
         @"nontrapping-fptoint",
         @"reference-types",
         @"relaxed-simd",

@@ -1033,6 +1033,13 @@ const llvm_targets = [_]LlvmTarget{
         .zig_name = "wasm",
         .llvm_name = "WebAssembly",
         .td_name = "WebAssembly.td",
+        .extra_features = &.{
+            .{
+                .zig_name = "nontrapping_bulk_memory_len0",
+                .desc = "Bulk memory operations with a zero length do not trap",
+                .deps = &.{"bulk_memory"},
+            },
+        },
         .extra_cpus = &.{
             .{
                 .llvm_name = null,

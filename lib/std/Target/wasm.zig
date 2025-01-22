@@ -13,6 +13,7 @@ pub const Feature = enum {
     multimemory,
     multivalue,
     mutable_globals,
+    nontrapping_bulk_memory_len0,
     nontrapping_fptoint,
     reference_types,
     relaxed_simd,
@@ -69,6 +70,13 @@ pub const all_features = blk: {
         .llvm_name = "mutable-globals",
         .description = "Enable mutable globals",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.nontrapping_bulk_memory_len0)] = .{
+        .llvm_name = null,
+        .description = "Bulk memory operations with a zero length do not trap",
+        .dependencies = featureSet(&[_]Feature{
+            .bulk_memory,
+        }),
     };
     result[@intFromEnum(Feature.nontrapping_fptoint)] = .{
         .llvm_name = "nontrapping-fptoint",
