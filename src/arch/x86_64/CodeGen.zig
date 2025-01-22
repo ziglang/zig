@@ -33,6 +33,8 @@ const FrameIndex = bits.FrameIndex;
 
 const InnerError = codegen.CodeGenError || error{OutOfRegisters};
 
+const err_ret_trace_index: Air.Inst.Index = @enumFromInt(std.math.maxInt(u32));
+
 gpa: Allocator,
 pt: Zcu.PerThread,
 air: Air,
@@ -55,6 +57,7 @@ va_info: union {
     win64: struct {},
 },
 ret_mcv: InstTracking,
+err_ret_trace_reg: Register,
 fn_type: Type,
 src_loc: Zcu.LazySrcLoc,
 
@@ -626,6 +629,7 @@ const InstTracking = struct {
         switch (self.long) {
             .none => self.long = try cg.allocRegOrMem(inst, false),
             .load_frame => {},
+            .lea_frame => return,
             .reserved_frame => |index| self.long = .{ .load_frame = .{ .index = index } },
             else => unreachable,
         }
@@ -887,6 +891,7 @@ pub fn generate(
         .args = undefined, // populated after `resolveCallingConventionValues`
         .va_info = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
+        .err_ret_trace_reg = undefined, // populated after `resolveCallingConventionValues`
         .fn_type = fn_type,
         .src_loc = src_loc,
         .end_di_line = func.rbrace_line,
@@ -935,6 +940,7 @@ pub fn generate(
 
     function.args = call_info.args;
     function.ret_mcv = call_info.return_value;
+    function.err_ret_trace_reg = call_info.err_ret_trace_reg;
     function.frame_allocs.set(@intFromEnum(FrameIndex.ret_addr), .init(.{
         .size = Type.usize.abiSize(zcu),
         .alignment = Type.usize.abiAlignment(zcu).min(call_info.stack_align),
@@ -962,6 +968,14 @@ pub fn generate(
         } },
         .x86_64_win => .{ .win64 = .{} },
     };
+    if (call_info.err_ret_trace_reg != .none) {
+        function.register_manager.getRegAssumeFree(call_info.err_ret_trace_reg, err_ret_trace_index);
+        try function.inst_tracking.putNoClobber(
+            gpa,
+            err_ret_trace_index,
+            .init(.{ .register = call_info.err_ret_trace_reg }),
+        );
+    }
 
     function.gen() catch |err| switch (err) {
         error.CodegenFail => return error.CodegenFail,
@@ -1042,6 +1056,7 @@ pub fn generateLazy(
         .args = undefined,
         .va_info = undefined,
         .ret_mcv = undefined,
+        .err_ret_trace_reg = undefined,
         .fn_type = undefined,
         .src_loc = src_loc,
         .end_di_line = undefined, // no debug info yet
@@ -2503,9 +2518,6 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .optional_payload           => try cg.airOptionalPayload(inst),
             .unwrap_errunion_err        => try cg.airUnwrapErrUnionErr(inst),
             .unwrap_errunion_payload    => try cg.airUnwrapErrUnionPayload(inst),
-            .err_return_trace           => try cg.airErrReturnTrace(inst),
-            .set_err_return_trace       => try cg.airSetErrReturnTrace(inst),
-            .save_err_return_trace_index=> try cg.airSaveErrReturnTraceIndex(inst),
 
             .wrap_optional         => try cg.airWrapOptional(inst),
             .wrap_errunion_payload => try cg.airWrapErrUnionPayload(inst),
@@ -11236,10 +11248,44 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .wasm_memory_size => unreachable,
             .wasm_memory_grow => unreachable,
 
+            .err_return_trace => {
+                const ert: Temp = .{ .index = err_ret_trace_index };
+                try ert.moveTo(inst, cg);
+            },
+            .set_err_return_trace => {
+                const un_op = air_datas[@intFromEnum(inst)].un_op;
+                var ops = try cg.tempsFromOperands(inst, .{un_op});
+                switch (ops[0].unwrap(cg)) {
+                    .ref => {
+                        const result = try cg.allocRegOrMem(err_ret_trace_index, true);
+                        try cg.genCopy(.usize, result, ops[0].tracking(cg).short, .{});
+                        tracking_log.debug("{} => {} (birth)", .{ err_ret_trace_index, result });
+                        cg.inst_tracking.putAssumeCapacityNoClobber(err_ret_trace_index, .init(result));
+                    },
+                    .temp => |temp_index| {
+                        const temp_tracking = temp_index.tracking(cg);
+                        tracking_log.debug("{} => {} (birth)", .{ err_ret_trace_index, temp_tracking.short });
+                        cg.inst_tracking.putAssumeCapacityNoClobber(err_ret_trace_index, temp_tracking.*);
+                        assert(cg.reuseTemp(err_ret_trace_index, temp_index.toIndex(), temp_tracking));
+                    },
+                    .err_ret_trace => unreachable,
+                }
+            },
+
             .addrspace_cast => {
                 const ty_op = air_datas[@intFromEnum(inst)].ty_op;
                 var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
                 try ops[0].moveTo(inst, cg);
+            },
+
+            .save_err_return_trace_index => {
+                const ty_pl = air_datas[@intFromEnum(inst)].ty_pl;
+                const agg_ty = ty_pl.ty.toType();
+                assert(agg_ty.containerLayout(zcu) != .@"packed");
+                var ert: Temp = .{ .index = err_ret_trace_index };
+                var res = try ert.load(.usize, .{ .disp = @intCast(agg_ty.structFieldOffset(ty_pl.payload, zcu)) }, cg);
+                try ert.die(cg);
+                try res.moveTo(inst, cg);
             },
 
             .vector_store_elem => return cg.fail("TODO implement vector_store_elem", .{}),
@@ -11697,7 +11743,7 @@ fn restoreState(self: *CodeGen, state: State, deaths: []const Air.Inst.Index, co
         const target_maybe_inst = if (state.free_registers.isSet(reg_index)) null else target_slot;
         if (std.debug.runtime_safety) if (target_maybe_inst) |target_inst|
             assert(self.inst_tracking.getIndex(target_inst).? < state.inst_tracking_len);
-        if (opts.emit_instructions) {
+        if (opts.emit_instructions and current_maybe_inst != target_maybe_inst) {
             if (current_maybe_inst) |current_inst|
                 try self.inst_tracking.getPtr(current_inst).?.spill(self, current_inst);
             if (target_maybe_inst) |target_inst|
@@ -11709,7 +11755,7 @@ fn restoreState(self: *CodeGen, state: State, deaths: []const Air.Inst.Index, co
                 self.register_manager.freeRegIndex(reg_index);
             }
             if (target_maybe_inst) |target_inst| {
-                self.register_manager.getRegIndexAssumeFree(reg_index, target_maybe_inst);
+                self.register_manager.getRegIndexAssumeFree(reg_index, target_inst);
                 self.inst_tracking.getPtr(target_inst).?.trackMaterialize(target_inst, reg_tracking);
             }
         } else if (target_maybe_inst) |_|
@@ -11750,9 +11796,10 @@ pub fn spillEflagsIfOccupied(self: *CodeGen) !void {
     }
 }
 
-pub fn spillCallerPreservedRegs(self: *CodeGen, cc: std.builtin.CallingConvention.Tag) !void {
+pub fn spillCallerPreservedRegs(self: *CodeGen, cc: std.builtin.CallingConvention.Tag, ignore_reg: Register) !void {
     switch (cc) {
-        inline .auto, .x86_64_sysv, .x86_64_win => |tag| try self.spillRegisters(abi.getCallerPreservedRegs(tag)),
+        inline .auto, .x86_64_sysv, .x86_64_win => |tag| inline for (comptime abi.getCallerPreservedRegs(tag)) |reg|
+            if (reg != ignore_reg) try self.register_manager.getKnownReg(reg, null),
         else => unreachable,
     }
 }
@@ -14404,22 +14451,6 @@ fn genUnwrapErrUnionPayloadPtrMir(
     };
 
     return result;
-}
-
-fn airErrReturnTrace(self: *CodeGen, inst: Air.Inst.Index) !void {
-    _ = inst;
-    return self.fail("TODO implement airErrReturnTrace for {}", .{self.target.cpu.arch});
-    //return self.finishAir(inst, result, .{ .none, .none, .none });
-}
-
-fn airSetErrReturnTrace(self: *CodeGen, inst: Air.Inst.Index) !void {
-    _ = inst;
-    return self.fail("TODO implement airSetErrReturnTrace for {}", .{self.target.cpu.arch});
-}
-
-fn airSaveErrReturnTraceIndex(self: *CodeGen, inst: Air.Inst.Index) !void {
-    _ = inst;
-    return self.fail("TODO implement airSaveErrReturnTraceIndex for {}", .{self.target.cpu.arch});
 }
 
 fn airWrapOptional(self: *CodeGen, inst: Air.Inst.Index) !void {
@@ -21188,7 +21219,7 @@ fn genCall(self: *CodeGen, info: union(enum) {
     }
 
     try self.spillEflagsIfOccupied();
-    try self.spillCallerPreservedRegs(fn_info.cc);
+    try self.spillCallerPreservedRegs(fn_info.cc, call_info.err_ret_trace_reg);
 
     // set stack arguments first because this can clobber registers
     // also clobber spill arguments as we go
@@ -21272,6 +21303,24 @@ fn genCall(self: *CodeGen, info: union(enum) {
             },
             else => unreachable,
         };
+
+    if (call_info.err_ret_trace_reg != .none) {
+        if (self.inst_tracking.getPtr(err_ret_trace_index)) |err_ret_trace| {
+            if (switch (err_ret_trace.short) {
+                .register => |reg| call_info.err_ret_trace_reg != reg,
+                else => true,
+            }) {
+                try self.register_manager.getReg(call_info.err_ret_trace_reg, err_ret_trace_index);
+                try reg_locks.append(self.register_manager.lockReg(call_info.err_ret_trace_reg));
+
+                try self.genSetReg(call_info.err_ret_trace_reg, .usize, err_ret_trace.short, .{});
+                err_ret_trace.trackMaterialize(err_ret_trace_index, .{
+                    .long = err_ret_trace.long,
+                    .short = .{ .register = call_info.err_ret_trace_reg },
+                });
+            }
+        }
+    }
 
     // now we are free to set register arguments
     switch (call_info.return_value.long) {
@@ -21447,6 +21496,17 @@ fn airRet(self: *CodeGen, inst: Air.Inst.Index, safety: bool) !void {
         else => unreachable,
     }
     self.ret_mcv.liveOut(self, inst);
+
+    if (self.err_ret_trace_reg != .none) {
+        if (self.inst_tracking.getPtr(err_ret_trace_index)) |err_ret_trace| {
+            if (switch (err_ret_trace.short) {
+                .register => |reg| self.err_ret_trace_reg != reg,
+                else => true,
+            }) try self.genSetReg(self.err_ret_trace_reg, .usize, err_ret_trace.short, .{});
+            err_ret_trace.liveOut(self, err_ret_trace_index);
+        }
+    }
+
     try self.finishAir(inst, .unreach, .{ un_op, .none, .none });
 
     // TODO optimization opportunity: figure out when we can emit this as a 2 byte instruction
@@ -21467,6 +21527,17 @@ fn airRetLoad(self: *CodeGen, inst: Air.Inst.Index) !void {
         else => unreachable,
     }
     self.ret_mcv.liveOut(self, inst);
+
+    if (self.err_ret_trace_reg != .none) {
+        if (self.inst_tracking.getPtr(err_ret_trace_index)) |err_ret_trace| {
+            if (switch (err_ret_trace.short) {
+                .register => |reg| self.err_ret_trace_reg != reg,
+                else => true,
+            }) try self.genSetReg(self.err_ret_trace_reg, .usize, err_ret_trace.short, .{});
+            err_ret_trace.liveOut(self, err_ret_trace_index);
+        }
+    }
+
     try self.finishAir(inst, .unreach, .{ un_op, .none, .none });
 
     // TODO optimization opportunity: figure out when we can emit this as a 2 byte instruction
@@ -26098,8 +26169,13 @@ fn airTagName(self: *CodeGen, inst: Air.Inst.Index) !void {
         stack_frame_align.* = stack_frame_align.max(needed_call_frame.abi_align);
     }
 
+    const err_ret_trace_reg = if (zcu.comp.config.any_error_tracing) err_ret_trace_reg: {
+        const param_gpr = abi.getCAbiIntParamRegs(.auto);
+        break :err_ret_trace_reg param_gpr[param_gpr.len - 1];
+    } else .none;
+
     try self.spillEflagsIfOccupied();
-    try self.spillCallerPreservedRegs(.auto);
+    try self.spillCallerPreservedRegs(.auto, err_ret_trace_reg);
 
     const param_regs = abi.getCAbiIntParamRegs(.auto);
 
@@ -28564,6 +28640,7 @@ const CallMCValues = struct {
     stack_align: InternPool.Alignment,
     gp_count: u32,
     fp_count: u32,
+    err_ret_trace_reg: Register,
 
     fn deinit(self: *CallMCValues, func: *CodeGen) void {
         func.gpa.free(self.args);
@@ -28598,6 +28675,7 @@ fn resolveCallingConventionValues(
         .stack_align = undefined,
         .gp_count = 0,
         .fp_count = 0,
+        .err_ret_trace_reg = .none,
     };
     errdefer self.gpa.free(result.args);
 
@@ -28841,6 +28919,11 @@ fn resolveCallingConventionValues(
             var param_gpr = abi.getCAbiIntParamRegs(cc);
             var param_x87 = abi.getCAbiX87ParamRegs(cc);
             var param_sse = abi.getCAbiSseParamRegs(cc, self.target);
+
+            if (zcu.comp.config.any_error_tracing) {
+                result.err_ret_trace_reg = param_gpr[param_gpr.len - 1];
+                param_gpr = param_gpr[0 .. param_gpr.len - 1];
+            }
 
             // Return values
             result.return_value = if (ret_ty.isNoReturn(zcu))
@@ -29159,16 +29242,8 @@ fn typeOf(self: *CodeGen, inst: Air.Inst.Ref) Type {
 }
 
 fn typeOfIndex(self: *CodeGen, inst: Air.Inst.Index) Type {
-    const pt = self.pt;
-    const zcu = pt.zcu;
     const temp: Temp = .{ .index = inst };
-    return switch (temp.unwrap(self)) {
-        .ref => switch (self.air.instructions.items(.tag)[@intFromEnum(inst)]) {
-            .loop_switch_br => self.typeOf(self.air.unwrapSwitch(inst).operand),
-            else => self.air.typeOfIndex(inst, &zcu.intern_pool),
-        },
-        .temp => temp.typeOf(self),
-    };
+    return temp.typeOf(self);
 }
 
 fn intCompilerRtAbiName(int_bits: u32) u8 {
@@ -29336,10 +29411,12 @@ const Temp = struct {
     fn unwrap(temp: Temp, cg: *CodeGen) union(enum) {
         ref: Air.Inst.Ref,
         temp: Index,
+        err_ret_trace,
     } {
         switch (temp.index.unwrap()) {
             .ref => |ref| return .{ .ref = ref },
             .target => |target_index| {
+                if (temp.index == err_ret_trace_index) return .err_ret_trace;
                 const temp_index: Index = @enumFromInt(target_index);
                 assert(temp_index.isValid(cg));
                 return .{ .temp = temp_index };
@@ -29349,14 +29426,18 @@ const Temp = struct {
 
     fn typeOf(temp: Temp, cg: *CodeGen) Type {
         return switch (temp.unwrap(cg)) {
-            .ref => |ref| cg.typeOf(ref),
+            .ref => switch (cg.air.instructions.items(.tag)[@intFromEnum(temp.index)]) {
+                .loop_switch_br => cg.typeOf(cg.air.unwrapSwitch(temp.index).operand),
+                else => cg.air.typeOfIndex(temp.index, &cg.pt.zcu.intern_pool),
+            },
             .temp => |temp_index| temp_index.typeOf(cg),
+            .err_ret_trace => .usize,
         };
     }
 
     fn isMut(temp: Temp, cg: *CodeGen) bool {
         return switch (temp.unwrap(cg)) {
-            .ref => false,
+            .ref, .err_ret_trace => false,
             .temp => |temp_index| switch (temp_index.tracking(cg).short) {
                 .none,
                 .unreach,
@@ -29456,7 +29537,7 @@ const Temp = struct {
     fn toOffset(temp: *Temp, off: i32, cg: *CodeGen) !void {
         if (off == 0) return;
         switch (temp.unwrap(cg)) {
-            .ref => {},
+            .ref, .err_ret_trace => {},
             .temp => |temp_index| {
                 const temp_tracking = temp_index.tracking(cg);
                 switch (temp_tracking.short) {
@@ -29617,6 +29698,7 @@ const Temp = struct {
                     },
                 }
             },
+            .err_ret_trace => unreachable,
         }
         const new_temp = try temp.getLimb(limb_ty, limb_index, cg);
         try temp.die(cg);
@@ -29633,7 +29715,7 @@ const Temp = struct {
     }
 
     fn toReg(temp: *Temp, new_reg: Register, cg: *CodeGen) !bool {
-        const val, const ty = val_ty: switch (temp.unwrap(cg)) {
+        const val, const ty: Type = val_ty: switch (temp.unwrap(cg)) {
             .ref => |ref| .{ temp.tracking(cg).short, cg.typeOf(ref) },
             .temp => |temp_index| {
                 const temp_tracking = temp_index.tracking(cg);
@@ -29641,6 +29723,7 @@ const Temp = struct {
                     temp_tracking.short.register == new_reg) return false;
                 break :val_ty .{ temp_tracking.short, temp_index.typeOf(cg) };
             },
+            .err_ret_trace => .{ temp.tracking(cg).short, .usize },
         };
         const new_temp_index = cg.next_temp_index;
         try cg.register_manager.getReg(new_reg, new_temp_index.toIndex());
@@ -30167,7 +30250,7 @@ const Temp = struct {
 
     fn moveTo(temp: Temp, inst: Air.Inst.Index, cg: *CodeGen) !void {
         if (cg.liveness.isUnused(inst)) try temp.die(cg) else switch (temp.unwrap(cg)) {
-            .ref => {
+            .ref, .err_ret_trace => {
                 const result = try cg.allocRegOrMem(inst, true);
                 try cg.genCopy(cg.typeOfIndex(inst), result, temp.tracking(cg).short, .{});
                 tracking_log.debug("{} => {} (birth)", .{ inst, result });
@@ -30184,7 +30267,7 @@ const Temp = struct {
 
     fn die(temp: Temp, cg: *CodeGen) !void {
         switch (temp.unwrap(cg)) {
-            .ref => {},
+            .ref, .err_ret_trace => {},
             .temp => |temp_index| try temp_index.tracking(cg).die(cg, temp_index.toIndex()),
         }
     }
