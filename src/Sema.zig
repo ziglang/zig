@@ -1824,7 +1824,14 @@ fn analyzeBodyInner(
                 );
                 const uncasted_cond = try sema.resolveInst(extra.data.condition);
                 const cond = try sema.coerce(block, Type.bool, uncasted_cond, cond_src);
-                const cond_val = try sema.resolveConstDefinedValue(block, cond_src, cond, null);
+                const cond_val = try sema.resolveConstDefinedValue(
+                    block,
+                    cond_src,
+                    cond,
+                    // If this block is comptime, it's more helpful to just give the outer message.
+                    // This is particularly true if this came from a comptime `condbr` above.
+                    if (block.isComptime()) null else .{ .simple = .inline_loop_operand },
+                );
                 const inline_body = if (cond_val.toBool()) then_body else else_body;
 
                 try sema.maybeErrorUnwrapCondbr(block, inline_body, extra.data.condition, cond_src);
