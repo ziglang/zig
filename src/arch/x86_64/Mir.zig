@@ -330,8 +330,8 @@ pub const Inst = struct {
         f_pi,
         /// Float ___ Pop Pop
         f_pp,
-        /// Float ___ stack-top pointer
-        f_stp,
+        /// Float ___ crement Stack-Top Pointer
+        f_cstp,
         /// Float ___ Status Word
         f_sw,
         /// Float ___ Unordered
@@ -555,6 +555,7 @@ pub const Inst = struct {
         /// Decimal adjust AL after subtraction
         da,
         /// Decrement by 1
+        /// Decrement stack-top pointer
         /// Decrement shadow stack pointer
         de,
         /// Unsigned division
@@ -587,6 +588,7 @@ pub const Inst = struct {
         /// Input from port
         /// Input from port to string
         /// Increment by 1
+        /// Increment stack-top pointer
         /// Increment shadow stack pointer
         in,
         /// Call to interrupt procedure
@@ -792,14 +794,10 @@ pub const Inst = struct {
         comi,
         /// Cosine
         cos,
-        /// Decrement stack-top pointer
-        decstp,
         /// Reverse divide
         divr,
         /// Free floating-point register
         free,
-        /// Increment stack-top pointer
-        incstp,
         /// Initialize floating-point unit
         init,
         /// Load binary coded decimal integer

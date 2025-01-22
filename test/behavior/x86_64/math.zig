@@ -1,22 +1,136 @@
+const builtin = @import("builtin");
+const inf = math.inf;
+const math = std.math;
+const max = math.floatMax;
+const min = math.floatMin;
+const nan = math.nan;
+const std = @import("std");
+const trueMin = math.floatTrueMin;
+
+const Gpr = switch (builtin.cpu.arch) {
+    else => unreachable,
+    .x86 => u32,
+    .x86_64 => u64,
+};
+const Sse = if (std.Target.x86.featureSetHas(builtin.cpu.features, .avx))
+    @Vector(32, u8)
+else
+    @Vector(16, u8);
+
+inline fn sign(rhs: anytype) bool {
+    return @call(.always_inline, math.signbit, .{rhs});
+}
+inline fn boolAnd(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
+    switch (@typeInfo(@TypeOf(lhs))) {
+        .bool => return lhs and rhs,
+        .vector => |vector| switch (vector.child) {
+            bool => {
+                const Bits = @Vector(vector.len, u1);
+                const lhs_bits: Bits = @bitCast(lhs);
+                const rhs_bits: Bits = @bitCast(rhs);
+                return @bitCast(lhs_bits & rhs_bits);
+            },
+            else => {},
+        },
+        else => {},
+    }
+    @compileError("unsupported boolAnd type: " ++ @typeName(@TypeOf(lhs)));
+}
+inline fn boolOr(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
+    switch (@typeInfo(@TypeOf(lhs))) {
+        .bool => return lhs or rhs,
+        .vector => |vector| switch (vector.child) {
+            bool => {
+                const Bits = @Vector(vector.len, u1);
+                const lhs_bits: Bits = @bitCast(lhs);
+                const rhs_bits: Bits = @bitCast(rhs);
+                return @bitCast(lhs_bits | rhs_bits);
+            },
+            else => {},
+        },
+        else => {},
+    }
+    @compileError("unsupported boolOr type: " ++ @typeName(@TypeOf(lhs)));
+}
+
+// noinline for a more helpful stack trace
+noinline fn checkExpected(expected: anytype, actual: @TypeOf(expected)) !void {
+    const info = @typeInfo(@TypeOf(expected));
+    const unexpected = switch (switch (info) {
+        else => info,
+        .vector => |vector| @typeInfo(vector.child),
+    }) {
+        else => expected != actual,
+        .float => boolOr(boolAnd(expected != actual, boolOr(expected == expected, actual == actual)), sign(expected) != sign(actual)),
+    };
+    if (switch (info) {
+        else => unexpected,
+        .vector => @reduce(.Or, unexpected),
+    }) return error.Unexpected;
+}
+test checkExpected {
+    if (checkExpected(nan(f32), nan(f32)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f32), -nan(f32)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f32, 0.0), @as(f32, 0.0)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f32, -0.0), @as(f32, -0.0)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f32, -0.0), @as(f32, 0.0)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f32, 0.0), @as(f32, -0.0)) != error.Unexpected) return error.Unexpected;
+}
+
 fn Unary(comptime op: anytype) type {
     return struct {
-        fn testArgs(comptime Type: type, comptime imm_arg: Type) !void {
-            const expected = op(Type, imm_arg);
-            try struct {
-                fn checkExpected(actual: @TypeOf(expected)) !void {
-                    if (switch (@typeInfo(@TypeOf(expected))) {
-                        else => actual != expected,
-                        .vector => @reduce(.Or, actual != expected),
-                    }) return error.Unexpected;
-                }
-                noinline fn testArgKinds(mem_arg: Type) !void {
-                    var reg_arg = mem_arg;
-                    _ = .{&reg_arg};
-                    try checkExpected(op(Type, reg_arg));
-                    try checkExpected(op(Type, mem_arg));
-                    try checkExpected(op(Type, imm_arg));
-                }
-            }.testArgKinds(imm_arg);
+        // noinline so that `mem_arg` is on the stack
+        noinline fn testArgKinds(
+            _: Gpr,
+            _: Gpr,
+            _: Gpr,
+            _: Gpr,
+            _: Gpr,
+            _: Gpr,
+            _: Gpr,
+            _: Gpr,
+            _: Sse,
+            _: Sse,
+            _: Sse,
+            _: Sse,
+            _: Sse,
+            _: Sse,
+            _: Sse,
+            _: Sse,
+            comptime Type: type,
+            comptime imm_arg: Type,
+            mem_arg: Type,
+        ) !void {
+            const expected = comptime op(Type, imm_arg);
+            var reg_arg = mem_arg;
+            _ = .{&reg_arg};
+            try checkExpected(expected, op(Type, reg_arg));
+            try checkExpected(expected, op(Type, mem_arg));
+            try checkExpected(expected, op(Type, imm_arg));
+        }
+        // noinline for a more helpful stack trace
+        noinline fn testArgs(comptime Type: type, comptime imm_arg: Type) !void {
+            try testArgKinds(
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                Type,
+                imm_arg,
+                imm_arg,
+            );
         }
         fn testIntTypes() !void {
             try testArgs(i1, -1);
@@ -380,6 +494,102 @@ fn Unary(comptime op: anytype) type {
             try testArgs(u1025, 1 << 1);
             try testArgs(u1025, 1 << 1023);
             try testArgs(u1025, 1 << 1024);
+        }
+        fn testFloatTypes() !void {
+            try testArgs(f16, -nan(f16));
+            try testArgs(f16, -inf(f16));
+            try testArgs(f16, -max(f16));
+            try testArgs(f16, -10.0);
+            try testArgs(f16, -1.0);
+            try testArgs(f16, -0.1);
+            try testArgs(f16, -min(f16));
+            try testArgs(f16, -trueMin(f16));
+            try testArgs(f16, -0.0);
+            try testArgs(f16, 0.0);
+            try testArgs(f16, trueMin(f16));
+            try testArgs(f16, min(f16));
+            try testArgs(f16, 0.1);
+            try testArgs(f16, 1.0);
+            try testArgs(f16, 10.0);
+            try testArgs(f16, max(f16));
+            try testArgs(f16, inf(f16));
+            try testArgs(f16, nan(f16));
+
+            try testArgs(f32, -nan(f32));
+            try testArgs(f32, -inf(f32));
+            try testArgs(f32, -max(f32));
+            try testArgs(f32, -10.0);
+            try testArgs(f32, -1.0);
+            try testArgs(f32, -0.1);
+            try testArgs(f32, -min(f32));
+            try testArgs(f32, -trueMin(f32));
+            try testArgs(f32, -0.0);
+            try testArgs(f32, 0.0);
+            try testArgs(f32, trueMin(f32));
+            try testArgs(f32, min(f32));
+            try testArgs(f32, 0.1);
+            try testArgs(f32, 1.0);
+            try testArgs(f32, 10.0);
+            try testArgs(f32, max(f32));
+            try testArgs(f32, inf(f32));
+            try testArgs(f32, nan(f32));
+
+            try testArgs(f64, -nan(f64));
+            try testArgs(f64, -inf(f64));
+            try testArgs(f64, -max(f64));
+            try testArgs(f64, -10.0);
+            try testArgs(f64, -1.0);
+            try testArgs(f64, -0.1);
+            try testArgs(f64, -min(f64));
+            try testArgs(f64, -trueMin(f64));
+            try testArgs(f64, -0.0);
+            try testArgs(f64, 0.0);
+            try testArgs(f64, trueMin(f64));
+            try testArgs(f64, min(f64));
+            try testArgs(f64, 0.1);
+            try testArgs(f64, 1.0);
+            try testArgs(f64, 10.0);
+            try testArgs(f64, max(f64));
+            try testArgs(f64, inf(f64));
+            try testArgs(f64, nan(f64));
+
+            try testArgs(f80, -nan(f80));
+            try testArgs(f80, -inf(f80));
+            try testArgs(f80, -max(f80));
+            try testArgs(f80, -10.0);
+            try testArgs(f80, -1.0);
+            try testArgs(f80, -0.1);
+            try testArgs(f80, -min(f80));
+            try testArgs(f80, -trueMin(f80));
+            try testArgs(f80, -0.0);
+            try testArgs(f80, 0.0);
+            try testArgs(f80, trueMin(f80));
+            try testArgs(f80, min(f80));
+            try testArgs(f80, 0.1);
+            try testArgs(f80, 1.0);
+            try testArgs(f80, 10.0);
+            try testArgs(f80, max(f80));
+            try testArgs(f80, inf(f80));
+            try testArgs(f80, nan(f80));
+
+            try testArgs(f128, -nan(f128));
+            try testArgs(f128, -inf(f128));
+            try testArgs(f128, -max(f128));
+            try testArgs(f128, -10.0);
+            try testArgs(f128, -1.0);
+            try testArgs(f128, -0.1);
+            try testArgs(f128, -min(f128));
+            try testArgs(f128, -trueMin(f128));
+            try testArgs(f128, -0.0);
+            try testArgs(f128, 0.0);
+            try testArgs(f128, trueMin(f128));
+            try testArgs(f128, min(f128));
+            try testArgs(f128, 0.1);
+            try testArgs(f128, 1.0);
+            try testArgs(f128, 10.0);
+            try testArgs(f128, max(f128));
+            try testArgs(f128, inf(f128));
+            try testArgs(f128, nan(f128));
         }
         fn testIntVectorTypes() !void {
             try testArgs(@Vector(3, i1), .{ -1 << 0, -1, 0 });
@@ -931,29 +1141,68 @@ fn Unary(comptime op: anytype) type {
 
 fn Binary(comptime op: anytype) type {
     return struct {
-        fn testArgs(comptime Type: type, comptime imm_lhs: Type, comptime imm_rhs: Type) !void {
-            const expected = op(Type, imm_lhs, imm_rhs);
-            try struct {
-                fn checkExpected(actual: @TypeOf(expected)) !void {
-                    if (switch (@typeInfo(@TypeOf(expected))) {
-                        else => actual != expected,
-                        .vector => @reduce(.Or, actual != expected),
-                    }) return error.Unexpected;
-                }
-                noinline fn testArgKinds(mem_lhs: Type, mem_rhs: Type) !void {
-                    var reg_lhs = mem_lhs;
-                    var reg_rhs = mem_rhs;
-                    _ = .{ &reg_lhs, &reg_rhs };
-                    try checkExpected(op(Type, reg_lhs, reg_rhs));
-                    try checkExpected(op(Type, reg_lhs, mem_rhs));
-                    try checkExpected(op(Type, reg_lhs, imm_rhs));
-                    try checkExpected(op(Type, mem_lhs, reg_rhs));
-                    try checkExpected(op(Type, mem_lhs, mem_rhs));
-                    try checkExpected(op(Type, mem_lhs, imm_rhs));
-                    try checkExpected(op(Type, imm_lhs, reg_rhs));
-                    try checkExpected(op(Type, imm_lhs, mem_rhs));
-                }
-            }.testArgKinds(imm_lhs, imm_rhs);
+        // noinline so that `mem_lhs` and `mem_rhs` are on the stack
+        noinline fn testArgKinds(
+            _: Gpr,
+            _: Gpr,
+            _: Gpr,
+            _: Gpr,
+            _: Gpr,
+            _: Gpr,
+            _: Gpr,
+            _: Gpr,
+            _: Sse,
+            _: Sse,
+            _: Sse,
+            _: Sse,
+            _: Sse,
+            _: Sse,
+            _: Sse,
+            _: Sse,
+            comptime Type: type,
+            comptime imm_lhs: Type,
+            mem_lhs: Type,
+            comptime imm_rhs: Type,
+            mem_rhs: Type,
+        ) !void {
+            const expected = comptime op(Type, imm_lhs, imm_rhs);
+            var reg_lhs = mem_lhs;
+            var reg_rhs = mem_rhs;
+            _ = .{ &reg_lhs, &reg_rhs };
+            try checkExpected(expected, op(Type, reg_lhs, reg_rhs));
+            try checkExpected(expected, op(Type, reg_lhs, mem_rhs));
+            try checkExpected(expected, op(Type, reg_lhs, imm_rhs));
+            try checkExpected(expected, op(Type, mem_lhs, reg_rhs));
+            try checkExpected(expected, op(Type, mem_lhs, mem_rhs));
+            try checkExpected(expected, op(Type, mem_lhs, imm_rhs));
+            try checkExpected(expected, op(Type, imm_lhs, reg_rhs));
+            try checkExpected(expected, op(Type, imm_lhs, mem_rhs));
+        }
+        // noinline for a more helpful stack trace
+        noinline fn testArgs(comptime Type: type, comptime imm_lhs: Type, comptime imm_rhs: Type) !void {
+            try testArgKinds(
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                Type,
+                imm_lhs,
+                imm_lhs,
+                imm_rhs,
+                imm_rhs,
+            );
         }
         fn testIntTypes() !void {
             try testArgs(u8, 0xbb, 0x43);
@@ -1308,6 +1557,7 @@ inline fn abs(comptime Type: type, rhs: Type) @TypeOf(@abs(rhs)) {
 test abs {
     try Unary(abs).testIntTypes();
     try Unary(abs).testIntVectorTypes();
+    try Unary(abs).testFloatTypes();
 }
 
 inline fn clz(comptime Type: type, rhs: Type) @TypeOf(@clz(rhs)) {
