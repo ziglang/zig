@@ -65,6 +65,9 @@ oom_flag: bool,
 /// If the resource pointed to by the location is not a Git-repository, this
 /// will be left unchanged.
 latest_commit: ?git.Oid,
+/// If `location` was `path_or_url`, this will be set to indicate
+/// whether the CLI input was identified as a file path or a URL.
+actual_path_or_url_kind: enum { path, url },
 
 // This field is used by the CLI only, untouched by this file.
 
@@ -344,25 +347,28 @@ pub fn run(f: *Fetch) RunError!void {
         .remote => |remote| remote,
         .path_or_url => |path_or_url| {
             if (fs.cwd().openDir(path_or_url, .{ .iterate = true })) |dir| {
+                f.actual_path_or_url_kind = .path;
                 var resource: Resource = .{ .dir = dir };
                 return f.runResource(path_or_url, &resource, null);
             } else |dir_err| {
                 const file_err = if (dir_err == error.NotDir) e: {
                     if (fs.cwd().openFile(path_or_url, .{})) |file| {
+                        f.actual_path_or_url_kind = .path;
                         var resource: Resource = .{ .file = file };
                         return f.runResource(path_or_url, &resource, null);
                     } else |err| break :e err;
                 } else dir_err;
-
                 const uri = std.Uri.parse(path_or_url) catch |uri_err| {
                     return f.fail(0, try eb.printString(
-                        "'{s}' could not be recognized as a file path ({s}) or an URL ({s})",
+                        "'{s}' could not be recognized as a file path ({s}) or a URL ({s})",
                         .{ path_or_url, @errorName(file_err), @errorName(uri_err) },
                     ));
                 };
+                f.actual_path_or_url_kind = .url;
                 var server_header_buffer: [header_buffer_size]u8 = undefined;
+                const uri_path = try uri.path.toRawMaybeAlloc(arena);
                 var resource = try f.initResource(uri, &server_header_buffer);
-                return f.runResource(try uri.path.toRawMaybeAlloc(arena), &resource, null);
+                return f.runResource(uri_path, &resource, null);
             }
         },
     };
@@ -420,11 +426,12 @@ pub fn run(f: *Fetch) RunError!void {
 
     const uri = std.Uri.parse(remote.url) catch |err| return f.fail(
         f.location_tok,
-        try eb.printString("invalid URI: {s}", .{@errorName(err)}),
+        try eb.printString("invalid URL: {s}", .{@errorName(err)}),
     );
     var server_header_buffer: [header_buffer_size]u8 = undefined;
+    const uri_path = try uri.path.toRawMaybeAlloc(arena);
     var resource = try f.initResource(uri, &server_header_buffer);
-    return f.runResource(try uri.path.toRawMaybeAlloc(arena), &resource, remote.hash);
+    return f.runResource(uri_path, &resource, remote.hash);
 }
 
 pub fn deinit(f: *Fetch) void {
@@ -728,6 +735,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .has_build_zig = false,
                 .oom_flag = false,
                 .latest_commit = null,
+                .actual_path_or_url_kind = undefined,
 
                 .module = null,
             };
@@ -914,10 +922,45 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
     const eb = &f.error_bundle;
 
     if (ascii.eqlIgnoreCase(uri.scheme, "file")) {
-        const path = try uri.path.toRawMaybeAlloc(arena);
-        return .{ .file = f.parent_package_root.openFile(path, .{}) catch |err| {
-            return f.fail(f.location_tok, try eb.printString("unable to open '{}{s}': {s}", .{
-                f.parent_package_root, path, @errorName(err),
+        var path = try uri.path.toRawMaybeAlloc(arena);
+
+        if (uri.user != null or
+            uri.password != null or
+            uri.port != null or
+            path.len == 0 or path[0] != '/' or
+            uri.query != null)
+        {
+            return f.fail(f.location_tok, try eb.printString(
+                "invalid file URL: {}",
+                .{uri},
+            ));
+        }
+        if (uri.host) |host| {
+            const raw_host = try host.toRawMaybeAlloc(arena);
+            if (raw_host.len != 0 and !ascii.eqlIgnoreCase(raw_host, "localhost")) {
+                return f.fail(f.location_tok, try eb.printString(
+                    "unable to process non-local file URL: {}",
+                    .{uri},
+                ));
+            }
+        }
+
+        // On Windows, an absolute path starting with a drive letter gains a leading
+        // slash when encoded as a file URL that must be stripped when decoding.
+        if (native_os == .windows and
+            path.len >= "/C:/".len and
+            std.ascii.isAlphabetic(path[1]) and
+            path[2] == ':' and
+            path[3] == '/')
+        {
+            path = path[1..];
+        }
+
+        assert(std.fs.path.isAbsolute(path));
+
+        return .{ .file = fs.cwd().openFile(path, .{}) catch |err| {
+            return f.fail(f.location_tok, try eb.printString("unable to open '{s}': {s}", .{
+                path, @errorName(err),
             }));
         } };
     }
@@ -2035,6 +2078,7 @@ test "zip" {
     defer fb.deinit();
 
     try fetch.run();
+    try std.testing.expectEqual(.path, fetch.actual_path_or_url_kind);
 
     var out = try fb.packageDir();
     defer out.close();
@@ -2068,6 +2112,7 @@ test "zip with one root folder" {
     defer fb.deinit();
 
     try fetch.run();
+    try std.testing.expectEqual(.path, fetch.actual_path_or_url_kind);
 
     var out = try fb.packageDir();
     defer out.close();
@@ -2142,6 +2187,7 @@ test "tarball with excluded duplicate paths" {
         "12200bafe035cbb453dd717741b66e9f9d1e6c674069d06121dafa1b2e62eb6b22da",
         &hex_digest,
     );
+    try std.testing.expectEqual(.path, fetch.actual_path_or_url_kind);
 
     const expected_files: []const []const u8 = &.{
         "build.zig",
@@ -2186,6 +2232,7 @@ test "tarball without root folder" {
         "12209f939bfdcb8b501a61bb4a43124dfa1b2848adc60eec1e4624c560357562b793",
         &hex_digest,
     );
+    try std.testing.expectEqual(.path, fetch.actual_path_or_url_kind);
 
     const expected_files: []const []const u8 = &.{
         "build.zig",
@@ -2224,6 +2271,7 @@ test "set executable bit based on file content" {
         "1220fecb4c06a9da8673c87fe8810e15785f1699212f01728eadce094d21effeeef3",
         &Manifest.hexDigest(fetch.actual_hash),
     );
+    try std.testing.expectEqual(.path, fetch.actual_path_or_url_kind);
 
     var out = try fb.packageDir();
     defer out.close();
@@ -2308,6 +2356,7 @@ const TestFetchBuilder = struct {
             .has_build_zig = false,
             .oom_flag = false,
             .latest_commit = null,
+            .actual_path_or_url_kind = undefined,
 
             .module = null,
         };
