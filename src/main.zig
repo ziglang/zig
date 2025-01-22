@@ -575,6 +575,7 @@ const usage_build_generic =
     \\      0x[hexstring]              Maximum 32 bytes
     \\      none                       (default) Disable build-id
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
+    \\  --no-eh-frame-hdr              Disable C++ exception handling by passing --no-eh-frame-hdr to linker
     \\  --emit-relocs                  Enable output of relocation sections for post build tools
     \\  -z [arg]                       Set linker extension flags
     \\    nodelete                     Indicate that the object cannot be deleted from a process
@@ -1582,6 +1583,8 @@ fn buildOutputType(
                             fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                     } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
                         link_eh_frame_hdr = true;
+                    } else if (mem.eql(u8, arg, "--no-eh-frame-hdr")) {
+                        link_eh_frame_hdr = false;
                     } else if (mem.eql(u8, arg, "--dynamicbase")) {
                         linker_dynamicbase = true;
                     } else if (mem.eql(u8, arg, "--no-dynamicbase")) {
