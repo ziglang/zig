@@ -1530,7 +1530,7 @@ pub const TCP = struct {
     /// Idle time used when SO_KEEPALIVE is enabled
     pub const KEEPALIVE = 0x10;
     /// Connection timeout
-    pub const CONNECTION_TIMEOUT = 0x20;
+    pub const CONNECTIONTIMEOUT = 0x20;
     /// Time after which a conection in persist timeout will terminate.
     pub const PERSIST_TIMEOUT = 0x40;
     /// Time after which TCP retransmissions will be stopped and the connection will be dropped.
@@ -1542,7 +1542,7 @@ pub const TCP = struct {
     /// Number of keepalives before clsoe
     pub const KEEPCNT = 0x102;
     /// Always ack every other packet
-    pub const SEND_MORE_ACKS = 0x103;
+    pub const SENDMOREACKS = 0x103;
     /// Enable ECN on a connection
     pub const ENABLE_ECN = 0x104;
     /// Enable/Disable TCP Fastopen on this socket
