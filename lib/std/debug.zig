@@ -732,11 +732,12 @@ pub const StackIterator = struct {
                 // via DWARF before attempting to use the compact unwind info will produce incorrect results.
                 if (module.unwind_info) |unwind_info| {
                     if (SelfInfo.unwindFrameMachO(
+                        unwind_state.debug_info.allocator,
+                        module.base_address,
                         &unwind_state.dwarf_context,
                         &it.ma,
                         unwind_info,
                         module.eh_frame,
-                        module.base_address,
                     )) |return_address| {
                         return return_address;
                     } else |err| {
@@ -748,7 +749,14 @@ pub const StackIterator = struct {
         }
 
         if (try module.getDwarfInfoForAddress(unwind_state.debug_info.allocator, unwind_state.dwarf_context.pc)) |di| {
-            return SelfInfo.unwindFrameDwarf(di, &unwind_state.dwarf_context, &it.ma, null);
+            return SelfInfo.unwindFrameDwarf(
+                unwind_state.debug_info.allocator,
+                di,
+                module.base_address,
+                &unwind_state.dwarf_context,
+                &it.ma,
+                null,
+            );
         } else return error.MissingDebugInfo;
     }
 
