@@ -4,15 +4,19 @@ pub fn build(b: *std.Build) void {
     const lib = b.addLibrary(.{
         .linkage = .dynamic,
         .name = "mathtest",
-        .root_source_file = b.path("mathtest.zig"),
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("mathtest.zig"),
+        }),
         .version = .{ .major = 1, .minor = 0, .patch = 0 },
     });
     const exe = b.addExecutable(.{
         .name = "test",
+        .root_module = b.createModule(.{
+            .link_libc = true,
+        }),
     });
-    exe.addCSourceFile(.{ .file = b.path("test.c"), .flags = &.{"-std=c99"} });
-    exe.linkLibrary(lib);
-    exe.linkSystemLibrary("c");
+    exe.root_module.addCSourceFile(.{ .file = b.path("test.c"), .flags = &.{"-std=c99"} });
+    exe.root_module.linkLibrary(lib);
 
     b.default_step.dependOn(&exe.step);
 
