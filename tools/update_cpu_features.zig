@@ -1017,6 +1017,29 @@ const targets = [_]ArchTarget{
         },
     },
     .{
+        .zig_name = "propeller",
+        .llvm = null,
+        .extra_features = &.{
+            .{
+                .zig_name = "p2",
+                .desc = "Enable Propeller 2",
+                .deps = &.{},
+            },
+        },
+        .extra_cpus = &.{
+            .{
+                .llvm_name = null,
+                .zig_name = "p1",
+                .features = &.{},
+            },
+            .{
+                .llvm_name = null,
+                .zig_name = "p2",
+                .features = &.{"p2"},
+            },
+        },
+    },
+    .{
         .zig_name = "riscv",
         .llvm = .{
             .name = "RISCV",

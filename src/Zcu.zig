@@ -3619,8 +3619,7 @@ pub fn atomicPtrAlignment(
         .spirv32,
         .loongarch32,
         .xtensa,
-        .propeller1,
-        .propeller2,
+        .propeller,
         => 32,
 
         .amdgcn,

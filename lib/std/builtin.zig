@@ -371,11 +371,8 @@ pub const CallingConvention = union(enum(u8)) {
     /// The standard `msp430` calling convention.
     msp430_eabi: CommonOptions,
 
-    /// The standard `propeller1` calling convention.
+    /// The standard `propeller` calling convention.
     propeller1_sysv: CommonOptions,
-
-    /// The standard `propeller2` calling convention.
-    propeller2_sysv: CommonOptions,
 
     // Calling conventions for the `s390x` architecture.
     s390x_sysv: CommonOptions,
