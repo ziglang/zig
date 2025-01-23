@@ -461,7 +461,6 @@ pub fn get32BitArchVariant(target: std.Target) ?std.Target {
         .amdgcn,
         .avr,
         .msp430,
-        .spu_2,
         .ve,
         .bpfel,
         .bpfeb,
@@ -522,7 +521,6 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .lanai,
         .m68k,
         .msp430,
-        .spu_2,
         .xcore,
         .xtensa,
         => return null,
@@ -620,8 +618,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .wasm32 => "wasm32",
         .wasm64 => "wasm64",
         .ve => "ve",
-        // Note: spu_2 is not supported in LLVM; this is the Zig arch name
-        .spu_2 => "spu_2",
     };
     writer.writeAll(llvm_arch) catch unreachable;
     writer.writeByte('-') catch unreachable;

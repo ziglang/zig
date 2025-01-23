@@ -1698,7 +1698,6 @@ pub fn maxIntAlignment(target: std.Target) u16 {
 
         // Below this comment are unverified but based on the fact that C requires
         // int128_t to be 16 bytes aligned, it's a safe default.
-        .spu_2,
         .csky,
         .arc,
         .m68k,

@@ -98,7 +98,6 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .ve => "ve",
 
         .kalimba,
-        .spu_2,
         .propeller1,
         .propeller2,
         => unreachable, // Gated by hasLlvmSupport().
@@ -13024,7 +13023,6 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
 
         // LLVM does does not have a backend for these.
         .kalimba,
-        .spu_2,
         .propeller1,
         .propeller2,
         => unreachable,
