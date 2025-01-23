@@ -1085,7 +1085,6 @@ pub fn toElfMachine(target: Target) std.elf.EM {
         .s390x => .S390,
         .sparc => if (Target.sparc.featureSetHas(target.cpu.features, .v9)) .SPARC32PLUS else .SPARC,
         .sparc64 => .SPARCV9,
-        .spu_2 => .SPU_2,
         .ve => .VE,
         .x86 => if (target.os.tag == .elfiamcu) .IAMCU else .@"386",
         .x86_64 => .X86_64,
@@ -1148,7 +1147,6 @@ pub fn toCoffMachine(target: Target) std.coff.MachineType {
         .spirv,
         .spirv32,
         .spirv64,
-        .spu_2,
         .ve,
         .wasm32,
         .wasm64,
@@ -1387,7 +1385,6 @@ pub const Cpu = struct {
         spirv,
         spirv32,
         spirv64,
-        spu_2,
         ve,
         wasm32,
         wasm64,
@@ -1573,7 +1570,6 @@ pub const Cpu = struct {
                 .xcore,
                 .thumb,
                 .ve,
-                .spu_2,
                 // GPU bitness is opaque. For now, assume little endian.
                 .spirv,
                 .spirv32,
@@ -1963,7 +1959,6 @@ pub const Cpu = struct {
                 .xtensa => &xtensa.cpu.generic,
 
                 .kalimba,
-                .spu_2,
                 => &S.generic_model,
             };
         }
@@ -2636,7 +2631,6 @@ pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
     return switch (cpu.arch) {
         .avr,
         .msp430,
-        .spu_2,
         => 16,
 
         .arc,
@@ -3173,7 +3167,6 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
             .x86,
             .xcore,
             .kalimba,
-            .spu_2,
             .xtensa,
             .propeller1,
             .propeller2,
@@ -3269,7 +3262,6 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
             .csky,
             .xcore,
             .kalimba,
-            .spu_2,
             .xtensa,
             .propeller1,
             .propeller2,
@@ -3380,7 +3372,6 @@ pub fn cCallingConvention(target: Target) ?std.builtin.CallingConvention {
         .propeller1 => .{ .propeller1_sysv = .{} },
         .propeller2 => .{ .propeller2_sysv = .{} },
         .s390x => .{ .s390x_sysv = .{} },
-        .spu_2 => null,
         .ve => .{ .ve_sysv = .{} },
         .xcore => .{ .xcore_xs1 = .{} },
         .xtensa => .{ .xtensa_call0 = .{} },
