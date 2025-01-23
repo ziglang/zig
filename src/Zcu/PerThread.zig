@@ -1243,7 +1243,7 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
 
         if (!try nav_ty.hasRuntimeBitsSema(pt)) {
             if (zcu.comp.config.use_llvm) break :queue_codegen;
-            if (file.mod.strip) break :queue_codegen;
+            if (file.mod.strip != .none) break :queue_codegen;
         }
 
         // This job depends on any resolve_type_fully jobs queued up before it.
@@ -1797,7 +1797,7 @@ fn createFileRootStruct(
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
     codegen_type: {
         if (zcu.comp.config.use_llvm) break :codegen_type;
-        if (file.mod.strip) break :codegen_type;
+        if (file.mod.strip != .none) break :codegen_type;
         // This job depends on any resolve_type_fully jobs queued up before it.
         try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
     }
@@ -2683,7 +2683,7 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
             .tag = .arg,
             .data = .{ .arg = .{
                 .ty = Air.internedToRef(param_ty),
-                .name = if (inner_block.ownerModule().strip)
+                .name = if (inner_block.ownerModule().strip != .none)
                     .none
                 else
                     try sema.appendAirString(sema.code.nullTerminatedString(param_name)),

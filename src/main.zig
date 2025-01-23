@@ -1548,9 +1548,20 @@ fn buildOutputType(
                         show_builtin = true;
                         emit_bin = .no;
                     } else if (mem.eql(u8, arg, "-fstrip")) {
-                        mod_opts.strip = true;
+                        mod_opts.strip = .all;
+                    } else if (mem.startsWith(u8, arg, "-fstrip=")) {
+                        const fstrip_arg = arg["-fstrip=".len..];
+                        if (mem.eql(u8, fstrip_arg, "none")) {
+                            mod_opts.strip = .none;
+                        } else if (mem.eql(u8, fstrip_arg, "debug_info")) {
+                            mod_opts.strip = .debug_info;
+                        } else if (mem.eql(u8, fstrip_arg, "all")) {
+                            mod_opts.strip = .all;
+                        } else {
+                            fatal("unknown value '{s}' passed to strip", .{arg[1..]});
+                        }
                     } else if (mem.eql(u8, arg, "-fno-strip")) {
-                        mod_opts.strip = false;
+                        mod_opts.strip = .none;
                     } else if (mem.eql(u8, arg, "-gdwarf32")) {
                         create_module.opts.debug_format = .{ .dwarf = .@"32" };
                     } else if (mem.eql(u8, arg, "-gdwarf64")) {
@@ -2177,24 +2188,24 @@ fn buildOutputType(
                         }
                     },
                     .debug => {
-                        mod_opts.strip = false;
+                        mod_opts.strip = .none;
                         if (mem.eql(u8, it.only_arg, "g")) {
-                            // We handled with strip = false above.
+                            // We handled with strip = .none above.
                         } else if (mem.eql(u8, it.only_arg, "g1") or
                             mem.eql(u8, it.only_arg, "gline-tables-only"))
                         {
-                            // We handled with strip = false above. but we also want reduced debug info.
+                            // We handled with strip = .none above. but we also want reduced debug info.
                             try cc_argv.append(arena, "-gline-tables-only");
                         } else {
                             try cc_argv.appendSlice(arena, it.other_args);
                         }
                     },
                     .gdwarf32 => {
-                        mod_opts.strip = false;
+                        mod_opts.strip = .none;
                         create_module.opts.debug_format = .{ .dwarf = .@"32" };
                     },
                     .gdwarf64 => {
-                        mod_opts.strip = false;
+                        mod_opts.strip = .none;
                         create_module.opts.debug_format = .{ .dwarf = .@"64" };
                     },
                     .sanitize => {
@@ -2253,7 +2264,7 @@ fn buildOutputType(
                     .framework_dir => try create_module.framework_dirs.append(arena, it.only_arg),
                     .framework => try create_module.frameworks.put(arena, it.only_arg, .{}),
                     .nostdlibinc => create_module.want_native_include_dirs = false,
-                    .strip => mod_opts.strip = true,
+                    .strip => mod_opts.strip = .all,
                     .exec_model => {
                         create_module.opts.wasi_exec_model = parseWasiExecModel(it.only_arg);
                     },
@@ -2556,12 +2567,10 @@ fn buildOutputType(
                     mem.eql(u8, arg, "--color-diagnostics=never"))
                 {
                     color = .off;
-                } else if (mem.eql(u8, arg, "-s") or mem.eql(u8, arg, "--strip-all") or
-                    mem.eql(u8, arg, "-S") or mem.eql(u8, arg, "--strip-debug"))
-                {
-                    // -s, --strip-all             Strip all symbols
-                    // -S, --strip-debug           Strip debugging symbols
-                    mod_opts.strip = true;
+                } else if (mem.eql(u8, arg, "-s") or mem.eql(u8, arg, "--strip-all")) {
+                    mod_opts.strip = .all;
+                } else if (mem.eql(u8, arg, "-S") or mem.eql(u8, arg, "--strip-debug")) {
+                    mod_opts.strip = .debug_info;
                 } else if (mem.eql(u8, arg, "--start-group") or
                     mem.eql(u8, arg, "--end-group"))
                 {
@@ -2871,7 +2880,7 @@ fn buildOutputType(
             .none => {},
             .sync, .@"async" => create_module.opts.any_unwind_tables = true,
         };
-        if (mod_opts.strip == false)
+        if (mod_opts.strip == .none or mod_opts.strip == .debug_info)
             create_module.opts.any_non_stripped = true;
         if (mod_opts.error_tracing == true)
             create_module.opts.any_error_tracing = true;
@@ -5465,7 +5474,7 @@ fn jitCmd(
         .Debug
     else
         .ReleaseFast;
-    const strip = optimize_mode != .Debug;
+    const strip: Compilation.Config.Strip = if (optimize_mode != .Debug) .debug_info else .none;
     const override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
     const override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
 
@@ -7574,7 +7583,7 @@ fn handleModArg(
         .none => {},
         .sync, .@"async" => create_module.opts.any_unwind_tables = true,
     };
-    if (mod_opts.strip == false)
+    if (mod_opts.strip == .none or mod_opts.strip == .debug_info)
         create_module.opts.any_non_stripped = true;
     if (mod_opts.error_tracing == true)
         create_module.opts.any_error_tracing = true;

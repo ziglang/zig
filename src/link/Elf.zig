@@ -1102,8 +1102,10 @@ fn dumpArgvInit(self: *Elf, arena: Allocator) !void {
             try argv.append(gpa, "-pie");
         }
 
-        if (comp.config.debug_format == .strip) {
-            try argv.append(gpa, "-s");
+        switch (comp.config.root_strip) {
+            .none => {},
+            .debug_info => try argv.append(gpa, "-S"),
+            .all => try argv.append(gpa, "-s"),
         }
 
         if (comp.config.link_libc) {
@@ -1803,8 +1805,10 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
             try argv.append("--export-dynamic");
         }
 
-        if (comp.config.debug_format == .strip) {
-            try argv.append("-s");
+        switch (comp.config.root_strip) {
+            .none => {},
+            .debug_info => try argv.append("-S"),
+            .all => try argv.append("-s"),
         }
 
         if (self.z_nodelete) {
