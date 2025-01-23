@@ -763,6 +763,7 @@ pub const mips = @import("Target/mips.zig");
 pub const msp430 = @import("Target/msp430.zig");
 pub const nvptx = @import("Target/nvptx.zig");
 pub const powerpc = @import("Target/powerpc.zig");
+pub const propeller = @import("Target/propeller.zig");
 pub const riscv = @import("Target/riscv.zig");
 pub const sparc = @import("Target/sparc.zig");
 pub const spirv = @import("Target/spirv.zig");
@@ -772,7 +773,6 @@ pub const wasm = @import("Target/wasm.zig");
 pub const x86 = @import("Target/x86.zig");
 pub const xcore = @import("Target/xcore.zig");
 pub const xtensa = @import("Target/xtensa.zig");
-pub const propeller = @import("Target/propeller.zig");
 
 pub const Abi = enum {
     none,
@@ -1081,6 +1081,7 @@ pub fn toElfMachine(target: Target) std.elf.EM {
         .msp430 => .MSP430,
         .powerpc, .powerpcle => .PPC,
         .powerpc64, .powerpc64le => .PPC64,
+        .propeller => .PROPELLER,
         .riscv32, .riscv64 => .RISCV,
         .s390x => .S390,
         .sparc => if (Target.sparc.featureSetHas(target.cpu.features, .v9)) .SPARC32PLUS else .SPARC,
@@ -1090,9 +1091,6 @@ pub fn toElfMachine(target: Target) std.elf.EM {
         .x86_64 => .X86_64,
         .xcore => .XCORE,
         .xtensa => .XTENSA,
-
-        .propeller1 => .PROPELLER,
-        .propeller2 => .PROPELLER2,
 
         .nvptx,
         .nvptx64,
@@ -1152,8 +1150,7 @@ pub fn toCoffMachine(target: Target) std.coff.MachineType {
         .wasm64,
         .xcore,
         .xtensa,
-        .propeller1,
-        .propeller2,
+        .propeller,
         => .UNKNOWN,
     };
 }
@@ -1375,8 +1372,7 @@ pub const Cpu = struct {
         powerpcle,
         powerpc64,
         powerpc64le,
-        propeller1,
-        propeller2,
+        propeller,
         riscv32,
         riscv64,
         s390x,
@@ -1526,14 +1522,6 @@ pub const Cpu = struct {
             };
         }
 
-        /// Returns if the architecture is a Parallax propeller architecture.
-        pub inline fn isPropeller(arch: Arch) bool {
-            return switch (arch) {
-                .propeller1, .propeller2 => true,
-                else => false,
-            };
-        }
-
         pub fn parseCpuModel(arch: Arch, cpu_name: []const u8) !*const Cpu.Model {
             for (arch.allCpuModels()) |cpu| {
                 if (std.mem.eql(u8, cpu_name, cpu.name)) {
@@ -1577,8 +1565,7 @@ pub const Cpu = struct {
                 .loongarch32,
                 .loongarch64,
                 .arc,
-                .propeller1,
-                .propeller2,
+                .propeller,
                 => .little,
 
                 .armeb,
@@ -1613,8 +1600,8 @@ pub const Cpu = struct {
                 .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr,
 
                 // Propeller address spaces:
-                .cog, .hub => arch.isPropeller(),
-                .lut => (arch == .propeller2),
+                .cog, .hub => arch == .propeller,
+                .lut => arch == .propeller, // TODO: This should check for the `p2` CPU feature.
             };
         }
 
@@ -1627,6 +1614,7 @@ pub const Cpu = struct {
                 .loongarch32, .loongarch64 => "loongarch",
                 .mips, .mipsel, .mips64, .mips64el => "mips",
                 .powerpc, .powerpcle, .powerpc64, .powerpc64le => "powerpc",
+                .propeller => "propeller",
                 .riscv32, .riscv64 => "riscv",
                 .sparc, .sparc64 => "sparc",
                 .s390x => "s390x",
@@ -1634,7 +1622,6 @@ pub const Cpu = struct {
                 .nvptx, .nvptx64 => "nvptx",
                 .wasm32, .wasm64 => "wasm",
                 .spirv, .spirv32, .spirv64 => "spirv",
-                .propeller1, .propeller2 => "propeller",
                 else => @tagName(arch),
             };
         }
@@ -1859,11 +1846,8 @@ pub const Cpu = struct {
                 .msp430_eabi,
                 => &.{.msp430},
 
-                .propeller1_sysv,
-                => &.{.propeller1},
-
-                .propeller2_sysv,
-                => &.{.propeller2},
+                .propeller_sysv,
+                => &.{.propeller},
 
                 .s390x_sysv,
                 .s390x_sysv_vx,
@@ -1942,8 +1926,7 @@ pub const Cpu = struct {
                 .msp430 => &msp430.cpu.generic,
                 .powerpc, .powerpcle => &powerpc.cpu.ppc,
                 .powerpc64, .powerpc64le => &powerpc.cpu.ppc64,
-                .propeller1 => &propeller.cpu.generic,
-                .propeller2 => &propeller.cpu.generic,
+                .propeller => &propeller.cpu.p1,
                 .riscv32 => &riscv.cpu.generic_rv32,
                 .riscv64 => &riscv.cpu.generic_rv64,
                 .spirv, .spirv32, .spirv64 => &spirv.cpu.generic,
@@ -2656,8 +2639,7 @@ pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
         .spirv32,
         .loongarch32,
         .xtensa,
-        .propeller1,
-        .propeller2,
+        .propeller,
         => 32,
 
         .aarch64,
@@ -3168,8 +3150,7 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
             .xcore,
             .kalimba,
             .xtensa,
-            .propeller1,
-            .propeller2,
+            .propeller,
             => 4,
 
             .arm,
@@ -3263,8 +3244,7 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
             .xcore,
             .kalimba,
             .xtensa,
-            .propeller1,
-            .propeller2,
+            .propeller,
             => 4,
 
             .arc,
@@ -3369,8 +3349,7 @@ pub fn cCallingConvention(target: Target) ?std.builtin.CallingConvention {
         else
             .{ .m68k_sysv = .{} },
         .msp430 => .{ .msp430_eabi = .{} },
-        .propeller1 => .{ .propeller1_sysv = .{} },
-        .propeller2 => .{ .propeller2_sysv = .{} },
+        .propeller => .{ .propeller_sysv = .{} },
         .s390x => .{ .s390x_sysv = .{} },
         .ve => .{ .ve_sysv = .{} },
         .xcore => .{ .xcore_xs1 = .{} },
