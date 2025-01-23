@@ -26883,7 +26883,7 @@ fn validateExternType(
             return !(ty.isSlice(zcu) or try ty.comptimeOnlySema(pt));
         },
         .int => switch (ty.intInfo(zcu).bits) {
-            0, 8, 16, 32, 64, 128 => return true,
+            0, 8, 16, 32, 64, 128, 256 => return true,
             else => return false,
         },
         .@"fn" => {
@@ -26903,7 +26903,7 @@ fn validateExternType(
             .@"packed" => {
                 const bit_size = try ty.bitSizeSema(pt);
                 switch (bit_size) {
-                    0, 8, 16, 32, 64, 128 => return true,
+                    0, 8, 16, 32, 64, 128, 256 => return true,
                     else => return false,
                 }
             },
