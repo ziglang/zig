@@ -26596,6 +26596,9 @@ fn airLoopSwitchBr(self: *CodeGen, inst: Air.Inst.Index) !void {
         if (switch_br.operand.toIndex()) |op_inst| try self.processDeath(op_inst);
     }
 
+    // Ensure a register is available for dispatch.
+    if (!mat_cond.isRegister()) _ = try self.register_manager.allocReg(null, abi.RegisterClass.gp);
+
     self.scope_generation += 1;
     const state = try self.saveState();
 
@@ -26618,47 +26621,63 @@ fn airSwitchDispatch(self: *CodeGen, inst: Air.Inst.Index) !void {
 
     const block_ty = self.typeOfIndex(br.block_inst);
     const loop_data = self.loops.getPtr(br.block_inst).?;
+    const block_tracking = self.inst_tracking.getPtr(br.block_inst).?;
+    {
+        try self.getValue(block_tracking.short, null);
+        const src_mcv = try self.resolveInst(br.operand);
+
+        if (self.reuseOperandAdvanced(inst, br.operand, 0, src_mcv, br.block_inst)) {
+            try self.getValue(block_tracking.short, br.block_inst);
+            // .long = .none to avoid merging operand and block result stack frames.
+            const current_tracking: InstTracking = .{ .long = .none, .short = src_mcv };
+            try current_tracking.materializeUnsafe(self, br.block_inst, block_tracking.*);
+            for (current_tracking.getRegs()) |src_reg| self.register_manager.freeReg(src_reg);
+        } else {
+            try self.getValue(block_tracking.short, br.block_inst);
+            try self.genCopy(block_ty, block_tracking.short, try self.resolveInst(br.operand), .{});
+        }
+    }
+
+    // Process operand death so that it is properly accounted for in the State below.
+    if (self.liveness.operandDies(inst, 0)) {
+        if (br.operand.toIndex()) |op_inst| try self.processDeath(op_inst);
+    }
+
+    try self.restoreState(loop_data.state, &.{}, .{
+        .emit_instructions = true,
+        .update_tracking = false,
+        .resurrect = false,
+        .close_scope = false,
+    });
+
     if (self.loop_switches.getPtr(br.block_inst)) |table| {
-        // Process operand death so that it is properly accounted for in the State below.
-        const condition_dies = self.liveness.operandDies(inst, 0);
-
-        try self.restoreState(loop_data.state, &.{}, .{
-            .emit_instructions = true,
-            .update_tracking = false,
-            .resurrect = false,
-            .close_scope = false,
-        });
-
         const condition_ty = self.typeOf(br.operand);
-        const condition = try self.resolveInst(br.operand);
-        const condition_index = if (condition_dies and condition.isModifiable()) condition else condition_index: {
-            const condition_index = try self.allocTempRegOrMem(condition_ty, true);
-            try self.genCopy(condition_ty, condition_index, condition, .{});
-            break :condition_index condition_index;
-        };
+        const condition_mcv = block_tracking.short;
         try self.spillEflagsIfOccupied();
         if (table.min.orderAgainstZero(self.pt.zcu).compare(.neq)) try self.genBinOpMir(
             .{ ._, .sub },
             condition_ty,
-            condition_index,
+            condition_mcv,
             .{ .air_ref = Air.internedToRef(table.min.toIntern()) },
         );
         switch (table.else_relocs) {
             .@"unreachable" => {},
             .forward => |*else_relocs| {
-                try self.genBinOpMir(.{ ._, .cmp }, condition_ty, condition_index, .{ .immediate = table.len - 1 });
+                try self.genBinOpMir(.{ ._, .cmp }, condition_ty, condition_mcv, .{ .immediate = table.len - 1 });
                 try else_relocs.append(self.gpa, try self.asmJccReloc(.a, undefined));
             },
             .backward => |else_reloc| {
-                try self.genBinOpMir(.{ ._, .cmp }, condition_ty, condition_index, .{ .immediate = table.len - 1 });
+                try self.genBinOpMir(.{ ._, .cmp }, condition_ty, condition_mcv, .{ .immediate = table.len - 1 });
                 _ = try self.asmJccReloc(.a, else_reloc);
             },
         }
         {
-            const condition_index_reg = if (condition_index.isRegister())
-                condition_index.getReg().?
-            else
-                try self.copyToTmpRegister(.usize, condition_index);
+            const condition_index_reg = if (condition_mcv.isRegister()) condition_mcv.getReg().? else cond: {
+                const condition_index_reg =
+                    RegisterManager.regAtTrackedIndex(@intCast(loop_data.state.free_registers.findFirstSet().?));
+                try self.genSetReg(condition_index_reg, condition_ty, condition_mcv, .{});
+                break :cond condition_index_reg;
+            };
             const condition_index_lock = self.register_manager.lockReg(condition_index_reg);
             defer if (condition_index_lock) |lock| self.register_manager.unlockReg(lock);
             try self.truncateRegister(condition_ty, condition_index_reg);
@@ -26676,38 +26695,6 @@ fn airSwitchDispatch(self: *CodeGen, inst: Air.Inst.Index) !void {
 
         return self.finishAir(inst, .none, .{ br.operand, .none, .none });
     }
-
-    const block_tracking = self.inst_tracking.getPtr(br.block_inst).?;
-    done: {
-        try self.getValue(block_tracking.short, null);
-        const src_mcv = try self.resolveInst(br.operand);
-
-        if (self.reuseOperandAdvanced(inst, br.operand, 0, src_mcv, br.block_inst)) {
-            try self.getValue(block_tracking.short, br.block_inst);
-            // .long = .none to avoid merging operand and block result stack frames.
-            const current_tracking: InstTracking = .{ .long = .none, .short = src_mcv };
-            try current_tracking.materializeUnsafe(self, br.block_inst, block_tracking.*);
-            for (current_tracking.getRegs()) |src_reg| self.register_manager.freeReg(src_reg);
-            break :done;
-        }
-
-        try self.getValue(block_tracking.short, br.block_inst);
-        const dst_mcv = block_tracking.short;
-        try self.genCopy(block_ty, dst_mcv, try self.resolveInst(br.operand), .{});
-        break :done;
-    }
-
-    // Process operand death so that it is properly accounted for in the State below.
-    if (self.liveness.operandDies(inst, 0)) {
-        if (br.operand.toIndex()) |op_inst| try self.processDeath(op_inst);
-    }
-
-    try self.restoreState(loop_data.state, &.{}, .{
-        .emit_instructions = true,
-        .update_tracking = false,
-        .resurrect = false,
-        .close_scope = false,
-    });
 
     // Emit a jump with a relocation. It will be patched up after the block ends.
     // Leave the jump offset undefined
