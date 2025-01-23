@@ -252,6 +252,9 @@ mutex: if (builtin.single_threaded) struct {
     pub inline fn unlock(_: @This()) void {}
 } else std.Thread.Mutex = .{},
 
+/// Filter tests by exact fully qualified name
+test_filter_exact: bool,
+
 test_filters: []const []const u8,
 
 link_task_wait_group: WaitGroup = .{},
@@ -1415,6 +1418,7 @@ pub const MiscTask = enum {
     analyze_mod,
     docs_copy,
     docs_wasm,
+    test_filter_match,
 
     @"musl crt1.o",
     @"musl rcrt1.o",
@@ -1763,6 +1767,7 @@ pub const CreateOptions = struct {
     native_system_include_paths: []const []const u8 = &.{},
     clang_preprocessor_mode: ClangPreprocessorMode = .no,
     reference_trace: ?u32 = null,
+    test_filter_exact: bool = false,
     test_filters: []const []const u8 = &.{},
     test_runner_path: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
@@ -2263,6 +2268,7 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
             .reference_trace = options.reference_trace,
             .time_report = if (options.time_report) .init else null,
             .stack_report = options.stack_report,
+            .test_filter_exact = options.test_filter_exact,
             .test_filters = options.test_filters,
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .debug_compile_errors = options.debug_compile_errors,
@@ -2413,6 +2419,7 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
                 hash.add(options.config.use_new_linker);
                 hash.add(options.config.dll_export_fns);
                 hash.add(options.config.is_test);
+                hash.add(options.test_filter_exact);
                 hash.addListOfBytes(options.test_filters);
                 hash.add(options.skip_linker_dependencies);
                 hash.add(options.emit_h != .no);
@@ -3114,6 +3121,46 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
                 // The `test_functions` decl has been intentionally postponed until now,
                 // at which point we must populate it with the list of test functions that
                 // have been discovered and not filtered out.
+
+                if (comp.test_filter_exact) {
+                    if (comp.test_filters.len > zcu.test_functions.count()) {
+                        const ip = &zcu.intern_pool;
+
+                        var eb: ErrorBundle.Wip = undefined;
+                        eb.init(gpa) catch return comp.setAllocFailure();
+
+                        seen_test: for (comp.test_filters) |filter| {
+                            for (zcu.test_functions.keys()) |test_nav_index| {
+                                const test_nav = ip.getNav(test_nav_index);
+                                const test_nav_name = test_nav.fqn;
+                                const test_name = test_nav_name.toSlice(&zcu.intern_pool);
+                                if (std.mem.eql(u8, filter, test_name)) {
+                                    continue :seen_test;
+                                }
+                            }
+                            eb.addRootErrorMessage(.{
+                                .msg = try eb.printString(
+                                    "no test '{s}' found",
+                                    .{filter},
+                                ),
+                            }) catch return comp.setAllocFailure();
+                        }
+
+                        const children = eb.toOwnedBundle("") catch
+                            return comp.setAllocFailure();
+                        comp.misc_failures.ensureUnusedCapacity(gpa, 1) catch
+                            return comp.setAllocFailure();
+                        const msg = gpa.dupe(u8, "could not find all requested tests") catch
+                            return comp.setAllocFailure();
+                        const gop = comp.misc_failures.getOrPutAssumeCapacity(.test_filter_match);
+                        if (gop.found_existing) {
+                            gop.value_ptr.deinit(gpa);
+                        }
+                        gop.value_ptr.* = .{ .msg = msg, .children = children };
+                        return;
+                    }
+                }
+
                 try pt.populateTestFunctions();
             }
 
@@ -3463,6 +3510,7 @@ fn addNonIncrementalStuffToCacheManifest(
         try addModuleTableToCacheHash(zcu, arena, &man.hash, .{ .files = man });
 
         // Synchronize with other matching comments: ZigOnlyHashStuff
+        man.hash.add(comp.test_filter_exact);
         man.hash.addListOfBytes(comp.test_filters);
         man.hash.add(comp.skip_linker_dependencies);
         //man.hash.add(zcu.emit_h != .no);
