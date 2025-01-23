@@ -1274,15 +1274,12 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         // The "any" values provided by resolved config only account for
         // explicitly-provided settings. We now make them additionally account
         // for default setting resolution.
-        const any_unwind_tables = switch (options.config.any_unwind_tables) {
-            .none => options.root_mod.unwind_tables,
-            .sync, .@"async" => |uwt| uwt,
-        };
+        const any_unwind_tables = options.config.any_unwind_tables or options.root_mod.unwind_tables != .none;
         const any_non_single_threaded = options.config.any_non_single_threaded or !options.root_mod.single_threaded;
         const any_sanitize_thread = options.config.any_sanitize_thread or options.root_mod.sanitize_thread;
         const any_fuzz = options.config.any_fuzz or options.root_mod.fuzz;
 
-        const link_eh_frame_hdr = options.link_eh_frame_hdr or any_unwind_tables != .none;
+        const link_eh_frame_hdr = options.link_eh_frame_hdr or any_unwind_tables;
         const build_id = options.build_id orelse .none;
 
         const link_libc = options.config.link_libc;
@@ -6459,6 +6456,7 @@ fn buildOutputFromZig(
         .root_optimize_mode = optimize_mode,
         .root_strip = strip,
         .link_libc = comp.config.link_libc,
+        .any_unwind_tables = comp.root_mod.unwind_tables != .none,
     });
 
     const root_mod = try Package.Module.create(arena, .{
@@ -6595,6 +6593,7 @@ pub fn build_crt_file(
         .root_optimize_mode = comp.compilerRtOptMode(),
         .root_strip = comp.compilerRtStrip(),
         .link_libc = false,
+        .any_unwind_tables = options.unwind_tables != .none,
         .lto = switch (output_mode) {
             .Lib => comp.config.lto,
             .Obj, .Exe => .none,

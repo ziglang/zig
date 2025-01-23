@@ -2849,12 +2849,7 @@ fn buildOutputType(
             create_module.opts.any_fuzz = true;
         if (mod_opts.unwind_tables) |uwt| switch (uwt) {
             .none => {},
-            .sync => if (create_module.opts.any_unwind_tables == .none) {
-                create_module.opts.any_unwind_tables = .sync;
-            },
-            .@"async" => {
-                create_module.opts.any_unwind_tables = .@"async";
-            },
+            .sync, .@"async" => create_module.opts.any_unwind_tables = true,
         };
         if (mod_opts.strip == false)
             create_module.opts.any_non_stripped = true;
@@ -7566,12 +7561,7 @@ fn handleModArg(
         create_module.opts.any_fuzz = true;
     if (mod_opts.unwind_tables) |uwt| switch (uwt) {
         .none => {},
-        .sync => if (create_module.opts.any_unwind_tables == .none) {
-            create_module.opts.any_unwind_tables = .sync;
-        },
-        .@"async" => {
-            create_module.opts.any_unwind_tables = .@"async";
-        },
+        .sync, .@"async" => create_module.opts.any_unwind_tables = true,
     };
     if (mod_opts.strip == false)
         create_module.opts.any_non_stripped = true;
