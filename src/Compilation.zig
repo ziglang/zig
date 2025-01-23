@@ -4150,14 +4150,9 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
             .os_tag = .freestanding,
             .cpu_features_add = std.Target.wasm.featureSet(&.{
                 .atomics,
-                .bulk_memory,
                 // .extended_const, not supported by Safari
-                .multivalue,
-                .mutable_globals,
-                .nontrapping_fptoint,
                 .reference_types,
                 //.relaxed_simd, not supported by Firefox or Safari
-                .sign_ext,
                 // observed to cause Error occured during wast conversion :
                 // Unknown operator: 0xfd058 in Firefox 117
                 //.simd128,
