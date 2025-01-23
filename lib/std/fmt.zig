@@ -28,6 +28,7 @@ pub const FormatOptions = struct {
     width: ?usize = null,
     alignment: Alignment = default_alignment,
     fill: u21 = default_fill_char,
+    signed: bool = true,
 };
 
 /// Renders fmt string with args, calling `writer` with slices of bytes.
@@ -1219,7 +1220,7 @@ pub fn formatInt(
         }
     }
 
-    if (value_info.signedness == .signed) {
+    if (options.signed and value_info.signedness == .signed) {
         if (value < 0) {
             // Negative integer
             index -= 1;
@@ -2499,6 +2500,14 @@ test "formatIntValue with comptime_int" {
     var fbs = std.io.fixedBufferStream(&buf);
     try formatIntValue(value, "", FormatOptions{}, fbs.writer());
     try std.testing.expectEqualStrings("123456789123456789", fbs.getWritten());
+}
+
+test "formatIntBuf with signed integer" {
+    var buf: [4]u8 = undefined;
+    const ilen = formatIntBuf(&buf, @as(i64, 3), 10, .lower, .{ .fill = '0', .width = 4, .signed = false });
+    try std.testing.expectEqualStrings("0003", buf[0..ilen]);
+    const ulen = formatIntBuf(&buf, @as(u64, 3), 10, .lower, .{ .fill = '0', .width = 4, .signed = false });
+    try std.testing.expectEqualStrings("0003", buf[0..ulen]);
 }
 
 test "formatFloatValue with comptime_float" {
