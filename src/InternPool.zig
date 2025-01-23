@@ -4559,12 +4559,21 @@ pub const Index = enum(u32) {
     null_type,
     undefined_type,
     enum_literal_type,
+
     manyptr_u8_type,
     manyptr_const_u8_type,
     manyptr_const_u8_sentinel_0_type,
     single_const_pointer_to_comptime_int_type,
     slice_const_u8_type,
     slice_const_u8_sentinel_0_type,
+
+    vector_4_f16_type,
+    vector_8_f16_type,
+    vector_4_f32_type,
+    vector_8_f32_type,
+    vector_2_f64_type,
+    vector_4_f64_type,
+
     optional_noreturn_type,
     anyerror_void_error_union_type,
     /// Used for the inferred error set of inline/comptime function calls.
@@ -5054,6 +5063,19 @@ pub const static_keys = [_]Key{
             .is_const = true,
         },
     } },
+
+    // @Vector(4, f16)
+    .{ .vector_type = .{ .len = 4, .child = .f16_type } },
+    // @Vector(8, f16)
+    .{ .vector_type = .{ .len = 8, .child = .f16_type } },
+    // @Vector(4, f32)
+    .{ .vector_type = .{ .len = 4, .child = .f32_type } },
+    // @Vector(8, f32)
+    .{ .vector_type = .{ .len = 8, .child = .f32_type } },
+    // @Vector(2, f64)
+    .{ .vector_type = .{ .len = 2, .child = .f64_type } },
+    // @Vector(4, f64)
+    .{ .vector_type = .{ .len = 4, .child = .f64_type } },
 
     // ?noreturn
     .{ .opt_type = .noreturn_type },
@@ -11681,6 +11703,12 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .single_const_pointer_to_comptime_int_type,
         .slice_const_u8_type,
         .slice_const_u8_sentinel_0_type,
+        .vector_4_f16_type,
+        .vector_8_f16_type,
+        .vector_4_f32_type,
+        .vector_8_f32_type,
+        .vector_2_f64_type,
+        .vector_4_f64_type,
         .optional_noreturn_type,
         .anyerror_void_error_union_type,
         .adhoc_inferred_error_set_type,
@@ -11997,6 +12025,14 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
         .slice_const_u8_type,
         .slice_const_u8_sentinel_0_type,
         => .pointer,
+
+        .vector_4_f16_type,
+        .vector_8_f16_type,
+        .vector_4_f32_type,
+        .vector_8_f32_type,
+        .vector_2_f64_type,
+        .vector_4_f64_type,
+        => .vector,
 
         .optional_noreturn_type => .optional,
         .anyerror_void_error_union_type => .error_union,

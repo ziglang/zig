@@ -22,16 +22,20 @@ inline fn sign(rhs: anytype) switch (@typeInfo(@TypeOf(rhs))) {
     .vector => |vector| @Vector(vector.len, bool),
 } {
     switch (@typeInfo(@TypeOf(rhs))) {
-        else => return @as(@Type(.{ .int = .{
-            .signedness = .signed,
-            .bits = @bitSizeOf(@TypeOf(rhs)),
-        } }), @bitCast(rhs)) < 0,
+        else => {
+            const I = @Type(.{ .int = .{
+                .signedness = .unsigned,
+                .bits = @bitSizeOf(@TypeOf(rhs)),
+            } });
+            return @as(I, @bitCast(rhs)) & @as(I, 1) << (@bitSizeOf(I) - 1) != 0;
+        },
         .vector => |vector| {
-            const V = @Vector(vector.len, @Type(.{ .int = .{
-                .signedness = .signed,
+            const I = @Type(.{ .int = .{
+                .signedness = .unsigned,
                 .bits = @bitSizeOf(vector.child),
-            } }));
-            return @as(V, @bitCast(rhs)) < @as(V, @splat(0));
+            } });
+            const V = @Vector(vector.len, I);
+            return @as(V, @bitCast(rhs)) & @as(V, @splat(@as(I, 1) << (@bitSizeOf(I) - 1))) != @as(V, @splat(0));
         },
     }
 }
@@ -40,7 +44,7 @@ inline fn boolAnd(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
         .bool => return lhs and rhs,
         .vector => |vector| switch (vector.child) {
             bool => {
-                const Bits = @Vector(vector.len, u1);
+                const Bits = @Type(.{ .int = .{ .signedness = .unsigned, .bits = vector.len } });
                 const lhs_bits: Bits = @bitCast(lhs);
                 const rhs_bits: Bits = @bitCast(rhs);
                 return @bitCast(lhs_bits & rhs_bits);
@@ -56,7 +60,7 @@ inline fn boolOr(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
         .bool => return lhs or rhs,
         .vector => |vector| switch (vector.child) {
             bool => {
-                const Bits = @Vector(vector.len, u1);
+                const Bits = @Type(.{ .int = .{ .signedness = .unsigned, .bits = vector.len } });
                 const lhs_bits: Bits = @bitCast(lhs);
                 const rhs_bits: Bits = @bitCast(rhs);
                 return @bitCast(lhs_bits | rhs_bits);
@@ -1179,6 +1183,145 @@ fn Unary(comptime op: anytype) type {
             try testArgs(@Vector(3, i1025), .{ -1 << 1024, -1, 0 });
             try testArgs(@Vector(3, u1025), .{ 0, 1, 1 << 1024 });
         }
+        fn testFloatVectorTypes() !void {
+            try testArgs(@Vector(1, f16), .{
+                -0x1.17cp-12,
+            });
+            try testArgs(@Vector(2, f16), .{
+                0x1.47cp9, 0x1.3acp9,
+            });
+            try testArgs(@Vector(4, f16), .{
+                0x1.ab4p0, -0x1.7fcp-7, -0x1.1cp0, -0x1.f14p12,
+            });
+            try testArgs(@Vector(8, f16), .{
+                -0x1.8d8p8, 0x1.83p10, -0x1.5ap-1, -0x1.d78p13, -0x1.608p12, 0x1.e8p-9, -0x1.688p-10, -0x1.738p9,
+            });
+            try testArgs(@Vector(16, f16), .{
+                0x1.da8p-1, -0x1.ed4p-10, -0x1.dc8p1,  0x1.b78p-14, nan(f16),    0x1.9d8p8,   nan(f16),     0x1.d5p13,
+                -0x1.2dp13, 0x1.6c4p12,   0x1.a9cp-11, -0x1.0ecp8,  0x0.4ccp-14, -0x1.0a8p-6, -0x1.5bcp-14, 0x1.6d8p-9,
+            });
+            try testArgs(@Vector(32, f16), .{
+                0x1.d5cp-6,  -0x1.a98p5,  0x1.49cp5,   -0x1.e4p-1,  -0x1.21p-13, -0x1.c94p-1, -0x1.adcp-5, -0x1.524p-1,
+                -0x1.0d8p-3, -0x1.5c4p-2, 0x1.f84p-2,  0x1.664p1,   -0x1.f64p13, -0x1.bf4p4,  -0x1.4b8p0,  -0x0.f64p-14,
+                -0x1.3f8p1,  0x1.098p2,   -0x1.a44p8,  0x1.048p13,  0x1.fd4p-11, 0x1.18p-9,   -0x1.504p2,  0x1.d04p7,
+                -nan(f16),   0x1.a94p2,   0x0.5e8p-14, -0x1.7acp-7, 0x1.4c8p-3,  0x1.518p-4,  nan(f16),    0x1.8f8p10,
+            });
+            try testArgs(@Vector(64, f16), .{
+                -0x1.c2p2,   0x0.2fcp-14,  0x1.de8p0,    -0x1.714p2,   0x1.f9p-7,    -0x1.11cp-13, -0x1.558p10, -0x1.2acp-7,
+                0x1.348p14,  0x1.2dcp7,    -0x1.8acp-12, -0x1.2cp2,    0x1.868p1,    -0x1.1f8p-14, 0x1.638p7,   -0x1.734p-5,
+                0x0.b98p-14, -0x1.7f4p-12, -0x1.38cp15,  0x1.50cp15,   0x1.91cp8,    0x1.cb4p-1,   0x1.fc4p-13, 0x1.9a4p0,
+                0x1.18p-4,   0x1.60cp10,   0x1.6fp-12,   0x1.b48p6,    0x1.37cp-11,  0x1.424p7,    0x1.44cp13,  0x1.aep5,
+                0x1.968p14,  0x1.e8p13,    -0x1.bp2,     -0x1.644p5,   0x1.de4p-8,   -0x1.5b4p-14, -0x1.4ap1,   -0x1.868p9,
+                -0x1.d14p0,  0x1.d7cp15,   0x1.3c8p14,   0x1.2ccp-14,  -0x1.ee4p8,   0x1.49p-3,    0x1.35cp12,  0x1.d34p6,
+                0x1.7acp3,   -0x1.fa4p2,   0x1.7b4p13,   -0x1.cf4p-12, -0x1.ebcp-10, -0x1.5p-3,    0x1.4bp-6,   0x1.83p12,
+                -0x1.f9cp-8, -0x1.43p-8,   -0x1.99p-1,   -0x1.dacp3,   -0x1.728p-4,  -0x1.03cp4,   0x1.604p-2,  -0x1.0ep13,
+            });
+
+            try testArgs(@Vector(1, f32), .{
+                -0x1.17cp-12,
+            });
+            try testArgs(@Vector(2, f32), .{
+                -0x1.a3123ap90, -0x1.4a2ec6p-54,
+            });
+            try testArgs(@Vector(4, f32), .{
+                -0x1.8a41p77, -0x1.7c54e2p-61, -0x1.498556p-41, 0x1.d77c22p-20,
+            });
+            try testArgs(@Vector(8, f32), .{
+                0x1.943da4p-86, 0x1.528792p95,  -0x1.9c9bfap-26, -0x1.8df936p-90,
+                -0x1.6a70cep56, 0x1.626638p-48, 0x1.7bb2bap-57,  -0x1.ac5104p94,
+            });
+            try testArgs(@Vector(16, f32), .{
+                0x1.157044p115, -0x1.416c04p-111, 0x1.a8f164p-104, 0x1.9b6678p84,
+                -0x1.9d065cp9,  -0x1.e8c4b4p126,  -0x1.ddb968p84,  -0x1.fec8c8p74,
+                0x1.64ffb2p59,  0x1.548922p20,    0x1.7270fcp22,   -0x1.abac68p33,
+                0x1.faabfp33,   -0x1.8aee82p55,   0x1.1bf8fp75,    0x1.33c46ap-66,
+            });
+            try testArgs(@Vector(32, f32), .{
+                -0x1.039b68p37,   -0x1.34de4ap-74, -0x1.05d78ap-76, -0x1.be0f5ap-47,
+                0x1.032204p-38,   0x1.ef8e2ap-78,  -0x1.b013ecp-80, 0x1.71fe4cp99,
+                0x1.abdadap-14,   0x1.56a9a8p-48,  -0x1.8bbd7ep9,   0x1.edd308p-72,
+                -0x1.92fafcp-121, -0x1.50812p19,   0x1.f4ddc4p28,   -0x1.6f0b12p-50,
+                -0x1.12ab02p127,  0x1.24df48p21,   -0x1.993c3p-14,  -0x1.4cc476p-112,
+                0x1.13d9a8p-40,   0x1.a6e652p-9,   -0x1.9c730cp-21, -0x1.a75aaap-70,
+                -0x1.39e632p-111, 0x1.8e8da8p-45,  0x1.b5652cp31,   0x1.258366p44,
+                0x1.d473aap92,    -0x1.951b64p9,   0x1.542edp15,    -0x0.f6222ap-126,
+            });
+
+            try testArgs(@Vector(1, f64), .{
+                -0x1.0114613df6f97p816,
+            });
+            try testArgs(@Vector(2, f64), .{
+                -0x1.8404dad72003cp720, -0x1.6b14b40bcf3b7p-176,
+            });
+            try testArgs(@Vector(4, f64), .{
+                -0x1.04e1acbfddd9cp681, -0x1.ed553cc056da7p-749,
+                0x1.3d3f703a0c893p-905, 0x1.0b35633fa78fp691,
+            });
+            try testArgs(@Vector(8, f64), .{
+                -0x1.901a2a60f0562p-301, -0x1.2516175ad61ecp-447,
+                0x1.e7b12124846bfp564,   0x1.9291384bd7259p209,
+                -0x1.a7bf62f803c98p900,  0x1.4e2e26257bb3p987,
+                -0x1.413ca9a32d894p811,  0x1.61b1dd9432e95p479,
+            });
+            try testArgs(@Vector(16, f64), .{
+                -0x1.8fc7286d95f54p-235,  -0x1.796a7ea8372b6p-837,
+                -0x1.8c0f930539acbp-98,   -0x1.ec80dfbf0b931p-430,
+                -0x1.e3d80c640652fp-1019, 0x1.8241238fb542fp161,
+                -0x1.e1f1a79d50263p137,   -0x1.9ac5cb2771c28p-791,
+                0x1.4d8f00fe881e7p-401,   -0x1.87fbd7bfd99d7p346,
+                -0x1.a8a7cc575335ep1017,  0x1.37bb88dc3fd8bp-355,
+                0x1.9d53d346c0e65p929,    -0x1.bbae3d0229c34p289,
+                -0x1.cb8ef994d5ce5p25,    0x1.ba20af512616ap50,
+            });
+
+            try testArgs(@Vector(1, f80), .{
+                -0x1.a2e9410a7dfedabp-2324,
+            });
+            try testArgs(@Vector(2, f80), .{
+                -0x1.a2e9410a7dfedabp-2324,
+                0x1.2b17da3b9746885p-8665,
+            });
+            try testArgs(@Vector(4, f80), .{
+                -0x1.c488fedb7ab646cep-13007,
+                0x1.e914deaccaa50016p2073,
+                -0x1.d1c7ae8ec3c9df86p10642,
+                -0x1.2da1658f337fa01p9893,
+            });
+            try testArgs(@Vector(8, f80), .{
+                -0x1.bed8a74c43750656p890,
+                -0x1.7bf57f38004ac976p8481,
+                -0x1.9cdc10ac0657d328p7884,
+                0x1.c86f61883da149fp12293,
+                -0x1.528d6957df6bfdd8p14125,
+                -0x1.5ebb4006d0243bfep14530,
+                -0x1.94b9b18636d12402p-1845,
+                -0x1.25439a6d68add188p5962,
+            });
+
+            try testArgs(@Vector(1, f128), .{
+                -0x1.d1e6fc3b1e66632e7b79051a47dap14300,
+            });
+            try testArgs(@Vector(2, f128), .{
+                0x1.84b3ac8ffe5893b2c6af8d68de9dp-83,
+                -0x1.438ca2c8a0d8e3ee9062d351c46ep-10235,
+            });
+            try testArgs(@Vector(4, f128), .{
+                0x1.04eb03882d4fd1b090e714d3e5ep806,
+                -0x1.4082b29f7c26e701764c915642ffp-6182,
+                -0x1.b6f1e8565e5040415110f18b519ap13383,
+                0x1.1c29f8c162cead9061c5797ea15ap11957,
+            });
+            try testArgs(@Vector(8, f128), .{
+                -0x1.53d7f00cd204d80e5ff5bb665773p11218,
+                -0x1.4daa1c81cffe28e8fa5cd703c287p2362,
+                -0x1.cc6a71c3ad4560871efdbd025cd7p-8116,
+                -0x1.87f8553cf8772fb6b78e7df3e3bap14523,
+                -0x1.14b6880f6678f86dfb543dde1c6ep2105,
+                0x1.9d2d4398414da9d857e76e8fd7ccp-13668,
+                0x1.a37f07af240ded458d103c022064p-1158,
+                0x1.425d53e6bd6070b847e5da1ed593p1394,
+            });
+        }
     };
 }
 
@@ -1601,6 +1744,7 @@ test abs {
     try Unary(abs).testIntTypes();
     try Unary(abs).testIntVectorTypes();
     try Unary(abs).testFloatTypes();
+    try Unary(abs).testFloatVectorTypes();
 }
 
 inline fn clz(comptime Type: type, rhs: Type) @TypeOf(@clz(rhs)) {

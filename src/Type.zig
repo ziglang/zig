@@ -4174,7 +4174,15 @@ pub const single_const_pointer_to_comptime_int: Type = .{
     .ip_index = .single_const_pointer_to_comptime_int_type,
 };
 pub const slice_const_u8_sentinel_0: Type = .{ .ip_index = .slice_const_u8_sentinel_0_type };
-pub const empty_tuple_type: Type = .{ .ip_index = .empty_tuple_type };
+
+pub const vector_4_f16: Type = .{ .ip_index = .vector_4_f16_type };
+pub const vector_8_f16: Type = .{ .ip_index = .vector_8_f16_type };
+pub const vector_4_f32: Type = .{ .ip_index = .vector_4_f32_type };
+pub const vector_8_f32: Type = .{ .ip_index = .vector_8_f32_type };
+pub const vector_2_f64: Type = .{ .ip_index = .vector_2_f64_type };
+pub const vector_4_f64: Type = .{ .ip_index = .vector_4_f64_type };
+
+pub const empty_tuple: Type = .{ .ip_index = .empty_tuple_type };
 
 pub const generic_poison: Type = .{ .ip_index = .generic_poison_type };
 
