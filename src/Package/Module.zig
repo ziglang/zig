@@ -119,7 +119,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     const target = resolved_target.result;
 
     const optimize_mode = options.inherited.optimize_mode orelse
-        if (options.parent) |p| p.optimize_mode else .Debug;
+        if (options.parent) |p| p.optimize_mode else options.global.root_optimize_mode;
 
     const strip = b: {
         if (options.inherited.strip) |x| break :b x;
