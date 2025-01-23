@@ -1647,7 +1647,7 @@ pub fn maxIntAlignment(target: std.Target) u16 {
         .avr => 1,
         .msp430 => 2,
         .xcore => 4,
-        .propeller1, .propeller2 => 4,
+        .propeller => 4,
 
         .arm,
         .armeb,

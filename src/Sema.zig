@@ -37271,6 +37271,7 @@ pub fn analyzeAsAddressSpace(
     const is_spirv = arch.isSpirV();
     const is_gpu = is_nv or is_amd or is_spirv;
 
+    // TODO: Deduplicate with `std.Target.Cpu.Arch.supportsAddressSpace`.
     const supported = switch (address_space) {
         // TODO: on spir-v only when os is opencl.
         .generic => true,
@@ -37283,8 +37284,8 @@ pub fn analyzeAsAddressSpace(
         // TODO this should also check how many flash banks the cpu has
         .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr,
 
-        .cog, .hub => arch.isPropeller(),
-        .lut => (arch == .propeller2),
+        .cog, .hub => arch == .propeller,
+        .lut => arch == .propeller and std.Target.propeller.featureSetHas(target.cpu.features, .p2),
     };
 
     if (!supported) {
