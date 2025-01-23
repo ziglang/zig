@@ -1178,8 +1178,6 @@ pub const EM = enum(u16) {
     MIPS_RS3_LE = 10,
     /// Old version of Sparc v9, from before the ABI (deprecated)
     OLD_SPARCV9 = 11,
-    /// SPU Mark II
-    SPU_2 = 13,
     /// HPPA
     PARISC = 15,
     /// Fujitsu VPP500 (also old version of PowerPC; deprecated)
