@@ -6,6 +6,6 @@ export fn foo() void {
 
 // error
 //
-// :4:16: error: expected type 'tmp.T', found 'tmp.foo__struct_434'
+// :4:16: error: expected type 'tmp.T', found 'tmp.foo__struct_440'
 // :3:16: note: struct declared here
 // :1:11: note: struct declared here

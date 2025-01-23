@@ -2440,10 +2440,15 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .shr, .shr_exact => try cg.airShlShrBinOp(inst),
             .shl, .shl_exact => try cg.airShlShrBinOp(inst),
 
-            .mul             => try cg.airMulDivBinOp(inst),
-            .mul_wrap        => try cg.airMulDivBinOp(inst),
-            .rem             => try cg.airMulDivBinOp(inst),
-            .mod             => try cg.airMulDivBinOp(inst),
+            .mul,
+            .mul_wrap,
+            .rem,
+            .mod,
+            .div_float,
+            .div_trunc,
+            .div_floor,
+            .div_exact,
+            => |air_tag| try cg.airMulDivBinOp(inst, air_tag),
 
             .add_sat         => try cg.airAddSat(inst),
             .sub_sat         => try cg.airSubSat(inst),
@@ -2465,14 +2470,12 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .ceil        => try cg.airRound(inst, .{ .mode = .up, .precision = .inexact }),
             .trunc_float => try cg.airRound(inst, .{ .mode = .zero, .precision = .inexact }),
             .sqrt        => try cg.airSqrt(inst),
-            .neg         => try cg.airFloatSign(inst),
+            .neg         => |air_tag| try cg.airFloatSign(inst, air_tag),
 
             .add_with_overflow => try cg.airAddSubWithOverflow(inst),
             .sub_with_overflow => try cg.airAddSubWithOverflow(inst),
             .mul_with_overflow => try cg.airMulWithOverflow(inst),
             .shl_with_overflow => try cg.airShlWithOverflow(inst),
-
-            .div_float, .div_trunc, .div_floor, .div_exact => try cg.airMulDivBinOp(inst),
 
             .cmp_lt_errors_len => try cg.airCmpLtErrorsLen(inst),
 
@@ -2528,19 +2531,19 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .sub_safe,
             .mul_safe,
             => return cg.fail("TODO implement safety_checked_instructions", .{}),
-            .add_optimized,
-            .sub_optimized,
-            .mul_optimized,
-            .div_float_optimized,
-            .div_trunc_optimized,
-            .div_floor_optimized,
-            .div_exact_optimized,
-            .rem_optimized,
-            .mod_optimized,
-            .neg_optimized,
-            .reduce_optimized,
-            .int_from_float_optimized,
-            => return cg.fail("TODO implement optimized float mode", .{}),
+
+            .add_optimized => try cg.airBinOp(inst, .add),
+            .sub_optimized => try cg.airBinOp(inst, .sub),
+            .mul_optimized => try cg.airBinOp(inst, .mul),
+            .div_float_optimized => try cg.airMulDivBinOp(inst, .div_float),
+            .div_trunc_optimized => try cg.airMulDivBinOp(inst, .div_trunc),
+            .div_floor_optimized => try cg.airMulDivBinOp(inst, .div_floor),
+            .div_exact_optimized => try cg.airMulDivBinOp(inst, .div_exact),
+            .rem_optimized => try cg.airMulDivBinOp(inst, .rem),
+            .mod_optimized => try cg.airMulDivBinOp(inst, .mod),
+            .neg_optimized => try cg.airFloatSign(inst, .neg),
+            .reduce_optimized => try cg.airReduce(inst),
+            .int_from_float_optimized => try cg.airIntFromFloat(inst),
 
             .arg => try cg.airDbgArg(inst),
             .ptr_add => |air_tag| if (use_old) try cg.airPtrArithmetic(inst, air_tag) else {
@@ -16257,12 +16260,11 @@ fn activeIntBits(self: *CodeGen, dst_air: Air.Inst.Ref) u16 {
     return dst_info.bits;
 }
 
-fn airMulDivBinOp(self: *CodeGen, inst: Air.Inst.Index) !void {
+fn airMulDivBinOp(self: *CodeGen, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
     const pt = self.pt;
     const zcu = pt.zcu;
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     const result = result: {
-        const tag = self.air.instructions.items(.tag)[@intFromEnum(inst)];
         const dst_ty = self.typeOfIndex(inst);
         switch (dst_ty.zigTypeTag(zcu)) {
             .float, .vector => break :result try self.genBinOp(inst, tag, bin_op.lhs, bin_op.rhs),
@@ -19600,10 +19602,9 @@ fn airBitReverse(self: *CodeGen, inst: Air.Inst.Index) !void {
     return self.finishAir(inst, dst_mcv, .{ ty_op.operand, .none, .none });
 }
 
-fn floatSign(self: *CodeGen, inst: Air.Inst.Index, operand: Air.Inst.Ref, ty: Type) !void {
+fn floatSign(self: *CodeGen, inst: Air.Inst.Index, tag: Air.Inst.Tag, operand: Air.Inst.Ref, ty: Type) !void {
     const pt = self.pt;
     const zcu = pt.zcu;
-    const tag = self.air.instructions.items(.tag)[@intFromEnum(inst)];
 
     const result = result: {
         const scalar_bits = ty.scalarType(zcu).floatBits(self.target.*);
@@ -19728,10 +19729,10 @@ fn floatSign(self: *CodeGen, inst: Air.Inst.Index, operand: Air.Inst.Ref, ty: Ty
     return self.finishAir(inst, result, .{ operand, .none, .none });
 }
 
-fn airFloatSign(self: *CodeGen, inst: Air.Inst.Index) !void {
+fn airFloatSign(self: *CodeGen, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
     const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const ty = self.typeOf(un_op);
-    return self.floatSign(inst, un_op, ty);
+    return self.floatSign(inst, tag, un_op, ty);
 }
 
 const RoundMode = packed struct(u5) {
@@ -20014,7 +20015,7 @@ fn airAbs(self: *CodeGen, inst: Air.Inst.Index) !void {
                     break :result dst_mcv;
                 },
             },
-            .float => return self.floatSign(inst, ty_op.operand, ty),
+            .float => return self.floatSign(inst, .abs, ty_op.operand, ty),
             .vector => switch (ty.childType(zcu).zigTypeTag(zcu)) {
                 else => null,
                 .int => switch (ty.childType(zcu).intInfo(zcu).bits) {
@@ -20050,7 +20051,7 @@ fn airAbs(self: *CodeGen, inst: Air.Inst.Index) !void {
                         5...8 => if (self.hasFeature(.avx2)) .{ .vp_d, .abs } else null,
                     },
                 },
-                .float => return self.floatSign(inst, ty_op.operand, ty),
+                .float => return self.floatSign(inst, .abs, ty_op.operand, ty),
             },
         }) orelse return self.fail("TODO implement airAbs for {}", .{ty.fmt(pt)});
 
@@ -22911,7 +22912,7 @@ fn genBinOp(
                         .mul => .{ .v_ss, .mul },
                         .div_float, .div_trunc, .div_floor, .div_exact => .{ .v_ss, .div },
                         .max => .{ .v_ss, .max },
-                        .min => .{ .v_ss, .max },
+                        .min => .{ .v_ss, .min },
                         else => unreachable,
                     },
                     dst_reg,
