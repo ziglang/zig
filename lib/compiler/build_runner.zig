@@ -733,7 +733,7 @@ fn runStepNames(
     if (run.prominent_compile_errors and total_compile_errors > 0) {
         for (step_stack.keys()) |s| {
             if (s.result_error_bundle.errorMessageCount() > 0) {
-                s.result_error_bundle.renderToStdErr(b.renderOptions(ttyconf));
+                s.result_error_bundle.renderToStdErr(.{ .ttyconf = ttyconf, .include_reference_trace = (b.reference_trace orelse 0) > 0 });
             }
         }
 
@@ -1112,7 +1112,11 @@ fn workerMakeOneStep(
         defer std.debug.unlockStdErr();
 
         const gpa = b.allocator;
-        printErrorMessages(gpa, s, run.ttyconf, run.stderr, run.prominent_compile_errors) catch {};
+        const options: std.zig.ErrorBundle.RenderOptions = .{
+            .ttyconf = run.ttyconf,
+            .include_reference_trace = (b.reference_trace orelse 0) > 0,
+        };
+        printErrorMessages(gpa, s, options, run.stderr, run.prominent_compile_errors) catch {};
     }
 
     handle_result: {
@@ -1168,7 +1172,7 @@ fn workerMakeOneStep(
 pub fn printErrorMessages(
     gpa: Allocator,
     failing_step: *Step,
-    ttyconf: std.io.tty.Config,
+    options: std.zig.ErrorBundle.RenderOptions,
     stderr: File,
     prominent_compile_errors: bool,
 ) !void {
@@ -1183,6 +1187,7 @@ pub fn printErrorMessages(
     }
 
     // Now, `step_stack` has the subtree that we want to print, in reverse order.
+    const ttyconf = options.ttyconf;
     try ttyconf.setColor(stderr, .dim);
     var indent: usize = 0;
     while (step_stack.popOrNull()) |s| : (indent += 1) {
@@ -1208,8 +1213,9 @@ pub fn printErrorMessages(
         }
     }
 
-    if (!prominent_compile_errors and failing_step.result_error_bundle.errorMessageCount() > 0)
-        try failing_step.result_error_bundle.renderToWriter(renderOptions(ttyconf), stderr.writer());
+    if (!prominent_compile_errors and failing_step.result_error_bundle.errorMessageCount() > 0) {
+        try failing_step.result_error_bundle.renderToWriter(options, stderr.writer());
+    }
 
     for (failing_step.result_error_msgs.items) |msg| {
         try ttyconf.setColor(stderr, .red);
