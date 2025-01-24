@@ -5946,14 +5946,13 @@ fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void 
     try zcu.ensureFuncBodyAnalysisQueued(zcu.builtin_decl_values.get(.@"panic.call"));
 
     const panic_fn = Air.internedToRef(zcu.builtin_decl_values.get(.@"panic.call"));
-    const null_stack_trace = Air.internedToRef(zcu.null_stack_trace);
 
     const opt_usize_ty = try pt.optionalType(.usize_type);
     const null_ret_addr = Air.internedToRef((try pt.intern(.{ .opt = .{
         .ty = opt_usize_ty.toIntern(),
         .val = .none,
     } })));
-    try sema.callBuiltin(block, src, panic_fn, .auto, &.{ coerced_msg, null_stack_trace, null_ret_addr }, .@"@panic");
+    try sema.callBuiltin(block, src, panic_fn, .auto, &.{ coerced_msg, null_ret_addr }, .@"@panic");
 }
 
 fn zirTrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
@@ -13805,8 +13804,7 @@ fn maybeErrorUnwrap(
                 const msg_inst = try sema.resolveInst(inst_data.operand);
 
                 const panic_fn = try getBuiltin(sema, operand_src, .@"panic.call");
-                const err_return_trace = try sema.getErrorReturnTrace(block);
-                const args: [3]Air.Inst.Ref = .{ msg_inst, err_return_trace, .null_value };
+                const args: [2]Air.Inst.Ref = .{ msg_inst, .null_value };
                 try sema.callBuiltin(block, operand_src, Air.internedToRef(panic_fn), .auto, &args, .@"safety check");
                 return true;
             },
@@ -27242,9 +27240,7 @@ fn safetyPanicUnwrapError(sema: *Sema, block: *Block, src: LazySrcLoc, err: Air.
         _ = try block.addNoOp(.trap);
     } else {
         const panic_fn = try getBuiltin(sema, src, .@"panic.unwrapError");
-        const err_return_trace = try sema.getErrorReturnTrace(block);
-        const args: [2]Air.Inst.Ref = .{ err_return_trace, err };
-        try sema.callBuiltin(block, src, Air.internedToRef(panic_fn), .auto, &args, .@"safety check");
+        try sema.callBuiltin(block, src, Air.internedToRef(panic_fn), .auto, &.{err}, .@"safety check");
     }
 }
 
@@ -38524,7 +38520,7 @@ pub fn analyzeMemoizedState(sema: *Sema, block: *Block, simple_src: LazySrcLoc, 
                     break :val uncoerced_val;
                 },
                 .func => val: {
-                    const func_ty = try sema.getExpectedBuiltinFnType(src, builtin_decl);
+                    const func_ty = try sema.getExpectedBuiltinFnType(builtin_decl);
                     const coerced = try sema.coerce(block, func_ty, Air.internedToRef(uncoerced_val.toIntern()), src);
                     break :val .fromInterned(coerced.toInterned().?);
                 },
@@ -38562,7 +38558,7 @@ pub fn analyzeMemoizedState(sema: *Sema, block: *Block, simple_src: LazySrcLoc, 
 }
 
 /// Given that `decl.kind() == .func`, get the type expected of the function.
-fn getExpectedBuiltinFnType(sema: *Sema, src: LazySrcLoc, decl: Zcu.BuiltinDecl) CompileError!Type {
+fn getExpectedBuiltinFnType(sema: *Sema, decl: Zcu.BuiltinDecl) CompileError!Type {
     const pt = sema.pt;
     return switch (decl) {
         // `noinline fn () void`
@@ -38572,15 +38568,10 @@ fn getExpectedBuiltinFnType(sema: *Sema, src: LazySrcLoc, decl: Zcu.BuiltinDecl)
             .is_noinline = true,
         }),
 
-        // `fn ([]const u8, ?*StackTrace, ?usize) noreturn`
+        // `fn ([]const u8, ?usize) noreturn`
         .@"panic.call" => try pt.funcType(.{
             .param_types = &.{
                 .slice_const_u8_type,
-                (try pt.optionalType(
-                    (try pt.singleMutPtrType(
-                        try sema.getBuiltinType(src, .StackTrace),
-                    )).toIntern(),
-                )).toIntern(),
                 (try pt.optionalType(.usize_type)).toIntern(),
             },
             .return_type = .noreturn_type,
@@ -38595,16 +38586,9 @@ fn getExpectedBuiltinFnType(sema: *Sema, src: LazySrcLoc, decl: Zcu.BuiltinDecl)
             .is_generic = true,
         }),
 
-        // `fn (?*StackTrace, anyerror) noreturn`
+        // `fn (anyerror) noreturn`
         .@"panic.unwrapError" => try pt.funcType(.{
-            .param_types = &.{
-                (try pt.optionalType(
-                    (try pt.singleMutPtrType(
-                        try sema.getBuiltinType(src, .StackTrace),
-                    )).toIntern(),
-                )).toIntern(),
-                .anyerror_type,
-            },
+            .param_types = &.{.anyerror_type},
             .return_type = .noreturn_type,
         }),
 
