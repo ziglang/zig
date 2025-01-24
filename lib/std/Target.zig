@@ -144,10 +144,6 @@ pub const Os = struct {
             };
         }
 
-        pub inline fn isGnuLibC(tag: Os.Tag, abi: Abi) bool {
-            return (tag == .hurd or tag == .linux) and abi.isGnu();
-        }
-
         pub fn defaultVersionRange(tag: Tag, arch: Cpu.Arch, abi: Abi) Os {
             return .{
                 .tag = tag,
@@ -973,7 +969,12 @@ pub const Abi = enum {
         };
     }
 
-    pub inline fn floatAbi(abi: Abi) FloatAbi {
+    pub const Float = enum {
+        hard,
+        soft,
+    };
+
+    pub inline fn float(abi: Abi) Float {
         return switch (abi) {
             .androideabi,
             .eabi,
@@ -2022,48 +2023,29 @@ pub fn libPrefix(target: Target) [:0]const u8 {
 }
 
 pub inline fn isMinGW(target: Target) bool {
-    return target.os.tag == .windows and target.isGnu();
-}
-
-pub inline fn isGnu(target: Target) bool {
-    return target.abi.isGnu();
-}
-
-pub inline fn isMusl(target: Target) bool {
-    return target.abi.isMusl();
-}
-
-pub inline fn isAndroid(target: Target) bool {
-    return target.abi.isAndroid();
-}
-
-pub inline fn isWasm(target: Target) bool {
-    return target.cpu.arch.isWasm();
-}
-
-pub inline fn isDarwin(target: Target) bool {
-    return target.os.tag.isDarwin();
-}
-
-pub inline fn isBSD(target: Target) bool {
-    return target.os.tag.isBSD();
+    return target.os.tag == .windows and target.abi.isGnu();
 }
 
 pub inline fn isGnuLibC(target: Target) bool {
-    return target.os.tag.isGnuLibC(target.abi);
+    return switch (target.os.tag) {
+        .hurd, .linux => target.abi.isGnu(),
+        else => false,
+    };
 }
 
-pub inline fn isSpirV(target: Target) bool {
-    return target.cpu.arch.isSpirV();
+pub inline fn isMuslLibC(target: Target) bool {
+    return target.os.tag == .linux and target.abi.isMusl();
 }
 
-pub const FloatAbi = enum {
-    hard,
-    soft,
-};
+pub inline fn isDarwinLibC(target: Target) bool {
+    return switch (target.abi) {
+        .none, .macabi, .simulator => target.os.tag.isDarwin(),
+        else => false,
+    };
+}
 
-pub inline fn floatAbi(target: Target) FloatAbi {
-    return target.abi.floatAbi();
+pub inline fn isWasiLibC(target: Target) bool {
+    return target.os.tag == .wasi and target.abi.isMusl();
 }
 
 pub const DynamicLinker = struct {
@@ -2699,7 +2681,7 @@ pub fn stackAlignment(target: Target) u16 {
 /// Note that char signedness is implementation-defined and many compilers provide
 /// an option to override the default signedness e.g. GCC's -funsigned-char / -fsigned-char
 pub fn charSignedness(target: Target) std.builtin.Signedness {
-    if (target.isDarwin() or target.os.tag == .windows or target.os.tag == .uefi) return .signed;
+    if (target.os.tag.isDarwin() or target.os.tag == .windows or target.os.tag == .uefi) return .signed;
 
     return switch (target.cpu.arch) {
         .arm,
@@ -3292,7 +3274,7 @@ pub fn cCallingConvention(target: Target) ?std.builtin.CallingConvention {
             .windows => .{ .aarch64_aapcs_win = .{} },
             else => .{ .aarch64_aapcs = .{} },
         },
-        .arm, .armeb, .thumb, .thumbeb => switch (target.abi.floatAbi()) {
+        .arm, .armeb, .thumb, .thumbeb => switch (target.abi.float()) {
             .soft => .{ .arm_aapcs = .{} },
             .hard => .{ .arm_aapcs_vfp = .{} },
         },
@@ -3305,7 +3287,7 @@ pub fn cCallingConvention(target: Target) ?std.builtin.CallingConvention {
         .riscv32 => .{ .riscv32_ilp32 = .{} },
         .sparc64 => .{ .sparc64_sysv = .{} },
         .sparc => .{ .sparc_sysv = .{} },
-        .powerpc64 => if (target.isMusl())
+        .powerpc64 => if (target.abi.isMusl())
             .{ .powerpc64_elf_v2 = .{} }
         else
             .{ .powerpc64_elf = .{} },

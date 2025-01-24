@@ -742,7 +742,7 @@ fn addCmakeCfgOptionsToExe(
     const mod = exe.root_module;
     const target = mod.resolved_target.?.result;
 
-    if (target.isDarwin()) {
+    if (target.os.tag.isDarwin()) {
         // useful for package maintainers
         exe.headerpad_max_install_names = true;
     }

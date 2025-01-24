@@ -2587,7 +2587,7 @@ const CopyFileRawError = error{SystemResources} || posix.CopyFileRangeError || p
 // The copy starts at offset 0, the initial offsets are preserved.
 // No metadata is transferred over.
 fn copy_file(fd_in: posix.fd_t, fd_out: posix.fd_t, maybe_size: ?u64) CopyFileRawError!void {
-    if (builtin.target.isDarwin()) {
+    if (builtin.target.os.tag.isDarwin()) {
         const rc = posix.system.fcopyfile(fd_in, fd_out, null, .{ .DATA = true });
         switch (posix.errno(rc)) {
             .SUCCESS => return,
