@@ -587,7 +587,7 @@ pub const Request = struct {
                 .@"HTTP/1.1" => if (!keep_alive) h.appendSliceAssumeCapacity("connection: close\r\n"),
             }
 
-            if (options.content_type) |content_type| {
+            if (options.respond_options.content_type) |content_type| {
                 h.fixedWriter().print("content-type: {s}\r\n", .{content_type}) catch unreachable;
             }
 
