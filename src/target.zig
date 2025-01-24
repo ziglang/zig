@@ -482,16 +482,6 @@ pub fn arePointersLogical(target: std.Target, as: AddressSpace) bool {
 }
 
 pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
-    // This special-casing should be removed with LLVM 20.
-    switch (target.cpu.arch) {
-        .mips, .mipsel => return "o32",
-        .mips64, .mips64el => return switch (target.abi) {
-            .gnuabin32, .muslabin32 => "n32",
-            else => "n64",
-        },
-        else => {},
-    }
-
     // LLD does not support ELFv1. Rather than having LLVM produce ELFv1 code and then linking it
     // into a broken ELFv2 binary, just force LLVM to use ELFv2 as well. This will break when glibc
     // is linked as glibc only supports ELFv2 for little endian, but there's nothing we can do about
@@ -501,6 +491,7 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
     if (target.cpu.arch == .powerpc64) return "elfv2";
 
     return switch (target.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => "aapcs",
         // TODO: `muslsf` and `muslf32` in LLVM 20.
         .loongarch64 => switch (target.abi) {
             .gnusf => "lp64s",
@@ -512,6 +503,20 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
             .gnuf32 => "ilp32f",
             else => "ilp32d",
         },
+        .mips, .mipsel => "o32",
+        .mips64, .mips64el => switch (target.abi) {
+            .gnuabin32, .muslabin32 => "n32",
+            else => "n64",
+        },
+        .powerpc64 => switch (target.os.tag) {
+            .freebsd => if (target.os.version_range.semver.isAtLeast(.{ .major = 13, .minor = 0, .patch = 0 }) orelse false)
+                "elfv2"
+            else
+                "elfv1",
+            .openbsd => "elfv2",
+            else => if (target.abi.isMusl()) "elfv2" else "elfv1",
+        },
+        .powerpc64le => "elfv2",
         .riscv64 => b: {
             const featureSetHas = std.Target.riscv.featureSetHas;
             break :b if (featureSetHas(target.cpu.features, .e))
