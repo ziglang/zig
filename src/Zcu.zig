@@ -219,8 +219,6 @@ free_type_references: std.ArrayListUnmanaged(u32) = .empty,
 
 /// Populated by analysis of `AnalUnit.wrap(.{ .memoized_state = s })`, where `s` depends on the element.
 builtin_decl_values: BuiltinDecl.Memoized = .initFill(.none),
-/// Populated by analysis of `AnalUnit.wrap(.{ .memoized_state = .panic })`.
-null_stack_trace: InternPool.Index = .none,
 
 generation: u32 = 0,
 

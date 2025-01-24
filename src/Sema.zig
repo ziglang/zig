@@ -38539,21 +38539,6 @@ pub fn analyzeMemoizedState(sema: *Sema, block: *Block, simple_src: LazySrcLoc, 
         }
     }
 
-    if (stage == .panic) {
-        // We use `getBuiltinType` because this is from an earlier stage.
-        const stack_trace_ty = try sema.getBuiltinType(simple_src, .StackTrace);
-        const ptr_stack_trace_ty = try pt.singleMutPtrType(stack_trace_ty);
-        const opt_ptr_stack_trace_ty = try pt.optionalType(ptr_stack_trace_ty.toIntern());
-        const null_stack_trace = try pt.intern(.{ .opt = .{
-            .ty = opt_ptr_stack_trace_ty.toIntern(),
-            .val = .none,
-        } });
-        if (null_stack_trace != zcu.null_stack_trace) {
-            zcu.null_stack_trace = null_stack_trace;
-            any_changed = true;
-        }
-    }
-
     return any_changed;
 }
 
