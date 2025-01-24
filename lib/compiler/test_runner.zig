@@ -341,7 +341,10 @@ const FuzzerSlice = extern struct {
 
 var is_fuzz_test: bool = undefined;
 
-extern fn fuzzer_start(testOne: *const fn ([*]const u8, usize) callconv(.C) void) void;
+extern fn fuzzer_start(
+    testOne: *const fn ([*]const u8, usize) callconv(.C) void,
+    options: *const std.testing.FuzzInputOptions,
+) void;
 extern fn fuzzer_init(cache_dir: FuzzerSlice) void;
 extern fn fuzzer_coverage_id() u64;
 
@@ -395,7 +398,7 @@ pub fn fuzz(
     if (builtin.fuzz) {
         const prev_allocator_state = testing.allocator_instance;
         testing.allocator_instance = .{};
-        fuzzer_start(&global.fuzzer_one);
+        fuzzer_start(&global.fuzzer_one, &options);
         testing.allocator_instance = prev_allocator_state;
         return;
     }
