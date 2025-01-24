@@ -5,7 +5,7 @@
 
 const std = @import("../std.zig");
 
-pub fn call(_: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+pub fn call(_: []const u8, _: ?usize) noreturn {
     @branchHint(.cold);
     @trap();
 }
@@ -15,7 +15,7 @@ pub fn sentinelMismatch(_: anytype, _: anytype) noreturn {
     @trap();
 }
 
-pub fn unwrapError(_: ?*std.builtin.StackTrace, _: anyerror) noreturn {
+pub fn unwrapError(_: anyerror) noreturn {
     @branchHint(.cold);
     @trap();
 }

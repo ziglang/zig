@@ -2584,7 +2584,7 @@ pub fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Zcu.ErrorMsg
         std.debug.print("compile error during Sema:\n", .{});
         var error_bundle = wip_errors.toOwnedBundle("") catch @panic("out of memory");
         error_bundle.renderToStdErr(.{ .ttyconf = .no_color });
-        crash_report.compilerPanic("unexpected compile error occurred", null, null);
+        crash_report.compilerPanic("unexpected compile error occurred", null);
     }
 
     if (block) |start_block| {

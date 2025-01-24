@@ -11,9 +11,8 @@ const std = @import("../std.zig");
 /// Prints the message to stderr without a newline and then traps.
 ///
 /// Explicit calls to `@panic` lower to calling this function.
-pub fn call(msg: []const u8, ert: ?*std.builtin.StackTrace, ra: ?usize) noreturn {
+pub fn call(msg: []const u8, ra: ?usize) noreturn {
     @branchHint(.cold);
-    _ = ert;
     _ = ra;
     std.debug.lockStdErr();
     const stderr = std.io.getStdErr();
@@ -23,110 +22,109 @@ pub fn call(msg: []const u8, ert: ?*std.builtin.StackTrace, ra: ?usize) noreturn
 
 pub fn sentinelMismatch(expected: anytype, found: @TypeOf(expected)) noreturn {
     _ = found;
-    call("sentinel mismatch", null, null);
+    call("sentinel mismatch", null);
 }
 
-pub fn unwrapError(ert: ?*std.builtin.StackTrace, err: anyerror) noreturn {
-    _ = ert;
+pub fn unwrapError(err: anyerror) noreturn {
     _ = &err;
-    call("attempt to unwrap error", null, null);
+    call("attempt to unwrap error", null);
 }
 
 pub fn outOfBounds(index: usize, len: usize) noreturn {
     _ = index;
     _ = len;
-    call("index out of bounds", null, null);
+    call("index out of bounds", null);
 }
 
 pub fn startGreaterThanEnd(start: usize, end: usize) noreturn {
     _ = start;
     _ = end;
-    call("start index is larger than end index", null, null);
+    call("start index is larger than end index", null);
 }
 
 pub fn inactiveUnionField(active: anytype, accessed: @TypeOf(active)) noreturn {
     _ = accessed;
-    call("access of inactive union field", null, null);
+    call("access of inactive union field", null);
 }
 
 pub fn reachedUnreachable() noreturn {
-    call("reached unreachable code", null, null);
+    call("reached unreachable code", null);
 }
 
 pub fn unwrapNull() noreturn {
-    call("attempt to use null value", null, null);
+    call("attempt to use null value", null);
 }
 
 pub fn castToNull() noreturn {
-    call("cast causes pointer to be null", null, null);
+    call("cast causes pointer to be null", null);
 }
 
 pub fn incorrectAlignment() noreturn {
-    call("incorrect alignment", null, null);
+    call("incorrect alignment", null);
 }
 
 pub fn invalidErrorCode() noreturn {
-    call("invalid error code", null, null);
+    call("invalid error code", null);
 }
 
 pub fn castTruncatedData() noreturn {
-    call("integer cast truncated bits", null, null);
+    call("integer cast truncated bits", null);
 }
 
 pub fn negativeToUnsigned() noreturn {
-    call("attempt to cast negative value to unsigned integer", null, null);
+    call("attempt to cast negative value to unsigned integer", null);
 }
 
 pub fn integerOverflow() noreturn {
-    call("integer overflow", null, null);
+    call("integer overflow", null);
 }
 
 pub fn shlOverflow() noreturn {
-    call("left shift overflowed bits", null, null);
+    call("left shift overflowed bits", null);
 }
 
 pub fn shrOverflow() noreturn {
-    call("right shift overflowed bits", null, null);
+    call("right shift overflowed bits", null);
 }
 
 pub fn divideByZero() noreturn {
-    call("division by zero", null, null);
+    call("division by zero", null);
 }
 
 pub fn exactDivisionRemainder() noreturn {
-    call("exact division produced remainder", null, null);
+    call("exact division produced remainder", null);
 }
 
 pub fn integerPartOutOfBounds() noreturn {
-    call("integer part of floating point value out of bounds", null, null);
+    call("integer part of floating point value out of bounds", null);
 }
 
 pub fn corruptSwitch() noreturn {
-    call("switch on corrupt value", null, null);
+    call("switch on corrupt value", null);
 }
 
 pub fn shiftRhsTooBig() noreturn {
-    call("shift amount is greater than the type size", null, null);
+    call("shift amount is greater than the type size", null);
 }
 
 pub fn invalidEnumValue() noreturn {
-    call("invalid enum value", null, null);
+    call("invalid enum value", null);
 }
 
 pub fn forLenMismatch() noreturn {
-    call("for loop over objects with non-equal lengths", null, null);
+    call("for loop over objects with non-equal lengths", null);
 }
 
 pub fn memcpyLenMismatch() noreturn {
-    call("@memcpy arguments have non-equal lengths", null, null);
+    call("@memcpy arguments have non-equal lengths", null);
 }
 
 pub fn memcpyAlias() noreturn {
-    call("@memcpy arguments alias", null, null);
+    call("@memcpy arguments alias", null);
 }
 
 pub fn noreturnReturned() noreturn {
-    call("'noreturn' function returned", null, null);
+    call("'noreturn' function returned", null);
 }
 
 /// To be deleted after zig1.wasm update.

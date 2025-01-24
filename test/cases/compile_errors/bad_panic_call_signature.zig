@@ -1,9 +1,8 @@
 const simple_panic = std.debug.simple_panic;
 pub const panic = struct {
-    pub fn call(msg: []const u8, bad1: usize, bad2: void) noreturn {
+    pub fn call(msg: []const u8, bad: usize) noreturn {
         _ = msg;
-        _ = bad1;
-        _ = bad2;
+        _ = bad;
         @trap();
     }
     pub const sentinelMismatch = simple_panic.sentinelMismatch;
@@ -42,5 +41,5 @@ const std = @import("std");
 
 // error
 //
-// :3:9: error: expected type 'fn ([]const u8, ?*builtin.StackTrace, ?usize) noreturn', found 'fn ([]const u8, usize, void) noreturn'
-// :3:9: note: parameter 1 'usize' cannot cast into '?*builtin.StackTrace'
+// :3:9: error: expected type 'fn ([]const u8, ?usize) noreturn', found 'fn ([]const u8, usize) noreturn'
+// :3:9: note: parameter 1 'usize' cannot cast into '?usize'

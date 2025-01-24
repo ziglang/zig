@@ -158,12 +158,12 @@ fn writeFilePath(file: *Zcu.File, writer: anytype) !void {
     try writer.writeAll(file.sub_file_path);
 }
 
-pub fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, maybe_ret_addr: ?usize) noreturn {
+pub fn compilerPanic(msg: []const u8, maybe_ret_addr: ?usize) noreturn {
     @branchHint(.cold);
     PanicSwitch.preDispatch();
     const ret_addr = maybe_ret_addr orelse @returnAddress();
     const stack_ctx: StackContext = .{ .current = .{ .ret_addr = ret_addr } };
-    PanicSwitch.dispatch(error_return_trace, stack_ctx, msg);
+    PanicSwitch.dispatch(@errorReturnTrace(), stack_ctx, msg);
 }
 
 /// Attaches a global SIGSEGV handler

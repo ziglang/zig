@@ -1117,7 +1117,12 @@ pub const PanicFn = fn ([]const u8, ?*StackTrace, ?usize) noreturn;
 pub const panic: type = p: {
     if (@hasDecl(root, "panic")) {
         if (@TypeOf(root.panic) != type) {
-            break :p std.debug.FullPanic(root.panic); // Deprecated; make `panic` a namespace instead.
+            // Deprecated; make `panic` a namespace instead.
+            break :p std.debug.FullPanic(struct {
+                fn panic(msg: []const u8, ra: ?usize) noreturn {
+                    root.panic(msg, @errorReturnTrace(), ra);
+                }
+            }.panic);
         }
         break :p root.panic;
     }
