@@ -229,7 +229,7 @@ pub const page_allocator = if (@hasDecl(root, "os") and
     @hasDecl(root.os, "heap") and
     @hasDecl(root.os.heap, "page_allocator"))
     root.os.heap.page_allocator
-else if (builtin.target.isWasm())
+else if (builtin.target.cpu.arch.isWasm())
     Allocator{
         .ptr = undefined,
         .vtable = &WasmPageAllocator.vtable,
@@ -611,7 +611,7 @@ test "PageAllocator" {
     const allocator = page_allocator;
     try testAllocator(allocator);
     try testAllocatorAligned(allocator);
-    if (!builtin.target.isWasm()) {
+    if (!builtin.target.cpu.arch.isWasm()) {
         try testAllocatorLargeAlignment(allocator);
         try testAllocatorAlignedShrink(allocator);
     }
@@ -890,7 +890,7 @@ test {
     _ = @import("heap/memory_pool.zig");
     _ = ArenaAllocator;
     _ = GeneralPurposeAllocator;
-    if (builtin.target.isWasm()) {
+    if (builtin.target.cpu.arch.isWasm()) {
         _ = WasmAllocator;
         _ = WasmPageAllocator;
     }

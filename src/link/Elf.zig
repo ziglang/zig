@@ -2041,7 +2041,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                         try argv.append(lib_path);
                     }
                     try argv.append(try comp.crtFileAsString(arena, "libc_nonshared.a"));
-                } else if (target.isMusl()) {
+                } else if (target.abi.isMusl()) {
                     try argv.append(try comp.crtFileAsString(arena, switch (link_mode) {
                         .static => "libc.a",
                         .dynamic => "libc.so",

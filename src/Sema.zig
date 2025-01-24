@@ -9323,7 +9323,7 @@ pub fn handleExternLibName(
             );
             break :blk;
         }
-        if (!target.isWasm() and !block.ownerModule().pic) {
+        if (!target.cpu.arch.isWasm() and !block.ownerModule().pic) {
             return sema.fail(
                 block,
                 src_loc,
@@ -26260,7 +26260,7 @@ fn zirWasmMemorySize(
     const index_src = block.builtinCallArgSrc(extra.node, 0);
     const builtin_src = block.nodeOffset(extra.node);
     const target = sema.pt.zcu.getTarget();
-    if (!target.isWasm()) {
+    if (!target.cpu.arch.isWasm()) {
         return sema.fail(block, builtin_src, "builtin @wasmMemorySize is available when targeting WebAssembly; targeted CPU architecture is {s}", .{@tagName(target.cpu.arch)});
     }
 
@@ -26285,7 +26285,7 @@ fn zirWasmMemoryGrow(
     const index_src = block.builtinCallArgSrc(extra.node, 0);
     const delta_src = block.builtinCallArgSrc(extra.node, 1);
     const target = sema.pt.zcu.getTarget();
-    if (!target.isWasm()) {
+    if (!target.cpu.arch.isWasm()) {
         return sema.fail(block, builtin_src, "builtin @wasmMemoryGrow is available when targeting WebAssembly; targeted CPU architecture is {s}", .{@tagName(target.cpu.arch)});
     }
 

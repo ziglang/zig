@@ -2068,7 +2068,7 @@ fn resolveLibInput(
 
     const lib_name = name_query.name;
 
-    if (target.isDarwin() and link_mode == .dynamic) tbd: {
+    if (target.os.tag.isDarwin() and link_mode == .dynamic) tbd: {
         // Prefer .tbd over .dylib.
         const test_path: Path = .{
             .root_dir = lib_directory,
@@ -2105,7 +2105,7 @@ fn resolveLibInput(
 
     // In the case of Darwin, the main check will be .dylib, so here we
     // additionally check for .so files.
-    if (target.isDarwin() and link_mode == .dynamic) so: {
+    if (target.os.tag.isDarwin() and link_mode == .dynamic) so: {
         const test_path: Path = .{
             .root_dir = lib_directory,
             .sub_path = try std.fmt.allocPrint(arena, "lib{s}.so", .{lib_name}),

@@ -7,7 +7,7 @@ const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
 
 comptime {
-    if (!builtin.target.isWasm()) {
+    if (!builtin.target.cpu.arch.isWasm()) {
         @compileError("WasmPageAllocator is only available for wasm32 arch");
     }
 }

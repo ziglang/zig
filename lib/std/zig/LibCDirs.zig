@@ -127,7 +127,7 @@ fn detectFromInstallation(arena: Allocator, target: std.Target, lci: *const LibC
 
     var sysroot: ?[]const u8 = null;
 
-    if (target.isDarwin()) d: {
+    if (target.os.tag.isDarwin()) d: {
         const down1 = std.fs.path.dirname(lci.sys_include_dir.?) orelse break :d;
         const down2 = std.fs.path.dirname(down1) orelse break :d;
         try framework_list.append(try std.fs.path.join(arena, &.{ down2, "System", "Library", "Frameworks" }));
@@ -150,7 +150,7 @@ pub fn detectFromBuilding(
 ) !LibCDirs {
     const s = std.fs.path.sep_str;
 
-    if (target.isDarwin()) {
+    if (target.os.tag.isDarwin()) {
         const list = try arena.alloc([]const u8, 1);
         list[0] = try std.fmt.allocPrint(
             arena,
