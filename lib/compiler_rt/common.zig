@@ -78,16 +78,7 @@ pub const want_sparc_abi = builtin.cpu.arch.isSPARC();
 
 // Avoid dragging in the runtime safety mechanisms into this .o file, unless
 // we're trying to test compiler-rt.
-pub const Panic = if (builtin.is_test) std.debug.FormattedPanic else struct {};
-
-/// To be deleted after zig1.wasm is updated.
-pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
-    if (builtin.is_test) {
-        std.debug.defaultPanic(msg, error_return_trace, ret_addr orelse @returnAddress());
-    } else {
-        unreachable;
-    }
-}
+pub const panic = if (builtin.is_test) std.debug.FullPanic(std.debug.defaultPanic) else std.debug.no_panic;
 
 /// AArch64 is the only ABI (at the moment) to support f16 arguments without the
 /// need for extending them to wider fp types.
