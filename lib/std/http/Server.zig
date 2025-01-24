@@ -370,6 +370,7 @@ pub const Request = struct {
         keep_alive: bool = true,
         extra_headers: []const http.Header = &.{},
         transfer_encoding: ?http.TransferEncoding = null,
+        content_type: ?[]const u8 = null,
     };
 
     /// Send an entire HTTP response to the client, including headers and body.
@@ -428,6 +429,10 @@ pub const Request = struct {
         switch (options.version) {
             .@"HTTP/1.0" => if (keep_alive) h.appendSliceAssumeCapacity("connection: keep-alive\r\n"),
             .@"HTTP/1.1" => if (!keep_alive) h.appendSliceAssumeCapacity("connection: close\r\n"),
+        }
+
+        if (options.content_type) |content_type| {
+            h.fixedWriter().print("content-type: {s}\r\n", .{content_type}) catch unreachable;
         }
 
         if (options.transfer_encoding) |transfer_encoding| switch (transfer_encoding) {
@@ -580,6 +585,10 @@ pub const Request = struct {
             switch (o.version) {
                 .@"HTTP/1.0" => if (keep_alive) h.appendSliceAssumeCapacity("connection: keep-alive\r\n"),
                 .@"HTTP/1.1" => if (!keep_alive) h.appendSliceAssumeCapacity("connection: close\r\n"),
+            }
+
+            if (options.content_type) |content_type| {
+                h.fixedWriter().print("content-type: {s}\r\n", .{content_type}) catch unreachable;
             }
 
             if (o.transfer_encoding) |transfer_encoding| switch (transfer_encoding) {
