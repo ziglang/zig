@@ -109,10 +109,8 @@ test "HTTP server handles a chunked transfer coding request" {
             try expect(mem.eql(u8, buf[0..n], "ABCD"));
 
             try request.respond("message from server!\n", .{
-                .extra_headers = &.{
-                    .{ .name = "content-type", .value = "text/plain" },
-                },
                 .keep_alive = false,
+                .content_type = "text/plain",
             });
         }
     });
@@ -405,9 +403,7 @@ test "general client/server API coverage" {
                     else
                         null,
                     .respond_options = .{
-                        .extra_headers = &.{
-                            .{ .name = "content-type", .value = "text/plain" },
-                        },
+                        .content_type = "text/plain",
                     },
                 });
                 const w = response.writer();
