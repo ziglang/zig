@@ -491,6 +491,21 @@ pub const CallingConvention = union(enum(u8)) {
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
 pub const AddressSpace = enum(u5) {
+    /// The places where a user can specify an address space attribute
+    pub const Context = enum {
+        /// A function is specified to be placed in a certain address space.
+        function,
+        /// A (global) variable is specified to be placed in a certain address space.
+        /// In contrast to .constant, these values (and thus the address space they will be
+        /// placed in) are required to be mutable.
+        variable,
+        /// A (global) constant value is specified to be placed in a certain address space.
+        /// In contrast to .variable, values placed in this address space are not required to be mutable.
+        constant,
+        /// A pointer is ascripted to point into a certain address space.
+        pointer,
+    };
+
     // CPU address spaces.
     generic,
     gs,
