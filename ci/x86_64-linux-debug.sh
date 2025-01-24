@@ -73,6 +73,15 @@ stage3-debug/bin/zig build test docs \
   --zig-lib-dir "$PWD/../lib" \
   -Denable-superhtml
 
+# Ensure that dependency overrides function correctly
+wd=$PWD
+
+cd ../test/dependency_override
+./run-tests.sh ../../build-debug/stage3-debug/bin/zig
+cd $wd
+
+unset wd
+
 # Ensure that updating the wasm binary from this commit will result in a viable build.
 stage3-debug/bin/zig build update-zig1
 

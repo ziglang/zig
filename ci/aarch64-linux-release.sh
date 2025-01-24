@@ -79,6 +79,15 @@ echo "If the following command fails, it means nondeterminism has been"
 echo "introduced, making stage3 and stage4 no longer byte-for-byte identical."
 diff stage3-release/bin/zig stage4-release/bin/zig
 
+# Ensure that dependency overrides function correctly
+wd=$PWD
+
+cd ../test/dependency_override
+./run-tests.sh ../../build-release/stage3-release/bin/zig
+cd $wd
+
+unset wd
+
 # Ensure that updating the wasm binary from this commit will result in a viable build.
 stage3-release/bin/zig build update-zig1
 
