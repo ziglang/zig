@@ -183,7 +183,7 @@ fn collectLibDirsAndTriples(
         // TODO
         return;
     }
-    if (target.isAndroid()) {
+    if (target.abi.isAndroid()) {
         const AArch64AndroidTriples: [1][]const u8 = .{"aarch64-linux-android"};
         const ARMAndroidTriples: [1][]const u8 = .{"arm-linux-androideabi"};
         const MIPSELAndroidTriples: [1][]const u8 = .{"mipsel-linux-android"};

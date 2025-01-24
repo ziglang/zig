@@ -27,7 +27,7 @@ pub fn discover(self: *Linux, tc: *Toolchain) !void {
 fn buildExtraOpts(self: *Linux, tc: *const Toolchain) !void {
     const gpa = tc.driver.comp.gpa;
     const target = tc.getTarget();
-    const is_android = target.isAndroid();
+    const is_android = target.abi.isAndroid();
     if (self.distro.isAlpine() or is_android) {
         try self.extra_opts.ensureUnusedCapacity(gpa, 2);
         self.extra_opts.appendAssumeCapacity("-z");
@@ -113,7 +113,7 @@ fn findPaths(self: *Linux, tc: *Toolchain) !void {
     try tc.addPathIfExists(&.{ sysroot, "/lib", multiarch_triple }, .file);
     try tc.addPathIfExists(&.{ sysroot, "/lib", "..", os_lib_dir }, .file);
 
-    if (target.isAndroid()) {
+    if (target.abi.isAndroid()) {
         // TODO
     }
     try tc.addPathIfExists(&.{ sysroot, "/usr", "lib", multiarch_triple }, .file);
@@ -156,7 +156,7 @@ fn getStatic(self: *const Linux, d: *const Driver) bool {
 
 pub fn getDefaultLinker(self: *const Linux, target: std.Target) []const u8 {
     _ = self;
-    if (target.isAndroid()) {
+    if (target.abi.isAndroid()) {
         return "ld.lld";
     }
     return "ld";
@@ -169,7 +169,7 @@ pub fn buildLinkerArgs(self: *const Linux, tc: *const Toolchain, argv: *std.Arra
     const is_pie = self.getPIE(d);
     const is_static_pie = try self.getStaticPIE(d);
     const is_static = self.getStatic(d);
-    const is_android = target.isAndroid();
+    const is_android = target.abi.isAndroid();
     const is_iamcu = target.os.tag == .elfiamcu;
     const is_ve = target.cpu.arch == .ve;
     const has_crt_begin_end_files = target.abi != .none; // TODO: clang checks for MIPS vendor
@@ -326,7 +326,7 @@ pub fn buildLinkerArgs(self: *const Linux, tc: *const Toolchain, argv: *std.Arra
 }
 
 fn getMultiarchTriple(target: std.Target) ?[]const u8 {
-    const is_android = target.isAndroid();
+    const is_android = target.abi.isAndroid();
     const is_mips_r6 = std.Target.mips.featureSetHas(target.cpu.features, .mips32r6);
     return switch (target.cpu.arch) {
         .arm, .thumb => if (is_android) "arm-linux-androideabi" else if (target.abi == .gnueabihf) "arm-linux-gnueabihf" else "arm-linux-gnueabi",
@@ -380,7 +380,7 @@ pub fn defineSystemIncludes(self: *const Linux, tc: *const Toolchain) !void {
 
     // musl prefers /usr/include before builtin includes, so musl targets will add builtins
     // at the end of this function (unless disabled with nostdlibinc)
-    if (!tc.driver.nobuiltininc and (!target.isMusl() or tc.driver.nostdlibinc)) {
+    if (!tc.driver.nobuiltininc and (!target.abi.isMusl() or tc.driver.nostdlibinc)) {
         try comp.addBuiltinIncludeDir(tc.driver.aro_name);
     }
 
@@ -411,7 +411,7 @@ pub fn defineSystemIncludes(self: *const Linux, tc: *const Toolchain) !void {
     try comp.addSystemIncludeDir("/usr/include");
 
     std.debug.assert(!tc.driver.nostdlibinc);
-    if (!tc.driver.nobuiltininc and target.isMusl()) {
+    if (!tc.driver.nobuiltininc and target.abi.isMusl()) {
         try comp.addBuiltinIncludeDir(tc.driver.aro_name);
     }
 }
