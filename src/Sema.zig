@@ -5918,13 +5918,14 @@ fn zirCompileLog(
 }
 
 fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const src = block.nodeOffset(inst_data.src_node);
     const msg_inst = try sema.resolveInst(inst_data.operand);
 
-    // `panicWithMsg` would perform this coercion for us, but we can get a better
-    // source location if we do it here.
-    const coerced_msg = try sema.coerce(block, Type.slice_const_u8, msg_inst, block.builtinCallArgSrc(inst_data.src_node, 0));
+    const coerced_msg = try sema.coerce(block, .slice_const_u8, msg_inst, block.builtinCallArgSrc(inst_data.src_node, 0));
 
     if (block.isComptime()) {
         return sema.fail(block, src, "encountered @panic at comptime", .{});
@@ -5936,7 +5937,23 @@ fn zirPanic(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void 
         sema.branch_hint = .cold;
     }
 
-    try sema.panicWithMsg(block, src, coerced_msg, .@"@panic");
+    if (!zcu.backendSupportsFeature(.panic_fn)) {
+        _ = try block.addNoOp(.trap);
+        return;
+    }
+
+    try sema.ensureMemoizedStateResolved(src, .panic);
+    try zcu.ensureFuncBodyAnalysisQueued(zcu.builtin_decl_values.get(.@"panic.call"));
+
+    const panic_fn = Air.internedToRef(zcu.builtin_decl_values.get(.@"panic.call"));
+    const null_stack_trace = Air.internedToRef(zcu.null_stack_trace);
+
+    const opt_usize_ty = try pt.optionalType(.usize_type);
+    const null_ret_addr = Air.internedToRef((try pt.intern(.{ .opt = .{
+        .ty = opt_usize_ty.toIntern(),
+        .val = .none,
+    } })));
+    try sema.callBuiltin(block, src, panic_fn, .auto, &.{ coerced_msg, null_stack_trace, null_ret_addr }, .@"@panic");
 }
 
 fn zirTrap(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
@@ -13787,7 +13804,7 @@ fn maybeErrorUnwrap(
                 const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
                 const msg_inst = try sema.resolveInst(inst_data.operand);
 
-                const panic_fn = try getBuiltin(sema, operand_src, .@"Panic.call");
+                const panic_fn = try getBuiltin(sema, operand_src, .@"panic.call");
                 const err_return_trace = try sema.getErrorReturnTrace(block);
                 const args: [3]Air.Inst.Ref = .{ msg_inst, err_return_trace, .null_value };
                 try sema.callBuiltin(block, operand_src, Air.internedToRef(panic_fn), .auto, &args, .@"safety check");
@@ -27083,15 +27100,16 @@ fn explainWhyTypeIsNotPacked(
 /// Backends depend on panic decls being available when lowering safety-checked
 /// instructions. This function ensures the panic function will be available to
 /// be called during that time.
-fn preparePanicId(sema: *Sema, src: LazySrcLoc, panic_id: Zcu.PanicId) !InternPool.Index {
+fn preparePanicId(sema: *Sema, src: LazySrcLoc, panic_id: Zcu.SimplePanicId) !InternPool.Index {
     const zcu = sema.pt.zcu;
     try sema.ensureMemoizedStateResolved(src, .panic);
-    try zcu.ensureFuncBodyAnalysisQueued(zcu.builtin_decl_values.get(.@"Panic.call"));
+    const panic_func = zcu.builtin_decl_values.get(panic_id.toBuiltin());
+    try zcu.ensureFuncBodyAnalysisQueued(panic_func);
     switch (sema.owner.unwrap()) {
         .@"comptime", .nav_ty, .nav_val, .type, .memoized_state => {},
         .func => |owner_func| zcu.intern_pool.funcSetHasErrorTrace(owner_func, true),
     }
-    return zcu.builtin_decl_values.get(panic_id.toBuiltin());
+    return panic_func;
 }
 
 fn addSafetyCheck(
@@ -27099,7 +27117,7 @@ fn addSafetyCheck(
     parent_block: *Block,
     src: LazySrcLoc,
     ok: Air.Inst.Ref,
-    panic_id: Zcu.PanicId,
+    panic_id: Zcu.SimplePanicId,
 ) !void {
     const gpa = sema.gpa;
     assert(!parent_block.isComptime());
@@ -27186,29 +27204,6 @@ fn addSafetyCheckExtra(
     parent_block.instructions.appendAssumeCapacity(block_inst);
 }
 
-fn panicWithMsg(sema: *Sema, block: *Block, src: LazySrcLoc, msg_inst: Air.Inst.Ref, operation: CallOperation) !void {
-    const pt = sema.pt;
-    const zcu = pt.zcu;
-
-    if (!zcu.backendSupportsFeature(.panic_fn)) {
-        _ = try block.addNoOp(.trap);
-        return;
-    }
-
-    try sema.ensureMemoizedStateResolved(src, .panic);
-    try zcu.ensureFuncBodyAnalysisQueued(zcu.builtin_decl_values.get(.@"Panic.call"));
-
-    const panic_fn = Air.internedToRef(zcu.builtin_decl_values.get(.@"Panic.call"));
-    const null_stack_trace = Air.internedToRef(zcu.null_stack_trace);
-
-    const opt_usize_ty = try pt.optionalType(.usize_type);
-    const null_ret_addr = Air.internedToRef((try pt.intern(.{ .opt = .{
-        .ty = opt_usize_ty.toIntern(),
-        .val = .none,
-    } })));
-    try sema.callBuiltin(block, src, panic_fn, .auto, &.{ msg_inst, null_stack_trace, null_ret_addr }, operation);
-}
-
 fn addSafetyCheckUnwrapError(
     sema: *Sema,
     parent_block: *Block,
@@ -27246,7 +27241,7 @@ fn safetyPanicUnwrapError(sema: *Sema, block: *Block, src: LazySrcLoc, err: Air.
     if (!zcu.backendSupportsFeature(.panic_fn)) {
         _ = try block.addNoOp(.trap);
     } else {
-        const panic_fn = try getBuiltin(sema, src, .@"Panic.unwrapError");
+        const panic_fn = try getBuiltin(sema, src, .@"panic.unwrapError");
         const err_return_trace = try sema.getErrorReturnTrace(block);
         const args: [2]Air.Inst.Ref = .{ err_return_trace, err };
         try sema.callBuiltin(block, src, Air.internedToRef(panic_fn), .auto, &args, .@"safety check");
@@ -27263,7 +27258,7 @@ fn addSafetyCheckIndexOob(
 ) !void {
     assert(!parent_block.isComptime());
     const ok = try parent_block.addBinOp(cmp_op, index, len);
-    return addSafetyCheckCall(sema, parent_block, src, ok, .@"Panic.outOfBounds", &.{ index, len });
+    return addSafetyCheckCall(sema, parent_block, src, ok, .@"panic.outOfBounds", &.{ index, len });
 }
 
 fn addSafetyCheckInactiveUnionField(
@@ -27275,7 +27270,7 @@ fn addSafetyCheckInactiveUnionField(
 ) !void {
     assert(!parent_block.isComptime());
     const ok = try parent_block.addBinOp(.cmp_eq, active_tag, wanted_tag);
-    return addSafetyCheckCall(sema, parent_block, src, ok, .@"Panic.inactiveUnionField", &.{ active_tag, wanted_tag });
+    return addSafetyCheckCall(sema, parent_block, src, ok, .@"panic.inactiveUnionField", &.{ active_tag, wanted_tag });
 }
 
 fn addSafetyCheckSentinelMismatch(
@@ -27316,7 +27311,7 @@ fn addSafetyCheckSentinelMismatch(
         break :ok try parent_block.addBinOp(.cmp_eq, expected_sentinel, actual_sentinel);
     };
 
-    return addSafetyCheckCall(sema, parent_block, src, ok, .@"Panic.sentinelMismatch", &.{
+    return addSafetyCheckCall(sema, parent_block, src, ok, .@"panic.sentinelMismatch", &.{
         expected_sentinel, actual_sentinel,
     });
 }
@@ -27358,9 +27353,13 @@ fn addSafetyCheckCall(
 }
 
 /// This does not set `sema.branch_hint`.
-fn safetyPanic(sema: *Sema, block: *Block, src: LazySrcLoc, panic_id: Zcu.PanicId) CompileError!void {
-    const msg_val = try sema.preparePanicId(src, panic_id);
-    try sema.panicWithMsg(block, src, Air.internedToRef(msg_val), .@"safety check");
+fn safetyPanic(sema: *Sema, block: *Block, src: LazySrcLoc, panic_id: Zcu.SimplePanicId) CompileError!void {
+    if (!sema.pt.zcu.backendSupportsFeature(.panic_fn)) {
+        _ = try block.addNoOp(.trap);
+    } else {
+        const panic_fn = try sema.preparePanicId(src, panic_id);
+        try sema.callBuiltin(block, src, Air.internedToRef(panic_fn), .auto, &.{}, .@"safety check");
+    }
 }
 
 fn emitBackwardBranch(sema: *Sema, block: *Block, src: LazySrcLoc) !void {
@@ -32818,7 +32817,7 @@ fn analyzeSlice(
         assert(!block.isComptime());
         try sema.requireRuntimeBlock(block, src, runtime_src.?);
         const ok = try block.addBinOp(.cmp_lte, start, end);
-        try sema.addSafetyCheckCall(block, src, ok, .@"Panic.startGreaterThanEnd", &.{ start, end });
+        try sema.addSafetyCheckCall(block, src, ok, .@"panic.startGreaterThanEnd", &.{ start, end });
     }
     const new_len = if (by_length)
         try sema.coerce(block, Type.usize, uncasted_end_opt, end_src)
@@ -38525,14 +38524,9 @@ pub fn analyzeMemoizedState(sema: *Sema, block: *Block, simple_src: LazySrcLoc, 
                     break :val uncoerced_val;
                 },
                 .func => val: {
-                    if (try sema.getExpectedBuiltinFnType(src, builtin_decl)) |func_ty| {
-                        const coerced = try sema.coerce(block, func_ty, Air.internedToRef(uncoerced_val.toIntern()), src);
-                        break :val .fromInterned(coerced.toInterned().?);
-                    }
-                    if (uncoerced_val.typeOf(zcu).zigTypeTag(zcu) != .@"fn") {
-                        return sema.fail(block, src, "{s}.{s} is not a function", .{ parent_name, name });
-                    }
-                    break :val uncoerced_val;
+                    const func_ty = try sema.getExpectedBuiltinFnType(src, builtin_decl);
+                    const coerced = try sema.coerce(block, func_ty, Air.internedToRef(uncoerced_val.toIntern()), src);
+                    break :val .fromInterned(coerced.toInterned().?);
                 },
                 .string => val: {
                     const coerced = try sema.coerce(block, .slice_const_u8, Air.internedToRef(uncoerced_val.toIntern()), src);
@@ -38567,16 +38561,19 @@ pub fn analyzeMemoizedState(sema: *Sema, block: *Block, simple_src: LazySrcLoc, 
     return any_changed;
 }
 
-/// Given that `decl.kind() == .func`, get the type expected of the function if necessary.
-/// If this will be type checked by `Sema` anyway, this function may return `null`. In
-/// particular, generic functions should return `null`, as `Sema` will necessarily check
-/// them at instantiation time. Returning non-null is necessary only when backends can emit
-/// calls to the function, as is the case with the panic handler.
-fn getExpectedBuiltinFnType(sema: *Sema, src: LazySrcLoc, decl: Zcu.BuiltinDecl) CompileError!?Type {
+/// Given that `decl.kind() == .func`, get the type expected of the function.
+fn getExpectedBuiltinFnType(sema: *Sema, src: LazySrcLoc, decl: Zcu.BuiltinDecl) CompileError!Type {
     const pt = sema.pt;
     return switch (decl) {
+        // `noinline fn () void`
+        .returnError => try pt.funcType(.{
+            .param_types = &.{},
+            .return_type = .void_type,
+            .is_noinline = true,
+        }),
+
         // `fn ([]const u8, ?*StackTrace, ?usize) noreturn`
-        .@"Panic.call" => try pt.funcType(.{
+        .@"panic.call" => try pt.funcType(.{
             .param_types = &.{
                 .slice_const_u8_type,
                 (try pt.optionalType(
@@ -38589,8 +38586,17 @@ fn getExpectedBuiltinFnType(sema: *Sema, src: LazySrcLoc, decl: Zcu.BuiltinDecl)
             .return_type = .noreturn_type,
         }),
 
+        // `fn (anytype, anytype) noreturn`
+        .@"panic.sentinelMismatch",
+        .@"panic.inactiveUnionField",
+        => try pt.funcType(.{
+            .param_types = &.{ .generic_poison_type, .generic_poison_type },
+            .return_type = .noreturn_type,
+            .is_generic = true,
+        }),
+
         // `fn (?*StackTrace, anyerror) noreturn`
-        .@"Panic.unwrapError" => try pt.funcType(.{
+        .@"panic.unwrapError" => try pt.funcType(.{
             .param_types = &.{
                 (try pt.optionalType(
                     (try pt.singleMutPtrType(
@@ -38603,21 +38609,38 @@ fn getExpectedBuiltinFnType(sema: *Sema, src: LazySrcLoc, decl: Zcu.BuiltinDecl)
         }),
 
         // `fn (usize, usize) noreturn`
-        .@"Panic.outOfBounds",
-        .@"Panic.startGreaterThanEnd",
+        .@"panic.outOfBounds",
+        .@"panic.startGreaterThanEnd",
         => try pt.funcType(.{
             .param_types = &.{ .usize_type, .usize_type },
             .return_type = .noreturn_type,
         }),
 
-        // Generic functions, so calls are necessarily validated by Sema
-        .@"Panic.sentinelMismatch",
-        .@"Panic.inactiveUnionField",
-        => null,
-
-        // Other functions called exclusively by Sema
-        .returnError,
-        => null,
+        // `fn () noreturn`
+        .@"panic.reachedUnreachable",
+        .@"panic.unwrapNull",
+        .@"panic.castToNull",
+        .@"panic.incorrectAlignment",
+        .@"panic.invalidErrorCode",
+        .@"panic.castTruncatedData",
+        .@"panic.negativeToUnsigned",
+        .@"panic.integerOverflow",
+        .@"panic.shlOverflow",
+        .@"panic.shrOverflow",
+        .@"panic.divideByZero",
+        .@"panic.exactDivisionRemainder",
+        .@"panic.integerPartOutOfBounds",
+        .@"panic.corruptSwitch",
+        .@"panic.shiftRhsTooBig",
+        .@"panic.invalidEnumValue",
+        .@"panic.forLenMismatch",
+        .@"panic.memcpyLenMismatch",
+        .@"panic.memcpyAlias",
+        .@"panic.noreturnReturned",
+        => try pt.funcType(.{
+            .param_types = &.{},
+            .return_type = .noreturn_type,
+        }),
 
         else => unreachable,
     };

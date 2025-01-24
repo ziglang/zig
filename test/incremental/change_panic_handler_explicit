@@ -1,0 +1,141 @@
+#target=x86_64-linux-selfhosted
+#target=x86_64-linux-cbe
+#target=x86_64-windows-cbe
+#update=initial version
+#file=main.zig
+pub fn main() !u8 {
+    var a: u8 = undefined;
+    a = 255;
+    _ = a + 1;
+    return 1;
+}
+const no_panic = std.debug.no_panic;
+pub const panic = struct {
+    pub const call = myPanic;
+    pub fn integerOverflow() noreturn {
+        @panic("integer overflow");
+    }
+    pub const sentinelMismatch = no_panic.sentinelMismatch;
+    pub const unwrapError = no_panic.unwrapError;
+    pub const outOfBounds = no_panic.outOfBounds;
+    pub const startGreaterThanEnd = no_panic.startGreaterThanEnd;
+    pub const inactiveUnionField = no_panic.inactiveUnionField;
+    pub const reachedUnreachable = no_panic.reachedUnreachable;
+    pub const unwrapNull = no_panic.unwrapNull;
+    pub const castToNull = no_panic.castToNull;
+    pub const incorrectAlignment = no_panic.incorrectAlignment;
+    pub const invalidErrorCode = no_panic.invalidErrorCode;
+    pub const castTruncatedData = no_panic.castTruncatedData;
+    pub const negativeToUnsigned = no_panic.negativeToUnsigned;
+    pub const shlOverflow = no_panic.shlOverflow;
+    pub const shrOverflow = no_panic.shrOverflow;
+    pub const divideByZero = no_panic.divideByZero;
+    pub const exactDivisionRemainder = no_panic.exactDivisionRemainder;
+    pub const integerPartOutOfBounds = no_panic.integerPartOutOfBounds;
+    pub const corruptSwitch = no_panic.corruptSwitch;
+    pub const shiftRhsTooBig = no_panic.shiftRhsTooBig;
+    pub const invalidEnumValue = no_panic.invalidEnumValue;
+    pub const forLenMismatch = no_panic.forLenMismatch;
+    pub const memcpyLenMismatch = no_panic.memcpyLenMismatch;
+    pub const memcpyAlias = no_panic.memcpyAlias;
+    pub const noreturnReturned = no_panic.noreturnReturned;
+};
+fn myPanic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+    std.io.getStdOut().writer().print("panic message: {s}\n", .{msg}) catch {};
+    std.process.exit(0);
+}
+const std = @import("std");
+#expect_stdout="panic message: integer overflow\n"
+
+#update=change the panic handler body
+#file=main.zig
+pub fn main() !u8 {
+    var a: u8 = undefined;
+    a = 255;
+    _ = a + 1;
+    return 1;
+}
+const no_panic = std.debug.no_panic;
+pub const panic = struct {
+    pub const call = myPanic;
+    pub fn integerOverflow() noreturn {
+        @panic("integer overflow");
+    }
+    pub const sentinelMismatch = no_panic.sentinelMismatch;
+    pub const unwrapError = no_panic.unwrapError;
+    pub const outOfBounds = no_panic.outOfBounds;
+    pub const startGreaterThanEnd = no_panic.startGreaterThanEnd;
+    pub const inactiveUnionField = no_panic.inactiveUnionField;
+    pub const reachedUnreachable = no_panic.reachedUnreachable;
+    pub const unwrapNull = no_panic.unwrapNull;
+    pub const castToNull = no_panic.castToNull;
+    pub const incorrectAlignment = no_panic.incorrectAlignment;
+    pub const invalidErrorCode = no_panic.invalidErrorCode;
+    pub const castTruncatedData = no_panic.castTruncatedData;
+    pub const negativeToUnsigned = no_panic.negativeToUnsigned;
+    pub const shlOverflow = no_panic.shlOverflow;
+    pub const shrOverflow = no_panic.shrOverflow;
+    pub const divideByZero = no_panic.divideByZero;
+    pub const exactDivisionRemainder = no_panic.exactDivisionRemainder;
+    pub const integerPartOutOfBounds = no_panic.integerPartOutOfBounds;
+    pub const corruptSwitch = no_panic.corruptSwitch;
+    pub const shiftRhsTooBig = no_panic.shiftRhsTooBig;
+    pub const invalidEnumValue = no_panic.invalidEnumValue;
+    pub const forLenMismatch = no_panic.forLenMismatch;
+    pub const memcpyLenMismatch = no_panic.memcpyLenMismatch;
+    pub const memcpyAlias = no_panic.memcpyAlias;
+    pub const noreturnReturned = no_panic.noreturnReturned;
+};
+fn myPanic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+    std.io.getStdOut().writer().print("new panic message: {s}\n", .{msg}) catch {};
+    std.process.exit(0);
+}
+const std = @import("std");
+#expect_stdout="new panic message: integer overflow\n"
+
+#update=change the panic handler function value
+#file=main.zig
+pub fn main() !u8 {
+    var a: u8 = undefined;
+    a = 255;
+    _ = a + 1;
+    return 1;
+}
+const no_panic = std.debug.no_panic;
+pub const panic = struct {
+    pub const call = myPanicNew;
+    pub fn integerOverflow() noreturn {
+        @panic("integer overflow");
+    }
+    pub const sentinelMismatch = std.debug.no_panic.sentinelMismatch;
+    pub const unwrapError = std.debug.no_panic.unwrapError;
+    pub const outOfBounds = std.debug.no_panic.outOfBounds;
+    pub const startGreaterThanEnd = std.debug.no_panic.startGreaterThanEnd;
+    pub const inactiveUnionField = std.debug.no_panic.inactiveUnionField;
+    pub const messages = std.debug.no_panic.messages;
+    pub const reachedUnreachable = no_panic.reachedUnreachable;
+    pub const unwrapNull = no_panic.unwrapNull;
+    pub const castToNull = no_panic.castToNull;
+    pub const incorrectAlignment = no_panic.incorrectAlignment;
+    pub const invalidErrorCode = no_panic.invalidErrorCode;
+    pub const castTruncatedData = no_panic.castTruncatedData;
+    pub const negativeToUnsigned = no_panic.negativeToUnsigned;
+    pub const shlOverflow = no_panic.shlOverflow;
+    pub const shrOverflow = no_panic.shrOverflow;
+    pub const divideByZero = no_panic.divideByZero;
+    pub const exactDivisionRemainder = no_panic.exactDivisionRemainder;
+    pub const integerPartOutOfBounds = no_panic.integerPartOutOfBounds;
+    pub const corruptSwitch = no_panic.corruptSwitch;
+    pub const shiftRhsTooBig = no_panic.shiftRhsTooBig;
+    pub const invalidEnumValue = no_panic.invalidEnumValue;
+    pub const forLenMismatch = no_panic.forLenMismatch;
+    pub const memcpyLenMismatch = no_panic.memcpyLenMismatch;
+    pub const memcpyAlias = no_panic.memcpyAlias;
+    pub const noreturnReturned = no_panic.noreturnReturned;
+};
+fn myPanicNew(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+    std.io.getStdOut().writer().print("third panic message: {s}\n", .{msg}) catch {};
+    std.process.exit(0);
+}
+const std = @import("std");
+#expect_stdout="third panic message: integer overflow\n"

@@ -1,10 +1,10 @@
 //! This namespace is the default one used by the Zig compiler to emit various
-//! kinds of safety panics, due to the logic in `std.builtin.Panic`.
+//! kinds of safety panics, due to the logic in `std.builtin.panic`.
 //!
 //! Since Zig does not have interfaces, this file serves as an example template
 //! for users to provide their own alternative panic handling.
 //!
-//! As an alternative, see `std.debug.FormattedPanic`.
+//! As an alternative, see `std.debug.FullPanic`.
 
 const std = @import("../std.zig");
 
@@ -49,6 +49,87 @@ pub fn inactiveUnionField(active: anytype, accessed: @TypeOf(active)) noreturn {
     call("access of inactive union field", null, null);
 }
 
+pub fn reachedUnreachable() noreturn {
+    call("reached unreachable code", null, null);
+}
+
+pub fn unwrapNull() noreturn {
+    call("attempt to use null value", null, null);
+}
+
+pub fn castToNull() noreturn {
+    call("cast causes pointer to be null", null, null);
+}
+
+pub fn incorrectAlignment() noreturn {
+    call("incorrect alignment", null, null);
+}
+
+pub fn invalidErrorCode() noreturn {
+    call("invalid error code", null, null);
+}
+
+pub fn castTruncatedData() noreturn {
+    call("integer cast truncated bits", null, null);
+}
+
+pub fn negativeToUnsigned() noreturn {
+    call("attempt to cast negative value to unsigned integer", null, null);
+}
+
+pub fn integerOverflow() noreturn {
+    call("integer overflow", null, null);
+}
+
+pub fn shlOverflow() noreturn {
+    call("left shift overflowed bits", null, null);
+}
+
+pub fn shrOverflow() noreturn {
+    call("right shift overflowed bits", null, null);
+}
+
+pub fn divideByZero() noreturn {
+    call("division by zero", null, null);
+}
+
+pub fn exactDivisionRemainder() noreturn {
+    call("exact division produced remainder", null, null);
+}
+
+pub fn integerPartOutOfBounds() noreturn {
+    call("integer part of floating point value out of bounds", null, null);
+}
+
+pub fn corruptSwitch() noreturn {
+    call("switch on corrupt value", null, null);
+}
+
+pub fn shiftRhsTooBig() noreturn {
+    call("shift amount is greater than the type size", null, null);
+}
+
+pub fn invalidEnumValue() noreturn {
+    call("invalid enum value", null, null);
+}
+
+pub fn forLenMismatch() noreturn {
+    call("for loop over objects with non-equal lengths", null, null);
+}
+
+pub fn memcpyLenMismatch() noreturn {
+    call("@memcpy arguments have non-equal lengths", null, null);
+}
+
+pub fn memcpyAlias() noreturn {
+    call("@memcpy arguments alias", null, null);
+}
+
+pub fn noreturnReturned() noreturn {
+    call("'noreturn' function returned", null, null);
+}
+
+/// To be deleted after zig1.wasm update.
 pub const messages = struct {
     pub const reached_unreachable = "reached unreachable code";
     pub const unwrap_null = "attempt to use null value";
@@ -70,17 +151,4 @@ pub const messages = struct {
     pub const memcpy_len_mismatch = "@memcpy arguments have non-equal lengths";
     pub const memcpy_alias = "@memcpy arguments alias";
     pub const noreturn_returned = "'noreturn' function returned";
-
-    /// To be deleted after zig1.wasm is updated.
-    pub const inactive_union_field = "access of inactive union field";
-    /// To be deleted after zig1.wasm is updated.
-    pub const sentinel_mismatch = "sentinel mismatch";
-    /// To be deleted after zig1.wasm is updated.
-    pub const unwrap_error = "attempt to unwrap error";
-    /// To be deleted after zig1.wasm is updated.
-    pub const index_out_of_bounds = "index out of bounds";
-    /// To be deleted after zig1.wasm is updated.
-    pub const start_index_greater_than_end = "start index is larger than end index";
-    /// To be deleted after zig1.wasm is updated.
-    pub const unreach = reached_unreachable;
 };

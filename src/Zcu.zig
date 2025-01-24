@@ -269,34 +269,33 @@ pub const BuiltinDecl = enum {
     @"Type.Opaque",
     @"Type.Declaration",
 
-    Panic,
-    @"Panic.call",
-    @"Panic.sentinelMismatch",
-    @"Panic.unwrapError",
-    @"Panic.outOfBounds",
-    @"Panic.startGreaterThanEnd",
-    @"Panic.inactiveUnionField",
-    @"Panic.messages",
-    @"Panic.messages.reached_unreachable",
-    @"Panic.messages.unwrap_null",
-    @"Panic.messages.cast_to_null",
-    @"Panic.messages.incorrect_alignment",
-    @"Panic.messages.invalid_error_code",
-    @"Panic.messages.cast_truncated_data",
-    @"Panic.messages.negative_to_unsigned",
-    @"Panic.messages.integer_overflow",
-    @"Panic.messages.shl_overflow",
-    @"Panic.messages.shr_overflow",
-    @"Panic.messages.divide_by_zero",
-    @"Panic.messages.exact_division_remainder",
-    @"Panic.messages.integer_part_out_of_bounds",
-    @"Panic.messages.corrupt_switch",
-    @"Panic.messages.shift_rhs_too_big",
-    @"Panic.messages.invalid_enum_value",
-    @"Panic.messages.for_len_mismatch",
-    @"Panic.messages.memcpy_len_mismatch",
-    @"Panic.messages.memcpy_alias",
-    @"Panic.messages.noreturn_returned",
+    panic,
+    @"panic.call",
+    @"panic.sentinelMismatch",
+    @"panic.unwrapError",
+    @"panic.outOfBounds",
+    @"panic.startGreaterThanEnd",
+    @"panic.inactiveUnionField",
+    @"panic.reachedUnreachable",
+    @"panic.unwrapNull",
+    @"panic.castToNull",
+    @"panic.incorrectAlignment",
+    @"panic.invalidErrorCode",
+    @"panic.castTruncatedData",
+    @"panic.negativeToUnsigned",
+    @"panic.integerOverflow",
+    @"panic.shlOverflow",
+    @"panic.shrOverflow",
+    @"panic.divideByZero",
+    @"panic.exactDivisionRemainder",
+    @"panic.integerPartOutOfBounds",
+    @"panic.corruptSwitch",
+    @"panic.shiftRhsTooBig",
+    @"panic.invalidEnumValue",
+    @"panic.forLenMismatch",
+    @"panic.memcpyLenMismatch",
+    @"panic.memcpyAlias",
+    @"panic.noreturnReturned",
 
     VaList,
 
@@ -345,39 +344,35 @@ pub const BuiltinDecl = enum {
             .@"Type.Declaration",
             => .type,
 
-            .Panic => .type,
+            .panic => .type,
 
-            .@"Panic.call",
-            .@"Panic.sentinelMismatch",
-            .@"Panic.unwrapError",
-            .@"Panic.outOfBounds",
-            .@"Panic.startGreaterThanEnd",
-            .@"Panic.inactiveUnionField",
+            .@"panic.call",
+            .@"panic.sentinelMismatch",
+            .@"panic.unwrapError",
+            .@"panic.outOfBounds",
+            .@"panic.startGreaterThanEnd",
+            .@"panic.inactiveUnionField",
+            .@"panic.reachedUnreachable",
+            .@"panic.unwrapNull",
+            .@"panic.castToNull",
+            .@"panic.incorrectAlignment",
+            .@"panic.invalidErrorCode",
+            .@"panic.castTruncatedData",
+            .@"panic.negativeToUnsigned",
+            .@"panic.integerOverflow",
+            .@"panic.shlOverflow",
+            .@"panic.shrOverflow",
+            .@"panic.divideByZero",
+            .@"panic.exactDivisionRemainder",
+            .@"panic.integerPartOutOfBounds",
+            .@"panic.corruptSwitch",
+            .@"panic.shiftRhsTooBig",
+            .@"panic.invalidEnumValue",
+            .@"panic.forLenMismatch",
+            .@"panic.memcpyLenMismatch",
+            .@"panic.memcpyAlias",
+            .@"panic.noreturnReturned",
             => .func,
-
-            .@"Panic.messages" => .type,
-
-            .@"Panic.messages.reached_unreachable",
-            .@"Panic.messages.unwrap_null",
-            .@"Panic.messages.cast_to_null",
-            .@"Panic.messages.incorrect_alignment",
-            .@"Panic.messages.invalid_error_code",
-            .@"Panic.messages.cast_truncated_data",
-            .@"Panic.messages.negative_to_unsigned",
-            .@"Panic.messages.integer_overflow",
-            .@"Panic.messages.shl_overflow",
-            .@"Panic.messages.shr_overflow",
-            .@"Panic.messages.divide_by_zero",
-            .@"Panic.messages.exact_division_remainder",
-            .@"Panic.messages.integer_part_out_of_bounds",
-            .@"Panic.messages.corrupt_switch",
-            .@"Panic.messages.shift_rhs_too_big",
-            .@"Panic.messages.invalid_enum_value",
-            .@"Panic.messages.for_len_mismatch",
-            .@"Panic.messages.memcpy_len_mismatch",
-            .@"Panic.messages.memcpy_alias",
-            .@"Panic.messages.noreturn_returned",
-            => .string,
         };
     }
 
@@ -423,7 +418,7 @@ pub const BuiltinDecl = enum {
     const Memoized = std.enums.EnumArray(BuiltinDecl, InternPool.Index);
 };
 
-pub const PanicId = enum {
+pub const SimplePanicId = enum {
     reached_unreachable,
     unwrap_null,
     cast_to_null,
@@ -445,19 +440,31 @@ pub const PanicId = enum {
     memcpy_alias,
     noreturn_returned,
 
-    pub fn toBuiltin(id: PanicId) BuiltinDecl {
-        const first_msg: PanicId = @enumFromInt(0);
-        const first_decl = @field(BuiltinDecl, "Panic.messages." ++ @tagName(first_msg));
-        comptime {
-            // Ensure that the messages are ordered the same in `BuiltinDecl` as they are here.
-            for (@typeInfo(PanicId).@"enum".fields) |panic_field| {
-                const expect_name = "Panic.messages." ++ panic_field.name;
-                const expect_idx = @intFromEnum(first_decl) + panic_field.value;
-                const actual_idx = @intFromEnum(@field(BuiltinDecl, expect_name));
-                assert(expect_idx == actual_idx);
-            }
-        }
-        return @enumFromInt(@intFromEnum(first_decl) + @intFromEnum(id));
+    pub fn toBuiltin(id: SimplePanicId) BuiltinDecl {
+        return switch (id) {
+            // zig fmt: off
+            .reached_unreachable        => .@"panic.reachedUnreachable",
+            .unwrap_null                => .@"panic.unwrapNull",
+            .cast_to_null               => .@"panic.castToNull",
+            .incorrect_alignment        => .@"panic.incorrectAlignment",
+            .invalid_error_code         => .@"panic.invalidErrorCode",
+            .cast_truncated_data        => .@"panic.castTruncatedData",
+            .negative_to_unsigned       => .@"panic.negativeToUnsigned",
+            .integer_overflow           => .@"panic.integerOverflow",
+            .shl_overflow               => .@"panic.shlOverflow",
+            .shr_overflow               => .@"panic.shrOverflow",
+            .divide_by_zero             => .@"panic.divideByZero",
+            .exact_division_remainder   => .@"panic.exactDivisionRemainder",
+            .integer_part_out_of_bounds => .@"panic.integerPartOutOfBounds",
+            .corrupt_switch             => .@"panic.corruptSwitch",
+            .shift_rhs_too_big          => .@"panic.shiftRhsTooBig",
+            .invalid_enum_value         => .@"panic.invalidEnumValue",
+            .for_len_mismatch           => .@"panic.forLenMismatch",
+            .memcpy_len_mismatch        => .@"panic.memcpyLenMismatch",
+            .memcpy_alias               => .@"panic.memcpyAlias",
+            .noreturn_returned          => .@"panic.noreturnReturned",
+            // zig fmt: on
+        };
     }
 };
 

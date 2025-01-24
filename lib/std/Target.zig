@@ -370,7 +370,7 @@ pub const Os = struct {
         range: std.SemanticVersion.Range,
         glibc: std.SemanticVersion,
         /// Android API level.
-        android: u32 = 14, // This default value is to be deleted after zig1.wasm is updated.
+        android: u32,
 
         pub inline fn includesVersion(range: LinuxVersionRange, ver: std.SemanticVersion) bool {
             return range.range.includesVersion(ver);
