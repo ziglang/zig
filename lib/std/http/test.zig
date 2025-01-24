@@ -118,7 +118,6 @@ test "HTTP server handles a chunked transfer coding request" {
 
     const request_bytes =
         "POST / HTTP/1.1\r\n" ++
-        "Content-Type: text/plain\r\n" ++
         "Transfer-Encoding: chunked\r\n" ++
         "\r\n" ++
         "1\r\n" ++
@@ -138,8 +137,8 @@ test "HTTP server handles a chunked transfer coding request" {
     const expected_response =
         "HTTP/1.1 200 OK\r\n" ++
         "connection: close\r\n" ++
-        "content-length: 21\r\n" ++
         "content-type: text/plain\r\n" ++
+        "content-length: 21\r\n" ++
         "\r\n" ++
         "message from server!\n";
     const response = try stream.reader().readAllAlloc(gpa, expected_response.len);
