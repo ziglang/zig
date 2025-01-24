@@ -85,11 +85,13 @@ fn add(b: *Build, test_step: *Step, files: []const LazyPath, optimize: std.built
             mod.addCSourceFile(.{ .file = file, .flags = &flags });
         }
 
-        const lib_a = b.addStaticLibrary(.{
+        const lib_a = b.addLibrary(.{
+            .linkage = .static,
             .name = "test2_a",
             .root_module = mod_a,
         });
-        const lib_b = b.addStaticLibrary(.{
+        const lib_b = b.addLibrary(.{
+            .linkage = .static,
             .name = "test2_b",
             .root_module = mod_b,
         });
@@ -130,11 +132,13 @@ fn add(b: *Build, test_step: *Step, files: []const LazyPath, optimize: std.built
             lib_mod.addObject(obj);
         }
 
-        const lib_a = b.addStaticLibrary(.{
+        const lib_a = b.addLibrary(.{
+            .linkage = .static,
             .name = "test3_a",
             .root_module = mod_a,
         });
-        const lib_b = b.addStaticLibrary(.{
+        const lib_b = b.addLibrary(.{
+            .linkage = .static,
             .name = "test3_b",
             .root_module = mod_b,
         });

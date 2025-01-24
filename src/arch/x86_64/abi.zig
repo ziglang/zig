@@ -427,7 +427,7 @@ pub const zigcc = struct {
 
     const int_param_regs = gp_regs[0 .. volatile_gpr - 1];
     const x87_param_regs = x87_regs[0..volatile_x87];
-    const sse_param_regs = sse_avx_regs[0..volatile_sse];
+    const sse_param_regs = sse_avx_regs[0 .. volatile_sse / 2];
     const int_return_regs = gp_regs[0..volatile_gpr];
     const x87_return_regs = x87_regs[0..volatile_x87];
     const sse_return_regs = sse_avx_regs[0..volatile_gpr];
@@ -443,11 +443,11 @@ pub const SysV = struct {
     pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .rsi, .rdi, .r8, .r9, .r10, .r11 } ++ x87_regs ++ sse_avx_regs;
 
     pub const c_abi_int_param_regs = [_]Register{ .rdi, .rsi, .rdx, .rcx, .r8, .r9 };
-    pub const c_abi_x87_param_regs = x87_regs[0..0].*;
-    pub const c_abi_sse_param_regs = sse_avx_regs[0..8].*;
+    pub const c_abi_x87_param_regs = x87_regs[0..0];
+    pub const c_abi_sse_param_regs = sse_avx_regs[0..8];
     pub const c_abi_int_return_regs = [_]Register{ .rax, .rdx };
-    pub const c_abi_x87_return_regs = x87_regs[0..2].*;
-    pub const c_abi_sse_return_regs = sse_avx_regs[0..4].*;
+    pub const c_abi_x87_return_regs = x87_regs[0..2];
+    pub const c_abi_sse_return_regs = sse_avx_regs[0..4];
 };
 
 pub const Win64 = struct {
@@ -460,11 +460,11 @@ pub const Win64 = struct {
     pub const caller_preserved_regs = [_]Register{ .rax, .rcx, .rdx, .r8, .r9, .r10, .r11 } ++ x87_regs ++ sse_avx_regs;
 
     pub const c_abi_int_param_regs = [_]Register{ .rcx, .rdx, .r8, .r9 };
-    pub const c_abi_x87_param_regs = x87_regs[0..0].*;
-    pub const c_abi_sse_param_regs = sse_avx_regs[0..4].*;
+    pub const c_abi_x87_param_regs = x87_regs[0..0];
+    pub const c_abi_sse_param_regs = sse_avx_regs[0..4];
     pub const c_abi_int_return_regs = [_]Register{.rax};
-    pub const c_abi_x87_return_regs = x87_regs[0..0].*;
-    pub const c_abi_sse_return_regs = sse_avx_regs[0..1].*;
+    pub const c_abi_x87_return_regs = x87_regs[0..0];
+    pub const c_abi_sse_return_regs = sse_avx_regs[0..1];
 };
 
 pub fn getCalleePreservedRegs(cc: std.builtin.CallingConvention.Tag) []const Register {
@@ -497,17 +497,21 @@ pub fn getCAbiIntParamRegs(cc: std.builtin.CallingConvention.Tag) []const Regist
 pub fn getCAbiX87ParamRegs(cc: std.builtin.CallingConvention.Tag) []const Register {
     return switch (cc) {
         .auto => zigcc.x87_param_regs,
-        .x86_64_sysv => &SysV.c_abi_x87_param_regs,
-        .x86_64_win => &Win64.c_abi_x87_param_regs,
+        .x86_64_sysv => SysV.c_abi_x87_param_regs,
+        .x86_64_win => Win64.c_abi_x87_param_regs,
         else => unreachable,
     };
 }
 
-pub fn getCAbiSseParamRegs(cc: std.builtin.CallingConvention.Tag) []const Register {
+pub fn getCAbiSseParamRegs(cc: std.builtin.CallingConvention.Tag, target: *const std.Target) []const Register {
     return switch (cc) {
-        .auto => zigcc.sse_param_regs,
-        .x86_64_sysv => &SysV.c_abi_sse_param_regs,
-        .x86_64_win => &Win64.c_abi_sse_param_regs,
+        .auto => switch (target.cpu.arch) {
+            else => unreachable,
+            .x86 => zigcc.sse_param_regs[0 .. zigcc.sse_param_regs.len / 2],
+            .x86_64 => zigcc.sse_param_regs,
+        },
+        .x86_64_sysv => SysV.c_abi_sse_param_regs,
+        .x86_64_win => Win64.c_abi_sse_param_regs,
         else => unreachable,
     };
 }
@@ -524,8 +528,8 @@ pub fn getCAbiIntReturnRegs(cc: std.builtin.CallingConvention.Tag) []const Regis
 pub fn getCAbiX87ReturnRegs(cc: std.builtin.CallingConvention.Tag) []const Register {
     return switch (cc) {
         .auto => zigcc.x87_return_regs,
-        .x86_64_sysv => &SysV.c_abi_x87_return_regs,
-        .x86_64_win => &Win64.c_abi_x87_return_regs,
+        .x86_64_sysv => SysV.c_abi_x87_return_regs,
+        .x86_64_win => Win64.c_abi_x87_return_regs,
         else => unreachable,
     };
 }
@@ -533,8 +537,8 @@ pub fn getCAbiX87ReturnRegs(cc: std.builtin.CallingConvention.Tag) []const Regis
 pub fn getCAbiSseReturnRegs(cc: std.builtin.CallingConvention.Tag) []const Register {
     return switch (cc) {
         .auto => zigcc.sse_return_regs,
-        .x86_64_sysv => &SysV.c_abi_sse_return_regs,
-        .x86_64_win => &Win64.c_abi_sse_return_regs,
+        .x86_64_sysv => SysV.c_abi_sse_return_regs,
+        .x86_64_win => Win64.c_abi_sse_return_regs,
         else => unreachable,
     };
 }

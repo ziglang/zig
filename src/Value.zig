@@ -3803,10 +3803,6 @@ pub fn hasRepeatedByteRepr(val: Value, pt: Zcu.PerThread) !?u8 {
     return first_byte;
 }
 
-pub fn isGenericPoison(val: Value) bool {
-    return val.toIntern() == .generic_poison;
-}
-
 pub fn typeOf(val: Value, zcu: *const Zcu) Type {
     return Type.fromInterned(zcu.intern_pool.typeOf(val.toIntern()));
 }
@@ -3839,7 +3835,6 @@ pub const @"false": Value = .{ .ip_index = .bool_false };
 pub const @"true": Value = .{ .ip_index = .bool_true };
 pub const @"unreachable": Value = .{ .ip_index = .unreachable_value };
 
-pub const generic_poison: Value = .{ .ip_index = .generic_poison };
 pub const generic_poison_type: Value = .{ .ip_index = .generic_poison_type };
 pub const empty_tuple: Value = .{ .ip_index = .empty_tuple };
 

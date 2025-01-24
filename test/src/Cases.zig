@@ -684,7 +684,8 @@ pub fn lowerToBuildSteps(
                 .name = case.name,
                 .root_module = mod,
             }),
-            .Lib => b.addStaticLibrary(.{
+            .Lib => b.addLibrary(.{
+                .linkage = .static,
                 .name = case.name,
                 .root_module = mod,
             }),

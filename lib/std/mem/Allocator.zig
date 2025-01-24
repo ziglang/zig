@@ -282,11 +282,9 @@ pub fn reallocAdvanced(
     const old_byte_slice = mem.sliceAsBytes(old_mem);
     const byte_count = math.mul(usize, @sizeOf(T), new_n) catch return Error.OutOfMemory;
     // Note: can't set shrunk memory to undefined as memory shouldn't be modified on realloc failure
-    if (mem.isAligned(@intFromPtr(old_byte_slice.ptr), Slice.alignment)) {
-        if (self.rawResize(old_byte_slice, log2a(Slice.alignment), byte_count, return_address)) {
-            const new_bytes: []align(Slice.alignment) u8 = @alignCast(old_byte_slice.ptr[0..byte_count]);
-            return mem.bytesAsSlice(T, new_bytes);
-        }
+    if (self.rawResize(old_byte_slice, log2a(Slice.alignment), byte_count, return_address)) {
+        const new_bytes: []align(Slice.alignment) u8 = @alignCast(old_byte_slice.ptr[0..byte_count]);
+        return mem.bytesAsSlice(T, new_bytes);
     }
 
     const new_mem = self.rawAlloc(byte_count, log2a(Slice.alignment), return_address) orelse

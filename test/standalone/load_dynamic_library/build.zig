@@ -10,7 +10,8 @@ pub fn build(b: *std.Build) void {
 
     if (builtin.os.tag == .wasi) return;
 
-    const lib = b.addSharedLibrary(.{
+    const lib = b.addLibrary(.{
+        .linkage = .dynamic,
         .name = "add",
         .version = .{ .major = 1, .minor = 0, .patch = 0 },
         .root_module = b.createModule(.{

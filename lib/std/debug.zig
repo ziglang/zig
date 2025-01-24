@@ -413,16 +413,9 @@ pub fn assertReadable(slice: []const volatile u8) void {
     for (slice) |*byte| _ = byte.*;
 }
 
-/// By including a call to this function, the caller gains an error return trace
-/// secret parameter, making `@errorReturnTrace()` more useful. This is not
-/// necessary if the function already contains a call to an errorable function
-/// elsewhere.
-pub fn errorReturnTraceHelper() anyerror!void {}
-
 /// Equivalent to `@panic` but with a formatted message.
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
     @branchHint(.cold);
-    errorReturnTraceHelper() catch unreachable;
     panicExtra(@errorReturnTrace(), @returnAddress(), format, args);
 }
 
@@ -739,11 +732,12 @@ pub const StackIterator = struct {
                 // via DWARF before attempting to use the compact unwind info will produce incorrect results.
                 if (module.unwind_info) |unwind_info| {
                     if (SelfInfo.unwindFrameMachO(
+                        unwind_state.debug_info.allocator,
+                        module.base_address,
                         &unwind_state.dwarf_context,
                         &it.ma,
                         unwind_info,
                         module.eh_frame,
-                        module.base_address,
                     )) |return_address| {
                         return return_address;
                     } else |err| {
@@ -755,7 +749,14 @@ pub const StackIterator = struct {
         }
 
         if (try module.getDwarfInfoForAddress(unwind_state.debug_info.allocator, unwind_state.dwarf_context.pc)) |di| {
-            return SelfInfo.unwindFrameDwarf(di, &unwind_state.dwarf_context, &it.ma, null);
+            return SelfInfo.unwindFrameDwarf(
+                unwind_state.debug_info.allocator,
+                di,
+                module.base_address,
+                &unwind_state.dwarf_context,
+                &it.ma,
+                null,
+            );
         } else return error.MissingDebugInfo;
     }
 
@@ -1513,7 +1514,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
         }
 
         pub fn format(
-            t: Trace,
+            t: @This(),
             comptime fmt: []const u8,
             options: std.fmt.FormatOptions,
             writer: anytype,

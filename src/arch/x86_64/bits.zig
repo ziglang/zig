@@ -177,7 +177,7 @@ pub const Condition = enum(u5) {
     }
 };
 
-pub const Register = enum(u7) {
+pub const Register = enum(u8) {
     // zig fmt: off
     rax, rcx, rdx, rbx, rsp, rbp, rsi, rdi,
     r8, r9, r10, r11, r12, r13, r14, r15,
@@ -207,6 +207,12 @@ pub const Register = enum(u7) {
 
     rip, eip, ip,
 
+    cr0, cr1, cr2,  cr3,  cr4,  cr5,  cr6,  cr7,
+    cr8, cr9, cr10, cr11, cr12, cr13, cr14, cr15,
+
+    dr0, dr1, dr2,  dr3,  dr4,  dr5,  dr6,  dr7,
+    dr8, dr9, dr10, dr11, dr12, dr13, dr14, dr15,
+
     none,
     // zig fmt: on
 
@@ -217,6 +223,8 @@ pub const Register = enum(u7) {
         mmx,
         sse,
         ip,
+        cr,
+        dr,
     };
 
     pub fn class(reg: Register) Class {
@@ -235,13 +243,15 @@ pub const Register = enum(u7) {
 
             @intFromEnum(Register.es)   ... @intFromEnum(Register.gs)    => .segment,
             @intFromEnum(Register.rip)  ... @intFromEnum(Register.ip)    => .ip,
+            @intFromEnum(Register.cr0)  ... @intFromEnum(Register.cr15)  => .cr,
+            @intFromEnum(Register.dr0)  ... @intFromEnum(Register.dr15)  => .dr,
 
             else => unreachable,
             // zig fmt: on
         };
     }
 
-    pub fn id(reg: Register) u6 {
+    pub fn id(reg: Register) u7 {
         const base = switch (@intFromEnum(reg)) {
             // zig fmt: off
             @intFromEnum(Register.rax)  ... @intFromEnum(Register.r15)   => @intFromEnum(Register.rax),
@@ -254,8 +264,9 @@ pub const Register = enum(u7) {
             @intFromEnum(Register.xmm0) ... @intFromEnum(Register.xmm15) => @intFromEnum(Register.xmm0) - 16,
             @intFromEnum(Register.mm0)  ... @intFromEnum(Register.mm7)   => @intFromEnum(Register.mm0) - 32,
             @intFromEnum(Register.st0)  ... @intFromEnum(Register.st7)   => @intFromEnum(Register.st0) - 40,
-
             @intFromEnum(Register.es)   ... @intFromEnum(Register.gs)    => @intFromEnum(Register.es) - 48,
+            @intFromEnum(Register.cr0)  ... @intFromEnum(Register.cr15)  => @intFromEnum(Register.cr0) - 54,
+            @intFromEnum(Register.dr0)  ... @intFromEnum(Register.dr15)  => @intFromEnum(Register.dr0) - 70,
 
             else => unreachable,
             // zig fmt: on
@@ -279,6 +290,9 @@ pub const Register = enum(u7) {
 
             @intFromEnum(Register.es)   ... @intFromEnum(Register.gs)    => 16,
 
+            @intFromEnum(Register.cr0)  ... @intFromEnum(Register.cr15)  => 64,
+            @intFromEnum(Register.dr0)  ... @intFromEnum(Register.dr15)  => 64,
+
             else => unreachable,
             // zig fmt: on
         };
@@ -294,6 +308,9 @@ pub const Register = enum(u7) {
 
             @intFromEnum(Register.ymm8) ... @intFromEnum(Register.ymm15) => true,
             @intFromEnum(Register.xmm8) ... @intFromEnum(Register.xmm15) => true,
+
+            @intFromEnum(Register.cr8)  ... @intFromEnum(Register.cr15)  => true,
+            @intFromEnum(Register.dr8)  ... @intFromEnum(Register.dr15)  => true,
 
             else => false,
             // zig fmt: on
@@ -315,6 +332,9 @@ pub const Register = enum(u7) {
             @intFromEnum(Register.st0)  ... @intFromEnum(Register.st7)   => @intFromEnum(Register.st0),
 
             @intFromEnum(Register.es)   ... @intFromEnum(Register.gs)    => @intFromEnum(Register.es),
+
+            @intFromEnum(Register.cr0)  ... @intFromEnum(Register.cr15)  => @intFromEnum(Register.cr0),
+            @intFromEnum(Register.dr0)  ... @intFromEnum(Register.dr15)  => @intFromEnum(Register.dr0),
 
             else => unreachable,
             // zig fmt: on
@@ -397,6 +417,7 @@ pub const Register = enum(u7) {
             .mmx => 41 + @as(u6, reg.enc()),
             .segment => 50 + @as(u6, reg.enc()),
             .ip => 16,
+            .cr, .dr => unreachable,
         };
     }
 };

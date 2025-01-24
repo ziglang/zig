@@ -1169,8 +1169,7 @@ pub const WriteError = error{
     DeviceBusy,
     InvalidArgument,
 
-    /// In WASI, this error may occur when the file descriptor does
-    /// not hold the required rights to write to it.
+    /// File descriptor does not hold the required rights to write to it.
     AccessDenied,
     BrokenPipe,
     SystemResources,
@@ -1269,6 +1268,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             .FBIG => return error.FileTooBig,
             .IO => return error.InputOutput,
             .NOSPC => return error.NoSpaceLeft,
+            .ACCES => return error.AccessDenied,
             .PERM => return error.AccessDenied,
             .PIPE => return error.BrokenPipe,
             .CONNRESET => return error.ConnectionResetByPeer,
@@ -6752,6 +6752,7 @@ pub const SetSockOptError = error{
     // Setting the socket option requires more elevated permissions.
     PermissionDenied,
 
+    OperationNotSupported,
     NetworkSubsystemFailed,
     FileDescriptorNotASocket,
     SocketNotBound,
@@ -6787,6 +6788,7 @@ pub fn setsockopt(fd: socket_t, level: i32, optname: u32, opt: []const u8) SetSo
             .NOBUFS => return error.SystemResources,
             .PERM => return error.PermissionDenied,
             .NODEV => return error.NoDevice,
+            .OPNOTSUPP => return error.OperationNotSupported,
             else => |err| return unexpectedErrno(err),
         }
     }

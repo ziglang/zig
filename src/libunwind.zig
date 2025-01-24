@@ -27,6 +27,9 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     const arena = arena_allocator.allocator();
 
     const output_mode = .Lib;
+    const target = comp.root_mod.resolved_target.result;
+    const unwind_tables: std.builtin.UnwindTables =
+        if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .@"async";
     const config = Compilation.Config.resolve(.{
         .output_mode = .Lib,
         .resolved_target = comp.root_mod.resolved_target,
@@ -36,8 +39,8 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .root_optimize_mode = comp.compilerRtOptMode(),
         .root_strip = comp.compilerRtStrip(),
         .link_libc = true,
-        // Disable LTO to avoid https://github.com/llvm/llvm-project/issues/56825
-        .lto = .none,
+        .any_unwind_tables = unwind_tables != .none,
+        .lto = comp.config.lto,
     }) catch |err| {
         comp.setMiscFailure(
             .libunwind,
@@ -46,7 +49,6 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         );
         return error.SubCompilationFailed;
     };
-    const target = comp.root_mod.resolved_target.result;
     const root_mod = Module.create(arena, .{
         .global_cache_directory = comp.global_cache_directory,
         .paths = .{
@@ -66,7 +68,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             .sanitize_thread = false,
             // necessary so that libunwind can unwind through its own stack frames
             // The old 32-bit x86 variant of SEH doesn't use tables.
-            .unwind_tables = if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .@"async",
+            .unwind_tables = unwind_tables,
             .pic = if (target_util.supports_fpic(target)) true else null,
             .optimize_mode = comp.compilerRtOptMode(),
         },
@@ -102,18 +104,18 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
 
         switch (Compilation.classifyFileExt(unwind_src)) {
             .c => {
-                try cflags.append("-std=c17");
-            },
-            .cpp => {
-                try cflags.appendSlice(&[_][]const u8{
-                    "-std=c++17",
-                    "-fno-rtti",
+                try cflags.appendSlice(&.{
+                    "-std=c99",
+                    "-fexceptions",
                 });
             },
+            .cpp => {
+                try cflags.append("-fno-exceptions");
+                try cflags.append("-fno-rtti");
+            },
             .assembly_with_cpp => {},
-            else => unreachable, // You can see the entire list of files just above.
+            else => unreachable, // See `unwind_src_list`.
         }
-        try cflags.append("-fno-exceptions");
         try cflags.append("-I");
         try cflags.append(try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libunwind", "include" }));
         try cflags.append("-D_LIBUNWIND_DISABLE_VISIBILITY_ANNOTATIONS");

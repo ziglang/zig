@@ -407,7 +407,7 @@ pub fn clangSupportsNoImplicitFloatArg(target: std.Target) bool {
     };
 }
 
-pub fn needUnwindTables(target: std.Target, libunwind: bool, libtsan: bool) std.builtin.UnwindTables {
+pub fn defaultUnwindTables(target: std.Target, libunwind: bool, libtsan: bool) std.builtin.UnwindTables {
     if (target.os.tag == .windows) {
         // The old 32-bit x86 variant of SEH doesn't use tables.
         return if (target.cpu.arch != .x86) .@"async" else .none;
@@ -708,7 +708,7 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
             else => false,
         },
         .error_return_trace => switch (backend) {
-            .stage2_llvm => true,
+            .stage2_llvm, .stage2_x86_64 => true,
             else => false,
         },
         .is_named_enum_value => switch (backend) {
@@ -720,7 +720,7 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
             else => false,
         },
         .field_reordering => switch (backend) {
-            .stage2_c, .stage2_llvm => true,
+            .stage2_c, .stage2_llvm, .stage2_x86_64 => true,
             else => false,
         },
         .safety_checked_instructions => switch (backend) {

@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const pid_t = linux.pid_t;
@@ -215,7 +216,11 @@ pub fn clone() callconv(.Naked) usize {
         \\ restore
         \\2:
         \\ # Child process
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
         \\ .cfi_undefined %%i7
+    );
+    asm volatile (
         \\ mov %%g0, %%fp
         \\ mov %%g0, %%i7
         \\

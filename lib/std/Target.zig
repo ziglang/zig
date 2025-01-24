@@ -1958,7 +1958,7 @@ pub const Cpu = struct {
                 .x86_64 => &x86.cpu.x86_64,
                 .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
                 .ve => &ve.cpu.generic,
-                .wasm32, .wasm64 => &wasm.cpu.generic,
+                .wasm32, .wasm64 => &wasm.cpu.mvp,
                 .xcore => &xcore.cpu.generic,
                 .xtensa => &xtensa.cpu.generic,
 
@@ -2012,6 +2012,7 @@ pub const Cpu = struct {
                     else => generic(arch),
                 },
                 .xcore => &xcore.cpu.xs1b_generic,
+                .wasm32, .wasm64 => &wasm.cpu.lime1,
 
                 else => generic(arch),
             };

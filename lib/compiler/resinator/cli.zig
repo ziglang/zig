@@ -1,5 +1,6 @@
 const std = @import("std");
-const CodePage = @import("code_pages.zig").CodePage;
+const code_pages = @import("code_pages.zig");
+const SupportedCodePage = code_pages.SupportedCodePage;
 const lang = @import("lang.zig");
 const res = @import("res.zig");
 const Allocator = std.mem.Allocator;
@@ -13,6 +14,8 @@ pub const usage_string_after_command_name =
     \\
     \\The sequence -- can be used to signify when to stop parsing options.
     \\This is necessary when the input path begins with a forward slash.
+    \\
+    \\Supported option prefixes are /, -, and --, so e.g. /h, -h, and --h all work.
     \\
     \\Supported Win32 RC Options:
     \\  /?, /h                  Print this help and exit.
@@ -56,8 +59,6 @@ pub const usage_string_after_command_name =
     \\                            the .rc includes or otherwise depends on.
     \\  /:depfile-fmt <value>     Output format of the depfile, if /:depfile is set.
     \\    json                    (default) A top-level JSON array of paths
-    \\  /:mingw-includes <path>   Path to a directory containing MinGW include files. If
-    \\                            not specified, bundled MinGW include files will be used.
     \\
     \\Note: For compatibility reasons, all custom options start with :
     \\
@@ -136,7 +137,7 @@ pub const Options = struct {
     ignore_include_env_var: bool = false,
     preprocess: Preprocess = .yes,
     default_language_id: ?u16 = null,
-    default_code_page: ?CodePage = null,
+    default_code_page: ?SupportedCodePage = null,
     verbose: bool = false,
     symbols: std.StringArrayHashMapUnmanaged(SymbolValue) = .empty,
     null_terminate_string_table_strings: bool = false,
@@ -148,7 +149,6 @@ pub const Options = struct {
     auto_includes: AutoIncludes = .any,
     depfile_path: ?[]const u8 = null,
     depfile_fmt: DepfileFormat = .json,
-    mingw_includes_dir: ?[]const u8 = null,
 
     pub const AutoIncludes = enum { any, msvc, gnu, none };
     pub const DepfileFormat = enum { json };
@@ -242,9 +242,6 @@ pub const Options = struct {
         self.symbols.deinit(self.allocator);
         if (self.depfile_path) |depfile_path| {
             self.allocator.free(depfile_path);
-        }
-        if (self.mingw_includes_dir) |mingw_includes_dir| {
-            self.allocator.free(mingw_includes_dir);
         }
     }
 
@@ -358,6 +355,29 @@ pub const Arg = struct {
         };
     }
 
+    pub fn looksLikeFilepath(self: Arg) bool {
+        const meets_min_requirements = self.prefix == .slash and isSupportedInputExtension(std.fs.path.extension(self.full));
+        if (!meets_min_requirements) return false;
+
+        const could_be_fo_option = could_be_fo_option: {
+            var window_it = std.mem.window(u8, self.full[1..], 2, 1);
+            while (window_it.next()) |window| {
+                if (std.ascii.eqlIgnoreCase(window, "fo")) break :could_be_fo_option true;
+                // If we see '/' before "fo", then it's not possible for this to be a valid
+                // `/fo` option.
+                if (window[0] == '/') break;
+            }
+            break :could_be_fo_option false;
+        };
+        if (!could_be_fo_option) return true;
+
+        // It's still possible for a file path to look like a /fo option but not actually
+        // be one, e.g. `/foo/bar.rc`. As a last ditch effort to reduce false negatives,
+        // check if the file path exists and, if so, then we ignore the 'could be /fo option'-ness
+        std.fs.accessAbsolute(self.full, .{}) catch return false;
+        return true;
+    }
+
     pub const Value = struct {
         slice: []const u8,
         index_increment: u2 = 1,
@@ -432,6 +452,16 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             }
         }
 
+        const args_remaining = args.len - arg_i;
+        if (args_remaining <= 2 and arg.looksLikeFilepath()) {
+            var err_details = Diagnostics.ErrorDetails{ .type = .note, .print_args = true, .arg_index = arg_i };
+            var msg_writer = err_details.msg.writer(allocator);
+            try msg_writer.writeAll("this argument was inferred to be a filepath, so argument parsing was terminated");
+            try diagnostics.append(err_details);
+
+            break;
+        }
+
         while (arg.name().len > 0) {
             const arg_name = arg.name();
             // Note: These cases should be in order from longest to shortest, since
@@ -440,24 +470,6 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             if (std.ascii.startsWithIgnoreCase(arg_name, ":no-preprocess")) {
                 options.preprocess = .no;
                 arg.name_offset += ":no-preprocess".len;
-            } else if (std.ascii.startsWithIgnoreCase(arg_name, ":mingw-includes")) {
-                const value = arg.value(":mingw-includes".len, arg_i, args) catch {
-                    var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":mingw-includes".len) });
-                    try diagnostics.append(err_details);
-                    arg_i += 1;
-                    break :next_arg;
-                };
-                if (options.mingw_includes_dir) |overwritten_path| {
-                    allocator.free(overwritten_path);
-                    options.mingw_includes_dir = null;
-                }
-                const path = try allocator.dupe(u8, value.slice);
-                errdefer allocator.free(path);
-                options.mingw_includes_dir = path;
-                arg_i += value.index_increment;
-                continue :next_arg;
             } else if (std.ascii.startsWithIgnoreCase(arg_name, ":auto-includes")) {
                 const value = arg.value(":auto-includes".len, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
@@ -769,7 +781,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                     arg_i += value.index_increment;
                     continue :next_arg;
                 };
-                options.default_code_page = CodePage.getByIdentifierEnsureSupported(code_page_id) catch |err| switch (err) {
+                options.default_code_page = code_pages.getByIdentifierEnsureSupported(code_page_id) catch |err| switch (err) {
                     error.InvalidCodePage => {
                         var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
                         var msg_writer = err_details.msg.writer(allocator);
@@ -782,7 +794,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                         var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
                         var msg_writer = err_details.msg.writer(allocator);
                         try msg_writer.print("unsupported code page: {s} (id={})", .{
-                            @tagName(CodePage.getByIdentifier(code_page_id) catch unreachable),
+                            @tagName(code_pages.getByIdentifier(code_page_id) catch unreachable),
                             code_page_id,
                         });
                         try diagnostics.append(err_details);
@@ -900,18 +912,20 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
 
     const positionals = args[arg_i..];
 
-    if (positionals.len < 1) {
+    if (positionals.len == 0) {
         var err_details = Diagnostics.ErrorDetails{ .print_args = false, .arg_index = arg_i };
         var msg_writer = err_details.msg.writer(allocator);
         try msg_writer.writeAll("missing input filename");
         try diagnostics.append(err_details);
 
-        const last_arg = args[args.len - 1];
-        if (arg_i > 0 and last_arg.len > 0 and last_arg[0] == '/' and std.ascii.endsWithIgnoreCase(last_arg, ".rc")) {
-            var note_details = Diagnostics.ErrorDetails{ .type = .note, .print_args = true, .arg_index = arg_i - 1 };
-            var note_writer = note_details.msg.writer(allocator);
-            try note_writer.writeAll("if this argument was intended to be the input filename, then -- should be specified in front of it to exclude it from option parsing");
-            try diagnostics.append(note_details);
+        if (args.len > 0) {
+            const last_arg = args[args.len - 1];
+            if (arg_i > 0 and last_arg.len > 0 and last_arg[0] == '/' and std.ascii.endsWithIgnoreCase(last_arg, ".rc")) {
+                var note_details = Diagnostics.ErrorDetails{ .type = .note, .print_args = true, .arg_index = arg_i - 1 };
+                var note_writer = note_details.msg.writer(allocator);
+                try note_writer.writeAll("if this argument was intended to be the input filename, then -- should be specified in front of it to exclude it from option parsing");
+                try diagnostics.append(note_details);
+            }
         }
 
         // This is a fatal enough problem to justify an early return, since
@@ -967,6 +981,12 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
     }
 
     return options;
+}
+
+pub fn isSupportedInputExtension(ext: []const u8) bool {
+    if (std.ascii.eqlIgnoreCase(ext, ".rc")) return true;
+    if (std.ascii.eqlIgnoreCase(ext, ".rcpp")) return true;
+    return false;
 }
 
 /// Returns true if the str is a valid C identifier for use in a #define/#undef macro
@@ -1269,6 +1289,43 @@ test "parse errors: basic" {
         \\     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         \\
     );
+}
+
+test "inferred absolute filepaths" {
+    {
+        var options = try testParseWarning(&.{ "/fo", "foo.res", "/home/absolute/path.rc" },
+            \\<cli>: note: this argument was inferred to be a filepath, so argument parsing was terminated
+            \\ ... /home/absolute/path.rc
+            \\     ^~~~~~~~~~~~~~~~~~~~~~
+            \\
+        );
+        defer options.deinit();
+    }
+    {
+        var options = try testParseWarning(&.{ "/home/absolute/path.rc", "foo.res" },
+            \\<cli>: note: this argument was inferred to be a filepath, so argument parsing was terminated
+            \\ ... /home/absolute/path.rc ...
+            \\     ^~~~~~~~~~~~~~~~~~~~~~
+            \\
+        );
+        defer options.deinit();
+    }
+    {
+        // Only the last two arguments are checked, so the /h is parsed as an option
+        var options = try testParse(&.{ "/home/absolute/path.rc", "foo.rc", "foo.res" });
+        defer options.deinit();
+
+        try std.testing.expect(options.print_help_and_exit);
+    }
+    {
+        var options = try testParse(&.{ "/xvFO/some/absolute/path.res", "foo.rc" });
+        defer options.deinit();
+
+        try std.testing.expectEqual(true, options.verbose);
+        try std.testing.expectEqual(true, options.ignore_include_env_var);
+        try std.testing.expectEqualStrings("foo.rc", options.input_source.filename);
+        try std.testing.expectEqualStrings("/some/absolute/path.res", options.output_source.filename);
+    }
 }
 
 test "parse errors: /ln" {

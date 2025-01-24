@@ -1864,15 +1864,16 @@ pub const SrcLoc = struct {
                         if (want_case_idx.isSpecial()) {
                             break case;
                         }
+                        continue;
                     }
 
                     const is_multi = case.ast.values.len != 1 or
                         node_tags[case.ast.values[0]] == .switch_range;
 
-                    if (!want_case_idx.isSpecial()) switch (want_case_idx.kind) {
+                    switch (want_case_idx.kind) {
                         .scalar => if (!is_multi and want_case_idx.index == scalar_i) break case,
                         .multi => if (is_multi and want_case_idx.index == multi_i) break case,
-                    };
+                    }
 
                     if (is_multi) {
                         multi_i += 1;
@@ -2404,10 +2405,6 @@ pub const CompileError = error{
     OutOfMemory,
     /// When this is returned, the compile error for the failure has already been recorded.
     AnalysisFail,
-    /// A Type or Value was needed to be used during semantic analysis, but it was not available
-    /// because the function is generic. This is only seen when analyzing the body of a param
-    /// instruction.
-    GenericPoison,
     /// In a comptime scope, a return instruction was encountered. This error is only seen when
     /// doing a comptime function call.
     ComptimeReturn,

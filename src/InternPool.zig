@@ -620,11 +620,11 @@ pub const Nav = struct {
         return switch (nav.status) {
             .unresolved => unreachable,
             .type_resolved => |r| {
-                const tag = ip.zigTypeTagOrPoison(r.type) catch unreachable;
+                const tag = ip.zigTypeTag(r.type);
                 return tag == .@"fn";
             },
             .fully_resolved => |r| {
-                const tag = ip.zigTypeTagOrPoison(ip.typeOf(r.val)) catch unreachable;
+                const tag = ip.zigTypeTag(ip.typeOf(r.val));
                 return tag == .@"fn";
             },
         };
@@ -639,13 +639,13 @@ pub const Nav = struct {
             .unresolved => unreachable,
             .type_resolved => |r| {
                 if (r.is_extern_decl) return true;
-                const tag = ip.zigTypeTagOrPoison(r.type) catch unreachable;
+                const tag = ip.zigTypeTag(r.type);
                 if (tag == .@"fn") return true;
                 return false;
             },
             .fully_resolved => |r| {
                 if (ip.indexToKey(r.val) == .@"extern") return true;
-                const tag = ip.zigTypeTagOrPoison(ip.typeOf(r.val)) catch unreachable;
+                const tag = ip.zigTypeTag(ip.typeOf(r.val));
                 if (tag == .@"fn") return true;
                 return false;
             },
@@ -2294,17 +2294,6 @@ pub const Key = union(enum) {
             return @atomicLoad(FuncAnalysis, func.analysisPtr(ip), .unordered);
         }
 
-        pub fn setCallsOrAwaitsErrorableFn(func: Func, ip: *InternPool, value: bool) void {
-            const extra_mutex = &ip.getLocal(func.tid).mutate.extra.mutex;
-            extra_mutex.lock();
-            defer extra_mutex.unlock();
-
-            const analysis_ptr = func.analysisPtr(ip);
-            var analysis = analysis_ptr.*;
-            analysis.calls_or_awaits_errorable_fn = value;
-            @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
-        }
-
         pub fn setBranchHint(func: Func, ip: *InternPool, hint: std.builtin.BranchHint) void {
             const extra_mutex = &ip.getLocal(func.tid).mutate.extra.mutex;
             extra_mutex.lock();
@@ -3216,7 +3205,6 @@ pub const Key = union(enum) {
                 .false, .true => .bool_type,
                 .empty_tuple => .empty_tuple_type,
                 .@"unreachable" => .noreturn_type,
-                .generic_poison => .generic_poison_type,
             },
 
             .memoized_call => unreachable,
@@ -4581,6 +4569,10 @@ pub const Index = enum(u32) {
     anyerror_void_error_union_type,
     /// Used for the inferred error set of inline/comptime function calls.
     adhoc_inferred_error_set_type,
+    /// Represents a type which is unknown.
+    /// This is used in functions to represent generic parameter/return types, and
+    /// during semantic analysis to represent unknown result types (i.e. where AstGen
+    /// thought we would have a result type, but we do not).
     generic_poison_type,
     /// `@TypeOf(.{})`; a tuple with zero elements.
     /// This is not the same as `struct {}`, since that is a struct rather than a tuple.
@@ -4616,10 +4608,6 @@ pub const Index = enum(u32) {
     bool_false,
     /// `.{}`
     empty_tuple,
-
-    /// Used for generic parameters where the type and value
-    /// is not known until generic function instantiation.
-    generic_poison,
 
     /// Used by Air/Sema only.
     none = std.math.maxInt(u32),
@@ -5136,7 +5124,6 @@ pub const static_keys = [_]Key{
     .{ .simple_value = .true },
     .{ .simple_value = .false },
     .{ .simple_value = .empty_tuple },
-    .{ .simple_value = .generic_poison },
 };
 
 /// How many items in the InternPool are statically known.
@@ -5977,7 +5964,7 @@ pub const FuncAnalysis = packed struct(u32) {
     is_analyzed: bool,
     branch_hint: std.builtin.BranchHint,
     is_noinline: bool,
-    calls_or_awaits_errorable_fn: bool,
+    has_error_trace: bool,
     /// True if this function has an inferred error set.
     inferred_error_set: bool,
     disable_instrumentation: bool,
@@ -6054,8 +6041,6 @@ pub const SimpleValue = enum(u32) {
     true = @intFromEnum(Index.bool_true),
     false = @intFromEnum(Index.bool_false),
     @"unreachable" = @intFromEnum(Index.unreachable_value),
-
-    generic_poison = @intFromEnum(Index.generic_poison),
 };
 
 /// Stored as a power-of-two, with one special value to indicate none.
@@ -9011,7 +8996,7 @@ pub fn getFuncDecl(
             .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = key.is_noinline,
-            .calls_or_awaits_errorable_fn = false,
+            .has_error_trace = false,
             .inferred_error_set = false,
             .disable_instrumentation = false,
         },
@@ -9120,7 +9105,7 @@ pub fn getFuncDeclIes(
             .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = key.is_noinline,
-            .calls_or_awaits_errorable_fn = false,
+            .has_error_trace = false,
             .inferred_error_set = true,
             .disable_instrumentation = false,
         },
@@ -9316,7 +9301,7 @@ pub fn getFuncInstance(
             .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = arg.is_noinline,
-            .calls_or_awaits_errorable_fn = false,
+            .has_error_trace = false,
             .inferred_error_set = false,
             .disable_instrumentation = false,
         },
@@ -9414,7 +9399,7 @@ pub fn getFuncInstanceIes(
             .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = arg.is_noinline,
-            .calls_or_awaits_errorable_fn = false,
+            .has_error_trace = false,
             .inferred_error_set = true,
             .disable_instrumentation = false,
         },
@@ -11712,7 +11697,6 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .null_value => .null_type,
         .bool_true, .bool_false => .bool_type,
         .empty_tuple => .empty_tuple_type,
-        .generic_poison => .generic_poison_type,
 
         // This optimization on tags is needed so that indexToKey can call
         // typeOf without being recursive.
@@ -11954,7 +11938,8 @@ pub fn getBackingAddrTag(ip: *const InternPool, val: Index) ?Key.Ptr.BaseAddr.Ta
 
 /// This is a particularly hot function, so we operate directly on encodings
 /// rather than the more straightforward implementation of calling `indexToKey`.
-pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPoison}!std.builtin.TypeId {
+/// Asserts `index` is not `.generic_poison_type`.
+pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
     return switch (index) {
         .u0_type,
         .i0_type,
@@ -12017,7 +12002,7 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
         .anyerror_void_error_union_type => .error_union,
         .empty_tuple_type => .@"struct",
 
-        .generic_poison_type => return error.GenericPoison,
+        .generic_poison_type => unreachable,
 
         // values, not types
         .undef => unreachable,
@@ -12035,7 +12020,6 @@ pub fn zigTypeTagOrPoison(ip: *const InternPool, index: Index) error{GenericPois
         .bool_true => unreachable,
         .bool_false => unreachable,
         .empty_tuple => unreachable,
-        .generic_poison => unreachable,
 
         _ => switch (index.unwrap(ip).getTag(ip)) {
             .removed => unreachable,
@@ -12179,7 +12163,7 @@ pub fn funcAnalysisUnordered(ip: *const InternPool, func: Index) FuncAnalysis {
     return @atomicLoad(FuncAnalysis, ip.funcAnalysisPtr(func), .unordered);
 }
 
-pub fn funcSetCallsOrAwaitsErrorableFn(ip: *InternPool, func: Index) void {
+pub fn funcSetHasErrorTrace(ip: *InternPool, func: Index, has_error_trace: bool) void {
     const unwrapped_func = func.unwrap(ip);
     const extra_mutex = &ip.getLocal(unwrapped_func.tid).mutate.extra.mutex;
     extra_mutex.lock();
@@ -12187,7 +12171,7 @@ pub fn funcSetCallsOrAwaitsErrorableFn(ip: *InternPool, func: Index) void {
 
     const analysis_ptr = ip.funcAnalysisPtr(func);
     var analysis = analysis_ptr.*;
-    analysis.calls_or_awaits_errorable_fn = true;
+    analysis.has_error_trace = has_error_trace;
     @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
 }
 

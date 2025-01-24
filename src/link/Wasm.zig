@@ -2826,6 +2826,7 @@ pub const Feature = packed struct(u8) {
         multimemory,
         multivalue,
         @"mutable-globals",
+        @"nontrapping-bulk-memory-len0",
         @"nontrapping-fptoint",
         @"reference-types",
         @"relaxed-simd",
@@ -2835,14 +2836,44 @@ pub const Feature = packed struct(u8) {
         @"shared-mem",
 
         pub fn fromCpuFeature(feature: std.Target.wasm.Feature) Tag {
-            return @enumFromInt(@intFromEnum(feature));
+            return switch (feature) {
+                .atomics => .atomics,
+                .bulk_memory => .@"bulk-memory",
+                .exception_handling => .@"exception-handling",
+                .extended_const => .@"extended-const",
+                .half_precision => .@"half-precision",
+                .multimemory => .multimemory,
+                .multivalue => .multivalue,
+                .mutable_globals => .@"mutable-globals",
+                .nontrapping_bulk_memory_len0 => .@"nontrapping-bulk-memory-len0", // Zig extension.
+                .nontrapping_fptoint => .@"nontrapping-fptoint",
+                .reference_types => .@"reference-types",
+                .relaxed_simd => .@"relaxed-simd",
+                .sign_ext => .@"sign-ext",
+                .simd128 => .simd128,
+                .tail_call => .@"tail-call",
+            };
         }
 
         pub fn toCpuFeature(tag: Tag) ?std.Target.wasm.Feature {
-            return if (@intFromEnum(tag) < @typeInfo(std.Target.wasm.Feature).@"enum".fields.len)
-                @enumFromInt(@intFromEnum(tag))
-            else
-                null;
+            return switch (tag) {
+                .atomics => .atomics,
+                .@"bulk-memory" => .bulk_memory,
+                .@"exception-handling" => .exception_handling,
+                .@"extended-const" => .extended_const,
+                .@"half-precision" => .half_precision,
+                .multimemory => .multimemory,
+                .multivalue => .multivalue,
+                .@"mutable-globals" => .mutable_globals,
+                .@"nontrapping-bulk-memory-len0" => .nontrapping_bulk_memory_len0, // Zig extension.
+                .@"nontrapping-fptoint" => .nontrapping_fptoint,
+                .@"reference-types" => .reference_types,
+                .@"relaxed-simd" => .relaxed_simd,
+                .@"sign-ext" => .sign_ext,
+                .simd128 => .simd128,
+                .@"tail-call" => .tail_call,
+                .@"shared-mem" => null, // Linker-only feature.
+            };
         }
 
         pub const format = @compileError("use @tagName instead");
