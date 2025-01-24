@@ -1753,10 +1753,8 @@ pub const Cpu = struct {
                 .aarch64_vfabi_sve,
                 => &.{ .aarch64, .aarch64_be },
 
-                .arm_apcs,
                 .arm_aapcs,
                 .arm_aapcs_vfp,
-                .arm_aapcs16_vfp,
                 .arm_interrupt,
                 => &.{ .arm, .armeb, .thumb, .thumbeb },
 
