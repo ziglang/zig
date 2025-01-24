@@ -1514,7 +1514,7 @@ pub const Cpu = struct {
             return error.UnknownCpuModel;
         }
 
-        pub fn endian(arch: Arch) std.builtin.Endian {
+        pub inline fn endian(arch: Arch) std.builtin.Endian {
             return switch (arch) {
                 .avr,
                 .arm,

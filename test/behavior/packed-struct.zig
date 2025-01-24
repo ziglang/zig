@@ -351,7 +351,7 @@ test "byte-aligned field pointer offsets" {
                 .c = 3,
                 .d = 4,
             };
-            switch (comptime builtin.cpu.arch.endian()) {
+            switch (builtin.cpu.arch.endian()) {
                 .little => {
                     comptime assert(@TypeOf(&a.a) == *align(4) u8);
                     comptime assert(@TypeOf(&a.b) == *u8);
@@ -399,7 +399,7 @@ test "byte-aligned field pointer offsets" {
                 .a = 1,
                 .b = 2,
             };
-            switch (comptime builtin.cpu.arch.endian()) {
+            switch (builtin.cpu.arch.endian()) {
                 .little => {
                     comptime assert(@TypeOf(&b.a) == *align(4) u16);
                     comptime assert(@TypeOf(&b.b) == *u16);
@@ -927,7 +927,7 @@ test "overaligned pointer to packed struct" {
     const S = packed struct { a: u32, b: u32 };
     var foo: S align(4) = .{ .a = 123, .b = 456 };
     const ptr: *align(4) S = &foo;
-    switch (comptime builtin.cpu.arch.endian()) {
+    switch (builtin.cpu.arch.endian()) {
         .little => {
             const ptr_to_b: *u32 = &ptr.b;
             try expect(ptr_to_b.* == 456);
