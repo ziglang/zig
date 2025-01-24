@@ -631,7 +631,7 @@ fn lowerPointer(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool
 
     const ptr_info = res_ty.ptrInfo(self.sema.pt.zcu);
 
-    if (ptr_info.flags.size != .Slice) {
+    if (ptr_info.flags.size != .slice) {
         return self.fail(
             .{ .node_abs = node.getAstNode(self.file.zoir.?) },
             "non slice pointers are not available in ZON",
@@ -695,7 +695,7 @@ fn lowerPointer(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool
         .sentinel = ptr_info.sentinel,
         .flags = b: {
             var flags = ptr_info.flags;
-            flags.size = .Many;
+            flags.size = .many;
             break :b flags;
         },
         .packed_offset = ptr_info.packed_offset,

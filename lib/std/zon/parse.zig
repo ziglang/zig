@@ -331,10 +331,10 @@ pub fn free(gpa: Allocator, value: anytype) void {
         .bool, .int, .float, .@"enum" => {},
         .pointer => |pointer| {
             switch (pointer.size) {
-                .One, .Many, .C => if (comptime requiresAllocator(Value)) {
+                .one, .many, .c => if (comptime requiresAllocator(Value)) {
                     @compileError(@typeName(Value) ++ ": free cannot free non slice pointers");
                 },
-                .Slice => for (value) |item| {
+                .slice => for (value) |item| {
                     free(gpa, item);
                 },
             }
@@ -508,7 +508,7 @@ const Parser = struct {
         const ast_node = node.getAstNode(self.zoir);
         const pointer = @typeInfo(T).pointer;
         var size_hint = ZonGen.strLitSizeHint(self.ast, ast_node);
-        if (pointer.sentinel != null) size_hint += 1;
+        if (pointer.sentinel_ptr != null) size_hint += 1;
 
         var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(self.gpa, size_hint);
         defer buf.deinit(self.gpa);
@@ -522,15 +522,15 @@ const Parser = struct {
         }
 
         if (pointer.child != u8 or
-            pointer.size != .Slice or
+            pointer.size != .slice or
             !pointer.is_const or
-            (pointer.sentinel != null and @as(*const u8, @ptrCast(pointer.sentinel)).* != 0) or
+            (pointer.sentinel_ptr != null and @as(*const u8, @ptrCast(pointer.sentinel_ptr)).* != 0) or
             pointer.alignment != 1)
         {
             return self.failExpectedContainer(T, node);
         }
 
-        if (pointer.sentinel != null) {
+        if (pointer.sentinel_ptr != null) {
             return try buf.toOwnedSliceSentinel(self.gpa, 0);
         } else {
             return try buf.toOwnedSlice(self.gpa);
@@ -547,12 +547,12 @@ const Parser = struct {
 
         // Make sure we're working with a slice
         switch (pointer.size) {
-            .Slice => {},
-            .One, .Many, .C => @compileError(@typeName(T) ++ ": non slice pointers not supported"),
+            .slice => {},
+            .one, .many, .c => @compileError(@typeName(T) ++ ": non slice pointers not supported"),
         }
 
         // Allocate the slice
-        const sentinel = if (pointer.sentinel) |s| @as(*const pointer.child, @ptrCast(s)).* else null;
+        const sentinel = if (pointer.sentinel_ptr) |s| @as(*const pointer.child, @ptrCast(s)).* else null;
         const slice = try self.gpa.allocWithOptions(
             pointer.child,
             nodes.len,
@@ -706,7 +706,7 @@ const Parser = struct {
         inline for (field_found, 0..) |found, i| {
             if (!found) {
                 const field_info = field_infos[i];
-                if (field_info.default_value) |default| {
+                if (field_info.default_value_ptr) |default| {
                     const typed: *const field_info.type = @ptrCast(@alignCast(default));
                     @field(result, field_info.name) = typed.*;
                 } else {
@@ -748,7 +748,7 @@ const Parser = struct {
         inline for (0..field_infos.len) |i| {
             // Check if we're out of bounds
             if (i >= nodes.len) {
-                if (field_infos[i].default_value) |default| {
+                if (field_infos[i].default_value_ptr) |default| {
                     const typed: *const field_infos[i].type = @ptrCast(@alignCast(default));
                     @field(result, field_infos[i].name) = typed.*;
                 } else {
@@ -981,9 +981,9 @@ const Parser = struct {
             .array => return self.failNode(node, "expected tuple"),
             .pointer => |pointer| {
                 if (pointer.child == u8 and
-                    pointer.size == .Slice and
+                    pointer.size == .slice and
                     pointer.is_const and
-                    (pointer.sentinel == null or @as(*const u8, @ptrCast(pointer.sentinel)).* == 0) and
+                    (pointer.sentinel_ptr == null or @as(*const u8, @ptrCast(pointer.sentinel_ptr)).* == 0) and
                     pointer.alignment == 1)
                 {
                     return self.failNode(node, "expected string");

@@ -166,11 +166,11 @@ fn checkValueDepth(val: anytype, depth: usize) error{ExceededMaxDepth}!void {
 
     switch (@typeInfo(@TypeOf(val))) {
         .pointer => |pointer| switch (pointer.size) {
-            .One => try checkValueDepth(val.*, child_depth),
-            .Slice => for (val) |item| {
+            .one => try checkValueDepth(val.*, child_depth),
+            .slice => for (val) |item| {
                 try checkValueDepth(item, child_depth);
             },
-            .C, .Many => {},
+            .c, .many => {},
         },
         .array => for (val) |item| {
             try checkValueDepth(item, child_depth);
@@ -373,7 +373,7 @@ pub fn Serializer(Writer: type) type {
                 .pointer => |pointer| {
                     const child_type = switch (@typeInfo(pointer.child)) {
                         .array => |array| array.child,
-                        else => if (pointer.size != .Slice) @compileError(
+                        else => if (pointer.size != .slice) @compileError(
                             @typeName(@TypeOf(val)) ++ ": cannot stringify pointer to this type",
                         ) else pointer.child,
                     };
@@ -408,7 +408,7 @@ pub fn Serializer(Writer: type) type {
                         var fields = @"struct".fields.len;
                         var skipped = [1]bool{false} ** @"struct".fields.len;
                         inline for (@"struct".fields, &skipped) |field_info, *skip| {
-                            if (field_info.default_value) |default_field_value_opaque| {
+                            if (field_info.default_value_ptr) |default_field_value_opaque| {
                                 const field_value = @field(val, field_info.name);
                                 const default_field_value: *const @TypeOf(field_value) = @ptrCast(
                                     @alignCast(default_field_value_opaque),
