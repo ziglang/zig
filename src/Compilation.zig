@@ -3692,65 +3692,67 @@ fn performAllTheWorkInner(
         work_queue_wait_group.spawnManager(workerDocsWasm, .{ comp, main_progress_node });
     }
 
-    if (testAndClear(&comp.queued_jobs.compiler_rt_lib)) {
+    // In case it failed last time, try again. `clearMiscFailures` was already
+    // called at the start of `update`.
+    if (comp.queued_jobs.compiler_rt_lib and comp.compiler_rt_lib == null) {
         comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Lib, &comp.compiler_rt_lib, main_progress_node });
     }
 
-    if (testAndClear(&comp.queued_jobs.compiler_rt_obj)) {
+    if (comp.queued_jobs.compiler_rt_obj and comp.compiler_rt_obj == null) {
         comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Obj, &comp.compiler_rt_obj, main_progress_node });
     }
 
-    if (testAndClear(&comp.queued_jobs.fuzzer_lib)) {
+    if (comp.queued_jobs.fuzzer_lib and comp.fuzzer_lib == null) {
         comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "fuzzer.zig", .libfuzzer, .Lib, &comp.fuzzer_lib, main_progress_node });
     }
 
-    if (testAndClear(&comp.queued_jobs.glibc_shared_objects)) {
+    if (comp.queued_jobs.glibc_shared_objects) {
         comp.link_task_wait_group.spawnManager(buildGlibcSharedObjects, .{ comp, main_progress_node });
     }
 
-    if (testAndClear(&comp.queued_jobs.libunwind)) {
+    if (comp.queued_jobs.libunwind) {
         comp.link_task_wait_group.spawnManager(buildLibUnwind, .{ comp, main_progress_node });
     }
 
-    if (testAndClear(&comp.queued_jobs.libcxx)) {
+    if (comp.queued_jobs.libcxx) {
         comp.link_task_wait_group.spawnManager(buildLibCxx, .{ comp, main_progress_node });
     }
 
-    if (testAndClear(&comp.queued_jobs.libcxxabi)) {
+    if (comp.queued_jobs.libcxxabi) {
         comp.link_task_wait_group.spawnManager(buildLibCxxAbi, .{ comp, main_progress_node });
     }
 
-    if (testAndClear(&comp.queued_jobs.libtsan)) {
+    if (comp.queued_jobs.libtsan) {
         comp.link_task_wait_group.spawnManager(buildLibTsan, .{ comp, main_progress_node });
     }
 
-    if (testAndClear(&comp.queued_jobs.zig_libc)) {
+    if (comp.queued_jobs.zig_libc and comp.libc_static_lib == null) {
         comp.link_task_wait_group.spawnManager(buildZigLibc, .{ comp, main_progress_node });
     }
 
     for (0..@typeInfo(musl.CrtFile).@"enum".fields.len) |i| {
-        if (testAndClear(&comp.queued_jobs.musl_crt_file[i])) {
+        if (comp.queued_jobs.musl_crt_file[i]) {
             const tag: musl.CrtFile = @enumFromInt(i);
             comp.link_task_wait_group.spawnManager(buildMuslCrtFile, .{ comp, tag, main_progress_node });
         }
     }
 
     for (0..@typeInfo(glibc.CrtFile).@"enum".fields.len) |i| {
-        if (testAndClear(&comp.queued_jobs.glibc_crt_file[i])) {
+        if (comp.queued_jobs.glibc_crt_file[i]) {
             const tag: glibc.CrtFile = @enumFromInt(i);
             comp.link_task_wait_group.spawnManager(buildGlibcCrtFile, .{ comp, tag, main_progress_node });
         }
     }
 
     for (0..@typeInfo(wasi_libc.CrtFile).@"enum".fields.len) |i| {
-        if (testAndClear(&comp.queued_jobs.wasi_libc_crt_file[i])) {
+        if (comp.queued_jobs.wasi_libc_crt_file[i]) {
             const tag: wasi_libc.CrtFile = @enumFromInt(i);
             comp.link_task_wait_group.spawnManager(buildWasiLibcCrtFile, .{ comp, tag, main_progress_node });
         }
     }
 
     for (0..@typeInfo(mingw.CrtFile).@"enum".fields.len) |i| {
-        if (testAndClear(&comp.queued_jobs.mingw_crt_file[i])) {
+        if (comp.queued_jobs.mingw_crt_file[i]) {
             const tag: mingw.CrtFile = @enumFromInt(i);
             comp.link_task_wait_group.spawnManager(buildMingwCrtFile, .{ comp, tag, main_progress_node });
         }
@@ -3850,7 +3852,10 @@ fn performAllTheWorkInner(
         comp.link_task_wait_group.wait();
         comp.link_task_wait_group.reset();
         std.log.scoped(.link).debug("finished waiting for link_task_wait_group", .{});
-        assert(comp.remaining_prelink_tasks == 0);
+        if (comp.remaining_prelink_tasks > 0) {
+            // Indicates an error occurred preventing prelink phase from completing.
+            return;
+        }
     }
 
     work: while (true) {
@@ -4648,76 +4653,95 @@ fn buildRt(
 }
 
 fn buildMuslCrtFile(comp: *Compilation, crt_file: musl.CrtFile, prog_node: std.Progress.Node) void {
-    musl.buildCrtFile(comp, crt_file, prog_node) catch |err| switch (err) {
+    if (musl.buildCrtFile(comp, crt_file, prog_node)) |_| {
+        comp.queued_jobs.musl_crt_file[@intFromEnum(crt_file)] = false;
+    } else |err| switch (err) {
         error.SubCompilationFailed => return, // error reported already
         else => comp.lockAndSetMiscFailure(.musl_crt_file, "unable to build musl {s}: {s}", .{
             @tagName(crt_file), @errorName(err),
         }),
-    };
+    }
 }
 
 fn buildGlibcCrtFile(comp: *Compilation, crt_file: glibc.CrtFile, prog_node: std.Progress.Node) void {
-    glibc.buildCrtFile(comp, crt_file, prog_node) catch |err| switch (err) {
+    if (glibc.buildCrtFile(comp, crt_file, prog_node)) |_| {
+        comp.queued_jobs.glibc_crt_file[@intFromEnum(crt_file)] = false;
+    } else |err| switch (err) {
         error.SubCompilationFailed => return, // error reported already
         else => comp.lockAndSetMiscFailure(.glibc_crt_file, "unable to build glibc {s}: {s}", .{
             @tagName(crt_file), @errorName(err),
         }),
-    };
+    }
 }
 
 fn buildGlibcSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) void {
-    glibc.buildSharedObjects(comp, prog_node) catch |err| switch (err) {
+    if (glibc.buildSharedObjects(comp, prog_node)) |_| {
+        // The job should no longer be queued up since it succeeded.
+        comp.queued_jobs.glibc_shared_objects = false;
+    } else |err| switch (err) {
         error.SubCompilationFailed => return, // error reported already
         else => comp.lockAndSetMiscFailure(.glibc_shared_objects, "unable to build glibc shared objects: {s}", .{
             @errorName(err),
         }),
-    };
+    }
 }
 
 fn buildMingwCrtFile(comp: *Compilation, crt_file: mingw.CrtFile, prog_node: std.Progress.Node) void {
-    mingw.buildCrtFile(comp, crt_file, prog_node) catch |err| switch (err) {
+    if (mingw.buildCrtFile(comp, crt_file, prog_node)) |_| {
+        comp.queued_jobs.mingw_crt_file[@intFromEnum(crt_file)] = false;
+    } else |err| switch (err) {
         error.SubCompilationFailed => return, // error reported already
         else => comp.lockAndSetMiscFailure(.mingw_crt_file, "unable to build mingw-w64 {s}: {s}", .{
             @tagName(crt_file), @errorName(err),
         }),
-    };
+    }
 }
 
 fn buildWasiLibcCrtFile(comp: *Compilation, crt_file: wasi_libc.CrtFile, prog_node: std.Progress.Node) void {
-    wasi_libc.buildCrtFile(comp, crt_file, prog_node) catch |err| switch (err) {
+    if (wasi_libc.buildCrtFile(comp, crt_file, prog_node)) |_| {
+        comp.queued_jobs.wasi_libc_crt_file[@intFromEnum(crt_file)] = false;
+    } else |err| switch (err) {
         error.SubCompilationFailed => return, // error reported already
         else => comp.lockAndSetMiscFailure(.wasi_libc_crt_file, "unable to build WASI libc {s}: {s}", .{
             @tagName(crt_file), @errorName(err),
         }),
-    };
+    }
 }
 
 fn buildLibUnwind(comp: *Compilation, prog_node: std.Progress.Node) void {
-    libunwind.buildStaticLib(comp, prog_node) catch |err| switch (err) {
+    if (libunwind.buildStaticLib(comp, prog_node)) |_| {
+        comp.queued_jobs.libunwind = false;
+    } else |err| switch (err) {
         error.SubCompilationFailed => return, // error reported already
         else => comp.lockAndSetMiscFailure(.libunwind, "unable to build libunwind: {s}", .{@errorName(err)}),
-    };
+    }
 }
 
 fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) void {
-    libcxx.buildLibCxx(comp, prog_node) catch |err| switch (err) {
+    if (libcxx.buildLibCxx(comp, prog_node)) |_| {
+        comp.queued_jobs.libcxx = false;
+    } else |err| switch (err) {
         error.SubCompilationFailed => return, // error reported already
         else => comp.lockAndSetMiscFailure(.libcxx, "unable to build libcxx: {s}", .{@errorName(err)}),
-    };
+    }
 }
 
 fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) void {
-    libcxx.buildLibCxxAbi(comp, prog_node) catch |err| switch (err) {
+    if (libcxx.buildLibCxxAbi(comp, prog_node)) |_| {
+        comp.queued_jobs.libcxxabi = false;
+    } else |err| switch (err) {
         error.SubCompilationFailed => return, // error reported already
         else => comp.lockAndSetMiscFailure(.libcxxabi, "unable to build libcxxabi: {s}", .{@errorName(err)}),
-    };
+    }
 }
 
 fn buildLibTsan(comp: *Compilation, prog_node: std.Progress.Node) void {
-    libtsan.buildTsan(comp, prog_node) catch |err| switch (err) {
+    if (libtsan.buildTsan(comp, prog_node)) |_| {
+        comp.queued_jobs.libtsan = false;
+    } else |err| switch (err) {
         error.SubCompilationFailed => return, // error reported already
         else => comp.lockAndSetMiscFailure(.libtsan, "unable to build TSAN library: {s}", .{@errorName(err)}),
-    };
+    }
 }
 
 fn buildZigLibc(comp: *Compilation, prog_node: std.Progress.Node) void {
@@ -6778,10 +6802,4 @@ pub fn compilerRtOptMode(comp: Compilation) std.builtin.OptimizeMode {
 /// compiler-rt, libcxx, libc, libunwind, etc.
 pub fn compilerRtStrip(comp: Compilation) bool {
     return comp.root_mod.strip;
-}
-
-fn testAndClear(b: *bool) bool {
-    const result = b.*;
-    b.* = false;
-    return result;
 }
