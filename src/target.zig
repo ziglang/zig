@@ -673,7 +673,7 @@ pub fn fnCallConvAllowsZigTypes(cc: std.builtin.CallingConvention) bool {
         // For now we want to authorize PTX kernel to use zig objects, even if
         // we end up exposing the ABI. The goal is to experiment with more
         // integrated CPU/GPU code.
-        .nvptx_kernel => true,
+        .nvptx_kernel, .nvptx64_kernel => true,
         else => false,
     };
 }

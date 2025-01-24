@@ -3554,6 +3554,7 @@ fn updateLazyType(
 
                     .amdgcn_kernel => .LLVM_OpenCLKernel,
                     .nvptx_kernel,
+                    .nvptx64_kernel,
                     .spirv_kernel,
                     => .nocall,
 

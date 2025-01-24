@@ -9448,6 +9448,7 @@ fn callConvIsCallable(cc: std.builtin.CallingConvention.Tag) bool {
 
         .amdgcn_kernel,
         .nvptx_kernel,
+        .nvptx64_kernel,
         .spirv_kernel,
         .spirv_fragment,
         .spirv_vertex,
@@ -26888,8 +26889,9 @@ fn validateExternType(
             if (position != .other) return false;
             // For now we want to authorize PTX kernel to use zig objects, even if we end up exposing the ABI.
             // The goal is to experiment with more integrated CPU/GPU code.
-            if (ty.fnCallingConvention(zcu) == .nvptx_kernel) {
-                return true;
+            switch (ty.fnCallingConvention(zcu)) {
+                .nvptx_kernel, .nvptx64_kernel => return true,
+                else => {},
             }
             return !target_util.fnCallConvAllowsZigTypes(ty.fnCallingConvention(zcu));
         },

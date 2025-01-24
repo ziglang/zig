@@ -183,7 +183,8 @@ pub const CallingConvention = union(enum(u8)) {
 
     pub const kernel: CallingConvention = switch (builtin.target.cpu.arch) {
         .amdgcn => .amdgcn_kernel,
-        .nvptx, .nvptx64 => .nvptx_kernel,
+        .nvptx => .nvptx_kernel,
+        .nvptx64 => .nvptx64_kernel,
         .spirv, .spirv32, .spirv64 => .spirv_kernel,
         else => unreachable,
     };
@@ -394,9 +395,13 @@ pub const CallingConvention = union(enum(u8)) {
     amdgcn_kernel,
     amdgcn_cs: CommonOptions,
 
-    // Calling conventions for the `nvptx` and `nvptx64` architectures.
+    // Calling conventions for the `nvptx` architecture.
     nvptx_device,
     nvptx_kernel,
+
+    // Calling conventions for the `nvptx64` architecture.
+    nvptx64_device,
+    nvptx64_kernel,
 
     // Calling conventions for kernels and shaders on the `spirv`, `spirv32`, and `spirv64` architectures.
     spirv_device,

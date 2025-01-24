@@ -1851,7 +1851,11 @@ pub const Cpu = struct {
 
                 .nvptx_device,
                 .nvptx_kernel,
-                => &.{ .nvptx, .nvptx64 },
+                => &.{.nvptx},
+
+                .nvptx64_device,
+                .nvptx64_kernel,
+                => &.{.nvptx64},
 
                 .spirv_device,
                 .spirv_kernel,

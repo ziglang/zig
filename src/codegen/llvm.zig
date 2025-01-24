@@ -11747,8 +11747,8 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .m68k_interrupt => .m68k_intrcc,
         .amdgcn_kernel => .amdgpu_kernel,
         .amdgcn_cs => .amdgpu_cs,
-        .nvptx_device => .ptx_device,
-        .nvptx_kernel => .ptx_kernel,
+        .nvptx_device, .nvptx64_device => .ptx_device,
+        .nvptx_kernel, .nvptx64_kernel => .ptx_kernel,
 
         // Calling conventions which LLVM uses function attributes for.
         .riscv64_interrupt,
