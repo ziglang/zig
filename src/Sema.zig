@@ -1293,6 +1293,7 @@ fn analyzeBodyInner(
             .sub_sat    => try sema.zirArithmetic(block, inst, .sub_sat,    true),
 
             .div       => try sema.zirDiv(block, inst),
+            .div_ceil => try sema.zirDivCeil(block, inst),
             .div_exact => try sema.zirDivExact(block, inst),
             .div_floor => try sema.zirDivFloor(block, inst),
             .div_trunc => try sema.zirDivTrunc(block, inst),
@@ -15320,7 +15321,7 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
             return sema.fail(
                 block,
                 src,
-                "division with '{}' and '{}': signed integers must use @divTrunc, @divFloor, or @divExact",
+                "division with '{}' and '{}': signed integers must use @divTrunc, @divFloor, @divCeil, or @divExact",
                 .{ lhs_ty.fmt(pt), rhs_ty.fmt(pt) },
             );
         }
@@ -15330,6 +15331,117 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
         .strict => Air.Inst.Tag.div_float,
     };
     return block.addBinOp(air_tag, casted_lhs, casted_rhs);
+}
+
+fn zirDivCeil(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+    const src = block.src(.{ .node_offset_bin_op = inst_data.src_node });
+    const lhs_src = block.src(.{ .node_offset_bin_lhs = inst_data.src_node });
+    const rhs_src = block.src(.{ .node_offset_bin_rhs = inst_data.src_node });
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const lhs = try sema.resolveInst(extra.lhs);
+    const rhs = try sema.resolveInst(extra.rhs);
+    const lhs_ty = sema.typeOf(lhs);
+    const rhs_ty = sema.typeOf(rhs);
+    const lhs_zig_ty_tag = lhs_ty.zigTypeTag(zcu);
+    const rhs_zig_ty_tag = rhs_ty.zigTypeTag(zcu);
+    try sema.checkVectorizableBinaryOperands(block, src, lhs_ty, rhs_ty, lhs_src, rhs_src);
+    try sema.checkInvalidPtrIntArithmetic(block, src, lhs_ty);
+
+    const instructions = &[_]Air.Inst.Ref{ lhs, rhs };
+    const resolved_type = try sema.resolvePeerTypes(block, src, instructions, .{
+        .override = &[_]?LazySrcLoc{ lhs_src, rhs_src },
+    });
+
+    const casted_lhs = try sema.coerce(block, resolved_type, lhs, lhs_src);
+    const casted_rhs = try sema.coerce(block, resolved_type, rhs, rhs_src);
+
+    const lhs_scalar_ty = lhs_ty.scalarType(zcu);
+    const rhs_scalar_ty = rhs_ty.scalarType(zcu);
+    const scalar_tag = resolved_type.scalarType(zcu).zigTypeTag(zcu);
+
+    const is_int = scalar_tag == .int or scalar_tag == .comptime_int;
+
+    try sema.checkArithmeticOp(block, src, scalar_tag, lhs_zig_ty_tag, rhs_zig_ty_tag, .div_ceil);
+
+    const maybe_lhs_val = try sema.resolveValueIntable(casted_lhs);
+    const maybe_rhs_val = try sema.resolveValueIntable(casted_rhs);
+
+    const runtime_src = rs: {
+        // For integers:
+        // If the lhs is zero, then zero is returned regardless of rhs.
+        // If the rhs is zero, compile error for division by zero.
+        // If the rhs is undefined, compile error because there is a possible
+        // value (zero) for which the division would be illegal behavior.
+        // If the lhs is undefined:
+        //   * if lhs type is signed:
+        //     * if rhs is comptime-known and not -1, result is undefined
+        //     * if rhs is -1 or runtime-known, compile error because there is a
+        //        possible value (-min_int / -1)  for which division would be
+        //        illegal behavior.
+        //   * if lhs type is unsigned, undef is returned regardless of rhs.
+        // TODO: emit runtime safety for division by zero
+        //
+        // For floats:
+        // If the rhs is zero, compile error for division by zero.
+        // If the rhs is undefined, compile error because there is a possible
+        // value (zero) for which the division would be illegal behavior.
+        // If the lhs is undefined, result is undefined.
+        if (maybe_lhs_val) |lhs_val| {
+            if (!lhs_val.isUndef(zcu)) {
+                if (try lhs_val.compareAllWithZeroSema(.eq, pt)) {
+                    const scalar_zero = switch (scalar_tag) {
+                        .comptime_float, .float => try pt.floatValue(resolved_type.scalarType(zcu), 0.0),
+                        .comptime_int, .int => try pt.intValue(resolved_type.scalarType(zcu), 0),
+                        else => unreachable,
+                    };
+                    const zero_val = try sema.splat(resolved_type, scalar_zero);
+                    return Air.internedToRef(zero_val.toIntern());
+                }
+            }
+        }
+        if (maybe_rhs_val) |rhs_val| {
+            if (rhs_val.isUndef(zcu)) {
+                return sema.failWithUseOfUndef(block, rhs_src);
+            }
+            if (!(try rhs_val.compareAllWithZeroSema(.neq, pt))) {
+                return sema.failWithDivideByZero(block, rhs_src);
+            }
+            // TODO: if the RHS is one, return the LHS directly
+        }
+        if (maybe_lhs_val) |lhs_val| {
+            if (lhs_val.isUndef(zcu)) {
+                if (lhs_scalar_ty.isSignedInt(zcu) and rhs_scalar_ty.isSignedInt(zcu)) {
+                    if (maybe_rhs_val) |rhs_val| {
+                        if (try sema.compareAll(rhs_val, .neq, try pt.intValue(resolved_type, -1), resolved_type)) {
+                            return pt.undefRef(resolved_type);
+                        }
+                    }
+                    return sema.failWithUseOfUndef(block, rhs_src);
+                }
+                return pt.undefRef(resolved_type);
+            }
+
+            if (maybe_rhs_val) |rhs_val| {
+                if (is_int) {
+                    return Air.internedToRef((try lhs_val.intDivCeil(rhs_val, resolved_type, sema.arena, pt)).toIntern());
+                } else {
+                    return Air.internedToRef((try lhs_val.floatDivCeil(rhs_val, resolved_type, sema.arena, pt)).toIntern());
+                }
+            } else break :rs rhs_src;
+        } else break :rs lhs_src;
+    };
+
+    try sema.requireRuntimeBlock(block, src, runtime_src);
+
+    if (block.wantSafety()) {
+        try sema.addDivIntOverflowSafety(block, src, resolved_type, lhs_scalar_ty, maybe_lhs_val, maybe_rhs_val, casted_lhs, casted_rhs, is_int);
+        try sema.addDivByZeroSafety(block, src, resolved_type, maybe_rhs_val, casted_rhs, is_int);
+    }
+
+    return block.addBinOp(airTag(block, is_int, .div_ceil, .div_ceil_optimized), casted_lhs, casted_rhs);
 }
 
 fn zirDivExact(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -19935,7 +20047,7 @@ fn analyzeRet(
 fn floatOpAllowed(tag: Zir.Inst.Tag) bool {
     // extend this swich as additional operators are implemented
     return switch (tag) {
-        .add, .sub, .mul, .div, .div_exact, .div_trunc, .div_floor, .mod, .rem, .mod_rem => true,
+        .add, .sub, .mul, .div, .div_ceil, .div_exact, .div_trunc, .div_floor, .mod, .rem, .mod_rem => true,
         else => false,
     };
 }

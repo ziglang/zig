@@ -895,6 +895,7 @@ fn testDivFloor() !void {
 /// infinity. Returns an error on overflow or when denominator is
 /// zero.
 pub fn divCeil(comptime T: type, numerator: T, denominator: T) !T {
+    // TODO: replace with @divCeil once https://github.com/ziglang/zig/pull/21757 is merged
     @setRuntimeSafety(false);
     if (denominator == 0) return error.DivisionByZero;
     const info = @typeInfo(T);

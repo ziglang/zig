@@ -5085,6 +5085,7 @@ pub const FuncGen = struct {
                 .div_float => try self.airDivFloat(inst, .normal),
                 .div_trunc => try self.airDivTrunc(inst, .normal),
                 .div_floor => try self.airDivFloor(inst, .normal),
+                .div_ceil  => try self.airDivCeil(inst, .normal),
                 .div_exact => try self.airDivExact(inst, .normal),
                 .rem       => try self.airRem(inst, .normal),
                 .mod       => try self.airMod(inst, .normal),
@@ -5102,6 +5103,7 @@ pub const FuncGen = struct {
                 .div_float_optimized => try self.airDivFloat(inst, .fast),
                 .div_trunc_optimized => try self.airDivTrunc(inst, .fast),
                 .div_floor_optimized => try self.airDivFloor(inst, .fast),
+                .div_ceil_optimized  => try self.airDivCeil(inst, .fast),
                 .div_exact_optimized => try self.airDivExact(inst, .fast),
                 .rem_optimized       => try self.airRem(inst, .fast),
                 .mod_optimized       => try self.airMod(inst, .fast),
@@ -8604,6 +8606,54 @@ pub const FuncGen = struct {
             return self.wip.bin(.@"add nsw", div, correction, "divFloor");
         }
         return self.wip.bin(.udiv, lhs, rhs, "");
+    }
+
+    fn airDivCeil(self: *FuncGen, inst: Air.Inst.Index, fast: Builder.FastMathKind) !Builder.Value {
+        const o = self.ng.object;
+        const zcu = o.pt.zcu;
+        const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+        const lhs = try self.resolveInst(bin_op.lhs);
+        const rhs = try self.resolveInst(bin_op.rhs);
+        const inst_ty = self.typeOfIndex(inst);
+        const scalar_ty = inst_ty.scalarType(zcu);
+
+        if (scalar_ty.isRuntimeFloat()) {
+            const result = try self.buildFloatOp(.div, fast, inst_ty, 2, .{ lhs, rhs });
+            return self.buildFloatOp(.ceil, fast, inst_ty, 1, .{result});
+        } else if (scalar_ty.isSignedInt(zcu)) {
+            const inst_llvm_ty = try o.lowerType(inst_ty);
+            const bit_size_minus_one = try o.builder.splatValue(inst_llvm_ty, try o.builder.intConst(
+                inst_llvm_ty.scalarType(&o.builder),
+                inst_llvm_ty.scalarBits(&o.builder) - 1,
+            ));
+            const zero = try o.builder.zeroInitValue(inst_llvm_ty);
+            const one = try o.builder.splatValue(inst_llvm_ty, try o.builder.intConst(inst_llvm_ty.scalarType(&o.builder), 1));
+
+            const quotient = try self.wip.bin(.sdiv, lhs, rhs, "");
+            const rem = try self.wip.bin(.srem, lhs, rhs, "");
+
+            const quotient_sign = try self.wip.bin(.xor, lhs, rhs, "");
+            // quotient_sign_mask has all bits set to 1 if the result is negative, or 0
+            // otherwise.
+            const quotient_sign_mask = try self.wip.bin(.ashr, quotient_sign, bit_size_minus_one, "");
+            // correction_if_inexact is 0 if the result is negative, 1 otherwise.
+            const correction_if_inexact = try self.wip.bin(.add, quotient_sign_mask, one, "");
+            const is_rem_nonzero = try self.wip.icmp(.ne, rem, zero, "");
+            const correction = try self.wip.select(fast, is_rem_nonzero, correction_if_inexact, zero, "");
+
+            return self.wip.bin(.@"add nsw", quotient, correction, "");
+        }
+        // unsigned int
+        const inst_llvm_ty = try o.lowerType(inst_ty);
+        const zero = try o.builder.zeroInitValue(inst_llvm_ty);
+        const one = try o.builder.splatValue(inst_llvm_ty, try o.builder.intConst(inst_llvm_ty.scalarType(&o.builder), 1));
+
+        const quotient = try self.wip.bin(.udiv, lhs, rhs, "");
+        const rem = try self.wip.bin(.urem, lhs, rhs, "");
+        const is_non_zero = try self.wip.icmp(.ne, rem, zero, "");
+        const correction = try self.wip.select(fast, is_non_zero, one, zero, "");
+
+        return try self.wip.bin(.@"add nuw", quotient, correction, "");
     }
 
     fn airDivExact(self: *FuncGen, inst: Air.Inst.Index, fast: Builder.FastMathKind) !Builder.Value {

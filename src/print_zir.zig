@@ -403,6 +403,7 @@ const Writer = struct {
             .int_cast,
             .ptr_cast,
             .truncate,
+            .div_ceil,
             .div_exact,
             .div_floor,
             .div_trunc,

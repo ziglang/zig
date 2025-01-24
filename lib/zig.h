@@ -694,6 +694,15 @@ typedef ptrdiff_t intptr_t;
         return lhs / rhs + (lhs % rhs != INT##w##_C(0) ? zig_shr_i##w(lhs ^ rhs, UINT8_C(w) - UINT8_C(1)) : INT##w##_C(0)); \
     } \
 \
+    static inline uint##w##_t zig_div_ceil_u##w(uint##w##_t lhs, uint##w##_t rhs) { \
+        return lhs / rhs + (lhs % rhs != UINT##w##_C(0) ? UINT##w##_C(1) : UINT##w##_C(0)); \
+    } \
+\
+    static inline int##w##_t zig_div_ceil_i##w(int##w##_t lhs, int##w##_t rhs) { \
+        return lhs / rhs + (lhs % rhs != INT##w##_C(0) \
+            ? zig_shr_i##w(lhs ^ rhs, UINT8_C(w) - UINT8_C(1)) + INT##w##_C(1) : INT##w##_C(0)); \
+    } \
+\
     zig_basic_operator(uint##w##_t, mod_u##w, %) \
 \
     static inline int##w##_t zig_mod_i##w(int##w##_t lhs, int##w##_t rhs) { \
@@ -1598,6 +1607,21 @@ static inline zig_i128 zig_div_floor_i128(zig_i128 lhs, zig_i128 rhs) {
     int64_t mask = zig_or_u64((uint64_t)zig_hi_i128(rem), zig_lo_i128(rem)) != UINT64_C(0)
         ? zig_shr_i64(zig_xor_i64(zig_hi_i128(lhs), zig_hi_i128(rhs)), UINT8_C(63)) : INT64_C(0);
     return zig_add_i128(zig_div_trunc_i128(lhs, rhs), zig_make_i128(mask, (uint64_t)mask));
+}
+
+static inline zig_u128 zig_div_ceil_u128(zig_u128 lhs, zig_u128 rhs) {
+    zig_u128 rem = zig_rem_u128(lhs, rhs);
+    uint64_t mask = zig_or_u64(zig_hi_u128(rem), zig_lo_u128(rem)) != UINT64_C(0)
+        ? UINT64_C(1) : UINT64_C(0);
+    return zig_add_u128(zig_div_trunc_u128(lhs, rhs), zig_make_u128(UINT64_C(0), mask));
+}
+
+static inline zig_i128 zig_div_ceil_i128(zig_i128 lhs, zig_i128 rhs) {
+    zig_i128 rem = zig_rem_i128(lhs, rhs);
+    int64_t mask = zig_or_u64((uint64_t)zig_hi_i128(rem), zig_lo_i128(rem)) != UINT64_C(0)
+        ? zig_shr_i64(zig_xor_i64(zig_hi_i128(lhs), zig_hi_i128(rhs)), UINT8_C(63)) + INT64_C(1)
+        : INT64_C(0);
+    return zig_add_i128(zig_div_trunc_i128(lhs, rhs), zig_make_i128(INT64_C(0), (uint64_t)mask));
 }
 
 #define zig_mod_u128 zig_rem_u128
@@ -2775,6 +2799,13 @@ static inline void zig_div_floor_big(void *res, const void *lhs, const void *rhs
     zig_trap();
 }
 
+static inline void zig_div_ceil_big(void *res, const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
+    // TODO: need another wrapper for divmod from lib/compiler_rt/udivmodei4.zig
+    // but is this even needed?
+
+    zig_trap();
+}
+
 zig_extern void __umodei4(uint32_t *res, const uint32_t *lhs, const uint32_t *rhs, uintptr_t bits);
 static inline void zig_rem_big(void *res, const void *lhs, const void *rhs, bool is_signed, uint16_t bits) {
     if (!is_signed) {
@@ -3533,6 +3564,10 @@ zig_float_negate_builtin(128, zig_make_u128, (UINT64_C(1) << 63, UINT64_C(0)))
 \
     static inline zig_f##w zig_div_floor_f##w(zig_f##w lhs, zig_f##w rhs) { \
         return zig_floor_f##w(zig_div_f##w(lhs, rhs)); \
+    } \
+\
+    static inline zig_f##w zig_div_ceil_f##w(zig_f##w lhs, zig_f##w rhs) { \
+        return zig_ceil_f##w(zig_div_f##w(lhs, rhs)); \
     } \
 \
     static inline zig_f##w zig_mod_f##w(zig_f##w lhs, zig_f##w rhs) { \

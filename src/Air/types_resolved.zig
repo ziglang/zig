@@ -44,6 +44,8 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .div_trunc_optimized,
             .div_floor,
             .div_floor_optimized,
+            .div_ceil,
+            .div_ceil_optimized,
             .div_exact,
             .div_exact_optimized,
             .rem,

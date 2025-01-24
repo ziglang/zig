@@ -227,6 +227,8 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .div_floor_optimized,
             .div_exact,
             .div_exact_optimized,
+            .div_ceil,
+            .div_ceil_optimized,
             .rem,
             .rem_optimized,
             .mod,
