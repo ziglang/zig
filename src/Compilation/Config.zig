@@ -12,14 +12,13 @@ link_libunwind: bool,
 /// True if and only if the c_source_files field will have nonzero length when
 /// calling Compilation.create.
 any_c_source_files: bool,
-/// This is not `.none` if any `Module` has `unwind_tables` set explicitly to a
+/// This is `true` if any `Module` has `unwind_tables` set explicitly to a
 /// value other than `.none`. Until `Compilation.create()` is called, it is
-/// possible for this to be `.none` while in fact all `Module` instances have
+/// possible for this to be `false` while in fact all `Module` instances have
 /// `unwind_tables != .none` due to the default. After `Compilation.create()` is
 /// called, this will also take into account the default setting, making this
-/// value `.sync` or `.@"async"` if and only if any `Module` has
-/// `unwind_tables != .none`.
-any_unwind_tables: std.builtin.UnwindTables,
+/// value `true` if and only if any `Module` has `unwind_tables != .none`.
+any_unwind_tables: bool,
 /// This is true if any Module has single_threaded set explicitly to false. Until
 /// Compilation.create is called, it is possible for this to be false while in
 /// fact all Module instances have single_threaded=false due to the default
@@ -57,6 +56,7 @@ export_memory: bool,
 shared_memory: bool,
 is_test: bool,
 debug_format: DebugFormat,
+root_optimize_mode: std.builtin.OptimizeMode,
 root_strip: bool,
 root_error_tracing: bool,
 dll_export_fns: bool,
@@ -88,7 +88,7 @@ pub const Options = struct {
     any_non_single_threaded: bool = false,
     any_sanitize_thread: bool = false,
     any_fuzz: bool = false,
-    any_unwind_tables: std.builtin.UnwindTables = .none,
+    any_unwind_tables: bool = false,
     any_dyn_libs: bool = false,
     any_c_source_files: bool = false,
     any_non_stripped: bool = false,
@@ -359,12 +359,6 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b false;
     };
 
-    const any_unwind_tables = b: {
-        if (options.any_unwind_tables != .none) break :b options.any_unwind_tables;
-
-        break :b target_util.needUnwindTables(target, link_libunwind, options.any_sanitize_thread);
-    };
-
     const link_mode = b: {
         const explicitly_exe_or_dyn_lib = switch (options.output_mode) {
             .Obj => false,
@@ -496,7 +490,7 @@ pub fn resolve(options: Options) ResolveError!Config {
         .link_libc = link_libc,
         .link_libcpp = link_libcpp,
         .link_libunwind = link_libunwind,
-        .any_unwind_tables = any_unwind_tables,
+        .any_unwind_tables = options.any_unwind_tables,
         .any_c_source_files = options.any_c_source_files,
         .any_non_single_threaded = options.any_non_single_threaded,
         .any_error_tracing = any_error_tracing,
@@ -515,6 +509,7 @@ pub fn resolve(options: Options) ResolveError!Config {
         .use_lld = use_lld,
         .wasi_exec_model = wasi_exec_model,
         .debug_format = debug_format,
+        .root_optimize_mode = root_optimize_mode,
         .root_strip = root_strip,
         .dll_export_fns = dll_export_fns,
         .rdynamic = rdynamic,
