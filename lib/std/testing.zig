@@ -1148,6 +1148,18 @@ pub const FuzzInputOptions = struct {
     corpus: []const []const u8 = &.{},
 };
 
+/// Calling this function from a test marks it as a fuzz test.
+///
+/// Fuzz tests are run by `zig build test --fuzz`. The fuzzer repeatedly call
+/// the given callback and evolve its input to maximize the code coverage and
+/// find crashes in your program.
+///
+/// Your test case should be 100% deterministic. You can spawn threads but
+/// should join them all before returning to avoid resource leaks. There should
+/// be zero global state that could affect execution across runs. The fuzzer
+/// assumes that given identical input, your function will behave 100 %
+/// identically.
+///
 /// Inline to avoid coverage instrumentation.
 pub inline fn fuzz(
     comptime testOne: fn (input: []const u8) anyerror!void,
