@@ -442,12 +442,11 @@ pub fn addrSpaceCastIsValid(
     from: AddressSpace,
     to: AddressSpace,
 ) bool {
-    const arch = target.cpu.arch;
-    switch (arch) {
-        .x86_64, .x86 => return arch.supportsAddressSpace(from, null) and arch.supportsAddressSpace(to, null),
+    switch (target.cpu.arch) {
+        .x86_64, .x86 => return target.cpu.supportsAddressSpace(from, null) and target.cpu.supportsAddressSpace(to, null),
         .nvptx64, .nvptx, .amdgcn => {
-            const to_generic = arch.supportsAddressSpace(from, null) and to == .generic;
-            const from_generic = arch.supportsAddressSpace(to, null) and from == .generic;
+            const to_generic = target.cpu.supportsAddressSpace(from, null) and to == .generic;
+            const from_generic = target.cpu.supportsAddressSpace(to, null) and from == .generic;
             return to_generic or from_generic;
         },
         else => return from == .generic and to == .generic,

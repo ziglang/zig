@@ -1576,34 +1576,6 @@ pub const Cpu = struct {
             };
         }
 
-        /// Returns whether this architecture supports `address_space`. If `context` is `null`, this
-        /// function simply answers the general question of whether the architecture has any concept
-        /// of `address_space`; if non-`null`, the function additionally checks whether
-        /// `address_space` is valid in that context.
-        pub fn supportsAddressSpace(
-            arch: Arch,
-            address_space: std.builtin.AddressSpace,
-            context: ?std.builtin.AddressSpace.Context,
-        ) bool {
-            const is_nvptx = arch.isNvptx();
-            const is_spirv = arch.isSpirV();
-            const is_gpu = is_nvptx or is_spirv or arch == .amdgcn;
-            return switch (address_space) {
-                .generic => true,
-                .fs, .gs, .ss => (arch == .x86_64 or arch == .x86) and (context == null or context == .pointer),
-                .global, .local, .shared => is_gpu,
-                .constant => is_gpu and (context == null or context == .constant),
-                .param => is_nvptx,
-                .input, .output, .uniform, .push_constant, .storage_buffer => is_spirv,
-                // TODO this should also check how many flash banks the cpu has
-                .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr,
-
-                // Propeller address spaces:
-                .cog, .hub => arch == .propeller,
-                .lut => arch == .propeller, // TODO: This should check for the `p2` CPU feature.
-            };
-        }
-
         /// Returns a name that matches the lib/std/target/* source file name.
         pub fn genericName(arch: Arch) [:0]const u8 {
             return switch (arch) {
@@ -1998,6 +1970,35 @@ pub const Cpu = struct {
     /// of features that is expected to be supported on most available hardware.
     pub fn baseline(arch: Arch, os: Os) Cpu {
         return Model.baseline(arch, os).toCpu(arch);
+    }
+
+    /// Returns whether this architecture supports `address_space`. If `context` is `null`, this
+    /// function simply answers the general question of whether the architecture has any concept
+    /// of `address_space`; if non-`null`, the function additionally checks whether
+    /// `address_space` is valid in that context.
+    pub fn supportsAddressSpace(
+        cpu: Cpu,
+        address_space: std.builtin.AddressSpace,
+        context: ?std.builtin.AddressSpace.Context,
+    ) bool {
+        const arch = cpu.arch;
+
+        const is_nvptx = arch.isNvptx();
+        const is_spirv = arch.isSpirV();
+        const is_gpu = is_nvptx or is_spirv or arch == .amdgcn;
+
+        return switch (address_space) {
+            .generic => true,
+            .fs, .gs, .ss => (arch == .x86_64 or arch == .x86) and (context == null or context == .pointer),
+            .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr, // TODO this should also check how many flash banks the cpu has
+            .cog, .hub => arch == .propeller,
+            .lut => arch == .propeller and std.Target.propeller.featureSetHas(cpu.features, .p2),
+
+            .global, .local, .shared => is_gpu,
+            .constant => is_gpu and (context == null or context == .constant),
+            .param => is_nvptx,
+            .input, .output, .uniform, .push_constant, .storage_buffer => is_spirv,
+        };
     }
 };
 

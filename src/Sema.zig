@@ -37244,9 +37244,8 @@ pub fn analyzeAsAddressSpace(
     const addrspace_val = try sema.resolveConstDefinedValue(block, src, coerced, .{ .simple = .@"addrspace" });
     const address_space = try sema.interpretBuiltinType(block, src, addrspace_val, std.builtin.AddressSpace);
     const target = pt.zcu.getTarget();
-    const arch = target.cpu.arch;
 
-    if (!arch.supportsAddressSpace(address_space, ctx)) {
+    if (!target.cpu.supportsAddressSpace(address_space, ctx)) {
         // TODO error messages could be made more elaborate here
         const entity = switch (ctx) {
             .function => "functions",
@@ -37258,7 +37257,7 @@ pub fn analyzeAsAddressSpace(
             block,
             src,
             "{s} with address space '{s}' are not supported on {s}",
-            .{ entity, @tagName(address_space), arch.genericName() },
+            .{ entity, @tagName(address_space), target.cpu.arch.genericName() },
         );
     }
 
