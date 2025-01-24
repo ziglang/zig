@@ -5,6 +5,5 @@ export fn entry() void {
 }
 
 // error
-// target=native
 //
 // :3:9: error: unable to open 'bogus-does-not-exist.zon': FileNotFound

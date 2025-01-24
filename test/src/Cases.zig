@@ -487,7 +487,7 @@ fn addFromDirInner(
                     .pie = pie,
                     .deps = std.ArrayList(DepModule).init(ctx.cases.allocator),
                     .imports = imports,
-                    .target = b.resolveTargetQuery(target_query),
+                    .target = resolved_target,
                 });
                 try cases.append(next);
             }

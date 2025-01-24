@@ -60,11 +60,6 @@ pub const Error = union(enum) {
     period_after_exponent: usize,
 };
 
-const FormatWithSource = struct {
-    bytes: []const u8,
-    err: Error,
-};
-
 /// Parse Zig number literal accepted by fmt.parseInt, fmt.parseFloat and big_int.setString.
 /// Valid for any input.
 pub fn parseNumberLiteral(bytes: []const u8) Result {

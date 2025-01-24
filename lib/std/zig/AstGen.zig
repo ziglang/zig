@@ -11557,7 +11557,7 @@ fn failWithStrLitError(
     offset: u32,
 ) InnerError {
     const raw_string = bytes[offset..];
-    return AstGen.failOff(
+    return failOff(
         astgen,
         token,
         @intCast(offset + err.offset()),

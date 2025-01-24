@@ -483,7 +483,7 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field. `payload_index` points to a `FuncFancy`.
         func_fancy,
         /// Implements the `@import` builtin.
-        /// Uses the `str_tok` field.
+        /// Uses the `pl_tok` field.
         import,
         /// Integer literal that fits in a u64. Uses the `int` union field.
         int,

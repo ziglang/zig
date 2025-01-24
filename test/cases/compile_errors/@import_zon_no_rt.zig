@@ -6,4 +6,4 @@ export fn entry() void {
 // error
 // imports=zon/simple_union.zon
 //
-// tmp.zig:2:23: error: import ZON must have a known result type
+// tmp.zig:2:23: error: '@import' of ZON must have a known result type

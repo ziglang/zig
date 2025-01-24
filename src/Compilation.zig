@@ -3634,6 +3634,7 @@ pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Zcu.File) !void {
 
 pub fn addZoirErrorMessages(eb: *ErrorBundle.Wip, file: *Zcu.File) !void {
     assert(file.source_loaded);
+    assert(file.tree_loaded);
     const gpa = eb.gpa;
     const src_path = try file.fullPath(gpa);
     defer gpa.free(src_path);

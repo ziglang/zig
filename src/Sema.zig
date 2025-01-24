@@ -13974,12 +13974,12 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             };
 
             if (extra.res_ty == .none) {
-                return sema.fail(block, operand_src, "import ZON must have a known result type", .{});
+                return sema.fail(block, operand_src, "'@import' of ZON must have a known result type", .{});
             }
             const res_ty_inst = try sema.resolveInst(extra.res_ty);
             const res_ty = try sema.analyzeAsType(block, operand_src, res_ty_inst);
             if (res_ty.isGenericPoison()) {
-                return sema.fail(block, operand_src, "import ZON must have a known result type", .{});
+                return sema.fail(block, operand_src, "'@import' of ZON must have a known result type", .{});
             }
 
             const interned = try zon.lower(

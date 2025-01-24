@@ -44,7 +44,6 @@ pub const Thread = @import("Thread.zig");
 pub const Treap = @import("treap.zig").Treap;
 pub const Tz = tz.Tz;
 pub const Uri = @import("Uri.zig");
-pub const zon = @import("zon.zig");
 
 pub const array_hash_map = @import("array_hash_map.zig");
 pub const atomic = @import("atomic.zig");
@@ -94,6 +93,7 @@ pub const valgrind = @import("valgrind.zig");
 pub const wasm = @import("wasm.zig");
 pub const zig = @import("zig.zig");
 pub const zip = @import("zip.zig");
+pub const zon = @import("zon.zig");
 pub const start = @import("start.zig");
 
 const root = @import("root");

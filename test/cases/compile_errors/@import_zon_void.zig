@@ -8,4 +8,3 @@ export fn entry() void {
 //
 // void.zon:1:11: error: void literals are not available in ZON
 // void.zon:1:11: note: void union payloads can be represented by enum literals
-// void.zon:1:11: note: for example, `.{ .foo = {} }` becomes `.foo`

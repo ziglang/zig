@@ -270,7 +270,6 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
             if (size == 0) {
                 try zg.addErrorNodeNotes(node, "void literals are not available in ZON", .{}, &.{
                     try zg.errNoteNode(node, "void union payloads can be represented by enum literals", .{}),
-                    try zg.errNoteNode(node, "for example, `.{{ .foo = {{}} }}` becomes `.foo`", .{}),
                 });
             } else {
                 try zg.addErrorNode(node, "blocks are not allowed in ZON", .{});

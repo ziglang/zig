@@ -17,7 +17,7 @@
 //! * anonymous tuple literals
 //!
 //! Here is an example ZON object:
-//! ```zon
+//! ```
 //! .{
 //!     .a = 1.5,
 //!     .b = "hello, world!",
@@ -27,7 +27,7 @@
 //! ```
 //!
 //! Individual primitives are also valid ZON, for example:
-//! ```zon
+//! ```
 //! "This string is a valid ZON object."
 //! ```
 //!

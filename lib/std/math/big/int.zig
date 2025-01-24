@@ -2225,25 +2225,20 @@ pub const Const = struct {
 
     /// Convert self to float type T.
     pub fn toFloat(self: Const, comptime T: type) T {
-        switch (@typeInfo(T)) {
-            .float => {
-                if (self.limbs.len == 0) return 0;
+        if (self.limbs.len == 0) return 0;
 
-                const base = std.math.maxInt(std.math.big.Limb) + 1;
-                var result: f128 = 0;
-                var i: usize = self.limbs.len;
-                while (i != 0) {
-                    i -= 1;
-                    const limb: f128 = @floatFromInt(self.limbs[i]);
-                    result = @mulAdd(f128, base, result, limb);
-                }
-                if (self.positive) {
-                    return @floatCast(result);
-                } else {
-                    return @floatCast(-result);
-                }
-            },
-            else => @compileError("expected float type, found '" ++ @typeName(T) ++ "'"),
+        const base = std.math.maxInt(std.math.big.Limb) + 1;
+        var result: f128 = 0;
+        var i: usize = self.limbs.len;
+        while (i != 0) {
+            i -= 1;
+            const limb: f128 = @floatFromInt(self.limbs[i]);
+            result = @mulAdd(f128, base, result, limb);
+        }
+        if (self.positive) {
+            return @floatCast(result);
+        } else {
+            return @floatCast(-result);
         }
     }
 

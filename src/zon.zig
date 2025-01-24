@@ -71,18 +71,6 @@ fn fail(
     return self.sema.failWithOwnedErrorMsg(self.block, err_msg);
 }
 
-const Ident = struct {
-    bytes: []const u8,
-    owned: bool,
-
-    fn deinit(self: *Ident, allocator: Allocator) void {
-        if (self.owned) {
-            allocator.free(self.bytes);
-        }
-        self.* = undefined;
-    }
-};
-
 fn lowerExpr(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) CompileError!InternPool.Index {
     switch (Type.zigTypeTag(res_ty, self.sema.pt.zcu)) {
         .bool => return self.lowerBool(node),
@@ -502,7 +490,7 @@ fn lowerTuple(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.I
     const field_defaults = tuple_info.values.get(ip);
     const field_types = tuple_info.types.get(ip);
     const elems = try self.sema.arena.alloc(InternPool.Index, field_types.len);
-    for (elems) |*v| v.* = .none;
+    @memset(elems, .none);
 
     for (0..elem_nodes.len) |i| {
         if (i >= elems.len) {
@@ -570,7 +558,7 @@ fn lowerStruct(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
 
     const field_defaults = struct_info.field_inits.get(ip);
     const field_values = try self.sema.arena.alloc(InternPool.Index, struct_info.field_names.len);
-    for (field_values) |*v| v.* = .none;
+    @memset(field_values, .none);
 
     for (0..fields.names.len) |i| {
         const field_name = try ip.getOrPutString(
@@ -627,7 +615,7 @@ fn lowerStruct(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
     for (field_values, field_names) |*value, name| {
         if (value.* == .none) return self.fail(
             .{ .node_abs = node.getAstNode(self.file.zoir.?) },
-            "missing field {}",
+            "missing field '{}'",
             .{name.fmt(ip)},
         );
     }
