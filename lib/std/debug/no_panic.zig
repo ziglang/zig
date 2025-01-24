@@ -134,27 +134,3 @@ pub fn noreturnReturned() noreturn {
     @branchHint(.cold);
     @trap();
 }
-
-/// To be deleted after zig1.wasm update.
-pub const messages = struct {
-    pub const reached_unreachable = "";
-    pub const unwrap_null = "";
-    pub const cast_to_null = "";
-    pub const incorrect_alignment = "";
-    pub const invalid_error_code = "";
-    pub const cast_truncated_data = "";
-    pub const negative_to_unsigned = "";
-    pub const integer_overflow = "";
-    pub const shl_overflow = "";
-    pub const shr_overflow = "";
-    pub const divide_by_zero = "";
-    pub const exact_division_remainder = "";
-    pub const integer_part_out_of_bounds = "";
-    pub const corrupt_switch = "";
-    pub const shift_rhs_too_big = "";
-    pub const invalid_enum_value = "";
-    pub const for_len_mismatch = "";
-    pub const memcpy_len_mismatch = "";
-    pub const memcpy_alias = "";
-    pub const noreturn_returned = "";
-};

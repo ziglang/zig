@@ -134,9 +134,6 @@ pub fn FullPanic(comptime panicFn: fn ([]const u8, ?usize) noreturn) type {
             @branchHint(.cold);
             call("'noreturn' function returned", @returnAddress());
         }
-
-        /// To be deleted after zig1.wasm update.
-        pub const messages = simple_panic.messages;
     };
 }
 

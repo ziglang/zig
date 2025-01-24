@@ -1135,9 +1135,6 @@ pub const panic: type = p: {
     break :p std.debug.FullPanic(std.debug.defaultPanic);
 };
 
-/// To be deleted after zig1.wasm is updated.
-pub const Panic = panic;
-
 pub noinline fn returnError() void {
     @branchHint(.unlikely);
     @setRuntimeSafety(false);
