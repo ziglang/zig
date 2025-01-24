@@ -131,23 +131,23 @@ fn accept(ws: *WebServer, connection: std.net.Server.Connection) void {
     }
 }
 
+const FileMapEntry = struct { path: []const u8, mime: []const u8 };
+pub const staticFileMap = std.StaticStringMap(FileMapEntry).initComptime(&.{
+    .{ "/", FileMapEntry{ .path = "fuzzer/web/index.html", .mime = "text/html" } },
+    .{ "/debug", FileMapEntry{ .path = "fuzzer/web/index.html", .mime = "text/html" } },
+    .{ "/debug/", FileMapEntry{ .path = "fuzzer/web/index.html", .mime = "text/html" } },
+    .{ "/main.js", FileMapEntry{ .path = "fuzzer/web/main.js", .mime = "application/javascript" } },
+    .{ "/debug/main.js", FileMapEntry{ .path = "fuzzer/web/main.js", .mime = "application/javascript" } },
+});
+
 fn serveRequest(ws: *WebServer, request: *std.http.Server.Request) !void {
-    if (std.mem.eql(u8, request.head.target, "/") or
-        std.mem.eql(u8, request.head.target, "/debug") or
-        std.mem.eql(u8, request.head.target, "/debug/"))
-    {
-        try serveFile(ws, request, "fuzzer/web/index.html", "text/html");
-    } else if (std.mem.eql(u8, request.head.target, "/main.js") or
-        std.mem.eql(u8, request.head.target, "/debug/main.js"))
-    {
-        try serveFile(ws, request, "fuzzer/web/main.js", "application/javascript");
+    if (staticFileMap.get(request.head.target)) |v| {
+        try serveFile(ws, request, v.path, v.mime);
     } else if (std.mem.eql(u8, request.head.target, "/main.wasm")) {
         try serveWasm(ws, request, .ReleaseFast);
     } else if (std.mem.eql(u8, request.head.target, "/debug/main.wasm")) {
         try serveWasm(ws, request, .Debug);
-    } else if (std.mem.eql(u8, request.head.target, "/sources.tar") or
-        std.mem.eql(u8, request.head.target, "/debug/sources.tar"))
-    {
+    } else if (std.mem.eql(u8, request.head.target, "/sources.tar") or std.mem.eql(u8, request.head.target, "/debug/sources.tar")) {
         try serveSourcesTar(ws, request);
     } else {
         try request.respond("not found", .{
@@ -613,7 +613,7 @@ fn prepareTables(
 
     const coverage_file_path: Build.Cache.Path = .{
         .root_dir = run_step.step.owner.cache_root,
-        .sub_path = "v/" ++ std.fmt.hex(coverage_id),
+        .sub_path = "v/" ++ std.fmt.hex(coverage_id) ++ "coverage",
     };
     var coverage_file = coverage_file_path.root_dir.handle.openFile(coverage_file_path.sub_path, .{}) catch |err| {
         log.err("step '{s}': failed to load coverage file '{}': {s}", .{
@@ -632,7 +632,7 @@ fn prepareTables(
         null,
         file_size,
         std.posix.PROT.READ,
-        .{ .TYPE = .SHARED },
+        .{ .TYPE = .SHARED, .NORESERVE = true },
         coverage_file.handle,
         0,
     ) catch |err| {
