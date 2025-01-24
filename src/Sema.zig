@@ -37220,30 +37220,12 @@ fn analyzeComptimeAlloc(
     } })));
 }
 
-/// The places where a user can specify an address space attribute
-pub const AddressSpaceContext = enum {
-    /// A function is specified to be placed in a certain address space.
-    function,
-
-    /// A (global) variable is specified to be placed in a certain address space.
-    /// In contrast to .constant, these values (and thus the address space they will be
-    /// placed in) are required to be mutable.
-    variable,
-
-    /// A (global) constant value is specified to be placed in a certain address space.
-    /// In contrast to .variable, values placed in this address space are not required to be mutable.
-    constant,
-
-    /// A pointer is ascripted to point into a certain address space.
-    pointer,
-};
-
 fn resolveAddressSpace(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
     zir_ref: Zir.Inst.Ref,
-    ctx: AddressSpaceContext,
+    ctx: std.builtin.AddressSpace.Context,
 ) !std.builtin.AddressSpace {
     const air_ref = try sema.resolveInst(zir_ref);
     return sema.analyzeAsAddressSpace(block, src, air_ref, ctx);
@@ -37254,7 +37236,7 @@ pub fn analyzeAsAddressSpace(
     block: *Block,
     src: LazySrcLoc,
     air_ref: Air.Inst.Ref,
-    ctx: AddressSpaceContext,
+    ctx: std.builtin.AddressSpace.Context,
 ) !std.builtin.AddressSpace {
     const pt = sema.pt;
     const addrspace_ty = try sema.getBuiltinType(src, .AddressSpace);
@@ -37264,29 +37246,7 @@ pub fn analyzeAsAddressSpace(
     const target = pt.zcu.getTarget();
     const arch = target.cpu.arch;
 
-    const is_nv = arch.isNvptx();
-    const is_amd = arch == .amdgcn;
-    const is_spirv = arch.isSpirV();
-    const is_gpu = is_nv or is_amd or is_spirv;
-
-    // TODO: Deduplicate with `std.Target.Cpu.Arch.supportsAddressSpace`.
-    const supported = switch (address_space) {
-        // TODO: on spir-v only when os is opencl.
-        .generic => true,
-        .gs, .fs, .ss => (arch == .x86 or arch == .x86_64) and ctx == .pointer,
-        // TODO: check that .shared and .local are left uninitialized
-        .param => is_nv,
-        .input, .output, .uniform, .push_constant, .storage_buffer => is_spirv,
-        .global, .shared, .local => is_gpu,
-        .constant => is_gpu and (ctx == .constant),
-        // TODO this should also check how many flash banks the cpu has
-        .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr,
-
-        .cog, .hub => arch == .propeller,
-        .lut => arch == .propeller and std.Target.propeller.featureSetHas(target.cpu.features, .p2),
-    };
-
-    if (!supported) {
+    if (!arch.supportsAddressSpace(address_space, ctx)) {
         // TODO error messages could be made more elaborate here
         const entity = switch (ctx) {
             .function => "functions",
@@ -38728,7 +38688,7 @@ pub fn resolveNavPtrModifiers(
     };
 
     const @"addrspace": std.builtin.AddressSpace = as: {
-        const addrspace_ctx: Sema.AddressSpaceContext = switch (zir_decl.kind) {
+        const addrspace_ctx: std.builtin.AddressSpace.Context = switch (zir_decl.kind) {
             .@"var" => .variable,
             else => switch (nav_ty.zigTypeTag(zcu)) {
                 .@"fn" => .function,

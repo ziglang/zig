@@ -1576,15 +1576,23 @@ pub const Cpu = struct {
             };
         }
 
-        /// Returns whether this architecture supports the address space
-        pub fn supportsAddressSpace(arch: Arch, address_space: std.builtin.AddressSpace) bool {
+        /// Returns whether this architecture supports `address_space`. If `context` is `null`, this
+        /// function simply answers the general question of whether the architecture has any concept
+        /// of `address_space`; if non-`null`, the function additionally checks whether
+        /// `address_space` is valid in that context.
+        pub fn supportsAddressSpace(
+            arch: Arch,
+            address_space: std.builtin.AddressSpace,
+            context: ?std.builtin.AddressSpace.Context,
+        ) bool {
             const is_nvptx = arch.isNvptx();
             const is_spirv = arch.isSpirV();
             const is_gpu = is_nvptx or is_spirv or arch == .amdgcn;
             return switch (address_space) {
                 .generic => true,
-                .fs, .gs, .ss => arch == .x86_64 or arch == .x86,
-                .global, .constant, .local, .shared => is_gpu,
+                .fs, .gs, .ss => (arch == .x86_64 or arch == .x86) and (context == null or context == .pointer),
+                .global, .local, .shared => is_gpu,
+                .constant => is_gpu and (context == null or context == .constant),
                 .param => is_nvptx,
                 .input, .output, .uniform, .push_constant, .storage_buffer => is_spirv,
                 // TODO this should also check how many flash banks the cpu has
