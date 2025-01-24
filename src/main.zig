@@ -5474,7 +5474,7 @@ fn jitCmd(
         .Debug
     else
         .ReleaseFast;
-    const strip: Compilation.Config.Strip = if (optimize_mode != .Debug) .debug_info else .none;
+    const strip: std.builtin.Strip = if (optimize_mode != .Debug) .debug_info else .none;
     const override_lib_dir: ?[]const u8 = try EnvVar.ZIG_LIB_DIR.get(arena);
     const override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
 

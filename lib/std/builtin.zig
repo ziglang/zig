@@ -160,6 +160,16 @@ pub const OptimizeMode = enum {
 /// Deprecated; use OptimizeMode.
 pub const Mode = OptimizeMode;
 
+/// This data structure is used by the Zig language code generation and
+/// therefore must be kept in sync with the compiler implementation.
+pub const Strip = enum {
+    none,
+    /// Strip debug_info while retaining symbol table.
+    debug_info,
+    /// Strip debug_info and symbol table.
+    all,
+};
+
 /// The calling convention of a function defines how arguments and return values are passed, as well
 /// as any other requirements which callers and callees must respect, such as register preservation
 /// and stack alignment.

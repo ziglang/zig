@@ -57,7 +57,7 @@ shared_memory: bool,
 is_test: bool,
 debug_format: DebugFormat,
 root_optimize_mode: std.builtin.OptimizeMode,
-root_strip: Strip,
+root_strip: std.builtin.Strip,
 root_error_tracing: bool,
 dll_export_fns: bool,
 rdynamic: bool,
@@ -73,14 +73,6 @@ pub const DebugFormat = union(enum) {
     code_view,
 };
 
-pub const Strip = enum {
-    none,
-    /// Strip debug_info while retaining symbol table.
-    debug_info,
-    /// Strip debug_info and symbol table.
-    all,
-};
-
 pub const Options = struct {
     output_mode: std.builtin.OutputMode,
     resolved_target: Module.ResolvedTarget,
@@ -88,7 +80,7 @@ pub const Options = struct {
     have_zcu: bool,
     emit_bin: bool,
     root_optimize_mode: ?std.builtin.OptimizeMode = null,
-    root_strip: ?Strip = null,
+    root_strip: ?std.builtin.Strip = null,
     root_error_tracing: ?bool = null,
     link_mode: ?std.builtin.LinkMode = null,
     ensure_libc_on_non_freestanding: bool = false,
@@ -417,7 +409,7 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b false;
     };
 
-    const root_strip: Strip = b: {
+    const root_strip: std.builtin.Strip = b: {
         if (options.root_strip) |x| break :b x;
         if (root_optimize_mode == .ReleaseSmall) break :b .all;
         if (!target_util.hasDebugInfo(target)) break :b .debug_info;

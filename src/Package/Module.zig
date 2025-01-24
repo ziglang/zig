@@ -19,7 +19,7 @@ single_threaded: bool,
 error_tracing: bool,
 valgrind: bool,
 pic: bool,
-strip: Compilation.Config.Strip,
+strip: std.builtin.Strip,
 omit_frame_pointer: bool,
 stack_check: bool,
 stack_protector: u32,
@@ -83,7 +83,7 @@ pub const CreateOptions = struct {
         error_tracing: ?bool = null,
         valgrind: ?bool = null,
         pic: ?bool = null,
-        strip: ?Compilation.Config.Strip = null,
+        strip: ?std.builtin.Strip = null,
         omit_frame_pointer: ?bool = null,
         stack_check: ?bool = null,
         /// null means default.
@@ -121,7 +121,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     const optimize_mode = options.inherited.optimize_mode orelse
         if (options.parent) |p| p.optimize_mode else options.global.root_optimize_mode;
 
-    const strip: Compilation.Config.Strip = b: {
+    const strip: std.builtin.Strip = b: {
         if (options.inherited.strip) |x| break :b x;
         if (options.parent) |p| break :b p.strip;
         break :b options.global.root_strip;
@@ -407,7 +407,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .fuzz = fuzz,
             .pic = pic,
             .pie = options.global.pie,
-            .strip = strip == .all, // TODO: move Compilation.Config.Strip -> std.builtin
+            .strip = strip,
             .code_model = code_model,
             .omit_frame_pointer = omit_frame_pointer,
             .wasi_exec_model = options.global.wasi_exec_model,
