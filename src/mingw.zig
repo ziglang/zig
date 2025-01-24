@@ -266,12 +266,16 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
     if (try man.hit()) {
         const digest = man.final();
+        const sub_path = try std.fs.path.join(gpa, &.{ "o", &digest, final_lib_basename });
+        errdefer gpa.free(sub_path);
 
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
         try comp.crt_files.ensureUnusedCapacity(gpa, 1);
         comp.crt_files.putAssumeCapacityNoClobber(final_lib_basename, .{
             .full_object_path = .{
                 .root_dir = comp.global_cache_directory,
-                .sub_path = try std.fs.path.join(gpa, &.{ "o", &digest, final_lib_basename }),
+                .sub_path = sub_path,
             },
             .lock = man.toOwnedLock(),
         });
@@ -360,6 +364,8 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         log.warn("failed to write cache manifest for DLL import {s}.lib: {s}", .{ lib_name, @errorName(err) });
     };
 
+    comp.mutex.lock();
+    defer comp.mutex.unlock();
     try comp.crt_files.putNoClobber(gpa, final_lib_basename, .{
         .full_object_path = .{
             .root_dir = comp.global_cache_directory,
