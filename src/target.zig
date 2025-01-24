@@ -444,10 +444,10 @@ pub fn addrSpaceCastIsValid(
 ) bool {
     const arch = target.cpu.arch;
     switch (arch) {
-        .x86_64, .x86 => return arch.supportsAddressSpace(from) and arch.supportsAddressSpace(to),
+        .x86_64, .x86 => return arch.supportsAddressSpace(from, null) and arch.supportsAddressSpace(to, null),
         .nvptx64, .nvptx, .amdgcn => {
-            const to_generic = arch.supportsAddressSpace(from) and to == .generic;
-            const from_generic = arch.supportsAddressSpace(to) and from == .generic;
+            const to_generic = arch.supportsAddressSpace(from, null) and to == .generic;
+            const from_generic = arch.supportsAddressSpace(to, null) and from == .generic;
             return to_generic or from_generic;
         },
         else => return from == .generic and to == .generic,
