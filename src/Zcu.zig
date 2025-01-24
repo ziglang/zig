@@ -4209,9 +4209,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
                 => |opts| opts.incoming_stack_alignment == null,
 
                 .arm_aapcs_vfp,
-                => |opts| opts.incoming_stack_alignment == null and target.os.tag != .watchos,
-                .arm_aapcs16_vfp,
-                => |opts| opts.incoming_stack_alignment == null and target.os.tag == .watchos,
+                => |opts| opts.incoming_stack_alignment == null,
 
                 .arm_interrupt,
                 => |opts| opts.incoming_stack_alignment == null,
