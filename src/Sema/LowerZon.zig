@@ -1,9 +1,9 @@
 const std = @import("std");
-const Zcu = @import("Zcu.zig");
-const Sema = @import("Sema.zig");
-const Air = @import("Air.zig");
-const InternPool = @import("InternPool.zig");
-const Type = @import("Type.zig");
+const Zcu = @import("../Zcu.zig");
+const Sema = @import("../Sema.zig");
+const Air = @import("../Air.zig");
+const InternPool = @import("../InternPool.zig");
+const Type = @import("../Type.zig");
 const Zir = std.zig.Zir;
 const AstGen = std.zig.AstGen;
 const CompileError = Zcu.CompileError;
@@ -72,7 +72,7 @@ fn fail(
 }
 
 fn lowerExpr(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) CompileError!InternPool.Index {
-    switch (Type.zigTypeTag(res_ty, self.sema.pt.zcu)) {
+    switch (res_ty.zigTypeTag(self.sema.pt.zcu)) {
         .bool => return self.lowerBool(node),
         .int, .comptime_int => return self.lowerInt(node, res_ty),
         .float, .comptime_float => return self.lowerFloat(node, res_ty),
@@ -129,7 +129,7 @@ fn lowerInt(
                 const rhs: i32 = val;
 
                 // If our result is a fixed size integer, check that our value is not out of bounds
-                if (Type.zigTypeTag(res_ty, self.sema.pt.zcu) == .int) {
+                if (res_ty.zigTypeTag(self.sema.pt.zcu) == .int) {
                     const lhs_info = res_ty.intInfo(self.sema.pt.zcu);
 
                     // If lhs is unsigned and rhs is less than 0, we're out of bounds
@@ -168,7 +168,7 @@ fn lowerInt(
                 } });
             },
             .big => |val| {
-                if (Type.zigTypeTag(res_ty, self.sema.pt.zcu) == .int) {
+                if (res_ty.zigTypeTag(self.sema.pt.zcu) == .int) {
                     const int_info = res_ty.intInfo(self.sema.pt.zcu);
                     if (!val.fitsInTwosComp(int_info.signedness, int_info.bits)) {
                         return self.fail(
@@ -227,7 +227,7 @@ fn lowerInt(
         .char_literal => |val| {
             const rhs: u32 = val;
             // If our result is a fixed size integer, check that our value is not out of bounds
-            if (Type.zigTypeTag(res_ty, self.sema.pt.zcu) == .int) {
+            if (res_ty.zigTypeTag(self.sema.pt.zcu) == .int) {
                 const lhs_info = res_ty.intInfo(self.sema.pt.zcu);
                 // If lhs has less than 64 bits, we bounds check. We check at 64 instead of 32 in
                 // case LHS is signed.
@@ -504,7 +504,7 @@ fn lowerTuple(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.I
                 },
             );
         }
-        elems[i] = try self.lowerExpr(elem_nodes.at(@intCast(i)), Type.fromInterned(field_types[i]));
+        elems[i] = try self.lowerExpr(elem_nodes.at(@intCast(i)), .fromInterned(field_types[i]));
 
         if (field_defaults[i] != .none and elems[i] != field_defaults[i]) {
             const elem_node = elem_nodes.at(@intCast(i)).getAstNode(self.file.zoir.?);
@@ -546,7 +546,7 @@ fn lowerStruct(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
     try res_ty.resolveStructFieldInits(self.sema.pt);
     const struct_info = self.sema.pt.zcu.typeToStruct(res_ty).?;
 
-    const fields: std.meta.fieldInfo(Zoir.Node, .struct_literal).type = switch (node.get(self.file.zoir.?)) {
+    const fields: @FieldType(Zoir.Node, "struct_literal") = switch (node.get(self.file.zoir.?)) {
         .struct_literal => |fields| fields,
         .empty_literal => .{ .names = &.{}, .vals = .{ .start = node, .len = 0 } },
         else => return self.fail(
@@ -577,7 +577,7 @@ fn lowerStruct(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
             );
         };
 
-        const field_type = Type.fromInterned(struct_info.field_types.get(ip)[name_index]);
+        const field_type: Type = .fromInterned(struct_info.field_types.get(ip)[name_index]);
         if (field_values[name_index] != .none) {
             const field_node_ast = field_node.getAstNode(self.file.zoir.?);
             const field_name_token = self.file.tree.firstToken(field_node_ast) - 2;
@@ -672,7 +672,7 @@ fn lowerPointer(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool
     const elems = try self.sema.arena.alloc(InternPool.Index, elem_nodes.len + @intFromBool(ptr_info.sentinel != .none));
 
     for (0..elem_nodes.len) |i| {
-        elems[i] = try self.lowerExpr(elem_nodes.at(@intCast(i)), Type.fromInterned(ptr_info.child));
+        elems[i] = try self.lowerExpr(elem_nodes.at(@intCast(i)), .fromInterned(ptr_info.child));
     }
 
     if (ptr_info.sentinel != .none) {
@@ -740,7 +740,7 @@ fn lowerUnion(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.I
             break :b .{ field_name, null };
         },
         .struct_literal => b: {
-            const fields: std.meta.fieldInfo(Zoir.Node, .struct_literal).type = switch (node.get(self.file.zoir.?)) {
+            const fields: @FieldType(Zoir.Node, "struct_literal") = switch (node.get(self.file.zoir.?)) {
                 .struct_literal => |fields| fields,
                 else => return self.fail(
                     .{ .node_abs = node.getAstNode(self.file.zoir.?) },
@@ -791,7 +791,7 @@ fn lowerUnion(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.I
         .ty = union_info.enum_tag_ty,
         .int = tag_int,
     } });
-    const field_type = Type.fromInterned(union_info.field_types.get(ip)[name_index]);
+    const field_type: Type = .fromInterned(union_info.field_types.get(ip)[name_index]);
     const val = if (maybe_field_node) |field_node| b: {
         if (field_type.toIntern() == .void_type) {
             return self.fail(

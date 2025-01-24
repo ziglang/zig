@@ -626,7 +626,7 @@ const Parser = struct {
         node: Zoir.Node.Index,
     ) !T {
         const repr = node.get(self.zoir);
-        const fields: std.meta.fieldInfo(Zoir.Node, .struct_literal).type = switch (repr) {
+        const fields: @FieldType(Zoir.Node, "struct_literal") = switch (repr) {
             .struct_literal => |nodes| nodes,
             .empty_literal => .{ .names = &.{}, .vals = .{ .start = node, .len = 0 } },
             else => return self.failExpectedContainer(T, node),

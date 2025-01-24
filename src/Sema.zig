@@ -187,7 +187,7 @@ const Alignment = InternPool.Alignment;
 const AnalUnit = InternPool.AnalUnit;
 const ComptimeAllocIndex = InternPool.ComptimeAllocIndex;
 const Cache = std.Build.Cache;
-const zon = @import("zon.zig");
+const zon = @import("Sema/LowerZon.zig");
 
 pub const default_branch_quota = 1000;
 pub const default_reference_trace_len = 2;
