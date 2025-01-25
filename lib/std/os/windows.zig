@@ -4803,14 +4803,14 @@ pub const PEB_LDR_DATA = extern struct {
 ///  - https://docs.microsoft.com/en-us/windows/win32/api/winternl/ns-winternl-peb_ldr_data
 ///  - https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntldr/ldr_data_table_entry.htm
 pub const LDR_DATA_TABLE_ENTRY = extern struct {
-    Reserved1: [2]PVOID,
+    InLoadOrderLinks: LIST_ENTRY,
     InMemoryOrderLinks: LIST_ENTRY,
-    Reserved2: [2]PVOID,
+    InInitializationOrderLinks: LIST_ENTRY,
     DllBase: PVOID,
     EntryPoint: PVOID,
     SizeOfImage: ULONG,
     FullDllName: UNICODE_STRING,
-    Reserved4: [8]BYTE,
+    BaseDllName: UNICODE_STRING,
     Reserved5: [3]PVOID,
     DUMMYUNIONNAME: extern union {
         CheckSum: ULONG,
