@@ -1865,6 +1865,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .div_float, .div_exact => cg.airDiv(inst),
         .div_trunc => cg.airDivTrunc(inst),
         .div_floor => cg.airDivFloor(inst),
+        .div_ceil => cg.airDivCeil(inst),
         .bit_and => cg.airBinOp(inst, .@"and"),
         .bit_or => cg.airBinOp(inst, .@"or"),
         .bool_and => cg.airBinOp(inst, .@"and"),
@@ -2067,6 +2068,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .div_trunc_optimized,
         .div_floor_optimized,
         .div_exact_optimized,
+        .div_ceil_optimized,
         .rem_optimized,
         .mod_optimized,
         .neg_optimized,
@@ -6680,6 +6682,115 @@ fn airDivFloor(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     }
 
     return cg.finishAir(inst, .stack, &.{ bin_op.lhs, bin_op.rhs });
+}
+
+fn airDivCeil(func: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
+
+    const pt = func.pt;
+    const zcu = pt.zcu;
+    const ty = func.typeOfIndex(inst);
+    const lhs = try func.resolveInst(bin_op.lhs);
+    const rhs = try func.resolveInst(bin_op.rhs);
+
+    if (ty.isUnsignedInt(zcu)) {
+        const int_bits = ty.intInfo(zcu).bits;
+        const wasm_bits = toWasmBits(int_bits) orelse {
+            return func.fail("TODO: `@divCeil` for unsigned integers larger than 64 bits ({d} bits requested)", .{int_bits});
+        };
+
+        if (wasm_bits > 64) {
+            return func.fail("TODO: `@divCeil` for unsigned integers larger than 64 bits ({d} bits requested)", .{int_bits});
+        }
+
+        _ = try func.binOp(lhs, rhs, ty, .div);
+        _ = try func.binOp(lhs, rhs, ty, .rem);
+
+        switch (wasm_bits) {
+            32 => {
+                _ = try func.cmp(.stack, WValue{ .imm32 = 0 }, ty, .neq);
+                try func.addTag(.i32_add);
+            },
+            64 => {
+                _ = try func.cmp(.stack, WValue{ .imm64 = 0 }, ty, .neq);
+                try func.addTag(.i64_extend_i32_u);
+                try func.addTag(.i64_add);
+            },
+            else => unreachable,
+        }
+    } else if (ty.isSignedInt(zcu)) {
+        const int_bits = ty.intInfo(zcu).bits;
+        const wasm_bits = toWasmBits(int_bits) orelse {
+            return func.fail("TODO: `@divCeil` for signed integers larger than 64 bits ({d} bits requested)", .{int_bits});
+        };
+
+        if (wasm_bits > 64) {
+            return func.fail("TODO: `@divCeil` for signed integers larger than 64 bits ({d} bits requested)", .{int_bits});
+        }
+
+        const zero = switch (wasm_bits) {
+            32 => WValue{ .imm32 = 0 },
+            64 => WValue{ .imm64 = 0 },
+            else => unreachable,
+        };
+
+        _ = try func.binOp(lhs, rhs, ty, .div);
+
+        // 1 if lhs and rhs have the same sign, 0 otherwise.
+        _ = try func.binOp(lhs, rhs, ty, .xor);
+        _ = try func.cmp(.stack, zero, ty, .gte);
+
+        _ = try func.binOp(lhs, rhs, ty, .rem);
+        _ = try func.cmp(.stack, zero, ty, .neq);
+
+        try func.addTag(.i32_and);
+
+        // Comparisons produce 32 bit integers, which must be extended in the 64 bit case.
+        if (wasm_bits == 64) {
+            try func.addTag(.i64_extend_i32_u);
+        }
+
+        _ = try func.binOp(.stack, .stack, ty, .add);
+
+        // We need to zero the high bits because N bit comparisons consider all 32 or 64 bits, and
+        // expect all but the lowest N bits to be 0.
+        // TODO: Should we be zeroing the high bits here or should we be ignoring the high bits
+        // when performing comparisons?
+        if (wasm_bits != int_bits) {
+            _ = try func.wrapOperand(.stack, ty);
+        }
+    } else {
+        const float_bits = ty.floatBits(func.target.*);
+        if (float_bits > 64) {
+            return func.fail("TODO: `@divCeil` for floats larger than 64 bits ({d} bits requested)", .{float_bits});
+        }
+        const is_f16 = float_bits == 16;
+        const lhs_wasm = if (is_f16) try func.fpext(lhs, Type.f16, Type.f32) else lhs;
+        const rhs_wasm = if (is_f16) try func.fpext(rhs, Type.f16, Type.f32) else rhs;
+
+        try func.emitWValue(lhs_wasm);
+        try func.emitWValue(rhs_wasm);
+
+        switch (float_bits) {
+            16, 32 => {
+                try func.addTag(.f32_div);
+                try func.addTag(.f32_ceil);
+            },
+            64 => {
+                try func.addTag(.f64_div);
+                try func.addTag(.f64_ceil);
+            },
+            else => unreachable,
+        }
+
+        if (is_f16) {
+            _ = try func.fptrunc(.stack, Type.f32, Type.f16);
+        }
+    }
+
+    const result = try func.allocLocal(ty);
+    try func.addLabel(.local_set, result.local.value);
+    return func.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
 }
 
 fn airRem(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {

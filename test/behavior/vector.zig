@@ -578,8 +578,12 @@ test "vector division operators" {
             for (@as([4]T, d2), 0..) |v, i| {
                 try expect(@divFloor(x[i], y[i]) == v);
             }
-            const d3 = @divTrunc(x, y);
+            const d3 = @divCeil(x, y);
             for (@as([4]T, d3), 0..) |v, i| {
+                try expect(@divCeil(x[i], y[i]) == v);
+            }
+            const d4 = @divTrunc(x, y);
+            for (@as([4]T, d4), 0..) |v, i| {
                 try expect(@divTrunc(x[i], y[i]) == v);
             }
         }
@@ -1286,11 +1290,13 @@ test "zero divisor" {
     const v2 = @divExact(zeros, ones);
     const v3 = @divTrunc(zeros, ones);
     const v4 = @divFloor(zeros, ones);
+    const v5 = @divCeil(zeros, ones);
 
     _ = v1[0];
     _ = v2[0];
     _ = v3[0];
     _ = v4[0];
+    _ = v5[0];
 }
 
 test "zero multiplicand" {

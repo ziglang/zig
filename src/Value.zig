@@ -2263,6 +2263,49 @@ pub fn intDivFloorScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator,
     return pt.intValue_big(ty, result_q.toConst());
 }
 
+pub fn intDivCeil(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu.PerThread) !Value {
+    if (ty.zigTypeTag(pt.zcu) == .vector) {
+        const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(pt.zcu));
+        const scalar_ty = ty.scalarType(pt.zcu);
+        for (result_data, 0..) |*scalar, i| {
+            const lhs_elem = try lhs.elemValue(pt, i);
+            const rhs_elem = try rhs.elemValue(pt, i);
+            scalar.* = (try intDivCeilScalar(lhs_elem, rhs_elem, scalar_ty, allocator, pt)).toIntern();
+        }
+        return Value.fromInterned((try pt.intern(.{ .aggregate = .{
+            .ty = ty.toIntern(),
+            .storage = .{ .elems = result_data },
+        } })));
+    }
+    return intDivCeilScalar(lhs, rhs, ty, allocator, pt);
+}
+
+pub fn intDivCeilScalar(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu.PerThread) !Value {
+    // TODO is this a performance issue? maybe we should try the operation without
+    // resorting to BigInt first.
+    const zcu = pt.zcu;
+    var lhs_space: Value.BigIntSpace = undefined;
+    var rhs_space: Value.BigIntSpace = undefined;
+    const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
+    const rhs_bigint = rhs.toBigInt(&rhs_space, zcu);
+    const limbs_q = try allocator.alloc(
+        std.math.big.Limb,
+        lhs_bigint.limbs.len,
+    );
+    const limbs_r = try allocator.alloc(
+        std.math.big.Limb,
+        rhs_bigint.limbs.len,
+    );
+    const limbs_buffer = try allocator.alloc(
+        std.math.big.Limb,
+        std.math.big.int.calcDivLimbsBufferLen(lhs_bigint.limbs.len, rhs_bigint.limbs.len),
+    );
+    var result_q = BigIntMutable{ .limbs = limbs_q, .positive = undefined, .len = undefined };
+    var result_r = BigIntMutable{ .limbs = limbs_r, .positive = undefined, .len = undefined };
+    result_q.divCeil(&result_r, lhs_bigint, rhs_bigint, limbs_buffer);
+    return pt.intValue_big(ty, result_q.toConst());
+}
+
 pub fn intMod(lhs: Value, rhs: Value, ty: Type, allocator: Allocator, pt: Zcu.PerThread) !Value {
     if (ty.zigTypeTag(pt.zcu) == .vector) {
         const result_data = try allocator.alloc(InternPool.Index, ty.vectorLen(pt.zcu));
@@ -3009,6 +3052,52 @@ pub fn floatDivFloorScalar(
         .ty = float_type.toIntern(),
         .storage = storage,
     } }));
+}
+
+pub fn floatDivCeil(
+    lhs: Value,
+    rhs: Value,
+    float_type: Type,
+    arena: Allocator,
+    pt: Zcu.PerThread,
+) !Value {
+    if (float_type.zigTypeTag(pt.zcu) == .vector) {
+        const result_data = try arena.alloc(InternPool.Index, float_type.vectorLen(pt.zcu));
+        const scalar_ty = float_type.scalarType(pt.zcu);
+        for (result_data, 0..) |*scalar, i| {
+            const lhs_elem = try lhs.elemValue(pt, i);
+            const rhs_elem = try rhs.elemValue(pt, i);
+            scalar.* = (try floatDivCeilScalar(lhs_elem, rhs_elem, scalar_ty, pt)).toIntern();
+        }
+        return Value.fromInterned((try pt.intern(.{ .aggregate = .{
+            .ty = float_type.toIntern(),
+            .storage = .{ .elems = result_data },
+        } })));
+    }
+    return floatDivCeilScalar(lhs, rhs, float_type, pt);
+}
+
+pub fn floatDivCeilScalar(
+    lhs: Value,
+    rhs: Value,
+    float_type: Type,
+    pt: Zcu.PerThread,
+) !Value {
+    const zcu = pt.zcu;
+    const target = zcu.getTarget();
+    // TODO: Replace @ceil(x / y) with @divCeil(x, y).
+    const storage: InternPool.Key.Float.Storage = switch (float_type.floatBits(target)) {
+        16 => .{ .f16 = @ceil(lhs.toFloat(f16, zcu) / rhs.toFloat(f16, zcu)) },
+        32 => .{ .f32 = @ceil(lhs.toFloat(f32, zcu) / rhs.toFloat(f32, zcu)) },
+        64 => .{ .f64 = @ceil(lhs.toFloat(f64, zcu) / rhs.toFloat(f64, zcu)) },
+        80 => .{ .f80 = @ceil(lhs.toFloat(f80, zcu) / rhs.toFloat(f80, zcu)) },
+        128 => .{ .f128 = @ceil(lhs.toFloat(f128, zcu) / rhs.toFloat(f128, zcu)) },
+        else => unreachable,
+    };
+    return Value.fromInterned((try pt.intern(.{ .float = .{
+        .ty = float_type.toIntern(),
+        .storage = storage,
+    } })));
 }
 
 pub fn floatDivTrunc(

@@ -2905,6 +2905,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .pop_count,
             .byte_swap,
             .bit_reverse,
+            .div_ceil,
             .div_exact,
             .div_floor,
             .div_trunc,
@@ -9684,6 +9685,7 @@ fn builtinCall(
         .byte_swap   => return bitBuiltin(gz, scope, ri, node, params[0], .byte_swap),
         .bit_reverse => return bitBuiltin(gz, scope, ri, node, params[0], .bit_reverse),
 
+        .div_ceil => return divBuiltin(gz, scope, ri, node, params[0], params[1], .div_ceil),
         .div_exact => return divBuiltin(gz, scope, ri, node, params[0], params[1], .div_exact),
         .div_floor => return divBuiltin(gz, scope, ri, node, params[0], params[1], .div_floor),
         .div_trunc => return divBuiltin(gz, scope, ri, node, params[0], params[1], .div_trunc),

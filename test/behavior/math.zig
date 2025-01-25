@@ -507,6 +507,16 @@ fn testIntDivision() !void {
     try expect(divFloor(i64, -0x80000000, -2) == 0x40000000);
     try expect(divFloor(i64, -0x40000001, 0x40000000) == -2);
 
+    try expect(divCeil(i32, 5, 3) == 2);
+    try expect(divCeil(i32, -5, 3) == -1);
+    try expect(divCeil(i32, -0x80000000, -2) == 0x40000000);
+    try expect(divCeil(i32, 0, -0x80000000) == 0);
+    try expect(divCeil(i32, -0x40000001, 0x40000000) == -1);
+    try expect(divCeil(i32, -0x80000000, 1) == -0x80000000);
+    try expect(divCeil(i32, 10, 12) == 1);
+    try expect(divCeil(i32, -14, 12) == -1);
+    try expect(divCeil(i32, -2, 12) == 0);
+
     try expect(divTrunc(i32, 5, 3) == 1);
     try expect(divTrunc(i32, -5, 3) == -1);
     try expect(divTrunc(i32, 9, -10) == 0);
@@ -549,6 +559,24 @@ fn testIntDivision() !void {
             1194735857077236777412821811143690633098347576 / 508740759824825164163191790951174292733114988 == 2,
         );
         try expect(
+            @divFloor(-1194735857077236777412821811143690633098347576, 508740759824825164163191790951174292733114988) == -3,
+        );
+        try expect(
+            @divFloor(1194735857077236777412821811143690633098347576, -508740759824825164163191790951174292733114988) == -3,
+        );
+        try expect(
+            @divFloor(-1194735857077236777412821811143690633098347576, -508740759824825164163191790951174292733114988) == 2,
+        );
+        try expect(
+            @divCeil(-1194735857077236777412821811143690633098347576, 508740759824825164163191790951174292733114988) == -2,
+        );
+        try expect(
+            @divCeil(1194735857077236777412821811143690633098347576, -508740759824825164163191790951174292733114988) == -2,
+        );
+        try expect(
+            @divCeil(-1194735857077236777412821811143690633098347576, -508740759824825164163191790951174292733114988) == 3,
+        );
+        try expect(
             @divTrunc(-1194735857077236777412821811143690633098347576, 508740759824825164163191790951174292733114988) == -2,
         );
         try expect(
@@ -575,6 +603,13 @@ fn testFloatDivision() !void {
     try expect(divFloor(f32, 1053.0, -41.0) == -26.0);
     try expect(divFloor(f16, -43.0, 12.0) == -4.0);
     try expect(divFloor(f64, -90.0, -9.0) == 10.0);
+
+    try expect(divCeil(f32, 5.0, 3.0) == 2.0);
+    try expect(divCeil(f32, -5.0, 3.0) == -1.0);
+    try expect(divCeil(f32, 56.0, 9.0) == 7.0);
+    try expect(divCeil(f32, 1053.0, -41.0) == -25.0);
+    try expect(divCeil(f16, -43.0, 12.0) == -3.0);
+    try expect(divCeil(f64, -90.0, -9.0) == 10.0);
 
     try expect(divTrunc(f32, 5.0, 3.0) == 1.0);
     try expect(divTrunc(f32, -5.0, 3.0) == -1.0);
@@ -628,6 +663,8 @@ fn testDivisionFP16() !void {
 
     try expect(divFloor(f16, 5.0, 3.0) == 1.0);
     try expect(divFloor(f16, -5.0, 3.0) == -2.0);
+    try expect(divCeil(f16, 5.0, 3.0) == 2.0);
+    try expect(divCeil(f16, -5.0, 3.0) == -1.0);
     try expect(divTrunc(f16, 5.0, 3.0) == 1.0);
     try expect(divTrunc(f16, -5.0, 3.0) == -1.0);
     try expect(divTrunc(f16, 9.0, -10.0) == 0.0);
@@ -642,6 +679,9 @@ fn divExact(comptime T: type, a: T, b: T) T {
 }
 fn divFloor(comptime T: type, a: T, b: T) T {
     return @divFloor(a, b);
+}
+fn divCeil(comptime T: type, a: T, b: T) T {
+    return @divCeil(a, b);
 }
 fn divTrunc(comptime T: type, a: T, b: T) T {
     return @divTrunc(a, b);

@@ -1340,7 +1340,8 @@ a /= b{#endsyntax#}</pre></td>
               <li>Can cause {#link|Division by Zero#} for floats in {#link|FloatMode.Optimized Mode|Floating Point Operations#}.</li>
               <li>Signed integer operands must be comptime-known and positive. In other cases, use
                 {#link|@divTrunc#},
-                {#link|@divFloor#}, or
+                {#link|@divFloor#},
+                {#link|@divCeil#}, or
                 {#link|@divExact#} instead.
               </li>
               <li>Invokes {#link|Peer Type Resolution#} for the operands.</li>
@@ -4695,7 +4696,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
           <li>{#syntax#}@divExact(a, b) * b == a{#endsyntax#}</li>
       </ul>
       <p>For a function that returns a possible error code, use {#syntax#}@import("std").math.divExact{#endsyntax#}.</p>
-      {#see_also|@divTrunc|@divFloor#}
+      {#see_also|@divTrunc|@divFloor|@divCeil#}
       {#header_close#}
       {#header_open|@divFloor#}
       <pre>{#syntax#}@divFloor(numerator: T, denominator: T) T{#endsyntax#}</pre>
@@ -4709,7 +4710,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
           <li>{#syntax#}(@divFloor(a, b) * b) + @mod(a, b) == a{#endsyntax#}</li>
       </ul>
       <p>For a function that returns a possible error code, use {#syntax#}@import("std").math.divFloor{#endsyntax#}.</p>
-      {#see_also|@divTrunc|@divExact#}
+      {#see_also|@divTrunc|@divCeil|@divExact#}
       {#header_close#}
       {#header_open|@divTrunc#}
       <pre>{#syntax#}@divTrunc(numerator: T, denominator: T) T{#endsyntax#}</pre>
@@ -4723,7 +4724,20 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
           <li>{#syntax#}(@divTrunc(a, b) * b) + @rem(a, b) == a{#endsyntax#}</li>
       </ul>
       <p>For a function that returns a possible error code, use {#syntax#}@import("std").math.divTrunc{#endsyntax#}.</p>
-      {#see_also|@divFloor|@divExact#}
+      {#see_also|@divFloor|@divCeil|@divExact#}
+      {#header_close#}
+      {#header_open|@divCeil#}
+      <pre>{#syntax#}@divCeil(numerator: T, denominator: T) T{#endsyntax#}</pre>
+      <p>
+      Ceiled division. Rounds toward positive infinity. Caller guarantees {#syntax#}denominator != 0{#endsyntax#} and
+              {#syntax#}!(@typeInfo(T) == .int and T.is_signed and numerator == std.math.minInt(T) and denominator == -1){#endsyntax#}.
+      </p>
+      <ul>
+          <li>{#syntax#}@divCeil(5, 3) == 2{#endsyntax#}</li>
+          <li>{#syntax#}@divCeil(-5, 3) == -1{#endsyntax#}</li>
+      </ul>
+      <p>For a function that returns a possible error code, use {#syntax#}@import("std").math.divCeil{#endsyntax#}.</p>
+      {#see_also|@divFloor|@divTrunc|@divExact#}
       {#header_close#}
 
       {#header_open|@embedFile#}
@@ -5963,6 +5977,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
           <li>{#syntax#}/{#endsyntax#} (division)</li>
         <li>{#link|@divTrunc#} (division)</li>
         <li>{#link|@divFloor#} (division)</li>
+        <li>{#link|@divCeil#} (division)</li>
         <li>{#link|@divExact#} (division)</li>
       </ul>
       <p>Example with addition at compile-time:</p>
@@ -5980,6 +5995,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
           <li>{#syntax#}@import("std").math.mul{#endsyntax#}</li>
           <li>{#syntax#}@import("std").math.divTrunc{#endsyntax#}</li>
           <li>{#syntax#}@import("std").math.divFloor{#endsyntax#}</li>
+          <li>{#syntax#}@import("std").math.divCeil{#endsyntax#}</li>
           <li>{#syntax#}@import("std").math.divExact{#endsyntax#}</li>
           <li>{#syntax#}@import("std").math.shl{#endsyntax#}</li>
       </ul>
