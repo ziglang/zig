@@ -65,6 +65,8 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         .root_strip = strip,
         .link_libc = true,
         .link_libcpp = link_libcpp,
+        // LLVM disables LTO for its libtsan.
+        .lto = .none,
     }) catch |err| {
         comp.setMiscFailure(
             .libtsan,
