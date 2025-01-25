@@ -7282,7 +7282,11 @@ fn cmdFetch(
 
         warn("overwriting existing dependency named '{s}'", .{name});
         try fixups.replace_nodes_with_string.put(gpa, dep.location_node, location_replace);
-        try fixups.replace_nodes_with_string.put(gpa, dep.hash_node, hash_replace);
+        if (dep.hash_node != 0) {
+            try fixups.replace_nodes_with_string.put(gpa, dep.hash_node, hash_replace);
+        } else {
+            // https://github.com/ziglang/zig/issues/21690
+        }
     } else if (manifest.dependencies.count() > 0) {
         // Add fixup for adding another dependency.
         const deps = manifest.dependencies.values();
