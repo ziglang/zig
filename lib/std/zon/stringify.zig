@@ -30,7 +30,7 @@ pub const SerializeOptions = struct {
     /// If true, unsigned integers with <= 21 bits are written as their corresponding UTF8 codepoint
     /// instead of a numeric literal if one exists.
     emit_utf8_codepoints: bool = false,
-    /// If true, slices of u8s, and pointers to arrays of u8s are serialized as containers.
+    /// If true, slices of `u8`s, and pointers to arrays of `u8` are serialized as containers.
     /// Otherwise they are serialized as string literals.
     emit_strings_as_containers: bool = false,
     /// If false, struct fields are not written if they are equal to their default value. Comparison
@@ -43,7 +43,7 @@ pub const SerializeOptions = struct {
 /// It is asserted at comptime that `@TypeOf(val)` is not a recursive type.
 pub fn serialize(
     val: anytype,
-    comptime options: SerializeOptions,
+    options: SerializeOptions,
     writer: anytype,
 ) @TypeOf(writer).Error!void {
     var sz = serializer(writer, .{
@@ -61,7 +61,7 @@ pub fn serialize(
 /// Returns `error.ExceededMaxDepth` if `depth` is exceeded.
 pub fn serializeMaxDepth(
     val: anytype,
-    comptime options: SerializeOptions,
+    options: SerializeOptions,
     writer: anytype,
     depth: usize,
 ) (@TypeOf(writer).Error || error{ExceededMaxDepth})!void {
@@ -80,7 +80,7 @@ pub fn serializeMaxDepth(
 /// It is the caller's responsibility to ensure that `val` does not contain cycles.
 pub fn serializeArbitraryDepth(
     val: anytype,
-    comptime options: SerializeOptions,
+    options: SerializeOptions,
     writer: anytype,
 ) @TypeOf(writer).Error!void {
     var sz = serializer(writer, .{
@@ -949,7 +949,7 @@ pub fn serializer(writer: anytype, options: SerializerOptions) Serializer(@TypeO
 fn expectSerializeEqual(
     expected: []const u8,
     value: anytype,
-    comptime options: SerializeOptions,
+    options: SerializeOptions,
 ) !void {
     var buf = std.ArrayList(u8).init(std.testing.allocator);
     defer buf.deinit();

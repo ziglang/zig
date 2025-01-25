@@ -265,10 +265,10 @@ pub fn fromSlice(
     defer if (status == null) ast.deinit(gpa);
     if (status) |s| s.ast = ast;
 
+    // If there's no status, Zoir exists for the lifetime of this function. If there is a status,
+    // ownership is transferred to status.
     var zoir = try ZonGen.generate(gpa, ast, .{ .parse_str_lits = false });
     defer if (status == null) zoir.deinit(gpa);
-    if (status) |s| s.zoir = zoir;
-    if (zoir.hasCompileErrors()) return error.ParseZon;
 
     if (status) |s| s.* = .{};
     return fromZoir(T, gpa, ast, zoir, status, options);
@@ -508,7 +508,7 @@ const Parser = struct {
         const ast_node = node.getAstNode(self.zoir);
         const pointer = @typeInfo(T).pointer;
         var size_hint = ZonGen.strLitSizeHint(self.ast, ast_node);
-        if (pointer.sentinel_ptr != null) size_hint += 1;
+        if (pointer.sentinel() != null) size_hint += 1;
 
         var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(self.gpa, size_hint);
         defer buf.deinit(self.gpa);
@@ -524,13 +524,13 @@ const Parser = struct {
         if (pointer.child != u8 or
             pointer.size != .slice or
             !pointer.is_const or
-            (pointer.sentinel_ptr != null and @as(*const u8, @ptrCast(pointer.sentinel_ptr)).* != 0) or
+            (pointer.sentinel() != null and pointer.sentinel() != 0) or
             pointer.alignment != 1)
         {
             return self.failExpectedContainer(T, node);
         }
 
-        if (pointer.sentinel_ptr != null) {
+        if (pointer.sentinel() != null) {
             return try buf.toOwnedSliceSentinel(self.gpa, 0);
         } else {
             return try buf.toOwnedSlice(self.gpa);
@@ -552,23 +552,22 @@ const Parser = struct {
         }
 
         // Allocate the slice
-        const sentinel = if (pointer.sentinel_ptr) |s| @as(*const pointer.child, @ptrCast(s)).* else null;
         const slice = try self.gpa.allocWithOptions(
             pointer.child,
             nodes.len,
             pointer.alignment,
-            sentinel,
+            pointer.sentinel(),
         );
         errdefer self.gpa.free(slice);
 
         // Parse the elements and return the slice
-        for (0..nodes.len) |i| {
+        for (slice, 0..) |*elem, i| {
             errdefer if (options.free_on_error) {
                 for (slice[0..i]) |item| {
                     free(self.gpa, item);
                 }
             };
-            slice[i] = try self.parseExpr(pointer.child, options, nodes.at(@intCast(i)));
+            elem.* = try self.parseExpr(pointer.child, options, nodes.at(@intCast(i)));
         }
 
         return slice;
@@ -606,7 +605,7 @@ const Parser = struct {
 
         // Parse the elements and return the array
         var result: T = undefined;
-        for (0..result.len) |i| {
+        for (&result, 0..) |*elem, i| {
             // If we fail to parse this field, free all fields before it
             errdefer if (options.free_on_error) {
                 for (result[0..i]) |item| {
@@ -614,7 +613,7 @@ const Parser = struct {
                 }
             };
 
-            result[i] = try self.parseExpr(array_info.child, options, nodes.at(@intCast(i)));
+            elem.* = try self.parseExpr(array_info.child, options, nodes.at(@intCast(i)));
         }
         return result;
     }
@@ -635,10 +634,10 @@ const Parser = struct {
         const field_infos = @typeInfo(T).@"struct".fields;
 
         // Gather info on the fields
-        const field_indices = b: {
-            comptime var kvs_list: [field_infos.len]struct { []const u8, usize } = undefined;
-            inline for (field_infos, 0..) |field, i| {
-                kvs_list[i] = .{ field.name, i };
+        const field_indices = comptime b: {
+            var kvs_list: [field_infos.len]struct { []const u8, usize } = undefined;
+            for (&kvs_list, field_infos, 0..) |*kv, field, i| {
+                kv.* = .{ field.name, i };
             }
             break :b std.StaticStringMap(usize).initComptime(kvs_list);
         };
@@ -965,7 +964,7 @@ const Parser = struct {
                     });
                 }
             },
-            else => @compileError("unreachable, should not be called for type " ++ @typeName(T)),
+            else => comptime unreachable,
         }
     }
 
@@ -983,7 +982,7 @@ const Parser = struct {
                 if (pointer.child == u8 and
                     pointer.size == .slice and
                     pointer.is_const and
-                    (pointer.sentinel_ptr == null or @as(*const u8, @ptrCast(pointer.sentinel_ptr)).* == 0) and
+                    (pointer.sentinel() == null or pointer.sentinel() == 0) and
                     pointer.alignment == 1)
                 {
                     return self.failNode(node, "expected string");
@@ -993,7 +992,7 @@ const Parser = struct {
             },
             else => {},
         }
-        @compileError("unreachable, should not be called for type " ++ @typeName(T));
+        comptime unreachable;
     }
 
     // Technically we could do this if we were willing to do a deep equal to verify
@@ -1020,15 +1019,6 @@ const Parser = struct {
 };
 
 fn intFromFloatExact(comptime T: type, value: anytype) ?T {
-    switch (@typeInfo(@TypeOf(value))) {
-        .float => {},
-        else => @compileError(@typeName(@TypeOf(value)) ++ " is not a runtime floating point type"),
-    }
-    switch (@typeInfo(T)) {
-        .int => {},
-        else => @compileError(@typeName(T) ++ " is not a runtime integer type"),
-    }
-
     if (value > std.math.maxInt(T) or value < std.math.minInt(T)) {
         return null;
     }
@@ -1037,7 +1027,7 @@ fn intFromFloatExact(comptime T: type, value: anytype) ?T {
         return null;
     }
 
-    return @as(T, @intFromFloat(value));
+    return @intFromFloat(value);
 }
 
 test "std.zon requiresAllocator" {

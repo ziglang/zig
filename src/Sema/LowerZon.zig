@@ -396,7 +396,6 @@ fn lowerEnum(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.In
 
 fn lowerEnumLiteral(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
     const ip = &self.sema.pt.zcu.intern_pool;
-    const gpa = self.sema.gpa;
     switch (node.get(self.file.zoir.?)) {
         .enum_literal => |field_name| {
             const field_name_interned = try ip.getOrPutString(
@@ -405,7 +404,7 @@ fn lowerEnumLiteral(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !Intern
                 field_name.get(self.file.zoir.?),
                 .no_embedded_nulls,
             );
-            return ip.get(gpa, self.sema.pt.tid, .{ .enum_literal = field_name_interned });
+            return self.sema.pt.intern(.{ .enum_literal = field_name_interned });
         },
         else => return self.fail(
             .{ .node_abs = node.getAstNode(self.file.zoir.?) },
@@ -468,9 +467,9 @@ fn lowerTuple(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.I
         }
     }
 
-    for (0..elems.len) |i| {
-        if (elems[i] == .none and i < field_defaults.len) {
-            elems[i] = field_defaults[i];
+    for (elems, 0..) |*elem, i| {
+        if (elem.* == .none and i < field_defaults.len) {
+            elem.* = field_defaults[i];
         }
     }
 
@@ -557,9 +556,11 @@ fn lowerStruct(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
         }
     }
 
-    for (0..field_values.len) |i| {
-        if (field_values[i] == .none and i < field_defaults.len) {
-            field_values[i] = field_defaults[i];
+    if (field_defaults.len > 0) {
+        for (field_values, 0..) |*field_value, i| {
+            if (field_value.* == .none) {
+                field_value.* = field_defaults[i];
+            }
         }
     }
 
@@ -623,8 +624,8 @@ fn lowerPointer(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool
 
     const elems = try self.sema.arena.alloc(InternPool.Index, elem_nodes.len + @intFromBool(ptr_info.sentinel != .none));
 
-    for (0..elem_nodes.len) |i| {
-        elems[i] = try self.lowerExpr(elem_nodes.at(@intCast(i)), .fromInterned(ptr_info.child));
+    for (elems, 0..) |*elem, i| {
+        elem.* = try self.lowerExpr(elem_nodes.at(@intCast(i)), .fromInterned(ptr_info.child));
     }
 
     if (ptr_info.sentinel != .none) {
@@ -642,7 +643,7 @@ fn lowerPointer(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool
         .storage = .{ .elems = elems },
     } });
 
-    const many_item_ptr_type = try ip.get(gpa, self.sema.pt.tid, .{ .ptr_type = .{
+    const many_item_ptr_type = try self.sema.pt.intern(.{ .ptr_type = .{
         .child = ptr_info.child,
         .sentinel = ptr_info.sentinel,
         .flags = b: {
@@ -653,7 +654,7 @@ fn lowerPointer(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool
         .packed_offset = ptr_info.packed_offset,
     } });
 
-    const many_item_ptr = try ip.get(gpa, self.sema.pt.tid, .{
+    const many_item_ptr = try self.sema.pt.intern(.{
         .ptr = .{
             .ty = many_item_ptr_type,
             .base_addr = .{
@@ -666,9 +667,9 @@ fn lowerPointer(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool
         },
     });
 
-    const len = (try self.sema.pt.intValue(Type.usize, elems.len)).toIntern();
+    const len = (try self.sema.pt.intValue(.usize, elems.len)).toIntern();
 
-    return ip.get(gpa, self.sema.pt.tid, .{ .slice = .{
+    return self.sema.pt.intern(.{ .slice = .{
         .ty = res_ty.toIntern(),
         .ptr = many_item_ptr,
         .len = len,
