@@ -993,7 +993,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             .main_token = try c.addToken(.keyword_continue, "continue"),
             .data = .{
                 .lhs = 0,
-                .rhs = undefined,
+                .rhs = 0,
             },
         }),
         .return_void => return c.addNode(.{
