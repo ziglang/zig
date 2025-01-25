@@ -1881,18 +1881,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 comp.remaining_prelink_tasks += 1;
             }
 
-            if (target.isMinGW() and comp.config.any_non_single_threaded) {
-                // LLD might drop some symbols as unused during LTO and GCing, therefore,
-                // we force mark them for resolution here.
-
-                const tls_index_sym = switch (target.cpu.arch) {
-                    .x86 => "__tls_index",
-                    else => "_tls_index",
-                };
-
-                try comp.force_undefined_symbols.put(comp.gpa, tls_index_sym, {});
-            }
-
             if (comp.include_compiler_rt and capable_of_building_compiler_rt) {
                 if (is_exe_or_dyn_lib) {
                     log.debug("queuing a job to build compiler_rt_lib", .{});
