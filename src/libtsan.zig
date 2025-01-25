@@ -53,6 +53,8 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
     const link_libcpp = target.isDarwin();
+    const unwind_tables: std.builtin.UnwindTables =
+        if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .@"async";
 
     const config = Compilation.Config.resolve(.{
         .output_mode = output_mode,
@@ -65,6 +67,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         .root_strip = strip,
         .link_libc = true,
         .link_libcpp = link_libcpp,
+        .any_unwind_tables = unwind_tables != .none,
         // LLVM disables LTO for its libtsan.
         .lto = .none,
     }) catch |err| {
@@ -97,6 +100,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
             .red_zone = comp.root_mod.red_zone,
             .omit_frame_pointer = optimize_mode != .Debug and !target.os.tag.isDarwin(),
             .valgrind = false,
+            .unwind_tables = unwind_tables,
             .optimize_mode = optimize_mode,
             .structured_cfg = comp.root_mod.structured_cfg,
             .pic = true,
