@@ -112,6 +112,52 @@ pub fn approxEqRel(comptime T: type, x: T, y: T, tolerance: T) bool {
     return @abs(x - y) <= @max(@abs(x), @abs(y)) * tolerance;
 }
 
+/// Compare flats using Units in the Last Place tolerace
+/// Performs an approximate comparison of two floating point values `x` and `y`.
+/// Returns true if their integer representations are within `ulp` units of each other.
+/// This function is useful for precise numerical comparisons where relative or absolute
+/// tolerances are insufficient. It checks the number of representable floats between `x` and `y`.
+///
+/// - `T`: the floating-point type (f16, f32, f64, f128).
+/// - `x`, `y`: the values to compare.
+/// - `ulp`: the maximum allowed number of Units in the Last Place (ULPs) between `x` and `y`.
+///
+/// NaN values are never considered equal. Infinities are only equal if both are the same infinity.
+/// Values with different signs are not considered equal unless both are zero.
+pub fn approxEqUlp(comptime T: type, x: T, y: T, ulp: comptime_int) bool {
+    assert(@typeInfo(T) == .float or @typeInfo(T) == .comptime_float);
+    assert(ulp > 0);
+
+    const bits = @bitSizeOf(T);
+    const int_type = std.meta.Int(.unsigned, bits);
+
+    const x_bits: int_type = @bitCast(x);
+    const y_bits: int_type = @bitCast(y);
+
+    if (x == 0 and y == 0) {
+        return true;
+    }
+
+    if ((x_bits ^ y_bits) >> (bits - 1) != 0) {
+        // Values with different signs are not equal
+        return false;
+    }
+
+    // NaN values are never considered equal.
+    if (isNan(x) or isNan(y)) {
+        return false;
+    }
+
+    // Infinities are only equal if both are the same infinity.
+    if (isInf(x) or isInf(y)) {
+        return x == y;
+    }
+
+    // Calculate the difference in ULPs
+    const diff = if (x_bits > y_bits) x_bits - y_bits else y_bits - x_bits;
+    return diff <= ulp;
+}
+
 test approxEqAbs {
     inline for ([_]type{ f16, f32, f64, f128 }) |T| {
         const eps_value = comptime floatEps(T);
@@ -171,6 +217,17 @@ test approxEqRel {
         try testing.expect(approxEqRel(comptime_float, 1.0, 1.0, sqrt_eps_value));
         try testing.expect(!approxEqRel(comptime_float, 1.0, 0.0, sqrt_eps_value));
     }
+}
+
+test "approxEqUlp" {
+    try std.testing.expect(approxEqUlp(f16, 1.0, 1.0 + std.math.floatEps(f16), 1));
+    try std.testing.expect(!approxEqUlp(f16, 1.0, 1.01, 1));
+    try std.testing.expect(approxEqUlp(f32, 1.0, 1.0 + std.math.floatEps(f32), 1));
+    try std.testing.expect(!approxEqUlp(f32, 1.0, 1.0001, 1));
+    try std.testing.expect(approxEqUlp(f64, 1.0, 1.0 + std.math.floatEps(f64), 1));
+    try std.testing.expect(!approxEqUlp(f64, 1.0, 1.0000000000001, 1));
+    try std.testing.expect(approxEqUlp(f128, 1.0, 1.0 + std.math.floatEps(f128), 1));
+    try std.testing.expect(!approxEqUlp(f128, 1.0, 1.0000000000000000000000000000001, 1));
 }
 
 pub fn raiseInvalid() void {
