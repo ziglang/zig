@@ -1881,18 +1881,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 comp.remaining_prelink_tasks += 1;
             }
 
-            if (target.isMinGW() and comp.config.any_non_single_threaded) {
-                // LLD might drop some symbols as unused during LTO and GCing, therefore,
-                // we force mark them for resolution here.
-
-                const tls_index_sym = switch (target.cpu.arch) {
-                    .x86 => "__tls_index",
-                    else => "_tls_index",
-                };
-
-                try comp.force_undefined_symbols.put(comp.gpa, tls_index_sym, {});
-            }
-
             if (comp.include_compiler_rt and capable_of_building_compiler_rt) {
                 if (is_exe_or_dyn_lib) {
                     log.debug("queuing a job to build compiler_rt_lib", .{});
@@ -3695,15 +3683,19 @@ fn performAllTheWorkInner(
     // In case it failed last time, try again. `clearMiscFailures` was already
     // called at the start of `update`.
     if (comp.queued_jobs.compiler_rt_lib and comp.compiler_rt_lib == null) {
-        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Lib, &comp.compiler_rt_lib, main_progress_node });
+        // LLVM disables LTO for its compiler-rt and we've had various issues with LTO of our
+        // compiler-rt due to LLD bugs as well, e.g.:
+        //
+        // https://github.com/llvm/llvm-project/issues/43698#issuecomment-2542660611
+        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Lib, false, &comp.compiler_rt_lib, main_progress_node });
     }
 
     if (comp.queued_jobs.compiler_rt_obj and comp.compiler_rt_obj == null) {
-        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Obj, &comp.compiler_rt_obj, main_progress_node });
+        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "compiler_rt.zig", .compiler_rt, .Obj, false, &comp.compiler_rt_obj, main_progress_node });
     }
 
     if (comp.queued_jobs.fuzzer_lib and comp.fuzzer_lib == null) {
-        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "fuzzer.zig", .libfuzzer, .Lib, &comp.fuzzer_lib, main_progress_node });
+        comp.link_task_wait_group.spawnManager(buildRt, .{ comp, "fuzzer.zig", .libfuzzer, .Lib, true, &comp.fuzzer_lib, main_progress_node });
     }
 
     if (comp.queued_jobs.glibc_shared_objects) {
@@ -4635,12 +4627,14 @@ fn buildRt(
     root_source_name: []const u8,
     misc_task: MiscTask,
     output_mode: std.builtin.OutputMode,
+    allow_lto: bool,
     out: *?CrtFile,
     prog_node: std.Progress.Node,
 ) void {
     comp.buildOutputFromZig(
         root_source_name,
         output_mode,
+        allow_lto,
         out,
         misc_task,
         prog_node,
@@ -4748,6 +4742,7 @@ fn buildZigLibc(comp: *Compilation, prog_node: std.Progress.Node) void {
     comp.buildOutputFromZig(
         "c.zig",
         .Lib,
+        true,
         &comp.libc_static_lib,
         .zig_libc,
         prog_node,
@@ -6453,6 +6448,7 @@ fn buildOutputFromZig(
     comp: *Compilation,
     src_basename: []const u8,
     output_mode: std.builtin.OutputMode,
+    allow_lto: bool,
     out: *?CrtFile,
     misc_task_tag: MiscTask,
     prog_node: std.Progress.Node,
@@ -6481,6 +6477,7 @@ fn buildOutputFromZig(
         .root_strip = strip,
         .link_libc = comp.config.link_libc,
         .any_unwind_tables = comp.root_mod.unwind_tables != .none,
+        .lto = if (allow_lto) comp.config.lto else .none,
     });
 
     const root_mod = try Package.Module.create(arena, .{
@@ -6581,6 +6578,8 @@ pub const CrtFileOptions = struct {
     unwind_tables: ?std.builtin.UnwindTables = null,
     pic: ?bool = null,
     no_builtin: ?bool = null,
+
+    allow_lto: bool = true,
 };
 
 pub fn build_crt_file(
@@ -6619,7 +6618,7 @@ pub fn build_crt_file(
         .link_libc = false,
         .any_unwind_tables = options.unwind_tables != .none,
         .lto = switch (output_mode) {
-            .Lib => comp.config.lto,
+            .Lib => if (options.allow_lto) comp.config.lto else .none,
             .Obj, .Exe => .none,
         },
     });
