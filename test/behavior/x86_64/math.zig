@@ -1,11 +1,11 @@
 const builtin = @import("builtin");
 const inf = math.inf;
 const math = std.math;
-const max = math.floatMax;
-const min = math.floatMin;
+const fmax = math.floatMax;
+const fmin = math.floatMin;
 const nan = math.nan;
 const std = @import("std");
-const trueMin = math.floatTrueMin;
+const tmin = math.floatTrueMin;
 
 const Gpr = switch (builtin.cpu.arch) {
     else => unreachable,
@@ -17,15 +17,34 @@ const Sse = if (std.Target.x86.featureSetHas(builtin.cpu.features, .avx))
 else
     @Vector(16, u8);
 
-inline fn sign(rhs: anytype) bool {
-    return @call(.always_inline, math.signbit, .{rhs});
+inline fn sign(rhs: anytype) switch (@typeInfo(@TypeOf(rhs))) {
+    else => bool,
+    .vector => |vector| @Vector(vector.len, bool),
+} {
+    switch (@typeInfo(@TypeOf(rhs))) {
+        else => {
+            const I = @Type(.{ .int = .{
+                .signedness = .unsigned,
+                .bits = @bitSizeOf(@TypeOf(rhs)),
+            } });
+            return @as(I, @bitCast(rhs)) & @as(I, 1) << (@bitSizeOf(I) - 1) != 0;
+        },
+        .vector => |vector| {
+            const I = @Type(.{ .int = .{
+                .signedness = .unsigned,
+                .bits = @bitSizeOf(vector.child),
+            } });
+            const V = @Vector(vector.len, I);
+            return @as(V, @bitCast(rhs)) & @as(V, @splat(@as(I, 1) << (@bitSizeOf(I) - 1))) != @as(V, @splat(0));
+        },
+    }
 }
 inline fn boolAnd(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
     switch (@typeInfo(@TypeOf(lhs))) {
         .bool => return lhs and rhs,
         .vector => |vector| switch (vector.child) {
             bool => {
-                const Bits = @Vector(vector.len, u1);
+                const Bits = @Type(.{ .int = .{ .signedness = .unsigned, .bits = vector.len } });
                 const lhs_bits: Bits = @bitCast(lhs);
                 const rhs_bits: Bits = @bitCast(rhs);
                 return @bitCast(lhs_bits & rhs_bits);
@@ -41,7 +60,7 @@ inline fn boolOr(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
         .bool => return lhs or rhs,
         .vector => |vector| switch (vector.child) {
             bool => {
-                const Bits = @Vector(vector.len, u1);
+                const Bits = @Type(.{ .int = .{ .signedness = .unsigned, .bits = vector.len } });
                 const lhs_bits: Bits = @bitCast(lhs);
                 const rhs_bits: Bits = @bitCast(rhs);
                 return @bitCast(lhs_bits | rhs_bits);
@@ -69,12 +88,40 @@ noinline fn checkExpected(expected: anytype, actual: @TypeOf(expected)) !void {
     }) return error.Unexpected;
 }
 test checkExpected {
+    if (checkExpected(nan(f16), nan(f16)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f16), -nan(f16)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, 0.0), @as(f16, 0.0)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, -0.0), @as(f16, -0.0)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, -0.0), @as(f16, 0.0)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, 0.0), @as(f16, -0.0)) != error.Unexpected) return error.Unexpected;
+
     if (checkExpected(nan(f32), nan(f32)) == error.Unexpected) return error.Unexpected;
     if (checkExpected(nan(f32), -nan(f32)) != error.Unexpected) return error.Unexpected;
     if (checkExpected(@as(f32, 0.0), @as(f32, 0.0)) == error.Unexpected) return error.Unexpected;
     if (checkExpected(@as(f32, -0.0), @as(f32, -0.0)) == error.Unexpected) return error.Unexpected;
     if (checkExpected(@as(f32, -0.0), @as(f32, 0.0)) != error.Unexpected) return error.Unexpected;
     if (checkExpected(@as(f32, 0.0), @as(f32, -0.0)) != error.Unexpected) return error.Unexpected;
+
+    if (checkExpected(nan(f64), nan(f64)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f64), -nan(f64)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, 0.0), @as(f64, 0.0)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, -0.0), @as(f64, -0.0)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, -0.0), @as(f64, 0.0)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, 0.0), @as(f64, -0.0)) != error.Unexpected) return error.Unexpected;
+
+    if (checkExpected(nan(f80), nan(f80)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f80), -nan(f80)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, 0.0), @as(f80, 0.0)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, -0.0), @as(f80, -0.0)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, -0.0), @as(f80, 0.0)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, 0.0), @as(f80, -0.0)) != error.Unexpected) return error.Unexpected;
+
+    if (checkExpected(nan(f128), nan(f128)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f128), -nan(f128)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, 0.0), @as(f128, 0.0)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, -0.0), @as(f128, -0.0)) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, -0.0), @as(f128, 0.0)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, 0.0), @as(f128, -0.0)) != error.Unexpected) return error.Unexpected;
 }
 
 fn Unary(comptime op: anytype) type {
@@ -498,96 +545,96 @@ fn Unary(comptime op: anytype) type {
         fn testFloatTypes() !void {
             try testArgs(f16, -nan(f16));
             try testArgs(f16, -inf(f16));
-            try testArgs(f16, -max(f16));
+            try testArgs(f16, -fmax(f16));
             try testArgs(f16, -10.0);
             try testArgs(f16, -1.0);
             try testArgs(f16, -0.1);
-            try testArgs(f16, -min(f16));
-            try testArgs(f16, -trueMin(f16));
+            try testArgs(f16, -fmin(f16));
+            try testArgs(f16, -tmin(f16));
             try testArgs(f16, -0.0);
             try testArgs(f16, 0.0);
-            try testArgs(f16, trueMin(f16));
-            try testArgs(f16, min(f16));
+            try testArgs(f16, tmin(f16));
+            try testArgs(f16, fmin(f16));
             try testArgs(f16, 0.1);
             try testArgs(f16, 1.0);
             try testArgs(f16, 10.0);
-            try testArgs(f16, max(f16));
+            try testArgs(f16, fmax(f16));
             try testArgs(f16, inf(f16));
             try testArgs(f16, nan(f16));
 
             try testArgs(f32, -nan(f32));
             try testArgs(f32, -inf(f32));
-            try testArgs(f32, -max(f32));
+            try testArgs(f32, -fmax(f32));
             try testArgs(f32, -10.0);
             try testArgs(f32, -1.0);
             try testArgs(f32, -0.1);
-            try testArgs(f32, -min(f32));
-            try testArgs(f32, -trueMin(f32));
+            try testArgs(f32, -fmin(f32));
+            try testArgs(f32, -tmin(f32));
             try testArgs(f32, -0.0);
             try testArgs(f32, 0.0);
-            try testArgs(f32, trueMin(f32));
-            try testArgs(f32, min(f32));
+            try testArgs(f32, tmin(f32));
+            try testArgs(f32, fmin(f32));
             try testArgs(f32, 0.1);
             try testArgs(f32, 1.0);
             try testArgs(f32, 10.0);
-            try testArgs(f32, max(f32));
+            try testArgs(f32, fmax(f32));
             try testArgs(f32, inf(f32));
             try testArgs(f32, nan(f32));
 
             try testArgs(f64, -nan(f64));
             try testArgs(f64, -inf(f64));
-            try testArgs(f64, -max(f64));
+            try testArgs(f64, -fmax(f64));
             try testArgs(f64, -10.0);
             try testArgs(f64, -1.0);
             try testArgs(f64, -0.1);
-            try testArgs(f64, -min(f64));
-            try testArgs(f64, -trueMin(f64));
+            try testArgs(f64, -fmin(f64));
+            try testArgs(f64, -tmin(f64));
             try testArgs(f64, -0.0);
             try testArgs(f64, 0.0);
-            try testArgs(f64, trueMin(f64));
-            try testArgs(f64, min(f64));
+            try testArgs(f64, tmin(f64));
+            try testArgs(f64, fmin(f64));
             try testArgs(f64, 0.1);
             try testArgs(f64, 1.0);
             try testArgs(f64, 10.0);
-            try testArgs(f64, max(f64));
+            try testArgs(f64, fmax(f64));
             try testArgs(f64, inf(f64));
             try testArgs(f64, nan(f64));
 
             try testArgs(f80, -nan(f80));
             try testArgs(f80, -inf(f80));
-            try testArgs(f80, -max(f80));
+            try testArgs(f80, -fmax(f80));
             try testArgs(f80, -10.0);
             try testArgs(f80, -1.0);
             try testArgs(f80, -0.1);
-            try testArgs(f80, -min(f80));
-            try testArgs(f80, -trueMin(f80));
+            try testArgs(f80, -fmin(f80));
+            try testArgs(f80, -tmin(f80));
             try testArgs(f80, -0.0);
             try testArgs(f80, 0.0);
-            try testArgs(f80, trueMin(f80));
-            try testArgs(f80, min(f80));
+            try testArgs(f80, tmin(f80));
+            try testArgs(f80, fmin(f80));
             try testArgs(f80, 0.1);
             try testArgs(f80, 1.0);
             try testArgs(f80, 10.0);
-            try testArgs(f80, max(f80));
+            try testArgs(f80, fmax(f80));
             try testArgs(f80, inf(f80));
             try testArgs(f80, nan(f80));
 
             try testArgs(f128, -nan(f128));
             try testArgs(f128, -inf(f128));
-            try testArgs(f128, -max(f128));
+            try testArgs(f128, -fmax(f128));
             try testArgs(f128, -10.0);
             try testArgs(f128, -1.0);
             try testArgs(f128, -0.1);
-            try testArgs(f128, -min(f128));
-            try testArgs(f128, -trueMin(f128));
+            try testArgs(f128, -fmin(f128));
+            try testArgs(f128, -tmin(f128));
             try testArgs(f128, -0.0);
             try testArgs(f128, 0.0);
-            try testArgs(f128, trueMin(f128));
-            try testArgs(f128, min(f128));
+            try testArgs(f128, tmin(f128));
+            try testArgs(f128, fmin(f128));
             try testArgs(f128, 0.1);
             try testArgs(f128, 1.0);
             try testArgs(f128, 10.0);
-            try testArgs(f128, max(f128));
+            try testArgs(f128, fmax(f128));
             try testArgs(f128, inf(f128));
             try testArgs(f128, nan(f128));
         }
@@ -1136,6 +1183,145 @@ fn Unary(comptime op: anytype) type {
             try testArgs(@Vector(3, i1025), .{ -1 << 1024, -1, 0 });
             try testArgs(@Vector(3, u1025), .{ 0, 1, 1 << 1024 });
         }
+        fn testFloatVectorTypes() !void {
+            try testArgs(@Vector(1, f16), .{
+                -0x1.17cp-12,
+            });
+            try testArgs(@Vector(2, f16), .{
+                0x1.47cp9, 0x1.3acp9,
+            });
+            try testArgs(@Vector(4, f16), .{
+                0x1.ab4p0, -0x1.7fcp-7, -0x1.1cp0, -0x1.f14p12,
+            });
+            try testArgs(@Vector(8, f16), .{
+                -0x1.8d8p8, 0x1.83p10, -0x1.5ap-1, -0x1.d78p13, -0x1.608p12, 0x1.e8p-9, -0x1.688p-10, -0x1.738p9,
+            });
+            try testArgs(@Vector(16, f16), .{
+                0x1.da8p-1, -0x1.ed4p-10, -0x1.dc8p1,  0x1.b78p-14, nan(f16),    0x1.9d8p8,   nan(f16),     0x1.d5p13,
+                -0x1.2dp13, 0x1.6c4p12,   0x1.a9cp-11, -0x1.0ecp8,  0x0.4ccp-14, -0x1.0a8p-6, -0x1.5bcp-14, 0x1.6d8p-9,
+            });
+            try testArgs(@Vector(32, f16), .{
+                0x1.d5cp-6,  -0x1.a98p5,  0x1.49cp5,   -0x1.e4p-1,  -0x1.21p-13, -0x1.c94p-1, -0x1.adcp-5, -0x1.524p-1,
+                -0x1.0d8p-3, -0x1.5c4p-2, 0x1.f84p-2,  0x1.664p1,   -0x1.f64p13, -0x1.bf4p4,  -0x1.4b8p0,  -0x0.f64p-14,
+                -0x1.3f8p1,  0x1.098p2,   -0x1.a44p8,  0x1.048p13,  0x1.fd4p-11, 0x1.18p-9,   -0x1.504p2,  0x1.d04p7,
+                -nan(f16),   0x1.a94p2,   0x0.5e8p-14, -0x1.7acp-7, 0x1.4c8p-3,  0x1.518p-4,  nan(f16),    0x1.8f8p10,
+            });
+            try testArgs(@Vector(64, f16), .{
+                -0x1.c2p2,   0x0.2fcp-14,  0x1.de8p0,    -0x1.714p2,   0x1.f9p-7,    -0x1.11cp-13, -0x1.558p10, -0x1.2acp-7,
+                0x1.348p14,  0x1.2dcp7,    -0x1.8acp-12, -0x1.2cp2,    0x1.868p1,    -0x1.1f8p-14, 0x1.638p7,   -0x1.734p-5,
+                0x0.b98p-14, -0x1.7f4p-12, -0x1.38cp15,  0x1.50cp15,   0x1.91cp8,    0x1.cb4p-1,   0x1.fc4p-13, 0x1.9a4p0,
+                0x1.18p-4,   0x1.60cp10,   0x1.6fp-12,   0x1.b48p6,    0x1.37cp-11,  0x1.424p7,    0x1.44cp13,  0x1.aep5,
+                0x1.968p14,  0x1.e8p13,    -0x1.bp2,     -0x1.644p5,   0x1.de4p-8,   -0x1.5b4p-14, -0x1.4ap1,   -0x1.868p9,
+                -0x1.d14p0,  0x1.d7cp15,   0x1.3c8p14,   0x1.2ccp-14,  -0x1.ee4p8,   0x1.49p-3,    0x1.35cp12,  0x1.d34p6,
+                0x1.7acp3,   -0x1.fa4p2,   0x1.7b4p13,   -0x1.cf4p-12, -0x1.ebcp-10, -0x1.5p-3,    0x1.4bp-6,   0x1.83p12,
+                -0x1.f9cp-8, -0x1.43p-8,   -0x1.99p-1,   -0x1.dacp3,   -0x1.728p-4,  -0x1.03cp4,   0x1.604p-2,  -0x1.0ep13,
+            });
+
+            try testArgs(@Vector(1, f32), .{
+                -0x1.17cp-12,
+            });
+            try testArgs(@Vector(2, f32), .{
+                -0x1.a3123ap90, -0x1.4a2ec6p-54,
+            });
+            try testArgs(@Vector(4, f32), .{
+                -0x1.8a41p77, -0x1.7c54e2p-61, -0x1.498556p-41, 0x1.d77c22p-20,
+            });
+            try testArgs(@Vector(8, f32), .{
+                0x1.943da4p-86, 0x1.528792p95,  -0x1.9c9bfap-26, -0x1.8df936p-90,
+                -0x1.6a70cep56, 0x1.626638p-48, 0x1.7bb2bap-57,  -0x1.ac5104p94,
+            });
+            try testArgs(@Vector(16, f32), .{
+                0x1.157044p115, -0x1.416c04p-111, 0x1.a8f164p-104, 0x1.9b6678p84,
+                -0x1.9d065cp9,  -0x1.e8c4b4p126,  -0x1.ddb968p84,  -0x1.fec8c8p74,
+                0x1.64ffb2p59,  0x1.548922p20,    0x1.7270fcp22,   -0x1.abac68p33,
+                0x1.faabfp33,   -0x1.8aee82p55,   0x1.1bf8fp75,    0x1.33c46ap-66,
+            });
+            try testArgs(@Vector(32, f32), .{
+                -0x1.039b68p37,   -0x1.34de4ap-74, -0x1.05d78ap-76, -0x1.be0f5ap-47,
+                0x1.032204p-38,   0x1.ef8e2ap-78,  -0x1.b013ecp-80, 0x1.71fe4cp99,
+                0x1.abdadap-14,   0x1.56a9a8p-48,  -0x1.8bbd7ep9,   0x1.edd308p-72,
+                -0x1.92fafcp-121, -0x1.50812p19,   0x1.f4ddc4p28,   -0x1.6f0b12p-50,
+                -0x1.12ab02p127,  0x1.24df48p21,   -0x1.993c3p-14,  -0x1.4cc476p-112,
+                0x1.13d9a8p-40,   0x1.a6e652p-9,   -0x1.9c730cp-21, -0x1.a75aaap-70,
+                -0x1.39e632p-111, 0x1.8e8da8p-45,  0x1.b5652cp31,   0x1.258366p44,
+                0x1.d473aap92,    -0x1.951b64p9,   0x1.542edp15,    -0x0.f6222ap-126,
+            });
+
+            try testArgs(@Vector(1, f64), .{
+                -0x1.0114613df6f97p816,
+            });
+            try testArgs(@Vector(2, f64), .{
+                -0x1.8404dad72003cp720, -0x1.6b14b40bcf3b7p-176,
+            });
+            try testArgs(@Vector(4, f64), .{
+                -0x1.04e1acbfddd9cp681, -0x1.ed553cc056da7p-749,
+                0x1.3d3f703a0c893p-905, 0x1.0b35633fa78fp691,
+            });
+            try testArgs(@Vector(8, f64), .{
+                -0x1.901a2a60f0562p-301, -0x1.2516175ad61ecp-447,
+                0x1.e7b12124846bfp564,   0x1.9291384bd7259p209,
+                -0x1.a7bf62f803c98p900,  0x1.4e2e26257bb3p987,
+                -0x1.413ca9a32d894p811,  0x1.61b1dd9432e95p479,
+            });
+            try testArgs(@Vector(16, f64), .{
+                -0x1.8fc7286d95f54p-235,  -0x1.796a7ea8372b6p-837,
+                -0x1.8c0f930539acbp-98,   -0x1.ec80dfbf0b931p-430,
+                -0x1.e3d80c640652fp-1019, 0x1.8241238fb542fp161,
+                -0x1.e1f1a79d50263p137,   -0x1.9ac5cb2771c28p-791,
+                0x1.4d8f00fe881e7p-401,   -0x1.87fbd7bfd99d7p346,
+                -0x1.a8a7cc575335ep1017,  0x1.37bb88dc3fd8bp-355,
+                0x1.9d53d346c0e65p929,    -0x1.bbae3d0229c34p289,
+                -0x1.cb8ef994d5ce5p25,    0x1.ba20af512616ap50,
+            });
+
+            try testArgs(@Vector(1, f80), .{
+                -0x1.a2e9410a7dfedabp-2324,
+            });
+            try testArgs(@Vector(2, f80), .{
+                -0x1.a2e9410a7dfedabp-2324,
+                0x1.2b17da3b9746885p-8665,
+            });
+            try testArgs(@Vector(4, f80), .{
+                -0x1.c488fedb7ab646cep-13007,
+                0x1.e914deaccaa50016p2073,
+                -0x1.d1c7ae8ec3c9df86p10642,
+                -0x1.2da1658f337fa01p9893,
+            });
+            try testArgs(@Vector(8, f80), .{
+                -0x1.bed8a74c43750656p890,
+                -0x1.7bf57f38004ac976p8481,
+                -0x1.9cdc10ac0657d328p7884,
+                0x1.c86f61883da149fp12293,
+                -0x1.528d6957df6bfdd8p14125,
+                -0x1.5ebb4006d0243bfep14530,
+                -0x1.94b9b18636d12402p-1845,
+                -0x1.25439a6d68add188p5962,
+            });
+
+            try testArgs(@Vector(1, f128), .{
+                -0x1.d1e6fc3b1e66632e7b79051a47dap14300,
+            });
+            try testArgs(@Vector(2, f128), .{
+                0x1.84b3ac8ffe5893b2c6af8d68de9dp-83,
+                -0x1.438ca2c8a0d8e3ee9062d351c46ep-10235,
+            });
+            try testArgs(@Vector(4, f128), .{
+                0x1.04eb03882d4fd1b090e714d3e5ep806,
+                -0x1.4082b29f7c26e701764c915642ffp-6182,
+                -0x1.b6f1e8565e5040415110f18b519ap13383,
+                0x1.1c29f8c162cead9061c5797ea15ap11957,
+            });
+            try testArgs(@Vector(8, f128), .{
+                -0x1.53d7f00cd204d80e5ff5bb665773p11218,
+                -0x1.4daa1c81cffe28e8fa5cd703c287p2362,
+                -0x1.cc6a71c3ad4560871efdbd025cd7p-8116,
+                -0x1.87f8553cf8772fb6b78e7df3e3bap14523,
+                -0x1.14b6880f6678f86dfb543dde1c6ep2105,
+                0x1.9d2d4398414da9d857e76e8fd7ccp-13668,
+                0x1.a37f07af240ded458d103c022064p-1158,
+                0x1.425d53e6bd6070b847e5da1ed593p1394,
+            });
+        }
     };
 }
 
@@ -1205,15 +1391,30 @@ fn Binary(comptime op: anytype) type {
             );
         }
         fn testIntTypes() !void {
+            try testArgs(i8, 0x48, 0x6c);
             try testArgs(u8, 0xbb, 0x43);
+            try testArgs(i16, -0x0fdf, 0x302e);
             try testArgs(u16, 0xb8bf, 0x626d);
+            try testArgs(i32, -0x6280178f, 0x6802c034);
             try testArgs(u32, 0x80d7a2c6, 0xbff6a402);
+            try testArgs(i64, 0x0365a53b8ee0c987, -0x1bb6d3013500a7d2);
             try testArgs(u64, 0x71138bc6b4a38898, 0x1bc4043de9438c7b);
+            try testArgs(i128, 0x76d428c46cdeaa2ac43de8abffb22f6d, 0x427f7545abe434a12544fdbe2a012889);
             try testArgs(u128, 0xe05fc132ef2cd8affee00a907f0a851f, 0x29f912a72cfc6a7c6973426a9636da9a);
+            try testArgs(
+                i256,
+                -0x53d4148cee74ea43477a65b3daa7b8fdadcbf4508e793f4af113b8d8da5a7eb6,
+                -0x30dcbaf7b9b7a3df033694e6795444d842fb0b8f79bc18b3ea8a6b7ccad3ea91,
+            );
             try testArgs(
                 u256,
                 0xb7935f5c2f3b1ae7a422c0a7c446884294b7d5370bada307d2fe5a4c4284a999,
                 0x310e6e196ba4f143b8d285ca6addf7f3bb3344224aff221b27607a31e148be08,
+            );
+            try testArgs(
+                i258,
+                -0x0eee283365108dbeea0bec82f5147418d8ffe86f9eed00e414b4eccd65c21239a,
+                -0x122c730073fc29a24cd6e3e6263566879bc5325d8566b8db31fcb4a76f7ab95eb,
             );
             try testArgs(
                 u258,
@@ -1221,9 +1422,19 @@ fn Binary(comptime op: anytype) type {
                 0x2072daba6ffad168826163eb136f6d28ca4360c8e7e5e41e29755e19e4753a4f5,
             );
             try testArgs(
+                i495,
+                0x2fe6bc5448c55ce18252e2c9d44777505dfe63ff249a8027a6626c7d8dd9893fd5731e51474727be556f757facb586a4e04bbc0148c6c7ad692302f46fbd,
+                -0x016a358821ef8240172f3a08e8830c06e6bcf2225f5f4d41ed42b44d249385f55cc594e1278ecac31c73faed890e5054af1a561483bb1bb6fb1f753514cf,
+            );
+            try testArgs(
                 u495,
                 0x6eaf4e252b3bf74b75bac59e0b43ca5326bad2a25b3fdb74a67ef132ac5e47d72eebc3316fb2351ee66c50dc5afb92a75cea9b0e35160652c7db39eeb158,
                 0x49fbed744a92b549d8c05bb3512c617d24dd824f3f69bdf3923bc326a75674b85f5b828d2566fab9c86f571d12c2a63c9164feb0d191d27905533d09622a,
+            );
+            try testArgs(
+                i512,
+                -0x3a6876ca92775286c6e1504a64a9b8d56985bebf4a1b66539d404e0e96f24b226f70c4bcff295fdc2043b82513b2052dc45fd78f7e9e80e5b3e101757289f054,
+                0x5080c516a819bd32a0a5f0976441bbfbcf89e77684f1f10eb326aeb28e1f8d593278cff60fc99b8ffc87d8696882c64728dd3c322b7142803f4341f85a03bc10,
             );
             try testArgs(
                 u512,
@@ -1232,6 +1443,69 @@ fn Binary(comptime op: anytype) type {
             );
         }
         fn testIntVectorTypes() !void {
+            try testArgs(@Vector(1, i8), .{
+                -0x54,
+            }, .{
+                0x0f,
+            });
+            try testArgs(@Vector(2, i8), .{
+                -0x4d, 0x55,
+            }, .{
+                0x7d, -0x5d,
+            });
+            try testArgs(@Vector(4, i8), .{
+                0x73, 0x6f, 0x6e, -0x49,
+            }, .{
+                -0x66, 0x23, 0x21, -0x56,
+            });
+            try testArgs(@Vector(8, i8), .{
+                0x44, -0x37, 0x33, -0x2b, -0x1f, 0x3e, 0x50, -0x4d,
+            }, .{
+                0x6a, 0x1a, -0x0e, 0x4c, -0x46, 0x03, -0x17, 0x3e,
+            });
+            try testArgs(@Vector(16, i8), .{
+                -0x52, 0x1a, -0x4b, 0x4e, -0x75, 0x33, -0x43, 0x30, 0x71, -0x30, -0x73, -0x53, 0x64, 0x1f, -0x27, 0x36,
+            }, .{
+                0x65, 0x77, -0x62, 0x0f, 0x15, 0x52, 0x5c, 0x12, -0x10, 0x36, 0x6d, 0x42, -0x24, -0x79, -0x32, -0x75,
+            });
+            try testArgs(@Vector(32, i8), .{
+                -0x12, -0x1e, 0x18, 0x6e, 0x31,  0x53,  -0x6a, -0x34, 0x13,  0x4d, 0x30, -0x7d, -0x31, 0x1e,  -0x24, 0x32,
+                -0x1e, -0x01, 0x55, 0x33, -0x75, -0x44, -0x57, 0x2b,  -0x66, 0x19, 0x7f, -0x28, -0x3f, -0x7e, -0x5d, -0x06,
+            }, .{
+                0x05, -0x23, 0x43,  -0x54, -0x41, 0x7f,  -0x6a, -0x31, 0x04,  0x15, -0x7a, -0x37, 0x6d, 0x16,  0x00,  0x4a,
+                0x15, 0x55,  -0x4a, 0x16,  -0x73, -0x0c, 0x1c,  -0x26, -0x14, 0x00, 0x55,  0x7b,  0x16, -0x2e, -0x5f, -0x67,
+            });
+            try testArgs(@Vector(64, i8), .{
+                -0x05, 0x76,  0x4e,  -0x5c, 0x7b,  -0x1a, -0x38, -0x2e, 0x3d,  0x36,  0x01,  0x30,  -0x02, -0x71, -0x24, 0x24,
+                -0x2e, -0x6e, -0x60, 0x74,  -0x80, -0x1c, -0x34, -0x08, -0x33, 0x77,  0x1c,  -0x0f, 0x45,  -0x51, -0x1d, 0x35,
+                -0x45, 0x44,  0x27,  -0x3c, 0x6b,  0x58,  -0x6a, -0x26, 0x06,  -0x30, -0x21, -0x0a, 0x60,  -0x11, -0x05, 0x75,
+                0x38,  0x72,  -0x6d, -0x1f, -0x7f, 0x74,  -0x6b, -0x14, -0x80, 0x35,  -0x0f, -0x1e, 0x6a,  0x17,  -0x74, -0x6c,
+            }, .{
+                -0x5d, 0x2d,  0x55,  0x40,  -0x7c, 0x67,  0x61,  0x5f,  0x14,  0x5b, -0x0c, -0x4d, -0x5f, 0x25,  0x36,  0x3c,
+                -0x75, -0x48, -0x2b, 0x76,  -0x57, -0x4a, 0x1d,  0x65,  -0x32, 0x18, -0x2a, -0x0a, -0x6e, -0x3c, -0x62, 0x4e,
+                -0x24, -0x3c, 0x7d,  -0x79, -0x1a, -0x14, -0x03, -0x56, 0x7a,  0x5f, 0x64,  -0x68, 0x5f,  -0x10, -0x63, -0x07,
+                0x79,  -0x44, 0x47,  0x7d,  0x6e,  0x77,  0x03,  -0x4e, 0x67,  0x38, 0x46,  -0x44, -0x41, 0x66,  -0x16, -0x0a,
+            });
+            try testArgs(@Vector(128, i8), .{
+                0x30,  0x70,  -0x2a, -0x29, -0x35, -0x69, -0x18, 0x2b,  0x4a,  -0x17, -0x5f, -0x36, 0x34,  -0x26, 0x03,  -0x2d,
+                -0x75, -0x27, -0x07, -0x49, -0x58, 0x00,  -0x45, 0x5d,  -0x11, -0x68, 0x34,  0x73,  -0x4d, 0x7f,  -0x25, -0x6a,
+                0x46,  -0x1d, -0x68, 0x04,  0x64,  -0x0d, 0x30,  0x27,  -0x24, 0x67,  0x3c,  -0x7c, -0x2e, -0x24, 0x24,  0x3e,
+                -0x2c, -0x05, 0x4e,  -0x17, 0x6d,  0x57,  0x76,  0x35,  -0x3d, 0x51,  0x71,  -0x4e, 0x50,  0x26,  0x4a,  -0x42,
+                0x73,  -0x36, -0x5d, 0x2a,  0x55,  0x33,  -0x2b, -0x76, 0x08,  0x43,  0x77,  -0x73, -0x0a, 0x5c,  -0x03, -0x50,
+                -0x0a, -0x1c, -0x20, 0x3c,  -0x7e, 0x60,  0x11,  -0x77, 0x25,  -0x71, 0x31,  0x2d,  -0x4b, -0x26, -0x2a, 0x7f,
+                -0x1f, 0x23,  -0x34, -0x1f, 0x35,  0x0d,  0x3e,  0x76,  -0x08, 0x2c,  0x12,  0x3e,  -0x09, -0x3e, 0x4b,  -0x52,
+                -0x1a, -0x44, -0x53, -0x41, -0x6d, -0x5e, -0x06, -0x04, 0x3f,  -0x2e, 0x01,  0x54,  0x19,  -0x5a, -0x62, -0x3a,
+            }, .{
+                0x42,  -0x11, -0x08, -0x64, -0x55, 0x31,  0x27,  -0x66, 0x38,  0x5a,  0x25,  -0x68, 0x0b,  -0x41, -0x0d, 0x60,
+                -0x17, -0x6d, 0x62,  -0x65, -0x5e, -0x1c, -0x35, 0x28,  0x1c,  -0x74, -0x7f, -0x1c, 0x3a,  0x4e,  0x05,  -0x08,
+                0x30,  -0x77, 0x03,  0x68,  -0x2c, 0x5c,  0x74,  0x6a,  -0x21, 0x0a,  0x36,  -0x55, 0x21,  0x29,  -0x05, 0x70,
+                0x23,  0x3b,  0x0a,  0x7a,  0x19,  0x14,  0x65,  -0x1d, 0x2b,  0x65,  0x33,  0x2a,  0x52,  -0x63, 0x57,  0x10,
+                -0x1b, 0x26,  -0x46, -0x7e, -0x25, 0x79,  -0x01, -0x0d, -0x49, -0x4d, 0x74,  0x03,  0x77,  0x16,  0x03,  -0x3d,
+                0x1c,  0x25,  0x5a,  -0x2f, -0x16, -0x5f, -0x36, -0x55, -0x44, -0x0c, -0x0f, 0x7b,  -0x15, -0x1d, 0x32,  0x31,
+                0x6e,  -0x44, -0x4a, -0x64, 0x67,  0x04,  0x47,  0x00,  0x3c,  -0x0a, -0x79, 0x3d,  0x48,  0x5a,  0x61,  -0x2c,
+                0x6d,  -0x68, -0x71, -0x6b, -0x11, 0x44,  -0x75, -0x55, -0x67, -0x52, 0x64,  -0x3d, -0x05, -0x76, -0x6d, -0x44,
+            });
+
             try testArgs(@Vector(1, u8), .{
                 0x1f,
             }, .{
@@ -1295,6 +1569,67 @@ fn Binary(comptime op: anytype) type {
                 0x56, 0x4f, 0xf1, 0xaa, 0x0a, 0x0f, 0xdb, 0x1b, 0xc8, 0x45, 0x9b, 0x12, 0xb4, 0x1a, 0xe4, 0xa3,
             });
 
+            try testArgs(@Vector(1, i16), .{
+                -0x7b9c,
+            }, .{
+                0x600a,
+            });
+            try testArgs(@Vector(2, i16), .{
+                0x43cc, -0x1421,
+            }, .{
+                -0x2b0e, 0x4d99,
+            });
+            try testArgs(@Vector(4, i16), .{
+                0x558f, 0x6d92, 0x488f, 0x0a04,
+            }, .{
+                -0x01a9,
+                0x2ee4,
+                0x24a9,
+                -0x5fee,
+            });
+            try testArgs(@Vector(8, i16), .{
+                -0x7e5d, -0x02e4, -0x3a72, -0x2e30, 0x7c87, 0x3ea0, 0x4f02, 0x06e4,
+            }, .{
+                -0x417f, 0x5a13, -0x117b, 0x4c28, -0x3769, -0x56a8, 0x1656, -0x4431,
+            });
+            try testArgs(@Vector(16, i16), .{
+                0x04be,  0x774a, 0x7395,  -0x6ca2, -0x21a0, 0x35be, 0x186c,  0x5991,
+                -0x1a82, 0x4527, -0x2278, -0x3554, 0x42c1,  0x7f53, -0x670d, 0x1fad,
+            }, .{
+                0x7a7d,  0x47dd,  0x1975,  0x4028, 0x26ef,  -0x24f5, -0x77c9, -0x19a5,
+                -0x4b04, -0x6939, -0x1b8d, 0x3718, -0x78e6, 0x0941,  -0x1208, -0x392d,
+            });
+            try testArgs(@Vector(32, i16), .{
+                0x4cde,  0x3ab0,  0x354e,  0x0bc0,  -0x5333, 0x4857,  -0x7ccf, -0x69da,
+                0x6ab8,  0x2bf3,  0x1c5a,  0x7b11,  -0x5653, 0x7bc5,  0x497e,  -0x0b55,
+                0x7aa8,  -0x5a8c, -0x6d05, 0x6210,  0x1b64,  0x3f6f,  0x1a02,  0x65e4,
+                -0x6795, 0x5867,  -0x6faf, -0x07cb, -0x762c, -0x7500, 0x1f1c,  -0x4348,
+            }, .{
+                0x72f6,  -0x5405, -0x3aac, 0x2857,  0x34cd,  -0x1dce, -0x56d8, 0x7150,
+                -0x6549, 0x61bd,  -0x3a9f, -0x1e02, -0x5a5a, -0x7910, -0x166d, 0x7c8e,
+                -0x5292, -0x6c6e, -0x37e3, 0x1514,  0x1787,  0x58cb,  -0x4d99, -0x6c15,
+                0x592e,  -0x045f, 0x7682,  -0x1eef, 0x1fb2,  -0x7117, -0x2a17, -0x2d8e,
+            });
+            try testArgs(@Vector(64, i16), .{
+                0x29c3,  -0x1b1f, -0x17ce, -0x50d0, -0x5de3, 0x5ffd,  0x184a,  -0x7769,
+                0x445e,  0x0d8a,  0x7844,  -0x757d, 0x2b32,  0x5374,  -0x6ab2, -0x71c4,
+                0x38f9,  0x347f,  0x2d4c,  0x69a4,  -0x2f92, -0x4479, 0x427b,  -0x0c5f,
+                0x15ae,  0x2c86,  0x1864,  -0x0095, 0x6803,  -0x3484, 0x1001,  -0x0560,
+                -0x0824, 0x7bf6,  0x7a3c,  -0x458a, -0x65cc, -0x54b1, -0x75c6, 0x782e,
+                0x35a7,  -0x3188, -0x58ba, 0x40d0,  -0x4a9c, 0x6b79,  0x1ef5,  0x67a2,
+                -0x3fb8, 0x1885,  -0x093d, -0x4802, 0x0379,  0x2f52,  0x7f1f,  0x256c,
+                0x1052,  0x1b3b,  -0x6146, 0x7e0d,  0x79ca,  -0x79ee, 0x3d58,  0x7482,
+            }, .{
+                -0x0017, -0x3fdd, -0x6f93, 0x6178,  0x5c2b,  0x4eb3,  0x685b,  0x12c8,
+                0x0290,  -0x34f4, -0x6572, 0x3ab6,  -0x3ed1, -0x5e5f, 0x3a90,  -0x4540,
+                -0x2098, 0x6bde,  0x1246,  0x2212,  -0x4d6a, -0x2a5a, 0x5cc4,  -0x240f,
+                0x51b2,  0x5ec0,  -0x5b5f, -0x1b6e, -0x57a5, -0x06bd, -0x5132, 0x7889,
+                0x2817,  0x6ada,  -0x6b46, -0x6a37, -0x6475, -0x5ff4, 0x5a27,  0x1dfa,
+                0x6bd6,  -0x49da, -0x09bf, -0x7c53, 0x2cd3,  -0x6be0, -0x2dca, 0x44bd,
+                -0x1b95, 0x7680,  -0x5bb0, 0x7ad7,  -0x1988, 0x149f,  0x631e,  -0x1d2d,
+                0x632b,  0x55c7,  -0x3433, 0x0dde,  -0x27a7, 0x560e,  -0x2063, 0x4570,
+            });
+
             try testArgs(@Vector(1, u16), .{
                 0x9d6f,
             }, .{
@@ -1353,6 +1688,59 @@ fn Binary(comptime op: anytype) type {
                 0x2c02, 0xff5b, 0x19ca, 0xbbf5, 0x870e, 0xc9ca, 0x47bb, 0xcfcc,
             });
 
+            try testArgs(@Vector(1, i32), .{
+                0x7aef7b1e,
+            }, .{
+                0x60310858,
+            });
+            try testArgs(@Vector(2, i32), .{
+                -0x21910ac9, 0x669f37ef,
+            }, .{
+                0x1a2a1681, 0x003b1fdf,
+            });
+            try testArgs(@Vector(4, i32), .{
+                0x7906cf0d, 0x4818a45f, -0x0a2833b6, 0x51a018c9,
+            }, .{
+                -0x05a3e6a7, -0x47f4a500, 0x50d1141f, -0x264c85c2,
+            });
+            try testArgs(@Vector(8, i32), .{
+                0x7566235a,  -0x7720144f, -0x7d4f5489, 0x3cd736c8,
+                -0x77388801, 0x4e7f955a,  0x4cdf52bc,  0x50b0b53f,
+            }, .{
+                0x00ed6fc5, 0x37320361, 0x70c563c2,  -0x09acb495,
+                0x0688e83f, 0x797295c4, -0x23bfbfdb, 0x38552096,
+            });
+            try testArgs(@Vector(16, i32), .{
+                -0x0214589d, 0x74a7537f,  0x7a7dcb26, 0x3e2e4c44,
+                -0x23bfc358, 0x60e8ef18,  0x5524a7bc, -0x3d88c153,
+                -0x7dc8ff0f, 0x6e2698f6,  0x05641ab8, -0x45e9e405,
+                -0x7c1a04d0, -0x4a8d1e91, 0x41d56723, 0x4ba924ab,
+            }, .{
+                -0x528dc756, -0x6bc217f4, 0x40789b06, 0x65f08d3a,
+                -0x077140ea, -0x43bdaa79, 0x5d98f4e7, -0x2356a1ca,
+                -0x36ef2b49, -0x7cd09b06, 0x71c8176e, 0x5b005860,
+                0x6ce8cfab,  -0x49fd7609, 0x6cbb4e33, 0x6c7c121d,
+            });
+            try testArgs(@Vector(32, i32), .{
+                0x7d22905d,  -0x354e4bbe, -0x68662618, -0x246e1858,
+                -0x1c4285a9, -0x0338059c, -0x60f5bbf4, -0x04f06917,
+                -0x55f837b6, -0x2fba5fe3, 0x092aabf4,  -0x5f533b31,
+                0x6e81a558,  -0x7bcac358, 0x6c4d8d04,  0x3e2f9852,
+                -0x78589b1a, -0x68a00fd4, -0x77d55e25, 0x7f79b51c,
+                -0x66b88f45, 0x7f6dc8a5,  -0x27299a82, -0x426c8e1c,
+                0x0c288f16,  0x158f8c3f,  0x26708be1,  -0x0b73626e,
+                -0x32df1bee, 0x196330f4,  -0x68bb9529, -0x26376ab6,
+            }, .{
+                0x63bd0bd4,  0x4e507611,  -0x5e5222b8, -0x35d8e114,
+                0x1feab77b,  -0x20de7dfd, -0x0ed0b09f, -0x7fc3d585,
+                -0x2d3018e9, -0x261d431b, 0x54451864,  0x1415288f,
+                -0x3ab89593, -0x7060e4c1, -0x54fcd501, -0x26324630,
+                0x53fc8294,  0x2d4aceef,  -0x4ac8efd2, -0x2fec97b7,
+                -0x4de3a2fc, 0x2269fe52,  -0x58c8b473, -0x21026285,
+                -0x23438776, 0x3d5c8c41,  -0x1fc946b2, -0x161c7005,
+                0x44913ff1,  -0x76e2bfaa, -0x54636350, -0x6ec53870,
+            });
+
             try testArgs(@Vector(1, u32), .{
                 0x1d0d9cc4,
             }, .{
@@ -1406,6 +1794,54 @@ fn Binary(comptime op: anytype) type {
                 0xf080e943, 0xc8718d14, 0x3f920382, 0x18d101b5,
             });
 
+            try testArgs(@Vector(1, i64), .{
+                0x4a31679b316d8b59,
+            }, .{
+                0x34a583368386afde,
+            });
+            try testArgs(@Vector(2, i64), .{
+                0x3bae373f9cb990b3, -0x7e8c6c876e8fd34a,
+            }, .{
+                0x09dbef6f7cb9c726, 0x48dfeca879b0df51,
+            });
+            try testArgs(@Vector(4, i64), .{
+                -0x2bd24dd5f5da94bf, -0x144113bae33082c2,
+                0x51e8cb7027ba4b12,  -0x47b02168e2e22f13,
+            }, .{
+                0x769f113245641b91,  -0x414d0e24ea97bc53,
+                -0x0d2a570e7ef9e923, -0x070513d46d3b5a4c,
+            });
+            try testArgs(@Vector(8, i64), .{
+                0x10bb6779b6a55ca9,  0x5f6ffd567a187af4,
+                -0x6ba191b1168486b4, -0x441b92ce455870a1,
+                0x2b6fdefbec9386ad,  -0x6fdd3938d79217e4,
+                0x6aa8fe1fb891501f,  0x20802f5bbdf6dc50,
+            }, .{
+                -0x7500319df437b479, 0x00ceb712d4fa62d4,
+                0x67e715b9e99e660d,  -0x17ae00e1f0009ec2,
+                -0x5b700b948503acdf, -0x3ff61fb5cce5a530,
+                0x55a3efac2e3694a4,  0x7f951a8d842f1670,
+            });
+            try testArgs(@Vector(16, i64), .{
+                0x37a205109a685810,  -0x50ff5d13134ccaa6,
+                0x26813391c5505d5d,  -0x502cdc01603a2f21,
+                -0x6b1b44b1c850c7ea, 0x1f6db974ace9dd70,
+                -0x47d15da8b519e328, 0x3ac0763abbf79d8d,
+                0x5f12e0dc1aed4a4f,  -0x46a973e16061e928,
+                -0x3f59a3fa9699b4d5, -0x2f5012d390c78315,
+                -0x40e510dea2c47e9c, 0x221c51defe0acc9a,
+                -0x385fd6f1d390b84b, 0x35932fe2783fa6b9,
+            }, .{
+                0x0ba5202b71ad73dd,  0x65c8d2d5e2a14fe5,
+                0x2e4d97cd66c41a3d,  0x14babbb47da51193,
+                0x59d1d12b42ade3aa,  -0x3c3617e556dfa8fb,
+                -0x5a36602ba43279c4, -0x61f1ddda13665d9f,
+                -0x50cd6128589ddd04, 0x135ae0dcc85674ae,
+                -0x25e80592affc038d, 0x07e184c44fbe9b12,
+                -0x70ede1b90964bbaa, 0x3ec48b32e8efd98e,
+                -0x5267d41d85a29f46, 0x53099805f9116b60,
+            });
+
             try testArgs(@Vector(1, u64), .{
                 0x333f593bf9d08546,
             }, .{
@@ -1454,6 +1890,49 @@ fn Binary(comptime op: anytype) type {
                 0xed533d18f8657f3f, 0x1ddd7cd7f6bab957,
             });
 
+            try testArgs(@Vector(1, i128), .{
+                -0x3bb56309fcad13fc1011dc671cf57bdc,
+            }, .{
+                -0x05338bb517db516ee08c45d1408e5836,
+            });
+            try testArgs(@Vector(2, i128), .{
+                0x295f2901e3837e5592b9435f8c4df8a7,
+                -0x1f246b0ff2d02a6bf30a63392fc63371,
+            }, .{
+                -0x31060c09e29b545670c4cbc721a4e26b,
+                -0x631eb286321325d51c617aa798195392,
+            });
+            try testArgs(@Vector(4, i128), .{
+                0x47110102c74f620f08e5b7c5dbe193c2,
+                -0x61d12d2650413ad3ffeeeab3ba57e1f0,
+                0x449781e64b29dc8a17a88f4b7a5b0717,
+                0x0d2170e9238d12a585dc5377566e1938,
+            }, .{
+                0x0bf948e19bd01823dcb3887937d97079,
+                -0x16f933ab12bfba3560d0d39ffe69b64a,
+                0x3d0bfce3907a5cd157348f0329e2548e,
+                -0x3c2d182e2e238a4bebd7defbd7f9699a,
+            });
+            try testArgs(@Vector(8, i128), .{
+                -0x775678727c721662f02480619acbfc82,
+                -0x6f504fcbff673cb91e4706af4373665f,
+                -0x670f888d4186387c3106d125b856c294,
+                0x0641e7efdfdd924d126b446d874154f8,
+                0x57d7aef0f82d3351917f43c8f677392b,
+                -0x4077e745dede8367d145c94f20ab8810,
+                -0x0344a74fb60e1f1f72ba8ec288b05939,
+                -0x0be3ce9be461aca1d25ad8e74dcc36e1,
+            }, .{
+                -0x4a873d91e5a2331def0d34c008d33d83,
+                0x2744cecfd4c683bdd12f3cfc11d7f520,
+                -0x0cb8e468fc1de93a7c5ad2a5a61e8f50,
+                -0x1a3be9e58e918d6586cc4948a54515d3,
+                -0x512ec6f88c3a34950a8aaee47130120b,
+                -0x2e772e4a8812e553bcf9b2754a493709,
+                0x0c7b137937dc25f9f9cbaf4d7a88ee6b,
+                -0x2ecdd5eb81eb0e98ed8d0aa9516c1617,
+            });
+
             try testArgs(@Vector(1, u128), .{
                 0x5f11e16b0ca3392f907a857881455d2e,
             }, .{
@@ -1497,6 +1976,30 @@ fn Binary(comptime op: anytype) type {
                 0xa858bce5ad0e48c13588a4e170e8667c,
             });
 
+            try testArgs(@Vector(1, i256), .{
+                0x1fe30aed39db1accf4d1b43845aec28c1094b500492555fdf59b4f2f85c6a1ce,
+            }, .{
+                0x6932f4faf261c45ecd701a4fe3015d4255e486b04c4ab448fe162980cead63fb,
+            });
+            try testArgs(@Vector(2, i256), .{
+                -0x23daa9bab59dc1e685f4220c189930c3420a55784f0dec1028c2778d907ccfe2,
+                0x521c992e4f46d61709d39e076ed94d5d884585f85ccbf71ca4d593da34f61bf5,
+            }, .{
+                0x2d880cb5aa793218a32411389db31e935932029645573a9625dd174099c9e5b2,
+                0x2394a6cde7e8b2dc2995f07f22f815baa6c223d99c0b1ec4b2d8abd0094db853,
+            });
+            try testArgs(@Vector(4, i256), .{
+                0x244e66ed932a4d970fd8735c10bfbd5f59bd4452c20fa0fcf873823b8c9e6321,
+                -0x31577b747614b1ab83fd0178293cd80b3cb92e739459b2d038688a2471f6d659,
+                -0x0dbdfc3d8bbd7cab6a33598cef29125aab7571fb0db9a528e42966963d6ce0e7,
+                -0x72c58cce172d8a34019a44407a4baf1f8f8a4a611711bd5bb4daa2a2739dd67b,
+            }, .{
+                -0x2e88bc68893fc2d61af0e5ccb541f31fa6169504e8cfcbeab0b74a03b9e86c33,
+                -0x7eba0783f3382b59a17ffbea57ba1dd8fa30e2d4f7eba7ed68d336d3c37b4561,
+                -0x66d1463efd38e9e994e126d09b5c65c8efc932ffea9ec6cdf6042561ba05f801,
+                0x2024bbacefbabbfd5b32a09be631451764a1f889a77918f9094382dc6d02aef2,
+            });
+
             try testArgs(@Vector(1, u256), .{
                 0x28df37e1f57a56133ba3f5b5b2164ce24eb6c29a8973a597fd91fbee8ab4bafb,
             }, .{
@@ -1521,6 +2024,19 @@ fn Binary(comptime op: anytype) type {
                 0xe47a122bd45d5e7d69722d864a6b795ddee965a0993094f8791dd309d692de8b,
             });
 
+            try testArgs(@Vector(1, i512), .{
+                -0x439ba81b44584e0c4d7abc80d18ab9d679a4e921884e877b28d04eb15b2d3e7be8d670b0aba2c4cc25c12655e1899ab514d0a6e50a221bcf076d506e6411d5c2,
+            }, .{
+                0x18b1d3be5a03310d82859a4ab72f056a33d1a4b554522bcc062fb33eda3b8111045ee79e045dd1a665d250b897f6f2e12003a03313c2547698f8c1eab452eae1,
+            });
+            try testArgs(@Vector(2, i512), .{
+                0x28e2ab84d87d5fb12be65d8650de67b992dd162fe563ca74b62f51f2f32e1084e03e32c8370930816445ac5052b4d345059c8ace582e3ef44377b160e265ec9b,
+                -0x3a96548c707219326c42063997e71bc7a17b3067d402063843f84c86e747b71e09338079c28943d20601c0cde018bad57f5615fc89784bcb6232e45c54dff1db,
+            }, .{
+                0x64beecc90609b7156653b75a861e174c58fb42d5c7bf8d793efbb1cbe785c6b8cd52ce5f9aa859f174123c387820d40a2f93122b81396d739eb85c3ea33fcd37,
+                -0x3632e347bc6d794940424ca0945dafa04328a924ec6b0ccdedcda6d296e09aa2dd5dca83b934cac752993238aa4fe826be8d62991c9347bae6f01bc0b1b4223d,
+            });
+
             try testArgs(@Vector(1, u512), .{
                 0x651058c1d89a8f34cfc5e66b6d25294eecfcc4a7e1e4a356eb51ee7d7b2db25378e4afee51b7d18d16e520772a60c50a02d7966f40ced1870b32c658e5821397,
             }, .{
@@ -1532,6 +2048,12 @@ fn Binary(comptime op: anytype) type {
             }, .{
                 0xe1cd8c0ca244c6626d4415e10b4ac43fa69e454c529c24fec4b13e6b945684d4ea833709c16c636ca78cffa5c5bf0fe945cd714a9ad695184a6bdad31dec9e31,
                 0x8fa3d86099e9e2789d72f8e792290356d659ab20ac0414ff94745984c6ae7d986082197bb849889f912e896670aa2c1a11bd7e66e3f650710b0f0a18a1533f90,
+            });
+
+            try testArgs(@Vector(1, i1024), .{
+                -0x4fe568569c0531c9bfbbda1516e93a6c61a3d035c98e13fdc85225165a3bea84d5dc6b610ced008f9321453af42ea50bbf6881d40d2759b73b9b6186c0d6d243f367e292cbbf6b5c5c30d7f4e8de19701c7b0fc9e67cdf31228daa1675a4887f6c4f1588b48855d6f4730a21f27dec8a756c568727709b65cd531020d53ff394,
+            }, .{
+                -0x7cab2a053dfbf944cd342460350c989fd1b4469a6c7b54ddcacd54e605d29c03651b5c463495610d82269c9ac5b51bfd07816a0f7b1ab50cb598989ed64607b3faff79a190702eb285b0fedc050ec1a71537abc47ec590eb671d4f76b19567049ba4789d1a4348385607a0320fbff9b78260536a9b6030bddb0b09da689d1687,
             });
 
             try testArgs(@Vector(1, u1024), .{
@@ -1558,6 +2080,7 @@ test abs {
     try Unary(abs).testIntTypes();
     try Unary(abs).testIntVectorTypes();
     try Unary(abs).testFloatTypes();
+    try Unary(abs).testFloatVectorTypes();
 }
 
 inline fn clz(comptime Type: type, rhs: Type) @TypeOf(@clz(rhs)) {
@@ -1590,4 +2113,20 @@ inline fn bitXor(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs ^ rhs) {
 test bitXor {
     try Binary(bitXor).testIntTypes();
     try Binary(bitXor).testIntVectorTypes();
+}
+
+inline fn min(comptime Type: type, lhs: Type, rhs: Type) Type {
+    return @min(lhs, rhs);
+}
+test min {
+    try Binary(min).testIntTypes();
+    try Binary(min).testIntVectorTypes();
+}
+
+inline fn max(comptime Type: type, lhs: Type, rhs: Type) Type {
+    return @max(lhs, rhs);
+}
+test max {
+    try Binary(max).testIntTypes();
+    try Binary(max).testIntVectorTypes();
 }

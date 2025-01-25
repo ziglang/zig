@@ -32,6 +32,7 @@ pub fn build(b: *std.Build) void {
             .cpu_features_sub = std.Target.x86.featureSet(&.{
                 .cmov,
                 //.sse,
+                .sse2,
             }),
         },
         //.{
