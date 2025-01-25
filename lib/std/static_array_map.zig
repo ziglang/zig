@@ -50,8 +50,25 @@ pub fn defaultEql(comptime expected: anytype, actual: anytype) bool {
 
 fn ignoreCaseEql(comptime expected: anytype, actual: anytype) bool {
     const lower_expected = comptime toLowerSimd(expected);
-    const lower_actual = toLowerSimd(actual);
+
+    // TODO: x86_64 self hosted backend hasn't implemented genBinOp for cmp_gte
+    const lower_actual = blk: {
+        if (@import("builtin").zig_backend == .stage2_x86_64) {
+            break :blk toLowerSimple(actual.len, actual);
+        } else {
+            break :blk toLowerSimd(actual);
+        }
+    };
+
     return defaultEql(lower_expected, lower_actual);
+}
+
+fn toLowerSimple(comptime len: usize, input: anytype) [len]u8 {
+    var output: [len]u8 = undefined;
+    for (input, &output) |in_byte, *out_byte| {
+        out_byte.* = std.ascii.toLower(in_byte);
+    }
+    return output;
 }
 
 fn toLowerSimd(input: anytype) [@typeInfo(@TypeOf(input)).array.len]u8 {
