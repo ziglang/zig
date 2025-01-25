@@ -154,10 +154,6 @@ win32_resource_work_queue: if (dev.env.supports(.win32_resource)) std.fifo.Linea
 /// since the last compilation, as well as scan for `@import` and queue up
 /// additional jobs corresponding to those new files.
 astgen_work_queue: std.fifo.LinearFifo(Zcu.File.Index, .Dynamic),
-/// These jobs are to inspect the file system stat() and if the embedded file has changed
-/// on disk, mark the corresponding Decl outdated and queue up an `analyze_decl`
-/// task for it.
-embed_file_work_queue: std.fifo.LinearFifo(*Zcu.EmbedFile, .Dynamic),
 
 /// The ErrorMsg memory is owned by the `CObject`, using Compilation's general purpose allocator.
 /// This data is accessed by multiple threads and is protected by `mutex`.
@@ -1465,7 +1461,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
             .win32_resource_work_queue = if (dev.env.supports(.win32_resource)) std.fifo.LinearFifo(*Win32Resource, .Dynamic).init(gpa) else .{},
             .astgen_work_queue = std.fifo.LinearFifo(Zcu.File.Index, .Dynamic).init(gpa),
-            .embed_file_work_queue = std.fifo.LinearFifo(*Zcu.EmbedFile, .Dynamic).init(gpa),
             .c_source_files = options.c_source_files,
             .rc_source_files = options.rc_source_files,
             .cache_parent = cache,
@@ -1932,7 +1927,6 @@ pub fn destroy(comp: *Compilation) void {
     comp.c_object_work_queue.deinit();
     comp.win32_resource_work_queue.deinit();
     comp.astgen_work_queue.deinit();
-    comp.embed_file_work_queue.deinit();
 
     comp.windows_libs.deinit(gpa);
 
@@ -2247,11 +2241,6 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             }
         }
 
-        // Put a work item in for checking if any files used with `@embedFile` changed.
-        try comp.embed_file_work_queue.ensureUnusedCapacity(zcu.embed_table.count());
-        for (zcu.embed_table.values()) |embed_file| {
-            comp.embed_file_work_queue.writeItemAssumeCapacity(embed_file);
-        }
         if (comp.file_system_inputs) |fsi| {
             const ip = &zcu.intern_pool;
             for (zcu.embed_table.values()) |embed_file| {
@@ -3235,9 +3224,6 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 try addZirErrorMessages(&bundle, file);
             }
         }
-        for (zcu.failed_embed_files.values()) |error_msg| {
-            try addModuleErrorMsg(zcu, &bundle, error_msg.*);
-        }
         var sorted_failed_analysis: std.AutoArrayHashMapUnmanaged(InternPool.AnalUnit, *Zcu.ErrorMsg).DataList.Slice = s: {
             const SortOrder = struct {
                 zcu: *Zcu,
@@ -3812,9 +3798,10 @@ fn performAllTheWorkInner(
                 }
             }
 
-            while (comp.embed_file_work_queue.readItem()) |embed_file| {
-                comp.thread_pool.spawnWg(&astgen_wait_group, workerCheckEmbedFile, .{
-                    comp, embed_file,
+            for (0.., zcu.embed_table.values()) |ef_index_usize, ef| {
+                const ef_index: Zcu.EmbedFile.Index = @enumFromInt(ef_index_usize);
+                comp.thread_pool.spawnWgId(&astgen_wait_group, workerCheckEmbedFile, .{
+                    comp, ef_index, ef,
                 });
             }
         }
@@ -4377,33 +4364,33 @@ fn workerUpdateBuiltinZigFile(
     };
 }
 
-fn workerCheckEmbedFile(comp: *Compilation, embed_file: *Zcu.EmbedFile) void {
-    comp.detectEmbedFileUpdate(embed_file) catch |err| {
-        comp.reportRetryableEmbedFileError(embed_file, err) catch |oom| switch (oom) {
-            // Swallowing this error is OK because it's implied to be OOM when
-            // there is a missing `failed_embed_files` error message.
-            error.OutOfMemory => {},
-        };
-        return;
+fn workerCheckEmbedFile(tid: usize, comp: *Compilation, ef_index: Zcu.EmbedFile.Index, ef: *Zcu.EmbedFile) void {
+    comp.detectEmbedFileUpdate(@enumFromInt(tid), ef_index, ef) catch |err| switch (err) {
+        error.OutOfMemory => {
+            comp.mutex.lock();
+            defer comp.mutex.unlock();
+            comp.setAllocFailure();
+        },
     };
 }
 
-fn detectEmbedFileUpdate(comp: *Compilation, embed_file: *Zcu.EmbedFile) !void {
+fn detectEmbedFileUpdate(comp: *Compilation, tid: Zcu.PerThread.Id, ef_index: Zcu.EmbedFile.Index, ef: *Zcu.EmbedFile) !void {
     const zcu = comp.zcu.?;
-    const ip = &zcu.intern_pool;
-    var file = try embed_file.owner.root.openFile(embed_file.sub_file_path.toSlice(ip), .{});
-    defer file.close();
+    const pt: Zcu.PerThread = .activate(zcu, tid);
+    defer pt.deactivate();
 
-    const stat = try file.stat();
+    const old_val = ef.val;
+    const old_err = ef.err;
 
-    const unchanged_metadata =
-        stat.size == embed_file.stat.size and
-        stat.mtime == embed_file.stat.mtime and
-        stat.inode == embed_file.stat.inode;
+    try pt.updateEmbedFile(ef, null);
 
-    if (unchanged_metadata) return;
+    if (ef.val != .none and ef.val == old_val) return; // success, value unchanged
+    if (ef.val == .none and old_val == .none and ef.err == old_err) return; // failure, error unchanged
 
-    @panic("TODO: handle embed file incremental update");
+    comp.mutex.lock();
+    defer comp.mutex.unlock();
+
+    try zcu.markDependeeOutdated(.not_marked_po, .{ .embed_file = ef_index });
 }
 
 pub fn obtainCObjectCacheManifest(
@@ -4799,30 +4786,6 @@ fn reportRetryableWin32ResourceError(
         comp.mutex.lock();
         defer comp.mutex.unlock();
         try comp.failed_win32_resources.putNoClobber(comp.gpa, win32_resource, finished_bundle);
-    }
-}
-
-fn reportRetryableEmbedFileError(
-    comp: *Compilation,
-    embed_file: *Zcu.EmbedFile,
-    err: anyerror,
-) error{OutOfMemory}!void {
-    const zcu = comp.zcu.?;
-    const gpa = zcu.gpa;
-    const src_loc = embed_file.src_loc;
-    const ip = &zcu.intern_pool;
-    const err_msg = try Zcu.ErrorMsg.create(gpa, src_loc, "unable to load '{}/{s}': {s}", .{
-        embed_file.owner.root,
-        embed_file.sub_file_path.toSlice(ip),
-        @errorName(err),
-    });
-
-    errdefer err_msg.destroy(gpa);
-
-    {
-        comp.mutex.lock();
-        defer comp.mutex.unlock();
-        try zcu.failed_embed_files.putNoClobber(gpa, embed_file, err_msg);
     }
 }
 

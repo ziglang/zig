@@ -42,6 +42,10 @@ nav_ty_deps: std.AutoArrayHashMapUnmanaged(Nav.Index, DepEntry.Index),
 /// * a container type requiring resolution (invalidated when the type must be recreated at a new index)
 /// Value is index into `dep_entries` of the first dependency on this interned value.
 interned_deps: std.AutoArrayHashMapUnmanaged(Index, DepEntry.Index),
+/// Dependencies on an embedded file.
+/// Introduced by `@embedFile`; invalidated when the file changes.
+/// Value is index into `dep_entries` of the first dependency on this `Zcu.EmbedFile`.
+embed_file_deps: std.AutoArrayHashMapUnmanaged(Zcu.EmbedFile.Index, DepEntry.Index),
 /// Dependencies on the full set of names in a ZIR namespace.
 /// Key refers to a `struct_decl`, `union_decl`, etc.
 /// Value is index into `dep_entries` of the first dependency on this namespace.
@@ -90,6 +94,7 @@ pub const empty: InternPool = .{
     .nav_val_deps = .empty,
     .nav_ty_deps = .empty,
     .interned_deps = .empty,
+    .embed_file_deps = .empty,
     .namespace_deps = .empty,
     .namespace_name_deps = .empty,
     .memoized_state_main_deps = .none,
@@ -824,6 +829,7 @@ pub const Dependee = union(enum) {
     nav_val: Nav.Index,
     nav_ty: Nav.Index,
     interned: Index,
+    embed_file: Zcu.EmbedFile.Index,
     namespace: TrackedInst.Index,
     namespace_name: NamespaceNameKey,
     memoized_state: MemoizedStateStage,
@@ -875,6 +881,7 @@ pub fn dependencyIterator(ip: *const InternPool, dependee: Dependee) DependencyI
         .nav_val => |x| ip.nav_val_deps.get(x),
         .nav_ty => |x| ip.nav_ty_deps.get(x),
         .interned => |x| ip.interned_deps.get(x),
+        .embed_file => |x| ip.embed_file_deps.get(x),
         .namespace => |x| ip.namespace_deps.get(x),
         .namespace_name => |x| ip.namespace_name_deps.get(x),
         .memoized_state => |stage| switch (stage) {
@@ -945,6 +952,7 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: AnalUnit, depend
                 .nav_val => ip.nav_val_deps,
                 .nav_ty => ip.nav_ty_deps,
                 .interned => ip.interned_deps,
+                .embed_file => ip.embed_file_deps,
                 .namespace => ip.namespace_deps,
                 .namespace_name => ip.namespace_name_deps,
                 .memoized_state => comptime unreachable,
@@ -6612,6 +6620,7 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.nav_val_deps.deinit(gpa);
     ip.nav_ty_deps.deinit(gpa);
     ip.interned_deps.deinit(gpa);
+    ip.embed_file_deps.deinit(gpa);
     ip.namespace_deps.deinit(gpa);
     ip.namespace_name_deps.deinit(gpa);
 

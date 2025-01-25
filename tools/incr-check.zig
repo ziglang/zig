@@ -608,6 +608,7 @@ const Case = struct {
         var targets: std.ArrayListUnmanaged(Target) = .empty;
         var updates: std.ArrayListUnmanaged(Update) = .empty;
         var changes: std.ArrayListUnmanaged(FullContents) = .empty;
+        var deletes: std.ArrayListUnmanaged([]const u8) = .empty;
         var it = std.mem.splitScalar(u8, bytes, '\n');
         var line_n: usize = 1;
         var root_source_file: ?[]const u8 = null;
@@ -647,13 +648,14 @@ const Case = struct {
                     if (updates.items.len > 0) {
                         const last_update = &updates.items[updates.items.len - 1];
                         last_update.changes = try changes.toOwnedSlice(arena);
+                        last_update.deletes = try deletes.toOwnedSlice(arena);
                     }
                     try updates.append(arena, .{
                         .name = val,
                         .outcome = .unknown,
                     });
                 } else if (std.mem.eql(u8, key, "file")) {
-                    if (updates.items.len == 0) fatal("line {d}: expect directive before update", .{line_n});
+                    if (updates.items.len == 0) fatal("line {d}: file directive before update", .{line_n});
 
                     if (root_source_file == null)
                         root_source_file = val;
@@ -674,6 +676,9 @@ const Case = struct {
                         .name = val,
                         .bytes = src,
                     });
+                } else if (std.mem.eql(u8, key, "rm_file")) {
+                    if (updates.items.len == 0) fatal("line {d}: rm_file directive before update", .{line_n});
+                    try deletes.append(arena, val);
                 } else if (std.mem.eql(u8, key, "expect_stdout")) {
                     if (updates.items.len == 0) fatal("line {d}: expect directive before update", .{line_n});
                     const last_update = &updates.items[updates.items.len - 1];
@@ -701,6 +706,7 @@ const Case = struct {
         if (changes.items.len > 0) {
             const last_update = &updates.items[updates.items.len - 1];
             last_update.changes = changes.items; // arena so no need for toOwnedSlice
+            last_update.deletes = deletes.items;
         }
 
         return .{

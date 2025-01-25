@@ -1,0 +1,46 @@
+#target=x86_64-linux-selfhosted
+#target=x86_64-linux-cbe
+#target=x86_64-windows-cbe
+#target=wasm32-wasi-selfhosted
+#update=initial version
+#file=main.zig
+const std = @import("std");
+const string = @embedFile("string.txt");
+pub fn main() !void {
+    try std.io.getStdOut().writeAll(string);
+}
+#file=string.txt
+Hello, World!
+#expect_stdout="Hello, World!\n"
+
+#update=change file contents
+#file=string.txt
+Hello again, World!
+#expect_stdout="Hello again, World!\n"
+
+#update=delete file
+#rm_file=string.txt
+#expect_error=ignored
+
+#update=remove reference to file
+#file=main.zig
+const std = @import("std");
+const string = @embedFile("string.txt");
+pub fn main() !void {
+    try std.io.getStdOut().writeAll("a hardcoded string\n");
+}
+#expect_stdout="a hardcoded string\n"
+
+#update=re-introduce reference to file
+#file=main.zig
+const std = @import("std");
+const string = @embedFile("string.txt");
+pub fn main() !void {
+    try std.io.getStdOut().writeAll(string);
+}
+#expect_error=ignore
+
+#update=recreate file
+#file=string.txt
+We're back, World!
+#expect_stdout="We're back, World!\n"

@@ -2117,32 +2117,32 @@ pub fn embedFile(
     pt: Zcu.PerThread,
     cur_file: *Zcu.File,
     import_string: []const u8,
-    src_loc: Zcu.LazySrcLoc,
-) !InternPool.Index {
+) error{
+    OutOfMemory,
+    ImportOutsideModulePath,
+    CurrentWorkingDirectoryUnlinked,
+}!Zcu.EmbedFile.Index {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
 
-    if (cur_file.mod.deps.get(import_string)) |pkg| {
+    if (cur_file.mod.deps.get(import_string)) |mod| {
         const resolved_path = try std.fs.path.resolve(gpa, &.{
-            pkg.root.root_dir.path orelse ".",
-            pkg.root.sub_path,
-            pkg.root_src_path,
+            mod.root.root_dir.path orelse ".",
+            mod.root.sub_path,
+            mod.root_src_path,
         });
-        var keep_resolved_path = false;
-        defer if (!keep_resolved_path) gpa.free(resolved_path);
+        errdefer gpa.free(resolved_path);
 
         const gop = try zcu.embed_table.getOrPut(gpa, resolved_path);
-        errdefer {
-            assert(std.mem.eql(u8, zcu.embed_table.pop().key, resolved_path));
-            keep_resolved_path = false;
+        errdefer assert(std.mem.eql(u8, zcu.embed_table.pop().key, resolved_path));
+
+        if (gop.found_existing) {
+            gpa.free(resolved_path); // we're not using this key
+            return @enumFromInt(gop.index);
         }
-        if (gop.found_existing) return gop.value_ptr.*.val;
-        keep_resolved_path = true;
 
-        const sub_file_path = try gpa.dupe(u8, pkg.root_src_path);
-        errdefer gpa.free(sub_file_path);
-
-        return pt.newEmbedFile(pkg, sub_file_path, resolved_path, gop.value_ptr, src_loc);
+        gop.value_ptr.* = try pt.newEmbedFile(mod, mod.root_src_path, resolved_path);
+        return @enumFromInt(gop.index);
     }
 
     // The resolved path is used as the key in the table, to detect if a file
@@ -2154,17 +2154,15 @@ pub fn embedFile(
         "..",
         import_string,
     });
-
-    var keep_resolved_path = false;
-    defer if (!keep_resolved_path) gpa.free(resolved_path);
+    errdefer gpa.free(resolved_path);
 
     const gop = try zcu.embed_table.getOrPut(gpa, resolved_path);
-    errdefer {
-        assert(std.mem.eql(u8, zcu.embed_table.pop().key, resolved_path));
-        keep_resolved_path = false;
+    errdefer assert(std.mem.eql(u8, zcu.embed_table.pop().key, resolved_path));
+
+    if (gop.found_existing) {
+        gpa.free(resolved_path); // we're not using this key
+        return @enumFromInt(gop.index);
     }
-    if (gop.found_existing) return gop.value_ptr.*.val;
-    keep_resolved_path = true;
 
     const resolved_root_path = try std.fs.path.resolve(gpa, &.{
         cur_file.mod.root.root_dir.path orelse ".",
@@ -2172,101 +2170,156 @@ pub fn embedFile(
     });
     defer gpa.free(resolved_root_path);
 
-    const sub_file_path = p: {
-        const relative = try std.fs.path.relative(gpa, resolved_root_path, resolved_path);
-        errdefer gpa.free(relative);
-
-        if (!isUpDir(relative) and !std.fs.path.isAbsolute(relative)) {
-            break :p relative;
-        }
-        return error.ImportOutsideModulePath;
+    const sub_file_path = std.fs.path.relative(gpa, resolved_root_path, resolved_path) catch |err| switch (err) {
+        error.Unexpected => unreachable,
+        else => |e| return e,
     };
     defer gpa.free(sub_file_path);
 
-    return pt.newEmbedFile(cur_file.mod, sub_file_path, resolved_path, gop.value_ptr, src_loc);
+    if (isUpDir(sub_file_path) or std.fs.path.isAbsolute(sub_file_path)) {
+        return error.ImportOutsideModulePath;
+    }
+
+    gop.value_ptr.* = try pt.newEmbedFile(cur_file.mod, sub_file_path, resolved_path);
+    return @enumFromInt(gop.index);
 }
 
-/// https://github.com/ziglang/zig/issues/14307
-fn newEmbedFile(
+pub fn updateEmbedFile(
     pt: Zcu.PerThread,
-    pkg: *Module,
-    sub_file_path: []const u8,
-    resolved_path: []const u8,
-    result: **Zcu.EmbedFile,
-    src_loc: Zcu.LazySrcLoc,
-) !InternPool.Index {
+    ef: *Zcu.EmbedFile,
+    /// If not `null`, the interned file data is stored here, if it was loaded.
+    /// `newEmbedFile` uses this to add the file to the `whole` cache manifest.
+    ip_str_out: ?*?InternPool.String,
+) Allocator.Error!void {
+    pt.updateEmbedFileInner(ef, ip_str_out) catch |err| switch (err) {
+        error.OutOfMemory => |e| return e,
+        else => |e| {
+            ef.val = .none;
+            ef.err = e;
+            ef.stat = undefined;
+        },
+    };
+}
+
+fn updateEmbedFileInner(
+    pt: Zcu.PerThread,
+    ef: *Zcu.EmbedFile,
+    ip_str_out: ?*?InternPool.String,
+) !void {
+    const tid = pt.tid;
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
 
-    const new_file = try gpa.create(Zcu.EmbedFile);
-    errdefer gpa.destroy(new_file);
-
-    var file = try pkg.root.openFile(sub_file_path, .{});
+    var file = try ef.owner.root.openFile(ef.sub_file_path.toSlice(ip), .{});
     defer file.close();
 
-    const actual_stat = try file.stat();
-    const stat: Cache.File.Stat = .{
-        .size = actual_stat.size,
-        .inode = actual_stat.inode,
-        .mtime = actual_stat.mtime,
-    };
-    const size = std.math.cast(usize, actual_stat.size) orelse return error.Overflow;
+    const stat: Cache.File.Stat = .fromFs(try file.stat());
 
-    const strings = ip.getLocal(pt.tid).getMutableStrings(gpa);
-    const bytes = try strings.addManyAsSlice(try std.math.add(usize, size, 1));
-    const actual_read = try file.readAll(bytes[0][0..size]);
-    if (actual_read != size) return error.UnexpectedEndOfFile;
-    bytes[0][size] = 0;
-
-    const comp = zcu.comp;
-    switch (comp.cache_use) {
-        .whole => |whole| if (whole.cache_manifest) |man| {
-            const copied_resolved_path = try gpa.dupe(u8, resolved_path);
-            errdefer gpa.free(copied_resolved_path);
-            whole.cache_manifest_mutex.lock();
-            defer whole.cache_manifest_mutex.unlock();
-            try man.addFilePostContents(copied_resolved_path, bytes[0][0..size], stat);
-        },
-        .incremental => {},
+    if (ef.val != .none) {
+        const old_stat = ef.stat;
+        const unchanged_metadata =
+            stat.size == old_stat.size and
+            stat.mtime == old_stat.mtime and
+            stat.inode == old_stat.inode;
+        if (unchanged_metadata) return;
     }
 
-    const array_ty = try pt.intern(.{ .array_type = .{
+    const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
+    const size_plus_one = std.math.add(usize, size, 1) catch return error.FileTooBig;
+
+    // The loaded bytes of the file, including a sentinel 0 byte.
+    const ip_str: InternPool.String = str: {
+        const strings = ip.getLocal(tid).getMutableStrings(gpa);
+        const old_len = strings.mutate.len;
+        errdefer strings.shrinkRetainingCapacity(old_len);
+        const bytes = (try strings.addManyAsSlice(size_plus_one))[0];
+        const actual_read = try file.readAll(bytes[0..size]);
+        if (actual_read != size) return error.UnexpectedEof;
+        bytes[size] = 0;
+        break :str try ip.getOrPutTrailingString(gpa, tid, @intCast(bytes.len), .maybe_embedded_nulls);
+    };
+    if (ip_str_out) |p| p.* = ip_str;
+
+    const array_ty = try pt.arrayType(.{
         .len = size,
         .sentinel = .zero_u8,
         .child = .u8_type,
-    } });
-    const array_val = try pt.intern(.{ .aggregate = .{
-        .ty = array_ty,
-        .storage = .{ .bytes = try ip.getOrPutTrailingString(gpa, pt.tid, @intCast(bytes[0].len), .maybe_embedded_nulls) },
-    } });
+    });
+    const ptr_ty = try pt.singleConstPtrType(array_ty);
 
-    const ptr_ty = (try pt.ptrType(.{
-        .child = array_ty,
-        .flags = .{
-            .alignment = .none,
-            .is_const = true,
-            .address_space = .generic,
-        },
-    })).toIntern();
+    const array_val = try pt.intern(.{ .aggregate = .{
+        .ty = array_ty.toIntern(),
+        .storage = .{ .bytes = ip_str },
+    } });
     const ptr_val = try pt.intern(.{ .ptr = .{
-        .ty = ptr_ty,
+        .ty = ptr_ty.toIntern(),
         .base_addr = .{ .uav = .{
             .val = array_val,
-            .orig_ty = ptr_ty,
+            .orig_ty = ptr_ty.toIntern(),
         } },
         .byte_offset = 0,
     } });
 
-    result.* = new_file;
+    ef.val = ptr_val;
+    ef.err = null;
+    ef.stat = stat;
+}
+
+fn newEmbedFile(
+    pt: Zcu.PerThread,
+    mod: *Module,
+    /// The path of the file to embed relative to the root of `mod`.
+    sub_file_path: []const u8,
+    /// The resolved path of the file to embed.
+    resolved_path: []const u8,
+) !*Zcu.EmbedFile {
+    const zcu = pt.zcu;
+    const comp = zcu.comp;
+    const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
+
+    if (comp.file_system_inputs) |fsi|
+        try comp.appendFileSystemInput(fsi, mod.root, sub_file_path);
+
+    const new_file = try gpa.create(Zcu.EmbedFile);
+    errdefer gpa.destroy(new_file);
+
     new_file.* = .{
+        .owner = mod,
         .sub_file_path = try ip.getOrPutString(gpa, pt.tid, sub_file_path, .no_embedded_nulls),
-        .owner = pkg,
-        .stat = stat,
-        .val = ptr_val,
-        .src_loc = src_loc,
+        .val = .none,
+        .err = null,
+        .stat = undefined,
     };
-    return ptr_val;
+
+    var opt_ip_str: ?InternPool.String = null;
+    try pt.updateEmbedFile(new_file, &opt_ip_str);
+
+    // Add the file contents to the `whole` cache manifest if necessary.
+    cache: {
+        const whole = switch (zcu.comp.cache_use) {
+            .whole => |whole| whole,
+            .incremental => break :cache,
+        };
+        const man = whole.cache_manifest orelse break :cache;
+        const ip_str = opt_ip_str orelse break :cache;
+
+        const copied_resolved_path = try gpa.dupe(u8, resolved_path);
+        errdefer gpa.free(copied_resolved_path);
+
+        const array_len = Value.fromInterned(new_file.val).typeOf(zcu).childType(zcu).arrayLen(zcu);
+
+        whole.cache_manifest_mutex.lock();
+        defer whole.cache_manifest_mutex.unlock();
+
+        man.addFilePostContents(copied_resolved_path, ip_str.toSlice(array_len, ip), new_file.stat) catch |err| switch (err) {
+            error.Unexpected => unreachable,
+            else => |e| return e,
+        };
+    }
+
+    return new_file;
 }
 
 pub fn scanNamespace(
