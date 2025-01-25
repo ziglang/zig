@@ -605,7 +605,7 @@ pub fn ensureMemoizedStateUpToDate(pt: Zcu.PerThread, stage: InternPool.Memoized
         // We use an arbitrary element to check if the state has been resolved yet.
         const to_check: Zcu.BuiltinDecl = switch (stage) {
             .main => .Type,
-            .panic => .Panic,
+            .panic => .panic,
             .va_list => .VaList,
         };
         if (zcu.builtin_decl_values.get(to_check) != .none) return;

@@ -56,7 +56,7 @@ pub const std_options: std.Options = .{
     },
 };
 
-pub const Panic = crash_report.Panic;
+pub const panic = crash_report.panic;
 
 var wasi_preopens: fs.wasi.Preopens = undefined;
 pub fn wasi_cwd() std.os.wasi.fd_t {
