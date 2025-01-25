@@ -212,7 +212,7 @@ fn lowerInt(
             if (!rational.p.fitsInTwosComp(int_info.signedness, int_info.bits)) {
                 return self.fail(
                     .{ .node_abs = node.getAstNode(self.file.zoir.?) },
-                    "float value '{}' cannot be stored in integer type '{}'",
+                    "type '{}' cannot represent integer value '{}'",
                     .{ val, res_ty.fmt(self.sema.pt) },
                 );
             }
@@ -268,92 +268,44 @@ fn lowerFloat(
     res_ty: Type,
 ) !InternPool.Index {
     @setFloatMode(.strict);
-    switch (node.get(self.file.zoir.?)) {
+    const value = switch (node.get(self.file.zoir.?)) {
         .int_literal => |int| switch (int) {
-            .small => |val| return self.sema.pt.intern(.{ .float = .{
-                .ty = res_ty.toIntern(),
-                .storage = switch (res_ty.toIntern()) {
-                    .f16_type => .{ .f16 = @floatFromInt(val) },
-                    .f32_type => .{ .f32 = @floatFromInt(val) },
-                    .f64_type => .{ .f64 = @floatFromInt(val) },
-                    .f80_type => .{ .f80 = @floatFromInt(val) },
-                    .f128_type, .comptime_float_type => .{ .f128 = @floatFromInt(val) },
-                    else => unreachable,
-                },
-            } }),
-            .big => |val| return self.sema.pt.intern(.{ .float = .{
-                .ty = res_ty.toIntern(),
-                .storage = switch (res_ty.toIntern()) {
-                    .f16_type => .{ .f16 = val.toFloat(f16) },
-                    .f32_type => .{ .f32 = val.toFloat(f32) },
-                    .f64_type => .{ .f64 = val.toFloat(f64) },
-                    .f80_type => .{ .f80 = val.toFloat(f80) },
-                    .f128_type, .comptime_float_type => .{ .f128 = val.toFloat(f128) },
-                    else => unreachable,
-                },
-            } }),
+            .small => |val| try self.sema.pt.floatValue(res_ty, @as(f128, @floatFromInt(val))),
+            .big => |val| try self.sema.pt.floatValue(res_ty, val.toFloat(f128)),
         },
-        .float_literal => |val| return self.sema.pt.intern(.{ .float = .{
-            .ty = res_ty.toIntern(),
-            .storage = switch (res_ty.toIntern()) {
-                .f16_type => .{ .f16 = @floatCast(val) },
-                .f32_type => .{ .f32 = @floatCast(val) },
-                .f64_type => .{ .f64 = @floatCast(val) },
-                .f80_type => .{ .f80 = @floatCast(val) },
-                .f128_type, .comptime_float_type => .{ .f128 = val },
-                else => unreachable,
-            },
-        } }),
-        .pos_inf => return self.sema.pt.intern(.{ .float = .{
-            .ty = res_ty.toIntern(),
-            .storage = switch (res_ty.toIntern()) {
-                .f16_type => .{ .f16 = std.math.inf(f16) },
-                .f32_type => .{ .f32 = std.math.inf(f32) },
-                .f64_type => .{ .f64 = std.math.inf(f64) },
-                .f80_type => .{ .f80 = std.math.inf(f80) },
-                .f128_type, .comptime_float_type => .{ .f128 = std.math.inf(f128) },
-                else => unreachable,
-            },
-        } }),
-        .neg_inf => return self.sema.pt.intern(.{ .float = .{
-            .ty = res_ty.toIntern(),
-            .storage = switch (res_ty.toIntern()) {
-                .f16_type => .{ .f16 = -std.math.inf(f16) },
-                .f32_type => .{ .f32 = -std.math.inf(f32) },
-                .f64_type => .{ .f64 = -std.math.inf(f64) },
-                .f80_type => .{ .f80 = -std.math.inf(f80) },
-                .f128_type, .comptime_float_type => .{ .f128 = -std.math.inf(f128) },
-                else => unreachable,
-            },
-        } }),
-        .nan => return self.sema.pt.intern(.{ .float = .{
-            .ty = res_ty.toIntern(),
-            .storage = switch (res_ty.toIntern()) {
-                .f16_type => .{ .f16 = std.math.nan(f16) },
-                .f32_type => .{ .f32 = std.math.nan(f32) },
-                .f64_type => .{ .f64 = std.math.nan(f64) },
-                .f80_type => .{ .f80 = std.math.nan(f80) },
-                .f128_type, .comptime_float_type => .{ .f128 = std.math.nan(f128) },
-                else => unreachable,
-            },
-        } }),
-        .char_literal => |val| return self.sema.pt.intern(.{ .float = .{
-            .ty = res_ty.toIntern(),
-            .storage = switch (res_ty.toIntern()) {
-                .f16_type => .{ .f16 = @floatFromInt(val) },
-                .f32_type => .{ .f32 = @floatFromInt(val) },
-                .f64_type => .{ .f64 = @floatFromInt(val) },
-                .f80_type => .{ .f80 = @floatFromInt(val) },
-                .f128_type, .comptime_float_type => .{ .f128 = @floatFromInt(val) },
-                else => unreachable,
-            },
-        } }),
+        .float_literal => |val| try self.sema.pt.floatValue(res_ty, val),
+        .char_literal => |val| try self.sema.pt.floatValue(res_ty, @as(f128, @floatFromInt(val))),
+        .pos_inf => b: {
+            if (res_ty.toIntern() == .comptime_float_type) return self.fail(
+                .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                "expected type '{}'",
+                .{res_ty.fmt(self.sema.pt)},
+            );
+            break :b try self.sema.pt.floatValue(res_ty, std.math.inf(f128));
+        },
+        .neg_inf => b: {
+            if (res_ty.toIntern() == .comptime_float_type) return self.fail(
+                .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                "expected type '{}'",
+                .{res_ty.fmt(self.sema.pt)},
+            );
+            break :b try self.sema.pt.floatValue(res_ty, -std.math.inf(f128));
+        },
+        .nan => b: {
+            if (res_ty.toIntern() == .comptime_float_type) return self.fail(
+                .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                "expected type '{}'",
+                .{res_ty.fmt(self.sema.pt)},
+            );
+            break :b try self.sema.pt.floatValue(res_ty, std.math.nan(f128));
+        },
         else => return self.fail(
             .{ .node_abs = node.getAstNode(self.file.zoir.?) },
             "expected type '{}'",
             .{res_ty.fmt(self.sema.pt)},
         ),
-    }
+    };
+    return value.toIntern();
 }
 
 fn lowerOptional(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {

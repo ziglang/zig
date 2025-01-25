@@ -391,17 +391,17 @@ test "floats" {
 }
 
 test "inf and nan" {
-    // comptime float
-    {
-        const actual: struct { comptime_float, comptime_float, comptime_float } = @import("zon/inf_and_nan.zon");
-        try expect(std.math.isNan(actual[0]));
-        try expect(std.math.isPositiveInf(@as(f128, @floatCast(actual[1]))));
-        try expect(std.math.isNegativeInf(@as(f128, @floatCast(actual[2]))));
-    }
-
     // f32
     {
         const actual: struct { f32, f32, f32 } = @import("zon/inf_and_nan.zon");
+        try expect(std.math.isNan(actual[0]));
+        try expect(std.math.isPositiveInf(actual[1]));
+        try expect(std.math.isNegativeInf(actual[2]));
+    }
+
+    // f128
+    {
+        const actual: struct { f128, f128, f128 } = @import("zon/inf_and_nan.zon");
         try expect(std.math.isNan(actual[0]));
         try expect(std.math.isPositiveInf(actual[1]));
         try expect(std.math.isNegativeInf(actual[2]));
