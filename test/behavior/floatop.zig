@@ -1654,6 +1654,7 @@ test "runtime isNan(inf * 0)" {
 }
 
 test "optimized float mode" {
+    if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest;
     if (builtin.mode == .Debug) return error.SkipZigTest;
 
     const big = 0x1p40;

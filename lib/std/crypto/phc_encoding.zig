@@ -164,7 +164,7 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
     // with default values
     var expected_fields: usize = 0;
     inline for (comptime meta.fields(HashResult)) |p| {
-        if (@typeInfo(p.type) != .optional and p.default_value == null) {
+        if (@typeInfo(p.type) != .optional and p.default_value_ptr == null) {
             expected_fields += 1;
         }
     }

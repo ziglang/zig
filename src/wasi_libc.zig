@@ -57,7 +57,9 @@ pub fn execModelCrtFileFullName(wasi_exec_model: std.builtin.WasiExecModel) []co
     };
 }
 
-pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) !void {
+/// TODO replace anyerror with explicit error set, recording user-friendly errors with
+/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) anyerror!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -694,9 +696,7 @@ const libc_top_half_src_files = [_][]const u8{
     "wasi/libc-top-half/musl/src/string/memccpy.c",
     "wasi/libc-top-half/musl/src/string/memchr.c",
     "wasi/libc-top-half/musl/src/string/memcmp.c",
-    "wasi/libc-top-half/musl/src/string/memcpy.c",
     "wasi/libc-top-half/musl/src/string/memmem.c",
-    "wasi/libc-top-half/musl/src/string/memmove.c",
     "wasi/libc-top-half/musl/src/string/mempcpy.c",
     "wasi/libc-top-half/musl/src/string/memrchr.c",
     "wasi/libc-top-half/musl/src/string/memset.c",

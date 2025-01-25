@@ -23,7 +23,6 @@ const log = std.log.scoped(.codegen);
 const build_options = @import("build_options");
 const Alignment = InternPool.Alignment;
 
-const Result = codegen.Result;
 const CodeGenError = codegen.CodeGenError;
 
 const bits = @import("bits.zig");
@@ -72,6 +71,8 @@ end_di_column: u32,
 /// To perform the reloc, write 32-bit signed little-endian integer
 /// which is a relative jump, based on the address following the reloc.
 exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .empty,
+
+reused_operands: std.StaticBitSet(Liveness.bpi - 1) = undefined,
 
 /// We postpone the creation of debug info for function args and locals
 /// until after all Mir instructions have been generated. Only then we
@@ -333,9 +334,9 @@ pub fn generate(
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
-    code: *std.ArrayList(u8),
+    code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
-) CodeGenError!Result {
+) CodeGenError!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const func = zcu.funcInfo(func_index);
@@ -377,10 +378,7 @@ pub fn generate(
     defer function.dbg_info_relocs.deinit(gpa);
 
     var call_info = function.resolveCallingConventionValues(func_ty) catch |err| switch (err) {
-        error.CodegenFail => return Result{ .fail = function.err_msg.? },
-        error.OutOfRegisters => return Result{
-            .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
-        },
+        error.CodegenFail => return error.CodegenFail,
         else => |e| return e,
     };
     defer call_info.deinit(&function);
@@ -391,15 +389,14 @@ pub fn generate(
     function.max_end_stack = call_info.stack_byte_count;
 
     function.gen() catch |err| switch (err) {
-        error.CodegenFail => return Result{ .fail = function.err_msg.? },
-        error.OutOfRegisters => return Result{
-            .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
-        },
+        error.CodegenFail => return error.CodegenFail,
+        error.OutOfRegisters => return function.fail("ran out of registers (Zig compiler bug)", .{}),
         else => |e| return e,
     };
 
     for (function.dbg_info_relocs.items) |reloc| {
-        try reloc.genDbgInfo(function);
+        reloc.genDbgInfo(function) catch |err|
+            return function.fail("failed to generate debug info: {s}", .{@errorName(err)});
     }
 
     var mir = Mir{
@@ -424,15 +421,9 @@ pub fn generate(
     defer emit.deinit();
 
     emit.emitMir() catch |err| switch (err) {
-        error.EmitFail => return Result{ .fail = emit.err_msg.? },
+        error.EmitFail => return function.failMsg(emit.err_msg.?),
         else => |e| return e,
     };
-
-    if (function.err_msg) |em| {
-        return Result{ .fail = em };
-    } else {
-        return Result.ok;
-    }
 }
 
 fn addInst(self: *Self, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
@@ -646,6 +637,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
         const old_air_bookkeeping = self.air_bookkeeping;
         try self.ensureProcessDeathCapacity(Liveness.bpi);
 
+        self.reused_operands = @TypeOf(self.reused_operands).initEmpty();
         switch (air_tags[@intFromEnum(inst)]) {
             // zig fmt: off
             .add,            => try self.airBinOp(inst, .add),
@@ -929,16 +921,13 @@ fn finishAirBookkeeping(self: *Self) void {
 }
 
 fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Liveness.bpi - 1]Air.Inst.Ref) void {
-    var tomb_bits = self.liveness.getTombBits(inst);
-    for (operands) |op| {
-        const dies = @as(u1, @truncate(tomb_bits)) != 0;
-        tomb_bits >>= 1;
-        if (!dies) continue;
-        const op_index = op.toIndex() orelse continue;
-        self.processDeath(op_index);
+    const tomb_bits = self.liveness.getTombBits(inst);
+    for (0.., operands) |op_index, op| {
+        if (tomb_bits & @as(Liveness.Bpi, 1) << @intCast(op_index) == 0) continue;
+        if (self.reused_operands.isSet(op_index)) continue;
+        self.processDeath(op.toIndexAllowNone() orelse continue);
     }
-    const is_used = @as(u1, @truncate(tomb_bits)) == 0;
-    if (is_used) {
+    if (tomb_bits & 1 << (Liveness.bpi - 1) == 0) {
         log.debug("%{d} => {}", .{ inst, result });
         const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
         branch.inst_table.putAssumeCapacityNoClobber(inst, result);
@@ -2661,7 +2650,7 @@ fn reuseOperand(
     }
 
     // Prevent the operand deaths processing code from deallocating it.
-    self.liveness.clearOperandDeath(inst, op_index);
+    self.reused_operands.set(op_index);
 
     // That makes us responsible for doing the rest of the stuff that processDeath would have done.
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
@@ -3930,7 +3919,7 @@ fn ptrArithmetic(
 
             const ptr_ty = lhs_ty;
             const elem_ty = switch (ptr_ty.ptrSize(zcu)) {
-                .One => ptr_ty.childType(zcu).childType(zcu), // ptr to array, so get array element type
+                .one => ptr_ty.childType(zcu).childType(zcu), // ptr to array, so get array element type
                 else => ptr_ty.childType(zcu),
             };
             const elem_size: u32 = @intCast(elem_ty.abiSize(zcu));
@@ -6310,20 +6299,19 @@ fn wantSafety(self: *Self) bool {
     };
 }
 
-fn fail(self: *Self, comptime format: []const u8, args: anytype) InnerError {
+fn fail(self: *Self, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
     @branchHint(.cold);
-    assert(self.err_msg == null);
-    const gpa = self.gpa;
-    self.err_msg = try ErrorMsg.create(gpa, self.src_loc, format, args);
-    return error.CodegenFail;
+    const zcu = self.pt.zcu;
+    const func = zcu.funcInfo(self.func_index);
+    const msg = try ErrorMsg.create(zcu.gpa, self.src_loc, format, args);
+    return zcu.codegenFailMsg(func.owner_nav, msg);
 }
 
-fn failSymbol(self: *Self, comptime format: []const u8, args: anytype) InnerError {
+fn failMsg(self: *Self, msg: *ErrorMsg) error{ OutOfMemory, CodegenFail } {
     @branchHint(.cold);
-    assert(self.err_msg == null);
-    const gpa = self.gpa;
-    self.err_msg = try ErrorMsg.create(gpa, self.src_loc, format, args);
-    return error.CodegenFail;
+    const zcu = self.pt.zcu;
+    const func = zcu.funcInfo(self.func_index);
+    return zcu.codegenFailMsg(func.owner_nav, msg);
 }
 
 fn parseRegName(name: []const u8) ?Register {

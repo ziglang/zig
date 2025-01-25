@@ -370,7 +370,7 @@ pub const Os = struct {
         range: std.SemanticVersion.Range,
         glibc: std.SemanticVersion,
         /// Android API level.
-        android: u32 = 14, // This default value is to be deleted after zig1.wasm is updated.
+        android: u32,
 
         pub inline fn includesVersion(range: LinuxVersionRange, ver: std.SemanticVersion) bool {
             return range.range.includesVersion(ver);
@@ -1219,6 +1219,12 @@ pub const Cpu = struct {
                 } else true;
             }
 
+            pub fn count(set: Set) std.math.IntFittingRange(0, needed_bit_count) {
+                var sum: usize = 0;
+                for (set.ints) |x| sum += @popCount(x);
+                return @intCast(sum);
+            }
+
             pub fn isEnabled(set: Set, arch_feature_index: Index) bool {
                 const usize_index = arch_feature_index / @bitSizeOf(usize);
                 const bit_index: ShiftInt = @intCast(arch_feature_index % @bitSizeOf(usize));
@@ -1952,7 +1958,7 @@ pub const Cpu = struct {
                 .x86_64 => &x86.cpu.x86_64,
                 .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
                 .ve => &ve.cpu.generic,
-                .wasm32, .wasm64 => &wasm.cpu.generic,
+                .wasm32, .wasm64 => &wasm.cpu.mvp,
                 .xcore => &xcore.cpu.generic,
                 .xtensa => &xtensa.cpu.generic,
 
@@ -2006,6 +2012,7 @@ pub const Cpu = struct {
                     else => generic(arch),
                 },
                 .xcore => &xcore.cpu.xs1b_generic,
+                .wasm32, .wasm64 => &wasm.cpu.lime1,
 
                 else => generic(arch),
             };

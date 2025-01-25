@@ -902,8 +902,8 @@ const llvm_targets = [_]LlvmTarget{
                 .features = &.{ "v8a", "exynos" },
             },
         },
-        // LLVM removed support for v2 and v3 but zig wants to support targeting old hardware
         .extra_features = &.{
+            // LLVM removed support for v2 and v3 but zig wants to support targeting old hardware
             .{
                 .zig_name = "v2",
                 .desc = "ARMv2 architecture",
@@ -1033,6 +1033,27 @@ const llvm_targets = [_]LlvmTarget{
         .zig_name = "wasm",
         .llvm_name = "WebAssembly",
         .td_name = "WebAssembly.td",
+        .extra_features = &.{
+            .{
+                .zig_name = "nontrapping_bulk_memory_len0",
+                .desc = "Bulk memory operations with a zero length do not trap",
+                .deps = &.{"bulk_memory"},
+            },
+        },
+        .extra_cpus = &.{
+            .{
+                .llvm_name = null,
+                .zig_name = "lime1",
+                .features = &.{
+                    "bulk_memory",
+                    "extended_const",
+                    "multivalue",
+                    "mutable_globals",
+                    "nontrapping_fptoint",
+                    "sign_ext",
+                },
+            },
+        },
     },
     .{
         .zig_name = "x86",
@@ -1044,8 +1065,20 @@ const llvm_targets = [_]LlvmTarget{
                 .omit = true,
             },
             .{
+                .llvm_name = "alderlake",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
                 .llvm_name = "amdfam10",
                 .extra_deps = &.{"3dnowa"},
+            },
+            .{
+                .llvm_name = "arrowlake",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
+                .llvm_name = "arrowlake-s",
+                .extra_deps = &.{ "smap", "smep" },
             },
             .{
                 .llvm_name = "athlon",
@@ -1081,15 +1114,63 @@ const llvm_targets = [_]LlvmTarget{
             },
             .{
                 .llvm_name = "barcelona",
-                .extra_deps = &.{"3dnowa"},
+                .extra_deps = &.{ "3dnowa", "smap", "smep" },
+            },
+            .{
+                .llvm_name = "broadwell",
+                .extra_deps = &.{ "smap", "smep" },
             },
             .{
                 .llvm_name = "c3",
                 .extra_deps = &.{"3dnow"},
             },
             .{
+                .llvm_name = "cannonlake",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
+                .llvm_name = "cascadelake",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
+                .llvm_name = "emeraldrapids",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
                 .llvm_name = "geode",
                 .extra_deps = &.{"3dnowa"},
+            },
+            .{
+                .llvm_name = "goldmont",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
+                .llvm_name = "goldmont_plus",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
+                .llvm_name = "haswell",
+                .extra_deps = &.{"smep"},
+            },
+            .{
+                .llvm_name = "i386",
+                .extra_deps = &.{"bsf_bsr_0_clobbers_result"},
+            },
+            .{
+                .llvm_name = "i486",
+                .extra_deps = &.{"bsf_bsr_0_clobbers_result"},
+            },
+            .{
+                .llvm_name = "icelake_client",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
+                .llvm_name = "icelake_server",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
+                .llvm_name = "ivybridge",
+                .extra_deps = &.{"smep"},
             },
             .{
                 .llvm_name = "k6-2",
@@ -1128,12 +1209,48 @@ const llvm_targets = [_]LlvmTarget{
                 .extra_deps = &.{"soft_float"},
             },
             .{
+                .llvm_name = "meteorlake",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
                 .llvm_name = "opteron",
                 .extra_deps = &.{"3dnowa"},
             },
             .{
                 .llvm_name = "opteron-sse3",
                 .extra_deps = &.{"3dnowa"},
+            },
+            .{
+                .llvm_name = "raptorlake",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
+                .llvm_name = "rocketlake",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
+                .llvm_name = "sapphirerapids",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
+                .llvm_name = "silvermont",
+                .extra_deps = &.{"smep"},
+            },
+            .{
+                .llvm_name = "skx",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
+                .llvm_name = "skylake",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
+                .llvm_name = "skylake_avx512",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
+                .llvm_name = "tigerlake",
+                .extra_deps = &.{ "smap", "smep" },
             },
             .{
                 .llvm_name = "winchip2",
@@ -1143,9 +1260,29 @@ const llvm_targets = [_]LlvmTarget{
                 .llvm_name = "sse4.2",
                 .extra_deps = &.{"crc32"},
             },
+            .{
+                .llvm_name = "znver1",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
+                .llvm_name = "znver2",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
+                .llvm_name = "znver3",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
+                .llvm_name = "znver4",
+                .extra_deps = &.{ "smap", "smep" },
+            },
+            .{
+                .llvm_name = "znver5",
+                .extra_deps = &.{ "smap", "smep" },
+            },
         },
-        // Features removed from LLVM
         .extra_features = &.{
+            // Features removed from LLVM
             .{
                 .zig_name = "3dnow",
                 .desc = "Enable 3DNow! instructions",
@@ -1169,6 +1306,22 @@ const llvm_targets = [_]LlvmTarget{
             .{
                 .zig_name = "prefetchwt1",
                 .desc = "Prefetch with Intent to Write and T1 Hint",
+                .deps = &.{},
+            },
+            // Custom Zig features
+            .{
+                .zig_name = "bsf_bsr_0_clobbers_result",
+                .desc = "BSF/BSR may clobber the lower 32-bits of the result register when the source is zero",
+                .deps = &.{},
+            },
+            .{
+                .zig_name = "smap",
+                .desc = "Enable Supervisor Mode Access Prevention",
+                .deps = &.{},
+            },
+            .{
+                .zig_name = "smep",
+                .desc = "Enable Supervisor Mode Execution Prevention",
                 .deps = &.{},
             },
         },

@@ -70,6 +70,16 @@ pub fn makeZipWithStore(
 
 pub const WriteZipOptions = struct {
     end: ?EndRecordOptions = null,
+    local_header: ?LocalHeaderOptions = null,
+};
+pub const LocalHeaderOptions = struct {
+    zip64: ?LocalHeaderZip64Options = null,
+    compressed_size: ?u32 = null,
+    uncompressed_size: ?u32 = null,
+    extra_len: ?u16 = null,
+};
+pub const LocalHeaderZip64Options = struct {
+    data_size: ?u16 = null,
 };
 pub const EndRecordOptions = struct {
     zip64: ?Zip64Options = null,
@@ -105,6 +115,7 @@ pub fn writeZip(
             .name = file.name,
             .content = file.content,
             .compression = file.compression,
+            .write_options = options,
         });
     }
     for (files, 0..) |file, i| {
@@ -136,6 +147,7 @@ pub fn Zipper(comptime Writer: type) type {
                 name: []const u8,
                 content: []const u8,
                 compression: zip.CompressionMethod,
+                write_options: WriteZipOptions,
             },
         ) !FileStore {
             const writer = self.counting_writer.writer();
@@ -143,7 +155,16 @@ pub fn Zipper(comptime Writer: type) type {
             const file_offset: u64 = @intCast(self.counting_writer.bytes_written);
             const crc32 = std.hash.Crc32.hash(opt.content);
 
+            const header_options = opt.write_options.local_header;
             {
+                var compressed_size: u32 = 0;
+                var uncompressed_size: u32 = 0;
+                var extra_len: u16 = 0;
+                if (header_options) |hdr_options| {
+                    compressed_size = if (hdr_options.compressed_size) |size| size else 0;
+                    uncompressed_size = if (hdr_options.uncompressed_size) |size| size else @intCast(opt.content.len);
+                    extra_len = if (hdr_options.extra_len) |len| len else 0;
+                }
                 const hdr: zip.LocalFileHeader = .{
                     .signature = zip.local_file_header_sig,
                     .version_needed_to_extract = 10,
@@ -152,14 +173,24 @@ pub fn Zipper(comptime Writer: type) type {
                     .last_modification_time = 0,
                     .last_modification_date = 0,
                     .crc32 = crc32,
-                    .compressed_size = 0,
-                    .uncompressed_size = @intCast(opt.content.len),
+                    .compressed_size = compressed_size,
+                    .uncompressed_size = uncompressed_size,
                     .filename_len = @intCast(opt.name.len),
-                    .extra_len = 0,
+                    .extra_len = extra_len,
                 };
                 try writer.writeStructEndian(hdr, .little);
             }
             try writer.writeAll(opt.name);
+
+            if (header_options) |hdr| {
+                if (hdr.zip64) |options| {
+                    try writer.writeInt(u16, 0x0001, .little);
+                    const data_size = if (options.data_size) |size| size else 8;
+                    try writer.writeInt(u16, data_size, .little);
+                    try writer.writeInt(u64, 0, .little);
+                    try writer.writeInt(u64, @intCast(opt.content.len), .little);
+                }
+            }
 
             var compressed_size: u32 = undefined;
             switch (opt.compression) {

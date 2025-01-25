@@ -178,7 +178,7 @@ test "rw constraint (x86_64)" {
 }
 
 test "asm modifiers (AArch64)" {
-    if (builtin.target.cpu.arch != .aarch64) return error.SkipZigTest;
+    if (!builtin.target.cpu.arch.isAARCH64()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     if (builtin.zig_backend == .stage2_c and builtin.os.tag == .windows) return error.SkipZigTest; // MSVC doesn't support inline assembly

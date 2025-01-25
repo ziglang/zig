@@ -8,7 +8,7 @@ const std = @import("std");
 const ErrorDetails = @import("errors.zig").ErrorDetails;
 const columnWidth = @import("literals.zig").columnWidth;
 const code_pages = @import("code_pages.zig");
-const CodePage = code_pages.CodePage;
+const SupportedCodePage = code_pages.SupportedCodePage;
 const SourceMappings = @import("source_mapping.zig").SourceMappings;
 const isNonAsciiDigit = @import("utils.zig").isNonAsciiDigit;
 
@@ -60,13 +60,6 @@ pub const Token = struct {
 
     pub fn slice(self: Token, buffer: []const u8) []const u8 {
         return buffer[self.start..self.end];
-    }
-
-    pub fn nameForErrorDisplay(self: Token, buffer: []const u8) []const u8 {
-        return switch (self.id) {
-            .eof => self.id.nameForErrorDisplay(),
-            else => self.slice(buffer),
-        };
     }
 
     /// Returns 0-based column
@@ -214,18 +207,19 @@ pub const Lexer = struct {
     line_handler: LineHandler,
     at_start_of_line: bool = true,
     error_context_token: ?Token = null,
-    current_code_page: CodePage,
-    default_code_page: CodePage,
+    current_code_page: SupportedCodePage,
+    default_code_page: SupportedCodePage,
     source_mappings: ?*SourceMappings,
     max_string_literal_codepoints: u15,
     /// Needed to determine whether or not the output code page should
     /// be set in the parser.
     seen_pragma_code_pages: u2 = 0,
+    last_pragma_code_page_token: ?Token = null,
 
     pub const Error = LexError;
 
     pub const LexerOptions = struct {
-        default_code_page: CodePage = .windows1252,
+        default_code_page: SupportedCodePage = .windows1252,
         source_mappings: ?*SourceMappings = null,
         max_string_literal_codepoints: u15 = default_max_string_literal_codepoints,
     };
@@ -291,6 +285,8 @@ pub const Lexer = struct {
                     },
                     // NBSP only counts as whitespace at the start of a line (but
                     // can be intermixed with other whitespace). Who knows why.
+                    // TODO: This should either be removed, or it should also include
+                    //       the codepoints listed in disjoint_code_page.zig
                     '\xA0' => if (self.at_start_of_line) {
                         result.start = self.index + codepoint.byte_len;
                     } else {
@@ -305,12 +301,8 @@ pub const Lexer = struct {
                         }
                         self.at_start_of_line = false;
                     },
-                    // Semi-colon acts as a line-terminator, but in this lexing mode
-                    // that's only true if it's at the start of a line.
                     ';' => {
-                        if (self.at_start_of_line) {
-                            state = .semicolon;
-                        }
+                        state = .semicolon;
                         self.at_start_of_line = false;
                     },
                     else => {
@@ -345,7 +337,11 @@ pub const Lexer = struct {
             }
         } else { // got EOF
             switch (state) {
-                .start, .semicolon => {},
+                .start => {},
+                .semicolon => {
+                    // Skip past everything up to the EOF
+                    result.start = self.index;
+                },
                 .literal => {
                     result.id = .literal;
                 },
@@ -357,6 +353,10 @@ pub const Lexer = struct {
         }
 
         result.end = self.index;
+
+        // EOF tokens must have their start index match the end index
+        std.debug.assert(result.id != .eof or result.start == result.end);
+
         return result;
     }
 
@@ -796,7 +796,11 @@ pub const Lexer = struct {
             }
         } else { // got EOF
             switch (state) {
-                .start, .semicolon => {},
+                .start => {},
+                .semicolon => {
+                    // Skip past everything up to the EOF
+                    result.start = self.index;
+                },
                 .literal_or_quoted_wide_string, .literal, .e, .en, .b, .be, .beg, .begi => {
                     result.id = .literal;
                 },
@@ -834,6 +838,9 @@ pub const Lexer = struct {
                 return LexError.StringLiteralTooLong;
             }
         }
+
+        // EOF tokens must have their start index match the end index
+        std.debug.assert(result.id != .eof or result.start == result.end);
 
         return result;
     }
@@ -878,7 +885,7 @@ pub const Lexer = struct {
             // and miscompilations when used within string literals. We avoid the miscompilation
             // within string literals and emit a warning, but outside of string literals it makes
             // more sense to just disallow these codepoints.
-            0x900, 0xA00, 0xA0D, 0x2000, 0xFFFE, 0xD00 => if (!in_string_literal) error.IllegalCodepointOutsideStringLiterals else return,
+            0x900, 0xA00, 0xA0D, 0x2000, 0xD00, 0xFFFE, 0xFFFF => if (!in_string_literal) error.IllegalCodepointOutsideStringLiterals else return,
             else => return,
         };
         self.error_context_token = .{
@@ -899,90 +906,11 @@ pub const Lexer = struct {
         };
         errdefer self.error_context_token = token;
         const full_command = self.buffer[start..end];
-        var command = full_command;
 
-        // Anything besides exactly this is ignored by the Windows RC implementation
-        const expected_directive = "#pragma";
-        if (!std.mem.startsWith(u8, command, expected_directive)) return;
-        command = command[expected_directive.len..];
-
-        if (command.len == 0 or !std.ascii.isWhitespace(command[0])) return;
-        while (command.len > 0 and std.ascii.isWhitespace(command[0])) {
-            command = command[1..];
-        }
-
-        // Note: CoDe_PaGeZ is also treated as "code_page" by the Windows RC implementation,
-        //       and it will error with 'Missing left parenthesis in code_page #pragma'
-        const expected_extension = "code_page";
-        if (!std.ascii.startsWithIgnoreCase(command, expected_extension)) return;
-        command = command[expected_extension.len..];
-
-        while (command.len > 0 and std.ascii.isWhitespace(command[0])) {
-            command = command[1..];
-        }
-
-        if (command.len == 0 or command[0] != '(') {
-            return error.CodePagePragmaMissingLeftParen;
-        }
-        command = command[1..];
-
-        while (command.len > 0 and std.ascii.isWhitespace(command[0])) {
-            command = command[1..];
-        }
-
-        var num_str: []u8 = command[0..0];
-        while (command.len > 0 and (command[0] != ')' and !std.ascii.isWhitespace(command[0]))) {
-            command = command[1..];
-            num_str.len += 1;
-        }
-
-        if (num_str.len == 0) {
-            return error.CodePagePragmaNotInteger;
-        }
-
-        while (command.len > 0 and std.ascii.isWhitespace(command[0])) {
-            command = command[1..];
-        }
-
-        if (command.len == 0 or command[0] != ')') {
-            return error.CodePagePragmaMissingRightParen;
-        }
-
-        const code_page = code_page: {
-            if (std.ascii.eqlIgnoreCase("DEFAULT", num_str)) {
-                break :code_page self.default_code_page;
-            }
-
-            // The Win32 compiler behaves fairly strangely around maxInt(u32):
-            // - If the overflowed u32 wraps and becomes a known code page ID, then
-            //   it will error/warn with "Codepage not valid:  ignored" (depending on /w)
-            // - If the overflowed u32 wraps and does not become a known code page ID,
-            //   then it will error with 'constant too big' and 'Codepage not integer'
-            //
-            // Instead of that, we just have a separate error specifically for overflow.
-            const num = parseCodePageNum(num_str) catch |err| switch (err) {
-                error.InvalidCharacter => return error.CodePagePragmaNotInteger,
-                error.Overflow => return error.CodePagePragmaOverflow,
-            };
-
-            // Anything that starts with 0 but does not resolve to 0 is treated as invalid, e.g. 01252
-            if (num_str[0] == '0' and num != 0) {
-                return error.CodePagePragmaInvalidCodePage;
-            }
-            // Anything that resolves to 0 is treated as 'not an integer' by the Win32 implementation.
-            else if (num == 0) {
-                return error.CodePagePragmaNotInteger;
-            }
-            // Anything above u16 max is not going to be found since our CodePage enum is backed by a u16.
-            if (num > std.math.maxInt(u16)) {
-                return error.CodePagePragmaInvalidCodePage;
-            }
-
-            break :code_page code_pages.CodePage.getByIdentifierEnsureSupported(@intCast(num)) catch |err| switch (err) {
-                error.InvalidCodePage => return error.CodePagePragmaInvalidCodePage,
-                error.UnsupportedCodePage => return error.CodePagePragmaUnsupportedCodePage,
-            };
-        };
+        const code_page = (parsePragmaCodePage(full_command) catch |err| switch (err) {
+            error.NotPragma, error.NotCodePagePragma => return,
+            else => |e| return e,
+        }) orelse self.default_code_page;
 
         // https://learn.microsoft.com/en-us/windows/win32/menurc/pragma-directives
         // > This pragma is not supported in an included resource file (.rc)
@@ -998,17 +926,8 @@ pub const Lexer = struct {
         }
 
         self.seen_pragma_code_pages +|= 1;
+        self.last_pragma_code_page_token = token;
         self.current_code_page = code_page;
-    }
-
-    fn parseCodePageNum(str: []const u8) !u32 {
-        var x: u32 = 0;
-        for (str) |c| {
-            const digit = try std.fmt.charToDigit(c, 10);
-            if (x != 0) x = try std.math.mul(u32, x, 10);
-            x = try std.math.add(u32, x, digit);
-        }
-        return x;
     }
 
     pub fn getErrorDetails(self: Self, lex_err: LexError) ErrorDetails {
@@ -1016,6 +935,7 @@ pub const Lexer = struct {
             error.UnfinishedStringLiteral => ErrorDetails.Error.unfinished_string_literal,
             error.StringLiteralTooLong => return .{
                 .err = .string_literal_too_long,
+                .code_page = self.current_code_page,
                 .token = self.error_context_token.?,
                 .extra = .{ .number = self.max_string_literal_codepoints },
             },
@@ -1037,10 +957,111 @@ pub const Lexer = struct {
         };
         return .{
             .err = err,
+            .code_page = self.current_code_page,
             .token = self.error_context_token.?,
         };
     }
 };
+
+fn parseCodePageNum(str: []const u8) !u32 {
+    var x: u32 = 0;
+    for (str) |c| {
+        const digit = try std.fmt.charToDigit(c, 10);
+        if (x != 0) x = try std.math.mul(u32, x, 10);
+        x = try std.math.add(u32, x, digit);
+    }
+    return x;
+}
+
+/// Returns `null` when the code_page is set to DEFAULT
+pub fn parsePragmaCodePage(full_command: []const u8) !?SupportedCodePage {
+    var command = full_command;
+
+    // Anything besides exactly this is ignored by the Windows RC implementation
+    const expected_directive = "#pragma";
+    if (!std.mem.startsWith(u8, command, expected_directive)) return error.NotPragma;
+    command = command[expected_directive.len..];
+
+    if (command.len == 0 or !std.ascii.isWhitespace(command[0])) return error.NotCodePagePragma;
+    while (command.len > 0 and std.ascii.isWhitespace(command[0])) {
+        command = command[1..];
+    }
+
+    // Note: CoDe_PaGeZ is also treated as "code_page" by the Windows RC implementation,
+    //       and it will error with 'Missing left parenthesis in code_page #pragma'
+    const expected_extension = "code_page";
+    if (!std.ascii.startsWithIgnoreCase(command, expected_extension)) return error.NotCodePagePragma;
+    command = command[expected_extension.len..];
+
+    while (command.len > 0 and std.ascii.isWhitespace(command[0])) {
+        command = command[1..];
+    }
+
+    if (command.len == 0 or command[0] != '(') {
+        return error.CodePagePragmaMissingLeftParen;
+    }
+    command = command[1..];
+
+    while (command.len > 0 and std.ascii.isWhitespace(command[0])) {
+        command = command[1..];
+    }
+
+    var num_str: []u8 = command[0..0];
+    while (command.len > 0 and (command[0] != ')' and !std.ascii.isWhitespace(command[0]))) {
+        command = command[1..];
+        num_str.len += 1;
+    }
+
+    if (num_str.len == 0) {
+        return error.CodePagePragmaNotInteger;
+    }
+
+    while (command.len > 0 and std.ascii.isWhitespace(command[0])) {
+        command = command[1..];
+    }
+
+    if (command.len == 0 or command[0] != ')') {
+        return error.CodePagePragmaMissingRightParen;
+    }
+
+    const code_page: ?SupportedCodePage = code_page: {
+        if (std.ascii.eqlIgnoreCase("DEFAULT", num_str)) {
+            break :code_page null;
+        }
+
+        // The Win32 compiler behaves fairly strangely around maxInt(u32):
+        // - If the overflowed u32 wraps and becomes a known code page ID, then
+        //   it will error/warn with "Codepage not valid:  ignored" (depending on /w)
+        // - If the overflowed u32 wraps and does not become a known code page ID,
+        //   then it will error with 'constant too big' and 'Codepage not integer'
+        //
+        // Instead of that, we just have a separate error specifically for overflow.
+        const num = parseCodePageNum(num_str) catch |err| switch (err) {
+            error.InvalidCharacter => return error.CodePagePragmaNotInteger,
+            error.Overflow => return error.CodePagePragmaOverflow,
+        };
+
+        // Anything that starts with 0 but does not resolve to 0 is treated as invalid, e.g. 01252
+        if (num_str[0] == '0' and num != 0) {
+            return error.CodePagePragmaInvalidCodePage;
+        }
+        // Anything that resolves to 0 is treated as 'not an integer' by the Win32 implementation.
+        else if (num == 0) {
+            return error.CodePagePragmaNotInteger;
+        }
+        // Anything above u16 max is not going to be found since our CodePage enum is backed by a u16.
+        if (num > std.math.maxInt(u16)) {
+            return error.CodePagePragmaInvalidCodePage;
+        }
+
+        break :code_page code_pages.getByIdentifierEnsureSupported(@intCast(num)) catch |err| switch (err) {
+            error.InvalidCodePage => return error.CodePagePragmaInvalidCodePage,
+            error.UnsupportedCodePage => return error.CodePagePragmaUnsupportedCodePage,
+        };
+    };
+
+    return code_page;
+}
 
 fn testLexNormal(source: []const u8, expected_tokens: []const Token.Id) !void {
     var lexer = Lexer.init(source, .{});
@@ -1074,7 +1095,7 @@ test "normal: string literals" {
 
 test "superscript chars and code pages" {
     const firstToken = struct {
-        pub fn firstToken(source: []const u8, default_code_page: CodePage, comptime lex_method: Lexer.LexMethod) LexError!Token {
+        pub fn firstToken(source: []const u8, default_code_page: SupportedCodePage, comptime lex_method: Lexer.LexMethod) LexError!Token {
             var lexer = Lexer.init(source, .{ .default_code_page = default_code_page });
             return lexer.next(lex_method);
         }

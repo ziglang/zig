@@ -2,7 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
 
-const usage = "usage: incr-check <zig binary path> <input file> [--zig-lib-dir lib] [--debug-zcu] [--debug-link] [--preserve-tmp] [--zig-cc-binary /path/to/zig]";
+const usage = "usage: incr-check <zig binary path> <input file> [--zig-lib-dir lib] [--debug-zcu] [--debug-dwarf] [--debug-link] [--preserve-tmp] [--zig-cc-binary /path/to/zig]";
 
 pub fn main() !void {
     const fatal = std.process.fatal;
@@ -16,6 +16,7 @@ pub fn main() !void {
     var opt_lib_dir: ?[]const u8 = null;
     var opt_cc_zig: ?[]const u8 = null;
     var debug_zcu = false;
+    var debug_dwarf = false;
     var debug_link = false;
     var preserve_tmp = false;
 
@@ -27,6 +28,8 @@ pub fn main() !void {
                 opt_lib_dir = arg_it.next() orelse fatal("expected arg after '--zig-lib-dir'\n{s}", .{usage});
             } else if (std.mem.eql(u8, arg, "--debug-zcu")) {
                 debug_zcu = true;
+            } else if (std.mem.eql(u8, arg, "--debug-dwarf")) {
+                debug_dwarf = true;
             } else if (std.mem.eql(u8, arg, "--debug-link")) {
                 debug_link = true;
             } else if (std.mem.eql(u8, arg, "--preserve-tmp")) {
@@ -85,7 +88,7 @@ pub fn main() !void {
 
     const host = try std.zig.system.resolveTargetQuery(.{});
 
-    const debug_log_verbose = debug_zcu or debug_link;
+    const debug_log_verbose = debug_zcu or debug_dwarf or debug_link;
 
     for (case.targets) |target| {
         const target_prog_node = node: {
@@ -124,6 +127,9 @@ pub fn main() !void {
         }
         if (debug_zcu) {
             try child_args.appendSlice(arena, &.{ "--debug-log", "zcu" });
+        }
+        if (debug_dwarf) {
+            try child_args.appendSlice(arena, &.{ "--debug-log", "dwarf" });
         }
         if (debug_link) {
             try child_args.appendSlice(arena, &.{ "--debug-log", "link", "--debug-log", "link_state", "--debug-log", "link_relocs" });

@@ -110,7 +110,7 @@ pub fn create(self: Allocator, comptime T: type) Error!*T {
 /// have the same address and alignment property.
 pub fn destroy(self: Allocator, ptr: anytype) void {
     const info = @typeInfo(@TypeOf(ptr)).pointer;
-    if (info.size != .One) @compileError("ptr must be a single item pointer");
+    if (info.size != .one) @compileError("ptr must be a single item pointer");
     const T = info.child;
     if (@sizeOf(T) == 0) return;
     const non_const_ptr = @as([*]u8, @ptrCast(@constCast(ptr)));
@@ -282,11 +282,9 @@ pub fn reallocAdvanced(
     const old_byte_slice = mem.sliceAsBytes(old_mem);
     const byte_count = math.mul(usize, @sizeOf(T), new_n) catch return Error.OutOfMemory;
     // Note: can't set shrunk memory to undefined as memory shouldn't be modified on realloc failure
-    if (mem.isAligned(@intFromPtr(old_byte_slice.ptr), Slice.alignment)) {
-        if (self.rawResize(old_byte_slice, log2a(Slice.alignment), byte_count, return_address)) {
-            const new_bytes: []align(Slice.alignment) u8 = @alignCast(old_byte_slice.ptr[0..byte_count]);
-            return mem.bytesAsSlice(T, new_bytes);
-        }
+    if (self.rawResize(old_byte_slice, log2a(Slice.alignment), byte_count, return_address)) {
+        const new_bytes: []align(Slice.alignment) u8 = @alignCast(old_byte_slice.ptr[0..byte_count]);
+        return mem.bytesAsSlice(T, new_bytes);
     }
 
     const new_mem = self.rawAlloc(byte_count, log2a(Slice.alignment), return_address) orelse
@@ -307,7 +305,7 @@ pub fn reallocAdvanced(
 pub fn free(self: Allocator, memory: anytype) void {
     const Slice = @typeInfo(@TypeOf(memory)).pointer;
     const bytes = mem.sliceAsBytes(memory);
-    const bytes_len = bytes.len + if (Slice.sentinel != null) @sizeOf(Slice.child) else 0;
+    const bytes_len = bytes.len + if (Slice.sentinel() != null) @sizeOf(Slice.child) else 0;
     if (bytes_len == 0) return;
     const non_const_ptr = @constCast(bytes.ptr);
     // TODO: https://github.com/ziglang/zig/issues/4298

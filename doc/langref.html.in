@@ -2001,6 +2001,15 @@ or
       the pointer is never dereferenced:</p>
       {#code|test_comptime_pointer_conversion.zig#}
 
+      <p>
+      {#link|@ptrCast#} converts a pointer's element type to another. This
+      creates a new pointer that can cause undetectable illegal behavior
+      depending on the loads and stores that pass through it. Generally, other
+      kinds of type conversions are preferable to
+      {#syntax#}@ptrCast{#endsyntax#} if possible.
+      </p>
+      {#code|test_pointer_casting.zig#}
+
       {#see_also|Optional Pointers|@ptrFromInt|@intFromPtr|C Pointers#}
       {#header_open|volatile#}
       <p>Loads and stores are assumed to not have side effects. If a given load or store
@@ -2015,14 +2024,6 @@ or
       Input/Output, it is probably a bug.
       </p>
       {#header_close#}
-      <p>
-      {#link|@ptrCast#} converts a pointer's element type to another. This
-      creates a new pointer that can cause undetectable illegal behavior
-      depending on the loads and stores that pass through it. Generally, other
-      kinds of type conversions are preferable to
-      {#syntax#}@ptrCast{#endsyntax#} if possible.
-      </p>
-      {#code|test_pointer_casting.zig#}
 
       {#header_open|Alignment#}
       <p>

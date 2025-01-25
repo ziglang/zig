@@ -6,13 +6,13 @@
 /// `null` means native.
 cpu_arch: ?Target.Cpu.Arch = null,
 
-cpu_model: CpuModel = CpuModel.determined_by_arch_os,
+cpu_model: CpuModel = .determined_by_arch_os,
 
 /// Sparse set of CPU features to add to the set from `cpu_model`.
-cpu_features_add: Target.Cpu.Feature.Set = Target.Cpu.Feature.Set.empty,
+cpu_features_add: Target.Cpu.Feature.Set = .empty,
 
 /// Sparse set of CPU features to remove from the set from `cpu_model`.
-cpu_features_sub: Target.Cpu.Feature.Set = Target.Cpu.Feature.Set.empty,
+cpu_features_sub: Target.Cpu.Feature.Set = .empty,
 
 /// `null` means native.
 os_tag: ?Target.Os.Tag = null,
@@ -38,7 +38,7 @@ abi: ?Target.Abi = null,
 
 /// When `os_tag` is `null`, then `null` means native. Otherwise it means the standard path
 /// based on the `os_tag`.
-dynamic_linker: Target.DynamicLinker = Target.DynamicLinker.none,
+dynamic_linker: Target.DynamicLinker = .none,
 
 /// `null` means default for the cpu/arch/os combo.
 ofmt: ?Target.ObjectFormat = null,
@@ -544,7 +544,7 @@ fn parseOs(result: *Query, diags: *ParseOptions.Diagnostics, text: []const u8) !
     const version_text = it.rest();
     if (version_text.len > 0) switch (tag.versionRangeTag()) {
         .none => return error.InvalidOperatingSystemVersion,
-        .semver, .hurd, .linux => range: {
+        .semver, .hurd, .linux => {
             var range_it = mem.splitSequence(u8, version_text, "...");
             result.os_version_min = .{
                 .semver = parseVersion(range_it.first()) catch |err| switch (err) {
@@ -552,21 +552,25 @@ fn parseOs(result: *Query, diags: *ParseOptions.Diagnostics, text: []const u8) !
                     error.InvalidVersion => return error.InvalidOperatingSystemVersion,
                 },
             };
-            result.os_version_max = .{
-                .semver = parseVersion(range_it.next() orelse break :range) catch |err| switch (err) {
-                    error.Overflow => return error.InvalidOperatingSystemVersion,
-                    error.InvalidVersion => return error.InvalidOperatingSystemVersion,
-                },
-            };
+            if (range_it.next()) |v| {
+                result.os_version_max = .{
+                    .semver = parseVersion(v) catch |err| switch (err) {
+                        error.Overflow => return error.InvalidOperatingSystemVersion,
+                        error.InvalidVersion => return error.InvalidOperatingSystemVersion,
+                    },
+                };
+            }
         },
-        .windows => range: {
+        .windows => {
             var range_it = mem.splitSequence(u8, version_text, "...");
             result.os_version_min = .{
                 .windows = try Target.Os.WindowsVersion.parse(range_it.first()),
             };
-            result.os_version_max = .{
-                .windows = try Target.Os.WindowsVersion.parse(range_it.next() orelse break :range),
-            };
+            if (range_it.next()) |v| {
+                result.os_version_max = .{
+                    .windows = try Target.Os.WindowsVersion.parse(v),
+                };
+            }
         },
     };
 }

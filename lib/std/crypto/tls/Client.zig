@@ -356,14 +356,7 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
                         if (ciphertext.len > cleartext_fragment_buf.len) return error.TlsRecordOverflow;
                         const cleartext = cleartext_fragment_buf[0..ciphertext.len];
                         const auth_tag = record_decoder.array(P.AEAD.tag_length).*;
-                        const nonce = if (builtin.zig_backend == .stage2_x86_64 and
-                            P.AEAD.nonce_length > comptime std.simd.suggestVectorLength(u8) orelse 1)
-                        nonce: {
-                            var nonce = pv.server_handshake_iv;
-                            const operand = std.mem.readInt(u64, nonce[nonce.len - 8 ..], .big);
-                            std.mem.writeInt(u64, nonce[nonce.len - 8 ..], operand ^ read_seq, .big);
-                            break :nonce nonce;
-                        } else nonce: {
+                        const nonce = nonce: {
                             const V = @Vector(P.AEAD.nonce_length, u8);
                             const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
                             const operand: V = pad ++ @as([8]u8, @bitCast(big(read_seq)));
@@ -400,14 +393,7 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
                         const record_iv = record_decoder.array(P.record_iv_length).*;
                         const masked_read_seq = read_seq &
                             comptime std.math.shl(u64, std.math.maxInt(u64), 8 * P.record_iv_length);
-                        const nonce: [P.AEAD.nonce_length]u8 = if (builtin.zig_backend == .stage2_x86_64 and
-                            P.AEAD.nonce_length > comptime std.simd.suggestVectorLength(u8) orelse 1)
-                        nonce: {
-                            var nonce = pv.app_cipher.server_write_IV ++ record_iv;
-                            const operand = std.mem.readInt(u64, nonce[nonce.len - 8 ..], .big);
-                            std.mem.writeInt(u64, nonce[nonce.len - 8 ..], operand ^ masked_read_seq, .big);
-                            break :nonce nonce;
-                        } else nonce: {
+                        const nonce: [P.AEAD.nonce_length]u8 = nonce: {
                             const V = @Vector(P.AEAD.nonce_length, u8);
                             const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
                             const operand: V = pad ++ @as([8]u8, @bitCast(big(masked_read_seq)));
@@ -750,14 +736,7 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
                                     .app_cipher = std.mem.bytesToValue(P.Tls_1_2, &key_block),
                                 } };
                                 const pv = &p.version.tls_1_2;
-                                const nonce: [P.AEAD.nonce_length]u8 = if (builtin.zig_backend == .stage2_x86_64 and
-                                    P.AEAD.nonce_length > comptime std.simd.suggestVectorLength(u8) orelse 1)
-                                nonce: {
-                                    var nonce = pv.app_cipher.client_write_IV ++ pv.app_cipher.client_salt;
-                                    const operand = std.mem.readInt(u64, nonce[nonce.len - 8 ..], .big);
-                                    std.mem.writeInt(u64, nonce[nonce.len - 8 ..], operand ^ write_seq, .big);
-                                    break :nonce nonce;
-                                } else nonce: {
+                                const nonce: [P.AEAD.nonce_length]u8 = nonce: {
                                     const V = @Vector(P.AEAD.nonce_length, u8);
                                     const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
                                     const operand: V = pad ++ @as([8]u8, @bitCast(big(write_seq)));
@@ -1043,14 +1022,7 @@ fn prepareCiphertextRecord(
                     ciphertext_end += ciphertext_len;
                     const auth_tag = ciphertext_buf[ciphertext_end..][0..P.AEAD.tag_length];
                     ciphertext_end += auth_tag.len;
-                    const nonce = if (builtin.zig_backend == .stage2_x86_64 and
-                        P.AEAD.nonce_length > comptime std.simd.suggestVectorLength(u8) orelse 1)
-                    nonce: {
-                        var nonce = pv.client_iv;
-                        const operand = std.mem.readInt(u64, nonce[nonce.len - 8 ..], .big);
-                        std.mem.writeInt(u64, nonce[nonce.len - 8 ..], operand ^ c.write_seq, .big);
-                        break :nonce nonce;
-                    } else nonce: {
+                    const nonce = nonce: {
                         const V = @Vector(P.AEAD.nonce_length, u8);
                         const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
                         const operand: V = pad ++ std.mem.toBytes(big(c.write_seq));
@@ -1098,14 +1070,7 @@ fn prepareCiphertextRecord(
                     const ad = std.mem.toBytes(big(c.write_seq)) ++ record_header[0 .. 1 + 2] ++ int(u16, message_len);
                     const record_iv = ciphertext_buf[ciphertext_end..][0..P.record_iv_length];
                     ciphertext_end += P.record_iv_length;
-                    const nonce: [P.AEAD.nonce_length]u8 = if (builtin.zig_backend == .stage2_x86_64 and
-                        P.AEAD.nonce_length > comptime std.simd.suggestVectorLength(u8) orelse 1)
-                    nonce: {
-                        var nonce = pv.client_write_IV ++ pv.client_salt;
-                        const operand = std.mem.readInt(u64, nonce[nonce.len - 8 ..], .big);
-                        std.mem.writeInt(u64, nonce[nonce.len - 8 ..], operand ^ c.write_seq, .big);
-                        break :nonce nonce;
-                    } else nonce: {
+                    const nonce: [P.AEAD.nonce_length]u8 = nonce: {
                         const V = @Vector(P.AEAD.nonce_length, u8);
                         const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
                         const operand: V = pad ++ @as([8]u8, @bitCast(big(c.write_seq)));
@@ -1374,14 +1339,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.posix.iove
                     const ciphertext = frag[in..][0..ciphertext_len];
                     in += ciphertext_len;
                     const auth_tag = frag[in..][0..P.AEAD.tag_length].*;
-                    const nonce = if (builtin.zig_backend == .stage2_x86_64 and
-                        P.AEAD.nonce_length > comptime std.simd.suggestVectorLength(u8) orelse 1)
-                    nonce: {
-                        var nonce = pv.server_iv;
-                        const operand = std.mem.readInt(u64, nonce[nonce.len - 8 ..], .big);
-                        std.mem.writeInt(u64, nonce[nonce.len - 8 ..], operand ^ c.read_seq, .big);
-                        break :nonce nonce;
-                    } else nonce: {
+                    const nonce = nonce: {
                         const V = @Vector(P.AEAD.nonce_length, u8);
                         const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
                         const operand: V = pad ++ std.mem.toBytes(big(c.read_seq));
@@ -1409,14 +1367,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.posix.iove
                     in += P.record_iv_length;
                     const masked_read_seq = c.read_seq &
                         comptime std.math.shl(u64, std.math.maxInt(u64), 8 * P.record_iv_length);
-                    const nonce: [P.AEAD.nonce_length]u8 = if (builtin.zig_backend == .stage2_x86_64 and
-                        P.AEAD.nonce_length > comptime std.simd.suggestVectorLength(u8) orelse 1)
-                    nonce: {
-                        var nonce = pv.server_write_IV ++ record_iv;
-                        const operand = std.mem.readInt(u64, nonce[nonce.len - 8 ..], .big);
-                        std.mem.writeInt(u64, nonce[nonce.len - 8 ..], operand ^ masked_read_seq, .big);
-                        break :nonce nonce;
-                    } else nonce: {
+                    const nonce: [P.AEAD.nonce_length]u8 = nonce: {
                         const V = @Vector(P.AEAD.nonce_length, u8);
                         const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
                         const operand: V = pad ++ @as([8]u8, @bitCast(big(masked_read_seq)));

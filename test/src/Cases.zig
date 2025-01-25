@@ -358,7 +358,6 @@ pub fn addFromDir(ctx: *Cases, dir: std.fs.Dir, b: *std.Build) void {
     var current_file: []const u8 = "none";
     ctx.addFromDirInner(dir, &current_file, b) catch |err| {
         std.debug.panicExtra(
-            @errorReturnTrace(),
             @returnAddress(),
             "test harness failed to process file '{s}': {s}\n",
             .{ current_file, @errorName(err) },
@@ -684,7 +683,8 @@ pub fn lowerToBuildSteps(
                 .name = case.name,
                 .root_module = mod,
             }),
-            .Lib => b.addStaticLibrary(.{
+            .Lib => b.addLibrary(.{
+                .linkage = .static,
                 .name = case.name,
                 .root_module = mod,
             }),

@@ -248,7 +248,7 @@ pub const Value = union(enum) {
             .array => return encode(arena, &input),
 
             .pointer => |info| switch (info.size) {
-                .One => switch (@typeInfo(info.child)) {
+                .one => switch (@typeInfo(info.child)) {
                     .array => |child_info| {
                         const Slice = []const child_info.child;
                         return encode(arena, @as(Slice, input));
@@ -257,7 +257,7 @@ pub const Value = union(enum) {
                         @compileError("Unhandled type: {s}" ++ @typeName(info.child));
                     },
                 },
-                .Slice => {
+                .slice => {
                     if (info.child == u8) {
                         return Value{ .string = try arena.dupe(u8, input) };
                     }
@@ -357,7 +357,7 @@ pub const Yaml = struct {
             },
             .pointer => |info| {
                 switch (info.size) {
-                    .Slice => {
+                    .slice => {
                         var parsed = try self.arena.allocator().alloc(info.child, self.docs.items.len);
                         for (self.docs.items, 0..) |doc, i| {
                             parsed[i] = try self.parseValue(info.child, doc);
@@ -446,7 +446,7 @@ pub const Yaml = struct {
         const arena = self.arena.allocator();
 
         switch (ptr_info.size) {
-            .Slice => {
+            .slice => {
                 if (ptr_info.child == u8) {
                     return value.asString();
                 }

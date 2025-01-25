@@ -890,7 +890,7 @@ test {
     _ = @import("heap/memory_pool.zig");
     _ = ArenaAllocator;
     _ = GeneralPurposeAllocator;
-    if (comptime builtin.target.isWasm()) {
+    if (builtin.target.isWasm()) {
         _ = WasmAllocator;
         _ = WasmPageAllocator;
     }

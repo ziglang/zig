@@ -98,6 +98,40 @@ test "comptime slice of slice preserves comptime var" {
     }
 }
 
+test "open slice of open slice with sentinel" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    var slice: [:0]const u8 = "hello";
+    _ = &slice;
+
+    comptime assert(@TypeOf(slice[0..][0.. :0]) == [:0]const u8);
+    try expect(slice[0..][0.. :0].len == 5);
+    try expect(slice[0..][0.. :0][0] == 'h');
+    try expect(slice[0..][0.. :0][5] == 0);
+
+    comptime assert(@TypeOf(slice[1..][0.. :0]) == [:0]const u8);
+    try expect(slice[1..][0.. :0].len == 4);
+    try expect(slice[1..][0.. :0][0] == 'e');
+    try expect(slice[1..][0.. :0][4] == 0);
+}
+
+test "open slice with sentinel of slice with end index" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    var slice: [:0]const u8 = "hello";
+    _ = &slice;
+
+    comptime assert(@TypeOf(slice[0.. :0][0..5]) == *const [5]u8);
+    try expect(slice[0.. :0][0..5].len == 5);
+    try expect(slice[0.. :0][0..5][0] == 'h');
+    try expect(slice[0.. :0][0..5][4] == 'o');
+
+    comptime assert(@TypeOf(slice[0.. :0][0..5 :0]) == *const [5:0]u8);
+    try expect(slice[0.. :0][0..5 :0].len == 5);
+    try expect(slice[0.. :0][0..5 :0][0] == 'h');
+    try expect(slice[0.. :0][0..5 :0][5] == 0);
+}
+
 test "slice of type" {
     comptime {
         var types_array = [_]type{ i32, f64, type };

@@ -607,16 +607,24 @@ pub const Type = union(enum) {
 
         /// The type of the sentinel is the element type of the pointer, which is
         /// the value of the `child` field in this struct. However there is no way
-        /// to refer to that type here, so we use pointer to `anyopaque`.
-        sentinel: ?*const anyopaque,
+        /// to refer to that type here, so we use `*const anyopaque`.
+        /// See also: `sentinel`
+        sentinel_ptr: ?*const anyopaque,
+
+        /// Loads the pointer type's sentinel value from `sentinel_ptr`.
+        /// Returns `null` if the pointer type has no sentinel.
+        pub inline fn sentinel(comptime ptr: Pointer) ?ptr.child {
+            const sp: *const ptr.child = @ptrCast(@alignCast(ptr.sentinel_ptr orelse return null));
+            return sp.*;
+        }
 
         /// This data structure is used by the Zig language code generation and
         /// therefore must be kept in sync with the compiler implementation.
         pub const Size = enum(u2) {
-            One,
-            Many,
-            Slice,
-            C,
+            one,
+            many,
+            slice,
+            c,
         };
     };
 
@@ -628,8 +636,16 @@ pub const Type = union(enum) {
 
         /// The type of the sentinel is the element type of the array, which is
         /// the value of the `child` field in this struct. However there is no way
-        /// to refer to that type here, so we use pointer to `anyopaque`.
-        sentinel: ?*const anyopaque,
+        /// to refer to that type here, so we use `*const anyopaque`.
+        /// See also: `sentinel`.
+        sentinel_ptr: ?*const anyopaque,
+
+        /// Loads the array type's sentinel value from `sentinel_ptr`.
+        /// Returns `null` if the array type has no sentinel.
+        pub inline fn sentinel(comptime arr: Array) ?arr.child {
+            const sp: *const arr.child = @ptrCast(@alignCast(arr.sentinel_ptr orelse return null));
+            return sp.*;
+        }
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -645,9 +661,20 @@ pub const Type = union(enum) {
     pub const StructField = struct {
         name: [:0]const u8,
         type: type,
-        default_value: ?*const anyopaque,
+        /// The type of the default value is the type of this struct field, which
+        /// is the value of the `type` field in this struct. However there is no
+        /// way to refer to that type here, so we use `*const anyopaque`.
+        /// See also: `defaultValue`.
+        default_value_ptr: ?*const anyopaque,
         is_comptime: bool,
         alignment: comptime_int,
+
+        /// Loads the field's default value from `default_value_ptr`.
+        /// Returns `null` if the field has no default value.
+        pub inline fn defaultValue(comptime sf: StructField) ?sf.type {
+            const dp: *const sf.type = @ptrCast(@alignCast(sf.default_value_ptr orelse return null));
+            return dp.*;
+        }
     };
 
     /// This data structure is used by the Zig language code generation and
@@ -1083,49 +1110,35 @@ pub const TestFn = struct {
 /// Deprecated, use the `Panic` namespace instead.
 /// To be deleted after 0.14.0 is released.
 pub const PanicFn = fn ([]const u8, ?*StackTrace, ?usize) noreturn;
-/// Deprecated, use the `Panic` namespace instead.
-/// To be deleted after 0.14.0 is released.
-pub const panic: PanicFn = Panic.call;
 
 /// This namespace is used by the Zig compiler to emit various kinds of safety
-/// panics. These can be overridden by making a public `Panic` namespace in the
+/// panics. These can be overridden by making a public `panic` namespace in the
 /// root source file.
-pub const Panic: type = if (@hasDecl(root, "Panic"))
-    root.Panic
-else if (@hasDecl(root, "panic")) // Deprecated, use `Panic` instead.
-    DeprecatedPanic
-else if (builtin.zig_backend == .stage2_riscv64)
-    std.debug.SimplePanic // https://github.com/ziglang/zig/issues/21519
-else
-    std.debug.FormattedPanic;
-
-/// To be deleted after 0.14.0 is released.
-const DeprecatedPanic = struct {
-    pub const call = root.panic;
-    pub const sentinelMismatch = std.debug.FormattedPanic.sentinelMismatch;
-    pub const unwrapError = std.debug.FormattedPanic.unwrapError;
-    pub const outOfBounds = std.debug.FormattedPanic.outOfBounds;
-    pub const startGreaterThanEnd = std.debug.FormattedPanic.startGreaterThanEnd;
-    pub const inactiveUnionField = std.debug.FormattedPanic.inactiveUnionField;
-    pub const messages = std.debug.FormattedPanic.messages;
+pub const panic: type = p: {
+    if (@hasDecl(root, "panic")) {
+        if (@TypeOf(root.panic) != type) {
+            // Deprecated; make `panic` a namespace instead.
+            break :p std.debug.FullPanic(struct {
+                fn panic(msg: []const u8, ra: ?usize) noreturn {
+                    root.panic(msg, @errorReturnTrace(), ra);
+                }
+            }.panic);
+        }
+        break :p root.panic;
+    }
+    if (@hasDecl(root, "Panic")) {
+        break :p root.Panic; // Deprecated; use `panic` instead.
+    }
+    if (builtin.zig_backend == .stage2_riscv64) {
+        break :p std.debug.simple_panic;
+    }
+    break :p std.debug.FullPanic(std.debug.defaultPanic);
 };
 
-/// To be deleted after zig1.wasm is updated.
-pub const panicSentinelMismatch = Panic.sentinelMismatch;
-/// To be deleted after zig1.wasm is updated.
-pub const panicUnwrapError = Panic.unwrapError;
-/// To be deleted after zig1.wasm is updated.
-pub const panicOutOfBounds = Panic.outOfBounds;
-/// To be deleted after zig1.wasm is updated.
-pub const panicStartGreaterThanEnd = Panic.startGreaterThanEnd;
-/// To be deleted after zig1.wasm is updated.
-pub const panicInactiveUnionField = Panic.inactiveUnionField;
-/// To be deleted after zig1.wasm is updated.
-pub const panic_messages = Panic.messages;
-
-pub noinline fn returnError(st: *StackTrace) void {
+pub noinline fn returnError() void {
     @branchHint(.unlikely);
     @setRuntimeSafety(false);
+    const st = @errorReturnTrace().?;
     if (st.index < st.instruction_addresses.len)
         st.instruction_addresses[st.index] = @returnAddress();
     st.index += 1;

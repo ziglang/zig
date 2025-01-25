@@ -6,8 +6,6 @@ pub fn build(b: *std.Build) void {
 
     add(b, test_step, .Debug);
     add(b, test_step, .ReleaseFast);
-    add(b, test_step, .ReleaseSmall);
-    add(b, test_step, .ReleaseSafe);
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.OptimizeMode) void {
@@ -45,6 +43,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
     check_exe.checkInHeaders();
     check_exe.checkExact("Section export");
     check_exe.checkExact("entries 2");
+    check_exe.checkExact("name foo");
     check_exe.checkExact("name memory"); // ensure we also export memory again
 
     // This section *must* be emit as the start function is set to the index
@@ -71,23 +70,27 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
     check_exe.checkExact("type function");
     if (optimize_mode == .Debug) {
         check_exe.checkExact("name __wasm_init_memory");
+        check_exe.checkExact("name __wasm_init_tls");
     }
-    check_exe.checkExact("name __wasm_init_tls");
     check_exe.checkExact("type global");
 
     // In debug mode the symbol __tls_base is resolved to an undefined symbol
     // from the object file, hence its placement differs than in release modes
     // where the entire tls segment is optimized away, and tls_base will have
     // its original position.
-    check_exe.checkExact("name __tls_base");
-    check_exe.checkExact("name __tls_size");
-    check_exe.checkExact("name __tls_align");
-
-    check_exe.checkExact("type data_segment");
     if (optimize_mode == .Debug) {
+        check_exe.checkExact("name __tls_base");
+        check_exe.checkExact("name __tls_size");
+        check_exe.checkExact("name __tls_align");
+
+        check_exe.checkExact("type data_segment");
         check_exe.checkExact("names 1");
         check_exe.checkExact("index 0");
         check_exe.checkExact("name .tdata");
+    } else {
+        check_exe.checkNotPresent("name __tls_base");
+        check_exe.checkNotPresent("name __tls_size");
+        check_exe.checkNotPresent("name __tls_align");
     }
 
     test_step.dependOn(&check_exe.step);

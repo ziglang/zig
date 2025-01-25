@@ -7,7 +7,5 @@ export fn f() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:16: error: comptime call of extern function

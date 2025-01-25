@@ -938,7 +938,7 @@ fn renderArrayType(
 fn renderPtrType(r: *Render, ptr_type: Ast.full.PtrType, space: Space) Error!void {
     const tree = r.tree;
     switch (ptr_type.size) {
-        .One => {
+        .one => {
             // Since ** tokens exist and the same token is shared by two
             // nested pointer types, we check to see if we are the parent
             // in such a relationship. If so, skip rendering anything for
@@ -951,7 +951,7 @@ fn renderPtrType(r: *Render, ptr_type: Ast.full.PtrType, space: Space) Error!voi
             }
             try renderToken(r, ptr_type.ast.main_token, .none); // asterisk
         },
-        .Many => {
+        .many => {
             if (ptr_type.ast.sentinel == 0) {
                 try renderToken(r, ptr_type.ast.main_token, .none); // lbracket
                 try renderToken(r, ptr_type.ast.main_token + 1, .none); // asterisk
@@ -964,13 +964,13 @@ fn renderPtrType(r: *Render, ptr_type: Ast.full.PtrType, space: Space) Error!voi
                 try renderToken(r, tree.lastToken(ptr_type.ast.sentinel) + 1, .none); // rbracket
             }
         },
-        .C => {
+        .c => {
             try renderToken(r, ptr_type.ast.main_token, .none); // lbracket
             try renderToken(r, ptr_type.ast.main_token + 1, .none); // asterisk
             try renderToken(r, ptr_type.ast.main_token + 2, .none); // c
             try renderToken(r, ptr_type.ast.main_token + 3, .none); // rbracket
         },
-        .Slice => {
+        .slice => {
             if (ptr_type.ast.sentinel == 0) {
                 try renderToken(r, ptr_type.ast.main_token, .none); // lbracket
                 try renderToken(r, ptr_type.ast.main_token + 1, .none); // rbracket

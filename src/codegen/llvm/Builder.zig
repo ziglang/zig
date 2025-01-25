@@ -8463,7 +8463,7 @@ pub const Metadata = enum(u32) {
                 field.* = .{
                     .name = name,
                     .type = []const u8,
-                    .default_value = null,
+                    .default_value_ptr = null,
                     .is_comptime = false,
                     .alignment = 0,
                 };
@@ -8474,7 +8474,7 @@ pub const Metadata = enum(u32) {
                 field.* = .{
                     .name = name,
                     .type = std.fmt.Formatter(format),
-                    .default_value = null,
+                    .default_value_ptr = null,
                     .is_comptime = false,
                     .alignment = 0,
                 };
@@ -9829,6 +9829,8 @@ pub fn printUnbuffered(
                             extra.then.toInst(&function).fmt(function_index, self),
                             extra.@"else".toInst(&function).fmt(function_index, self),
                         });
+                        metadata_formatter.need_comma = true;
+                        defer metadata_formatter.need_comma = undefined;
                         switch (extra.weights) {
                             .none => {},
                             .unpredictable => try writer.writeAll("!unpredictable !{}"),
@@ -10110,6 +10112,8 @@ pub fn printUnbuffered(
                             },
                         );
                         try writer.writeAll("  ]");
+                        metadata_formatter.need_comma = true;
+                        defer metadata_formatter.need_comma = undefined;
                         switch (extra.data.weights) {
                             .none => {},
                             .unpredictable => try writer.writeAll("!unpredictable !{}"),

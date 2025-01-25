@@ -74,6 +74,31 @@ test "switch loop on enum" {
     try comptime S.doTheTest();
 }
 
+test "switch loop with error set" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const E = error{ Foo, Bar, Baz };
+
+        fn doTheTest() !void {
+            var start: E = undefined;
+            start = error.Foo;
+            const result: u32 = s: switch (start) {
+                error.Foo => continue :s error.Bar,
+                error.Bar => continue :s error.Baz,
+                error.Baz => 123,
+            };
+            try expect(result == 123);
+        }
+    };
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
 test "switch loop on tagged union" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO

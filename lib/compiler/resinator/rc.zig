@@ -5,7 +5,7 @@ const SourceBytes = @import("literals.zig").SourceBytes;
 
 // https://learn.microsoft.com/en-us/windows/win32/menurc/about-resource-files
 
-pub const Resource = enum {
+pub const ResourceType = enum {
     accelerators,
     bitmap,
     cursor,
@@ -69,7 +69,7 @@ pub const Resource = enum {
         .{ "VXD", .vxd },
     });
 
-    pub fn fromString(bytes: SourceBytes) Resource {
+    pub fn fromString(bytes: SourceBytes) ResourceType {
         const maybe_ordinal = res.NameOrOrdinal.maybeOrdinalFromString(bytes);
         if (maybe_ordinal) |ordinal| {
             if (ordinal.ordinal >= 256) return .user_defined;
@@ -78,8 +78,8 @@ pub const Resource = enum {
         return map.get(bytes.slice) orelse .user_defined;
     }
 
-    // TODO: Some comptime validation that RT <-> Resource conversion is synced?
-    pub fn fromRT(rt: res.RT) Resource {
+    // TODO: Some comptime validation that RT <-> ResourceType conversion is synced?
+    pub fn fromRT(rt: res.RT) ResourceType {
         return switch (rt) {
             .ACCELERATOR => .accelerators,
             .ANICURSOR => .anicursor_num,
@@ -108,7 +108,7 @@ pub const Resource = enum {
         };
     }
 
-    pub fn canUseRawData(resource: Resource) bool {
+    pub fn canUseRawData(resource: ResourceType) bool {
         return switch (resource) {
             .user_defined,
             .html,
@@ -122,7 +122,7 @@ pub const Resource = enum {
         };
     }
 
-    pub fn nameForErrorDisplay(resource: Resource) []const u8 {
+    pub fn nameForErrorDisplay(resource: ResourceType) []const u8 {
         return switch (resource) {
             // zig fmt: off
             .accelerators, .bitmap, .cursor, .dialog, .dialogex, .dlginclude, .dlginit, .font,
