@@ -1635,13 +1635,18 @@ pub fn standardTargetOptionsQueryOnly(b: *Build, args: StandardTargetOptionsArgs
         "cpu",
         "Target CPU features to add or subtract",
     );
+    const ofmt = b.option(
+        []const u8,
+        "ofmt",
+        "Target object format",
+    );
     const dynamic_linker = b.option(
         []const u8,
         "dynamic-linker",
         "Path to interpreter on the target system",
     );
 
-    if (maybe_triple == null and mcpu == null and dynamic_linker == null)
+    if (maybe_triple == null and mcpu == null and ofmt == null and dynamic_linker == null)
         return args.default_target;
 
     const triple = maybe_triple orelse "native";
@@ -1649,6 +1654,7 @@ pub fn standardTargetOptionsQueryOnly(b: *Build, args: StandardTargetOptionsArgs
     const selected_target = parseTargetQuery(.{
         .arch_os_abi = triple,
         .cpu_features = mcpu,
+        .object_format = ofmt,
         .dynamic_linker = dynamic_linker,
     }) catch |err| switch (err) {
         error.ParseFailed => {

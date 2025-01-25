@@ -9,11 +9,13 @@ else if (ofmt_c)
     .strong
 else
     .weak;
+
 /// Determines the symbol's visibility to other objects.
 /// For WebAssembly this allows the symbol to be resolved to other modules, but will not
 /// export it to the host runtime.
 pub const visibility: std.builtin.SymbolVisibility =
     if (builtin.target.isWasm() and linkage != .internal) .hidden else .default;
+
 pub const want_aeabi = switch (builtin.abi) {
     .eabi,
     .eabihf,
@@ -29,7 +31,9 @@ pub const want_aeabi = switch (builtin.abi) {
     },
     else => false,
 };
-pub const want_mingw_arm_abi = builtin.cpu.arch.isArm() and builtin.target.isMinGW();
+
+/// These functions are provided by libc when targeting MSVC, but not MinGW.
+pub const want_windows_arm_abi = builtin.cpu.arch.isArm() and builtin.os.tag == .windows and (builtin.abi.isGnu() or !builtin.link_libc);
 
 pub const want_ppc_abi = builtin.cpu.arch.isPowerPC();
 

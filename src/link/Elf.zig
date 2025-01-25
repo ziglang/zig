@@ -1700,6 +1700,18 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
             try argv.append(try std.fmt.allocPrint(arena, "--sysroot={s}", .{sysroot}));
         }
 
+        if (target_util.llvmMachineAbi(target)) |mabi| {
+            try argv.appendSlice(&.{
+                "-mllvm",
+                try std.fmt.allocPrint(arena, "-target-abi={s}", .{mabi}),
+            });
+        }
+
+        try argv.appendSlice(&.{
+            "-mllvm",
+            try std.fmt.allocPrint(arena, "-float-abi={s}", .{if (target.abi.floatAbi() == .hard) "hard" else "soft"}),
+        });
+
         if (comp.config.lto != .none) {
             switch (comp.root_mod.optimize_mode) {
                 .Debug => {},

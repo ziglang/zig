@@ -175,6 +175,8 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
             return comp.build_crt_file("mingw32", .Lib, .@"mingw-w64 mingw32.lib", prog_node, c_source_files.items, .{
                 .unwind_tables = unwind_tables,
+                // https://github.com/llvm/llvm-project/issues/43698#issuecomment-2542660611
+                .allow_lto = false,
             });
         },
     }
