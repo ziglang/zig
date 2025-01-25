@@ -20,7 +20,7 @@ Hello again, World!
 
 #update=delete file
 #rm_file=string.txt
-#expect_error=ignored
+#expect_error=main.zig:2:27: error: unable to open 'string.txt': FileNotFound
 
 #update=remove reference to file
 #file=main.zig
@@ -38,7 +38,7 @@ const string = @embedFile("string.txt");
 pub fn main() !void {
     try std.io.getStdOut().writeAll(string);
 }
-#expect_error=ignore
+#expect_error=main.zig:2:27: error: unable to open 'string.txt': FileNotFound
 
 #update=recreate file
 #file=string.txt

@@ -340,19 +340,63 @@ const Eval = struct {
     }
 
     fn checkErrorOutcome(eval: *Eval, update: Case.Update, error_bundle: std.zig.ErrorBundle) !void {
-        switch (update.outcome) {
+        const expected_errors = switch (update.outcome) {
             .unknown => return,
-            .compile_errors => |expected_errors| {
-                for (expected_errors) |expected_error| {
-                    _ = expected_error;
-                    @panic("TODO check if the expected error matches the compile errors");
-                }
-            },
+            .compile_errors => |expected_errors| expected_errors,
             .stdout, .exit_code => {
                 const color: std.zig.Color = .auto;
                 error_bundle.renderToStdErr(color.renderOptions());
                 eval.fatal("update '{s}': unexpected compile errors", .{update.name});
             },
+        };
+
+        var expected_idx: usize = 0;
+
+        for (error_bundle.getMessages()) |err_idx| {
+            if (expected_idx == expected_errors.len) {
+                const color: std.zig.Color = .auto;
+                error_bundle.renderToStdErr(color.renderOptions());
+                eval.fatal("update '{s}': more errors than expected", .{update.name});
+            }
+            eval.checkOneError(update, error_bundle, expected_errors[expected_idx], false, err_idx);
+            expected_idx += 1;
+
+            for (error_bundle.getNotes(err_idx)) |note_idx| {
+                if (expected_idx == expected_errors.len) {
+                    const color: std.zig.Color = .auto;
+                    error_bundle.renderToStdErr(color.renderOptions());
+                    eval.fatal("update '{s}': more error notes than expected", .{update.name});
+                }
+                eval.checkOneError(update, error_bundle, expected_errors[expected_idx], true, note_idx);
+                expected_idx += 1;
+            }
+        }
+    }
+
+    fn checkOneError(
+        eval: *Eval,
+        update: Case.Update,
+        eb: std.zig.ErrorBundle,
+        expected: Case.ExpectedError,
+        is_note: bool,
+        err_idx: std.zig.ErrorBundle.MessageIndex,
+    ) void {
+        const err = eb.getErrorMessage(err_idx);
+        if (err.src_loc == .none) @panic("TODO error message with no source location");
+        if (err.count != 1) @panic("TODO error message with count>1");
+        const msg = eb.nullTerminatedString(err.msg);
+        const src = eb.getSourceLocation(err.src_loc);
+        const filename = eb.nullTerminatedString(src.src_path);
+
+        if (expected.is_note != is_note or
+            !std.mem.eql(u8, expected.filename, filename) or
+            expected.line != src.line + 1 or
+            expected.column != src.column + 1 or
+            !std.mem.eql(u8, expected.msg, msg))
+        {
+            const color: std.zig.Color = .auto;
+            eb.renderToStdErr(color.renderOptions());
+            eval.fatal("update '{s}': compile error did not match expected error", .{update.name});
         }
     }
 
@@ -595,11 +639,11 @@ const Case = struct {
     };
 
     const ExpectedError = struct {
-        file_name: ?[]const u8 = null,
-        line: ?u32 = null,
-        column: ?u32 = null,
-        msg_exact: ?[]const u8 = null,
-        msg_substring: ?[]const u8 = null,
+        is_note: bool,
+        filename: []const u8,
+        line: u32,
+        column: u32,
+        msg: []const u8,
     };
 
     fn parse(arena: Allocator, bytes: []const u8) !Case {
@@ -665,13 +709,11 @@ const Case = struct {
                     var src: std.ArrayListUnmanaged(u8) = .empty;
 
                     while (true) {
-                        const old = it;
-                        const next_line_raw = it.next() orelse fatal("line {d}: unexpected EOF", .{line_n});
+                        const next_line_raw = it.peek() orelse fatal("line {d}: unexpected EOF", .{line_n});
                         const next_line = std.mem.trimRight(u8, next_line_raw, "\r");
-                        if (std.mem.startsWith(u8, next_line, "#")) {
-                            it = old;
-                            break;
-                        }
+                        if (std.mem.startsWith(u8, next_line, "#")) break;
+
+                        _ = it.next();
                         line_n += 1;
 
                         try src.ensureUnusedCapacity(arena, next_line.len + 1);
@@ -699,7 +741,24 @@ const Case = struct {
                     if (updates.items.len == 0) fatal("line {d}: expect directive before update", .{line_n});
                     const last_update = &updates.items[updates.items.len - 1];
                     if (last_update.outcome != .unknown) fatal("line {d}: conflicting expect directive", .{line_n});
-                    last_update.outcome = .{ .compile_errors = &.{} };
+
+                    var errors: std.ArrayListUnmanaged(ExpectedError) = .empty;
+                    try errors.append(arena, parseExpectedError(val, line_n));
+                    while (true) {
+                        const next_line = it.peek() orelse break;
+                        if (!std.mem.startsWith(u8, next_line, "#")) break;
+                        var new_line_it = std.mem.splitScalar(u8, next_line, '=');
+                        const new_key = new_line_it.first()[1..];
+                        const new_val = std.mem.trimRight(u8, new_line_it.rest(), "\r");
+                        if (new_val.len == 0) break;
+                        if (!std.mem.eql(u8, new_key, "expect_error")) break;
+
+                        _ = it.next();
+                        line_n += 1;
+                        try errors.append(arena, parseExpectedError(new_val, line_n));
+                    }
+
+                    last_update.outcome = .{ .compile_errors = errors.items };
                 } else {
                     fatal("line {d}: unrecognized key '{s}'", .{ line_n, key });
                 }
@@ -748,4 +807,44 @@ fn waitChild(child: *std.process.Child, eval: *Eval) void {
         .Exited => |code| if (code != 0) eval.fatal("compiler failed with code {d}", .{code}),
         .Signal, .Stopped, .Unknown => eval.fatal("compiler terminated unexpectedly", .{}),
     }
+}
+
+fn parseExpectedError(str: []const u8, l: usize) Case.ExpectedError {
+    // #expect_error=foo.zig:1:2: error: the error message
+    // #expect_error=foo.zig:1:2: note: and a note
+
+    const fatal = std.process.fatal;
+
+    var it = std.mem.splitScalar(u8, str, ':');
+    const filename = it.first();
+    const line_str = it.next() orelse fatal("line {d}: incomplete error specification", .{l});
+    const column_str = it.next() orelse fatal("line {d}: incomplete error specification", .{l});
+    const error_or_note_str = std.mem.trim(
+        u8,
+        it.next() orelse fatal("line {d}: incomplete error specification", .{l}),
+        " ",
+    );
+    const message = std.mem.trim(u8, it.rest(), " ");
+    if (filename.len == 0) fatal("line {d}: empty filename", .{l});
+    if (message.len == 0) fatal("line {d}: empty error message", .{l});
+    const is_note = if (std.mem.eql(u8, error_or_note_str, "error"))
+        false
+    else if (std.mem.eql(u8, error_or_note_str, "note"))
+        true
+    else
+        fatal("line {d}: expeted 'error' or 'note', found '{s}'", .{ l, error_or_note_str });
+
+    const line = std.fmt.parseInt(u32, line_str, 10) catch
+        fatal("line {d}: invalid line number '{s}'", .{ l, line_str });
+
+    const column = std.fmt.parseInt(u32, column_str, 10) catch
+        fatal("line {d}: invalid column number '{s}'", .{ l, column_str });
+
+    return .{
+        .is_note = is_note,
+        .filename = filename,
+        .line = line,
+        .column = column,
+        .msg = message,
+    };
 }

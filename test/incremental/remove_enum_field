@@ -23,4 +23,5 @@ pub fn main() !void {
     try std.io.getStdOut().writer().print("{}\n", .{@intFromEnum(MyEnum.foo)});
 }
 const std = @import("std");
-#expect_error=ignored
+#expect_error=main.zig:6:73: error: enum 'main.MyEnum' has no member named 'foo'
+#expect_error=main.zig:1:16: note: enum declared here
