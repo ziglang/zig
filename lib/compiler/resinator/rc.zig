@@ -47,7 +47,7 @@ pub const ResourceType = enum {
     fontdir_num,
     manifest_num,
 
-    const map = std.StaticStringMapIgnoreCase(Resource).initComptime(.{
+    const map = std.StaticStringMapIgnoreCase(ResourceType).initComptime(.{
         .{ "ACCELERATORS", .accelerators },
         .{ "BITMAP", .bitmap },
         .{ "CURSOR", .cursor },
