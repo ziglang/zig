@@ -177,6 +177,172 @@ pub const Condition = enum(u5) {
     }
 };
 
+/// The immediate operand of vcvtps2ph.
+pub const RoundMode = packed struct(u5) {
+    mode: enum(u4) {
+        /// Round to nearest (even)
+        nearest = 0b0_00,
+        /// Round down (toward -∞)
+        down = 0b0_01,
+        /// Round up (toward +∞)
+        up = 0b0_10,
+        /// Round toward zero (truncate)
+        zero = 0b0_11,
+        /// Use current rounding mode of MXCSR.RC
+        mxcsr = 0b1_00,
+    } = .mxcsr,
+    precision: enum(u1) {
+        normal = 0b0,
+        inexact = 0b1,
+    } = .normal,
+
+    pub fn imm(mode: RoundMode) Immediate {
+        return .u(@as(@typeInfo(RoundMode).@"struct".backing_integer.?, @bitCast(mode)));
+    }
+};
+
+/// The immediate operand of cmppd, cmpps, cmpsd, and cmpss.
+pub const SseFloatPredicate = enum(u3) {
+    /// Equal (ordered, non-signaling)
+    eq,
+    /// Less-than (ordered, signaling)
+    lt,
+    /// Less-than-or-equal (ordered, signaling)
+    le,
+    /// Unordered (non-signaling)
+    unord,
+    /// Not-equal (unordered, non-signaling)
+    neq,
+    /// Not-less-than (unordered, signaling)
+    nlt,
+    /// Not-less-than-or-equal (unordered, signaling)
+    nle,
+    /// Ordered (non-signaling)
+    ord,
+
+    /// Equal (ordered, non-signaling)
+    pub const eq_oq: SseFloatPredicate = .eq;
+    /// Less-than (ordered, signaling)
+    pub const lt_os: SseFloatPredicate = .lt;
+    /// Less-than-or-equal (ordered, signaling)
+    pub const le_os: SseFloatPredicate = .le;
+    /// Unordered (non-signaling)
+    pub const unord_q: SseFloatPredicate = .unord;
+    /// Not-equal (unordered, non-signaling)
+    pub const neq_uq: SseFloatPredicate = .neq;
+    /// Not-less-than (unordered, signaling)
+    pub const nlt_us: SseFloatPredicate = .nlt;
+    /// Not-less-than-or-equal (unordered, signaling)
+    pub const nle_us: SseFloatPredicate = .nle;
+    /// Ordered (non-signaling)
+    pub const ord_q: SseFloatPredicate = .ord;
+
+    pub fn imm(pred: SseFloatPredicate) Immediate {
+        return .u(@intFromEnum(pred));
+    }
+};
+
+/// The immediate operand of vcmppd, vcmpps, vcmpsd, and vcmpss.
+pub const VexFloatPredicate = enum(u5) {
+    /// Equal (ordered, non-signaling)
+    eq_oq,
+    /// Less-than (ordered, signaling)
+    lt_os,
+    /// Less-than-or-equal (ordered, signaling)
+    le_os,
+    /// Unordered (non-signaling)
+    unord_q,
+    /// Not-equal (unordered, non-signaling)
+    neq_uq,
+    /// Not-less-than (unordered, signaling)
+    nlt_us,
+    /// Not-less-than-or-equal (unordered, signaling)
+    nle_us,
+    /// Ordered (non-signaling)
+    ord_q,
+    /// Equal (unordered, non-signaling)
+    eq_uq,
+    /// Not-greater-than-or-equal (unordered, signaling)
+    nge_us,
+    /// Not-greater-than (unordered, signaling)
+    ngt_us,
+    /// False (ordered, non-signaling)
+    false_oq,
+    /// Not-equal (ordered, non-signaling)
+    neq_oq,
+    /// Greater-than-or-equal (ordered, signaling)
+    ge_os,
+    /// Greater-than (ordered, signaling)
+    gt_os,
+    /// True (unordered, non-signaling)
+    true_uq,
+    /// Equal (unordered, non-signaling)
+    eq_os,
+    /// Less-than (ordered, non-signaling)
+    lt_oq,
+    /// Less-than-or-equal (ordered, non-signaling)
+    le_oq,
+    /// Unordered (signaling)
+    unord_s,
+    /// Not-equal (unordered, signaling)
+    neq_us,
+    /// Not-less-than (unordered, non-signaling)
+    nlt_uq,
+    /// Not-less-than-or-equal (unordered, non-signaling)
+    nle_uq,
+    /// Ordered (signaling)
+    ord_s,
+    /// Equal (unordered, signaling)
+    eq_us,
+    /// Not-greater-than-or-equal (unordered, non-signaling)
+    nge_uq,
+    /// Not-greater-than (unordered, non-signaling)
+    ngt_uq,
+    /// False (ordered, signaling)
+    false_os,
+    /// Not-equal (ordered, signaling)
+    neq_os,
+    /// Greater-than-or-equal (ordered, non-signaling)
+    ge_oq,
+    /// Greater-than (ordered, non-signaling)
+    gt_oq,
+    /// True (unordered, signaling)
+    true_us,
+
+    /// Equal (ordered, non-signaling)
+    pub const eq: VexFloatPredicate = .eq_oq;
+    /// Less-than (ordered, signaling)
+    pub const lt: VexFloatPredicate = .lt_os;
+    /// Less-than-or-equal (ordered, signaling)
+    pub const le: VexFloatPredicate = .le_os;
+    /// Unordered (non-signaling)
+    pub const unord: VexFloatPredicate = .unord_q;
+    /// Not-equal (unordered, non-signaling)
+    pub const neq: VexFloatPredicate = .neq_uq;
+    /// Not-less-than (unordered, signaling)
+    pub const nlt: VexFloatPredicate = .nlt_us;
+    /// Not-less-than-or-equal (unordered, signaling)
+    pub const nle: VexFloatPredicate = .nle_us;
+    /// Ordered (non-signaling)
+    pub const ord: VexFloatPredicate = .ord_q;
+    /// Not-greater-than-or-equal (unordered, signaling)
+    pub const nge: VexFloatPredicate = .nge_us;
+    /// Not-greater-than (unordered, signaling)
+    pub const ngt: VexFloatPredicate = .ngt_us;
+    /// False (ordered, non-signaling)
+    pub const @"false": VexFloatPredicate = .false_oq;
+    /// Greater-than-or-equal (ordered, signaling)
+    pub const ge: VexFloatPredicate = .ge_os;
+    /// Greater-than (ordered, signaling)
+    pub const gt: VexFloatPredicate = .gt_os;
+    /// True (unordered, non-signaling)
+    pub const @"true": VexFloatPredicate = .true_uq;
+
+    pub fn imm(pred: VexFloatPredicate) Immediate {
+        return .u(@intFromEnum(pred));
+    }
+};
+
 pub const Register = enum(u8) {
     // zig fmt: off
     rax, rcx, rdx, rbx, rsp, rbp, rsi, rdi,
