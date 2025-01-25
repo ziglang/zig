@@ -40,9 +40,7 @@ fn memmoveSmall(opt_dest: ?[*]u8, opt_src: ?[*]const u8, len: usize) callconv(.C
 
 fn memmoveFast(dest: ?[*]u8, src: ?[*]u8, len: usize) callconv(.C) ?[*]u8 {
     @setRuntimeSafety(builtin.is_test);
-    const unroll_count = 1;
-    comptime assert(std.math.isPowerOfTwo(unroll_count));
-    const small_limit = @max(2 * @sizeOf(Element), unroll_count * @sizeOf(Element));
+    const small_limit = @max(2 * @sizeOf(Element), @sizeOf(Element));
 
     if (copySmallLength(small_limit, dest.?, src.?, len)) return dest;
 
@@ -50,9 +48,9 @@ fn memmoveFast(dest: ?[*]u8, src: ?[*]u8, len: usize) callconv(.C) ?[*]u8 {
     const src_address = @intFromPtr(src);
 
     if (src_address < dest_address and src_address + len > dest_address) {
-        copyBackwards(unroll_count, dest.?, src.?, len);
+        copyBackwards(dest.?, src.?, len);
     } else {
-        copyForwards(unroll_count, dest.?, src.?, len);
+        copyForwards(dest.?, src.?, len);
     }
 
     return dest;
@@ -145,14 +143,12 @@ inline fn copyRange4(
 }
 
 inline fn copyForwards(
-    comptime unroll_count: comptime_int,
     dest: [*]u8,
     src: [*]const u8,
     len: usize,
 ) void {
     @setRuntimeSafety(builtin.is_test);
     assert(len >= 2 * @sizeOf(Element));
-    assert(len >= unroll_count * @sizeOf(Element));
 
     const head = src[0..@sizeOf(Element)].*;
     const tail = src[len - @sizeOf(Element) ..][0..@sizeOf(Element)].*;
@@ -161,7 +157,7 @@ inline fn copyForwards(
     const d = dest + alignment_offset;
     const s = src + alignment_offset;
 
-    copyBlocksAlignedSource(@ptrCast(d), @alignCast(@ptrCast(s)), n, unroll_count);
+    copyBlocksAlignedSource(@ptrCast(d), @alignCast(@ptrCast(s)), n);
 
     // copy last `copy_size` bytes unconditionally, since block copy
     // methods only copy a multiple of `copy_size` bytes.
@@ -173,53 +169,31 @@ inline fn copyBlocksAlignedSource(
     dest: [*]align(1) Element,
     src: [*]const Element,
     max_bytes: usize,
-    comptime unroll_count: comptime_int,
 ) void {
-    copyBlocks(dest, src, max_bytes, unroll_count);
+    copyBlocks(dest, src, max_bytes);
 }
 
 /// Copies the largest multiple of `@sizeOf(T)` bytes from `src` to `dest`,
 /// that is less than `max_bytes` where `T` is the child type of `src` and
-/// `dest`; `max_bytes` must be at least `@sizeOf(T)`. The primary copy loop
-/// will be unrolled to perform `unroll_count` copies per iteration.
+/// `dest`; `max_bytes` must be at least `@sizeOf(T)`.
 inline fn copyBlocks(
     dest: anytype,
     src: anytype,
     max_bytes: usize,
-    comptime unroll_count: comptime_int,
 ) void {
     @setRuntimeSafety(builtin.is_test);
-    comptime assert(unroll_count > 0);
 
     const T = @typeInfo(@TypeOf(dest)).pointer.child;
     comptime assert(T == @typeInfo(@TypeOf(src)).pointer.child);
 
-    const loop_count = max_bytes / (@sizeOf(T) * unroll_count);
+    const loop_count = max_bytes / @sizeOf(T);
 
-    // save tail since it can overlap with `dest `in main copy loop
-    const tail_start = (max_bytes / @sizeOf(T)) - (unroll_count - 1);
-    const st = src[tail_start..][0 .. unroll_count - 1];
-    var tail_data: [unroll_count - 1]Element = undefined;
-    inline for (&tail_data, st) |*d, s| {
-        d.* = s;
-    }
-
-    for (0..loop_count) |i| {
-        const du = dest[i * unroll_count ..][0..unroll_count];
-        const su = src[i * unroll_count ..][0..unroll_count];
-        inline for (du, su) |*d, s| {
-            d.* = s;
-        }
-    }
-
-    const dt = dest[tail_start..][0 .. unroll_count - 1];
-    inline for (dt, tail_data) |*d, s| {
+    for (dest[0..loop_count], src[0..loop_count]) |*d, s| {
         d.* = s;
     }
 }
 
 inline fn copyBackwards(
-    comptime unroll_count: comptime_int,
     dest: [*]u8,
     src: [*]const u8,
     len: usize,
@@ -227,30 +201,18 @@ inline fn copyBackwards(
     const end_bytes = src[len - @sizeOf(Element) ..][0..@sizeOf(Element)].*;
     const start_bytes = src[0..@sizeOf(Element)].*;
 
-    const tail_dest: [*]Element = @ptrFromInt(std.mem.alignForward(usize, @intFromPtr(dest), @alignOf(Element)));
-    const tail_src: [*]align(1) const Element = @ptrCast(src + (@intFromPtr(tail_dest) - @intFromPtr(dest)));
-    const tail_bytes: [unroll_count - 1]Element = tail_src[0 .. unroll_count - 1].*;
-
     const d_addr: usize = std.mem.alignBackward(usize, @intFromPtr(dest) + len, @alignOf(Element));
     const d: [*]Element = @ptrFromInt(d_addr);
     const n = d_addr - @intFromPtr(dest);
     const s: [*]align(1) const Element = @ptrCast(src + n);
 
-    const loop_count = n / (unroll_count * @sizeOf(Element));
+    const loop_count = n / @sizeOf(Element);
     var i: usize = 1;
     while (i < loop_count + 1) : (i += 1) {
-        const du = d - (i * unroll_count);
-        const su = s - (i * unroll_count);
-        inline for (0..unroll_count) |j| {
-            du[unroll_count - 1 - j] = su[unroll_count - 1 - j];
-        }
+        (d - i)[0] = (s - i)[0];
     }
 
-    inline for (tail_dest[0 .. unroll_count - 1], tail_bytes) |*dt, st| {
-        dt.* = st;
-    }
     dest[0..@sizeOf(Element)].* = start_bytes;
-
     dest[len - @sizeOf(Element) ..][0..@sizeOf(Element)].* = end_bytes;
 }
 
