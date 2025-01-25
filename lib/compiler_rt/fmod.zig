@@ -141,15 +141,15 @@ pub fn fmodq(a: f128, b: f128) callconv(.C) f128 {
     const aPtr_u16: [*]u16 = @ptrCast(&amod);
     const bPtr_u16: [*]u16 = @ptrCast(&bmod);
 
-    const exp_and_sign_index = comptime switch (builtin.target.cpu.arch.endian()) {
+    const exp_and_sign_index = switch (builtin.target.cpu.arch.endian()) {
         .little => 7,
         .big => 0,
     };
-    const low_index = comptime switch (builtin.target.cpu.arch.endian()) {
+    const low_index = switch (builtin.target.cpu.arch.endian()) {
         .little => 0,
         .big => 1,
     };
-    const high_index = comptime switch (builtin.target.cpu.arch.endian()) {
+    const high_index = switch (builtin.target.cpu.arch.endian()) {
         .little => 1,
         .big => 0,
     };

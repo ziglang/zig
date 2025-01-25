@@ -292,7 +292,7 @@ pub fn dumpHexFallible(bytes: []const u8) !void {
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     nosuspend {
-        if (builtin.target.isWasm()) {
+        if (builtin.target.cpu.arch.isWasm()) {
             if (native_os == .wasi) {
                 const stderr = io.getStdErr().writer();
                 stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
@@ -380,7 +380,7 @@ pub inline fn getContext(context: *ThreadContext) bool {
 /// TODO multithreaded awareness
 pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
     nosuspend {
-        if (builtin.target.isWasm()) {
+        if (builtin.target.cpu.arch.isWasm()) {
             if (native_os == .wasi) {
                 const stderr = io.getStdErr().writer();
                 stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
@@ -478,7 +478,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
 /// TODO multithreaded awareness
 pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
     nosuspend {
-        if (builtin.target.isWasm()) {
+        if (builtin.target.cpu.arch.isWasm()) {
             if (native_os == .wasi) {
                 const stderr = io.getStdErr().writer();
                 stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
@@ -759,7 +759,7 @@ pub const StackIterator = struct {
     pub fn initWithContext(first_address: ?usize, debug_info: *SelfInfo, context: *posix.ucontext_t) !StackIterator {
         // The implementation of DWARF unwinding on aarch64-macos is not complete. However, Apple mandates that
         // the frame pointer register is always used, so on this platform we can safely use the FP-based unwinder.
-        if (builtin.target.isDarwin() and native_arch == .aarch64)
+        if (builtin.target.os.tag.isDarwin() and native_arch == .aarch64)
             return init(first_address, @truncate(context.mcontext.ss.fp));
 
         if (SelfInfo.supports_unwinding) {

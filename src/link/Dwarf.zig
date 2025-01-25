@@ -3540,11 +3540,8 @@ fn updateLazyType(
                     .aarch64_vfabi => .LLVM_AAPCS,
                     .aarch64_vfabi_sve => .LLVM_AAPCS,
 
-                    .arm_apcs => .normal,
                     .arm_aapcs => .LLVM_AAPCS,
-                    .arm_aapcs_vfp,
-                    .arm_aapcs16_vfp,
-                    => .LLVM_AAPCS_VFP,
+                    .arm_aapcs_vfp => .LLVM_AAPCS_VFP,
 
                     .riscv64_lp64_v,
                     .riscv32_ilp32_v,
@@ -3554,6 +3551,7 @@ fn updateLazyType(
 
                     .amdgcn_kernel => .LLVM_OpenCLKernel,
                     .nvptx_kernel,
+                    .nvptx64_kernel,
                     .spirv_kernel,
                     => .nocall,
 

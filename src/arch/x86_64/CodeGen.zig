@@ -38119,7 +38119,7 @@ fn floatCompilerRtAbiName(float_bits: u32) u8 {
 fn floatCompilerRtAbiType(self: *CodeGen, ty: Type, other_ty: Type) Type {
     if (ty.toIntern() == .f16_type and
         (other_ty.toIntern() == .f32_type or other_ty.toIntern() == .f64_type) and
-        self.target.isDarwin()) return .u16;
+        self.target.os.tag.isDarwin()) return .u16;
     return ty;
 }
 

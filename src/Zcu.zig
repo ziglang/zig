@@ -3365,7 +3365,6 @@ pub fn atomicPtrAlignment(
     const max_atomic_bits: u16 = switch (target.cpu.arch) {
         .avr,
         .msp430,
-        .spu_2,
         => 16,
 
         .arc,
@@ -3391,8 +3390,7 @@ pub fn atomicPtrAlignment(
         .spirv32,
         .loongarch32,
         .xtensa,
-        .propeller1,
-        .propeller2,
+        .propeller,
         => 32,
 
         .amdgcn,
@@ -3983,8 +3981,6 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
 
                 .arm_aapcs_vfp,
                 => |opts| opts.incoming_stack_alignment == null and target.os.tag != .watchos,
-                .arm_aapcs16_vfp,
-                => |opts| opts.incoming_stack_alignment == null and target.os.tag == .watchos,
 
                 .arm_interrupt,
                 => |opts| opts.incoming_stack_alignment == null,
@@ -4012,7 +4008,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
             };
         },
         .stage2_wasm => switch (cc) {
-            .wasm_watc => |opts| opts.incoming_stack_alignment == null,
+            .wasm32_mvp, .wasm64_mvp => |opts| opts.incoming_stack_alignment == null,
             else => false,
         },
         .stage2_arm => switch (cc) {
