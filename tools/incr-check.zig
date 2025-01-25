@@ -660,21 +660,28 @@ const Case = struct {
                     if (root_source_file == null)
                         root_source_file = val;
 
-                    const start_index = it.index.?;
-                    const src = while (true) : (line_n += 1) {
+                    // Because Windows is so excellent, we need to convert CRLF to LF, so
+                    // can't just slice into the input here. How delightful!
+                    var src: std.ArrayListUnmanaged(u8) = .empty;
+
+                    while (true) {
                         const old = it;
-                        const next_line = it.next() orelse fatal("line {d}: unexpected EOF", .{line_n});
+                        const next_line_raw = it.next() orelse fatal("line {d}: unexpected EOF", .{line_n});
+                        const next_line = std.mem.trimRight(u8, next_line_raw, "\r");
                         if (std.mem.startsWith(u8, next_line, "#")) {
-                            const end_index = old.index.?;
-                            const src = bytes[start_index..end_index];
                             it = old;
-                            break src;
+                            break;
                         }
-                    };
+                        line_n += 1;
+
+                        try src.ensureUnusedCapacity(arena, next_line.len + 1);
+                        src.appendSliceAssumeCapacity(next_line);
+                        src.appendAssumeCapacity('\n');
+                    }
 
                     try changes.append(arena, .{
                         .name = val,
-                        .bytes = src,
+                        .bytes = src.items,
                     });
                 } else if (std.mem.eql(u8, key, "rm_file")) {
                     if (updates.items.len == 0) fatal("line {d}: rm_file directive before update", .{line_n});
