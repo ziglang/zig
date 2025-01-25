@@ -24,42 +24,42 @@ pub fn StaticArrayMap(comptime T: type, comptime V: type) type {
     return StaticArrayMapWithEql(V, T, defaultEql);
 }
 
-pub fn defaultEql(comptime len: usize, comptime expected: anytype, actual: anytype) bool {
-    comptime assert(std.meta.hasUniqueRepresentation(@TypeOf(expected, actual)));
-    const T = @typeInfo(@TypeOf(expected)).array.child;
-    const child_bytes = std.mem.byte_size_in_bits * @sizeOf(T);
-    const Compare = std.meta.Int(.unsigned, len * child_bytes);
+pub fn defaultEql(comptime expected: anytype, actual: anytype) bool {
+    const Array = @TypeOf(expected, actual);
+    const T = @typeInfo(Array).array.child;
+    const child_bits = @sizeOf(T) * std.mem.byte_size_in_bits;
+
+    // Directly comparing sections of memory as integer types
+    // does not work for padded array fields, nor does it work for arrays
+    // which exceed 65535 bits (there are no integer types that large).
+    const unique = std.meta.hasUniqueRepresentation(Array);
+    const too_many_bits = child_bits > 65535;
+    if (comptime !unique or too_many_bits) {
+        var match: bool = true;
+        for (expected, actual) |a, b| {
+            match = match and a == b;
+        }
+        return match;
+    }
+
+    const Compare = std.meta.Int(.unsigned, @bitSizeOf(Array));
     const a: Compare = @bitCast(expected);
     const b: Compare = @bitCast(actual);
     return a == b;
 }
 
-fn ignoreCaseEql(comptime len: usize, comptime expected: [len]u8, actual: [len]u8) bool {
-    const lower_expected = comptime toLowerSimd(len, expected);
-
-    // TODO: x86_64 self hosted backend hasn't implemented genBinOp for cmp_gte
-    const lower_actual = blk: {
-        if (@import("builtin").zig_backend == .stage2_x86_64) {
-            break :blk toLowerSimple(len, actual);
-        } else {
-            break :blk toLowerSimd(len, actual);
-        }
-    };
-
-    return defaultEql(len, lower_expected, lower_actual);
+fn ignoreCaseEql(comptime expected: anytype, actual: anytype) bool {
+    const lower_expected = comptime toLowerSimd(expected);
+    const lower_actual = toLowerSimd(actual);
+    return defaultEql(lower_expected, lower_actual);
 }
 
-fn toLowerSimple(comptime len: usize, input: [len]u8) [len]u8 {
-    var output: [len]u8 = undefined;
-    for (input, &output) |in_byte, *out_byte| {
-        out_byte.* = std.ascii.toLower(in_byte);
-    }
-    return output;
-}
+fn toLowerSimd(input: anytype) [@typeInfo(@TypeOf(input)).array.len]u8 {
+    const array_info = @typeInfo(@TypeOf(input)).array;
+    comptime assert(array_info.child == u8);
 
-fn toLowerSimd(comptime len: usize, input: [len]u8) [len]u8 {
-    const SVec = @Vector(len, u8);
-    const BVec = @Vector(len, bool);
+    const SVec = @Vector(array_info.len, u8);
+    const BVec = @Vector(array_info.len, bool);
 
     const at_min: BVec = input >= @as(SVec, @splat('A'));
     const at_max: BVec = input <= @as(SVec, @splat('Z'));
@@ -78,7 +78,7 @@ pub fn StaticArrayMapWithEql(
     /// The type of the element in the array, eg. []const T - would be u8 for a string
     comptime T: type,
     /// The equal function that is used to compare the keys
-    comptime eql: fn (comptime usize, comptime anytype, anytype) bool,
+    comptime eql: fn (comptime anytype, anytype) bool,
 ) type {
     return struct {
         const Self = @This();
@@ -156,7 +156,7 @@ pub fn StaticArrayMapWithEql(
                 const len = kvs_by_len.length;
                 if (key.len == len) {
                     inline for (kvs_by_len.kvs) |kv| {
-                        if (eql(len, kv.key[0..len].*, key[0..len].*)) {
+                        if (eql(kv.key[0..len].*, key[0..len].*)) {
                             return kv.value;
                         }
                     }
@@ -451,4 +451,17 @@ test "static array map" {
 
     try testing.expectEqual(false, map.has(&[_]u16{5}));
     try testing.expectEqual(false, map.has(&[_]u16{ 0, 0 }));
+}
+
+test "array elements that are padded" {
+    const map = StaticArrayMap(u7, u4).initComptime(&.{
+        .{ &.{ 0, 1, 2, 3, 4, 5 }, 0 },
+        .{ &.{ 0, 1, 127, 3, 4, 5 }, 1 },
+        .{ &.{ 0, 1, 2, 126, 4, 5 }, 2 },
+    });
+
+    try testing.expectEqual(null, map.get(&.{0}));
+    try testing.expectEqual(0, map.get(&.{ 0, 1, 2, 3, 4, 5 }));
+    try testing.expectEqual(1, map.get(&.{ 0, 1, 127, 3, 4, 5 }));
+    try testing.expectEqual(2, map.get(&.{ 0, 1, 2, 126, 4, 5 }));
 }
