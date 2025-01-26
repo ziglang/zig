@@ -1759,6 +1759,14 @@ pub fn sigaddset(set: *sigset_t, sig: u6) void {
     (set.*)[@as(usize, @intCast(s)) / usize_bits] |= val;
 }
 
+pub fn sigdelset(set: *sigset_t, sig: u6) void {
+    const s = sig - 1;
+    // shift in musl: s&8*sizeof *set->__bits-1
+    const shift = @as(u5, @intCast(s & (usize_bits - 1)));
+    const val = @as(u32, @intCast(1)) << shift;
+    (set.*)[@as(usize, @intCast(s)) / usize_bits] ^= val;
+}
+
 pub fn sigismember(set: *const sigset_t, sig: u6) bool {
     const s = sig - 1;
     return ((set.*)[@as(usize, @intCast(s)) / usize_bits] & (@as(usize, @intCast(1)) << @intCast(s & (usize_bits - 1)))) != 0;
