@@ -4290,7 +4290,9 @@ pub const GetSockOptError = error{
 pub fn getsockopt(fd: socket_t, level: i32, optname: u32, opt: []u8) GetSockOptError!void {
     var len: socklen_t = undefined;
     switch (errno(system.getsockopt(fd, level, optname, opt.ptr, &len))) {
-        .SUCCESS => { std.debug.assert(len == opt.len); },
+        .SUCCESS => {
+            std.debug.assert(len == opt.len);
+        },
         .BADF => unreachable,
         .NOTSOCK => unreachable,
         .INVAL => unreachable,
