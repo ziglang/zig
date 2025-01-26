@@ -788,7 +788,7 @@
       <p>
         A destructuring expression may only appear within a block (i.e. not at container scope).
         The left hand side of the assignment must consist of a comma separated list,
-        each element of which may be either an {#link|result location|Result Location Semantics#} or a variable declaration:
+        each element of which may be either an lvalue (for instance, an existing `var`) or a variable declaration:
       </p>
       {#code|destructuring_mixed.zig#}
 
@@ -2343,12 +2343,12 @@ or
         Tuples can be {#link|destructured|Destructuring#}.
       </p>
       <p>
-        Destructuring is helpful for returning multiple values from a block:
+        Tuple destructuring is helpful for returning multiple values from a block:
       </p>
       {#code|destructuring_block.zig#}
 
       <p>
-        Destructuring is helpful for dealing with functions and built-ins that return multiple values
+        Tuple destructuring is helpful for dealing with functions and built-ins that return multiple values
         as a tuple:
       </p>
       {#code|destructuring_return_value.zig#}
