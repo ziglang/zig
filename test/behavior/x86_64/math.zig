@@ -3781,6 +3781,396 @@ fn binary(comptime op: anytype, comptime opts: struct { strict: bool = false }) 
                 0xf1e3bbe031d59351770a7a501b6e969b2c00d144f17648db3f944b69dfeb7be72e5ff933a061eba4eaa422f8ca09e5a97d0b0dd740fd4076eba8c72d7a278523f399202dc2d043c4e0eb58a2bcd4066e2146e321810b1ee4d3afdddb4f026bcc7905ce17e033a7727b4e08f33b53c63d8c9f763fc6c31d0523eb38c30d5e40bc,
             });
         }
+        fn testFloatVectorTypes() !void {
+            @setEvalBranchQuota(21_700);
+
+            try testArgs(@Vector(1, f16), .{
+                -tmin(f16),
+            }, .{
+                fmax(f16),
+            });
+            try testArgs(@Vector(2, f16), .{
+                0.1, 1.0,
+            }, .{
+                -nan(f16), -fmin(f16),
+            });
+            try testArgs(@Vector(4, f16), .{
+                0.1, -fmax(f16), 0.0, 0.1,
+            }, .{
+                -fmin(f16), -10.0, 1.0, -tmin(f16),
+            });
+            try testArgs(@Vector(8, f16), .{
+                -fmax(f16), -fmin(f16), -nan(f16), -0.0, tmin(f16), -0.0, 0.0, 0.1,
+            }, .{
+                -1.0, tmin(f16), nan(f16), nan(f16), -fmax(f16), -10.0, -nan(f16), 10.0,
+            });
+            try testArgs(@Vector(16, f16), .{
+                0.1, fmax(f16), -10.0, fmax(f16), -10.0, 0.1, -tmin(f16), -inf(f16), -tmin(f16), -1.0, -fmin(f16), tmin(f16), 10.0, -fmax(f16), 0.0, -fmin(f16),
+            }, .{
+                inf(f16), -10.0, -fmax(f16), fmax(f16), -tmin(f16), 0.0, -1.0, -1.0, 0.1, -nan(f16), -tmin(f16), 1.0, 0.1, fmax(f16), -0.0, inf(f16),
+            });
+            try testArgs(@Vector(32, f16), .{
+                -inf(f16), tmin(f16), fmin(f16), -nan(f16),  nan(f16),  0.1,      0.0,        10.0, -tmin(f16), inf(f16), 1.0,       -10.0, fmin(f16),  -0.0, 1.0,      -fmax(f16),
+                10.0,      -0.0,      -10.0,     -tmin(f16), fmax(f16), nan(f16), -fmin(f16), -1.0, 0.0,        -10.0,    -nan(f16), 1.0,   -tmin(f16), -0.0, nan(f16), 10.0,
+            }, .{
+                0.0,      10.0, -nan(f16), -0.0, tmin(f16),  fmax(f16), nan(f16),  tmin(f16), -10.0,      0.1,       10.0, fmin(f16), -fmax(f16), inf(f16),   inf(f16),   -tmin(f16),
+                inf(f16), -0.0, 0.1,       0.0,  -fmin(f16), -0.0,      -nan(f16), -inf(f16), -fmin(f16), fmax(f16), 1.0,  fmin(f16), -0.0,       -tmin(f16), -fmax(f16), -10.0,
+            });
+            try testArgs(@Vector(64, f16), .{
+                -nan(f16), fmin(f16),  -inf(f16),  inf(f16),  -tmin(f16), inf(f16),   0.1,       -1.0,      -inf(f16), nan(f16),  -fmin(f16), 0.1,      -tmin(f16), -fmax(f16), -10.0,    inf(f16),
+                0.0,       -fmin(f16), -fmax(f16), 10.0,      -fmax(f16), fmax(f16),  10.0,      fmin(f16), -inf(f16), -nan(f16), -tmin(f16), nan(f16), -0.0,       0.0,        0.1,      -fmin(f16),
+                0.0,       nan(f16),   inf(f16),   fmax(f16), nan(f16),   tmin(f16),  1.0,       tmin(f16), fmin(f16), -10.0,     0.0,        0.1,      inf(f16),   -10.0,      inf(f16), 1.0,
+                0.1,       -inf(f16),  10.0,       -0.0,      -1.0,       -tmin(f16), -nan(f16), 0.1,       0.1,       -nan(f16), -0.0,       -10.0,    -0.0,       -nan(f16),  0.1,      fmin(f16),
+            }, .{
+                10.0,       0.0,       fmax(f16), -inf(f16),  -fmax(f16), -fmax(f16), tmin(f16), -1.0,       -tmin(f16), -10.0, nan(f16), -nan(f16), tmin(f16),  -fmin(f16), nan(f16), -10.0,
+                10.0,       fmax(f16), 0.1,       0.0,        0.1,        -fmax(f16), -0.0,      -fmin(f16), inf(f16),   -1.0,  inf(f16), fmin(f16), -inf(f16),  -tmin(f16), 10.0,     10.0,
+                0.1,        0.1,       0.1,       10.0,       -fmin(f16), inf(f16),   0.1,       fmax(f16),  inf(f16),   -0.0,  -10.0,    tmin(f16), -fmin(f16), 0.0,        10.0,     0.0,
+                -tmin(f16), -inf(f16), 1.0,       -fmax(f16), inf(f16),   10.0,       fmax(f16), -1.0,       0.0,        0.1,   -1.0,     -inf(f16), 0.1,        0.0,        -10.0,    fmax(f16),
+            });
+            try testArgs(@Vector(128, f16), .{
+                -fmin(f16), 1.0,        0.0,       0.1,       nan(f16),   0.1,        0.1,       -inf(f16),  -tmin(f16), 1.0,        -fmin(f16), -fmax(f16), -1.0,      -fmin(f16), 10.0,       -nan(f16),
+                inf(f16),   -inf(f16),  tmin(f16), -10.0,     -1.0,       -0.0,       -0.0,      1.0,        nan(f16),   -10.0,      fmin(f16),  -tmin(f16), tmin(f16), 0.1,        -fmax(f16), fmax(f16),
+                tmin(f16),  -fmin(f16), nan(f16),  10.0,      1.0,        -fmin(f16), 0.1,       10.0,       fmax(f16),  fmax(f16),  fmax(f16),  -1.0,       -nan(f16), 10.0,       tmin(f16),  -nan(f16),
+                -nan(f16),  -inf(f16),  -0.0,      -inf(f16), nan(f16),   -1.0,       0.1,       -fmax(f16), -10.0,      nan(f16),   1.0,        -10.0,      tmin(f16), 1.0,        0.1,        1.0,
+                10.0,       0.1,        tmin(f16), nan(f16),  -inf(f16),  -1.0,       -1.0,      -fmax(f16), -inf(f16),  0.1,        0.1,        -0.0,       10.0,      fmin(f16),  -1.0,       inf(f16),
+                0.1,        -10.0,      inf(f16),  -0.0,      0.1,        0.0,        inf(f16),  1.0,        tmin(f16),  -tmin(f16), 0.1,        inf(f16),   tmin(f16), -inf(f16),  10.0,       1.0,
+                -inf(f16),  0.1,        1.0,       fmax(f16), -fmin(f16), nan(f16),   -nan(f16), fmin(f16),  -1.0,       -fmax(f16), inf(f16),   -fmax(f16), 0.0,       -10.0,      fmin(f16),  -fmax(f16),
+                -0.0,       -1.0,       0.1,       10.0,      inf(f16),   fmax(f16),  inf(f16),  10.0,       fmax(f16),  -0.0,       -tmin(f16), fmin(f16),  inf(f16),  nan(f16),   -fmin(f16), -1.0,
+            }, .{
+                -fmax(f16), fmax(f16),  inf(f16),  1.0,        nan(f16),  0.1,       -fmax(f16), 10.0,       -fmin(f16), 0.1,        fmin(f16),  -0.0,      0.1,        -0.0,      -nan(f16),  -nan(f16),
+                inf(f16),   1.0,        -1.0,      0.1,        0.1,       0.1,       0.0,        -tmin(f16), -1.0,       -10.0,      -tmin(f16), 1.0,       -10.0,      fmin(f16), -fmax(f16), -nan(f16),
+                -tmin(f16), -inf(f16),  inf(f16),  -fmin(f16), -nan(f16), 0.0,       -inf(f16),  -fmax(f16), 0.1,        -inf(f16),  tmin(f16),  nan(f16),  tmin(f16),  fmin(f16), -0.0,       0.1,
+                fmin(f16),  fmin(f16),  1.0,       tmin(f16),  0.0,       10.0,      0.1,        inf(f16),   10.0,       -tmin(f16), tmin(f16),  -1.0,      -fmin(f16), 1.0,       nan(f16),   -fmax(f16),
+                nan(f16),   -fmin(f16), 0.1,       10.0,       -10.0,     1.0,       -0.0,       tmin(f16),  nan(f16),   inf(f16),   -fmax(f16), tmin(f16), -tmin(f16), 10.0,      fmin(f16),  -tmin(f16),
+                -0.0,       1.0,        tmin(f16), fmax(f16),  1.0,       -inf(f16), -nan(f16),  -0.0,       0.1,        -inf(f16),  0.1,        fmax(f16), -inf(f16),  -nan(f16), -1.0,       -inf(f16),
+                0.1,        fmin(f16),  -10.0,     -tmin(f16), 1.0,       -nan(f16), -fmax(f16), -10.0,      -tmin(f16), 10.0,       nan(f16),   fmin(f16), fmax(f16),  tmin(f16), -inf(f16),  1.0,
+                -fmin(f16), tmin(f16),  -1.0,      0.1,        0.0,       nan(f16),  1.0,        fmax(f16),  -1.0,       10.0,       nan(f16),   1.0,       fmin(f16),  1.0,       -10.0,      -10.0,
+            });
+            try testArgs(@Vector(69, f16), .{
+                -nan(f16), -1.0,      -fmin(f16), fmin(f16), inf(f16),  0.1,       0.0,       fmax(f16),  tmin(f16), 0.1,       0.0,        -tmin(f16), 0.0,        0.0,        1.0,        -inf(f16),
+                tmin(f16), -inf(f16), -tmin(f16), fmin(f16), -inf(f16), -nan(f16), tmin(f16), -tmin(f16), 0.1,       -1.0,      -tmin(f16), fmax(f16),  nan(f16),   -fmin(f16), fmin(f16),  10.0,
+                fmin(f16), -10.0,     0.0,        fmin(f16), fmax(f16), -nan(f16), fmax(f16), -fmax(f16), nan(f16),  -nan(f16), fmin(f16),  -10.0,      -fmin(f16), fmin(f16),  -fmin(f16), -nan(f16),
+                0.0,       -1.0,      fmax(f16),  0.1,       inf(f16),  1.0,       -1.0,      -0.0,       10.0,      0.1,       -fmax(f16), tmin(f16),  -inf(f16),  tmin(f16),  -fmax(f16), 0.1,
+                -10.0,     -0.0,      -fmax(f16), nan(f16),  fmax(f16),
+            }, .{
+                inf(f16),   -fmin(f16), 0.1,       0.1,       -0.0,       fmax(f16),  0.1,       -0.0,      0.0,       -0.0,       0.0,       -tmin(f16), tmin(f16), -1.0,     nan(f16),   -fmin(f16),
+                fmin(f16),  0.1,        0.1,       nan(f16),  -fmax(f16), -inf(f16),  -nan(f16), -nan(f16), 0.1,       -fmax(f16), fmin(f16), 0.1,        0.1,       0.1,      -0.0,       10.0,
+                tmin(f16),  -nan(f16),  fmin(f16), -1.0,      1.0,        -tmin(f16), 0.0,       nan(f16),  fmax(f16), -10.0,      fmin(f16), -fmin(f16), -1.0,      0.1,      -fmin(f16), -fmin(f16),
+                -fmax(f16), 0.0,        fmin(f16), -10.0,     -1.0,       -1.0,       fmax(f16), -nan(f16), -inf(f16), -inf(f16),  0.0,       tmin(f16),  -0.0,      nan(f16), -inf(f16),  nan(f16),
+                inf(f16),   fmin(f16),  -nan(f16), -inf(f16), inf(f16),
+            });
+
+            try testArgs(@Vector(1, f32), .{
+                fmin(f32),
+            }, .{
+                -tmin(f32),
+            });
+            try testArgs(@Vector(2, f32), .{
+                nan(f32), -10.0,
+            }, .{
+                -tmin(f32), fmin(f32),
+            });
+            try testArgs(@Vector(4, f32), .{
+                fmax(f32), -fmax(f32), -10.0, 0.0,
+            }, .{
+                inf(f32), inf(f32), -10.0, inf(f32),
+            });
+            try testArgs(@Vector(8, f32), .{
+                -10.0, fmax(f32), inf(f32), -0.0, -tmin(f32), -tmin(f32), 10.0, 0.1,
+            }, .{
+                10.0, -1.0, -1.0, inf(f32), 1.0, -tmin(f32), nan(f32), 10.0,
+            });
+            try testArgs(@Vector(16, f32), .{
+                0.1, 0.1, -nan(f32), -10.0, -nan(f32), 0.0, fmin(f32), fmin(f32), -10.0, 1.0, -fmax(f32), -0.0, inf(f32), -0.0, fmax(f32), -fmin(f32),
+            }, .{
+                nan(f32), 0.0, tmin(f32), -1.0, -10.0, -tmin(f32), fmin(f32), -fmax(f32), 0.1, 0.1, -inf(f32), tmin(f32), -0.0, 10.0, -0.0, -inf(f32),
+            });
+            try testArgs(@Vector(32, f32), .{
+                0.1,        tmin(f32), -1.0,       1.0,       tmin(f32), -10.0,     fmax(f32), 0.0,       tmin(f32),  0.1,       -1.0,     fmax(f32),  -nan(f32), -0.0,      fmin(f32), 0.0,
+                -fmax(f32), fmax(f32), -fmin(f32), -inf(f32), tmin(f32), -nan(f32), -1.0,      tmin(f32), -fmin(f32), -inf(f32), nan(f32), -tmin(f32), inf(f32),  -inf(f32), -nan(f32), 0.1,
+            }, .{
+                -fmin(f32), -1.0,      fmax(f32), inf(f32),   -fmin(f32), fmax(f32),  0.0,       -10.0, 0.0, 0.1,       fmin(f32), -inf(f32),  1.0, -nan(f32), -nan(f32),
+                -inf(f32),  -0.0,      nan(f32),  -fmax(f32), 10.0,       -tmin(f32), fmax(f32), -10.0, 0.1, tmin(f32), 0.1,       -fmax(f32), 0.0, 0.1,       -nan(f32),
+                -fmin(f32), fmax(f32),
+            });
+            try testArgs(@Vector(64, f32), .{
+                fmin(f32),  0.0, -inf(f32), 0.1,       -10.0,     -fmin(f32), 10.0,       nan(f32),  0.1,        1.0,       -1.0,      10.0,       10.0,      0.1,        -fmax(f32), -1.0,
+                -fmin(f32), 0.1, -inf(f32), -inf(f32), 0.1,       0.1,        0.0,        -1.0,      nan(f32),   -0.0,      -0.0,      -fmin(f32), -inf(f32), inf(f32),   tmin(f32),  -nan(f32),
+                0.1,        0.0, 1.0,       tmin(f32), 10.0,      fmin(f32),  -fmin(f32), fmax(f32), nan(f32),   1.0,       -nan(f32), -nan(f32),  1.0,       nan(f32),   1.0,        fmax(f32),
+                -0.0,       0.0, inf(f32),  nan(f32),  tmin(f32), 0.0,        fmin(f32),  -0.0,      -fmin(f32), tmin(f32), -1.0,      -10.0,      0.1,       -tmin(f32), -inf(f32),  -1.0,
+            }, .{
+                nan(f32),   -nan(f32),  -tmin(f32), inf(f32),   -inf(f32), 0.1,       0.1,        0.1,        -1.0,       -inf(f32),  -0.0,     fmax(f32), tmin(f32), -nan(f32),  -fmax(f32), -1.0,
+                -fmin(f32), -0.0,       fmax(f32),  -fmax(f32), 1.0,       -0.0,      0.0,        10.0,       -1.0,       -fmin(f32), 0.0,      fmax(f32), 0.1,       1.0,        10.0,       0.1,
+                0.1,        fmin(f32),  -nan(f32),  -inf(f32),  -0.0,      -inf(f32), 0.1,        -fmax(f32), -10.0,      -10.0,      nan(f32), 10.0,      -1.0,      -fmin(f32), 10.0,       fmin(f32),
+                1.0,        -fmax(f32), nan(f32),   inf(f32),   fmax(f32), fmax(f32), -fmin(f32), -inf(f32),  -tmin(f32), -nan(f32),  nan(f32), nan(f32),  0.1,       0.1,        -1.0,       inf(f32),
+            });
+            try testArgs(@Vector(128, f32), .{
+                -10.0,      -nan(f32),  inf(f32),   inf(f32),  -tmin(f32), -0.0,       0.0,        0.1,        -0.0,       fmin(f32),  nan(f32),   -1.0,       nan(f32),   -fmax(f32), nan(f32),   0.0,
+                1.0,        -tmin(f32), 0.0,        -nan(f32), 0.1,        0.1,        -1.0,       10.0,       -fmax(f32), -fmin(f32), 0.1,        nan(f32),   0.1,        -fmax(f32), -tmin(f32), -inf(f32),
+                inf(f32),   tmin(f32),  -tmin(f32), nan(f32),  -inf(f32),  -10.0,      1.0,        -nan(f32),  0.1,        nan(f32),   -1.0,       tmin(f32),  -fmin(f32), -0.0,       -0.0,       1.0,
+                fmin(f32),  -fmin(f32), 0.1,        0.1,       0.1,        -10.0,      -10.0,      -tmin(f32), 1.0,        -0.0,       10.0,       -fmax(f32), 10.0,       -fmax(f32), inf(f32),   -1.0,
+                -fmax(f32), fmin(f32),  fmin(f32),  fmin(f32), -1.0,       -nan(f32),  fmax(f32),  -nan(f32),  0.1,        -1.0,       -fmax(f32), -tmin(f32), -0.0,       fmax(f32),  -10.0,      inf(f32),
+                10.0,       -inf(f32),  0.1,        fmin(f32), nan(f32),   -fmax(f32), -tmin(f32), inf(f32),   tmin(f32),  -fmin(f32), fmax(f32),  1.0,        fmin(f32),  -0.0,       0.1,        fmin(f32),
+                0.1,        inf(f32),   -10.0,      inf(f32),  10.0,       tmin(f32),  0.0,        1.0,        inf(f32),   -10.0,      -fmin(f32), tmin(f32),  1.0,        0.1,        0.1,        -fmin(f32),
+                10.0,       0.1,        fmax(f32),  fmin(f32), 1.0,        -10.0,      -inf(f32),  -10.0,      0.0,        -fmax(f32), -inf(f32),  -1.0,       fmax(f32),  -tmin(f32), inf(f32),   nan(f32),
+            }, .{
+                -tmin(f32), -fmax(f32), -fmax(f32), 10.0,       inf(f32),  0.1,      1.0,        fmin(f32),  0.1,        10.0,       fmin(f32),  -fmax(f32), 1.0,        fmax(f32),  0.1,        -fmin(f32),
+                0.0,        -0.0,       -0.0,       -1.0,       -nan(f32), nan(f32), -tmin(f32), 10.0,       -tmin(f32), -10.0,      inf(f32),   0.0,        tmin(f32),  0.0,        -fmax(f32), inf(f32),
+                fmin(f32),  0.1,        -10.0,      tmin(f32),  tmin(f32), 0.1,      fmin(f32),  -tmin(f32), fmin(f32),  nan(f32),   0.1,        -fmax(f32), -1.0,       -0.0,       fmin(f32),  -0.0,
+                -1.0,       -0.0,       -inf(f32),  fmax(f32),  -10.0,     1.0,      inf(f32),   -1.0,       -tmin(f32), -tmin(f32), 0.1,        -10.0,      -fmin(f32), 10.0,       -10.0,      -inf(f32),
+                -1.0,       inf(f32),   0.1,        1.0,        -nan(f32), 0.1,      -10.0,      -nan(f32),  -tmin(f32), 0.0,        fmin(f32),  -nan(f32),  fmax(f32),  -tmin(f32), 0.0,        0.0,
+                -fmax(f32), -inf(f32),  -1.0,       -0.0,       10.0,      nan(f32), 0.1,        tmin(f32),  -10.0,      10.0,       tmin(f32),  -fmax(f32), 0.1,        -10.0,      -tmin(f32), fmax(f32),
+                -fmax(f32), 0.1,        -nan(f32),  -fmin(f32), inf(f32),  inf(f32), tmin(f32),  tmin(f32),  -tmin(f32), tmin(f32),  0.0,        -0.0,       1.0,        10.0,       -10.0,      inf(f32),
+                0.0,        -fmin(f32), fmax(f32),  -10.0,      fmax(f32), -0.0,     0.0,        -fmin(f32), 10.0,       -fmin(f32), -fmin(f32), -fmin(f32), 10.0,       fmin(f32),  -inf(f32),  fmax(f32),
+            });
+            try testArgs(@Vector(69, f32), .{
+                nan(f32),   0.1,       -tmin(f32), fmax(f32),  nan(f32),  -fmax(f32), 0.1,        fmax(f32), 10.0,       inf(f32), -fmin(f32), -fmax(f32), inf(f32),   -nan(f32),  0.1,        1.0,
+                fmax(f32),  0.1,       10.0,       0.0,        -10.0,     fmax(f32),  10.0,       0.0,       1.0,        10.0,     -fmax(f32), 0.0,        -tmin(f32), -fmin(f32), 0.1,        1.0,
+                fmin(f32),  tmin(f32), -fmin(f32), -tmin(f32), tmin(f32), -inf(f32),  -fmax(f32), -0.0,      -1.0,       -0.0,     -fmax(f32), fmax(f32),  fmin(f32),  -0.0,       0.0,        -inf(f32),
+                -tmin(f32), inf(f32),  -nan(f32),  tmin(f32),  -1.0,      -tmin(f32), 10.0,       -inf(f32), -fmin(f32), 0.1,      -inf(f32),  -1.0,       nan(f32),   -inf(f32),  -tmin(f32), 10.0,
+                10.0,       -nan(f32), -nan(f32),  tmin(f32),  -nan(f32),
+            }, .{
+                -nan(f32), 1.0,       fmax(f32), 0.1,        -0.0,       1.0,       -inf(f32), -fmin(f32), -nan(f32), inf(f32),   1.0,       -nan(f32), -nan(f32), -inf(f32), tmin(f32), -fmin(f32),
+                -nan(f32), 0.1,       fmin(f32), -1.0,       -fmax(f32), 0.1,       -1.0,      0.1,        0.1,       -tmin(f32), 0.1,       0.1,       10.0,      fmin(f32), 0.0,       nan(f32),
+                tmin(f32), 1.0,       nan(f32),  -fmin(f32), tmin(f32),  nan(f32),  0.1,       nan(f32),   1.0,       -fmax(f32), tmin(f32), 1.0,       0.0,       -1.0,      nan(f32),  fmin(f32),
+                -inf(f32), fmax(f32), -0.0,      nan(f32),   tmin(f32),  tmin(f32), -inf(f32), -10.0,      -nan(f32), -fmax(f32), -0.0,      0.1,       -inf(f32), 1.0,       nan(f32),  1.0,
+                -10.0,     fmin(f32), inf(f32),  fmin(f32),  0.0,
+            });
+
+            try testArgs(@Vector(1, f64), .{
+                -0.0,
+            }, .{
+                1.0,
+            });
+            try testArgs(@Vector(2, f64), .{
+                -1.0, 0.0,
+            }, .{
+                -inf(f64), -fmax(f64),
+            });
+            try testArgs(@Vector(4, f64), .{
+                -inf(f64), inf(f64), 10.0, 0.0,
+            }, .{
+                -tmin(f64), 1.0, nan(f64), 0.0,
+            });
+            try testArgs(@Vector(8, f64), .{
+                0.1, -tmin(f64), -fmax(f64), 1.0, inf(f64), -10.0, -tmin(f64), -10.0,
+            }, .{
+                tmin(f64), fmin(f64), 0.1, 10.0, -0.0, -0.0, fmax(f64), -1.0,
+            });
+            try testArgs(@Vector(16, f64), .{
+                0.1, -nan(f64), 1.0, tmin(f64), fmax(f64), -fmax(f64), -tmin(f64), -0.0, -fmin(f64), -1.0, -fmax(f64), -nan(f64), -fmax(f64), nan(f64), -0.0, 0.1,
+            }, .{
+                -1.0, -tmin(f64), -fmin(f64), 0.1, 0.1, -0.0, -nan(f64), -inf(f64), -inf(f64), -0.0, nan(f64), tmin(f64), 1.0, 0.1, tmin(f64), fmin(f64),
+            });
+            try testArgs(@Vector(32, f64), .{
+                -fmax(f64), fmin(f64), 0.1, 0.1,       0.0,       1.0,  -0.0, -tmin(f64), tmin(f64), inf(f64),  -tmin(f64), -tmin(f64), -tmin(f64), -fmax(f64), fmin(f64), 1.0,
+                -fmin(f64), -nan(f64), 1.0, -inf(f64), -nan(f64), -1.0, 0.0,  0.0,        nan(f64),  -nan(f64), -fmin(f64), fmin(f64),  0.1,        nan(f64),   tmin(f64), -fmax(f64),
+            }, .{
+                -tmin(f64), -fmax(f64), -inf(f64),  -nan(f64), fmin(f64), -inf(f64), 0.1,      -fmax(f64), -inf(f64), fmin(f64), inf(f64), -1.0, -tmin(f64), inf(f64), 0.1,  nan(f64),
+                fmin(f64),  10.0,       -tmin(f64), -nan(f64), -inf(f64), 1.0,       nan(f64), -fmin(f64), -1.0,      nan(f64),  -1.0,     0.0,  1.0,        nan(f64), -1.0, -fmin(f64),
+            });
+            try testArgs(@Vector(64, f64), .{
+                -10.0,     fmax(f64),  -nan(f64),  tmin(f64),  0.1,       -1.0,       1.0,      -0.0,      -fmin(f64), 0.1,       -fmin(f64), -0.0,      -0.0,      tmin(f64), -10.0,     0.1,
+                -10.0,     -fmax(f64), -10.0,      -fmin(f64), 0.0,       -10.0,      nan(f64), 1.0,       inf(f64),   inf(f64),  -inf(f64),  tmin(f64), tmin(f64), 0.1,       -0.0,      0.1,
+                -0.0,      0.1,        -10.0,      10.0,       fmax(f64), -fmin(f64), 1.0,      fmax(f64), 1.0,        -10.0,     fmin(f64),  fmax(f64), -1.0,      -0.0,      -0.0,      fmax(f64),
+                -inf(f64), -inf(f64),  -tmin(f64), -fmax(f64), -nan(f64), tmin(f64),  -1.0,     0.0,       -inf(f64),  fmax(f64), nan(f64),   -inf(f64), fmin(f64), -nan(f64), -nan(f64), -10.0,
+            }, .{
+                nan(f64),  -1.0, 0.0,       -10.0,      -fmax(f64), -fmin(f64), -nan(f64),  -tmin(f64), 0.1,        -1.0,      -nan(f64),  -fmax(f64), 0.0,       0.0,      10.0,      inf(f64),
+                fmin(f64), 0.0,  -10.0,     1.0,        -tmin(f64), -inf(f64),  -fmax(f64), 0.0,        -fmin(f64), -1.0,      -fmin(f64), tmin(f64),  1.0,       -10.0,    fmin(f64), 0.1,
+                inf(f64),  -0.0, tmin(f64), -fmax(f64), -tmin(f64), -fmax(f64), fmin(f64),  -fmax(f64), 0.1,        1.0,       1.0,        0.0,        fmin(f64), nan(f64), -10.0,     tmin(f64),
+                inf(f64),  0.1,  1.0,       -nan(f64),  1.0,        -fmin(f64), fmax(f64),  inf(f64),   fmin(f64),  -inf(f64), -0.0,       0.0,        -1.0,      -0.0,     0.1,       0.1,
+            });
+            try testArgs(@Vector(128, f64), .{
+                nan(f64),   -fmin(f64), fmax(f64),  fmin(f64), -10.0,      nan(f64),  tmin(f64), fmax(f64),  inf(f64),   -nan(f64),  tmin(f64),  -nan(f64), -0.0,       fmin(f64),  fmax(f64),
+                -inf(f64),  inf(f64),   -1.0,       0.0,       0.1,        fmin(f64), 0.0,       0.1,        -1.0,       -inf(f64),  0.1,        fmax(f64), fmin(f64),  fmax(f64),  -fmax(f64),
+                fmin(f64),  inf(f64),   -fmin(f64), -10.0,     -0.0,       0.1,       nan(f64),  -fmax(f64), -fmax(f64), -1.0,       10.0,       10.0,      -1.0,       -inf(f64),  inf(f64),
+                -fmin(f64), 1.0,        -inf(f64),  -10.0,     0.1,        1.0,       10.0,      10.0,       tmin(f64),  nan(f64),   inf(f64),   0.0,       -1.0,       -10.0,      1.0,
+                -tmin(f64), -fmax(f64), -nan(f64),  10.0,      0.1,        tmin(f64), 0.0,       10.0,       0.1,        -tmin(f64), -tmin(f64), 1.0,       -fmax(f64), nan(f64),   -fmin(f64),
+                nan(f64),   10.0,       -1.0,       -0.0,      -tmin(f64), nan(f64),  10.0,      10.0,       -inf(f64),  0.1,        -nan(f64),  -10.0,     -tmin(f64), -fmax(f64), -fmax(f64),
+                inf(f64),   -inf(f64),  tmin(f64),  1.0,       -inf(f64),  -10.0,     inf(f64),  0.1,        -nan(f64),  -inf(f64),  fmax(f64),  0.1,       -inf(f64),  0.1,        1.0,
+                0.1,        0.1,        0.1,        inf(f64),  -inf(f64),  1.0,       10.0,      10.0,       nan(f64),   10.0,       -tmin(f64), 1.0,       -fmin(f64), -1.0,       -fmax(f64),
+                -fmin(f64), -fmin(f64), -1.0,       inf(f64),  nan(f64),   tmin(f64), 0.1,       -1.0,
+            }, .{
+                0.0,       0.0,        inf(f64),  -0.0,       0.1,        -nan(f64),  10.0,       -nan(f64), tmin(f64),  -10.0,      -0.0,      inf(f64),   -fmin(f64), 0.1,        fmax(f64),
+                nan(f64),  -tmin(f64), tmin(f64), 1.0,        0.1,        -10.0,      -nan(f64),  1.0,       inf(f64),   -10.0,      fmin(f64), 0.1,        10.0,       -10.0,      10.0,
+                -nan(f64), -nan(f64),  0.1,       0.0,        10.0,       -fmax(f64), -tmin(f64), tmin(f64), -1.0,       -tmin(f64), -10.0,     0.1,        -fmax(f64), 10.0,       nan(f64),
+                fmax(f64), -1.0,       -1.0,      -tmin(f64), fmax(f64),  -10.0,      0.1,        1.0,       fmin(f64),  inf(f64),   0.1,       tmin(f64),  0.1,        -fmax(f64), fmax(f64),
+                -10.0,     -fmax(f64), fmax(f64), tmin(f64),  -fmin(f64), inf(f64),   0.1,        -0.0,      fmax(f64),  tmin(f64),  0.1,       1.0,        -inf(f64),  1.0,        10.0,
+                0.1,       0.0,        -10.0,     -nan(f64),  10.0,       -fmin(f64), -tmin(f64), 10.0,      1.0,        -tmin(f64), -1.0,      -fmin(f64), -0.0,       -10.0,      0.1,
+                inf(f64),  -fmax(f64), 0.1,       tmin(f64),  -0.0,       fmax(f64),  0.0,        -nan(f64), -fmin(f64), fmax(f64),  -0.0,      nan(f64),   -inf(f64),  tmin(f64),  0.1,
+                inf(f64),  0.0,        10.0,      -fmax(f64), tmin(f64),  -0.0,       fmin(f64),  -nan(f64), -10.0,      -inf(f64),  nan(f64),  inf(f64),   -0.0,       10.0,       fmax(f64),
+                tmin(f64), -10.0,      -nan(f64), 10.0,       -inf(f64),  -fmax(f64), -inf(f64),  -1.0,
+            });
+            try testArgs(@Vector(69, f64), .{
+                inf(f64),   -0.0,      -fmax(f64), fmax(f64),  fmax(f64), 0.0,      fmin(f64), -nan(f64), 0.1,       0.1,       0.1,        -fmin(f64), inf(f64),   0.1,       fmax(f64),  nan(f64),
+                tmin(f64),  -10.0,     10.0,       -tmin(f64), -0.0,      nan(f64), -10.0,     fmin(f64), 0.0,       -0.0,      0.1,        inf(f64),   -tmin(f64), -nan(f64), inf(f64),   -nan(f64),
+                -inf(f64),  fmax(f64), 0.1,        -fmin(f64), 0.1,       -1.0,     fmin(f64), fmin(f64), fmin(f64), 10.0,      -fmin(f64), nan(f64),   0.0,        0.0,       10.0,       nan(f64),
+                -tmin(f64), tmin(f64), tmin(f64),  fmin(f64),  -0.0,      -1.0,     0.1,       1.0,       fmax(f64), tmin(f64), fmin(f64),  0.0,        -fmin(f64), fmin(f64), -tmin(f64), 0.0,
+                -nan(f64),  10.0,      -1.0,       0.1,        0.0,
+            }, .{
+                -10.0,      -0.0,       fmin(f64), -fmin(f64), nan(f64),  10.0,     -tmin(f64), -fmax(f64), 10.0,      0.1,      -fmin(f64), inf(f64),  -inf(f64),  -tmin(f64), 1.0,        tmin(f64),
+                -tmin(f64), -nan(f64),  fmax(f64), 0.0,        -1.0,      10.0,     inf(f64),   fmin(f64),  fmax(f64), 0.1,      0.1,        fmax(f64), -inf(f64),  0.1,        0.1,        fmin(f64),
+                0.1,        fmin(f64),  -10.0,     nan(f64),   0.0,       0.0,      fmax(f64),  -inf(f64),  tmin(f64), inf(f64), -tmin(f64), fmax(f64), -inf(f64),  -10.0,      -1.0,       fmin(f64),
+                0.1,        -nan(f64),  fmax(f64), -fmin(f64), fmax(f64), nan(f64), -0.0,       -fmax(f64), 10.0,      nan(f64), inf(f64),   -1.0,      -fmin(f64), nan(f64),   -fmin(f64), -0.0,
+                -nan(f64),  -fmin(f64), 0.1,       nan(f64),   0.1,
+            });
+
+            try testArgs(@Vector(1, f80), .{
+                -nan(f80),
+            }, .{
+                -1.0,
+            });
+            try testArgs(@Vector(2, f80), .{
+                -fmax(f80), -inf(f80),
+            }, .{
+                0.1, 10.0,
+            });
+            try testArgs(@Vector(4, f80), .{
+                -0.0, -inf(f80), 0.1, 10.0,
+            }, .{
+                -1.0, 0.0, 0.1, -10.0,
+            });
+            try testArgs(@Vector(8, f80), .{
+                1.0, -0.0, -inf(f80), 0.1, -inf(f80), fmin(f80), 0.0, 10.0,
+            }, .{
+                -0.0, -fmin(f80), fmin(f80), -nan(f80), nan(f80), inf(f80), fmin(f80), 10.0,
+            });
+            try testArgs(@Vector(16, f80), .{
+                10.0, inf(f80), -fmin(f80), 0.1, -tmin(f80), -0.0, -inf(f80), -1.0, -fmax(f80), -nan(f80), -tmin(f80), 10.0, 10.0, -inf(f80), -fmax(f80), fmax(f80),
+            }, .{
+                -inf(f80), nan(f80), -fmax(f80), fmin(f80), 1.0, 0.1, -inf(f80), nan(f80), 0.1, nan(f80), -inf(f80), nan(f80), tmin(f80), 0.1, -tmin(f80), -10.0,
+            });
+            try testArgs(@Vector(32, f80), .{
+                inf(f80),  -0.0, 0.1,      -0.0, 0.1,      -fmin(f80), -0.0,       fmax(f80), nan(f80),  -tmin(f80), nan(f80), -10.0,      0.0,       1.0,        10.0, -fmin(f80),
+                fmin(f80), 0.1,  inf(f80), -0.0, nan(f80), tmin(f80),  -tmin(f80), fmin(f80), tmin(f80), -0.0,       nan(f80), -fmax(f80), tmin(f80), -fmin(f80), 1.0,  tmin(f80),
+            }, .{
+                0.0, -10.0,    fmax(f80), -inf(f80),  0.1,       -inf(f80), inf(f80),   10.0, -1.0,  -10.0,     -fmin(f80), 0.0,  inf(f80),   1.0,        -nan(f80), 0.0,
+                0.1, nan(f80), 1.0,       -fmax(f80), fmin(f80), -inf(f80), -fmax(f80), 0.1,  -10.0, tmin(f80), fmax(f80),  -0.0, -fmin(f80), -fmin(f80), fmin(f80), -tmin(f80),
+            });
+            try testArgs(@Vector(64, f80), .{
+                -fmax(f80), 0.1,       -1.0,       1.0,        inf(f80),   0.1,       -10.0,     0.1,       fmin(f80), -fmin(f80), -10.0,     -fmax(f80), 0.0,        -10.0,     -1.0,       -nan(f80),
+                0.0,        0.1,       -1.0,       -tmin(f80), 1.0,        tmin(f80), fmax(f80), 0.0,       -10.0,     -tmin(f80), fmax(f80), -0.0,       0.1,        -inf(f80), -fmax(f80), -1.0,
+                -nan(f80),  tmin(f80), -tmin(f80), -0.0,       -0.0,       -1.0,      -0.0,      fmax(f80), inf(f80),  -nan(f80),  0.1,       -inf(f80),  -tmin(f80), nan(f80),  0.1,        10.0,
+                nan(f80),   -inf(f80), 0.1,        tmin(f80),  -fmin(f80), 10.0,      -10.0,     tmin(f80), fmin(f80), nan(f80),   0.1,       -nan(f80),  tmin(f80),  nan(f80),  fmax(f80),  -fmax(f80),
+            }, .{
+                -nan(f80), -fmax(f80), tmin(f80), -inf(f80),  -tmin(f80), fmin(f80), -nan(f80), -fmin(f80), fmax(f80), inf(f80), -0.0,      -1.0, 0.1,        -fmax(f80), 1.0,       -inf(f80),
+                0.0,       -nan(f80),  -10.0,     -1.0,       -nan(f80),  inf(f80),  1.0,       -nan(f80),  10.0,      inf(f80), tmin(f80), 0.1,  tmin(f80),  -tmin(f80), -inf(f80), -fmin(f80),
+                fmax(f80), fmax(f80),  0.1,       -tmin(f80), -nan(f80),  -1.0,      fmin(f80), -nan(f80),  -nan(f80), inf(f80), -1.0,      0.1,  -fmin(f80), -tmin(f80), 0.0,       -0.0,
+                0.1,       -fmin(f80), -inf(f80), -1.0,       -tmin(f80), 1.0,       -inf(f80), -0.0,       0.0,       1.0,      tmin(f80), 0.0,  0.1,        -nan(f80),  fmax(f80), 1.0,
+            });
+            try testArgs(@Vector(128, f80), .{
+                0.1,       -0.0,       0.1,        0.0,        fmin(f80),  -1.0,      1.0,       -inf(f80),  fmax(f80),  -fmin(f80), nan(f80),   10.0,       0.1,        0.1,        -fmin(f80), -inf(f80),
+                -1.0,      -inf(f80),  1.0,        -fmin(f80), inf(f80),   -nan(f80), 10.0,      inf(f80),   tmin(f80),  nan(f80),   -10.0,      inf(f80),   10.0,       inf(f80),   -10.0,      0.0,
+                -10.0,     fmin(f80),  -tmin(f80), 1.0,        -fmax(f80), nan(f80),  0.0,       fmax(f80),  0.1,        -1.0,       -fmin(f80), inf(f80),   -tmin(f80), nan(f80),   -tmin(f80), 10.0,
+                -10.0,     -tmin(f80), -1.0,       -tmin(f80), -fmax(f80), 10.0,      -1.0,      -inf(f80),  -nan(f80),  0.0,        1.0,        fmax(f80),  -tmin(f80), -fmin(f80), fmin(f80),  fmin(f80),
+                -10.0,     -fmax(f80), -tmin(f80), inf(f80),   1.0,        0.0,       tmin(f80), -nan(f80),  -fmin(f80), 0.1,        -nan(f80),  0.0,        0.1,        -10.0,      -0.0,       -nan(f80),
+                1.0,       10.0,       -10.0,      fmin(f80),  -nan(f80),  fmax(f80), -0.0,      1.0,        inf(f80),   1.0,        -fmin(f80), -fmin(f80), 0.0,        0.1,        inf(f80),   10.0,
+                tmin(f80), -1.0,       fmax(f80),  -0.0,       fmax(f80),  fmax(f80), 0.1,       -fmin(f80), -10.0,      1.0,        -fmin(f80), -fmax(f80), fmin(f80),  -fmax(f80), -0.0,       -1.0,
+                -nan(f80), -inf(f80),  nan(f80),   -fmax(f80), inf(f80),   -inf(f80), -nan(f80), fmin(f80),  nan(f80),   -1.0,       tmin(f80),  tmin(f80),  0.1,        10.0,       -tmin(f80), -nan(f80),
+            }, .{
+                -1.0,       -0.0,      0.0,        fmax(f80),  -1.0,       -0.0,       0.1,        tmin(f80),  -inf(f80),  10.0,       -0.0,       0.1,       -tmin(f80), -fmax(f80), tmin(f80), inf(f80),
+                0.1,        1.0,       tmin(f80),  nan(f80),   -fmax(f80), 10.0,       fmin(f80),  -1.0,       -fmax(f80), nan(f80),   -fmin(f80), 10.0,      -1.0,       tmin(f80),  inf(f80),  -0.0,
+                tmin(f80),  1.0,       0.0,        -fmin(f80), 0.0,        10.0,       -fmax(f80), -0.0,       -inf(f80),  fmin(f80),  -0.0,       -0.0,      -0.0,       -fmax(f80), 0.1,       fmax(f80),
+                -tmin(f80), tmin(f80), -fmax(f80), 10.0,       -fmax(f80), 0.1,        fmax(f80),  -10.0,      0.1,        1.0,        -1.0,       -1.0,      nan(f80),   -nan(f80),  10.0,      -nan(f80),
+                nan(f80),   -10.0,     -tmin(f80), fmin(f80),  -tmin(f80), -fmin(f80), tmin(f80),  -0.0,       0.1,        fmax(f80),  tmin(f80),  tmin(f80), nan(f80),   0.1,        10.0,      0.1,
+                inf(f80),   inf(f80),  1.0,        -inf(f80),  -fmax(f80), 0.0,        1.0,        -fmax(f80), fmax(f80),  nan(f80),   fmin(f80),  0.1,       -1.0,       1.0,        0.1,       -tmin(f80),
+                10.0,       0.1,       -fmax(f80), 0.0,        nan(f80),   -tmin(f80), 0.1,        fmax(f80),  fmax(f80),  0.1,        -1.0,       inf(f80),  nan(f80),   10.0,       fmax(f80), -nan(f80),
+                -10.0,      -1.0,      tmin(f80),  fmin(f80),  inf(f80),   fmax(f80),  -fmin(f80), fmin(f80),  -inf(f80),  -tmin(f80), 1.0,        nan(f80),  -fmin(f80), -fmin(f80), fmax(f80), 1.0,
+            });
+            try testArgs(@Vector(69, f80), .{
+                -10.0,      tmin(f80), 0.1,        -nan(f80), -inf(f80), -nan(f80), fmin(f80), -0.0,       10.0,  fmax(f80), -fmin(f80), 0.1,        -nan(f80),  inf(f80), 1.0,       -1.0,
+                inf(f80),   fmin(f80), -fmax(f80), 0.1,       nan(f80),  0.0,       0.0,       nan(f80),   -10.0, fmax(f80), fmin(f80),  -fmax(f80), 1.0,        0.1,      0.0,       -fmin(f80),
+                -tmin(f80), 0.0,       -10.0,      fmin(f80), 1.0,       10.0,      0.1,       nan(f80),   -10.0, fmax(f80), 0.1,        fmin(f80),  -inf(f80),  0.0,      tmin(f80), inf(f80),
+                fmax(f80),  1.0,       0.1,        nan(f80),  inf(f80),  tmin(f80), tmin(f80), -fmax(f80), 0.0,   fmin(f80), -inf(f80),  0.1,        -tmin(f80), 0.1,      -1.0,      0.1,
+                -fmax(f80), -1.0,      0.1,        -1.0,      fmax(f80),
+            }, .{
+                -1.0,      fmin(f80),  inf(f80),   -nan(f80), -0.0,       fmin(f80),  -0.0, nan(f80),  -fmax(f80), 0.1,        1.0,        -10.0,      -tmin(f80), -fmin(f80), 10.0,      inf(f80),
+                -10.0,     -tmin(f80), -fmin(f80), 10.0,      0.0,        -tmin(f80), 10.0, -10.0,     0.1,        0.1,        tmin(f80),  fmax(f80),  0.0,        0.1,        0.1,       -10.0,
+                fmin(f80), nan(f80),   -10.0,      -10.0,     -10.0,      0.0,        -0.0, 0.1,       fmin(f80),  fmin(f80),  -0.0,       -fmin(f80), -nan(f80),  -inf(f80),  0.0,       -inf(f80),
+                inf(f80),  fmax(f80),  -tmin(f80), inf(f80),  0.1,        -nan(f80),  0.1,  tmin(f80), -10.0,      -fmax(f80), -fmax(f80), inf(f80),   -nan(f80),  1.0,        -inf(f80), 10.0,
+                nan(f80),  10.0,       -10.0,      0.0,       -fmin(f80),
+            });
+
+            try testArgs(@Vector(1, f128), .{
+                -nan(f128),
+            }, .{
+                -0.0,
+            });
+            try testArgs(@Vector(2, f128), .{
+                0.0, -inf(f128),
+            }, .{
+                0.1, -fmin(f128),
+            });
+            try testArgs(@Vector(4, f128), .{
+                0.1, fmax(f128), 10.0, -fmax(f128),
+            }, .{
+                -tmin(f128), fmax(f128), -0.0, -0.0,
+            });
+            try testArgs(@Vector(8, f128), .{
+                10.0, -fmin(f128), 0.0, -inf(f128), 10.0, -0.0, -1.0, -fmin(f128),
+            }, .{
+                fmin(f128), tmin(f128), -1.0, -10.0, 0.0, -tmin(f128), 0.0, 0.1,
+            });
+            try testArgs(@Vector(16, f128), .{
+                -fmin(f128), -10.0, -fmin(f128), 0.1, -10.0, 1.0, -fmax(f128), tmin(f128), -nan(f128), -tmin(f128), 10.0, -inf(f128), -1.0, tmin(f128), -0.0, nan(f128),
+            }, .{
+                -fmax(f128), fmin(f128), inf(f128), tmin(f128), -10.0, 10.0, fmax(f128), 1.0, -inf(f128), -inf(f128), -fmax(f128), -nan(f128), 1.0, -inf(f128), tmin(f128), tmin(f128),
+            });
+            try testArgs(@Vector(32, f128), .{
+                -0.0,       -1.0, 1.0,        -fmax(f128), -fmax(f128), 0.1,         -fmin(f128), -fmin(f128), -1.0,       -tmin(f128), -0.0,       -fmax(f128), tmin(f128), inf(f128), 0.0,  fmax(f128),
+                -nan(f128), -0.0, -inf(f128), -1.0,        0.1,         -fmin(f128), tmin(f128),  -10.0,       fmax(f128), -nan(f128),  -nan(f128), -fmax(f128), 0.1,        inf(f128), -0.0, tmin(f128),
+            }, .{
+                -1.0,       -10.0,      -fmin(f128), -fmin(f128), inf(f128),  tmin(f128), nan(f128), 0.0,        -fmin(f128), 0.1, -nan(f128), 0.1, -0.0, tmin(f128), 1.0,         0.0,
+                fmin(f128), fmax(f128), -fmax(f128), -tmin(f128), fmin(f128), -0.0,       -1.0,      -nan(f128), -inf(f128),  1.0, nan(f128),  1.0, 0.1,  -0.0,       -fmax(f128), -10.0,
+            });
+            try testArgs(@Vector(64, f128), .{
+                -1.0,       -0.0,       nan(f128),   0.1,         -10.0,       0.0,         1.0,         1.0,       -inf(f128), fmin(f128),  fmax(f128), nan(f128),  -nan(f128), inf(f128),   -0.0,
+                0.1,        -inf(f128), -fmax(f128), 10.0,        -tmin(f128), -tmin(f128), -fmax(f128), 1.0,       0.1,        0.1,         nan(f128),  10.0,       1.0,        -tmin(f128), 10.0,
+                -nan(f128), fmax(f128), fmax(f128),  0.0,         fmax(f128),  inf(f128),   1.0,         -0.0,      0.1,        -tmin(f128), fmin(f128), fmax(f128), tmin(f128), inf(f128),   -10.0,
+                -1.0,       -1.0,       -1.0,        -inf(f128),  10.0,        -tmin(f128), nan(f128),   nan(f128), 0.1,        fmin(f128),  0.1,        tmin(f128), -10.0,      0.1,         10.0,
+                fmax(f128), fmax(f128), 0.1,         -fmax(f128),
+            }, .{
+                -0.0,      0.1,        -0.0,      -fmin(f128), 10.0, 0.0,        1.0,         -inf(f128), tmin(f128),  -1.0,      fmin(f128),  -nan(f128), -10.0,      0.1,        -10.0,      0.1,
+                0.1,       tmin(f128), nan(f128), -1.0,        0.0,  -10.0,      -10.0,       fmax(f128), -fmax(f128), inf(f128), -nan(f128),  0.1,        -nan(f128), 1.0,        fmax(f128), inf(f128),
+                nan(f128), fmin(f128), 10.0,      inf(f128),   0.0,  -inf(f128), 0.1,         0.1,        0.1,         -1.0,      0.1,         -10.0,      inf(f128),  -nan(f128), 0.1,        inf(f128),
+                inf(f128), inf(f128),  -10.0,     -tmin(f128), 0.1,  -inf(f128), -fmin(f128), 1.0,        -tmin(f128), 1.0,       -tmin(f128), -inf(f128), -0.0,       -nan(f128), -1.0,       -fmax(f128),
+            });
+            try testArgs(@Vector(128, f128), .{
+                -inf(f128),  tmin(f128),  -fmax(f128), 1.0,         fmin(f128),  -fmax(f128), -1.0,        0.1,         -fmax(f128), -fmin(f128), -10.0,       nan(f128),   0.1,        nan(f128),
+                inf(f128),   -1.0,        tmin(f128),  -inf(f128),  0.0,         fmax(f128),  tmin(f128),  -fmin(f128), fmin(f128),  -10.0,       -fmin(f128), -10.0,       1.0,        -nan(f128),
+                -inf(f128),  fmin(f128),  inf(f128),   -tmin(f128), 0.1,         0.0,         10.0,        1.0,         -tmin(f128), -tmin(f128), tmin(f128),  1.0,         fmin(f128), 0.1,
+                0.1,         0.1,         fmax(f128),  0.1,         inf(f128),   0.0,         fmin(f128),  -fmin(f128), 10.0,        10.0,        -10.0,       tmin(f128),  inf(f128),  inf(f128),
+                -fmin(f128), 0.0,         0.1,         -nan(f128),  0.1,         -inf(f128),  -nan(f128),  -1.0,        fmin(f128),  -0.0,        10.0,        -tmin(f128), 10.0,       1.0,
+                0.1,         -0.0,        -tmin(f128), 0.1,         -1.0,        -tmin(f128), -fmin(f128), tmin(f128),  0.1,         -tmin(f128), -nan(f128),  -10.0,       -inf(f128), 0.0,
+                0.1,         0.0,         -fmin(f128), 0.0,         10.0,        10.0,        tmin(f128),  inf(f128),   -nan(f128),  -inf(f128),  -1.0,        -fmin(f128), -10.0,      -fmin(f128),
+                -inf(f128),  -fmax(f128), tmin(f128),  tmin(f128),  -fmin(f128), 0.1,         fmin(f128),  fmin(f128),  -fmin(f128), nan(f128),   -1.0,        -0.0,        -0.0,       0.1,
+                fmax(f128),  0.0,         -fmax(f128), nan(f128),   nan(f128),   nan(f128),   nan(f128),   -nan(f128),  fmin(f128),  -inf(f128),  inf(f128),   -fmax(f128), -10.0,      fmin(f128),
+                0.1,         fmax(f128),
+            }, .{
+                0.0,         10.0,        0.1,         inf(f128),   -0.0,        -1.0,        nan(f128),  -10.0,       -inf(f128),  0.1,         -tmin(f128), 1.0,         inf(f128),   0.1,         -1.0,
+                10.0,        0.0,         1.0,         nan(f128),   tmin(f128),  fmax(f128),  10.0,       0.1,         0.1,         -fmin(f128), -inf(f128),  -nan(f128),  -fmin(f128), -0.0,        -inf(f128),
+                -nan(f128),  fmax(f128),  -fmin(f128), -tmin(f128), -fmin(f128), -fmax(f128), nan(f128),  fmin(f128),  -fmax(f128), fmax(f128),  1.0,         10.0,        -fmax(f128), nan(f128),   -fmax(f128),
+                -inf(f128),  nan(f128),   -nan(f128),  tmin(f128),  -1.0,        0.1,         0.1,        -1.0,        -nan(f128),  fmax(f128),  10.0,        -inf(f128),  10.0,        -0.0,        -1.0,
+                -0.0,        -tmin(f128), 10.0,        -1.0,        -fmax(f128), fmin(f128),  fmax(f128), tmin(f128),  10.0,        fmin(f128),  -nan(f128),  1.0,         -tmin(f128), -1.0,        fmax(f128),
+                1.0,         -tmin(f128), 0.1,         -nan(f128),  inf(f128),   0.1,         0.1,        fmax(f128),  -fmin(f128), fmin(f128),  -0.0,        fmax(f128),  -fmax(f128), -tmin(f128), tmin(f128),
+                nan(f128),   0.1,         tmin(f128),  -1.0,        fmin(f128),  -nan(f128),  fmax(f128), 1.0,         nan(f128),   -nan(f128),  inf(f128),   -fmin(f128), fmin(f128),  0.1,         10.0,
+                -tmin(f128), -10.0,       0.0,         0.1,         -fmin(f128), -0.0,        0.0,        -10.0,       fmax(f128),  nan(f128),   nan(f128),   -fmin(f128), -fmax(f128), 10.0,        0.0,
+                fmin(f128),  10.0,        -tmin(f128), -tmin(f128), 0.0,         -10.0,       1.0,        -fmin(f128),
+            });
+            try testArgs(@Vector(69, f128), .{
+                -1.0,       nan(f128),  0.1,        0.1,        0.1,        -1.0, -10.0,      inf(f128), -0.0,       inf(f128),  tmin(f128),  0.0,         -fmax(f128), -tmin(f128), -10.0,       -fmax(f128),
+                -0.0,       0.0,        nan(f128),  inf(f128),  1.0,        -1.0, 0.1,        -0.0,      1.0,        fmax(f128), -fmax(f128), 0.0,         inf(f128),   -inf(f128),  -tmin(f128), -inf(f128),
+                10.0,       fmin(f128), 10.0,       -10.0,      0.1,        1.0,  -0.0,       nan(f128), tmin(f128), inf(f128),  inf(f128),   -nan(f128),  -nan(f128),  1.0,         -tmin(f128), 0.0,
+                fmin(f128), fmax(f128), fmin(f128), -10.0,      nan(f128),  0.0,  -nan(f128), -0.0,      -nan(f128), 0.1,        -10.0,       -tmin(f128), fmax(f128),  1.0,         fmin(f128),  fmax(f128),
+                nan(f128),  -inf(f128), 1.0,        fmin(f128), -nan(f128),
+            }, .{
+                -inf(f128), fmax(f128), 0.0,        nan(f128),   -10.0,       tmin(f128),  nan(f128),  1.0,       10.0,        -fmin(f128), fmin(f128),  tmin(f128),  0.0,         -fmin(f128), -0.0,        fmin(f128),
+                inf(f128),  inf(f128),  fmin(f128), fmin(f128),  -tmin(f128), -fmax(f128), 10.0,       nan(f128), -0.0,        1.0,         10.0,        -10.0,       -inf(f128),  fmin(f128),  -fmax(f128), 0.1,
+                -1.0,       -nan(f128), -10.0,      tmin(f128),  inf(f128),   nan(f128),   0.0,        -10.0,     tmin(f128),  0.0,         -fmax(f128), -tmin(f128), 0.1,         0.1,         10.0,        0.1,
+                fmax(f128), 0.1,        0.0,        -fmin(f128), -inf(f128),  -inf(f128),  -nan(f128), 0.1,       -fmax(f128), fmax(f128),  -fmax(f128), -0.0,        -tmin(f128), -1.0,        nan(f128),   0.1,
+                -1.0,       -inf(f128), tmin(f128), inf(f128),   inf(f128),
+            });
+        }
     };
 }
 
@@ -3848,6 +4238,7 @@ test min {
     try t.testIntTypes();
     try t.testIntVectorTypes();
     try t.testFloatTypes();
+    try t.testFloatVectorTypes();
 }
 
 inline fn max(comptime Type: type, lhs: Type, rhs: Type) Type {
@@ -3858,4 +4249,5 @@ test max {
     try t.testIntTypes();
     try t.testIntVectorTypes();
     try t.testFloatTypes();
+    try t.testFloatVectorTypes();
 }
