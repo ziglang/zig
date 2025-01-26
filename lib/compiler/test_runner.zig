@@ -341,7 +341,11 @@ const FuzzerSlice = extern struct {
 
 var is_fuzz_test: bool = undefined;
 
-extern fn fuzzer_start(testOne: *const fn ([*]const u8, usize) callconv(.C) void) void;
+extern fn fuzzer_start(
+    testOne: *const fn ([*]const u8, usize) callconv(.C) void,
+    len_range: testing.FuzzInputOptions.LengthRange,
+) void;
+extern fn fuzzer_next() FuzzerSlice;
 extern fn fuzzer_init(cache_dir: FuzzerSlice) void;
 extern fn fuzzer_coverage_id() u64;
 
@@ -392,10 +396,13 @@ pub fn fuzz(
             }
         }
     };
+
+    assert(options.len_range.min <= options.len_range.max);
+
     if (builtin.fuzz) {
         const prev_allocator_state = testing.allocator_instance;
         testing.allocator_instance = .{};
-        fuzzer_start(&global.fuzzer_one);
+        fuzzer_start(&global.fuzzer_one, options.len_range);
         testing.allocator_instance = prev_allocator_state;
         return;
     }
@@ -403,10 +410,18 @@ pub fn fuzz(
     // When the unit test executable is not built in fuzz mode, only run the
     // provided corpus.
     for (options.corpus) |input| {
+        assert(input.len >= options.len_range.min);
+        assert(input.len <= options.len_range.max);
         try testOne(input);
     }
 
-    // In case there is no provided corpus, also use an empty
+    // In case there is no provided corpus, also use a random
     // string as a smoke test.
-    try testOne("");
+    var prng = std.Random.DefaultPrng.init(testing.random_seed);
+    const rng = prng.random();
+    const rand_len = options.len_range.max - options.len_range.min + 1;
+    const input_len = options.len_range.min + rng.uintLessThanBiased(usize, rand_len);
+    const smoke_test_input = try testing.allocator.alloc(u8, input_len);
+    defer testing.allocator.free(smoke_test_input);
+    try testOne(smoke_test_input);
 }

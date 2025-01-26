@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const fatal = std.process.fatal;
 const SeenPcsHeader = std.Build.Fuzz.abi.SeenPcsHeader;
+const LengthRange = std.testing.FuzzInputOptions.LengthRange;
 
 pub const std_options = std.Options{
     .logFn = logOverride,
@@ -93,6 +94,7 @@ const Fuzzer = struct {
     gpa: Allocator,
     rng: std.Random.DefaultPrng,
     input: std.ArrayListUnmanaged(u8),
+    input_len_range: LengthRange,
     pcs: []const usize,
     pc_counters: []u8,
     n_runs: usize,
@@ -235,15 +237,17 @@ const Fuzzer = struct {
         };
     }
 
-    fn start(f: *Fuzzer) !void {
+    fn start(f: *Fuzzer, len_range: LengthRange) !void {
         const gpa = f.gpa;
         const rng = fuzzer.rng.random();
+        f.input_len_range = len_range;
 
         // Prepare initial input.
         assert(f.recent_cases.entries.len == 0);
         assert(f.n_runs == 0);
         try f.recent_cases.ensureUnusedCapacity(gpa, 100);
-        const len = rng.uintLessThanBiased(usize, 80);
+        const rand_len = f.input_len_range.max - f.input_len_range.min + 1;
+        const len = len_range.min + rng.uintLessThanBiased(usize, rand_len);
         try f.input.resize(gpa, len);
         rng.bytes(f.input.items);
         f.recent_cases.putAssumeCapacity(.{
@@ -360,24 +364,33 @@ const Fuzzer = struct {
     fn mutate(f: *Fuzzer) !void {
         const gpa = f.gpa;
         const rng = fuzzer.rng.random();
+        const rand_len = f.input_len_range.max - f.input_len_range.min + 1;
 
         if (f.input.items.len == 0) {
-            const len = rng.uintLessThanBiased(usize, 80);
+            const len = f.input_len_range.min + rng.uintLessThanBiased(usize, rand_len);
             try f.input.resize(gpa, len);
             rng.bytes(f.input.items);
             return;
         }
 
-        const index = rng.uintLessThanBiased(usize, f.input.items.len * 3);
+        const can_shrink: usize = @intFromBool(f.input.items.len > f.input_len_range.min);
+        const can_grow: usize = @intFromBool(f.input.items.len < f.input_len_range.max);
+        const index_max = f.input.items.len * (1 + can_shrink + can_grow);
+        const shrink_max = f.input.items.len * (1 + can_shrink);
+
+        const index = rng.uintLessThanBiased(usize, index_max);
         if (index < f.input.items.len) {
             f.input.items[index] = rng.int(u8);
-        } else if (index < f.input.items.len * 2) {
+        } else if (index < shrink_max) {
             _ = f.input.orderedRemove(index - f.input.items.len);
-        } else if (index < f.input.items.len * 3) {
-            try f.input.insert(gpa, index - f.input.items.len * 2, rng.int(u8));
+        } else if (index < index_max) {
+            try f.input.insert(gpa, index - shrink_max, rng.int(u8));
         } else {
             unreachable;
         }
+
+        assert(f.input.items.len >= f.input_len_range.min);
+        assert(f.input.items.len <= f.input_len_range.max);
     }
 };
 
@@ -408,6 +421,7 @@ var fuzzer: Fuzzer = .{
     .gpa = general_purpose_allocator.allocator(),
     .rng = std.Random.DefaultPrng.init(0),
     .input = .{},
+    .input_len_range = undefined,
     .pcs = undefined,
     .pc_counters = undefined,
     .n_runs = 0,
@@ -425,9 +439,9 @@ export fn fuzzer_coverage_id() u64 {
 
 var fuzzer_one: *const fn (input_ptr: [*]const u8, input_len: usize) callconv(.C) void = undefined;
 
-export fn fuzzer_start(testOne: @TypeOf(fuzzer_one)) void {
+export fn fuzzer_start(testOne: @TypeOf(fuzzer_one), len_range: LengthRange) void {
     fuzzer_one = testOne;
-    fuzzer.start() catch |err| switch (err) {
+    fuzzer.start(len_range) catch |err| switch (err) {
         error.OutOfMemory => fatal("out of memory", .{}),
     };
 }
