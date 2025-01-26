@@ -143,8 +143,6 @@ compile_log_sources: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `File`, using Module's general purpose allocator.
 failed_files: std.AutoArrayHashMapUnmanaged(*File, ?*ErrorMsg) = .empty,
-/// The ErrorMsg memory is owned by the `EmbedFile`, using Module's general purpose allocator.
-failed_embed_files: std.AutoArrayHashMapUnmanaged(*EmbedFile, *ErrorMsg) = .empty,
 failed_exports: std.AutoArrayHashMapUnmanaged(Export.Index, *ErrorMsg) = .empty,
 /// If analysis failed due to a cimport error, the corresponding Clang errors
 /// are stored here.
@@ -898,13 +896,23 @@ pub const File = struct {
 };
 
 pub const EmbedFile = struct {
-    /// Relative to the owning module's root directory.
-    sub_file_path: InternPool.NullTerminatedString,
     /// Module that this file is a part of, managed externally.
     owner: *Package.Module,
-    stat: Cache.File.Stat,
+    /// Relative to the owning module's root directory.
+    sub_file_path: InternPool.NullTerminatedString,
+
+    /// `.none` means the file was not loaded, so `stat` is undefined.
     val: InternPool.Index,
-    src_loc: LazySrcLoc,
+    /// If this is `null` and `val` is `.none`, the file has never been loaded.
+    err: ?(std.fs.File.OpenError || std.fs.File.StatError || std.fs.File.ReadError || error{UnexpectedEof}),
+    stat: Cache.File.Stat,
+
+    pub const Index = enum(u32) {
+        _,
+        pub fn get(idx: Index, zcu: *const Zcu) *EmbedFile {
+            return zcu.embed_table.values()[@intFromEnum(idx)];
+        }
+    };
 };
 
 /// This struct holds data necessary to construct API-facing `AllErrors.Message`.
@@ -2464,11 +2472,6 @@ pub fn deinit(zcu: *Zcu) void {
         }
         zcu.failed_files.deinit(gpa);
 
-        for (zcu.failed_embed_files.values()) |msg| {
-            msg.destroy(gpa);
-        }
-        zcu.failed_embed_files.deinit(gpa);
-
         for (zcu.failed_exports.values()) |value| {
             value.destroy(gpa);
         }
@@ -3886,6 +3889,14 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
             .struct_type, .union_type, .enum_type => return writer.print("type('{}')", .{Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip)}),
             .func => |f| return writer.print("ies('{}')", .{ip.getNav(f.owner_nav).fqn.fmt(ip)}),
             else => unreachable,
+        },
+        .embed_file => |ef_idx| {
+            const ef = ef_idx.get(zcu);
+            return writer.print("embed_file('{s}')", .{std.fs.path.fmtJoin(&.{
+                ef.owner.root.root_dir.path orelse "",
+                ef.owner.root.sub_path,
+                ef.sub_file_path.toSlice(ip),
+            })});
         },
         .namespace => |ti| {
             const info = ti.resolveFull(ip) orelse {

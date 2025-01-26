@@ -13964,6 +13964,8 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     defer tracy.end();
 
     const pt = sema.pt;
+    const zcu = pt.zcu;
+
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const operand_src = block.builtinCallArgSrc(inst_data.src_node, 0);
     const name = try sema.resolveConstString(block, operand_src, inst_data.operand, .{ .simple = .operand_embedFile });
@@ -13972,18 +13974,24 @@ fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
         return sema.fail(block, operand_src, "file path name cannot be empty", .{});
     }
 
-    const val = pt.embedFile(block.getFileScope(pt.zcu), name, operand_src) catch |err| switch (err) {
+    const ef_idx = pt.embedFile(block.getFileScope(zcu), name) catch |err| switch (err) {
         error.ImportOutsideModulePath => {
             return sema.fail(block, operand_src, "embed of file outside package path: '{s}'", .{name});
         },
-        else => {
-            // TODO: these errors are file system errors; make sure an update() will
-            // retry this and not cache the file system error, which may be transient.
-            return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ name, @errorName(err) });
+        error.CurrentWorkingDirectoryUnlinked => {
+            // TODO: this should be some kind of retryable failure, in case the cwd is put back
+            return sema.fail(block, operand_src, "unable to resolve '{s}': working directory has been unlinked", .{name});
         },
+        error.OutOfMemory => |e| return e,
     };
+    try sema.declareDependency(.{ .embed_file = ef_idx });
 
-    return Air.internedToRef(val);
+    const result = ef_idx.get(zcu);
+    if (result.val == .none) {
+        return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ name, @errorName(result.err.?) });
+    }
+
+    return Air.internedToRef(result.val);
 }
 
 fn zirRetErrValueCode(sema: *Sema, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
