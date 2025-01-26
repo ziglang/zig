@@ -84,7 +84,6 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
 
         .bool,
         .int,
-        .float,
         .comptime_float,
         .comptime_int,
         .enum_literal,
@@ -94,6 +93,29 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
         => {
             if (actual != expected) {
                 print("expected {}, found {}\n", .{ expected, actual });
+                return error.TestExpectedEqual;
+            }
+        },
+
+        .float => |float| {
+            // Convert floats to ints before comparing so nans can be compared
+            const Int = std.meta.Int(.unsigned, float.bits);
+            const expected_int: Int = @bitCast(expected);
+            const actual_int: Int = @bitCast(actual);
+
+            // Perform the comparison
+            if (actual_int != expected_int) {
+                if (std.math.isNan(actual) and std.math.isNan(expected)) {
+                    // Both arguments are nan but have different bit patterns, print the hex
+                    print("expected {} (0x{x}), found {} (0x{x})\n", .{
+                        expected,
+                        expected_int,
+                        actual,
+                        actual_int,
+                    });
+                } else {
+                    print("expected {}, found {}\n", .{ expected, actual });
+                }
                 return error.TestExpectedEqual;
             }
         },
