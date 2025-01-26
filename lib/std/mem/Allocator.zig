@@ -101,7 +101,10 @@ pub inline fn rawFree(self: Allocator, buf: []u8, log2_buf_align: u8, ret_addr: 
 /// Returns a pointer to undefined memory.
 /// Call `destroy` with the result to free the memory.
 pub fn create(self: Allocator, comptime T: type) Error!*T {
-    if (@sizeOf(T) == 0) return @as(*T, @ptrFromInt(math.maxInt(usize)));
+    if (@sizeOf(T) == 0) {
+        const ptr = comptime std.mem.alignBackward(usize, math.maxInt(usize), @alignOf(T));
+        return @as(*T, @ptrFromInt(ptr));
+    }
     const ptr: *T = @ptrCast(try self.allocBytesWithAlignment(@alignOf(T), @sizeOf(T), @returnAddress()));
     return ptr;
 }
