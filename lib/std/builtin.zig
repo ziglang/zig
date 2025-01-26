@@ -548,6 +548,12 @@ pub const SourceLocation = struct {
     fn_name: [:0]const u8,
     line: u32,
     column: u32,
+
+    pub fn format(sl: SourceLocation, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print("{s}:{d}:{d} ({s})", .{ sl.file, sl.line, sl.column, sl.fn_name });
+    }
 };
 
 pub const TypeId = std.meta.Tag(Type);
