@@ -77,6 +77,7 @@ pub const IOV_MAX = system.IOV_MAX;
 pub const IPPROTO = system.IPPROTO;
 pub const KERN = system.KERN;
 pub const Kevent = system.Kevent;
+pub const clone_args = system.clone_args;
 pub const MADV = system.MADV;
 pub const MAP = system.MAP;
 pub const MAX_ADDR_LEN = system.MAX_ADDR_LEN;
@@ -4689,6 +4690,34 @@ pub fn mprotect(memory: []align(mem.page_size) u8, protection: u32) MProtectErro
             else => |err| return unexpectedErrno(err),
         }
     }
+}
+
+pub const Clone3Error = error{
+    AccessDenied,
+    SystemResources,
+    Invalid,
+    PidAlreadyExists,
+    OutOfMemory,
+    OperationNotSupported,
+    OutOfUserNamespaces,
+} || UnexpectedError;
+
+pub fn clone3(cl_args: system.clone_args) Clone3Error!pid_t {
+    const rc = system.clone3(cl_args);
+    return switch (errno(rc)) {
+        .SUCCESS => @intCast(rc),
+        .ACCES => error.AccessDenied,
+        .AGAIN => error.SystemResources,
+        .BUSY => error.Invalid,
+        .EXIST => error.PidAlreadyExists,
+        .INVAL => error.Invalid,
+        .NOMEM => error.OutOfMemory,
+        .NOSPC => error.SystemResources,
+        .OPNOTSUPP => error.OperationNotSupported,
+        .PERM => error.AccessDenied,
+        .USERS => error.OutOfUserNamespaces,
+        else => |err| unexpectedErrno(err),
+    };
 }
 
 pub const ForkError = error{SystemResources} || UnexpectedError;

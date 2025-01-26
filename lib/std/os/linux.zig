@@ -589,6 +589,80 @@ pub fn execve(path: [*:0]const u8, argv: [*:null]const ?[*:0]const u8, envp: [*:
     return syscall3(.execve, @intFromPtr(path), @intFromPtr(argv), @intFromPtr(envp));
 }
 
+pub const clone_args = extern struct {
+    /// Flag bit mask
+    flags: packed struct(u64) {
+        __reserverd0: u8 = 0,
+        VM: bool = false,
+        FS: bool = false,
+        FILES: bool = false,
+        SIGHAND: bool = false,
+        PIDFD: bool = false,
+        PTRACE: bool = false,
+        VFORK: bool = false,
+        PARENT: bool = false,
+        THREAD: bool = false,
+        NEWNS: bool = false,
+        SYSVSEM: bool = false,
+        SETTLS: bool = false,
+        PARENT_SETTID: bool = false,
+        CHILD_CLEARTID: bool = false,
+        DETACHED: bool = false,
+        UNTRACED: bool = false,
+        CHILD_SETTID: bool = false,
+        NEWCGROUP: bool = false,
+        NEWUTS: bool = false,
+        NEWIPC: bool = false,
+        NEWUSER: bool = false,
+        NEWPID: bool = false,
+        NEWNET: bool = false,
+        IO: bool = false,
+        CLEAR_SIGHAND: bool = false,
+        INTO_CGROUP: bool = false,
+        __reseved1: u30 = 0,
+    } = .{},
+
+    /// Where to store PID file descriptor
+    /// (int *)
+    pidfd: u64 = 0,
+
+    /// Where to store child TID in child's memory
+    /// (pid_t *)
+    child_tid: u64 = 0,
+
+    /// Where to store child TID in parent's memory
+    /// (pid_t *)
+    parent_tid: u64 = 0,
+
+    /// Signal to deliver to parent on child termination
+    exit_signal: u64 = SIG.CHLD,
+
+    /// Pointer to lowest byte of stack
+    stack: u64 = 0,
+
+    /// Size of stack
+    stack_size: u64 = 0,
+
+    /// Location of new TLS
+    tls: u64 = 0,
+
+    /// Pointer to a pid_t array
+    /// (since linux 5.5)
+    set_tid: u64 = 0,
+
+    /// Number of elements in set_tid
+    /// (since linux 5.5)
+    set_tid_size: u64 = 0,
+
+    /// File descriptor for target cgroup of child
+    /// (since linux 5.7)
+    cgroup: u64 = 0,
+};
+
+pub fn clone3(cl_args: clone_args) usize {
+    return syscall2(.clone3, @intFromPtr(&cl_args), @sizeOf(@TypeOf(cl_args)));
+}
+
 pub fn fork() usize {
     if (comptime native_arch.isSPARC()) {
         return syscall_fork();
