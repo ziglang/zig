@@ -4952,6 +4952,7 @@ pub const SOCK = switch (native_os) {
     else => void,
 };
 pub const TCP = switch (native_os) {
+    .macos => darwin.TCP,
     .linux => linux.TCP,
     .emscripten => emscripten.TCP,
     .windows => ws2_32.TCP,

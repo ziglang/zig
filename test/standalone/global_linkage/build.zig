@@ -7,7 +7,8 @@ pub fn build(b: *std.Build) void {
     const optimize: std.builtin.OptimizeMode = .Debug;
     const target = b.graph.host;
 
-    const obj1 = b.addStaticLibrary(.{
+    const obj1 = b.addLibrary(.{
+        .linkage = .static,
         .name = "obj1",
         .root_module = b.createModule(.{
             .root_source_file = b.path("obj1.zig"),
@@ -16,7 +17,8 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    const obj2 = b.addStaticLibrary(.{
+    const obj2 = b.addLibrary(.{
+        .linkage = .static,
         .name = "obj2",
         .root_module = b.createModule(.{
             .root_source_file = b.path("obj2.zig"),

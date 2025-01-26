@@ -366,7 +366,7 @@ pub const Register = enum(u8) {
             @intFromEnum(Register.eax)  ... @intFromEnum(Register.r15d)  => @intFromEnum(Register.eax),
             @intFromEnum(Register.ax)   ... @intFromEnum(Register.r15w)  => @intFromEnum(Register.ax),
             @intFromEnum(Register.al)   ... @intFromEnum(Register.r15b)  => @intFromEnum(Register.al),
-            @intFromEnum(Register.ah)   ... @intFromEnum(Register.bh)    => @intFromEnum(Register.ah) - 4,
+            @intFromEnum(Register.ah)   ... @intFromEnum(Register.bh)    => @intFromEnum(Register.ah),
             else => unreachable,
             // zig fmt: on
         };
@@ -385,7 +385,10 @@ pub const Register = enum(u8) {
     }
 
     pub fn to8(reg: Register) Register {
-        return @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.al));
+        return switch (@intFromEnum(reg)) {
+            else => @enumFromInt(@intFromEnum(reg) - reg.gpBase() + @intFromEnum(Register.al)),
+            @intFromEnum(Register.ah)...@intFromEnum(Register.bh) => reg,
+        };
     }
 
     fn sseBase(reg: Register) u7 {

@@ -6,7 +6,8 @@ pub fn build(b: *std.Build) void {
 
     const optimize: std.builtin.OptimizeMode = .Debug;
     const target = b.graph.host;
-    const lib = b.addSharedLibrary(.{
+    const lib = b.addLibrary(.{
+        .linkage = .dynamic,
         .name = "mathtest",
         .version = .{ .major = 1, .minor = 0, .patch = 0 },
         .root_module = b.createModule(.{

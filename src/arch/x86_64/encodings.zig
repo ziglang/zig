@@ -437,6 +437,7 @@ pub const table = [_]Entry{
     .{ .jmp, .d, &.{ .rel32 }, &.{ 0xe9 }, 0, .none, .none },
     .{ .jmp, .m, &.{ .rm64  }, &.{ 0xff }, 4, .none, .none },
 
+    .{ .lahf, .z, &.{}, &.{ 0x9f }, 0, .none, .@"32bit" },
     .{ .lahf, .z, &.{}, &.{ 0x9f }, 0, .none, .sahf },
 
     .{ .lar, .rm, &.{ .r16, .rm16    }, &.{ 0x0f, 0x02 }, 0, .none, .none },
@@ -744,6 +745,7 @@ pub const table = [_]Entry{
 
     .{ .rsm, .z, &.{}, &.{ 0x0f, 0xaa }, 0, .none, .none },
 
+    .{ .sahf, .z, &.{}, &.{ 0x9e }, 0, .none, .@"32bit" },
     .{ .sahf, .z, &.{}, &.{ 0x9e }, 0, .none, .sahf },
 
     .{ .sal, .m1, &.{ .rm8,  .unity }, &.{ 0xd0 }, 4, .none,  .none },
@@ -2274,6 +2276,10 @@ pub const table = [_]Entry{
     .{ .vtestps, .rm, &.{ .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x38, 0x0e }, 0, .vex_256_w0, .avx },
     .{ .vtestpd, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x38, 0x0f }, 0, .vex_128_w0, .avx },
     .{ .vtestpd, .rm, &.{ .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x38, 0x0f }, 0, .vex_256_w0, .avx },
+
+    .{ .vucomisd, .rm, &.{ .xmm, .xmm_m64 }, &.{ 0x66, 0x0f, 0x2e }, 0, .vex_lig_wig, .avx },
+
+    .{ .vucomiss, .rm, &.{ .xmm, .xmm_m32 }, &.{ 0x0f, 0x2e }, 0, .vex_lig_wig, .avx },
 
     .{ .vxorpd, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x57 }, 0, .vex_128_wig, .avx },
     .{ .vxorpd, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x57 }, 0, .vex_256_wig, .avx },

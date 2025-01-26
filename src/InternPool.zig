@@ -42,6 +42,10 @@ nav_ty_deps: std.AutoArrayHashMapUnmanaged(Nav.Index, DepEntry.Index),
 /// * a container type requiring resolution (invalidated when the type must be recreated at a new index)
 /// Value is index into `dep_entries` of the first dependency on this interned value.
 interned_deps: std.AutoArrayHashMapUnmanaged(Index, DepEntry.Index),
+/// Dependencies on an embedded file.
+/// Introduced by `@embedFile`; invalidated when the file changes.
+/// Value is index into `dep_entries` of the first dependency on this `Zcu.EmbedFile`.
+embed_file_deps: std.AutoArrayHashMapUnmanaged(Zcu.EmbedFile.Index, DepEntry.Index),
 /// Dependencies on the full set of names in a ZIR namespace.
 /// Key refers to a `struct_decl`, `union_decl`, etc.
 /// Value is index into `dep_entries` of the first dependency on this namespace.
@@ -90,6 +94,7 @@ pub const empty: InternPool = .{
     .nav_val_deps = .empty,
     .nav_ty_deps = .empty,
     .interned_deps = .empty,
+    .embed_file_deps = .empty,
     .namespace_deps = .empty,
     .namespace_name_deps = .empty,
     .memoized_state_main_deps = .none,
@@ -824,6 +829,7 @@ pub const Dependee = union(enum) {
     nav_val: Nav.Index,
     nav_ty: Nav.Index,
     interned: Index,
+    embed_file: Zcu.EmbedFile.Index,
     namespace: TrackedInst.Index,
     namespace_name: NamespaceNameKey,
     memoized_state: MemoizedStateStage,
@@ -875,6 +881,7 @@ pub fn dependencyIterator(ip: *const InternPool, dependee: Dependee) DependencyI
         .nav_val => |x| ip.nav_val_deps.get(x),
         .nav_ty => |x| ip.nav_ty_deps.get(x),
         .interned => |x| ip.interned_deps.get(x),
+        .embed_file => |x| ip.embed_file_deps.get(x),
         .namespace => |x| ip.namespace_deps.get(x),
         .namespace_name => |x| ip.namespace_name_deps.get(x),
         .memoized_state => |stage| switch (stage) {
@@ -945,6 +952,7 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: AnalUnit, depend
                 .nav_val => ip.nav_val_deps,
                 .nav_ty => ip.nav_ty_deps,
                 .interned => ip.interned_deps,
+                .embed_file => ip.embed_file_deps,
                 .namespace => ip.namespace_deps,
                 .namespace_name => ip.namespace_name_deps,
                 .memoized_state => comptime unreachable,
@@ -2292,17 +2300,6 @@ pub const Key = union(enum) {
 
         pub fn analysisUnordered(func: Func, ip: *const InternPool) FuncAnalysis {
             return @atomicLoad(FuncAnalysis, func.analysisPtr(ip), .unordered);
-        }
-
-        pub fn setCallsOrAwaitsErrorableFn(func: Func, ip: *InternPool, value: bool) void {
-            const extra_mutex = &ip.getLocal(func.tid).mutate.extra.mutex;
-            extra_mutex.lock();
-            defer extra_mutex.unlock();
-
-            const analysis_ptr = func.analysisPtr(ip);
-            var analysis = analysis_ptr.*;
-            analysis.calls_or_awaits_errorable_fn = value;
-            @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
         }
 
         pub fn setBranchHint(func: Func, ip: *InternPool, hint: std.builtin.BranchHint) void {
@@ -4570,12 +4567,37 @@ pub const Index = enum(u32) {
     null_type,
     undefined_type,
     enum_literal_type,
+
     manyptr_u8_type,
     manyptr_const_u8_type,
     manyptr_const_u8_sentinel_0_type,
     single_const_pointer_to_comptime_int_type,
     slice_const_u8_type,
     slice_const_u8_sentinel_0_type,
+
+    vector_16_i8_type,
+    vector_32_i8_type,
+    vector_16_u8_type,
+    vector_32_u8_type,
+    vector_8_i16_type,
+    vector_16_i16_type,
+    vector_8_u16_type,
+    vector_16_u16_type,
+    vector_4_i32_type,
+    vector_8_i32_type,
+    vector_4_u32_type,
+    vector_8_u32_type,
+    vector_2_i64_type,
+    vector_4_i64_type,
+    vector_2_u64_type,
+    vector_4_u64_type,
+    vector_4_f16_type,
+    vector_8_f16_type,
+    vector_4_f32_type,
+    vector_8_f32_type,
+    vector_2_f64_type,
+    vector_4_f64_type,
+
     optional_noreturn_type,
     anyerror_void_error_union_type,
     /// Used for the inferred error set of inline/comptime function calls.
@@ -5065,6 +5087,51 @@ pub const static_keys = [_]Key{
             .is_const = true,
         },
     } },
+
+    // @Vector(16, i8)
+    .{ .vector_type = .{ .len = 16, .child = .i8_type } },
+    // @Vector(32, i8)
+    .{ .vector_type = .{ .len = 32, .child = .i8_type } },
+    // @Vector(16, u8)
+    .{ .vector_type = .{ .len = 16, .child = .u8_type } },
+    // @Vector(32, u8)
+    .{ .vector_type = .{ .len = 32, .child = .u8_type } },
+    // @Vector(8, i16)
+    .{ .vector_type = .{ .len = 8, .child = .i16_type } },
+    // @Vector(16, i16)
+    .{ .vector_type = .{ .len = 16, .child = .i16_type } },
+    // @Vector(8, u16)
+    .{ .vector_type = .{ .len = 8, .child = .u16_type } },
+    // @Vector(16, u16)
+    .{ .vector_type = .{ .len = 16, .child = .u16_type } },
+    // @Vector(4, i32)
+    .{ .vector_type = .{ .len = 4, .child = .i32_type } },
+    // @Vector(8, i32)
+    .{ .vector_type = .{ .len = 8, .child = .i32_type } },
+    // @Vector(4, u32)
+    .{ .vector_type = .{ .len = 4, .child = .u32_type } },
+    // @Vector(8, u32)
+    .{ .vector_type = .{ .len = 8, .child = .u32_type } },
+    // @Vector(2, i64)
+    .{ .vector_type = .{ .len = 2, .child = .i64_type } },
+    // @Vector(4, i64)
+    .{ .vector_type = .{ .len = 4, .child = .i64_type } },
+    // @Vector(2, u64)
+    .{ .vector_type = .{ .len = 2, .child = .u64_type } },
+    // @Vector(8, u64)
+    .{ .vector_type = .{ .len = 4, .child = .u64_type } },
+    // @Vector(4, f16)
+    .{ .vector_type = .{ .len = 4, .child = .f16_type } },
+    // @Vector(8, f16)
+    .{ .vector_type = .{ .len = 8, .child = .f16_type } },
+    // @Vector(4, f32)
+    .{ .vector_type = .{ .len = 4, .child = .f32_type } },
+    // @Vector(8, f32)
+    .{ .vector_type = .{ .len = 8, .child = .f32_type } },
+    // @Vector(2, f64)
+    .{ .vector_type = .{ .len = 2, .child = .f64_type } },
+    // @Vector(4, f64)
+    .{ .vector_type = .{ .len = 4, .child = .f64_type } },
 
     // ?noreturn
     .{ .opt_type = .noreturn_type },
@@ -5975,7 +6042,7 @@ pub const FuncAnalysis = packed struct(u32) {
     is_analyzed: bool,
     branch_hint: std.builtin.BranchHint,
     is_noinline: bool,
-    calls_or_awaits_errorable_fn: bool,
+    has_error_trace: bool,
     /// True if this function has an inferred error set.
     inferred_error_set: bool,
     disable_instrumentation: bool,
@@ -6623,6 +6690,7 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     ip.nav_val_deps.deinit(gpa);
     ip.nav_ty_deps.deinit(gpa);
     ip.interned_deps.deinit(gpa);
+    ip.embed_file_deps.deinit(gpa);
     ip.namespace_deps.deinit(gpa);
     ip.namespace_name_deps.deinit(gpa);
 
@@ -9007,7 +9075,7 @@ pub fn getFuncDecl(
             .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = key.is_noinline,
-            .calls_or_awaits_errorable_fn = false,
+            .has_error_trace = false,
             .inferred_error_set = false,
             .disable_instrumentation = false,
         },
@@ -9116,7 +9184,7 @@ pub fn getFuncDeclIes(
             .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = key.is_noinline,
-            .calls_or_awaits_errorable_fn = false,
+            .has_error_trace = false,
             .inferred_error_set = true,
             .disable_instrumentation = false,
         },
@@ -9312,7 +9380,7 @@ pub fn getFuncInstance(
             .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = arg.is_noinline,
-            .calls_or_awaits_errorable_fn = false,
+            .has_error_trace = false,
             .inferred_error_set = false,
             .disable_instrumentation = false,
         },
@@ -9410,7 +9478,7 @@ pub fn getFuncInstanceIes(
             .is_analyzed = false,
             .branch_hint = .none,
             .is_noinline = arg.is_noinline,
-            .calls_or_awaits_errorable_fn = false,
+            .has_error_trace = false,
             .inferred_error_set = true,
             .disable_instrumentation = false,
         },
@@ -11692,6 +11760,28 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .single_const_pointer_to_comptime_int_type,
         .slice_const_u8_type,
         .slice_const_u8_sentinel_0_type,
+        .vector_16_i8_type,
+        .vector_32_i8_type,
+        .vector_16_u8_type,
+        .vector_32_u8_type,
+        .vector_8_i16_type,
+        .vector_16_i16_type,
+        .vector_8_u16_type,
+        .vector_16_u16_type,
+        .vector_4_i32_type,
+        .vector_8_i32_type,
+        .vector_4_u32_type,
+        .vector_8_u32_type,
+        .vector_2_i64_type,
+        .vector_4_i64_type,
+        .vector_2_u64_type,
+        .vector_4_u64_type,
+        .vector_4_f16_type,
+        .vector_8_f16_type,
+        .vector_4_f32_type,
+        .vector_8_f32_type,
+        .vector_2_f64_type,
+        .vector_4_f64_type,
         .optional_noreturn_type,
         .anyerror_void_error_union_type,
         .adhoc_inferred_error_set_type,
@@ -12009,6 +12099,30 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
         .slice_const_u8_sentinel_0_type,
         => .pointer,
 
+        .vector_16_i8_type,
+        .vector_32_i8_type,
+        .vector_16_u8_type,
+        .vector_32_u8_type,
+        .vector_8_i16_type,
+        .vector_16_i16_type,
+        .vector_8_u16_type,
+        .vector_16_u16_type,
+        .vector_4_i32_type,
+        .vector_8_i32_type,
+        .vector_4_u32_type,
+        .vector_8_u32_type,
+        .vector_2_i64_type,
+        .vector_4_i64_type,
+        .vector_2_u64_type,
+        .vector_4_u64_type,
+        .vector_4_f16_type,
+        .vector_8_f16_type,
+        .vector_4_f32_type,
+        .vector_8_f32_type,
+        .vector_2_f64_type,
+        .vector_4_f64_type,
+        => .vector,
+
         .optional_noreturn_type => .optional,
         .anyerror_void_error_union_type => .error_union,
         .empty_tuple_type => .@"struct",
@@ -12174,7 +12288,7 @@ pub fn funcAnalysisUnordered(ip: *const InternPool, func: Index) FuncAnalysis {
     return @atomicLoad(FuncAnalysis, ip.funcAnalysisPtr(func), .unordered);
 }
 
-pub fn funcSetCallsOrAwaitsErrorableFn(ip: *InternPool, func: Index) void {
+pub fn funcSetHasErrorTrace(ip: *InternPool, func: Index, has_error_trace: bool) void {
     const unwrapped_func = func.unwrap(ip);
     const extra_mutex = &ip.getLocal(unwrapped_func.tid).mutate.extra.mutex;
     extra_mutex.lock();
@@ -12182,7 +12296,7 @@ pub fn funcSetCallsOrAwaitsErrorableFn(ip: *InternPool, func: Index) void {
 
     const analysis_ptr = ip.funcAnalysisPtr(func);
     var analysis = analysis_ptr.*;
-    analysis.calls_or_awaits_errorable_fn = true;
+    analysis.has_error_trace = has_error_trace;
     @atomicStore(FuncAnalysis, analysis_ptr, analysis, .release);
 }
 

@@ -21,17 +21,34 @@ const Config = struct {
 };
 
 pub fn addCase(self: *StackTrace, config: Config) void {
+    self.addCaseInner(config, true);
+    if (shouldTestNonLlvm(self.b.graph.host.result)) {
+        self.addCaseInner(config, false);
+    }
+}
+
+fn addCaseInner(self: *StackTrace, config: Config, use_llvm: bool) void {
     if (config.Debug) |per_mode|
-        self.addExpect(config.name, config.source, .Debug, per_mode);
+        self.addExpect(config.name, config.source, .Debug, use_llvm, per_mode);
 
     if (config.ReleaseSmall) |per_mode|
-        self.addExpect(config.name, config.source, .ReleaseSmall, per_mode);
+        self.addExpect(config.name, config.source, .ReleaseSmall, use_llvm, per_mode);
 
     if (config.ReleaseFast) |per_mode|
-        self.addExpect(config.name, config.source, .ReleaseFast, per_mode);
+        self.addExpect(config.name, config.source, .ReleaseFast, use_llvm, per_mode);
 
     if (config.ReleaseSafe) |per_mode|
-        self.addExpect(config.name, config.source, .ReleaseSafe, per_mode);
+        self.addExpect(config.name, config.source, .ReleaseSafe, use_llvm, per_mode);
+}
+
+fn shouldTestNonLlvm(target: std.Target) bool {
+    return switch (target.cpu.arch) {
+        .x86_64 => switch (target.ofmt) {
+            .elf => true,
+            else => false,
+        },
+        else => false,
+    };
 }
 
 fn addExpect(
@@ -39,13 +56,14 @@ fn addExpect(
     name: []const u8,
     source: []const u8,
     optimize_mode: OptimizeMode,
+    use_llvm: bool,
     mode_config: Config.PerMode,
 ) void {
     for (mode_config.exclude_os) |tag| if (tag == builtin.os.tag) return;
 
     const b = self.b;
-    const annotated_case_name = b.fmt("check {s} ({s})", .{
-        name, @tagName(optimize_mode),
+    const annotated_case_name = b.fmt("check {s} ({s} {s})", .{
+        name, @tagName(optimize_mode), if (use_llvm) "llvm" else "selfhosted",
     });
     for (self.test_filters) |test_filter| {
         if (mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
@@ -61,6 +79,7 @@ fn addExpect(
             .target = b.graph.host,
             .error_tracing = mode_config.error_tracing,
         }),
+        .use_llvm = use_llvm,
     });
 
     const run = b.addRunArtifact(exe);

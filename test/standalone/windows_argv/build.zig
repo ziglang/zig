@@ -9,7 +9,8 @@ pub fn build(b: *std.Build) !void {
 
     const optimize: std.builtin.OptimizeMode = .Debug;
 
-    const lib_gnu = b.addStaticLibrary(.{
+    const lib_gnu = b.addLibrary(.{
+        .linkage = .static,
         .name = "toargv-gnu",
         .root_module = b.createModule(.{
             .root_source_file = b.path("lib.zig"),
@@ -74,7 +75,8 @@ pub fn build(b: *std.Build) !void {
         break :has_msvc true;
     };
     if (has_msvc) {
-        const lib_msvc = b.addStaticLibrary(.{
+        const lib_msvc = b.addLibrary(.{
+            .linkage = .static,
             .name = "toargv-msvc",
             .root_module = b.createModule(.{
                 .root_source_file = b.path("lib.zig"),

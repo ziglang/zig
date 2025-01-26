@@ -788,6 +788,7 @@ pub const SimpleComptimeReason = enum(u32) {
     // Miscellaneous reasons.
     comptime_keyword,
     comptime_call_modifier,
+    inline_loop_operand,
     switch_item,
     tuple_field_default_value,
     struct_field_default_value,
@@ -863,6 +864,7 @@ pub const SimpleComptimeReason = enum(u32) {
 
             .comptime_keyword             => "'comptime' keyword forces comptime evaluation",
             .comptime_call_modifier       => "'.compile_time' call modifier forces comptime evaluation",
+            .inline_loop_operand          => "inline loop condition must be comptime-known",
             .switch_item                  => "switch prong values must be comptime-known",
             .tuple_field_default_value    => "tuple field default value must be comptime-known",
             .struct_field_default_value   => "struct field default value must be comptime-known",

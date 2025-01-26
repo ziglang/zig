@@ -1,18 +1,17 @@
 	.global __tls_get_offset
 	.type __tls_get_offset,%function
 __tls_get_offset:
-	stmg  %r14, %r15, 112(%r15)
-	aghi  %r15, -160
+	ear   %r0, %a0
+	sllg  %r0, %r0, 32
+	ear   %r0, %a1
 
-	la    %r2, 0(%r2, %r12)
-.hidden __tls_get_addr
-	brasl %r14, __tls_get_addr
+	la    %r1, 0(%r2, %r12)
 
-	ear   %r1, %a0
-	sllg  %r1, %r1, 32
-	ear   %r1, %a1
+	lg    %r3, 0(%r1)
+	sllg  %r4, %r3, 3
+	lg    %r5, 8(%r0)
+	lg    %r2, 0(%r4, %r5)
+	ag    %r2, 8(%r1)
+	sgr   %r2, %r0
 
-	sgr   %r2, %r1
-
-	lmg   %r14, %r15, 272(%r15)
 	br    %r14

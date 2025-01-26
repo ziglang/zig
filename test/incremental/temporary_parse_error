@@ -11,7 +11,7 @@ pub fn main() !void {}
 #update=introduce parse error
 #file=main.zig
 pub fn main() !void {
-#expect_error=ignored
+#expect_error=main.zig:2:1: error: expected statement, found 'EOF'
 
 #update=fix parse error
 #file=main.zig

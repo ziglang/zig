@@ -873,6 +873,7 @@ pub const SharedLibraryOptions = struct {
     error_tracing: ?bool = null,
 };
 
+/// Deprecated: use `b.addLibrary(.{ ..., .linkage = .dynamic })` instead.
 pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile {
     if (options.root_module != null and options.target != null) {
         @panic("`root_module` and `target` cannot both be populated");
@@ -943,6 +944,7 @@ pub const StaticLibraryOptions = struct {
     error_tracing: ?bool = null,
 };
 
+/// Deprecated: use `b.addLibrary(.{ ..., .linkage = .static })` instead.
 pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile {
     if (options.root_module != null and options.target != null) {
         @panic("`root_module` and `target` cannot both be populated");
@@ -970,6 +972,38 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile 
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
         .zig_lib_dir = options.zig_lib_dir,
+    });
+}
+
+pub const LibraryOptions = struct {
+    linkage: std.builtin.LinkMode = .static,
+    name: []const u8,
+    root_module: *Module,
+    version: ?std.SemanticVersion = null,
+    max_rss: usize = 0,
+    use_llvm: ?bool = null,
+    use_lld: ?bool = null,
+    zig_lib_dir: ?LazyPath = null,
+    /// Embed a `.manifest` file in the compilation if the object format supports it.
+    /// https://learn.microsoft.com/en-us/windows/win32/sbscs/manifest-files-reference
+    /// Manifest files must have the extension `.manifest`.
+    /// Can be set regardless of target. The `.manifest` file will be ignored
+    /// if the target object format does not support embedded manifests.
+    win32_manifest: ?LazyPath = null,
+};
+
+pub fn addLibrary(b: *Build, options: LibraryOptions) *Step.Compile {
+    return .create(b, .{
+        .name = options.name,
+        .root_module = options.root_module,
+        .kind = .lib,
+        .linkage = options.linkage,
+        .version = options.version,
+        .max_rss = options.max_rss,
+        .use_llvm = options.use_llvm,
+        .use_lld = options.use_lld,
+        .zig_lib_dir = options.zig_lib_dir,
+        .win32_manifest = options.win32_manifest,
     });
 }
 
@@ -1601,13 +1635,18 @@ pub fn standardTargetOptionsQueryOnly(b: *Build, args: StandardTargetOptionsArgs
         "cpu",
         "Target CPU features to add or subtract",
     );
+    const ofmt = b.option(
+        []const u8,
+        "ofmt",
+        "Target object format",
+    );
     const dynamic_linker = b.option(
         []const u8,
         "dynamic-linker",
         "Path to interpreter on the target system",
     );
 
-    if (maybe_triple == null and mcpu == null and dynamic_linker == null)
+    if (maybe_triple == null and mcpu == null and ofmt == null and dynamic_linker == null)
         return args.default_target;
 
     const triple = maybe_triple orelse "native";
@@ -1615,6 +1654,7 @@ pub fn standardTargetOptionsQueryOnly(b: *Build, args: StandardTargetOptionsArgs
     const selected_target = parseTargetQuery(.{
         .arch_os_abi = triple,
         .cpu_features = mcpu,
+        .object_format = ofmt,
         .dynamic_linker = dynamic_linker,
     }) catch |err| switch (err) {
         error.ParseFailed => {

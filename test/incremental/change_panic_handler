@@ -9,16 +9,8 @@ pub fn main() !u8 {
     _ = a + 1;
     return 1;
 }
-pub const Panic = struct {
-    pub const call = myPanic;
-    pub const sentinelMismatch = std.debug.FormattedPanic.sentinelMismatch;
-    pub const unwrapError = std.debug.FormattedPanic.unwrapError;
-    pub const outOfBounds = std.debug.FormattedPanic.outOfBounds;
-    pub const startGreaterThanEnd = std.debug.FormattedPanic.startGreaterThanEnd;
-    pub const inactiveUnionField = std.debug.FormattedPanic.inactiveUnionField;
-    pub const messages = std.debug.FormattedPanic.messages;
-};
-fn myPanic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+pub const panic = std.debug.FullPanic(myPanic);
+fn myPanic(msg: []const u8, _: ?usize) noreturn {
     std.io.getStdOut().writer().print("panic message: {s}\n", .{msg}) catch {};
     std.process.exit(0);
 }
@@ -33,16 +25,8 @@ pub fn main() !u8 {
     _ = a + 1;
     return 1;
 }
-pub const Panic = struct {
-    pub const call = myPanic;
-    pub const sentinelMismatch = std.debug.FormattedPanic.sentinelMismatch;
-    pub const unwrapError = std.debug.FormattedPanic.unwrapError;
-    pub const outOfBounds = std.debug.FormattedPanic.outOfBounds;
-    pub const startGreaterThanEnd = std.debug.FormattedPanic.startGreaterThanEnd;
-    pub const inactiveUnionField = std.debug.FormattedPanic.inactiveUnionField;
-    pub const messages = std.debug.FormattedPanic.messages;
-};
-fn myPanic(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+pub const panic = std.debug.FullPanic(myPanic);
+fn myPanic(msg: []const u8, _: ?usize) noreturn {
     std.io.getStdOut().writer().print("new panic message: {s}\n", .{msg}) catch {};
     std.process.exit(0);
 }
@@ -57,16 +41,8 @@ pub fn main() !u8 {
     _ = a + 1;
     return 1;
 }
-pub const Panic = struct {
-    pub const call = myPanicNew;
-    pub const sentinelMismatch = std.debug.FormattedPanic.sentinelMismatch;
-    pub const unwrapError = std.debug.FormattedPanic.unwrapError;
-    pub const outOfBounds = std.debug.FormattedPanic.outOfBounds;
-    pub const startGreaterThanEnd = std.debug.FormattedPanic.startGreaterThanEnd;
-    pub const inactiveUnionField = std.debug.FormattedPanic.inactiveUnionField;
-    pub const messages = std.debug.FormattedPanic.messages;
-};
-fn myPanicNew(msg: []const u8, _: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+pub const panic = std.debug.FullPanic(myPanicNew);
+fn myPanicNew(msg: []const u8, _: ?usize) noreturn {
     std.io.getStdOut().writer().print("third panic message: {s}\n", .{msg}) catch {};
     std.process.exit(0);
 }

@@ -27,6 +27,9 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     const arena = arena_allocator.allocator();
 
     const output_mode = .Lib;
+    const target = comp.root_mod.resolved_target.result;
+    const unwind_tables: std.builtin.UnwindTables =
+        if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .@"async";
     const config = Compilation.Config.resolve(.{
         .output_mode = .Lib,
         .resolved_target = comp.root_mod.resolved_target,
@@ -36,6 +39,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .root_optimize_mode = comp.compilerRtOptMode(),
         .root_strip = comp.compilerRtStrip(),
         .link_libc = true,
+        .any_unwind_tables = unwind_tables != .none,
         .lto = comp.config.lto,
     }) catch |err| {
         comp.setMiscFailure(
@@ -45,7 +49,6 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         );
         return error.SubCompilationFailed;
     };
-    const target = comp.root_mod.resolved_target.result;
     const root_mod = Module.create(arena, .{
         .global_cache_directory = comp.global_cache_directory,
         .paths = .{
@@ -65,7 +68,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             .sanitize_thread = false,
             // necessary so that libunwind can unwind through its own stack frames
             // The old 32-bit x86 variant of SEH doesn't use tables.
-            .unwind_tables = if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .@"async",
+            .unwind_tables = unwind_tables,
             .pic = if (target_util.supports_fpic(target)) true else null,
             .optimize_mode = comp.compilerRtOptMode(),
         },

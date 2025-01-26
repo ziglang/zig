@@ -1591,10 +1591,35 @@ fn memcpy(cg: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
     // When bulk_memory is enabled, we lower it to wasm's memcpy instruction.
     // If not, we lower it ourselves manually
     if (std.Target.wasm.featureSetHas(cg.target.cpu.features, .bulk_memory)) {
+        const len0_ok = std.Target.wasm.featureSetHas(cg.target.cpu.features, .nontrapping_bulk_memory_len0);
+
+        if (!len0_ok) {
+            try cg.startBlock(.block, .empty);
+
+            // Even if `len` is zero, the spec requires an implementation to trap if `src + len` or
+            // `dst + len` are out of memory bounds. This can easily happen in Zig in a case such
+            // as:
+            //
+            // const dst: [*]u8 = undefined;
+            // const src: [*]u8 = undefined;
+            // var len: usize = runtime_zero();
+            // @memcpy(dst[0..len], src[0..len]);
+            //
+            // So explicitly avoid using `memory.copy` in the `len == 0` case. Lovely design.
+            try cg.emitWValue(len);
+            try cg.addTag(.i32_eqz);
+            try cg.addLabel(.br_if, 0);
+        }
+
         try cg.lowerToStack(dst);
         try cg.lowerToStack(src);
         try cg.emitWValue(len);
         try cg.addExtended(.memory_copy);
+
+        if (!len0_ok) {
+            try cg.endBlock();
+        }
+
         return;
     }
 
@@ -4782,10 +4807,33 @@ fn memset(cg: *CodeGen, elem_ty: Type, ptr: WValue, len: WValue, value: WValue) 
     // When bulk_memory is enabled, we lower it to wasm's memset instruction.
     // If not, we lower it ourselves.
     if (std.Target.wasm.featureSetHas(cg.target.cpu.features, .bulk_memory) and abi_size == 1) {
+        const len0_ok = std.Target.wasm.featureSetHas(cg.target.cpu.features, .nontrapping_bulk_memory_len0);
+
+        if (!len0_ok) {
+            try cg.startBlock(.block, .empty);
+
+            // Even if `len` is zero, the spec requires an implementation to trap if `ptr + len` is
+            // out of memory bounds. This can easily happen in Zig in a case such as:
+            //
+            // const ptr: [*]u8 = undefined;
+            // var len: usize = runtime_zero();
+            // @memset(ptr[0..len], 42);
+            //
+            // So explicitly avoid using `memory.fill` in the `len == 0` case. Lovely design.
+            try cg.emitWValue(len);
+            try cg.addTag(.i32_eqz);
+            try cg.addLabel(.br_if, 0);
+        }
+
         try cg.lowerToStack(ptr);
         try cg.emitWValue(value);
         try cg.emitWValue(len);
         try cg.addExtended(.memory_fill);
+
+        if (!len0_ok) {
+            try cg.endBlock();
+        }
+
         return;
     }
 

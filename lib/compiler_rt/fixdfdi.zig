@@ -8,11 +8,7 @@ comptime {
     if (common.want_aeabi) {
         @export(&__aeabi_d2lz, .{ .name = "__aeabi_d2lz", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(&__fixdfdi, .{ .name = "__fixdfdi", .linkage = common.linkage, .visibility = common.visibility });
-
-        if (common.want_mingw_arm_abi) {
-            @export(&__fixdfdi, .{ .name = "__dtoi64", .linkage = common.linkage, .visibility = common.visibility });
-        }
+        @export(&__fixdfdi, .{ .name = if (common.want_windows_arm_abi) "__dtoi64" else "__fixdfdi", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 
