@@ -5525,6 +5525,14 @@ fn zirValidateDeref(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     }
 }
 
+fn typeIsDestructurable(ty: Type, zcu: *const Zcu) bool {
+    return switch (ty.zigTypeTag(zcu)) {
+        .array, .vector => true,
+        .@"struct" => ty.isTuple(zcu),
+        else => false,
+    };
+}
+
 fn zirValidateDestructure(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -5535,19 +5543,15 @@ fn zirValidateDestructure(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     const operand = try sema.resolveInst(extra.operand);
     const operand_ty = sema.typeOf(operand);
 
-    const can_destructure = switch (operand_ty.zigTypeTag(zcu)) {
-        .array, .vector => true,
-        .@"struct" => operand_ty.isTuple(zcu),
-        else => false,
-    };
-
-    if (!can_destructure) {
+    if (!typeIsDestructurable(operand_ty, zcu)) {
         return sema.failWithOwnedErrorMsg(block, msg: {
             const msg = try sema.errMsg(src, "type '{}' cannot be destructured", .{operand_ty.fmt(pt)});
             errdefer msg.destroy(sema.gpa);
             try sema.errNote(destructure_src, msg, "result destructured here", .{});
             if (operand_ty.zigTypeTag(pt.zcu) == .error_union) {
-                try sema.errNote(src, msg, "consider using 'try', 'catch', or 'if'", .{});
+                const base_op_ty = operand_ty.errorUnionPayload(zcu);
+                if (typeIsDestructurable(base_op_ty, zcu))
+                    try sema.errNote(src, msg, "consider using 'try', 'catch', or 'if'", .{});
             }
             break :msg msg;
         });
