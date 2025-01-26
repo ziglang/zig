@@ -1594,7 +1594,10 @@ pub const Object = struct {
                                 try attributes.addParamAttr(llvm_arg_i, .@"noalias", &o.builder);
                             }
                         }
-                        if (param_ty.zigTypeTag(zcu) != .optional) {
+                        if (param_ty.zigTypeTag(zcu) != .optional and
+                            !ptr_info.flags.is_allowzero and
+                            ptr_info.flags.address_space == .generic)
+                        {
                             try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
                         }
                         if (ptr_info.flags.is_const) {
@@ -1671,8 +1674,6 @@ pub const Object = struct {
                 }
             }
         }
-
-        function_index.setAttributes(try attributes.finish(&o.builder), &o.builder);
 
         const file, const subprogram = if (!wip.strip) debug_info: {
             const file = try o.getDebugFile(file_scope);
@@ -1763,6 +1764,17 @@ pub const Object = struct {
             },
             else => |e| return e,
         };
+
+        // If we saw any loads or stores involving `allowzero` pointers, we need to mark the whole
+        // function as considering null pointers valid so that LLVM's optimizers don't remove these
+        // operations on the assumption that they're undefined behavior.
+        if (fg.allowzero_access) {
+            try attributes.addFnAttr(.null_pointer_is_valid, &o.builder);
+        } else {
+            _ = try attributes.removeFnAttr(.null_pointer_is_valid);
+        }
+
+        function_index.setAttributes(try attributes.finish(&o.builder), &o.builder);
 
         if (fg.fuzz) |*f| {
             {
@@ -4603,7 +4615,10 @@ pub const Object = struct {
                     try attributes.addParamAttr(llvm_arg_i, .@"noalias", &o.builder);
                 }
             }
-            if (!param_ty.isPtrLikeOptional(zcu) and !ptr_info.flags.is_allowzero) {
+            if (!param_ty.isPtrLikeOptional(zcu) and
+                !ptr_info.flags.is_allowzero and
+                ptr_info.flags.address_space == .generic)
+            {
                 try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
             }
             switch (fn_info.cc) {
@@ -4918,6 +4933,15 @@ pub const FuncGen = struct {
     switch_dispatch_info: std.AutoHashMapUnmanaged(Air.Inst.Index, SwitchDispatchInfo),
 
     sync_scope: Builder.SyncScope,
+
+    /// Have we seen loads or stores involving `allowzero` pointers?
+    allowzero_access: bool = false,
+
+    pub fn maybeMarkAllowZeroAccess(self: *FuncGen, info: InternPool.Key.PtrType) void {
+        // LLVM already considers null pointers to be valid in non-generic address spaces, so avoid
+        // pessimizing optimization for functions with accesses to such pointers.
+        if (info.flags.address_space == .generic and info.flags.is_allowzero) self.allowzero_access = true;
+    }
 
     const Fuzz = struct {
         counters_variable: Builder.Variable.Index,
@@ -5644,7 +5668,10 @@ pub const FuncGen = struct {
                             try attributes.addParamAttr(llvm_arg_i, .@"noalias", &o.builder);
                         }
                     }
-                    if (param_ty.zigTypeTag(zcu) != .optional) {
+                    if (param_ty.zigTypeTag(zcu) != .optional and
+                        !ptr_info.flags.is_allowzero and
+                        ptr_info.flags.address_space == .generic)
+                    {
                         try attributes.addParamAttr(llvm_arg_i, .nonnull, &o.builder);
                     }
                     if (ptr_info.flags.is_const) {
@@ -5771,7 +5798,7 @@ pub const FuncGen = struct {
                     ptr_ty.ptrAlignment(zcu).toLlvm(),
                     try o.builder.intValue(.i8, 0xaa),
                     len,
-                    if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
+                    .normal,
                 );
                 const owner_mod = self.ng.ownerModule();
                 if (owner_mod.valgrind) {
@@ -6004,8 +6031,8 @@ pub const FuncGen = struct {
                 // of optionals that are not pointers.
                 const is_by_ref = isByRef(scalar_ty, zcu);
                 const opt_llvm_ty = try o.lowerType(scalar_ty);
-                const lhs_non_null = try self.optCmpNull(.ne, opt_llvm_ty, lhs, is_by_ref);
-                const rhs_non_null = try self.optCmpNull(.ne, opt_llvm_ty, rhs, is_by_ref);
+                const lhs_non_null = try self.optCmpNull(.ne, opt_llvm_ty, lhs, is_by_ref, .normal);
+                const rhs_non_null = try self.optCmpNull(.ne, opt_llvm_ty, rhs, is_by_ref, .normal);
                 const llvm_i2 = try o.builder.intType(2);
                 const lhs_non_null_i2 = try self.wip.cast(.zext, lhs_non_null, llvm_i2, "");
                 const rhs_non_null_i2 = try self.wip.cast(.zext, rhs_non_null, llvm_i2, "");
@@ -6456,6 +6483,9 @@ pub const FuncGen = struct {
         const body: []const Air.Inst.Index = @ptrCast(self.air.extra[extra.end..][0..extra.data.body_len]);
         const err_union_ty = self.typeOf(extra.data.ptr).childType(zcu);
         const is_unused = self.liveness.isUnused(inst);
+
+        self.maybeMarkAllowZeroAccess(self.typeOf(extra.data.ptr).ptrInfo(zcu));
+
         return lowerTry(self, err_union_ptr, body, err_union_ty, true, true, is_unused, err_cold);
     }
 
@@ -6479,10 +6509,13 @@ pub const FuncGen = struct {
 
         if (!err_union_ty.errorUnionSet(zcu).errorSetIsEmpty(zcu)) {
             const loaded = loaded: {
+                const access_kind: Builder.MemoryAccessKind =
+                    if (err_union_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
+
                 if (!payload_has_bits) {
                     // TODO add alignment to this load
                     break :loaded if (operand_is_ptr)
-                        try fg.wip.load(.normal, error_type, err_union, .default, "")
+                        try fg.wip.load(access_kind, error_type, err_union, .default, "")
                     else
                         err_union;
                 }
@@ -6492,7 +6525,7 @@ pub const FuncGen = struct {
                         try fg.wip.gepStruct(err_union_llvm_ty, err_union, err_field_index, "");
                     // TODO add alignment to this load
                     break :loaded try fg.wip.load(
-                        .normal,
+                        if (operand_is_ptr) access_kind else .normal,
                         error_type,
                         err_field_ptr,
                         .default,
@@ -7001,9 +7034,13 @@ pub const FuncGen = struct {
             if (self.canElideLoad(body_tail))
                 return ptr;
 
+            self.maybeMarkAllowZeroAccess(slice_ty.ptrInfo(zcu));
+
             const elem_alignment = elem_ty.abiAlignment(zcu).toLlvm();
-            return self.loadByRef(ptr, elem_ty, elem_alignment, .normal);
+            return self.loadByRef(ptr, elem_ty, elem_alignment, if (slice_ty.isVolatilePtr(zcu)) .@"volatile" else .normal);
         }
+
+        self.maybeMarkAllowZeroAccess(slice_ty.ptrInfo(zcu));
 
         return self.load(ptr, slice_ty);
     }
@@ -7074,9 +7111,14 @@ pub const FuncGen = struct {
             &.{rhs}, "");
         if (isByRef(elem_ty, zcu)) {
             if (self.canElideLoad(body_tail)) return ptr;
+
+            self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
+
             const elem_alignment = elem_ty.abiAlignment(zcu).toLlvm();
-            return self.loadByRef(ptr, elem_ty, elem_alignment, .normal);
+            return self.loadByRef(ptr, elem_ty, elem_alignment, if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal);
         }
+
+        self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
 
         return self.load(ptr, ptr_ty);
     }
@@ -7485,6 +7527,8 @@ pub const FuncGen = struct {
                     }),
                 }
 
+                self.maybeMarkAllowZeroAccess(output_ty.ptrInfo(zcu));
+
                 // Pass any non-return outputs indirectly, if the constraint accepts a memory location
                 is_indirect.* = constraintAllowsMemory(constraint);
                 if (is_indirect.*) {
@@ -7591,10 +7635,11 @@ pub const FuncGen = struct {
 
             // In the case of indirect inputs, LLVM requires the callsite to have
             // an elementtype(<ty>) attribute.
-            llvm_param_attrs[llvm_param_i] = if (constraint[0] == '*')
-                try o.lowerPtrElemTy(if (is_by_ref) arg_ty else arg_ty.childType(zcu))
-            else
-                .none;
+            llvm_param_attrs[llvm_param_i] = if (constraint[0] == '*') blk: {
+                if (!is_by_ref) self.maybeMarkAllowZeroAccess(arg_ty.ptrInfo(zcu));
+
+                break :blk try o.lowerPtrElemTy(if (is_by_ref) arg_ty else arg_ty.childType(zcu));
+            } else .none;
 
             llvm_param_i += 1;
             total_i += 1;
@@ -7617,7 +7662,13 @@ pub const FuncGen = struct {
                 llvm_param_types[llvm_param_i] = llvm_rw_val.typeOfWip(&self.wip);
             } else {
                 const alignment = rw_ty.abiAlignment(zcu).toLlvm();
-                const loaded = try self.wip.load(.normal, llvm_elem_ty, llvm_rw_val, alignment, "");
+                const loaded = try self.wip.load(
+                    if (rw_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
+                    llvm_elem_ty,
+                    llvm_rw_val,
+                    alignment,
+                    "",
+                );
                 llvm_param_values[llvm_param_i] = loaded;
                 llvm_param_types[llvm_param_i] = llvm_elem_ty;
             }
@@ -7776,9 +7827,13 @@ pub const FuncGen = struct {
             if (output != .none) {
                 const output_ptr = try self.resolveInst(output);
                 const output_ptr_ty = self.typeOf(output);
-
                 const alignment = output_ptr_ty.ptrAlignment(zcu).toLlvm();
-                _ = try self.wip.store(.normal, output_value, output_ptr, alignment);
+                _ = try self.wip.store(
+                    if (output_ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
+                    output_value,
+                    output_ptr,
+                    alignment,
+                );
             } else {
                 ret_val = output_value;
             }
@@ -7803,9 +7858,15 @@ pub const FuncGen = struct {
         const optional_ty = if (operand_is_ptr) operand_ty.childType(zcu) else operand_ty;
         const optional_llvm_ty = try o.lowerType(optional_ty);
         const payload_ty = optional_ty.optionalChild(zcu);
+
+        const access_kind: Builder.MemoryAccessKind =
+            if (operand_is_ptr and operand_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
+
+        if (operand_is_ptr) self.maybeMarkAllowZeroAccess(operand_ty.ptrInfo(zcu));
+
         if (optional_ty.optionalReprIsPayload(zcu)) {
             const loaded = if (operand_is_ptr)
-                try self.wip.load(.normal, optional_llvm_ty, operand, .default, "")
+                try self.wip.load(access_kind, optional_llvm_ty, operand, .default, "")
             else
                 operand;
             if (payload_ty.isSlice(zcu)) {
@@ -7823,14 +7884,14 @@ pub const FuncGen = struct {
 
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
             const loaded = if (operand_is_ptr)
-                try self.wip.load(.normal, optional_llvm_ty, operand, .default, "")
+                try self.wip.load(access_kind, optional_llvm_ty, operand, .default, "")
             else
                 operand;
             return self.wip.icmp(cond, loaded, try o.builder.intValue(.i8, 0), "");
         }
 
         const is_by_ref = operand_is_ptr or isByRef(optional_ty, zcu);
-        return self.optCmpNull(cond, optional_llvm_ty, operand, is_by_ref);
+        return self.optCmpNull(cond, optional_llvm_ty, operand, is_by_ref, access_kind);
     }
 
     fn airIsErr(
@@ -7850,6 +7911,9 @@ pub const FuncGen = struct {
         const error_type = try o.errorIntType();
         const zero = try o.builder.intValue(error_type, 0);
 
+        const access_kind: Builder.MemoryAccessKind =
+            if (operand_is_ptr and operand_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
+
         if (err_union_ty.errorUnionSet(zcu).errorSetIsEmpty(zcu)) {
             const val: Builder.Constant = switch (cond) {
                 .eq => .true, // 0 == 0
@@ -7859,9 +7923,11 @@ pub const FuncGen = struct {
             return val.toValue();
         }
 
+        if (operand_is_ptr) self.maybeMarkAllowZeroAccess(operand_ty.ptrInfo(zcu));
+
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
             const loaded = if (operand_is_ptr)
-                try self.wip.load(.normal, try o.lowerType(err_union_ty), operand, .default, "")
+                try self.wip.load(access_kind, try o.lowerType(err_union_ty), operand, .default, "")
             else
                 operand;
             return self.wip.icmp(cond, loaded, zero, "");
@@ -7873,7 +7939,7 @@ pub const FuncGen = struct {
             const err_union_llvm_ty = try o.lowerType(err_union_ty);
             const err_field_ptr =
                 try self.wip.gepStruct(err_union_llvm_ty, operand, err_field_index, "");
-            break :loaded try self.wip.load(.normal, error_type, err_field_ptr, .default, "");
+            break :loaded try self.wip.load(access_kind, error_type, err_field_ptr, .default, "");
         } else try self.wip.extractValue(operand, &.{err_field_index}, "");
         return self.wip.icmp(cond, loaded, zero, "");
     }
@@ -7906,12 +7972,19 @@ pub const FuncGen = struct {
         const zcu = pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
-        const optional_ty = self.typeOf(ty_op.operand).childType(zcu);
+        const optional_ptr_ty = self.typeOf(ty_op.operand);
+        const optional_ty = optional_ptr_ty.childType(zcu);
         const payload_ty = optional_ty.optionalChild(zcu);
         const non_null_bit = try o.builder.intValue(.i8, 1);
+
+        const access_kind: Builder.MemoryAccessKind =
+            if (optional_ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
+
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+            self.maybeMarkAllowZeroAccess(optional_ptr_ty.ptrInfo(zcu));
+
             // We have a pointer to a i8. We need to set it to 1 and then return the same pointer.
-            _ = try self.wip.store(.normal, non_null_bit, operand, .default);
+            _ = try self.wip.store(access_kind, non_null_bit, operand, .default);
             return operand;
         }
         if (optional_ty.optionalReprIsPayload(zcu)) {
@@ -7923,8 +7996,11 @@ pub const FuncGen = struct {
         // First set the non-null bit.
         const optional_llvm_ty = try o.lowerType(optional_ty);
         const non_null_ptr = try self.wip.gepStruct(optional_llvm_ty, operand, 1, "");
+
+        self.maybeMarkAllowZeroAccess(optional_ptr_ty.ptrInfo(zcu));
+
         // TODO set alignment on this store
-        _ = try self.wip.store(.normal, non_null_bit, non_null_ptr, .default);
+        _ = try self.wip.store(access_kind, non_null_bit, non_null_ptr, .default);
 
         // Then return the payload pointer (only if it's used).
         if (self.liveness.isUnused(inst)) return .none;
@@ -8010,18 +8086,26 @@ pub const FuncGen = struct {
             }
         }
 
+        const access_kind: Builder.MemoryAccessKind =
+            if (operand_is_ptr and operand_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
+
         const payload_ty = err_union_ty.errorUnionPayload(zcu);
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
             if (!operand_is_ptr) return operand;
-            return self.wip.load(.normal, error_type, operand, .default, "");
+
+            self.maybeMarkAllowZeroAccess(operand_ty.ptrInfo(zcu));
+
+            return self.wip.load(access_kind, error_type, operand, .default, "");
         }
 
         const offset = try errUnionErrorOffset(payload_ty, pt);
 
         if (operand_is_ptr or isByRef(err_union_ty, zcu)) {
+            if (operand_is_ptr) self.maybeMarkAllowZeroAccess(operand_ty.ptrInfo(zcu));
+
             const err_union_llvm_ty = try o.lowerType(err_union_ty);
             const err_field_ptr = try self.wip.gepStruct(err_union_llvm_ty, operand, offset, "");
-            return self.wip.load(.normal, error_type, err_field_ptr, .default, "");
+            return self.wip.load(access_kind, error_type, err_field_ptr, .default, "");
         }
 
         return self.wip.extractValue(operand, &.{offset}, "");
@@ -8033,22 +8117,31 @@ pub const FuncGen = struct {
         const zcu = pt.zcu;
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
-        const err_union_ty = self.typeOf(ty_op.operand).childType(zcu);
+        const err_union_ptr_ty = self.typeOf(ty_op.operand);
+        const err_union_ty = err_union_ptr_ty.childType(zcu);
 
         const payload_ty = err_union_ty.errorUnionPayload(zcu);
         const non_error_val = try o.builder.intValue(try o.errorIntType(), 0);
+
+        const access_kind: Builder.MemoryAccessKind =
+            if (err_union_ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
+
         if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-            _ = try self.wip.store(.normal, non_error_val, operand, .default);
+            self.maybeMarkAllowZeroAccess(err_union_ptr_ty.ptrInfo(zcu));
+
+            _ = try self.wip.store(access_kind, non_error_val, operand, .default);
             return operand;
         }
         const err_union_llvm_ty = try o.lowerType(err_union_ty);
         {
+            self.maybeMarkAllowZeroAccess(err_union_ptr_ty.ptrInfo(zcu));
+
             const err_int_ty = try pt.errorIntType();
             const error_alignment = err_int_ty.abiAlignment(zcu).toLlvm();
             const error_offset = try errUnionErrorOffset(payload_ty, pt);
             // First set the non-error value.
             const non_null_ptr = try self.wip.gepStruct(err_union_llvm_ty, operand, error_offset, "");
-            _ = try self.wip.store(.normal, non_error_val, non_null_ptr, error_alignment);
+            _ = try self.wip.store(access_kind, non_error_val, non_null_ptr, error_alignment);
         }
         // Then return the payload pointer (only if it is used).
         if (self.liveness.isUnused(inst)) return .none;
@@ -8263,6 +8356,10 @@ pub const FuncGen = struct {
         const index = try self.resolveInst(extra.lhs);
         const operand = try self.resolveInst(extra.rhs);
 
+        self.maybeMarkAllowZeroAccess(vector_ptr_ty.ptrInfo(zcu));
+
+        // TODO: Emitting a load here is a violation of volatile semantics. Not fixable in general.
+        // https://github.com/ziglang/zig/issues/18652#issuecomment-2452844908
         const access_kind: Builder.MemoryAccessKind =
             if (vector_ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
         const elem_llvm_ty = try o.lowerType(vector_ptr_ty.childType(zcu));
@@ -9650,6 +9747,8 @@ pub const FuncGen = struct {
                 return .none;
             }
 
+            self.maybeMarkAllowZeroAccess(ptr_info);
+
             const len = try o.builder.intValue(try o.lowerType(Type.usize), operand_ty.abiSize(zcu));
             _ = try self.wip.callMemSet(
                 dest_ptr,
@@ -9663,6 +9762,8 @@ pub const FuncGen = struct {
             }
             return .none;
         }
+
+        self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
 
         const src_operand = try self.resolveInst(bin_op.rhs);
         try self.store(dest_ptr, ptr_ty, src_operand, .none);
@@ -9706,6 +9807,9 @@ pub const FuncGen = struct {
             if (!canElideLoad(fg, body_tail)) break :elide;
             return ptr;
         }
+
+        fg.maybeMarkAllowZeroAccess(ptr_info);
+
         return fg.load(ptr, ptr_ty);
     }
 
@@ -9765,6 +9869,8 @@ pub const FuncGen = struct {
             new_value = try self.wip.conv(signedness, new_value, llvm_abi_ty, "");
         }
 
+        self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
+
         const result = try self.wip.cmpxchg(
             kind,
             if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
@@ -9815,6 +9921,8 @@ pub const FuncGen = struct {
         const access_kind: Builder.MemoryAccessKind =
             if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
         const ptr_alignment = ptr_ty.ptrAlignment(zcu).toLlvm();
+
+        self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
 
         if (llvm_abi_ty != .none) {
             // operand needs widening and truncating or bitcasting.
@@ -9879,6 +9987,8 @@ pub const FuncGen = struct {
             if (info.flags.is_volatile) .@"volatile" else .normal;
         const elem_llvm_ty = try o.lowerType(elem_ty);
 
+        self.maybeMarkAllowZeroAccess(info);
+
         if (llvm_abi_ty != .none) {
             // operand needs widening and truncating
             const loaded = try self.wip.loadAtomic(
@@ -9928,6 +10038,9 @@ pub const FuncGen = struct {
                 "",
             );
         }
+
+        self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
+
         try self.store(ptr, ptr_ty, element, ordering);
         return .none;
     }
@@ -9944,6 +10057,8 @@ pub const FuncGen = struct {
         const dest_ptr = try self.sliceOrArrayPtr(dest_slice, ptr_ty);
         const access_kind: Builder.MemoryAccessKind =
             if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
+
+        self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
 
         // Any WebAssembly runtime will trap when the destination pointer is out-of-bounds, regardless
         // of the length. This means we need to emit a check where we skip the memset when the length
@@ -10101,6 +10216,9 @@ pub const FuncGen = struct {
         const access_kind: Builder.MemoryAccessKind = if (src_ptr_ty.isVolatilePtr(zcu) or
             dest_ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
 
+        self.maybeMarkAllowZeroAccess(dest_ptr_ty.ptrInfo(zcu));
+        self.maybeMarkAllowZeroAccess(src_ptr_ty.ptrInfo(zcu));
+
         // When bulk-memory is enabled, this will be lowered to WebAssembly's memory.copy instruction.
         // This instruction will trap on an invalid address, regardless of the length.
         // For this reason we must add a check for 0-sized slices as its pointer field can be undefined.
@@ -10145,20 +10263,27 @@ pub const FuncGen = struct {
         const pt = o.pt;
         const zcu = pt.zcu;
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-        const un_ty = self.typeOf(bin_op.lhs).childType(zcu);
+        const un_ptr_ty = self.typeOf(bin_op.lhs);
+        const un_ty = un_ptr_ty.childType(zcu);
         const layout = un_ty.unionGetLayout(zcu);
         if (layout.tag_size == 0) return .none;
+
+        const access_kind: Builder.MemoryAccessKind =
+            if (un_ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal;
+
+        self.maybeMarkAllowZeroAccess(un_ptr_ty.ptrInfo(zcu));
+
         const union_ptr = try self.resolveInst(bin_op.lhs);
         const new_tag = try self.resolveInst(bin_op.rhs);
         if (layout.payload_size == 0) {
             // TODO alignment on this store
-            _ = try self.wip.store(.normal, new_tag, union_ptr, .default);
+            _ = try self.wip.store(access_kind, new_tag, union_ptr, .default);
             return .none;
         }
         const tag_index = @intFromBool(layout.tag_align.compare(.lt, layout.payload_align));
         const tag_field_ptr = try self.wip.gepStruct(try o.lowerType(un_ty), union_ptr, tag_index, "");
         // TODO alignment on this store
-        _ = try self.wip.store(.normal, new_tag, tag_field_ptr, .default);
+        _ = try self.wip.store(access_kind, new_tag, tag_field_ptr, .default);
         return .none;
     }
 
@@ -11055,12 +11180,13 @@ pub const FuncGen = struct {
         opt_llvm_ty: Builder.Type,
         opt_handle: Builder.Value,
         is_by_ref: bool,
+        access_kind: Builder.MemoryAccessKind,
     ) Allocator.Error!Builder.Value {
         const o = self.ng.object;
         const field = b: {
             if (is_by_ref) {
                 const field_ptr = try self.wip.gepStruct(opt_llvm_ty, opt_handle, 1, "");
-                break :b try self.wip.load(.normal, .i8, field_ptr, .default, "");
+                break :b try self.wip.load(access_kind, .i8, field_ptr, .default, "");
             }
             break :b try self.wip.extractValue(opt_handle, &.{1}, "");
         };
@@ -11368,7 +11494,7 @@ pub const FuncGen = struct {
             const vec_elem_ty = try o.lowerType(elem_ty);
             const vec_ty = try o.builder.vectorType(.normal, info.packed_offset.host_size, vec_elem_ty);
 
-            const loaded_vector = try self.wip.load(access_kind, vec_ty, ptr, ptr_alignment, "");
+            const loaded_vector = try self.wip.load(.normal, vec_ty, ptr, ptr_alignment, "");
 
             const modified_vector = try self.wip.insertElement(loaded_vector, elem, index_u32, "");
 
@@ -11381,7 +11507,7 @@ pub const FuncGen = struct {
             const containing_int_ty = try o.builder.intType(@intCast(info.packed_offset.host_size * 8));
             assert(ordering == .none);
             const containing_int =
-                try self.wip.load(access_kind, containing_int_ty, ptr, ptr_alignment, "");
+                try self.wip.load(.normal, containing_int_ty, ptr, ptr_alignment, "");
             const elem_bits = ptr_ty.childType(zcu).bitSize(zcu);
             const shift_amt = try o.builder.intConst(containing_int_ty, info.packed_offset.bit_offset);
             // Convert to equally-sized integer type in order to perform the bit
