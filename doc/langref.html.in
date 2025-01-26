@@ -360,6 +360,10 @@
         You will see many examples of Zig's Standard Library used in this documentation. To learn more about the Zig Standard Library,
         visit the link above.
       </p>
+      <p>
+        Alternatively, the Zig Standard Library documentation is provided with each Zig distribution. It can be rendered via a local webserver with:
+      </p>
+      {#shell_samp#}zig std{#end_shell_samp#}
       {#header_close#}
 
       {#header_open|Hello World#}
