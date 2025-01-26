@@ -1360,10 +1360,10 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --zig-lib-dir [arg]          Override path to Zig lib directory
         \\  --build-runner [file]        Override path to build runner
         \\  --seed [integer]             For shuffling dependency traversal order (default: random)
-        \\  --build-id[=style]             At a minor link-time expense, coordinates stripped binaries
-        \\      fast, uuid, sha1, md5      with debug symbols via a '.note.gnu.build-id' section
-        \\      0x[hexstring]              Maximum 32 bytes
-        \\      none                       (default) Disable build-id
+        \\  --build-id[=style]           At a minor link-time expense, coordinates stripped binaries
+        \\      fast, uuid, sha1, md5    with debug symbols via a '.note.gnu.build-id' section
+        \\      0x[hexstring]            Maximum 32 bytes
+        \\      none                     (default) Disable build-id
         \\  --debug-log [scope]          Enable debugging the compiler
         \\  --debug-pkg-config           Fail if unknown pkg-config flags encountered
         \\  --debug-rt                   Debug compiler runtime libraries
