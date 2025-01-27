@@ -4069,7 +4069,7 @@ static inline void zig_msvc_atomic_store_i128(zig_i128 volatile* obj, zig_i128 a
 
 #endif /* zig_x86_32 */
 
-#endif /* zig_msvc && zig_x86 && (!defined(__clang__) || defined(__STDC_NO_ATOMICS__)) */
+#endif /* !zig_c11_atomics && zig_msvc && zig_x86
 
 /* ======================== Special Case Intrinsics ========================= */
 
