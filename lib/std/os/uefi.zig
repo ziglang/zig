@@ -133,11 +133,10 @@ pub const Time = extern struct {
     pub const unspecified_timezone: i16 = 0x7ff;
 
     fn daysInYear(year: u16, maxMonth: u4) u32 {
-        const leapYear: std.time.epoch.YearLeapKind = if (std.time.epoch.isLeapYear(year)) .leap else .not_leap;
         var days: u32 = 0;
         var month: u4 = 0;
         while (month < maxMonth) : (month += 1) {
-            days += std.time.epoch.getDaysInMonth(leapYear, @enumFromInt(month + 1));
+            days += std.time.epoch.getDaysInMonth(year, @enumFromInt(month + 1));
         }
         return days;
     }
