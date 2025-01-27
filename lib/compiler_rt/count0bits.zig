@@ -73,7 +73,7 @@ fn __clzsi2_thumb1() callconv(.Naked) void {
         \\ subs r1, #4
         \\ movs r0, r2
         \\ 1:
-        \\ ldr r3, .lut
+        \\ adr r3, .lut
         \\ ldrb r0, [r3, r0]
         \\ subs r0, r1, r0
         \\ bx lr

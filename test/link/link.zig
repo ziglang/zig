@@ -65,7 +65,8 @@ pub fn addObject(b: *Build, base: Options, overlay: OverlayOptions) *Compile {
 }
 
 pub fn addStaticLibrary(b: *Build, base: Options, overlay: OverlayOptions) *Compile {
-    return b.addStaticLibrary(.{
+    return b.addLibrary(.{
+        .linkage = .static,
         .name = overlay.name,
         .root_module = createModule(b, base, overlay),
         .use_llvm = base.use_llvm,
@@ -74,7 +75,8 @@ pub fn addStaticLibrary(b: *Build, base: Options, overlay: OverlayOptions) *Comp
 }
 
 pub fn addSharedLibrary(b: *Build, base: Options, overlay: OverlayOptions) *Compile {
-    return b.addSharedLibrary(.{
+    return b.addLibrary(.{
+        .linkage = .dynamic,
         .name = overlay.name,
         .root_module = createModule(b, base, overlay),
         .use_llvm = base.use_llvm,

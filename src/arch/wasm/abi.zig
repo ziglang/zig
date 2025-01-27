@@ -22,7 +22,7 @@ const direct: [2]Class = .{ .direct, .none };
 /// Classifies a given Zig type to determine how they must be passed
 /// or returned as value within a wasm function.
 /// When all elements result in `.none`, no value must be passed in or returned.
-pub fn classifyType(ty: Type, zcu: *Zcu) [2]Class {
+pub fn classifyType(ty: Type, zcu: *const Zcu) [2]Class {
     const ip = &zcu.intern_pool;
     const target = zcu.getTarget();
     if (!ty.hasRuntimeBitsIgnoreComptime(zcu)) return none;

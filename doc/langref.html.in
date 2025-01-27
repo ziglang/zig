@@ -360,6 +360,10 @@
         You will see many examples of Zig's Standard Library used in this documentation. To learn more about the Zig Standard Library,
         visit the link above.
       </p>
+      <p>
+        Alternatively, the Zig Standard Library documentation is provided with each Zig distribution. It can be rendered via a local webserver with:
+      </p>
+      {#shell_samp#}zig std{#end_shell_samp#}
       {#header_close#}
 
       {#header_open|Hello World#}
@@ -375,9 +379,9 @@
 
       <p>
       In this case, the {#syntax#}!{#endsyntax#} may be omitted from the return
-      type because no errors are returned from the function.
+      type of <code>main</code> because no errors are returned from the function.
       </p>
-      {#see_also|Values|@import|Errors|Root Source File|Source Encoding#}
+      {#see_also|Values|Tuples|@import|Errors|Root Source File|Source Encoding|try#}
       {#header_close#}
       {#header_open|Comments#}
       <p>
@@ -2001,6 +2005,15 @@ or
       the pointer is never dereferenced:</p>
       {#code|test_comptime_pointer_conversion.zig#}
 
+      <p>
+      {#link|@ptrCast#} converts a pointer's element type to another. This
+      creates a new pointer that can cause undetectable illegal behavior
+      depending on the loads and stores that pass through it. Generally, other
+      kinds of type conversions are preferable to
+      {#syntax#}@ptrCast{#endsyntax#} if possible.
+      </p>
+      {#code|test_pointer_casting.zig#}
+
       {#see_also|Optional Pointers|@ptrFromInt|@intFromPtr|C Pointers#}
       {#header_open|volatile#}
       <p>Loads and stores are assumed to not have side effects. If a given load or store
@@ -2015,14 +2028,6 @@ or
       Input/Output, it is probably a bug.
       </p>
       {#header_close#}
-      <p>
-      {#link|@ptrCast#} converts a pointer's element type to another. This
-      creates a new pointer that can cause undetectable illegal behavior
-      depending on the loads and stores that pass through it. Generally, other
-      kinds of type conversions are preferable to
-      {#syntax#}@ptrCast{#endsyntax#} if possible.
-      </p>
-      {#code|test_pointer_casting.zig#}
 
       {#header_open|Alignment#}
       <p>
@@ -2264,7 +2269,7 @@ or
           that variable.</li>
           <li>If the struct is in the {#syntax#}return{#endsyntax#} expression, it gets named after
           the function it is returning from, with the parameter values serialized.</li>
-          <li>Otherwise, the struct gets a name such as <code>(filename.funcname.__struct_ID)</code>.</li>
+          <li>Otherwise, the struct gets a name such as <code>(filename.funcname__struct_ID)</code>.</li>
           <li>If the struct is declared inside another struct, it gets named after both the parent
           struct and the name inferred by the previous rules, separated by a dot.</li>
       </ul>
@@ -2290,7 +2295,7 @@ or
 
       {#header_open|Tuples#}
       <p>
-      Anonymous structs can be created without specifying field names, and are referred to as "tuples".
+      Anonymous structs can be created without specifying field names, and are referred to as "tuples". An empty tuple looks like <code>.{}</code> and can be seen in one of the {#link|Hello World examples|Hello World#}.
       </p>
       <p>
       The fields are implicitly named using numbers starting from 0. Because their names are integers,
@@ -4517,9 +4522,7 @@ comptime {
       Counts the number of most-significant (leading in a big-endian sense) zeroes in an integer - "count leading zeroes".
       </p>
       <p>
-      If {#syntax#}operand{#endsyntax#} is a {#link|comptime#}-known integer,
-      the return type is {#syntax#}comptime_int{#endsyntax#}.
-      Otherwise, the return type is an unsigned integer or vector of unsigned integers with the minimum number
+      The return type is an unsigned integer or vector of unsigned integers with the minimum number
       of bits that can represent the bit count of the integer type.
       </p>
       <p>
@@ -4533,7 +4536,7 @@ comptime {
       <pre>{#syntax#}@cmpxchgStrong(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
       <p>
       This function performs a strong atomic compare-and-exchange operation, returning {#syntax#}null{#endsyntax#}
-      if the current value is not the given expected value. It's the equivalent of this code,
+      if the current value is the given expected value. It's the equivalent of this code,
       except atomic:
       </p>
       {#code|not_atomic_cmpxchgStrong.zig#}
@@ -4555,7 +4558,7 @@ comptime {
       <pre>{#syntax#}@cmpxchgWeak(comptime T: type, ptr: *T, expected_value: T, new_value: T, success_order: AtomicOrder, fail_order: AtomicOrder) ?T{#endsyntax#}</pre>
       <p>
       This function performs a weak atomic compare-and-exchange operation, returning {#syntax#}null{#endsyntax#}
-      if the current value is not the given expected value. It's the equivalent of this code,
+      if the current value is the given expected value. It's the equivalent of this code,
       except atomic:
       </p>
       {#syntax_block|zig|cmpxchgWeakButNotAtomic#}
@@ -4630,9 +4633,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       Counts the number of least-significant (trailing in a big-endian sense) zeroes in an integer - "count trailing zeroes".
       </p>
       <p>
-      If {#syntax#}operand{#endsyntax#} is a {#link|comptime#}-known integer,
-      the return type is {#syntax#}comptime_int{#endsyntax#}.
-      Otherwise, the return type is an unsigned integer or vector of unsigned integers with the minimum number
+      The return type is an unsigned integer or vector of unsigned integers with the minimum number
       of bits that can represent the bit count of the integer type.
       </p>
       <p>
@@ -5171,9 +5172,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       Counts the number of bits set in an integer - "population count".
       </p>
       <p>
-      If {#syntax#}operand{#endsyntax#} is a {#link|comptime#}-known integer,
-      the return type is {#syntax#}comptime_int{#endsyntax#}.
-      Otherwise, the return type is an unsigned integer or vector of unsigned integers with the minimum number
+      The return type is an unsigned integer or vector of unsigned integers with the minimum number
       of bits that can represent the bit count of the integer type.
       </p>
       {#see_also|@ctz|@clz#}

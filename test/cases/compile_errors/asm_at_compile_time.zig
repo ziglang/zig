@@ -15,4 +15,5 @@ fn doSomeAsm() void {
 // target=native
 //
 // :6:5: error: unable to evaluate comptime expression
-// :2:14: note: called from here
+// :2:14: note: called at comptime from here
+// :1:1: note: 'comptime' keyword forces comptime evaluation

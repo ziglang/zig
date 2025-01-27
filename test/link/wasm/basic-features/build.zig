@@ -1,7 +1,5 @@
 const std = @import("std");
 
-pub const requires_stage2 = true;
-
 pub fn build(b: *std.Build) void {
     // Library with explicitly set cpu features
     const lib = b.addExecutable(.{

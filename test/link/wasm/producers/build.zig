@@ -1,8 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-pub const requires_stage2 = true;
-
 pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;

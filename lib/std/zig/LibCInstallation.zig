@@ -407,7 +407,7 @@ fn findNativeCrtDirWindows(
     var result_buf = std.ArrayList(u8).init(allocator);
     defer result_buf.deinit();
 
-    const arch_sub_dir = switch (builtin.target.cpu.arch) {
+    const arch_sub_dir = switch (args.target.cpu.arch) {
         .x86 => "x86",
         .x86_64 => "x64",
         .arm, .armeb => "arm",
@@ -474,7 +474,7 @@ fn findNativeKernel32LibDir(
     var result_buf = std.ArrayList(u8).init(allocator);
     defer result_buf.deinit();
 
-    const arch_sub_dir = switch (builtin.target.cpu.arch) {
+    const arch_sub_dir = switch (args.target.cpu.arch) {
         .x86 => "x86",
         .x86_64 => "x64",
         .arm, .armeb => "arm",

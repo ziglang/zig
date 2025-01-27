@@ -138,7 +138,7 @@ pub const Instruction = struct {
                 .moffs => true,
                 .rip => false,
                 .sib => |s| switch (s.base) {
-                    .none, .frame, .reloc => false,
+                    .none, .frame, .table, .reloc => false,
                     .reg => |reg| reg.class() == .segment,
                 },
             };
@@ -161,17 +161,17 @@ pub const Instruction = struct {
 
         pub fn disp(mem: Memory) Immediate {
             return switch (mem) {
-                .sib => |s| Immediate.s(s.disp),
-                .rip => |r| Immediate.s(r.disp),
-                .moffs => |m| Immediate.u(m.offset),
+                .sib => |s| .s(s.disp),
+                .rip => |r| .s(r.disp),
+                .moffs => |m| .u(m.offset),
             };
         }
 
-        pub fn bitSize(mem: Memory) u64 {
+        pub fn bitSize(mem: Memory, target: *const std.Target) u64 {
             return switch (mem) {
-                .rip => |r| r.ptr_size.bitSize(),
-                .sib => |s| s.ptr_size.bitSize(),
-                .moffs => 64,
+                .rip => |r| r.ptr_size.bitSize(target),
+                .sib => |s| s.ptr_size.bitSize(target),
+                .moffs => target.ptrBitWidth(),
             };
         }
     };
@@ -277,6 +277,7 @@ pub const Instruction = struct {
                             .none => any = false,
                             .reg => |reg| try writer.print("{s}", .{@tagName(reg)}),
                             .frame => |frame_index| try writer.print("{}", .{frame_index}),
+                            .table => try writer.print("Table", .{}),
                             .reloc => |sym_index| try writer.print("Symbol({d})", .{sym_index}),
                         }
                         if (mem.scaleIndex()) |si| {
@@ -314,28 +315,33 @@ pub const Instruction = struct {
         }
     };
 
-    pub fn new(prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand) !Instruction {
+    pub fn new(
+        prefix: Prefix,
+        mnemonic: Mnemonic,
+        ops: []const Operand,
+        target: *const std.Target,
+    ) !Instruction {
         const encoding: Encoding = switch (prefix) {
-            else => (try Encoding.findByMnemonic(prefix, mnemonic, ops)) orelse {
+            else => (try Encoding.findByMnemonic(prefix, mnemonic, ops, target)) orelse {
                 log.err("no encoding found for: {s} {s} {s} {s} {s} {s}", .{
                     @tagName(prefix),
                     @tagName(mnemonic),
-                    @tagName(if (ops.len > 0) Encoding.Op.fromOperand(ops[0]) else .none),
-                    @tagName(if (ops.len > 1) Encoding.Op.fromOperand(ops[1]) else .none),
-                    @tagName(if (ops.len > 2) Encoding.Op.fromOperand(ops[2]) else .none),
-                    @tagName(if (ops.len > 3) Encoding.Op.fromOperand(ops[3]) else .none),
+                    @tagName(if (ops.len > 0) Encoding.Op.fromOperand(ops[0], target) else .none),
+                    @tagName(if (ops.len > 1) Encoding.Op.fromOperand(ops[1], target) else .none),
+                    @tagName(if (ops.len > 2) Encoding.Op.fromOperand(ops[2], target) else .none),
+                    @tagName(if (ops.len > 3) Encoding.Op.fromOperand(ops[3], target) else .none),
                 });
                 return error.InvalidInstruction;
             },
             .directive => .{
                 .mnemonic = mnemonic,
                 .data = .{
-                    .op_en = .zo,
+                    .op_en = .z,
                     .ops = .{
-                        if (ops.len > 0) Encoding.Op.fromOperand(ops[0]) else .none,
-                        if (ops.len > 1) Encoding.Op.fromOperand(ops[1]) else .none,
-                        if (ops.len > 2) Encoding.Op.fromOperand(ops[2]) else .none,
-                        if (ops.len > 3) Encoding.Op.fromOperand(ops[3]) else .none,
+                        if (ops.len > 0) Encoding.Op.fromOperand(ops[0], target) else .none,
+                        if (ops.len > 1) Encoding.Op.fromOperand(ops[1], target) else .none,
+                        if (ops.len > 2) Encoding.Op.fromOperand(ops[2], target) else .none,
+                        if (ops.len > 3) Encoding.Op.fromOperand(ops[3], target) else .none,
                     },
                     .opc_len = 0,
                     .opc = undefined,
@@ -383,6 +389,7 @@ pub const Instruction = struct {
         const enc = inst.encoding;
         const data = enc.data;
 
+        try inst.encodeWait(encoder);
         if (data.mode.isVex()) {
             try inst.encodeVexPrefix(encoder);
             const opc = inst.encoding.opcode();
@@ -395,24 +402,29 @@ pub const Instruction = struct {
         }
 
         switch (data.op_en) {
-            .zo, .o => {},
+            .z, .o, .zo, .oz => {},
             .i, .d => try encodeImm(inst.ops[0].imm, data.ops[0], encoder),
             .zi, .oi => try encodeImm(inst.ops[1].imm, data.ops[1], encoder),
+            .ii => {
+                try encodeImm(inst.ops[0].imm, data.ops[0], encoder);
+                try encodeImm(inst.ops[1].imm, data.ops[1], encoder);
+            },
             .fd => try encoder.imm64(inst.ops[1].mem.moffs.offset),
             .td => try encoder.imm64(inst.ops[0].mem.moffs.offset),
             else => {
-                const mem_op = switch (data.op_en) {
+                const mem_op: Operand = switch (data.op_en) {
+                    .ia => .{ .reg = .eax },
                     .m, .mi, .m1, .mc, .mr, .mri, .mrc, .mvr => inst.ops[0],
-                    .rm, .rmi, .rm0, .vmi => inst.ops[1],
+                    .rm, .rmi, .rm0, .vm, .vmi, .rmv => inst.ops[1],
                     .rvm, .rvmr, .rvmi => inst.ops[2],
                     else => unreachable,
                 };
                 switch (mem_op) {
                     .reg => |reg| {
                         const rm = switch (data.op_en) {
-                            .m, .mi, .m1, .mc, .vmi => enc.modRmExt(),
+                            .ia, .m, .mi, .m1, .mc, .vm, .vmi => enc.modRmExt(),
                             .mr, .mri, .mrc => inst.ops[1].reg.lowEnc(),
-                            .rm, .rmi, .rm0, .rvm, .rvmr, .rvmi => inst.ops[0].reg.lowEnc(),
+                            .rm, .rmi, .rm0, .rvm, .rvmr, .rvmi, .rmv => inst.ops[0].reg.lowEnc(),
                             .mvr => inst.ops[2].reg.lowEnc(),
                             else => unreachable,
                         };
@@ -420,9 +432,9 @@ pub const Instruction = struct {
                     },
                     .mem => |mem| {
                         const op = switch (data.op_en) {
-                            .m, .mi, .m1, .mc, .vmi => .none,
+                            .m, .mi, .m1, .mc, .vm, .vmi => .none,
                             .mr, .mri, .mrc => inst.ops[1],
-                            .rm, .rmi, .rm0, .rvm, .rvmr, .rvmi => inst.ops[0],
+                            .rm, .rmi, .rm0, .rvm, .rvmr, .rvmi, .rmv => inst.ops[0],
                             .mvr => inst.ops[2],
                             else => unreachable,
                         };
@@ -432,6 +444,7 @@ pub const Instruction = struct {
                 }
 
                 switch (data.op_en) {
+                    .ia => try encodeImm(inst.ops[0].imm, data.ops[0], encoder),
                     .mi => try encodeImm(inst.ops[1].imm, data.ops[1], encoder),
                     .rmi, .mri, .vmi => try encodeImm(inst.ops[2].imm, data.ops[2], encoder),
                     .rvmr => try encoder.imm8(@as(u8, inst.ops[3].reg.enc()) << 4),
@@ -448,8 +461,16 @@ pub const Instruction = struct {
         const final = opcode.len - 1;
         for (opcode[first..final]) |byte| try encoder.opcode_1byte(byte);
         switch (inst.encoding.data.op_en) {
-            .o, .oi => try encoder.opcode_withReg(opcode[final], inst.ops[0].reg.lowEnc()),
+            .o, .oz, .oi => try encoder.opcode_withReg(opcode[final], inst.ops[0].reg.lowEnc()),
+            .zo => try encoder.opcode_withReg(opcode[final], inst.ops[1].reg.lowEnc()),
             else => try encoder.opcode_1byte(opcode[final]),
+        }
+    }
+
+    fn encodeWait(inst: Instruction, encoder: anytype) !void {
+        switch (inst.encoding.data.mode) {
+            .wait => try encoder.opcode_1byte(0x9b),
+            else => {},
         }
     }
 
@@ -474,7 +495,7 @@ pub const Instruction = struct {
         }
 
         const segment_override: ?Register = switch (op_en) {
-            .zo, .i, .zi, .o, .oi, .d => null,
+            .z, .i, .zi, .ii, .ia, .o, .zo, .oz, .oi, .d => null,
             .fd => inst.ops[1].mem.base().reg,
             .td => inst.ops[0].mem.base().reg,
             .rm, .rmi, .rm0 => if (inst.ops[1].isSegmentRegister())
@@ -493,7 +514,7 @@ pub const Instruction = struct {
                 }
             else
                 null,
-            .vmi, .rvm, .rvmr, .rvmi, .mvr => unreachable,
+            .vm, .vmi, .rvm, .rvmr, .rvmi, .mvr, .rmv => unreachable,
         };
         if (segment_override) |seg| {
             legacy.setSegmentOverride(seg);
@@ -510,11 +531,12 @@ pub const Instruction = struct {
         rex.w = inst.encoding.data.mode == .long;
 
         switch (op_en) {
-            .zo, .i, .zi, .fd, .td, .d => {},
-            .o, .oi => rex.b = inst.ops[0].reg.isExtended(),
-            .m, .mi, .m1, .mc, .mr, .rm, .rmi, .mri, .mrc, .rm0 => {
+            .z, .i, .zi, .ii, .ia, .fd, .td, .d => {},
+            .o, .oz, .oi => rex.b = inst.ops[0].reg.isExtended(),
+            .zo => rex.b = inst.ops[1].reg.isExtended(),
+            .m, .mi, .m1, .mc, .mr, .rm, .rmi, .mri, .mrc, .rm0, .rmv => {
                 const r_op = switch (op_en) {
-                    .rm, .rmi, .rm0 => inst.ops[0],
+                    .rm, .rmi, .rm0, .rmv => inst.ops[0],
                     .mr, .mri, .mrc => inst.ops[1],
                     else => .none,
                 };
@@ -528,7 +550,7 @@ pub const Instruction = struct {
                 rex.b = b_x_op.isBaseExtended();
                 rex.x = b_x_op.isIndexExtended();
             },
-            .vmi, .rvm, .rvmr, .rvmi, .mvr => unreachable,
+            .vm, .vmi, .rvm, .rvmr, .rvmi, .mvr => unreachable,
         }
 
         try encoder.rex(rex);
@@ -544,20 +566,19 @@ pub const Instruction = struct {
         vex.w = inst.encoding.data.mode.isLong();
 
         switch (op_en) {
-            .zo, .i, .zi, .fd, .td, .d => {},
-            .o, .oi => vex.b = inst.ops[0].reg.isExtended(),
-            .m, .mi, .m1, .mc, .mr, .rm, .rmi, .mri, .mrc, .rm0, .vmi, .rvm, .rvmr, .rvmi, .mvr => {
+            .z, .i, .zi, .ii, .ia, .fd, .td, .d, .o, .oz, .oi, .zo => unreachable,
+            .m, .mi, .m1, .mc, .mr, .rm, .rmi, .mri, .mrc, .rm0, .vm, .vmi, .rvm, .rvmr, .rvmi, .mvr, .rmv => {
                 const r_op = switch (op_en) {
-                    .rm, .rmi, .rm0, .rvm, .rvmr, .rvmi => inst.ops[0],
+                    .rm, .rmi, .rm0, .rvm, .rvmr, .rvmi, .rmv => inst.ops[0],
                     .mr, .mri, .mrc => inst.ops[1],
                     .mvr => inst.ops[2],
-                    .m, .mi, .m1, .mc, .vmi => .none,
+                    .m, .mi, .m1, .mc, .vm, .vmi => .none,
                     else => unreachable,
                 };
                 vex.r = r_op.isBaseExtended();
 
                 const b_x_op = switch (op_en) {
-                    .rm, .rmi, .rm0, .vmi => inst.ops[1],
+                    .rm, .rmi, .rm0, .vm, .vmi, .rmv => inst.ops[1],
                     .m, .mi, .m1, .mc, .mr, .mri, .mrc, .mvr => inst.ops[0],
                     .rvm, .rvmr, .rvmi => inst.ops[2],
                     else => unreachable,
@@ -586,8 +607,9 @@ pub const Instruction = struct {
 
         switch (op_en) {
             else => {},
-            .vmi => vex.v = inst.ops[0].reg,
+            .vm, .vmi => vex.v = inst.ops[0].reg,
             .rvm, .rvmr, .rvmi => vex.v = inst.ops[1].reg,
+            .rmv => vex.v = inst.ops[2].reg,
         }
 
         try encoder.vex(vex);
@@ -608,7 +630,7 @@ pub const Instruction = struct {
         switch (mem) {
             .moffs => unreachable,
             .sib => |sib| switch (sib.base) {
-                .none => {
+                .none, .table => {
                     try encoder.modRm_SIBDisp0(operand_enc);
                     if (mem.scaleIndex()) |si| {
                         const scale = math.log2_int(u4, si.scale);
@@ -676,11 +698,11 @@ pub const Instruction = struct {
                     else => unreachable,
                 },
                 .frame => if (@TypeOf(encoder).options.allow_frame_locs) {
-                    try encoder.modRm_indirectDisp32(operand_enc, undefined);
+                    try encoder.modRm_indirectDisp32(operand_enc, 0);
                     try encoder.disp32(undefined);
                 } else return error.CannotEncode,
                 .reloc => if (@TypeOf(encoder).options.allow_symbols) {
-                    try encoder.modRm_indirectDisp32(operand_enc, undefined);
+                    try encoder.modRm_indirectDisp32(operand_enc, 0);
                     try encoder.disp32(undefined);
                 } else return error.CannotEncode,
             },
@@ -1185,7 +1207,7 @@ const TestEncode = struct {
     ) !void {
         var stream = std.io.fixedBufferStream(&enc.buffer);
         var count_writer = std.io.countingWriter(stream.writer());
-        const inst = try Instruction.new(.none, mnemonic, ops);
+        const inst: Instruction = try .new(.none, mnemonic, ops);
         try inst.encode(count_writer.writer(), .{});
         enc.index = count_writer.bytes_written;
     }
@@ -1199,9 +1221,9 @@ test "encode" {
     var buf = std.ArrayList(u8).init(testing.allocator);
     defer buf.deinit();
 
-    const inst = try Instruction.new(.none, .mov, &.{
+    const inst: Instruction = try .new(.none, .mov, &.{
         .{ .reg = .rbx },
-        .{ .imm = Instruction.Immediate.u(4) },
+        .{ .imm = .u(4) },
     });
     try inst.encode(buf.writer(), .{});
     try testing.expectEqualSlices(u8, &.{ 0x48, 0xc7, 0xc3, 0x4, 0x0, 0x0, 0x0 }, buf.items);
@@ -1211,47 +1233,47 @@ test "lower I encoding" {
     var enc = TestEncode{};
 
     try enc.encode(.push, &.{
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings("\x6A\x10", enc.code(), "push 0x10");
 
     try enc.encode(.push, &.{
-        .{ .imm = Instruction.Immediate.u(0x1000) },
+        .{ .imm = .u(0x1000) },
     });
     try expectEqualHexStrings("\x66\x68\x00\x10", enc.code(), "push 0x1000");
 
     try enc.encode(.push, &.{
-        .{ .imm = Instruction.Immediate.u(0x10000000) },
+        .{ .imm = .u(0x10000000) },
     });
     try expectEqualHexStrings("\x68\x00\x00\x00\x10", enc.code(), "push 0x10000000");
 
     try enc.encode(.adc, &.{
         .{ .reg = .rax },
-        .{ .imm = Instruction.Immediate.u(0x10000000) },
+        .{ .imm = .u(0x10000000) },
     });
     try expectEqualHexStrings("\x48\x15\x00\x00\x00\x10", enc.code(), "adc rax, 0x10000000");
 
     try enc.encode(.add, &.{
         .{ .reg = .al },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings("\x04\x10", enc.code(), "add al, 0x10");
 
     try enc.encode(.add, &.{
         .{ .reg = .rax },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings("\x48\x83\xC0\x10", enc.code(), "add rax, 0x10");
 
     try enc.encode(.sbb, &.{
         .{ .reg = .ax },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings("\x66\x1D\x10\x00", enc.code(), "sbb ax, 0x10");
 
     try enc.encode(.xor, &.{
         .{ .reg = .al },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings("\x34\x10", enc.code(), "xor al, 0x10");
 }
@@ -1261,43 +1283,43 @@ test "lower MI encoding" {
 
     try enc.encode(.mov, &.{
         .{ .reg = .r12 },
-        .{ .imm = Instruction.Immediate.u(0x1000) },
+        .{ .imm = .u(0x1000) },
     });
     try expectEqualHexStrings("\x49\xC7\xC4\x00\x10\x00\x00", enc.code(), "mov r12, 0x1000");
 
     try enc.encode(.mov, &.{
         .{ .mem = Instruction.Memory.initSib(.byte, .{ .base = .{ .reg = .r12 } }) },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings("\x41\xC6\x04\x24\x10", enc.code(), "mov BYTE PTR [r12], 0x10");
 
     try enc.encode(.mov, &.{
         .{ .reg = .r12 },
-        .{ .imm = Instruction.Immediate.u(0x1000) },
+        .{ .imm = .u(0x1000) },
     });
     try expectEqualHexStrings("\x49\xC7\xC4\x00\x10\x00\x00", enc.code(), "mov r12, 0x1000");
 
     try enc.encode(.mov, &.{
         .{ .reg = .r12 },
-        .{ .imm = Instruction.Immediate.u(0x1000) },
+        .{ .imm = .u(0x1000) },
     });
     try expectEqualHexStrings("\x49\xC7\xC4\x00\x10\x00\x00", enc.code(), "mov r12, 0x1000");
 
     try enc.encode(.mov, &.{
         .{ .reg = .rax },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings("\x48\xc7\xc0\x10\x00\x00\x00", enc.code(), "mov rax, 0x10");
 
     try enc.encode(.mov, &.{
         .{ .mem = Instruction.Memory.initSib(.dword, .{ .base = .{ .reg = .r11 } }) },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings("\x41\xc7\x03\x10\x00\x00\x00", enc.code(), "mov DWORD PTR [r11], 0x10");
 
     try enc.encode(.mov, &.{
         .{ .mem = Instruction.Memory.initRip(.qword, 0x10) },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings(
         "\x48\xC7\x05\x10\x00\x00\x00\x10\x00\x00\x00",
@@ -1307,19 +1329,19 @@ test "lower MI encoding" {
 
     try enc.encode(.mov, &.{
         .{ .mem = Instruction.Memory.initSib(.qword, .{ .base = .{ .reg = .rbp }, .disp = -8 }) },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings("\x48\xc7\x45\xf8\x10\x00\x00\x00", enc.code(), "mov QWORD PTR [rbp - 8], 0x10");
 
     try enc.encode(.mov, &.{
         .{ .mem = Instruction.Memory.initSib(.word, .{ .base = .{ .reg = .rbp }, .disp = -2 }) },
-        .{ .imm = Instruction.Immediate.s(-16) },
+        .{ .imm = .s(-16) },
     });
     try expectEqualHexStrings("\x66\xC7\x45\xFE\xF0\xFF", enc.code(), "mov WORD PTR [rbp - 2], -16");
 
     try enc.encode(.mov, &.{
         .{ .mem = Instruction.Memory.initSib(.byte, .{ .base = .{ .reg = .rbp }, .disp = -1 }) },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings("\xC6\x45\xFF\x10", enc.code(), "mov BYTE PTR [rbp - 1], 0x10");
 
@@ -1329,7 +1351,7 @@ test "lower MI encoding" {
             .disp = 0x10000000,
             .scale_index = .{ .scale = 2, .index = .rcx },
         }) },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings(
         "\x48\xC7\x04\x4D\x00\x00\x00\x10\x10\x00\x00\x00",
@@ -1339,43 +1361,43 @@ test "lower MI encoding" {
 
     try enc.encode(.adc, &.{
         .{ .mem = Instruction.Memory.initSib(.byte, .{ .base = .{ .reg = .rbp }, .disp = -0x10 }) },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings("\x80\x55\xF0\x10", enc.code(), "adc BYTE PTR [rbp - 0x10], 0x10");
 
     try enc.encode(.adc, &.{
         .{ .mem = Instruction.Memory.initRip(.qword, 0) },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings("\x48\x83\x15\x00\x00\x00\x00\x10", enc.code(), "adc QWORD PTR [rip], 0x10");
 
     try enc.encode(.adc, &.{
         .{ .reg = .rax },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings("\x48\x83\xD0\x10", enc.code(), "adc rax, 0x10");
 
     try enc.encode(.add, &.{
         .{ .mem = Instruction.Memory.initSib(.dword, .{ .base = .{ .reg = .rdx }, .disp = -8 }) },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings("\x83\x42\xF8\x10", enc.code(), "add DWORD PTR [rdx - 8], 0x10");
 
     try enc.encode(.add, &.{
         .{ .reg = .rax },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings("\x48\x83\xC0\x10", enc.code(), "add rax, 0x10");
 
     try enc.encode(.add, &.{
         .{ .mem = Instruction.Memory.initSib(.qword, .{ .base = .{ .reg = .rbp }, .disp = -0x10 }) },
-        .{ .imm = Instruction.Immediate.s(-0x10) },
+        .{ .imm = .s(-0x10) },
     });
     try expectEqualHexStrings("\x48\x83\x45\xF0\xF0", enc.code(), "add QWORD PTR [rbp - 0x10], -0x10");
 
     try enc.encode(.@"and", &.{
         .{ .mem = Instruction.Memory.initSib(.dword, .{ .base = .{ .reg = .ds }, .disp = 0x10000000 }) },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings(
         "\x83\x24\x25\x00\x00\x00\x10\x10",
@@ -1385,7 +1407,7 @@ test "lower MI encoding" {
 
     try enc.encode(.@"and", &.{
         .{ .mem = Instruction.Memory.initSib(.dword, .{ .base = .{ .reg = .es }, .disp = 0x10000000 }) },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings(
         "\x26\x83\x24\x25\x00\x00\x00\x10\x10",
@@ -1395,7 +1417,7 @@ test "lower MI encoding" {
 
     try enc.encode(.@"and", &.{
         .{ .mem = Instruction.Memory.initSib(.dword, .{ .base = .{ .reg = .r12 }, .disp = 0x10000000 }) },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings(
         "\x41\x83\xA4\x24\x00\x00\x00\x10\x10",
@@ -1405,7 +1427,7 @@ test "lower MI encoding" {
 
     try enc.encode(.sub, &.{
         .{ .mem = Instruction.Memory.initSib(.dword, .{ .base = .{ .reg = .r11 }, .disp = 0x10000000 }) },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings(
         "\x41\x83\xAB\x00\x00\x00\x10\x10",
@@ -1624,14 +1646,14 @@ test "lower RMI encoding" {
     try enc.encode(.imul, &.{
         .{ .reg = .r11 },
         .{ .reg = .r12 },
-        .{ .imm = Instruction.Immediate.s(-2) },
+        .{ .imm = .s(-2) },
     });
     try expectEqualHexStrings("\x4D\x6B\xDC\xFE", enc.code(), "imul r11, r12, -2");
 
     try enc.encode(.imul, &.{
         .{ .reg = .r11 },
         .{ .mem = Instruction.Memory.initRip(.qword, -16) },
-        .{ .imm = Instruction.Immediate.s(-1024) },
+        .{ .imm = .s(-1024) },
     });
     try expectEqualHexStrings(
         "\x4C\x69\x1D\xF0\xFF\xFF\xFF\x00\xFC\xFF\xFF",
@@ -1642,7 +1664,7 @@ test "lower RMI encoding" {
     try enc.encode(.imul, &.{
         .{ .reg = .bx },
         .{ .mem = Instruction.Memory.initSib(.word, .{ .base = .{ .reg = .rbp }, .disp = -16 }) },
-        .{ .imm = Instruction.Immediate.s(-1024) },
+        .{ .imm = .s(-1024) },
     });
     try expectEqualHexStrings(
         "\x66\x69\x5D\xF0\x00\xFC",
@@ -1653,7 +1675,7 @@ test "lower RMI encoding" {
     try enc.encode(.imul, &.{
         .{ .reg = .bx },
         .{ .mem = Instruction.Memory.initSib(.word, .{ .base = .{ .reg = .rbp }, .disp = -16 }) },
-        .{ .imm = Instruction.Immediate.u(1024) },
+        .{ .imm = .u(1024) },
     });
     try expectEqualHexStrings(
         "\x66\x69\x5D\xF0\x00\x04",
@@ -1769,7 +1791,7 @@ test "lower M encoding" {
     try expectEqualHexStrings("\x65\xFF\x14\x25\x00\x00\x00\x00", enc.code(), "call gs:0x0");
 
     try enc.encode(.call, &.{
-        .{ .imm = Instruction.Immediate.s(0) },
+        .{ .imm = .s(0) },
     });
     try expectEqualHexStrings("\xE8\x00\x00\x00\x00", enc.code(), "call 0x0");
 
@@ -1828,7 +1850,7 @@ test "lower OI encoding" {
 
     try enc.encode(.mov, &.{
         .{ .reg = .rax },
-        .{ .imm = Instruction.Immediate.u(0x1000000000000000) },
+        .{ .imm = .u(0x1000000000000000) },
     });
     try expectEqualHexStrings(
         "\x48\xB8\x00\x00\x00\x00\x00\x00\x00\x10",
@@ -1838,7 +1860,7 @@ test "lower OI encoding" {
 
     try enc.encode(.mov, &.{
         .{ .reg = .r11 },
-        .{ .imm = Instruction.Immediate.u(0x1000000000000000) },
+        .{ .imm = .u(0x1000000000000000) },
     });
     try expectEqualHexStrings(
         "\x49\xBB\x00\x00\x00\x00\x00\x00\x00\x10",
@@ -1848,19 +1870,19 @@ test "lower OI encoding" {
 
     try enc.encode(.mov, &.{
         .{ .reg = .r11d },
-        .{ .imm = Instruction.Immediate.u(0x10000000) },
+        .{ .imm = .u(0x10000000) },
     });
     try expectEqualHexStrings("\x41\xBB\x00\x00\x00\x10", enc.code(), "mov r11d, 0x10000000");
 
     try enc.encode(.mov, &.{
         .{ .reg = .r11w },
-        .{ .imm = Instruction.Immediate.u(0x1000) },
+        .{ .imm = .u(0x1000) },
     });
     try expectEqualHexStrings("\x66\x41\xBB\x00\x10", enc.code(), "mov r11w, 0x1000");
 
     try enc.encode(.mov, &.{
         .{ .reg = .r11b },
-        .{ .imm = Instruction.Immediate.u(0x10) },
+        .{ .imm = .u(0x10) },
     });
     try expectEqualHexStrings("\x41\xB3\x10", enc.code(), "mov r11b, 0x10");
 }
@@ -1934,7 +1956,7 @@ test "lower NP encoding" {
 }
 
 fn invalidInstruction(mnemonic: Instruction.Mnemonic, ops: []const Instruction.Operand) !void {
-    const err = Instruction.new(.none, mnemonic, ops);
+    const err: Instruction = .new(.none, mnemonic, ops);
     try testing.expectError(error.InvalidInstruction, err);
 }
 
@@ -1982,12 +2004,12 @@ test "invalid instruction" {
         .{ .reg = .r12d },
     });
     try invalidInstruction(.push, &.{
-        .{ .imm = Instruction.Immediate.u(0x1000000000000000) },
+        .{ .imm = .u(0x1000000000000000) },
     });
 }
 
 fn cannotEncode(mnemonic: Instruction.Mnemonic, ops: []const Instruction.Operand) !void {
-    try testing.expectError(error.CannotEncode, Instruction.new(.none, mnemonic, ops));
+    try testing.expectError(error.CannotEncode, .new(.none, mnemonic, ops));
 }
 
 test "cannot encode" {
@@ -2171,7 +2193,7 @@ const Assembler = struct {
 
     pub fn assemble(as: *Assembler, writer: anytype) !void {
         while (try as.next()) |parsed_inst| {
-            const inst = try Instruction.new(.none, parsed_inst.mnemonic, &parsed_inst.ops);
+            const inst: Instruction = try .new(.none, parsed_inst.mnemonic, &parsed_inst.ops);
             try inst.encode(writer, .{});
         }
     }
