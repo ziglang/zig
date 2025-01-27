@@ -71,6 +71,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             .unwind_tables = unwind_tables,
             .pic = if (target_util.supports_fpic(target)) true else null,
             .optimize_mode = comp.compilerRtOptMode(),
+            .code_model = comp.root_mod.code_model,
         },
         .global = config,
         .cc_argv = &.{},
