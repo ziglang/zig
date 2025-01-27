@@ -5668,10 +5668,10 @@ pub fn clock_gettime(clock_id: clockid_t) ClockGetTimeError!timespec {
     }
 }
 
-pub fn clock_getres(clk_id: clockid_t, res: *timespec) ClockGetTimeError!void {
+pub fn clock_getres(clock_id: clockid_t, res: *timespec) ClockGetTimeError!void {
     if (native_os == .wasi and !builtin.link_libc) {
         var ts: timestamp_t = undefined;
-        switch (system.clock_res_get(@bitCast(clk_id), &ts)) {
+        switch (system.clock_res_get(@bitCast(clock_id), &ts)) {
             .SUCCESS => res.* = .{
                 .sec = @intCast(ts / std.time.ns_per_s),
                 .nsec = @intCast(ts % std.time.ns_per_s),
@@ -5682,7 +5682,7 @@ pub fn clock_getres(clk_id: clockid_t, res: *timespec) ClockGetTimeError!void {
         return;
     }
 
-    switch (errno(system.clock_getres(clk_id, res))) {
+    switch (errno(system.clock_getres(clock_id, res))) {
         .SUCCESS => return,
         .FAULT => unreachable,
         .INVAL => return error.UnsupportedClock,
