@@ -826,9 +826,9 @@ fn buildOutputType(
     var listen: Listen = .none;
     var debug_compile_errors = false;
     var verbose_link = (native_os != .wasi or builtin.link_libc) and
-        EnvVar.ZIG_VERBOSE_LINK.isSet();
+        try EnvVar.ZIG_VERBOSE_LINK.isSet(arena);
     var verbose_cc = (native_os != .wasi or builtin.link_libc) and
-        EnvVar.ZIG_VERBOSE_CC.isSet();
+        try EnvVar.ZIG_VERBOSE_CC.isSet(arena);
     var verbose_air = false;
     var verbose_intern_pool = false;
     var verbose_generic_instances = false;
@@ -1006,9 +1006,9 @@ fn buildOutputType(
     // if set, default the color setting to .off or .on, respectively
     // explicit --color arguments will still override this setting.
     // Disable color on WASI per https://github.com/WebAssembly/WASI/issues/162
-    var color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet())
+    var color: Color = if (native_os == .wasi or try EnvVar.NO_COLOR.isSet(arena))
         .off
-    else if (EnvVar.CLICOLOR_FORCE.isSet())
+    else if (try EnvVar.CLICOLOR_FORCE.isSet(arena))
         .on
     else
         .auto;
@@ -4749,9 +4749,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var reference_trace: ?u32 = null;
     var debug_compile_errors = false;
     var verbose_link = (native_os != .wasi or builtin.link_libc) and
-        EnvVar.ZIG_VERBOSE_LINK.isSet();
+        try EnvVar.ZIG_VERBOSE_LINK.isSet(arena);
     var verbose_cc = (native_os != .wasi or builtin.link_libc) and
-        EnvVar.ZIG_VERBOSE_CC.isSet();
+        try EnvVar.ZIG_VERBOSE_CC.isSet(arena);
     var verbose_air = false;
     var verbose_intern_pool = false;
     var verbose_generic_instances = false;
@@ -4934,7 +4934,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     }
 
     const work_around_btrfs_bug = native_os == .linux and
-        EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
+        try EnvVar.ZIG_BTRFS_WORKAROUND.isSet(arena);
     const root_prog_node = std.Progress.start(.{
         .disable_printing = (color == .off),
         .root_name = "Compile Build Script",
@@ -5433,7 +5433,7 @@ fn jitCmd(
         fatal("unable to find self exe path: {s}", .{@errorName(err)});
     };
 
-    const optimize_mode: std.builtin.OptimizeMode = if (EnvVar.ZIG_DEBUG_CMD.isSet())
+    const optimize_mode: std.builtin.OptimizeMode = if (try EnvVar.ZIG_DEBUG_CMD.isSet(arena))
         .Debug
     else
         .ReleaseFast;
@@ -6965,7 +6965,7 @@ fn cmdFetch(
 
     const color: Color = .auto;
     const work_around_btrfs_bug = native_os == .linux and
-        EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
+        try EnvVar.ZIG_BTRFS_WORKAROUND.isSet(arena);
     var opt_path_or_url: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
     var debug_hash: bool = false;
