@@ -293,7 +293,7 @@
 #endif /* zig_macho */
 #endif /* zig_msvc */
 
-#if (zig_has_attribute(alias) || defined(zig_tinyc)) && !defined(zig_macho) && !(defined(zig_msvc) && defined(__clang__))
+#if !(defined(zig_msvc) && defined(__clang__)) && (zig_has_attribute(alias) || defined(zig_tinyc)) && !defined(zig_macho)
 #define zig_export(symbol, name) __attribute__((alias(symbol)))
 #elif defined(zig_msvc)
 #define zig_export(symbol, name) ; \
@@ -3729,7 +3729,11 @@ zig_float_builtins(64)
     res = zig_atomicrmw_expected; \
 } while (0)
 
-#if (__STDC_VERSION__ >= 201112L || (zig_has_include(<stdatomic.h>) && !defined(zig_msvc))) && !defined(__STDC_NO_ATOMICS__)
+#if (__STDC_VERSION__ >= 201112L && !defined(__STDC_NO_ATOMICS__)) || (zig_has_include(<stdatomic.h>) && !defined(zig_msvc))
+#define zig_c11_atomics
+#endif
+
+#if defined(zig_c11_atomics)
 #include <stdatomic.h>
 typedef enum memory_order zig_memory_order;
 #define zig_memory_order_relaxed memory_order_relaxed
@@ -4069,7 +4073,7 @@ static inline void zig_msvc_atomic_store_i128(zig_i128 volatile* obj, zig_i128 a
 
 #endif /* zig_x86_32 */
 
-#endif /* !zig_c11_atomics && zig_msvc && zig_x86
+#endif /* !zig_c11_atomics && zig_msvc && zig_x86 */
 
 /* ======================== Special Case Intrinsics ========================= */
 
