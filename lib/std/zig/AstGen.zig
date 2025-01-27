@@ -13987,10 +13987,10 @@ fn lowerAstErrors(astgen: *AstGen) !void {
     const tok = parse_err.token + @intFromBool(parse_err.token_is_prev);
     const tok_start = token_starts[tok];
 
-    if (token_tags[tok] == .invalid and tree.source[tok_start] == '\\') {
+    if (token_tags[tok] == .invalid and (tree.source[tok_start] == '\\' or tree.source[tok_start] == '/')) {
+        const tok_len: u32 = @intCast(tree.tokenSlice(tok).len);
+        const tok_end = tok_start + tok_len;
         const bad_off = blk: {
-            const tok_len: u32 = @intCast(tree.tokenSlice(tok).len);
-            const tok_end = tok_start + tok_len;
             var idx = tok_start;
             while (idx < tok_end) : (idx += 1) {
                 switch (tree.source[idx]) {
@@ -14005,10 +14005,20 @@ fn lowerAstErrors(astgen: *AstGen) !void {
         try notes.append(gpa, try astgen.errNoteTokOff(tok, bad_off, "invalid byte: '{'}'", .{
             std.zig.fmtEscapes(tree.source[byte_abs..][0..1]),
         }));
+        const expected_tag = switch (tree.source[tok_start]) {
+            '\\' => std.zig.Token.Tag.multiline_string_literal_line,
+            '/' => blk: {
+                if (std.mem.indexOf(u8, tree.source[tok_start..tok_end], "///")) |idx| {
+                    if (idx == 0) break :blk std.zig.Token.Tag.doc_comment;
+                }
+                break :blk std.zig.Token.Tag.comment;
+            },
+            else => unreachable,
+        };
         const err: Ast.Error = .{
             .tag = Ast.Error.Tag.expected_token,
             .token = tok,
-            .extra = .{ .expected_tag = std.zig.Token.Tag.multiline_string_literal_line },
+            .extra = .{ .expected_tag = expected_tag },
         };
         msg.clearRetainingCapacity();
         try tree.renderError(err, msg.writer(gpa));

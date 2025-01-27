@@ -225,7 +225,8 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
         const case = ctx.obj("invalid byte in comment", b.graph.host);
 
         case.addError("//\x01Q", &[_][]const u8{
-            ":1:1: error: expected type expression, found 'invalid token'",
+            ":1:1: error: expected 'a comment', found invalid bytes",
+            ":1:3: note: invalid byte: '\\x01'",
         });
     }
 

@@ -137,6 +137,7 @@ pub const Token = struct {
         angle_bracket_angle_bracket_right_equal,
         tilde,
         number_literal,
+        comment,
         doc_comment,
         container_doc_comment,
         keyword_addrspace,
@@ -199,6 +200,7 @@ pub const Token = struct {
                 .eof,
                 .builtin,
                 .number_literal,
+                .comment,
                 .doc_comment,
                 .container_doc_comment,
                 => null,
@@ -327,6 +329,7 @@ pub const Token = struct {
                 .eof => "EOF",
                 .builtin => "a builtin function",
                 .number_literal => "a number literal",
+                .comment => "a comment",
                 .doc_comment, .container_doc_comment => "a document comment",
                 else => unreachable,
             };

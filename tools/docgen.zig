@@ -782,6 +782,7 @@ fn tokenizeAndPrintRaw(
                 try out.writeAll("</span>");
             },
 
+            .comment,
             .doc_comment,
             .container_doc_comment,
             => {
