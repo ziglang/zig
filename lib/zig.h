@@ -3823,7 +3823,7 @@ typedef int zig_memory_order;
 #define    zig_atomic_load(res, obj,      order, Type, ReprType) zig_atomics_unavailable
 #endif
 
-#if defined(zig_msvc) && defined(zig_x86) && (!defined(__clang__) || defined(__STDC_NO_ATOMICS__))
+#if !defined(zig_c11_atomics) && defined(zig_msvc) && defined(zig_x86)
 
 /* TODO: zig_msvc_atomic_load should load 32 bit without interlocked on x86, and load 64 bit without interlocked on x64 */
 
