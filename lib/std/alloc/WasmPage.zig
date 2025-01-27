@@ -1,7 +1,6 @@
 const WasmPageAllocator = @This();
 const std = @import("../std.zig");
 const builtin = @import("builtin");
-const Allocator = std.mem.Allocator;
 const mem = std.mem;
 const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
@@ -12,7 +11,7 @@ comptime {
     }
 }
 
-pub const vtable = Allocator.VTable{
+pub const vtable = mem.Allocator.VTable{
     .alloc = alloc,
     .resize = resize,
     .free = free,

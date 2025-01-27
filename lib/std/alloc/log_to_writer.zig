@@ -1,23 +1,23 @@
 const std = @import("../std.zig");
-const Allocator = std.mem.Allocator;
+const mem = std.mem;
 
 /// This allocator is used in front of another allocator and logs to the provided writer
 /// on every call to the allocator. Writer errors are ignored.
-pub fn LogToWriterAllocator(comptime Writer: type) type {
+pub fn Allocator(comptime Writer: type) type {
     return struct {
-        parent_allocator: Allocator,
+        parent_allocator: mem.Allocator,
         writer: Writer,
 
         const Self = @This();
 
-        pub fn init(parent_allocator: Allocator, writer: Writer) Self {
+        pub fn init(parent_allocator: mem.Allocator, writer: Writer) Self {
             return Self{
                 .parent_allocator = parent_allocator,
                 .writer = writer,
             };
         }
 
-        pub fn allocator(self: *Self) Allocator {
+        pub fn allocator(self: *Self) mem.Allocator {
             return .{
                 .ptr = self,
                 .vtable = &.{
@@ -86,27 +86,27 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
 
 /// This allocator is used in front of another allocator and logs to the provided writer
 /// on every call to the allocator. Writer errors are ignored.
-pub fn logToWriterAllocator(
-    parent_allocator: Allocator,
+pub fn allocator(
+    parent_allocator: mem.Allocator,
     writer: anytype,
-) LogToWriterAllocator(@TypeOf(writer)) {
-    return LogToWriterAllocator(@TypeOf(writer)).init(parent_allocator, writer);
+) Allocator(@TypeOf(writer)) {
+    return Allocator(@TypeOf(writer)).init(parent_allocator, writer);
 }
 
-test "LogToWriterAllocator" {
+test Allocator {
     var log_buf: [255]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&log_buf);
 
     var allocator_buf: [10]u8 = undefined;
-    var fixedBufferAllocator = std.mem.validationWrap(std.heap.FixedBufferAllocator.init(&allocator_buf));
-    var allocator_state = logToWriterAllocator(fixedBufferAllocator.allocator(), fbs.writer());
-    const allocator = allocator_state.allocator();
+    var fixedBufferAllocator = std.mem.validationWrap(std.alloc.FixedBuffer.init(&allocator_buf));
+    var allocator_state = allocator(fixedBufferAllocator.allocator(), fbs.writer());
+    const alloc = allocator_state.allocator();
 
-    var a = try allocator.alloc(u8, 10);
-    try std.testing.expect(allocator.resize(a, 5));
+    var a = try alloc.alloc(u8, 10);
+    try std.testing.expect(alloc.resize(a, 5));
     a = a[0..5];
-    try std.testing.expect(!allocator.resize(a, 20));
-    allocator.free(a);
+    try std.testing.expect(!alloc.resize(a, 20));
+    alloc.free(a);
 
     try std.testing.expectEqualSlices(u8,
         \\alloc : 10 success!
