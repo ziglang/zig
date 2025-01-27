@@ -197,7 +197,7 @@ typedef char bool;
 #endif /* __APPLE__ */
 #endif /* _MSC_VER */
 
-#if zig_has_attribute(alias) && !__APPLE__ && !(_MSC_VER && defined(zig_clang))
+#if zig_has_attribute(alias) && !__APPLE__
 #define zig_export(symbol, name) __attribute__((alias(symbol)))
 #elif _MSC_VER
 #define zig_export(symbol, name) ; \
@@ -225,7 +225,7 @@ typedef char bool;
 #if _MSC_VER
 #define zig_import(Type, fn_name, libc_name, sig_args, call_args) zig_extern Type fn_name sig_args;\
     __pragma(comment(linker, "/alternatename:" zig_mangle_c(#fn_name) "=" zig_mangle_c(#libc_name)));
-#define zig_import_builtin(Type, fn_name, libc_name, sig_args, call_args) zig_import(Type, fn_name, libc_name, sig_args, call_args)
+#define zig_import_builtin(Type, fn_name, libc_name, sig_args, call_args) zig_import(Type, fn_name, sig_args, call_args)
 #else /* _MSC_VER */
 #define zig_import(Type, fn_name, libc_name, sig_args, call_args) zig_extern Type fn_name sig_args __asm(zig_mangle_c(#libc_name));
 #define zig_import_builtin(Type, fn_name, libc_name, sig_args, call_args) zig_extern Type libc_name sig_args; \
@@ -3676,7 +3676,7 @@ typedef int zig_memory_order;
 #define    zig_atomic_load(res, obj,      order, Type, ReprType) zig_atomics_unavailable
 #endif
 
-#if _MSC_VER && (_M_IX86 || _M_X64) && !(defined(zig_clang) && !defined(__STDC_NO_ATOMICS__))
+#if _MSC_VER && (_M_IX86 || _M_X64)
 
 /* TODO: zig_msvc_atomic_load should load 32 bit without interlocked on x86, and load 64 bit without interlocked on x64 */
 
