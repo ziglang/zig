@@ -128,9 +128,7 @@ test parseFloat {
 
 test "nan and inf" {
     inline for ([_]type{ f16, f32, f64, f80, f128 }) |T| {
-        const Z = std.meta.Int(.unsigned, @typeInfo(T).float.bits);
-
-        try expectEqual(@as(Z, @bitCast(try parseFloat(T, "nAn"))), @as(Z, @bitCast(std.math.nan(T))));
+        try expectEqual(try parseFloat(T, "nAn"), std.math.nan(T));
         try expectEqual(try parseFloat(T, "inF"), std.math.inf(T));
         try expectEqual(try parseFloat(T, "-INF"), -std.math.inf(T));
     }
@@ -163,9 +161,9 @@ test "hex.special" {
 
 test "hex.zero" {
     try testing.expectEqual(@as(f32, 0.0), try parseFloat(f32, "0x0"));
-    try testing.expectEqual(@as(f32, 0.0), try parseFloat(f32, "-0x0"));
+    try testing.expectEqual(@as(f32, -0.0), try parseFloat(f32, "-0x0"));
     try testing.expectEqual(@as(f32, 0.0), try parseFloat(f32, "0x0p42"));
-    try testing.expectEqual(@as(f32, 0.0), try parseFloat(f32, "-0x0.00000p42"));
+    try testing.expectEqual(@as(f32, -0.0), try parseFloat(f32, "-0x0.00000p42"));
     try testing.expectEqual(@as(f32, 0.0), try parseFloat(f32, "0x0.00000p666"));
 }
 
