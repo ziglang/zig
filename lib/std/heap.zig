@@ -29,9 +29,6 @@ pub const MemoryPoolAligned = memory_pool.MemoryPoolAligned;
 pub const MemoryPoolExtra = memory_pool.MemoryPoolExtra;
 pub const MemoryPoolOptions = memory_pool.Options;
 
-/// TODO Utilize this on Windows.
-pub var next_mmap_addr_hint: ?[*]align(mem.page_size) u8 = null;
-
 const CAllocator = struct {
     comptime {
         if (!builtin.link_libc) {

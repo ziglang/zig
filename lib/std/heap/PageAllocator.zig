@@ -8,11 +8,17 @@ const native_os = builtin.os.tag;
 const windows = std.os.windows;
 const posix = std.posix;
 
+/// TODO: utilize this on windows
+pub var next_mmap_addr_hint = std.atomic.Value(?[*]align(mem.page_size) u8).init(null);
+
 pub const vtable = Allocator.VTable{
     .alloc = alloc,
     .resize = resize,
     .free = free,
 };
+
+/// Whether `posix.mremap` may be used
+const use_mremap = @hasDecl(posix.system, "REMAP") and posix.system.REMAP != void;
 
 fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
     _ = ra;
@@ -35,7 +41,8 @@ fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
     }
 
     const aligned_len = mem.alignForward(usize, n, mem.page_size);
-    const hint = @atomicLoad(@TypeOf(std.heap.next_mmap_addr_hint), &std.heap.next_mmap_addr_hint, .unordered);
+    const hint = next_mmap_addr_hint.load(.unordered);
+
     const slice = posix.mmap(
         hint,
         aligned_len,
@@ -43,10 +50,15 @@ fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
         .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
         -1,
         0,
-    ) catch return null;
+    ) catch {
+        _ = next_mmap_addr_hint.cmpxchgStrong(hint, null, .monotonic, .monotonic);
+        return null;
+    };
+
     assert(mem.isAligned(@intFromPtr(slice.ptr), mem.page_size));
     const new_hint: [*]align(mem.page_size) u8 = @alignCast(slice.ptr + aligned_len);
-    _ = @cmpxchgStrong(@TypeOf(std.heap.next_mmap_addr_hint), &std.heap.next_mmap_addr_hint, hint, new_hint, .monotonic, .monotonic);
+    _ = next_mmap_addr_hint.cmpxchgStrong(hint, new_hint, .monotonic, .monotonic);
+
     return slice.ptr;
 }
 
@@ -59,7 +71,9 @@ fn resize(
 ) bool {
     _ = log2_buf_align;
     _ = return_address;
+
     const new_size_aligned = mem.alignForward(usize, new_size, mem.page_size);
+    const old_size_aligned = mem.alignForward(usize, buf_unaligned.len, mem.page_size);
 
     if (native_os == .windows) {
         if (new_size <= buf_unaligned.len) {
@@ -77,27 +91,36 @@ fn resize(
             }
             return true;
         }
-        const old_size_aligned = mem.alignForward(usize, buf_unaligned.len, mem.page_size);
-        if (new_size_aligned <= old_size_aligned) {
-            return true;
-        }
-        return false;
+        return new_size_aligned <= old_size_aligned;
     }
 
-    const buf_aligned_len = mem.alignForward(usize, buf_unaligned.len, mem.page_size);
-    if (new_size_aligned == buf_aligned_len)
-        return true;
-
-    if (new_size_aligned < buf_aligned_len) {
-        const ptr = buf_unaligned.ptr + new_size_aligned;
-        // TODO: if the next_mmap_addr_hint is within the unmapped range, update it
-        posix.munmap(@alignCast(ptr[0 .. buf_aligned_len - new_size_aligned]));
-        return true;
+    const buf: []align(mem.page_size) u8 = @alignCast(buf_unaligned.ptr[0..old_size_aligned]);
+    const result = switch (std.math.order(old_size_aligned, new_size_aligned)) {
+        .lt => grow: {
+            if (use_mremap) {
+                const slice = posix.mremap(
+                    buf.ptr[0..old_size_aligned],
+                    new_size_aligned,
+                    false,
+                ) catch break :grow false;
+                assert(slice.ptr == buf.ptr);
+                break :grow true;
+            } else {
+                break :grow false;
+            }
+        },
+        .eq => return true, // return now and don't set the hint
+        .gt => shrink: {
+            posix.munmap(@alignCast(buf.ptr[new_size_aligned..old_size_aligned]));
+            break :shrink true;
+        },
+    };
+    if (result) {
+        const old_end: [*]align(mem.page_size) u8 = @alignCast(buf.ptr + old_size_aligned);
+        const new_end: [*]align(mem.page_size) u8 = @alignCast(buf.ptr + new_size_aligned);
+        _ = next_mmap_addr_hint.cmpxchgStrong(old_end, new_end, .monotonic, .monotonic);
     }
-
-    // TODO: call mremap
-    // TODO: if the next_mmap_addr_hint is within the remapped range, update it
-    return false;
+    return result;
 }
 
 fn free(_: *anyopaque, slice: []u8, log2_buf_align: u8, return_address: usize) void {
@@ -108,6 +131,9 @@ fn free(_: *anyopaque, slice: []u8, log2_buf_align: u8, return_address: usize) v
         windows.VirtualFree(slice.ptr, 0, windows.MEM_RELEASE);
     } else {
         const buf_aligned_len = mem.alignForward(usize, slice.len, mem.page_size);
-        posix.munmap(@alignCast(slice.ptr[0..buf_aligned_len]));
+        const head: []align(mem.page_size) u8 = @alignCast(slice.ptr[0..buf_aligned_len]);
+        posix.munmap(head);
+        const tail: [*]align(mem.page_size) u8 = @alignCast(head.ptr + head.len);
+        _ = next_mmap_addr_hint.cmpxchgStrong(tail, head.ptr, .monotonic, .monotonic);
     }
 }
