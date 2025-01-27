@@ -17,7 +17,14 @@ const Sse = if (std.Target.x86.featureSetHas(builtin.cpu.features, .avx))
 else
     @Vector(16, u8);
 
-inline fn sign(rhs: anytype) switch (@typeInfo(@TypeOf(rhs))) {
+inline fn runtime(comptime Type: type, comptime value: Type) Type {
+    if (@inComptime()) return value;
+    return struct {
+        var variable: Type = value;
+    }.variable;
+}
+
+fn sign(rhs: anytype) switch (@typeInfo(@TypeOf(rhs))) {
     else => bool,
     .vector => |vector| @Vector(vector.len, bool),
 } {
@@ -39,7 +46,7 @@ inline fn sign(rhs: anytype) switch (@typeInfo(@TypeOf(rhs))) {
         },
     }
 }
-inline fn boolAnd(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
+fn boolAnd(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
     switch (@typeInfo(@TypeOf(lhs))) {
         .bool => return lhs and rhs,
         .vector => |vector| switch (vector.child) {
@@ -55,7 +62,7 @@ inline fn boolAnd(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
     }
     @compileError("unsupported boolAnd type: " ++ @typeName(@TypeOf(lhs)));
 }
-inline fn boolOr(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
+fn boolOr(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
     switch (@typeInfo(@TypeOf(lhs))) {
         .bool => return lhs or rhs,
         .vector => |vector| switch (vector.child) {
@@ -1407,46 +1414,14 @@ fn binary(comptime op: anytype, comptime opts: struct { strict: bool = false }) 
             try testArgs(u64, 0x71138bc6b4a38898, 0x1bc4043de9438c7b);
             try testArgs(i128, 0x76d428c46cdeaa2ac43de8abffb22f6d, 0x427f7545abe434a12544fdbe2a012889);
             try testArgs(u128, 0xe05fc132ef2cd8affee00a907f0a851f, 0x29f912a72cfc6a7c6973426a9636da9a);
-            try testArgs(
-                i256,
-                -0x53d4148cee74ea43477a65b3daa7b8fdadcbf4508e793f4af113b8d8da5a7eb6,
-                -0x30dcbaf7b9b7a3df033694e6795444d842fb0b8f79bc18b3ea8a6b7ccad3ea91,
-            );
-            try testArgs(
-                u256,
-                0xb7935f5c2f3b1ae7a422c0a7c446884294b7d5370bada307d2fe5a4c4284a999,
-                0x310e6e196ba4f143b8d285ca6addf7f3bb3344224aff221b27607a31e148be08,
-            );
-            try testArgs(
-                i258,
-                -0x0eee283365108dbeea0bec82f5147418d8ffe86f9eed00e414b4eccd65c21239a,
-                -0x122c730073fc29a24cd6e3e6263566879bc5325d8566b8db31fcb4a76f7ab95eb,
-            );
-            try testArgs(
-                u258,
-                0x186d5ddaab8cb8cb04e5b41e36f812e039d008baf49f12894c39e29a07796d800,
-                0x2072daba6ffad168826163eb136f6d28ca4360c8e7e5e41e29755e19e4753a4f5,
-            );
-            try testArgs(
-                i495,
-                0x2fe6bc5448c55ce18252e2c9d44777505dfe63ff249a8027a6626c7d8dd9893fd5731e51474727be556f757facb586a4e04bbc0148c6c7ad692302f46fbd,
-                -0x016a358821ef8240172f3a08e8830c06e6bcf2225f5f4d41ed42b44d249385f55cc594e1278ecac31c73faed890e5054af1a561483bb1bb6fb1f753514cf,
-            );
-            try testArgs(
-                u495,
-                0x6eaf4e252b3bf74b75bac59e0b43ca5326bad2a25b3fdb74a67ef132ac5e47d72eebc3316fb2351ee66c50dc5afb92a75cea9b0e35160652c7db39eeb158,
-                0x49fbed744a92b549d8c05bb3512c617d24dd824f3f69bdf3923bc326a75674b85f5b828d2566fab9c86f571d12c2a63c9164feb0d191d27905533d09622a,
-            );
-            try testArgs(
-                i512,
-                -0x3a6876ca92775286c6e1504a64a9b8d56985bebf4a1b66539d404e0e96f24b226f70c4bcff295fdc2043b82513b2052dc45fd78f7e9e80e5b3e101757289f054,
-                0x5080c516a819bd32a0a5f0976441bbfbcf89e77684f1f10eb326aeb28e1f8d593278cff60fc99b8ffc87d8696882c64728dd3c322b7142803f4341f85a03bc10,
-            );
-            try testArgs(
-                u512,
-                0xe5b1fedca3c77db765e517aabd05ffc524a3a8aff1784bbf67c45b894447ede32b65b9940e78173c591e56e078932d465f235aece7ad47b7f229df7ba8f12295,
-                0x8b4bb7c2969e3b121cc1082c442f8b4330f0a50058438fed56447175bb10178607ecfe425cb54dacc25ef26810f3e04681de1844f1aa8d029aca75d658634806,
-            );
+            try testArgs(i256, -0x53d4148cee74ea43477a65b3daa7b8fdadcbf4508e793f4af113b8d8da5a7eb6, -0x30dcbaf7b9b7a3df033694e6795444d842fb0b8f79bc18b3ea8a6b7ccad3ea91);
+            try testArgs(u256, 0xb7935f5c2f3b1ae7a422c0a7c446884294b7d5370bada307d2fe5a4c4284a999, 0x310e6e196ba4f143b8d285ca6addf7f3bb3344224aff221b27607a31e148be08);
+            try testArgs(i258, -0x0eee283365108dbeea0bec82f5147418d8ffe86f9eed00e414b4eccd65c21239a, -0x122c730073fc29a24cd6e3e6263566879bc5325d8566b8db31fcb4a76f7ab95eb);
+            try testArgs(u258, 0x186d5ddaab8cb8cb04e5b41e36f812e039d008baf49f12894c39e29a07796d800, 0x2072daba6ffad168826163eb136f6d28ca4360c8e7e5e41e29755e19e4753a4f5);
+            try testArgs(i495, 0x2fe6bc5448c55ce18252e2c9d44777505dfe63ff249a8027a6626c7d8dd9893fd5731e51474727be556f757facb586a4e04bbc0148c6c7ad692302f46fbd, -0x016a358821ef8240172f3a08e8830c06e6bcf2225f5f4d41ed42b44d249385f55cc594e1278ecac31c73faed890e5054af1a561483bb1bb6fb1f753514cf);
+            try testArgs(u495, 0x6eaf4e252b3bf74b75bac59e0b43ca5326bad2a25b3fdb74a67ef132ac5e47d72eebc3316fb2351ee66c50dc5afb92a75cea9b0e35160652c7db39eeb158, 0x49fbed744a92b549d8c05bb3512c617d24dd824f3f69bdf3923bc326a75674b85f5b828d2566fab9c86f571d12c2a63c9164feb0d191d27905533d09622a);
+            try testArgs(i512, -0x3a6876ca92775286c6e1504a64a9b8d56985bebf4a1b66539d404e0e96f24b226f70c4bcff295fdc2043b82513b2052dc45fd78f7e9e80e5b3e101757289f054, 0x5080c516a819bd32a0a5f0976441bbfbcf89e77684f1f10eb326aeb28e1f8d593278cff60fc99b8ffc87d8696882c64728dd3c322b7142803f4341f85a03bc10);
+            try testArgs(u512, 0xe5b1fedca3c77db765e517aabd05ffc524a3a8aff1784bbf67c45b894447ede32b65b9940e78173c591e56e078932d465f235aece7ad47b7f229df7ba8f12295, 0x8b4bb7c2969e3b121cc1082c442f8b4330f0a50058438fed56447175bb10178607ecfe425cb54dacc25ef26810f3e04681de1844f1aa8d029aca75d658634806);
         }
         fn testFloatTypes() !void {
             @setEvalBranchQuota(21_700);
@@ -4178,76 +4153,226 @@ inline fn bitNot(comptime Type: type, rhs: Type) @TypeOf(~rhs) {
     return ~rhs;
 }
 test bitNot {
-    const t = unary(bitNot, .{});
-    try t.testIntTypes();
-    try t.testIntVectorTypes();
+    const test_bit_not = unary(bitNot, .{});
+    try test_bit_not.testIntTypes();
+    try test_bit_not.testIntVectorTypes();
 }
 
 inline fn abs(comptime Type: type, rhs: Type) @TypeOf(@abs(rhs)) {
     return @abs(rhs);
 }
 test abs {
-    const t = unary(abs, .{ .strict = true });
-    try t.testIntTypes();
-    try t.testIntVectorTypes();
-    try t.testFloatTypes();
-    try t.testFloatVectorTypes();
+    const test_abs = unary(abs, .{ .strict = true });
+    try test_abs.testIntTypes();
+    try test_abs.testIntVectorTypes();
+    try test_abs.testFloatTypes();
+    try test_abs.testFloatVectorTypes();
 }
 
 inline fn clz(comptime Type: type, rhs: Type) @TypeOf(@clz(rhs)) {
     return @clz(rhs);
 }
 test clz {
-    const t = unary(clz, .{});
-    try t.testIntTypes();
-    try t.testIntVectorTypes();
+    const test_clz = unary(clz, .{});
+    try test_clz.testIntTypes();
+    try test_clz.testIntVectorTypes();
+}
+
+inline fn equal(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs == rhs) {
+    return lhs == rhs;
+}
+test equal {
+    const test_equal = binary(equal, .{});
+    try test_equal.testIntTypes();
+    try test_equal.testFloatTypes();
+}
+
+inline fn notEqual(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs != rhs) {
+    return lhs != rhs;
+}
+test notEqual {
+    const test_not_equal = binary(notEqual, .{});
+    try test_not_equal.testIntTypes();
+    try test_not_equal.testFloatTypes();
+}
+
+inline fn lessThan(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs < rhs) {
+    return lhs < rhs;
+}
+test lessThan {
+    const test_less_than = binary(lessThan, .{});
+    try test_less_than.testIntTypes();
+    try test_less_than.testFloatTypes();
+}
+
+inline fn lessThanOrEqual(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs <= rhs) {
+    return lhs <= rhs;
+}
+test lessThanOrEqual {
+    const test_less_than_or_equal = binary(lessThanOrEqual, .{});
+    try test_less_than_or_equal.testIntTypes();
+    try test_less_than_or_equal.testFloatTypes();
+}
+
+inline fn greaterThan(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs > rhs) {
+    return lhs > rhs;
+}
+test greaterThan {
+    const test_greater_than = binary(greaterThan, .{});
+    try test_greater_than.testIntTypes();
+    try test_greater_than.testFloatTypes();
+}
+
+inline fn greaterThanOrEqual(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs >= rhs) {
+    return lhs >= rhs;
+}
+test greaterThanOrEqual {
+    const test_greater_than_or_equal = binary(greaterThanOrEqual, .{});
+    try test_greater_than_or_equal.testIntTypes();
+    try test_greater_than_or_equal.testFloatTypes();
 }
 
 inline fn bitAnd(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs & rhs) {
     return lhs & rhs;
 }
 test bitAnd {
-    const t = binary(bitAnd, .{});
-    try t.testIntTypes();
-    try t.testIntVectorTypes();
+    const test_bit_and = binary(bitAnd, .{});
+    try test_bit_and.testIntTypes();
+    try test_bit_and.testIntVectorTypes();
 }
 
 inline fn bitOr(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs | rhs) {
     return lhs | rhs;
 }
 test bitOr {
-    const t = binary(bitOr, .{});
-    try t.testIntTypes();
-    try t.testIntVectorTypes();
+    const test_bit_or = binary(bitOr, .{});
+    try test_bit_or.testIntTypes();
+    try test_bit_or.testIntVectorTypes();
 }
 
 inline fn bitXor(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs ^ rhs) {
     return lhs ^ rhs;
 }
 test bitXor {
-    const t = binary(bitXor, .{});
-    try t.testIntTypes();
-    try t.testIntVectorTypes();
+    const test_bit_xor = binary(bitXor, .{});
+    try test_bit_xor.testIntTypes();
+    try test_bit_xor.testIntVectorTypes();
 }
 
 inline fn min(comptime Type: type, lhs: Type, rhs: Type) Type {
     return @min(lhs, rhs);
 }
 test min {
-    const t = binary(min, .{});
-    try t.testIntTypes();
-    try t.testIntVectorTypes();
-    try t.testFloatTypes();
-    try t.testFloatVectorTypes();
+    const test_min = binary(min, .{});
+    try test_min.testIntTypes();
+    try test_min.testIntVectorTypes();
+    try test_min.testFloatTypes();
+    try test_min.testFloatVectorTypes();
 }
 
 inline fn max(comptime Type: type, lhs: Type, rhs: Type) Type {
     return @max(lhs, rhs);
 }
 test max {
-    const t = binary(max, .{});
-    try t.testIntTypes();
-    try t.testIntVectorTypes();
-    try t.testFloatTypes();
-    try t.testFloatVectorTypes();
+    const test_max = binary(max, .{});
+    try test_max.testIntTypes();
+    try test_max.testIntVectorTypes();
+    try test_max.testFloatTypes();
+    try test_max.testFloatVectorTypes();
+}
+
+inline fn nullIsNull(comptime Type: type, _: Type) bool {
+    return runtime(?Type, null) == null;
+}
+test nullIsNull {
+    const test_null_is_null = unary(nullIsNull, .{});
+    try test_null_is_null.testIntTypes();
+    try test_null_is_null.testIntVectorTypes();
+    try test_null_is_null.testFloatTypes();
+    try test_null_is_null.testFloatVectorTypes();
+}
+
+inline fn nullIsNotNull(comptime Type: type, _: Type) bool {
+    return runtime(?Type, null) != null;
+}
+test nullIsNotNull {
+    const test_null_is_not_null = unary(nullIsNotNull, .{});
+    try test_null_is_not_null.testIntTypes();
+    try test_null_is_not_null.testIntVectorTypes();
+    try test_null_is_not_null.testFloatTypes();
+    try test_null_is_not_null.testFloatVectorTypes();
+}
+
+inline fn optionalIsNull(comptime Type: type, lhs: Type) bool {
+    return @as(?Type, lhs) == null;
+}
+test optionalIsNull {
+    const test_optional_is_null = unary(optionalIsNull, .{});
+    try test_optional_is_null.testIntTypes();
+    try test_optional_is_null.testFloatTypes();
+}
+
+inline fn optionalIsNotNull(comptime Type: type, lhs: Type) bool {
+    return @as(?Type, lhs) != null;
+}
+test optionalIsNotNull {
+    const test_optional_is_not_null = unary(optionalIsNotNull, .{});
+    try test_optional_is_not_null.testIntTypes();
+    try test_optional_is_not_null.testFloatTypes();
+}
+
+inline fn nullEqualNull(comptime Type: type, _: Type) bool {
+    return runtime(?Type, null) == runtime(?Type, null);
+}
+test nullEqualNull {
+    const test_null_equal_null = unary(nullEqualNull, .{});
+    try test_null_equal_null.testIntTypes();
+    try test_null_equal_null.testFloatTypes();
+}
+
+inline fn nullNotEqualNull(comptime Type: type, _: Type) bool {
+    return runtime(?Type, null) != runtime(?Type, null);
+}
+test nullNotEqualNull {
+    const test_null_not_equal_null = unary(nullNotEqualNull, .{});
+    try test_null_not_equal_null.testIntTypes();
+    try test_null_not_equal_null.testFloatTypes();
+}
+
+inline fn optionalEqualNull(comptime Type: type, lhs: Type) bool {
+    return lhs == runtime(?Type, null);
+}
+test optionalEqualNull {
+    const test_optional_equal_null = unary(optionalEqualNull, .{});
+    try test_optional_equal_null.testIntTypes();
+    try test_optional_equal_null.testFloatTypes();
+}
+
+inline fn optionalNotEqualNull(comptime Type: type, lhs: Type) bool {
+    return lhs != runtime(?Type, null);
+}
+test optionalNotEqualNull {
+    const test_optional_not_equal_null = unary(optionalIsNotNull, .{});
+    try test_optional_not_equal_null.testIntTypes();
+    try test_optional_not_equal_null.testFloatTypes();
+}
+
+inline fn optionalsEqual(comptime Type: type, lhs: Type, rhs: Type) bool {
+    if (@inComptime()) return lhs == rhs; // workaround https://github.com/ziglang/zig/issues/22636
+    return @as(?Type, lhs) == rhs;
+}
+test optionalsEqual {
+    const test_optionals_equal = binary(optionalsEqual, .{});
+    try test_optionals_equal.testIntTypes();
+    try test_optionals_equal.testFloatTypes();
+}
+
+inline fn optionalsNotEqual(comptime Type: type, lhs: Type, rhs: Type) bool {
+    if (@inComptime()) return lhs != rhs; // workaround https://github.com/ziglang/zig/issues/22636
+    return lhs != @as(?Type, rhs);
+}
+test optionalsNotEqual {
+    const test_optionals_not_equal = binary(optionalsNotEqual, .{});
+    try test_optionals_not_equal.testIntTypes();
+    try test_optionals_not_equal.testFloatTypes();
 }
