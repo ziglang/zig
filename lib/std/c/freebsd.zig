@@ -20,7 +20,7 @@ const timespec = std.c.timespec;
 const uid_t = std.c.uid_t;
 const sf_hdtr = std.c.sf_hdtr;
 const clockid_t = std.c.clockid_t;
-const clock_id = std.c.timerfd_clockid_t;
+const timerfd_clockid_t = std.c.timerfd_clockid_t;
 
 comptime {
     assert(builtin.os.tag == .freebsd); // Prevent access of std.c symbols on wrong OS.
