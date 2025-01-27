@@ -1,7 +1,7 @@
 //! The .ZIP File Format Specification is found here:
 //!    https://pkwaredownloads.blob.core.windows.net/pem/APPNOTE.txt
-
-// Note that this file uses the abbreviation "cd" for "central directory"
+//!
+//! Note that this file uses the abbreviation "cd" for "central directory"
 
 const builtin = @import("builtin");
 const std = @import("std");
