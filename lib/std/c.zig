@@ -9795,6 +9795,7 @@ pub const dispatch_semaphore_signal = darwin.dispatch_semaphore_signal;
 pub const dispatch_semaphore_wait = darwin.dispatch_semaphore_wait;
 pub const dispatch_time = darwin.dispatch_time;
 pub const fcopyfile = darwin.fcopyfile;
+pub const host_t = darwin.host_t;
 pub const ipc_space_t = darwin.ipc_space_t;
 pub const ipc_space_port_t = darwin.ipc_space_port_t;
 pub const kern_return_t = darwin.kern_return_t;
