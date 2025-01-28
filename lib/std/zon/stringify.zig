@@ -418,18 +418,16 @@ pub fn Serializer(Writer: type) type {
                     try container.finish();
                 } else {
                     // Decide which fields to emit
-                    const fields, const skipped = if (options.emit_default_optional_fields) b: {
-                        break :b .{ @"struct".fields.len, [1]bool{false} ** @"struct".fields.len };
+                    const fields, const skipped: [@"struct".fields.len]bool = if (options.emit_default_optional_fields) b: {
+                        break :b .{ @"struct".fields.len, @splat(false) };
                     } else b: {
                         var fields = @"struct".fields.len;
                         var skipped: [@"struct".fields.len]bool = @splat(false);
                         inline for (@"struct".fields, &skipped) |field_info, *skip| {
-                            if (field_info.default_value_ptr) |default_field_value_opaque| {
+                            if (field_info.default_value_ptr) |ptr| {
+                                const default: *const field_info.type = @ptrCast(@alignCast(ptr));
                                 const field_value = @field(val, field_info.name);
-                                const default_field_value: *const @TypeOf(field_value) = @ptrCast(
-                                    @alignCast(default_field_value_opaque),
-                                );
-                                if (std.meta.eql(field_value, default_field_value.*)) {
+                                if (std.meta.eql(field_value, default.*)) {
                                     skip.* = true;
                                     fields -= 1;
                                 }
