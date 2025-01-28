@@ -157,7 +157,7 @@ pub fn getFdPath(fd: std.posix.fd_t, out_buffer: *[max_path_bytes]u8) std.posix.
             return target;
         },
         .freebsd => {
-            if (comptime builtin.os.isAtLeast(.freebsd, .{ .major = 13, .minor = 0, .patch = 0 }) orelse false) {
+            if (builtin.os.isAtLeast(.freebsd, .{ .major = 13, .minor = 0, .patch = 0 }) orelse false) {
                 var kfile: std.c.kinfo_file = undefined;
                 kfile.structsize = std.c.KINFO_FILE_SIZE;
                 switch (posix.errno(std.c.fcntl(fd, std.c.F.KINFO, @intFromPtr(&kfile)))) {

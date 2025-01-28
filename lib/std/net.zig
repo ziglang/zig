@@ -248,7 +248,7 @@ pub const Address = extern union {
                 posix.SO.REUSEADDR,
                 &mem.toBytes(@as(c_int, 1)),
             );
-            if (@hasDecl(posix.SO, "REUSEPORT")) {
+            if (@hasDecl(posix.SO, "REUSEPORT") and address.any.family != posix.AF.UNIX) {
                 try posix.setsockopt(
                     sockfd,
                     posix.SOL.SOCKET,

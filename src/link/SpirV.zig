@@ -122,7 +122,13 @@ pub fn deinit(self: *SpirV) void {
     self.object.deinit();
 }
 
-pub fn updateFunc(self: *SpirV, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
+pub fn updateFunc(
+    self: *SpirV,
+    pt: Zcu.PerThread,
+    func_index: InternPool.Index,
+    air: Air,
+    liveness: Liveness,
+) link.File.UpdateNavError!void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
@@ -134,7 +140,7 @@ pub fn updateFunc(self: *SpirV, pt: Zcu.PerThread, func_index: InternPool.Index,
     try self.object.updateFunc(pt, func_index, air, liveness);
 }
 
-pub fn updateNav(self: *SpirV, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !void {
+pub fn updateNav(self: *SpirV, pt: Zcu.PerThread, nav: InternPool.Nav.Index) link.File.UpdateNavError!void {
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
@@ -149,7 +155,7 @@ pub fn updateExports(
     self: *SpirV,
     pt: Zcu.PerThread,
     exported: Zcu.Exported,
-    export_indices: []const u32,
+    export_indices: []const Zcu.Export.Index,
 ) !void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -184,7 +190,7 @@ pub fn updateExports(
         };
 
         for (export_indices) |export_idx| {
-            const exp = zcu.all_exports.items[export_idx];
+            const exp = export_idx.ptr(zcu);
             try self.object.spv.declareEntryPoint(
                 spv_decl_index,
                 exp.opts.name.toSlice(ip),
@@ -196,16 +202,21 @@ pub fn updateExports(
     // TODO: Export regular functions, variables, etc using Linkage attributes.
 }
 
-pub fn freeDecl(self: *SpirV, decl_index: InternPool.DeclIndex) void {
-    _ = self;
-    _ = decl_index;
-}
-
 pub fn flush(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     return self.flushModule(arena, tid, prog_node);
 }
 
-pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
+pub fn flushModule(
+    self: *SpirV,
+    arena: Allocator,
+    tid: Zcu.PerThread.Id,
+    prog_node: std.Progress.Node,
+) link.File.FlushError!void {
+    // The goal is to never use this because it's only needed if we need to
+    // write to InternPool, but flushModule is too late to be writing to the
+    // InternPool.
+    _ = tid;
+
     if (build_options.skip_non_native) {
         @panic("Attempted to compile for architecture that was disabled by build configuration");
     }
@@ -216,12 +227,11 @@ pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     const sub_prog_node = prog_node.start("Flush Module", 0);
     defer sub_prog_node.end();
 
-    const spv = &self.object.spv;
-
     const comp = self.base.comp;
+    const spv = &self.object.spv;
+    const diags = &comp.link_diags;
     const gpa = comp.gpa;
     const target = comp.getTarget();
-    _ = tid;
 
     try writeCapabilities(spv, target);
     try writeMemoryModel(spv, target);
@@ -264,13 +274,11 @@ pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
 
     const linked_module = self.linkModule(arena, module, sub_prog_node) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        else => |other| {
-            log.err("error while linking: {s}", .{@errorName(other)});
-            return error.FlushFailure;
-        },
+        else => |other| return diags.fail("error while linking: {s}", .{@errorName(other)}),
     };
 
-    try self.base.file.?.writeAll(std.mem.sliceAsBytes(linked_module));
+    self.base.file.?.writeAll(std.mem.sliceAsBytes(linked_module)) catch |err|
+        return diags.fail("failed to write: {s}", .{@errorName(err)});
 }
 
 fn linkModule(self: *SpirV, a: Allocator, module: []Word, progress: std.Progress.Node) ![]Word {

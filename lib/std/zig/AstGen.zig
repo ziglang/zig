@@ -107,6 +107,8 @@ fn setExtra(astgen: *AstGen, index: usize, extra: anytype) void {
             Zir.Inst.SwitchBlock.Bits,
             Zir.Inst.SwitchBlockErrUnion.Bits,
             Zir.Inst.FuncFancy.Bits,
+            Zir.Inst.Param.Type,
+            Zir.Inst.Func.RetTy,
             => @bitCast(@field(extra, field.name)),
 
             else => @compileError("bad field type"),
@@ -1384,7 +1386,7 @@ fn fnProtoExprInner(
                 const tag: Zir.Inst.Tag = if (is_comptime) .param_comptime else .param;
                 // We pass `prev_param_insts` as `&.{}` here because a function prototype can't refer to previous
                 // arguments (we haven't set up scopes here).
-                const param_inst = try block_scope.addParam(&param_gz, &.{}, tag, name_token, param_name);
+                const param_inst = try block_scope.addParam(&param_gz, &.{}, false, tag, name_token, param_name);
                 assert(param_inst_expected == param_inst);
             }
         }
@@ -1416,6 +1418,7 @@ fn fnProtoExprInner(
 
         .ret_param_refs = &.{},
         .param_insts = &.{},
+        .ret_ty_is_generic = false,
 
         .param_block = block_inst,
         .body_gz = null,
@@ -3917,7 +3920,7 @@ fn ptrType(
     node: Ast.Node.Index,
     ptr_info: Ast.full.PtrType,
 ) InnerError!Zir.Inst.Ref {
-    if (ptr_info.size == .C and ptr_info.allowzero_token != null) {
+    if (ptr_info.size == .c and ptr_info.allowzero_token != null) {
         return gz.astgen.failTok(ptr_info.allowzero_token.?, "C pointers always allow address zero", .{});
     }
 
@@ -3946,7 +3949,7 @@ fn ptrType(
             .{ .rl = .{ .ty = elem_type } },
             ptr_info.ast.sentinel,
             switch (ptr_info.size) {
-                .Slice => .slice_sentinel,
+                .slice => .slice_sentinel,
                 else => .pointer_sentinel,
             },
         );
@@ -4336,6 +4339,9 @@ fn fnDeclInner(
     // Note that the capacity here may not be sufficient, as this does not include `anytype` parameters.
     var param_insts: std.ArrayListUnmanaged(Zir.Inst.Index) = try .initCapacity(astgen.arena, fn_proto.ast.params.len);
 
+    // We use this as `is_used_or_discarded` to figure out if parameters / return types are generic.
+    var any_param_used = false;
+
     var noalias_bits: u32 = 0;
     var params_scope = scope;
     const is_var_args = is_var_args: {
@@ -4409,16 +4415,18 @@ fn fnDeclInner(
             } else param: {
                 const param_type_node = param.type_expr;
                 assert(param_type_node != 0);
+                any_param_used = false; // we will check this later
                 var param_gz = decl_gz.makeSubBlock(scope);
                 defer param_gz.unstack();
                 const param_type = try fullBodyExpr(&param_gz, params_scope, coerced_type_ri, param_type_node, .normal);
                 const param_inst_expected: Zir.Inst.Index = @enumFromInt(astgen.instructions.len + 1);
                 _ = try param_gz.addBreakWithSrcNode(.break_inline, param_inst_expected, param_type, param_type_node);
+                const param_type_is_generic = any_param_used;
 
                 const main_tokens = tree.nodes.items(.main_token);
                 const name_token = param.name_token orelse main_tokens[param_type_node];
                 const tag: Zir.Inst.Tag = if (is_comptime) .param_comptime else .param;
-                const param_inst = try decl_gz.addParam(&param_gz, param_insts.items, tag, name_token, param_name);
+                const param_inst = try decl_gz.addParam(&param_gz, param_insts.items, param_type_is_generic, tag, name_token, param_name);
                 assert(param_inst_expected == param_inst);
                 break :param param_inst.toRef();
             };
@@ -4433,6 +4441,7 @@ fn fnDeclInner(
                 .inst = param_inst,
                 .token_src = param.name_token.?,
                 .id_cat = .@"function parameter",
+                .is_used_or_discarded = &any_param_used,
             };
             params_scope = &sub_scope.base;
             try param_insts.append(astgen.arena, param_inst.toIndex().?);
@@ -4446,6 +4455,7 @@ fn fnDeclInner(
 
     var ret_gz = decl_gz.makeSubBlock(params_scope);
     defer ret_gz.unstack();
+    any_param_used = false; // we will check this later
     const ret_ref: Zir.Inst.Ref = inst: {
         // Parameters are in scope for the return type, so we use `params_scope` here.
         // The calling convention will not have parameters in scope, so we'll just use `scope`.
@@ -4459,6 +4469,7 @@ fn fnDeclInner(
         break :inst inst;
     };
     const ret_body_param_refs = try astgen.fetchRemoveRefEntries(param_insts.items);
+    const ret_ty_is_generic = any_param_used;
 
     // We're jumping back in source, so restore the cursor.
     astgen.restoreSourceCursor(saved_cursor);
@@ -4556,6 +4567,7 @@ fn fnDeclInner(
         .ret_ref = ret_ref,
         .ret_gz = &ret_gz,
         .ret_param_refs = ret_body_param_refs,
+        .ret_ty_is_generic = ret_ty_is_generic,
         .lbrace_line = lbrace_line,
         .lbrace_column = lbrace_column,
         .param_block = decl_inst,
@@ -5028,6 +5040,7 @@ fn testDecl(
 
         .ret_param_refs = &.{},
         .param_insts = &.{},
+        .ret_ty_is_generic = false,
 
         .lbrace_line = lbrace_line,
         .lbrace_column = lbrace_column,
@@ -5315,8 +5328,9 @@ fn structDeclInner(
     const fields_slice = wip_members.fieldsSlice();
     const bodies_slice = astgen.scratch.items[bodies_start..];
     try astgen.extra.ensureUnusedCapacity(gpa, backing_int_body_len + 2 +
-        decls_slice.len + namespace.captures.count() + fields_slice.len + bodies_slice.len);
+        decls_slice.len + namespace.captures.count() * 2 + fields_slice.len + bodies_slice.len);
     astgen.extra.appendSliceAssumeCapacity(@ptrCast(namespace.captures.keys()));
+    astgen.extra.appendSliceAssumeCapacity(@ptrCast(namespace.captures.values()));
     if (backing_int_ref != .none) {
         astgen.extra.appendAssumeCapacity(@intCast(backing_int_body_len));
         if (backing_int_body_len == 0) {
@@ -5595,8 +5609,9 @@ fn unionDeclInner(
     wip_members.finishBits(bits_per_field);
     const decls_slice = wip_members.declsSlice();
     const fields_slice = wip_members.fieldsSlice();
-    try astgen.extra.ensureUnusedCapacity(gpa, namespace.captures.count() + decls_slice.len + body_len + fields_slice.len);
+    try astgen.extra.ensureUnusedCapacity(gpa, namespace.captures.count() * 2 + decls_slice.len + body_len + fields_slice.len);
     astgen.extra.appendSliceAssumeCapacity(@ptrCast(namespace.captures.keys()));
+    astgen.extra.appendSliceAssumeCapacity(@ptrCast(namespace.captures.values()));
     astgen.extra.appendSliceAssumeCapacity(decls_slice);
     astgen.appendBodyWithFixups(body);
     astgen.extra.appendSliceAssumeCapacity(fields_slice);
@@ -5855,8 +5870,9 @@ fn containerDecl(
             wip_members.finishBits(bits_per_field);
             const decls_slice = wip_members.declsSlice();
             const fields_slice = wip_members.fieldsSlice();
-            try astgen.extra.ensureUnusedCapacity(gpa, namespace.captures.count() + decls_slice.len + body_len + fields_slice.len);
+            try astgen.extra.ensureUnusedCapacity(gpa, namespace.captures.count() * 2 + decls_slice.len + body_len + fields_slice.len);
             astgen.extra.appendSliceAssumeCapacity(@ptrCast(namespace.captures.keys()));
+            astgen.extra.appendSliceAssumeCapacity(@ptrCast(namespace.captures.values()));
             astgen.extra.appendSliceAssumeCapacity(decls_slice);
             astgen.appendBodyWithFixups(body);
             astgen.extra.appendSliceAssumeCapacity(fields_slice);
@@ -5910,8 +5926,9 @@ fn containerDecl(
 
             wip_members.finishBits(0);
             const decls_slice = wip_members.declsSlice();
-            try astgen.extra.ensureUnusedCapacity(gpa, namespace.captures.count() + decls_slice.len);
+            try astgen.extra.ensureUnusedCapacity(gpa, namespace.captures.count() * 2 + decls_slice.len);
             astgen.extra.appendSliceAssumeCapacity(@ptrCast(namespace.captures.keys()));
+            astgen.extra.appendSliceAssumeCapacity(@ptrCast(namespace.captures.values()));
             astgen.extra.appendSliceAssumeCapacity(decls_slice);
 
             block_scope.unstack();
@@ -8542,12 +8559,15 @@ fn localVarRef(
                     local_val.used = ident_token;
                 }
 
+                if (local_val.is_used_or_discarded) |ptr| ptr.* = true;
+
                 const value_inst = if (num_namespaces_out != 0) try tunnelThroughClosure(
                     gz,
                     ident,
                     num_namespaces_out,
                     .{ .ref = local_val.inst },
                     .{ .token = local_val.token_src },
+                    name_str_index,
                 ) else local_val.inst;
 
                 return rvalueNoCoercePreRef(gz, ri, value_inst, ident);
@@ -8580,6 +8600,7 @@ fn localVarRef(
                             num_namespaces_out,
                             .{ .ref = local_ptr.ptr },
                             .{ .token = local_ptr.token_src },
+                            name_str_index,
                         ) else local_ptr.ptr;
                         local_ptr.used_as_lvalue = true;
                         return ptr_inst;
@@ -8591,6 +8612,7 @@ fn localVarRef(
                             num_namespaces_out,
                             .{ .ref_load = local_ptr.ptr },
                             .{ .token = local_ptr.token_src },
+                            name_str_index,
                         ) else try gz.addUnNode(.load, local_ptr.ptr, ident);
                         return rvalueNoCoercePreRef(gz, ri, val_inst, ident);
                     },
@@ -8636,6 +8658,7 @@ fn localVarRef(
                 found_namespaces_out,
                 .{ .decl_ref = name_str_index },
                 .{ .node = found_already.? },
+                name_str_index,
             ),
             else => {
                 const result = try tunnelThroughClosure(
@@ -8644,6 +8667,7 @@ fn localVarRef(
                     found_namespaces_out,
                     .{ .decl_val = name_str_index },
                     .{ .node = found_already.? },
+                    name_str_index,
                 );
                 return rvalueNoCoercePreRef(gz, ri, result, ident);
             },
@@ -8680,6 +8704,7 @@ fn tunnelThroughClosure(
         token: Ast.TokenIndex,
         node: Ast.Node.Index,
     },
+    name_str_index: Zir.NullTerminatedString,
 ) !Zir.Inst.Ref {
     switch (value) {
         .ref => |v| if (v.toIndex() == null) return v, // trivial value; do not need tunnel
@@ -8714,34 +8739,43 @@ fn tunnelThroughClosure(
 
     // Now that we know the scopes we're tunneling through, begin adding
     // captures as required, starting with the outermost namespace.
-    const root_capture = Zir.Inst.Capture.wrap(switch (value) {
+    const root_capture: Zir.Inst.Capture = .wrap(switch (value) {
         .ref => |v| .{ .instruction = v.toIndex().? },
         .ref_load => |v| .{ .instruction_load = v.toIndex().? },
         .decl_val => |str| .{ .decl_val = str },
         .decl_ref => |str| .{ .decl_ref = str },
     });
-    var cur_capture_index = std.math.cast(
-        u16,
-        (try root_ns.captures.getOrPut(gpa, root_capture)).index,
-    ) orelse return astgen.failNodeNotes(root_ns.node, "this compiler implementation only supports up to 65536 captures per namespace", .{}, &.{
-        switch (decl_src) {
-            .token => |t| try astgen.errNoteTok(t, "captured value here", .{}),
-            .node => |n| try astgen.errNoteNode(n, "captured value here", .{}),
-        },
-        try astgen.errNoteNode(inner_ref_node, "value used here", .{}),
-    });
 
-    for (intermediate_tunnels) |tunnel_ns| {
-        cur_capture_index = std.math.cast(
-            u16,
-            (try tunnel_ns.captures.getOrPut(gpa, Zir.Inst.Capture.wrap(.{ .nested = cur_capture_index }))).index,
-        ) orelse return astgen.failNodeNotes(tunnel_ns.node, "this compiler implementation only supports up to 65536 captures per namespace", .{}, &.{
+    const root_gop = try root_ns.captures.getOrPut(gpa, root_capture);
+    root_gop.value_ptr.* = name_str_index;
+    var cur_capture_index = std.math.cast(u16, root_gop.index) orelse return astgen.failNodeNotes(
+        root_ns.node,
+        "this compiler implementation only supports up to 65536 captures per namespace",
+        .{},
+        &.{
             switch (decl_src) {
                 .token => |t| try astgen.errNoteTok(t, "captured value here", .{}),
                 .node => |n| try astgen.errNoteNode(n, "captured value here", .{}),
             },
             try astgen.errNoteNode(inner_ref_node, "value used here", .{}),
-        });
+        },
+    );
+
+    for (intermediate_tunnels) |tunnel_ns| {
+        const tunnel_gop = try tunnel_ns.captures.getOrPut(gpa, .wrap(.{ .nested = cur_capture_index }));
+        tunnel_gop.value_ptr.* = name_str_index;
+        cur_capture_index = std.math.cast(u16, tunnel_gop.index) orelse return astgen.failNodeNotes(
+            tunnel_ns.node,
+            "this compiler implementation only supports up to 65536 captures per namespace",
+            .{},
+            &.{
+                switch (decl_src) {
+                    .token => |t| try astgen.errNoteTok(t, "captured value here", .{}),
+                    .node => |n| try astgen.errNoteNode(n, "captured value here", .{}),
+                },
+                try astgen.errNoteNode(inner_ref_node, "value used here", .{}),
+            },
+        );
     }
 
     // Incorporate the capture index into the source hash, so that changes in
@@ -10209,9 +10243,6 @@ fn callExpr(
 
     const callee = try calleeExpr(gz, scope, ri.rl, call.ast.fn_expr);
     const modifier: std.builtin.CallModifier = blk: {
-        if (gz.is_comptime) {
-            break :blk .compile_time;
-        }
         if (call.async_token != null) {
             break :blk .async_kw;
         }
@@ -11860,6 +11891,7 @@ const Scope = struct {
         /// Track the identifier where it is discarded, like this `_ = foo;`.
         /// 0 means never discarded.
         discarded: Ast.TokenIndex = 0,
+        is_used_or_discarded: ?*bool = null,
         /// String table index.
         name: Zir.NullTerminatedString,
         id_cat: IdCat,
@@ -11923,7 +11955,7 @@ const Scope = struct {
         declaring_gz: ?*GenZir,
 
         /// Set of captures used by this namespace.
-        captures: std.AutoArrayHashMapUnmanaged(Zir.Inst.Capture, void) = .empty,
+        captures: std.AutoArrayHashMapUnmanaged(Zir.Inst.Capture, Zir.NullTerminatedString) = .empty,
 
         fn deinit(self: *Namespace, gpa: Allocator) void {
             self.decls.deinit(gpa);
@@ -12207,6 +12239,7 @@ const GenZir = struct {
 
             ret_param_refs: []Zir.Inst.Index,
             param_insts: []Zir.Inst.Index, // refs to params in `body_gz` should still be in `astgen.ref_table`
+            ret_ty_is_generic: bool,
 
             cc_ref: Zir.Inst.Ref,
             ret_ref: Zir.Inst.Ref,
@@ -12306,6 +12339,8 @@ const GenZir = struct {
 
                     .has_cc_body = cc_body.len != 0,
                     .has_ret_ty_body = ret_body.len != 0,
+
+                    .ret_ty_is_generic = args.ret_ty_is_generic,
                 },
             });
 
@@ -12356,7 +12391,10 @@ const GenZir = struct {
 
             const payload_index = astgen.addExtraAssumeCapacity(Zir.Inst.Func{
                 .param_block = args.param_block,
-                .ret_body_len = ret_body_len,
+                .ret_ty = .{
+                    .body_len = @intCast(ret_body_len),
+                    .is_generic = args.ret_ty_is_generic,
+                },
                 .body_len = body_len,
             });
             const zir_datas = astgen.instructions.items(.data);
@@ -12519,6 +12557,7 @@ const GenZir = struct {
         /// Previous parameters, which might be referenced in `param_gz` (the new parameter type).
         /// `ref`s of these instructions will be put into this param's type body, and removed from `AstGen.ref_table`.
         prev_param_insts: []const Zir.Inst.Index,
+        ty_is_generic: bool,
         tag: Zir.Inst.Tag,
         /// Absolute token index. This function does the conversion to Decl offset.
         abs_tok_index: Ast.TokenIndex,
@@ -12532,7 +12571,10 @@ const GenZir = struct {
 
         const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Param{
             .name = name,
-            .body_len = @intCast(body_len),
+            .type = .{
+                .body_len = @intCast(body_len),
+                .is_generic = ty_is_generic,
+            },
         });
         gz.astgen.appendBodyWithFixupsExtraRefsArrayList(&gz.astgen.extra, param_body, prev_param_insts);
         param_gz.unstack();

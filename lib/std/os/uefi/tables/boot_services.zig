@@ -149,11 +149,11 @@ pub const BootServices = extern struct {
 
     /// Installs one or more protocol interfaces into the boot services environment
     // TODO: use callconv(cc) instead once that works
-    installMultipleProtocolInterfaces: *const fn (handle: *Handle, ...) callconv(.C) Status,
+    installMultipleProtocolInterfaces: *const fn (handle: *Handle, ...) callconv(.c) Status,
 
     /// Removes one or more protocol interfaces into the boot services environment
     // TODO: use callconv(cc) instead once that works
-    uninstallMultipleProtocolInterfaces: *const fn (handle: *Handle, ...) callconv(.C) Status,
+    uninstallMultipleProtocolInterfaces: *const fn (handle: *Handle, ...) callconv(.c) Status,
 
     /// Computes and returns a 32-bit CRC for a data buffer.
     calculateCrc32: *const fn (data: [*]const u8, data_size: usize, *u32) callconv(cc) Status,

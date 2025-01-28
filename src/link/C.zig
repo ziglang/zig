@@ -175,21 +175,13 @@ pub fn deinit(self: *C) void {
     self.lazy_code_buf.deinit(gpa);
 }
 
-pub fn freeDecl(self: *C, decl_index: InternPool.DeclIndex) void {
-    const gpa = self.base.comp.gpa;
-    if (self.decl_table.fetchSwapRemove(decl_index)) |kv| {
-        var decl_block = kv.value;
-        decl_block.deinit(gpa);
-    }
-}
-
 pub fn updateFunc(
     self: *C,
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     air: Air,
     liveness: Liveness,
-) !void {
+) link.File.UpdateNavError!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const func = zcu.funcInfo(func_index);
@@ -218,6 +210,7 @@ pub fn updateFunc(
                 .error_msg = null,
                 .pass = .{ .nav = func.owner_nav },
                 .is_naked_fn = Type.fromInterned(func.ty).fnCallingConvention(zcu) == .naked,
+                .expected_block = null,
                 .fwd_decl = fwd_decl.toManaged(gpa),
                 .ctype_pool = ctype_pool.*,
                 .scratch = .{},
@@ -272,6 +265,7 @@ fn updateUav(self: *C, pt: Zcu.PerThread, i: usize) !void {
             .error_msg = null,
             .pass = .{ .uav = uav },
             .is_naked_fn = false,
+            .expected_block = null,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctype_pool = codegen.CType.Pool.empty,
             .scratch = .{},
@@ -311,7 +305,7 @@ fn updateUav(self: *C, pt: Zcu.PerThread, i: usize) !void {
     };
 }
 
-pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !void {
+pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) link.File.UpdateNavError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -347,6 +341,7 @@ pub fn updateNav(self: *C, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) !
             .error_msg = null,
             .pass = .{ .nav = nav_index },
             .is_naked_fn = false,
+            .expected_block = null,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctype_pool = ctype_pool.*,
             .scratch = .{},
@@ -387,7 +382,7 @@ pub fn updateLineNumber(self: *C, pt: Zcu.PerThread, ti_id: InternPool.TrackedIn
     _ = ti_id;
 }
 
-pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
+pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     return self.flushModule(arena, tid, prog_node);
 }
 
@@ -401,12 +396,12 @@ fn abiDefines(self: *C, target: std.Target) !std.ArrayList(u8) {
         else => {},
     }
     try writer.print("#define ZIG_TARGET_MAX_INT_ALIGNMENT {d}\n", .{
-        Type.maxIntAlignment(target, false),
+        Type.maxIntAlignment(target),
     });
     return defines;
 }
 
-pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) !void {
+pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
     _ = arena; // Has the same lifetime as the call to Compilation.update.
 
     const tracy = trace(@src());
@@ -416,6 +411,7 @@ pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
     defer sub_prog_node.end();
 
     const comp = self.base.comp;
+    const diags = &comp.link_diags;
     const gpa = comp.gpa;
     const zcu = self.base.comp.zcu.?;
     const ip = &zcu.intern_pool;
@@ -473,7 +469,7 @@ pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
         defer export_names.deinit(gpa);
         try export_names.ensureTotalCapacity(gpa, @intCast(zcu.single_exports.count()));
         for (zcu.single_exports.values()) |export_index| {
-            export_names.putAssumeCapacity(zcu.all_exports.items[export_index].opts.name, {});
+            export_names.putAssumeCapacity(export_index.ptr(zcu).opts.name, {});
         }
         for (zcu.multi_exports.values()) |info| {
             try export_names.ensureUnusedCapacity(gpa, info.len);
@@ -551,8 +547,10 @@ pub fn flushModule(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node:
     }, self.getString(av_block.code));
 
     const file = self.base.file.?;
-    try file.setEndPos(f.file_size);
-    try file.pwritevAll(f.all_buffers.items, 0);
+    file.setEndPos(f.file_size) catch |err| return diags.fail("failed to allocate file: {s}", .{@errorName(err)});
+    file.pwritevAll(f.all_buffers.items, 0) catch |err| return diags.fail("failed to write to '{'}': {s}", .{
+        self.base.emit, @errorName(err),
+    });
 }
 
 const Flush = struct {
@@ -675,6 +673,7 @@ fn flushErrDecls(self: *C, pt: Zcu.PerThread, ctype_pool: *codegen.CType.Pool) F
             .error_msg = null,
             .pass = .flush,
             .is_naked_fn = false,
+            .expected_block = null,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctype_pool = ctype_pool.*,
             .scratch = .{},
@@ -722,6 +721,7 @@ fn flushLazyFn(
             .error_msg = null,
             .pass = .flush,
             .is_naked_fn = false,
+            .expected_block = null,
             .fwd_decl = fwd_decl.toManaged(gpa),
             .ctype_pool = ctype_pool.*,
             .scratch = .{},
@@ -840,7 +840,7 @@ pub fn updateExports(
     self: *C,
     pt: Zcu.PerThread,
     exported: Zcu.Exported,
-    export_indices: []const u32,
+    export_indices: []const Zcu.Export.Index,
 ) !void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -868,6 +868,7 @@ pub fn updateExports(
         .error_msg = null,
         .pass = pass,
         .is_naked_fn = false,
+        .expected_block = null,
         .fwd_decl = fwd_decl.toManaged(gpa),
         .ctype_pool = decl_block.ctype_pool,
         .scratch = .{},

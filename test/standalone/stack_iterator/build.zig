@@ -68,7 +68,8 @@ pub fn build(b: *std.Build) void {
     //     - x86_64: STACK_IMMD, STACK_IND
     //     - aarch64: FRAMELESS, DWARF
     {
-        const c_shared_lib = b.addSharedLibrary(.{
+        const c_shared_lib = b.addLibrary(.{
+            .linkage = .dynamic,
             .name = "c_shared_lib",
             .root_module = b.createModule(.{
                 .root_source_file = null,

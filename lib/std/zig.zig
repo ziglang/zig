@@ -704,10 +704,6 @@ pub const EnvVar = enum {
     XDG_CACHE_HOME,
     HOME,
 
-    pub fn isSet(comptime ev: EnvVar) bool {
-        return std.process.hasEnvVarConstant(@tagName(ev));
-    }
-
     pub fn get(ev: EnvVar, arena: std.mem.Allocator) !?[]u8 {
         if (std.process.getEnvVarOwned(arena, @tagName(ev))) |value| {
             return value;
@@ -719,6 +715,11 @@ pub const EnvVar = enum {
 
     pub fn getPosix(comptime ev: EnvVar) ?[:0]const u8 {
         return std.posix.getenvZ(@tagName(ev));
+    }
+
+    pub fn isSet(ev: EnvVar, arena: std.mem.Allocator) !bool {
+        const value = try ev.get(arena) orelse return false;
+        return value.len != 0;
     }
 };
 
@@ -753,6 +754,8 @@ pub const SimpleComptimeReason = enum(u32) {
     array_mul_factor,
     slice_cat_operand,
     comptime_call_target,
+    inline_call_target,
+    generic_call_target,
     wasm_memory_index,
     work_group_dim_index,
 
@@ -790,12 +793,12 @@ pub const SimpleComptimeReason = enum(u32) {
     // Miscellaneous reasons.
     comptime_keyword,
     comptime_call_modifier,
+    inline_loop_operand,
     switch_item,
     tuple_field_default_value,
     struct_field_default_value,
     enum_field_tag_value,
     slice_single_item_ptr_bounds,
-    comptime_param_arg,
     stored_to_comptime_field,
     stored_to_comptime_var,
     casted_to_comptime_enum,
@@ -832,6 +835,8 @@ pub const SimpleComptimeReason = enum(u32) {
             .array_mul_factor     => "array multiplication factor must be comptime-known",
             .slice_cat_operand    => "slice being concatenated must be comptime-known",
             .comptime_call_target => "function being called at comptime must be comptime-known",
+            .inline_call_target   => "function being called inline must be comptime-known",
+            .generic_call_target  => "generic function being called must be comptime-known",
             .wasm_memory_index    => "wasm memory index must be comptime-known",
             .work_group_dim_index => "work group dimension index must be comptime-known",
 
@@ -864,12 +869,12 @@ pub const SimpleComptimeReason = enum(u32) {
 
             .comptime_keyword             => "'comptime' keyword forces comptime evaluation",
             .comptime_call_modifier       => "'.compile_time' call modifier forces comptime evaluation",
+            .inline_loop_operand          => "inline loop condition must be comptime-known",
             .switch_item                  => "switch prong values must be comptime-known",
             .tuple_field_default_value    => "tuple field default value must be comptime-known",
             .struct_field_default_value   => "struct field default value must be comptime-known",
             .enum_field_tag_value         => "enum field tag value must be comptime-known",
             .slice_single_item_ptr_bounds => "slice of single-item pointer must have comptime-known bounds",
-            .comptime_param_arg           => "argument to comptime parameter must be comptime-known",
             .stored_to_comptime_field     => "value stored to a comptime field must be comptime-known",
             .stored_to_comptime_var       => "value stored to a comptime variable must be comptime-known",
             .casted_to_comptime_enum      => "value casted to enum with 'comptime_int' tag type must be comptime-known",

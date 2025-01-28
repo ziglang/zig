@@ -13,10 +13,8 @@ pub export fn entry2() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:6: error: no field or member function named 'copy' in '[]const u8'
 // :9:8: error: no field or member function named 'bar' in '@TypeOf(.{})'
-// :12:18: error: no field or member function named 'bar' in 'tmp.entry2__struct_170'
+// :12:18: error: no field or member function named 'bar' in 'tmp.entry2__struct_467'
 // :12:6: note: struct declared here

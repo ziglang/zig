@@ -58,7 +58,7 @@ pub fn allocate(list: *AtomList, elf_file: *Elf) !void {
     if (expand_section) last_atom_ref.* = list.lastAtom(elf_file).ref();
     shdr.sh_addralign = @max(shdr.sh_addralign, list.alignment.toByteUnits().?);
 
-    // FIXME:JK this currently ignores Thunks as valid chunks.
+    // This currently ignores Thunks as valid chunks.
     {
         var idx: usize = 0;
         while (idx < list.atoms.keys().len) : (idx += 1) {
@@ -78,7 +78,8 @@ pub fn allocate(list: *AtomList, elf_file: *Elf) !void {
         placement_atom.next_atom_ref = list.firstAtom(elf_file).ref();
     }
 
-    // FIXME:JK if we had a link from Atom to parent AtomList we would not need to update Atom's value or osec index
+    // If we had a link from Atom to parent AtomList we would not need to
+    // update Atom's value or osec index.
     for (list.atoms.keys()) |ref| {
         const atom_ptr = elf_file.atom(ref).?;
         atom_ptr.output_section_index = list.output_section_index;

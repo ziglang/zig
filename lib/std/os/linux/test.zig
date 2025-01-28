@@ -140,6 +140,16 @@ test "sigset_t" {
 
     try expectEqual(linux.sigismember(&sigset, linux.SIG.USR1), true);
     try expectEqual(linux.sigismember(&sigset, linux.SIG.USR2), true);
+
+    linux.sigdelset(&sigset, linux.SIG.USR1);
+
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR1), false);
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR2), true);
+
+    linux.sigdelset(&sigset, linux.SIG.USR2);
+
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR1), false);
+    try expectEqual(linux.sigismember(&sigset, linux.SIG.USR2), false);
 }
 
 test {

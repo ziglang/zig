@@ -8463,7 +8463,7 @@ pub const Metadata = enum(u32) {
                 field.* = .{
                     .name = name,
                     .type = []const u8,
-                    .default_value = null,
+                    .default_value_ptr = null,
                     .is_comptime = false,
                     .alignment = 0,
                 };
@@ -8474,7 +8474,7 @@ pub const Metadata = enum(u32) {
                 field.* = .{
                     .name = name,
                     .type = std.fmt.Formatter(format),
-                    .default_value = null,
+                    .default_value_ptr = null,
                     .is_comptime = false,
                     .alignment = 0,
                 };

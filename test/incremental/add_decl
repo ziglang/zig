@@ -1,6 +1,7 @@
 #target=x86_64-linux-selfhosted
 #target=x86_64-linux-cbe
 #target=x86_64-windows-cbe
+//#target=wasm32-wasi-selfhosted
 #update=initial version
 #file=main.zig
 const std = @import("std");
@@ -38,7 +39,7 @@ pub fn main() !void {
 }
 const foo = "good morning\n";
 const bar = "good evening\n";
-#expect_error=ignored
+#expect_error=main.zig:3:37: error: use of undeclared identifier 'qux'
 
 #update=add missing declaration
 #file=main.zig

@@ -571,7 +571,7 @@ pub fn MultiArrayList(comptime T: type) type {
             for (&entry_fields, sizes.fields) |*entry_field, i| entry_field.* = .{
                 .name = fields[i].name ++ "_ptr",
                 .type = *fields[i].type,
-                .default_value = null,
+                .default_value_ptr = null,
                 .is_comptime = fields[i].is_comptime,
                 .alignment = fields[i].alignment,
             };

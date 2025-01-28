@@ -552,7 +552,7 @@ test "zig fmt: trailing comma in fn parameter list" {
         \\pub fn f(
         \\    a: i32,
         \\    b: i32,
-        \\) callconv(.C) i32 {}
+        \\) callconv(.c) i32 {}
         \\pub fn f(
         \\    a: i32,
         \\    b: i32,
@@ -560,15 +560,15 @@ test "zig fmt: trailing comma in fn parameter list" {
         \\pub fn f(
         \\    a: i32,
         \\    b: i32,
-        \\) align(8) callconv(.C) i32 {}
+        \\) align(8) callconv(.c) i32 {}
         \\pub fn f(
         \\    a: i32,
         \\    b: i32,
-        \\) align(8) linksection(".text") callconv(.C) i32 {}
+        \\) align(8) linksection(".text") callconv(.c) i32 {}
         \\pub fn f(
         \\    a: i32,
         \\    b: i32,
-        \\) linksection(".text") callconv(.C) i32 {}
+        \\) linksection(".text") callconv(.c) i32 {}
         \\
     );
 }

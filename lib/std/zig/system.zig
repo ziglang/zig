@@ -130,7 +130,10 @@ pub fn getExternalExecutor(
             if (options.allow_wine) {
                 // x86_64 wine does not support emulating aarch64-windows and
                 // vice versa.
-                if (candidate.cpu.arch != builtin.cpu.arch) {
+                if (candidate.cpu.arch != builtin.cpu.arch and
+                    !(candidate.cpu.arch == .thumb and builtin.cpu.arch == .aarch64) and
+                    !(candidate.cpu.arch == .x86 and builtin.cpu.arch == .x86_64))
+                {
                     return bad_result;
                 }
                 switch (candidate.ptrBitWidth()) {
@@ -396,22 +399,26 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
         query.cpu_features_sub,
     );
 
-    if (cpu.arch == .hexagon) {
-        // Both LLVM and LLD have broken support for the small data area. Yet LLVM has the feature
-        // on by default for all Hexagon CPUs. Clang sort of solves this by defaulting the `-gpsize`
-        // command line parameter for the Hexagon backend to 0, so that no constants get placed in
-        // the SDA. (This of course breaks down if the user passes `-G <n>` to Clang...) We can't do
-        // the `-gpsize` hack because we can have multiple concurrent LLVM emit jobs, and command
-        // line options in LLVM are shared globally. So just force this feature off. Lovely stuff.
-        cpu.features.removeFeature(@intFromEnum(Target.hexagon.Feature.small_data));
-    }
-
-    // https://github.com/llvm/llvm-project/issues/105978
-    if (cpu.arch.isArm() and query_abi.floatAbi() == .soft) {
-        cpu.features.removeFeature(@intFromEnum(Target.arm.Feature.vfp2));
-    }
-
     var result = try detectAbiAndDynamicLinker(cpu, os, query);
+
+    // These CPU feature hacks have to come after ABI detection.
+    {
+        if (result.cpu.arch == .hexagon) {
+            // Both LLVM and LLD have broken support for the small data area. Yet LLVM has the
+            // feature on by default for all Hexagon CPUs. Clang sort of solves this by defaulting
+            // the `-gpsize` command line parameter for the Hexagon backend to 0, so that no
+            // constants get placed in the SDA. (This of course breaks down if the user passes
+            // `-G <n>` to Clang...) We can't do the `-gpsize` hack because we can have multiple
+            // concurrent LLVM emit jobs, and command line options in LLVM are shared globally. So
+            // just force this feature off. Lovely stuff.
+            result.cpu.features.removeFeature(@intFromEnum(Target.hexagon.Feature.small_data));
+        }
+
+        // https://github.com/llvm/llvm-project/issues/105978
+        if (result.cpu.arch.isArm() and result.abi.floatAbi() == .soft) {
+            result.cpu.features.removeFeature(@intFromEnum(Target.arm.Feature.vfp2));
+        }
+    }
 
     // It's possible that we detect the native ABI, but fail to detect the OS version or were told
     // to use the default OS version range. In that case, while we can't determine the exact native

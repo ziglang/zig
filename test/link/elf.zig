@@ -1,7 +1,3 @@
-//! Here we test our ELF linker for correctness and functionality.
-//! Currently, we support linking x86_64 Linux, but in the future we
-//! will progressively relax those to exercise more combinations.
-
 pub fn testAll(b: *Build, build_opts: BuildOptions) *Step {
     _ = build_opts;
     const elf_step = b.step("test-elf", "Run ELF tests");

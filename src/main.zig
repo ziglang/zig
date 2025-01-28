@@ -39,6 +39,11 @@ test {
     _ = Package;
 }
 
+const thread_stack_size = switch (builtin.zig_backend) {
+    else => std.Thread.SpawnConfig.default_stack_size,
+    .stage2_x86_64 => 32 << 20,
+};
+
 pub const std_options: std.Options = .{
     .wasiCwd = wasi_cwd,
     .logFn = log,
@@ -51,7 +56,7 @@ pub const std_options: std.Options = .{
     },
 };
 
-pub const Panic = crash_report.Panic;
+pub const panic = crash_report.panic;
 
 var wasi_preopens: fs.wasi.Preopens = undefined;
 pub fn wasi_cwd() std.os.wasi.fd_t {
@@ -74,6 +79,10 @@ pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     std.log.err(format, args);
     process.exit(1);
 }
+
+/// Shaming all the locations that inappropriately use an O(N) search algorithm.
+/// Please delete this and fix the compilation errors!
+pub const @"bad O(N)" = void;
 
 const normal_usage =
     \\Usage: zig [command] [options]
@@ -567,6 +576,7 @@ const usage_build_generic =
     \\      0x[hexstring]              Maximum 32 bytes
     \\      none                       (default) Disable build-id
     \\  --eh-frame-hdr                 Enable C++ exception handling by passing --eh-frame-hdr to linker
+    \\  --no-eh-frame-hdr              Disable C++ exception handling by passing --no-eh-frame-hdr to linker
     \\  --emit-relocs                  Enable output of relocation sections for post build tools
     \\  -z [arg]                       Set linker extension flags
     \\    nodelete                     Indicate that the object cannot be deleted from a process
@@ -817,9 +827,9 @@ fn buildOutputType(
     var listen: Listen = .none;
     var debug_compile_errors = false;
     var verbose_link = (native_os != .wasi or builtin.link_libc) and
-        EnvVar.ZIG_VERBOSE_LINK.isSet();
+        try EnvVar.ZIG_VERBOSE_LINK.isSet(arena);
     var verbose_cc = (native_os != .wasi or builtin.link_libc) and
-        EnvVar.ZIG_VERBOSE_CC.isSet();
+        try EnvVar.ZIG_VERBOSE_CC.isSet(arena);
     var verbose_air = false;
     var verbose_intern_pool = false;
     var verbose_generic_instances = false;
@@ -997,9 +1007,9 @@ fn buildOutputType(
     // if set, default the color setting to .off or .on, respectively
     // explicit --color arguments will still override this setting.
     // Disable color on WASI per https://github.com/WebAssembly/WASI/issues/162
-    var color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet())
+    var color: Color = if (native_os == .wasi or try EnvVar.NO_COLOR.isSet(arena))
         .off
-    else if (EnvVar.CLICOLOR_FORCE.isSet())
+    else if (try EnvVar.CLICOLOR_FORCE.isSet(arena))
         .on
     else
         .auto;
@@ -1577,6 +1587,8 @@ fn buildOutputType(
                             fatal("unable to parse '{s}': {s}", .{ arg, @errorName(err) });
                     } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
                         link_eh_frame_hdr = true;
+                    } else if (mem.eql(u8, arg, "--no-eh-frame-hdr")) {
+                        link_eh_frame_hdr = false;
                     } else if (mem.eql(u8, arg, "--dynamicbase")) {
                         linker_dynamicbase = true;
                     } else if (mem.eql(u8, arg, "--no-dynamicbase")) {
@@ -2851,12 +2863,7 @@ fn buildOutputType(
             create_module.opts.any_fuzz = true;
         if (mod_opts.unwind_tables) |uwt| switch (uwt) {
             .none => {},
-            .sync => if (create_module.opts.any_unwind_tables == .none) {
-                create_module.opts.any_unwind_tables = .sync;
-            },
-            .@"async" => {
-                create_module.opts.any_unwind_tables = .@"async";
-            },
+            .sync, .@"async" => create_module.opts.any_unwind_tables = true,
         };
         if (mod_opts.strip == false)
             create_module.opts.any_non_stripped = true;
@@ -3333,6 +3340,7 @@ fn buildOutputType(
         .allocator = gpa,
         .n_jobs = @min(@max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(Zcu.PerThread.IdBacking)),
         .track_ids = true,
+        .stack_size = thread_stack_size,
     });
     defer thread_pool.deinit();
 
@@ -4758,9 +4766,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var reference_trace: ?u32 = null;
     var debug_compile_errors = false;
     var verbose_link = (native_os != .wasi or builtin.link_libc) and
-        EnvVar.ZIG_VERBOSE_LINK.isSet();
+        try EnvVar.ZIG_VERBOSE_LINK.isSet(arena);
     var verbose_cc = (native_os != .wasi or builtin.link_libc) and
-        EnvVar.ZIG_VERBOSE_CC.isSet();
+        try EnvVar.ZIG_VERBOSE_CC.isSet(arena);
     var verbose_air = false;
     var verbose_intern_pool = false;
     var verbose_generic_instances = false;
@@ -4943,7 +4951,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     }
 
     const work_around_btrfs_bug = native_os == .linux and
-        EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
+        try EnvVar.ZIG_BTRFS_WORKAROUND.isSet(arena);
     const root_prog_node = std.Progress.start(.{
         .disable_printing = (color == .off),
         .root_name = "Compile Build Script",
@@ -5037,6 +5045,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         .allocator = gpa,
         .n_jobs = @min(@max(n_jobs orelse std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(Zcu.PerThread.IdBacking)),
         .track_ids = true,
+        .stack_size = thread_stack_size,
     });
     defer thread_pool.deinit();
 
@@ -5441,7 +5450,7 @@ fn jitCmd(
         fatal("unable to find self exe path: {s}", .{@errorName(err)});
     };
 
-    const optimize_mode: std.builtin.OptimizeMode = if (EnvVar.ZIG_DEBUG_CMD.isSet())
+    const optimize_mode: std.builtin.OptimizeMode = if (try EnvVar.ZIG_DEBUG_CMD.isSet(arena))
         .Debug
     else
         .ReleaseFast;
@@ -5473,6 +5482,7 @@ fn jitCmd(
         .allocator = gpa,
         .n_jobs = @min(@max(std.Thread.getCpuCount() catch 1, 1), std.math.maxInt(Zcu.PerThread.IdBacking)),
         .track_ids = true,
+        .stack_size = thread_stack_size,
     });
     defer thread_pool.deinit();
 
@@ -6974,7 +6984,7 @@ fn cmdFetch(
 
     const color: Color = .auto;
     const work_around_btrfs_bug = native_os == .linux and
-        EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
+        try EnvVar.ZIG_BTRFS_WORKAROUND.isSet(arena);
     var opt_path_or_url: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
     var debug_hash: bool = false;
@@ -7570,12 +7580,7 @@ fn handleModArg(
         create_module.opts.any_fuzz = true;
     if (mod_opts.unwind_tables) |uwt| switch (uwt) {
         .none => {},
-        .sync => if (create_module.opts.any_unwind_tables == .none) {
-            create_module.opts.any_unwind_tables = .sync;
-        },
-        .@"async" => {
-            create_module.opts.any_unwind_tables = .@"async";
-        },
+        .sync, .@"async" => create_module.opts.any_unwind_tables = true,
     };
     if (mod_opts.strip == false)
         create_module.opts.any_non_stripped = true;
