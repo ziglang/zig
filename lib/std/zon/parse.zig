@@ -644,7 +644,7 @@ const Parser = struct {
 
         // Parse the struct
         var result: T = undefined;
-        var field_found: [field_infos.len]bool = .{false} ** field_infos.len;
+        var field_found: [field_infos.len]bool = @splat(false);
 
         // If we fail partway through, free all already initialized fields
         var initialized: usize = 0;
@@ -1014,7 +1014,7 @@ const Parser = struct {
             const value_node = array_init.ast.elements[field];
             break :b self.ast.firstToken(value_node);
         };
-        return self.failTokenFmt(token, 0, "cannot store runtime value in compile time variable", .{});
+        return self.failTokenFmt(token, 0, "cannot initialize comptime field", .{});
     }
 };
 
@@ -1374,7 +1374,7 @@ test "std.zon structs" {
         const parsed = fromSlice(Vec2, gpa, ".{.x = 1.2, .y = 1.5}", &status, .{});
         try std.testing.expectError(error.ParseZon, parsed);
         try std.testing.expectFmt(
-            \\1:18: error: cannot store runtime value in compile time variable
+            \\1:18: error: cannot initialize comptime field
             \\
         , "{}", .{status});
     }
@@ -1567,7 +1567,7 @@ test "std.zon tuples" {
         const parsed = fromSlice(Vec2, gpa, ".{ 1.2, 1.5}", &status, .{});
         try std.testing.expectError(error.ParseZon, parsed);
         try std.testing.expectFmt(
-            \\1:9: error: cannot store runtime value in compile time variable
+            \\1:9: error: cannot initialize comptime field
             \\
         , "{}", .{status});
     }

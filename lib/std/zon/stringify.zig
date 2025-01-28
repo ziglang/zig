@@ -24,8 +24,7 @@ const std = @import("std");
 
 /// Options for `serialize`.
 pub const SerializeOptions = struct {
-    /// If false, all whitespace is emitted. Otherwise, whitespace is emitted in the standard Zig
-    /// style when possible.
+    /// If false, whitespace is omitted. Otherwise whitespace is emitted in standard Zig style.
     whitespace: bool = true,
     /// If true, unsigned integers with <= 21 bits are written as their corresponding UTF8 codepoint
     /// instead of a numeric literal if one exists.
@@ -93,45 +92,36 @@ pub fn serializeArbitraryDepth(
     });
 }
 
-const RecursiveTypeBuffer = [32]type;
-
 fn typeIsRecursive(comptime T: type) bool {
-    comptime var buf: RecursiveTypeBuffer = undefined;
-    return comptime typeIsRecursiveImpl(T, buf[0..0]);
+    return comptime typeIsRecursiveImpl(T, &.{});
 }
 
-fn typeIsRecursiveImpl(comptime T: type, comptime visited_arg: []type) bool {
-    comptime var visited = visited_arg;
-
+fn typeIsRecursiveImpl(comptime T: type, comptime prev_visited: []type) bool {
     // Check if we've already seen this type
-    inline for (visited) |found| {
+    inline for (prev_visited) |found| {
         if (T == found) {
             return true;
         }
     }
 
-    // Add this type to the stack
-    if (visited.len >= @typeInfo(RecursiveTypeBuffer).array.len) {
-        @compileError("recursion limit");
-    }
-    visited.ptr[visited.len] = T;
-    visited.len += 1;
+    // Create a copy of visited with this type added
+    comptime var visited = prev_visited[0..prev_visited.len].* ++ .{T};
 
     // Recurse
     switch (@typeInfo(T)) {
-        .pointer => |pointer| return typeIsRecursiveImpl(pointer.child, visited),
-        .array => |array| return typeIsRecursiveImpl(array.child, visited),
+        .pointer => |pointer| return typeIsRecursiveImpl(pointer.child, &visited),
+        .array => |array| return typeIsRecursiveImpl(array.child, &visited),
         .@"struct" => |@"struct"| inline for (@"struct".fields) |field| {
-            if (typeIsRecursiveImpl(field.type, visited)) {
+            if (typeIsRecursiveImpl(field.type, &visited)) {
                 return true;
             }
         },
         .@"union" => |@"union"| inline for (@"union".fields) |field| {
-            if (typeIsRecursiveImpl(field.type, visited)) {
+            if (typeIsRecursiveImpl(field.type, &visited)) {
                 return true;
             }
         },
-        .optional => |optional| return typeIsRecursiveImpl(optional.child, visited),
+        .optional => |optional| return typeIsRecursiveImpl(optional.child, &visited),
         else => {},
     }
     return false;
@@ -405,7 +395,7 @@ pub fn Serializer(Writer: type) type {
                         break :b .{ @"struct".fields.len, [1]bool{false} ** @"struct".fields.len };
                     } else b: {
                         var fields = @"struct".fields.len;
-                        var skipped = [1]bool{false} ** @"struct".fields.len;
+                        var skipped: [@"struct".fields.len]bool = @splat(false);
                         inline for (@"struct".fields, &skipped) |field_info, *skip| {
                             if (field_info.default_value_ptr) |default_field_value_opaque| {
                                 const field_value = @field(val, field_info.name);
@@ -467,15 +457,16 @@ pub fn Serializer(Writer: type) type {
         /// Serialize a float.
         pub fn float(self: *Self, val: anytype) Writer.Error!void {
             switch (@typeInfo(@TypeOf(val))) {
-                .float, .comptime_float => if (std.math.isNan(val)) {
+                .float => if (std.math.isNan(val)) {
                     return self.writer.writeAll("nan");
-                } else if (@as(f128, val) == std.math.inf(f128)) {
+                } else if (std.math.isPositiveInf(val)) {
                     return self.writer.writeAll("inf");
-                } else if (@as(f128, val) == -std.math.inf(f128)) {
+                } else if (std.math.isNegativeInf(val)) {
                     return self.writer.writeAll("-inf");
                 } else {
                     try std.fmt.format(self.writer, "{d}", .{val});
                 },
+                .comptime_float => try std.fmt.format(self.writer, "{d}", .{val}),
                 else => @compileError(@typeName(@TypeOf(val)) ++ ": expected float"),
             }
         }
@@ -2053,5 +2044,21 @@ test "std.zon stringify as tuple" {
     // Array
     try sz.tuple([2]u8{ 1, 2 }, .{});
     try std.testing.expectEqualStrings(".{ 1, 2 }", buf.items);
+    buf.clearRetainingCapacity();
+}
+
+test "std.zon stringify as float" {
+    var buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer buf.deinit();
+    var sz = serializer(buf.writer(), .{});
+
+    // Comptime float
+    try sz.float(2.5);
+    try std.testing.expectEqualStrings("2.5", buf.items);
+    buf.clearRetainingCapacity();
+
+    // Sized float
+    try sz.float(@as(f32, 2.5));
+    try std.testing.expectEqualStrings("2.5", buf.items);
     buf.clearRetainingCapacity();
 }
