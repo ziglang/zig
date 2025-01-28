@@ -2875,7 +2875,7 @@ pub fn renameatW(
 /// On Windows, `sub_dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `sub_dir_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_dir_path` is an opaque sequence of bytes with no particular encoding.
-pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!void {
+pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: mode_t) MakeDirError!void {
     if (native_os == .windows) {
         const sub_dir_path_w = try windows.sliceToPrefixedFileW(dir_fd, sub_dir_path);
         return mkdiratW(dir_fd, sub_dir_path_w.span(), mode);
@@ -2887,7 +2887,7 @@ pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!v
     }
 }
 
-pub fn mkdiratWasi(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!void {
+pub fn mkdiratWasi(dir_fd: fd_t, sub_dir_path: []const u8, mode: mode_t) MakeDirError!void {
     _ = mode;
     switch (wasi.path_create_directory(dir_fd, sub_dir_path.ptr, sub_dir_path.len)) {
         .SUCCESS => return,
@@ -2912,7 +2912,7 @@ pub fn mkdiratWasi(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirErr
 }
 
 /// Same as `mkdirat` except the parameters are null-terminated.
-pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
+pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: mode_t) MakeDirError!void {
     if (native_os == .windows) {
         const sub_dir_path_w = try windows.cStrToPrefixedFileW(dir_fd, sub_dir_path);
         return mkdiratW(dir_fd, sub_dir_path_w.span(), mode);
@@ -2946,7 +2946,7 @@ pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirErr
 }
 
 /// Windows-only. Same as `mkdirat` except the parameter WTF16 LE encoded.
-pub fn mkdiratW(dir_fd: fd_t, sub_path_w: []const u16, mode: u32) MakeDirError!void {
+pub fn mkdiratW(dir_fd: fd_t, sub_path_w: []const u16, mode: mode_t) MakeDirError!void {
     _ = mode;
     const sub_dir_handle = windows.OpenFile(sub_path_w, .{
         .dir = dir_fd,
@@ -2994,7 +2994,7 @@ pub const MakeDirError = error{
 /// On Windows, `dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `dir_path` should be encoded as valid UTF-8.
 /// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
-pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
+pub fn mkdir(dir_path: []const u8, mode: mode_t) MakeDirError!void {
     if (native_os == .wasi and !builtin.link_libc) {
         return mkdirat(wasi.AT.FDCWD, dir_path, mode);
     } else if (native_os == .windows) {
@@ -3010,7 +3010,7 @@ pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
 /// On Windows, `dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `dir_path` should be encoded as valid UTF-8.
 /// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
-pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
+pub fn mkdirZ(dir_path: [*:0]const u8, mode: mode_t) MakeDirError!void {
     if (native_os == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(null, dir_path);
         return mkdirW(dir_path_w.span(), mode);
@@ -3041,7 +3041,7 @@ pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
 }
 
 /// Windows-only. Same as `mkdir` but the parameters is WTF16LE encoded.
-pub fn mkdirW(dir_path_w: []const u16, mode: u32) MakeDirError!void {
+pub fn mkdirW(dir_path_w: []const u16, mode: mode_t) MakeDirError!void {
     _ = mode;
     const sub_dir_handle = windows.OpenFile(dir_path_w, .{
         .dir = fs.cwd().fd,
