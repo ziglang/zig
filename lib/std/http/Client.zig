@@ -10,6 +10,7 @@ const testing = std.testing;
 const http = std.http;
 const mem = std.mem;
 const net = std.net;
+const socks5 = std.socks.@"5";
 const Uri = std.Uri;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
@@ -1193,11 +1194,17 @@ pub const Request = struct {
 };
 
 pub const Proxy = struct {
-    protocol: Connection.Protocol,
+    protocol: Protocol,
     host: []const u8,
     authorization: ?[]const u8,
     port: u16,
     supports_connect: bool,
+
+    pub const Protocol = enum {
+        plain,
+        tls,
+        socks5,
+    };
 };
 
 /// Release all associated resources with the client.
@@ -1239,6 +1246,24 @@ pub fn initDefaultProxies(client: *Client, arena: Allocator) !void {
     }
 }
 
+fn validateProxyUri(uri: Uri, arena: Allocator) !struct { Proxy.Protocol, Uri } {
+    const protocol_map = std.StaticStringMap(Proxy.Protocol).initComptime(.{
+        .{ "http", .plain },
+        .{ "https", .tls },
+        .{ "socks5", .socks5 },
+    });
+
+    return validateAnyUri(Proxy.Protocol, protocol_map, uri, arena);
+}
+
+fn uriPortForProxy(uri: Uri, protocol: Proxy.Protocol) u16 {
+    return uri.port orelse switch (protocol) {
+        .plain => 80,
+        .tls => 443,
+        .socks5 => 1080,
+    };
+}
+
 fn createProxyFromEnvVar(arena: Allocator, env_var_names: []const []const u8) !?*Proxy {
     const content = for (env_var_names) |name| {
         break std.process.getEnvVarOwned(arena, name) catch |err| switch (err) {
@@ -1248,7 +1273,7 @@ fn createProxyFromEnvVar(arena: Allocator, env_var_names: []const []const u8) !?
     } else return null;
 
     const uri = Uri.parse(content) catch try Uri.parseAfterScheme("http", content);
-    const protocol, const valid_uri = validateUri(uri, arena) catch |err| switch (err) {
+    const protocol, const valid_uri = validateProxyUri(uri, arena) catch |err| switch (err) {
         error.UnsupportedUriScheme => return null,
         error.UriMissingHost => return error.HttpProxyMissingHost,
         error.OutOfMemory => |e| return e,
@@ -1265,7 +1290,7 @@ fn createProxyFromEnvVar(arena: Allocator, env_var_names: []const []const u8) !?
         .protocol = protocol,
         .host = valid_uri.host.?.raw,
         .authorization = authorization,
-        .port = uriPort(valid_uri, protocol),
+        .port = uriPortForProxy(valid_uri, protocol),
         .supports_connect = true,
     };
     return proxy;
@@ -1309,19 +1334,49 @@ pub const basic_authorization = struct {
 
 pub const ConnectTcpError = Allocator.Error || error{ ConnectionRefused, NetworkUnreachable, ConnectionTimedOut, ConnectionResetByPeer, TemporaryNameServerFailure, NameServerFailure, UnknownHostName, HostLacksNetworkAddresses, UnexpectedConnectFailure, TlsInitializationFailed };
 
-/// Connect to `host:port` using the specified protocol. This will reuse a connection if one is already open.
+fn createTlsClient(client: *Client, stream: net.Stream, host: []const u8) error{ OutOfMemory, TlsInitializationFailed }!*std.crypto.tls.Client {
+    if (disable_tls) {
+        unreachable;
+    }
+
+    const tls_client = try client.allocator.create(std.crypto.tls.Client);
+    errdefer client.allocator.destroy(tls_client);
+
+    const ssl_key_log_file: ?std.fs.File = if (std.options.http_enable_ssl_key_log_file) ssl_key_log_file: {
+        const ssl_key_log_path = std.process.getEnvVarOwned(client.allocator, "SSLKEYLOGFILE") catch |err| switch (err) {
+            error.EnvironmentVariableNotFound, error.InvalidWtf8 => break :ssl_key_log_file null,
+            error.OutOfMemory => return error.OutOfMemory,
+        };
+        defer client.allocator.free(ssl_key_log_path);
+        break :ssl_key_log_file std.fs.cwd().createFile(ssl_key_log_path, .{
+            .truncate = false,
+            .mode = switch (builtin.os.tag) {
+                .windows, .wasi => 0,
+                else => 0o600,
+            },
+        }) catch null;
+    } else null;
+    errdefer if (ssl_key_log_file) |key_log_file| key_log_file.close();
+
+    tls_client.* = std.crypto.tls.Client.init(stream, .{
+        .host = .{ .explicit = host },
+        .ca = .{ .bundle = client.ca_bundle },
+        .ssl_key_log_file = ssl_key_log_file,
+    }) catch return error.TlsInitializationFailed;
+    // This is appropriate for HTTPS because the HTTP headers contain
+    // the content length which is used to detect truncation attacks.
+    tls_client.allow_truncation_attacks = true;
+
+    return tls_client;
+}
+
+/// Connect to `host:port` using tcp, return the connection pool node.
+/// The connection's host and port is not initialised.
+///
+/// The result is not fully initialised. To destory it, you must close the `stream` and destory the pointer.
 ///
 /// This function is threadsafe.
-pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connection.Protocol) ConnectTcpError!*Connection {
-    if (client.connection_pool.findConnection(.{
-        .host = host,
-        .port = port,
-        .protocol = protocol,
-    })) |node| return node;
-
-    if (disable_tls and protocol == .tls)
-        return error.TlsInitializationFailed;
-
+fn createTcpConnect(client: *Client, host: []const u8, port: u16) ConnectTcpError!*ConnectionPool.Node {
     const conn = try client.allocator.create(ConnectionPool.Node);
     errdefer client.allocator.destroy(conn);
     conn.* = .{ .data = undefined };
@@ -1343,43 +1398,41 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
         .stream = stream,
         .tls_client = undefined,
 
-        .protocol = protocol,
-        .host = try client.allocator.dupe(u8, host),
-        .port = port,
+        .protocol = .plain,
+        .host = undefined,
+        .port = undefined,
     };
+
+    return conn;
+}
+
+/// Connect to `host:port` using the specified protocol. This will reuse a connection if one is already open.
+///
+/// This function is threadsafe.
+pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connection.Protocol) ConnectTcpError!*Connection {
+    if (client.connection_pool.findConnection(.{
+        .host = host,
+        .port = port,
+        .protocol = protocol,
+    })) |node| return node;
+
+    if (disable_tls and protocol == .tls)
+        return error.TlsInitializationFailed;
+
+    const conn = try createTcpConnect(client, host, port);
+    errdefer {
+        conn.data.stream.close();
+        client.allocator.destroy(conn);
+    }
+
+    conn.data.host = try client.allocator.dupe(u8, host);
     errdefer client.allocator.free(conn.data.host);
+    conn.data.port = port;
 
     if (protocol == .tls) {
-        if (disable_tls) unreachable;
-
-        conn.data.tls_client = try client.allocator.create(std.crypto.tls.Client);
-        errdefer client.allocator.destroy(conn.data.tls_client);
-
-        const ssl_key_log_file: ?std.fs.File = if (std.options.http_enable_ssl_key_log_file) ssl_key_log_file: {
-            const ssl_key_log_path = std.process.getEnvVarOwned(client.allocator, "SSLKEYLOGFILE") catch |err| switch (err) {
-                error.EnvironmentVariableNotFound, error.InvalidWtf8 => break :ssl_key_log_file null,
-                error.OutOfMemory => return error.OutOfMemory,
-            };
-            defer client.allocator.free(ssl_key_log_path);
-            break :ssl_key_log_file std.fs.cwd().createFile(ssl_key_log_path, .{
-                .truncate = false,
-                .mode = switch (builtin.os.tag) {
-                    .windows, .wasi => 0,
-                    else => 0o600,
-                },
-            }) catch null;
-        } else null;
-        errdefer if (ssl_key_log_file) |key_log_file| key_log_file.close();
-
-        conn.data.tls_client.* = std.crypto.tls.Client.init(stream, .{
-            .host = .{ .explicit = host },
-            .ca = .{ .bundle = client.ca_bundle },
-            .ssl_key_log_file = ssl_key_log_file,
-        }) catch return error.TlsInitializationFailed;
-        // This is appropriate for HTTPS because the HTTP headers contain
-        // the content length which is used to detect truncation attacks.
-        conn.data.tls_client.allow_truncation_attacks = true;
+        conn.data.tls_client = try createTlsClient(client, conn.data.stream, host);
     }
+    conn.data.protocol = protocol;
 
     client.connection_pool.addUsed(conn);
 
@@ -1421,28 +1474,211 @@ pub fn connectUnix(client: *Client, path: []const u8) ConnectUnixError!*Connecti
     return &conn.data;
 }
 
-/// Connect to `tunnel_host:tunnel_port` using the specified proxy with HTTP
-/// CONNECT. This will reuse a connection if one is already open.
+/// Connect to `tunnel_host:tunnel_port` using the specified proxy.
+/// This will reuse a connection if one is already open.
 ///
 /// This function is threadsafe.
-pub fn connectTunnel(
+pub fn connectTunnel(client: *Client, proxy: *Proxy, tunnel_host: []const u8, tunnel_port: u16, tunnel_protocol: Connection.Protocol) !*Connection {
+    return switch (proxy.protocol) {
+        .plain, .tls => connectHttpTunnel(client, proxy, tunnel_host, tunnel_port, tunnel_protocol),
+        .socks5 => connectSocks5Tunnel(client, proxy, tunnel_host, tunnel_port, tunnel_protocol),
+    };
+}
+
+/// Create tunnelled connection with a SOCKS5 proxy.
+///
+/// This is different from the HTTP Proxy. The SOCKS5 handshaking and the setup
+/// is right after the socket creation (socks5 setup -> [tls setup] -> http session),
+/// so this function could not use the `connectTcp` function, which adds the connection to
+/// the pool directly.
+///
+/// This function implements the socks5 setup and the tls setup, only adds the connection into
+/// the pool after the setup is complemented.
+fn connectSocks5Tunnel(client: *Client, proxy: *Proxy, tunnel_host: []const u8, tunnel_port: u16, tunnel_protocol: Connection.Protocol) (ConnectError || error{TunnelNotSupported})!*Connection {
+    if (client.connection_pool.findConnection(.{
+        .host = tunnel_host,
+        .port = tunnel_port,
+        .protocol = tunnel_protocol,
+    })) |node| {
+        return node;
+    }
+
+    if (disable_tls and tunnel_protocol == .tls) {
+        return error.TlsInitializationFailed;
+    }
+
+    const tunnel = try client.createTcpConnect(proxy.host, proxy.port);
+    errdefer {
+        tunnel.data.stream.close();
+        client.allocator.destroy(tunnel);
+    }
+
+    tunnel.data.host = try client.allocator.dupe(u8, tunnel_host);
+    errdefer client.allocator.free(tunnel.data.host);
+    tunnel.data.port = tunnel_port;
+
+    const stream = tunnel.data.stream;
+
+    // socks5 handshake
+    {
+        var auth_flows: std.BoundedArray(u8, 2) = .{};
+        auth_flows.appendAssumeCapacity(@intFromEnum(socks5.KnownAuthentication.none));
+
+        if (proxy.authorization) |authorization| {
+            if (std.mem.startsWith(u8, authorization, basic_authorization.prefix)) {
+                auth_flows.appendAssumeCapacity(@intFromEnum(socks5.KnownAuthentication.password));
+            }
+        }
+
+        const hello = socks5.ClientGreeting{
+            .auth = auth_flows.constSlice(),
+        };
+
+        _ = try hello.serialize(tunnel.data.writer());
+        try tunnel.data.flush();
+    }
+
+    const authChoice = recvAuthChoice: {
+        const choice = socks5.ServerChoice.deserialize(stream.reader()) catch |err| switch (err) {
+            error.EndOfStream => return error.ConnectionResetByPeer,
+            // error.TlsFailure, error.TlsAlert => unreachable,
+            // error.UnexpectedReadFailure => return error.UnexpectedConnectFailure,
+            else => return @as(ConnectError, @errorCast(err)),
+        };
+        if (choice.ver != 5) {
+            return error.TunnelNotSupported;
+        }
+
+        break :recvAuthChoice choice.cauth;
+    };
+
+    switch (authChoice) {
+        @intFromEnum(socks5.KnownAuthentication.none) => {},
+        @intFromEnum(socks5.KnownAuthentication.password) => {
+            const authorization = (proxy.authorization orelse return error.TunnelNotSupported)[basic_authorization.prefix.len..];
+            const B64 = std.base64.standard.Decoder;
+            const size = B64.calcSizeForSlice(authorization) catch |err| {
+                std.log.err("error: {}", .{err});
+                return error.TunnelNotSupported;
+            };
+            const oauth = try client.allocator.alloc(u8, size);
+            defer client.allocator.free(oauth);
+            B64.decode(oauth, authorization) catch |err| {
+                std.log.err("error: {}", .{err});
+                return error.TunnelNotSupported;
+            };
+
+            const sep_index = std.mem.lastIndexOfScalar(u8, oauth, ':') orelse return error.TunnelNotSupported;
+            const username = oauth[0..sep_index];
+            const password = oauth[@min(sep_index + 1, oauth.len)..];
+
+            const pwflow = socks5.password;
+
+            _ = try (pwflow.Authenticate{
+                .id = username,
+                .password = password,
+            }).serialize(tunnel.data.writer());
+            try tunnel.data.flush();
+
+            const response = pwflow.Response.deserialize(stream.reader()) catch |err| switch (err) {
+                error.EndOfStream => {
+                    std.log.err("socks5 authentication stops early", .{});
+                    return error.ConnectionResetByPeer;
+                },
+                else => return @as(ConnectError, @errorCast(err)),
+            };
+            if (!response.isSuccess()) {
+                std.log.err("socks5 authentication failed: username or password is wrong", .{});
+                return error.ConnectionResetByPeer;
+            }
+            // Authentication is done. Continue with ConnectRequest.
+        },
+        else => return error.TunnelNotSupported,
+    }
+
+    if (tunnel_host.len > 255) {
+        // TODO: if the host is too long, try SOCKS5 UDP to resovle the address
+        return error.TunnelNotSupported;
+    }
+    const request = socks5.ConnectRequest{
+        .cmd = @intFromEnum(socks5.ConnectRequest.KnownCommand.stream_connect),
+        .dstaddr = socks5.Address.fromSlice(tunnel_host),
+        .dstport = tunnel_port,
+    };
+    _ = try request.serialize(tunnel.data.writer());
+    try tunnel.data.flush();
+
+    const reply = socks5.ConnectReply.deserialize(stream.reader()) catch |err| switch (err) {
+        error.EndOfStream => return error.ConnectionResetByPeer,
+        // error.TlsAlert, error.TlsFailure => unreachable,
+        // error.UnknownAddressType => return error.UnexpectedConnectFailure,
+        // error.UnexpectedReadFailure => return error.UnexpectedConnectFailure,
+        else => return @as(ConnectError, @errorCast(err)),
+    };
+    if (reply.ver != 5) {
+        return error.TunnelNotSupported;
+    }
+    const replyCode = socks5.ConnectReply.KnownRep.from(reply.rep) orelse return error.TunnelNotSupported;
+    switch (replyCode) {
+        .success => {},
+        .general_failure => return ConnectTcpError.UnexpectedConnectFailure,
+        .ruleset_rejected => return ConnectTcpError.ConnectionRefused,
+        .network_unreachable => return ConnectTcpError.NetworkUnreachable,
+        .host_unreachable => return ConnectTcpError.NetworkUnreachable,
+        .ttl_expired => return ConnectTcpError.NetworkUnreachable,
+        .address_not_supported => return ConnectTcpError.UnknownHostName,
+        .command_not_supported => return ConnectTcpError.UnexpectedConnectFailure,
+        .connection_refused => return ConnectTcpError.ConnectionRefused,
+    }
+
+    if (tunnel_protocol == .tls) {
+        tunnel.data.tls_client = try createTlsClient(
+            client,
+            tunnel.data.stream,
+            tunnel_host,
+        );
+    }
+    tunnel.data.protocol = tunnel_protocol;
+
+    client.connection_pool.addUsed(tunnel);
+
+    return &tunnel.data;
+}
+
+fn connectHttpTunnel(
     client: *Client,
     proxy: *Proxy,
     tunnel_host: []const u8,
     tunnel_port: u16,
+    tunnel_protocol: Connection.Protocol,
 ) !*Connection {
     if (!proxy.supports_connect) return error.TunnelNotSupported;
+
+    const proxy_protocol: Connection.Protocol = switch (proxy.protocol) {
+        .plain => .plain,
+        .tls => .tls,
+        else => unreachable,
+    };
 
     if (client.connection_pool.findConnection(.{
         .host = tunnel_host,
         .port = tunnel_port,
-        .protocol = proxy.protocol,
+        .protocol = proxy_protocol,
     })) |node|
         return node;
 
+    if (proxy_protocol == tunnel_protocol and tunnel_protocol == .tls) {
+        // TODO: Supports nested TLS
+        return error.TunnelNotSupported;
+    }
+
     var maybe_valid = false;
     (tunnel: {
-        const conn = try client.connectTcp(proxy.host, proxy.port, proxy.protocol);
+        const conn = try client.connectTcp(
+            proxy.host,
+            proxy.port,
+            proxy_protocol,
+        );
         errdefer {
             conn.closing = true;
             client.connection_pool.release(client.allocator, conn);
@@ -1472,6 +1708,11 @@ pub fn connectTunnel(
         }
 
         if (req.response.status != .ok) break :tunnel error.ConnectionRefused;
+
+        if (tunnel_protocol == .tls) {
+            conn.tls_client = try client.createTlsClient(conn.stream, tunnel_host);
+        }
+        conn.protocol = tunnel_protocol;
 
         // this connection is now a tunnel, so we can't use it for anything else, it will only be released when the client is de-initialized.
         req.connection = null;
@@ -1514,27 +1755,52 @@ pub fn connect(
 
     // Prevent proxying through itself.
     if (std.ascii.eqlIgnoreCase(proxy.host, host) and
-        proxy.port == port and proxy.protocol == protocol)
-    {
+        proxy.port == port and switch (proxy.protocol) {
+        .plain => protocol == .plain,
+        .tls => protocol == .tls,
+        else => false,
+    }) {
         return client.connectTcp(host, port, protocol);
     }
 
     if (proxy.supports_connect) tunnel: {
-        return connectTunnel(client, proxy, host, port) catch |err| switch (err) {
+        return connectTunnel(
+            client,
+            proxy,
+            host,
+            port,
+            protocol,
+        ) catch |err| switch (err) {
             error.TunnelNotSupported => break :tunnel,
             else => |e| return e,
         };
     }
 
     // fall back to using the proxy as a normal http proxy
-    const conn = try client.connectTcp(proxy.host, proxy.port, proxy.protocol);
-    errdefer {
-        conn.closing = true;
-        client.connection_pool.release(conn);
-    }
+    switch (proxy.protocol) {
+        .plain, .tls => {
+            const proxy_protocol: Connection.Protocol = switch (proxy.protocol) {
+                .plain => .plain,
+                .tls => .tls,
+                else => unreachable,
+            };
+            const conn = try client.connectTcp(
+                proxy.host,
+                proxy.port,
+                proxy_protocol,
+            );
+            errdefer {
+                conn.closing = true;
+                client.connection_pool.release(conn);
+            }
 
-    conn.proxied = true;
-    return conn;
+            conn.proxied = true;
+            return conn;
+        },
+        else => {
+            return ConnectError.ConnectionRefused;
+        },
+    }
 }
 
 pub const RequestError = ConnectTcpError || ConnectErrorPartial || Request.SendError ||
@@ -1590,6 +1856,16 @@ pub const RequestOptions = struct {
     privileged_headers: []const http.Header = &.{},
 };
 
+inline fn validateAnyUri(Proto: type, map: std.StaticStringMap(Proto), uri: Uri, arena: Allocator) !struct { Proto, Uri } {
+    const protocol = map.get(uri.scheme) orelse return error.UnsupportedUriScheme;
+    var valid_uri = uri;
+    // The host is always going to be needed as a raw string for hostname resolution anyway.
+    valid_uri.host = .{
+        .raw = try (uri.host orelse return error.UriMissingHost).toRawMaybeAlloc(arena),
+    };
+    return .{ protocol, valid_uri };
+}
+
 fn validateUri(uri: Uri, arena: Allocator) !struct { Connection.Protocol, Uri } {
     const protocol_map = std.StaticStringMap(Connection.Protocol).initComptime(.{
         .{ "http", .plain },
@@ -1597,13 +1873,7 @@ fn validateUri(uri: Uri, arena: Allocator) !struct { Connection.Protocol, Uri } 
         .{ "https", .tls },
         .{ "wss", .tls },
     });
-    const protocol = protocol_map.get(uri.scheme) orelse return error.UnsupportedUriScheme;
-    var valid_uri = uri;
-    // The host is always going to be needed as a raw string for hostname resolution anyway.
-    valid_uri.host = .{
-        .raw = try (uri.host orelse return error.UriMissingHost).toRawMaybeAlloc(arena),
-    };
-    return .{ protocol, valid_uri };
+    return validateAnyUri(Connection.Protocol, protocol_map, uri, arena);
 }
 
 fn uriPort(uri: Uri, protocol: Connection.Protocol) u16 {
