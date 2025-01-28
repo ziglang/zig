@@ -3,6 +3,8 @@
 gpa: Allocator,
 tree: Ast,
 
+options: Options,
+
 nodes: std.MultiArrayList(Zoir.Node.Repr),
 extra: std.ArrayListUnmanaged(u32),
 limbs: std.ArrayListUnmanaged(std.math.big.Limb),
@@ -12,12 +14,21 @@ string_table: std.HashMapUnmanaged(u32, void, StringIndexContext, std.hash_map.d
 compile_errors: std.ArrayListUnmanaged(Zoir.CompileError),
 error_notes: std.ArrayListUnmanaged(Zoir.CompileError.Note),
 
-pub fn generate(gpa: Allocator, tree: Ast) Allocator.Error!Zoir {
+pub const Options = struct {
+    /// When false, string literals are not parsed. `string_literal` nodes will contain empty
+    /// strings, and errors that normally occur during string parsing will not be raised.
+    ///
+    /// `parseStrLit` and `strLitSizeHint` may be used to parse string literals after the fact.
+    parse_str_lits: bool = true,
+};
+
+pub fn generate(gpa: Allocator, tree: Ast, options: Options) Allocator.Error!Zoir {
     assert(tree.mode == .zon);
 
     var zg: ZonGen = .{
         .gpa = gpa,
         .tree = tree,
+        .options = options,
         .nodes = .empty,
         .extra = .empty,
         .limbs = .empty,
@@ -250,7 +261,20 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
         .block_two_semicolon,
         .block,
         .block_semicolon,
-        => try zg.addErrorNode(node, "blocks are not allowed in ZON", .{}),
+        => {
+            const size = switch (node_tags[node]) {
+                .block_two, .block_two_semicolon => @intFromBool(node_datas[node].lhs != 0) + @intFromBool(node_datas[node].rhs != 0),
+                .block, .block_semicolon => node_datas[node].rhs - node_datas[node].lhs,
+                else => unreachable,
+            };
+            if (size == 0) {
+                try zg.addErrorNodeNotes(node, "void literals are not available in ZON", .{}, &.{
+                    try zg.errNoteNode(node, "void union payloads can be represented by enum literals", .{}),
+                });
+            } else {
+                try zg.addErrorNode(node, "blocks are not allowed in ZON", .{});
+            }
+        },
 
         .array_init_one,
         .array_init_one_comma,
@@ -415,46 +439,6 @@ fn expr(zg: *ZonGen, node: Ast.Node.Index, dest_node: Zoir.Node.Index) Allocator
     }
 }
 
-fn parseStrLit(zg: *ZonGen, token: Ast.TokenIndex, offset: u32) !u32 {
-    const raw_string = zg.tree.tokenSlice(token)[offset..];
-    const start = zg.string_bytes.items.len;
-    switch (try std.zig.string_literal.parseWrite(zg.string_bytes.writer(zg.gpa), raw_string)) {
-        .success => return @intCast(start),
-        .failure => |err| {
-            try zg.lowerStrLitError(err, token, raw_string, offset);
-            return error.BadString;
-        },
-    }
-}
-
-fn parseMultilineStrLit(zg: *ZonGen, node: Ast.Node.Index) !u32 {
-    const gpa = zg.gpa;
-    const tree = zg.tree;
-    const string_bytes = &zg.string_bytes;
-
-    const first_tok, const last_tok = bounds: {
-        const node_data = tree.nodes.items(.data)[node];
-        break :bounds .{ node_data.lhs, node_data.rhs };
-    };
-
-    const str_index: u32 = @intCast(string_bytes.items.len);
-
-    // First line: do not append a newline.
-    {
-        const line_bytes = tree.tokenSlice(first_tok)[2..];
-        try string_bytes.appendSlice(gpa, line_bytes);
-    }
-    // Following lines: each line prepends a newline.
-    for (first_tok + 1..last_tok + 1) |tok_idx| {
-        const line_bytes = tree.tokenSlice(@intCast(tok_idx))[2..];
-        try string_bytes.ensureUnusedCapacity(gpa, line_bytes.len + 1);
-        string_bytes.appendAssumeCapacity('\n');
-        string_bytes.appendSliceAssumeCapacity(line_bytes);
-    }
-
-    return @intCast(str_index);
-}
-
 fn appendIdentStr(zg: *ZonGen, ident_token: Ast.TokenIndex) !u32 {
     const tree = zg.tree;
     assert(tree.tokens.items(.tag)[ident_token] == .identifier);
@@ -464,7 +448,18 @@ fn appendIdentStr(zg: *ZonGen, ident_token: Ast.TokenIndex) !u32 {
         try zg.string_bytes.appendSlice(zg.gpa, ident_name);
         return @intCast(start);
     } else {
-        const start = try zg.parseStrLit(ident_token, 1);
+        const offset = 1;
+        const start: u32 = @intCast(zg.string_bytes.items.len);
+        const raw_string = zg.tree.tokenSlice(ident_token)[offset..];
+        try zg.string_bytes.ensureUnusedCapacity(zg.gpa, raw_string.len);
+        switch (try std.zig.string_literal.parseWrite(zg.string_bytes.writer(zg.gpa), raw_string)) {
+            .success => {},
+            .failure => |err| {
+                try zg.lowerStrLitError(err, ident_token, raw_string, offset);
+                return error.BadString;
+            },
+        }
+
         const slice = zg.string_bytes.items[start..];
         if (mem.indexOfScalar(u8, slice, 0) != null) {
             try zg.addErrorTok(ident_token, "identifier cannot contain null bytes", .{});
@@ -477,19 +472,93 @@ fn appendIdentStr(zg: *ZonGen, ident_token: Ast.TokenIndex) !u32 {
     }
 }
 
+/// Estimates the size of a string node without parsing it.
+pub fn strLitSizeHint(tree: Ast, node: Ast.Node.Index) usize {
+    switch (tree.nodes.items(.tag)[node]) {
+        // Parsed string literals are typically around the size of the raw strings.
+        .string_literal => {
+            const token = tree.nodes.items(.main_token)[node];
+            const raw_string = tree.tokenSlice(token);
+            return raw_string.len;
+        },
+        // Multiline string literal lengths can be computed exactly.
+        .multiline_string_literal => {
+            const first_tok, const last_tok = bounds: {
+                const node_data = tree.nodes.items(.data)[node];
+                break :bounds .{ node_data.lhs, node_data.rhs };
+            };
+
+            var size = tree.tokenSlice(first_tok)[2..].len;
+            for (first_tok + 1..last_tok + 1) |tok_idx| {
+                size += 1; // Newline
+                size += tree.tokenSlice(@intCast(tok_idx))[2..].len;
+            }
+            return size;
+        },
+        else => unreachable,
+    }
+}
+
+/// Parses the given node as a string literal.
+pub fn parseStrLit(
+    tree: Ast,
+    node: Ast.Node.Index,
+    writer: anytype,
+) error{OutOfMemory}!std.zig.string_literal.Result {
+    switch (tree.nodes.items(.tag)[node]) {
+        .string_literal => {
+            const token = tree.nodes.items(.main_token)[node];
+            const raw_string = tree.tokenSlice(token);
+            return std.zig.string_literal.parseWrite(writer, raw_string);
+        },
+        .multiline_string_literal => {
+            const first_tok, const last_tok = bounds: {
+                const node_data = tree.nodes.items(.data)[node];
+                break :bounds .{ node_data.lhs, node_data.rhs };
+            };
+
+            // First line: do not append a newline.
+            {
+                const line_bytes = tree.tokenSlice(first_tok)[2..];
+                try writer.writeAll(line_bytes);
+            }
+
+            // Following lines: each line prepends a newline.
+            for (first_tok + 1..last_tok + 1) |tok_idx| {
+                const line_bytes = tree.tokenSlice(@intCast(tok_idx))[2..];
+                try writer.writeByte('\n');
+                try writer.writeAll(line_bytes);
+            }
+
+            return .success;
+        },
+        // Node must represent a string
+        else => unreachable,
+    }
+}
+
 const StringLiteralResult = union(enum) {
     nts: Zoir.NullTerminatedString,
     slice: struct { start: u32, len: u32 },
 };
 
 fn strLitAsString(zg: *ZonGen, str_node: Ast.Node.Index) !StringLiteralResult {
+    if (!zg.options.parse_str_lits) return .{ .slice = .{ .start = 0, .len = 0 } };
+
     const gpa = zg.gpa;
     const string_bytes = &zg.string_bytes;
-    const str_index = switch (zg.tree.nodes.items(.tag)[str_node]) {
-        .string_literal => try zg.parseStrLit(zg.tree.nodes.items(.main_token)[str_node], 0),
-        .multiline_string_literal => try zg.parseMultilineStrLit(str_node),
-        else => unreachable,
-    };
+    const str_index: u32 = @intCast(zg.string_bytes.items.len);
+    const size_hint = strLitSizeHint(zg.tree, str_node);
+    try string_bytes.ensureUnusedCapacity(zg.gpa, size_hint);
+    switch (try parseStrLit(zg.tree, str_node, zg.string_bytes.writer(zg.gpa))) {
+        .success => {},
+        .failure => |err| {
+            const token = zg.tree.nodes.items(.main_token)[str_node];
+            const raw_string = zg.tree.tokenSlice(token);
+            try zg.lowerStrLitError(err, token, raw_string, 0);
+            return error.BadString;
+        },
+    }
     const key: []const u8 = string_bytes.items[str_index..];
     if (std.mem.indexOfScalar(u8, key, 0) != null) return .{ .slice = .{
         .start = str_index,
@@ -540,7 +609,7 @@ fn numberLiteral(zg: *ZonGen, num_node: Ast.Node.Index, src_node: Ast.Node.Index
             if (unsigned_num == 0 and sign == .negative) {
                 try zg.addErrorTokNotes(num_token, "integer literal '-0' is ambiguous", .{}, &.{
                     try zg.errNoteTok(num_token, "use '0' for an integer zero", .{}),
-                    try zg.errNoteTok(num_token, "use '-0.0' for a flaoting-point signed zero", .{}),
+                    try zg.errNoteTok(num_token, "use '-0.0' for a floating-point signed zero", .{}),
                 });
                 return;
             }
@@ -679,8 +748,20 @@ fn setNode(zg: *ZonGen, dest: Zoir.Node.Index, repr: Zoir.Node.Repr) void {
     zg.nodes.set(@intFromEnum(dest), repr);
 }
 
-fn lowerStrLitError(zg: *ZonGen, err: std.zig.string_literal.Error, token: Ast.TokenIndex, raw_string: []const u8, offset: u32) Allocator.Error!void {
-    return err.lower(raw_string, offset, ZonGen.addErrorTokOff, .{ zg, token });
+fn lowerStrLitError(
+    zg: *ZonGen,
+    err: std.zig.string_literal.Error,
+    token: Ast.TokenIndex,
+    raw_string: []const u8,
+    offset: u32,
+) Allocator.Error!void {
+    return ZonGen.addErrorTokOff(
+        zg,
+        token,
+        @intCast(offset + err.offset()),
+        "{}",
+        .{err.fmt(raw_string)},
+    );
 }
 
 fn lowerNumberError(zg: *ZonGen, err: std.zig.number_literal.Error, token: Ast.TokenIndex, bytes: []const u8) Allocator.Error!void {

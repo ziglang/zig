@@ -1867,6 +1867,7 @@ fn semaFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) Zcu.SemaError!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const file = zcu.fileByIndex(file_index);
+    assert(file.getMode() == .zig);
     assert(zcu.fileRootType(file_index) == .none);
 
     if (file.status != .success_zir) {
@@ -2022,7 +2023,9 @@ pub fn importFile(
     if (mod.deps.get(import_string)) |pkg| {
         return pt.importPkg(pkg);
     }
-    if (!std.mem.endsWith(u8, import_string, ".zig")) {
+    if (!std.mem.endsWith(u8, import_string, ".zig") and
+        !std.mem.endsWith(u8, import_string, ".zon"))
+    {
         return error.ModuleNotFound;
     }
     const gpa = zcu.gpa;

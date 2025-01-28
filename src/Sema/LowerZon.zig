@@ -1,0 +1,772 @@
+const std = @import("std");
+const Zcu = @import("../Zcu.zig");
+const Sema = @import("../Sema.zig");
+const Air = @import("../Air.zig");
+const InternPool = @import("../InternPool.zig");
+const Type = @import("../Type.zig");
+const Zir = std.zig.Zir;
+const AstGen = std.zig.AstGen;
+const CompileError = Zcu.CompileError;
+const Ast = std.zig.Ast;
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+const File = Zcu.File;
+const LazySrcLoc = Zcu.LazySrcLoc;
+const Ref = std.zig.Zir.Inst.Ref;
+const NullTerminatedString = InternPool.NullTerminatedString;
+const NumberLiteralError = std.zig.number_literal.Error;
+const NodeIndex = std.zig.Ast.Node.Index;
+const Zoir = std.zig.Zoir;
+
+const LowerZon = @This();
+
+sema: *Sema,
+file: *File,
+file_index: Zcu.File.Index,
+import_loc: LazySrcLoc,
+block: *Sema.Block,
+
+/// Lowers the given file as ZON.
+pub fn lower(
+    sema: *Sema,
+    file: *File,
+    file_index: Zcu.File.Index,
+    res_ty: Type,
+    import_loc: LazySrcLoc,
+    block: *Sema.Block,
+) CompileError!InternPool.Index {
+    _ = try file.getZoir(sema.pt.zcu);
+    const lower_zon: LowerZon = .{
+        .sema = sema,
+        .file = file,
+        .file_index = file_index,
+        .import_loc = import_loc,
+        .block = block,
+    };
+
+    return lower_zon.lowerExpr(.root, res_ty);
+}
+
+fn lazySrcLoc(self: LowerZon, loc: LazySrcLoc.Offset) !LazySrcLoc {
+    return .{
+        .base_node_inst = try self.sema.pt.zcu.intern_pool.trackZir(
+            self.sema.pt.zcu.gpa,
+            .main,
+            .{ .file = self.file_index, .inst = .main_struct_inst },
+        ),
+        .offset = loc,
+    };
+}
+
+fn fail(
+    self: LowerZon,
+    loc: LazySrcLoc.Offset,
+    comptime format: []const u8,
+    args: anytype,
+) error{ AnalysisFail, OutOfMemory } {
+    @branchHint(.cold);
+    const src_loc = try self.lazySrcLoc(loc);
+    const err_msg = try Zcu.ErrorMsg.create(self.sema.pt.zcu.gpa, src_loc, format, args);
+    try self.sema.pt.zcu.errNote(self.import_loc, err_msg, "imported here", .{});
+    return self.sema.failWithOwnedErrorMsg(self.block, err_msg);
+}
+
+fn lowerExpr(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) CompileError!InternPool.Index {
+    switch (res_ty.zigTypeTag(self.sema.pt.zcu)) {
+        .bool => return self.lowerBool(node),
+        .int, .comptime_int => return self.lowerInt(node, res_ty),
+        .float, .comptime_float => return self.lowerFloat(node, res_ty),
+        .optional => return self.lowerOptional(node, res_ty),
+        .null => return self.lowerNull(node),
+        .@"enum" => return self.lowerEnum(node, res_ty),
+        .enum_literal => return self.lowerEnumLiteral(node, res_ty),
+        .array => return self.lowerArray(node, res_ty),
+        .@"struct" => return self.lowerStructOrTuple(node, res_ty),
+        .@"union" => return self.lowerUnion(node, res_ty),
+        .pointer => return self.lowerPointer(node, res_ty),
+
+        .type,
+        .noreturn,
+        .undefined,
+        .error_union,
+        .error_set,
+        .@"fn",
+        .@"opaque",
+        .frame,
+        .@"anyframe",
+        .vector,
+        .void,
+        => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "type '{}' not available in ZON",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
+    }
+}
+
+fn lowerBool(self: LowerZon, node: Zoir.Node.Index) !InternPool.Index {
+    return switch (node.get(self.file.zoir.?)) {
+        .true => .bool_true,
+        .false => .bool_false,
+        else => self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type 'bool'",
+            .{},
+        ),
+    };
+}
+
+fn lowerInt(
+    self: LowerZon,
+    node: Zoir.Node.Index,
+    res_ty: Type,
+) !InternPool.Index {
+    @setFloatMode(.strict);
+    const gpa = self.sema.gpa;
+    return switch (node.get(self.file.zoir.?)) {
+        .int_literal => |int| switch (int) {
+            .small => |val| {
+                const rhs: i32 = val;
+
+                // If our result is a fixed size integer, check that our value is not out of bounds
+                if (res_ty.zigTypeTag(self.sema.pt.zcu) == .int) {
+                    const lhs_info = res_ty.intInfo(self.sema.pt.zcu);
+
+                    // If lhs is unsigned and rhs is less than 0, we're out of bounds
+                    if (lhs_info.signedness == .unsigned and rhs < 0) return self.fail(
+                        .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                        "type '{}' cannot represent integer value '{}'",
+                        .{ res_ty.fmt(self.sema.pt), rhs },
+                    );
+
+                    // If lhs has less than the 32 bits rhs can hold, we need to check the max and
+                    // min values
+                    if (std.math.cast(u5, lhs_info.bits)) |bits| {
+                        const min_int: i32 = if (lhs_info.signedness == .unsigned or bits == 0) b: {
+                            break :b 0;
+                        } else b: {
+                            break :b -(@as(i32, 1) << (bits - 1));
+                        };
+                        const max_int: i32 = if (bits == 0) b: {
+                            break :b 0;
+                        } else b: {
+                            break :b (@as(i32, 1) << (bits - @intFromBool(lhs_info.signedness == .signed))) - 1;
+                        };
+                        if (rhs < min_int or rhs > max_int) {
+                            return self.fail(
+                                .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                                "type '{}' cannot represent integer value '{}'",
+                                .{ res_ty.fmt(self.sema.pt), rhs },
+                            );
+                        }
+                    }
+                }
+
+                return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{ .int = .{
+                    .ty = res_ty.toIntern(),
+                    .storage = .{ .i64 = rhs },
+                } });
+            },
+            .big => |val| {
+                if (res_ty.zigTypeTag(self.sema.pt.zcu) == .int) {
+                    const int_info = res_ty.intInfo(self.sema.pt.zcu);
+                    if (!val.fitsInTwosComp(int_info.signedness, int_info.bits)) {
+                        return self.fail(
+                            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                            "type '{}' cannot represent integer value '{}'",
+                            .{ res_ty.fmt(self.sema.pt), val },
+                        );
+                    }
+                }
+
+                return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{ .int = .{
+                    .ty = res_ty.toIntern(),
+                    .storage = .{ .big_int = val },
+                } });
+            },
+        },
+        .float_literal => |val| {
+            // Check for fractional components
+            if (@rem(val, 1) != 0) {
+                return self.fail(
+                    .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                    "fractional component prevents float value '{}' from coercion to type '{}'",
+                    .{ val, res_ty.fmt(self.sema.pt) },
+                );
+            }
+
+            // Create a rational representation of the float
+            var rational = try std.math.big.Rational.init(self.sema.arena);
+            rational.setFloat(f128, val) catch |err| switch (err) {
+                error.NonFiniteFloat => unreachable,
+                error.OutOfMemory => return error.OutOfMemory,
+            };
+
+            // The float is reduced in rational.setFloat, so we assert that denominator is equal to
+            // one
+            const big_one = std.math.big.int.Const{ .limbs = &.{1}, .positive = true };
+            assert(rational.q.toConst().eqlAbs(big_one));
+
+            // Check that the result is in range of the result type
+            const int_info = res_ty.intInfo(self.sema.pt.zcu);
+            if (!rational.p.fitsInTwosComp(int_info.signedness, int_info.bits)) {
+                return self.fail(
+                    .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                    "type '{}' cannot represent integer value '{}'",
+                    .{ val, res_ty.fmt(self.sema.pt) },
+                );
+            }
+
+            return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{
+                .int = .{
+                    .ty = res_ty.toIntern(),
+                    .storage = .{ .big_int = rational.p.toConst() },
+                },
+            });
+        },
+        .char_literal => |val| {
+            const rhs: u32 = val;
+            // If our result is a fixed size integer, check that our value is not out of bounds
+            if (res_ty.zigTypeTag(self.sema.pt.zcu) == .int) {
+                const lhs_info = res_ty.intInfo(self.sema.pt.zcu);
+                // If lhs has less than 64 bits, we bounds check. We check at 64 instead of 32 in
+                // case LHS is signed.
+                if (std.math.cast(u6, lhs_info.bits)) |bits| {
+                    const max_int: i64 = if (bits == 0) b: {
+                        break :b 0;
+                    } else b: {
+                        break :b (@as(i64, 1) << (bits - @intFromBool(lhs_info.signedness == .signed))) - 1;
+                    };
+                    if (rhs > max_int) {
+                        return self.fail(
+                            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                            "type '{}' cannot represent integer value '{}'",
+                            .{ res_ty.fmt(self.sema.pt), rhs },
+                        );
+                    }
+                }
+            }
+            return self.sema.pt.zcu.intern_pool.get(gpa, self.sema.pt.tid, .{
+                .int = .{
+                    .ty = res_ty.toIntern(),
+                    .storage = .{ .i64 = rhs },
+                },
+            });
+        },
+
+        else => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
+    };
+}
+
+fn lowerFloat(
+    self: LowerZon,
+    node: Zoir.Node.Index,
+    res_ty: Type,
+) !InternPool.Index {
+    @setFloatMode(.strict);
+    const value = switch (node.get(self.file.zoir.?)) {
+        .int_literal => |int| switch (int) {
+            .small => |val| try self.sema.pt.floatValue(res_ty, @as(f128, @floatFromInt(val))),
+            .big => |val| try self.sema.pt.floatValue(res_ty, val.toFloat(f128)),
+        },
+        .float_literal => |val| try self.sema.pt.floatValue(res_ty, val),
+        .char_literal => |val| try self.sema.pt.floatValue(res_ty, @as(f128, @floatFromInt(val))),
+        .pos_inf => b: {
+            if (res_ty.toIntern() == .comptime_float_type) return self.fail(
+                .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                "expected type '{}'",
+                .{res_ty.fmt(self.sema.pt)},
+            );
+            break :b try self.sema.pt.floatValue(res_ty, std.math.inf(f128));
+        },
+        .neg_inf => b: {
+            if (res_ty.toIntern() == .comptime_float_type) return self.fail(
+                .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                "expected type '{}'",
+                .{res_ty.fmt(self.sema.pt)},
+            );
+            break :b try self.sema.pt.floatValue(res_ty, -std.math.inf(f128));
+        },
+        .nan => b: {
+            if (res_ty.toIntern() == .comptime_float_type) return self.fail(
+                .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                "expected type '{}'",
+                .{res_ty.fmt(self.sema.pt)},
+            );
+            break :b try self.sema.pt.floatValue(res_ty, std.math.nan(f128));
+        },
+        else => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
+    };
+    return value.toIntern();
+}
+
+fn lowerOptional(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
+    return switch (node.get(self.file.zoir.?)) {
+        .null => .null_value,
+        else => try self.lowerExpr(node, res_ty.optionalChild(self.sema.pt.zcu)),
+    };
+}
+
+fn lowerNull(self: LowerZon, node: Zoir.Node.Index) !InternPool.Index {
+    switch (node.get(self.file.zoir.?)) {
+        .null => return .null_value,
+        else => return self.fail(.{ .node_abs = node.getAstNode(self.file.zoir.?) }, "expected null", .{}),
+    }
+}
+
+fn lowerArray(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
+    const array_info = res_ty.arrayInfo(self.sema.pt.zcu);
+    const nodes: Zoir.Node.Index.Range = switch (node.get(self.file.zoir.?)) {
+        .array_literal => |nodes| nodes,
+        .empty_literal => .{ .start = node, .len = 0 },
+        else => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
+    };
+
+    if (nodes.len != array_info.len) {
+        return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        );
+    }
+
+    const elems = try self.sema.arena.alloc(
+        InternPool.Index,
+        nodes.len + @intFromBool(array_info.sentinel != null),
+    );
+
+    for (0..nodes.len) |i| {
+        elems[i] = try self.lowerExpr(nodes.at(@intCast(i)), array_info.elem_type);
+    }
+
+    if (array_info.sentinel) |sentinel| {
+        elems[elems.len - 1] = sentinel.toIntern();
+    }
+
+    return self.sema.pt.intern(.{ .aggregate = .{
+        .ty = res_ty.toIntern(),
+        .storage = .{ .elems = elems },
+    } });
+}
+
+fn lowerEnum(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
+    const ip = &self.sema.pt.zcu.intern_pool;
+    switch (node.get(self.file.zoir.?)) {
+        .enum_literal => |field_name| {
+            const field_name_interned = try ip.getOrPutString(
+                self.sema.gpa,
+                self.sema.pt.tid,
+                field_name.get(self.file.zoir.?),
+                .no_embedded_nulls,
+            );
+            const field_index = res_ty.enumFieldIndex(field_name_interned, self.sema.pt.zcu) orelse {
+                return self.fail(
+                    .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                    "enum {} has no member named '{}'",
+                    .{
+                        res_ty.fmt(self.sema.pt),
+                        std.zig.fmtId(field_name.get(self.file.zoir.?)),
+                    },
+                );
+            };
+
+            const value = try self.sema.pt.enumValueFieldIndex(res_ty, field_index);
+
+            return value.toIntern();
+        },
+        else => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
+    }
+}
+
+fn lowerEnumLiteral(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
+    const ip = &self.sema.pt.zcu.intern_pool;
+    switch (node.get(self.file.zoir.?)) {
+        .enum_literal => |field_name| {
+            const field_name_interned = try ip.getOrPutString(
+                self.sema.gpa,
+                self.sema.pt.tid,
+                field_name.get(self.file.zoir.?),
+                .no_embedded_nulls,
+            );
+            return self.sema.pt.intern(.{ .enum_literal = field_name_interned });
+        },
+        else => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
+    }
+}
+
+fn lowerStructOrTuple(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
+    const ip = &self.sema.pt.zcu.intern_pool;
+    return switch (ip.indexToKey(res_ty.toIntern())) {
+        .tuple_type => self.lowerTuple(node, res_ty),
+        .struct_type => self.lowerStruct(node, res_ty),
+        else => unreachable,
+    };
+}
+
+fn lowerTuple(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
+    const ip = &self.sema.pt.zcu.intern_pool;
+
+    const tuple_info = ip.indexToKey(res_ty.toIntern()).tuple_type;
+
+    const elem_nodes: Zoir.Node.Index.Range = switch (node.get(self.file.zoir.?)) {
+        .array_literal => |nodes| nodes,
+        .empty_literal => .{ .start = node, .len = 0 },
+        else => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
+    };
+
+    const field_defaults = tuple_info.values.get(ip);
+    const field_types = tuple_info.types.get(ip);
+    const elems = try self.sema.arena.alloc(InternPool.Index, field_types.len);
+    @memset(elems, .none);
+
+    for (0..elem_nodes.len) |i| {
+        if (i >= elems.len) {
+            const elem_node = elem_nodes.at(@intCast(i)).getAstNode(self.file.zoir.?);
+            return self.fail(
+                .{ .node_abs = elem_node },
+                "index {} outside tuple of length {}",
+                .{
+                    elems.len,
+                    elem_nodes.at(@intCast(i)).getAstNode(self.file.zoir.?),
+                },
+            );
+        }
+        elems[i] = try self.lowerExpr(elem_nodes.at(@intCast(i)), .fromInterned(field_types[i]));
+
+        if (field_defaults[i] != .none and elems[i] != field_defaults[i]) {
+            const elem_node = elem_nodes.at(@intCast(i)).getAstNode(self.file.zoir.?);
+            return self.fail(
+                .{ .node_abs = elem_node },
+                "value stored in comptime field does not match the default value of the field",
+                .{},
+            );
+        }
+    }
+
+    for (elems, 0..) |*elem, i| {
+        if (elem.* == .none and i < field_defaults.len) {
+            elem.* = field_defaults[i];
+        }
+    }
+
+    for (elems, 0..) |val, i| {
+        if (val == .none) {
+            return self.fail(
+                .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                "missing tuple field with index {}",
+                .{i},
+            );
+        }
+    }
+
+    return self.sema.pt.intern(.{ .aggregate = .{
+        .ty = res_ty.toIntern(),
+        .storage = .{ .elems = elems },
+    } });
+}
+
+fn lowerStruct(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
+    const ip = &self.sema.pt.zcu.intern_pool;
+    const gpa = self.sema.gpa;
+
+    try res_ty.resolveFields(self.sema.pt);
+    try res_ty.resolveStructFieldInits(self.sema.pt);
+    const struct_info = self.sema.pt.zcu.typeToStruct(res_ty).?;
+
+    const fields: @FieldType(Zoir.Node, "struct_literal") = switch (node.get(self.file.zoir.?)) {
+        .struct_literal => |fields| fields,
+        .empty_literal => .{ .names = &.{}, .vals = .{ .start = node, .len = 0 } },
+        else => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
+    };
+
+    const field_defaults = struct_info.field_inits.get(ip);
+    const field_values = try self.sema.arena.alloc(InternPool.Index, struct_info.field_names.len);
+    @memset(field_values, .none);
+
+    for (0..fields.names.len) |i| {
+        const field_name = try ip.getOrPutString(
+            gpa,
+            self.sema.pt.tid,
+            fields.names[i].get(self.file.zoir.?),
+            .no_embedded_nulls,
+        );
+        const field_node = fields.vals.at(@intCast(i));
+
+        const name_index = struct_info.nameIndex(ip, field_name) orelse {
+            return self.fail(
+                .{ .node_abs = field_node.getAstNode(self.file.zoir.?) },
+                "unexpected field '{}'",
+                .{field_name.fmt(ip)},
+            );
+        };
+
+        const field_type: Type = .fromInterned(struct_info.field_types.get(ip)[name_index]);
+        if (field_values[name_index] != .none) {
+            const field_node_ast = field_node.getAstNode(self.file.zoir.?);
+            const field_name_token = self.file.tree.firstToken(field_node_ast) - 2;
+            return self.fail(
+                .{ .token_abs = field_name_token },
+                "duplicate field '{}'",
+                .{field_name.fmt(ip)},
+            );
+        }
+
+        field_values[name_index] = try self.lowerExpr(field_node, field_type);
+
+        if (struct_info.comptime_bits.getBit(ip, name_index)) {
+            const val = ip.indexToKey(field_values[name_index]);
+            const default = ip.indexToKey(field_defaults[name_index]);
+            if (!val.eql(default, ip)) {
+                const field_node_ast = field_node.getAstNode(self.file.zoir.?);
+                const field_name_token = self.file.tree.firstToken(field_node_ast) - 2;
+                return self.fail(
+                    .{ .token_abs = field_name_token },
+                    "value stored in comptime field does not match the default value of the field",
+                    .{},
+                );
+            }
+        }
+    }
+
+    if (field_defaults.len > 0) {
+        for (field_values, 0..) |*field_value, i| {
+            if (field_value.* == .none) {
+                field_value.* = field_defaults[i];
+            }
+        }
+    }
+
+    const field_names = struct_info.field_names.get(ip);
+    for (field_values, field_names) |*value, name| {
+        if (value.* == .none) return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "missing field '{}'",
+            .{name.fmt(ip)},
+        );
+    }
+
+    return self.sema.pt.intern(.{ .aggregate = .{ .ty = res_ty.toIntern(), .storage = .{
+        .elems = field_values,
+    } } });
+}
+
+fn lowerPointer(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
+    const ip = &self.sema.pt.zcu.intern_pool;
+    const gpa = self.sema.gpa;
+
+    const ptr_info = res_ty.ptrInfo(self.sema.pt.zcu);
+
+    if (ptr_info.flags.size != .slice) {
+        return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "non slice pointers are not available in ZON",
+            .{},
+        );
+    }
+
+    // String literals
+    const string_alignment = ptr_info.flags.alignment == .none or ptr_info.flags.alignment == .@"1";
+    const string_sentinel = ptr_info.sentinel == .none or ptr_info.sentinel == .zero_u8;
+    if (string_alignment and ptr_info.child == .u8_type and string_sentinel) {
+        switch (node.get(self.file.zoir.?)) {
+            .string_literal => |val| {
+                const ip_str = try ip.getOrPutString(gpa, self.sema.pt.tid, val, .maybe_embedded_nulls);
+                const str_ref = try self.sema.addStrLit(ip_str, val.len);
+                return (try self.sema.coerce(
+                    self.block,
+                    res_ty,
+                    str_ref,
+                    try self.lazySrcLoc(.{ .node_abs = node.getAstNode(self.file.zoir.?) }),
+                )).toInterned().?;
+            },
+            else => {},
+        }
+    }
+
+    // Slice literals
+    const elem_nodes: Zoir.Node.Index.Range = switch (node.get(self.file.zoir.?)) {
+        .array_literal => |nodes| nodes,
+        .empty_literal => .{ .start = node, .len = 0 },
+        else => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
+    };
+
+    const elems = try self.sema.arena.alloc(InternPool.Index, elem_nodes.len + @intFromBool(ptr_info.sentinel != .none));
+
+    for (elems, 0..) |*elem, i| {
+        elem.* = try self.lowerExpr(elem_nodes.at(@intCast(i)), .fromInterned(ptr_info.child));
+    }
+
+    if (ptr_info.sentinel != .none) {
+        elems[elems.len - 1] = ptr_info.sentinel;
+    }
+
+    const array_ty = try self.sema.pt.intern(.{ .array_type = .{
+        .len = elems.len,
+        .sentinel = ptr_info.sentinel,
+        .child = ptr_info.child,
+    } });
+
+    const array = try self.sema.pt.intern(.{ .aggregate = .{
+        .ty = array_ty,
+        .storage = .{ .elems = elems },
+    } });
+
+    const many_item_ptr_type = try self.sema.pt.intern(.{ .ptr_type = .{
+        .child = ptr_info.child,
+        .sentinel = ptr_info.sentinel,
+        .flags = b: {
+            var flags = ptr_info.flags;
+            flags.size = .many;
+            break :b flags;
+        },
+        .packed_offset = ptr_info.packed_offset,
+    } });
+
+    const many_item_ptr = try self.sema.pt.intern(.{
+        .ptr = .{
+            .ty = many_item_ptr_type,
+            .base_addr = .{
+                .uav = .{
+                    .orig_ty = res_ty.toIntern(),
+                    .val = array,
+                },
+            },
+            .byte_offset = 0,
+        },
+    });
+
+    const len = (try self.sema.pt.intValue(.usize, elems.len)).toIntern();
+
+    return self.sema.pt.intern(.{ .slice = .{
+        .ty = res_ty.toIntern(),
+        .ptr = many_item_ptr,
+        .len = len,
+    } });
+}
+
+fn lowerUnion(self: LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
+    const ip = &self.sema.pt.zcu.intern_pool;
+    try res_ty.resolveFields(self.sema.pt);
+    const union_info = self.sema.pt.zcu.typeToUnion(res_ty).?;
+    const enum_tag_info = union_info.loadTagType(ip);
+
+    const field_name, const maybe_field_node = switch (node.get(self.file.zoir.?)) {
+        .enum_literal => |name| b: {
+            const field_name = try ip.getOrPutString(
+                self.sema.gpa,
+                self.sema.pt.tid,
+                name.get(self.file.zoir.?),
+                .no_embedded_nulls,
+            );
+            break :b .{ field_name, null };
+        },
+        .struct_literal => b: {
+            const fields: @FieldType(Zoir.Node, "struct_literal") = switch (node.get(self.file.zoir.?)) {
+                .struct_literal => |fields| fields,
+                else => return self.fail(
+                    .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                    "expected type '{}'",
+                    .{res_ty.fmt(self.sema.pt)},
+                ),
+            };
+            if (fields.names.len != 1) {
+                return self.fail(
+                    .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                    "expected type '{}'",
+                    .{res_ty.fmt(self.sema.pt)},
+                );
+            }
+            const field_name = try ip.getOrPutString(
+                self.sema.gpa,
+                self.sema.pt.tid,
+                fields.names[0].get(self.file.zoir.?),
+                .no_embedded_nulls,
+            );
+            break :b .{ field_name, fields.vals.at(0) };
+        },
+        else => return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        ),
+    };
+
+    const name_index = enum_tag_info.nameIndex(ip, field_name) orelse {
+        return self.fail(
+            .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+            "expected type '{}'",
+            .{res_ty.fmt(self.sema.pt)},
+        );
+    };
+    const tag_int = if (enum_tag_info.values.len == 0) b: {
+        // Auto numbered fields
+        break :b try self.sema.pt.intern(.{ .int = .{
+            .ty = enum_tag_info.tag_ty,
+            .storage = .{ .u64 = name_index },
+        } });
+    } else b: {
+        // Explicitly numbered fields
+        break :b enum_tag_info.values.get(ip)[name_index];
+    };
+    const tag = try self.sema.pt.intern(.{ .enum_tag = .{
+        .ty = union_info.enum_tag_ty,
+        .int = tag_int,
+    } });
+    const field_type: Type = .fromInterned(union_info.field_types.get(ip)[name_index]);
+    const val = if (maybe_field_node) |field_node| b: {
+        if (field_type.toIntern() == .void_type) {
+            return self.fail(
+                .{ .node_abs = field_node.getAstNode(self.file.zoir.?) },
+                "expected type 'void'",
+                .{},
+            );
+        }
+        break :b try self.lowerExpr(field_node, field_type);
+    } else b: {
+        if (field_type.toIntern() != .void_type) {
+            return self.fail(
+                .{ .node_abs = node.getAstNode(self.file.zoir.?) },
+                "expected type '{}'",
+                .{res_ty.fmt(self.sema.pt)},
+            );
+        }
+        break :b .void_value;
+    };
+    return ip.getUnion(self.sema.pt.zcu.gpa, self.sema.pt.tid, .{
+        .ty = res_ty.toIntern(),
+        .tag = tag,
+        .val = val,
+    });
+}

@@ -13776,8 +13776,8 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                         };
                         const bit_count = extra.type.scalarBits(self);
                         const val: i64 = if (bit_count <= 64)
-                            bigint.to(i64) catch unreachable
-                        else if (bigint.to(u64)) |val|
+                            bigint.toInt(i64) catch unreachable
+                        else if (bigint.toInt(u64)) |val|
                             @bitCast(val)
                         else |_| {
                             const limbs = try record.addManyAsSlice(
@@ -14276,9 +14276,9 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                                 else => unreachable,
                             },
                         };
-                        const val: i64 = if (bigint.to(i64)) |val|
+                        const val: i64 = if (bigint.toInt(i64)) |val|
                             val
-                        else |_| if (bigint.to(u64)) |val|
+                        else |_| if (bigint.toInt(u64)) |val|
                             @bitCast(val)
                         else |_| {
                             const limbs_len = std.math.divCeil(u32, extra.bit_width, 64) catch unreachable;

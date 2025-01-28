@@ -93,6 +93,7 @@ pub const valgrind = @import("valgrind.zig");
 pub const wasm = @import("wasm.zig");
 pub const zig = @import("zig.zig");
 pub const zip = @import("zip.zig");
+pub const zon = @import("zon.zig");
 pub const start = @import("start.zig");
 
 const root = @import("root");
