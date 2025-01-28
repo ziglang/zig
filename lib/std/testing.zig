@@ -28,11 +28,17 @@ pub var log_level = std.log.Level.warn;
 // Disable printing in tests for simple backends.
 pub const backend_can_print = !(builtin.zig_backend == .stage2_spirv64 or builtin.zig_backend == .stage2_riscv64);
 
+/// Writer to be used by std.testing.print
+pub var output: ?std.io.AnyWriter = null;
+
 fn print(comptime fmt: []const u8, args: anytype) void {
     if (@inComptime()) {
         @compileError(std.fmt.comptimePrint(fmt, args));
     } else if (backend_can_print) {
-        std.debug.print(fmt, args);
+        if (output == null) {
+            output = std.io.getStdErr().writer().any();
+        }
+        output.?.print(fmt, args) catch return;
     }
 }
 
