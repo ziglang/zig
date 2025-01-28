@@ -889,13 +889,13 @@ pub const cache_helpers = struct {
         addEmitLoc(hh, optional_emit_loc orelse return);
     }
 
-    pub fn addOptionalDebugFormat(hh: *Cache.HashHelper, x: ?Config.DebugFormat) void {
+    pub fn addOptionalDebugFormat(hh: *Cache.HashHelper, x: ?std.builtin.DebugFormat) void {
         hh.add(x != null);
         addDebugFormat(hh, x orelse return);
     }
 
-    pub fn addDebugFormat(hh: *Cache.HashHelper, x: Config.DebugFormat) void {
-        const tag: @typeInfo(Config.DebugFormat).@"union".tag_type.? = x;
+    pub fn addDebugFormat(hh: *Cache.HashHelper, x: std.builtin.DebugFormat) void {
+        const tag: @typeInfo(std.builtin.DebugFormat).@"union".tag_type.? = x;
         hh.add(tag);
         switch (x) {
             .strip, .code_view => {},
@@ -4840,7 +4840,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
         c_source_basename[0 .. c_source_basename.len - std.fs.path.extension(c_source_basename).len];
 
     const target = comp.getTarget();
-    const o_ext = target.ofmt.fileExt(target.cpu.arch);
+    const o_ext = target.objFileExt();
     const digest = if (!comp.disable_c_depfile and try man.hit()) man.final() else blk: {
         var argv = std.ArrayList([]const u8).init(gpa);
         defer argv.deinit();
@@ -6108,7 +6108,7 @@ pub const FileExt = enum {
             .assembly => ".s",
             .assembly_with_cpp => ".S",
             .shared_library => target.dynamicLibSuffix(),
-            .object => target.ofmt.fileExt(target.cpu.arch),
+            .object => target.objFileExt(),
             .static_library => target.staticLibSuffix(),
             .zig => ".zig",
             .def => ".def",
@@ -6438,6 +6438,7 @@ fn buildOutputFromZig(
         .emit_bin = true,
         .root_optimize_mode = optimize_mode,
         .root_strip = strip,
+        .debug_format = comp.config.debug_format,
         .link_libc = comp.config.link_libc,
         .any_unwind_tables = comp.root_mod.unwind_tables != .none,
         .lto = if (allow_lto) comp.config.lto else .none,
@@ -6578,6 +6579,7 @@ pub fn build_crt_file(
         .emit_bin = true,
         .root_optimize_mode = comp.compilerRtOptMode(),
         .root_strip = comp.compilerRtStrip(),
+        .debug_format = comp.config.debug_format,
         .link_libc = false,
         .any_unwind_tables = options.unwind_tables != .none,
         .lto = switch (output_mode) {
