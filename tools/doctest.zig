@@ -677,6 +677,7 @@ fn tokenizeAndPrint(arena: Allocator, out: anytype, raw_src: []const u8) !void {
                 try out.writeAll("</span>");
             },
 
+            .comment,
             .doc_comment,
             .container_doc_comment,
             => {
