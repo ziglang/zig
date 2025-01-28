@@ -9822,6 +9822,7 @@ pub const mach_vm_region = darwin.mach_vm_region;
 pub const mach_vm_region_recurse = darwin.mach_vm_region_recurse;
 pub const mach_vm_size_t = darwin.mach_vm_size_t;
 pub const mach_vm_write = darwin.mach_vm_write;
+pub const natural_t = darwin.natural_t;
 pub const os_log_create = darwin.os_log_create;
 pub const os_log_type_enabled = darwin.os_log_type_enabled;
 pub const os_signpost_enabled = darwin.os_signpost_enabled;
