@@ -2049,6 +2049,7 @@ fn testLargeBss(b: *Build, opts: Options) *Step {
         \\}
     , &.{});
     exe.linkLibC();
+    exe.root_module.sanitize_c = false;
 
     const run = addRunArtifact(exe);
     run.expectExitCode(0);
@@ -3541,6 +3542,7 @@ fn testTlsLargeTbss(b: *Build, opts: Options) *Step {
         \\}
     , &.{});
     exe.linkLibC();
+    exe.root_module.sanitize_c = false;
 
     const run = addRunArtifact(exe);
     run.expectStdOutEqual("3 0 5 0 0 0\n");

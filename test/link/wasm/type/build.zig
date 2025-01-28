@@ -21,6 +21,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     exe.use_llvm = false;
     exe.use_lld = false;
     exe.root_module.export_symbol_names = &.{"foo"};
+    exe.bundle_ubsan_rt = false;
     b.installArtifact(exe);
 
     const check_exe = exe.checkObject();

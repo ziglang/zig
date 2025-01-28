@@ -31,6 +31,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize_mode: std.builtin.Opt
     exe.shared_memory = true;
     exe.max_memory = 67108864;
     exe.root_module.export_symbol_names = &.{"foo"};
+    exe.bundle_ubsan_rt = false;
 
     const check_exe = exe.checkObject();
 
