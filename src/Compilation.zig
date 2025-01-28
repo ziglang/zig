@@ -6763,6 +6763,6 @@ pub fn compilerRtOptMode(comp: Compilation) std.builtin.OptimizeMode {
 
 /// This decides whether to strip debug info for all zig-provided libraries, including
 /// compiler-rt, libcxx, libc, libunwind, etc.
-pub fn compilerRtStrip(comp: Compilation) bool {
+pub fn compilerRtStrip(comp: Compilation) Compilation.Config.Strip {
     return comp.root_mod.strip;
 }
