@@ -393,7 +393,11 @@ pub fn Serializer(Writer: type) type {
                             @typeName(@TypeOf(val)) ++ ": cannot stringify pointer to this type",
                         ) else pointer.child,
                     };
-                    if (child_type == u8 and !options.emit_strings_as_containers) {
+                    const sentinel = pointer.sentinel();
+                    if (child_type == u8 and
+                        (sentinel == null or sentinel == 0) and
+                        !options.emit_strings_as_containers)
+                    {
                         try self.string(val);
                     } else {
                         try self.tupleImpl(val, options);
