@@ -6611,6 +6611,7 @@ pub fn build_crt_file(
             .structured_cfg = comp.root_mod.structured_cfg,
             // Some libcs (e.g. musl) are opinionated about -fno-builtin.
             .no_builtin = options.no_builtin orelse comp.root_mod.no_builtin,
+            .code_model = comp.root_mod.code_model,
         },
         .global = config,
         .cc_argv = &.{},

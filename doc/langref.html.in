@@ -781,6 +781,30 @@
       implementation feature, not a language semantic, so it is not guaranteed to be observable to code.
       </p>
       {#header_close#}
+
+      {#header_open|Destructuring#}
+      <p>
+        A destructuring assignment can separate elements of indexable aggregate types
+        ({#link|Tuples#}, {#link|Arrays#}, {#link|Vectors#}):
+      </p>
+      {#code|destructuring_to_existing.zig#}
+
+      <p>
+        A destructuring expression may only appear within a block (i.e. not at container scope).
+        The left hand side of the assignment must consist of a comma separated list,
+        each element of which may be either an lvalue (for instance, an existing `var`) or a variable declaration:
+      </p>
+      {#code|destructuring_mixed.zig#}
+
+      <p>
+        A destructure may be prefixed with the {#syntax#}comptime{#endsyntax#} keyword, in which case the entire
+        destructure expression is evaluated at {#link|comptime#}. All {#syntax#}var{#endsyntax#}s declared would
+        be {#syntax#}comptime var{#endsyntax#}s and all expressions (both result locations and the assignee
+        expression) are evaluated at {#link|comptime#}.
+      </p>
+
+      {#see_also|Destructuring Tuples|Destructuring Arrays|Destructuring Vectors#}
+      {#header_close#}
       {#header_close#}
       {#header_close#}
       {#header_open|Zig Test#}
@@ -1882,6 +1906,15 @@ or
 
       {#see_also|Sentinel-Terminated Pointers|Sentinel-Terminated Slices#}
       {#header_close#}
+
+      {#header_open|Destructuring Arrays#}
+      <p>
+        Arrays can be destructured:
+      </p>
+      {#code|destructuring_arrays.zig#}
+
+      {#see_also|Destructuring|Destructuring Tuples|Destructuring Vectors#}
+      {#header_close#}
       {#header_close#}
 
       {#header_open|Vectors#}
@@ -1928,6 +1961,14 @@ or
       TODO consider suggesting std.MultiArrayList
       </p>
       {#see_also|@splat|@shuffle|@select|@reduce#}
+
+      {#header_open|Destructuring Vectors#}
+      <p>
+        Vectors can be destructured:
+      </p>
+      {#code|destructuring_vectors.zig#}
+      {#see_also|Destructuring|Destructuring Tuples|Destructuring Arrays#}
+      {#header_close#}
 
       {#header_close#}
 
@@ -2309,6 +2350,23 @@ or
       </p>
       {#code|test_tuples.zig#}
 
+      {#header_open|Destructuring Tuples#}
+      <p>
+        Tuples can be {#link|destructured|Destructuring#}.
+      </p>
+      <p>
+        Tuple destructuring is helpful for returning multiple values from a block:
+      </p>
+      {#code|destructuring_block.zig#}
+
+      <p>
+        Tuple destructuring is helpful for dealing with functions and built-ins that return multiple values
+        as a tuple:
+      </p>
+      {#code|destructuring_return_value.zig#}
+
+      {#see_also|Destructuring|Destructuring Arrays|Destructuring Vectors#}
+      {#header_close#}
       {#header_close#}
       {#see_also|comptime|@fieldParentPtr#}
       {#header_close#}

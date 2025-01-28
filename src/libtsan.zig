@@ -105,6 +105,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
             .structured_cfg = comp.root_mod.structured_cfg,
             .pic = true,
             .no_builtin = true,
+            .code_model = comp.root_mod.code_model,
         },
         .global = config,
         .cc_argv = &common_flags,

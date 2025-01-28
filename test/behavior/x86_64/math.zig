@@ -73,14 +73,20 @@ inline fn boolOr(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
 }
 
 // noinline for a more helpful stack trace
-noinline fn checkExpected(expected: anytype, actual: @TypeOf(expected)) !void {
+noinline fn checkExpected(expected: anytype, actual: @TypeOf(expected), comptime strict: bool) !void {
     const info = @typeInfo(@TypeOf(expected));
-    const unexpected = switch (switch (info) {
+    const unexpected = unexpected: switch (switch (info) {
         else => info,
         .vector => |vector| @typeInfo(vector.child),
     }) {
         else => expected != actual,
-        .float => boolOr(boolAnd(expected != actual, boolOr(expected == expected, actual == actual)), sign(expected) != sign(actual)),
+        .float => {
+            const unequal = boolAnd(expected != actual, boolOr(expected == expected, actual == actual));
+            break :unexpected switch (strict) {
+                false => unequal,
+                true => boolOr(unequal, sign(expected) != sign(actual)),
+            };
+        },
     };
     if (switch (info) {
         else => unexpected,
@@ -88,43 +94,43 @@ noinline fn checkExpected(expected: anytype, actual: @TypeOf(expected)) !void {
     }) return error.Unexpected;
 }
 test checkExpected {
-    if (checkExpected(nan(f16), nan(f16)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(nan(f16), -nan(f16)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f16, 0.0), @as(f16, 0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f16, -0.0), @as(f16, -0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f16, -0.0), @as(f16, 0.0)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f16, 0.0), @as(f16, -0.0)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f16), nan(f16), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f16), -nan(f16), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, 0.0), @as(f16, 0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, -0.0), @as(f16, -0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, -0.0), @as(f16, 0.0), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, 0.0), @as(f16, -0.0), true) != error.Unexpected) return error.Unexpected;
 
-    if (checkExpected(nan(f32), nan(f32)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(nan(f32), -nan(f32)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f32, 0.0), @as(f32, 0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f32, -0.0), @as(f32, -0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f32, -0.0), @as(f32, 0.0)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f32, 0.0), @as(f32, -0.0)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f32), nan(f32), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f32), -nan(f32), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f32, 0.0), @as(f32, 0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f32, -0.0), @as(f32, -0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f32, -0.0), @as(f32, 0.0), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f32, 0.0), @as(f32, -0.0), true) != error.Unexpected) return error.Unexpected;
 
-    if (checkExpected(nan(f64), nan(f64)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(nan(f64), -nan(f64)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f64, 0.0), @as(f64, 0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f64, -0.0), @as(f64, -0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f64, -0.0), @as(f64, 0.0)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f64, 0.0), @as(f64, -0.0)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f64), nan(f64), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f64), -nan(f64), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, 0.0), @as(f64, 0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, -0.0), @as(f64, -0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, -0.0), @as(f64, 0.0), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, 0.0), @as(f64, -0.0), true) != error.Unexpected) return error.Unexpected;
 
-    if (checkExpected(nan(f80), nan(f80)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(nan(f80), -nan(f80)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f80, 0.0), @as(f80, 0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f80, -0.0), @as(f80, -0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f80, -0.0), @as(f80, 0.0)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f80, 0.0), @as(f80, -0.0)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f80), nan(f80), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f80), -nan(f80), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, 0.0), @as(f80, 0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, -0.0), @as(f80, -0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, -0.0), @as(f80, 0.0), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, 0.0), @as(f80, -0.0), true) != error.Unexpected) return error.Unexpected;
 
-    if (checkExpected(nan(f128), nan(f128)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(nan(f128), -nan(f128)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f128, 0.0), @as(f128, 0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f128, -0.0), @as(f128, -0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f128, -0.0), @as(f128, 0.0)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f128, 0.0), @as(f128, -0.0)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f128), nan(f128), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f128), -nan(f128), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, 0.0), @as(f128, 0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, -0.0), @as(f128, -0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, -0.0), @as(f128, 0.0), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, 0.0), @as(f128, -0.0), true) != error.Unexpected) return error.Unexpected;
 }
 
-fn Unary(comptime op: anytype) type {
+fn unary(comptime op: anytype, comptime opts: struct { strict: bool = false }) type {
     return struct {
         // noinline so that `mem_arg` is on the stack
         noinline fn testArgKinds(
@@ -151,9 +157,9 @@ fn Unary(comptime op: anytype) type {
             const expected = comptime op(Type, imm_arg);
             var reg_arg = mem_arg;
             _ = .{&reg_arg};
-            try checkExpected(expected, op(Type, reg_arg));
-            try checkExpected(expected, op(Type, mem_arg));
-            try checkExpected(expected, op(Type, imm_arg));
+            try checkExpected(expected, op(Type, reg_arg), opts.strict);
+            try checkExpected(expected, op(Type, mem_arg), opts.strict);
+            try checkExpected(expected, op(Type, imm_arg), opts.strict);
         }
         // noinline for a more helpful stack trace
         noinline fn testArgs(comptime Type: type, comptime imm_arg: Type) !void {
@@ -1325,7 +1331,7 @@ fn Unary(comptime op: anytype) type {
     };
 }
 
-fn Binary(comptime op: anytype) type {
+fn binary(comptime op: anytype, comptime opts: struct { strict: bool = false }) type {
     return struct {
         // noinline so that `mem_lhs` and `mem_rhs` are on the stack
         noinline fn testArgKinds(
@@ -1355,14 +1361,14 @@ fn Binary(comptime op: anytype) type {
             var reg_lhs = mem_lhs;
             var reg_rhs = mem_rhs;
             _ = .{ &reg_lhs, &reg_rhs };
-            try checkExpected(expected, op(Type, reg_lhs, reg_rhs));
-            try checkExpected(expected, op(Type, reg_lhs, mem_rhs));
-            try checkExpected(expected, op(Type, reg_lhs, imm_rhs));
-            try checkExpected(expected, op(Type, mem_lhs, reg_rhs));
-            try checkExpected(expected, op(Type, mem_lhs, mem_rhs));
-            try checkExpected(expected, op(Type, mem_lhs, imm_rhs));
-            try checkExpected(expected, op(Type, imm_lhs, reg_rhs));
-            try checkExpected(expected, op(Type, imm_lhs, mem_rhs));
+            try checkExpected(expected, op(Type, reg_lhs, reg_rhs), opts.strict);
+            try checkExpected(expected, op(Type, reg_lhs, mem_rhs), opts.strict);
+            try checkExpected(expected, op(Type, reg_lhs, imm_rhs), opts.strict);
+            try checkExpected(expected, op(Type, mem_lhs, reg_rhs), opts.strict);
+            try checkExpected(expected, op(Type, mem_lhs, mem_rhs), opts.strict);
+            try checkExpected(expected, op(Type, mem_lhs, imm_rhs), opts.strict);
+            try checkExpected(expected, op(Type, imm_lhs, reg_rhs), opts.strict);
+            try checkExpected(expected, op(Type, imm_lhs, mem_rhs), opts.strict);
         }
         // noinline for a more helpful stack trace
         noinline fn testArgs(comptime Type: type, comptime imm_lhs: Type, comptime imm_rhs: Type) !void {
@@ -1441,6 +1447,1719 @@ fn Binary(comptime op: anytype) type {
                 0xe5b1fedca3c77db765e517aabd05ffc524a3a8aff1784bbf67c45b894447ede32b65b9940e78173c591e56e078932d465f235aece7ad47b7f229df7ba8f12295,
                 0x8b4bb7c2969e3b121cc1082c442f8b4330f0a50058438fed56447175bb10178607ecfe425cb54dacc25ef26810f3e04681de1844f1aa8d029aca75d658634806,
             );
+        }
+        fn testFloatTypes() !void {
+            @setEvalBranchQuota(21_700);
+
+            try testArgs(f16, -nan(f16), -nan(f16));
+            try testArgs(f16, -nan(f16), -inf(f16));
+            try testArgs(f16, -nan(f16), -fmax(f16));
+            try testArgs(f16, -nan(f16), -10.0);
+            try testArgs(f16, -nan(f16), -1.0);
+            try testArgs(f16, -nan(f16), -0.1);
+            try testArgs(f16, -nan(f16), -fmin(f16));
+            try testArgs(f16, -nan(f16), -tmin(f16));
+            try testArgs(f16, -nan(f16), -0.0);
+            try testArgs(f16, -nan(f16), 0.0);
+            try testArgs(f16, -nan(f16), tmin(f16));
+            try testArgs(f16, -nan(f16), fmin(f16));
+            try testArgs(f16, -nan(f16), 0.1);
+            try testArgs(f16, -nan(f16), 1.0);
+            try testArgs(f16, -nan(f16), 10.0);
+            try testArgs(f16, -nan(f16), fmax(f16));
+            try testArgs(f16, -nan(f16), inf(f16));
+            try testArgs(f16, -nan(f16), nan(f16));
+
+            try testArgs(f16, -inf(f16), -nan(f16));
+            try testArgs(f16, -inf(f16), -inf(f16));
+            try testArgs(f16, -inf(f16), -fmax(f16));
+            try testArgs(f16, -inf(f16), -10.0);
+            try testArgs(f16, -inf(f16), -1.0);
+            try testArgs(f16, -inf(f16), -0.1);
+            try testArgs(f16, -inf(f16), -fmin(f16));
+            try testArgs(f16, -inf(f16), -tmin(f16));
+            try testArgs(f16, -inf(f16), -0.0);
+            try testArgs(f16, -inf(f16), 0.0);
+            try testArgs(f16, -inf(f16), tmin(f16));
+            try testArgs(f16, -inf(f16), fmin(f16));
+            try testArgs(f16, -inf(f16), 0.1);
+            try testArgs(f16, -inf(f16), 1.0);
+            try testArgs(f16, -inf(f16), 10.0);
+            try testArgs(f16, -inf(f16), fmax(f16));
+            try testArgs(f16, -inf(f16), inf(f16));
+            try testArgs(f16, -inf(f16), nan(f16));
+
+            try testArgs(f16, -fmax(f16), -nan(f16));
+            try testArgs(f16, -fmax(f16), -inf(f16));
+            try testArgs(f16, -fmax(f16), -fmax(f16));
+            try testArgs(f16, -fmax(f16), -10.0);
+            try testArgs(f16, -fmax(f16), -1.0);
+            try testArgs(f16, -fmax(f16), -0.1);
+            try testArgs(f16, -fmax(f16), -fmin(f16));
+            try testArgs(f16, -fmax(f16), -tmin(f16));
+            try testArgs(f16, -fmax(f16), -0.0);
+            try testArgs(f16, -fmax(f16), 0.0);
+            try testArgs(f16, -fmax(f16), tmin(f16));
+            try testArgs(f16, -fmax(f16), fmin(f16));
+            try testArgs(f16, -fmax(f16), 0.1);
+            try testArgs(f16, -fmax(f16), 1.0);
+            try testArgs(f16, -fmax(f16), 10.0);
+            try testArgs(f16, -fmax(f16), fmax(f16));
+            try testArgs(f16, -fmax(f16), inf(f16));
+            try testArgs(f16, -fmax(f16), nan(f16));
+
+            try testArgs(f16, -10.0, -nan(f16));
+            try testArgs(f16, -10.0, -inf(f16));
+            try testArgs(f16, -10.0, -fmax(f16));
+            try testArgs(f16, -10.0, -10.0);
+            try testArgs(f16, -10.0, -1.0);
+            try testArgs(f16, -10.0, -0.1);
+            try testArgs(f16, -10.0, -fmin(f16));
+            try testArgs(f16, -10.0, -tmin(f16));
+            try testArgs(f16, -10.0, -0.0);
+            try testArgs(f16, -10.0, 0.0);
+            try testArgs(f16, -10.0, tmin(f16));
+            try testArgs(f16, -10.0, fmin(f16));
+            try testArgs(f16, -10.0, 0.1);
+            try testArgs(f16, -10.0, 1.0);
+            try testArgs(f16, -10.0, 10.0);
+            try testArgs(f16, -10.0, fmax(f16));
+            try testArgs(f16, -10.0, inf(f16));
+            try testArgs(f16, -10.0, nan(f16));
+
+            try testArgs(f16, -1.0, -nan(f16));
+            try testArgs(f16, -1.0, -inf(f16));
+            try testArgs(f16, -1.0, -fmax(f16));
+            try testArgs(f16, -1.0, -10.0);
+            try testArgs(f16, -1.0, -1.0);
+            try testArgs(f16, -1.0, -0.1);
+            try testArgs(f16, -1.0, -fmin(f16));
+            try testArgs(f16, -1.0, -tmin(f16));
+            try testArgs(f16, -1.0, -0.0);
+            try testArgs(f16, -1.0, 0.0);
+            try testArgs(f16, -1.0, tmin(f16));
+            try testArgs(f16, -1.0, fmin(f16));
+            try testArgs(f16, -1.0, 0.1);
+            try testArgs(f16, -1.0, 1.0);
+            try testArgs(f16, -1.0, 10.0);
+            try testArgs(f16, -1.0, fmax(f16));
+            try testArgs(f16, -1.0, inf(f16));
+            try testArgs(f16, -1.0, nan(f16));
+
+            try testArgs(f16, -0.1, -nan(f16));
+            try testArgs(f16, -0.1, -inf(f16));
+            try testArgs(f16, -0.1, -fmax(f16));
+            try testArgs(f16, -0.1, -10.0);
+            try testArgs(f16, -0.1, -1.0);
+            try testArgs(f16, -0.1, -0.1);
+            try testArgs(f16, -0.1, -fmin(f16));
+            try testArgs(f16, -0.1, -tmin(f16));
+            try testArgs(f16, -0.1, -0.0);
+            try testArgs(f16, -0.1, 0.0);
+            try testArgs(f16, -0.1, tmin(f16));
+            try testArgs(f16, -0.1, fmin(f16));
+            try testArgs(f16, -0.1, 0.1);
+            try testArgs(f16, -0.1, 1.0);
+            try testArgs(f16, -0.1, 10.0);
+            try testArgs(f16, -0.1, fmax(f16));
+            try testArgs(f16, -0.1, inf(f16));
+            try testArgs(f16, -0.1, nan(f16));
+
+            try testArgs(f16, -fmin(f16), -nan(f16));
+            try testArgs(f16, -fmin(f16), -inf(f16));
+            try testArgs(f16, -fmin(f16), -fmax(f16));
+            try testArgs(f16, -fmin(f16), -10.0);
+            try testArgs(f16, -fmin(f16), -1.0);
+            try testArgs(f16, -fmin(f16), -0.1);
+            try testArgs(f16, -fmin(f16), -fmin(f16));
+            try testArgs(f16, -fmin(f16), -tmin(f16));
+            try testArgs(f16, -fmin(f16), -0.0);
+            try testArgs(f16, -fmin(f16), 0.0);
+            try testArgs(f16, -fmin(f16), tmin(f16));
+            try testArgs(f16, -fmin(f16), fmin(f16));
+            try testArgs(f16, -fmin(f16), 0.1);
+            try testArgs(f16, -fmin(f16), 1.0);
+            try testArgs(f16, -fmin(f16), 10.0);
+            try testArgs(f16, -fmin(f16), fmax(f16));
+            try testArgs(f16, -fmin(f16), inf(f16));
+            try testArgs(f16, -fmin(f16), nan(f16));
+
+            try testArgs(f16, -tmin(f16), -nan(f16));
+            try testArgs(f16, -tmin(f16), -inf(f16));
+            try testArgs(f16, -tmin(f16), -fmax(f16));
+            try testArgs(f16, -tmin(f16), -10.0);
+            try testArgs(f16, -tmin(f16), -1.0);
+            try testArgs(f16, -tmin(f16), -0.1);
+            try testArgs(f16, -tmin(f16), -fmin(f16));
+            try testArgs(f16, -tmin(f16), -tmin(f16));
+            try testArgs(f16, -tmin(f16), -0.0);
+            try testArgs(f16, -tmin(f16), 0.0);
+            try testArgs(f16, -tmin(f16), tmin(f16));
+            try testArgs(f16, -tmin(f16), fmin(f16));
+            try testArgs(f16, -tmin(f16), 0.1);
+            try testArgs(f16, -tmin(f16), 1.0);
+            try testArgs(f16, -tmin(f16), 10.0);
+            try testArgs(f16, -tmin(f16), fmax(f16));
+            try testArgs(f16, -tmin(f16), inf(f16));
+            try testArgs(f16, -tmin(f16), nan(f16));
+
+            try testArgs(f16, -0.0, -nan(f16));
+            try testArgs(f16, -0.0, -inf(f16));
+            try testArgs(f16, -0.0, -fmax(f16));
+            try testArgs(f16, -0.0, -10.0);
+            try testArgs(f16, -0.0, -1.0);
+            try testArgs(f16, -0.0, -0.1);
+            try testArgs(f16, -0.0, -fmin(f16));
+            try testArgs(f16, -0.0, -tmin(f16));
+            try testArgs(f16, -0.0, -0.0);
+            try testArgs(f16, -0.0, 0.0);
+            try testArgs(f16, -0.0, tmin(f16));
+            try testArgs(f16, -0.0, fmin(f16));
+            try testArgs(f16, -0.0, 0.1);
+            try testArgs(f16, -0.0, 1.0);
+            try testArgs(f16, -0.0, 10.0);
+            try testArgs(f16, -0.0, fmax(f16));
+            try testArgs(f16, -0.0, inf(f16));
+            try testArgs(f16, -0.0, nan(f16));
+
+            try testArgs(f16, 0.0, -nan(f16));
+            try testArgs(f16, 0.0, -inf(f16));
+            try testArgs(f16, 0.0, -fmax(f16));
+            try testArgs(f16, 0.0, -10.0);
+            try testArgs(f16, 0.0, -1.0);
+            try testArgs(f16, 0.0, -0.1);
+            try testArgs(f16, 0.0, -fmin(f16));
+            try testArgs(f16, 0.0, -tmin(f16));
+            try testArgs(f16, 0.0, -0.0);
+            try testArgs(f16, 0.0, 0.0);
+            try testArgs(f16, 0.0, tmin(f16));
+            try testArgs(f16, 0.0, fmin(f16));
+            try testArgs(f16, 0.0, 0.1);
+            try testArgs(f16, 0.0, 1.0);
+            try testArgs(f16, 0.0, 10.0);
+            try testArgs(f16, 0.0, fmax(f16));
+            try testArgs(f16, 0.0, inf(f16));
+            try testArgs(f16, 0.0, nan(f16));
+
+            try testArgs(f16, tmin(f16), -nan(f16));
+            try testArgs(f16, tmin(f16), -inf(f16));
+            try testArgs(f16, tmin(f16), -fmax(f16));
+            try testArgs(f16, tmin(f16), -10.0);
+            try testArgs(f16, tmin(f16), -1.0);
+            try testArgs(f16, tmin(f16), -0.1);
+            try testArgs(f16, tmin(f16), -fmin(f16));
+            try testArgs(f16, tmin(f16), -tmin(f16));
+            try testArgs(f16, tmin(f16), -0.0);
+            try testArgs(f16, tmin(f16), 0.0);
+            try testArgs(f16, tmin(f16), tmin(f16));
+            try testArgs(f16, tmin(f16), fmin(f16));
+            try testArgs(f16, tmin(f16), 0.1);
+            try testArgs(f16, tmin(f16), 1.0);
+            try testArgs(f16, tmin(f16), 10.0);
+            try testArgs(f16, tmin(f16), fmax(f16));
+            try testArgs(f16, tmin(f16), inf(f16));
+            try testArgs(f16, tmin(f16), nan(f16));
+
+            try testArgs(f16, fmin(f16), -nan(f16));
+            try testArgs(f16, fmin(f16), -inf(f16));
+            try testArgs(f16, fmin(f16), -fmax(f16));
+            try testArgs(f16, fmin(f16), -10.0);
+            try testArgs(f16, fmin(f16), -1.0);
+            try testArgs(f16, fmin(f16), -0.1);
+            try testArgs(f16, fmin(f16), -fmin(f16));
+            try testArgs(f16, fmin(f16), -tmin(f16));
+            try testArgs(f16, fmin(f16), -0.0);
+            try testArgs(f16, fmin(f16), 0.0);
+            try testArgs(f16, fmin(f16), tmin(f16));
+            try testArgs(f16, fmin(f16), fmin(f16));
+            try testArgs(f16, fmin(f16), 0.1);
+            try testArgs(f16, fmin(f16), 1.0);
+            try testArgs(f16, fmin(f16), 10.0);
+            try testArgs(f16, fmin(f16), fmax(f16));
+            try testArgs(f16, fmin(f16), inf(f16));
+            try testArgs(f16, fmin(f16), nan(f16));
+
+            try testArgs(f16, 0.1, -nan(f16));
+            try testArgs(f16, 0.1, -inf(f16));
+            try testArgs(f16, 0.1, -fmax(f16));
+            try testArgs(f16, 0.1, -10.0);
+            try testArgs(f16, 0.1, -1.0);
+            try testArgs(f16, 0.1, -0.1);
+            try testArgs(f16, 0.1, -fmin(f16));
+            try testArgs(f16, 0.1, -tmin(f16));
+            try testArgs(f16, 0.1, -0.0);
+            try testArgs(f16, 0.1, 0.0);
+            try testArgs(f16, 0.1, tmin(f16));
+            try testArgs(f16, 0.1, fmin(f16));
+            try testArgs(f16, 0.1, 0.1);
+            try testArgs(f16, 0.1, 1.0);
+            try testArgs(f16, 0.1, 10.0);
+            try testArgs(f16, 0.1, fmax(f16));
+            try testArgs(f16, 0.1, inf(f16));
+            try testArgs(f16, 0.1, nan(f16));
+
+            try testArgs(f16, 1.0, -nan(f16));
+            try testArgs(f16, 1.0, -inf(f16));
+            try testArgs(f16, 1.0, -fmax(f16));
+            try testArgs(f16, 1.0, -10.0);
+            try testArgs(f16, 1.0, -1.0);
+            try testArgs(f16, 1.0, -0.1);
+            try testArgs(f16, 1.0, -fmin(f16));
+            try testArgs(f16, 1.0, -tmin(f16));
+            try testArgs(f16, 1.0, -0.0);
+            try testArgs(f16, 1.0, 0.0);
+            try testArgs(f16, 1.0, tmin(f16));
+            try testArgs(f16, 1.0, fmin(f16));
+            try testArgs(f16, 1.0, 0.1);
+            try testArgs(f16, 1.0, 1.0);
+            try testArgs(f16, 1.0, 10.0);
+            try testArgs(f16, 1.0, fmax(f16));
+            try testArgs(f16, 1.0, inf(f16));
+            try testArgs(f16, 1.0, nan(f16));
+
+            try testArgs(f16, 10.0, -nan(f16));
+            try testArgs(f16, 10.0, -inf(f16));
+            try testArgs(f16, 10.0, -fmax(f16));
+            try testArgs(f16, 10.0, -10.0);
+            try testArgs(f16, 10.0, -1.0);
+            try testArgs(f16, 10.0, -0.1);
+            try testArgs(f16, 10.0, -fmin(f16));
+            try testArgs(f16, 10.0, -tmin(f16));
+            try testArgs(f16, 10.0, -0.0);
+            try testArgs(f16, 10.0, 0.0);
+            try testArgs(f16, 10.0, tmin(f16));
+            try testArgs(f16, 10.0, fmin(f16));
+            try testArgs(f16, 10.0, 0.1);
+            try testArgs(f16, 10.0, 1.0);
+            try testArgs(f16, 10.0, 10.0);
+            try testArgs(f16, 10.0, fmax(f16));
+            try testArgs(f16, 10.0, inf(f16));
+            try testArgs(f16, 10.0, nan(f16));
+
+            try testArgs(f16, fmax(f16), -nan(f16));
+            try testArgs(f16, fmax(f16), -inf(f16));
+            try testArgs(f16, fmax(f16), -fmax(f16));
+            try testArgs(f16, fmax(f16), -10.0);
+            try testArgs(f16, fmax(f16), -1.0);
+            try testArgs(f16, fmax(f16), -0.1);
+            try testArgs(f16, fmax(f16), -fmin(f16));
+            try testArgs(f16, fmax(f16), -tmin(f16));
+            try testArgs(f16, fmax(f16), -0.0);
+            try testArgs(f16, fmax(f16), 0.0);
+            try testArgs(f16, fmax(f16), tmin(f16));
+            try testArgs(f16, fmax(f16), fmin(f16));
+            try testArgs(f16, fmax(f16), 0.1);
+            try testArgs(f16, fmax(f16), 1.0);
+            try testArgs(f16, fmax(f16), 10.0);
+            try testArgs(f16, fmax(f16), fmax(f16));
+            try testArgs(f16, fmax(f16), inf(f16));
+            try testArgs(f16, fmax(f16), nan(f16));
+
+            try testArgs(f16, inf(f16), -nan(f16));
+            try testArgs(f16, inf(f16), -inf(f16));
+            try testArgs(f16, inf(f16), -fmax(f16));
+            try testArgs(f16, inf(f16), -10.0);
+            try testArgs(f16, inf(f16), -1.0);
+            try testArgs(f16, inf(f16), -0.1);
+            try testArgs(f16, inf(f16), -fmin(f16));
+            try testArgs(f16, inf(f16), -tmin(f16));
+            try testArgs(f16, inf(f16), -0.0);
+            try testArgs(f16, inf(f16), 0.0);
+            try testArgs(f16, inf(f16), tmin(f16));
+            try testArgs(f16, inf(f16), fmin(f16));
+            try testArgs(f16, inf(f16), 0.1);
+            try testArgs(f16, inf(f16), 1.0);
+            try testArgs(f16, inf(f16), 10.0);
+            try testArgs(f16, inf(f16), fmax(f16));
+            try testArgs(f16, inf(f16), inf(f16));
+            try testArgs(f16, inf(f16), nan(f16));
+
+            try testArgs(f16, nan(f16), -nan(f16));
+            try testArgs(f16, nan(f16), -inf(f16));
+            try testArgs(f16, nan(f16), -fmax(f16));
+            try testArgs(f16, nan(f16), -10.0);
+            try testArgs(f16, nan(f16), -1.0);
+            try testArgs(f16, nan(f16), -0.1);
+            try testArgs(f16, nan(f16), -fmin(f16));
+            try testArgs(f16, nan(f16), -tmin(f16));
+            try testArgs(f16, nan(f16), -0.0);
+            try testArgs(f16, nan(f16), 0.0);
+            try testArgs(f16, nan(f16), tmin(f16));
+            try testArgs(f16, nan(f16), fmin(f16));
+            try testArgs(f16, nan(f16), 0.1);
+            try testArgs(f16, nan(f16), 1.0);
+            try testArgs(f16, nan(f16), 10.0);
+            try testArgs(f16, nan(f16), fmax(f16));
+            try testArgs(f16, nan(f16), inf(f16));
+            try testArgs(f16, nan(f16), nan(f16));
+
+            try testArgs(f32, -nan(f32), -nan(f32));
+            try testArgs(f32, -nan(f32), -inf(f32));
+            try testArgs(f32, -nan(f32), -fmax(f32));
+            try testArgs(f32, -nan(f32), -10.0);
+            try testArgs(f32, -nan(f32), -1.0);
+            try testArgs(f32, -nan(f32), -0.1);
+            try testArgs(f32, -nan(f32), -fmin(f32));
+            try testArgs(f32, -nan(f32), -tmin(f32));
+            try testArgs(f32, -nan(f32), -0.0);
+            try testArgs(f32, -nan(f32), 0.0);
+            try testArgs(f32, -nan(f32), tmin(f32));
+            try testArgs(f32, -nan(f32), fmin(f32));
+            try testArgs(f32, -nan(f32), 0.1);
+            try testArgs(f32, -nan(f32), 1.0);
+            try testArgs(f32, -nan(f32), 10.0);
+            try testArgs(f32, -nan(f32), fmax(f32));
+            try testArgs(f32, -nan(f32), inf(f32));
+            try testArgs(f32, -nan(f32), nan(f32));
+
+            try testArgs(f32, -inf(f32), -nan(f32));
+            try testArgs(f32, -inf(f32), -inf(f32));
+            try testArgs(f32, -inf(f32), -fmax(f32));
+            try testArgs(f32, -inf(f32), -10.0);
+            try testArgs(f32, -inf(f32), -1.0);
+            try testArgs(f32, -inf(f32), -0.1);
+            try testArgs(f32, -inf(f32), -fmin(f32));
+            try testArgs(f32, -inf(f32), -tmin(f32));
+            try testArgs(f32, -inf(f32), -0.0);
+            try testArgs(f32, -inf(f32), 0.0);
+            try testArgs(f32, -inf(f32), tmin(f32));
+            try testArgs(f32, -inf(f32), fmin(f32));
+            try testArgs(f32, -inf(f32), 0.1);
+            try testArgs(f32, -inf(f32), 1.0);
+            try testArgs(f32, -inf(f32), 10.0);
+            try testArgs(f32, -inf(f32), fmax(f32));
+            try testArgs(f32, -inf(f32), inf(f32));
+            try testArgs(f32, -inf(f32), nan(f32));
+
+            try testArgs(f32, -fmax(f32), -nan(f32));
+            try testArgs(f32, -fmax(f32), -inf(f32));
+            try testArgs(f32, -fmax(f32), -fmax(f32));
+            try testArgs(f32, -fmax(f32), -10.0);
+            try testArgs(f32, -fmax(f32), -1.0);
+            try testArgs(f32, -fmax(f32), -0.1);
+            try testArgs(f32, -fmax(f32), -fmin(f32));
+            try testArgs(f32, -fmax(f32), -tmin(f32));
+            try testArgs(f32, -fmax(f32), -0.0);
+            try testArgs(f32, -fmax(f32), 0.0);
+            try testArgs(f32, -fmax(f32), tmin(f32));
+            try testArgs(f32, -fmax(f32), fmin(f32));
+            try testArgs(f32, -fmax(f32), 0.1);
+            try testArgs(f32, -fmax(f32), 1.0);
+            try testArgs(f32, -fmax(f32), 10.0);
+            try testArgs(f32, -fmax(f32), fmax(f32));
+            try testArgs(f32, -fmax(f32), inf(f32));
+            try testArgs(f32, -fmax(f32), nan(f32));
+
+            try testArgs(f32, -10.0, -nan(f32));
+            try testArgs(f32, -10.0, -inf(f32));
+            try testArgs(f32, -10.0, -fmax(f32));
+            try testArgs(f32, -10.0, -10.0);
+            try testArgs(f32, -10.0, -1.0);
+            try testArgs(f32, -10.0, -0.1);
+            try testArgs(f32, -10.0, -fmin(f32));
+            try testArgs(f32, -10.0, -tmin(f32));
+            try testArgs(f32, -10.0, -0.0);
+            try testArgs(f32, -10.0, 0.0);
+            try testArgs(f32, -10.0, tmin(f32));
+            try testArgs(f32, -10.0, fmin(f32));
+            try testArgs(f32, -10.0, 0.1);
+            try testArgs(f32, -10.0, 1.0);
+            try testArgs(f32, -10.0, 10.0);
+            try testArgs(f32, -10.0, fmax(f32));
+            try testArgs(f32, -10.0, inf(f32));
+            try testArgs(f32, -10.0, nan(f32));
+
+            try testArgs(f32, -1.0, -nan(f32));
+            try testArgs(f32, -1.0, -inf(f32));
+            try testArgs(f32, -1.0, -fmax(f32));
+            try testArgs(f32, -1.0, -10.0);
+            try testArgs(f32, -1.0, -1.0);
+            try testArgs(f32, -1.0, -0.1);
+            try testArgs(f32, -1.0, -fmin(f32));
+            try testArgs(f32, -1.0, -tmin(f32));
+            try testArgs(f32, -1.0, -0.0);
+            try testArgs(f32, -1.0, 0.0);
+            try testArgs(f32, -1.0, tmin(f32));
+            try testArgs(f32, -1.0, fmin(f32));
+            try testArgs(f32, -1.0, 0.1);
+            try testArgs(f32, -1.0, 1.0);
+            try testArgs(f32, -1.0, 10.0);
+            try testArgs(f32, -1.0, fmax(f32));
+            try testArgs(f32, -1.0, inf(f32));
+            try testArgs(f32, -1.0, nan(f32));
+
+            try testArgs(f32, -0.1, -nan(f32));
+            try testArgs(f32, -0.1, -inf(f32));
+            try testArgs(f32, -0.1, -fmax(f32));
+            try testArgs(f32, -0.1, -10.0);
+            try testArgs(f32, -0.1, -1.0);
+            try testArgs(f32, -0.1, -0.1);
+            try testArgs(f32, -0.1, -fmin(f32));
+            try testArgs(f32, -0.1, -tmin(f32));
+            try testArgs(f32, -0.1, -0.0);
+            try testArgs(f32, -0.1, 0.0);
+            try testArgs(f32, -0.1, tmin(f32));
+            try testArgs(f32, -0.1, fmin(f32));
+            try testArgs(f32, -0.1, 0.1);
+            try testArgs(f32, -0.1, 1.0);
+            try testArgs(f32, -0.1, 10.0);
+            try testArgs(f32, -0.1, fmax(f32));
+            try testArgs(f32, -0.1, inf(f32));
+            try testArgs(f32, -0.1, nan(f32));
+
+            try testArgs(f32, -fmin(f32), -nan(f32));
+            try testArgs(f32, -fmin(f32), -inf(f32));
+            try testArgs(f32, -fmin(f32), -fmax(f32));
+            try testArgs(f32, -fmin(f32), -10.0);
+            try testArgs(f32, -fmin(f32), -1.0);
+            try testArgs(f32, -fmin(f32), -0.1);
+            try testArgs(f32, -fmin(f32), -fmin(f32));
+            try testArgs(f32, -fmin(f32), -tmin(f32));
+            try testArgs(f32, -fmin(f32), -0.0);
+            try testArgs(f32, -fmin(f32), 0.0);
+            try testArgs(f32, -fmin(f32), tmin(f32));
+            try testArgs(f32, -fmin(f32), fmin(f32));
+            try testArgs(f32, -fmin(f32), 0.1);
+            try testArgs(f32, -fmin(f32), 1.0);
+            try testArgs(f32, -fmin(f32), 10.0);
+            try testArgs(f32, -fmin(f32), fmax(f32));
+            try testArgs(f32, -fmin(f32), inf(f32));
+            try testArgs(f32, -fmin(f32), nan(f32));
+
+            try testArgs(f32, -tmin(f32), -nan(f32));
+            try testArgs(f32, -tmin(f32), -inf(f32));
+            try testArgs(f32, -tmin(f32), -fmax(f32));
+            try testArgs(f32, -tmin(f32), -10.0);
+            try testArgs(f32, -tmin(f32), -1.0);
+            try testArgs(f32, -tmin(f32), -0.1);
+            try testArgs(f32, -tmin(f32), -fmin(f32));
+            try testArgs(f32, -tmin(f32), -tmin(f32));
+            try testArgs(f32, -tmin(f32), -0.0);
+            try testArgs(f32, -tmin(f32), 0.0);
+            try testArgs(f32, -tmin(f32), tmin(f32));
+            try testArgs(f32, -tmin(f32), fmin(f32));
+            try testArgs(f32, -tmin(f32), 0.1);
+            try testArgs(f32, -tmin(f32), 1.0);
+            try testArgs(f32, -tmin(f32), 10.0);
+            try testArgs(f32, -tmin(f32), fmax(f32));
+            try testArgs(f32, -tmin(f32), inf(f32));
+            try testArgs(f32, -tmin(f32), nan(f32));
+
+            try testArgs(f32, -0.0, -nan(f32));
+            try testArgs(f32, -0.0, -inf(f32));
+            try testArgs(f32, -0.0, -fmax(f32));
+            try testArgs(f32, -0.0, -10.0);
+            try testArgs(f32, -0.0, -1.0);
+            try testArgs(f32, -0.0, -0.1);
+            try testArgs(f32, -0.0, -fmin(f32));
+            try testArgs(f32, -0.0, -tmin(f32));
+            try testArgs(f32, -0.0, -0.0);
+            try testArgs(f32, -0.0, 0.0);
+            try testArgs(f32, -0.0, tmin(f32));
+            try testArgs(f32, -0.0, fmin(f32));
+            try testArgs(f32, -0.0, 0.1);
+            try testArgs(f32, -0.0, 1.0);
+            try testArgs(f32, -0.0, 10.0);
+            try testArgs(f32, -0.0, fmax(f32));
+            try testArgs(f32, -0.0, inf(f32));
+            try testArgs(f32, -0.0, nan(f32));
+
+            try testArgs(f32, 0.0, -nan(f32));
+            try testArgs(f32, 0.0, -inf(f32));
+            try testArgs(f32, 0.0, -fmax(f32));
+            try testArgs(f32, 0.0, -10.0);
+            try testArgs(f32, 0.0, -1.0);
+            try testArgs(f32, 0.0, -0.1);
+            try testArgs(f32, 0.0, -fmin(f32));
+            try testArgs(f32, 0.0, -tmin(f32));
+            try testArgs(f32, 0.0, -0.0);
+            try testArgs(f32, 0.0, 0.0);
+            try testArgs(f32, 0.0, tmin(f32));
+            try testArgs(f32, 0.0, fmin(f32));
+            try testArgs(f32, 0.0, 0.1);
+            try testArgs(f32, 0.0, 1.0);
+            try testArgs(f32, 0.0, 10.0);
+            try testArgs(f32, 0.0, fmax(f32));
+            try testArgs(f32, 0.0, inf(f32));
+            try testArgs(f32, 0.0, nan(f32));
+
+            try testArgs(f32, tmin(f32), -nan(f32));
+            try testArgs(f32, tmin(f32), -inf(f32));
+            try testArgs(f32, tmin(f32), -fmax(f32));
+            try testArgs(f32, tmin(f32), -10.0);
+            try testArgs(f32, tmin(f32), -1.0);
+            try testArgs(f32, tmin(f32), -0.1);
+            try testArgs(f32, tmin(f32), -fmin(f32));
+            try testArgs(f32, tmin(f32), -tmin(f32));
+            try testArgs(f32, tmin(f32), -0.0);
+            try testArgs(f32, tmin(f32), 0.0);
+            try testArgs(f32, tmin(f32), tmin(f32));
+            try testArgs(f32, tmin(f32), fmin(f32));
+            try testArgs(f32, tmin(f32), 0.1);
+            try testArgs(f32, tmin(f32), 1.0);
+            try testArgs(f32, tmin(f32), 10.0);
+            try testArgs(f32, tmin(f32), fmax(f32));
+            try testArgs(f32, tmin(f32), inf(f32));
+            try testArgs(f32, tmin(f32), nan(f32));
+
+            try testArgs(f32, fmin(f32), -nan(f32));
+            try testArgs(f32, fmin(f32), -inf(f32));
+            try testArgs(f32, fmin(f32), -fmax(f32));
+            try testArgs(f32, fmin(f32), -10.0);
+            try testArgs(f32, fmin(f32), -1.0);
+            try testArgs(f32, fmin(f32), -0.1);
+            try testArgs(f32, fmin(f32), -fmin(f32));
+            try testArgs(f32, fmin(f32), -tmin(f32));
+            try testArgs(f32, fmin(f32), -0.0);
+            try testArgs(f32, fmin(f32), 0.0);
+            try testArgs(f32, fmin(f32), tmin(f32));
+            try testArgs(f32, fmin(f32), fmin(f32));
+            try testArgs(f32, fmin(f32), 0.1);
+            try testArgs(f32, fmin(f32), 1.0);
+            try testArgs(f32, fmin(f32), 10.0);
+            try testArgs(f32, fmin(f32), fmax(f32));
+            try testArgs(f32, fmin(f32), inf(f32));
+            try testArgs(f32, fmin(f32), nan(f32));
+
+            try testArgs(f32, 0.1, -nan(f32));
+            try testArgs(f32, 0.1, -inf(f32));
+            try testArgs(f32, 0.1, -fmax(f32));
+            try testArgs(f32, 0.1, -10.0);
+            try testArgs(f32, 0.1, -1.0);
+            try testArgs(f32, 0.1, -0.1);
+            try testArgs(f32, 0.1, -fmin(f32));
+            try testArgs(f32, 0.1, -tmin(f32));
+            try testArgs(f32, 0.1, -0.0);
+            try testArgs(f32, 0.1, 0.0);
+            try testArgs(f32, 0.1, tmin(f32));
+            try testArgs(f32, 0.1, fmin(f32));
+            try testArgs(f32, 0.1, 0.1);
+            try testArgs(f32, 0.1, 1.0);
+            try testArgs(f32, 0.1, 10.0);
+            try testArgs(f32, 0.1, fmax(f32));
+            try testArgs(f32, 0.1, inf(f32));
+            try testArgs(f32, 0.1, nan(f32));
+
+            try testArgs(f32, 1.0, -nan(f32));
+            try testArgs(f32, 1.0, -inf(f32));
+            try testArgs(f32, 1.0, -fmax(f32));
+            try testArgs(f32, 1.0, -10.0);
+            try testArgs(f32, 1.0, -1.0);
+            try testArgs(f32, 1.0, -0.1);
+            try testArgs(f32, 1.0, -fmin(f32));
+            try testArgs(f32, 1.0, -tmin(f32));
+            try testArgs(f32, 1.0, -0.0);
+            try testArgs(f32, 1.0, 0.0);
+            try testArgs(f32, 1.0, tmin(f32));
+            try testArgs(f32, 1.0, fmin(f32));
+            try testArgs(f32, 1.0, 0.1);
+            try testArgs(f32, 1.0, 1.0);
+            try testArgs(f32, 1.0, 10.0);
+            try testArgs(f32, 1.0, fmax(f32));
+            try testArgs(f32, 1.0, inf(f32));
+            try testArgs(f32, 1.0, nan(f32));
+
+            try testArgs(f32, 10.0, -nan(f32));
+            try testArgs(f32, 10.0, -inf(f32));
+            try testArgs(f32, 10.0, -fmax(f32));
+            try testArgs(f32, 10.0, -10.0);
+            try testArgs(f32, 10.0, -1.0);
+            try testArgs(f32, 10.0, -0.1);
+            try testArgs(f32, 10.0, -fmin(f32));
+            try testArgs(f32, 10.0, -tmin(f32));
+            try testArgs(f32, 10.0, -0.0);
+            try testArgs(f32, 10.0, 0.0);
+            try testArgs(f32, 10.0, tmin(f32));
+            try testArgs(f32, 10.0, fmin(f32));
+            try testArgs(f32, 10.0, 0.1);
+            try testArgs(f32, 10.0, 1.0);
+            try testArgs(f32, 10.0, 10.0);
+            try testArgs(f32, 10.0, fmax(f32));
+            try testArgs(f32, 10.0, inf(f32));
+            try testArgs(f32, 10.0, nan(f32));
+
+            try testArgs(f32, fmax(f32), -nan(f32));
+            try testArgs(f32, fmax(f32), -inf(f32));
+            try testArgs(f32, fmax(f32), -fmax(f32));
+            try testArgs(f32, fmax(f32), -10.0);
+            try testArgs(f32, fmax(f32), -1.0);
+            try testArgs(f32, fmax(f32), -0.1);
+            try testArgs(f32, fmax(f32), -fmin(f32));
+            try testArgs(f32, fmax(f32), -tmin(f32));
+            try testArgs(f32, fmax(f32), -0.0);
+            try testArgs(f32, fmax(f32), 0.0);
+            try testArgs(f32, fmax(f32), tmin(f32));
+            try testArgs(f32, fmax(f32), fmin(f32));
+            try testArgs(f32, fmax(f32), 0.1);
+            try testArgs(f32, fmax(f32), 1.0);
+            try testArgs(f32, fmax(f32), 10.0);
+            try testArgs(f32, fmax(f32), fmax(f32));
+            try testArgs(f32, fmax(f32), inf(f32));
+            try testArgs(f32, fmax(f32), nan(f32));
+
+            try testArgs(f32, inf(f32), -nan(f32));
+            try testArgs(f32, inf(f32), -inf(f32));
+            try testArgs(f32, inf(f32), -fmax(f32));
+            try testArgs(f32, inf(f32), -10.0);
+            try testArgs(f32, inf(f32), -1.0);
+            try testArgs(f32, inf(f32), -0.1);
+            try testArgs(f32, inf(f32), -fmin(f32));
+            try testArgs(f32, inf(f32), -tmin(f32));
+            try testArgs(f32, inf(f32), -0.0);
+            try testArgs(f32, inf(f32), 0.0);
+            try testArgs(f32, inf(f32), tmin(f32));
+            try testArgs(f32, inf(f32), fmin(f32));
+            try testArgs(f32, inf(f32), 0.1);
+            try testArgs(f32, inf(f32), 1.0);
+            try testArgs(f32, inf(f32), 10.0);
+            try testArgs(f32, inf(f32), fmax(f32));
+            try testArgs(f32, inf(f32), inf(f32));
+            try testArgs(f32, inf(f32), nan(f32));
+
+            try testArgs(f32, nan(f32), -nan(f32));
+            try testArgs(f32, nan(f32), -inf(f32));
+            try testArgs(f32, nan(f32), -fmax(f32));
+            try testArgs(f32, nan(f32), -10.0);
+            try testArgs(f32, nan(f32), -1.0);
+            try testArgs(f32, nan(f32), -0.1);
+            try testArgs(f32, nan(f32), -fmin(f32));
+            try testArgs(f32, nan(f32), -tmin(f32));
+            try testArgs(f32, nan(f32), -0.0);
+            try testArgs(f32, nan(f32), 0.0);
+            try testArgs(f32, nan(f32), tmin(f32));
+            try testArgs(f32, nan(f32), fmin(f32));
+            try testArgs(f32, nan(f32), 0.1);
+            try testArgs(f32, nan(f32), 1.0);
+            try testArgs(f32, nan(f32), 10.0);
+            try testArgs(f32, nan(f32), fmax(f32));
+            try testArgs(f32, nan(f32), inf(f32));
+            try testArgs(f32, nan(f32), nan(f32));
+
+            try testArgs(f64, -nan(f64), -nan(f64));
+            try testArgs(f64, -nan(f64), -inf(f64));
+            try testArgs(f64, -nan(f64), -fmax(f64));
+            try testArgs(f64, -nan(f64), -10.0);
+            try testArgs(f64, -nan(f64), -1.0);
+            try testArgs(f64, -nan(f64), -0.1);
+            try testArgs(f64, -nan(f64), -fmin(f64));
+            try testArgs(f64, -nan(f64), -tmin(f64));
+            try testArgs(f64, -nan(f64), -0.0);
+            try testArgs(f64, -nan(f64), 0.0);
+            try testArgs(f64, -nan(f64), tmin(f64));
+            try testArgs(f64, -nan(f64), fmin(f64));
+            try testArgs(f64, -nan(f64), 0.1);
+            try testArgs(f64, -nan(f64), 1.0);
+            try testArgs(f64, -nan(f64), 10.0);
+            try testArgs(f64, -nan(f64), fmax(f64));
+            try testArgs(f64, -nan(f64), inf(f64));
+            try testArgs(f64, -nan(f64), nan(f64));
+
+            try testArgs(f64, -inf(f64), -nan(f64));
+            try testArgs(f64, -inf(f64), -inf(f64));
+            try testArgs(f64, -inf(f64), -fmax(f64));
+            try testArgs(f64, -inf(f64), -10.0);
+            try testArgs(f64, -inf(f64), -1.0);
+            try testArgs(f64, -inf(f64), -0.1);
+            try testArgs(f64, -inf(f64), -fmin(f64));
+            try testArgs(f64, -inf(f64), -tmin(f64));
+            try testArgs(f64, -inf(f64), -0.0);
+            try testArgs(f64, -inf(f64), 0.0);
+            try testArgs(f64, -inf(f64), tmin(f64));
+            try testArgs(f64, -inf(f64), fmin(f64));
+            try testArgs(f64, -inf(f64), 0.1);
+            try testArgs(f64, -inf(f64), 1.0);
+            try testArgs(f64, -inf(f64), 10.0);
+            try testArgs(f64, -inf(f64), fmax(f64));
+            try testArgs(f64, -inf(f64), inf(f64));
+            try testArgs(f64, -inf(f64), nan(f64));
+
+            try testArgs(f64, -fmax(f64), -nan(f64));
+            try testArgs(f64, -fmax(f64), -inf(f64));
+            try testArgs(f64, -fmax(f64), -fmax(f64));
+            try testArgs(f64, -fmax(f64), -10.0);
+            try testArgs(f64, -fmax(f64), -1.0);
+            try testArgs(f64, -fmax(f64), -0.1);
+            try testArgs(f64, -fmax(f64), -fmin(f64));
+            try testArgs(f64, -fmax(f64), -tmin(f64));
+            try testArgs(f64, -fmax(f64), -0.0);
+            try testArgs(f64, -fmax(f64), 0.0);
+            try testArgs(f64, -fmax(f64), tmin(f64));
+            try testArgs(f64, -fmax(f64), fmin(f64));
+            try testArgs(f64, -fmax(f64), 0.1);
+            try testArgs(f64, -fmax(f64), 1.0);
+            try testArgs(f64, -fmax(f64), 10.0);
+            try testArgs(f64, -fmax(f64), fmax(f64));
+            try testArgs(f64, -fmax(f64), inf(f64));
+            try testArgs(f64, -fmax(f64), nan(f64));
+
+            try testArgs(f64, -10.0, -nan(f64));
+            try testArgs(f64, -10.0, -inf(f64));
+            try testArgs(f64, -10.0, -fmax(f64));
+            try testArgs(f64, -10.0, -10.0);
+            try testArgs(f64, -10.0, -1.0);
+            try testArgs(f64, -10.0, -0.1);
+            try testArgs(f64, -10.0, -fmin(f64));
+            try testArgs(f64, -10.0, -tmin(f64));
+            try testArgs(f64, -10.0, -0.0);
+            try testArgs(f64, -10.0, 0.0);
+            try testArgs(f64, -10.0, tmin(f64));
+            try testArgs(f64, -10.0, fmin(f64));
+            try testArgs(f64, -10.0, 0.1);
+            try testArgs(f64, -10.0, 1.0);
+            try testArgs(f64, -10.0, 10.0);
+            try testArgs(f64, -10.0, fmax(f64));
+            try testArgs(f64, -10.0, inf(f64));
+            try testArgs(f64, -10.0, nan(f64));
+
+            try testArgs(f64, -1.0, -nan(f64));
+            try testArgs(f64, -1.0, -inf(f64));
+            try testArgs(f64, -1.0, -fmax(f64));
+            try testArgs(f64, -1.0, -10.0);
+            try testArgs(f64, -1.0, -1.0);
+            try testArgs(f64, -1.0, -0.1);
+            try testArgs(f64, -1.0, -fmin(f64));
+            try testArgs(f64, -1.0, -tmin(f64));
+            try testArgs(f64, -1.0, -0.0);
+            try testArgs(f64, -1.0, 0.0);
+            try testArgs(f64, -1.0, tmin(f64));
+            try testArgs(f64, -1.0, fmin(f64));
+            try testArgs(f64, -1.0, 0.1);
+            try testArgs(f64, -1.0, 1.0);
+            try testArgs(f64, -1.0, 10.0);
+            try testArgs(f64, -1.0, fmax(f64));
+            try testArgs(f64, -1.0, inf(f64));
+            try testArgs(f64, -1.0, nan(f64));
+
+            try testArgs(f64, -0.1, -nan(f64));
+            try testArgs(f64, -0.1, -inf(f64));
+            try testArgs(f64, -0.1, -fmax(f64));
+            try testArgs(f64, -0.1, -10.0);
+            try testArgs(f64, -0.1, -1.0);
+            try testArgs(f64, -0.1, -0.1);
+            try testArgs(f64, -0.1, -fmin(f64));
+            try testArgs(f64, -0.1, -tmin(f64));
+            try testArgs(f64, -0.1, -0.0);
+            try testArgs(f64, -0.1, 0.0);
+            try testArgs(f64, -0.1, tmin(f64));
+            try testArgs(f64, -0.1, fmin(f64));
+            try testArgs(f64, -0.1, 0.1);
+            try testArgs(f64, -0.1, 1.0);
+            try testArgs(f64, -0.1, 10.0);
+            try testArgs(f64, -0.1, fmax(f64));
+            try testArgs(f64, -0.1, inf(f64));
+            try testArgs(f64, -0.1, nan(f64));
+
+            try testArgs(f64, -fmin(f64), -nan(f64));
+            try testArgs(f64, -fmin(f64), -inf(f64));
+            try testArgs(f64, -fmin(f64), -fmax(f64));
+            try testArgs(f64, -fmin(f64), -10.0);
+            try testArgs(f64, -fmin(f64), -1.0);
+            try testArgs(f64, -fmin(f64), -0.1);
+            try testArgs(f64, -fmin(f64), -fmin(f64));
+            try testArgs(f64, -fmin(f64), -tmin(f64));
+            try testArgs(f64, -fmin(f64), -0.0);
+            try testArgs(f64, -fmin(f64), 0.0);
+            try testArgs(f64, -fmin(f64), tmin(f64));
+            try testArgs(f64, -fmin(f64), fmin(f64));
+            try testArgs(f64, -fmin(f64), 0.1);
+            try testArgs(f64, -fmin(f64), 1.0);
+            try testArgs(f64, -fmin(f64), 10.0);
+            try testArgs(f64, -fmin(f64), fmax(f64));
+            try testArgs(f64, -fmin(f64), inf(f64));
+            try testArgs(f64, -fmin(f64), nan(f64));
+
+            try testArgs(f64, -tmin(f64), -nan(f64));
+            try testArgs(f64, -tmin(f64), -inf(f64));
+            try testArgs(f64, -tmin(f64), -fmax(f64));
+            try testArgs(f64, -tmin(f64), -10.0);
+            try testArgs(f64, -tmin(f64), -1.0);
+            try testArgs(f64, -tmin(f64), -0.1);
+            try testArgs(f64, -tmin(f64), -fmin(f64));
+            try testArgs(f64, -tmin(f64), -tmin(f64));
+            try testArgs(f64, -tmin(f64), -0.0);
+            try testArgs(f64, -tmin(f64), 0.0);
+            try testArgs(f64, -tmin(f64), tmin(f64));
+            try testArgs(f64, -tmin(f64), fmin(f64));
+            try testArgs(f64, -tmin(f64), 0.1);
+            try testArgs(f64, -tmin(f64), 1.0);
+            try testArgs(f64, -tmin(f64), 10.0);
+            try testArgs(f64, -tmin(f64), fmax(f64));
+            try testArgs(f64, -tmin(f64), inf(f64));
+            try testArgs(f64, -tmin(f64), nan(f64));
+
+            try testArgs(f64, -0.0, -nan(f64));
+            try testArgs(f64, -0.0, -inf(f64));
+            try testArgs(f64, -0.0, -fmax(f64));
+            try testArgs(f64, -0.0, -10.0);
+            try testArgs(f64, -0.0, -1.0);
+            try testArgs(f64, -0.0, -0.1);
+            try testArgs(f64, -0.0, -fmin(f64));
+            try testArgs(f64, -0.0, -tmin(f64));
+            try testArgs(f64, -0.0, -0.0);
+            try testArgs(f64, -0.0, 0.0);
+            try testArgs(f64, -0.0, tmin(f64));
+            try testArgs(f64, -0.0, fmin(f64));
+            try testArgs(f64, -0.0, 0.1);
+            try testArgs(f64, -0.0, 1.0);
+            try testArgs(f64, -0.0, 10.0);
+            try testArgs(f64, -0.0, fmax(f64));
+            try testArgs(f64, -0.0, inf(f64));
+            try testArgs(f64, -0.0, nan(f64));
+
+            try testArgs(f64, 0.0, -nan(f64));
+            try testArgs(f64, 0.0, -inf(f64));
+            try testArgs(f64, 0.0, -fmax(f64));
+            try testArgs(f64, 0.0, -10.0);
+            try testArgs(f64, 0.0, -1.0);
+            try testArgs(f64, 0.0, -0.1);
+            try testArgs(f64, 0.0, -fmin(f64));
+            try testArgs(f64, 0.0, -tmin(f64));
+            try testArgs(f64, 0.0, -0.0);
+            try testArgs(f64, 0.0, 0.0);
+            try testArgs(f64, 0.0, tmin(f64));
+            try testArgs(f64, 0.0, fmin(f64));
+            try testArgs(f64, 0.0, 0.1);
+            try testArgs(f64, 0.0, 1.0);
+            try testArgs(f64, 0.0, 10.0);
+            try testArgs(f64, 0.0, fmax(f64));
+            try testArgs(f64, 0.0, inf(f64));
+            try testArgs(f64, 0.0, nan(f64));
+
+            try testArgs(f64, tmin(f64), -nan(f64));
+            try testArgs(f64, tmin(f64), -inf(f64));
+            try testArgs(f64, tmin(f64), -fmax(f64));
+            try testArgs(f64, tmin(f64), -10.0);
+            try testArgs(f64, tmin(f64), -1.0);
+            try testArgs(f64, tmin(f64), -0.1);
+            try testArgs(f64, tmin(f64), -fmin(f64));
+            try testArgs(f64, tmin(f64), -tmin(f64));
+            try testArgs(f64, tmin(f64), -0.0);
+            try testArgs(f64, tmin(f64), 0.0);
+            try testArgs(f64, tmin(f64), tmin(f64));
+            try testArgs(f64, tmin(f64), fmin(f64));
+            try testArgs(f64, tmin(f64), 0.1);
+            try testArgs(f64, tmin(f64), 1.0);
+            try testArgs(f64, tmin(f64), 10.0);
+            try testArgs(f64, tmin(f64), fmax(f64));
+            try testArgs(f64, tmin(f64), inf(f64));
+            try testArgs(f64, tmin(f64), nan(f64));
+
+            try testArgs(f64, fmin(f64), -nan(f64));
+            try testArgs(f64, fmin(f64), -inf(f64));
+            try testArgs(f64, fmin(f64), -fmax(f64));
+            try testArgs(f64, fmin(f64), -10.0);
+            try testArgs(f64, fmin(f64), -1.0);
+            try testArgs(f64, fmin(f64), -0.1);
+            try testArgs(f64, fmin(f64), -fmin(f64));
+            try testArgs(f64, fmin(f64), -tmin(f64));
+            try testArgs(f64, fmin(f64), -0.0);
+            try testArgs(f64, fmin(f64), 0.0);
+            try testArgs(f64, fmin(f64), tmin(f64));
+            try testArgs(f64, fmin(f64), fmin(f64));
+            try testArgs(f64, fmin(f64), 0.1);
+            try testArgs(f64, fmin(f64), 1.0);
+            try testArgs(f64, fmin(f64), 10.0);
+            try testArgs(f64, fmin(f64), fmax(f64));
+            try testArgs(f64, fmin(f64), inf(f64));
+            try testArgs(f64, fmin(f64), nan(f64));
+
+            try testArgs(f64, 0.1, -nan(f64));
+            try testArgs(f64, 0.1, -inf(f64));
+            try testArgs(f64, 0.1, -fmax(f64));
+            try testArgs(f64, 0.1, -10.0);
+            try testArgs(f64, 0.1, -1.0);
+            try testArgs(f64, 0.1, -0.1);
+            try testArgs(f64, 0.1, -fmin(f64));
+            try testArgs(f64, 0.1, -tmin(f64));
+            try testArgs(f64, 0.1, -0.0);
+            try testArgs(f64, 0.1, 0.0);
+            try testArgs(f64, 0.1, tmin(f64));
+            try testArgs(f64, 0.1, fmin(f64));
+            try testArgs(f64, 0.1, 0.1);
+            try testArgs(f64, 0.1, 1.0);
+            try testArgs(f64, 0.1, 10.0);
+            try testArgs(f64, 0.1, fmax(f64));
+            try testArgs(f64, 0.1, inf(f64));
+            try testArgs(f64, 0.1, nan(f64));
+
+            try testArgs(f64, 1.0, -nan(f64));
+            try testArgs(f64, 1.0, -inf(f64));
+            try testArgs(f64, 1.0, -fmax(f64));
+            try testArgs(f64, 1.0, -10.0);
+            try testArgs(f64, 1.0, -1.0);
+            try testArgs(f64, 1.0, -0.1);
+            try testArgs(f64, 1.0, -fmin(f64));
+            try testArgs(f64, 1.0, -tmin(f64));
+            try testArgs(f64, 1.0, -0.0);
+            try testArgs(f64, 1.0, 0.0);
+            try testArgs(f64, 1.0, tmin(f64));
+            try testArgs(f64, 1.0, fmin(f64));
+            try testArgs(f64, 1.0, 0.1);
+            try testArgs(f64, 1.0, 1.0);
+            try testArgs(f64, 1.0, 10.0);
+            try testArgs(f64, 1.0, fmax(f64));
+            try testArgs(f64, 1.0, inf(f64));
+            try testArgs(f64, 1.0, nan(f64));
+
+            try testArgs(f64, 10.0, -nan(f64));
+            try testArgs(f64, 10.0, -inf(f64));
+            try testArgs(f64, 10.0, -fmax(f64));
+            try testArgs(f64, 10.0, -10.0);
+            try testArgs(f64, 10.0, -1.0);
+            try testArgs(f64, 10.0, -0.1);
+            try testArgs(f64, 10.0, -fmin(f64));
+            try testArgs(f64, 10.0, -tmin(f64));
+            try testArgs(f64, 10.0, -0.0);
+            try testArgs(f64, 10.0, 0.0);
+            try testArgs(f64, 10.0, tmin(f64));
+            try testArgs(f64, 10.0, fmin(f64));
+            try testArgs(f64, 10.0, 0.1);
+            try testArgs(f64, 10.0, 1.0);
+            try testArgs(f64, 10.0, 10.0);
+            try testArgs(f64, 10.0, fmax(f64));
+            try testArgs(f64, 10.0, inf(f64));
+            try testArgs(f64, 10.0, nan(f64));
+
+            try testArgs(f64, fmax(f64), -nan(f64));
+            try testArgs(f64, fmax(f64), -inf(f64));
+            try testArgs(f64, fmax(f64), -fmax(f64));
+            try testArgs(f64, fmax(f64), -10.0);
+            try testArgs(f64, fmax(f64), -1.0);
+            try testArgs(f64, fmax(f64), -0.1);
+            try testArgs(f64, fmax(f64), -fmin(f64));
+            try testArgs(f64, fmax(f64), -tmin(f64));
+            try testArgs(f64, fmax(f64), -0.0);
+            try testArgs(f64, fmax(f64), 0.0);
+            try testArgs(f64, fmax(f64), tmin(f64));
+            try testArgs(f64, fmax(f64), fmin(f64));
+            try testArgs(f64, fmax(f64), 0.1);
+            try testArgs(f64, fmax(f64), 1.0);
+            try testArgs(f64, fmax(f64), 10.0);
+            try testArgs(f64, fmax(f64), fmax(f64));
+            try testArgs(f64, fmax(f64), inf(f64));
+            try testArgs(f64, fmax(f64), nan(f64));
+
+            try testArgs(f64, inf(f64), -nan(f64));
+            try testArgs(f64, inf(f64), -inf(f64));
+            try testArgs(f64, inf(f64), -fmax(f64));
+            try testArgs(f64, inf(f64), -10.0);
+            try testArgs(f64, inf(f64), -1.0);
+            try testArgs(f64, inf(f64), -0.1);
+            try testArgs(f64, inf(f64), -fmin(f64));
+            try testArgs(f64, inf(f64), -tmin(f64));
+            try testArgs(f64, inf(f64), -0.0);
+            try testArgs(f64, inf(f64), 0.0);
+            try testArgs(f64, inf(f64), tmin(f64));
+            try testArgs(f64, inf(f64), fmin(f64));
+            try testArgs(f64, inf(f64), 0.1);
+            try testArgs(f64, inf(f64), 1.0);
+            try testArgs(f64, inf(f64), 10.0);
+            try testArgs(f64, inf(f64), fmax(f64));
+            try testArgs(f64, inf(f64), inf(f64));
+            try testArgs(f64, inf(f64), nan(f64));
+
+            try testArgs(f64, nan(f64), -nan(f64));
+            try testArgs(f64, nan(f64), -inf(f64));
+            try testArgs(f64, nan(f64), -fmax(f64));
+            try testArgs(f64, nan(f64), -10.0);
+            try testArgs(f64, nan(f64), -1.0);
+            try testArgs(f64, nan(f64), -0.1);
+            try testArgs(f64, nan(f64), -fmin(f64));
+            try testArgs(f64, nan(f64), -tmin(f64));
+            try testArgs(f64, nan(f64), -0.0);
+            try testArgs(f64, nan(f64), 0.0);
+            try testArgs(f64, nan(f64), tmin(f64));
+            try testArgs(f64, nan(f64), fmin(f64));
+            try testArgs(f64, nan(f64), 0.1);
+            try testArgs(f64, nan(f64), 1.0);
+            try testArgs(f64, nan(f64), 10.0);
+            try testArgs(f64, nan(f64), fmax(f64));
+            try testArgs(f64, nan(f64), inf(f64));
+            try testArgs(f64, nan(f64), nan(f64));
+
+            try testArgs(f80, -nan(f80), -nan(f80));
+            try testArgs(f80, -nan(f80), -inf(f80));
+            try testArgs(f80, -nan(f80), -fmax(f80));
+            try testArgs(f80, -nan(f80), -10.0);
+            try testArgs(f80, -nan(f80), -1.0);
+            try testArgs(f80, -nan(f80), -0.1);
+            try testArgs(f80, -nan(f80), -fmin(f80));
+            try testArgs(f80, -nan(f80), -tmin(f80));
+            try testArgs(f80, -nan(f80), -0.0);
+            try testArgs(f80, -nan(f80), 0.0);
+            try testArgs(f80, -nan(f80), tmin(f80));
+            try testArgs(f80, -nan(f80), fmin(f80));
+            try testArgs(f80, -nan(f80), 0.1);
+            try testArgs(f80, -nan(f80), 1.0);
+            try testArgs(f80, -nan(f80), 10.0);
+            try testArgs(f80, -nan(f80), fmax(f80));
+            try testArgs(f80, -nan(f80), inf(f80));
+            try testArgs(f80, -nan(f80), nan(f80));
+
+            try testArgs(f80, -inf(f80), -nan(f80));
+            try testArgs(f80, -inf(f80), -inf(f80));
+            try testArgs(f80, -inf(f80), -fmax(f80));
+            try testArgs(f80, -inf(f80), -10.0);
+            try testArgs(f80, -inf(f80), -1.0);
+            try testArgs(f80, -inf(f80), -0.1);
+            try testArgs(f80, -inf(f80), -fmin(f80));
+            try testArgs(f80, -inf(f80), -tmin(f80));
+            try testArgs(f80, -inf(f80), -0.0);
+            try testArgs(f80, -inf(f80), 0.0);
+            try testArgs(f80, -inf(f80), tmin(f80));
+            try testArgs(f80, -inf(f80), fmin(f80));
+            try testArgs(f80, -inf(f80), 0.1);
+            try testArgs(f80, -inf(f80), 1.0);
+            try testArgs(f80, -inf(f80), 10.0);
+            try testArgs(f80, -inf(f80), fmax(f80));
+            try testArgs(f80, -inf(f80), inf(f80));
+            try testArgs(f80, -inf(f80), nan(f80));
+
+            try testArgs(f80, -fmax(f80), -nan(f80));
+            try testArgs(f80, -fmax(f80), -inf(f80));
+            try testArgs(f80, -fmax(f80), -fmax(f80));
+            try testArgs(f80, -fmax(f80), -10.0);
+            try testArgs(f80, -fmax(f80), -1.0);
+            try testArgs(f80, -fmax(f80), -0.1);
+            try testArgs(f80, -fmax(f80), -fmin(f80));
+            try testArgs(f80, -fmax(f80), -tmin(f80));
+            try testArgs(f80, -fmax(f80), -0.0);
+            try testArgs(f80, -fmax(f80), 0.0);
+            try testArgs(f80, -fmax(f80), tmin(f80));
+            try testArgs(f80, -fmax(f80), fmin(f80));
+            try testArgs(f80, -fmax(f80), 0.1);
+            try testArgs(f80, -fmax(f80), 1.0);
+            try testArgs(f80, -fmax(f80), 10.0);
+            try testArgs(f80, -fmax(f80), fmax(f80));
+            try testArgs(f80, -fmax(f80), inf(f80));
+            try testArgs(f80, -fmax(f80), nan(f80));
+
+            try testArgs(f80, -10.0, -nan(f80));
+            try testArgs(f80, -10.0, -inf(f80));
+            try testArgs(f80, -10.0, -fmax(f80));
+            try testArgs(f80, -10.0, -10.0);
+            try testArgs(f80, -10.0, -1.0);
+            try testArgs(f80, -10.0, -0.1);
+            try testArgs(f80, -10.0, -fmin(f80));
+            try testArgs(f80, -10.0, -tmin(f80));
+            try testArgs(f80, -10.0, -0.0);
+            try testArgs(f80, -10.0, 0.0);
+            try testArgs(f80, -10.0, tmin(f80));
+            try testArgs(f80, -10.0, fmin(f80));
+            try testArgs(f80, -10.0, 0.1);
+            try testArgs(f80, -10.0, 1.0);
+            try testArgs(f80, -10.0, 10.0);
+            try testArgs(f80, -10.0, fmax(f80));
+            try testArgs(f80, -10.0, inf(f80));
+            try testArgs(f80, -10.0, nan(f80));
+
+            try testArgs(f80, -1.0, -nan(f80));
+            try testArgs(f80, -1.0, -inf(f80));
+            try testArgs(f80, -1.0, -fmax(f80));
+            try testArgs(f80, -1.0, -10.0);
+            try testArgs(f80, -1.0, -1.0);
+            try testArgs(f80, -1.0, -0.1);
+            try testArgs(f80, -1.0, -fmin(f80));
+            try testArgs(f80, -1.0, -tmin(f80));
+            try testArgs(f80, -1.0, -0.0);
+            try testArgs(f80, -1.0, 0.0);
+            try testArgs(f80, -1.0, tmin(f80));
+            try testArgs(f80, -1.0, fmin(f80));
+            try testArgs(f80, -1.0, 0.1);
+            try testArgs(f80, -1.0, 1.0);
+            try testArgs(f80, -1.0, 10.0);
+            try testArgs(f80, -1.0, fmax(f80));
+            try testArgs(f80, -1.0, inf(f80));
+            try testArgs(f80, -1.0, nan(f80));
+
+            try testArgs(f80, -0.1, -nan(f80));
+            try testArgs(f80, -0.1, -inf(f80));
+            try testArgs(f80, -0.1, -fmax(f80));
+            try testArgs(f80, -0.1, -10.0);
+            try testArgs(f80, -0.1, -1.0);
+            try testArgs(f80, -0.1, -0.1);
+            try testArgs(f80, -0.1, -fmin(f80));
+            try testArgs(f80, -0.1, -tmin(f80));
+            try testArgs(f80, -0.1, -0.0);
+            try testArgs(f80, -0.1, 0.0);
+            try testArgs(f80, -0.1, tmin(f80));
+            try testArgs(f80, -0.1, fmin(f80));
+            try testArgs(f80, -0.1, 0.1);
+            try testArgs(f80, -0.1, 1.0);
+            try testArgs(f80, -0.1, 10.0);
+            try testArgs(f80, -0.1, fmax(f80));
+            try testArgs(f80, -0.1, inf(f80));
+            try testArgs(f80, -0.1, nan(f80));
+
+            try testArgs(f80, -fmin(f80), -nan(f80));
+            try testArgs(f80, -fmin(f80), -inf(f80));
+            try testArgs(f80, -fmin(f80), -fmax(f80));
+            try testArgs(f80, -fmin(f80), -10.0);
+            try testArgs(f80, -fmin(f80), -1.0);
+            try testArgs(f80, -fmin(f80), -0.1);
+            try testArgs(f80, -fmin(f80), -fmin(f80));
+            try testArgs(f80, -fmin(f80), -tmin(f80));
+            try testArgs(f80, -fmin(f80), -0.0);
+            try testArgs(f80, -fmin(f80), 0.0);
+            try testArgs(f80, -fmin(f80), tmin(f80));
+            try testArgs(f80, -fmin(f80), fmin(f80));
+            try testArgs(f80, -fmin(f80), 0.1);
+            try testArgs(f80, -fmin(f80), 1.0);
+            try testArgs(f80, -fmin(f80), 10.0);
+            try testArgs(f80, -fmin(f80), fmax(f80));
+            try testArgs(f80, -fmin(f80), inf(f80));
+            try testArgs(f80, -fmin(f80), nan(f80));
+
+            try testArgs(f80, -tmin(f80), -nan(f80));
+            try testArgs(f80, -tmin(f80), -inf(f80));
+            try testArgs(f80, -tmin(f80), -fmax(f80));
+            try testArgs(f80, -tmin(f80), -10.0);
+            try testArgs(f80, -tmin(f80), -1.0);
+            try testArgs(f80, -tmin(f80), -0.1);
+            try testArgs(f80, -tmin(f80), -fmin(f80));
+            try testArgs(f80, -tmin(f80), -tmin(f80));
+            try testArgs(f80, -tmin(f80), -0.0);
+            try testArgs(f80, -tmin(f80), 0.0);
+            try testArgs(f80, -tmin(f80), tmin(f80));
+            try testArgs(f80, -tmin(f80), fmin(f80));
+            try testArgs(f80, -tmin(f80), 0.1);
+            try testArgs(f80, -tmin(f80), 1.0);
+            try testArgs(f80, -tmin(f80), 10.0);
+            try testArgs(f80, -tmin(f80), fmax(f80));
+            try testArgs(f80, -tmin(f80), inf(f80));
+            try testArgs(f80, -tmin(f80), nan(f80));
+
+            try testArgs(f80, -0.0, -nan(f80));
+            try testArgs(f80, -0.0, -inf(f80));
+            try testArgs(f80, -0.0, -fmax(f80));
+            try testArgs(f80, -0.0, -10.0);
+            try testArgs(f80, -0.0, -1.0);
+            try testArgs(f80, -0.0, -0.1);
+            try testArgs(f80, -0.0, -fmin(f80));
+            try testArgs(f80, -0.0, -tmin(f80));
+            try testArgs(f80, -0.0, -0.0);
+            try testArgs(f80, -0.0, 0.0);
+            try testArgs(f80, -0.0, tmin(f80));
+            try testArgs(f80, -0.0, fmin(f80));
+            try testArgs(f80, -0.0, 0.1);
+            try testArgs(f80, -0.0, 1.0);
+            try testArgs(f80, -0.0, 10.0);
+            try testArgs(f80, -0.0, fmax(f80));
+            try testArgs(f80, -0.0, inf(f80));
+            try testArgs(f80, -0.0, nan(f80));
+
+            try testArgs(f80, 0.0, -nan(f80));
+            try testArgs(f80, 0.0, -inf(f80));
+            try testArgs(f80, 0.0, -fmax(f80));
+            try testArgs(f80, 0.0, -10.0);
+            try testArgs(f80, 0.0, -1.0);
+            try testArgs(f80, 0.0, -0.1);
+            try testArgs(f80, 0.0, -fmin(f80));
+            try testArgs(f80, 0.0, -tmin(f80));
+            try testArgs(f80, 0.0, -0.0);
+            try testArgs(f80, 0.0, 0.0);
+            try testArgs(f80, 0.0, tmin(f80));
+            try testArgs(f80, 0.0, fmin(f80));
+            try testArgs(f80, 0.0, 0.1);
+            try testArgs(f80, 0.0, 1.0);
+            try testArgs(f80, 0.0, 10.0);
+            try testArgs(f80, 0.0, fmax(f80));
+            try testArgs(f80, 0.0, inf(f80));
+            try testArgs(f80, 0.0, nan(f80));
+
+            try testArgs(f80, tmin(f80), -nan(f80));
+            try testArgs(f80, tmin(f80), -inf(f80));
+            try testArgs(f80, tmin(f80), -fmax(f80));
+            try testArgs(f80, tmin(f80), -10.0);
+            try testArgs(f80, tmin(f80), -1.0);
+            try testArgs(f80, tmin(f80), -0.1);
+            try testArgs(f80, tmin(f80), -fmin(f80));
+            try testArgs(f80, tmin(f80), -tmin(f80));
+            try testArgs(f80, tmin(f80), -0.0);
+            try testArgs(f80, tmin(f80), 0.0);
+            try testArgs(f80, tmin(f80), tmin(f80));
+            try testArgs(f80, tmin(f80), fmin(f80));
+            try testArgs(f80, tmin(f80), 0.1);
+            try testArgs(f80, tmin(f80), 1.0);
+            try testArgs(f80, tmin(f80), 10.0);
+            try testArgs(f80, tmin(f80), fmax(f80));
+            try testArgs(f80, tmin(f80), inf(f80));
+            try testArgs(f80, tmin(f80), nan(f80));
+
+            try testArgs(f80, fmin(f80), -nan(f80));
+            try testArgs(f80, fmin(f80), -inf(f80));
+            try testArgs(f80, fmin(f80), -fmax(f80));
+            try testArgs(f80, fmin(f80), -10.0);
+            try testArgs(f80, fmin(f80), -1.0);
+            try testArgs(f80, fmin(f80), -0.1);
+            try testArgs(f80, fmin(f80), -fmin(f80));
+            try testArgs(f80, fmin(f80), -tmin(f80));
+            try testArgs(f80, fmin(f80), -0.0);
+            try testArgs(f80, fmin(f80), 0.0);
+            try testArgs(f80, fmin(f80), tmin(f80));
+            try testArgs(f80, fmin(f80), fmin(f80));
+            try testArgs(f80, fmin(f80), 0.1);
+            try testArgs(f80, fmin(f80), 1.0);
+            try testArgs(f80, fmin(f80), 10.0);
+            try testArgs(f80, fmin(f80), fmax(f80));
+            try testArgs(f80, fmin(f80), inf(f80));
+            try testArgs(f80, fmin(f80), nan(f80));
+
+            try testArgs(f80, 0.1, -nan(f80));
+            try testArgs(f80, 0.1, -inf(f80));
+            try testArgs(f80, 0.1, -fmax(f80));
+            try testArgs(f80, 0.1, -10.0);
+            try testArgs(f80, 0.1, -1.0);
+            try testArgs(f80, 0.1, -0.1);
+            try testArgs(f80, 0.1, -fmin(f80));
+            try testArgs(f80, 0.1, -tmin(f80));
+            try testArgs(f80, 0.1, -0.0);
+            try testArgs(f80, 0.1, 0.0);
+            try testArgs(f80, 0.1, tmin(f80));
+            try testArgs(f80, 0.1, fmin(f80));
+            try testArgs(f80, 0.1, 0.1);
+            try testArgs(f80, 0.1, 1.0);
+            try testArgs(f80, 0.1, 10.0);
+            try testArgs(f80, 0.1, fmax(f80));
+            try testArgs(f80, 0.1, inf(f80));
+            try testArgs(f80, 0.1, nan(f80));
+
+            try testArgs(f80, 1.0, -nan(f80));
+            try testArgs(f80, 1.0, -inf(f80));
+            try testArgs(f80, 1.0, -fmax(f80));
+            try testArgs(f80, 1.0, -10.0);
+            try testArgs(f80, 1.0, -1.0);
+            try testArgs(f80, 1.0, -0.1);
+            try testArgs(f80, 1.0, -fmin(f80));
+            try testArgs(f80, 1.0, -tmin(f80));
+            try testArgs(f80, 1.0, -0.0);
+            try testArgs(f80, 1.0, 0.0);
+            try testArgs(f80, 1.0, tmin(f80));
+            try testArgs(f80, 1.0, fmin(f80));
+            try testArgs(f80, 1.0, 0.1);
+            try testArgs(f80, 1.0, 1.0);
+            try testArgs(f80, 1.0, 10.0);
+            try testArgs(f80, 1.0, fmax(f80));
+            try testArgs(f80, 1.0, inf(f80));
+            try testArgs(f80, 1.0, nan(f80));
+
+            try testArgs(f80, 10.0, -nan(f80));
+            try testArgs(f80, 10.0, -inf(f80));
+            try testArgs(f80, 10.0, -fmax(f80));
+            try testArgs(f80, 10.0, -10.0);
+            try testArgs(f80, 10.0, -1.0);
+            try testArgs(f80, 10.0, -0.1);
+            try testArgs(f80, 10.0, -fmin(f80));
+            try testArgs(f80, 10.0, -tmin(f80));
+            try testArgs(f80, 10.0, -0.0);
+            try testArgs(f80, 10.0, 0.0);
+            try testArgs(f80, 10.0, tmin(f80));
+            try testArgs(f80, 10.0, fmin(f80));
+            try testArgs(f80, 10.0, 0.1);
+            try testArgs(f80, 10.0, 1.0);
+            try testArgs(f80, 10.0, 10.0);
+            try testArgs(f80, 10.0, fmax(f80));
+            try testArgs(f80, 10.0, inf(f80));
+            try testArgs(f80, 10.0, nan(f80));
+
+            try testArgs(f80, fmax(f80), -nan(f80));
+            try testArgs(f80, fmax(f80), -inf(f80));
+            try testArgs(f80, fmax(f80), -fmax(f80));
+            try testArgs(f80, fmax(f80), -10.0);
+            try testArgs(f80, fmax(f80), -1.0);
+            try testArgs(f80, fmax(f80), -0.1);
+            try testArgs(f80, fmax(f80), -fmin(f80));
+            try testArgs(f80, fmax(f80), -tmin(f80));
+            try testArgs(f80, fmax(f80), -0.0);
+            try testArgs(f80, fmax(f80), 0.0);
+            try testArgs(f80, fmax(f80), tmin(f80));
+            try testArgs(f80, fmax(f80), fmin(f80));
+            try testArgs(f80, fmax(f80), 0.1);
+            try testArgs(f80, fmax(f80), 1.0);
+            try testArgs(f80, fmax(f80), 10.0);
+            try testArgs(f80, fmax(f80), fmax(f80));
+            try testArgs(f80, fmax(f80), inf(f80));
+            try testArgs(f80, fmax(f80), nan(f80));
+
+            try testArgs(f80, inf(f80), -nan(f80));
+            try testArgs(f80, inf(f80), -inf(f80));
+            try testArgs(f80, inf(f80), -fmax(f80));
+            try testArgs(f80, inf(f80), -10.0);
+            try testArgs(f80, inf(f80), -1.0);
+            try testArgs(f80, inf(f80), -0.1);
+            try testArgs(f80, inf(f80), -fmin(f80));
+            try testArgs(f80, inf(f80), -tmin(f80));
+            try testArgs(f80, inf(f80), -0.0);
+            try testArgs(f80, inf(f80), 0.0);
+            try testArgs(f80, inf(f80), tmin(f80));
+            try testArgs(f80, inf(f80), fmin(f80));
+            try testArgs(f80, inf(f80), 0.1);
+            try testArgs(f80, inf(f80), 1.0);
+            try testArgs(f80, inf(f80), 10.0);
+            try testArgs(f80, inf(f80), fmax(f80));
+            try testArgs(f80, inf(f80), inf(f80));
+            try testArgs(f80, inf(f80), nan(f80));
+
+            try testArgs(f80, nan(f80), -nan(f80));
+            try testArgs(f80, nan(f80), -inf(f80));
+            try testArgs(f80, nan(f80), -fmax(f80));
+            try testArgs(f80, nan(f80), -10.0);
+            try testArgs(f80, nan(f80), -1.0);
+            try testArgs(f80, nan(f80), -0.1);
+            try testArgs(f80, nan(f80), -fmin(f80));
+            try testArgs(f80, nan(f80), -tmin(f80));
+            try testArgs(f80, nan(f80), -0.0);
+            try testArgs(f80, nan(f80), 0.0);
+            try testArgs(f80, nan(f80), tmin(f80));
+            try testArgs(f80, nan(f80), fmin(f80));
+            try testArgs(f80, nan(f80), 0.1);
+            try testArgs(f80, nan(f80), 1.0);
+            try testArgs(f80, nan(f80), 10.0);
+            try testArgs(f80, nan(f80), fmax(f80));
+            try testArgs(f80, nan(f80), inf(f80));
+            try testArgs(f80, nan(f80), nan(f80));
+
+            try testArgs(f128, -nan(f128), -nan(f128));
+            try testArgs(f128, -nan(f128), -inf(f128));
+            try testArgs(f128, -nan(f128), -fmax(f128));
+            try testArgs(f128, -nan(f128), -10.0);
+            try testArgs(f128, -nan(f128), -1.0);
+            try testArgs(f128, -nan(f128), -0.1);
+            try testArgs(f128, -nan(f128), -fmin(f128));
+            try testArgs(f128, -nan(f128), -tmin(f128));
+            try testArgs(f128, -nan(f128), -0.0);
+            try testArgs(f128, -nan(f128), 0.0);
+            try testArgs(f128, -nan(f128), tmin(f128));
+            try testArgs(f128, -nan(f128), fmin(f128));
+            try testArgs(f128, -nan(f128), 0.1);
+            try testArgs(f128, -nan(f128), 1.0);
+            try testArgs(f128, -nan(f128), 10.0);
+            try testArgs(f128, -nan(f128), fmax(f128));
+            try testArgs(f128, -nan(f128), inf(f128));
+            try testArgs(f128, -nan(f128), nan(f128));
+
+            try testArgs(f128, -inf(f128), -nan(f128));
+            try testArgs(f128, -inf(f128), -inf(f128));
+            try testArgs(f128, -inf(f128), -fmax(f128));
+            try testArgs(f128, -inf(f128), -10.0);
+            try testArgs(f128, -inf(f128), -1.0);
+            try testArgs(f128, -inf(f128), -0.1);
+            try testArgs(f128, -inf(f128), -fmin(f128));
+            try testArgs(f128, -inf(f128), -tmin(f128));
+            try testArgs(f128, -inf(f128), -0.0);
+            try testArgs(f128, -inf(f128), 0.0);
+            try testArgs(f128, -inf(f128), tmin(f128));
+            try testArgs(f128, -inf(f128), fmin(f128));
+            try testArgs(f128, -inf(f128), 0.1);
+            try testArgs(f128, -inf(f128), 1.0);
+            try testArgs(f128, -inf(f128), 10.0);
+            try testArgs(f128, -inf(f128), fmax(f128));
+            try testArgs(f128, -inf(f128), inf(f128));
+            try testArgs(f128, -inf(f128), nan(f128));
+
+            try testArgs(f128, -fmax(f128), -nan(f128));
+            try testArgs(f128, -fmax(f128), -inf(f128));
+            try testArgs(f128, -fmax(f128), -fmax(f128));
+            try testArgs(f128, -fmax(f128), -10.0);
+            try testArgs(f128, -fmax(f128), -1.0);
+            try testArgs(f128, -fmax(f128), -0.1);
+            try testArgs(f128, -fmax(f128), -fmin(f128));
+            try testArgs(f128, -fmax(f128), -tmin(f128));
+            try testArgs(f128, -fmax(f128), -0.0);
+            try testArgs(f128, -fmax(f128), 0.0);
+            try testArgs(f128, -fmax(f128), tmin(f128));
+            try testArgs(f128, -fmax(f128), fmin(f128));
+            try testArgs(f128, -fmax(f128), 0.1);
+            try testArgs(f128, -fmax(f128), 1.0);
+            try testArgs(f128, -fmax(f128), 10.0);
+            try testArgs(f128, -fmax(f128), fmax(f128));
+            try testArgs(f128, -fmax(f128), inf(f128));
+            try testArgs(f128, -fmax(f128), nan(f128));
+
+            try testArgs(f128, -10.0, -nan(f128));
+            try testArgs(f128, -10.0, -inf(f128));
+            try testArgs(f128, -10.0, -fmax(f128));
+            try testArgs(f128, -10.0, -10.0);
+            try testArgs(f128, -10.0, -1.0);
+            try testArgs(f128, -10.0, -0.1);
+            try testArgs(f128, -10.0, -fmin(f128));
+            try testArgs(f128, -10.0, -tmin(f128));
+            try testArgs(f128, -10.0, -0.0);
+            try testArgs(f128, -10.0, 0.0);
+            try testArgs(f128, -10.0, tmin(f128));
+            try testArgs(f128, -10.0, fmin(f128));
+            try testArgs(f128, -10.0, 0.1);
+            try testArgs(f128, -10.0, 1.0);
+            try testArgs(f128, -10.0, 10.0);
+            try testArgs(f128, -10.0, fmax(f128));
+            try testArgs(f128, -10.0, inf(f128));
+            try testArgs(f128, -10.0, nan(f128));
+
+            try testArgs(f128, -1.0, -nan(f128));
+            try testArgs(f128, -1.0, -inf(f128));
+            try testArgs(f128, -1.0, -fmax(f128));
+            try testArgs(f128, -1.0, -10.0);
+            try testArgs(f128, -1.0, -1.0);
+            try testArgs(f128, -1.0, -0.1);
+            try testArgs(f128, -1.0, -fmin(f128));
+            try testArgs(f128, -1.0, -tmin(f128));
+            try testArgs(f128, -1.0, -0.0);
+            try testArgs(f128, -1.0, 0.0);
+            try testArgs(f128, -1.0, tmin(f128));
+            try testArgs(f128, -1.0, fmin(f128));
+            try testArgs(f128, -1.0, 0.1);
+            try testArgs(f128, -1.0, 1.0);
+            try testArgs(f128, -1.0, 10.0);
+            try testArgs(f128, -1.0, fmax(f128));
+            try testArgs(f128, -1.0, inf(f128));
+            try testArgs(f128, -1.0, nan(f128));
+
+            try testArgs(f128, -0.1, -nan(f128));
+            try testArgs(f128, -0.1, -inf(f128));
+            try testArgs(f128, -0.1, -fmax(f128));
+            try testArgs(f128, -0.1, -10.0);
+            try testArgs(f128, -0.1, -1.0);
+            try testArgs(f128, -0.1, -0.1);
+            try testArgs(f128, -0.1, -fmin(f128));
+            try testArgs(f128, -0.1, -tmin(f128));
+            try testArgs(f128, -0.1, -0.0);
+            try testArgs(f128, -0.1, 0.0);
+            try testArgs(f128, -0.1, tmin(f128));
+            try testArgs(f128, -0.1, fmin(f128));
+            try testArgs(f128, -0.1, 0.1);
+            try testArgs(f128, -0.1, 1.0);
+            try testArgs(f128, -0.1, 10.0);
+            try testArgs(f128, -0.1, fmax(f128));
+            try testArgs(f128, -0.1, inf(f128));
+            try testArgs(f128, -0.1, nan(f128));
+
+            try testArgs(f128, -fmin(f128), -nan(f128));
+            try testArgs(f128, -fmin(f128), -inf(f128));
+            try testArgs(f128, -fmin(f128), -fmax(f128));
+            try testArgs(f128, -fmin(f128), -10.0);
+            try testArgs(f128, -fmin(f128), -1.0);
+            try testArgs(f128, -fmin(f128), -0.1);
+            try testArgs(f128, -fmin(f128), -fmin(f128));
+            try testArgs(f128, -fmin(f128), -tmin(f128));
+            try testArgs(f128, -fmin(f128), -0.0);
+            try testArgs(f128, -fmin(f128), 0.0);
+            try testArgs(f128, -fmin(f128), tmin(f128));
+            try testArgs(f128, -fmin(f128), fmin(f128));
+            try testArgs(f128, -fmin(f128), 0.1);
+            try testArgs(f128, -fmin(f128), 1.0);
+            try testArgs(f128, -fmin(f128), 10.0);
+            try testArgs(f128, -fmin(f128), fmax(f128));
+            try testArgs(f128, -fmin(f128), inf(f128));
+            try testArgs(f128, -fmin(f128), nan(f128));
+
+            try testArgs(f128, -tmin(f128), -nan(f128));
+            try testArgs(f128, -tmin(f128), -inf(f128));
+            try testArgs(f128, -tmin(f128), -fmax(f128));
+            try testArgs(f128, -tmin(f128), -10.0);
+            try testArgs(f128, -tmin(f128), -1.0);
+            try testArgs(f128, -tmin(f128), -0.1);
+            try testArgs(f128, -tmin(f128), -fmin(f128));
+            try testArgs(f128, -tmin(f128), -tmin(f128));
+            try testArgs(f128, -tmin(f128), -0.0);
+            try testArgs(f128, -tmin(f128), 0.0);
+            try testArgs(f128, -tmin(f128), tmin(f128));
+            try testArgs(f128, -tmin(f128), fmin(f128));
+            try testArgs(f128, -tmin(f128), 0.1);
+            try testArgs(f128, -tmin(f128), 1.0);
+            try testArgs(f128, -tmin(f128), 10.0);
+            try testArgs(f128, -tmin(f128), fmax(f128));
+            try testArgs(f128, -tmin(f128), inf(f128));
+            try testArgs(f128, -tmin(f128), nan(f128));
+
+            try testArgs(f128, -0.0, -nan(f128));
+            try testArgs(f128, -0.0, -inf(f128));
+            try testArgs(f128, -0.0, -fmax(f128));
+            try testArgs(f128, -0.0, -10.0);
+            try testArgs(f128, -0.0, -1.0);
+            try testArgs(f128, -0.0, -0.1);
+            try testArgs(f128, -0.0, -fmin(f128));
+            try testArgs(f128, -0.0, -tmin(f128));
+            try testArgs(f128, -0.0, -0.0);
+            try testArgs(f128, -0.0, 0.0);
+            try testArgs(f128, -0.0, tmin(f128));
+            try testArgs(f128, -0.0, fmin(f128));
+            try testArgs(f128, -0.0, 0.1);
+            try testArgs(f128, -0.0, 1.0);
+            try testArgs(f128, -0.0, 10.0);
+            try testArgs(f128, -0.0, fmax(f128));
+            try testArgs(f128, -0.0, inf(f128));
+            try testArgs(f128, -0.0, nan(f128));
+
+            try testArgs(f128, 0.0, -nan(f128));
+            try testArgs(f128, 0.0, -inf(f128));
+            try testArgs(f128, 0.0, -fmax(f128));
+            try testArgs(f128, 0.0, -10.0);
+            try testArgs(f128, 0.0, -1.0);
+            try testArgs(f128, 0.0, -0.1);
+            try testArgs(f128, 0.0, -fmin(f128));
+            try testArgs(f128, 0.0, -tmin(f128));
+            try testArgs(f128, 0.0, -0.0);
+            try testArgs(f128, 0.0, 0.0);
+            try testArgs(f128, 0.0, tmin(f128));
+            try testArgs(f128, 0.0, fmin(f128));
+            try testArgs(f128, 0.0, 0.1);
+            try testArgs(f128, 0.0, 1.0);
+            try testArgs(f128, 0.0, 10.0);
+            try testArgs(f128, 0.0, fmax(f128));
+            try testArgs(f128, 0.0, inf(f128));
+            try testArgs(f128, 0.0, nan(f128));
+
+            try testArgs(f128, tmin(f128), -nan(f128));
+            try testArgs(f128, tmin(f128), -inf(f128));
+            try testArgs(f128, tmin(f128), -fmax(f128));
+            try testArgs(f128, tmin(f128), -10.0);
+            try testArgs(f128, tmin(f128), -1.0);
+            try testArgs(f128, tmin(f128), -0.1);
+            try testArgs(f128, tmin(f128), -fmin(f128));
+            try testArgs(f128, tmin(f128), -tmin(f128));
+            try testArgs(f128, tmin(f128), -0.0);
+            try testArgs(f128, tmin(f128), 0.0);
+            try testArgs(f128, tmin(f128), tmin(f128));
+            try testArgs(f128, tmin(f128), fmin(f128));
+            try testArgs(f128, tmin(f128), 0.1);
+            try testArgs(f128, tmin(f128), 1.0);
+            try testArgs(f128, tmin(f128), 10.0);
+            try testArgs(f128, tmin(f128), fmax(f128));
+            try testArgs(f128, tmin(f128), inf(f128));
+            try testArgs(f128, tmin(f128), nan(f128));
+
+            try testArgs(f128, fmin(f128), -nan(f128));
+            try testArgs(f128, fmin(f128), -inf(f128));
+            try testArgs(f128, fmin(f128), -fmax(f128));
+            try testArgs(f128, fmin(f128), -10.0);
+            try testArgs(f128, fmin(f128), -1.0);
+            try testArgs(f128, fmin(f128), -0.1);
+            try testArgs(f128, fmin(f128), -fmin(f128));
+            try testArgs(f128, fmin(f128), -tmin(f128));
+            try testArgs(f128, fmin(f128), -0.0);
+            try testArgs(f128, fmin(f128), 0.0);
+            try testArgs(f128, fmin(f128), tmin(f128));
+            try testArgs(f128, fmin(f128), fmin(f128));
+            try testArgs(f128, fmin(f128), 0.1);
+            try testArgs(f128, fmin(f128), 1.0);
+            try testArgs(f128, fmin(f128), 10.0);
+            try testArgs(f128, fmin(f128), fmax(f128));
+            try testArgs(f128, fmin(f128), inf(f128));
+            try testArgs(f128, fmin(f128), nan(f128));
+
+            try testArgs(f128, 0.1, -nan(f128));
+            try testArgs(f128, 0.1, -inf(f128));
+            try testArgs(f128, 0.1, -fmax(f128));
+            try testArgs(f128, 0.1, -10.0);
+            try testArgs(f128, 0.1, -1.0);
+            try testArgs(f128, 0.1, -0.1);
+            try testArgs(f128, 0.1, -fmin(f128));
+            try testArgs(f128, 0.1, -tmin(f128));
+            try testArgs(f128, 0.1, -0.0);
+            try testArgs(f128, 0.1, 0.0);
+            try testArgs(f128, 0.1, tmin(f128));
+            try testArgs(f128, 0.1, fmin(f128));
+            try testArgs(f128, 0.1, 0.1);
+            try testArgs(f128, 0.1, 1.0);
+            try testArgs(f128, 0.1, 10.0);
+            try testArgs(f128, 0.1, fmax(f128));
+            try testArgs(f128, 0.1, inf(f128));
+            try testArgs(f128, 0.1, nan(f128));
+
+            try testArgs(f128, 1.0, -nan(f128));
+            try testArgs(f128, 1.0, -inf(f128));
+            try testArgs(f128, 1.0, -fmax(f128));
+            try testArgs(f128, 1.0, -10.0);
+            try testArgs(f128, 1.0, -1.0);
+            try testArgs(f128, 1.0, -0.1);
+            try testArgs(f128, 1.0, -fmin(f128));
+            try testArgs(f128, 1.0, -tmin(f128));
+            try testArgs(f128, 1.0, -0.0);
+            try testArgs(f128, 1.0, 0.0);
+            try testArgs(f128, 1.0, tmin(f128));
+            try testArgs(f128, 1.0, fmin(f128));
+            try testArgs(f128, 1.0, 0.1);
+            try testArgs(f128, 1.0, 1.0);
+            try testArgs(f128, 1.0, 10.0);
+            try testArgs(f128, 1.0, fmax(f128));
+            try testArgs(f128, 1.0, inf(f128));
+            try testArgs(f128, 1.0, nan(f128));
+
+            try testArgs(f128, 10.0, -nan(f128));
+            try testArgs(f128, 10.0, -inf(f128));
+            try testArgs(f128, 10.0, -fmax(f128));
+            try testArgs(f128, 10.0, -10.0);
+            try testArgs(f128, 10.0, -1.0);
+            try testArgs(f128, 10.0, -0.1);
+            try testArgs(f128, 10.0, -fmin(f128));
+            try testArgs(f128, 10.0, -tmin(f128));
+            try testArgs(f128, 10.0, -0.0);
+            try testArgs(f128, 10.0, 0.0);
+            try testArgs(f128, 10.0, tmin(f128));
+            try testArgs(f128, 10.0, fmin(f128));
+            try testArgs(f128, 10.0, 0.1);
+            try testArgs(f128, 10.0, 1.0);
+            try testArgs(f128, 10.0, 10.0);
+            try testArgs(f128, 10.0, fmax(f128));
+            try testArgs(f128, 10.0, inf(f128));
+            try testArgs(f128, 10.0, nan(f128));
+
+            try testArgs(f128, fmax(f128), -nan(f128));
+            try testArgs(f128, fmax(f128), -inf(f128));
+            try testArgs(f128, fmax(f128), -fmax(f128));
+            try testArgs(f128, fmax(f128), -10.0);
+            try testArgs(f128, fmax(f128), -1.0);
+            try testArgs(f128, fmax(f128), -0.1);
+            try testArgs(f128, fmax(f128), -fmin(f128));
+            try testArgs(f128, fmax(f128), -tmin(f128));
+            try testArgs(f128, fmax(f128), -0.0);
+            try testArgs(f128, fmax(f128), 0.0);
+            try testArgs(f128, fmax(f128), tmin(f128));
+            try testArgs(f128, fmax(f128), fmin(f128));
+            try testArgs(f128, fmax(f128), 0.1);
+            try testArgs(f128, fmax(f128), 1.0);
+            try testArgs(f128, fmax(f128), 10.0);
+            try testArgs(f128, fmax(f128), fmax(f128));
+            try testArgs(f128, fmax(f128), inf(f128));
+            try testArgs(f128, fmax(f128), nan(f128));
+
+            try testArgs(f128, inf(f128), -nan(f128));
+            try testArgs(f128, inf(f128), -inf(f128));
+            try testArgs(f128, inf(f128), -fmax(f128));
+            try testArgs(f128, inf(f128), -10.0);
+            try testArgs(f128, inf(f128), -1.0);
+            try testArgs(f128, inf(f128), -0.1);
+            try testArgs(f128, inf(f128), -fmin(f128));
+            try testArgs(f128, inf(f128), -tmin(f128));
+            try testArgs(f128, inf(f128), -0.0);
+            try testArgs(f128, inf(f128), 0.0);
+            try testArgs(f128, inf(f128), tmin(f128));
+            try testArgs(f128, inf(f128), fmin(f128));
+            try testArgs(f128, inf(f128), 0.1);
+            try testArgs(f128, inf(f128), 1.0);
+            try testArgs(f128, inf(f128), 10.0);
+            try testArgs(f128, inf(f128), fmax(f128));
+            try testArgs(f128, inf(f128), inf(f128));
+            try testArgs(f128, inf(f128), nan(f128));
+
+            try testArgs(f128, nan(f128), -nan(f128));
+            try testArgs(f128, nan(f128), -inf(f128));
+            try testArgs(f128, nan(f128), -fmax(f128));
+            try testArgs(f128, nan(f128), -10.0);
+            try testArgs(f128, nan(f128), -1.0);
+            try testArgs(f128, nan(f128), -0.1);
+            try testArgs(f128, nan(f128), -fmin(f128));
+            try testArgs(f128, nan(f128), -tmin(f128));
+            try testArgs(f128, nan(f128), -0.0);
+            try testArgs(f128, nan(f128), 0.0);
+            try testArgs(f128, nan(f128), tmin(f128));
+            try testArgs(f128, nan(f128), fmin(f128));
+            try testArgs(f128, nan(f128), 0.1);
+            try testArgs(f128, nan(f128), 1.0);
+            try testArgs(f128, nan(f128), 10.0);
+            try testArgs(f128, nan(f128), fmax(f128));
+            try testArgs(f128, nan(f128), inf(f128));
+            try testArgs(f128, nan(f128), nan(f128));
         }
         fn testIntVectorTypes() !void {
             try testArgs(@Vector(1, i8), .{
@@ -2062,6 +3781,396 @@ fn Binary(comptime op: anytype) type {
                 0xf1e3bbe031d59351770a7a501b6e969b2c00d144f17648db3f944b69dfeb7be72e5ff933a061eba4eaa422f8ca09e5a97d0b0dd740fd4076eba8c72d7a278523f399202dc2d043c4e0eb58a2bcd4066e2146e321810b1ee4d3afdddb4f026bcc7905ce17e033a7727b4e08f33b53c63d8c9f763fc6c31d0523eb38c30d5e40bc,
             });
         }
+        fn testFloatVectorTypes() !void {
+            @setEvalBranchQuota(21_700);
+
+            try testArgs(@Vector(1, f16), .{
+                -tmin(f16),
+            }, .{
+                fmax(f16),
+            });
+            try testArgs(@Vector(2, f16), .{
+                0.1, 1.0,
+            }, .{
+                -nan(f16), -fmin(f16),
+            });
+            try testArgs(@Vector(4, f16), .{
+                0.1, -fmax(f16), 0.0, 0.1,
+            }, .{
+                -fmin(f16), -10.0, 1.0, -tmin(f16),
+            });
+            try testArgs(@Vector(8, f16), .{
+                -fmax(f16), -fmin(f16), -nan(f16), -0.0, tmin(f16), -0.0, 0.0, 0.1,
+            }, .{
+                -1.0, tmin(f16), nan(f16), nan(f16), -fmax(f16), -10.0, -nan(f16), 10.0,
+            });
+            try testArgs(@Vector(16, f16), .{
+                0.1, fmax(f16), -10.0, fmax(f16), -10.0, 0.1, -tmin(f16), -inf(f16), -tmin(f16), -1.0, -fmin(f16), tmin(f16), 10.0, -fmax(f16), 0.0, -fmin(f16),
+            }, .{
+                inf(f16), -10.0, -fmax(f16), fmax(f16), -tmin(f16), 0.0, -1.0, -1.0, 0.1, -nan(f16), -tmin(f16), 1.0, 0.1, fmax(f16), -0.0, inf(f16),
+            });
+            try testArgs(@Vector(32, f16), .{
+                -inf(f16), tmin(f16), fmin(f16), -nan(f16),  nan(f16),  0.1,      0.0,        10.0, -tmin(f16), inf(f16), 1.0,       -10.0, fmin(f16),  -0.0, 1.0,      -fmax(f16),
+                10.0,      -0.0,      -10.0,     -tmin(f16), fmax(f16), nan(f16), -fmin(f16), -1.0, 0.0,        -10.0,    -nan(f16), 1.0,   -tmin(f16), -0.0, nan(f16), 10.0,
+            }, .{
+                0.0,      10.0, -nan(f16), -0.0, tmin(f16),  fmax(f16), nan(f16),  tmin(f16), -10.0,      0.1,       10.0, fmin(f16), -fmax(f16), inf(f16),   inf(f16),   -tmin(f16),
+                inf(f16), -0.0, 0.1,       0.0,  -fmin(f16), -0.0,      -nan(f16), -inf(f16), -fmin(f16), fmax(f16), 1.0,  fmin(f16), -0.0,       -tmin(f16), -fmax(f16), -10.0,
+            });
+            try testArgs(@Vector(64, f16), .{
+                -nan(f16), fmin(f16),  -inf(f16),  inf(f16),  -tmin(f16), inf(f16),   0.1,       -1.0,      -inf(f16), nan(f16),  -fmin(f16), 0.1,      -tmin(f16), -fmax(f16), -10.0,    inf(f16),
+                0.0,       -fmin(f16), -fmax(f16), 10.0,      -fmax(f16), fmax(f16),  10.0,      fmin(f16), -inf(f16), -nan(f16), -tmin(f16), nan(f16), -0.0,       0.0,        0.1,      -fmin(f16),
+                0.0,       nan(f16),   inf(f16),   fmax(f16), nan(f16),   tmin(f16),  1.0,       tmin(f16), fmin(f16), -10.0,     0.0,        0.1,      inf(f16),   -10.0,      inf(f16), 1.0,
+                0.1,       -inf(f16),  10.0,       -0.0,      -1.0,       -tmin(f16), -nan(f16), 0.1,       0.1,       -nan(f16), -0.0,       -10.0,    -0.0,       -nan(f16),  0.1,      fmin(f16),
+            }, .{
+                10.0,       0.0,       fmax(f16), -inf(f16),  -fmax(f16), -fmax(f16), tmin(f16), -1.0,       -tmin(f16), -10.0, nan(f16), -nan(f16), tmin(f16),  -fmin(f16), nan(f16), -10.0,
+                10.0,       fmax(f16), 0.1,       0.0,        0.1,        -fmax(f16), -0.0,      -fmin(f16), inf(f16),   -1.0,  inf(f16), fmin(f16), -inf(f16),  -tmin(f16), 10.0,     10.0,
+                0.1,        0.1,       0.1,       10.0,       -fmin(f16), inf(f16),   0.1,       fmax(f16),  inf(f16),   -0.0,  -10.0,    tmin(f16), -fmin(f16), 0.0,        10.0,     0.0,
+                -tmin(f16), -inf(f16), 1.0,       -fmax(f16), inf(f16),   10.0,       fmax(f16), -1.0,       0.0,        0.1,   -1.0,     -inf(f16), 0.1,        0.0,        -10.0,    fmax(f16),
+            });
+            try testArgs(@Vector(128, f16), .{
+                -fmin(f16), 1.0,        0.0,       0.1,       nan(f16),   0.1,        0.1,       -inf(f16),  -tmin(f16), 1.0,        -fmin(f16), -fmax(f16), -1.0,      -fmin(f16), 10.0,       -nan(f16),
+                inf(f16),   -inf(f16),  tmin(f16), -10.0,     -1.0,       -0.0,       -0.0,      1.0,        nan(f16),   -10.0,      fmin(f16),  -tmin(f16), tmin(f16), 0.1,        -fmax(f16), fmax(f16),
+                tmin(f16),  -fmin(f16), nan(f16),  10.0,      1.0,        -fmin(f16), 0.1,       10.0,       fmax(f16),  fmax(f16),  fmax(f16),  -1.0,       -nan(f16), 10.0,       tmin(f16),  -nan(f16),
+                -nan(f16),  -inf(f16),  -0.0,      -inf(f16), nan(f16),   -1.0,       0.1,       -fmax(f16), -10.0,      nan(f16),   1.0,        -10.0,      tmin(f16), 1.0,        0.1,        1.0,
+                10.0,       0.1,        tmin(f16), nan(f16),  -inf(f16),  -1.0,       -1.0,      -fmax(f16), -inf(f16),  0.1,        0.1,        -0.0,       10.0,      fmin(f16),  -1.0,       inf(f16),
+                0.1,        -10.0,      inf(f16),  -0.0,      0.1,        0.0,        inf(f16),  1.0,        tmin(f16),  -tmin(f16), 0.1,        inf(f16),   tmin(f16), -inf(f16),  10.0,       1.0,
+                -inf(f16),  0.1,        1.0,       fmax(f16), -fmin(f16), nan(f16),   -nan(f16), fmin(f16),  -1.0,       -fmax(f16), inf(f16),   -fmax(f16), 0.0,       -10.0,      fmin(f16),  -fmax(f16),
+                -0.0,       -1.0,       0.1,       10.0,      inf(f16),   fmax(f16),  inf(f16),  10.0,       fmax(f16),  -0.0,       -tmin(f16), fmin(f16),  inf(f16),  nan(f16),   -fmin(f16), -1.0,
+            }, .{
+                -fmax(f16), fmax(f16),  inf(f16),  1.0,        nan(f16),  0.1,       -fmax(f16), 10.0,       -fmin(f16), 0.1,        fmin(f16),  -0.0,      0.1,        -0.0,      -nan(f16),  -nan(f16),
+                inf(f16),   1.0,        -1.0,      0.1,        0.1,       0.1,       0.0,        -tmin(f16), -1.0,       -10.0,      -tmin(f16), 1.0,       -10.0,      fmin(f16), -fmax(f16), -nan(f16),
+                -tmin(f16), -inf(f16),  inf(f16),  -fmin(f16), -nan(f16), 0.0,       -inf(f16),  -fmax(f16), 0.1,        -inf(f16),  tmin(f16),  nan(f16),  tmin(f16),  fmin(f16), -0.0,       0.1,
+                fmin(f16),  fmin(f16),  1.0,       tmin(f16),  0.0,       10.0,      0.1,        inf(f16),   10.0,       -tmin(f16), tmin(f16),  -1.0,      -fmin(f16), 1.0,       nan(f16),   -fmax(f16),
+                nan(f16),   -fmin(f16), 0.1,       10.0,       -10.0,     1.0,       -0.0,       tmin(f16),  nan(f16),   inf(f16),   -fmax(f16), tmin(f16), -tmin(f16), 10.0,      fmin(f16),  -tmin(f16),
+                -0.0,       1.0,        tmin(f16), fmax(f16),  1.0,       -inf(f16), -nan(f16),  -0.0,       0.1,        -inf(f16),  0.1,        fmax(f16), -inf(f16),  -nan(f16), -1.0,       -inf(f16),
+                0.1,        fmin(f16),  -10.0,     -tmin(f16), 1.0,       -nan(f16), -fmax(f16), -10.0,      -tmin(f16), 10.0,       nan(f16),   fmin(f16), fmax(f16),  tmin(f16), -inf(f16),  1.0,
+                -fmin(f16), tmin(f16),  -1.0,      0.1,        0.0,       nan(f16),  1.0,        fmax(f16),  -1.0,       10.0,       nan(f16),   1.0,       fmin(f16),  1.0,       -10.0,      -10.0,
+            });
+            try testArgs(@Vector(69, f16), .{
+                -nan(f16), -1.0,      -fmin(f16), fmin(f16), inf(f16),  0.1,       0.0,       fmax(f16),  tmin(f16), 0.1,       0.0,        -tmin(f16), 0.0,        0.0,        1.0,        -inf(f16),
+                tmin(f16), -inf(f16), -tmin(f16), fmin(f16), -inf(f16), -nan(f16), tmin(f16), -tmin(f16), 0.1,       -1.0,      -tmin(f16), fmax(f16),  nan(f16),   -fmin(f16), fmin(f16),  10.0,
+                fmin(f16), -10.0,     0.0,        fmin(f16), fmax(f16), -nan(f16), fmax(f16), -fmax(f16), nan(f16),  -nan(f16), fmin(f16),  -10.0,      -fmin(f16), fmin(f16),  -fmin(f16), -nan(f16),
+                0.0,       -1.0,      fmax(f16),  0.1,       inf(f16),  1.0,       -1.0,      -0.0,       10.0,      0.1,       -fmax(f16), tmin(f16),  -inf(f16),  tmin(f16),  -fmax(f16), 0.1,
+                -10.0,     -0.0,      -fmax(f16), nan(f16),  fmax(f16),
+            }, .{
+                inf(f16),   -fmin(f16), 0.1,       0.1,       -0.0,       fmax(f16),  0.1,       -0.0,      0.0,       -0.0,       0.0,       -tmin(f16), tmin(f16), -1.0,     nan(f16),   -fmin(f16),
+                fmin(f16),  0.1,        0.1,       nan(f16),  -fmax(f16), -inf(f16),  -nan(f16), -nan(f16), 0.1,       -fmax(f16), fmin(f16), 0.1,        0.1,       0.1,      -0.0,       10.0,
+                tmin(f16),  -nan(f16),  fmin(f16), -1.0,      1.0,        -tmin(f16), 0.0,       nan(f16),  fmax(f16), -10.0,      fmin(f16), -fmin(f16), -1.0,      0.1,      -fmin(f16), -fmin(f16),
+                -fmax(f16), 0.0,        fmin(f16), -10.0,     -1.0,       -1.0,       fmax(f16), -nan(f16), -inf(f16), -inf(f16),  0.0,       tmin(f16),  -0.0,      nan(f16), -inf(f16),  nan(f16),
+                inf(f16),   fmin(f16),  -nan(f16), -inf(f16), inf(f16),
+            });
+
+            try testArgs(@Vector(1, f32), .{
+                fmin(f32),
+            }, .{
+                -tmin(f32),
+            });
+            try testArgs(@Vector(2, f32), .{
+                nan(f32), -10.0,
+            }, .{
+                -tmin(f32), fmin(f32),
+            });
+            try testArgs(@Vector(4, f32), .{
+                fmax(f32), -fmax(f32), -10.0, 0.0,
+            }, .{
+                inf(f32), inf(f32), -10.0, inf(f32),
+            });
+            try testArgs(@Vector(8, f32), .{
+                -10.0, fmax(f32), inf(f32), -0.0, -tmin(f32), -tmin(f32), 10.0, 0.1,
+            }, .{
+                10.0, -1.0, -1.0, inf(f32), 1.0, -tmin(f32), nan(f32), 10.0,
+            });
+            try testArgs(@Vector(16, f32), .{
+                0.1, 0.1, -nan(f32), -10.0, -nan(f32), 0.0, fmin(f32), fmin(f32), -10.0, 1.0, -fmax(f32), -0.0, inf(f32), -0.0, fmax(f32), -fmin(f32),
+            }, .{
+                nan(f32), 0.0, tmin(f32), -1.0, -10.0, -tmin(f32), fmin(f32), -fmax(f32), 0.1, 0.1, -inf(f32), tmin(f32), -0.0, 10.0, -0.0, -inf(f32),
+            });
+            try testArgs(@Vector(32, f32), .{
+                0.1,        tmin(f32), -1.0,       1.0,       tmin(f32), -10.0,     fmax(f32), 0.0,       tmin(f32),  0.1,       -1.0,     fmax(f32),  -nan(f32), -0.0,      fmin(f32), 0.0,
+                -fmax(f32), fmax(f32), -fmin(f32), -inf(f32), tmin(f32), -nan(f32), -1.0,      tmin(f32), -fmin(f32), -inf(f32), nan(f32), -tmin(f32), inf(f32),  -inf(f32), -nan(f32), 0.1,
+            }, .{
+                -fmin(f32), -1.0,      fmax(f32), inf(f32),   -fmin(f32), fmax(f32),  0.0,       -10.0, 0.0, 0.1,       fmin(f32), -inf(f32),  1.0, -nan(f32), -nan(f32),
+                -inf(f32),  -0.0,      nan(f32),  -fmax(f32), 10.0,       -tmin(f32), fmax(f32), -10.0, 0.1, tmin(f32), 0.1,       -fmax(f32), 0.0, 0.1,       -nan(f32),
+                -fmin(f32), fmax(f32),
+            });
+            try testArgs(@Vector(64, f32), .{
+                fmin(f32),  0.0, -inf(f32), 0.1,       -10.0,     -fmin(f32), 10.0,       nan(f32),  0.1,        1.0,       -1.0,      10.0,       10.0,      0.1,        -fmax(f32), -1.0,
+                -fmin(f32), 0.1, -inf(f32), -inf(f32), 0.1,       0.1,        0.0,        -1.0,      nan(f32),   -0.0,      -0.0,      -fmin(f32), -inf(f32), inf(f32),   tmin(f32),  -nan(f32),
+                0.1,        0.0, 1.0,       tmin(f32), 10.0,      fmin(f32),  -fmin(f32), fmax(f32), nan(f32),   1.0,       -nan(f32), -nan(f32),  1.0,       nan(f32),   1.0,        fmax(f32),
+                -0.0,       0.0, inf(f32),  nan(f32),  tmin(f32), 0.0,        fmin(f32),  -0.0,      -fmin(f32), tmin(f32), -1.0,      -10.0,      0.1,       -tmin(f32), -inf(f32),  -1.0,
+            }, .{
+                nan(f32),   -nan(f32),  -tmin(f32), inf(f32),   -inf(f32), 0.1,       0.1,        0.1,        -1.0,       -inf(f32),  -0.0,     fmax(f32), tmin(f32), -nan(f32),  -fmax(f32), -1.0,
+                -fmin(f32), -0.0,       fmax(f32),  -fmax(f32), 1.0,       -0.0,      0.0,        10.0,       -1.0,       -fmin(f32), 0.0,      fmax(f32), 0.1,       1.0,        10.0,       0.1,
+                0.1,        fmin(f32),  -nan(f32),  -inf(f32),  -0.0,      -inf(f32), 0.1,        -fmax(f32), -10.0,      -10.0,      nan(f32), 10.0,      -1.0,      -fmin(f32), 10.0,       fmin(f32),
+                1.0,        -fmax(f32), nan(f32),   inf(f32),   fmax(f32), fmax(f32), -fmin(f32), -inf(f32),  -tmin(f32), -nan(f32),  nan(f32), nan(f32),  0.1,       0.1,        -1.0,       inf(f32),
+            });
+            try testArgs(@Vector(128, f32), .{
+                -10.0,      -nan(f32),  inf(f32),   inf(f32),  -tmin(f32), -0.0,       0.0,        0.1,        -0.0,       fmin(f32),  nan(f32),   -1.0,       nan(f32),   -fmax(f32), nan(f32),   0.0,
+                1.0,        -tmin(f32), 0.0,        -nan(f32), 0.1,        0.1,        -1.0,       10.0,       -fmax(f32), -fmin(f32), 0.1,        nan(f32),   0.1,        -fmax(f32), -tmin(f32), -inf(f32),
+                inf(f32),   tmin(f32),  -tmin(f32), nan(f32),  -inf(f32),  -10.0,      1.0,        -nan(f32),  0.1,        nan(f32),   -1.0,       tmin(f32),  -fmin(f32), -0.0,       -0.0,       1.0,
+                fmin(f32),  -fmin(f32), 0.1,        0.1,       0.1,        -10.0,      -10.0,      -tmin(f32), 1.0,        -0.0,       10.0,       -fmax(f32), 10.0,       -fmax(f32), inf(f32),   -1.0,
+                -fmax(f32), fmin(f32),  fmin(f32),  fmin(f32), -1.0,       -nan(f32),  fmax(f32),  -nan(f32),  0.1,        -1.0,       -fmax(f32), -tmin(f32), -0.0,       fmax(f32),  -10.0,      inf(f32),
+                10.0,       -inf(f32),  0.1,        fmin(f32), nan(f32),   -fmax(f32), -tmin(f32), inf(f32),   tmin(f32),  -fmin(f32), fmax(f32),  1.0,        fmin(f32),  -0.0,       0.1,        fmin(f32),
+                0.1,        inf(f32),   -10.0,      inf(f32),  10.0,       tmin(f32),  0.0,        1.0,        inf(f32),   -10.0,      -fmin(f32), tmin(f32),  1.0,        0.1,        0.1,        -fmin(f32),
+                10.0,       0.1,        fmax(f32),  fmin(f32), 1.0,        -10.0,      -inf(f32),  -10.0,      0.0,        -fmax(f32), -inf(f32),  -1.0,       fmax(f32),  -tmin(f32), inf(f32),   nan(f32),
+            }, .{
+                -tmin(f32), -fmax(f32), -fmax(f32), 10.0,       inf(f32),  0.1,      1.0,        fmin(f32),  0.1,        10.0,       fmin(f32),  -fmax(f32), 1.0,        fmax(f32),  0.1,        -fmin(f32),
+                0.0,        -0.0,       -0.0,       -1.0,       -nan(f32), nan(f32), -tmin(f32), 10.0,       -tmin(f32), -10.0,      inf(f32),   0.0,        tmin(f32),  0.0,        -fmax(f32), inf(f32),
+                fmin(f32),  0.1,        -10.0,      tmin(f32),  tmin(f32), 0.1,      fmin(f32),  -tmin(f32), fmin(f32),  nan(f32),   0.1,        -fmax(f32), -1.0,       -0.0,       fmin(f32),  -0.0,
+                -1.0,       -0.0,       -inf(f32),  fmax(f32),  -10.0,     1.0,      inf(f32),   -1.0,       -tmin(f32), -tmin(f32), 0.1,        -10.0,      -fmin(f32), 10.0,       -10.0,      -inf(f32),
+                -1.0,       inf(f32),   0.1,        1.0,        -nan(f32), 0.1,      -10.0,      -nan(f32),  -tmin(f32), 0.0,        fmin(f32),  -nan(f32),  fmax(f32),  -tmin(f32), 0.0,        0.0,
+                -fmax(f32), -inf(f32),  -1.0,       -0.0,       10.0,      nan(f32), 0.1,        tmin(f32),  -10.0,      10.0,       tmin(f32),  -fmax(f32), 0.1,        -10.0,      -tmin(f32), fmax(f32),
+                -fmax(f32), 0.1,        -nan(f32),  -fmin(f32), inf(f32),  inf(f32), tmin(f32),  tmin(f32),  -tmin(f32), tmin(f32),  0.0,        -0.0,       1.0,        10.0,       -10.0,      inf(f32),
+                0.0,        -fmin(f32), fmax(f32),  -10.0,      fmax(f32), -0.0,     0.0,        -fmin(f32), 10.0,       -fmin(f32), -fmin(f32), -fmin(f32), 10.0,       fmin(f32),  -inf(f32),  fmax(f32),
+            });
+            try testArgs(@Vector(69, f32), .{
+                nan(f32),   0.1,       -tmin(f32), fmax(f32),  nan(f32),  -fmax(f32), 0.1,        fmax(f32), 10.0,       inf(f32), -fmin(f32), -fmax(f32), inf(f32),   -nan(f32),  0.1,        1.0,
+                fmax(f32),  0.1,       10.0,       0.0,        -10.0,     fmax(f32),  10.0,       0.0,       1.0,        10.0,     -fmax(f32), 0.0,        -tmin(f32), -fmin(f32), 0.1,        1.0,
+                fmin(f32),  tmin(f32), -fmin(f32), -tmin(f32), tmin(f32), -inf(f32),  -fmax(f32), -0.0,      -1.0,       -0.0,     -fmax(f32), fmax(f32),  fmin(f32),  -0.0,       0.0,        -inf(f32),
+                -tmin(f32), inf(f32),  -nan(f32),  tmin(f32),  -1.0,      -tmin(f32), 10.0,       -inf(f32), -fmin(f32), 0.1,      -inf(f32),  -1.0,       nan(f32),   -inf(f32),  -tmin(f32), 10.0,
+                10.0,       -nan(f32), -nan(f32),  tmin(f32),  -nan(f32),
+            }, .{
+                -nan(f32), 1.0,       fmax(f32), 0.1,        -0.0,       1.0,       -inf(f32), -fmin(f32), -nan(f32), inf(f32),   1.0,       -nan(f32), -nan(f32), -inf(f32), tmin(f32), -fmin(f32),
+                -nan(f32), 0.1,       fmin(f32), -1.0,       -fmax(f32), 0.1,       -1.0,      0.1,        0.1,       -tmin(f32), 0.1,       0.1,       10.0,      fmin(f32), 0.0,       nan(f32),
+                tmin(f32), 1.0,       nan(f32),  -fmin(f32), tmin(f32),  nan(f32),  0.1,       nan(f32),   1.0,       -fmax(f32), tmin(f32), 1.0,       0.0,       -1.0,      nan(f32),  fmin(f32),
+                -inf(f32), fmax(f32), -0.0,      nan(f32),   tmin(f32),  tmin(f32), -inf(f32), -10.0,      -nan(f32), -fmax(f32), -0.0,      0.1,       -inf(f32), 1.0,       nan(f32),  1.0,
+                -10.0,     fmin(f32), inf(f32),  fmin(f32),  0.0,
+            });
+
+            try testArgs(@Vector(1, f64), .{
+                -0.0,
+            }, .{
+                1.0,
+            });
+            try testArgs(@Vector(2, f64), .{
+                -1.0, 0.0,
+            }, .{
+                -inf(f64), -fmax(f64),
+            });
+            try testArgs(@Vector(4, f64), .{
+                -inf(f64), inf(f64), 10.0, 0.0,
+            }, .{
+                -tmin(f64), 1.0, nan(f64), 0.0,
+            });
+            try testArgs(@Vector(8, f64), .{
+                0.1, -tmin(f64), -fmax(f64), 1.0, inf(f64), -10.0, -tmin(f64), -10.0,
+            }, .{
+                tmin(f64), fmin(f64), 0.1, 10.0, -0.0, -0.0, fmax(f64), -1.0,
+            });
+            try testArgs(@Vector(16, f64), .{
+                0.1, -nan(f64), 1.0, tmin(f64), fmax(f64), -fmax(f64), -tmin(f64), -0.0, -fmin(f64), -1.0, -fmax(f64), -nan(f64), -fmax(f64), nan(f64), -0.0, 0.1,
+            }, .{
+                -1.0, -tmin(f64), -fmin(f64), 0.1, 0.1, -0.0, -nan(f64), -inf(f64), -inf(f64), -0.0, nan(f64), tmin(f64), 1.0, 0.1, tmin(f64), fmin(f64),
+            });
+            try testArgs(@Vector(32, f64), .{
+                -fmax(f64), fmin(f64), 0.1, 0.1,       0.0,       1.0,  -0.0, -tmin(f64), tmin(f64), inf(f64),  -tmin(f64), -tmin(f64), -tmin(f64), -fmax(f64), fmin(f64), 1.0,
+                -fmin(f64), -nan(f64), 1.0, -inf(f64), -nan(f64), -1.0, 0.0,  0.0,        nan(f64),  -nan(f64), -fmin(f64), fmin(f64),  0.1,        nan(f64),   tmin(f64), -fmax(f64),
+            }, .{
+                -tmin(f64), -fmax(f64), -inf(f64),  -nan(f64), fmin(f64), -inf(f64), 0.1,      -fmax(f64), -inf(f64), fmin(f64), inf(f64), -1.0, -tmin(f64), inf(f64), 0.1,  nan(f64),
+                fmin(f64),  10.0,       -tmin(f64), -nan(f64), -inf(f64), 1.0,       nan(f64), -fmin(f64), -1.0,      nan(f64),  -1.0,     0.0,  1.0,        nan(f64), -1.0, -fmin(f64),
+            });
+            try testArgs(@Vector(64, f64), .{
+                -10.0,     fmax(f64),  -nan(f64),  tmin(f64),  0.1,       -1.0,       1.0,      -0.0,      -fmin(f64), 0.1,       -fmin(f64), -0.0,      -0.0,      tmin(f64), -10.0,     0.1,
+                -10.0,     -fmax(f64), -10.0,      -fmin(f64), 0.0,       -10.0,      nan(f64), 1.0,       inf(f64),   inf(f64),  -inf(f64),  tmin(f64), tmin(f64), 0.1,       -0.0,      0.1,
+                -0.0,      0.1,        -10.0,      10.0,       fmax(f64), -fmin(f64), 1.0,      fmax(f64), 1.0,        -10.0,     fmin(f64),  fmax(f64), -1.0,      -0.0,      -0.0,      fmax(f64),
+                -inf(f64), -inf(f64),  -tmin(f64), -fmax(f64), -nan(f64), tmin(f64),  -1.0,     0.0,       -inf(f64),  fmax(f64), nan(f64),   -inf(f64), fmin(f64), -nan(f64), -nan(f64), -10.0,
+            }, .{
+                nan(f64),  -1.0, 0.0,       -10.0,      -fmax(f64), -fmin(f64), -nan(f64),  -tmin(f64), 0.1,        -1.0,      -nan(f64),  -fmax(f64), 0.0,       0.0,      10.0,      inf(f64),
+                fmin(f64), 0.0,  -10.0,     1.0,        -tmin(f64), -inf(f64),  -fmax(f64), 0.0,        -fmin(f64), -1.0,      -fmin(f64), tmin(f64),  1.0,       -10.0,    fmin(f64), 0.1,
+                inf(f64),  -0.0, tmin(f64), -fmax(f64), -tmin(f64), -fmax(f64), fmin(f64),  -fmax(f64), 0.1,        1.0,       1.0,        0.0,        fmin(f64), nan(f64), -10.0,     tmin(f64),
+                inf(f64),  0.1,  1.0,       -nan(f64),  1.0,        -fmin(f64), fmax(f64),  inf(f64),   fmin(f64),  -inf(f64), -0.0,       0.0,        -1.0,      -0.0,     0.1,       0.1,
+            });
+            try testArgs(@Vector(128, f64), .{
+                nan(f64),   -fmin(f64), fmax(f64),  fmin(f64), -10.0,      nan(f64),  tmin(f64), fmax(f64),  inf(f64),   -nan(f64),  tmin(f64),  -nan(f64), -0.0,       fmin(f64),  fmax(f64),
+                -inf(f64),  inf(f64),   -1.0,       0.0,       0.1,        fmin(f64), 0.0,       0.1,        -1.0,       -inf(f64),  0.1,        fmax(f64), fmin(f64),  fmax(f64),  -fmax(f64),
+                fmin(f64),  inf(f64),   -fmin(f64), -10.0,     -0.0,       0.1,       nan(f64),  -fmax(f64), -fmax(f64), -1.0,       10.0,       10.0,      -1.0,       -inf(f64),  inf(f64),
+                -fmin(f64), 1.0,        -inf(f64),  -10.0,     0.1,        1.0,       10.0,      10.0,       tmin(f64),  nan(f64),   inf(f64),   0.0,       -1.0,       -10.0,      1.0,
+                -tmin(f64), -fmax(f64), -nan(f64),  10.0,      0.1,        tmin(f64), 0.0,       10.0,       0.1,        -tmin(f64), -tmin(f64), 1.0,       -fmax(f64), nan(f64),   -fmin(f64),
+                nan(f64),   10.0,       -1.0,       -0.0,      -tmin(f64), nan(f64),  10.0,      10.0,       -inf(f64),  0.1,        -nan(f64),  -10.0,     -tmin(f64), -fmax(f64), -fmax(f64),
+                inf(f64),   -inf(f64),  tmin(f64),  1.0,       -inf(f64),  -10.0,     inf(f64),  0.1,        -nan(f64),  -inf(f64),  fmax(f64),  0.1,       -inf(f64),  0.1,        1.0,
+                0.1,        0.1,        0.1,        inf(f64),  -inf(f64),  1.0,       10.0,      10.0,       nan(f64),   10.0,       -tmin(f64), 1.0,       -fmin(f64), -1.0,       -fmax(f64),
+                -fmin(f64), -fmin(f64), -1.0,       inf(f64),  nan(f64),   tmin(f64), 0.1,       -1.0,
+            }, .{
+                0.0,       0.0,        inf(f64),  -0.0,       0.1,        -nan(f64),  10.0,       -nan(f64), tmin(f64),  -10.0,      -0.0,      inf(f64),   -fmin(f64), 0.1,        fmax(f64),
+                nan(f64),  -tmin(f64), tmin(f64), 1.0,        0.1,        -10.0,      -nan(f64),  1.0,       inf(f64),   -10.0,      fmin(f64), 0.1,        10.0,       -10.0,      10.0,
+                -nan(f64), -nan(f64),  0.1,       0.0,        10.0,       -fmax(f64), -tmin(f64), tmin(f64), -1.0,       -tmin(f64), -10.0,     0.1,        -fmax(f64), 10.0,       nan(f64),
+                fmax(f64), -1.0,       -1.0,      -tmin(f64), fmax(f64),  -10.0,      0.1,        1.0,       fmin(f64),  inf(f64),   0.1,       tmin(f64),  0.1,        -fmax(f64), fmax(f64),
+                -10.0,     -fmax(f64), fmax(f64), tmin(f64),  -fmin(f64), inf(f64),   0.1,        -0.0,      fmax(f64),  tmin(f64),  0.1,       1.0,        -inf(f64),  1.0,        10.0,
+                0.1,       0.0,        -10.0,     -nan(f64),  10.0,       -fmin(f64), -tmin(f64), 10.0,      1.0,        -tmin(f64), -1.0,      -fmin(f64), -0.0,       -10.0,      0.1,
+                inf(f64),  -fmax(f64), 0.1,       tmin(f64),  -0.0,       fmax(f64),  0.0,        -nan(f64), -fmin(f64), fmax(f64),  -0.0,      nan(f64),   -inf(f64),  tmin(f64),  0.1,
+                inf(f64),  0.0,        10.0,      -fmax(f64), tmin(f64),  -0.0,       fmin(f64),  -nan(f64), -10.0,      -inf(f64),  nan(f64),  inf(f64),   -0.0,       10.0,       fmax(f64),
+                tmin(f64), -10.0,      -nan(f64), 10.0,       -inf(f64),  -fmax(f64), -inf(f64),  -1.0,
+            });
+            try testArgs(@Vector(69, f64), .{
+                inf(f64),   -0.0,      -fmax(f64), fmax(f64),  fmax(f64), 0.0,      fmin(f64), -nan(f64), 0.1,       0.1,       0.1,        -fmin(f64), inf(f64),   0.1,       fmax(f64),  nan(f64),
+                tmin(f64),  -10.0,     10.0,       -tmin(f64), -0.0,      nan(f64), -10.0,     fmin(f64), 0.0,       -0.0,      0.1,        inf(f64),   -tmin(f64), -nan(f64), inf(f64),   -nan(f64),
+                -inf(f64),  fmax(f64), 0.1,        -fmin(f64), 0.1,       -1.0,     fmin(f64), fmin(f64), fmin(f64), 10.0,      -fmin(f64), nan(f64),   0.0,        0.0,       10.0,       nan(f64),
+                -tmin(f64), tmin(f64), tmin(f64),  fmin(f64),  -0.0,      -1.0,     0.1,       1.0,       fmax(f64), tmin(f64), fmin(f64),  0.0,        -fmin(f64), fmin(f64), -tmin(f64), 0.0,
+                -nan(f64),  10.0,      -1.0,       0.1,        0.0,
+            }, .{
+                -10.0,      -0.0,       fmin(f64), -fmin(f64), nan(f64),  10.0,     -tmin(f64), -fmax(f64), 10.0,      0.1,      -fmin(f64), inf(f64),  -inf(f64),  -tmin(f64), 1.0,        tmin(f64),
+                -tmin(f64), -nan(f64),  fmax(f64), 0.0,        -1.0,      10.0,     inf(f64),   fmin(f64),  fmax(f64), 0.1,      0.1,        fmax(f64), -inf(f64),  0.1,        0.1,        fmin(f64),
+                0.1,        fmin(f64),  -10.0,     nan(f64),   0.0,       0.0,      fmax(f64),  -inf(f64),  tmin(f64), inf(f64), -tmin(f64), fmax(f64), -inf(f64),  -10.0,      -1.0,       fmin(f64),
+                0.1,        -nan(f64),  fmax(f64), -fmin(f64), fmax(f64), nan(f64), -0.0,       -fmax(f64), 10.0,      nan(f64), inf(f64),   -1.0,      -fmin(f64), nan(f64),   -fmin(f64), -0.0,
+                -nan(f64),  -fmin(f64), 0.1,       nan(f64),   0.1,
+            });
+
+            try testArgs(@Vector(1, f80), .{
+                -nan(f80),
+            }, .{
+                -1.0,
+            });
+            try testArgs(@Vector(2, f80), .{
+                -fmax(f80), -inf(f80),
+            }, .{
+                0.1, 10.0,
+            });
+            try testArgs(@Vector(4, f80), .{
+                -0.0, -inf(f80), 0.1, 10.0,
+            }, .{
+                -1.0, 0.0, 0.1, -10.0,
+            });
+            try testArgs(@Vector(8, f80), .{
+                1.0, -0.0, -inf(f80), 0.1, -inf(f80), fmin(f80), 0.0, 10.0,
+            }, .{
+                -0.0, -fmin(f80), fmin(f80), -nan(f80), nan(f80), inf(f80), fmin(f80), 10.0,
+            });
+            try testArgs(@Vector(16, f80), .{
+                10.0, inf(f80), -fmin(f80), 0.1, -tmin(f80), -0.0, -inf(f80), -1.0, -fmax(f80), -nan(f80), -tmin(f80), 10.0, 10.0, -inf(f80), -fmax(f80), fmax(f80),
+            }, .{
+                -inf(f80), nan(f80), -fmax(f80), fmin(f80), 1.0, 0.1, -inf(f80), nan(f80), 0.1, nan(f80), -inf(f80), nan(f80), tmin(f80), 0.1, -tmin(f80), -10.0,
+            });
+            try testArgs(@Vector(32, f80), .{
+                inf(f80),  -0.0, 0.1,      -0.0, 0.1,      -fmin(f80), -0.0,       fmax(f80), nan(f80),  -tmin(f80), nan(f80), -10.0,      0.0,       1.0,        10.0, -fmin(f80),
+                fmin(f80), 0.1,  inf(f80), -0.0, nan(f80), tmin(f80),  -tmin(f80), fmin(f80), tmin(f80), -0.0,       nan(f80), -fmax(f80), tmin(f80), -fmin(f80), 1.0,  tmin(f80),
+            }, .{
+                0.0, -10.0,    fmax(f80), -inf(f80),  0.1,       -inf(f80), inf(f80),   10.0, -1.0,  -10.0,     -fmin(f80), 0.0,  inf(f80),   1.0,        -nan(f80), 0.0,
+                0.1, nan(f80), 1.0,       -fmax(f80), fmin(f80), -inf(f80), -fmax(f80), 0.1,  -10.0, tmin(f80), fmax(f80),  -0.0, -fmin(f80), -fmin(f80), fmin(f80), -tmin(f80),
+            });
+            try testArgs(@Vector(64, f80), .{
+                -fmax(f80), 0.1,       -1.0,       1.0,        inf(f80),   0.1,       -10.0,     0.1,       fmin(f80), -fmin(f80), -10.0,     -fmax(f80), 0.0,        -10.0,     -1.0,       -nan(f80),
+                0.0,        0.1,       -1.0,       -tmin(f80), 1.0,        tmin(f80), fmax(f80), 0.0,       -10.0,     -tmin(f80), fmax(f80), -0.0,       0.1,        -inf(f80), -fmax(f80), -1.0,
+                -nan(f80),  tmin(f80), -tmin(f80), -0.0,       -0.0,       -1.0,      -0.0,      fmax(f80), inf(f80),  -nan(f80),  0.1,       -inf(f80),  -tmin(f80), nan(f80),  0.1,        10.0,
+                nan(f80),   -inf(f80), 0.1,        tmin(f80),  -fmin(f80), 10.0,      -10.0,     tmin(f80), fmin(f80), nan(f80),   0.1,       -nan(f80),  tmin(f80),  nan(f80),  fmax(f80),  -fmax(f80),
+            }, .{
+                -nan(f80), -fmax(f80), tmin(f80), -inf(f80),  -tmin(f80), fmin(f80), -nan(f80), -fmin(f80), fmax(f80), inf(f80), -0.0,      -1.0, 0.1,        -fmax(f80), 1.0,       -inf(f80),
+                0.0,       -nan(f80),  -10.0,     -1.0,       -nan(f80),  inf(f80),  1.0,       -nan(f80),  10.0,      inf(f80), tmin(f80), 0.1,  tmin(f80),  -tmin(f80), -inf(f80), -fmin(f80),
+                fmax(f80), fmax(f80),  0.1,       -tmin(f80), -nan(f80),  -1.0,      fmin(f80), -nan(f80),  -nan(f80), inf(f80), -1.0,      0.1,  -fmin(f80), -tmin(f80), 0.0,       -0.0,
+                0.1,       -fmin(f80), -inf(f80), -1.0,       -tmin(f80), 1.0,       -inf(f80), -0.0,       0.0,       1.0,      tmin(f80), 0.0,  0.1,        -nan(f80),  fmax(f80), 1.0,
+            });
+            try testArgs(@Vector(128, f80), .{
+                0.1,       -0.0,       0.1,        0.0,        fmin(f80),  -1.0,      1.0,       -inf(f80),  fmax(f80),  -fmin(f80), nan(f80),   10.0,       0.1,        0.1,        -fmin(f80), -inf(f80),
+                -1.0,      -inf(f80),  1.0,        -fmin(f80), inf(f80),   -nan(f80), 10.0,      inf(f80),   tmin(f80),  nan(f80),   -10.0,      inf(f80),   10.0,       inf(f80),   -10.0,      0.0,
+                -10.0,     fmin(f80),  -tmin(f80), 1.0,        -fmax(f80), nan(f80),  0.0,       fmax(f80),  0.1,        -1.0,       -fmin(f80), inf(f80),   -tmin(f80), nan(f80),   -tmin(f80), 10.0,
+                -10.0,     -tmin(f80), -1.0,       -tmin(f80), -fmax(f80), 10.0,      -1.0,      -inf(f80),  -nan(f80),  0.0,        1.0,        fmax(f80),  -tmin(f80), -fmin(f80), fmin(f80),  fmin(f80),
+                -10.0,     -fmax(f80), -tmin(f80), inf(f80),   1.0,        0.0,       tmin(f80), -nan(f80),  -fmin(f80), 0.1,        -nan(f80),  0.0,        0.1,        -10.0,      -0.0,       -nan(f80),
+                1.0,       10.0,       -10.0,      fmin(f80),  -nan(f80),  fmax(f80), -0.0,      1.0,        inf(f80),   1.0,        -fmin(f80), -fmin(f80), 0.0,        0.1,        inf(f80),   10.0,
+                tmin(f80), -1.0,       fmax(f80),  -0.0,       fmax(f80),  fmax(f80), 0.1,       -fmin(f80), -10.0,      1.0,        -fmin(f80), -fmax(f80), fmin(f80),  -fmax(f80), -0.0,       -1.0,
+                -nan(f80), -inf(f80),  nan(f80),   -fmax(f80), inf(f80),   -inf(f80), -nan(f80), fmin(f80),  nan(f80),   -1.0,       tmin(f80),  tmin(f80),  0.1,        10.0,       -tmin(f80), -nan(f80),
+            }, .{
+                -1.0,       -0.0,      0.0,        fmax(f80),  -1.0,       -0.0,       0.1,        tmin(f80),  -inf(f80),  10.0,       -0.0,       0.1,       -tmin(f80), -fmax(f80), tmin(f80), inf(f80),
+                0.1,        1.0,       tmin(f80),  nan(f80),   -fmax(f80), 10.0,       fmin(f80),  -1.0,       -fmax(f80), nan(f80),   -fmin(f80), 10.0,      -1.0,       tmin(f80),  inf(f80),  -0.0,
+                tmin(f80),  1.0,       0.0,        -fmin(f80), 0.0,        10.0,       -fmax(f80), -0.0,       -inf(f80),  fmin(f80),  -0.0,       -0.0,      -0.0,       -fmax(f80), 0.1,       fmax(f80),
+                -tmin(f80), tmin(f80), -fmax(f80), 10.0,       -fmax(f80), 0.1,        fmax(f80),  -10.0,      0.1,        1.0,        -1.0,       -1.0,      nan(f80),   -nan(f80),  10.0,      -nan(f80),
+                nan(f80),   -10.0,     -tmin(f80), fmin(f80),  -tmin(f80), -fmin(f80), tmin(f80),  -0.0,       0.1,        fmax(f80),  tmin(f80),  tmin(f80), nan(f80),   0.1,        10.0,      0.1,
+                inf(f80),   inf(f80),  1.0,        -inf(f80),  -fmax(f80), 0.0,        1.0,        -fmax(f80), fmax(f80),  nan(f80),   fmin(f80),  0.1,       -1.0,       1.0,        0.1,       -tmin(f80),
+                10.0,       0.1,       -fmax(f80), 0.0,        nan(f80),   -tmin(f80), 0.1,        fmax(f80),  fmax(f80),  0.1,        -1.0,       inf(f80),  nan(f80),   10.0,       fmax(f80), -nan(f80),
+                -10.0,      -1.0,      tmin(f80),  fmin(f80),  inf(f80),   fmax(f80),  -fmin(f80), fmin(f80),  -inf(f80),  -tmin(f80), 1.0,        nan(f80),  -fmin(f80), -fmin(f80), fmax(f80), 1.0,
+            });
+            try testArgs(@Vector(69, f80), .{
+                -10.0,      tmin(f80), 0.1,        -nan(f80), -inf(f80), -nan(f80), fmin(f80), -0.0,       10.0,  fmax(f80), -fmin(f80), 0.1,        -nan(f80),  inf(f80), 1.0,       -1.0,
+                inf(f80),   fmin(f80), -fmax(f80), 0.1,       nan(f80),  0.0,       0.0,       nan(f80),   -10.0, fmax(f80), fmin(f80),  -fmax(f80), 1.0,        0.1,      0.0,       -fmin(f80),
+                -tmin(f80), 0.0,       -10.0,      fmin(f80), 1.0,       10.0,      0.1,       nan(f80),   -10.0, fmax(f80), 0.1,        fmin(f80),  -inf(f80),  0.0,      tmin(f80), inf(f80),
+                fmax(f80),  1.0,       0.1,        nan(f80),  inf(f80),  tmin(f80), tmin(f80), -fmax(f80), 0.0,   fmin(f80), -inf(f80),  0.1,        -tmin(f80), 0.1,      -1.0,      0.1,
+                -fmax(f80), -1.0,      0.1,        -1.0,      fmax(f80),
+            }, .{
+                -1.0,      fmin(f80),  inf(f80),   -nan(f80), -0.0,       fmin(f80),  -0.0, nan(f80),  -fmax(f80), 0.1,        1.0,        -10.0,      -tmin(f80), -fmin(f80), 10.0,      inf(f80),
+                -10.0,     -tmin(f80), -fmin(f80), 10.0,      0.0,        -tmin(f80), 10.0, -10.0,     0.1,        0.1,        tmin(f80),  fmax(f80),  0.0,        0.1,        0.1,       -10.0,
+                fmin(f80), nan(f80),   -10.0,      -10.0,     -10.0,      0.0,        -0.0, 0.1,       fmin(f80),  fmin(f80),  -0.0,       -fmin(f80), -nan(f80),  -inf(f80),  0.0,       -inf(f80),
+                inf(f80),  fmax(f80),  -tmin(f80), inf(f80),  0.1,        -nan(f80),  0.1,  tmin(f80), -10.0,      -fmax(f80), -fmax(f80), inf(f80),   -nan(f80),  1.0,        -inf(f80), 10.0,
+                nan(f80),  10.0,       -10.0,      0.0,       -fmin(f80),
+            });
+
+            try testArgs(@Vector(1, f128), .{
+                -nan(f128),
+            }, .{
+                -0.0,
+            });
+            try testArgs(@Vector(2, f128), .{
+                0.0, -inf(f128),
+            }, .{
+                0.1, -fmin(f128),
+            });
+            try testArgs(@Vector(4, f128), .{
+                0.1, fmax(f128), 10.0, -fmax(f128),
+            }, .{
+                -tmin(f128), fmax(f128), -0.0, -0.0,
+            });
+            try testArgs(@Vector(8, f128), .{
+                10.0, -fmin(f128), 0.0, -inf(f128), 10.0, -0.0, -1.0, -fmin(f128),
+            }, .{
+                fmin(f128), tmin(f128), -1.0, -10.0, 0.0, -tmin(f128), 0.0, 0.1,
+            });
+            try testArgs(@Vector(16, f128), .{
+                -fmin(f128), -10.0, -fmin(f128), 0.1, -10.0, 1.0, -fmax(f128), tmin(f128), -nan(f128), -tmin(f128), 10.0, -inf(f128), -1.0, tmin(f128), -0.0, nan(f128),
+            }, .{
+                -fmax(f128), fmin(f128), inf(f128), tmin(f128), -10.0, 10.0, fmax(f128), 1.0, -inf(f128), -inf(f128), -fmax(f128), -nan(f128), 1.0, -inf(f128), tmin(f128), tmin(f128),
+            });
+            try testArgs(@Vector(32, f128), .{
+                -0.0,       -1.0, 1.0,        -fmax(f128), -fmax(f128), 0.1,         -fmin(f128), -fmin(f128), -1.0,       -tmin(f128), -0.0,       -fmax(f128), tmin(f128), inf(f128), 0.0,  fmax(f128),
+                -nan(f128), -0.0, -inf(f128), -1.0,        0.1,         -fmin(f128), tmin(f128),  -10.0,       fmax(f128), -nan(f128),  -nan(f128), -fmax(f128), 0.1,        inf(f128), -0.0, tmin(f128),
+            }, .{
+                -1.0,       -10.0,      -fmin(f128), -fmin(f128), inf(f128),  tmin(f128), nan(f128), 0.0,        -fmin(f128), 0.1, -nan(f128), 0.1, -0.0, tmin(f128), 1.0,         0.0,
+                fmin(f128), fmax(f128), -fmax(f128), -tmin(f128), fmin(f128), -0.0,       -1.0,      -nan(f128), -inf(f128),  1.0, nan(f128),  1.0, 0.1,  -0.0,       -fmax(f128), -10.0,
+            });
+            try testArgs(@Vector(64, f128), .{
+                -1.0,       -0.0,       nan(f128),   0.1,         -10.0,       0.0,         1.0,         1.0,       -inf(f128), fmin(f128),  fmax(f128), nan(f128),  -nan(f128), inf(f128),   -0.0,
+                0.1,        -inf(f128), -fmax(f128), 10.0,        -tmin(f128), -tmin(f128), -fmax(f128), 1.0,       0.1,        0.1,         nan(f128),  10.0,       1.0,        -tmin(f128), 10.0,
+                -nan(f128), fmax(f128), fmax(f128),  0.0,         fmax(f128),  inf(f128),   1.0,         -0.0,      0.1,        -tmin(f128), fmin(f128), fmax(f128), tmin(f128), inf(f128),   -10.0,
+                -1.0,       -1.0,       -1.0,        -inf(f128),  10.0,        -tmin(f128), nan(f128),   nan(f128), 0.1,        fmin(f128),  0.1,        tmin(f128), -10.0,      0.1,         10.0,
+                fmax(f128), fmax(f128), 0.1,         -fmax(f128),
+            }, .{
+                -0.0,      0.1,        -0.0,      -fmin(f128), 10.0, 0.0,        1.0,         -inf(f128), tmin(f128),  -1.0,      fmin(f128),  -nan(f128), -10.0,      0.1,        -10.0,      0.1,
+                0.1,       tmin(f128), nan(f128), -1.0,        0.0,  -10.0,      -10.0,       fmax(f128), -fmax(f128), inf(f128), -nan(f128),  0.1,        -nan(f128), 1.0,        fmax(f128), inf(f128),
+                nan(f128), fmin(f128), 10.0,      inf(f128),   0.0,  -inf(f128), 0.1,         0.1,        0.1,         -1.0,      0.1,         -10.0,      inf(f128),  -nan(f128), 0.1,        inf(f128),
+                inf(f128), inf(f128),  -10.0,     -tmin(f128), 0.1,  -inf(f128), -fmin(f128), 1.0,        -tmin(f128), 1.0,       -tmin(f128), -inf(f128), -0.0,       -nan(f128), -1.0,       -fmax(f128),
+            });
+            try testArgs(@Vector(128, f128), .{
+                -inf(f128),  tmin(f128),  -fmax(f128), 1.0,         fmin(f128),  -fmax(f128), -1.0,        0.1,         -fmax(f128), -fmin(f128), -10.0,       nan(f128),   0.1,        nan(f128),
+                inf(f128),   -1.0,        tmin(f128),  -inf(f128),  0.0,         fmax(f128),  tmin(f128),  -fmin(f128), fmin(f128),  -10.0,       -fmin(f128), -10.0,       1.0,        -nan(f128),
+                -inf(f128),  fmin(f128),  inf(f128),   -tmin(f128), 0.1,         0.0,         10.0,        1.0,         -tmin(f128), -tmin(f128), tmin(f128),  1.0,         fmin(f128), 0.1,
+                0.1,         0.1,         fmax(f128),  0.1,         inf(f128),   0.0,         fmin(f128),  -fmin(f128), 10.0,        10.0,        -10.0,       tmin(f128),  inf(f128),  inf(f128),
+                -fmin(f128), 0.0,         0.1,         -nan(f128),  0.1,         -inf(f128),  -nan(f128),  -1.0,        fmin(f128),  -0.0,        10.0,        -tmin(f128), 10.0,       1.0,
+                0.1,         -0.0,        -tmin(f128), 0.1,         -1.0,        -tmin(f128), -fmin(f128), tmin(f128),  0.1,         -tmin(f128), -nan(f128),  -10.0,       -inf(f128), 0.0,
+                0.1,         0.0,         -fmin(f128), 0.0,         10.0,        10.0,        tmin(f128),  inf(f128),   -nan(f128),  -inf(f128),  -1.0,        -fmin(f128), -10.0,      -fmin(f128),
+                -inf(f128),  -fmax(f128), tmin(f128),  tmin(f128),  -fmin(f128), 0.1,         fmin(f128),  fmin(f128),  -fmin(f128), nan(f128),   -1.0,        -0.0,        -0.0,       0.1,
+                fmax(f128),  0.0,         -fmax(f128), nan(f128),   nan(f128),   nan(f128),   nan(f128),   -nan(f128),  fmin(f128),  -inf(f128),  inf(f128),   -fmax(f128), -10.0,      fmin(f128),
+                0.1,         fmax(f128),
+            }, .{
+                0.0,         10.0,        0.1,         inf(f128),   -0.0,        -1.0,        nan(f128),  -10.0,       -inf(f128),  0.1,         -tmin(f128), 1.0,         inf(f128),   0.1,         -1.0,
+                10.0,        0.0,         1.0,         nan(f128),   tmin(f128),  fmax(f128),  10.0,       0.1,         0.1,         -fmin(f128), -inf(f128),  -nan(f128),  -fmin(f128), -0.0,        -inf(f128),
+                -nan(f128),  fmax(f128),  -fmin(f128), -tmin(f128), -fmin(f128), -fmax(f128), nan(f128),  fmin(f128),  -fmax(f128), fmax(f128),  1.0,         10.0,        -fmax(f128), nan(f128),   -fmax(f128),
+                -inf(f128),  nan(f128),   -nan(f128),  tmin(f128),  -1.0,        0.1,         0.1,        -1.0,        -nan(f128),  fmax(f128),  10.0,        -inf(f128),  10.0,        -0.0,        -1.0,
+                -0.0,        -tmin(f128), 10.0,        -1.0,        -fmax(f128), fmin(f128),  fmax(f128), tmin(f128),  10.0,        fmin(f128),  -nan(f128),  1.0,         -tmin(f128), -1.0,        fmax(f128),
+                1.0,         -tmin(f128), 0.1,         -nan(f128),  inf(f128),   0.1,         0.1,        fmax(f128),  -fmin(f128), fmin(f128),  -0.0,        fmax(f128),  -fmax(f128), -tmin(f128), tmin(f128),
+                nan(f128),   0.1,         tmin(f128),  -1.0,        fmin(f128),  -nan(f128),  fmax(f128), 1.0,         nan(f128),   -nan(f128),  inf(f128),   -fmin(f128), fmin(f128),  0.1,         10.0,
+                -tmin(f128), -10.0,       0.0,         0.1,         -fmin(f128), -0.0,        0.0,        -10.0,       fmax(f128),  nan(f128),   nan(f128),   -fmin(f128), -fmax(f128), 10.0,        0.0,
+                fmin(f128),  10.0,        -tmin(f128), -tmin(f128), 0.0,         -10.0,       1.0,        -fmin(f128),
+            });
+            try testArgs(@Vector(69, f128), .{
+                -1.0,       nan(f128),  0.1,        0.1,        0.1,        -1.0, -10.0,      inf(f128), -0.0,       inf(f128),  tmin(f128),  0.0,         -fmax(f128), -tmin(f128), -10.0,       -fmax(f128),
+                -0.0,       0.0,        nan(f128),  inf(f128),  1.0,        -1.0, 0.1,        -0.0,      1.0,        fmax(f128), -fmax(f128), 0.0,         inf(f128),   -inf(f128),  -tmin(f128), -inf(f128),
+                10.0,       fmin(f128), 10.0,       -10.0,      0.1,        1.0,  -0.0,       nan(f128), tmin(f128), inf(f128),  inf(f128),   -nan(f128),  -nan(f128),  1.0,         -tmin(f128), 0.0,
+                fmin(f128), fmax(f128), fmin(f128), -10.0,      nan(f128),  0.0,  -nan(f128), -0.0,      -nan(f128), 0.1,        -10.0,       -tmin(f128), fmax(f128),  1.0,         fmin(f128),  fmax(f128),
+                nan(f128),  -inf(f128), 1.0,        fmin(f128), -nan(f128),
+            }, .{
+                -inf(f128), fmax(f128), 0.0,        nan(f128),   -10.0,       tmin(f128),  nan(f128),  1.0,       10.0,        -fmin(f128), fmin(f128),  tmin(f128),  0.0,         -fmin(f128), -0.0,        fmin(f128),
+                inf(f128),  inf(f128),  fmin(f128), fmin(f128),  -tmin(f128), -fmax(f128), 10.0,       nan(f128), -0.0,        1.0,         10.0,        -10.0,       -inf(f128),  fmin(f128),  -fmax(f128), 0.1,
+                -1.0,       -nan(f128), -10.0,      tmin(f128),  inf(f128),   nan(f128),   0.0,        -10.0,     tmin(f128),  0.0,         -fmax(f128), -tmin(f128), 0.1,         0.1,         10.0,        0.1,
+                fmax(f128), 0.1,        0.0,        -fmin(f128), -inf(f128),  -inf(f128),  -nan(f128), 0.1,       -fmax(f128), fmax(f128),  -fmax(f128), -0.0,        -tmin(f128), -1.0,        nan(f128),   0.1,
+                -1.0,       -inf(f128), tmin(f128), inf(f128),   inf(f128),
+            });
+        }
     };
 }
 
@@ -2069,64 +4178,76 @@ inline fn bitNot(comptime Type: type, rhs: Type) @TypeOf(~rhs) {
     return ~rhs;
 }
 test bitNot {
-    try Unary(bitNot).testIntTypes();
-    try Unary(bitNot).testIntVectorTypes();
+    const t = unary(bitNot, .{});
+    try t.testIntTypes();
+    try t.testIntVectorTypes();
 }
 
 inline fn abs(comptime Type: type, rhs: Type) @TypeOf(@abs(rhs)) {
     return @abs(rhs);
 }
 test abs {
-    try Unary(abs).testIntTypes();
-    try Unary(abs).testIntVectorTypes();
-    try Unary(abs).testFloatTypes();
-    try Unary(abs).testFloatVectorTypes();
+    const t = unary(abs, .{ .strict = true });
+    try t.testIntTypes();
+    try t.testIntVectorTypes();
+    try t.testFloatTypes();
+    try t.testFloatVectorTypes();
 }
 
 inline fn clz(comptime Type: type, rhs: Type) @TypeOf(@clz(rhs)) {
     return @clz(rhs);
 }
 test clz {
-    try Unary(clz).testIntTypes();
-    try Unary(clz).testIntVectorTypes();
+    const t = unary(clz, .{});
+    try t.testIntTypes();
+    try t.testIntVectorTypes();
 }
 
 inline fn bitAnd(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs & rhs) {
     return lhs & rhs;
 }
 test bitAnd {
-    try Binary(bitAnd).testIntTypes();
-    try Binary(bitAnd).testIntVectorTypes();
+    const t = binary(bitAnd, .{});
+    try t.testIntTypes();
+    try t.testIntVectorTypes();
 }
 
 inline fn bitOr(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs | rhs) {
     return lhs | rhs;
 }
 test bitOr {
-    try Binary(bitOr).testIntTypes();
-    try Binary(bitOr).testIntVectorTypes();
+    const t = binary(bitOr, .{});
+    try t.testIntTypes();
+    try t.testIntVectorTypes();
 }
 
 inline fn bitXor(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs ^ rhs) {
     return lhs ^ rhs;
 }
 test bitXor {
-    try Binary(bitXor).testIntTypes();
-    try Binary(bitXor).testIntVectorTypes();
+    const t = binary(bitXor, .{});
+    try t.testIntTypes();
+    try t.testIntVectorTypes();
 }
 
 inline fn min(comptime Type: type, lhs: Type, rhs: Type) Type {
     return @min(lhs, rhs);
 }
 test min {
-    try Binary(min).testIntTypes();
-    try Binary(min).testIntVectorTypes();
+    const t = binary(min, .{});
+    try t.testIntTypes();
+    try t.testIntVectorTypes();
+    try t.testFloatTypes();
+    try t.testFloatVectorTypes();
 }
 
 inline fn max(comptime Type: type, lhs: Type, rhs: Type) Type {
     return @max(lhs, rhs);
 }
 test max {
-    try Binary(max).testIntTypes();
-    try Binary(max).testIntVectorTypes();
+    const t = binary(max, .{});
+    try t.testIntTypes();
+    try t.testIntVectorTypes();
+    try t.testFloatTypes();
+    try t.testFloatVectorTypes();
 }
