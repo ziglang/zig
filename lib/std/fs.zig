@@ -20,7 +20,7 @@ pub const File = @import("fs/File.zig");
 pub const path = @import("fs/path.zig");
 
 pub const has_executable_bit = switch (native_os) {
-    .windows, .wasi => false,
+    .windows, .wasi, .uefi => false,
     else => true,
 };
 
@@ -52,7 +52,7 @@ pub const MAX_PATH_BYTES = @compileError("deprecated; renamed to max_path_bytes"
 /// * On other platforms, `[]u8` file paths are opaque sequences of bytes with
 ///   no particular encoding.
 pub const max_path_bytes = switch (native_os) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .illumos, .plan9, .emscripten, .wasi => posix.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .illumos, .plan9, .emscripten, .wasi, .uefi => posix.PATH_MAX,
     // Each WTF-16LE code unit may be expanded to 3 WTF-8 bytes.
     // If it would require 4 WTF-8 bytes, then there would be a surrogate
     // pair in the WTF-16LE, and we (over)account 3 bytes for it that way.

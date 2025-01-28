@@ -17,8 +17,14 @@ pub const SimpleTextInput = extern struct {
     }
 
     /// Reads the next keystroke from the input device.
-    pub fn readKeyStroke(self: *const SimpleTextInput, input_key: *Key.Input) Status {
-        return self._read_key_stroke(self, input_key);
+    pub fn readKeyStroke(self: *const SimpleTextInput) !?Key.Input {
+        var input_key: Key.Input = undefined;
+        self._read_key_stroke(self, &input_key).err() catch |err| switch (err) {
+            error.NotReady => return null,
+            else => |e| return e,
+        };
+
+        return input_key;
     }
 
     pub const guid align(8) = Guid{
