@@ -9799,6 +9799,7 @@ pub const ipc_space_t = darwin.ipc_space_t;
 pub const ipc_space_port_t = darwin.ipc_space_port_t;
 pub const kern_return_t = darwin.kern_return_t;
 pub const kevent64 = darwin.kevent64;
+pub const kevent64_s = darwin.kevent64_s;
 pub const mach_absolute_time = darwin.mach_absolute_time;
 pub const mach_continuous_time = darwin.mach_continuous_time;
 pub const mach_hdr = darwin.mach_hdr;
