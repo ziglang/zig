@@ -26,9 +26,8 @@ const std = @import("std");
 pub const SerializeOptions = struct {
     /// If false, whitespace is omitted. Otherwise whitespace is emitted in standard Zig style.
     whitespace: bool = true,
-    /// If true, unsigned integers with <= 21 bits are written as their corresponding UTF8 codepoint
-    /// instead of a numeric literal if one exists.
-    emit_utf8_codepoints: bool = false,
+    /// Determines when to emit Unicode code point literals as opposed to integer literals.
+    emit_codepoint_literals: EmitCodepointLiterals = .never,
     /// If true, slices of `u8`s, and pointers to arrays of `u8` are serialized as containers.
     /// Otherwise they are serialized as string literals.
     emit_strings_as_containers: bool = false,
@@ -49,7 +48,7 @@ pub fn serialize(
         .whitespace = options.whitespace,
     });
     try sz.value(val, .{
-        .emit_utf8_codepoints = options.emit_utf8_codepoints,
+        .emit_codepoint_literals = options.emit_codepoint_literals,
         .emit_strings_as_containers = options.emit_strings_as_containers,
         .emit_default_optional_fields = options.emit_default_optional_fields,
     });
@@ -68,7 +67,7 @@ pub fn serializeMaxDepth(
         .whitespace = options.whitespace,
     });
     try sz.valueMaxDepth(val, .{
-        .emit_utf8_codepoints = options.emit_utf8_codepoints,
+        .emit_codepoint_literals = options.emit_codepoint_literals,
         .emit_strings_as_containers = options.emit_strings_as_containers,
         .emit_default_optional_fields = options.emit_default_optional_fields,
     }, depth);
@@ -86,7 +85,7 @@ pub fn serializeArbitraryDepth(
         .whitespace = options.whitespace,
     });
     try sz.valueArbitraryDepth(val, .{
-        .emit_utf8_codepoints = options.emit_utf8_codepoints,
+        .emit_codepoint_literals = options.emit_codepoint_literals,
         .emit_strings_as_containers = options.emit_strings_as_containers,
         .emit_default_optional_fields = options.emit_default_optional_fields,
     });
@@ -222,9 +221,52 @@ pub const SerializerOptions = struct {
     whitespace: bool = true,
 };
 
+/// Determines when to emit Unicode code point literals as opposed to integer literals.
+pub const EmitCodepointLiterals = enum {
+    /// Never emit Unicode code point literals.
+    never,
+    /// Emit Unicode code point literals for any `u8` in the printable ASCII range.
+    printable_ascii,
+    /// Emit Unicode code point literals for any unsigned integer with 21 bits or fewer
+    /// whose value is a valid non-surrogate code point.
+    always,
+
+    /// If the value should be emitted as a Unicode codepoint, return it as a u21.
+    fn emitAsCodepoint(self: @This(), val: anytype) ?u21 {
+        // Rule out incompatible integer types
+        switch (@typeInfo(@TypeOf(val))) {
+            .int => |int_info| if (int_info.signedness == .signed or int_info.bits > 21) {
+                return null;
+            },
+            .comptime_int => {},
+            else => comptime unreachable,
+        }
+
+        // Return null if the value shouldn't be printed as a Unicode codepoint, or the value casted
+        // to a u21 if it should.
+        switch (self) {
+            .always => {
+                const c = std.math.cast(u21, val) orelse return null;
+                if (!std.unicode.utf8ValidCodepoint(c)) return null;
+                return c;
+            },
+            .printable_ascii => {
+                const c = std.math.cast(u8, val) orelse return null;
+                if (!std.ascii.isPrint(c)) return null;
+                return c;
+            },
+            .never => {
+                return null;
+            },
+        }
+    }
+};
+
 /// Options for serialization of an individual value.
+///
+/// See `SerializeOptions` for more information on these options.
 pub const ValueOptions = struct {
-    emit_utf8_codepoints: bool = false,
+    emit_codepoint_literals: EmitCodepointLiterals = .never,
     emit_strings_as_containers: bool = false,
     emit_default_optional_fields: bool = true,
 };
@@ -260,7 +302,7 @@ pub const SerializeContainerOptions = struct {
 /// You can also serialize values using specific notations:
 /// * `int`
 /// * `float`
-/// * `utf8Codepoint`
+/// * `codePoint`
 /// * `tuple`
 /// * `tupleMaxDepth`
 /// * `tupleArbitraryDepth`
@@ -321,23 +363,8 @@ pub fn Serializer(Writer: type) type {
             options: ValueOptions,
         ) Writer.Error!void {
             switch (@typeInfo(@TypeOf(val))) {
-                .int => |int_info| if (options.emit_utf8_codepoints and
-                    int_info.signedness == .unsigned and
-                    int_info.bits <= 21 and std.unicode.utf8ValidCodepoint(val))
-                {
-                    self.utf8Codepoint(val) catch |err| switch (err) {
-                        error.InvalidCodepoint => unreachable, // Already validated
-                        else => |e| return e,
-                    };
-                } else {
-                    try self.int(val);
-                },
-                .comptime_int => if (options.emit_utf8_codepoints and
-                    val > 0 and
-                    val <= std.math.maxInt(u21) and
-                    std.unicode.utf8ValidCodepoint(val))
-                {
-                    self.utf8Codepoint(val) catch |err| switch (err) {
+                .int, .comptime_int => if (options.emit_codepoint_literals.emitAsCodepoint(val)) |c| {
+                    self.codePoint(c) catch |err| switch (err) {
                         error.InvalidCodepoint => unreachable, // Already validated
                         else => |e| return e,
                     };
@@ -496,10 +523,10 @@ pub fn Serializer(Writer: type) type {
             }
         }
 
-        /// Serialize `val` as a UTF8 codepoint.
+        /// Serialize `val` as a Unicode codepoint.
         ///
-        /// Returns `error.InvalidCodepoint` if `val` is not a valid UTF8 codepoint.
-        pub fn utf8Codepoint(
+        /// Returns `error.InvalidCodepoint` if `val` is not a valid Unicode codepoint.
+        pub fn codePoint(
             self: *Self,
             val: u21,
         ) (Writer.Error || error{InvalidCodepoint})!void {
@@ -1345,87 +1372,107 @@ test "std.zon stringify utf8 codepoints" {
     defer buf.deinit();
     var sz = serializer(buf.writer(), .{});
 
-    // Minimal case
-    try sz.utf8Codepoint('a');
-    try std.testing.expectEqualStrings("'a'", buf.items);
-    buf.clearRetainingCapacity();
-
+    // Printable ASCII
     try sz.int('a');
     try std.testing.expectEqualStrings("97", buf.items);
     buf.clearRetainingCapacity();
 
-    try sz.value('a', .{ .emit_utf8_codepoints = true });
+    try sz.codePoint('a');
     try std.testing.expectEqualStrings("'a'", buf.items);
     buf.clearRetainingCapacity();
 
-    try sz.value('a', .{ .emit_utf8_codepoints = false });
+    try sz.value('a', .{ .emit_codepoint_literals = .always });
+    try std.testing.expectEqualStrings("'a'", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.value('a', .{ .emit_codepoint_literals = .printable_ascii });
+    try std.testing.expectEqualStrings("'a'", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.value('a', .{ .emit_codepoint_literals = .never });
     try std.testing.expectEqualStrings("97", buf.items);
     buf.clearRetainingCapacity();
 
     // Short escaped codepoint
-    try sz.utf8Codepoint('\n');
-    try std.testing.expectEqualStrings("'\\n'", buf.items);
-    buf.clearRetainingCapacity();
-
     try sz.int('\n');
     try std.testing.expectEqualStrings("10", buf.items);
     buf.clearRetainingCapacity();
 
-    try sz.value('\n', .{ .emit_utf8_codepoints = true });
+    try sz.codePoint('\n');
     try std.testing.expectEqualStrings("'\\n'", buf.items);
     buf.clearRetainingCapacity();
 
-    try sz.value('\n', .{ .emit_utf8_codepoints = false });
+    try sz.value('\n', .{ .emit_codepoint_literals = .always });
+    try std.testing.expectEqualStrings("'\\n'", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.value('\n', .{ .emit_codepoint_literals = .printable_ascii });
+    try std.testing.expectEqualStrings("10", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.value('\n', .{ .emit_codepoint_literals = .never });
     try std.testing.expectEqualStrings("10", buf.items);
     buf.clearRetainingCapacity();
 
     // Large codepoint
-    try sz.utf8Codepoint('⚡');
-    try std.testing.expectEqualStrings("'\\xe2\\x9a\\xa1'", buf.items);
-    buf.clearRetainingCapacity();
-
     try sz.int('⚡');
     try std.testing.expectEqualStrings("9889", buf.items);
     buf.clearRetainingCapacity();
 
-    try sz.value('⚡', .{ .emit_utf8_codepoints = true });
+    try sz.codePoint('⚡');
     try std.testing.expectEqualStrings("'\\xe2\\x9a\\xa1'", buf.items);
     buf.clearRetainingCapacity();
 
-    try sz.value('⚡', .{ .emit_utf8_codepoints = false });
+    try sz.value('⚡', .{ .emit_codepoint_literals = .always });
+    try std.testing.expectEqualStrings("'\\xe2\\x9a\\xa1'", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.value('⚡', .{ .emit_codepoint_literals = .printable_ascii });
+    try std.testing.expectEqualStrings("9889", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.value('⚡', .{ .emit_codepoint_literals = .never });
     try std.testing.expectEqualStrings("9889", buf.items);
     buf.clearRetainingCapacity();
 
     // Invalid codepoint
-    try std.testing.expectError(error.InvalidCodepoint, sz.utf8Codepoint(0x110000 + 1));
+    try std.testing.expectError(error.InvalidCodepoint, sz.codePoint(0x110000 + 1));
 
     try sz.int(0x110000 + 1);
     try std.testing.expectEqualStrings("1114113", buf.items);
     buf.clearRetainingCapacity();
 
-    try sz.value(0x110000 + 1, .{ .emit_utf8_codepoints = true });
+    try sz.value(0x110000 + 1, .{ .emit_codepoint_literals = .always });
     try std.testing.expectEqualStrings("1114113", buf.items);
     buf.clearRetainingCapacity();
 
-    try sz.value(0x110000 + 1, .{ .emit_utf8_codepoints = false });
+    try sz.value(0x110000 + 1, .{ .emit_codepoint_literals = .printable_ascii });
+    try std.testing.expectEqualStrings("1114113", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.value(0x110000 + 1, .{ .emit_codepoint_literals = .never });
     try std.testing.expectEqualStrings("1114113", buf.items);
     buf.clearRetainingCapacity();
 
     // Valid codepoint, not a codepoint type
-    try sz.value(@as(u22, 'a'), .{ .emit_utf8_codepoints = true });
+    try sz.value(@as(u22, 'a'), .{ .emit_codepoint_literals = .always });
     try std.testing.expectEqualStrings("97", buf.items);
     buf.clearRetainingCapacity();
 
-    try sz.value(@as(i32, 'a'), .{ .emit_utf8_codepoints = false });
+    try sz.value(@as(u22, 'a'), .{ .emit_codepoint_literals = .printable_ascii });
+    try std.testing.expectEqualStrings("97", buf.items);
+    buf.clearRetainingCapacity();
+
+    try sz.value(@as(i32, 'a'), .{ .emit_codepoint_literals = .never });
     try std.testing.expectEqualStrings("97", buf.items);
     buf.clearRetainingCapacity();
 
     // Make sure value options are passed to children
-    try sz.value(.{ .c = '⚡' }, .{ .emit_utf8_codepoints = true });
+    try sz.value(.{ .c = '⚡' }, .{ .emit_codepoint_literals = .always });
     try std.testing.expectEqualStrings(".{ .c = '\\xe2\\x9a\\xa1' }", buf.items);
     buf.clearRetainingCapacity();
 
-    try sz.value(.{ .c = '⚡' }, .{ .emit_utf8_codepoints = false });
+    try sz.value(.{ .c = '⚡' }, .{ .emit_codepoint_literals = .never });
     try std.testing.expectEqualStrings(".{ .c = 9889 }", buf.items);
     buf.clearRetainingCapacity();
 }
@@ -1639,7 +1686,7 @@ test "std.zon stringify skip default fields" {
                 'd',
             },
         },
-        .{ .emit_utf8_codepoints = true },
+        .{ .emit_codepoint_literals = .always },
     );
 
     // Top level defaults
@@ -1666,7 +1713,7 @@ test "std.zon stringify skip default fields" {
         },
         .{
             .emit_default_optional_fields = false,
-            .emit_utf8_codepoints = true,
+            .emit_codepoint_literals = .always,
         },
     );
 
@@ -1699,7 +1746,7 @@ test "std.zon stringify skip default fields" {
         },
         .{
             .emit_default_optional_fields = false,
-            .emit_utf8_codepoints = true,
+            .emit_codepoint_literals = .always,
         },
     );
 
