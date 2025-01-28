@@ -2493,6 +2493,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .atomic_rmw       => try cg.airAtomicRmw(inst),
             .atomic_load      => try cg.airAtomicLoad(inst),
             .memcpy           => try cg.airMemcpy(inst),
+            .memmove          => try cg.airMemmove(inst),
             .memset           => try cg.airMemset(inst, false),
             .memset_safe      => try cg.airMemset(inst, true),
             .ctz              => try cg.airCtz(inst),
@@ -37640,6 +37641,11 @@ fn airMemcpy(self: *CodeGen, inst: Air.Inst.Index) !void {
     try self.genInlineMemcpy(dst_ptr, src_ptr, len, .{ .no_alias = true });
 
     return self.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn airMemmove(self: *CodeGen, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return self.fail("TODO implement airMemmove for {}", .{self.target.cpu.arch});
 }
 
 fn airTagName(self: *CodeGen, inst: Air.Inst.Index) !void {

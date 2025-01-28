@@ -1567,6 +1567,11 @@ fn analyzeBodyInner(
                 i += 1;
                 continue;
             },
+            .memmove => {
+                try sema.zirMemmove(block, inst);
+                i += 1;
+                continue;
+            },
             .check_comptime_control_flow => {
                 if (!block.isComptime()) {
                     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
@@ -26086,6 +26091,214 @@ fn zirMemset(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
     });
 }
 
+fn zirMemmove(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void {
+    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
+    const src = block.nodeOffset(inst_data.src_node);
+    const dest_src = block.builtinCallArgSrc(inst_data.src_node, 0);
+    const src_src = block.builtinCallArgSrc(inst_data.src_node, 1);
+    const dest_ptr = try sema.resolveInst(extra.lhs);
+    const src_ptr = try sema.resolveInst(extra.rhs);
+    const dest_ty = sema.typeOf(dest_ptr);
+    const src_ty = sema.typeOf(src_ptr);
+    const dest_len = try indexablePtrLenOrNone(sema, block, dest_src, dest_ptr);
+    const src_len = try indexablePtrLenOrNone(sema, block, src_src, src_ptr);
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const target = zcu.getTarget();
+
+    if (dest_ty.isConstPtr(zcu)) {
+        return sema.fail(block, dest_src, "cannot memmove to constant pointer", .{});
+    }
+
+    if (dest_len == .none and src_len == .none) {
+        const msg = msg: {
+            const msg = try sema.errMsg(src, "unknown @memmove length", .{});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(dest_src, msg, "destination type '{}' provides no length", .{
+                dest_ty.fmt(pt),
+            });
+            try sema.errNote(src_src, msg, "source type '{}' provides no length", .{
+                src_ty.fmt(pt),
+            });
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
+    }
+
+    if (dest_ty.zigTypeTag(zcu) != .pointer) {
+        return sema.fail(block, dest_src, "@memmove destination is not a pointer", .{});
+    }
+
+    if (src_ty.zigTypeTag(zcu) != .pointer) {
+        return sema.fail(block, src_src, "@memmove source is not a pointer", .{});
+    }
+
+    const dest_elem_ty = dest_ty.elemType2(zcu);
+    const src_elem_ty = src_ty.elemType2(zcu);
+    if (.ok != try sema.coerceInMemoryAllowed(block, dest_elem_ty, src_elem_ty, true, target, dest_src, src_src, null)) {
+        return sema.failWithOwnedErrorMsg(block, msg: {
+            const msg = try sema.errMsg(src, "@memmove destination and source have incompatible child types", .{});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(dest_src, msg, "destination has child type '{}'", .{dest_elem_ty.fmt(pt)});
+            try sema.errNote(src_src, msg, "source has child type '{}'", .{src_elem_ty.fmt(pt)});
+            break :msg msg;
+        });
+    }
+
+    var len_val: ?Value = null;
+
+    if (dest_len != .none and src_len != .none) check: {
+        // If we can check at compile-time, no need for runtime safety.
+        if (try sema.resolveDefinedValue(block, dest_src, dest_len)) |dest_len_val| {
+            len_val = dest_len_val;
+            if (try sema.resolveDefinedValue(block, src_src, src_len)) |src_len_val| {
+                if (!(try sema.valuesEqual(dest_len_val, src_len_val, Type.usize))) {
+                    const msg = msg: {
+                        const msg = try sema.errMsg(src, "non-matching @memmove lengths", .{});
+                        errdefer msg.destroy(sema.gpa);
+                        try sema.errNote(dest_src, msg, "length {} here", .{
+                            dest_len_val.fmtValueSema(pt, sema),
+                        });
+                        try sema.errNote(src_src, msg, "length {} here", .{
+                            src_len_val.fmtValueSema(pt, sema),
+                        });
+                        break :msg msg;
+                    };
+                    return sema.failWithOwnedErrorMsg(block, msg);
+                }
+                break :check;
+            }
+        } else if (try sema.resolveDefinedValue(block, src_src, src_len)) |src_len_val| {
+            len_val = src_len_val;
+        }
+
+        if (block.wantSafety()) {
+            const ok = try block.addBinOp(.cmp_eq, dest_len, src_len);
+            try sema.addSafetyCheck(block, src, ok, .memmove_len_mismatch);
+        }
+    } else if (dest_len != .none) {
+        if (try sema.resolveDefinedValue(block, dest_src, dest_len)) |dest_len_val| {
+            len_val = dest_len_val;
+        }
+    } else if (src_len != .none) {
+        if (try sema.resolveDefinedValue(block, src_src, src_len)) |src_len_val| {
+            len_val = src_len_val;
+        }
+    }
+
+    const runtime_src = rs: {
+        const dest_ptr_val = if (try sema.resolveDefinedValue(block, dest_src, dest_ptr)) |pv| s: {
+            switch (zcu.intern_pool.indexToKey(pv.toIntern())) {
+                .slice => |slice| {
+                    const elem_ty = Type.fromInterned(slice.ty).childType(zcu);
+                    const len = try Value.fromInterned(slice.len).toUnsignedIntSema(pt);
+                    const array_ty = try pt.arrayType(.{
+                        .child = elem_ty.toIntern(),
+                        .len = len,
+                    });
+                    const ptr_ty = try pt.ptrTypeSema(p: {
+                        var p = Type.fromInterned(slice.ty).ptrInfo(zcu);
+                        p.flags.size = .one;
+                        p.child = array_ty.toIntern();
+                        p.sentinel = .none;
+                        break :p p;
+                    });
+                    break :s try pt.getCoerced(Value.fromInterned(slice.ptr), ptr_ty);
+                },
+                else => break :s pv,
+            }
+        } else break :rs dest_src;
+
+        if (!sema.isComptimeMutablePtr(dest_ptr_val)) break :rs dest_src;
+
+        const src_ptr_val = if (try sema.resolveDefinedValue(block, src_src, src_ptr)) |pv| s: {
+            switch (zcu.intern_pool.indexToKey(pv.toIntern())) {
+                .slice => |slice| {
+                    const elem_ty = Type.fromInterned(slice.ty).childType(zcu);
+                    const len = try Value.fromInterned(slice.len).toUnsignedIntSema(pt);
+                    const array_ty = try pt.arrayType(.{
+                        .child = elem_ty.toIntern(),
+                        .len = len,
+                    });
+                    const ptr_ty = try pt.ptrTypeSema(p: {
+                        var p = Type.fromInterned(slice.ty).ptrInfo(zcu);
+                        p.flags.size = .one;
+                        p.child = array_ty.toIntern();
+                        p.sentinel = .none;
+                        break :p p;
+                    });
+                    break :s try pt.getCoerced(Value.fromInterned(slice.ptr), ptr_ty);
+                },
+                else => break :s pv,
+            }
+        } else break :rs src_src;
+
+        const array_ty = try pt.arrayType(.{
+            .child = dest_ty.elemType2(zcu).toIntern(),
+            .len = try len_val.?.toUnsignedIntSema(pt),
+        });
+
+        const array_ptr_ty = try pt.ptrType(info: {
+            var info = dest_ty.ptrInfo(zcu);
+            info.flags.size = .one;
+            info.child = array_ty.toIntern();
+            break :info info;
+        });
+
+        const casted_dest_ptr = try pt.getCoerced(dest_ptr_val, array_ptr_ty);
+        const casted_src_ptr = try pt.getCoerced(src_ptr_val, array_ptr_ty);
+        const array_val = try sema.pointerDeref(block, src, casted_src_ptr, array_ptr_ty) orelse
+            break :rs src_src;
+
+        return sema.storePtrVal(block, src, casted_dest_ptr, array_val, array_ty);
+    };
+
+    // If the length is comptime-known, then upgrade src and destination types
+    // into pointer-to-array. At this point we know they are both pointers
+    // already.
+    var new_dest_ptr = dest_ptr;
+    var new_src_ptr = src_ptr;
+    if (len_val) |val| {
+        const len = try val.toUnsignedIntSema(pt);
+        if (len == 0) {
+            // This AIR instruction guarantees length > 0 if it is comptime-known.
+            return;
+        }
+        new_dest_ptr = try upgradeToArrayPtr(sema, block, dest_ptr, len);
+        new_src_ptr = try upgradeToArrayPtr(sema, block, src_ptr, len);
+    }
+
+    if (dest_len != .none) {
+        // Change the src from slice to a many pointer, to avoid multiple ptr
+        // slice extractions in AIR instructions.
+        const new_src_ptr_ty = sema.typeOf(new_src_ptr);
+        if (new_src_ptr_ty.isSlice(zcu)) {
+            new_src_ptr = try sema.analyzeSlicePtr(block, src_src, new_src_ptr, new_src_ptr_ty);
+        }
+    } else if (dest_len == .none and len_val == null) {
+        // Change the dest to a slice, since its type must have the length.
+        const dest_ptr_ptr = try sema.analyzeRef(block, dest_src, new_dest_ptr);
+        new_dest_ptr = try sema.analyzeSlice(block, dest_src, dest_ptr_ptr, .zero, src_len, .none, LazySrcLoc.unneeded, dest_src, dest_src, dest_src, false);
+        const new_src_ptr_ty = sema.typeOf(new_src_ptr);
+        if (new_src_ptr_ty.isSlice(zcu)) {
+            new_src_ptr = try sema.analyzeSlicePtr(block, src_src, new_src_ptr, new_src_ptr_ty);
+        }
+    }
+
+    try sema.requireRuntimeBlock(block, src, runtime_src);
+    try sema.validateRuntimeValue(block, dest_src, dest_ptr);
+    try sema.validateRuntimeValue(block, src_src, src_ptr);
+
+    _ = try block.addInst(.{
+        .tag = .memmove,
+        .data = .{ .bin_op = .{
+            .lhs = new_dest_ptr,
+            .rhs = new_src_ptr,
+        } },
+    });
+}
+
 fn zirBuiltinAsyncCall(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
     const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
     const src = block.nodeOffset(extra.node);
@@ -38639,6 +38852,7 @@ fn getExpectedBuiltinFnType(sema: *Sema, decl: Zcu.BuiltinDecl) CompileError!Typ
         .@"panic.forLenMismatch",
         .@"panic.memcpyLenMismatch",
         .@"panic.memcpyAlias",
+        .@"panic.memmoveLenMismatch",
         .@"panic.noreturnReturned",
         => try pt.funcType(.{
             .param_types = &.{},
