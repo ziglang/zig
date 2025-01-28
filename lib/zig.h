@@ -298,9 +298,6 @@
     __pragma(comment(linker, "/alternatename:" zig_mangle_c(name) "=" zig_mangle_c(symbol)))
 #elif (zig_has_attribute(alias) || defined(zig_tinyc)) && !defined(zig_macho)
 #define zig_export(symbol, name) __attribute__((alias(symbol)))
-#elif defined(zig_msvc)
-#define zig_export(symbol, name) ; \
-    __pragma(comment(linker, "/alternatename:" zig_mangle_c(name) "=" zig_mangle_c(symbol)))
 #else
 #define zig_export(symbol, name) ; \
     __asm(zig_mangle_c(name) " = " zig_mangle_c(symbol))
