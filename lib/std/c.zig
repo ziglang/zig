@@ -9789,6 +9789,7 @@ pub const _dyld_get_image_vmaddr_slide = darwin._dyld_get_image_vmaddr_slide;
 pub const _dyld_image_count = darwin._dyld_image_count;
 pub const _host_page_size = darwin._host_page_size;
 pub const clock_get_time = darwin.clock_get_time;
+pub const @"close$NOCANCEL" = darwin.@"close$NOCANCEL";
 pub const dispatch_release = darwin.dispatch_release;
 pub const dispatch_semaphore_create = darwin.dispatch_semaphore_create;
 pub const dispatch_semaphore_signal = darwin.dispatch_semaphore_signal;
