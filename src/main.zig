@@ -2718,7 +2718,9 @@ fn buildOutputType(
             switch (c_out_mode orelse .link) {
                 .link => {
                     create_module.opts.output_mode = if (is_shared_lib) .Lib else .Exe;
-                    emit_bin = if (out_path) |p| .{ .yes = p } else EmitBin.yes_a_out;
+                    if (emit_bin != .no) {
+                        emit_bin = if (out_path) |p| .{ .yes = p } else EmitBin.yes_a_out;
+                    }
                     if (emit_llvm) {
                         fatal("-emit-llvm cannot be used when linking", .{});
                     }
@@ -2768,10 +2770,13 @@ fn buildOutputType(
                         emit_bin = if (out_path) |p| .{ .yes = p } else .yes_default_path;
                         clang_preprocessor_mode = .pch;
                     } else {
-                        if (out_path) |p| {
-                            emit_bin = .{ .yes = p };
+                        // If the output path is "-" (stdout), then we need to emit the preprocessed output to stdout
+                        // like "clang -E main.c -o -" does.
+                        if (out_path != null and !mem.eql(u8, out_path.?, "-")) {
+                            emit_bin = .{ .yes = out_path.? };
                             clang_preprocessor_mode = .yes;
                         } else {
+                            emit_bin = .no;
                             clang_preprocessor_mode = .stdout;
                         }
                     }
