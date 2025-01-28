@@ -9205,8 +9205,7 @@ pub const getrandom = switch (native_os) {
         (builtin.abi.isGnu() and versionCheck(.{ .major = 2, .minor = 25, .patch = 0 })) or
         (builtin.abi.isAndroid() and versionCheck(.{ .major = 28, .minor = 0, .patch = 0 })))
         private.getrandom
-    else
-        {},
+    else {},
     else => {},
 };
 
