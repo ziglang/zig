@@ -3990,7 +3990,16 @@ pub const sigval = switch (native_os) {
     else => void,
 };
 
-pub const addrinfo = switch (native_os) {
+pub const addrinfo = if (builtin.abi.isAndroid()) extern struct {
+    flags: AI,
+    family: i32,
+    socktype: i32,
+    protocol: i32,
+    addrlen: socklen_t,
+    canonname: ?[*:0]u8,
+    addr: ?*sockaddr,
+    next: ?*addrinfo,
+} else switch (native_os) {
     .linux, .emscripten => linux.addrinfo,
     .windows => ws2_32.addrinfo,
     .freebsd, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
@@ -4374,7 +4383,52 @@ pub const sa_family_t = switch (native_os) {
     .solaris, .illumos => u16,
     else => void,
 };
-pub const AF = switch (native_os) {
+pub const AF = if (builtin.abi.isAndroid()) struct {
+    pub const UNSPEC = 0;
+    pub const UNIX = 1;
+    pub const LOCAL = 1;
+    pub const INET = 2;
+    pub const AX25 = 3;
+    pub const IPX = 4;
+    pub const APPLETALK = 5;
+    pub const NETROM = 6;
+    pub const BRIDGE = 7;
+    pub const ATMPVC = 8;
+    pub const X25 = 9;
+    pub const INET6 = 10;
+    pub const ROSE = 11;
+    pub const DECnet = 12;
+    pub const NETBEUI = 13;
+    pub const SECURITY = 14;
+    pub const KEY = 15;
+    pub const NETLINK = 16;
+    pub const ROUTE = NETLINK;
+    pub const PACKET = 17;
+    pub const ASH = 18;
+    pub const ECONET = 19;
+    pub const ATMSVC = 20;
+    pub const RDS = 21;
+    pub const SNA = 22;
+    pub const IRDA = 23;
+    pub const PPPOX = 24;
+    pub const WANPIPE = 25;
+    pub const LLC = 26;
+    pub const CAN = 29;
+    pub const TIPC = 30;
+    pub const BLUETOOTH = 31;
+    pub const IUCV = 32;
+    pub const RXRPC = 33;
+    pub const ISDN = 34;
+    pub const PHONET = 35;
+    pub const IEEE802154 = 36;
+    pub const CAIF = 37;
+    pub const ALG = 38;
+    pub const NFC = 39;
+    pub const VSOCK = 40;
+    pub const KCM = 41;
+    pub const QIPCRTR = 42;
+    pub const MAX = 43;
+} else switch (native_os) {
     .linux, .emscripten => linux.AF,
     .windows => ws2_32.AF,
     .macos, .ios, .tvos, .watchos, .visionos => struct {
@@ -4607,7 +4661,52 @@ pub const AF = switch (native_os) {
     },
     else => void,
 };
-pub const PF = switch (native_os) {
+pub const PF = if (builtin.abi.isAndroid()) struct {
+    pub const UNSPEC = AF.UNSPEC;
+    pub const UNIX = AF.UNIX;
+    pub const LOCAL = AF.LOCAL;
+    pub const INET = AF.INET;
+    pub const AX25 = AF.AX25;
+    pub const IPX = AF.IPX;
+    pub const APPLETALK = AF.APPLETALK;
+    pub const NETROM = AF.NETROM;
+    pub const BRIDGE = AF.BRIDGE;
+    pub const ATMPVC = AF.ATMPVC;
+    pub const X25 = AF.X25;
+    pub const PF_INET6 = AF.INET6;
+    pub const PF_ROSE = AF.ROSE;
+    pub const PF_DECnet = AF.DECnet;
+    pub const PF_NETBEUI = AF.NETBEUI;
+    pub const PF_SECURITY = AF.SECURITY;
+    pub const PF_KEY = AF.KEY;
+    pub const PF_NETLINK = AF.NETLINK;
+    pub const PF_ROUTE = AF.ROUTE;
+    pub const PF_PACKET = AF.PACKET;
+    pub const PF_ASH = AF.ASH;
+    pub const PF_ECONET = AF.ECONET;
+    pub const PF_ATMSVC = AF.ATMSVC;
+    pub const PF_RDS = AF.RDS;
+    pub const PF_SNA = AF.SNA;
+    pub const PF_IRDA = AF.IRDA;
+    pub const PF_PPPOX = AF.PPPOX;
+    pub const PF_WANPIPE = AF.WANPIPE;
+    pub const PF_LLC = AF.LLC;
+    pub const PF_CAN = AF.CAN;
+    pub const PF_TIPC = AF.TIPC;
+    pub const PF_BLUETOOTH = AF.BLUETOOTH;
+    pub const PF_IUCV = AF.IUCV;
+    pub const PF_RXRPC = AF.RXRPC;
+    pub const PF_ISDN = AF.ISDN;
+    pub const PF_PHONET = AF.PHONET;
+    pub const PF_IEEE802154 = AF.IEEE802154;
+    pub const PF_CAIF = AF.CAIF;
+    pub const PF_ALG = AF.ALG;
+    pub const PF_NFC = AF.NFC;
+    pub const PF_VSOCK = AF.VSOCK;
+    pub const PF_KCM = AF.KCM;
+    pub const PF_QIPCRTR = AF.QIPCRTR;
+    pub const PF_MAX = AF.MAX;
+} else switch (native_os) {
     .linux, .emscripten => linux.PF,
     .macos, .ios, .tvos, .watchos, .visionos => struct {
         pub const UNSPEC = AF.UNSPEC;
@@ -6241,7 +6340,18 @@ pub const dirent64 = switch (native_os) {
     else => void,
 };
 
-pub const AI = switch (native_os) {
+pub const AI = if (builtin.abi.isAndroid()) packed struct(u32) {
+    PASSIVE: bool = false,
+    CANONNAME: bool = false,
+    NUMERICHOST: bool = false,
+    NUMERICSERV: bool = false,
+    _4: u4 = 0,
+    ALL: bool = false,
+    V4MAPPED_CFG: bool = false,
+    ADDRCONFIG: bool = false,
+    V4MAPPED: bool = false,
+    _: u20 = 0,
+} else switch (native_os) {
     .linux, .emscripten => linux.AI,
     .dragonfly, .haiku, .freebsd => packed struct(u32) {
         PASSIVE: bool = false,
@@ -6320,7 +6430,40 @@ pub const NI = switch (native_os) {
     else => void,
 };
 
-pub const EAI = switch (native_os) {
+pub const EAI = if (builtin.abi.isAndroid()) enum(c_int) {
+    /// address family for hostname not supported
+    ADDRFAMILY = 1,
+    /// temporary failure in name resolution
+    AGAIN = 2,
+    /// invalid value for ai_flags
+    BADFLAGS = 3,
+    /// non-recoverable failure in name resolution
+    FAIL = 4,
+    /// ai_family not supported
+    FAMILY = 5,
+    /// memory allocation failure
+    MEMORY = 6,
+    /// no address associated with hostname
+    NODATA = 7,
+    /// hostname nor servname provided, or not known
+    NONAME = 8,
+    /// servname not supported for ai_socktype
+    SERVICE = 9,
+    /// ai_socktype not supported
+    SOCKTYPE = 10,
+    /// system error returned in errno
+    SYSTEM = 11,
+    /// invalid value for hints
+    BADHINTS = 12,
+    /// resolved protocol is unknown
+    PROTOCOL = 13,
+    /// argument buffer overflow
+    OVERFLOW = 14,
+
+    MAX = 15,
+
+    _,
+} else switch (native_os) {
     .linux, .emscripten => enum(c_int) {
         BADFLAGS = -1,
         NONAME = -2,
@@ -9087,7 +9230,11 @@ pub const getentropy = switch (native_os) {
 };
 pub const getrandom = switch (native_os) {
     .freebsd => private.getrandom,
-    .linux => if (versionCheck(.{ .major = 2, .minor = 25, .patch = 0 })) private.getrandom else {},
+    .linux => if (builtin.abi.isMusl() or
+        (builtin.abi.isGnu() and versionCheck(.{ .major = 2, .minor = 25, .patch = 0 })) or
+        (builtin.abi.isAndroid() and versionCheck(.{ .major = 28, .minor = 0, .patch = 0 })))
+        private.getrandom
+    else {},
     else => {},
 };
 
