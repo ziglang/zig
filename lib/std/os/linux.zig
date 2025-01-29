@@ -1878,7 +1878,7 @@ pub fn recvmsg(fd: i32, msg: *msghdr, flags: u32) usize {
     }
 }
 
-pub fn recvmmsg(fd: i32, msgvec: [*]mmsghdr, vlen: u32, flags: u32, timeout: *timespec) usize {
+pub fn recvmmsg(fd: i32, msgvec: ?[*]mmsghdr, vlen: u32, flags: u32, timeout: ?*timespec) usize {
     return syscall5(
         .recvmmsg,
         @as(usize, @bitCast(@as(isize, fd))),
