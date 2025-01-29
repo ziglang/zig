@@ -47,7 +47,7 @@ fn memmoveFast(dest: ?[*]u8, src: ?[*]u8, len: usize) callconv(.C) ?[*]u8 {
     const dest_address = @intFromPtr(dest);
     const src_address = @intFromPtr(src);
 
-    if (src_address < dest_address and src_address + len > dest_address) {
+    if (src_address < dest_address) {
         copyBackwards(dest.?, src.?, len);
     } else {
         copyForwards(dest.?, src.?, len);
