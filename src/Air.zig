@@ -574,6 +574,12 @@ pub const Inst = struct {
         /// See `trunc` for integer truncation.
         /// Uses the `ty_op` field.
         intcast,
+        /// Like `intcast`, but includes two safety checks:
+        /// * triggers a safety panic if the cast truncates bits
+        /// * triggers a safety panic if the destination type is an exhaustive enum
+        ///   and the operand is not a valid value of this type; i.e. equivalent to
+        ///   a safety check based on `.is_named_enum_value`
+        intcast_safe,
         /// Truncate higher bits from an integer, resulting in an integer with the same
         /// sign but an equal or smaller number of bits.
         /// Uses the `ty_op` field.
@@ -1463,6 +1469,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .fpext,
         .fptrunc,
         .intcast,
+        .intcast_safe,
         .trunc,
         .optional_payload,
         .optional_payload_ptr,
@@ -1712,6 +1719,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .add_safe,
         .sub_safe,
         .mul_safe,
+        .intcast_safe,
         => true,
 
         .add,

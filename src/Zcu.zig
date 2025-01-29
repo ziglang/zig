@@ -3313,7 +3313,7 @@ pub fn addGlobalAssembly(zcu: *Zcu, unit: AnalUnit, source: []const u8) !void {
 
 pub const Feature = enum {
     /// When this feature is enabled, Sema will emit calls to
-    /// `std.builtin.Panic` functions for things like safety checks and
+    /// `std.builtin.panic` functions for things like safety checks and
     /// unreachables. Otherwise traps will be emitted.
     panic_fn,
     /// When this feature is enabled, Sema will insert tracer functions for gathering a stack
@@ -3329,6 +3329,7 @@ pub const Feature = enum {
     /// * `Air.Inst.Tag.add_safe`
     /// * `Air.Inst.Tag.sub_safe`
     /// * `Air.Inst.Tag.mul_safe`
+    /// * `Air.Inst.Tag.intcast_safe`
     /// The motivation for this feature is that it makes AIR smaller, and makes it easier
     /// to generate better machine code in the backends. All backends should migrate to
     /// enabling this feature.
