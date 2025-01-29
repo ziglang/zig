@@ -8798,11 +8798,12 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const operand_src = block.builtinCallArgSrc(inst_data.src_node, 0);
     const dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu_opt, "@enumFromInt");
     const operand = try sema.resolveInst(extra.rhs);
+    const operand_ty = sema.typeOf(operand);
 
     if (dest_ty.zigTypeTag(zcu) != .@"enum") {
         return sema.fail(block, src, "expected enum, found '{}'", .{dest_ty.fmt(pt)});
     }
-    _ = try sema.checkIntType(block, operand_src, sema.typeOf(operand));
+    _ = try sema.checkIntType(block, operand_src, operand_ty);
 
     if (try sema.resolveValue(operand)) |int_val| {
         if (dest_ty.isNonexhaustiveEnum(zcu)) {
@@ -8830,23 +8831,39 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     }
 
     if (try sema.typeHasOnePossibleValue(dest_ty)) |opv| {
-        const result = Air.internedToRef(opv.toIntern());
-        // The operand is runtime-known but the result is comptime-known. In
-        // this case we still need a safety check.
-        // TODO add a safety check here. we can't use is_named_enum_value -
-        // it needs to convert the enum back to int and make sure it equals the operand int.
-        return result;
+        if (block.wantSafety()) {
+            // The operand is runtime-known but the result is comptime-known. In
+            // this case we still need a safety check.
+            const expect_int_val = switch (zcu.intern_pool.indexToKey(opv.toIntern())) {
+                .enum_tag => |enum_tag| enum_tag.int,
+                else => unreachable,
+            };
+            const expect_int_coerced = try pt.getCoerced(.fromInterned(expect_int_val), operand_ty);
+            const ok = try block.addBinOp(.cmp_eq, operand, Air.internedToRef(expect_int_coerced.toIntern()));
+            try sema.addSafetyCheck(block, src, ok, .invalid_enum_value);
+        }
+        return Air.internedToRef(opv.toIntern());
     }
 
     try sema.requireRuntimeBlock(block, src, operand_src);
-    const result = try block.addTyOp(.intcast, dest_ty, operand);
-    if (block.wantSafety() and !dest_ty.isNonexhaustiveEnum(zcu) and
-        zcu.backendSupportsFeature(.is_named_enum_value))
-    {
-        const ok = try block.addUnOp(.is_named_enum_value, result);
-        try sema.addSafetyCheck(block, src, ok, .invalid_enum_value);
+    if (block.wantSafety()) {
+        if (zcu.backendSupportsFeature(.safety_checked_instructions)) {
+            _ = try sema.preparePanicId(src, .invalid_enum_value);
+            return block.addTyOp(.intcast_safe, dest_ty, operand);
+        } else {
+            // Slightly silly fallback case...
+            const int_tag_ty = dest_ty.intTagType(zcu);
+            // Use `intCast`, since it'll set up the Sema-emitted safety checks for us!
+            const int_val = try sema.intCast(block, src, int_tag_ty, src, operand, src, true, true);
+            const result = try block.addBitCast(dest_ty, int_val);
+            if (zcu.backendSupportsFeature(.is_named_enum_value)) {
+                const ok = try block.addUnOp(.is_named_enum_value, result);
+                try sema.addSafetyCheck(block, src, ok, .invalid_enum_value);
+            }
+            return result;
+        }
     }
-    return result;
+    return block.addTyOp(.intcast, dest_ty, operand);
 }
 
 /// Pointer in, pointer out.
@@ -10192,7 +10209,7 @@ fn zirIntCast(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const dest_ty = try sema.resolveDestType(block, src, extra.lhs, .remove_eu_opt, "@intCast");
     const operand = try sema.resolveInst(extra.rhs);
 
-    return sema.intCast(block, block.nodeOffset(inst_data.src_node), dest_ty, src, operand, operand_src, true);
+    return sema.intCast(block, block.nodeOffset(inst_data.src_node), dest_ty, src, operand, operand_src, true, false);
 }
 
 fn intCast(
@@ -10204,6 +10221,7 @@ fn intCast(
     operand: Air.Inst.Ref,
     operand_src: LazySrcLoc,
     runtime_safety: bool,
+    safety_panics_are_enum: bool,
 ) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -10242,7 +10260,7 @@ fn intCast(
                     const is_in_range = try block.addBinOp(.cmp_lte, operand, zero_inst);
                     break :ok is_in_range;
                 };
-                try sema.addSafetyCheck(block, src, ok, .cast_truncated_data);
+                try sema.addSafetyCheck(block, src, ok, if (safety_panics_are_enum) .invalid_enum_value else .cast_truncated_data);
             }
         }
 
@@ -10251,6 +10269,11 @@ fn intCast(
 
     try sema.requireRuntimeBlock(block, src, operand_src);
     if (runtime_safety and block.wantSafety()) {
+        if (zcu.backendSupportsFeature(.safety_checked_instructions)) {
+            _ = try sema.preparePanicId(src, .negative_to_unsigned);
+            _ = try sema.preparePanicId(src, .cast_truncated_data);
+            return block.addTyOp(.intcast_safe, dest_ty, operand);
+        }
         const actual_info = operand_scalar_ty.intInfo(zcu);
         const wanted_info = dest_scalar_ty.intInfo(zcu);
         const actual_bits = actual_info.bits;
@@ -10305,7 +10328,7 @@ fn intCast(
                     break :ok is_in_range;
                 };
                 // TODO negative_to_unsigned?
-                try sema.addSafetyCheck(block, src, ok, .cast_truncated_data);
+                try sema.addSafetyCheck(block, src, ok, if (safety_panics_are_enum) .invalid_enum_value else .cast_truncated_data);
             } else {
                 const ok = if (is_vector) ok: {
                     const is_in_range = try block.addCmpVector(operand, dest_max, .lte);
@@ -10321,7 +10344,7 @@ fn intCast(
                     const is_in_range = try block.addBinOp(.cmp_lte, operand, dest_max);
                     break :ok is_in_range;
                 };
-                try sema.addSafetyCheck(block, src, ok, .cast_truncated_data);
+                try sema.addSafetyCheck(block, src, ok, if (safety_panics_are_enum) .invalid_enum_value else .cast_truncated_data);
             }
         } else if (actual_info.signedness == .signed and wanted_info.signedness == .unsigned) {
             // no shrinkage, yes sign loss
@@ -10344,7 +10367,7 @@ fn intCast(
                 const is_in_range = try block.addBinOp(.cmp_gte, operand, zero_inst);
                 break :ok is_in_range;
             };
-            try sema.addSafetyCheck(block, src, ok, .negative_to_unsigned);
+            try sema.addSafetyCheck(block, src, ok, if (safety_panics_are_enum) .invalid_enum_value else .negative_to_unsigned);
         }
     }
     return block.addTyOp(.intcast, dest_ty, operand);
@@ -14149,7 +14172,7 @@ fn zirShl(
         {
             const max_int = Air.internedToRef((try lhs_ty.maxInt(pt, lhs_ty)).toIntern());
             const rhs_limited = try sema.analyzeMinMax(block, rhs_src, .min, &.{ rhs, max_int }, &.{ rhs_src, rhs_src });
-            break :rhs try sema.intCast(block, src, lhs_ty, rhs_src, rhs_limited, rhs_src, false);
+            break :rhs try sema.intCast(block, src, lhs_ty, rhs_src, rhs_limited, rhs_src, false, false);
         } else {
             break :rhs rhs;
         }

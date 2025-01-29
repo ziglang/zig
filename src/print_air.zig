@@ -223,6 +223,7 @@ const Writer = struct {
             .fptrunc,
             .fpext,
             .intcast,
+            .intcast_safe,
             .trunc,
             .optional_payload,
             .optional_payload_ptr,

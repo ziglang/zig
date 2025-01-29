@@ -1517,6 +1517,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .add_safe,
             .sub_safe,
             .mul_safe,
+            .intcast_safe,
             => return func.fail("TODO implement safety_checked_instructions", .{}),
 
             .cmp_lt,

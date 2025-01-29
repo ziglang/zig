@@ -2084,6 +2084,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .add_safe,
         .sub_safe,
         .mul_safe,
+        .intcast_safe,
         => return cg.fail("TODO implement safety_checked_instructions", .{}),
 
         .work_item_id,

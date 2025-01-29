@@ -2549,6 +2549,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .add_safe,
             .sub_safe,
             .mul_safe,
+            .intcast_safe,
             => return cg.fail("TODO implement safety_checked_instructions", .{}),
 
             .add_optimized => try cg.airBinOp(inst, .add),

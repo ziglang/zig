@@ -860,6 +860,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .add_safe,
             .sub_safe,
             .mul_safe,
+            .intcast_safe,
             => return self.fail("TODO implement safety_checked_instructions", .{}),
 
             .is_named_enum_value => return self.fail("TODO implement is_named_enum_value", .{}),
