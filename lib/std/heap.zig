@@ -18,7 +18,6 @@ pub const GeneralPurposeAllocatorConfig = @import("heap/general_purpose_allocato
 pub const GeneralPurposeAllocator = @import("heap/general_purpose_allocator.zig").GeneralPurposeAllocator;
 pub const Check = @import("heap/general_purpose_allocator.zig").Check;
 pub const WasmAllocator = @import("heap/WasmAllocator.zig");
-pub const WasmPageAllocator = @import("heap/WasmPageAllocator.zig");
 pub const PageAllocator = @import("heap/PageAllocator.zig");
 pub const ThreadSafeAllocator = @import("heap/ThreadSafeAllocator.zig");
 pub const SbrkAllocator = @import("heap/sbrk_allocator.zig").SbrkAllocator;
@@ -223,36 +222,35 @@ fn rawCFree(
     c.free(buf.ptr);
 }
 
-/// This allocator makes a syscall directly for every allocation and free.
-/// Thread-safe and lock-free.
-pub const page_allocator = if (@hasDecl(root, "os") and
+/// On operating systems that support memory mapping, this allocator makes a
+/// syscall directly for every allocation and free.
+///
+/// Otherwise, it falls back to the preferred singleton for the target.
+///
+/// Thread-safe.
+pub const page_allocator: Allocator = if (@hasDecl(root, "os") and
     @hasDecl(root.os, "heap") and
     @hasDecl(root.os.heap, "page_allocator"))
     root.os.heap.page_allocator
-else if (builtin.target.isWasm())
-    Allocator{
-        .ptr = undefined,
-        .vtable = &WasmPageAllocator.vtable,
-    }
-else if (builtin.target.os.tag == .plan9)
-    Allocator{
-        .ptr = undefined,
-        .vtable = &SbrkAllocator(std.os.plan9.sbrk).vtable,
-    }
-else
-    Allocator{
-        .ptr = undefined,
-        .vtable = &PageAllocator.vtable,
-    };
+else if (builtin.target.isWasm()) .{
+    .ptr = undefined,
+    .vtable = &WasmAllocator.vtable,
+} else if (builtin.target.os.tag == .plan9) .{
+    .ptr = undefined,
+    .vtable = &SbrkAllocator(std.os.plan9.sbrk).vtable,
+} else .{
+    .ptr = undefined,
+    .vtable = &PageAllocator.vtable,
+};
 
 /// This allocator is fast, small, and specific to WebAssembly. In the future,
 /// this will be the implementation automatically selected by
 /// `GeneralPurposeAllocator` when compiling in `ReleaseSmall` mode for wasm32
 /// and wasm64 architectures.
 /// Until then, it is available here to play with.
-pub const wasm_allocator = Allocator{
+pub const wasm_allocator: Allocator = .{
     .ptr = undefined,
-    .vtable = &std.heap.WasmAllocator.vtable,
+    .vtable = &WasmAllocator.vtable,
 };
 
 /// Verifies that the adjusted length will still map to the full length
@@ -892,6 +890,5 @@ test {
     _ = GeneralPurposeAllocator;
     if (builtin.target.isWasm()) {
         _ = WasmAllocator;
-        _ = WasmPageAllocator;
     }
 }
