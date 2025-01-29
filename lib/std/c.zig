@@ -6260,7 +6260,11 @@ pub const AI = switch (native_os) {
         PASSIVE: bool = false,
         CANONNAME: bool = false,
         NUMERICHOST: bool = false,
-        _3: u9 = 0,
+        _3: u5 = 0,
+        ALL: bool = false,
+        V4MAPPED_CFG: bool = false,
+        ADDRCONFIG: bool = false,
+        V4MAPPED: bool = false,
         NUMERICSERV: bool = false,
         _: u19 = 0,
     },
@@ -9299,8 +9303,8 @@ pub const fork = switch (native_os) {
     => private.fork,
     else => {},
 };
-pub extern "c" fn access(path: [*:0]const u8, mode: c_uint) c_int;
-pub extern "c" fn faccessat(dirfd: fd_t, path: [*:0]const u8, mode: c_uint, flags: c_uint) c_int;
+pub extern "c" fn access(path: [*:0]const u8, mode: c_int) c_int;
+pub extern "c" fn faccessat(dirfd: fd_t, path: [*:0]const u8, mode: c_int, flags: c_int) c_int;
 pub extern "c" fn pipe(fds: *[2]fd_t) c_int;
 pub extern "c" fn mkdir(path: [*:0]const u8, mode: c_uint) c_int;
 pub extern "c" fn mkdirat(dirfd: fd_t, path: [*:0]const u8, mode: u32) c_int;
@@ -9794,11 +9798,14 @@ pub const dispatch_semaphore_create = darwin.dispatch_semaphore_create;
 pub const dispatch_semaphore_signal = darwin.dispatch_semaphore_signal;
 pub const dispatch_semaphore_wait = darwin.dispatch_semaphore_wait;
 pub const dispatch_time = darwin.dispatch_time;
+pub const copyfile_state_t = darwin.copyfile_state_t;
 pub const fcopyfile = darwin.fcopyfile;
+pub const host_t = darwin.host_t;
 pub const ipc_space_t = darwin.ipc_space_t;
 pub const ipc_space_port_t = darwin.ipc_space_port_t;
 pub const kern_return_t = darwin.kern_return_t;
 pub const kevent64 = darwin.kevent64;
+pub const kevent64_s = darwin.kevent64_s;
 pub const mach_absolute_time = darwin.mach_absolute_time;
 pub const mach_continuous_time = darwin.mach_continuous_time;
 pub const mach_hdr = darwin.mach_hdr;
@@ -9822,6 +9829,7 @@ pub const mach_vm_region = darwin.mach_vm_region;
 pub const mach_vm_region_recurse = darwin.mach_vm_region_recurse;
 pub const mach_vm_size_t = darwin.mach_vm_size_t;
 pub const mach_vm_write = darwin.mach_vm_write;
+pub const natural_t = darwin.natural_t;
 pub const os_log_create = darwin.os_log_create;
 pub const os_log_type_enabled = darwin.os_log_type_enabled;
 pub const os_signpost_enabled = darwin.os_signpost_enabled;
