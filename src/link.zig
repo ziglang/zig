@@ -1889,8 +1889,116 @@ pub fn resolveInputs(
     mem.reverse(UnresolvedInput, unresolved_inputs.items);
 
     syslib: while (unresolved_inputs.pop()) |unresolved_input| {
-        const name_query: UnresolvedInput.NameQuery = switch (unresolved_input) {
-            .name_query => |nq| nq,
+        switch (unresolved_input) {
+            .name_query => |name_query| {
+                const query = name_query.query;
+
+                // Checked in the first pass above while looking for libc libraries.
+                assert(!fs.path.isAbsolute(name_query.name));
+
+                checked_paths.clearRetainingCapacity();
+
+                switch (query.search_strategy) {
+                    .mode_first, .no_fallback => {
+                        // check for preferred mode
+                        for (lib_directories) |lib_directory| switch (try resolveLibInput(
+                            gpa,
+                            arena,
+                            unresolved_inputs,
+                            resolved_inputs,
+                            &checked_paths,
+                            &ld_script_bytes,
+                            lib_directory,
+                            name_query,
+                            target,
+                            query.preferred_mode,
+                            color,
+                        )) {
+                            .ok => continue :syslib,
+                            .no_match => {},
+                        };
+                        // check for fallback mode
+                        if (query.search_strategy == .no_fallback) {
+                            try failed_libs.append(arena, .{
+                                .name = name_query.name,
+                                .strategy = query.search_strategy,
+                                .checked_paths = try arena.dupe(u8, checked_paths.items),
+                                .preferred_mode = query.preferred_mode,
+                            });
+                            continue :syslib;
+                        }
+                        for (lib_directories) |lib_directory| switch (try resolveLibInput(
+                            gpa,
+                            arena,
+                            unresolved_inputs,
+                            resolved_inputs,
+                            &checked_paths,
+                            &ld_script_bytes,
+                            lib_directory,
+                            name_query,
+                            target,
+                            query.fallbackMode(),
+                            color,
+                        )) {
+                            .ok => continue :syslib,
+                            .no_match => {},
+                        };
+                        try failed_libs.append(arena, .{
+                            .name = name_query.name,
+                            .strategy = query.search_strategy,
+                            .checked_paths = try arena.dupe(u8, checked_paths.items),
+                            .preferred_mode = query.preferred_mode,
+                        });
+                        continue :syslib;
+                    },
+                    .paths_first => {
+                        for (lib_directories) |lib_directory| {
+                            // check for preferred mode
+                            switch (try resolveLibInput(
+                                gpa,
+                                arena,
+                                unresolved_inputs,
+                                resolved_inputs,
+                                &checked_paths,
+                                &ld_script_bytes,
+                                lib_directory,
+                                name_query,
+                                target,
+                                query.preferred_mode,
+                                color,
+                            )) {
+                                .ok => continue :syslib,
+                                .no_match => {},
+                            }
+
+                            // check for fallback mode
+                            switch (try resolveLibInput(
+                                gpa,
+                                arena,
+                                unresolved_inputs,
+                                resolved_inputs,
+                                &checked_paths,
+                                &ld_script_bytes,
+                                lib_directory,
+                                name_query,
+                                target,
+                                query.fallbackMode(),
+                                color,
+                            )) {
+                                .ok => continue :syslib,
+                                .no_match => {},
+                            }
+                        }
+                        try failed_libs.append(arena, .{
+                            .name = name_query.name,
+                            .strategy = query.search_strategy,
+                            .checked_paths = try arena.dupe(u8, checked_paths.items),
+                            .preferred_mode = query.preferred_mode,
+                        });
+                        continue :syslib;
+                    },
+                }
+            },
             .ambiguous_name => |an| {
                 // First check the path relative to the current working directory.
                 // If the file is a library and is not found there, check the library search paths as well.
@@ -1959,113 +2067,6 @@ pub fn resolveInputs(
             .dso_exact => |dso_exact| {
                 try resolved_inputs.append(gpa, .{ .dso_exact = dso_exact });
                 continue;
-            },
-        };
-        const query = name_query.query;
-
-        // Checked in the first pass above while looking for libc libraries.
-        assert(!fs.path.isAbsolute(name_query.name));
-
-        checked_paths.clearRetainingCapacity();
-
-        switch (query.search_strategy) {
-            .mode_first, .no_fallback => {
-                // check for preferred mode
-                for (lib_directories) |lib_directory| switch (try resolveLibInput(
-                    gpa,
-                    arena,
-                    unresolved_inputs,
-                    resolved_inputs,
-                    &checked_paths,
-                    &ld_script_bytes,
-                    lib_directory,
-                    name_query,
-                    target,
-                    query.preferred_mode,
-                    color,
-                )) {
-                    .ok => continue :syslib,
-                    .no_match => {},
-                };
-                // check for fallback mode
-                if (query.search_strategy == .no_fallback) {
-                    try failed_libs.append(arena, .{
-                        .name = name_query.name,
-                        .strategy = query.search_strategy,
-                        .checked_paths = try arena.dupe(u8, checked_paths.items),
-                        .preferred_mode = query.preferred_mode,
-                    });
-                    continue :syslib;
-                }
-                for (lib_directories) |lib_directory| switch (try resolveLibInput(
-                    gpa,
-                    arena,
-                    unresolved_inputs,
-                    resolved_inputs,
-                    &checked_paths,
-                    &ld_script_bytes,
-                    lib_directory,
-                    name_query,
-                    target,
-                    query.fallbackMode(),
-                    color,
-                )) {
-                    .ok => continue :syslib,
-                    .no_match => {},
-                };
-                try failed_libs.append(arena, .{
-                    .name = name_query.name,
-                    .strategy = query.search_strategy,
-                    .checked_paths = try arena.dupe(u8, checked_paths.items),
-                    .preferred_mode = query.preferred_mode,
-                });
-                continue :syslib;
-            },
-            .paths_first => {
-                for (lib_directories) |lib_directory| {
-                    // check for preferred mode
-                    switch (try resolveLibInput(
-                        gpa,
-                        arena,
-                        unresolved_inputs,
-                        resolved_inputs,
-                        &checked_paths,
-                        &ld_script_bytes,
-                        lib_directory,
-                        name_query,
-                        target,
-                        query.preferred_mode,
-                        color,
-                    )) {
-                        .ok => continue :syslib,
-                        .no_match => {},
-                    }
-
-                    // check for fallback mode
-                    switch (try resolveLibInput(
-                        gpa,
-                        arena,
-                        unresolved_inputs,
-                        resolved_inputs,
-                        &checked_paths,
-                        &ld_script_bytes,
-                        lib_directory,
-                        name_query,
-                        target,
-                        query.fallbackMode(),
-                        color,
-                    )) {
-                        .ok => continue :syslib,
-                        .no_match => {},
-                    }
-                }
-                try failed_libs.append(arena, .{
-                    .name = name_query.name,
-                    .strategy = query.search_strategy,
-                    .checked_paths = try arena.dupe(u8, checked_paths.items),
-                    .preferred_mode = query.preferred_mode,
-                });
-                continue :syslib;
             },
         }
         @compileError("unreachable");
