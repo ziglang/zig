@@ -932,7 +932,7 @@ set(ZIG_BUILD_ARGS
   -Dno-langref
 )
 
-option(ZIG_EXTRA_BUILD_ARGS "Extra zig build args")
+set(ZIG_EXTRA_BUILD_ARGS "" CACHE STRING "Extra zig build args")
 if(ZIG_EXTRA_BUILD_ARGS)
   list(APPEND ZIG_BUILD_ARGS ${ZIG_EXTRA_BUILD_ARGS})
 endif()

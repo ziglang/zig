@@ -2057,6 +2057,22 @@ pub fn elemType2(ty: Type, zcu: *const Zcu) Type {
     };
 }
 
+/// Given that `ty` is an indexable pointer, returns its element type. Specifically:
+/// * for `*[n]T`, returns `T`
+/// * for `[]T`, returns `T`
+/// * for `[*]T`, returns `T`
+/// * for `[*c]T`, returns `T`
+pub fn indexablePtrElem(ty: Type, zcu: *const Zcu) Type {
+    const ip = &zcu.intern_pool;
+    const ptr_type = ip.indexToKey(ty.toIntern()).ptr_type;
+    switch (ptr_type.flags.size) {
+        .many, .slice, .c => return .fromInterned(ptr_type.child),
+        .one => {},
+    }
+    const array_type = ip.indexToKey(ptr_type.child).array_type;
+    return .fromInterned(array_type.child);
+}
+
 fn shallowElemType(child_ty: Type, zcu: *const Zcu) Type {
     return switch (child_ty.zigTypeTag(zcu)) {
         .array, .vector => child_ty.childType(zcu),

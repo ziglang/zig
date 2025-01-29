@@ -9405,11 +9405,11 @@ pub extern "c" fn malloc(usize) ?*anyopaque;
 pub extern "c" fn realloc(?*anyopaque, usize) ?*anyopaque;
 pub extern "c" fn free(?*anyopaque) void;
 
-pub extern "c" fn futimes(fd: fd_t, times: *[2]timeval) c_int;
-pub extern "c" fn utimes(path: [*:0]const u8, times: *[2]timeval) c_int;
+pub extern "c" fn futimes(fd: fd_t, times: ?*[2]timeval) c_int;
+pub extern "c" fn utimes(path: [*:0]const u8, times: ?*[2]timeval) c_int;
 
-pub extern "c" fn utimensat(dirfd: fd_t, pathname: [*:0]const u8, times: *[2]timespec, flags: u32) c_int;
-pub extern "c" fn futimens(fd: fd_t, times: *const [2]timespec) c_int;
+pub extern "c" fn utimensat(dirfd: fd_t, pathname: [*:0]const u8, times: ?*[2]timespec, flags: u32) c_int;
+pub extern "c" fn futimens(fd: fd_t, times: ?*const [2]timespec) c_int;
 
 pub extern "c" fn pthread_create(
     noalias newthread: *pthread_t,
@@ -9816,6 +9816,7 @@ pub const ipc_space_t = darwin.ipc_space_t;
 pub const ipc_space_port_t = darwin.ipc_space_port_t;
 pub const kern_return_t = darwin.kern_return_t;
 pub const kevent64 = darwin.kevent64;
+pub const kevent64_s = darwin.kevent64_s;
 pub const mach_absolute_time = darwin.mach_absolute_time;
 pub const mach_continuous_time = darwin.mach_continuous_time;
 pub const mach_hdr = darwin.mach_hdr;

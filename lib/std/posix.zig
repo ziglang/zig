@@ -5769,17 +5769,27 @@ pub const FutimensError = error{
     ReadOnlyFileSystem,
 } || UnexpectedError;
 
-pub fn futimens(fd: fd_t, times: *const [2]timespec) FutimensError!void {
+pub fn futimens(fd: fd_t, times: ?*const [2]timespec) FutimensError!void {
     if (native_os == .wasi and !builtin.link_libc) {
         // TODO WASI encodes `wasi.fstflags` to signify magic values
         // similar to UTIME_NOW and UTIME_OMIT. Currently, we ignore
         // this here, but we should really handle it somehow.
-        const atim = times[0].toTimestamp();
-        const mtim = times[1].toTimestamp();
-        switch (wasi.fd_filestat_set_times(fd, atim, mtim, .{
-            .ATIM = true,
-            .MTIM = true,
-        })) {
+        const error_code = blk: {
+            if (times) |times_arr| {
+                const atim = times_arr[0].toTimestamp();
+                const mtim = times_arr[1].toTimestamp();
+                break :blk wasi.fd_filestat_set_times(fd, atim, mtim, .{
+                    .ATIM = true,
+                    .MTIM = true,
+                });
+            }
+
+            break :blk wasi.fd_filestat_set_times(fd, 0, 0, .{
+                .ATIM_NOW = true,
+                .MTIM_NOW = true,
+            });
+        };
+        switch (error_code) {
             .SUCCESS => return,
             .ACCES => return error.AccessDenied,
             .PERM => return error.PermissionDenied,
