@@ -665,7 +665,7 @@ pub fn formatType(
                 return writer.writeAll("{ ... }");
             }
             if (info.sentinel) |s| {
-                const index = std.mem.indexOfSentinel(info.child, @as(*const info.child, @ptrCast(s)).*, value[0..]);
+                const index = std.mem.indexOfSentinel(info.child, s, value[0..]);
                 return formatBuf(value[0..index], options, writer);
             }
             if (actual_fmt[0] == 's' and info.child == u8) {
