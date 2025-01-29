@@ -8021,26 +8021,49 @@ fn analyzeCall(
 
     // This is an inline call. The function must be comptime-known. We will analyze its body directly using this `Sema`.
 
-    const call_type: []const u8 = if (block.isComptime()) "comptime" else "inline";
-
-    if (modifier == .never_inline) {
-        return sema.fail(block, call_src, "cannot perform {s} call with 'never_inline' modifier", .{call_type});
-    }
     if (func_ty_info.is_noinline and !block.isComptime()) {
-        return sema.fail(block, call_src, "{s} call of noinline function", .{call_type});
+        return sema.fail(block, call_src, "inline call of noinline function", .{});
+    }
+
+    const call_type: []const u8 = if (block.isComptime()) "comptime" else "inline";
+    if (modifier == .never_inline) {
+        const msg, const fail_block = msg: {
+            const msg = try sema.errMsg(call_src, "cannot perform {s} call with 'never_inline' modifier", .{call_type});
+            errdefer msg.destroy(gpa);
+            const fail_block = if (block.isComptime()) b: {
+                break :b try block.explainWhyBlockIsComptime(msg);
+            } else block;
+            break :msg .{ msg, fail_block };
+        };
+        return sema.failWithOwnedErrorMsg(fail_block, msg);
     }
     if (func_ty_info.is_var_args) {
-        return sema.fail(block, call_src, "{s} call of variadic function", .{call_type});
+        const msg, const fail_block = msg: {
+            const msg = try sema.errMsg(call_src, "{s} call of variadic function", .{call_type});
+            errdefer msg.destroy(gpa);
+            const fail_block = if (block.isComptime()) b: {
+                break :b try block.explainWhyBlockIsComptime(msg);
+            } else block;
+            break :msg .{ msg, fail_block };
+        };
+        return sema.failWithOwnedErrorMsg(fail_block, msg);
     }
-
     if (func_val == null) {
         if (func_is_extern) {
-            return sema.fail(block, call_src, "{s} call of extern function", .{call_type});
+            const msg, const fail_block = msg: {
+                const msg = try sema.errMsg(call_src, "{s} call of extern function", .{call_type});
+                errdefer msg.destroy(gpa);
+                const fail_block = if (block.isComptime()) b: {
+                    break :b try block.explainWhyBlockIsComptime(msg);
+                } else block;
+                break :msg .{ msg, fail_block };
+            };
+            return sema.failWithOwnedErrorMsg(fail_block, msg);
         }
         return sema.failWithNeededComptime(
             block,
             func_src,
-            .{ .simple = if (block.isComptime()) .comptime_call_target else .inline_call_target },
+            if (block.isComptime()) null else .{ .simple = .inline_call_target },
         );
     }
 
