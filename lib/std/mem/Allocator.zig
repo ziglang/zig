@@ -18,11 +18,15 @@ ptr: *anyopaque,
 vtable: *const VTable,
 
 pub const VTable = struct {
-    /// Attempt to allocate exactly `len` bytes aligned to `1 << ptr_align`.
+    /// Allocate exactly `len` bytes aligned to `1 << ptr_align`, or return `null`
+    /// indicating the allocation failed.
     ///
     /// `ret_addr` is optionally provided as the first return address of the
     /// allocation call stack. If the value is `0` it means no return address
     /// has been provided.
+    ///
+    /// The returned slice of memory must have been `@memset` to `undefined`
+    /// by the allocator implementation.
     alloc: *const fn (ctx: *anyopaque, len: usize, ptr_align: u8, ret_addr: usize) ?[*]u8,
 
     /// Attempt to expand or shrink memory in place. `buf.len` must equal the
@@ -215,11 +219,6 @@ fn allocWithSizeAndAlignment(self: Allocator, comptime size: usize, comptime ali
 }
 
 fn allocBytesWithAlignment(self: Allocator, comptime alignment: u29, byte_count: usize, return_address: usize) Error![*]align(alignment) u8 {
-    // The Zig Allocator interface is not intended to solve alignments beyond
-    // the minimum OS page size. For these use cases, the caller must use OS
-    // APIs directly.
-    if (!@inComptime() and alignment > std.heap.pageSize()) @panic("Alignment must be smaller than page size.");
-
     if (byte_count == 0) {
         const ptr = comptime std.mem.alignBackward(usize, math.maxInt(usize), alignment);
         return @as([*]align(alignment) u8, @ptrFromInt(ptr));

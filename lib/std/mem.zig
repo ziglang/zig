@@ -1048,17 +1048,18 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
             // as we don't read into a new page. This should be the case for most architectures
             // which use paged memory, however should be confirmed before adding a new arch below.
             .aarch64, .x86, .x86_64 => if (std.simd.suggestVectorLength(T)) |block_len| {
+                const page_size = std.heap.pageSize();
                 const block_size = @sizeOf(T) * block_len;
                 const Block = @Vector(block_len, T);
                 const mask: Block = @splat(sentinel);
 
-                comptime std.debug.assert(std.heap.max_page_size % @sizeOf(Block) == 0);
-                std.debug.assert(std.heap.pageSize() % @sizeOf(Block) == 0);
+                comptime assert(std.heap.page_size_max % @sizeOf(Block) == 0);
+                assert(page_size % @sizeOf(Block) == 0);
 
                 // First block may be unaligned
                 const start_addr = @intFromPtr(&p[i]);
-                const offset_in_page = start_addr & (std.heap.pageSize() - 1);
-                if (offset_in_page <= std.heap.pageSize() - @sizeOf(Block)) {
+                const offset_in_page = start_addr & (page_size - 1);
+                if (offset_in_page <= page_size - @sizeOf(Block)) {
                     // Will not read past the end of a page, full block.
                     const block: Block = p[i..][0..block_len].*;
                     const matches = block == mask;
@@ -1078,7 +1079,7 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
                     }
                 }
 
-                std.debug.assert(std.mem.isAligned(@intFromPtr(&p[i]), block_size));
+                assert(std.mem.isAligned(@intFromPtr(&p[i]), block_size));
                 while (true) {
                     const block: *const Block = @ptrCast(@alignCast(p[i..][0..block_len]));
                     const matches = block.* == mask;
@@ -1101,23 +1102,24 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
 test "indexOfSentinel vector paths" {
     const Types = [_]type{ u8, u16, u32, u64 };
     const allocator = std.testing.allocator;
+    const page_size = std.heap.pageSize();
 
     inline for (Types) |T| {
         const block_len = std.simd.suggestVectorLength(T) orelse continue;
 
         // Allocate three pages so we guarantee a page-crossing address with a full page after
-        const memory = try allocator.alloc(T, 3 * std.heap.pageSize() / @sizeOf(T));
+        const memory = try allocator.alloc(T, 3 * page_size / @sizeOf(T));
         defer allocator.free(memory);
         @memset(memory, 0xaa);
 
         // Find starting page-alignment = 0
         var start: usize = 0;
         const start_addr = @intFromPtr(&memory);
-        start += (std.mem.alignForward(usize, start_addr, std.heap.pageSize()) - start_addr) / @sizeOf(T);
-        try testing.expect(start < std.heap.pageSize() / @sizeOf(T));
+        start += (std.mem.alignForward(usize, start_addr, page_size) - start_addr) / @sizeOf(T);
+        try testing.expect(start < page_size / @sizeOf(T));
 
         // Validate all sub-block alignments
-        const search_len = std.heap.pageSize() / @sizeOf(T);
+        const search_len = page_size / @sizeOf(T);
         memory[start + search_len] = 0;
         for (0..block_len) |offset| {
             try testing.expectEqual(search_len - offset, indexOfSentinel(T, 0, @ptrCast(&memory[start + offset])));
@@ -1125,7 +1127,7 @@ test "indexOfSentinel vector paths" {
         memory[start + search_len] = 0xaa;
 
         // Validate page boundary crossing
-        const start_page_boundary = start + (std.heap.pageSize() / @sizeOf(T));
+        const start_page_boundary = start + (page_size / @sizeOf(T));
         memory[start_page_boundary + block_len] = 0;
         for (0..block_len) |offset| {
             try testing.expectEqual(2 * block_len - offset, indexOfSentinel(T, 0, @ptrCast(&memory[start_page_boundary - block_len + offset])));

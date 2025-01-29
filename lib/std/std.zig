@@ -119,9 +119,12 @@ pub const Options = struct {
         args: anytype,
     ) void = log.defaultLog,
 
-    min_page_size: ?usize = null,
-    max_page_size: ?usize = null,
-    queryPageSizeFn: fn () usize = heap.defaultQueryPageSize,
+    /// Overrides `std.heap.page_size_min`.
+    page_size_min: ?usize = null,
+    /// Overrides `std.heap.page_size_max`.
+    page_size_max: ?usize = null,
+    /// Overrides default implementation for determining OS page size at runtime.
+    queryPageSize: fn () usize = heap.defaultQueryPageSize,
 
     fmt_max_depth: usize = fmt.default_max_depth,
 

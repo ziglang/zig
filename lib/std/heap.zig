@@ -8,337 +8,79 @@ const c = std.c;
 const Allocator = std.mem.Allocator;
 const windows = std.os.windows;
 
-const default_min_page_size: ?usize = switch (builtin.os.tag) {
-    .bridgeos, .driverkit, .ios, .macos, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
-        .x86_64 => 4 << 10,
-        .aarch64 => 16 << 10,
-        else => null,
-    },
-    .windows => switch (builtin.cpu.arch) {
-        // -- <https://devblogs.microsoft.com/oldnewthing/20210510-00/?p=105200>
-        .x86, .x86_64 => 4 << 10,
-        // SuperH => 4 << 10,
-        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => 4 << 10,
-        // DEC Alpha => 8 << 10,
-        // Itanium => 8 << 10,
-        .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be => 4 << 10,
-        else => null,
-    },
-    .wasi => switch (builtin.cpu.arch) {
-        .wasm32, .wasm64 => 64 << 10,
-        else => null,
-    },
-    // https://github.com/tianocore/edk2/blob/b158dad150bf02879668f72ce306445250838201/MdePkg/Include/Uefi/UefiBaseType.h#L180-L187
-    .uefi => 4 << 10,
-    .freebsd => switch (builtin.cpu.arch) {
-        // FreeBSD/sys/*
-        .x86, .x86_64 => 4 << 10,
-        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
-        .aarch64, .aarch64_be => 4 << 10,
-        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
-        .riscv32, .riscv64 => 4 << 10,
-        else => null,
-    },
-    .netbsd => switch (builtin.cpu.arch) {
-        // NetBSD/sys/arch/*
-        .x86, .x86_64 => 4 << 10,
-        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
-        .aarch64, .aarch64_be => 4 << 10,
-        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
-        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
-        .sparc => 4 << 10,
-        .sparc64 => 8 << 10,
-        .riscv32, .riscv64 => 4 << 10,
-        // Sun-2
-        .m68k => 2 << 10,
-        else => null,
-    },
-    .dragonfly => switch (builtin.cpu.arch) {
-        .x86, .x86_64 => 4 << 10,
-        else => null,
-    },
-    .openbsd => switch (builtin.cpu.arch) {
-        // OpenBSD/sys/arch/*
-        .x86, .x86_64 => 4 << 10,
-        .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be => 4 << 10,
-        .mips64, .mips64el => 4 << 10,
-        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
-        .riscv64 => 4 << 10,
-        .sparc64 => 8 << 10,
-        else => null,
-    },
-    .solaris, .illumos => switch (builtin.cpu.arch) {
-        // src/uts/*/sys/machparam.h
-        .x86, .x86_64 => 4 << 10,
-        .sparc, .sparc64 => 8 << 10,
-        else => null,
-    },
-    .fuchsia => switch (builtin.cpu.arch) {
-        // fuchsia/kernel/arch/*/include/arch/defines.h
-        .x86_64 => 4 << 10,
-        .aarch64, .aarch64_be => 4 << 10,
-        .riscv64 => 4 << 10,
-        else => null,
-    },
-    // https://github.com/SerenityOS/serenity/blob/62b938b798dc009605b5df8a71145942fc53808b/Kernel/API/POSIX/sys/limits.h#L11-L13
-    .serenity => 4 << 10,
-    .haiku => switch (builtin.cpu.arch) {
-        // haiku/headers/posix/arch/*/limits.h
-        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
-        .aarch64, .aarch64_be => 4 << 10,
-        .m68k => 4 << 10,
-        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
-        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
-        .riscv64 => 4 << 10,
-        .sparc64 => 8 << 10,
-        .x86, .x86_64 => 4 << 10,
-        else => null,
-    },
-    .hurd => switch (builtin.cpu.arch) {
-        // gnumach/*/include/mach/*/vm_param.h
-        .x86, .x86_64 => 4 << 10,
-        .aarch64 => null,
-        else => null,
-    },
-    .plan9 => switch (builtin.cpu.arch) {
-        // 9front/sys/src/9/*/mem.h
-        .x86, .x86_64 => 4 << 10,
-        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
-        .aarch64, .aarch64_be => 4 << 10,
-        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => 4 << 10,
-        .sparc => 4 << 10,
-        else => null,
-    },
-    .ps3 => switch (builtin.cpu.arch) {
-        // cell/SDK_doc/en/html/C_and_C++_standard_libraries/stdlib.html
-        .powerpc64 => 1 << 20, // 1 MiB
-        else => null,
-    },
-    .ps4 => switch (builtin.cpu.arch) {
-        // https://github.com/ps4dev/ps4sdk/blob/4df9d001b66ae4ec07d9a51b62d1e4c5e270eecc/include/machine/param.h#L95
-        .x86, .x86_64 => 4 << 10,
-        else => null,
-    },
-    .ps5 => switch (builtin.cpu.arch) {
-        // https://github.com/PS5Dev/PS5SDK/blob/a2e03a2a0231a3a3397fa6cd087a01ca6d04f273/include/machine/param.h#L95
-        .x86, .x86_64 => 16 << 10,
-        else => null,
-    },
-    // system/lib/libc/musl/arch/emscripten/bits/limits.h
-    .emscripten => 64 << 10,
-    .linux => switch (builtin.cpu.arch) {
-        // Linux/arch/*/Kconfig
-        .arc => 4 << 10,
-        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
-        .aarch64, .aarch64_be => 4 << 10,
-        .csky => 4 << 10,
-        .hexagon => 4 << 10,
-        .loongarch32, .loongarch64 => 4 << 10,
-        .m68k => 4 << 10,
-        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
-        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
-        .riscv32, .riscv64 => 4 << 10,
-        .s390x => 4 << 10,
-        .sparc => 4 << 10,
-        .sparc64 => 8 << 10,
-        .x86, .x86_64 => 4 << 10,
-        .xtensa => 4 << 10,
-        else => null,
-    },
-    .freestanding => switch (builtin.cpu.arch) {
-        .wasm32, .wasm64 => 64 << 10,
-        else => null,
-    },
-    else => null,
-};
+pub const LoggingAllocator = @import("heap/logging_allocator.zig").LoggingAllocator;
+pub const loggingAllocator = @import("heap/logging_allocator.zig").loggingAllocator;
+pub const ScopedLoggingAllocator = @import("heap/logging_allocator.zig").ScopedLoggingAllocator;
+pub const LogToWriterAllocator = @import("heap/log_to_writer_allocator.zig").LogToWriterAllocator;
+pub const logToWriterAllocator = @import("heap/log_to_writer_allocator.zig").logToWriterAllocator;
+pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
+pub const GeneralPurposeAllocatorConfig = @import("heap/general_purpose_allocator.zig").Config;
+pub const GeneralPurposeAllocator = @import("heap/general_purpose_allocator.zig").GeneralPurposeAllocator;
+pub const Check = @import("heap/general_purpose_allocator.zig").Check;
+pub const WasmAllocator = @import("heap/WasmAllocator.zig");
+pub const PageAllocator = @import("heap/PageAllocator.zig");
+pub const ThreadSafeAllocator = @import("heap/ThreadSafeAllocator.zig");
+pub const SbrkAllocator = @import("heap/sbrk_allocator.zig").SbrkAllocator;
+pub const FixedBufferAllocator = @import("heap/FixedBufferAllocator.zig");
 
-const default_max_page_size: ?usize = switch (builtin.os.tag) {
-    .bridgeos, .driverkit, .ios, .macos, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
-        .x86_64 => 4 << 10,
-        .aarch64 => 16 << 10,
-        else => null,
-    },
-    .windows => switch (builtin.cpu.arch) {
-        // -- <https://devblogs.microsoft.com/oldnewthing/20210510-00/?p=105200>
-        .x86, .x86_64 => 4 << 10,
-        // SuperH => 4 << 10,
-        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => 4 << 10,
-        // DEC Alpha => 8 << 10,
-        // Itanium => 8 << 10,
-        .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be => 4 << 10,
-        else => null,
-    },
-    .wasi => switch (builtin.cpu.arch) {
-        .wasm32, .wasm64 => 64 << 10,
-        else => null,
-    },
-    // https://github.com/tianocore/edk2/blob/b158dad150bf02879668f72ce306445250838201/MdePkg/Include/Uefi/UefiBaseType.h#L180-L187
-    .uefi => 4 << 10,
-    .freebsd => switch (builtin.cpu.arch) {
-        // FreeBSD/sys/*
-        .x86, .x86_64 => 4 << 10,
-        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
-        .aarch64, .aarch64_be => 4 << 10,
-        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
-        .riscv32, .riscv64 => 4 << 10,
-        else => null,
-    },
-    .netbsd => switch (builtin.cpu.arch) {
-        // NetBSD/sys/arch/*
-        .x86, .x86_64 => 4 << 10,
-        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
-        .aarch64, .aarch64_be => 64 << 10,
-        .mips, .mipsel, .mips64, .mips64el => 16 << 10,
-        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 16 << 10,
-        .sparc => 8 << 10,
-        .sparc64 => 8 << 10,
-        .riscv32, .riscv64 => 4 << 10,
-        .m68k => 8 << 10,
-        else => null,
-    },
-    .dragonfly => switch (builtin.cpu.arch) {
-        .x86, .x86_64 => 4 << 10,
-        else => null,
-    },
-    .openbsd => switch (builtin.cpu.arch) {
-        // OpenBSD/sys/arch/*
-        .x86, .x86_64 => 4 << 10,
-        .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be => 4 << 10,
-        .mips64, .mips64el => 16 << 10,
-        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
-        .riscv64 => 4 << 10,
-        .sparc64 => 8 << 10,
-        else => null,
-    },
-    .solaris, .illumos => switch (builtin.cpu.arch) {
-        // src/uts/*/sys/machparam.h
-        .x86, .x86_64 => 4 << 10,
-        .sparc, .sparc64 => 8 << 10,
-        else => null,
-    },
-    .fuchsia => switch (builtin.cpu.arch) {
-        // fuchsia/kernel/arch/*/include/arch/defines.h
-        .x86_64 => 4 << 10,
-        .aarch64, .aarch64_be => 4 << 10,
-        .riscv64 => 4 << 10,
-        else => null,
-    },
-    // https://github.com/SerenityOS/serenity/blob/62b938b798dc009605b5df8a71145942fc53808b/Kernel/API/POSIX/sys/limits.h#L11-L13
-    .serenity => 4 << 10,
-    .haiku => switch (builtin.cpu.arch) {
-        // haiku/headers/posix/arch/*/limits.h
-        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
-        .aarch64, .aarch64_be => 4 << 10,
-        .m68k => 4 << 10,
-        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
-        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
-        .riscv64 => 4 << 10,
-        .sparc64 => 8 << 10,
-        .x86, .x86_64 => 4 << 10,
-        else => null,
-    },
-    .hurd => switch (builtin.cpu.arch) {
-        // gnumach/*/include/mach/*/vm_param.h
-        .x86, .x86_64 => 4 << 10,
-        .aarch64 => null,
-        else => null,
-    },
-    .plan9 => switch (builtin.cpu.arch) {
-        // 9front/sys/src/9/*/mem.h
-        .x86, .x86_64 => 4 << 10,
-        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
-        .aarch64, .aarch64_be => 64 << 10,
-        .mips, .mipsel, .mips64, .mips64el => 16 << 10,
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => 4 << 10,
-        .sparc => 4 << 10,
-        else => null,
-    },
-    .ps3 => switch (builtin.cpu.arch) {
-        // cell/SDK_doc/en/html/C_and_C++_standard_libraries/stdlib.html
-        .powerpc64 => 1 << 20, // 1 MiB
-        else => null,
-    },
-    .ps4 => switch (builtin.cpu.arch) {
-        // https://github.com/ps4dev/ps4sdk/blob/4df9d001b66ae4ec07d9a51b62d1e4c5e270eecc/include/machine/param.h#L95
-        .x86, .x86_64 => 4 << 10,
-        else => null,
-    },
-    .ps5 => switch (builtin.cpu.arch) {
-        // https://github.com/PS5Dev/PS5SDK/blob/a2e03a2a0231a3a3397fa6cd087a01ca6d04f273/include/machine/param.h#L95
-        .x86, .x86_64 => 16 << 10,
-        else => null,
-    },
-    // system/lib/libc/musl/arch/emscripten/bits/limits.h
-    .emscripten => 64 << 10,
-    .linux => switch (builtin.cpu.arch) {
-        // Linux/arch/*/Kconfig
-        .arc => 16 << 10,
-        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
-        .aarch64, .aarch64_be => 64 << 10,
-        .csky => 4 << 10,
-        .hexagon => 256 << 10,
-        .loongarch32, .loongarch64 => 64 << 10,
-        .m68k => 8 << 10,
-        .mips, .mipsel, .mips64, .mips64el => 64 << 10,
-        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 256 << 10,
-        .riscv32, .riscv64 => 4 << 10,
-        .s390x => 4 << 10,
-        .sparc => 4 << 10,
-        .sparc64 => 8 << 10,
-        .x86, .x86_64 => 4 << 10,
-        .xtensa => 4 << 10,
-        else => null,
-    },
-    .freestanding => switch (builtin.cpu.arch) {
-        .wasm32, .wasm64 => 64 << 10,
-        else => null,
-    },
-    else => null,
-};
+const memory_pool = @import("heap/memory_pool.zig");
+pub const MemoryPool = memory_pool.MemoryPool;
+pub const MemoryPoolAligned = memory_pool.MemoryPoolAligned;
+pub const MemoryPoolExtra = memory_pool.MemoryPoolExtra;
+pub const MemoryPoolOptions = memory_pool.Options;
 
-/// The compile-time minimum page size that the target might have.
-/// All pointers from `mmap` or `VirtualAlloc` are aligned to at least `min_page_size`, but their
-/// actual alignment may be much bigger.
-/// This value can be overridden via `std.options.min_page_size`.
-/// On many systems, the actual page size can only be determined at runtime with `pageSize()`.
-pub const min_page_size: usize = std.options.min_page_size orelse (default_min_page_size orelse if (builtin.os.tag == .freestanding or builtin.os.tag == .other)
-    @compileError("freestanding/other explicitly has no min_page_size. One can be provided with std.options.min_page_size")
+/// TODO Utilize this on Windows.
+pub var next_mmap_addr_hint: ?[*]align(page_size_min) u8 = null;
+
+/// comptime-known minimum page size of the target.
+///
+/// All pointers from `mmap` or `VirtualAlloc` are aligned to at least
+/// `page_size_min`, but their actual alignment may be bigger.
+///
+/// This value can be overridden via `std.options.page_size_min`.
+///
+/// On many systems, the actual page size can only be determined at runtime
+/// with `pageSize`.
+pub const page_size_min: usize = std.options.page_size_min orelse (page_size_min_default orelse if (builtin.os.tag == .freestanding or builtin.os.tag == .other)
+    @compileError("freestanding/other page_size_min must provided with std.options.page_size_min")
 else
-    @compileError(@tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ " has no min_page_size. One can be provided with std.options.min_page_size"));
+    @compileError(@tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ " has unknown page_size_min; populate std.options.page_size_min"));
 
-/// The compile-time maximum page size that the target might have.
-/// Targeting a system with a larger page size may require overriding `std.options.max_page_size`,
-/// as well as using the linker arugment `-z max-page-size=`.
-/// The actual page size can only be determined at runtime with `pageSize()`.
-pub const max_page_size: usize = std.options.max_page_size orelse (default_max_page_size orelse if (builtin.os.tag == .freestanding or builtin.os.tag == .other)
-    @compileError("freestanding/other explicitly has no max_page_size. One can be provided with std.options.max_page_size")
+/// comptime-known maximum page size of the target.
+///
+/// Targeting a system with a larger page size may require overriding
+/// `std.options.page_size_max`, as well as providing a corresponding linker
+/// option.
+///
+/// The actual page size can only be determined at runtime with `pageSize`.
+pub const page_size_max: usize = std.options.page_size_max orelse (page_size_max_default orelse if (builtin.os.tag == .freestanding or builtin.os.tag == .other)
+    @compileError("freestanding/other page_size_max must provided with std.options.page_size_max")
 else
-    @compileError(@tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ " has no max_page_size. One can be provided with std.options.max_page_size"));
+    @compileError(@tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ " has unknown page_size_max; populate std.options.page_size_max"));
 
-/// Returns the system page size.
-/// If the page size is comptime-known, `pageSize()` returns it directly.
-/// Otherwise, `pageSize()` defers to `std.options.queryPageSizeFn()`.
-pub fn pageSize() usize {
-    if (min_page_size == max_page_size) {
-        return min_page_size;
-    }
-    return std.options.queryPageSizeFn();
+/// If the page size is comptime-known, return value is comptime.
+/// Otherwise, calls `std.options.queryPageSize` which by default queries the
+/// host operating system at runtime.
+pub inline fn pageSize() usize {
+    if (page_size_min == page_size_max) return page_size_min;
+    return std.options.queryPageSize();
 }
 
-// A cache used by `defaultQueryPageSize()` to avoid repeating syscalls.
-var page_size_cache = std.atomic.Value(usize).init(0);
+test pageSize {
+    assert(std.math.isPowerOfTwo(pageSize()));
+}
 
-// The default implementation in `std.options.queryPageSizeFn`.
-// The first time it is called, it asserts that the page size is within the comptime bounds.
+/// The default implementation of `std.options.queryPageSize`.
+/// Asserts that the page size is within `page_size_min` and `page_size_max`
 pub fn defaultQueryPageSize() usize {
-    var size = page_size_cache.load(.unordered);
+    const global = struct {
+        var cached_result: std.atomic.Value(usize) = .init(0);
+    };
+    var size = global.cached_result.load(.unordered);
     if (size > 0) return size;
     size = switch (builtin.os.tag) {
         .linux => if (builtin.link_libc) @intCast(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE))) else std.os.linux.getauxval(std.elf.AT_PAGESZ),
-        .bridgeos, .driverkit, .ios, .macos, .tvos, .visionos, .watchos => blk: {
+        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => blk: {
             const task_port = std.c.mach_task_self();
             // mach_task_self may fail "if there are any resource failures or other errors".
             if (task_port == std.c.TASK_NULL)
@@ -353,7 +95,7 @@ pub fn defaultQueryPageSize() usize {
                 &info_count,
             );
             assert(vm_info.page_size != 0);
-            break :blk @as(usize, @intCast(vm_info.page_size));
+            break :blk @intCast(vm_info.page_size);
         },
         .windows => blk: {
             var info: std.os.windows.SYSTEM_INFO = undefined;
@@ -361,45 +103,24 @@ pub fn defaultQueryPageSize() usize {
             break :blk info.dwPageSize;
         },
         else => if (builtin.link_libc)
-            if (std.c._SC != void and @hasDecl(std.c._SC, "PAGESIZE"))
-                @intCast(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)))
-            else
-                @compileError("missing _SC.PAGESIZE declaration for " ++ @tagName(builtin.os.tag) ++ "-" ++ @tagName(builtin.os.tag))
+            @intCast(std.c.sysconf(@intFromEnum(std.c._SC.PAGESIZE)))
         else if (builtin.os.tag == .freestanding or builtin.os.tag == .other)
-            @compileError("pageSize on freestanding/other is not supported with the default std.options.queryPageSizeFn")
+            @compileError("unsupported target: freestanding/other")
         else
             @compileError("pageSize on " ++ @tagName(builtin.cpu.arch) ++ "-" ++ @tagName(builtin.os.tag) ++ " is not supported without linking libc, using the default implementation"),
     };
 
-    assert(size >= min_page_size);
-    assert(size <= max_page_size);
-    page_size_cache.store(size, .unordered);
+    assert(size >= page_size_min);
+    assert(size <= page_size_max);
+    global.cached_result.store(size, .unordered);
 
     return size;
 }
 
-pub const LoggingAllocator = @import("heap/logging_allocator.zig").LoggingAllocator;
-pub const loggingAllocator = @import("heap/logging_allocator.zig").loggingAllocator;
-pub const ScopedLoggingAllocator = @import("heap/logging_allocator.zig").ScopedLoggingAllocator;
-pub const LogToWriterAllocator = @import("heap/log_to_writer_allocator.zig").LogToWriterAllocator;
-pub const logToWriterAllocator = @import("heap/log_to_writer_allocator.zig").logToWriterAllocator;
-pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
-pub const GeneralPurposeAllocatorConfig = @import("heap/general_purpose_allocator.zig").Config;
-pub const GeneralPurposeAllocator = @import("heap/general_purpose_allocator.zig").GeneralPurposeAllocator;
-pub const Check = @import("heap/general_purpose_allocator.zig").Check;
-pub const WasmAllocator = @import("heap/WasmAllocator.zig");
-pub const PageAllocator = @import("heap/PageAllocator.zig");
-pub const ThreadSafeAllocator = @import("heap/ThreadSafeAllocator.zig");
-pub const SbrkAllocator = @import("heap/sbrk_allocator.zig").SbrkAllocator;
-
-const memory_pool = @import("heap/memory_pool.zig");
-pub const MemoryPool = memory_pool.MemoryPool;
-pub const MemoryPoolAligned = memory_pool.MemoryPoolAligned;
-pub const MemoryPoolExtra = memory_pool.MemoryPoolExtra;
-pub const MemoryPoolOptions = memory_pool.Options;
-
-/// TODO Utilize this on Windows.
-pub var next_mmap_addr_hint: ?[*]align(min_page_size) u8 = null;
+test defaultQueryPageSize {
+    if (builtin.cpu.arch.isWasm()) return error.SkipZigTest;
+    assert(std.math.isPowerOfTwo(defaultQueryPageSize()));
+}
 
 const CAllocator = struct {
     comptime {
@@ -623,13 +344,6 @@ pub const wasm_allocator: Allocator = .{
     .vtable = &WasmAllocator.vtable,
 };
 
-/// Verifies that the adjusted length will still map to the full length
-pub fn alignPageAllocLen(full_len: usize, len: usize) usize {
-    const aligned_len = mem.alignAllocLen(full_len, len);
-    assert(mem.alignForward(usize, aligned_len, pageSize()) == full_len);
-    return aligned_len;
-}
-
 pub const HeapAllocator = switch (builtin.os.tag) {
     .windows => struct {
         heap_handle: ?HeapHandle,
@@ -728,145 +442,6 @@ pub const HeapAllocator = switch (builtin.os.tag) {
         }
     },
     else => @compileError("Unsupported OS"),
-};
-
-fn sliceContainsPtr(container: []u8, ptr: [*]u8) bool {
-    return @intFromPtr(ptr) >= @intFromPtr(container.ptr) and
-        @intFromPtr(ptr) < (@intFromPtr(container.ptr) + container.len);
-}
-
-fn sliceContainsSlice(container: []u8, slice: []u8) bool {
-    return @intFromPtr(slice.ptr) >= @intFromPtr(container.ptr) and
-        (@intFromPtr(slice.ptr) + slice.len) <= (@intFromPtr(container.ptr) + container.len);
-}
-
-pub const FixedBufferAllocator = struct {
-    end_index: usize,
-    buffer: []u8,
-
-    pub fn init(buffer: []u8) FixedBufferAllocator {
-        return FixedBufferAllocator{
-            .buffer = buffer,
-            .end_index = 0,
-        };
-    }
-
-    /// *WARNING* using this at the same time as the interface returned by `threadSafeAllocator` is not thread safe
-    pub fn allocator(self: *FixedBufferAllocator) Allocator {
-        return .{
-            .ptr = self,
-            .vtable = &.{
-                .alloc = alloc,
-                .resize = resize,
-                .free = free,
-            },
-        };
-    }
-
-    /// Provides a lock free thread safe `Allocator` interface to the underlying `FixedBufferAllocator`
-    /// *WARNING* using this at the same time as the interface returned by `allocator` is not thread safe
-    pub fn threadSafeAllocator(self: *FixedBufferAllocator) Allocator {
-        return .{
-            .ptr = self,
-            .vtable = &.{
-                .alloc = threadSafeAlloc,
-                .resize = Allocator.noResize,
-                .free = Allocator.noFree,
-            },
-        };
-    }
-
-    pub fn ownsPtr(self: *FixedBufferAllocator, ptr: [*]u8) bool {
-        return sliceContainsPtr(self.buffer, ptr);
-    }
-
-    pub fn ownsSlice(self: *FixedBufferAllocator, slice: []u8) bool {
-        return sliceContainsSlice(self.buffer, slice);
-    }
-
-    /// NOTE: this will not work in all cases, if the last allocation had an adjusted_index
-    ///       then we won't be able to determine what the last allocation was.  This is because
-    ///       the alignForward operation done in alloc is not reversible.
-    pub fn isLastAllocation(self: *FixedBufferAllocator, buf: []u8) bool {
-        return buf.ptr + buf.len == self.buffer.ptr + self.end_index;
-    }
-
-    fn alloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
-        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
-        _ = ra;
-        const ptr_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
-        const adjust_off = mem.alignPointerOffset(self.buffer.ptr + self.end_index, ptr_align) orelse return null;
-        const adjusted_index = self.end_index + adjust_off;
-        const new_end_index = adjusted_index + n;
-        if (new_end_index > self.buffer.len) return null;
-        self.end_index = new_end_index;
-        return self.buffer.ptr + adjusted_index;
-    }
-
-    fn resize(
-        ctx: *anyopaque,
-        buf: []u8,
-        log2_buf_align: u8,
-        new_size: usize,
-        return_address: usize,
-    ) bool {
-        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
-        _ = log2_buf_align;
-        _ = return_address;
-        assert(@inComptime() or self.ownsSlice(buf));
-
-        if (!self.isLastAllocation(buf)) {
-            if (new_size > buf.len) return false;
-            return true;
-        }
-
-        if (new_size <= buf.len) {
-            const sub = buf.len - new_size;
-            self.end_index -= sub;
-            return true;
-        }
-
-        const add = new_size - buf.len;
-        if (add + self.end_index > self.buffer.len) return false;
-
-        self.end_index += add;
-        return true;
-    }
-
-    fn free(
-        ctx: *anyopaque,
-        buf: []u8,
-        log2_buf_align: u8,
-        return_address: usize,
-    ) void {
-        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
-        _ = log2_buf_align;
-        _ = return_address;
-        assert(@inComptime() or self.ownsSlice(buf));
-
-        if (self.isLastAllocation(buf)) {
-            self.end_index -= buf.len;
-        }
-    }
-
-    fn threadSafeAlloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
-        const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
-        _ = ra;
-        const ptr_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
-        var end_index = @atomicLoad(usize, &self.end_index, .seq_cst);
-        while (true) {
-            const adjust_off = mem.alignPointerOffset(self.buffer.ptr + end_index, ptr_align) orelse return null;
-            const adjusted_index = end_index + adjust_off;
-            const new_end_index = adjusted_index + n;
-            if (new_end_index > self.buffer.len) return null;
-            end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, .seq_cst, .seq_cst) orelse
-                return self.buffer[adjusted_index..new_end_index].ptr;
-        }
-    }
-
-    pub fn reset(self: *FixedBufferAllocator) void {
-        self.end_index = 0;
-    }
 };
 
 /// Returns a `StackFallbackAllocator` allocating using either a
@@ -975,7 +550,7 @@ test "raw_c_allocator" {
     }
 }
 
-test "PageAllocator" {
+test PageAllocator {
     const allocator = page_allocator;
     try testAllocator(allocator);
     try testAllocatorAligned(allocator);
@@ -985,7 +560,7 @@ test "PageAllocator" {
     }
 
     if (builtin.os.tag == .windows) {
-        const slice = try allocator.alignedAlloc(u8, min_page_size, 128);
+        const slice = try allocator.alignedAlloc(u8, page_size_min, 128);
         slice[0] = 0x12;
         slice[127] = 0x34;
         allocator.free(slice);
@@ -997,7 +572,7 @@ test "PageAllocator" {
     }
 }
 
-test "HeapAllocator" {
+test HeapAllocator {
     if (builtin.os.tag == .windows) {
         // https://github.com/ziglang/zig/issues/13702
         if (builtin.cpu.arch == .aarch64) return error.SkipZigTest;
@@ -1013,7 +588,7 @@ test "HeapAllocator" {
     }
 }
 
-test "ArenaAllocator" {
+test ArenaAllocator {
     var arena_allocator = ArenaAllocator.init(page_allocator);
     defer arena_allocator.deinit();
     const allocator = arena_allocator.allocator();
@@ -1022,38 +597,6 @@ test "ArenaAllocator" {
     try testAllocatorAligned(allocator);
     try testAllocatorLargeAlignment(allocator);
     try testAllocatorAlignedShrink(allocator);
-}
-
-var test_fixed_buffer_allocator_memory: [800000 * @sizeOf(u64)]u8 = undefined;
-test "FixedBufferAllocator" {
-    var fixed_buffer_allocator = mem.validationWrap(FixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]));
-    const allocator = fixed_buffer_allocator.allocator();
-
-    try testAllocator(allocator);
-    try testAllocatorAligned(allocator);
-    try testAllocatorLargeAlignment(allocator);
-    try testAllocatorAlignedShrink(allocator);
-}
-
-test "FixedBufferAllocator.reset" {
-    var buf: [8]u8 align(@alignOf(u64)) = undefined;
-    var fba = FixedBufferAllocator.init(buf[0..]);
-    const allocator = fba.allocator();
-
-    const X = 0xeeeeeeeeeeeeeeee;
-    const Y = 0xffffffffffffffff;
-
-    const x = try allocator.create(u64);
-    x.* = X;
-    try testing.expectError(error.OutOfMemory, allocator.create(u64));
-
-    fba.reset();
-    const y = try allocator.create(u64);
-    y.* = Y;
-
-    // we expect Y to have overwritten X.
-    try testing.expect(x.* == y.*);
-    try testing.expect(y.* == Y);
 }
 
 test "StackFallbackAllocator" {
@@ -1073,46 +616,6 @@ test "StackFallbackAllocator" {
         var stack_allocator = stackFallback(4096, std.testing.allocator);
         try testAllocatorAlignedShrink(stack_allocator.get());
     }
-}
-
-test "FixedBufferAllocator Reuse memory on realloc" {
-    var small_fixed_buffer: [10]u8 = undefined;
-    // check if we re-use the memory
-    {
-        var fixed_buffer_allocator = FixedBufferAllocator.init(small_fixed_buffer[0..]);
-        const allocator = fixed_buffer_allocator.allocator();
-
-        const slice0 = try allocator.alloc(u8, 5);
-        try testing.expect(slice0.len == 5);
-        const slice1 = try allocator.realloc(slice0, 10);
-        try testing.expect(slice1.ptr == slice0.ptr);
-        try testing.expect(slice1.len == 10);
-        try testing.expectError(error.OutOfMemory, allocator.realloc(slice1, 11));
-    }
-    // check that we don't re-use the memory if it's not the most recent block
-    {
-        var fixed_buffer_allocator = FixedBufferAllocator.init(small_fixed_buffer[0..]);
-        const allocator = fixed_buffer_allocator.allocator();
-
-        var slice0 = try allocator.alloc(u8, 2);
-        slice0[0] = 1;
-        slice0[1] = 2;
-        const slice1 = try allocator.alloc(u8, 2);
-        const slice2 = try allocator.realloc(slice0, 4);
-        try testing.expect(slice0.ptr != slice2.ptr);
-        try testing.expect(slice1.ptr != slice2.ptr);
-        try testing.expect(slice2[0] == 1);
-        try testing.expect(slice2[1] == 2);
-    }
-}
-
-test "Thread safe FixedBufferAllocator" {
-    var fixed_buffer_allocator = FixedBufferAllocator.init(test_fixed_buffer_allocator_memory[0..]);
-
-    try testAllocator(fixed_buffer_allocator.threadSafeAllocator());
-    try testAllocatorAligned(fixed_buffer_allocator.threadSafeAllocator());
-    try testAllocatorLargeAlignment(fixed_buffer_allocator.threadSafeAllocator());
-    try testAllocatorAlignedShrink(fixed_buffer_allocator.threadSafeAllocator());
 }
 
 /// This one should not try alignments that exceed what C malloc can handle.
@@ -1194,7 +697,7 @@ pub fn testAllocatorLargeAlignment(base_allocator: mem.Allocator) !void {
     var validationAllocator = mem.validationWrap(base_allocator);
     const allocator = validationAllocator.allocator();
 
-    const large_align: usize = min_page_size / 2;
+    const large_align: usize = page_size_min / 2;
 
     var align_mask: usize = undefined;
     align_mask = @shlWithOverflow(~@as(usize, 0), @as(Allocator.Log2Align, @ctz(large_align)))[0];
@@ -1251,19 +754,296 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     try testing.expect(slice[60] == 0x34);
 }
 
-test "pageSize() smoke test" {
-    const size = std.heap.pageSize();
-    // Check that pageSize is a power of 2.
-    std.debug.assert(size & (size - 1) == 0);
-}
+const page_size_min_default: ?usize = switch (builtin.os.tag) {
+    .driverkit, .ios, .macos, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
+        .x86_64 => 4 << 10,
+        .aarch64 => 16 << 10,
+        else => null,
+    },
+    .windows => switch (builtin.cpu.arch) {
+        // -- <https://devblogs.microsoft.com/oldnewthing/20210510-00/?p=105200>
+        .x86, .x86_64 => 4 << 10,
+        // SuperH => 4 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => 4 << 10,
+        // DEC Alpha => 8 << 10,
+        // Itanium => 8 << 10,
+        .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be => 4 << 10,
+        else => null,
+    },
+    .wasi => switch (builtin.cpu.arch) {
+        .wasm32, .wasm64 => 64 << 10,
+        else => null,
+    },
+    // https://github.com/tianocore/edk2/blob/b158dad150bf02879668f72ce306445250838201/MdePkg/Include/Uefi/UefiBaseType.h#L180-L187
+    .uefi => 4 << 10,
+    .freebsd => switch (builtin.cpu.arch) {
+        // FreeBSD/sys/*
+        .x86, .x86_64 => 4 << 10,
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 4 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
+        .riscv32, .riscv64 => 4 << 10,
+        else => null,
+    },
+    .netbsd => switch (builtin.cpu.arch) {
+        // NetBSD/sys/arch/*
+        .x86, .x86_64 => 4 << 10,
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 4 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
+        .sparc => 4 << 10,
+        .sparc64 => 8 << 10,
+        .riscv32, .riscv64 => 4 << 10,
+        // Sun-2
+        .m68k => 2 << 10,
+        else => null,
+    },
+    .dragonfly => switch (builtin.cpu.arch) {
+        .x86, .x86_64 => 4 << 10,
+        else => null,
+    },
+    .openbsd => switch (builtin.cpu.arch) {
+        // OpenBSD/sys/arch/*
+        .x86, .x86_64 => 4 << 10,
+        .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be => 4 << 10,
+        .mips64, .mips64el => 4 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
+        .riscv64 => 4 << 10,
+        .sparc64 => 8 << 10,
+        else => null,
+    },
+    .solaris, .illumos => switch (builtin.cpu.arch) {
+        // src/uts/*/sys/machparam.h
+        .x86, .x86_64 => 4 << 10,
+        .sparc, .sparc64 => 8 << 10,
+        else => null,
+    },
+    .fuchsia => switch (builtin.cpu.arch) {
+        // fuchsia/kernel/arch/*/include/arch/defines.h
+        .x86_64 => 4 << 10,
+        .aarch64, .aarch64_be => 4 << 10,
+        .riscv64 => 4 << 10,
+        else => null,
+    },
+    // https://github.com/SerenityOS/serenity/blob/62b938b798dc009605b5df8a71145942fc53808b/Kernel/API/POSIX/sys/limits.h#L11-L13
+    .serenity => 4 << 10,
+    .haiku => switch (builtin.cpu.arch) {
+        // haiku/headers/posix/arch/*/limits.h
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 4 << 10,
+        .m68k => 4 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
+        .riscv64 => 4 << 10,
+        .sparc64 => 8 << 10,
+        .x86, .x86_64 => 4 << 10,
+        else => null,
+    },
+    .hurd => switch (builtin.cpu.arch) {
+        // gnumach/*/include/mach/*/vm_param.h
+        .x86, .x86_64 => 4 << 10,
+        .aarch64 => null,
+        else => null,
+    },
+    .plan9 => switch (builtin.cpu.arch) {
+        // 9front/sys/src/9/*/mem.h
+        .x86, .x86_64 => 4 << 10,
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 4 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => 4 << 10,
+        .sparc => 4 << 10,
+        else => null,
+    },
+    .ps3 => switch (builtin.cpu.arch) {
+        // cell/SDK_doc/en/html/C_and_C++_standard_libraries/stdlib.html
+        .powerpc64 => 1 << 20, // 1 MiB
+        else => null,
+    },
+    .ps4 => switch (builtin.cpu.arch) {
+        // https://github.com/ps4dev/ps4sdk/blob/4df9d001b66ae4ec07d9a51b62d1e4c5e270eecc/include/machine/param.h#L95
+        .x86, .x86_64 => 4 << 10,
+        else => null,
+    },
+    .ps5 => switch (builtin.cpu.arch) {
+        // https://github.com/PS5Dev/PS5SDK/blob/a2e03a2a0231a3a3397fa6cd087a01ca6d04f273/include/machine/param.h#L95
+        .x86, .x86_64 => 16 << 10,
+        else => null,
+    },
+    // system/lib/libc/musl/arch/emscripten/bits/limits.h
+    .emscripten => 64 << 10,
+    .linux => switch (builtin.cpu.arch) {
+        // Linux/arch/*/Kconfig
+        .arc => 4 << 10,
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 4 << 10,
+        .csky => 4 << 10,
+        .hexagon => 4 << 10,
+        .loongarch32, .loongarch64 => 4 << 10,
+        .m68k => 4 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
+        .riscv32, .riscv64 => 4 << 10,
+        .s390x => 4 << 10,
+        .sparc => 4 << 10,
+        .sparc64 => 8 << 10,
+        .x86, .x86_64 => 4 << 10,
+        .xtensa => 4 << 10,
+        else => null,
+    },
+    .freestanding => switch (builtin.cpu.arch) {
+        .wasm32, .wasm64 => 64 << 10,
+        else => null,
+    },
+    else => null,
+};
 
-test "defaultQueryPageSize() smoke test" {
-    // queryPageSize() does not always get called by pageSize()
-    if (builtin.cpu.arch.isWasm()) return error.SkipZigTest;
-    const size = defaultQueryPageSize();
-    // Check that pageSize is a power of 2.
-    std.debug.assert(size & (size - 1) == 0);
-}
+const page_size_max_default: ?usize = switch (builtin.os.tag) {
+    .driverkit, .ios, .macos, .tvos, .visionos, .watchos => switch (builtin.cpu.arch) {
+        .x86_64 => 4 << 10,
+        .aarch64 => 16 << 10,
+        else => null,
+    },
+    .windows => switch (builtin.cpu.arch) {
+        // -- <https://devblogs.microsoft.com/oldnewthing/20210510-00/?p=105200>
+        .x86, .x86_64 => 4 << 10,
+        // SuperH => 4 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => 4 << 10,
+        // DEC Alpha => 8 << 10,
+        // Itanium => 8 << 10,
+        .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be => 4 << 10,
+        else => null,
+    },
+    .wasi => switch (builtin.cpu.arch) {
+        .wasm32, .wasm64 => 64 << 10,
+        else => null,
+    },
+    // https://github.com/tianocore/edk2/blob/b158dad150bf02879668f72ce306445250838201/MdePkg/Include/Uefi/UefiBaseType.h#L180-L187
+    .uefi => 4 << 10,
+    .freebsd => switch (builtin.cpu.arch) {
+        // FreeBSD/sys/*
+        .x86, .x86_64 => 4 << 10,
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 4 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
+        .riscv32, .riscv64 => 4 << 10,
+        else => null,
+    },
+    .netbsd => switch (builtin.cpu.arch) {
+        // NetBSD/sys/arch/*
+        .x86, .x86_64 => 4 << 10,
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 64 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 16 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 16 << 10,
+        .sparc => 8 << 10,
+        .sparc64 => 8 << 10,
+        .riscv32, .riscv64 => 4 << 10,
+        .m68k => 8 << 10,
+        else => null,
+    },
+    .dragonfly => switch (builtin.cpu.arch) {
+        .x86, .x86_64 => 4 << 10,
+        else => null,
+    },
+    .openbsd => switch (builtin.cpu.arch) {
+        // OpenBSD/sys/arch/*
+        .x86, .x86_64 => 4 << 10,
+        .thumb, .thumbeb, .arm, .armeb, .aarch64, .aarch64_be => 4 << 10,
+        .mips64, .mips64el => 16 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
+        .riscv64 => 4 << 10,
+        .sparc64 => 8 << 10,
+        else => null,
+    },
+    .solaris, .illumos => switch (builtin.cpu.arch) {
+        // src/uts/*/sys/machparam.h
+        .x86, .x86_64 => 4 << 10,
+        .sparc, .sparc64 => 8 << 10,
+        else => null,
+    },
+    .fuchsia => switch (builtin.cpu.arch) {
+        // fuchsia/kernel/arch/*/include/arch/defines.h
+        .x86_64 => 4 << 10,
+        .aarch64, .aarch64_be => 4 << 10,
+        .riscv64 => 4 << 10,
+        else => null,
+    },
+    // https://github.com/SerenityOS/serenity/blob/62b938b798dc009605b5df8a71145942fc53808b/Kernel/API/POSIX/sys/limits.h#L11-L13
+    .serenity => 4 << 10,
+    .haiku => switch (builtin.cpu.arch) {
+        // haiku/headers/posix/arch/*/limits.h
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 4 << 10,
+        .m68k => 4 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 4 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 4 << 10,
+        .riscv64 => 4 << 10,
+        .sparc64 => 8 << 10,
+        .x86, .x86_64 => 4 << 10,
+        else => null,
+    },
+    .hurd => switch (builtin.cpu.arch) {
+        // gnumach/*/include/mach/*/vm_param.h
+        .x86, .x86_64 => 4 << 10,
+        .aarch64 => null,
+        else => null,
+    },
+    .plan9 => switch (builtin.cpu.arch) {
+        // 9front/sys/src/9/*/mem.h
+        .x86, .x86_64 => 4 << 10,
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 64 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 16 << 10,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => 4 << 10,
+        .sparc => 4 << 10,
+        else => null,
+    },
+    .ps3 => switch (builtin.cpu.arch) {
+        // cell/SDK_doc/en/html/C_and_C++_standard_libraries/stdlib.html
+        .powerpc64 => 1 << 20, // 1 MiB
+        else => null,
+    },
+    .ps4 => switch (builtin.cpu.arch) {
+        // https://github.com/ps4dev/ps4sdk/blob/4df9d001b66ae4ec07d9a51b62d1e4c5e270eecc/include/machine/param.h#L95
+        .x86, .x86_64 => 4 << 10,
+        else => null,
+    },
+    .ps5 => switch (builtin.cpu.arch) {
+        // https://github.com/PS5Dev/PS5SDK/blob/a2e03a2a0231a3a3397fa6cd087a01ca6d04f273/include/machine/param.h#L95
+        .x86, .x86_64 => 16 << 10,
+        else => null,
+    },
+    // system/lib/libc/musl/arch/emscripten/bits/limits.h
+    .emscripten => 64 << 10,
+    .linux => switch (builtin.cpu.arch) {
+        // Linux/arch/*/Kconfig
+        .arc => 16 << 10,
+        .thumb, .thumbeb, .arm, .armeb => 4 << 10,
+        .aarch64, .aarch64_be => 64 << 10,
+        .csky => 4 << 10,
+        .hexagon => 256 << 10,
+        .loongarch32, .loongarch64 => 64 << 10,
+        .m68k => 8 << 10,
+        .mips, .mipsel, .mips64, .mips64el => 64 << 10,
+        .powerpc, .powerpc64, .powerpc64le, .powerpcle => 256 << 10,
+        .riscv32, .riscv64 => 4 << 10,
+        .s390x => 4 << 10,
+        .sparc => 4 << 10,
+        .sparc64 => 8 << 10,
+        .x86, .x86_64 => 4 << 10,
+        .xtensa => 4 << 10,
+        else => null,
+    },
+    .freestanding => switch (builtin.cpu.arch) {
+        .wasm32, .wasm64 => 64 << 10,
+        else => null,
+    },
+    else => null,
+};
 
 test {
     _ = LoggingAllocator;
@@ -1272,6 +1052,7 @@ test {
     _ = @import("heap/memory_pool.zig");
     _ = ArenaAllocator;
     _ = GeneralPurposeAllocator;
+    _ = FixedBufferAllocator;
     if (builtin.target.isWasm()) {
         _ = WasmAllocator;
     }

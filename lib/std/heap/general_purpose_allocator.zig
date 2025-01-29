@@ -75,7 +75,7 @@
 //! BucketHeader, followed by "used bits", and two stack traces for each slot
 //! (allocation trace and free trace).
 //!
-//! The buckets array contains buckets for every size class below `max_page_size`.
+//! The buckets array contains buckets for every size class below `page_size_max`.
 //! At runtime, only size classes below `pageSize()` will actually be used for allocations.
 //!
 //! The "used bits" are 1 bit per slot representing whether the slot is used.
@@ -102,13 +102,13 @@ const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
-const min_page_size = std.heap.min_page_size;
-const max_page_size = std.heap.max_page_size;
+const page_size_min = std.heap.page_size_min;
+const page_size_max = std.heap.page_size_max;
 const pageSize = std.heap.pageSize;
 const StackTrace = std.builtin.StackTrace;
 
 /// Integer type for pointing to slots in a small allocation
-const SlotIndex = std.meta.Int(.unsigned, math.log2(max_page_size) + 1);
+const SlotIndex = std.meta.Int(.unsigned, math.log2(page_size_max) + 1);
 
 const default_test_stack_trace_frames: usize = if (builtin.is_test) 10 else 6;
 const default_sys_stack_trace_frames: usize = if (std.debug.sys_can_stack_trace) default_test_stack_trace_frames else 0;
@@ -214,7 +214,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
         pub const Error = mem.Allocator.Error;
 
-        const small_bucket_count = math.log2(max_page_size);
+        const small_bucket_count = math.log2(page_size_max);
         const largest_bucket_object_size = 1 << (small_bucket_count - 1);
         const LargestSizeClassInt = std.math.IntFittingRange(0, largest_bucket_object_size);
         fn used_small_bucket_count() usize {
@@ -287,7 +287,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         // * stack_trace_addresses: [N]usize, // traces_per_slot for every allocation
 
         const BucketHeader = struct {
-            page: [*]align(min_page_size) u8,
+            page: [*]align(page_size_min) u8,
             alloc_cursor: SlotIndex,
             used_count: SlotIndex,
 
@@ -591,7 +591,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             addr: usize,
             current_bucket: ?*BucketHeader,
         ) ?*BucketHeader {
-            const search_page: [*]align(min_page_size) u8 = @ptrFromInt(mem.alignBackward(usize, addr, pageSize()));
+            const search_page: [*]align(page_size_min) u8 = @ptrFromInt(mem.alignBackward(usize, addr, pageSize()));
             if (current_bucket != null and current_bucket.?.page == search_page) {
                 return current_bucket;
             }
@@ -1062,7 +1062,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         }
 
         fn createBucket(self: *Self, size_class: usize) Error!*BucketHeader {
-            const page = try self.backing_allocator.alignedAlloc(u8, min_page_size, pageSize());
+            const page = try self.backing_allocator.alignedAlloc(u8, page_size_min, pageSize());
             errdefer self.backing_allocator.free(page);
 
             const bucket_size = bucketSize(size_class);

@@ -6,7 +6,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const mem = std.mem;
-const heap = std.heap;
 const native_os = builtin.os.tag;
 const posix = std.posix;
 
@@ -43,7 +42,7 @@ var install_atfork_handler = std.once(struct {
     }
 }.do);
 
-threadlocal var wipe_mem: []align(heap.min_page_size) u8 = &[_]u8{};
+threadlocal var wipe_mem: []align(std.heap.page_size_min) u8 = &[_]u8{};
 
 fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
     if (os_has_arc4random) {
@@ -78,7 +77,7 @@ fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
         } else {
             // Use a static thread-local buffer.
             const S = struct {
-                threadlocal var buf: Context align(heap.min_page_size) = .{
+                threadlocal var buf: Context align(std.heap.page_size_min) = .{
                     .init_state = .uninitialized,
                     .rng = undefined,
                 };
@@ -86,7 +85,7 @@ fn tlsCsprngFill(_: *anyopaque, buffer: []u8) void {
             wipe_mem = mem.asBytes(&S.buf);
         }
     }
-    const ctx = @as(*Context, @ptrCast(wipe_mem.ptr));
+    const ctx: *Context = @ptrCast(wipe_mem.ptr);
 
     switch (ctx.init_state) {
         .uninitialized => {
@@ -142,7 +141,7 @@ fn childAtForkHandler() callconv(.c) void {
 }
 
 fn fillWithCsprng(buffer: []u8) void {
-    const ctx = @as(*Context, @ptrCast(wipe_mem.ptr));
+    const ctx: *Context = @ptrCast(wipe_mem.ptr);
     return ctx.rng.fill(buffer);
 }
 
@@ -158,7 +157,7 @@ fn initAndFill(buffer: []u8) void {
     // the `std.options.cryptoRandomSeed` function is provided.
     std.options.cryptoRandomSeed(&seed);
 
-    const ctx = @as(*Context, @ptrCast(wipe_mem.ptr));
+    const ctx: *Context = @ptrCast(wipe_mem.ptr);
     ctx.rng = Rng.init(seed);
     std.crypto.secureZero(u8, &seed);
 
