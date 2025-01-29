@@ -6217,11 +6217,8 @@ fn parseCNumericType(c: *Context, m: *MacroCtx) ParseError!Node {
         unsigned: u8 = 0,
         signed: u8 = 0,
         complex: u8 = 0,
-
-        fn eql(self: @This(), other: @This()) bool {
-            return meta.eql(self, other);
-        }
     };
+    const eql = std.meta.eql;
 
     // Yes, these can be in *any* order
     // This still doesn't cover cases where for example volatile is intermixed
@@ -6247,58 +6244,58 @@ fn parseCNumericType(c: *Context, m: *MacroCtx) ParseError!Node {
         }
     }
 
-    if (kw.eql(.{ .int = 1 }) or kw.eql(.{ .signed = 1 }) or kw.eql(.{ .signed = 1, .int = 1 }))
+    if (eql(kw, .{ .int = 1 }) or eql(kw, .{ .signed = 1 }) or eql(kw, .{ .signed = 1, .int = 1 }))
         return Tag.type.create(c.arena, "c_int");
 
-    if (kw.eql(.{ .unsigned = 1 }) or kw.eql(.{ .unsigned = 1, .int = 1 }))
+    if (eql(kw, .{ .unsigned = 1 }) or eql(kw, .{ .unsigned = 1, .int = 1 }))
         return Tag.type.create(c.arena, "c_uint");
 
-    if (kw.eql(.{ .long = 1 }) or kw.eql(.{ .signed = 1, .long = 1 }) or kw.eql(.{ .long = 1, .int = 1 }) or kw.eql(.{ .signed = 1, .long = 1, .int = 1 }))
+    if (eql(kw, .{ .long = 1 }) or eql(kw, .{ .signed = 1, .long = 1 }) or eql(kw, .{ .long = 1, .int = 1 }) or eql(kw, .{ .signed = 1, .long = 1, .int = 1 }))
         return Tag.type.create(c.arena, "c_long");
 
-    if (kw.eql(.{ .unsigned = 1, .long = 1 }) or kw.eql(.{ .unsigned = 1, .long = 1, .int = 1 }))
+    if (eql(kw, .{ .unsigned = 1, .long = 1 }) or eql(kw, .{ .unsigned = 1, .long = 1, .int = 1 }))
         return Tag.type.create(c.arena, "c_ulong");
 
-    if (kw.eql(.{ .long = 2 }) or kw.eql(.{ .signed = 1, .long = 2 }) or kw.eql(.{ .long = 2, .int = 1 }) or kw.eql(.{ .signed = 1, .long = 2, .int = 1 }))
+    if (eql(kw, .{ .long = 2 }) or eql(kw, .{ .signed = 1, .long = 2 }) or eql(kw, .{ .long = 2, .int = 1 }) or eql(kw, .{ .signed = 1, .long = 2, .int = 1 }))
         return Tag.type.create(c.arena, "c_longlong");
 
-    if (kw.eql(.{ .unsigned = 1, .long = 2 }) or kw.eql(.{ .unsigned = 1, .long = 2, .int = 1 }))
+    if (eql(kw, .{ .unsigned = 1, .long = 2 }) or eql(kw, .{ .unsigned = 1, .long = 2, .int = 1 }))
         return Tag.type.create(c.arena, "c_ulonglong");
 
-    if (kw.eql(.{ .signed = 1, .char = 1 }))
+    if (eql(kw, .{ .signed = 1, .char = 1 }))
         return Tag.type.create(c.arena, "i8");
 
-    if (kw.eql(.{ .char = 1 }) or kw.eql(.{ .unsigned = 1, .char = 1 }))
+    if (eql(kw, .{ .char = 1 }) or eql(kw, .{ .unsigned = 1, .char = 1 }))
         return Tag.type.create(c.arena, "u8");
 
-    if (kw.eql(.{ .short = 1 }) or kw.eql(.{ .signed = 1, .short = 1 }) or kw.eql(.{ .short = 1, .int = 1 }) or kw.eql(.{ .signed = 1, .short = 1, .int = 1 }))
+    if (eql(kw, .{ .short = 1 }) or eql(kw, .{ .signed = 1, .short = 1 }) or eql(kw, .{ .short = 1, .int = 1 }) or eql(kw, .{ .signed = 1, .short = 1, .int = 1 }))
         return Tag.type.create(c.arena, "c_short");
 
-    if (kw.eql(.{ .unsigned = 1, .short = 1 }) or kw.eql(.{ .unsigned = 1, .short = 1, .int = 1 }))
+    if (eql(kw, .{ .unsigned = 1, .short = 1 }) or eql(kw, .{ .unsigned = 1, .short = 1, .int = 1 }))
         return Tag.type.create(c.arena, "c_ushort");
 
-    if (kw.eql(.{ .float = 1 }))
+    if (eql(kw, .{ .float = 1 }))
         return Tag.type.create(c.arena, "f32");
 
-    if (kw.eql(.{ .double = 1 }))
+    if (eql(kw, .{ .double = 1 }))
         return Tag.type.create(c.arena, "f64");
 
-    if (kw.eql(.{ .long = 1, .double = 1 })) {
+    if (eql(kw, .{ .long = 1, .double = 1 })) {
         try m.fail(c, "unable to translate: TODO long double", .{});
         return error.ParseError;
     }
 
-    if (kw.eql(.{ .float = 1, .complex = 1 })) {
+    if (eql(kw, .{ .float = 1, .complex = 1 })) {
         try m.fail(c, "unable to translate: TODO _Complex", .{});
         return error.ParseError;
     }
 
-    if (kw.eql(.{ .double = 1, .complex = 1 })) {
+    if (eql(kw, .{ .double = 1, .complex = 1 })) {
         try m.fail(c, "unable to translate: TODO _Complex", .{});
         return error.ParseError;
     }
 
-    if (kw.eql(.{ .long = 1, .double = 1, .complex = 1 })) {
+    if (eql(kw, .{ .long = 1, .double = 1, .complex = 1 })) {
         try m.fail(c, "unable to translate: TODO _Complex", .{});
         return error.ParseError;
     }

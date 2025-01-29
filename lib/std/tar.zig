@@ -572,11 +572,11 @@ fn PaxIterator(comptime ReaderType: type) type {
                 const value_len = length - value_start - 1; // \n separator at end
                 self.size -= length;
 
-                const kind: PaxAttributeKind = if (eql(keyword, "path"))
+                const kind: PaxAttributeKind = if (std.mem.eql(u8, keyword, "path"))
                     .path
-                else if (eql(keyword, "linkpath"))
+                else if (std.mem.eql(u8, keyword, "linkpath"))
                     .linkpath
-                else if (eql(keyword, "size"))
+                else if (std.mem.eql(u8, keyword, "size"))
                     .size
                 else {
                     try self.reader.skipBytes(value_len, .{});
@@ -600,10 +600,6 @@ fn PaxIterator(comptime ReaderType: type) type {
             var fbs = std.io.fixedBufferStream(&self.scratch);
             try self.reader.streamUntilDelimiter(fbs.writer(), delimiter, null);
             return fbs.getWritten();
-        }
-
-        fn eql(a: []const u8, b: []const u8) bool {
-            return std.mem.eql(u8, a, b);
         }
 
         fn hasNull(str: []const u8) bool {

@@ -486,7 +486,12 @@ pub const CallingConvention = union(enum(u8)) {
     }
 
     pub fn eql(a: CallingConvention, b: CallingConvention) bool {
-        return std.meta.eql(a, b);
+        const tag_a: Tag = a;
+        const tag_b: Tag = b;
+        if (tag_a != tag_b) return false;
+        return switch (a) {
+            inline else => |val, tag| return std.meta.eql(val, @field(b, @tagName(tag))),
+        };
     }
 
     pub fn withStackAlign(cc: CallingConvention, incoming_stack_alignment: u64) CallingConvention {

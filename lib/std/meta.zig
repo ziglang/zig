@@ -736,6 +736,9 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
         .@"struct" => |info| {
             if (info.layout == .@"packed") return a == b;
 
+            if (@hasDecl(T, "eql") and @typeInfo(@TypeOf(T.eql)).@"fn".params.len == 2) {
+                return T.eql(a, b);
+            }
             inline for (info.fields) |field_info| {
                 if (!eql(@field(a, field_info.name), @field(b, field_info.name))) return false;
             }
@@ -749,6 +752,9 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
             }
         },
         .@"union" => |info| {
+            if (@hasDecl(T, "eql") and @typeInfo(@TypeOf(T.eql)).@"fn".params.len == 2) {
+                return T.eql(a, b);
+            }
             if (info.tag_type) |UnionTag| {
                 const tag_a: UnionTag = a;
                 const tag_b: UnionTag = b;
@@ -784,6 +790,12 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
             if (a == null and b == null) return true;
             if (a == null or b == null) return false;
             return eql(a.?, b.?);
+        },
+        .@"enum" => {
+            if (@hasDecl(T, "eql") and @typeInfo(@TypeOf(T.eql)).@"fn".params.len == 2) {
+                return T.eql(a, b);
+            }
+            return a == b;
         },
         else => return a == b,
     }
@@ -857,6 +869,15 @@ test eql {
 
     try testing.expect(eql(CU{ .a = {} }, .a));
     try testing.expect(!eql(CU{ .a = {} }, .b));
+
+    const SE = struct {
+        r: []const u8,
+
+        fn eql(a: @This(), b: @This()) bool {
+            return mem.eql(u8, a.r, b.r);
+        }
+    };
+    try testing.expect((eql(SE{ .r = "ababab"[1..6] }, SE{ .r = "bababa"[0..5] })));
 }
 
 test intToEnum {
