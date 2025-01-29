@@ -9,3 +9,4 @@ export fn f() void {
 // error
 //
 // :2:16: error: comptime call of extern function
+// :2:12: note: types must be comptime-known
