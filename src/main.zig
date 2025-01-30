@@ -3332,6 +3332,12 @@ fn buildOutputType(
             fatal("the argument -femit-implib is allowed only when building a Windows DLL", .{});
         }
     }
+    // Do not emit import library by default for MinGW targets or executables
+    if (emit_implib == .yes_default_path and !emit_implib_arg_provided) {
+        if (target.abi.isGnu() or create_module.resolved_options.output_mode == .Exe) {
+            emit_implib = .no;
+        }
+    }
     const default_implib_basename = if (target.abi.isGnu())
         try std.fmt.allocPrint(arena, "lib{s}.dll.a", .{root_name})
     else
