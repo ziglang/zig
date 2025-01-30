@@ -3279,17 +3279,16 @@ fn buildOutputType(
         .Lib => create_module.resolved_options.link_mode == .dynamic,
         .Exe => true,
     };
-    // Note that cmake when targeting Windows will try to execute
-    // zig cc to make an executable and output an implib too.
     const implib_eligible = is_exe_or_dyn_lib and
         emit_bin_resolved != .no and target.os.tag == .windows;
-    if (!implib_eligible) {
-        if (!emit_implib_arg_provided) {
-            emit_implib = .no;
-        } else if (emit_implib != .no) {
+    if (emit_implib_arg_provided) {
+        if (emit_implib != .no and !implib_eligible) {
             fatal("the argument -femit-implib is allowed only when building a Windows DLL", .{});
         }
+    } else if (!implib_eligible or target.abi.isGnu() or create_module.resolved_options.output_mode == .Exe) {
+        emit_implib = .no;
     }
+
     const default_implib_basename = if (target.abi.isGnu())
         try std.fmt.allocPrint(arena, "lib{s}.dll.a", .{root_name})
     else
