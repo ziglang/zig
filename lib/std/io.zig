@@ -191,6 +191,17 @@ pub fn GenericReader(
             ));
         }
 
+        pub inline fn streamUntilEof(
+            self: Self,
+            writer: anytype,
+            optional_max_size: ?usize,
+        ) (NoEofError || error{StreamTooLong} || @TypeOf(writer).Error)!void {
+            return @errorCast(self.any().streamUntilEof(
+                writer,
+                optional_max_size,
+            ));
+        }
+
         pub inline fn skipUntilDelimiterOrEof(self: Self, delimiter: u8) Error!void {
             return @errorCast(self.any().skipUntilDelimiterOrEof(delimiter));
         }

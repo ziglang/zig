@@ -215,6 +215,31 @@ pub fn streamUntilDelimiter(
     }
 }
 
+/// Appends to the `writer` contents by reading from the stream until EOF.
+/// If `optional_max_size` is not null and amount of written bytes exceeds `optional_max_size`,
+/// returns `error.StreamTooLong` and finishes appending.
+/// If `optional_max_size` is null, appending is unbounded.
+pub fn streamUntilEof(
+    self: Self,
+    writer: anytype,
+    optional_max_size: ?usize,
+) anyerror!void {
+    if (optional_max_size) |max_size| {
+        for (0..max_size) |_| {
+            const byte: u8 = try self.readByte();
+            try writer.writeByte(byte);
+        }
+        return error.StreamTooLong;
+    } else {
+        while (true) {
+            const byte: u8 = self.readByte() catch {
+                break;
+            };
+            try writer.writeByte(byte);
+        }
+    }
+}
+
 /// Reads from the stream until specified byte is found, discarding all data,
 /// including the delimiter.
 /// If end-of-stream is found, this function succeeds.
