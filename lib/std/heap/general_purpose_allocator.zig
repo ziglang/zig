@@ -99,7 +99,7 @@ const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
-const page_size = std.mem.page_size;
+const page_size = std.heap.pageSize(); // TODO: allow this to be runtime known
 const StackTrace = std.builtin.StackTrace;
 
 /// Integer type for pointing to slots in a small allocation
@@ -1040,8 +1040,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
             const bucket_size = bucketSize(size_class);
             const bucket_bytes = try self.backing_allocator.alignedAlloc(u8, @alignOf(BucketHeader), bucket_size);
-            const ptr = @as(*BucketHeader, @ptrCast(bucket_bytes.ptr));
-            ptr.* = BucketHeader{
+            const ptr: *BucketHeader = @ptrCast(bucket_bytes.ptr);
+            ptr.* = .{
                 .page = page.ptr,
                 .alloc_cursor = 0,
                 .used_count = 0,

@@ -227,7 +227,7 @@ fn allocBytesWithAlignment(self: Allocator, comptime alignment: u29, byte_count:
     const byte_ptr = self.rawAlloc(byte_count, log2a(alignment), return_address) orelse return Error.OutOfMemory;
     // TODO: https://github.com/ziglang/zig/issues/4298
     @memset(byte_ptr[0..byte_count], undefined);
-    return @as([*]align(alignment) u8, @alignCast(byte_ptr));
+    return @alignCast(byte_ptr);
 }
 
 /// Requests to modify the size of an allocation. It is guaranteed to not move
