@@ -4276,6 +4276,35 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
     }
 }
 
+pub const GetSockOptError = error{
+    /// The calling process does not have the appropriate privileges.
+    AccessDenied,
+
+    /// The option is not supported by the protocol.
+    InvalidProtocolOption,
+
+    /// Insufficient resources are available in the system to complete the call.
+    SystemResources,
+} || UnexpectedError;
+
+pub fn getsockopt(fd: socket_t, level: i32, optname: u32, opt: []u8) GetSockOptError!void {
+    var len: socklen_t = undefined;
+    switch (errno(system.getsockopt(fd, level, optname, opt.ptr, &len))) {
+        .SUCCESS => {
+            std.debug.assert(len == opt.len);
+        },
+        .BADF => unreachable,
+        .NOTSOCK => unreachable,
+        .INVAL => unreachable,
+        .FAULT => unreachable,
+        .NOPROTOOPT => return error.InvalidProtocolOption,
+        .NOMEM => return error.SystemResources,
+        .NOBUFS => return error.SystemResources,
+        .ACCES => return error.AccessDenied,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
 pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
     var err_code: i32 = undefined;
     var size: u32 = @sizeOf(u32);
