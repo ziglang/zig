@@ -258,6 +258,9 @@ pub fn EnumSet(comptime E: type) type {
         /// The maximum number of items in this set.
         pub const len = Indexer.count;
 
+        pub const empty: Self = Self.initEmpty();
+        pub const full: Self = Self.initFull();
+
         bits: BitSet = BitSet.initEmpty(),
 
         /// Initializes the set using a struct of bools
@@ -450,6 +453,9 @@ pub fn EnumMap(comptime E: type, comptime V: type) type {
         /// Values of items in the map.  If the associated
         /// bit is zero, the value is undefined.
         values: [Indexer.count]Value = undefined,
+
+        pub const empty: Self = .{ .bits = BitSet.initEmpty(), .values = undefined };
+        pub const full: Self = Self.initFull();
 
         /// Initializes the map using a sparse struct of optionals
         pub fn init(init_values: EnumFieldStruct(E, ?Value, @as(?Value, null))) Self {
@@ -680,6 +686,8 @@ pub fn BoundedEnumMultiset(comptime E: type, comptime CountSize: type) type {
         const Self = @This();
 
         counts: EnumArray(E, CountSize),
+
+        pub const empty: Self = Self.initEmpty();
 
         /// Initializes the multiset using a struct of counts.
         pub fn init(init_counts: EnumFieldStruct(E, CountSize, 0)) Self {
