@@ -66,6 +66,12 @@ pub fn main() !void {
         .handle = try std.fs.cwd().makeOpenPath(global_cache_root, .{}),
     };
 
+    // Match the behavior of `cmdBuild()`.
+    const host_query: std.Target.Query = .{
+        .cpu_model = .baseline,
+        .os_tag = builtin.target.os.tag,
+    };
+
     var graph: std.Build.Graph = .{
         .arena = arena,
         .cache = .{
@@ -77,8 +83,8 @@ pub fn main() !void {
         .global_cache_root = global_cache_directory,
         .zig_lib_directory = zig_lib_directory,
         .host = .{
-            .query = .{},
-            .result = try std.zig.system.resolveTargetQuery(.{}),
+            .query = host_query,
+            .result = try std.zig.system.resolveTargetQuery(host_query),
         },
     };
 

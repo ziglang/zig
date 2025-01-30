@@ -115,7 +115,9 @@ pub const Graph = struct {
     global_cache_root: Cache.Directory,
     zig_lib_directory: Cache.Directory,
     needed_lazy_dependencies: std.StringArrayHashMapUnmanaged(void) = .empty,
-    /// Information about the native target. Computed before build() is invoked.
+    /// Information about the host target. Computed before `build()` is invoked. Note that, for
+    /// build reproducibility reasons, this information is more conservative than
+    /// `@import("builtin").target`.
     host: ResolvedTarget,
     incremental: ?bool = null,
     random_seed: u32 = 0,

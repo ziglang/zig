@@ -4954,16 +4954,25 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             if (debug_target) |triple| {
                 const target_query = try std.Target.Query.parse(.{
                     .arch_os_abi = triple,
+                    .cpu_features = "baseline", // See the comment below.
                 });
                 break :t .{
                     .result = std.zig.resolveTargetQueryOrFatal(target_query),
-                    .is_native_os = false,
-                    .is_native_abi = false,
+                    .is_native_os = target_query.isNativeOs(),
+                    .is_native_abi = target_query.isNativeAbi(),
                 };
             }
         }
+        // While it's tempting to use host machine info for performance reasons, this can
+        // ultimately result in debug info source paths that are dependent on said info, even in
+        // non-Debug builds, e.g. if the build script generates source code using tools built for
+        // the host machine.
+        const target_query: std.Target.Query = .{
+            .cpu_model = .baseline,
+            .os_tag = builtin.target.os.tag, // Ensure default OS and glibc version ranges.
+        };
         break :t .{
-            .result = std.zig.resolveTargetQueryOrFatal(.{}),
+            .result = std.zig.resolveTargetQueryOrFatal(target_query),
             .is_native_os = true,
             .is_native_abi = true,
         };
