@@ -215,28 +215,36 @@ pub fn streamUntilDelimiter(
     }
 }
 
-/// Appends to the `writer` contents by reading from the stream until EOF.
+/// Appends to the ArrayList contents by reading from the stream until Eof.
 /// If `optional_max_size` is not null and amount of written bytes exceeds `optional_max_size`,
 /// returns `error.StreamTooLong` and finishes appending.
 /// If `optional_max_size` is null, appending is unbounded.
 pub fn streamUntilEof(
     self: Self,
-    writer: anytype,
+    array_list: *std.ArrayList(u8),
     optional_max_size: ?usize,
 ) anyerror!void {
-    if (optional_max_size) |max_size| {
-        for (0..max_size) |_| {
-            const byte: u8 = try self.readByte();
-            try writer.writeByte(byte);
+    try array_list.ensureTotalCapacity(4096);
+    const original_len = array_list.items.len;
+    var start_index: usize = original_len;
+    while (true) {
+        array_list.expandToCapacity();
+        const dest_slice = array_list.items[start_index..];
+        const bytes_read = try self.readAll(dest_slice);
+        start_index += bytes_read;
+
+        if (optional_max_size) |max_size| {
+            if (start_index - original_len > max_size) {
+                array_list.shrinkAndFree(original_len + max_size);
+            }
         }
-        return error.StreamTooLong;
-    } else {
-        while (true) {
-            const byte: u8 = self.readByte() catch {
-                break;
-            };
-            try writer.writeByte(byte);
+
+        if (bytes_read != dest_slice.len) {
+            array_list.shrinkAndFree(start_index);
+            return;
         }
+
+        try array_list.ensureTotalCapacity(start_index + 1);
     }
 }
 

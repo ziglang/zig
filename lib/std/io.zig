@@ -193,11 +193,11 @@ pub fn GenericReader(
 
         pub inline fn streamUntilEof(
             self: Self,
-            writer: anytype,
+            array_list: *std.ArrayList(u8),
             optional_max_size: ?usize,
-        ) (NoEofError || error{StreamTooLong} || @TypeOf(writer).Error)!void {
+        ) (NoEofError || error{StreamTooLong} || @TypeOf(array_list).Error)!void {
             return @errorCast(self.any().streamUntilEof(
-                writer,
+                array_list,
                 optional_max_size,
             ));
         }
