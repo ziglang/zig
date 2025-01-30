@@ -137,7 +137,7 @@ pub const mode_t = switch (native_os) {
     .linux => linux.mode_t,
     .emscripten => emscripten.mode_t,
     .openbsd, .haiku, .netbsd, .solaris, .illumos, .wasi => u32,
-    .freebsd, .macos, .ios, .tvos, .watchos, .visionos, .dragonfly => u16,
+    .freebsd, .macos, .ios, .tvos, .watchos, .visionos, .dragonfly, .windows => u16,
     else => u0,
 };
 
