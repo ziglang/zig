@@ -54,11 +54,8 @@ pub const Color = enum {
     }
 
     pub fn renderOptions(color: Color) std.zig.ErrorBundle.RenderOptions {
-        const ttyconf = get_tty_conf(color);
         return .{
-            .ttyconf = ttyconf,
-            .include_source_line = ttyconf != .no_color,
-            .include_reference_trace = ttyconf != .no_color,
+            .ttyconf = get_tty_conf(color),
         };
     }
 };
