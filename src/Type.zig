@@ -4209,6 +4209,7 @@ pub const vector_2_u64: Type = .{ .ip_index = .vector_2_u64_type };
 pub const vector_4_u64: Type = .{ .ip_index = .vector_4_u64_type };
 pub const vector_4_f16: Type = .{ .ip_index = .vector_4_f16_type };
 pub const vector_8_f16: Type = .{ .ip_index = .vector_8_f16_type };
+pub const vector_2_f32: Type = .{ .ip_index = .vector_2_f32_type };
 pub const vector_4_f32: Type = .{ .ip_index = .vector_4_f32_type };
 pub const vector_8_f32: Type = .{ .ip_index = .vector_8_f32_type };
 pub const vector_2_f64: Type = .{ .ip_index = .vector_2_f64_type };

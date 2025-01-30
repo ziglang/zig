@@ -1001,6 +1001,7 @@ pub const Inst = struct {
         vector_4_u64_type = @intFromEnum(InternPool.Index.vector_4_u64_type),
         vector_4_f16_type = @intFromEnum(InternPool.Index.vector_4_f16_type),
         vector_8_f16_type = @intFromEnum(InternPool.Index.vector_8_f16_type),
+        vector_2_f32_type = @intFromEnum(InternPool.Index.vector_2_f32_type),
         vector_4_f32_type = @intFromEnum(InternPool.Index.vector_4_f32_type),
         vector_8_f32_type = @intFromEnum(InternPool.Index.vector_8_f32_type),
         vector_2_f64_type = @intFromEnum(InternPool.Index.vector_2_f64_type),

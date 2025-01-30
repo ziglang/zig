@@ -10810,6 +10810,7 @@ inline fn floatCast(comptime Result: type, comptime Type: type, rhs: Type) Resul
 test floatCast {
     const test_float_cast = cast(floatCast, .{ .strict = true });
     try test_float_cast.testFloats();
+    try test_float_cast.testFloatVectors();
 }
 
 inline fn equal(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs == rhs) {
