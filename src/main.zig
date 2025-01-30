@@ -5002,8 +5002,16 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
     var global_cache_directory: Directory = l: {
         const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
+        const dir = fs.cwd().makeOpenPath(p, .{}) catch |err| {
+            const base_msg = "unable to open or create the global Zig cache at '{s}': {s}.{s}";
+            const extra = "\nIf this location is not writable then consider specifying an " ++
+                "alternative with the ZIG_GLOBAL_CACHE_DIR environment variable or the " ++
+                "--global-cache-dir option.";
+            const show_extra = err == error.AccessDenied or err == error.ReadOnlyFileSystem;
+            fatal(base_msg, .{ p, @errorName(err), if (show_extra) extra else "" });
+        };
         break :l .{
-            .handle = try fs.cwd().makeOpenPath(p, .{}),
+            .handle = dir,
             .path = p,
         };
     };
