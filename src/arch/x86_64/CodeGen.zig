@@ -21853,17 +21853,6 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 }, cg);
                 try res.finish(inst, &.{ty_op.operand}, &ops, cg);
             },
-            .int_from_ptr => if (use_old) try cg.airIntFromPtr(inst) else {
-                const un_op = air_datas[@intFromEnum(inst)].un_op;
-                var ops = try cg.tempsFromOperands(inst, .{un_op});
-                try ops[0].toSlicePtr(cg);
-                try ops[0].finish(inst, &.{un_op}, &ops, cg);
-            },
-            .int_from_bool => if (use_old) try cg.airIntFromBool(inst) else {
-                const un_op = air_datas[@intFromEnum(inst)].un_op;
-                const ops = try cg.tempsFromOperands(inst, .{un_op});
-                try ops[0].finish(inst, &.{un_op}, &ops, cg);
-            },
             .ret => try cg.airRet(inst, false),
             .ret_safe => try cg.airRet(inst, true),
             .ret_load => try cg.airRetLoad(inst),
@@ -24491,19 +24480,6 @@ fn airTrunc(self: *CodeGen, inst: Air.Inst.Index) !void {
         break :result dst_mcv;
     };
     return self.finishAir(inst, result, .{ ty_op.operand, .none, .none });
-}
-
-fn airIntFromBool(self: *CodeGen, inst: Air.Inst.Index) !void {
-    const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const ty = self.typeOfIndex(inst);
-
-    const operand = try self.resolveInst(un_op);
-    const dst_mcv = if (self.reuseOperand(inst, un_op, 0, operand))
-        operand
-    else
-        try self.copyToRegisterWithInstTracking(inst, ty, operand);
-
-    return self.finishAir(inst, dst_mcv, .{ un_op, .none, .none });
 }
 
 fn airSlice(self: *CodeGen, inst: Air.Inst.Index) !void {
@@ -37203,21 +37179,6 @@ fn genLazySymbolRef(
     } else {
         return self.fail("TODO implement genLazySymbol for x86_64 {s}", .{@tagName(self.bin_file.tag)});
     }
-}
-
-fn airIntFromPtr(self: *CodeGen, inst: Air.Inst.Index) !void {
-    const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const result = result: {
-        // TODO: handle case where the operand is a slice not a raw pointer
-        const src_mcv = try self.resolveInst(un_op);
-        if (self.reuseOperand(inst, un_op, 0, src_mcv)) break :result src_mcv;
-
-        const dst_mcv = try self.allocRegOrMem(inst, true);
-        const dst_ty = self.typeOfIndex(inst);
-        try self.genCopy(dst_ty, dst_mcv, src_mcv, .{});
-        break :result dst_mcv;
-    };
-    return self.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn airBitCast(self: *CodeGen, inst: Air.Inst.Index) !void {

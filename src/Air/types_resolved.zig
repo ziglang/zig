@@ -208,8 +208,6 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .is_non_err,
             .is_err_ptr,
             .is_non_err_ptr,
-            .int_from_ptr,
-            .int_from_bool,
             .ret,
             .ret_safe,
             .ret_load,

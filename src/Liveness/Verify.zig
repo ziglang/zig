@@ -130,8 +130,6 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .is_non_err,
             .is_err_ptr,
             .is_non_err_ptr,
-            .int_from_ptr,
-            .int_from_bool,
             .is_named_enum_value,
             .tag_name,
             .error_name,

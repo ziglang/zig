@@ -266,7 +266,8 @@ pub const Inst = struct {
         /// Boolean or binary NOT.
         /// Uses the `ty_op` field.
         not,
-        /// Reinterpret the memory representation of a value as a different type.
+        /// Reinterpret the bits of a value as a different type.  This is like `@bitCast` but
+        /// also supports enums and pointers.
         /// Uses the `ty_op` field.
         bitcast,
         /// Uses the `ty_pl` field with payload `Block`.  A block runs its body which always ends
@@ -517,14 +518,6 @@ pub const Inst = struct {
         /// Read a value from a pointer.
         /// Uses the `ty_op` field.
         load,
-        /// Converts a pointer to its address. Result type is always `usize`.
-        /// Pointer type size may be any, including slice.
-        /// Uses the `un_op` field.
-        int_from_ptr,
-        /// Given a boolean, returns 0 or 1.
-        /// Result type is always `u1`.
-        /// Uses the `un_op` field.
-        int_from_bool,
         /// Return a value from a function.
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `un_op` field.
@@ -1542,7 +1535,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .c_va_end,
         => return Type.void,
 
-        .int_from_ptr,
         .slice_len,
         .ret_addr,
         .frame_addr,
@@ -1551,8 +1543,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 
         .wasm_memory_grow => return Type.isize,
         .wasm_memory_size => return Type.usize,
-
-        .int_from_bool => return Type.u1,
 
         .tag_name, .error_name => return Type.slice_const_u8_sentinel_0,
 
@@ -1815,8 +1805,6 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .is_non_err_ptr,
         .bool_and,
         .bool_or,
-        .int_from_ptr,
-        .int_from_bool,
         .fptrunc,
         .fpext,
         .intcast,
