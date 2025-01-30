@@ -604,27 +604,28 @@ pub fn hasRuntimeBitsInner(
                         // and then later if our guess was incorrect, we emit a compile error.
                         if (union_type.assumeRuntimeBitsIfFieldTypesWip(ip)) return true;
                     },
-                    .safety, .tagged => {
-                        const tag_ty = union_type.tagTypeUnordered(ip);
-                        // tag_ty will be `none` if this union's tag type is not resolved yet,
-                        // in which case we want control flow to continue down below.
-                        if (tag_ty != .none and
-                            try Type.fromInterned(tag_ty).hasRuntimeBitsInner(
-                                ignore_comptime_only,
-                                strat,
-                                zcu,
-                                tid,
-                            ))
-                        {
-                            return true;
-                        }
-                    },
+                    .safety, .tagged => {},
                 }
                 switch (strat) {
                     .sema => try ty.resolveFields(strat.pt(zcu, tid)),
                     .eager => assert(union_flags.status.haveFieldTypes()),
                     .lazy => if (!union_flags.status.haveFieldTypes())
                         return error.NeedLazy,
+                }
+                switch (union_flags.runtime_tag) {
+                    .none => {},
+                    .safety, .tagged => {
+                        const tag_ty = union_type.tagTypeUnordered(ip);
+                        assert(tag_ty != .none); // tag_ty should have been resolved above
+                        if (try Type.fromInterned(tag_ty).hasRuntimeBitsInner(
+                            ignore_comptime_only,
+                            strat,
+                            zcu,
+                            tid,
+                        )) {
+                            return true;
+                        }
+                    },
                 }
                 for (0..union_type.field_types.len) |field_index| {
                     const field_ty = Type.fromInterned(union_type.field_types.get(ip)[field_index]);
