@@ -77,7 +77,7 @@ test "parse and render IPv6 addresses" {
     if (builtin.os.tag == .linux or comptime builtin.os.tag.isDarwin() or builtin.os.tag == .windows) {
         try testing.expectError(error.Incomplete, net.Address.resolveIp6("ff01::fb%", 0));
         try testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%wlp3s0s0s0s0s0s0s0s0s0s0s0s0s0s0", 0));
-        try testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%12345678901234567890123456789012", 0));
+        try testing.expectError(error.Overflow, net.Address.resolveIp6("ff01::fb%12345678901234", 0));
     }
 }
 
