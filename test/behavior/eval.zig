@@ -1360,6 +1360,14 @@ test "lazy sizeof is resolved in division" {
     try expect(@sizeOf(A) - a == 2);
 }
 
+test "lazy sizeof union tag size in compare" {
+    const A = union(enum) {
+        a: void,
+        b: void,
+    };
+    try expect(@sizeOf(A) == 1);
+}
+
 test "lazy value is resolved as slice operand" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
