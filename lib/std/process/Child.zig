@@ -428,12 +428,15 @@ pub fn run(args: struct {
     }
 
     try child.spawn();
+    errdefer {
+        _ = child.kill() catch {};
+    }
     try child.collectOutput(&stdout, &stderr, args.max_output_bytes);
 
     return RunResult{
-        .term = try child.wait(),
         .stdout = try stdout.toOwnedSlice(),
         .stderr = try stderr.toOwnedSlice(),
+        .term = try child.wait(),
     };
 }
 
