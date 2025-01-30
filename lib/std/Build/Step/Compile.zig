@@ -1259,45 +1259,54 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                         .c_source_file => |c_source_file| l: {
                             if (!my_responsibility) break :l;
 
-                            if (c_source_file.flags.len == 0) {
-                                if (prev_has_cflags) {
-                                    try zig_args.append("-cflags");
-                                    try zig_args.append("--");
-                                    prev_has_cflags = false;
-                                }
-                            } else {
+                            if (prev_has_cflags or c_source_file.flags.len != 0) {
                                 try zig_args.append("-cflags");
                                 for (c_source_file.flags) |arg| {
                                     try zig_args.append(arg);
                                 }
                                 try zig_args.append("--");
-                                prev_has_cflags = true;
                             }
+                            prev_has_cflags = (c_source_file.flags.len != 0);
+
+                            if (c_source_file.language) |lang| {
+                                try zig_args.append("-x");
+                                try zig_args.append(lang.internalIdentifier());
+                            }
+
                             try zig_args.append(c_source_file.file.getPath2(mod.owner, step));
+
+                            if (c_source_file.language != null) {
+                                try zig_args.append("-x");
+                                try zig_args.append("none");
+                            }
                             total_linker_objects += 1;
                         },
 
                         .c_source_files => |c_source_files| l: {
                             if (!my_responsibility) break :l;
 
-                            if (c_source_files.flags.len == 0) {
-                                if (prev_has_cflags) {
-                                    try zig_args.append("-cflags");
-                                    try zig_args.append("--");
-                                    prev_has_cflags = false;
-                                }
-                            } else {
+                            if (prev_has_cflags or c_source_files.flags.len != 0) {
                                 try zig_args.append("-cflags");
-                                for (c_source_files.flags) |flag| {
-                                    try zig_args.append(flag);
+                                for (c_source_files.flags) |arg| {
+                                    try zig_args.append(arg);
                                 }
                                 try zig_args.append("--");
-                                prev_has_cflags = true;
+                            }
+                            prev_has_cflags = (c_source_files.flags.len != 0);
+
+                            if (c_source_files.language) |lang| {
+                                try zig_args.append("-x");
+                                try zig_args.append(lang.internalIdentifier());
                             }
 
                             const root_path = c_source_files.root.getPath2(mod.owner, step);
                             for (c_source_files.files) |file| {
                                 try zig_args.append(b.pathJoin(&.{ root_path, file }));
+                            }
+
+                            if (c_source_files.language != null) {
+                                try zig_args.append("-x");
+                                try zig_args.append("none");
                             }
 
                             total_linker_objects += c_source_files.files.len;
