@@ -180,7 +180,7 @@ pub const Options = struct {
     /// thread 183137 panic: oops!
     /// Aborted (core dumped)
     /// ```
-    debug_stacktrace_mode: debug.StackTraceMode = if (builtin.strip) .none else .full,
+    debug_stacktrace_mode: debug.StackTraceMode = if (@import("builtin").strip_debug_info) .none else .full,
 };
 
 // This forces the start.zig file to be imported, and the comptime logic inside that
