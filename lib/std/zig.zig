@@ -54,11 +54,8 @@ pub const Color = enum {
     }
 
     pub fn renderOptions(color: Color) std.zig.ErrorBundle.RenderOptions {
-        const ttyconf = get_tty_conf(color);
         return .{
-            .ttyconf = ttyconf,
-            .include_source_line = ttyconf != .no_color,
-            .include_reference_trace = ttyconf != .no_color,
+            .ttyconf = get_tty_conf(color),
         };
     }
 };
@@ -749,7 +746,6 @@ pub const SimpleComptimeReason = enum(u32) {
     atomic_order,
     array_mul_factor,
     slice_cat_operand,
-    comptime_call_target,
     inline_call_target,
     generic_call_target,
     wasm_memory_index,
@@ -830,7 +826,6 @@ pub const SimpleComptimeReason = enum(u32) {
             .atomic_order         => "atomic order must be comptime-known",
             .array_mul_factor     => "array multiplication factor must be comptime-known",
             .slice_cat_operand    => "slice being concatenated must be comptime-known",
-            .comptime_call_target => "function being called at comptime must be comptime-known",
             .inline_call_target   => "function being called inline must be comptime-known",
             .generic_call_target  => "generic function being called must be comptime-known",
             .wasm_memory_index    => "wasm memory index must be comptime-known",

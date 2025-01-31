@@ -17,7 +17,14 @@ const Sse = if (std.Target.x86.featureSetHas(builtin.cpu.features, .avx))
 else
     @Vector(16, u8);
 
-inline fn sign(rhs: anytype) switch (@typeInfo(@TypeOf(rhs))) {
+inline fn runtime(comptime Type: type, comptime value: Type) Type {
+    if (@inComptime()) return value;
+    return struct {
+        var variable: Type = value;
+    }.variable;
+}
+
+fn sign(rhs: anytype) switch (@typeInfo(@TypeOf(rhs))) {
     else => bool,
     .vector => |vector| @Vector(vector.len, bool),
 } {
@@ -39,7 +46,7 @@ inline fn sign(rhs: anytype) switch (@typeInfo(@TypeOf(rhs))) {
         },
     }
 }
-inline fn boolAnd(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
+fn boolAnd(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
     switch (@typeInfo(@TypeOf(lhs))) {
         .bool => return lhs and rhs,
         .vector => |vector| switch (vector.child) {
@@ -55,7 +62,7 @@ inline fn boolAnd(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
     }
     @compileError("unsupported boolAnd type: " ++ @typeName(@TypeOf(lhs)));
 }
-inline fn boolOr(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
+fn boolOr(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
     switch (@typeInfo(@TypeOf(lhs))) {
         .bool => return lhs or rhs,
         .vector => |vector| switch (vector.child) {
@@ -186,6 +193,90 @@ fn unary(comptime op: anytype, comptime opts: struct { strict: bool = false }) t
             );
         }
         fn testIntTypes() !void {
+            try testArgs(i1, undefined);
+            try testArgs(u1, undefined);
+            try testArgs(i2, undefined);
+            try testArgs(u2, undefined);
+            try testArgs(i3, undefined);
+            try testArgs(u3, undefined);
+            try testArgs(i4, undefined);
+            try testArgs(u4, undefined);
+            try testArgs(i5, undefined);
+            try testArgs(u5, undefined);
+            try testArgs(i7, undefined);
+            try testArgs(u7, undefined);
+            try testArgs(i8, undefined);
+            try testArgs(u8, undefined);
+            try testArgs(i9, undefined);
+            try testArgs(u9, undefined);
+            try testArgs(i15, undefined);
+            try testArgs(u15, undefined);
+            try testArgs(i16, undefined);
+            try testArgs(u16, undefined);
+            try testArgs(i17, undefined);
+            try testArgs(u17, undefined);
+            try testArgs(i31, undefined);
+            try testArgs(u31, undefined);
+            try testArgs(i32, undefined);
+            try testArgs(u32, undefined);
+            try testArgs(i33, undefined);
+            try testArgs(u33, undefined);
+            try testArgs(i63, undefined);
+            try testArgs(u63, undefined);
+            try testArgs(i64, undefined);
+            try testArgs(u64, undefined);
+            try testArgs(i65, undefined);
+            try testArgs(u65, undefined);
+            try testArgs(i95, undefined);
+            try testArgs(u95, undefined);
+            try testArgs(i96, undefined);
+            try testArgs(u96, undefined);
+            try testArgs(i97, undefined);
+            try testArgs(u97, undefined);
+            try testArgs(i127, undefined);
+            try testArgs(u127, undefined);
+            try testArgs(i128, undefined);
+            try testArgs(u128, undefined);
+            try testArgs(i129, undefined);
+            try testArgs(u129, undefined);
+            try testArgs(i159, undefined);
+            try testArgs(u159, undefined);
+            try testArgs(i160, undefined);
+            try testArgs(u160, undefined);
+            try testArgs(i161, undefined);
+            try testArgs(u161, undefined);
+            try testArgs(i191, undefined);
+            try testArgs(u191, undefined);
+            try testArgs(i192, undefined);
+            try testArgs(u192, undefined);
+            try testArgs(i193, undefined);
+            try testArgs(u193, undefined);
+            try testArgs(i223, undefined);
+            try testArgs(u223, undefined);
+            try testArgs(i224, undefined);
+            try testArgs(u224, undefined);
+            try testArgs(i225, undefined);
+            try testArgs(u225, undefined);
+            try testArgs(i255, undefined);
+            try testArgs(u255, undefined);
+            try testArgs(i256, undefined);
+            try testArgs(u256, undefined);
+            try testArgs(i257, undefined);
+            try testArgs(u257, undefined);
+            try testArgs(i511, undefined);
+            try testArgs(u511, undefined);
+            try testArgs(i512, undefined);
+            try testArgs(u512, undefined);
+            try testArgs(i513, undefined);
+            try testArgs(u513, undefined);
+            try testArgs(i1023, undefined);
+            try testArgs(u1023, undefined);
+            try testArgs(i1024, undefined);
+            try testArgs(u1024, undefined);
+            try testArgs(i1025, undefined);
+            try testArgs(u1025, undefined);
+        }
+        fn testInts() !void {
             try testArgs(i1, -1);
             try testArgs(i1, 0);
             try testArgs(u1, 0);
@@ -549,6 +640,13 @@ fn unary(comptime op: anytype, comptime opts: struct { strict: bool = false }) t
             try testArgs(u1025, 1 << 1024);
         }
         fn testFloatTypes() !void {
+            try testArgs(f16, undefined);
+            try testArgs(f32, undefined);
+            try testArgs(f64, undefined);
+            try testArgs(f80, undefined);
+            try testArgs(f128, undefined);
+        }
+        fn testFloats() !void {
             try testArgs(f16, -nan(f16));
             try testArgs(f16, -inf(f16));
             try testArgs(f16, -fmax(f16));
@@ -645,6 +743,168 @@ fn unary(comptime op: anytype, comptime opts: struct { strict: bool = false }) t
             try testArgs(f128, nan(f128));
         }
         fn testIntVectorTypes() !void {
+            try testArgs(@Vector(3, i1), undefined);
+            try testArgs(@Vector(3, u1), undefined);
+            try testArgs(@Vector(3, i2), undefined);
+            try testArgs(@Vector(3, u2), undefined);
+            try testArgs(@Vector(3, i3), undefined);
+            try testArgs(@Vector(3, u3), undefined);
+            try testArgs(@Vector(3, i4), undefined);
+            try testArgs(@Vector(1, i4), undefined);
+            try testArgs(@Vector(2, i4), undefined);
+            try testArgs(@Vector(4, i4), undefined);
+            try testArgs(@Vector(8, i4), undefined);
+            try testArgs(@Vector(16, i4), undefined);
+            try testArgs(@Vector(32, i4), undefined);
+            try testArgs(@Vector(64, i4), undefined);
+            try testArgs(@Vector(128, i4), undefined);
+            try testArgs(@Vector(256, i4), undefined);
+            try testArgs(@Vector(3, u4), undefined);
+            try testArgs(@Vector(1, u4), undefined);
+            try testArgs(@Vector(2, u4), undefined);
+            try testArgs(@Vector(4, u4), undefined);
+            try testArgs(@Vector(8, u4), undefined);
+            try testArgs(@Vector(16, u4), undefined);
+            try testArgs(@Vector(32, u4), undefined);
+            try testArgs(@Vector(64, u4), undefined);
+            try testArgs(@Vector(128, u4), undefined);
+            try testArgs(@Vector(256, u4), undefined);
+            try testArgs(@Vector(3, i5), undefined);
+            try testArgs(@Vector(3, u5), undefined);
+            try testArgs(@Vector(3, i7), undefined);
+            try testArgs(@Vector(3, u7), undefined);
+            try testArgs(@Vector(3, i8), undefined);
+            try testArgs(@Vector(1, i8), undefined);
+            try testArgs(@Vector(2, i8), undefined);
+            try testArgs(@Vector(4, i8), undefined);
+            try testArgs(@Vector(8, i8), undefined);
+            try testArgs(@Vector(16, i8), undefined);
+            try testArgs(@Vector(32, i8), undefined);
+            try testArgs(@Vector(64, i8), undefined);
+            try testArgs(@Vector(128, i8), undefined);
+            try testArgs(@Vector(3, u8), undefined);
+            try testArgs(@Vector(1, u8), undefined);
+            try testArgs(@Vector(2, u8), undefined);
+            try testArgs(@Vector(4, u8), undefined);
+            try testArgs(@Vector(8, u8), undefined);
+            try testArgs(@Vector(16, u8), undefined);
+            try testArgs(@Vector(32, u8), undefined);
+            try testArgs(@Vector(64, u8), undefined);
+            try testArgs(@Vector(128, u8), undefined);
+            try testArgs(@Vector(3, i9), undefined);
+            try testArgs(@Vector(3, u9), undefined);
+            try testArgs(@Vector(3, i15), undefined);
+            try testArgs(@Vector(3, u15), undefined);
+            try testArgs(@Vector(3, i16), undefined);
+            try testArgs(@Vector(1, i16), undefined);
+            try testArgs(@Vector(2, i16), undefined);
+            try testArgs(@Vector(4, i16), undefined);
+            try testArgs(@Vector(8, i16), undefined);
+            try testArgs(@Vector(16, i16), undefined);
+            try testArgs(@Vector(32, i16), undefined);
+            try testArgs(@Vector(64, i16), undefined);
+            try testArgs(@Vector(3, u16), undefined);
+            try testArgs(@Vector(1, u16), undefined);
+            try testArgs(@Vector(2, u16), undefined);
+            try testArgs(@Vector(4, u16), undefined);
+            try testArgs(@Vector(8, u16), undefined);
+            try testArgs(@Vector(16, u16), undefined);
+            try testArgs(@Vector(32, u16), undefined);
+            try testArgs(@Vector(64, u16), undefined);
+            try testArgs(@Vector(3, i17), undefined);
+            try testArgs(@Vector(3, u17), undefined);
+            try testArgs(@Vector(3, i31), undefined);
+            try testArgs(@Vector(3, u31), undefined);
+            try testArgs(@Vector(3, i32), undefined);
+            try testArgs(@Vector(1, i32), undefined);
+            try testArgs(@Vector(2, i32), undefined);
+            try testArgs(@Vector(4, i32), undefined);
+            try testArgs(@Vector(8, i32), undefined);
+            try testArgs(@Vector(16, i32), undefined);
+            try testArgs(@Vector(32, i32), undefined);
+            try testArgs(@Vector(3, u32), undefined);
+            try testArgs(@Vector(1, u32), undefined);
+            try testArgs(@Vector(2, u32), undefined);
+            try testArgs(@Vector(4, u32), undefined);
+            try testArgs(@Vector(8, u32), undefined);
+            try testArgs(@Vector(16, u32), undefined);
+            try testArgs(@Vector(32, u32), undefined);
+            try testArgs(@Vector(3, i33), undefined);
+            try testArgs(@Vector(3, u33), undefined);
+            try testArgs(@Vector(3, i63), undefined);
+            try testArgs(@Vector(3, u63), undefined);
+            try testArgs(@Vector(3, i64), undefined);
+            try testArgs(@Vector(1, i64), undefined);
+            try testArgs(@Vector(2, i64), undefined);
+            try testArgs(@Vector(4, i64), undefined);
+            try testArgs(@Vector(8, i64), undefined);
+            try testArgs(@Vector(16, i64), undefined);
+            try testArgs(@Vector(3, u64), undefined);
+            try testArgs(@Vector(1, u64), undefined);
+            try testArgs(@Vector(2, u64), undefined);
+            try testArgs(@Vector(4, u64), undefined);
+            try testArgs(@Vector(8, u64), undefined);
+            try testArgs(@Vector(16, u64), undefined);
+            try testArgs(@Vector(3, i65), undefined);
+            try testArgs(@Vector(3, u65), undefined);
+            try testArgs(@Vector(3, i127), undefined);
+            try testArgs(@Vector(3, u127), undefined);
+            try testArgs(@Vector(3, i128), undefined);
+            try testArgs(@Vector(1, i128), undefined);
+            try testArgs(@Vector(2, i128), undefined);
+            try testArgs(@Vector(4, i128), undefined);
+            try testArgs(@Vector(8, i128), undefined);
+            try testArgs(@Vector(3, u128), undefined);
+            try testArgs(@Vector(1, u128), undefined);
+            try testArgs(@Vector(2, u128), undefined);
+            try testArgs(@Vector(4, u128), undefined);
+            try testArgs(@Vector(8, u128), undefined);
+            try testArgs(@Vector(3, i129), undefined);
+            try testArgs(@Vector(3, u129), undefined);
+            try testArgs(@Vector(3, i191), undefined);
+            try testArgs(@Vector(3, u191), undefined);
+            try testArgs(@Vector(3, i192), undefined);
+            try testArgs(@Vector(1, i192), undefined);
+            try testArgs(@Vector(2, i192), undefined);
+            try testArgs(@Vector(4, i192), undefined);
+            try testArgs(@Vector(3, u192), undefined);
+            try testArgs(@Vector(1, u192), undefined);
+            try testArgs(@Vector(2, u192), undefined);
+            try testArgs(@Vector(4, u192), undefined);
+            try testArgs(@Vector(3, i193), undefined);
+            try testArgs(@Vector(3, u193), undefined);
+            try testArgs(@Vector(3, i255), undefined);
+            try testArgs(@Vector(3, u255), undefined);
+            try testArgs(@Vector(3, i256), undefined);
+            try testArgs(@Vector(1, i256), undefined);
+            try testArgs(@Vector(2, i256), undefined);
+            try testArgs(@Vector(4, i256), undefined);
+            try testArgs(@Vector(3, u256), undefined);
+            try testArgs(@Vector(1, u256), undefined);
+            try testArgs(@Vector(2, u256), undefined);
+            try testArgs(@Vector(4, u256), undefined);
+            try testArgs(@Vector(3, i257), undefined);
+            try testArgs(@Vector(3, u257), undefined);
+            try testArgs(@Vector(3, i511), undefined);
+            try testArgs(@Vector(3, u511), undefined);
+            try testArgs(@Vector(3, i512), undefined);
+            try testArgs(@Vector(1, i512), undefined);
+            try testArgs(@Vector(2, i512), undefined);
+            try testArgs(@Vector(3, u512), undefined);
+            try testArgs(@Vector(1, u512), undefined);
+            try testArgs(@Vector(2, u512), undefined);
+            try testArgs(@Vector(3, i513), undefined);
+            try testArgs(@Vector(3, u513), undefined);
+            try testArgs(@Vector(3, i1023), undefined);
+            try testArgs(@Vector(3, u1023), undefined);
+            try testArgs(@Vector(3, i1024), undefined);
+            try testArgs(@Vector(1, i1024), undefined);
+            try testArgs(@Vector(3, u1024), undefined);
+            try testArgs(@Vector(1, u1024), undefined);
+            try testArgs(@Vector(3, i1025), undefined);
+            try testArgs(@Vector(3, u1025), undefined);
+        }
+        fn testIntVectors() !void {
             try testArgs(@Vector(3, i1), .{ -1 << 0, -1, 0 });
             try testArgs(@Vector(3, u1), .{ 0, 1, 1 << 0 });
 
@@ -1190,6 +1450,38 @@ fn unary(comptime op: anytype, comptime opts: struct { strict: bool = false }) t
             try testArgs(@Vector(3, u1025), .{ 0, 1, 1 << 1024 });
         }
         fn testFloatVectorTypes() !void {
+            try testArgs(@Vector(1, f16), undefined);
+            try testArgs(@Vector(2, f16), undefined);
+            try testArgs(@Vector(4, f16), undefined);
+            try testArgs(@Vector(8, f16), undefined);
+            try testArgs(@Vector(16, f16), undefined);
+            try testArgs(@Vector(32, f16), undefined);
+            try testArgs(@Vector(64, f16), undefined);
+
+            try testArgs(@Vector(1, f32), undefined);
+            try testArgs(@Vector(2, f32), undefined);
+            try testArgs(@Vector(4, f32), undefined);
+            try testArgs(@Vector(8, f32), undefined);
+            try testArgs(@Vector(16, f32), undefined);
+            try testArgs(@Vector(32, f32), undefined);
+
+            try testArgs(@Vector(1, f64), undefined);
+            try testArgs(@Vector(2, f64), undefined);
+            try testArgs(@Vector(4, f64), undefined);
+            try testArgs(@Vector(8, f64), undefined);
+            try testArgs(@Vector(16, f64), undefined);
+
+            try testArgs(@Vector(1, f80), undefined);
+            try testArgs(@Vector(2, f80), undefined);
+            try testArgs(@Vector(4, f80), undefined);
+            try testArgs(@Vector(8, f80), undefined);
+
+            try testArgs(@Vector(1, f128), undefined);
+            try testArgs(@Vector(2, f128), undefined);
+            try testArgs(@Vector(4, f128), undefined);
+            try testArgs(@Vector(8, f128), undefined);
+        }
+        fn testFloatVectors() !void {
             try testArgs(@Vector(1, f16), .{
                 -0x1.17cp-12,
             });
@@ -1396,7 +1688,7 @@ fn binary(comptime op: anytype, comptime opts: struct { strict: bool = false }) 
                 imm_rhs,
             );
         }
-        fn testIntTypes() !void {
+        fn testInts() !void {
             try testArgs(i8, 0x48, 0x6c);
             try testArgs(u8, 0xbb, 0x43);
             try testArgs(i16, -0x0fdf, 0x302e);
@@ -1407,48 +1699,16 @@ fn binary(comptime op: anytype, comptime opts: struct { strict: bool = false }) 
             try testArgs(u64, 0x71138bc6b4a38898, 0x1bc4043de9438c7b);
             try testArgs(i128, 0x76d428c46cdeaa2ac43de8abffb22f6d, 0x427f7545abe434a12544fdbe2a012889);
             try testArgs(u128, 0xe05fc132ef2cd8affee00a907f0a851f, 0x29f912a72cfc6a7c6973426a9636da9a);
-            try testArgs(
-                i256,
-                -0x53d4148cee74ea43477a65b3daa7b8fdadcbf4508e793f4af113b8d8da5a7eb6,
-                -0x30dcbaf7b9b7a3df033694e6795444d842fb0b8f79bc18b3ea8a6b7ccad3ea91,
-            );
-            try testArgs(
-                u256,
-                0xb7935f5c2f3b1ae7a422c0a7c446884294b7d5370bada307d2fe5a4c4284a999,
-                0x310e6e196ba4f143b8d285ca6addf7f3bb3344224aff221b27607a31e148be08,
-            );
-            try testArgs(
-                i258,
-                -0x0eee283365108dbeea0bec82f5147418d8ffe86f9eed00e414b4eccd65c21239a,
-                -0x122c730073fc29a24cd6e3e6263566879bc5325d8566b8db31fcb4a76f7ab95eb,
-            );
-            try testArgs(
-                u258,
-                0x186d5ddaab8cb8cb04e5b41e36f812e039d008baf49f12894c39e29a07796d800,
-                0x2072daba6ffad168826163eb136f6d28ca4360c8e7e5e41e29755e19e4753a4f5,
-            );
-            try testArgs(
-                i495,
-                0x2fe6bc5448c55ce18252e2c9d44777505dfe63ff249a8027a6626c7d8dd9893fd5731e51474727be556f757facb586a4e04bbc0148c6c7ad692302f46fbd,
-                -0x016a358821ef8240172f3a08e8830c06e6bcf2225f5f4d41ed42b44d249385f55cc594e1278ecac31c73faed890e5054af1a561483bb1bb6fb1f753514cf,
-            );
-            try testArgs(
-                u495,
-                0x6eaf4e252b3bf74b75bac59e0b43ca5326bad2a25b3fdb74a67ef132ac5e47d72eebc3316fb2351ee66c50dc5afb92a75cea9b0e35160652c7db39eeb158,
-                0x49fbed744a92b549d8c05bb3512c617d24dd824f3f69bdf3923bc326a75674b85f5b828d2566fab9c86f571d12c2a63c9164feb0d191d27905533d09622a,
-            );
-            try testArgs(
-                i512,
-                -0x3a6876ca92775286c6e1504a64a9b8d56985bebf4a1b66539d404e0e96f24b226f70c4bcff295fdc2043b82513b2052dc45fd78f7e9e80e5b3e101757289f054,
-                0x5080c516a819bd32a0a5f0976441bbfbcf89e77684f1f10eb326aeb28e1f8d593278cff60fc99b8ffc87d8696882c64728dd3c322b7142803f4341f85a03bc10,
-            );
-            try testArgs(
-                u512,
-                0xe5b1fedca3c77db765e517aabd05ffc524a3a8aff1784bbf67c45b894447ede32b65b9940e78173c591e56e078932d465f235aece7ad47b7f229df7ba8f12295,
-                0x8b4bb7c2969e3b121cc1082c442f8b4330f0a50058438fed56447175bb10178607ecfe425cb54dacc25ef26810f3e04681de1844f1aa8d029aca75d658634806,
-            );
+            try testArgs(i256, -0x53d4148cee74ea43477a65b3daa7b8fdadcbf4508e793f4af113b8d8da5a7eb6, -0x30dcbaf7b9b7a3df033694e6795444d842fb0b8f79bc18b3ea8a6b7ccad3ea91);
+            try testArgs(u256, 0xb7935f5c2f3b1ae7a422c0a7c446884294b7d5370bada307d2fe5a4c4284a999, 0x310e6e196ba4f143b8d285ca6addf7f3bb3344224aff221b27607a31e148be08);
+            try testArgs(i258, -0x0eee283365108dbeea0bec82f5147418d8ffe86f9eed00e414b4eccd65c21239a, -0x122c730073fc29a24cd6e3e6263566879bc5325d8566b8db31fcb4a76f7ab95eb);
+            try testArgs(u258, 0x186d5ddaab8cb8cb04e5b41e36f812e039d008baf49f12894c39e29a07796d800, 0x2072daba6ffad168826163eb136f6d28ca4360c8e7e5e41e29755e19e4753a4f5);
+            try testArgs(i495, 0x2fe6bc5448c55ce18252e2c9d44777505dfe63ff249a8027a6626c7d8dd9893fd5731e51474727be556f757facb586a4e04bbc0148c6c7ad692302f46fbd, -0x016a358821ef8240172f3a08e8830c06e6bcf2225f5f4d41ed42b44d249385f55cc594e1278ecac31c73faed890e5054af1a561483bb1bb6fb1f753514cf);
+            try testArgs(u495, 0x6eaf4e252b3bf74b75bac59e0b43ca5326bad2a25b3fdb74a67ef132ac5e47d72eebc3316fb2351ee66c50dc5afb92a75cea9b0e35160652c7db39eeb158, 0x49fbed744a92b549d8c05bb3512c617d24dd824f3f69bdf3923bc326a75674b85f5b828d2566fab9c86f571d12c2a63c9164feb0d191d27905533d09622a);
+            try testArgs(i512, -0x3a6876ca92775286c6e1504a64a9b8d56985bebf4a1b66539d404e0e96f24b226f70c4bcff295fdc2043b82513b2052dc45fd78f7e9e80e5b3e101757289f054, 0x5080c516a819bd32a0a5f0976441bbfbcf89e77684f1f10eb326aeb28e1f8d593278cff60fc99b8ffc87d8696882c64728dd3c322b7142803f4341f85a03bc10);
+            try testArgs(u512, 0xe5b1fedca3c77db765e517aabd05ffc524a3a8aff1784bbf67c45b894447ede32b65b9940e78173c591e56e078932d465f235aece7ad47b7f229df7ba8f12295, 0x8b4bb7c2969e3b121cc1082c442f8b4330f0a50058438fed56447175bb10178607ecfe425cb54dacc25ef26810f3e04681de1844f1aa8d029aca75d658634806);
         }
-        fn testFloatTypes() !void {
+        fn testFloats() !void {
             @setEvalBranchQuota(21_700);
 
             try testArgs(f16, -nan(f16), -nan(f16));
@@ -3161,7 +3421,7 @@ fn binary(comptime op: anytype, comptime opts: struct { strict: bool = false }) 
             try testArgs(f128, nan(f128), inf(f128));
             try testArgs(f128, nan(f128), nan(f128));
         }
-        fn testIntVectorTypes() !void {
+        fn testIntVectors() !void {
             try testArgs(@Vector(1, i8), .{
                 -0x54,
             }, .{
@@ -3781,7 +4041,7 @@ fn binary(comptime op: anytype, comptime opts: struct { strict: bool = false }) 
                 0xf1e3bbe031d59351770a7a501b6e969b2c00d144f17648db3f944b69dfeb7be72e5ff933a061eba4eaa422f8ca09e5a97d0b0dd740fd4076eba8c72d7a278523f399202dc2d043c4e0eb58a2bcd4066e2146e321810b1ee4d3afdddb4f026bcc7905ce17e033a7727b4e08f33b53c63d8c9f763fc6c31d0523eb38c30d5e40bc,
             });
         }
-        fn testFloatVectorTypes() !void {
+        fn testFloatVectors() !void {
             @setEvalBranchQuota(21_700);
 
             try testArgs(@Vector(1, f16), .{
@@ -4178,76 +4438,226 @@ inline fn bitNot(comptime Type: type, rhs: Type) @TypeOf(~rhs) {
     return ~rhs;
 }
 test bitNot {
-    const t = unary(bitNot, .{});
-    try t.testIntTypes();
-    try t.testIntVectorTypes();
+    const test_bit_not = unary(bitNot, .{});
+    try test_bit_not.testInts();
+    try test_bit_not.testIntVectors();
 }
 
 inline fn abs(comptime Type: type, rhs: Type) @TypeOf(@abs(rhs)) {
     return @abs(rhs);
 }
 test abs {
-    const t = unary(abs, .{ .strict = true });
-    try t.testIntTypes();
-    try t.testIntVectorTypes();
-    try t.testFloatTypes();
-    try t.testFloatVectorTypes();
+    const test_abs = unary(abs, .{ .strict = true });
+    try test_abs.testInts();
+    try test_abs.testIntVectors();
+    try test_abs.testFloats();
+    try test_abs.testFloatVectors();
 }
 
 inline fn clz(comptime Type: type, rhs: Type) @TypeOf(@clz(rhs)) {
     return @clz(rhs);
 }
 test clz {
-    const t = unary(clz, .{});
-    try t.testIntTypes();
-    try t.testIntVectorTypes();
+    const test_clz = unary(clz, .{});
+    try test_clz.testInts();
+    try test_clz.testIntVectors();
+}
+
+inline fn equal(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs == rhs) {
+    return lhs == rhs;
+}
+test equal {
+    const test_equal = binary(equal, .{});
+    try test_equal.testInts();
+    try test_equal.testFloats();
+}
+
+inline fn notEqual(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs != rhs) {
+    return lhs != rhs;
+}
+test notEqual {
+    const test_not_equal = binary(notEqual, .{});
+    try test_not_equal.testInts();
+    try test_not_equal.testFloats();
+}
+
+inline fn lessThan(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs < rhs) {
+    return lhs < rhs;
+}
+test lessThan {
+    const test_less_than = binary(lessThan, .{});
+    try test_less_than.testInts();
+    try test_less_than.testFloats();
+}
+
+inline fn lessThanOrEqual(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs <= rhs) {
+    return lhs <= rhs;
+}
+test lessThanOrEqual {
+    const test_less_than_or_equal = binary(lessThanOrEqual, .{});
+    try test_less_than_or_equal.testInts();
+    try test_less_than_or_equal.testFloats();
+}
+
+inline fn greaterThan(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs > rhs) {
+    return lhs > rhs;
+}
+test greaterThan {
+    const test_greater_than = binary(greaterThan, .{});
+    try test_greater_than.testInts();
+    try test_greater_than.testFloats();
+}
+
+inline fn greaterThanOrEqual(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs >= rhs) {
+    return lhs >= rhs;
+}
+test greaterThanOrEqual {
+    const test_greater_than_or_equal = binary(greaterThanOrEqual, .{});
+    try test_greater_than_or_equal.testInts();
+    try test_greater_than_or_equal.testFloats();
 }
 
 inline fn bitAnd(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs & rhs) {
     return lhs & rhs;
 }
 test bitAnd {
-    const t = binary(bitAnd, .{});
-    try t.testIntTypes();
-    try t.testIntVectorTypes();
+    const test_bit_and = binary(bitAnd, .{});
+    try test_bit_and.testInts();
+    try test_bit_and.testIntVectors();
 }
 
 inline fn bitOr(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs | rhs) {
     return lhs | rhs;
 }
 test bitOr {
-    const t = binary(bitOr, .{});
-    try t.testIntTypes();
-    try t.testIntVectorTypes();
+    const test_bit_or = binary(bitOr, .{});
+    try test_bit_or.testInts();
+    try test_bit_or.testIntVectors();
 }
 
 inline fn bitXor(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs ^ rhs) {
     return lhs ^ rhs;
 }
 test bitXor {
-    const t = binary(bitXor, .{});
-    try t.testIntTypes();
-    try t.testIntVectorTypes();
+    const test_bit_xor = binary(bitXor, .{});
+    try test_bit_xor.testInts();
+    try test_bit_xor.testIntVectors();
 }
 
 inline fn min(comptime Type: type, lhs: Type, rhs: Type) Type {
     return @min(lhs, rhs);
 }
 test min {
-    const t = binary(min, .{});
-    try t.testIntTypes();
-    try t.testIntVectorTypes();
-    try t.testFloatTypes();
-    try t.testFloatVectorTypes();
+    const test_min = binary(min, .{});
+    try test_min.testInts();
+    try test_min.testIntVectors();
+    try test_min.testFloats();
+    try test_min.testFloatVectors();
 }
 
 inline fn max(comptime Type: type, lhs: Type, rhs: Type) Type {
     return @max(lhs, rhs);
 }
 test max {
-    const t = binary(max, .{});
-    try t.testIntTypes();
-    try t.testIntVectorTypes();
-    try t.testFloatTypes();
-    try t.testFloatVectorTypes();
+    const test_max = binary(max, .{});
+    try test_max.testInts();
+    try test_max.testIntVectors();
+    try test_max.testFloats();
+    try test_max.testFloatVectors();
+}
+
+inline fn nullIsNull(comptime Type: type, _: Type) bool {
+    return runtime(?Type, null) == null;
+}
+test nullIsNull {
+    const test_null_is_null = unary(nullIsNull, .{});
+    try test_null_is_null.testIntTypes();
+    try test_null_is_null.testIntVectorTypes();
+    try test_null_is_null.testFloatTypes();
+    try test_null_is_null.testFloatVectorTypes();
+}
+
+inline fn nullIsNotNull(comptime Type: type, _: Type) bool {
+    return runtime(?Type, null) != null;
+}
+test nullIsNotNull {
+    const test_null_is_not_null = unary(nullIsNotNull, .{});
+    try test_null_is_not_null.testIntTypes();
+    try test_null_is_not_null.testIntVectorTypes();
+    try test_null_is_not_null.testFloatTypes();
+    try test_null_is_not_null.testFloatVectorTypes();
+}
+
+inline fn optionalIsNull(comptime Type: type, lhs: Type) bool {
+    return @as(?Type, lhs) == null;
+}
+test optionalIsNull {
+    const test_optional_is_null = unary(optionalIsNull, .{});
+    try test_optional_is_null.testInts();
+    try test_optional_is_null.testFloats();
+}
+
+inline fn optionalIsNotNull(comptime Type: type, lhs: Type) bool {
+    return @as(?Type, lhs) != null;
+}
+test optionalIsNotNull {
+    const test_optional_is_not_null = unary(optionalIsNotNull, .{});
+    try test_optional_is_not_null.testInts();
+    try test_optional_is_not_null.testFloats();
+}
+
+inline fn nullEqualNull(comptime Type: type, _: Type) bool {
+    return runtime(?Type, null) == runtime(?Type, null);
+}
+test nullEqualNull {
+    const test_null_equal_null = unary(nullEqualNull, .{});
+    try test_null_equal_null.testIntTypes();
+    try test_null_equal_null.testFloatTypes();
+}
+
+inline fn nullNotEqualNull(comptime Type: type, _: Type) bool {
+    return runtime(?Type, null) != runtime(?Type, null);
+}
+test nullNotEqualNull {
+    const test_null_not_equal_null = unary(nullNotEqualNull, .{});
+    try test_null_not_equal_null.testIntTypes();
+    try test_null_not_equal_null.testFloatTypes();
+}
+
+inline fn optionalEqualNull(comptime Type: type, lhs: Type) bool {
+    return lhs == runtime(?Type, null);
+}
+test optionalEqualNull {
+    const test_optional_equal_null = unary(optionalEqualNull, .{});
+    try test_optional_equal_null.testInts();
+    try test_optional_equal_null.testFloats();
+}
+
+inline fn optionalNotEqualNull(comptime Type: type, lhs: Type) bool {
+    return lhs != runtime(?Type, null);
+}
+test optionalNotEqualNull {
+    const test_optional_not_equal_null = unary(optionalIsNotNull, .{});
+    try test_optional_not_equal_null.testInts();
+    try test_optional_not_equal_null.testFloats();
+}
+
+inline fn optionalsEqual(comptime Type: type, lhs: Type, rhs: Type) bool {
+    if (@inComptime()) return lhs == rhs; // workaround https://github.com/ziglang/zig/issues/22636
+    return @as(?Type, lhs) == rhs;
+}
+test optionalsEqual {
+    const test_optionals_equal = binary(optionalsEqual, .{});
+    try test_optionals_equal.testInts();
+    try test_optionals_equal.testFloats();
+}
+
+inline fn optionalsNotEqual(comptime Type: type, lhs: Type, rhs: Type) bool {
+    if (@inComptime()) return lhs != rhs; // workaround https://github.com/ziglang/zig/issues/22636
+    return lhs != @as(?Type, rhs);
+}
+test optionalsNotEqual {
+    const test_optionals_not_equal = binary(optionalsNotEqual, .{});
+    try test_optionals_not_equal.testInts();
+    try test_optionals_not_equal.testFloats();
 }

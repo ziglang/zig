@@ -10,11 +10,14 @@ const math = std.math;
 
 comptime {
     if (!builtin.target.isWasm()) {
-        @compileError("WasmPageAllocator is only available for wasm32 arch");
+        @compileError("only available for wasm32 arch");
+    }
+    if (!builtin.single_threaded) {
+        @compileError("TODO implement support for multi-threaded wasm");
     }
 }
 
-pub const vtable = Allocator.VTable{
+pub const vtable: Allocator.VTable = .{
     .alloc = alloc,
     .resize = resize,
     .free = free,

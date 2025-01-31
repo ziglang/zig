@@ -104,6 +104,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .fptrunc,
             .fpext,
             .intcast,
+            .intcast_safe,
             .trunc,
             .optional_payload,
             .optional_payload_ptr,

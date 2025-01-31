@@ -1961,6 +1961,7 @@ fn buildOutputType(
                             try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
                                 .name = it.only_arg,
                                 .query = .{
+                                    .must_link = must_link,
                                     .needed = needed,
                                     .weak = false,
                                     .preferred_mode = lib_preferred_mode,
@@ -2515,6 +2516,20 @@ fn buildOutputType(
                     stack_size = parseStackSize(linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "--image-base")) {
                     image_base = parseImageBase(linker_args_it.nextOrFatal());
+                } else if (mem.eql(u8, arg, "--enable-auto-image-base") or
+                    mem.eql(u8, arg, "--disable-auto-image-base"))
+                {
+                    // `--enable-auto-image-base` is a flag that binutils added in ~2000 for MinGW.
+                    // It does a hash of the file and uses that as part of the image base value.
+                    // Presumably the idea was to avoid DLLs needing to be relocated when loaded.
+                    // This is practically irrelevant today as all PEs produced since Windows Vista
+                    // have ASLR enabled by default anyway, and Windows 10+ has Mandatory ASLR which
+                    // doesn't even care what the PE file wants and relocates it anyway.
+                    //
+                    // Unfortunately, Libtool hardcodes usage of this archaic flag when targeting
+                    // MinGW, so to make `zig cc` for that use case work, accept and ignore the
+                    // flag, and warn the user that it has no effect.
+                    warn("auto-image-base options are unimplemented and ignored", .{});
                 } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                     linker_script = linker_args_it.nextOrFatal();
                 } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
@@ -5002,8 +5017,16 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
     var global_cache_directory: Directory = l: {
         const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
+        const dir = fs.cwd().makeOpenPath(p, .{}) catch |err| {
+            const base_msg = "unable to open or create the global Zig cache at '{s}': {s}.{s}";
+            const extra = "\nIf this location is not writable then consider specifying an " ++
+                "alternative with the ZIG_GLOBAL_CACHE_DIR environment variable or the " ++
+                "--global-cache-dir option.";
+            const show_extra = err == error.AccessDenied or err == error.ReadOnlyFileSystem;
+            fatal(base_msg, .{ p, @errorName(err), if (show_extra) extra else "" });
+        };
         break :l .{
-            .handle = try fs.cwd().makeOpenPath(p, .{}),
+            .handle = dir,
             .path = p,
         };
     };

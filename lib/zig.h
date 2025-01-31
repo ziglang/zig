@@ -293,11 +293,11 @@
 #endif /* zig_macho */
 #endif /* zig_msvc */
 
-#if (zig_has_attribute(alias) || defined(zig_tinyc)) && !defined(zig_macho)
-#define zig_export(symbol, name) __attribute__((alias(symbol)))
-#elif defined(zig_msvc)
+#if defined(zig_msvc)
 #define zig_export(symbol, name) ; \
     __pragma(comment(linker, "/alternatename:" zig_mangle_c(name) "=" zig_mangle_c(symbol)))
+#elif (zig_has_attribute(alias) || defined(zig_tinyc)) && !defined(zig_macho)
+#define zig_export(symbol, name) __attribute__((alias(symbol)))
 #else
 #define zig_export(symbol, name) ; \
     __asm(zig_mangle_c(name) " = " zig_mangle_c(symbol))
@@ -321,7 +321,7 @@
 #if defined(zig_msvc)
 #define zig_import(Type, fn_name, libc_name, sig_args, call_args) zig_extern Type fn_name sig_args;\
     __pragma(comment(linker, "/alternatename:" zig_mangle_c(#fn_name) "=" zig_mangle_c(#libc_name)));
-#define zig_import_builtin(Type, fn_name, libc_name, sig_args, call_args) zig_import(Type, fn_name, sig_args, call_args)
+#define zig_import_builtin(Type, fn_name, libc_name, sig_args, call_args) zig_import(Type, fn_name, libc_name, sig_args, call_args)
 #else /* zig_msvc */
 #define zig_import(Type, fn_name, libc_name, sig_args, call_args) zig_extern Type fn_name sig_args __asm(zig_mangle_c(#libc_name));
 #define zig_import_builtin(Type, fn_name, libc_name, sig_args, call_args) zig_extern Type libc_name sig_args; \
@@ -3729,7 +3729,11 @@ zig_float_builtins(64)
     res = zig_atomicrmw_expected; \
 } while (0)
 
-#if (__STDC_VERSION__ >= 201112L || (zig_has_include(<stdatomic.h>) && !defined(zig_msvc))) && !defined(__STDC_NO_ATOMICS__)
+#if (__STDC_VERSION__ >= 201112L && !defined(__STDC_NO_ATOMICS__)) || (zig_has_include(<stdatomic.h>) && !defined(zig_msvc))
+#define zig_c11_atomics
+#endif
+
+#if defined(zig_c11_atomics)
 #include <stdatomic.h>
 typedef enum memory_order zig_memory_order;
 #define zig_memory_order_relaxed memory_order_relaxed
@@ -3823,7 +3827,7 @@ typedef int zig_memory_order;
 #define    zig_atomic_load(res, obj,      order, Type, ReprType) zig_atomics_unavailable
 #endif
 
-#if defined(zig_msvc) && defined(zig_x86)
+#if !defined(zig_c11_atomics) && defined(zig_msvc) && defined(zig_x86)
 
 /* TODO: zig_msvc_atomic_load should load 32 bit without interlocked on x86, and load 64 bit without interlocked on x64 */
 
@@ -4069,7 +4073,7 @@ static inline void zig_msvc_atomic_store_i128(zig_i128 volatile* obj, zig_i128 a
 
 #endif /* zig_x86_32 */
 
-#endif /* zig_msvc && zig_x86 */
+#endif /* !zig_c11_atomics && zig_msvc && zig_x86 */
 
 /* ======================== Special Case Intrinsics ========================= */
 

@@ -854,7 +854,7 @@ pub fn readlinkat(dirfd: i32, noalias path: [*:0]const u8, noalias buf_ptr: [*]u
     return syscall4(.readlinkat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(buf_ptr), buf_len);
 }
 
-pub fn mkdir(path: [*:0]const u8, mode: u32) usize {
+pub fn mkdir(path: [*:0]const u8, mode: mode_t) usize {
     if (@hasField(SYS, "mkdir")) {
         return syscall2(.mkdir, @intFromPtr(path), mode);
     } else {
@@ -862,7 +862,7 @@ pub fn mkdir(path: [*:0]const u8, mode: u32) usize {
     }
 }
 
-pub fn mkdirat(dirfd: i32, path: [*:0]const u8, mode: u32) usize {
+pub fn mkdirat(dirfd: i32, path: [*:0]const u8, mode: mode_t) usize {
     return syscall3(.mkdirat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), mode);
 }
 

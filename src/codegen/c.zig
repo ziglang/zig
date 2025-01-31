@@ -3436,6 +3436,7 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .add_safe,
             .sub_safe,
             .mul_safe,
+            .intcast_safe,
             => return f.fail("TODO implement safety_checked_instructions", .{}),
 
             .is_named_enum_value => return f.fail("TODO: C backend: implement is_named_enum_value", .{}),
