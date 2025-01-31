@@ -177,7 +177,7 @@ FARPROC WINAPI __delayLoadHelper2(PCImgDelayDescr pidd,FARPROC *ppfnIATEntry)
   if(hmod==0) {
     if(__pfnDliNotifyHook2)
       hmod = (HMODULE) (((*__pfnDliNotifyHook2)(dliNotePreLoadLibrary,&dli)));
-    if(hmod==0) hmod = LoadLibrary(dli.szDll);
+    if(hmod==0) hmod = LoadLibraryA(dli.szDll);
     if(hmod==0) {
       dli.dwLastError = GetLastError();
       if(__pfnDliFailureHook2)

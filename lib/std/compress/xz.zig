@@ -88,15 +88,15 @@ pub fn Decompress(comptime ReaderType: type) type {
 
                 const counting_reader = counter.reader();
 
-                const record_count = try std.leb.readULEB128(u64, counting_reader);
+                const record_count = try std.leb.readUleb128(u64, counting_reader);
                 if (record_count != self.block_decoder.block_count)
                     return error.CorruptInput;
 
                 var i: usize = 0;
                 while (i < record_count) : (i += 1) {
                     // TODO: validate records
-                    _ = try std.leb.readULEB128(u64, counting_reader);
-                    _ = try std.leb.readULEB128(u64, counting_reader);
+                    _ = try std.leb.readUleb128(u64, counting_reader);
+                    _ = try std.leb.readUleb128(u64, counting_reader);
                 }
 
                 while (counter.bytes_read % 4 != 0) {

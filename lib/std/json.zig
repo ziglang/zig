@@ -114,14 +114,6 @@ pub const encodeJsonStringChars = @import("json/stringify.zig").encodeJsonString
 pub const Formatter = @import("json/fmt.zig").Formatter;
 pub const fmt = @import("json/fmt.zig").fmt;
 
-// Deprecations
-pub const parse = @compileError("Deprecated; use parseFromSlice() or parseFromTokenSource() instead.");
-pub const parseFree = @compileError("Deprecated; call Parsed(T).deinit() instead.");
-pub const Parser = @compileError("Deprecated; use parseFromSlice(Value) or parseFromTokenSource(Value) instead.");
-pub const ValueTree = @compileError("Deprecated; use Parsed(Value) instead.");
-pub const StreamingParser = @compileError("Deprecated; use json.Scanner or json.Reader instead.");
-pub const TokenStream = @compileError("Deprecated; use json.Scanner or json.Reader instead.");
-
 test {
     _ = @import("json/test.zig");
     _ = @import("json/scanner.zig");

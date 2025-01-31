@@ -5,8 +5,8 @@ const expect = std.testing.expect;
 test "@abs integers" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try comptime testAbsIntegers();
     try testAbsIntegers();
@@ -51,7 +51,6 @@ fn testAbsIntegers() !void {
 test "@abs unsigned integers" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try comptime testAbsUnsignedIntegers();
@@ -89,23 +88,86 @@ fn testAbsUnsignedIntegers() !void {
     }
 }
 
+test "@abs big int <= 128 bits" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
+
+    try comptime testAbsSignedBigInt();
+    try testAbsSignedBigInt();
+
+    try comptime testAbsUnsignedBigInt();
+    try testAbsUnsignedBigInt();
+}
+
+fn abs(comptime T: type, a: T) std.meta.Int(.unsigned, @typeInfo(T).int.bits) {
+    return @abs(a);
+}
+
+fn testAbsSignedBigInt() !void {
+    try expect(abs(i65, -18446744073709551616) == 18446744073709551616);
+    try expect(abs(i65, 18446744073709551615) == 18446744073709551615);
+    try expect(abs(i65, 1234) == 1234);
+    try expect(abs(i65, -1234) == 1234);
+
+    try expect(abs(i84, -9671406556917033397649408) == 9671406556917033397649408);
+    try expect(abs(i84, 9671406556917033397649407) == 9671406556917033397649407);
+    try expect(abs(i84, 1234) == 1234);
+    try expect(abs(i84, -1234) == 1234);
+
+    try expect(abs(i96, -39614081257132168796771975168) == 39614081257132168796771975168);
+    try expect(abs(i96, 39614081257132168796771975167) == 39614081257132168796771975167);
+    try expect(abs(i96, 1234) == 1234);
+    try expect(abs(i96, -1234) == 1234);
+
+    try expect(abs(i105, -20282409603651670423947251286016) == 20282409603651670423947251286016);
+    try expect(abs(i105, 20282409603651670423947251286015) == 20282409603651670423947251286015);
+    try expect(abs(i105, 1234) == 1234);
+    try expect(abs(i105, -1234) == 1234);
+
+    try expect(abs(i128, -170141183460469231731687303715884105728) == 170141183460469231731687303715884105728);
+    try expect(abs(i128, 170141183460469231731687303715884105727) == 170141183460469231731687303715884105727);
+    try expect(abs(i128, 1234) == 1234);
+    try expect(abs(i128, -1234) == 1234);
+}
+
+fn testAbsUnsignedBigInt() !void {
+    try expect(abs(u65, 36893488147419103231) == 36893488147419103231);
+    try expect(abs(u65, 1234) == 1234);
+
+    try expect(abs(u84, 19342813113834066795298815) == 19342813113834066795298815);
+    try expect(abs(u84, 1234) == 1234);
+
+    try expect(abs(u96, 79228162514264337593543950335) == 79228162514264337593543950335);
+    try expect(abs(u96, 1234) == 1234);
+
+    try expect(abs(u105, 40564819207303340847894502572031) == 40564819207303340847894502572031);
+    try expect(abs(u105, 1234) == 1234);
+
+    try expect(abs(u128, 340282366920938463463374607431768211455) == 340282366920938463463374607431768211455);
+    try expect(abs(u128, 1234) == 1234);
+}
+
 test "@abs floats" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     try comptime testAbsFloats(f16);
-    try testAbsFloats(f16);
+    if (builtin.zig_backend != .stage2_riscv64) try testAbsFloats(f16);
     try comptime testAbsFloats(f32);
     try testAbsFloats(f32);
     try comptime testAbsFloats(f64);
     try testAbsFloats(f64);
     try comptime testAbsFloats(f80);
-    if (builtin.zig_backend != .stage2_wasm and builtin.zig_backend != .stage2_spirv64) try testAbsFloats(f80);
+    if (builtin.zig_backend != .stage2_wasm and builtin.zig_backend != .stage2_spirv64 and builtin.zig_backend != .stage2_riscv64) try testAbsFloats(f80);
     try comptime testAbsFloats(f128);
-    if (builtin.zig_backend != .stage2_wasm and builtin.zig_backend != .stage2_spirv64) try testAbsFloats(f128);
+    if (builtin.zig_backend != .stage2_wasm and builtin.zig_backend != .stage2_spirv64 and builtin.zig_backend != .stage2_riscv64) try testAbsFloats(f128);
 }
 
 fn testAbsFloats(comptime T: type) !void {
@@ -148,11 +210,11 @@ fn testAbsFloats(comptime T: type) !void {
 test "@abs int vectors" {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try comptime testAbsIntVectors(1);
     try testAbsIntVectors(1);
@@ -206,8 +268,8 @@ fn testAbsIntVectors(comptime len: comptime_int) !void {
         try expect(std.mem.eql(u64, &@as([len]u64, y), &@as([len]u64, @abs(x))));
     }
     {
-        var x = std.simd.repeat(len, @Vector(4, i32){ -2, 5, std.math.minInt(i32), -7 });
-        var y = std.simd.repeat(len, @Vector(4, u32){ 2, 5, -std.math.minInt(i32), 7 });
+        var x = comptime std.simd.repeat(len, @Vector(4, i32){ -2, 5, std.math.minInt(i32), -7 });
+        var y = comptime std.simd.repeat(len, @Vector(4, u32){ 2, 5, -std.math.minInt(i32), 7 });
         _ = .{ &x, &y };
         try expect(std.mem.eql(u32, &@as([len]u32, y), &@as([len]u32, @abs(x))));
     }
@@ -215,11 +277,10 @@ fn testAbsIntVectors(comptime len: comptime_int) !void {
 
 test "@abs unsigned int vectors" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try comptime testAbsUnsignedIntVectors(1);
     try testAbsUnsignedIntVectors(1);
@@ -265,8 +326,8 @@ fn testAbsUnsignedIntVectors(comptime len: comptime_int) !void {
         try expect(std.mem.eql(u64, &@as([len]u64, y), &@as([len]u64, @abs(x))));
     }
     {
-        var x = std.simd.repeat(len, @Vector(3, u32){ 2, 5, 7 });
-        var y = std.simd.repeat(len, @Vector(3, u32){ 2, 5, 7 });
+        var x = comptime std.simd.repeat(len, @Vector(3, u32){ 2, 5, 7 });
+        var y = comptime std.simd.repeat(len, @Vector(3, u32){ 2, 5, 7 });
         _ = .{ &x, &y };
         try expect(std.mem.eql(u32, &@as([len]u32, y), &@as([len]u32, @abs(x))));
     }
@@ -274,12 +335,12 @@ fn testAbsUnsignedIntVectors(comptime len: comptime_int) !void {
 
 test "@abs float vectors" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     // https://github.com/ziglang/zig/issues/12827
     if (builtin.zig_backend == .stage2_llvm and

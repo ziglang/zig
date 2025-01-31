@@ -39,6 +39,7 @@ static void fixup(struct statvfs *out, const struct statfs *in)
 	out->f_fsid = in->f_fsid.__val[0];
 	out->f_flag = in->f_flags;
 	out->f_namemax = in->f_namelen;
+	out->f_type = in->f_type;
 }
 
 int statvfs(const char *restrict path, struct statvfs *restrict buf)

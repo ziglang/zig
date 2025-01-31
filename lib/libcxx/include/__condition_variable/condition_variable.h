@@ -9,6 +9,7 @@
 #ifndef _LIBCPP___CONDITION_VARIABLE_CONDITION_VARIABLE_H
 #define _LIBCPP___CONDITION_VARIABLE_CONDITION_VARIABLE_H
 
+#include <__chrono/duration.h>
 #include <__chrono/steady_clock.h>
 #include <__chrono/system_clock.h>
 #include <__chrono/time_point.h>
@@ -16,7 +17,7 @@
 #include <__mutex/mutex.h>
 #include <__mutex/unique_lock.h>
 #include <__system_error/system_error.h>
-#include <__threading_support>
+#include <__thread/support.h>
 #include <__type_traits/enable_if.h>
 #include <__type_traits/is_floating_point.h>
 #include <__utility/move.h>
@@ -92,9 +93,8 @@ private:
 };
 #endif // !_LIBCPP_HAS_NO_THREADS
 
-template <class _Rep, class _Period>
-inline _LIBCPP_HIDE_FROM_ABI __enable_if_t<is_floating_point<_Rep>::value, chrono::nanoseconds>
-__safe_nanosecond_cast(chrono::duration<_Rep, _Period> __d) {
+template <class _Rep, class _Period, __enable_if_t<is_floating_point<_Rep>::value, int> = 0>
+inline _LIBCPP_HIDE_FROM_ABI chrono::nanoseconds __safe_nanosecond_cast(chrono::duration<_Rep, _Period> __d) {
   using namespace chrono;
   using __ratio       = ratio_divide<_Period, nano>;
   using __ns_rep      = nanoseconds::rep;
@@ -113,9 +113,8 @@ __safe_nanosecond_cast(chrono::duration<_Rep, _Period> __d) {
   return nanoseconds(static_cast<__ns_rep>(__result_float));
 }
 
-template <class _Rep, class _Period>
-inline _LIBCPP_HIDE_FROM_ABI __enable_if_t<!is_floating_point<_Rep>::value, chrono::nanoseconds>
-__safe_nanosecond_cast(chrono::duration<_Rep, _Period> __d) {
+template <class _Rep, class _Period, __enable_if_t<!is_floating_point<_Rep>::value, int> = 0>
+inline _LIBCPP_HIDE_FROM_ABI chrono::nanoseconds __safe_nanosecond_cast(chrono::duration<_Rep, _Period> __d) {
   using namespace chrono;
   if (__d.count() == 0) {
     return nanoseconds(0);

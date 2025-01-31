@@ -12,6 +12,14 @@ build.zig.
 
 String. Required.
 
+This is the default name used by packages depending on this one. For example,
+when a user runs `zig fetch --save <url>`, this field is used as the key in the
+`dependencies` table. Although the user can choose a different name, most users
+will stick with this provided value.
+
+It is redundant to include "zig" in this name because it is already within the
+Zig package namespace.
+
 ### `version`
 
 String. Required.
@@ -39,7 +47,8 @@ String.
 
 When updating this field to a new URL, be sure to delete the corresponding
 `hash`, otherwise you are communicating that you expect to find the old hash at
-the new URL.
+the new URL. If the contents of a URL change this will result in a hash mismatch
+which will prevent zig from using it.
 
 #### `hash`
 

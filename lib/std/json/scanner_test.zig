@@ -310,10 +310,44 @@ fn expectEqualTokens(expected_token: Token, actual_token: Token) !void {
         .number => |expected_value| {
             try std.testing.expectEqualStrings(expected_value, actual_token.number);
         },
+        .allocated_number => |expected_value| {
+            try std.testing.expectEqualStrings(expected_value, actual_token.allocated_number);
+        },
+        .partial_number => |expected_value| {
+            try std.testing.expectEqualStrings(expected_value, actual_token.partial_number);
+        },
+
         .string => |expected_value| {
             try std.testing.expectEqualStrings(expected_value, actual_token.string);
         },
-        else => {},
+        .allocated_string => |expected_value| {
+            try std.testing.expectEqualStrings(expected_value, actual_token.allocated_string);
+        },
+        .partial_string => |expected_value| {
+            try std.testing.expectEqualStrings(expected_value, actual_token.partial_string);
+        },
+        .partial_string_escaped_1 => |expected_value| {
+            try std.testing.expectEqualStrings(&expected_value, &actual_token.partial_string_escaped_1);
+        },
+        .partial_string_escaped_2 => |expected_value| {
+            try std.testing.expectEqualStrings(&expected_value, &actual_token.partial_string_escaped_2);
+        },
+        .partial_string_escaped_3 => |expected_value| {
+            try std.testing.expectEqualStrings(&expected_value, &actual_token.partial_string_escaped_3);
+        },
+        .partial_string_escaped_4 => |expected_value| {
+            try std.testing.expectEqualStrings(&expected_value, &actual_token.partial_string_escaped_4);
+        },
+
+        .object_begin,
+        .object_end,
+        .array_begin,
+        .array_end,
+        .true,
+        .false,
+        .null,
+        .end_of_document,
+        => {},
     }
 }
 

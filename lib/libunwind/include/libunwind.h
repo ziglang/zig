@@ -876,6 +876,9 @@ enum {
   UNW_MIPS_F29 = 61,
   UNW_MIPS_F30 = 62,
   UNW_MIPS_F31 = 63,
+  // HI,LO have been dropped since r6, we keep them here.
+  // So, when we add DSP/MSA etc, we can use the same register indexes
+  // for r6 and pre-r6.
   UNW_MIPS_HI = 64,
   UNW_MIPS_LO = 65,
 };

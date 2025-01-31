@@ -262,6 +262,72 @@ struct atomic<T*>
     void notify_all() noexcept;
 };
 
+template<>
+struct atomic<floating-point-type> {  // since C++20
+  using value_type = floating-point-type;
+  using difference_type = value_type;
+
+  static constexpr bool is_always_lock_free = implementation-defined;
+  bool is_lock_free() const volatile noexcept;
+  bool is_lock_free() const noexcept;
+
+  constexpr atomic() noexcept;
+  constexpr atomic(floating-point-type) noexcept;
+  atomic(const atomic&) = delete;
+  atomic& operator=(const atomic&) = delete;
+  atomic& operator=(const atomic&) volatile = delete;
+
+  void store(floating-point-type, memory_order = memory_order::seq_cst) volatile noexcept;
+  void store(floating-point-type, memory_order = memory_order::seq_cst) noexcept;
+  floating-point-type operator=(floating-point-type) volatile noexcept;
+  floating-point-type operator=(floating-point-type) noexcept;
+  floating-point-type load(memory_order = memory_order::seq_cst) volatile noexcept;
+  floating-point-type load(memory_order = memory_order::seq_cst) noexcept;
+  operator floating-point-type() volatile noexcept;
+  operator floating-point-type() noexcept;
+
+  floating-point-type exchange(floating-point-type,
+                               memory_order = memory_order::seq_cst) volatile noexcept;
+  floating-point-type exchange(floating-point-type,
+                               memory_order = memory_order::seq_cst) noexcept;
+  bool compare_exchange_weak(floating-point-type&, floating-point-type,
+                             memory_order, memory_order) volatile noexcept;
+  bool compare_exchange_weak(floating-point-type&, floating-point-type,
+                             memory_order, memory_order) noexcept;
+  bool compare_exchange_strong(floating-point-type&, floating-point-type,
+                               memory_order, memory_order) volatile noexcept;
+  bool compare_exchange_strong(floating-point-type&, floating-point-type,
+                               memory_order, memory_order) noexcept;
+  bool compare_exchange_weak(floating-point-type&, floating-point-type,
+                             memory_order = memory_order::seq_cst) volatile noexcept;
+  bool compare_exchange_weak(floating-point-type&, floating-point-type,
+                             memory_order = memory_order::seq_cst) noexcept;
+  bool compare_exchange_strong(floating-point-type&, floating-point-type,
+                               memory_order = memory_order::seq_cst) volatile noexcept;
+  bool compare_exchange_strong(floating-point-type&, floating-point-type,
+                               memory_order = memory_order::seq_cst) noexcept;
+
+  floating-point-type fetch_add(floating-point-type,
+                                memory_order = memory_order::seq_cst) volatile noexcept;
+  floating-point-type fetch_add(floating-point-type,
+                                memory_order = memory_order::seq_cst) noexcept;
+  floating-point-type fetch_sub(floating-point-type,
+                                memory_order = memory_order::seq_cst) volatile noexcept;
+  floating-point-type fetch_sub(floating-point-type,
+                                memory_order = memory_order::seq_cst) noexcept;
+
+  floating-point-type operator+=(floating-point-type) volatile noexcept;
+  floating-point-type operator+=(floating-point-type) noexcept;
+  floating-point-type operator-=(floating-point-type) volatile noexcept;
+  floating-point-type operator-=(floating-point-type) noexcept;
+
+  void wait(floating-point-type, memory_order = memory_order::seq_cst) const volatile noexcept;
+  void wait(floating-point-type, memory_order = memory_order::seq_cst) const noexcept;
+  void notify_one() volatile noexcept;
+  void notify_one() noexcept;
+  void notify_all() volatile noexcept;
+  void notify_all() noexcept;
+};
 
 // [atomics.nonmembers], non-member functions
 template<class T>
@@ -448,6 +514,9 @@ typedef atomic<ptrdiff_t> atomic_ptrdiff_t;
 typedef atomic<intmax_t>  atomic_intmax_t;
 typedef atomic<uintmax_t> atomic_uintmax_t;
 
+typedef see-below         atomic_signed_lock_free;   // since C++20
+typedef see-below         atomic_unsigned_lock_free; // since C++20
+
 // flag type and operations
 
 typedef struct atomic_flag
@@ -518,7 +587,12 @@ template <class T>
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
+#include <__config>
+
+#if _LIBCPP_STD_VER < 23 && defined(_LIBCPP_STDATOMIC_H)
+#  error <atomic> is incompatible with <stdatomic.h> before C++23. Please compile with -std=c++23.
+#endif
+
 #include <__atomic/aliases.h>
 #include <__atomic/atomic.h>
 #include <__atomic/atomic_base.h>
@@ -533,8 +607,11 @@ template <class T>
 #include <__atomic/is_always_lock_free.h>
 #include <__atomic/kill_dependency.h>
 #include <__atomic/memory_order.h>
-#include <__config>
 #include <version>
+
+#if _LIBCPP_STD_VER >= 20
+#  include <__atomic/atomic_ref.h>
+#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -544,13 +621,10 @@ template <class T>
 #  error <atomic> is not implemented
 #endif
 
-#ifdef kill_dependency
-#  error <atomic> is incompatible with <stdatomic.h> before C++23. Please compile with -std=c++23.
-#endif
-
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
 #  include <cmath>
 #  include <compare>
+#  include <cstdlib>
 #  include <cstring>
 #  include <type_traits>
 #endif

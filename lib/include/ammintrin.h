@@ -155,9 +155,9 @@ _mm_insert_si64(__m128i __x, __m128i __y)
 /// \param __a
 ///    The 64-bit double-precision floating-point register value to be stored.
 static __inline__ void __DEFAULT_FN_ATTRS
-_mm_stream_sd(double *__p, __m128d __a)
+_mm_stream_sd(void *__p, __m128d __a)
 {
-  __builtin_ia32_movntsd(__p, (__v2df)__a);
+  __builtin_ia32_movntsd((double *)__p, (__v2df)__a);
 }
 
 /// Stores a 32-bit single-precision floating-point value in a 32-bit
@@ -173,9 +173,9 @@ _mm_stream_sd(double *__p, __m128d __a)
 /// \param __a
 ///    The 32-bit single-precision floating-point register value to be stored.
 static __inline__ void __DEFAULT_FN_ATTRS
-_mm_stream_ss(float *__p, __m128 __a)
+_mm_stream_ss(void *__p, __m128 __a)
 {
-  __builtin_ia32_movntss(__p, (__v4sf)__a);
+  __builtin_ia32_movntss((float *)__p, (__v4sf)__a);
 }
 
 #undef __DEFAULT_FN_ATTRS

@@ -20,26 +20,19 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER >= 17
 
-template <class _InputIterator, class _OutputIterator, class _Tp,
-          class _BinaryOp, class _UnaryOp>
-_LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-_OutputIterator
-transform_exclusive_scan(_InputIterator __first, _InputIterator __last,
-                           _OutputIterator __result, _Tp __init,
-                           _BinaryOp __b, _UnaryOp __u)
-{
-    if (__first != __last)
-    {
-        _Tp __saved = __init;
-        do
-        {
-            __init = __b(__init, __u(*__first));
-            *__result = __saved;
-            __saved = __init;
-            ++__result;
-        } while (++__first != __last);
-    }
-    return __result;
+template <class _InputIterator, class _OutputIterator, class _Tp, class _BinaryOp, class _UnaryOp>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _OutputIterator transform_exclusive_scan(
+    _InputIterator __first, _InputIterator __last, _OutputIterator __result, _Tp __init, _BinaryOp __b, _UnaryOp __u) {
+  if (__first != __last) {
+    _Tp __saved = __init;
+    do {
+      __init    = __b(__init, __u(*__first));
+      *__result = __saved;
+      __saved   = __init;
+      ++__result;
+    } while (++__first != __last);
+  }
+  return __result;
 }
 
 #endif // _LIBCPP_STD_VER >= 17

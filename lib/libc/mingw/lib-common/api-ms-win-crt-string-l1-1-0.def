@@ -128,7 +128,7 @@ _wcsupr_l
 _wcsupr_s
 _wcsupr_s_l
 _wcsxfrm_l
-_wctype
+_wctype DATA
 is_wctype
 isalnum
 isalpha
@@ -175,7 +175,7 @@ strncat_s
 strncmp
 strncpy
 strncpy_s
-; strnlen replaced by emu
+strnlen
 strpbrk
 strspn
 strtok
@@ -199,8 +199,7 @@ wcsncat_s
 wcsncmp
 wcsncpy
 wcsncpy_s
-; We provide replacement implementation in libmingwex
-wcsnlen DATA
+wcsnlen
 wcspbrk
 wcsspn
 wcstok

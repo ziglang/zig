@@ -16,39 +16,30 @@
 #  pragma GCC system_header
 #endif
 
-#define _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL namespace std { namespace experimental {
-#define _LIBCPP_END_NAMESPACE_EXPERIMENTAL  } }
-#define _VSTD_EXPERIMENTAL std::experimental
+#define _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL                                                                           \
+  namespace std {                                                                                                      \
+  namespace experimental {
+#define _LIBCPP_END_NAMESPACE_EXPERIMENTAL                                                                             \
+  }                                                                                                                    \
+  }
 
 #define _LIBCPP_BEGIN_NAMESPACE_LFTS _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL inline namespace fundamentals_v1 {
-#define _LIBCPP_END_NAMESPACE_LFTS  } } }
-#define _VSTD_LFTS _VSTD_EXPERIMENTAL::fundamentals_v1
+#define _LIBCPP_END_NAMESPACE_LFTS                                                                                     \
+  }                                                                                                                    \
+  }                                                                                                                    \
+  }
 
 #define _LIBCPP_BEGIN_NAMESPACE_LFTS_V2 _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL inline namespace fundamentals_v2 {
-#define _LIBCPP_END_NAMESPACE_LFTS_V2  } } }
-#define _VSTD_LFTS_V2 _VSTD_EXPERIMENTAL::fundamentals_v2
-
-#define _LIBCPP_BEGIN_NAMESPACE_LFTS_PMR _LIBCPP_BEGIN_NAMESPACE_LFTS namespace pmr {
-#define _LIBCPP_END_NAMESPACE_LFTS_PMR _LIBCPP_END_NAMESPACE_LFTS }
-#define _VSTD_LFTS_PMR _VSTD_LFTS::pmr
-
-#define _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL_SIMD \
-    _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL inline namespace parallelism_v2 {
-
-#define _LIBCPP_END_NAMESPACE_EXPERIMENTAL_SIMD \
-    } _LIBCPP_END_NAMESPACE_EXPERIMENTAL
-
-#define _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL_SIMD_ABI \
-    _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL_SIMD namespace simd_abi {
-
-#define _LIBCPP_END_NAMESPACE_EXPERIMENTAL_SIMD_ABI \
-    } _LIBCPP_END_NAMESPACE_EXPERIMENTAL_SIMD
+#define _LIBCPP_END_NAMESPACE_LFTS_V2                                                                                  \
+  }                                                                                                                    \
+  }                                                                                                                    \
+  }
 
 // TODO: support more targets
 #if defined(__AVX__)
-#define _LIBCPP_NATIVE_SIMD_WIDTH_IN_BYTES 32
+#  define _LIBCPP_NATIVE_SIMD_WIDTH_IN_BYTES 32
 #else
-#define _LIBCPP_NATIVE_SIMD_WIDTH_IN_BYTES 16
+#  define _LIBCPP_NATIVE_SIMD_WIDTH_IN_BYTES 16
 #endif
 
 #endif

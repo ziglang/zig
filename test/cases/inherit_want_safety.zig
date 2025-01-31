@@ -28,10 +28,11 @@ pub export fn entry() usize {
     } else |e| switch (e) {
         else => {
             u += 1;
-        }
+        },
     }
     return u;
 }
 
 // compile
 // output_mode=Obj
+// emit_bin=false

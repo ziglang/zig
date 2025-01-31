@@ -111,6 +111,14 @@ const known_options = [_]KnownOpt{
         .ident = "no_unwind_tables",
     },
     .{
+        .name = "fasynchronous-unwind-tables",
+        .ident = "asynchronous_unwind_tables",
+    },
+    .{
+        .name = "fno-asynchronous-unwind-tables",
+        .ident = "no_asynchronous_unwind_tables",
+    },
+    .{
         .name = "nolibc",
         .ident = "nostdlib",
     },
@@ -153,6 +161,10 @@ const known_options = [_]KnownOpt{
     .{
         .name = "Wl,",
         .ident = "wl",
+    },
+    .{
+        .name = "Wp,",
+        .ident = "wp",
     },
     .{
         .name = "Xlinker",
@@ -536,6 +548,26 @@ const known_options = [_]KnownOpt{
         .name = "municode",
         .ident = "mingw_unicode_entry_point",
     },
+    .{
+        .name = "fsanitize-coverage-trace-pc-guard",
+        .ident = "san_cov_trace_pc_guard",
+    },
+    .{
+        .name = "fsanitize-coverage",
+        .ident = "san_cov",
+    },
+    .{
+        .name = "fno-sanitize-coverage",
+        .ident = "no_san_cov",
+    },
+    .{
+        .name = "rtlib",
+        .ident = "rtlib",
+    },
+    .{
+        .name = "rtlib=",
+        .ident = "rtlib",
+    },
 };
 
 const blacklisted_options = [_][]const u8{};
@@ -552,24 +584,27 @@ fn knownOption(name: []const u8) ?[]const u8 {
 
 const cpu_targets = struct {
     pub const aarch64 = std.Target.aarch64;
+    pub const amdgcn = std.Target.amdgcn;
     pub const arc = std.Target.arc;
-    pub const amdgpu = std.Target.amdgpu;
     pub const arm = std.Target.arm;
     pub const avr = std.Target.avr;
     pub const bpf = std.Target.bpf;
     pub const csky = std.Target.csky;
     pub const hexagon = std.Target.hexagon;
+    pub const loongarch = std.Target.loongarch;
+    pub const m68k = std.Target.m68k;
     pub const mips = std.Target.mips;
     pub const msp430 = std.Target.msp430;
     pub const nvptx = std.Target.nvptx;
     pub const powerpc = std.Target.powerpc;
     pub const riscv = std.Target.riscv;
+    pub const s390x = std.Target.s390x;
     pub const sparc = std.Target.sparc;
     pub const spirv = std.Target.spirv;
-    pub const s390x = std.Target.s390x;
     pub const ve = std.Target.ve;
     pub const wasm = std.Target.wasm;
     pub const x86 = std.Target.x86;
+    pub const xtensa = std.Target.xtensa;
 };
 
 pub fn main() anyerror!void {
@@ -601,7 +636,7 @@ pub fn main() anyerror!void {
 
     var llvm_to_zig_cpu_features = std.StringHashMap([]const u8).init(allocator);
 
-    inline for (@typeInfo(cpu_targets).Struct.decls) |decl| {
+    inline for (@typeInfo(cpu_targets).@"struct".decls) |decl| {
         const Feature = @field(cpu_targets, decl.name).Feature;
         const all_features = @field(cpu_targets, decl.name).all_features;
 
@@ -621,7 +656,7 @@ pub fn main() anyerror!void {
         try std.fmt.allocPrint(allocator, "-I={s}/clang/include/clang/Driver", .{llvm_src_root}),
     };
 
-    const child_result = try std.ChildProcess.run(.{
+    const child_result = try std.process.Child.run(.{
         .allocator = allocator,
         .argv = &child_args,
         .max_output_bytes = 100 * 1024 * 1024,

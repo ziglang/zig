@@ -19,7 +19,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
 
-pub const output = @import("tar/output.zig");
+pub const writer = @import("tar/writer.zig").writer;
 
 /// Provide this to receive detailed error messages.
 /// When this is provided, some errors which would otherwise be returned
@@ -27,9 +27,9 @@ pub const output = @import("tar/output.zig");
 /// the errors in diagnostics to know whether the operation succeeded or failed.
 pub const Diagnostics = struct {
     allocator: std.mem.Allocator,
-    errors: std.ArrayListUnmanaged(Error) = .{},
+    errors: std.ArrayListUnmanaged(Error) = .empty,
 
-    root_entries: usize = 0,
+    entries: usize = 0,
     root_dir: []const u8 = "",
 
     pub const Error = union(enum) {
@@ -46,43 +46,45 @@ pub const Diagnostics = struct {
             file_name: []const u8,
             file_type: Header.Kind,
         },
+        components_outside_stripped_prefix: struct {
+            file_name: []const u8,
+        },
     };
 
-    fn findRoot(d: *Diagnostics, path: []const u8, kind: FileKind) !void {
-        if (rootDir(path)) |root_dir| {
-            d.root_entries += 1;
-            if (kind == .directory and d.root_entries == 1) {
-                d.root_dir = try d.allocator.dupe(u8, root_dir);
-                return;
-            }
-            d.allocator.free(d.root_dir);
-            d.root_dir = "";
+    fn findRoot(d: *Diagnostics, path: []const u8) !void {
+        if (path.len == 0) return;
+
+        d.entries += 1;
+        const root_dir = rootDir(path);
+        if (d.entries == 1) {
+            d.root_dir = try d.allocator.dupe(u8, root_dir);
+            return;
         }
+        if (d.root_dir.len == 0 or std.mem.eql(u8, root_dir, d.root_dir))
+            return;
+        d.allocator.free(d.root_dir);
+        d.root_dir = "";
     }
 
-    // If path is package root returns root_dir name, otherwise null.
-    fn rootDir(path: []const u8) ?[]const u8 {
-        if (path.len == 0) return null;
-
+    // Returns root dir of the path, assumes non empty path.
+    fn rootDir(path: []const u8) []const u8 {
         const start_index: usize = if (path[0] == '/') 1 else 0;
         const end_index: usize = if (path[path.len - 1] == '/') path.len - 1 else path.len;
         const buf = path[start_index..end_index];
-        return if (std.mem.indexOfScalarPos(u8, buf, 0, '/') == null)
-            buf
-        else
-            null;
+        if (std.mem.indexOfScalarPos(u8, buf, 0, '/')) |idx| {
+            return buf[0..idx];
+        }
+        return buf;
     }
 
     test rootDir {
         const expectEqualStrings = testing.expectEqualStrings;
-        const expect = testing.expect;
-
-        try expectEqualStrings("a", rootDir("a").?);
-        try expectEqualStrings("b", rootDir("b").?);
-        try expectEqualStrings("c", rootDir("/c").?);
-        try expectEqualStrings("d", rootDir("/d/").?);
-        try expect(rootDir("a/b") == null);
-        try expect(rootDir("") == null);
+        try expectEqualStrings("a", rootDir("a"));
+        try expectEqualStrings("b", rootDir("b"));
+        try expectEqualStrings("c", rootDir("/c"));
+        try expectEqualStrings("d", rootDir("/d/"));
+        try expectEqualStrings("a", rootDir("a/b"));
+        try expectEqualStrings("a", rootDir("a/b/c"));
     }
 
     pub fn deinit(d: *Diagnostics) void {
@@ -96,6 +98,9 @@ pub const Diagnostics = struct {
                     d.allocator.free(info.file_name);
                 },
                 .unsupported_file_type => |info| {
+                    d.allocator.free(info.file_name);
+                },
+                .components_outside_stripped_prefix => |info| {
                     d.allocator.free(info.file_name);
                 },
             }
@@ -284,9 +289,9 @@ fn nullStr(str: []const u8) []const u8 {
 /// Options for iterator.
 /// Buffers should be provided by the caller.
 pub const IteratorOptions = struct {
-    /// Use a buffer with length `std.fs.MAX_PATH_BYTES` to match file system capabilities.
+    /// Use a buffer with length `std.fs.max_path_bytes` to match file system capabilities.
     file_name_buffer: []u8,
-    /// Use a buffer with length `std.fs.MAX_PATH_BYTES` to match file system capabilities.
+    /// Use a buffer with length `std.fs.max_path_bytes` to match file system capabilities.
     link_name_buffer: []u8,
     /// Collects error messages during unpacking
     diagnostics: ?*Diagnostics = null,
@@ -310,7 +315,7 @@ pub const FileKind = enum {
     file,
 };
 
-/// Iteartor over entries in the tar file represented by reader.
+/// Iterator over entries in the tar file represented by reader.
 pub fn Iterator(comptime ReaderType: type) type {
     return struct {
         reader: ReaderType,
@@ -350,13 +355,13 @@ pub fn Iterator(comptime ReaderType: type) type {
             }
 
             // Writes file content to writer.
-            pub fn writeAll(self: File, writer: anytype) !void {
+            pub fn writeAll(self: File, out_writer: anytype) !void {
                 var buffer: [4096]u8 = undefined;
 
                 while (self.unread_bytes.* > 0) {
                     const buf = buffer[0..@min(buffer.len, self.unread_bytes.*)];
                     try self.parent_reader.readNoEof(buf);
-                    try writer.writeAll(buf);
+                    try out_writer.writeAll(buf);
                     self.unread_bytes.* -= buf.len;
                 }
             }
@@ -418,7 +423,7 @@ pub fn Iterator(comptime ReaderType: type) type {
                 self.padding = blockPadding(size);
 
                 switch (kind) {
-                    // File types to retrun upstream
+                    // File types to return upstream
                     .directory, .normal, .symbolic_link => {
                         file.kind = switch (kind) {
                             .directory => .directory,
@@ -614,8 +619,8 @@ fn PaxIterator(comptime ReaderType: type) type {
 
 /// Saves tar file content to the file systems.
 pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) !void {
-    var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var file_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
     var iter = iterator(reader, .{
         .file_name_buffer = &file_name_buffer,
         .link_name_buffer = &link_name_buffer,
@@ -624,18 +629,24 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) 
 
     while (try iter.next()) |file| {
         const file_name = stripComponents(file.name, options.strip_components);
+        if (file_name.len == 0 and file.kind != .directory) {
+            const d = options.diagnostics orelse return error.TarComponentsOutsideStrippedPrefix;
+            try d.errors.append(d.allocator, .{ .components_outside_stripped_prefix = .{
+                .file_name = try d.allocator.dupe(u8, file.name),
+            } });
+            continue;
+        }
         if (options.diagnostics) |d| {
-            try d.findRoot(file_name, file.kind);
+            try d.findRoot(file_name);
         }
 
         switch (file.kind) {
             .directory => {
-                if (file_name.len != 0 and !options.exclude_empty_directories) {
+                if (file_name.len > 0 and !options.exclude_empty_directories) {
                     try dir.makePath(file_name);
                 }
             },
             .file => {
-                if (file_name.len == 0) return error.BadFileName;
                 if (createDirAndFile(dir, file_name, fileMode(file.mode, options))) |fs_file| {
                     defer fs_file.close();
                     try file.writeAll(fs_file);
@@ -648,7 +659,6 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) 
                 }
             },
             .sym_link => {
-                if (file_name.len == 0) return error.BadFileName;
                 const link_name = file.link_name;
                 createDirAndSymlink(dir, link_name, file_name) catch |err| {
                     const d = options.diagnostics orelse return error.UnableToCreateSymLink;
@@ -838,6 +848,7 @@ test PaxIterator {
 
 test {
     _ = @import("tar/test.zig");
+    _ = @import("tar/writer.zig");
     _ = Diagnostics;
 }
 
@@ -947,8 +958,8 @@ test iterator {
     var fbs = std.io.fixedBufferStream(data);
 
     // User provided buffers to the iterator
-    var file_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    var link_name_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    var file_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
+    var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
     // Create iterator
     var iter = iterator(fbs.reader(), .{
         .file_name_buffer = &file_name_buffer,
@@ -1056,7 +1067,7 @@ test "pipeToFileSystem root_dir" {
 
         // there is no root_dir
         try testing.expectEqual(0, diagnostics.root_dir.len);
-        try testing.expectEqual(3, diagnostics.root_entries);
+        try testing.expectEqual(5, diagnostics.entries);
     }
 
     // with strip_components = 0
@@ -1078,8 +1089,47 @@ test "pipeToFileSystem root_dir" {
 
         // root_dir found
         try testing.expectEqualStrings("example", diagnostics.root_dir);
-        try testing.expectEqual(1, diagnostics.root_entries);
+        try testing.expectEqual(6, diagnostics.entries);
     }
+}
+
+test "findRoot without explicit root dir" {
+    const data = @embedFile("tar/testdata/19820.tar");
+    var fbs = std.io.fixedBufferStream(data);
+    const reader = fbs.reader();
+
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
+    defer diagnostics.deinit();
+    try pipeToFileSystem(tmp.dir, reader, .{ .diagnostics = &diagnostics });
+
+    try testing.expectEqualStrings("root", diagnostics.root_dir);
+}
+
+test "pipeToFileSystem strip_components" {
+    const data = @embedFile("tar/testdata/example.tar");
+    var fbs = std.io.fixedBufferStream(data);
+    const reader = fbs.reader();
+
+    var tmp = testing.tmpDir(.{ .no_follow = true });
+    defer tmp.cleanup();
+    var diagnostics: Diagnostics = .{ .allocator = testing.allocator };
+    defer diagnostics.deinit();
+
+    pipeToFileSystem(tmp.dir, reader, .{
+        .strip_components = 3,
+        .diagnostics = &diagnostics,
+    }) catch |err| {
+        // Skip on platform which don't support symlinks
+        if (err == error.UnableToCreateSymLink) return error.SkipZigTest;
+        return err;
+    };
+
+    try testing.expectEqual(2, diagnostics.errors.items.len);
+    try testing.expectEqualStrings("example/b/symlink", diagnostics.errors.items[0].components_outside_stripped_prefix.file_name);
+    try testing.expectEqualStrings("example/a/file", diagnostics.errors.items[1].components_outside_stripped_prefix.file_name);
 }
 
 fn normalizePath(bytes: []u8) []u8 {

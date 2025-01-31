@@ -1,4 +1,4 @@
-/* Copyright (C) 1995-2023 Free Software Foundation, Inc.
+/* Copyright (C) 1995-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -25,7 +25,7 @@
 
 struct timex
 {
-# if defined __USE_TIME_BITS64 || (__TIMESIZE == 64 && __WORDSIZE == 32)
+# if defined __USE_TIME64_REDIRECTS || (__TIMESIZE == 64 && __WORDSIZE == 32)
   unsigned int modes;          /* mode selector */
   int :32;                     /* pad */
   long long offset;            /* time offset (usec) */

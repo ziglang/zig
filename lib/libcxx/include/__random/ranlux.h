@@ -21,7 +21,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 typedef subtract_with_carry_engine<uint_fast32_t, 24, 10, 24> ranlux24_base;
-typedef subtract_with_carry_engine<uint_fast64_t, 48,  5, 12> ranlux48_base;
+typedef subtract_with_carry_engine<uint_fast64_t, 48, 5, 12> ranlux48_base;
 
 typedef discard_block_engine<ranlux24_base, 223, 23> ranlux24;
 typedef discard_block_engine<ranlux48_base, 389, 11> ranlux48;

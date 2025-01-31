@@ -56,6 +56,8 @@ pub const Error = union(enum) {
     invalid_character: usize,
     /// [+-] not immediately after [pPeE]
     invalid_exponent_sign: usize,
+    /// Period comes directly after exponent.
+    period_after_exponent: usize,
 };
 
 /// Parse Zig number literal accepted by fmt.parseInt, fmt.parseFloat and big_int.setString.
@@ -108,6 +110,9 @@ pub fn parseNumberLiteral(bytes: []const u8) Result {
                 continue;
             },
             'p', 'P' => if (base == 16) {
+                if (i == 2) {
+                    return .{ .failure = .{ .digit_after_base = {} } };
+                }
                 float = true;
                 if (exponent) return .{ .failure = .{ .duplicate_exponent = i } };
                 if (underscore) return .{ .failure = .{ .exponent_after_underscore = i } };
@@ -116,6 +121,15 @@ pub fn parseNumberLiteral(bytes: []const u8) Result {
                 continue;
             },
             '.' => {
+                if (exponent) {
+                    const digit_index = i - ".e".len;
+                    if (digit_index < bytes.len) {
+                        switch (bytes[digit_index]) {
+                            '0'...'9' => return .{ .failure = .{ .period_after_exponent = i } },
+                            else => {},
+                        }
+                    }
+                }
                 float = true;
                 if (base != 10 and base != 16) return .{ .failure = .{ .invalid_float_base = 2 } };
                 if (period) return .{ .failure = .duplicate_period };

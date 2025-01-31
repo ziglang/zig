@@ -11,6 +11,11 @@ string_bytes: []const u8,
 /// The first thing in this array is an `ErrorMessageList`.
 extra: []const u32,
 
+/// Index into `string_bytes`.
+pub const String = u32;
+/// Index into `string_bytes`, or null.
+pub const OptionalString = u32;
+
 /// Special encoding when there are no errors.
 pub const empty: ErrorBundle = .{
     .string_bytes = &.{},
@@ -33,14 +38,13 @@ pub const ErrorMessageList = struct {
     len: u32,
     start: u32,
     /// null-terminated string index. 0 means no compile log text.
-    compile_log_text: u32,
+    compile_log_text: OptionalString,
 };
 
 /// Trailing:
 /// * ReferenceTrace for each reference_trace_len
 pub const SourceLocation = struct {
-    /// null terminated string index
-    src_path: u32,
+    src_path: String,
     line: u32,
     column: u32,
     /// byte offset of starting token
@@ -49,17 +53,15 @@ pub const SourceLocation = struct {
     span_main: u32,
     /// byte offset of end of last token
     span_end: u32,
-    /// null terminated string index, possibly null.
     /// Does not include the trailing newline.
-    source_line: u32 = 0,
+    source_line: OptionalString = 0,
     reference_trace_len: u32 = 0,
 };
 
 /// Trailing:
 /// * MessageIndex for each notes_len.
 pub const ErrorMessage = struct {
-    /// null terminated string index
-    msg: u32,
+    msg: String,
     /// Usually one, but incremented for redundant messages.
     count: u32 = 1,
     src_loc: SourceLocationIndex = .none,
@@ -71,7 +73,7 @@ pub const ReferenceTrace = struct {
     /// Except for the sentinel ReferenceTrace element, in which case:
     /// * 0 means remaining references hidden
     /// * >0 means N references hidden
-    decl_name: u32,
+    decl_name: String,
     /// Index into extra of a SourceLocation
     /// If this is 0, this is the sentinel ReferenceTrace element.
     src_loc: SourceLocationIndex,
@@ -108,7 +110,7 @@ pub fn getSourceLocation(eb: ErrorBundle, index: SourceLocationIndex) SourceLoca
 
 pub fn getNotes(eb: ErrorBundle, index: MessageIndex) []const MessageIndex {
     const notes_len = eb.getErrorMessage(index).notes_len;
-    const start = @intFromEnum(index) + @typeInfo(ErrorMessage).Struct.fields.len;
+    const start = @intFromEnum(index) + @typeInfo(ErrorMessage).@"struct".fields.len;
     return @as([]const MessageIndex, @ptrCast(eb.extra[start..][0..notes_len]));
 }
 
@@ -119,7 +121,7 @@ pub fn getCompileLogOutput(eb: ErrorBundle) [:0]const u8 {
 /// Returns the requested data, as well as the new index which is at the start of the
 /// trailers for the object.
 fn extraData(eb: ErrorBundle, comptime T: type, index: usize) struct { data: T, end: usize } {
-    const fields = @typeInfo(T).Struct.fields;
+    const fields = @typeInfo(T).@"struct".fields;
     var i: usize = index;
     var result: T = undefined;
     inline for (fields) |field| {
@@ -138,7 +140,7 @@ fn extraData(eb: ErrorBundle, comptime T: type, index: usize) struct { data: T, 
 }
 
 /// Given an index into `string_bytes` returns the null-terminated string found there.
-pub fn nullTerminatedString(eb: ErrorBundle, index: usize) [:0]const u8 {
+pub fn nullTerminatedString(eb: ErrorBundle, index: String) [:0]const u8 {
     const string_bytes = eb.string_bytes;
     var end: usize = index;
     while (string_bytes[end] != 0) {
@@ -155,8 +157,8 @@ pub const RenderOptions = struct {
 };
 
 pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
-    std.debug.getStderrMutex().lock();
-    defer std.debug.getStderrMutex().unlock();
+    std.debug.lockStdErr();
+    defer std.debug.unlockStdErr();
     const stderr = std.io.getStdErr();
     return renderToWriter(eb, options, stderr.writer()) catch return;
 }
@@ -384,18 +386,18 @@ pub const Wip = struct {
         };
     }
 
-    pub fn addString(wip: *Wip, s: []const u8) Allocator.Error!u32 {
+    pub fn addString(wip: *Wip, s: []const u8) Allocator.Error!String {
         const gpa = wip.gpa;
-        const index: u32 = @intCast(wip.string_bytes.items.len);
+        const index: String = @intCast(wip.string_bytes.items.len);
         try wip.string_bytes.ensureUnusedCapacity(gpa, s.len + 1);
         wip.string_bytes.appendSliceAssumeCapacity(s);
         wip.string_bytes.appendAssumeCapacity(0);
         return index;
     }
 
-    pub fn printString(wip: *Wip, comptime fmt: []const u8, args: anytype) Allocator.Error!u32 {
+    pub fn printString(wip: *Wip, comptime fmt: []const u8, args: anytype) Allocator.Error!String {
         const gpa = wip.gpa;
-        const index: u32 = @intCast(wip.string_bytes.items.len);
+        const index: String = @intCast(wip.string_bytes.items.len);
         try wip.string_bytes.writer(gpa).print(fmt, args);
         try wip.string_bytes.append(gpa, 0);
         return index;
@@ -456,7 +458,7 @@ pub const Wip = struct {
 
     pub fn reserveNotes(wip: *Wip, notes_len: u32) !u32 {
         try wip.extra.ensureUnusedCapacity(wip.gpa, notes_len +
-            notes_len * @typeInfo(ErrorBundle.ErrorMessage).Struct.fields.len);
+            notes_len * @typeInfo(ErrorBundle.ErrorMessage).@"struct".fields.len);
         wip.extra.items.len += notes_len;
         return @intCast(wip.extra.items.len - notes_len);
     }
@@ -507,7 +509,7 @@ pub const Wip = struct {
             }
 
             if (item.data.notes != 0) {
-                const notes_start = try eb.reserveNotes(item.data.notes);
+                const notes_start = try eb.reserveNotes(item.data.notesLen(zir));
                 const block = zir.extraData(Zir.Inst.Block, item.data.notes);
                 const body = zir.extra[block.end..][0..block.data.body_len];
                 for (notes_start.., body) |note_i, body_elem| {
@@ -547,6 +549,77 @@ pub const Wip = struct {
         }
     }
 
+    pub fn addZoirErrorMessages(
+        eb: *ErrorBundle.Wip,
+        zoir: std.zig.Zoir,
+        tree: std.zig.Ast,
+        source: [:0]const u8,
+        src_path: []const u8,
+    ) !void {
+        assert(zoir.hasCompileErrors());
+
+        for (zoir.compile_errors) |err| {
+            const err_span: std.zig.Ast.Span = span: {
+                if (err.token == std.zig.Zoir.CompileError.invalid_token) {
+                    break :span tree.nodeToSpan(err.node_or_offset);
+                }
+                const token_start = tree.tokens.items(.start)[err.token];
+                const start = token_start + err.node_or_offset;
+                const end = token_start + @as(u32, @intCast(tree.tokenSlice(err.token).len));
+                break :span .{ .start = start, .end = end, .main = start };
+            };
+            const err_loc = std.zig.findLineColumn(source, err_span.main);
+
+            try eb.addRootErrorMessage(.{
+                .msg = try eb.addString(err.msg.get(zoir)),
+                .src_loc = try eb.addSourceLocation(.{
+                    .src_path = try eb.addString(src_path),
+                    .span_start = err_span.start,
+                    .span_main = err_span.main,
+                    .span_end = err_span.end,
+                    .line = @intCast(err_loc.line),
+                    .column = @intCast(err_loc.column),
+                    .source_line = try eb.addString(err_loc.source_line),
+                }),
+                .notes_len = err.note_count,
+            });
+
+            const notes_start = try eb.reserveNotes(err.note_count);
+            for (notes_start.., err.first_note.., 0..err.note_count) |eb_note_idx, zoir_note_idx, _| {
+                const note = zoir.error_notes[zoir_note_idx];
+                const note_span: std.zig.Ast.Span = span: {
+                    if (note.token == std.zig.Zoir.CompileError.invalid_token) {
+                        break :span tree.nodeToSpan(note.node_or_offset);
+                    }
+                    const token_start = tree.tokens.items(.start)[note.token];
+                    const start = token_start + note.node_or_offset;
+                    const end = token_start + @as(u32, @intCast(tree.tokenSlice(note.token).len));
+                    break :span .{ .start = start, .end = end, .main = start };
+                };
+                const note_loc = std.zig.findLineColumn(source, note_span.main);
+
+                // This line can cause `wip.extra.items` to be resized.
+                const note_index = @intFromEnum(try eb.addErrorMessage(.{
+                    .msg = try eb.addString(note.msg.get(zoir)),
+                    .src_loc = try eb.addSourceLocation(.{
+                        .src_path = try eb.addString(src_path),
+                        .span_start = note_span.start,
+                        .span_main = note_span.main,
+                        .span_end = note_span.end,
+                        .line = @intCast(note_loc.line),
+                        .column = @intCast(note_loc.column),
+                        .source_line = if (note_loc.eql(err_loc))
+                            0
+                        else
+                            try eb.addString(note_loc.source_line),
+                    }),
+                    .notes_len = 0,
+                }));
+                eb.extra.items[eb_note_idx] = note_index;
+            }
+        }
+    }
+
     fn addOtherMessage(wip: *Wip, other: ErrorBundle, msg_index: MessageIndex) !MessageIndex {
         const other_msg = other.getErrorMessage(msg_index);
         const src_loc = try wip.addOtherSourceLocation(other, other_msg.src_loc);
@@ -571,7 +644,7 @@ pub const Wip = struct {
         if (index == .none) return .none;
         const other_sl = other.getSourceLocation(index);
 
-        var ref_traces: std.ArrayListUnmanaged(ReferenceTrace) = .{};
+        var ref_traces: std.ArrayListUnmanaged(ReferenceTrace) = .empty;
         defer ref_traces.deinit(wip.gpa);
 
         if (other_sl.reference_trace_len > 0) {
@@ -616,13 +689,13 @@ pub const Wip = struct {
 
     fn addExtra(wip: *Wip, extra: anytype) Allocator.Error!u32 {
         const gpa = wip.gpa;
-        const fields = @typeInfo(@TypeOf(extra)).Struct.fields;
+        const fields = @typeInfo(@TypeOf(extra)).@"struct".fields;
         try wip.extra.ensureUnusedCapacity(gpa, fields.len);
         return addExtraAssumeCapacity(wip, extra);
     }
 
     fn addExtraAssumeCapacity(wip: *Wip, extra: anytype) u32 {
-        const fields = @typeInfo(@TypeOf(extra)).Struct.fields;
+        const fields = @typeInfo(@TypeOf(extra)).@"struct".fields;
         const result: u32 = @intCast(wip.extra.items.len);
         wip.extra.items.len += fields.len;
         setExtra(wip, result, extra);
@@ -630,7 +703,7 @@ pub const Wip = struct {
     }
 
     fn setExtra(wip: *Wip, index: usize, extra: anytype) void {
-        const fields = @typeInfo(@TypeOf(extra)).Struct.fields;
+        const fields = @typeInfo(@TypeOf(extra)).@"struct".fields;
         var i = index;
         inline for (fields) |field| {
             wip.extra.items[i] = switch (field.type) {

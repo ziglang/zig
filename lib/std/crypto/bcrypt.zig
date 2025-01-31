@@ -9,7 +9,6 @@ const pwhash = crypto.pwhash;
 const testing = std.testing;
 const HmacSha512 = crypto.auth.hmac.sha2.HmacSha512;
 const Sha512 = crypto.hash.sha2.Sha512;
-const utils = crypto.utils;
 
 const phc_format = @import("phc_encoding.zig");
 
@@ -408,8 +407,14 @@ pub const State = struct {
 
 /// bcrypt parameters
 pub const Params = struct {
+    const Self = @This();
+
     /// log2 of the number of rounds
     rounds_log: u6,
+
+    /// Minimum recommended parameters according to the
+    /// [OWASP cheat sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html).
+    pub const owasp = Self{ .rounds_log = 10 };
 };
 
 /// Compute a hash of a password using 2^rounds_log rounds of the bcrypt key stretching function.
@@ -440,7 +445,7 @@ pub fn bcrypt(
         state.expand0(passwordZ);
         state.expand0(salt[0..]);
     }
-    utils.secureZero(u8, &password_buf);
+    crypto.secureZero(u8, &password_buf);
 
     var cdata = [6]u32{ 0x4f727068, 0x65616e42, 0x65686f6c, 0x64657253, 0x63727944, 0x6f756274 }; // "OrpheanBeholderScryDoubt"
     k = 0;
@@ -490,24 +495,24 @@ const pbkdf_prf = struct {
     hasher: Sha512,
     sha2pass: [Sha512.digest_length]u8,
 
-    fn create(out: *[mac_length]u8, msg: []const u8, key: []const u8) void {
+    pub fn create(out: *[mac_length]u8, msg: []const u8, key: []const u8) void {
         var ctx = Self.init(key);
         ctx.update(msg);
         ctx.final(out);
     }
 
-    fn init(key: []const u8) Self {
+    pub fn init(key: []const u8) Self {
         var self: Self = undefined;
         self.hasher = Sha512.init(.{});
         Sha512.hash(key, &self.sha2pass, .{});
         return self;
     }
 
-    fn update(self: *Self, msg: []const u8) void {
+    pub fn update(self: *Self, msg: []const u8) void {
         self.hasher.update(msg);
     }
 
-    fn final(self: *Self, out: *[mac_length]u8) void {
+    pub fn final(self: *Self, out: *[mac_length]u8) void {
         var sha2salt: [Sha512.digest_length]u8 = undefined;
         self.hasher.final(&sha2salt);
         out.* = hash(self.sha2pass, sha2salt);
@@ -515,12 +520,12 @@ const pbkdf_prf = struct {
 
     /// Matches OpenBSD function
     /// https://github.com/openbsd/src/blob/6df1256b7792691e66c2ed9d86a8c103069f9e34/lib/libutil/bcrypt_pbkdf.c#L98
-    fn hash(sha2pass: [Sha512.digest_length]u8, sha2salt: [Sha512.digest_length]u8) [32]u8 {
+    pub fn hash(sha2pass: [Sha512.digest_length]u8, sha2salt: [Sha512.digest_length]u8) [32]u8 {
         var cdata: [8]u32 = undefined;
         {
             const ciphertext = "OxychromaticBlowfishSwatDynamite";
             var j: usize = 0;
-            for (cdata) |*v| {
+            for (&cdata) |*v| {
                 v.* = State.toWord(ciphertext, &j);
             }
         }
@@ -550,21 +555,63 @@ const pbkdf_prf = struct {
         }
 
         // zap
-        crypto.utils.secureZero(u32, &cdata);
-        crypto.utils.secureZero(State, @as(*[1]State, &state));
+        crypto.secureZero(u32, &cdata);
+        crypto.secureZero(u32, &state.subkeys);
 
         return out;
     }
 };
 
 /// bcrypt-pbkdf is a key derivation function based on bcrypt.
-/// This is the function used in OpenSSH to derive encryption keys from passphrases.
-///
-/// This implementation is compatible with the OpenBSD implementation (https://github.com/openbsd/src/blob/master/lib/libutil/bcrypt_pbkdf.c).
 ///
 /// Unlike the password hashing function `bcrypt`, this function doesn't silently truncate passwords longer than 72 bytes.
 pub fn pbkdf(pass: []const u8, salt: []const u8, key: []u8, rounds: u32) !void {
     try crypto.pwhash.pbkdf2(key, pass, salt, rounds, pbkdf_prf);
+}
+
+/// The function used in OpenSSH to derive encryption keys from passphrases.
+///
+/// This implementation is compatible with the OpenBSD implementation (https://github.com/openbsd/src/blob/master/lib/libutil/bcrypt_pbkdf.c).
+pub fn opensshKdf(pass: []const u8, salt: []const u8, key: []u8, rounds: u32) !void {
+    var tmp: [32]u8 = undefined;
+    var tmp2: [32]u8 = undefined;
+    if (rounds < 1 or pass.len == 0 or salt.len == 0 or key.len == 0 or key.len > tmp.len * tmp.len) {
+        return error.InvalidInput;
+    }
+    var sha2pass: [Sha512.digest_length]u8 = undefined;
+    Sha512.hash(pass, &sha2pass, .{});
+    const stride = (key.len + tmp.len - 1) / tmp.len;
+    var amt = (key.len + stride - 1) / stride;
+    if (math.shr(usize, key.len, 32) >= amt) {
+        return error.InvalidInput;
+    }
+    var key_remainder = key.len;
+    var count: u32 = 1;
+    while (key_remainder > 0) : (count += 1) {
+        var count_salt: [4]u8 = undefined;
+        std.mem.writeInt(u32, count_salt[0..], count, .big);
+        var sha2salt: [Sha512.digest_length]u8 = undefined;
+        var h = Sha512.init(.{});
+        h.update(salt);
+        h.update(&count_salt);
+        h.final(&sha2salt);
+        tmp2 = pbkdf_prf.hash(sha2pass, sha2salt);
+        tmp = tmp2;
+        for (1..rounds) |_| {
+            Sha512.hash(&tmp2, &sha2salt, .{});
+            tmp2 = pbkdf_prf.hash(sha2pass, sha2salt);
+            for (&tmp, tmp2) |*o, t| o.* ^= t;
+        }
+        amt = @min(amt, key_remainder);
+        key_remainder -= for (0..amt) |i| {
+            const dest = i * stride + (count - 1);
+            if (dest >= key.len) break i;
+            key[dest] = tmp[i];
+        } else amt;
+    }
+    crypto.secureZero(u8, &tmp);
+    crypto.secureZero(u8, &tmp2);
+    crypto.secureZero(u8, &sha2pass);
 }
 
 const crypt_format = struct {
@@ -841,4 +888,14 @@ test "bcrypt phc format" {
         "The devil himself",
         verify_options,
     );
+}
+
+test "openssh kdf" {
+    var key: [100]u8 = undefined;
+    const pass = "password";
+    const salt = "salt";
+    const rounds = 5;
+    try opensshKdf(pass, salt, &key, rounds);
+    const expected = [_]u8{ 65, 207, 68, 58, 55, 252, 114, 141, 255, 65, 216, 175, 5, 92, 235, 68, 220, 92, 118, 161, 40, 13, 241, 190, 56, 152, 69, 136, 41, 214, 51, 205, 37, 221, 101, 59, 105, 73, 133, 36, 14, 59, 94, 212, 111, 107, 109, 237, 213, 235, 246, 119, 59, 76, 45, 130, 142, 81, 178, 231, 161, 158, 138, 108, 18, 162, 26, 50, 218, 251, 23, 66, 2, 232, 20, 202, 216, 46, 12, 250, 247, 246, 252, 23, 155, 74, 77, 195, 120, 113, 57, 88, 126, 81, 9, 249, 72, 18, 208, 160 };
+    try testing.expectEqualSlices(u8, &key, &expected);
 }

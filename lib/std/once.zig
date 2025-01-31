@@ -7,6 +7,7 @@ pub fn once(comptime f: fn () void) Once(f) {
 }
 
 /// An object that executes the function `f` just once.
+/// It is undefined behavior if `f` re-enters the same Once instance.
 pub fn Once(comptime f: fn () void) type {
     return struct {
         done: bool = false,
@@ -24,7 +25,7 @@ pub fn Once(comptime f: fn () void) type {
         }
 
         fn callSlow(self: *@This()) void {
-            @setCold(true);
+            @branchHint(.cold);
 
             self.mutex.lock();
             defer self.mutex.unlock();
@@ -51,15 +52,18 @@ test "Once executes its function just once" {
         global_once.call();
     } else {
         var threads: [10]std.Thread = undefined;
-        defer for (threads) |handle| handle.join();
+        var thread_count: usize = 0;
+        defer for (threads[0..thread_count]) |handle| handle.join();
 
         for (&threads) |*handle| {
             handle.* = try std.Thread.spawn(.{}, struct {
                 fn thread_fn(x: u8) void {
                     _ = x;
                     global_once.call();
+                    if (global_number != 1) @panic("memory ordering bug");
                 }
             }.thread_fn, .{0});
+            thread_count += 1;
         }
     }
 

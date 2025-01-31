@@ -45,11 +45,6 @@ int vsnprintf(char *restrict s, size_t n, const char *restrict fmt, va_list ap)
 		.cookie = &c,
 	};
 
-	if (n > INT_MAX) {
-		errno = EOVERFLOW;
-		return -1;
-	}
-
 	*c.s = 0;
 	return vfprintf(&f, fmt, ap);
 }

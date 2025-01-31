@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 const is_windows = builtin.os.tag == .windows;
 
 fn readFileFake(entries: []const Filesystem.Entry, path: []const u8, buf: []u8) ?[]const u8 {
-    @setCold(true);
+    @branchHint(.cold);
     for (entries) |entry| {
         if (mem.eql(u8, entry.path, path)) {
             const len = @min(entry.contents.len, buf.len);
@@ -16,7 +16,7 @@ fn readFileFake(entries: []const Filesystem.Entry, path: []const u8, buf: []u8) 
 }
 
 fn findProgramByNameFake(entries: []const Filesystem.Entry, name: []const u8, path: ?[]const u8, buf: []u8) ?[]const u8 {
-    @setCold(true);
+    @branchHint(.cold);
     if (mem.indexOfScalar(u8, name, '/') != null) {
         @memcpy(buf[0..name.len], name);
         return buf[0..name.len];
@@ -35,7 +35,7 @@ fn findProgramByNameFake(entries: []const Filesystem.Entry, name: []const u8, pa
 }
 
 fn canExecuteFake(entries: []const Filesystem.Entry, path: []const u8) bool {
-    @setCold(true);
+    @branchHint(.cold);
     for (entries) |entry| {
         if (mem.eql(u8, entry.path, path)) {
             return entry.executable;
@@ -45,8 +45,8 @@ fn canExecuteFake(entries: []const Filesystem.Entry, path: []const u8) bool {
 }
 
 fn existsFake(entries: []const Filesystem.Entry, path: []const u8) bool {
-    @setCold(true);
-    var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    @branchHint(.cold);
+    var buf: [std.fs.max_path_bytes]u8 = undefined;
     var fib = std.heap.FixedBufferAllocator.init(&buf);
     const resolved = std.fs.path.resolvePosix(fib.allocator(), &.{path}) catch return false;
     for (entries) |entry| {
@@ -56,7 +56,7 @@ fn existsFake(entries: []const Filesystem.Entry, path: []const u8) bool {
 }
 
 fn canExecutePosix(path: []const u8) bool {
-    std.os.access(path, std.os.X_OK) catch return false;
+    std.posix.access(path, std.posix.X_OK) catch return false;
     // Todo: ensure path is not a directory
     return true;
 }
@@ -173,7 +173,7 @@ pub const Filesystem = union(enum) {
     pub fn exists(fs: Filesystem, path: []const u8) bool {
         switch (fs) {
             .real => {
-                std.os.access(path, std.os.F_OK) catch return false;
+                std.fs.cwd().access(path, .{}) catch return false;
                 return true;
             },
             .fake => |paths| return existsFake(paths, path),
@@ -181,7 +181,7 @@ pub const Filesystem = union(enum) {
     }
 
     pub fn joinedExists(fs: Filesystem, parts: []const []const u8) bool {
-        var buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        var buf: [std.fs.max_path_bytes]u8 = undefined;
         var fib = std.heap.FixedBufferAllocator.init(&buf);
         const joined = std.fs.path.join(fib.allocator(), parts) catch return false;
         return fs.exists(joined);

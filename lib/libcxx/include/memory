@@ -10,6 +10,8 @@
 #ifndef _LIBCPP_MEMORY
 #define _LIBCPP_MEMORY
 
+// clang-format off
+
 /*
     memory synopsis
 
@@ -86,6 +88,9 @@ struct allocator_traits
     static pointer allocate(allocator_type& a, size_type n);                          // constexpr and [[nodiscard]] in C++20
     static pointer allocate(allocator_type& a, size_type n, const_void_pointer hint); // constexpr and [[nodiscard]] in C++20
 
+    [[nodiscard]] static constexpr allocation_result<pointer, size_type>
+      allocate_at_least(Alloc& a, size_type n);                                 // Since C++23
+
     static void deallocate(allocator_type& a, pointer p, size_type n) noexcept; // constexpr in C++20
 
     template <class T, class... Args>
@@ -98,15 +103,11 @@ struct allocator_traits
     static allocator_type select_on_container_copy_construction(const allocator_type& a); // constexpr in C++20
 };
 
-template<class Pointer>
+template<class Pointer, class SizeType = size_t>
 struct allocation_result {
     Pointer ptr;
-    size_t count;
-}; // since C++23
-
-template<class Allocator>
-[[nodiscard]] constexpr allocation_result<typename allocator_traits<Allocator>::pointer>
-    allocate_at_least(Allocator& a, size_t n); // since C++23
+    SizeType count;
+}; // Since C++23
 
 template <>
 class allocator<void> // removed in C++20
@@ -137,7 +138,7 @@ public:
     template <class U> struct rebind {typedef allocator<U> other;}; // deprecated in C++17, removed in C++20
 
     typedef true_type propagate_on_container_move_assignment;
-    typedef true_type is_always_equal;
+    typedef true_type is_always_equal;                   // Deprecated in C++23, removed in C++26
 
     constexpr allocator() noexcept;                      // constexpr in C++20
     constexpr allocator(const allocator&) noexcept;      // constexpr in C++20
@@ -450,7 +451,8 @@ public:
     constexpr unique_ptr& operator=(nullptr_t) noexcept;                              // constexpr since C++23
 
     // observers
-    typename constexpr add_lvalue_reference<T>::type operator*() const;               // constexpr since C++23
+    constexpr
+    add_lvalue_reference<T>::type operator*() const noexcept(see below);              // constexpr since C++23
     constexpr pointer operator->() const noexcept;                                    // constexpr since C++23
     constexpr pointer get() const noexcept;                                           // constexpr since C++23
     constexpr deleter_type& get_deleter() noexcept;                                   // constexpr since C++23
@@ -627,7 +629,7 @@ public:
     T& operator*() const noexcept;
     T* operator->() const noexcept;
     long use_count() const noexcept;
-    bool unique() const noexcept;
+    bool unique() const noexcept;  // deprected in C++17, removed in C++20
     explicit operator bool() const noexcept;
     template<class U> bool owner_before(shared_ptr<U> const& b) const noexcept;
     template<class U> bool owner_before(weak_ptr<U> const& b) const noexcept;
@@ -867,43 +869,107 @@ template <class T> struct hash<shared_ptr<T> >;
 template <class T, class Alloc>
   inline constexpr bool uses_allocator_v = uses_allocator<T, Alloc>::value;
 
+// [allocator.uses.construction], uses-allocator construction
+template<class T, class Alloc, class... Args>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc,             // since C++20
+                                                  Args&&... args) noexcept;
+template<class T, class Alloc, class Tuple1, class Tuple2>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc,             // since C++20
+                                                  piecewise_construct_t,
+                                                  Tuple1&& x, Tuple2&& y) noexcept;
+template<class T, class Alloc>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc) noexcept;   // since C++20
+template<class T, class Alloc, class U, class V>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc,             // since C++20
+                                                  U&& u, V&& v) noexcept;
+template<class T, class Alloc, class U, class V>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc,             // since C++23
+                                                  pair<U, V>& pr) noexcept;
+template<class T, class Alloc, class U, class V>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc,             // since C++20
+                                                  const pair<U, V>& pr) noexcept;
+template<class T, class Alloc, class U, class V>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc,             // since C++20
+                                                  pair<U, V>&& pr) noexcept;
+template<class T, class Alloc, class U, class V>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc,             // since C++23
+                                                  const pair<U, V>&& pr) noexcept;
+template<class T, class Alloc, pair-like P>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc,             // since C++20
+                                                  P&& p) noexcept;
+template<class T, class Alloc, class U>
+  constexpr auto uses_allocator_construction_args(const Alloc& alloc,             // since C++20
+                                                  U&& u) noexcept;
+template<class T, class Alloc, class... Args>
+  constexpr T make_obj_using_allocator(const Alloc& alloc, Args&&... args);       // since C++20
+template<class T, class Alloc, class... Args>
+  constexpr T* uninitialized_construct_using_allocator(T* p,                      // since C++20
+                                                         const Alloc& alloc, Args&&... args);
+
 // [ptr.align]
 void* align(size_t alignment, size_t size, void*& ptr, size_t& space);
 
 template<size_t N, class T>
 [[nodiscard]] constexpr T* assume_aligned(T* ptr); // since C++20
 
+// [out.ptr.t], class template out_ptr_t
+template<class Smart, class Pointer, class... Args>
+  class out_ptr_t;                                          // since c++23
+
+// [out.ptr], function template out_ptr
+template<class Pointer = void, class Smart, class... Args>
+  auto out_ptr(Smart& s, Args&&... args);                   // since c++23
+
+// [inout.ptr.t], class template inout_ptr_t
+template<class Smart, class Pointer, class... Args>
+  class inout_ptr_t;                                        // since c++23
+
+// [inout.ptr], function template inout_ptr
+template<class Pointer = void, class Smart, class... Args>
+  auto inout_ptr(Smart& s, Args&&... args);                 // since c++23
+
 }  // std
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
+// clang-format on
+
 #include <__config>
 #include <__memory/addressof.h>
 #include <__memory/align.h>
-#include <__memory/allocate_at_least.h>
-#include <__memory/allocation_guard.h>
 #include <__memory/allocator.h>
 #include <__memory/allocator_arg_t.h>
 #include <__memory/allocator_traits.h>
-#include <__memory/assume_aligned.h>
 #include <__memory/auto_ptr.h>
-#include <__memory/compressed_pair.h>
-#include <__memory/concepts.h>
-#include <__memory/construct_at.h>
+#include <__memory/inout_ptr.h>
+#include <__memory/out_ptr.h>
 #include <__memory/pointer_traits.h>
-#include <__memory/ranges_construct_at.h>
-#include <__memory/ranges_uninitialized_algorithms.h>
 #include <__memory/raw_storage_iterator.h>
 #include <__memory/shared_ptr.h>
 #include <__memory/temporary_buffer.h>
 #include <__memory/uninitialized_algorithms.h>
 #include <__memory/unique_ptr.h>
 #include <__memory/uses_allocator.h>
-#include <__memory/uses_allocator_construction.h>
-#include <version>
 
 // standard-mandated includes
+
+#if _LIBCPP_STD_VER >= 17
+#  include <__memory/construct_at.h>
+#endif
+
+#if _LIBCPP_STD_VER >= 20
+#  include <__memory/assume_aligned.h>
+#  include <__memory/concepts.h>
+#  include <__memory/ranges_construct_at.h>
+#  include <__memory/ranges_uninitialized_algorithms.h>
+#  include <__memory/uses_allocator_construction.h>
+#endif
+
+#if _LIBCPP_STD_VER >= 23
+#  include <__memory/allocate_at_least.h>
+#endif
+
+#include <version>
 
 // [memory.syn]
 #include <compare>

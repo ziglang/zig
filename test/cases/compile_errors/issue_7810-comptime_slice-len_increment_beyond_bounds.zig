@@ -8,7 +8,5 @@ export fn foo_slice_len_increment_beyond_bounds() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// :6:16: error: comptime store of index 8 out of bounds of array length 8
+// :6:16: error: dereference of '*u8' exceeds bounds of containing decl of type '[8]u8'

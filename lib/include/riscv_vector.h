@@ -14,10 +14,6 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#ifndef __riscv_vector
-#error "Vector intrinsics require the vector extension."
-#endif
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -392,6 +388,37 @@ typedef __rvv_float64m2x4_t vfloat64m2x4_t;
 typedef __rvv_float64m4_t vfloat64m4_t;
 typedef __rvv_float64m4x2_t vfloat64m4x2_t;
 typedef __rvv_float64m8_t vfloat64m8_t;
+typedef __rvv_bfloat16mf4_t vbfloat16mf4_t;
+typedef __rvv_bfloat16mf4x2_t vbfloat16mf4x2_t;
+typedef __rvv_bfloat16mf4x3_t vbfloat16mf4x3_t;
+typedef __rvv_bfloat16mf4x4_t vbfloat16mf4x4_t;
+typedef __rvv_bfloat16mf4x5_t vbfloat16mf4x5_t;
+typedef __rvv_bfloat16mf4x6_t vbfloat16mf4x6_t;
+typedef __rvv_bfloat16mf4x7_t vbfloat16mf4x7_t;
+typedef __rvv_bfloat16mf4x8_t vbfloat16mf4x8_t;
+typedef __rvv_bfloat16mf2_t vbfloat16mf2_t;
+typedef __rvv_bfloat16mf2x2_t vbfloat16mf2x2_t;
+typedef __rvv_bfloat16mf2x3_t vbfloat16mf2x3_t;
+typedef __rvv_bfloat16mf2x4_t vbfloat16mf2x4_t;
+typedef __rvv_bfloat16mf2x5_t vbfloat16mf2x5_t;
+typedef __rvv_bfloat16mf2x6_t vbfloat16mf2x6_t;
+typedef __rvv_bfloat16mf2x7_t vbfloat16mf2x7_t;
+typedef __rvv_bfloat16mf2x8_t vbfloat16mf2x8_t;
+typedef __rvv_bfloat16m1_t vbfloat16m1_t;
+typedef __rvv_bfloat16m1x2_t vbfloat16m1x2_t;
+typedef __rvv_bfloat16m1x3_t vbfloat16m1x3_t;
+typedef __rvv_bfloat16m1x4_t vbfloat16m1x4_t;
+typedef __rvv_bfloat16m1x5_t vbfloat16m1x5_t;
+typedef __rvv_bfloat16m1x6_t vbfloat16m1x6_t;
+typedef __rvv_bfloat16m1x7_t vbfloat16m1x7_t;
+typedef __rvv_bfloat16m1x8_t vbfloat16m1x8_t;
+typedef __rvv_bfloat16m2_t vbfloat16m2_t;
+typedef __rvv_bfloat16m2x2_t vbfloat16m2x2_t;
+typedef __rvv_bfloat16m2x3_t vbfloat16m2x3_t;
+typedef __rvv_bfloat16m2x4_t vbfloat16m2x4_t;
+typedef __rvv_bfloat16m4_t vbfloat16m4_t;
+typedef __rvv_bfloat16m4x2_t vbfloat16m4x2_t;
+typedef __rvv_bfloat16m8_t vbfloat16m8_t;
 #define __riscv_v_intrinsic_overloading 1
 
 #ifdef __cplusplus

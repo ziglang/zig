@@ -13,9 +13,6 @@
 #include "sanitizer_platform.h"
 #if SANITIZER_FREEBSD || SANITIZER_NETBSD
 #include "sanitizer_common.h"
-#if SANITIZER_FREEBSD
-#include "sanitizer_freebsd.h"
-#endif
 #include "sanitizer_procmaps.h"
 
 // clang-format off
@@ -29,29 +26,35 @@
 
 #include <limits.h>
 
-// Fix 'kinfo_vmentry' definition on FreeBSD prior v9.2 in 32-bit mode.
-#if SANITIZER_FREEBSD && (SANITIZER_WORDSIZE == 32)
-#include <osreldate.h>
-#if __FreeBSD_version <= 902001 // v9.2
-#define kinfo_vmentry xkinfo_vmentry
-#endif
-#endif
-
 namespace __sanitizer {
 
 #if SANITIZER_FREEBSD
 void GetMemoryProfile(fill_profile_f cb, uptr *stats) {
-  const int Mib[] = {
-    CTL_KERN,
-    KERN_PROC,
-    KERN_PROC_PID,
-    getpid()
-  }; 
+  const int Mib[] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()};
 
-  struct kinfo_proc InfoProc;
-  uptr Len = sizeof(InfoProc);
-  CHECK_EQ(internal_sysctl(Mib, ARRAY_SIZE(Mib), nullptr, (uptr *)&InfoProc, &Len, 0), 0);
-  cb(0, InfoProc.ki_rssize * GetPageSizeCached(), false, stats);
+  struct kinfo_proc *InfoProc;
+  uptr Len = sizeof(*InfoProc);
+  uptr Size = Len;
+  InfoProc = (struct kinfo_proc *)MmapOrDie(Size, "GetMemoryProfile()");
+  CHECK_EQ(
+      internal_sysctl(Mib, ARRAY_SIZE(Mib), nullptr, (uptr *)InfoProc, &Len, 0),
+      0);
+  cb(0, InfoProc->ki_rssize * GetPageSizeCached(), false, stats);
+  UnmapOrDie(InfoProc, Size, true);
+}
+#elif SANITIZER_NETBSD
+void GetMemoryProfile(fill_profile_f cb, uptr *stats) {
+  struct kinfo_proc2 *InfoProc;
+  uptr Len = sizeof(*InfoProc);
+  uptr Size = Len;
+  const int Mib[] = {CTL_KERN, KERN_PROC2, KERN_PROC_PID,
+                     getpid(), (int)Size,  1};
+  InfoProc = (struct kinfo_proc2 *)MmapOrDie(Size, "GetMemoryProfile()");
+  CHECK_EQ(
+      internal_sysctl(Mib, ARRAY_SIZE(Mib), nullptr, (uptr *)InfoProc, &Len, 0),
+      0);
+  cb(0, InfoProc->p_vm_rssize * GetPageSizeCached(), false, stats);
+  UnmapOrDie(InfoProc, Size, true);
 }
 #endif
 

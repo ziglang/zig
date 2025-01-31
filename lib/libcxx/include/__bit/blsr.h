@@ -17,15 +17,15 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR unsigned __libcpp_blsr(unsigned __x) _NOEXCEPT {
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR unsigned __libcpp_blsr(unsigned __x) _NOEXCEPT {
   return __x ^ (__x & -__x);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR unsigned long __libcpp_blsr(unsigned long __x) _NOEXCEPT {
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR unsigned long __libcpp_blsr(unsigned long __x) _NOEXCEPT {
   return __x ^ (__x & -__x);
 }
 
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR unsigned long long __libcpp_blsr(unsigned long long __x) _NOEXCEPT {
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR unsigned long long __libcpp_blsr(unsigned long long __x) _NOEXCEPT {
   return __x ^ (__x & -__x);
 }
 

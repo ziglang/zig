@@ -25,11 +25,12 @@ pub fn convertHex(comptime T: type, n_: Number(T)) T {
     const max_exp = math.floatExponentMax(T);
     const min_exp = math.floatExponentMin(T);
     const mantissa_bits = math.floatMantissaBits(T);
+    const fractional_bits = math.floatFractionalBits(T);
     const exp_bits = math.floatExponentBits(T);
     const exp_bias = min_exp - 1;
 
-    // mantissa now implicitly divided by 2^mantissa_bits
-    n.exponent += mantissa_bits;
+    // mantissa now implicitly divided by 2^fractional_bits
+    n.exponent += fractional_bits;
 
     // Shift mantissa and exponent to bring representation into float range.
     // Eventually we want a mantissa with a leading 1-bit followed by mantbits other bits.
@@ -44,7 +45,7 @@ pub fn convertHex(comptime T: type, n_: Number(T)) T {
     if (n.many_digits) {
         n.mantissa |= 1;
     }
-    while (n.mantissa >> (1 + mantissa_bits + 2) != 0) {
+    while (n.mantissa >> (1 + fractional_bits + 2) != 0) {
         n.mantissa = (n.mantissa >> 1) | (n.mantissa & 1);
         n.exponent += 1;
     }
@@ -64,14 +65,14 @@ pub fn convertHex(comptime T: type, n_: Number(T)) T {
     n.exponent += 2;
     if (round == 3) {
         n.mantissa += 1;
-        if (n.mantissa == 1 << (1 + mantissa_bits)) {
+        if (n.mantissa == 1 << (1 + fractional_bits)) {
             n.mantissa >>= 1;
             n.exponent += 1;
         }
     }
 
     // Denormal or zero
-    if (n.mantissa >> mantissa_bits == 0) {
+    if (n.mantissa >> fractional_bits == 0) {
         n.exponent = exp_bias;
     }
 

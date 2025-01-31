@@ -10,7 +10,7 @@ paths: []const []const u8,
 exclude_paths: []const []const u8,
 check: bool,
 
-pub const base_id = .fmt;
+pub const base_id: Step.Id = .fmt;
 
 pub const Options = struct {
     paths: []const []const u8 = &.{},
@@ -20,9 +20,9 @@ pub const Options = struct {
 };
 
 pub fn create(owner: *std.Build, options: Options) *Fmt {
-    const self = owner.allocator.create(Fmt) catch @panic("OOM");
+    const fmt = owner.allocator.create(Fmt) catch @panic("OOM");
     const name = if (options.check) "zig fmt --check" else "zig fmt";
-    self.* = .{
+    fmt.* = .{
         .step = Step.init(.{
             .id = base_id,
             .name = name,
@@ -33,12 +33,11 @@ pub fn create(owner: *std.Build, options: Options) *Fmt {
         .exclude_paths = owner.dupeStrings(options.exclude_paths),
         .check = options.check,
     };
-    return self;
+    return fmt;
 }
 
-fn make(step: *Step, prog_node: *std.Progress.Node) !void {
-    // zig fmt is fast enough that no progress is needed.
-    _ = prog_node;
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    const prog_node = options.progress_node;
 
     // TODO: if check=false, this means we are modifying source files in place, which
     // is an operation that could race against other operations also modifying source files
@@ -47,26 +46,36 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     const b = step.owner;
     const arena = b.allocator;
-    const self: *Fmt = @fieldParentPtr("step", step);
+    const fmt: *Fmt = @fieldParentPtr("step", step);
 
-    var argv: std.ArrayListUnmanaged([]const u8) = .{};
-    try argv.ensureUnusedCapacity(arena, 2 + 1 + self.paths.len + 2 * self.exclude_paths.len);
+    var argv: std.ArrayListUnmanaged([]const u8) = .empty;
+    try argv.ensureUnusedCapacity(arena, 2 + 1 + fmt.paths.len + 2 * fmt.exclude_paths.len);
 
     argv.appendAssumeCapacity(b.graph.zig_exe);
     argv.appendAssumeCapacity("fmt");
 
-    if (self.check) {
+    if (fmt.check) {
         argv.appendAssumeCapacity("--check");
     }
 
-    for (self.paths) |p| {
+    for (fmt.paths) |p| {
         argv.appendAssumeCapacity(b.pathFromRoot(p));
     }
 
-    for (self.exclude_paths) |p| {
+    for (fmt.exclude_paths) |p| {
         argv.appendAssumeCapacity("--exclude");
         argv.appendAssumeCapacity(b.pathFromRoot(p));
     }
 
-    return step.evalChildProcess(argv.items);
+    const run_result = try step.captureChildProcess(prog_node, argv.items);
+    if (fmt.check) switch (run_result.term) {
+        .Exited => |code| if (code != 0 and run_result.stdout.len != 0) {
+            var it = std.mem.tokenizeScalar(u8, run_result.stdout, '\n');
+            while (it.next()) |bad_file_name| {
+                try step.addError("{s}: non-conforming formatting", .{bad_file_name});
+            }
+        },
+        else => {},
+    };
+    try step.handleChildProcessTerm(run_result.term, null, argv.items);
 }

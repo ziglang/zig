@@ -4,7 +4,7 @@ const common = @import("./common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__extendxftf2, .{ .name = "__extendxftf2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__extendxftf2, .{ .name = "__extendxftf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 fn __extendxftf2(a: f80) callconv(.C) f128 {
@@ -15,10 +15,8 @@ fn __extendxftf2(a: f80) callconv(.C) f128 {
 
     const dst_bits = @bitSizeOf(f128);
 
-    const dst_min_normal = @as(u128, 1) << dst_sig_bits;
-
     // Break a into a sign and representation of the absolute value
-    var a_rep = std.math.break_f80(a);
+    var a_rep = std.math.F80.fromFloat(a);
     const sign = a_rep.exp & 0x8000;
     a_rep.exp &= 0x7FFF;
     var abs_result: u128 = undefined;
@@ -36,12 +34,7 @@ fn __extendxftf2(a: f80) callconv(.C) f128 {
         abs_result |= @as(u128, a_rep.exp) << dst_sig_bits;
     } else {
         // a is denormal
-        // renormalize the significand and clear the leading bit and integer part,
-        // then insert the correct adjusted exponent in the destination type.
-        const scale: u32 = @clz(a_rep.fraction);
-        abs_result = @as(u128, a_rep.fraction) << @intCast(dst_sig_bits - src_sig_bits + scale + 1);
-        abs_result ^= dst_min_normal;
-        abs_result |= @as(u128, scale + 1) << dst_sig_bits;
+        abs_result = @as(u128, a_rep.fraction) << (dst_sig_bits - src_sig_bits);
     }
 
     // Apply the signbit to (dst_t)abs(a).

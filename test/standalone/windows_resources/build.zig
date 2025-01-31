@@ -10,11 +10,13 @@ pub fn build(b: *std.Build) void {
         .abi = .gnu,
     });
 
-    add(b, b.host, .any, test_step);
-    add(b, target, .any, test_step);
+    const generated_h_step = b.addWriteFile("generated.h", "#define GENERATED_DEFINE \"foo\"");
 
-    add(b, b.host, .gnu, test_step);
-    add(b, target, .gnu, test_step);
+    add(b, b.graph.host, .any, test_step, generated_h_step);
+    add(b, target, .any, test_step, generated_h_step);
+
+    add(b, b.graph.host, .gnu, test_step, generated_h_step);
+    add(b, target, .gnu, test_step, generated_h_step);
 }
 
 fn add(
@@ -22,16 +24,22 @@ fn add(
     target: std.Build.ResolvedTarget,
     rc_includes: enum { any, gnu },
     test_step: *std.Build.Step,
+    generated_h_step: *std.Build.Step.WriteFile,
 ) void {
     const exe = b.addExecutable(.{
         .name = "zig_resource_test",
-        .root_source_file = b.path("main.zig"),
-        .target = target,
-        .optimize = .Debug,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .target = target,
+            .optimize = .Debug,
+        }),
     });
-    exe.addWin32ResourceFile(.{
+    exe.root_module.addWin32ResourceFile(.{
         .file = b.path("res/zig.rc"),
         .flags = &.{"/c65001"}, // UTF-8 code page
+        .include_paths = &.{
+            .{ .generated = .{ .file = &generated_h_step.generated_directory } },
+        },
     });
     exe.rc_includes = switch (rc_includes) {
         .any => .any,

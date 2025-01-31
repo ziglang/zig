@@ -11,4 +11,4 @@ pub export fn entry() void {
 //
 // :5:14: error: expected type '[*:0]const u8', found '[*]const u8'
 // :5:14: note: destination pointer requires '0' sentinel
-// :1:20: note: parameter type declared here
+// :1:19: note: parameter type declared here

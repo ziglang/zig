@@ -1,51 +1,52 @@
-pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
+pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Path) link.File.FlushError!void {
     const gpa = macho_file.base.comp.gpa;
+    const diags = &macho_file.base.comp.link_diags;
 
-    var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
+    // TODO: "positional arguments" is a CLI concept, not a linker concept. Delete this unnecessary array list.
+    var positionals = std.ArrayList(link.Input).init(gpa);
     defer positionals.deinit();
-    try positionals.ensureUnusedCapacity(comp.objects.len);
-    positionals.appendSliceAssumeCapacity(comp.objects);
+    try positionals.ensureUnusedCapacity(comp.link_inputs.len);
+    positionals.appendSliceAssumeCapacity(comp.link_inputs);
 
     for (comp.c_object_table.keys()) |key| {
-        try positionals.append(.{ .path = key.status.success.object_path });
+        try positionals.append(try link.openObjectInput(diags, key.status.success.object_path));
     }
 
-    if (module_obj_path) |path| try positionals.append(.{ .path = path });
+    if (module_obj_path) |path| try positionals.append(try link.openObjectInput(diags, path));
 
     if (macho_file.getZigObject() == null and positionals.items.len == 1) {
         // Instead of invoking a full-blown `-r` mode on the input which sadly will strip all
         // debug info segments/sections (this is apparently by design by Apple), we copy
         // the *only* input file over.
-        // TODO: in the future, when we implement `dsymutil` alternative directly in the Zig
-        // compiler, investigate if we can get rid of this `if` prong here.
-        const path = positionals.items[0].path;
-        const in_file = try std.fs.cwd().openFile(path, .{});
-        const stat = try in_file.stat();
-        const amt = try in_file.copyRangeAll(0, macho_file.base.file.?, 0, stat.size);
-        if (amt != stat.size) return error.InputOutput; // TODO: report an actual user error
+        const path = positionals.items[0].path().?;
+        const in_file = path.root_dir.handle.openFile(path.sub_path, .{}) catch |err|
+            return diags.fail("failed to open {}: {s}", .{ path, @errorName(err) });
+        const stat = in_file.stat() catch |err|
+            return diags.fail("failed to stat {}: {s}", .{ path, @errorName(err) });
+        const amt = in_file.copyRangeAll(0, macho_file.base.file.?, 0, stat.size) catch |err|
+            return diags.fail("failed to copy range of file {}: {s}", .{ path, @errorName(err) });
+        if (amt != stat.size)
+            return diags.fail("unexpected short write in copy range of file {}", .{path});
         return;
     }
 
-    for (positionals.items) |obj| {
-        macho_file.parsePositional(obj.path, obj.must_link) catch |err| switch (err) {
-            error.MalformedObject,
-            error.MalformedArchive,
-            error.InvalidCpuArch,
-            error.InvalidTarget,
-            => continue, // already reported
-            error.UnknownFileType => try macho_file.reportParseError(obj.path, "unknown file type for an object file", .{}),
-            else => |e| try macho_file.reportParseError(
-                obj.path,
-                "unexpected error: parsing input file failed with error {s}",
-                .{@errorName(e)},
-            ),
-        };
+    for (positionals.items) |link_input| {
+        macho_file.classifyInputFile(link_input) catch |err|
+            diags.addParseError(link_input.path().?, "failed to read input file: {s}", .{@errorName(err)});
     }
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (diags.hasErrors()) return error.LinkFailure;
 
-    try macho_file.addUndefinedGlobals();
+    try macho_file.parseInputFiles();
+
+    if (diags.hasErrors()) return error.LinkFailure;
+
     try macho_file.resolveSymbols();
+    macho_file.dedupLiterals() catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.LinkFailure => return error.LinkFailure,
+        else => |e| return diags.fail("failed to update ar size: {s}", .{@errorName(e)}),
+    };
     markExports(macho_file);
     claimUnresolved(macho_file);
     try initOutputSections(macho_file);
@@ -54,31 +55,19 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]c
     try calcSectionSizes(macho_file);
 
     try createSegment(macho_file);
-    try allocateSections(macho_file);
-    allocateSegment(macho_file);
-
-    var off = off: {
-        const seg = macho_file.segments.items[0];
-        const off = math.cast(u32, seg.fileoff + seg.filesize) orelse return error.Overflow;
-        break :off mem.alignForward(u32, off, @alignOf(macho.relocation_info));
+    allocateSections(macho_file) catch |err| switch (err) {
+        error.LinkFailure => return error.LinkFailure,
+        else => |e| return diags.fail("failed to allocate sections: {s}", .{@errorName(e)}),
     };
-    off = allocateSectionsRelocs(macho_file, off);
+    allocateSegment(macho_file);
 
     if (build_options.enable_logging) {
         state_log.debug("{}", .{macho_file.dumpState()});
     }
 
-    try macho_file.calcSymtabSize();
-    try writeAtoms(macho_file);
-    try writeCompactUnwind(macho_file);
-    try writeEhFrame(macho_file);
-
-    off = mem.alignForward(u32, off, @alignOf(u64));
-    off = try macho_file.writeDataInCode(0, off);
-    off = mem.alignForward(u32, off, @alignOf(u64));
-    off = try macho_file.writeSymtab(off);
-    off = mem.alignForward(u32, off, @alignOf(u64));
-    off = try macho_file.writeStrtab(off);
+    try writeSections(macho_file);
+    sortRelocs(macho_file);
+    try writeSectionsToFile(macho_file);
 
     // In order to please Apple ld (and possibly other MachO linkers in the wild),
     // we will now sanitize segment names of Zig-specific segments.
@@ -88,75 +77,57 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]c
     try writeHeader(macho_file, ncmds, sizeofcmds);
 }
 
-pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?[]const u8) link.File.FlushError!void {
+pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Path) link.File.FlushError!void {
     const gpa = comp.gpa;
+    const diags = &macho_file.base.comp.link_diags;
 
-    var positionals = std.ArrayList(Compilation.LinkObject).init(gpa);
+    var positionals = std.ArrayList(link.Input).init(gpa);
     defer positionals.deinit();
 
-    try positionals.ensureUnusedCapacity(comp.objects.len);
-    positionals.appendSliceAssumeCapacity(comp.objects);
+    try positionals.ensureUnusedCapacity(comp.link_inputs.len);
+    positionals.appendSliceAssumeCapacity(comp.link_inputs);
 
     for (comp.c_object_table.keys()) |key| {
-        try positionals.append(.{ .path = key.status.success.object_path });
+        try positionals.append(try link.openObjectInput(diags, key.status.success.object_path));
     }
 
-    if (module_obj_path) |path| try positionals.append(.{ .path = path });
+    if (module_obj_path) |path| try positionals.append(try link.openObjectInput(diags, path));
 
     if (comp.include_compiler_rt) {
-        try positionals.append(.{ .path = comp.compiler_rt_obj.?.full_object_path });
+        try positionals.append(try link.openObjectInput(diags, comp.compiler_rt_obj.?.full_object_path));
     }
 
-    for (positionals.items) |obj| {
-        parsePositional(macho_file, obj.path) catch |err| switch (err) {
-            error.MalformedObject,
-            error.MalformedArchive,
-            error.InvalidCpuArch,
-            error.InvalidTarget,
-            => continue, // already reported
-            error.UnknownFileType => try macho_file.reportParseError(obj.path, "unknown file type for an object file", .{}),
-            else => |e| try macho_file.reportParseError(
-                obj.path,
-                "unexpected error: parsing input file failed with error {s}",
-                .{@errorName(e)},
-            ),
-        };
+    for (positionals.items) |link_input| {
+        macho_file.classifyInputFile(link_input) catch |err|
+            diags.addParseError(link_input.path().?, "failed to read input file: {s}", .{@errorName(err)});
     }
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (diags.hasErrors()) return error.LinkFailure;
+
+    try parseInputFilesAr(macho_file);
+
+    if (diags.hasErrors()) return error.LinkFailure;
 
     // First, we flush relocatable object file generated with our backends.
     if (macho_file.getZigObject()) |zo| {
-        zo.resolveSymbols(macho_file);
+        try zo.resolveSymbols(macho_file);
         zo.asFile().markExportsRelocatable(macho_file);
         zo.asFile().claimUnresolvedRelocatable(macho_file);
         try macho_file.sortSections();
         try macho_file.addAtomsToSections();
         try calcSectionSizes(macho_file);
         try createSegment(macho_file);
-        try allocateSections(macho_file);
+        allocateSections(macho_file) catch |err|
+            return diags.fail("failed to allocate sections: {s}", .{@errorName(err)});
         allocateSegment(macho_file);
-
-        var off = off: {
-            const seg = macho_file.segments.items[0];
-            const off = math.cast(u32, seg.fileoff + seg.filesize) orelse return error.Overflow;
-            break :off mem.alignForward(u32, off, @alignOf(macho.relocation_info));
-        };
-        off = allocateSectionsRelocs(macho_file, off);
 
         if (build_options.enable_logging) {
             state_log.debug("{}", .{macho_file.dumpState()});
         }
 
-        try macho_file.calcSymtabSize();
-        try writeAtoms(macho_file);
-
-        off = mem.alignForward(u32, off, @alignOf(u64));
-        off = try macho_file.writeDataInCode(0, off);
-        off = mem.alignForward(u32, off, @alignOf(u64));
-        off = try macho_file.writeSymtab(off);
-        off = mem.alignForward(u32, off, @alignOf(u64));
-        off = try macho_file.writeStrtab(off);
+        try writeSections(macho_file);
+        sortRelocs(macho_file);
+        try writeSectionsToFile(macho_file);
 
         // In order to please Apple ld (and possibly other MachO linkers in the wild),
         // we will now sanitize segment names of Zig-specific segments.
@@ -165,9 +136,7 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
         const ncmds, const sizeofcmds = try writeLoadCommands(macho_file);
         try writeHeader(macho_file, ncmds, sizeofcmds);
 
-        // TODO we can avoid reading in the file contents we just wrote if we give the linker
-        // ability to write directly to a buffer.
-        try zo.readFileContents(off, macho_file);
+        try zo.readFileContents(macho_file);
     }
 
     var files = std.ArrayList(File.Index).init(gpa);
@@ -191,7 +160,8 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
 
     // Update sizes of contributing objects
     for (files.items) |index| {
-        try macho_file.getFile(index).?.updateArSize(macho_file);
+        macho_file.getFile(index).?.updateArSize(macho_file) catch |err|
+            return diags.fail("failed to update ar size: {s}", .{@errorName(err)});
     }
 
     // Update file offsets of contributing objects
@@ -203,21 +173,25 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
 
         for (files.items) |index| {
             const file = macho_file.getFile(index).?;
-            const state = switch (file) {
-                .zig_object => |x| &x.output_ar_state,
-                .object => |x| &x.output_ar_state,
+            switch (file) {
+                .zig_object => |zo| {
+                    const state = &zo.output_ar_state;
+                    pos = mem.alignForward(usize, pos, 2);
+                    state.file_off = pos;
+                    pos += @sizeOf(Archive.ar_hdr);
+                    pos += mem.alignForward(usize, zo.basename.len + 1, ptr_width);
+                    pos += try macho_file.cast(usize, state.size);
+                },
+                .object => |o| {
+                    const state = &o.output_ar_state;
+                    pos = mem.alignForward(usize, pos, 2);
+                    state.file_off = pos;
+                    pos += @sizeOf(Archive.ar_hdr);
+                    pos += mem.alignForward(usize, o.path.basename().len + 1, ptr_width);
+                    pos += try macho_file.cast(usize, state.size);
+                },
                 else => unreachable,
-            };
-            const path = switch (file) {
-                .zig_object => |x| x.path,
-                .object => |x| x.path,
-                else => unreachable,
-            };
-            pos = mem.alignForward(usize, pos, 2);
-            state.file_off = pos;
-            pos += @sizeOf(Archive.ar_hdr);
-            pos += mem.alignForward(usize, path.len + 1, ptr_width);
-            pos += math.cast(usize, state.size) orelse return error.Overflow;
+            }
         }
 
         break :blk pos;
@@ -236,7 +210,10 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
     try writer.writeAll(Archive.ARMAG);
 
     // Write symtab
-    try ar_symtab.write(format, macho_file, writer);
+    ar_symtab.write(format, macho_file, writer) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => |e| return diags.fail("failed to write archive symbol table: {s}", .{@errorName(e)}),
+    };
 
     // Write object files
     for (files.items) |index| {
@@ -245,84 +222,28 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
         if (padding > 0) {
             try writer.writeByteNTimes(0, padding);
         }
-        try macho_file.getFile(index).?.writeAr(format, macho_file, writer);
+        macho_file.getFile(index).?.writeAr(format, macho_file, writer) catch |err|
+            return diags.fail("failed to write archive: {s}", .{@errorName(err)});
     }
 
     assert(buffer.items.len == total_size);
 
-    try macho_file.base.file.?.setEndPos(total_size);
-    try macho_file.base.file.?.pwriteAll(buffer.items, 0);
+    try macho_file.setEndPos(total_size);
+    try macho_file.pwriteAll(buffer.items, 0);
 
-    if (comp.link_errors.items.len > 0) return error.FlushFailure;
+    if (diags.hasErrors()) return error.LinkFailure;
 }
 
-fn parsePositional(macho_file: *MachO, path: []const u8) MachO.ParseError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-    if (try Object.isObject(path)) {
-        try parseObject(macho_file, path);
-    } else if (try fat.isFatLibrary(path)) {
-        const fat_arch = try macho_file.parseFatLibrary(path);
-        if (try Archive.isArchive(path, fat_arch)) {
-            try parseArchive(macho_file, path, fat_arch);
-        } else return error.UnknownFileType;
-    } else if (try Archive.isArchive(path, null)) {
-        try parseArchive(macho_file, path, null);
-    } else return error.UnknownFileType;
-}
-
-fn parseObject(macho_file: *MachO, path: []const u8) MachO.ParseError!void {
+fn parseInputFilesAr(macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const gpa = macho_file.base.comp.gpa;
-    const file = try std.fs.cwd().openFile(path, .{});
-    errdefer file.close();
-    const handle = try macho_file.addFileHandle(file);
-    const mtime: u64 = mtime: {
-        const stat = file.stat() catch break :mtime 0;
-        break :mtime @as(u64, @intCast(@divFloor(stat.mtime, 1_000_000_000)));
-    };
-    const index = @as(File.Index, @intCast(try macho_file.files.addOne(gpa)));
-    macho_file.files.set(index, .{ .object = .{
-        .path = try gpa.dupe(u8, path),
-        .file_handle = handle,
-        .mtime = mtime,
-        .index = index,
-    } });
-    try macho_file.objects.append(gpa, index);
-
-    const object = macho_file.getFile(index).?.object;
-    try object.parseAr(macho_file);
-}
-
-fn parseArchive(macho_file: *MachO, path: []const u8, fat_arch: ?fat.Arch) MachO.ParseError!void {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const gpa = macho_file.base.comp.gpa;
-
-    const file = try std.fs.cwd().openFile(path, .{});
-    errdefer file.close();
-    const handle = try macho_file.addFileHandle(file);
-
-    var archive = Archive{};
-    defer archive.deinit(gpa);
-    try archive.parse(macho_file, path, handle, fat_arch);
-
-    var has_parse_error = false;
-    for (archive.objects.items) |extracted| {
-        const index = @as(File.Index, @intCast(try macho_file.files.addOne(gpa)));
-        macho_file.files.set(index, .{ .object = extracted });
-        const object = &macho_file.files.items(.data)[index].object;
-        object.index = index;
-        object.parseAr(macho_file) catch |err| switch (err) {
-            error.InvalidCpuArch => has_parse_error = true,
-            else => |e| return e,
+    for (macho_file.objects.items) |index| {
+        macho_file.getFile(index).?.parseAr(macho_file) catch |err| switch (err) {
+            error.InvalidMachineType => {}, // already reported
+            else => |e| try macho_file.reportParseError2(index, "unexpected error: parsing input file failed with error {s}", .{@errorName(e)}),
         };
-        try macho_file.objects.append(gpa, index);
     }
-    if (has_parse_error) return error.MalformedArchive;
 }
 
 fn markExports(macho_file: *MachO) void {
@@ -345,10 +266,10 @@ pub fn claimUnresolved(macho_file: *MachO) void {
 
 fn initOutputSections(macho_file: *MachO) !void {
     for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
-        for (object.atoms.items) |atom_index| {
-            const atom = macho_file.getAtom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
+        const file = macho_file.getFile(index).?;
+        for (file.getAtoms()) |atom_index| {
+            const atom = file.getAtom(atom_index) orelse continue;
+            if (!atom.isAlive()) continue;
             atom.out_n_sect = try Atom.initOutputSection(atom.getInputSection(macho_file), macho_file);
         }
     }
@@ -375,67 +296,168 @@ fn calcSectionSizes(macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    const slice = macho_file.sections.slice();
-    for (slice.items(.header), slice.items(.atoms)) |*header, atoms| {
-        if (atoms.items.len == 0) continue;
-        for (atoms.items) |atom_index| {
-            const atom = macho_file.getAtom(atom_index).?;
-            const atom_alignment = atom.alignment.toByteUnits() orelse 1;
-            const offset = mem.alignForward(u64, header.size, atom_alignment);
-            const padding = offset - header.size;
-            atom.value = offset;
-            header.size += padding + atom.size;
-            header.@"align" = @max(header.@"align", atom.alignment.toLog2Units());
-            header.nreloc += atom.calcNumRelocs(macho_file);
-        }
-    }
-
-    if (macho_file.unwind_info_sect_index) |index| {
-        calcCompactUnwindSize(macho_file, index);
-    }
-
-    if (macho_file.eh_frame_sect_index) |index| {
-        const sect = &macho_file.sections.items(.header)[index];
-        sect.size = try eh_frame.calcSize(macho_file);
-        sect.@"align" = 3;
-        sect.nreloc = eh_frame.calcNumRelocs(macho_file);
-    }
+    const diags = &macho_file.base.comp.link_diags;
 
     if (macho_file.getZigObject()) |zo| {
-        for (zo.atoms.items) |atom_index| {
-            const atom = macho_file.getAtom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
-            const header = &macho_file.sections.items(.header)[atom.out_n_sect];
-            if (!macho_file.isZigSection(atom.out_n_sect) and !macho_file.isDebugSection(atom.out_n_sect)) continue;
-            header.nreloc += atom.calcNumRelocs(macho_file);
+        // TODO this will create a race as we need to track merging of debug sections which we currently don't
+        zo.calcNumRelocs(macho_file);
+    }
+
+    {
+        for (macho_file.sections.items(.atoms), 0..) |atoms, i| {
+            if (atoms.items.len == 0) continue;
+            calcSectionSizeWorker(macho_file, @as(u8, @intCast(i)));
         }
+
+        if (macho_file.eh_frame_sect_index) |_| {
+            calcEhFrameSizeWorker(macho_file);
+        }
+
+        if (macho_file.unwind_info_sect_index) |_| {
+            for (macho_file.objects.items) |index| {
+                Object.calcCompactUnwindSizeRelocatable(
+                    macho_file.getFile(index).?.object,
+                    macho_file,
+                );
+            }
+        }
+
+        for (macho_file.objects.items) |index| {
+            File.calcSymtabSize(macho_file.getFile(index).?, macho_file);
+        }
+        if (macho_file.getZigObject()) |zo| {
+            File.calcSymtabSize(zo.asFile(), macho_file);
+        }
+
+        MachO.updateLinkeditSizeWorker(macho_file, .data_in_code);
+    }
+
+    if (macho_file.unwind_info_sect_index) |_| {
+        calcCompactUnwindSize(macho_file);
+    }
+    try calcSymtabSize(macho_file);
+
+    if (diags.hasErrors()) return error.LinkFailure;
+}
+
+fn calcSectionSizeWorker(macho_file: *MachO, sect_id: u8) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const slice = macho_file.sections.slice();
+    const header = &slice.items(.header)[sect_id];
+    const atoms = slice.items(.atoms)[sect_id].items;
+    for (atoms) |ref| {
+        const atom = ref.getAtom(macho_file).?;
+        const atom_alignment = atom.alignment.toByteUnits() orelse 1;
+        const offset = mem.alignForward(u64, header.size, atom_alignment);
+        const padding = offset - header.size;
+        atom.value = offset;
+        header.size += padding + atom.size;
+        header.@"align" = @max(header.@"align", atom.alignment.toLog2Units());
+        const nreloc = atom.calcNumRelocs(macho_file);
+        atom.addExtra(.{ .rel_out_index = header.nreloc, .rel_out_count = nreloc }, macho_file);
+        header.nreloc += nreloc;
     }
 }
 
-fn calcCompactUnwindSize(macho_file: *MachO, sect_index: u8) void {
-    var size: u32 = 0;
+fn calcEhFrameSizeWorker(macho_file: *MachO) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const diags = &macho_file.base.comp.link_diags;
+
+    const doWork = struct {
+        fn doWork(mfile: *MachO, header: *macho.section_64) !void {
+            header.size = try eh_frame.calcSize(mfile);
+            header.@"align" = 3;
+            header.nreloc = eh_frame.calcNumRelocs(mfile);
+        }
+    }.doWork;
+
+    const header = &macho_file.sections.items(.header)[macho_file.eh_frame_sect_index.?];
+    doWork(macho_file, header) catch |err|
+        diags.addError("failed to calculate size of section '__TEXT,__eh_frame': {s}", .{@errorName(err)});
+}
+
+fn calcCompactUnwindSize(macho_file: *MachO) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    var nrec: u32 = 0;
     var nreloc: u32 = 0;
 
     for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
-        for (object.unwind_records.items) |irec| {
-            const rec = macho_file.getUnwindRecord(irec);
-            if (!rec.alive) continue;
-            size += @sizeOf(macho.compact_unwind_entry);
-            nreloc += 1;
-            if (rec.getPersonality(macho_file)) |_| {
-                nreloc += 1;
-            }
-            if (rec.getLsdaAtom(macho_file)) |_| {
-                nreloc += 1;
-            }
-        }
+        const ctx = &macho_file.getFile(index).?.object.compact_unwind_ctx;
+        ctx.rec_index = nrec;
+        ctx.reloc_index = nreloc;
+        nrec += ctx.rec_count;
+        nreloc += ctx.reloc_count;
     }
 
-    const sect = &macho_file.sections.items(.header)[sect_index];
-    sect.size = size;
+    const sect = &macho_file.sections.items(.header)[macho_file.unwind_info_sect_index.?];
+    sect.size = nrec * @sizeOf(macho.compact_unwind_entry);
     sect.nreloc = nreloc;
     sect.@"align" = 3;
+}
+
+fn calcSymtabSize(macho_file: *MachO) error{OutOfMemory}!void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const gpa = macho_file.base.comp.gpa;
+
+    var nlocals: u32 = 0;
+    var nstabs: u32 = 0;
+    var nexports: u32 = 0;
+    var nimports: u32 = 0;
+    var strsize: u32 = 1;
+
+    var objects = try std.ArrayList(File.Index).initCapacity(gpa, macho_file.objects.items.len + 1);
+    defer objects.deinit();
+    if (macho_file.getZigObject()) |zo| objects.appendAssumeCapacity(zo.index);
+    objects.appendSliceAssumeCapacity(macho_file.objects.items);
+
+    for (objects.items) |index| {
+        const ctx = switch (macho_file.getFile(index).?) {
+            inline else => |x| &x.output_symtab_ctx,
+        };
+        ctx.ilocal = nlocals;
+        ctx.istab = nstabs;
+        ctx.iexport = nexports;
+        ctx.iimport = nimports;
+        ctx.stroff = strsize;
+        nlocals += ctx.nlocals;
+        nstabs += ctx.nstabs;
+        nexports += ctx.nexports;
+        nimports += ctx.nimports;
+        strsize += ctx.strsize;
+    }
+
+    for (objects.items) |index| {
+        const ctx = switch (macho_file.getFile(index).?) {
+            inline else => |x| &x.output_symtab_ctx,
+        };
+        ctx.istab += nlocals;
+        ctx.iexport += nlocals + nstabs;
+        ctx.iimport += nlocals + nstabs + nexports;
+    }
+
+    {
+        const cmd = &macho_file.symtab_cmd;
+        cmd.nsyms = nlocals + nstabs + nexports + nimports;
+        cmd.strsize = strsize;
+    }
+
+    {
+        const cmd = &macho_file.dysymtab_cmd;
+        cmd.ilocalsym = 0;
+        cmd.nlocalsym = nlocals + nstabs;
+        cmd.iextdefsym = nlocals + nstabs;
+        cmd.nextdefsym = nexports;
+        cmd.iundefsym = nlocals + nstabs + nexports;
+        cmd.nundefsym = nimports;
+    }
 }
 
 fn allocateSections(macho_file: *MachO) !void {
@@ -443,17 +465,47 @@ fn allocateSections(macho_file: *MachO) !void {
     for (slice.items(.header)) |*header| {
         const needed_size = header.size;
         header.size = 0;
-        const alignment = try math.powi(u32, 2, header.@"align");
+        const alignment = try macho_file.alignPow(header.@"align");
         if (!header.isZerofill()) {
             if (needed_size > macho_file.allocatedSize(header.offset)) {
-                header.offset = math.cast(u32, macho_file.findFreeSpace(needed_size, alignment)) orelse
-                    return error.Overflow;
+                header.offset = try macho_file.cast(u32, try macho_file.findFreeSpace(needed_size, alignment));
             }
         }
         if (needed_size > macho_file.allocatedSizeVirtual(header.addr)) {
             header.addr = macho_file.findFreeSpaceVirtual(needed_size, alignment);
         }
         header.size = needed_size;
+    }
+
+    var fileoff: u32 = 0;
+    for (slice.items(.header)) |header| {
+        fileoff = @max(fileoff, header.offset + @as(u32, @intCast(header.size)));
+    }
+
+    for (slice.items(.header)) |*header| {
+        if (header.nreloc == 0) continue;
+        header.reloff = mem.alignForward(u32, fileoff, @alignOf(macho.relocation_info));
+        fileoff = header.reloff + header.nreloc * @sizeOf(macho.relocation_info);
+    }
+
+    // In -r mode, there is no LINKEDIT segment and so we allocate required LINKEDIT commands
+    // as if they were detached or part of the single segment.
+
+    // DATA_IN_CODE
+    {
+        const cmd = &macho_file.data_in_code_cmd;
+        cmd.dataoff = fileoff;
+        fileoff += cmd.datasize;
+        fileoff = mem.alignForward(u32, fileoff, @alignOf(u64));
+    }
+
+    // SYMTAB
+    {
+        const cmd = &macho_file.symtab_cmd;
+        cmd.symoff = fileoff;
+        fileoff += cmd.nsyms * @sizeOf(macho.nlist_64);
+        fileoff = mem.alignForward(u32, fileoff, @alignOf(u32));
+        cmd.stroff = fileoff;
     }
 }
 
@@ -517,231 +569,121 @@ fn allocateSegment(macho_file: *MachO) void {
     seg.filesize = fileoff - seg.fileoff;
 }
 
-fn allocateSectionsRelocs(macho_file: *MachO, off: u32) u32 {
-    var fileoff = off;
-    const slice = macho_file.sections.slice();
-    for (slice.items(.header)) |*header| {
-        if (header.nreloc == 0) continue;
-        header.reloff = mem.alignForward(u32, fileoff, @alignOf(macho.relocation_info));
-        fileoff = header.reloff + header.nreloc * @sizeOf(macho.relocation_info);
-    }
-    return fileoff;
-}
-
 // We need to sort relocations in descending order to be compatible with Apple's linker.
 fn sortReloc(ctx: void, lhs: macho.relocation_info, rhs: macho.relocation_info) bool {
     _ = ctx;
     return lhs.r_address > rhs.r_address;
 }
 
-fn writeAtoms(macho_file: *MachO) !void {
+fn sortRelocs(macho_file: *MachO) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    for (macho_file.sections.items(.relocs)) |*relocs| {
+        mem.sort(macho.relocation_info, relocs.items, {}, sortReloc);
+    }
+}
+
+fn writeSections(macho_file: *MachO) link.File.FlushError!void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const gpa = macho_file.base.comp.gpa;
+    const diags = &macho_file.base.comp.link_diags;
     const cpu_arch = macho_file.getTarget().cpu.arch;
     const slice = macho_file.sections.slice();
-
-    for (slice.items(.header), slice.items(.atoms), 0..) |header, atoms, i| {
-        if (atoms.items.len == 0) continue;
+    for (slice.items(.header), slice.items(.out), slice.items(.relocs), 0..) |header, *out, *relocs, n_sect| {
         if (header.isZerofill()) continue;
-        if (macho_file.isZigSection(@intCast(i)) or macho_file.isDebugSection(@intCast(i))) continue;
+        if (!macho_file.isZigSection(@intCast(n_sect))) { // TODO this is wrong; what about debug sections?
+            const size = try macho_file.cast(usize, header.size);
+            try out.resize(gpa, size);
+            const padding_byte: u8 = if (header.isCode() and cpu_arch == .x86_64) 0xcc else 0;
+            @memset(out.items, padding_byte);
+        }
+        try relocs.resize(gpa, header.nreloc);
+    }
 
-        const size = math.cast(usize, header.size) orelse return error.Overflow;
-        const code = try gpa.alloc(u8, size);
-        defer gpa.free(code);
-        const padding_byte: u8 = if (header.isCode() and cpu_arch == .x86_64) 0xcc else 0;
-        @memset(code, padding_byte);
+    const cmd = macho_file.symtab_cmd;
+    try macho_file.symtab.resize(gpa, cmd.nsyms);
+    try macho_file.strtab.resize(gpa, cmd.strsize);
+    macho_file.strtab.items[0] = 0;
 
-        var relocs = try std.ArrayList(macho.relocation_info).initCapacity(gpa, header.nreloc);
-        defer relocs.deinit();
-
-        for (atoms.items) |atom_index| {
-            const atom = macho_file.getAtom(atom_index).?;
-            assert(atom.flags.alive);
-            const off = math.cast(usize, atom.value) orelse return error.Overflow;
-            const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
-            try atom.getData(macho_file, code[off..][0..atom_size]);
-            try atom.writeRelocs(macho_file, code[off..][0..atom_size], &relocs);
+    {
+        for (macho_file.objects.items) |index| {
+            writeAtomsWorker(macho_file, macho_file.getFile(index).?);
+            File.writeSymtab(macho_file.getFile(index).?, macho_file, macho_file);
         }
 
-        assert(relocs.items.len == header.nreloc);
+        if (macho_file.getZigObject()) |zo| {
+            writeAtomsWorker(macho_file, zo.asFile());
+            File.writeSymtab(zo.asFile(), macho_file, macho_file);
+        }
 
-        mem.sort(macho.relocation_info, relocs.items, {}, sortReloc);
+        if (macho_file.eh_frame_sect_index) |_| {
+            writeEhFrameWorker(macho_file);
+        }
 
-        // TODO scattered writes?
-        try macho_file.base.file.?.pwriteAll(code, header.offset);
-        try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), header.reloff);
+        if (macho_file.unwind_info_sect_index) |_| {
+            for (macho_file.objects.items) |index| {
+                writeCompactUnwindWorker(macho_file, macho_file.getFile(index).?.object);
+            }
+        }
     }
+
+    if (diags.hasErrors()) return error.LinkFailure;
 
     if (macho_file.getZigObject()) |zo| {
-        // TODO: this is ugly; perhaps we should aggregrate before?
-        var relocs = std.AutoArrayHashMap(u8, std.ArrayList(macho.relocation_info)).init(gpa);
-        defer {
-            for (relocs.values()) |*list| {
-                list.deinit();
-            }
-            relocs.deinit();
-        }
-
-        for (macho_file.sections.items(.header), 0..) |header, n_sect| {
-            if (header.isZerofill()) continue;
-            if (!macho_file.isZigSection(@intCast(n_sect)) and !macho_file.isDebugSection(@intCast(n_sect))) continue;
-            const gop = try relocs.getOrPut(@intCast(n_sect));
-            if (gop.found_existing) continue;
-            gop.value_ptr.* = try std.ArrayList(macho.relocation_info).initCapacity(gpa, header.nreloc);
-        }
-
-        for (zo.atoms.items) |atom_index| {
-            const atom = macho_file.getAtom(atom_index) orelse continue;
-            if (!atom.flags.alive) continue;
-            const header = macho_file.sections.items(.header)[atom.out_n_sect];
-            if (header.isZerofill()) continue;
-            if (!macho_file.isZigSection(atom.out_n_sect) and !macho_file.isDebugSection(atom.out_n_sect)) continue;
-            if (atom.getRelocs(macho_file).len == 0) continue;
-            const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
-            const code = try gpa.alloc(u8, atom_size);
-            defer gpa.free(code);
-            atom.getData(macho_file, code) catch |err| switch (err) {
-                error.InputOutput => {
-                    try macho_file.reportUnexpectedError("fetching code for '{s}' failed", .{
-                        atom.getName(macho_file),
-                    });
-                    return error.FlushFailure;
-                },
-                else => |e| {
-                    try macho_file.reportUnexpectedError("unexpected error while fetching code for '{s}': {s}", .{
-                        atom.getName(macho_file),
-                        @errorName(e),
-                    });
-                    return error.FlushFailure;
-                },
-            };
-            const file_offset = header.offset + atom.value;
-            const rels = relocs.getPtr(atom.out_n_sect).?;
-            try atom.writeRelocs(macho_file, code, rels);
-            try macho_file.base.file.?.pwriteAll(code, file_offset);
-        }
-
-        for (relocs.keys(), relocs.values()) |sect_id, rels| {
-            const header = macho_file.sections.items(.header)[sect_id];
-            assert(rels.items.len == header.nreloc);
-            mem.sort(macho.relocation_info, rels.items, {}, sortReloc);
-            try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(rels.items), header.reloff);
-        }
+        try zo.writeRelocs(macho_file);
     }
 }
 
-fn writeCompactUnwind(macho_file: *MachO) !void {
-    const sect_index = macho_file.unwind_info_sect_index orelse return;
-    const gpa = macho_file.base.comp.gpa;
-    const header = macho_file.sections.items(.header)[sect_index];
+fn writeAtomsWorker(macho_file: *MachO, file: File) void {
+    const tracy = trace(@src());
+    defer tracy.end();
+    file.writeAtomsRelocatable(macho_file) catch |err| {
+        macho_file.reportParseError2(file.getIndex(), "failed to write atoms: {s}", .{
+            @errorName(err),
+        }) catch {};
+    };
+}
 
-    const nrecs = math.cast(usize, @divExact(header.size, @sizeOf(macho.compact_unwind_entry))) orelse return error.Overflow;
-    var entries = try std.ArrayList(macho.compact_unwind_entry).initCapacity(gpa, nrecs);
-    defer entries.deinit();
+fn writeEhFrameWorker(macho_file: *MachO) void {
+    const tracy = trace(@src());
+    defer tracy.end();
 
-    var relocs = try std.ArrayList(macho.relocation_info).initCapacity(gpa, header.nreloc);
-    defer relocs.deinit();
+    const diags = &macho_file.base.comp.link_diags;
+    const sect_index = macho_file.eh_frame_sect_index.?;
+    const buffer = macho_file.sections.items(.out)[sect_index];
+    const relocs = macho_file.sections.items(.relocs)[sect_index];
+    eh_frame.writeRelocs(macho_file, buffer.items, relocs.items) catch |err|
+        diags.addError("failed to write '__LD,__eh_frame' section: {s}", .{@errorName(err)});
+}
 
-    const addReloc = struct {
-        fn addReloc(offset: i32, cpu_arch: std.Target.Cpu.Arch) macho.relocation_info {
-            return .{
-                .r_address = offset,
-                .r_symbolnum = 0,
-                .r_pcrel = 0,
-                .r_length = 3,
-                .r_extern = 0,
-                .r_type = switch (cpu_arch) {
-                    .aarch64 => @intFromEnum(macho.reloc_type_arm64.ARM64_RELOC_UNSIGNED),
-                    .x86_64 => @intFromEnum(macho.reloc_type_x86_64.X86_64_RELOC_UNSIGNED),
-                    else => unreachable,
-                },
-            };
-        }
-    }.addReloc;
+fn writeCompactUnwindWorker(macho_file: *MachO, object: *Object) void {
+    const tracy = trace(@src());
+    defer tracy.end();
 
-    var offset: i32 = 0;
-    for (macho_file.objects.items) |index| {
-        const object = macho_file.getFile(index).?.object;
-        for (object.unwind_records.items) |irec| {
-            const rec = macho_file.getUnwindRecord(irec);
-            if (!rec.alive) continue;
+    const diags = &macho_file.base.comp.link_diags;
+    object.writeCompactUnwindRelocatable(macho_file) catch |err|
+        diags.addError("failed to write '__LD,__eh_frame' section: {s}", .{@errorName(err)});
+}
 
-            var out: macho.compact_unwind_entry = .{
-                .rangeStart = 0,
-                .rangeLength = rec.length,
-                .compactUnwindEncoding = rec.enc.enc,
-                .personalityFunction = 0,
-                .lsda = 0,
-            };
+fn writeSectionsToFile(macho_file: *MachO) !void {
+    const tracy = trace(@src());
+    defer tracy.end();
 
-            {
-                // Function address
-                const atom = rec.getAtom(macho_file);
-                const addr = rec.getAtomAddress(macho_file);
-                out.rangeStart = addr;
-                var reloc = addReloc(offset, macho_file.getTarget().cpu.arch);
-                reloc.r_symbolnum = atom.out_n_sect + 1;
-                relocs.appendAssumeCapacity(reloc);
-            }
-
-            // Personality function
-            if (rec.getPersonality(macho_file)) |sym| {
-                const r_symbolnum = math.cast(u24, sym.getOutputSymtabIndex(macho_file).?) orelse return error.Overflow;
-                var reloc = addReloc(offset + 16, macho_file.getTarget().cpu.arch);
-                reloc.r_symbolnum = r_symbolnum;
-                reloc.r_extern = 1;
-                relocs.appendAssumeCapacity(reloc);
-            }
-
-            // LSDA address
-            if (rec.getLsdaAtom(macho_file)) |atom| {
-                const addr = rec.getLsdaAddress(macho_file);
-                out.lsda = addr;
-                var reloc = addReloc(offset + 24, macho_file.getTarget().cpu.arch);
-                reloc.r_symbolnum = atom.out_n_sect + 1;
-                relocs.appendAssumeCapacity(reloc);
-            }
-
-            entries.appendAssumeCapacity(out);
-            offset += @sizeOf(macho.compact_unwind_entry);
-        }
+    const slice = macho_file.sections.slice();
+    for (slice.items(.header), slice.items(.out), slice.items(.relocs)) |header, out, relocs| {
+        try macho_file.pwriteAll(out.items, header.offset);
+        try macho_file.pwriteAll(mem.sliceAsBytes(relocs.items), header.reloff);
     }
 
-    assert(entries.items.len == nrecs);
-    assert(relocs.items.len == header.nreloc);
-
-    mem.sort(macho.relocation_info, relocs.items, {}, sortReloc);
-
-    // TODO scattered writes?
-    try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(entries.items), header.offset);
-    try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), header.reloff);
+    try macho_file.writeDataInCode();
+    try macho_file.pwriteAll(mem.sliceAsBytes(macho_file.symtab.items), macho_file.symtab_cmd.symoff);
+    try macho_file.pwriteAll(macho_file.strtab.items, macho_file.symtab_cmd.stroff);
 }
 
-fn writeEhFrame(macho_file: *MachO) !void {
-    const sect_index = macho_file.eh_frame_sect_index orelse return;
-    const gpa = macho_file.base.comp.gpa;
-    const header = macho_file.sections.items(.header)[sect_index];
-    const size = math.cast(usize, header.size) orelse return error.Overflow;
-
-    const code = try gpa.alloc(u8, size);
-    defer gpa.free(code);
-
-    var relocs = try std.ArrayList(macho.relocation_info).initCapacity(gpa, header.nreloc);
-    defer relocs.deinit();
-
-    try eh_frame.writeRelocs(macho_file, code, &relocs);
-    assert(relocs.items.len == header.nreloc);
-
-    mem.sort(macho.relocation_info, relocs.items, {}, sortReloc);
-
-    // TODO scattered writes?
-    try macho_file.base.file.?.pwriteAll(code, header.offset);
-    try macho_file.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), header.reloff);
-}
-
-fn writeLoadCommands(macho_file: *MachO) !struct { usize, usize } {
+fn writeLoadCommands(macho_file: *MachO) error{ LinkFailure, OutOfMemory }!struct { usize, usize } {
     const gpa = macho_file.base.comp.gpa;
     const needed_size = load_commands.calcLoadCommandsSizeObject(macho_file);
     const buffer = try gpa.alloc(u8, needed_size);
@@ -756,31 +698,45 @@ fn writeLoadCommands(macho_file: *MachO) !struct { usize, usize } {
     {
         assert(macho_file.segments.items.len == 1);
         const seg = macho_file.segments.items[0];
-        try writer.writeStruct(seg);
+        writer.writeStruct(seg) catch |err| switch (err) {
+            error.NoSpaceLeft => unreachable,
+        };
         for (macho_file.sections.items(.header)) |header| {
-            try writer.writeStruct(header);
+            writer.writeStruct(header) catch |err| switch (err) {
+                error.NoSpaceLeft => unreachable,
+            };
         }
         ncmds += 1;
     }
 
-    try writer.writeStruct(macho_file.data_in_code_cmd);
+    writer.writeStruct(macho_file.data_in_code_cmd) catch |err| switch (err) {
+        error.NoSpaceLeft => unreachable,
+    };
     ncmds += 1;
-    try writer.writeStruct(macho_file.symtab_cmd);
+    writer.writeStruct(macho_file.symtab_cmd) catch |err| switch (err) {
+        error.NoSpaceLeft => unreachable,
+    };
     ncmds += 1;
-    try writer.writeStruct(macho_file.dysymtab_cmd);
+    writer.writeStruct(macho_file.dysymtab_cmd) catch |err| switch (err) {
+        error.NoSpaceLeft => unreachable,
+    };
     ncmds += 1;
 
     if (macho_file.platform.isBuildVersionCompatible()) {
-        try load_commands.writeBuildVersionLC(macho_file.platform, macho_file.sdk_version, writer);
+        load_commands.writeBuildVersionLC(macho_file.platform, macho_file.sdk_version, writer) catch |err| switch (err) {
+            error.NoSpaceLeft => unreachable,
+        };
         ncmds += 1;
     } else {
-        try load_commands.writeVersionMinLC(macho_file.platform, macho_file.sdk_version, writer);
+        load_commands.writeVersionMinLC(macho_file.platform, macho_file.sdk_version, writer) catch |err| switch (err) {
+            error.NoSpaceLeft => unreachable,
+        };
         ncmds += 1;
     }
 
     assert(stream.pos == needed_size);
 
-    try macho_file.base.file.?.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
+    try macho_file.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
 
     return .{ ncmds, buffer.len };
 }
@@ -812,22 +768,18 @@ fn writeHeader(macho_file: *MachO, ncmds: usize, sizeofcmds: usize) !void {
     header.ncmds = @intCast(ncmds);
     header.sizeofcmds = @intCast(sizeofcmds);
 
-    try macho_file.base.file.?.pwriteAll(mem.asBytes(&header), 0);
+    try macho_file.pwriteAll(mem.asBytes(&header), 0);
 }
 
+const std = @import("std");
+const Path = std.Build.Cache.Path;
+const WaitGroup = std.Thread.WaitGroup;
 const assert = std.debug.assert;
-const build_options = @import("build_options");
-const eh_frame = @import("eh_frame.zig");
-const fat = @import("fat.zig");
-const link = @import("../../link.zig");
-const load_commands = @import("load_commands.zig");
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const state_log = std.log.scoped(.link_state);
-const std = @import("std");
-const trace = @import("../../tracy.zig").trace;
 
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");
@@ -836,3 +788,9 @@ const File = @import("file.zig").File;
 const MachO = @import("../MachO.zig");
 const Object = @import("Object.zig");
 const Symbol = @import("Symbol.zig");
+const build_options = @import("build_options");
+const eh_frame = @import("eh_frame.zig");
+const fat = @import("fat.zig");
+const link = @import("../../link.zig");
+const load_commands = @import("load_commands.zig");
+const trace = @import("../../tracy.zig").trace;

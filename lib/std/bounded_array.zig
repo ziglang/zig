@@ -39,16 +39,14 @@ pub fn BoundedArrayAligned(
 ) type {
     return struct {
         const Self = @This();
-        const Len = std.math.IntFittingRange(0, buffer_capacity);
-
         buffer: [buffer_capacity]T align(alignment) = undefined,
-        len: Len = 0,
+        len: usize = 0,
 
         /// Set the actual length of the slice.
         /// Returns error.Overflow if it exceeds the length of the backing array.
         pub fn init(len: usize) error{Overflow}!Self {
             if (len > buffer_capacity) return error.Overflow;
-            return Self{ .len = @intCast(len) };
+            return Self{ .len = len };
         }
 
         /// View the internal array as a slice whose size was previously set.
@@ -69,7 +67,12 @@ pub fn BoundedArrayAligned(
         /// Does not initialize added items if any.
         pub fn resize(self: *Self, len: usize) error{Overflow}!void {
             if (len > buffer_capacity) return error.Overflow;
-            self.len = @intCast(len);
+            self.len = len;
+        }
+
+        /// Remove all elements from the slice.
+        pub fn clear(self: *Self) void {
+            self.len = 0;
         }
 
         /// Copy the content of an existing slice.
@@ -116,8 +119,16 @@ pub fn BoundedArrayAligned(
         }
 
         /// Resize the slice, adding `n` new elements, which have `undefined` values.
-        /// The return value is a slice pointing to the uninitialized elements.
+        /// The return value is a pointer to the array of uninitialized elements.
         pub fn addManyAsArray(self: *Self, comptime n: usize) error{Overflow}!*align(alignment) [n]T {
+            const prev_len = self.len;
+            try self.resize(self.len + n);
+            return self.slice()[prev_len..][0..n];
+        }
+
+        /// Resize the slice, adding `n` new elements, which have `undefined` values.
+        /// The return value is a slice pointing to the uninitialized elements.
+        pub fn addManyAsSlice(self: *Self, n: usize) error{Overflow}![]align(alignment) T {
             const prev_len = self.len;
             try self.resize(self.len + n);
             return self.slice()[prev_len..][0..n];
@@ -165,7 +176,7 @@ pub fn BoundedArrayAligned(
         /// This operation is O(N).
         pub fn insertSlice(self: *Self, i: usize, items: []const T) error{Overflow}!void {
             try self.ensureUnusedCapacity(items.len);
-            self.len = @intCast(self.len + items.len);
+            self.len += items.len;
             mem.copyBackwards(T, self.slice()[i + items.len .. self.len], self.constSlice()[i .. self.len - items.len]);
             @memcpy(self.slice()[i..][0..items.len], items);
         }
@@ -195,7 +206,7 @@ pub fn BoundedArrayAligned(
                 for (self.constSlice()[after_range..], 0..) |item, i| {
                     self.slice()[after_subrange..][i] = item;
                 }
-                self.len = @intCast(self.len - len + new_items.len);
+                self.len -= len - new_items.len;
             }
         }
 
@@ -246,7 +257,7 @@ pub fn BoundedArrayAligned(
         /// enough to store the new items.
         pub fn appendSliceAssumeCapacity(self: *Self, items: []const T) void {
             const old_len = self.len;
-            self.len = @intCast(self.len + items.len);
+            self.len += items.len;
             @memcpy(self.slice()[old_len..][0..items.len], items);
         }
 
@@ -262,8 +273,8 @@ pub fn BoundedArrayAligned(
         /// Asserts the capacity is enough.
         pub fn appendNTimesAssumeCapacity(self: *Self, value: T, n: usize) void {
             const old_len = self.len;
-            assert(self.len + n <= buffer_capacity);
-            self.len = @intCast(self.len + n);
+            self.len += n;
+            assert(self.len <= buffer_capacity);
             @memset(self.slice()[old_len..self.len], value);
         }
 
@@ -382,23 +393,15 @@ test BoundedArray {
     try testing.expectEqual(swapped, 0xdd);
     try testing.expectEqual(a.get(0), 0xee);
 
+    const added_slice = try a.addManyAsSlice(3);
+    try testing.expectEqual(added_slice.len, 3);
+    try testing.expectEqual(a.len, 36);
+
     while (a.popOrNull()) |_| {}
     const w = a.writer();
     const s = "hello, this is a test string";
     try w.writeAll(s);
     try testing.expectEqualStrings(s, a.constSlice());
-}
-
-test "BoundedArray sizeOf" {
-    // Just sanity check size on one CPU
-    if (@import("builtin").cpu.arch != .x86_64)
-        return;
-
-    try testing.expectEqual(@sizeOf(BoundedArray(u8, 3)), 4);
-
-    // `len` is the minimum required size to hold the maximum capacity
-    try testing.expectEqual(@TypeOf(@as(BoundedArray(u8, 15), undefined).len), u4);
-    try testing.expectEqual(@TypeOf(@as(BoundedArray(u8, 16), undefined).len), u5);
 }
 
 test "BoundedArrayAligned" {

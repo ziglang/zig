@@ -13,9 +13,8 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :6:24: error: unable to evaluate comptime expression
 // :6:5: note: operation is runtime due to this operand
-// :4:17: note: called from here
+// :4:17: note: called at comptime from here
+// :4:17: note: initializer of container-level variable must be comptime-known

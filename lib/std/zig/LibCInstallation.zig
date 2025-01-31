@@ -86,14 +86,14 @@ pub fn parse(
         return error.ParseError;
     }
 
-    if (self.msvc_lib_dir == null and os_tag == .windows and target.abi == .msvc) {
+    if (self.msvc_lib_dir == null and os_tag == .windows and (target.abi == .msvc or target.abi == .itanium)) {
         log.err("msvc_lib_dir may not be empty for {s}-{s}", .{
             @tagName(os_tag),
             @tagName(target.abi),
         });
         return error.ParseError;
     }
-    if (self.kernel32_lib_dir == null and os_tag == .windows and target.abi == .msvc) {
+    if (self.kernel32_lib_dir == null and os_tag == .windows and (target.abi == .msvc or target.abi == .itanium)) {
         log.err("kernel32_lib_dir may not be empty for {s}-{s}", .{
             @tagName(os_tag),
             @tagName(target.abi),
@@ -182,18 +182,18 @@ pub fn findNative(args: FindNativeOptions) FindError!LibCInstallation {
         });
         return self;
     } else if (is_windows) {
-        var sdk = std.zig.WindowsSdk.find(args.allocator) catch |err| switch (err) {
+        const sdk = std.zig.WindowsSdk.find(args.allocator, args.target.cpu.arch) catch |err| switch (err) {
             error.NotFound => return error.WindowsSdkNotFound,
             error.PathTooLong => return error.WindowsSdkNotFound,
             error.OutOfMemory => return error.OutOfMemory,
         };
         defer sdk.free(args.allocator);
 
-        try self.findNativeMsvcIncludeDir(args, &sdk);
-        try self.findNativeMsvcLibDir(args, &sdk);
-        try self.findNativeKernel32LibDir(args, &sdk);
-        try self.findNativeIncludeDirWindows(args, &sdk);
-        try self.findNativeCrtDirWindows(args, &sdk);
+        try self.findNativeMsvcIncludeDir(args, sdk);
+        try self.findNativeMsvcLibDir(args, sdk);
+        try self.findNativeKernel32LibDir(args, sdk);
+        try self.findNativeIncludeDirWindows(args, sdk);
+        try self.findNativeCrtDirWindows(args, sdk);
     } else if (is_haiku) {
         try self.findNativeIncludeDirPosix(args);
         try self.findNativeGccDirHaiku(args);
@@ -261,7 +261,7 @@ fn findNativeIncludeDirPosix(self: *LibCInstallation, args: FindNativeOptions) F
         dev_null,
     });
 
-    const run_res = std.ChildProcess.run(.{
+    const run_res = std.process.Child.run(.{
         .allocator = allocator,
         .argv = argv.items,
         .max_output_bytes = 1024 * 1024,
@@ -358,19 +358,19 @@ fn findNativeIncludeDirPosix(self: *LibCInstallation, args: FindNativeOptions) F
 fn findNativeIncludeDirWindows(
     self: *LibCInstallation,
     args: FindNativeOptions,
-    sdk: *std.zig.WindowsSdk,
+    sdk: std.zig.WindowsSdk,
 ) FindError!void {
     const allocator = args.allocator;
 
-    var search_buf: [2]Search = undefined;
-    const searches = fillSearch(&search_buf, sdk);
+    var install_buf: [2]std.zig.WindowsSdk.Installation = undefined;
+    const installs = fillInstallations(&install_buf, sdk);
 
     var result_buf = std.ArrayList(u8).init(allocator);
     defer result_buf.deinit();
 
-    for (searches) |search| {
+    for (installs) |install| {
         result_buf.shrinkAndFree(0);
-        try result_buf.writer().print("{s}\\Include\\{s}\\ucrt", .{ search.path, search.version });
+        try result_buf.writer().print("{s}\\Include\\{s}\\ucrt", .{ install.path, install.version });
 
         var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
             error.FileNotFound,
@@ -397,17 +397,17 @@ fn findNativeIncludeDirWindows(
 fn findNativeCrtDirWindows(
     self: *LibCInstallation,
     args: FindNativeOptions,
-    sdk: *std.zig.WindowsSdk,
+    sdk: std.zig.WindowsSdk,
 ) FindError!void {
     const allocator = args.allocator;
 
-    var search_buf: [2]Search = undefined;
-    const searches = fillSearch(&search_buf, sdk);
+    var install_buf: [2]std.zig.WindowsSdk.Installation = undefined;
+    const installs = fillInstallations(&install_buf, sdk);
 
     var result_buf = std.ArrayList(u8).init(allocator);
     defer result_buf.deinit();
 
-    const arch_sub_dir = switch (builtin.target.cpu.arch) {
+    const arch_sub_dir = switch (args.target.cpu.arch) {
         .x86 => "x86",
         .x86_64 => "x64",
         .arm, .armeb => "arm",
@@ -415,9 +415,9 @@ fn findNativeCrtDirWindows(
         else => return error.UnsupportedArchitecture,
     };
 
-    for (searches) |search| {
+    for (installs) |install| {
         result_buf.shrinkAndFree(0);
-        try result_buf.writer().print("{s}\\Lib\\{s}\\ucrt\\{s}", .{ search.path, search.version, arch_sub_dir });
+        try result_buf.writer().print("{s}\\Lib\\{s}\\ucrt\\{s}", .{ install.path, install.version, arch_sub_dir });
 
         var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
             error.FileNotFound,
@@ -464,17 +464,17 @@ fn findNativeGccDirHaiku(self: *LibCInstallation, args: FindNativeOptions) FindE
 fn findNativeKernel32LibDir(
     self: *LibCInstallation,
     args: FindNativeOptions,
-    sdk: *std.zig.WindowsSdk,
+    sdk: std.zig.WindowsSdk,
 ) FindError!void {
     const allocator = args.allocator;
 
-    var search_buf: [2]Search = undefined;
-    const searches = fillSearch(&search_buf, sdk);
+    var install_buf: [2]std.zig.WindowsSdk.Installation = undefined;
+    const installs = fillInstallations(&install_buf, sdk);
 
     var result_buf = std.ArrayList(u8).init(allocator);
     defer result_buf.deinit();
 
-    const arch_sub_dir = switch (builtin.target.cpu.arch) {
+    const arch_sub_dir = switch (args.target.cpu.arch) {
         .x86 => "x86",
         .x86_64 => "x64",
         .arm, .armeb => "arm",
@@ -482,10 +482,10 @@ fn findNativeKernel32LibDir(
         else => return error.UnsupportedArchitecture,
     };
 
-    for (searches) |search| {
+    for (installs) |install| {
         result_buf.shrinkAndFree(0);
         const stream = result_buf.writer();
-        try stream.print("{s}\\Lib\\{s}\\um\\{s}", .{ search.path, search.version, arch_sub_dir });
+        try stream.print("{s}\\Lib\\{s}\\um\\{s}", .{ install.path, install.version, arch_sub_dir });
 
         var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
             error.FileNotFound,
@@ -511,7 +511,7 @@ fn findNativeKernel32LibDir(
 fn findNativeMsvcIncludeDir(
     self: *LibCInstallation,
     args: FindNativeOptions,
-    sdk: *std.zig.WindowsSdk,
+    sdk: std.zig.WindowsSdk,
 ) FindError!void {
     const allocator = args.allocator;
 
@@ -543,7 +543,7 @@ fn findNativeMsvcIncludeDir(
 fn findNativeMsvcLibDir(
     self: *LibCInstallation,
     args: FindNativeOptions,
-    sdk: *std.zig.WindowsSdk,
+    sdk: std.zig.WindowsSdk,
 ) FindError!void {
     const allocator = args.allocator;
     const msvc_lib_dir = sdk.msvc_lib_dir orelse return error.LibCRuntimeNotFound;
@@ -588,7 +588,7 @@ fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
     try appendCcExe(&argv, skip_cc_env_var);
     try argv.append(arg1);
 
-    const run_res = std.ChildProcess.run(.{
+    const run_res = std.process.Child.run(.{
         .allocator = allocator,
         .argv = argv.items,
         .max_output_bytes = 1024 * 1024,
@@ -654,28 +654,20 @@ fn printVerboseInvocation(
     }
 }
 
-const Search = struct {
-    path: []const u8,
-    version: []const u8,
-};
-
-fn fillSearch(search_buf: *[2]Search, sdk: *std.zig.WindowsSdk) []Search {
-    var search_end: usize = 0;
+fn fillInstallations(
+    installs: *[2]std.zig.WindowsSdk.Installation,
+    sdk: std.zig.WindowsSdk,
+) []std.zig.WindowsSdk.Installation {
+    var installs_len: usize = 0;
     if (sdk.windows10sdk) |windows10sdk| {
-        search_buf[search_end] = .{
-            .path = windows10sdk.path,
-            .version = windows10sdk.version,
-        };
-        search_end += 1;
+        installs[installs_len] = windows10sdk;
+        installs_len += 1;
     }
     if (sdk.windows81sdk) |windows81sdk| {
-        search_buf[search_end] = .{
-            .path = windows81sdk.path,
-            .version = windows81sdk.version,
-        };
-        search_end += 1;
+        installs[installs_len] = windows81sdk;
+        installs_len += 1;
     }
-    return search_buf[0..search_end];
+    return installs[0..installs_len];
 }
 
 const inf_loop_env_key = "ZIG_IS_DETECTING_LIBC_PATHS";
@@ -698,12 +690,340 @@ fn appendCcExe(args: *std.ArrayList([]const u8), skip_cc_env_var: bool) !void {
     }
 }
 
+/// These are basenames. This data is produced with a pure function. See also
+/// `CsuPaths`.
+pub const CrtBasenames = struct {
+    crt0: ?[]const u8 = null,
+    crti: ?[]const u8 = null,
+    crtbegin: ?[]const u8 = null,
+    crtend: ?[]const u8 = null,
+    crtn: ?[]const u8 = null,
+
+    pub const GetArgs = struct {
+        target: std.Target,
+        link_libc: bool,
+        output_mode: std.builtin.OutputMode,
+        link_mode: std.builtin.LinkMode,
+        pie: bool,
+    };
+
+    /// Determine file system path names of C runtime startup objects for supported
+    /// link modes.
+    pub fn get(args: GetArgs) CrtBasenames {
+        // crt objects are only required for libc.
+        if (!args.link_libc) return .{};
+
+        // Flatten crt cases.
+        const mode: enum {
+            dynamic_lib,
+            dynamic_exe,
+            dynamic_pie,
+            static_exe,
+            static_pie,
+        } = switch (args.output_mode) {
+            .Obj => return .{},
+            .Lib => switch (args.link_mode) {
+                .dynamic => .dynamic_lib,
+                .static => return .{},
+            },
+            .Exe => switch (args.link_mode) {
+                .dynamic => if (args.pie) .dynamic_pie else .dynamic_exe,
+                .static => if (args.pie) .static_pie else .static_exe,
+            },
+        };
+
+        const target = args.target;
+
+        if (target.isAndroid()) return switch (mode) {
+            .dynamic_lib => .{
+                .crtbegin = "crtbegin_so.o",
+                .crtend = "crtend_so.o",
+            },
+            .dynamic_exe, .dynamic_pie => .{
+                .crtbegin = "crtbegin_dynamic.o",
+                .crtend = "crtend_android.o",
+            },
+            .static_exe, .static_pie => .{
+                .crtbegin = "crtbegin_static.o",
+                .crtend = "crtend_android.o",
+            },
+        };
+
+        return switch (target.os.tag) {
+            .linux => switch (mode) {
+                .dynamic_lib => .{
+                    .crti = "crti.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_exe => .{
+                    .crt0 = "crt1.o",
+                    .crti = "crti.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_pie => .{
+                    .crt0 = "Scrt1.o",
+                    .crti = "crti.o",
+                    .crtn = "crtn.o",
+                },
+                .static_exe => .{
+                    .crt0 = "crt1.o",
+                    .crti = "crti.o",
+                    .crtn = "crtn.o",
+                },
+                .static_pie => .{
+                    .crt0 = "rcrt1.o",
+                    .crti = "crti.o",
+                    .crtn = "crtn.o",
+                },
+            },
+            .dragonfly => switch (mode) {
+                .dynamic_lib => .{
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_exe => .{
+                    .crt0 = "crt1.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbegin.o",
+                    .crtend = "crtend.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_pie => .{
+                    .crt0 = "Scrt1.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+                .static_exe => .{
+                    .crt0 = "crt1.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbegin.o",
+                    .crtend = "crtend.o",
+                    .crtn = "crtn.o",
+                },
+                .static_pie => .{
+                    .crt0 = "Scrt1.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+            },
+            .freebsd => switch (mode) {
+                .dynamic_lib => .{
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_exe => .{
+                    .crt0 = "crt1.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbegin.o",
+                    .crtend = "crtend.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_pie => .{
+                    .crt0 = "Scrt1.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+                .static_exe => .{
+                    .crt0 = "crt1.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginT.o",
+                    .crtend = "crtend.o",
+                    .crtn = "crtn.o",
+                },
+                .static_pie => .{
+                    .crt0 = "Scrt1.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+            },
+            .netbsd => switch (mode) {
+                .dynamic_lib => .{
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_exe => .{
+                    .crt0 = "crt0.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbegin.o",
+                    .crtend = "crtend.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_pie => .{
+                    .crt0 = "crt0.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+                .static_exe => .{
+                    .crt0 = "crt0.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginT.o",
+                    .crtend = "crtend.o",
+                    .crtn = "crtn.o",
+                },
+                .static_pie => .{
+                    .crt0 = "crt0.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginT.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+            },
+            .openbsd => switch (mode) {
+                .dynamic_lib => .{
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                },
+                .dynamic_exe, .dynamic_pie => .{
+                    .crt0 = "crt0.o",
+                    .crtbegin = "crtbegin.o",
+                    .crtend = "crtend.o",
+                },
+                .static_exe, .static_pie => .{
+                    .crt0 = "rcrt0.o",
+                    .crtbegin = "crtbegin.o",
+                    .crtend = "crtend.o",
+                },
+            },
+            .haiku => switch (mode) {
+                .dynamic_lib => .{
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_exe => .{
+                    .crt0 = "start_dyn.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbegin.o",
+                    .crtend = "crtend.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_pie => .{
+                    .crt0 = "start_dyn.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+                .static_exe => .{
+                    .crt0 = "start_dyn.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbegin.o",
+                    .crtend = "crtend.o",
+                    .crtn = "crtn.o",
+                },
+                .static_pie => .{
+                    .crt0 = "start_dyn.o",
+                    .crti = "crti.o",
+                    .crtbegin = "crtbeginS.o",
+                    .crtend = "crtendS.o",
+                    .crtn = "crtn.o",
+                },
+            },
+            .solaris, .illumos => switch (mode) {
+                .dynamic_lib => .{
+                    .crti = "crti.o",
+                    .crtn = "crtn.o",
+                },
+                .dynamic_exe, .dynamic_pie => .{
+                    .crt0 = "crt1.o",
+                    .crti = "crti.o",
+                    .crtn = "crtn.o",
+                },
+                .static_exe, .static_pie => .{},
+            },
+            else => .{},
+        };
+    }
+};
+
+pub const CrtPaths = struct {
+    crt0: ?Path = null,
+    crti: ?Path = null,
+    crtbegin: ?Path = null,
+    crtend: ?Path = null,
+    crtn: ?Path = null,
+};
+
+pub fn resolveCrtPaths(
+    lci: LibCInstallation,
+    arena: Allocator,
+    crt_basenames: CrtBasenames,
+    target: std.Target,
+) error{ OutOfMemory, LibCInstallationMissingCrtDir }!CrtPaths {
+    const crt_dir_path: Path = .{
+        .root_dir = std.Build.Cache.Directory.cwd(),
+        .sub_path = lci.crt_dir orelse return error.LibCInstallationMissingCrtDir,
+    };
+    switch (target.os.tag) {
+        .dragonfly => {
+            const gccv: []const u8 = if (target.os.version_range.semver.isAtLeast(.{
+                .major = 5,
+                .minor = 4,
+                .patch = 0,
+            }) orelse true) "gcc80" else "gcc54";
+            return .{
+                .crt0 = if (crt_basenames.crt0) |basename| try crt_dir_path.join(arena, basename) else null,
+                .crti = if (crt_basenames.crti) |basename| try crt_dir_path.join(arena, basename) else null,
+                .crtbegin = if (crt_basenames.crtbegin) |basename| .{
+                    .root_dir = crt_dir_path.root_dir,
+                    .sub_path = try fs.path.join(arena, &.{ crt_dir_path.sub_path, gccv, basename }),
+                } else null,
+                .crtend = if (crt_basenames.crtend) |basename| .{
+                    .root_dir = crt_dir_path.root_dir,
+                    .sub_path = try fs.path.join(arena, &.{ crt_dir_path.sub_path, gccv, basename }),
+                } else null,
+                .crtn = if (crt_basenames.crtn) |basename| try crt_dir_path.join(arena, basename) else null,
+            };
+        },
+        .haiku => {
+            const gcc_dir_path: Path = .{
+                .root_dir = std.Build.Cache.Directory.cwd(),
+                .sub_path = lci.gcc_dir orelse return error.LibCInstallationMissingCrtDir,
+            };
+            return .{
+                .crt0 = if (crt_basenames.crt0) |basename| try crt_dir_path.join(arena, basename) else null,
+                .crti = if (crt_basenames.crti) |basename| try crt_dir_path.join(arena, basename) else null,
+                .crtbegin = if (crt_basenames.crtbegin) |basename| try gcc_dir_path.join(arena, basename) else null,
+                .crtend = if (crt_basenames.crtend) |basename| try gcc_dir_path.join(arena, basename) else null,
+                .crtn = if (crt_basenames.crtn) |basename| try crt_dir_path.join(arena, basename) else null,
+            };
+        },
+        else => {
+            return .{
+                .crt0 = if (crt_basenames.crt0) |basename| try crt_dir_path.join(arena, basename) else null,
+                .crti = if (crt_basenames.crti) |basename| try crt_dir_path.join(arena, basename) else null,
+                .crtbegin = if (crt_basenames.crtbegin) |basename| try crt_dir_path.join(arena, basename) else null,
+                .crtend = if (crt_basenames.crtend) |basename| try crt_dir_path.join(arena, basename) else null,
+                .crtn = if (crt_basenames.crtn) |basename| try crt_dir_path.join(arena, basename) else null,
+            };
+        },
+    }
+}
+
 const LibCInstallation = @This();
 const std = @import("std");
 const builtin = @import("builtin");
 const Target = std.Target;
 const fs = std.fs;
 const Allocator = std.mem.Allocator;
+const Path = std.Build.Cache.Path;
 
 const is_darwin = builtin.target.isDarwin();
 const is_windows = builtin.target.os.tag == .windows;

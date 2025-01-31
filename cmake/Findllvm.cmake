@@ -12,14 +12,17 @@
 if(ZIG_USE_LLVM_CONFIG)
   set(LLVM_CONFIG_ERROR_MESSAGES "")
   while(1)
+    # If this variable is not unset, the same result is returned even though
+    # the ignore list has changed, causing the configure process to not
+    # terminate when the right LLVM version is not found.
     unset(LLVM_CONFIG_EXE CACHE)
     find_program(LLVM_CONFIG_EXE
-        NAMES llvm-config-17 llvm-config-17.0 llvm-config170 llvm-config17 llvm-config NAMES_PER_DIR
+        NAMES llvm-config-19 llvm-config-19.0 llvm-config190 llvm-config19 llvm-config NAMES_PER_DIR
         PATHS
             "/mingw64/bin"
             "/c/msys64/mingw64/bin"
             "c:/msys64/mingw64/bin"
-            "C:/Libraries/llvm-17.0.0/bin")
+            "C:/Libraries/llvm-19.0.0/bin")
 
     if ("${LLVM_CONFIG_EXE}" STREQUAL "LLVM_CONFIG_EXE-NOTFOUND")
       if (NOT LLVM_CONFIG_ERROR_MESSAGES STREQUAL "")
@@ -37,9 +40,9 @@ if(ZIG_USE_LLVM_CONFIG)
       OUTPUT_STRIP_TRAILING_WHITESPACE)
 
     get_filename_component(LLVM_CONFIG_DIR "${LLVM_CONFIG_EXE}" DIRECTORY)
-    if("${LLVM_CONFIG_VERSION}" VERSION_LESS 17 OR "${LLVM_CONFIG_VERSION}" VERSION_EQUAL 18 OR "${LLVM_CONFIG_VERSION}" VERSION_GREATER 18)
+    if("${LLVM_CONFIG_VERSION}" VERSION_LESS 19 OR "${LLVM_CONFIG_VERSION}" VERSION_EQUAL 20 OR "${LLVM_CONFIG_VERSION}" VERSION_GREATER 20)
       # Save the error message, in case this is the last llvm-config we find
-      list(APPEND LLVM_CONFIG_ERROR_MESSAGES "expected LLVM 17.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
+      list(APPEND LLVM_CONFIG_ERROR_MESSAGES "expected LLVM 19.x but found ${LLVM_CONFIG_VERSION} using ${LLVM_CONFIG_EXE}")
 
       # Ignore this directory and try the search again
       list(APPEND CMAKE_IGNORE_PATH "${LLVM_CONFIG_DIR}")
@@ -60,12 +63,12 @@ if(ZIG_USE_LLVM_CONFIG)
         ERROR_VARIABLE LLVM_CONFIG_ERROR
         ERROR_STRIP_TRAILING_WHITESPACE)
 
-      if (LLVM_CONFIG_ERROR) 
+      if (LLVM_CONFIG_ERROR)
         # Save the error message, in case this is the last llvm-config we find
         if (ZIG_SHARED_LLVM)
-          list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM 17.x found at ${LLVM_CONFIG_EXE} does not support linking as a shared library")
+          list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM 19.x found at ${LLVM_CONFIG_EXE} does not support linking as a shared library")
         else()
-          list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM 17.x found at ${LLVM_CONFIG_EXE} does not support linking as a static library")
+          list(APPEND LLVM_CONFIG_ERROR_MESSAGES "LLVM 19.x found at ${LLVM_CONFIG_EXE} does not support linking as a static library")
         endif()
 
         # Ignore this directory and try the search again
@@ -173,7 +176,6 @@ if(ZIG_USE_LLVM_CONFIG)
       OUTPUT_STRIP_TRAILING_WHITESPACE)
   string(REPLACE " " ";" LLVM_INCLUDE_DIRS "${LLVM_INCLUDE_DIRS_SPACES}")
 
-  link_directories("${CMAKE_PREFIX_PATH}/lib")
   link_directories("${LLVM_LIBDIRS}")
 else()
   # Here we assume that we're cross compiling with Zig, of course. No reason
@@ -195,8 +197,10 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMXRay)
   FIND_AND_ADD_LLVM_LIB(LLVMLibDriver)
   FIND_AND_ADD_LLVM_LIB(LLVMDlltoolDriver)
+  FIND_AND_ADD_LLVM_LIB(LLVMTextAPIBinaryReader)
   FIND_AND_ADD_LLVM_LIB(LLVMCoverage)
   FIND_AND_ADD_LLVM_LIB(LLVMLineEditor)
+  FIND_AND_ADD_LLVM_LIB(LLVMSandboxIR)
   FIND_AND_ADD_LLVM_LIB(LLVMXCoreDisassembler)
   FIND_AND_ADD_LLVM_LIB(LLVMXCoreCodeGen)
   FIND_AND_ADD_LLVM_LIB(LLVMXCoreDesc)
@@ -296,6 +300,7 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMAArch64Desc)
   FIND_AND_ADD_LLVM_LIB(LLVMAArch64Utils)
   FIND_AND_ADD_LLVM_LIB(LLVMAArch64Info)
+  FIND_AND_ADD_LLVM_LIB(LLVMOrcDebugging)
   FIND_AND_ADD_LLVM_LIB(LLVMOrcJIT)
   FIND_AND_ADD_LLVM_LIB(LLVMWindowsDriver)
   FIND_AND_ADD_LLVM_LIB(LLVMMCJIT)
@@ -315,6 +320,7 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMMCDisassembler)
   FIND_AND_ADD_LLVM_LIB(LLVMLTO)
   FIND_AND_ADD_LLVM_LIB(LLVMPasses)
+  FIND_AND_ADD_LLVM_LIB(LLVMHipStdPar)
   FIND_AND_ADD_LLVM_LIB(LLVMCFGuard)
   FIND_AND_ADD_LLVM_LIB(LLVMCoroutines)
   FIND_AND_ADD_LLVM_LIB(LLVMipo)
@@ -322,11 +328,15 @@ else()
   FIND_AND_ADD_LLVM_LIB(LLVMLinker)
   FIND_AND_ADD_LLVM_LIB(LLVMInstrumentation)
   FIND_AND_ADD_LLVM_LIB(LLVMFrontendOpenMP)
+  FIND_AND_ADD_LLVM_LIB(LLVMFrontendOffloading)
   FIND_AND_ADD_LLVM_LIB(LLVMFrontendOpenACC)
   FIND_AND_ADD_LLVM_LIB(LLVMFrontendHLSL)
+  FIND_AND_ADD_LLVM_LIB(LLVMFrontendDriver)
   FIND_AND_ADD_LLVM_LIB(LLVMExtensions)
   FIND_AND_ADD_LLVM_LIB(LLVMDWARFLinkerParallel)
+  FIND_AND_ADD_LLVM_LIB(LLVMDWARFLinkerClassic)
   FIND_AND_ADD_LLVM_LIB(LLVMDWARFLinker)
+  FIND_AND_ADD_LLVM_LIB(LLVMCodeGenData)
   FIND_AND_ADD_LLVM_LIB(LLVMGlobalISel)
   FIND_AND_ADD_LLVM_LIB(LLVMMIRParser)
   FIND_AND_ADD_LLVM_LIB(LLVMAsmPrinter)

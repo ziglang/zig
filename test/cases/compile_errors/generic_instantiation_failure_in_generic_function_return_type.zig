@@ -5,7 +5,7 @@ pub export fn entry() void {
     _ = sliceAsBytes(ohnoes);
     _ = &ohnoes;
 }
-fn sliceAsBytes(slice: anytype) isPtrTo(.Array)(@TypeOf(slice)) {}
+fn sliceAsBytes(slice: anytype) isPtrTo(.array)(@TypeOf(slice)) {}
 
 pub const TraitFn = fn (type) bool;
 
@@ -20,8 +20,8 @@ pub fn isPtrTo(comptime id: std.builtin.TypeId) TraitFn {
 }
 
 pub fn isSingleItemPtr(comptime T: type) bool {
-    if (comptime is(.Pointer)(T)) {
-        return @typeInfo(T).Pointer.size == .One;
+    if (comptime is(.pointer)(T)) {
+        return @typeInfo(T).pointer.size == .one;
     }
     return false;
 }
@@ -40,3 +40,4 @@ pub fn is(comptime id: std.builtin.TypeId) TraitFn {
 // target=native
 //
 // :8:48: error: expected type 'type', found 'bool'
+// :5:21: note: called from here

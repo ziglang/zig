@@ -56,8 +56,6 @@ public:
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
-#include <__availability>
 #include <__config>
 #include <__exception/exception.h>
 #include <__type_traits/is_constant_evaluated.h>
@@ -70,58 +68,49 @@ public:
 #endif
 
 #if defined(_LIBCPP_ABI_VCRUNTIME)
-#include <vcruntime_typeinfo.h>
+#  include <vcruntime_typeinfo.h>
 #else
 
-namespace std  // purposefully not using versioning namespace
+namespace std // purposefully not using versioning namespace
 {
 
+#  if defined(_LIBCPP_ABI_MICROSOFT)
 
-#if defined(_LIBCPP_ABI_MICROSOFT)
+class _LIBCPP_EXPORTED_FROM_ABI type_info {
+  type_info& operator=(const type_info&);
+  type_info(const type_info&);
 
-class _LIBCPP_EXPORTED_FROM_ABI type_info
-{
-    type_info& operator=(const type_info&);
-    type_info(const type_info&);
+  mutable struct {
+    const char* __undecorated_name;
+    const char __decorated_name[1];
+  } __data;
 
-    mutable struct {
-      const char *__undecorated_name;
-      const char __decorated_name[1];
-    } __data;
-
-    int __compare(const type_info &__rhs) const _NOEXCEPT;
+  int __compare(const type_info& __rhs) const _NOEXCEPT;
 
 public:
-    _LIBCPP_AVAILABILITY_TYPEINFO_VTABLE
-    virtual ~type_info();
+  virtual ~type_info();
 
-    const char *name() const _NOEXCEPT;
+  const char* name() const _NOEXCEPT;
 
-    _LIBCPP_INLINE_VISIBILITY
-    bool before(const type_info& __arg) const _NOEXCEPT {
-      return __compare(__arg) < 0;
+  _LIBCPP_HIDE_FROM_ABI bool before(const type_info& __arg) const _NOEXCEPT { return __compare(__arg) < 0; }
+
+  size_t hash_code() const _NOEXCEPT;
+
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 bool operator==(const type_info& __arg) const _NOEXCEPT {
+    // When evaluated in a constant expression, both type infos simply can't come
+    // from different translation units, so it is sufficient to compare their addresses.
+    if (__libcpp_is_constant_evaluated()) {
+      return this == &__arg;
     }
+    return __compare(__arg) == 0;
+  }
 
-    size_t hash_code() const _NOEXCEPT;
-
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX23
-    bool operator==(const type_info& __arg) const _NOEXCEPT {
-      // When evaluated in a constant expression, both type infos simply can't come
-      // from different translation units, so it is sufficient to compare their addresses.
-      if (__libcpp_is_constant_evaluated()) {
-        return this == &__arg;
-      }
-      return __compare(__arg) == 0;
-    }
-
-#if _LIBCPP_STD_VER <= 17
-    _LIBCPP_INLINE_VISIBILITY
-    bool operator!=(const type_info& __arg) const _NOEXCEPT
-    { return !operator==(__arg); }
-#endif
+#    if _LIBCPP_STD_VER <= 17
+  _LIBCPP_HIDE_FROM_ABI bool operator!=(const type_info& __arg) const _NOEXCEPT { return !operator==(__arg); }
+#    endif
 };
 
-#else // !defined(_LIBCPP_ABI_MICROSOFT)
+#  else // !defined(_LIBCPP_ABI_MICROSOFT)
 
 // ========================================================================== //
 //                           Implementations
@@ -176,64 +165,58 @@ public:
 
 // This value can be overriden in the __config_site. When it's not overriden,
 // we pick a default implementation based on the platform here.
-#ifndef _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION
+#    ifndef _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION
 
-  // Windows and AIX binaries can't merge typeinfos, so use the NonUnique implementation.
-# if defined(_LIBCPP_OBJECT_FORMAT_COFF) || defined(_LIBCPP_OBJECT_FORMAT_XCOFF)
-#   define _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION 2
+// Windows and AIX binaries can't merge typeinfos, so use the NonUnique implementation.
+#      if defined(_LIBCPP_OBJECT_FORMAT_COFF) || defined(_LIBCPP_OBJECT_FORMAT_XCOFF)
+#        define _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION 2
 
-  // On arm64 on Apple platforms, use the special NonUniqueARMRTTIBit implementation.
-# elif defined(__APPLE__) && defined(__LP64__) && !defined(__x86_64__)
-#   define _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION 3
+// On arm64 on Apple platforms, use the special NonUniqueARMRTTIBit implementation.
+#      elif defined(__APPLE__) && defined(__LP64__) && !defined(__x86_64__)
+#        define _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION 3
 
-  // On all other platforms, assume the Itanium C++ ABI and use the Unique implementation.
-# else
-#   define _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION 1
-# endif
-#endif
+// On all other platforms, assume the Itanium C++ ABI and use the Unique implementation.
+#      else
+#        define _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION 1
+#      endif
+#    endif
 
 struct __type_info_implementations {
   struct __string_impl_base {
     typedef const char* __type_name_t;
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_ALWAYS_INLINE
-    _LIBCPP_CONSTEXPR static const char* __type_name_to_string(__type_name_t __v) _NOEXCEPT {
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_ALWAYS_INLINE _LIBCPP_CONSTEXPR static const char*
+    __type_name_to_string(__type_name_t __v) _NOEXCEPT {
       return __v;
     }
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_ALWAYS_INLINE
-    _LIBCPP_CONSTEXPR static __type_name_t __string_to_type_name(const char* __v) _NOEXCEPT {
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_ALWAYS_INLINE _LIBCPP_CONSTEXPR static __type_name_t
+    __string_to_type_name(const char* __v) _NOEXCEPT {
       return __v;
     }
   };
 
   struct __unique_impl : __string_impl_base {
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_ALWAYS_INLINE
-    static size_t __hash(__type_name_t __v) _NOEXCEPT {
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_ALWAYS_INLINE static size_t __hash(__type_name_t __v) _NOEXCEPT {
       return reinterpret_cast<size_t>(__v);
     }
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_ALWAYS_INLINE
-    static bool __eq(__type_name_t __lhs, __type_name_t __rhs) _NOEXCEPT {
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_ALWAYS_INLINE static bool __eq(__type_name_t __lhs, __type_name_t __rhs) _NOEXCEPT {
       return __lhs == __rhs;
     }
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_ALWAYS_INLINE
-    static bool __lt(__type_name_t __lhs, __type_name_t __rhs) _NOEXCEPT {
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_ALWAYS_INLINE static bool __lt(__type_name_t __lhs, __type_name_t __rhs) _NOEXCEPT {
       return __lhs < __rhs;
     }
   };
 
   struct __non_unique_impl : __string_impl_base {
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_ALWAYS_INLINE
-    static size_t __hash(__type_name_t __ptr) _NOEXCEPT {
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_ALWAYS_INLINE static size_t __hash(__type_name_t __ptr) _NOEXCEPT {
       size_t __hash = 5381;
       while (unsigned char __c = static_cast<unsigned char>(*__ptr++))
         __hash = (__hash * 33) ^ __c;
       return __hash;
     }
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_ALWAYS_INLINE
-    static bool __eq(__type_name_t __lhs, __type_name_t __rhs) _NOEXCEPT {
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_ALWAYS_INLINE static bool __eq(__type_name_t __lhs, __type_name_t __rhs) _NOEXCEPT {
       return __lhs == __rhs || __builtin_strcmp(__lhs, __rhs) == 0;
     }
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_ALWAYS_INLINE
-    static bool __lt(__type_name_t __lhs, __type_name_t __rhs) _NOEXCEPT {
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_ALWAYS_INLINE static bool __lt(__type_name_t __lhs, __type_name_t __rhs) _NOEXCEPT {
       return __builtin_strcmp(__lhs, __rhs) < 0;
     }
   };
@@ -241,24 +224,19 @@ struct __type_info_implementations {
   struct __non_unique_arm_rtti_bit_impl {
     typedef uintptr_t __type_name_t;
 
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_ALWAYS_INLINE
-    static const char* __type_name_to_string(__type_name_t __v) _NOEXCEPT {
-      return reinterpret_cast<const char*>(__v &
-          ~__non_unique_rtti_bit::value);
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_ALWAYS_INLINE static const char* __type_name_to_string(__type_name_t __v) _NOEXCEPT {
+      return reinterpret_cast<const char*>(__v & ~__non_unique_rtti_bit::value);
     }
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_ALWAYS_INLINE
-    static __type_name_t __string_to_type_name(const char* __v) _NOEXCEPT {
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_ALWAYS_INLINE static __type_name_t __string_to_type_name(const char* __v) _NOEXCEPT {
       return reinterpret_cast<__type_name_t>(__v);
     }
 
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_ALWAYS_INLINE
-    static size_t __hash(__type_name_t __v) _NOEXCEPT {
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_ALWAYS_INLINE static size_t __hash(__type_name_t __v) _NOEXCEPT {
       if (__is_type_name_unique(__v))
         return __v;
       return __non_unique_impl::__hash(__type_name_to_string(__v));
     }
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_ALWAYS_INLINE
-    static bool __eq(__type_name_t __lhs, __type_name_t __rhs) _NOEXCEPT {
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_ALWAYS_INLINE static bool __eq(__type_name_t __lhs, __type_name_t __rhs) _NOEXCEPT {
       if (__lhs == __rhs)
         return true;
       if (__is_type_name_unique(__lhs) || __is_type_name_unique(__rhs))
@@ -267,108 +245,100 @@ struct __type_info_implementations {
         return false;
       return __builtin_strcmp(__type_name_to_string(__lhs), __type_name_to_string(__rhs)) == 0;
     }
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_ALWAYS_INLINE
-    static bool __lt(__type_name_t __lhs, __type_name_t __rhs) _NOEXCEPT {
+    _LIBCPP_HIDE_FROM_ABI _LIBCPP_ALWAYS_INLINE static bool __lt(__type_name_t __lhs, __type_name_t __rhs) _NOEXCEPT {
       if (__is_type_name_unique(__lhs) || __is_type_name_unique(__rhs))
         return __lhs < __rhs;
       return __builtin_strcmp(__type_name_to_string(__lhs), __type_name_to_string(__rhs)) < 0;
     }
 
-   private:
+  private:
     // The unique bit is the top bit. It is expected that __type_name_t is 64 bits when
     // this implementation is actually used.
-    typedef integral_constant<__type_name_t,
-      (1ULL << ((__CHAR_BIT__ * sizeof(__type_name_t)) - 1))> __non_unique_rtti_bit;
+    typedef integral_constant<__type_name_t, (1ULL << ((__CHAR_BIT__ * sizeof(__type_name_t)) - 1))>
+        __non_unique_rtti_bit;
 
-    _LIBCPP_INLINE_VISIBILITY
-    static bool __is_type_name_unique(__type_name_t __lhs) _NOEXCEPT {
+    _LIBCPP_HIDE_FROM_ABI static bool __is_type_name_unique(__type_name_t __lhs) _NOEXCEPT {
       return !(__lhs & __non_unique_rtti_bit::value);
     }
   };
 
   typedef
-#if _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION == 1
-    __unique_impl
-#elif _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION == 2
-    __non_unique_impl
-#elif _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION == 3
-    __non_unique_arm_rtti_bit_impl
-#else
-#   error invalid configuration for _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION
-#endif
-     __impl;
+#    if _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION == 1
+      __unique_impl
+#    elif _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION == 2
+      __non_unique_impl
+#    elif _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION == 3
+      __non_unique_arm_rtti_bit_impl
+#    else
+#      error invalid configuration for _LIBCPP_TYPEINFO_COMPARISON_IMPLEMENTATION
+#    endif
+          __impl;
 };
 
-class _LIBCPP_EXPORTED_FROM_ABI type_info
-{
+#    if __has_cpp_attribute(_Clang::__ptrauth_vtable_pointer__)
+#      if __has_feature(ptrauth_type_info_vtable_pointer_discrimination)
+#        define _LIBCPP_TYPE_INFO_VTABLE_POINTER_AUTH                                                                  \
+          [[_Clang::__ptrauth_vtable_pointer__(process_independent, address_discrimination, type_discrimination)]]
+#      else
+#        define _LIBCPP_TYPE_INFO_VTABLE_POINTER_AUTH                                                                  \
+          [[_Clang::__ptrauth_vtable_pointer__(                                                                        \
+              process_independent, no_address_discrimination, no_extra_discrimination)]]
+#      endif
+#    else
+#      define _LIBCPP_TYPE_INFO_VTABLE_POINTER_AUTH
+#    endif
+
+class _LIBCPP_EXPORTED_FROM_ABI _LIBCPP_TYPE_INFO_VTABLE_POINTER_AUTH type_info {
   type_info& operator=(const type_info&);
   type_info(const type_info&);
 
- protected:
-    typedef __type_info_implementations::__impl __impl;
+protected:
+  typedef __type_info_implementations::__impl __impl;
 
-    __impl::__type_name_t __type_name;
+  __impl::__type_name_t __type_name;
 
-    _LIBCPP_INLINE_VISIBILITY
-    explicit type_info(const char* __n)
-      : __type_name(__impl::__string_to_type_name(__n)) {}
+  _LIBCPP_HIDE_FROM_ABI explicit type_info(const char* __n) : __type_name(__impl::__string_to_type_name(__n)) {}
 
 public:
-    _LIBCPP_AVAILABILITY_TYPEINFO_VTABLE
-    virtual ~type_info();
+  virtual ~type_info();
 
-    _LIBCPP_INLINE_VISIBILITY
-    const char* name() const _NOEXCEPT
-    {
-      return __impl::__type_name_to_string(__type_name);
+  _LIBCPP_HIDE_FROM_ABI const char* name() const _NOEXCEPT { return __impl::__type_name_to_string(__type_name); }
+
+  _LIBCPP_HIDE_FROM_ABI bool before(const type_info& __arg) const _NOEXCEPT {
+    return __impl::__lt(__type_name, __arg.__type_name);
+  }
+
+  _LIBCPP_HIDE_FROM_ABI size_t hash_code() const _NOEXCEPT { return __impl::__hash(__type_name); }
+
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX23 bool operator==(const type_info& __arg) const _NOEXCEPT {
+    // When evaluated in a constant expression, both type infos simply can't come
+    // from different translation units, so it is sufficient to compare their addresses.
+    if (__libcpp_is_constant_evaluated()) {
+      return this == &__arg;
     }
+    return __impl::__eq(__type_name, __arg.__type_name);
+  }
 
-    _LIBCPP_INLINE_VISIBILITY
-    bool before(const type_info& __arg) const _NOEXCEPT
-    {
-      return __impl::__lt(__type_name, __arg.__type_name);
-    }
-
-    _LIBCPP_INLINE_VISIBILITY
-    size_t hash_code() const _NOEXCEPT
-    {
-      return __impl::__hash(__type_name);
-    }
-
-    _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX23
-    bool operator==(const type_info& __arg) const _NOEXCEPT
-    {
-      // When evaluated in a constant expression, both type infos simply can't come
-      // from different translation units, so it is sufficient to compare their addresses.
-      if (__libcpp_is_constant_evaluated()) {
-        return this == &__arg;
-      }
-      return __impl::__eq(__type_name, __arg.__type_name);
-    }
-
-#if _LIBCPP_STD_VER <= 17
-    _LIBCPP_INLINE_VISIBILITY
-    bool operator!=(const type_info& __arg) const _NOEXCEPT
-    { return !operator==(__arg); }
-#endif
+#    if _LIBCPP_STD_VER <= 17
+  _LIBCPP_HIDE_FROM_ABI bool operator!=(const type_info& __arg) const _NOEXCEPT { return !operator==(__arg); }
+#    endif
 };
-#endif // defined(_LIBCPP_ABI_MICROSOFT)
+#  endif // defined(_LIBCPP_ABI_MICROSOFT)
 
-class _LIBCPP_EXPORTED_FROM_ABI bad_cast
-    : public exception
-{
- public:
+class _LIBCPP_EXPORTED_FROM_ABI bad_cast : public exception {
+public:
   bad_cast() _NOEXCEPT;
-  _LIBCPP_HIDE_FROM_ABI bad_cast(const bad_cast&) _NOEXCEPT = default;
+  _LIBCPP_HIDE_FROM_ABI bad_cast(const bad_cast&) _NOEXCEPT            = default;
+  _LIBCPP_HIDE_FROM_ABI bad_cast& operator=(const bad_cast&) _NOEXCEPT = default;
   ~bad_cast() _NOEXCEPT override;
   const char* what() const _NOEXCEPT override;
 };
 
-class _LIBCPP_EXPORTED_FROM_ABI bad_typeid
-    : public exception
-{
- public:
+class _LIBCPP_EXPORTED_FROM_ABI bad_typeid : public exception {
+public:
   bad_typeid() _NOEXCEPT;
+  _LIBCPP_HIDE_FROM_ABI bad_typeid(const bad_typeid&) _NOEXCEPT            = default;
+  _LIBCPP_HIDE_FROM_ABI bad_typeid& operator=(const bad_typeid&) _NOEXCEPT = default;
   ~bad_typeid() _NOEXCEPT override;
   const char* what() const _NOEXCEPT override;
 };
@@ -402,20 +372,17 @@ private:
 #endif // defined(_LIBCPP_ABI_VCRUNTIME) && _HAS_EXCEPTIONS == 0
 
 _LIBCPP_BEGIN_NAMESPACE_STD
-_LIBCPP_NORETURN inline _LIBCPP_INLINE_VISIBILITY
-void __throw_bad_cast()
-{
+_LIBCPP_NORETURN inline _LIBCPP_HIDE_FROM_ABI void __throw_bad_cast() {
 #ifndef _LIBCPP_HAS_NO_EXCEPTIONS
-    throw bad_cast();
+  throw bad_cast();
 #else
-    _LIBCPP_VERBOSE_ABORT("bad_cast was thrown in -fno-exceptions mode");
+  _LIBCPP_VERBOSE_ABORT("bad_cast was thrown in -fno-exceptions mode");
 #endif
 }
 _LIBCPP_END_NAMESPACE_STD
 
 #if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
 #  include <cstdlib>
-#  include <exception>
 #  include <type_traits>
 #endif
 

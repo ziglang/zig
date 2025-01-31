@@ -157,6 +157,7 @@ pub const Config = struct {
 
 pub const Check = enum { ok, leak };
 
+/// Default initialization of this struct is deprecated; use `.init` instead.
 pub fn GeneralPurposeAllocator(comptime config: Config) type {
     return struct {
         backing_allocator: Allocator = std.heap.page_allocator,
@@ -173,6 +174,16 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         mutex: @TypeOf(mutex_init) = mutex_init,
 
         const Self = @This();
+
+        /// The initial state of a `GeneralPurposeAllocator`, containing no allocations and backed by the system page allocator.
+        pub const init: Self = .{
+            .backing_allocator = std.heap.page_allocator,
+            .buckets = [1]Buckets{.{}} ** small_bucket_count,
+            .cur_buckets = [1]?*BucketHeader{null} ** small_bucket_count,
+            .large_allocations = .{},
+            .empty_buckets = if (config.retain_metadata) .{} else {},
+            .bucket_node_pool = .init(std.heap.page_allocator),
+        };
 
         const total_requested_bytes_init = if (config.enable_memory_limit) @as(usize, 0) else {};
         const requested_memory_limit_init = if (config.enable_memory_limit) @as(usize, math.maxInt(usize)) else {};
@@ -296,6 +307,12 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 // for non zero addresses.
                 const stack_addresses = bucket.stackTracePtr(size_class, slot_index, trace_kind);
                 collectStackTrace(ret_addr, stack_addresses);
+            }
+
+            /// Only valid for buckets within `empty_buckets`, and relies on the `alloc_cursor`
+            /// of empty buckets being set to `slot_count` when they are added to `empty_buckets`
+            fn emptyBucketSizeClass(bucket: *BucketHeader) usize {
+                return @divExact(page_size, bucket.alloc_cursor);
             }
         };
 
@@ -439,15 +456,18 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     }
                 }
                 // free retained metadata for small allocations
-                var empty_it = self.empty_buckets.inorderIterator();
-                while (empty_it.next()) |node| {
+                while (self.empty_buckets.getMin()) |node| {
+                    // remove the node from the tree before destroying it
+                    var entry = self.empty_buckets.getEntryForExisting(node);
+                    entry.set(null);
+
                     var bucket = node.key;
                     if (config.never_unmap) {
                         // free page that was intentionally leaked by never_unmap
                         self.backing_allocator.free(bucket.page[0..page_size]);
                     }
                     // alloc_cursor was set to slot count when bucket added to empty_buckets
-                    self.freeBucket(bucket, @divExact(page_size, bucket.alloc_cursor));
+                    self.freeBucket(bucket, bucket.emptyBucketSizeClass());
                     self.bucket_node_pool.destroy(node);
                 }
                 self.empty_buckets.root = null;
@@ -726,6 +746,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     if (!self.large_allocations.contains(@intFromPtr(old_mem.ptr))) {
                         // object not in active buckets or a large allocation, so search empty buckets
                         if (searchBucket(&self.empty_buckets, @intFromPtr(old_mem.ptr), null)) |bucket| {
+                            size_class = bucket.emptyBucketSizeClass();
                             // bucket is empty so is_used below will always be false and we exit there
                             break :blk bucket;
                         } else {
@@ -844,6 +865,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     if (!self.large_allocations.contains(@intFromPtr(old_mem.ptr))) {
                         // object not in active buckets or a large allocation, so search empty buckets
                         if (searchBucket(&self.empty_buckets, @intFromPtr(old_mem.ptr), null)) |bucket| {
+                            size_class = bucket.emptyBucketSizeClass();
                             // bucket is empty so is_used below will always be false and we exit there
                             break :blk bucket;
                         } else {
@@ -1149,7 +1171,11 @@ test "shrink" {
 }
 
 test "large object - grow" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    if (builtin.target.isWasm()) {
+        // Not expected to pass on targets that do not have memory mapping.
+        return error.SkipZigTest;
+    }
+    var gpa: GeneralPurposeAllocator(test_config) = .{};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1322,6 +1348,11 @@ test "realloc large object to larger alignment" {
 }
 
 test "large object shrinks to small but allocation fails during shrink" {
+    if (builtin.target.isWasm()) {
+        // Not expected to pass on targets that do not have memory mapping.
+        return error.SkipZigTest;
+    }
+
     var failing_allocator = std.testing.FailingAllocator.init(std.heap.page_allocator, .{ .fail_index = 3 });
     var gpa = GeneralPurposeAllocator(.{}){ .backing_allocator = failing_allocator.allocator() };
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
@@ -1418,6 +1449,23 @@ test "double frees" {
     try std.testing.expect(!gpa.large_allocations.contains(@intFromPtr(large.ptr)));
 }
 
+test "empty bucket size class" {
+    const GPA = GeneralPurposeAllocator(.{ .safety = true, .never_unmap = true, .retain_metadata = true });
+    var gpa = GPA{};
+    defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
+    const allocator = gpa.allocator();
+
+    // allocate and free to create an empty bucket
+    const size_class: usize = @as(usize, 1) << 6;
+    const small = try allocator.alloc(u8, size_class);
+    allocator.free(small);
+
+    // the metadata tracking system relies on alloc_cursor of empty buckets
+    // being set to the slot count so that we can get back the size class.
+    const empty_bucket = GPA.searchBucket(&gpa.empty_buckets, @intFromPtr(small.ptr), null).?;
+    try std.testing.expect(empty_bucket.emptyBucketSizeClass() == size_class);
+}
+
 test "bug 9995 fix, large allocs count requested size not backing size" {
     // with AtLeast, buffer likely to be larger than requested, especially when shrinking
     var gpa = GeneralPurposeAllocator(.{ .enable_memory_limit = true }){};
@@ -1429,4 +1477,20 @@ test "bug 9995 fix, large allocs count requested size not backing size" {
     try std.testing.expect(gpa.total_requested_bytes == 1);
     buf = try allocator.realloc(buf, 2);
     try std.testing.expect(gpa.total_requested_bytes == 2);
+}
+
+test "retain metadata and never unmap" {
+    var gpa = std.heap.GeneralPurposeAllocator(.{
+        .safety = true,
+        .never_unmap = true,
+        .retain_metadata = true,
+    }){};
+    defer std.debug.assert(gpa.deinit() == .ok);
+    const allocator = gpa.allocator();
+
+    const alloc = try allocator.alloc(u8, 8);
+    allocator.free(alloc);
+
+    const alloc2 = try allocator.alloc(u8, 8);
+    allocator.free(alloc2);
 }

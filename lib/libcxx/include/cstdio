@@ -95,7 +95,6 @@ void perror(const char* s);
 }  // std
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 
 #include <stdio.h>
@@ -141,13 +140,9 @@ using ::putc _LIBCPP_USING_IF_EXISTS;
 using ::ungetc _LIBCPP_USING_IF_EXISTS;
 using ::fread _LIBCPP_USING_IF_EXISTS;
 using ::fwrite _LIBCPP_USING_IF_EXISTS;
-#ifndef _LIBCPP_HAS_NO_FGETPOS_FSETPOS
 using ::fgetpos _LIBCPP_USING_IF_EXISTS;
-#endif
 using ::fseek _LIBCPP_USING_IF_EXISTS;
-#ifndef _LIBCPP_HAS_NO_FGETPOS_FSETPOS
 using ::fsetpos _LIBCPP_USING_IF_EXISTS;
-#endif
 using ::ftell _LIBCPP_USING_IF_EXISTS;
 using ::rewind _LIBCPP_USING_IF_EXISTS;
 using ::clearerr _LIBCPP_USING_IF_EXISTS;
@@ -163,7 +158,7 @@ using ::tmpfile _LIBCPP_USING_IF_EXISTS;
 using ::tmpnam _LIBCPP_USING_IF_EXISTS;
 
 using ::getchar _LIBCPP_USING_IF_EXISTS;
-#if _LIBCPP_STD_VER <= 11 && !defined(_LIBCPP_C_HAS_NO_GETS)
+#if _LIBCPP_STD_VER <= 11
 using ::gets _LIBCPP_USING_IF_EXISTS;
 #endif
 using ::scanf _LIBCPP_USING_IF_EXISTS;

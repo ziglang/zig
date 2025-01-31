@@ -1,4 +1,4 @@
-/* Copyright (C) 2011-2023 Free Software Foundation, Inc.
+/* Copyright (C) 2011-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -74,6 +74,15 @@ C_LABEL(name)				\
 #undef END
 #define END(name)			\
 	cfi_endproc;			\
+	.size name, . - name
+
+#define ENTRY_NOCFI(name)			\
+	.align	4;			\
+	.global	C_SYMBOL_NAME(name);	\
+	.type	name, @function;	\
+C_LABEL(name)
+
+#define END_NOCFI(name)			\
 	.size name, . - name
 
 #undef LOC

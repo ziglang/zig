@@ -82,13 +82,13 @@ Macros:
 
 #ifdef __cplusplus
 
-#ifndef FLT_EVAL_METHOD
-#define FLT_EVAL_METHOD __FLT_EVAL_METHOD__
-#endif
+#  ifndef FLT_EVAL_METHOD
+#    define FLT_EVAL_METHOD __FLT_EVAL_METHOD__
+#  endif
 
-#ifndef DECIMAL_DIG
-#define DECIMAL_DIG __DECIMAL_DIG__
-#endif
+#  ifndef DECIMAL_DIG
+#    define DECIMAL_DIG __DECIMAL_DIG__
+#  endif
 
 #endif // __cplusplus
 

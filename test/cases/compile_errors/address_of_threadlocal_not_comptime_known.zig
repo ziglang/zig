@@ -10,4 +10,5 @@ pub export fn entry() void {
 // target=native
 //
 // :2:36: error: unable to resolve comptime value
-// :2:36: note: container level variable initializers must be comptime-known
+// :2:36: note: initializer of container-level variable must be comptime-known
+// :2:36: note: threadlocal and dll imported variables have runtime-known addresses

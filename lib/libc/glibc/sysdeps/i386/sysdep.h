@@ -1,5 +1,5 @@
 /* Assembler macros for i386.
-   Copyright (C) 1991-2023 Free Software Foundation, Inc.
+   Copyright (C) 1991-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -17,6 +17,8 @@
    <https://www.gnu.org/licenses/>.  */
 
 #include <sysdeps/x86/sysdep.h>
+
+#define CET_ENABLED     0
 
 /* It is desirable that the names of PIC thunks match those used by
    GCC so that multiple copies are eliminated by the linker.  Because
@@ -36,6 +38,15 @@
 #ifdef	__ASSEMBLER__
 
 /* Syntactic details of assembler.  */
+
+/* Define an entry point visible from C.  */
+#define	ENTRY_P2ALIGN(name, alignment)					      \
+  .globl C_SYMBOL_NAME(name);						      \
+  .type C_SYMBOL_NAME(name),@function;					      \
+  .align ALIGNARG(alignment);						      \
+  C_LABEL(name)								      \
+  cfi_startproc;							      \
+  CALL_MCOUNT
 
 /* If compiled for profiling, call `mcount' at the start of each function.  */
 #ifdef	PROF

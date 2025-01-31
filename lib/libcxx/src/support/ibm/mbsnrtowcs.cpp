@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <cstddef> // size_t
-#include <cwchar>  // mbstate_t
+#include <cstddef>  // size_t
+#include <cwchar>   // mbstate_t
 #include <limits.h> // MB_LEN_MAX
 #include <string.h> // wmemcpy
 
@@ -18,12 +18,14 @@
 // Returns (size_t) -1 when an invalid sequence is encountered.
 // Leaves *`src` pointing to the next character to convert or NULL
 // if a null character was converted from *`src`.
-_LIBCPP_EXPORTED_FROM_ABI
-size_t mbsnrtowcs(wchar_t *__restrict dst, const char **__restrict src,
-                   size_t src_size_bytes, size_t max_dest_chars,
-                   mbstate_t *__restrict ps) {
+_LIBCPP_EXPORTED_FROM_ABI size_t mbsnrtowcs(
+    wchar_t* __restrict dst,
+    const char** __restrict src,
+    size_t src_size_bytes,
+    size_t max_dest_chars,
+    mbstate_t* __restrict ps) {
   const size_t terminated_sequence = static_cast<size_t>(0);
-  const size_t invalid_sequence = static_cast<size_t>(-1);
+  const size_t invalid_sequence    = static_cast<size_t>(-1);
   const size_t incomplete_sequence = static_cast<size_t>(-2);
 
   size_t source_converted;
@@ -43,7 +45,7 @@ size_t mbsnrtowcs(wchar_t *__restrict dst, const char **__restrict src,
     // If result (char_size) is zero, it indicates that the null character has been found.
     // Otherwise, it's an error and errno may be set.
     size_t source_remaining = src_size_bytes - source_converted;
-    size_t dest_remaining = max_dest_chars - dest_converted;
+    size_t dest_remaining   = max_dest_chars - dest_converted;
 
     if (dst == nullptr) {
       result = mbrtowc(NULL, *src + source_converted, source_remaining, ps);
@@ -52,12 +54,12 @@ size_t mbsnrtowcs(wchar_t *__restrict dst, const char **__restrict src,
       result = mbrtowc(dst + dest_converted, *src + source_converted, source_remaining, ps);
     } else {
       /*
-      * dst may not have enough space, so use a temporary buffer.
-      *
-      * We need to save a copy of the conversion state
-      * here so we can restore it if the multibyte
-      * character is too long for the buffer.
-      */
+       * dst may not have enough space, so use a temporary buffer.
+       *
+       * We need to save a copy of the conversion state
+       * here so we can restore it if the multibyte
+       * character is too long for the buffer.
+       */
       wchar_t buff[MB_LEN_MAX];
       mbstate_t mbstate_tmp;
 

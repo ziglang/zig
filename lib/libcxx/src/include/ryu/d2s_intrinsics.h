@@ -63,7 +63,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
   // (The shift value is in the range [49, 58].)
   // Check this here in case a future change requires larger shift
   // values. In this case this function needs to be adjusted.
-  _LIBCPP_ASSERT_UNCATEGORIZED(__dist < 64, "");
+  _LIBCPP_ASSERT_INTERNAL(__dist < 64, "");
   return __shiftright128(__lo, __hi, static_cast<unsigned char>(__dist));
 }
 
@@ -85,7 +85,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
   // (The shift value is in the range [49, 58].)
   // Check this here in case a future change requires larger shift
   // values. In this case this function needs to be adjusted.
-  _LIBCPP_ASSERT_UNCATEGORIZED(__dist < 64, "");
+  _LIBCPP_ASSERT_INTERNAL(__dist < 64, "");
   auto __temp = __lo | ((unsigned __int128)__hi << 64);
   // For x64 128-bit shfits using the `shrd` instruction and two 64-bit
   // registers, the shift value is modulo 64.  Thus the `& 63` is free.
@@ -126,13 +126,13 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 [[nodiscard]] _LIBCPP_HIDE_FROM_ABI inline uint64_t __ryu_shiftright128(const uint64_t __lo, const uint64_t __hi, const uint32_t __dist) {
   // We don't need to handle the case __dist >= 64 here (see above).
-  _LIBCPP_ASSERT_UNCATEGORIZED(__dist < 64, "");
+  _LIBCPP_ASSERT_INTERNAL(__dist < 64, "");
 #ifdef _LIBCPP_64_BIT
-  _LIBCPP_ASSERT_UNCATEGORIZED(__dist > 0, "");
+  _LIBCPP_ASSERT_INTERNAL(__dist > 0, "");
   return (__hi << (64 - __dist)) | (__lo >> __dist);
 #else // ^^^ 64-bit ^^^ / vvv 32-bit vvv
   // Avoid a 64-bit shift by taking advantage of the range of shift values.
-  _LIBCPP_ASSERT_UNCATEGORIZED(__dist >= 32, "");
+  _LIBCPP_ASSERT_INTERNAL(__dist >= 32, "");
   return (__hi << (64 - __dist)) | (static_cast<uint32_t>(__lo >> 32) >> (__dist - 32));
 #endif // ^^^ 32-bit ^^^
 }
@@ -227,7 +227,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 [[nodiscard]] _LIBCPP_HIDE_FROM_ABI inline uint32_t __pow5Factor(uint64_t __value) {
   uint32_t __count = 0;
   for (;;) {
-    _LIBCPP_ASSERT_UNCATEGORIZED(__value != 0, "");
+    _LIBCPP_ASSERT_INTERNAL(__value != 0, "");
     const uint64_t __q = __div5(__value);
     const uint32_t __r = static_cast<uint32_t>(__value) - 5 * static_cast<uint32_t>(__q);
     if (__r != 0) {
@@ -247,8 +247,8 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 // Returns true if __value is divisible by 2^__p.
 [[nodiscard]] _LIBCPP_HIDE_FROM_ABI inline bool __multipleOfPowerOf2(const uint64_t __value, const uint32_t __p) {
-  _LIBCPP_ASSERT_UNCATEGORIZED(__value != 0, "");
-  _LIBCPP_ASSERT_UNCATEGORIZED(__p < 64, "");
+  _LIBCPP_ASSERT_INTERNAL(__value != 0, "");
+  _LIBCPP_ASSERT_INTERNAL(__p < 64, "");
   // __builtin_ctzll doesn't appear to be faster here.
   return (__value & ((1ull << __p) - 1)) == 0;
 }

@@ -21,10 +21,10 @@ export fn entry4() void {
 //
 // :4:12: error: expected type '[*:0]u8', found '[*:255]u8'
 // :4:12: note: pointer sentinel '255' cannot cast into pointer sentinel '0'
-// :3:35: note: function return type declared here
+// :3:34: note: function return type declared here
 // :7:12: error: expected type '[*:0]u8', found '[*]u8'
 // :7:12: note: destination pointer requires '0' sentinel
-// :6:31: note: function return type declared here
+// :6:30: note: function return type declared here
 // :10:35: error: expected type '[2:0]u8', found '[2:255]u8'
 // :10:35: note: array sentinel '255' cannot cast into array sentinel '0'
 // :14:31: error: expected type '[2:0]u8', found '[2]u8'

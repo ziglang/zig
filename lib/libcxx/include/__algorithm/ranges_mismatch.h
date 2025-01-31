@@ -10,6 +10,8 @@
 #define _LIBCPP___ALGORITHM_RANGES_MISMATCH_H
 
 #include <__algorithm/in_in_result.h>
+#include <__algorithm/mismatch.h>
+#include <__algorithm/unwrap_range.h>
 #include <__config>
 #include <__functional/identity.h>
 #include <__functional/invoke.h>
@@ -25,6 +27,9 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER >= 20
@@ -39,13 +44,17 @@ struct __fn {
   template <class _I1, class _S1, class _I2, class _S2, class _Pred, class _Proj1, class _Proj2>
   static _LIBCPP_HIDE_FROM_ABI constexpr mismatch_result<_I1, _I2>
   __go(_I1 __first1, _S1 __last1, _I2 __first2, _S2 __last2, _Pred& __pred, _Proj1& __proj1, _Proj2& __proj2) {
-    while (__first1 != __last1 && __first2 != __last2) {
-      if (!std::invoke(__pred, std::invoke(__proj1, *__first1), std::invoke(__proj2, *__first2)))
-        break;
-      ++__first1;
-      ++__first2;
+    if constexpr (forward_iterator<_I1> && forward_iterator<_I2>) {
+      auto __range1 = std::__unwrap_range(__first1, __last1);
+      auto __range2 = std::__unwrap_range(__first2, __last2);
+      auto __res =
+          std::__mismatch(__range1.first, __range1.second, __range2.first, __range2.second, __pred, __proj1, __proj2);
+      return {std::__rewrap_range<_S1>(__first1, __res.first), std::__rewrap_range<_S2>(__first2, __res.second)};
+    } else {
+      auto __res = std::__mismatch(
+          std::move(__first1), std::move(__last1), std::move(__first2), std::move(__last2), __pred, __proj1, __proj2);
+      return {std::move(__res.first), std::move(__res.second)};
     }
-    return {std::move(__first1), std::move(__first2)};
   }
 
   template <input_iterator _I1,
@@ -56,7 +65,7 @@ struct __fn {
             class _Proj1 = identity,
             class _Proj2 = identity>
     requires indirectly_comparable<_I1, _I2, _Pred, _Proj1, _Proj2>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr mismatch_result<_I1, _I2> operator()(
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr mismatch_result<_I1, _I2> operator()(
       _I1 __first1, _S1 __last1, _I2 __first2, _S2 __last2, _Pred __pred = {}, _Proj1 __proj1 = {}, _Proj2 __proj2 = {})
       const {
     return __go(std::move(__first1), __last1, std::move(__first2), __last2, __pred, __proj1, __proj2);
@@ -68,8 +77,8 @@ struct __fn {
             class _Proj1 = identity,
             class _Proj2 = identity>
     requires indirectly_comparable<iterator_t<_R1>, iterator_t<_R2>, _Pred, _Proj1, _Proj2>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr mismatch_result<borrowed_iterator_t<_R1>,
-                                                                        borrowed_iterator_t<_R2>>
+  [[nodiscard]]
+  _LIBCPP_HIDE_FROM_ABI constexpr mismatch_result<borrowed_iterator_t<_R1>, borrowed_iterator_t<_R2>>
   operator()(_R1&& __r1, _R2&& __r2, _Pred __pred = {}, _Proj1 __proj1 = {}, _Proj2 __proj2 = {}) const {
     return __go(
         ranges::begin(__r1), ranges::end(__r1), ranges::begin(__r2), ranges::end(__r2), __pred, __proj1, __proj2);
@@ -85,5 +94,7 @@ constexpr inline auto mismatch = __mismatch::__fn{};
 #endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_RANGES_MISMATCH_H

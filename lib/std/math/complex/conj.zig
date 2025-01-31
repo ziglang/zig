@@ -14,5 +14,6 @@ test conj {
     const a = Complex(f32).init(5, 3);
     const c = a.conjugate();
 
-    try testing.expect(c.re == 5 and c.im == -3);
+    try testing.expectEqual(5, c.re);
+    try testing.expectEqual(-3, c.im);
 }

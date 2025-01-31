@@ -30,7 +30,6 @@ inline namespace fundamentals_v1 {
 
  */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <experimental/__config>
 #include <utility>
 
@@ -40,7 +39,7 @@ inline namespace fundamentals_v1 {
 
 _LIBCPP_BEGIN_NAMESPACE_LFTS
 
-  struct _LIBCPP_TEMPLATE_VIS erased_type { };
+struct _LIBCPP_TEMPLATE_VIS erased_type {};
 
 _LIBCPP_END_NAMESPACE_LFTS
 

@@ -158,7 +158,7 @@ pub fn next(self: *Tokenizer) ?Token {
                 '"' => {
                     self.index += 1;
                     self.state = .rhs;
-                    return Token{ .prereq = self.bytes[start .. self.index - 1] };
+                    return finishPrereq(must_resolve, self.bytes[start .. self.index - 1]);
                 },
                 else => {
                     self.index += 1;
@@ -167,11 +167,11 @@ pub fn next(self: *Tokenizer) ?Token {
             .prereq => switch (char) {
                 '\t', ' ' => {
                     self.state = .rhs;
-                    return Token{ .prereq = self.bytes[start..self.index] };
+                    return finishPrereq(must_resolve, self.bytes[start..self.index]);
                 },
                 '\n', '\r' => {
                     self.state = .lhs;
-                    return Token{ .prereq = self.bytes[start..self.index] };
+                    return finishPrereq(must_resolve, self.bytes[start..self.index]);
                 },
                 '\\' => {
                     self.state = .prereq_continuation;
@@ -185,10 +185,20 @@ pub fn next(self: *Tokenizer) ?Token {
                 '\n' => {
                     self.index += 1;
                     self.state = .rhs;
-                    return Token{ .prereq = self.bytes[start .. self.index - 2] };
+                    return finishPrereq(must_resolve, self.bytes[start .. self.index - 2]);
                 },
                 '\r' => {
                     self.state = .prereq_continuation_linefeed;
+                    self.index += 1;
+                },
+                '\\' => {
+                    // The previous \ wasn't a continuation, but this one might be.
+                    self.index += 1;
+                },
+                ' ' => {
+                    // not continuation, but escaped space must be resolved
+                    must_resolve = true;
+                    self.state = .prereq;
                     self.index += 1;
                 },
                 else => {
@@ -201,7 +211,7 @@ pub fn next(self: *Tokenizer) ?Token {
                 '\n' => {
                     self.index += 1;
                     self.state = .rhs;
-                    return Token{ .prereq = self.bytes[start .. self.index - 1] };
+                    return finishPrereq(must_resolve, self.bytes[start .. self.index - 3]);
                 },
                 else => {
                     return errorIllegalChar(.continuation_eol, self.index, char);
@@ -251,15 +261,15 @@ pub fn next(self: *Tokenizer) ?Token {
             },
             .prereq => {
                 self.state = .lhs;
-                return Token{ .prereq = self.bytes[start..] };
+                return finishPrereq(must_resolve, self.bytes[start..]);
             },
             .prereq_continuation => {
                 self.state = .lhs;
-                return Token{ .prereq = self.bytes[start .. self.index - 1] };
+                return finishPrereq(must_resolve, self.bytes[start .. self.index - 1]);
             },
             .prereq_continuation_linefeed => {
                 self.state = .lhs;
-                return Token{ .prereq = self.bytes[start .. self.index - 2] };
+                return finishPrereq(must_resolve, self.bytes[start .. self.index - 2]);
             },
         }
     }
@@ -276,6 +286,10 @@ fn errorIllegalChar(comptime id: std.meta.Tag(Token), index: usize, char: u8) To
 
 fn finishTarget(must_resolve: bool, bytes: []const u8) Token {
     return if (must_resolve) .{ .target_must_resolve = bytes } else .{ .target = bytes };
+}
+
+fn finishPrereq(must_resolve: bool, bytes: []const u8) Token {
+    return if (must_resolve) .{ .prereq_must_resolve = bytes } else .{ .prereq = bytes };
 }
 
 const State = enum {
@@ -298,6 +312,7 @@ pub const Token = union(enum) {
     target: []const u8,
     target_must_resolve: []const u8,
     prereq: []const u8,
+    prereq_must_resolve: []const u8,
 
     incomplete_quoted_prerequisite: IndexAndBytes,
     incomplete_target: IndexAndBytes,
@@ -318,48 +333,76 @@ pub const Token = union(enum) {
         bytes: []const u8,
     };
 
-    /// Resolve escapes in target. Only valid with .target_must_resolve.
+    /// Resolve escapes in target or prereq. Only valid with .target_must_resolve or .prereq_must_resolve.
     pub fn resolve(self: Token, writer: anytype) @TypeOf(writer).Error!void {
-        const bytes = self.target_must_resolve; // resolve called on incorrect token
-
-        var state: enum { start, escape, dollar } = .start;
-        for (bytes) |c| {
-            switch (state) {
-                .start => {
-                    switch (c) {
-                        '\\' => state = .escape,
-                        '$' => state = .dollar,
-                        else => try writer.writeByte(c),
-                    }
-                },
-                .escape => {
-                    switch (c) {
-                        ' ', '#', '\\' => {},
-                        '$' => {
-                            try writer.writeByte('\\');
-                            state = .dollar;
-                            continue;
+        switch (self) {
+            .target_must_resolve => |bytes| {
+                var state: enum { start, escape, dollar } = .start;
+                for (bytes) |c| {
+                    switch (state) {
+                        .start => {
+                            switch (c) {
+                                '\\' => state = .escape,
+                                '$' => state = .dollar,
+                                else => try writer.writeByte(c),
+                            }
                         },
-                        else => try writer.writeByte('\\'),
+                        .escape => {
+                            switch (c) {
+                                ' ', '#', '\\' => {},
+                                '$' => {
+                                    try writer.writeByte('\\');
+                                    state = .dollar;
+                                    continue;
+                                },
+                                else => try writer.writeByte('\\'),
+                            }
+                            try writer.writeByte(c);
+                            state = .start;
+                        },
+                        .dollar => {
+                            try writer.writeByte('$');
+                            switch (c) {
+                                '$' => {},
+                                else => try writer.writeByte(c),
+                            }
+                            state = .start;
+                        },
                     }
-                    try writer.writeByte(c);
-                    state = .start;
-                },
-                .dollar => {
-                    try writer.writeByte('$');
-                    switch (c) {
-                        '$' => {},
-                        else => try writer.writeByte(c),
+                }
+            },
+            .prereq_must_resolve => |bytes| {
+                var state: enum { start, escape } = .start;
+                for (bytes) |c| {
+                    switch (state) {
+                        .start => {
+                            switch (c) {
+                                '\\' => state = .escape,
+                                else => try writer.writeByte(c),
+                            }
+                        },
+                        .escape => {
+                            switch (c) {
+                                ' ' => {},
+                                '\\' => {
+                                    try writer.writeByte(c);
+                                    continue;
+                                },
+                                else => try writer.writeByte('\\'),
+                            }
+                            try writer.writeByte(c);
+                            state = .start;
+                        },
                     }
-                    state = .start;
-                },
-            }
+                }
+            },
+            else => unreachable,
         }
     }
 
     pub fn printError(self: Token, writer: anytype) @TypeOf(writer).Error!void {
         switch (self) {
-            .target, .target_must_resolve, .prereq => unreachable, // not an error
+            .target, .target_must_resolve, .prereq, .prereq_must_resolve => unreachable, // not an error
             .incomplete_quoted_prerequisite,
             .incomplete_target,
             => |index_and_bytes| {
@@ -387,7 +430,7 @@ pub const Token = union(enum) {
 
     fn errStr(self: Token) []const u8 {
         return switch (self) {
-            .target, .target_must_resolve, .prereq => unreachable, // not an error
+            .target, .target_must_resolve, .prereq, .prereq_must_resolve => unreachable, // not an error
             .incomplete_quoted_prerequisite => "incomplete quoted prerequisite",
             .incomplete_target => "incomplete target",
             .invalid_target => "invalid target",
@@ -536,6 +579,15 @@ test "prereq continuation" {
         \\foo.o: foo.h\
         \\bar.h
     , expect);
+}
+
+test "prereq continuation (CRLF)" {
+    const expect =
+        \\target = {foo.o}
+        \\prereq = {foo.h}
+        \\prereq = {bar.h}
+    ;
+    try depTokenizer("foo.o: foo.h\\\r\nbar.h", expect);
 }
 
 test "multiple prereqs" {
@@ -728,6 +780,32 @@ test "windows funky targets" {
     );
 }
 
+test "windows funky prereqs" {
+    // Note we don't support unquoted escaped spaces at the very beginning of a relative path
+    // e.g. `\ SpaceAtTheBeginning.c`
+    // This typically wouldn't be seen in the wild, since depfiles usually use absolute paths
+    // and supporting it would degrade error messages for cases where it was meant to be a
+    // continuation, but the line ending is missing.
+    try depTokenizer(
+        \\cimport.o: \
+        \\  trailingbackslash\\
+        \\  C:\Users\John\ Smith\AppData\Local\zig\p\1220d14057af1a9d6dde4643293527bd5ee5099517d655251a066666a4320737ea7c\cimport.c \
+        \\  somedir\\ a.c\
+        \\  somedir/\ a.c\
+        \\  somedir\\ \ \ b.c\
+        \\  somedir\\ \\ \c.c\
+        \\
+    ,
+        \\target = {cimport.o}
+        \\prereq = {trailingbackslash\}
+        \\prereq = {C:\Users\John Smith\AppData\Local\zig\p\1220d14057af1a9d6dde4643293527bd5ee5099517d655251a066666a4320737ea7c\cimport.c}
+        \\prereq = {somedir\ a.c}
+        \\prereq = {somedir/ a.c}
+        \\prereq = {somedir\   b.c}
+        \\prereq = {somedir\ \ \c.c}
+    );
+}
+
 test "windows drive and forward slashes" {
     try depTokenizer(
         \\C:/msys64/what/zig-cache\tmp\48ac4d78dd531abd-cxa_thread_atexit.obj: \
@@ -908,6 +986,15 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
             },
             .target_must_resolve => {
                 try buffer.appendSlice("target = {");
+                try token.resolve(resolve_buf.writer());
+                for (resolve_buf.items) |b| {
+                    try buffer.append(printable_char_tab[b]);
+                }
+                resolve_buf.items.len = 0;
+                try buffer.appendSlice("}");
+            },
+            .prereq_must_resolve => {
+                try buffer.appendSlice("prereq = {");
                 try token.resolve(resolve_buf.writer());
                 for (resolve_buf.items) |b| {
                     try buffer.append(printable_char_tab[b]);

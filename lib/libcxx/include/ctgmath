@@ -18,7 +18,6 @@
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <ccomplex>
 #include <cmath>
 

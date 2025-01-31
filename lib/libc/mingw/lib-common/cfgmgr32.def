@@ -7,12 +7,12 @@ LIBRARY "CFGMGR32.dll"
 EXPORTS
 CMP_GetBlockedDriverInfo
 CMP_GetServerSideDeviceInstallFlags
+CMP_Get_Device_ID_List
+CMP_Get_Device_ID_List_Size
 CMP_Init_Detection
-CMP_RegisterNotification
 CMP_RegisterServiceNotification
 CMP_Register_Notification
 CMP_Report_LogOn
-CMP_UnregisterNotification
 CMP_WaitNoPendingInstallEvents
 CMP_WaitServicesAvailable
 CM_Add_Driver_PackageW
@@ -61,6 +61,7 @@ CM_Enumerate_EnumeratorsA
 CM_Enumerate_EnumeratorsW
 CM_Enumerate_Enumerators_ExA
 CM_Enumerate_Enumerators_ExW
+CM_Export_Pnp_StateW
 CM_Find_Range
 CM_First_Range
 CM_Free_Log_Conf
@@ -167,6 +168,7 @@ CM_Get_Version_Ex
 CM_Import_PowerScheme
 CM_Install_DevNodeW
 CM_Install_DevNode_ExW
+CM_Install_DriverW
 CM_Intersect_Range_List
 CM_Invert_Range_List
 CM_Is_Dock_Station_Present
@@ -253,6 +255,7 @@ CM_Setup_DevNode_Ex
 CM_Test_Range_Available
 CM_Uninstall_DevNode
 CM_Uninstall_DevNode_Ex
+CM_Uninstall_DriverW
 CM_Unregister_Device_InterfaceA
 CM_Unregister_Device_InterfaceW
 CM_Unregister_Device_Interface_ExA

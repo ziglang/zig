@@ -28,6 +28,7 @@
 #include <__iterator/back_insert_iterator.h>
 #include <__ranges/concepts.h>
 #include <__ranges/data.h>
+#include <__ranges/from_range.h>
 #include <__ranges/size.h>
 #include <__type_traits/remove_cvref.h>
 #include <string_view>
@@ -184,13 +185,7 @@ struct _LIBCPP_TEMPLATE_VIS range_formatter {
       std::formatter<basic_string<_CharT>, _CharT> __formatter;
       if (__debug_format)
         __formatter.set_debug_format();
-      // P2106's from_range has not been implemented yet. Instead use a simple
-      // copy operation.
-      // TODO FMT use basic_string's "from_range" constructor.
-      // return std::formatter<basic_string<_CharT>, _CharT>{}.format(basic_string<_CharT>{from_range, __range}, __ctx);
-      basic_string<_CharT> __str;
-      ranges::copy(__range, back_insert_iterator{__str});
-      return __formatter.format(__str, __ctx);
+      return __formatter.format(basic_string<_CharT>{from_range, __range}, __ctx);
     }
   }
 
@@ -251,9 +246,8 @@ private:
   __parse_empty_range_underlying_spec(_ParseContext& __ctx, typename _ParseContext::iterator __begin) {
     __ctx.advance_to(__begin);
     [[maybe_unused]] typename _ParseContext::iterator __result = __underlying_.parse(__ctx);
-    _LIBCPP_ASSERT_UNCATEGORIZED(
-        __result == __begin,
-        "the underlying's parse function should not advance the input beyond the end of the input");
+    _LIBCPP_ASSERT_INTERNAL(__result == __begin,
+                            "the underlying's parse function should not advance the input beyond the end of the input");
     return __begin;
   }
 

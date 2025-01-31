@@ -34,7 +34,7 @@ fn cosh32(z: Complex(f32)) Complex(f32) {
 
     if (ix < 0x7f800000 and iy < 0x7f800000) {
         if (iy == 0) {
-            return Complex(f32).init(math.cosh(x), y);
+            return Complex(f32).init(math.cosh(x), x * y);
         }
         // small x: normal case
         if (ix < 0x41100000) {
@@ -45,7 +45,7 @@ fn cosh32(z: Complex(f32)) Complex(f32) {
         if (ix < 0x42b17218) {
             // x < 88.7: exp(|x|) won't overflow
             const h = @exp(@abs(x)) * 0.5;
-            return Complex(f32).init(math.copysign(h, x) * @cos(y), h * @sin(y));
+            return Complex(f32).init(h * @cos(y), math.copysign(h, x) * @sin(y));
         }
         // x < 192.7: scale to avoid overflow
         else if (ix < 0x4340b1e7) {
@@ -68,7 +68,7 @@ fn cosh32(z: Complex(f32)) Complex(f32) {
         if (hx & 0x7fffff == 0) {
             return Complex(f32).init(x * x, math.copysign(@as(f32, 0.0), x) * y);
         }
-        return Complex(f32).init(x, math.copysign(@as(f32, 0.0), (x + x) * y));
+        return Complex(f32).init(x * x, math.copysign(@as(f32, 0.0), (x + x) * y));
     }
 
     if (ix < 0x7f800000 and iy >= 0x7f800000) {
@@ -123,7 +123,7 @@ fn cosh64(z: Complex(f64)) Complex(f64) {
         }
         // x >= 1455: result always overflows
         else {
-            const h = 0x1p1023;
+            const h = 0x1p1023 * x;
             return Complex(f64).init(h * h * @cos(y), h * @sin(y));
         }
     }
@@ -153,20 +153,29 @@ fn cosh64(z: Complex(f64)) Complex(f64) {
     return Complex(f64).init((x * x) * (y - y), (x + x) * (y - y));
 }
 
-const epsilon = 0.0001;
-
 test cosh32 {
+    const epsilon = math.floatEps(f32);
     const a = Complex(f32).init(5, 3);
     const c = cosh(a);
 
-    try testing.expect(math.approxEqAbs(f32, c.re, -73.467300, epsilon));
-    try testing.expect(math.approxEqAbs(f32, c.im, 10.471557, epsilon));
+    try testing.expectApproxEqAbs(-73.467300, c.re, epsilon);
+    try testing.expectApproxEqAbs(10.471557, c.im, epsilon);
 }
 
 test cosh64 {
+    const epsilon = math.floatEps(f64);
     const a = Complex(f64).init(5, 3);
     const c = cosh(a);
 
-    try testing.expect(math.approxEqAbs(f64, c.re, -73.467300, epsilon));
-    try testing.expect(math.approxEqAbs(f64, c.im, 10.471557, epsilon));
+    try testing.expectApproxEqAbs(-73.46729221264526, c.re, epsilon);
+    try testing.expectApproxEqAbs(10.471557674805572, c.im, epsilon);
+}
+
+test "cosh64 musl" {
+    const epsilon = math.floatEps(f64);
+    const a = Complex(f64).init(7.44648873421389e17, 1.6008058402057622e19);
+    const c = cosh(a);
+
+    try testing.expectApproxEqAbs(std.math.inf(f64), c.re, epsilon);
+    try testing.expectApproxEqAbs(std.math.inf(f64), c.im, epsilon);
 }

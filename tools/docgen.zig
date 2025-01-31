@@ -3,106 +3,87 @@ const builtin = @import("builtin");
 const io = std.io;
 const fs = std.fs;
 const process = std.process;
-const ChildProcess = std.ChildProcess;
+const ChildProcess = std.process.Child;
 const Progress = std.Progress;
 const print = std.debug.print;
 const mem = std.mem;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const getExternalExecutor = std.zig.system.getExternalExecutor;
+const fatal = std.zig.fatal;
 
 const max_doc_file_size = 10 * 1024 * 1024;
 
 const obj_ext = builtin.object_format.fileExt(builtin.cpu.arch);
-const tmp_dir_name = "docgen_tmp";
 
 const usage =
-    \\Usage: docgen [--zig] [--skip-code-tests] input output"
+    \\Usage: docgen [options] input output
     \\
     \\   Generates an HTML document from a docgen template.
     \\
     \\Options:
+    \\   --code-dir dir         Path to directory containing code example outputs
     \\   -h, --help             Print this help and exit
-    \\   --skip-code-tests      Skip the doctests
     \\
 ;
 
-fn fatal(comptime format: []const u8, args: anytype) noreturn {
-    const stderr = io.getStdErr().writer();
-
-    stderr.print("error: " ++ format ++ "\n", args) catch {};
-    process.exit(1);
-}
-
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
+    var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena_instance.deinit();
 
-    const allocator = arena.allocator();
+    const arena = arena_instance.allocator();
 
-    var args_it = try process.argsWithAllocator(allocator);
+    var args_it = try process.argsWithAllocator(arena);
     if (!args_it.skip()) @panic("expected self arg");
 
-    var zig_exe: []const u8 = "zig";
-    var opt_zig_lib_dir: ?[]const u8 = null;
-    var do_code_tests = true;
-    var files = [_][]const u8{ "", "" };
+    var opt_code_dir: ?[]const u8 = null;
+    var opt_input: ?[]const u8 = null;
+    var opt_output: ?[]const u8 = null;
 
-    var i: usize = 0;
     while (args_it.next()) |arg| {
         if (mem.startsWith(u8, arg, "-")) {
             if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
                 const stdout = io.getStdOut().writer();
                 try stdout.writeAll(usage);
                 process.exit(0);
-            } else if (mem.eql(u8, arg, "--zig")) {
+            } else if (mem.eql(u8, arg, "--code-dir")) {
                 if (args_it.next()) |param| {
-                    zig_exe = param;
+                    opt_code_dir = param;
                 } else {
-                    fatal("expected parameter after --zig", .{});
+                    fatal("expected parameter after --code-dir", .{});
                 }
-            } else if (mem.eql(u8, arg, "--zig-lib-dir")) {
-                if (args_it.next()) |param| {
-                    // Convert relative to absolute because this will be passed
-                    // to a child process with a different cwd.
-                    opt_zig_lib_dir = try fs.realpathAlloc(allocator, param);
-                } else {
-                    fatal("expected parameter after --zig-lib-dir", .{});
-                }
-            } else if (mem.eql(u8, arg, "--skip-code-tests")) {
-                do_code_tests = false;
             } else {
                 fatal("unrecognized option: '{s}'", .{arg});
             }
+        } else if (opt_input == null) {
+            opt_input = arg;
+        } else if (opt_output == null) {
+            opt_output = arg;
         } else {
-            if (i > 1) {
-                fatal("too many arguments", .{});
-            }
-            files[i] = arg;
-            i += 1;
+            fatal("unexpected positional argument: '{s}'", .{arg});
         }
     }
-    if (i < 2) {
-        fatal("not enough arguments", .{});
-    }
+    const input_path = opt_input orelse fatal("missing input file", .{});
+    const output_path = opt_output orelse fatal("missing output file", .{});
+    const code_dir_path = opt_code_dir orelse fatal("missing --code-dir argument", .{});
 
-    var in_file = try fs.cwd().openFile(files[0], .{ .mode = .read_only });
+    var in_file = try fs.cwd().openFile(input_path, .{});
     defer in_file.close();
 
-    var out_file = try fs.cwd().createFile(files[1], .{});
+    var out_file = try fs.cwd().createFile(output_path, .{});
     defer out_file.close();
 
-    const input_file_bytes = try in_file.reader().readAllAlloc(allocator, max_doc_file_size);
+    var code_dir = try fs.cwd().openDir(code_dir_path, .{});
+    defer code_dir.close();
+
+    const input_file_bytes = try in_file.reader().readAllAlloc(arena, max_doc_file_size);
 
     var buffered_writer = io.bufferedWriter(out_file.writer());
 
-    var tokenizer = Tokenizer.init(files[0], input_file_bytes);
-    var toc = try genToc(allocator, &tokenizer);
+    var tokenizer = Tokenizer.init(input_path, input_file_bytes);
+    var toc = try genToc(arena, &tokenizer);
 
-    try fs.cwd().makePath(tmp_dir_name);
-    defer fs.cwd().deleteTree(tmp_dir_name) catch {};
-
-    try genHtml(allocator, &tokenizer, &toc, buffered_writer.writer(), zig_exe, opt_zig_lib_dir, do_code_tests);
+    try genHtml(arena, &tokenizer, &toc, code_dir, buffered_writer.writer());
     try buffered_writer.flush();
 }
 
@@ -127,7 +108,6 @@ const Tokenizer = struct {
     index: usize,
     state: State,
     source_file_name: []const u8,
-    code_node_count: usize,
 
     const State = enum {
         start,
@@ -143,7 +123,6 @@ const Tokenizer = struct {
             .index = 0,
             .state = .start,
             .source_file_name = source_file_name,
-            .code_node_count = 0,
         };
     }
 
@@ -311,34 +290,9 @@ const SeeAlsoItem = struct {
     token: Token,
 };
 
-const ExpectedOutcome = enum {
-    succeed,
-    fail,
-    build_fail,
-};
-
 const Code = struct {
-    id: Id,
     name: []const u8,
-    source_token: Token,
-    just_check_syntax: bool,
-    mode: std.builtin.OptimizeMode,
-    link_objects: []const []const u8,
-    target_str: ?[]const u8,
-    link_libc: bool,
-    link_mode: ?std.builtin.LinkMode,
-    disable_cache: bool,
-    verbose_cimport: bool,
-    additional_options: []const []const u8,
-
-    const Id = union(enum) {
-        @"test",
-        test_error: []const u8,
-        test_safety: []const u8,
-        exe: ExpectedOutcome,
-        obj: ?[]const u8,
-        lib,
-    };
+    token: Token,
 };
 
 const Link = struct {
@@ -543,127 +497,16 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                             .token = name_tok,
                         },
                     });
-                } else if (mem.eql(u8, tag_name, "code_begin")) {
-                    _ = try eatToken(tokenizer, .separator);
-                    const code_kind_tok = try eatToken(tokenizer, .tag_content);
+                } else if (mem.eql(u8, tag_name, "code")) {
                     _ = try eatToken(tokenizer, .separator);
                     const name_tok = try eatToken(tokenizer, .tag_content);
-                    const name = tokenizer.buffer[name_tok.start..name_tok.end];
-                    var error_str: []const u8 = "";
-                    const maybe_sep = tokenizer.next();
-                    switch (maybe_sep.id) {
-                        .separator => {
-                            const error_tok = try eatToken(tokenizer, .tag_content);
-                            error_str = tokenizer.buffer[error_tok.start..error_tok.end];
-                            _ = try eatToken(tokenizer, .bracket_close);
-                        },
-                        .bracket_close => {},
-                        else => return parseError(tokenizer, token, "invalid token", .{}),
-                    }
-                    const code_kind_str = tokenizer.buffer[code_kind_tok.start..code_kind_tok.end];
-                    var code_kind_id: Code.Id = undefined;
-                    var just_check_syntax = false;
-                    if (mem.eql(u8, code_kind_str, "exe")) {
-                        code_kind_id = Code.Id{ .exe = .succeed };
-                    } else if (mem.eql(u8, code_kind_str, "exe_err")) {
-                        code_kind_id = Code.Id{ .exe = .fail };
-                    } else if (mem.eql(u8, code_kind_str, "exe_build_err")) {
-                        code_kind_id = Code.Id{ .exe = .build_fail };
-                    } else if (mem.eql(u8, code_kind_str, "test")) {
-                        code_kind_id = .@"test";
-                    } else if (mem.eql(u8, code_kind_str, "test_err")) {
-                        code_kind_id = Code.Id{ .test_error = error_str };
-                    } else if (mem.eql(u8, code_kind_str, "test_safety")) {
-                        code_kind_id = Code.Id{ .test_safety = error_str };
-                    } else if (mem.eql(u8, code_kind_str, "obj")) {
-                        code_kind_id = Code.Id{ .obj = null };
-                    } else if (mem.eql(u8, code_kind_str, "obj_err")) {
-                        code_kind_id = Code.Id{ .obj = error_str };
-                    } else if (mem.eql(u8, code_kind_str, "lib")) {
-                        code_kind_id = Code.Id.lib;
-                    } else if (mem.eql(u8, code_kind_str, "syntax")) {
-                        code_kind_id = Code.Id{ .obj = null };
-                        just_check_syntax = true;
-                    } else {
-                        return parseError(tokenizer, code_kind_tok, "unrecognized code kind: {s}", .{code_kind_str});
-                    }
-
-                    var mode: std.builtin.OptimizeMode = .Debug;
-                    var link_objects = std.ArrayList([]const u8).init(allocator);
-                    defer link_objects.deinit();
-                    var target_str: ?[]const u8 = null;
-                    var link_libc = false;
-                    var link_mode: ?std.builtin.LinkMode = null;
-                    var disable_cache = false;
-                    var verbose_cimport = false;
-                    var additional_options = std.ArrayList([]const u8).init(allocator);
-                    defer additional_options.deinit();
-
-                    const source_token = while (true) {
-                        const content_tok = try eatToken(tokenizer, .content);
-                        _ = try eatToken(tokenizer, .bracket_open);
-                        const end_code_tag = try eatToken(tokenizer, .tag_content);
-                        const end_tag_name = tokenizer.buffer[end_code_tag.start..end_code_tag.end];
-                        if (mem.eql(u8, end_tag_name, "code_release_fast")) {
-                            mode = .ReleaseFast;
-                        } else if (mem.eql(u8, end_tag_name, "code_release_safe")) {
-                            mode = .ReleaseSafe;
-                        } else if (mem.eql(u8, end_tag_name, "code_disable_cache")) {
-                            disable_cache = true;
-                        } else if (mem.eql(u8, end_tag_name, "code_verbose_cimport")) {
-                            verbose_cimport = true;
-                        } else if (mem.eql(u8, end_tag_name, "code_link_object")) {
-                            _ = try eatToken(tokenizer, .separator);
-                            const obj_tok = try eatToken(tokenizer, .tag_content);
-                            try link_objects.append(tokenizer.buffer[obj_tok.start..obj_tok.end]);
-                        } else if (mem.eql(u8, end_tag_name, "target_windows")) {
-                            target_str = "x86_64-windows";
-                        } else if (mem.eql(u8, end_tag_name, "target_linux_x86_64")) {
-                            target_str = "x86_64-linux";
-                        } else if (mem.eql(u8, end_tag_name, "target_linux_riscv64")) {
-                            target_str = "riscv64-linux";
-                        } else if (mem.eql(u8, end_tag_name, "target_wasm")) {
-                            target_str = "wasm32-freestanding";
-                        } else if (mem.eql(u8, end_tag_name, "target_wasi")) {
-                            target_str = "wasm32-wasi";
-                        } else if (mem.eql(u8, end_tag_name, "link_libc")) {
-                            link_libc = true;
-                        } else if (mem.eql(u8, end_tag_name, "link_mode_dynamic")) {
-                            link_mode = .dynamic;
-                        } else if (mem.eql(u8, end_tag_name, "additonal_option")) {
-                            _ = try eatToken(tokenizer, .separator);
-                            const option = try eatToken(tokenizer, .tag_content);
-                            try additional_options.append(tokenizer.buffer[option.start..option.end]);
-                        } else if (mem.eql(u8, end_tag_name, "code_end")) {
-                            _ = try eatToken(tokenizer, .bracket_close);
-                            break content_tok;
-                        } else {
-                            return parseError(
-                                tokenizer,
-                                end_code_tag,
-                                "invalid token inside code_begin: {s}",
-                                .{end_tag_name},
-                            );
-                        }
-                        _ = try eatToken(tokenizer, .bracket_close);
-                    } else unreachable; // TODO issue #707
-                    try nodes.append(Node{
-                        .Code = Code{
-                            .id = code_kind_id,
-                            .name = name,
-                            .source_token = source_token,
-                            .just_check_syntax = just_check_syntax,
-                            .mode = mode,
-                            .link_objects = try link_objects.toOwnedSlice(),
-                            .target_str = target_str,
-                            .link_libc = link_libc,
-                            .link_mode = link_mode,
-                            .disable_cache = disable_cache,
-                            .verbose_cimport = verbose_cimport,
-                            .additional_options = try additional_options.toOwnedSlice(),
+                    _ = try eatToken(tokenizer, .bracket_close);
+                    try nodes.append(.{
+                        .Code = .{
+                            .name = tokenizer.buffer[name_tok.start..name_tok.end],
+                            .token = name_tok,
                         },
                     });
-                    tokenizer.code_node_count += 1;
                 } else if (mem.eql(u8, tag_name, "syntax")) {
                     _ = try eatToken(tokenizer, .bracket_close);
                     const content_tok = try eatToken(tokenizer, .content);
@@ -803,132 +646,6 @@ fn in(slice: []const u8, number: u8) bool {
         if (number == n) return true;
     }
     return false;
-}
-
-fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
-    // The SRG sequences generates by the Zig compiler are in the format:
-    //   ESC [ <foreground-color> ; <n> m
-    // or
-    //   ESC [ <n> m
-    //
-    // where
-    //   foreground-color is 31 (red), 32 (green), 36 (cyan)
-    //   n is 0 (reset), 1 (bold), 2 (dim)
-    //
-    //   Note that 37 (white) is currently not used by the compiler.
-    //
-    // See std.debug.TTY.Color.
-    const supported_sgr_colors = [_]u8{ 31, 32, 36 };
-    const supported_sgr_numbers = [_]u8{ 0, 1, 2 };
-
-    var buf = std.ArrayList(u8).init(allocator);
-    defer buf.deinit();
-
-    var out = buf.writer();
-    var sgr_param_start_index: usize = undefined;
-    var sgr_num: u8 = undefined;
-    var sgr_color: u8 = undefined;
-    var i: usize = 0;
-    var state: enum {
-        start,
-        escape,
-        lbracket,
-        number,
-        after_number,
-        arg,
-        arg_number,
-        expect_end,
-    } = .start;
-    var last_new_line: usize = 0;
-    var open_span_count: usize = 0;
-    while (i < input.len) : (i += 1) {
-        const c = input[i];
-        switch (state) {
-            .start => switch (c) {
-                '\x1b' => state = .escape,
-                '\n' => {
-                    try out.writeByte(c);
-                    last_new_line = buf.items.len;
-                },
-                else => try out.writeByte(c),
-            },
-            .escape => switch (c) {
-                '[' => state = .lbracket,
-                else => return error.UnsupportedEscape,
-            },
-            .lbracket => switch (c) {
-                '0'...'9' => {
-                    sgr_param_start_index = i;
-                    state = .number;
-                },
-                else => return error.UnsupportedEscape,
-            },
-            .number => switch (c) {
-                '0'...'9' => {},
-                else => {
-                    sgr_num = try std.fmt.parseInt(u8, input[sgr_param_start_index..i], 10);
-                    sgr_color = 0;
-                    state = .after_number;
-                    i -= 1;
-                },
-            },
-            .after_number => switch (c) {
-                ';' => state = .arg,
-                'D' => state = .start,
-                'K' => {
-                    buf.items.len = last_new_line;
-                    state = .start;
-                },
-                else => {
-                    state = .expect_end;
-                    i -= 1;
-                },
-            },
-            .arg => switch (c) {
-                '0'...'9' => {
-                    sgr_param_start_index = i;
-                    state = .arg_number;
-                },
-                else => return error.UnsupportedEscape,
-            },
-            .arg_number => switch (c) {
-                '0'...'9' => {},
-                else => {
-                    // Keep the sequence consistent, foreground color first.
-                    // 32;1m is equivalent to 1;32m, but the latter will
-                    // generate an incorrect HTML class without notice.
-                    sgr_color = sgr_num;
-                    if (!in(&supported_sgr_colors, sgr_color)) return error.UnsupportedForegroundColor;
-
-                    sgr_num = try std.fmt.parseInt(u8, input[sgr_param_start_index..i], 10);
-                    if (!in(&supported_sgr_numbers, sgr_num)) return error.UnsupportedNumber;
-
-                    state = .expect_end;
-                    i -= 1;
-                },
-            },
-            .expect_end => switch (c) {
-                'm' => {
-                    state = .start;
-                    while (open_span_count != 0) : (open_span_count -= 1) {
-                        try out.writeAll("</span>");
-                    }
-                    if (sgr_num == 0) {
-                        if (sgr_color != 0) return error.UnsupportedColor;
-                        continue;
-                    }
-                    if (sgr_color != 0) {
-                        try out.print("<span class=\"sgr-{d}_{d}m\">", .{ sgr_color, sgr_num });
-                    } else {
-                        try out.print("<span class=\"sgr-{d}m\">", .{sgr_num});
-                    }
-                    open_span_count += 1;
-                },
-                else => return error.UnsupportedEscape,
-            },
-        }
-    }
-    return try buf.toOwnedSlice();
 }
 
 const builtin_types = [_][]const u8{
@@ -1267,30 +984,14 @@ fn printShell(out: anytype, shell_content: []const u8, escape: bool) !void {
     try out.writeAll("</samp></pre></figure>");
 }
 
-// Override this to skip to later tests
-const debug_start_line = 0;
-
 fn genHtml(
     allocator: Allocator,
     tokenizer: *Tokenizer,
     toc: *Toc,
+    code_dir: std.fs.Dir,
     out: anytype,
-    zig_exe: []const u8,
-    opt_zig_lib_dir: ?[]const u8,
-    do_code_tests: bool,
 ) !void {
-    var progress = Progress{ .dont_print_on_dumb = true };
-    const root_node = progress.start("Generating docgen examples", toc.nodes.len);
-    defer root_node.end();
-
-    var env_map = try process.getEnvMap(allocator);
-    try env_map.put("YES_COLOR", "1");
-
-    const host = try std.zig.system.resolveTargetQuery(.{});
-    const builtin_code = try getBuiltinCode(allocator, &env_map, zig_exe, opt_zig_lib_dir);
-
     for (toc.nodes) |node| {
-        defer root_node.completeOne();
         switch (node) {
             .Content => |data| {
                 try out.writeAll(data);
@@ -1306,6 +1007,7 @@ fn genHtml(
             },
             .Builtin => |tok| {
                 try out.writeAll("<figure><figcaption class=\"zig-cap\"><cite>@import(\"builtin\")</cite></figcaption><pre>");
+                const builtin_code = @embedFile("builtin"); // 😎
                 try tokenizeAndPrintRaw(allocator, tokenizer, out, tok, builtin_code);
                 try out.writeAll("</pre></figure>");
             },
@@ -1337,935 +1039,20 @@ fn genHtml(
                 try printSourceBlock(allocator, tokenizer, out, syntax_block);
             },
             .Code => |code| {
-                const name_plus_ext = try std.fmt.allocPrint(allocator, "{s}.zig", .{code.name});
-                const syntax_block = SyntaxBlock{
-                    .source_type = .zig,
-                    .name = name_plus_ext,
-                    .source_token = code.source_token,
+                const out_basename = try std.fmt.allocPrint(allocator, "{s}.out", .{
+                    fs.path.stem(code.name),
+                });
+                defer allocator.free(out_basename);
+
+                const contents = code_dir.readFileAlloc(allocator, out_basename, std.math.maxInt(u32)) catch |err| {
+                    return parseError(tokenizer, code.token, "unable to open '{s}': {s}", .{
+                        out_basename, @errorName(err),
+                    });
                 };
+                defer allocator.free(contents);
 
-                try printSourceBlock(allocator, tokenizer, out, syntax_block);
-
-                if (!do_code_tests) {
-                    continue;
-                }
-
-                if (debug_start_line > 0) {
-                    const loc = tokenizer.getTokenLocation(code.source_token);
-                    if (debug_start_line > loc.line) {
-                        continue;
-                    }
-                }
-
-                const raw_source = tokenizer.buffer[code.source_token.start..code.source_token.end];
-                const trimmed_raw_source = mem.trim(u8, raw_source, " \r\n");
-                const tmp_source_file_name = try fs.path.join(
-                    allocator,
-                    &[_][]const u8{ tmp_dir_name, name_plus_ext },
-                );
-                try fs.cwd().writeFile(tmp_source_file_name, trimmed_raw_source);
-
-                var shell_buffer = std.ArrayList(u8).init(allocator);
-                defer shell_buffer.deinit();
-                var shell_out = shell_buffer.writer();
-
-                switch (code.id) {
-                    .exe => |expected_outcome| code_block: {
-                        var build_args = std.ArrayList([]const u8).init(allocator);
-                        defer build_args.deinit();
-                        try build_args.appendSlice(&[_][]const u8{
-                            zig_exe,       "build-exe",
-                            "--name",      code.name,
-                            "--color",     "on",
-                            name_plus_ext,
-                        });
-                        if (opt_zig_lib_dir) |zig_lib_dir| {
-                            try build_args.appendSlice(&.{ "--zig-lib-dir", zig_lib_dir });
-                        }
-
-                        try shell_out.print("$ zig build-exe {s} ", .{name_plus_ext});
-
-                        switch (code.mode) {
-                            .Debug => {},
-                            else => {
-                                try build_args.appendSlice(&[_][]const u8{ "-O", @tagName(code.mode) });
-                                try shell_out.print("-O {s} ", .{@tagName(code.mode)});
-                            },
-                        }
-                        for (code.link_objects) |link_object| {
-                            const name_with_ext = try std.fmt.allocPrint(allocator, "{s}{s}", .{ link_object, obj_ext });
-                            try build_args.append(name_with_ext);
-                            try shell_out.print("{s} ", .{name_with_ext});
-                        }
-                        if (code.link_libc) {
-                            try build_args.append("-lc");
-                            try shell_out.print("-lc ", .{});
-                        }
-
-                        if (code.target_str) |triple| {
-                            try build_args.appendSlice(&[_][]const u8{ "-target", triple });
-                            try shell_out.print("-target {s} ", .{triple});
-                        }
-                        if (code.verbose_cimport) {
-                            try build_args.append("--verbose-cimport");
-                            try shell_out.print("--verbose-cimport ", .{});
-                        }
-                        for (code.additional_options) |option| {
-                            try build_args.append(option);
-                            try shell_out.print("{s} ", .{option});
-                        }
-
-                        try shell_out.print("\n", .{});
-
-                        if (expected_outcome == .build_fail) {
-                            const result = try ChildProcess.run(.{
-                                .allocator = allocator,
-                                .argv = build_args.items,
-                                .cwd = tmp_dir_name,
-                                .env_map = &env_map,
-                                .max_output_bytes = max_doc_file_size,
-                            });
-                            switch (result.term) {
-                                .Exited => |exit_code| {
-                                    if (exit_code == 0) {
-                                        progress.log("", .{});
-                                        print("{s}\nThe following command incorrectly succeeded:\n", .{result.stderr});
-                                        dumpArgs(build_args.items);
-                                        return parseError(tokenizer, code.source_token, "example incorrectly compiled", .{});
-                                    }
-                                },
-                                else => {
-                                    progress.log("", .{});
-                                    print("{s}\nThe following command crashed:\n", .{result.stderr});
-                                    dumpArgs(build_args.items);
-                                    return parseError(tokenizer, code.source_token, "example compile crashed", .{});
-                                },
-                            }
-                            const escaped_stderr = try escapeHtml(allocator, result.stderr);
-                            const colored_stderr = try termColor(allocator, escaped_stderr);
-                            try shell_out.writeAll(colored_stderr);
-                            break :code_block;
-                        }
-                        const exec_result = run(allocator, &env_map, tmp_dir_name, build_args.items) catch
-                            return parseError(tokenizer, code.source_token, "example failed to compile", .{});
-
-                        if (code.verbose_cimport) {
-                            const escaped_build_stderr = try escapeHtml(allocator, exec_result.stderr);
-                            try shell_out.writeAll(escaped_build_stderr);
-                        }
-
-                        if (code.target_str) |triple| {
-                            if (mem.startsWith(u8, triple, "wasm32") or
-                                mem.startsWith(u8, triple, "riscv64-linux") or
-                                (mem.startsWith(u8, triple, "x86_64-linux") and
-                                builtin.os.tag != .linux or builtin.cpu.arch != .x86_64))
-                            {
-                                // skip execution
-                                break :code_block;
-                            }
-                        }
-
-                        const target_query = try std.Target.Query.parse(.{
-                            .arch_os_abi = code.target_str orelse "native",
-                        });
-                        const target = try std.zig.system.resolveTargetQuery(target_query);
-
-                        const path_to_exe = try std.fmt.allocPrint(allocator, "./{s}{s}", .{
-                            code.name, target.exeFileExt(),
-                        });
-                        const run_args = &[_][]const u8{path_to_exe};
-
-                        var exited_with_signal = false;
-
-                        const result = if (expected_outcome == .fail) blk: {
-                            const result = try ChildProcess.run(.{
-                                .allocator = allocator,
-                                .argv = run_args,
-                                .env_map = &env_map,
-                                .cwd = tmp_dir_name,
-                                .max_output_bytes = max_doc_file_size,
-                            });
-                            switch (result.term) {
-                                .Exited => |exit_code| {
-                                    if (exit_code == 0) {
-                                        progress.log("", .{});
-                                        print("{s}\nThe following command incorrectly succeeded:\n", .{result.stderr});
-                                        dumpArgs(run_args);
-                                        return parseError(tokenizer, code.source_token, "example incorrectly compiled", .{});
-                                    }
-                                },
-                                .Signal => exited_with_signal = true,
-                                else => {},
-                            }
-                            break :blk result;
-                        } else blk: {
-                            break :blk run(allocator, &env_map, tmp_dir_name, run_args) catch return parseError(tokenizer, code.source_token, "example crashed", .{});
-                        };
-
-                        const escaped_stderr = try escapeHtml(allocator, result.stderr);
-                        const escaped_stdout = try escapeHtml(allocator, result.stdout);
-
-                        const colored_stderr = try termColor(allocator, escaped_stderr);
-                        const colored_stdout = try termColor(allocator, escaped_stdout);
-
-                        try shell_out.print("$ ./{s}\n{s}{s}", .{ code.name, colored_stdout, colored_stderr });
-                        if (exited_with_signal) {
-                            try shell_out.print("(process terminated by signal)", .{});
-                        }
-                        try shell_out.writeAll("\n");
-                    },
-                    .@"test" => {
-                        var test_args = std.ArrayList([]const u8).init(allocator);
-                        defer test_args.deinit();
-
-                        try test_args.appendSlice(&[_][]const u8{
-                            zig_exe,              "test",
-                            tmp_source_file_name,
-                        });
-                        if (opt_zig_lib_dir) |zig_lib_dir| {
-                            try test_args.appendSlice(&.{ "--zig-lib-dir", zig_lib_dir });
-                        }
-                        try shell_out.print("$ zig test {s}.zig ", .{code.name});
-
-                        switch (code.mode) {
-                            .Debug => {},
-                            else => {
-                                try test_args.appendSlice(&[_][]const u8{
-                                    "-O", @tagName(code.mode),
-                                });
-                                try shell_out.print("-O {s} ", .{@tagName(code.mode)});
-                            },
-                        }
-                        if (code.link_libc) {
-                            try test_args.append("-lc");
-                            try shell_out.print("-lc ", .{});
-                        }
-                        if (code.target_str) |triple| {
-                            try test_args.appendSlice(&[_][]const u8{ "-target", triple });
-                            try shell_out.print("-target {s} ", .{triple});
-
-                            const target_query = try std.Target.Query.parse(.{
-                                .arch_os_abi = triple,
-                            });
-                            const target = try std.zig.system.resolveTargetQuery(
-                                target_query,
-                            );
-                            switch (getExternalExecutor(host, &target, .{
-                                .link_libc = code.link_libc,
-                            })) {
-                                .native => {},
-                                else => {
-                                    try test_args.appendSlice(&[_][]const u8{"--test-no-exec"});
-                                    try shell_out.writeAll("--test-no-exec");
-                                },
-                            }
-                        }
-                        const result = run(allocator, &env_map, null, test_args.items) catch
-                            return parseError(tokenizer, code.source_token, "test failed", .{});
-                        const escaped_stderr = try escapeHtml(allocator, result.stderr);
-                        const escaped_stdout = try escapeHtml(allocator, result.stdout);
-                        try shell_out.print("\n{s}{s}\n", .{ escaped_stderr, escaped_stdout });
-                    },
-                    .test_error => |error_match| {
-                        var test_args = std.ArrayList([]const u8).init(allocator);
-                        defer test_args.deinit();
-
-                        try test_args.appendSlice(&[_][]const u8{
-                            zig_exe,              "test",
-                            "--color",            "on",
-                            tmp_source_file_name,
-                        });
-                        if (opt_zig_lib_dir) |zig_lib_dir| {
-                            try test_args.appendSlice(&.{ "--zig-lib-dir", zig_lib_dir });
-                        }
-                        try shell_out.print("$ zig test {s}.zig ", .{code.name});
-
-                        switch (code.mode) {
-                            .Debug => {},
-                            else => {
-                                try test_args.appendSlice(&[_][]const u8{ "-O", @tagName(code.mode) });
-                                try shell_out.print("-O {s} ", .{@tagName(code.mode)});
-                            },
-                        }
-                        if (code.link_libc) {
-                            try test_args.append("-lc");
-                            try shell_out.print("-lc ", .{});
-                        }
-                        const result = try ChildProcess.run(.{
-                            .allocator = allocator,
-                            .argv = test_args.items,
-                            .env_map = &env_map,
-                            .max_output_bytes = max_doc_file_size,
-                        });
-                        switch (result.term) {
-                            .Exited => |exit_code| {
-                                if (exit_code == 0) {
-                                    progress.log("", .{});
-                                    print("{s}\nThe following command incorrectly succeeded:\n", .{result.stderr});
-                                    dumpArgs(test_args.items);
-                                    return parseError(tokenizer, code.source_token, "example incorrectly compiled", .{});
-                                }
-                            },
-                            else => {
-                                progress.log("", .{});
-                                print("{s}\nThe following command crashed:\n", .{result.stderr});
-                                dumpArgs(test_args.items);
-                                return parseError(tokenizer, code.source_token, "example compile crashed", .{});
-                            },
-                        }
-                        if (mem.indexOf(u8, result.stderr, error_match) == null) {
-                            progress.log("", .{});
-                            print("{s}\nExpected to find '{s}' in stderr\n", .{ result.stderr, error_match });
-                            return parseError(tokenizer, code.source_token, "example did not have expected compile error", .{});
-                        }
-                        const escaped_stderr = try escapeHtml(allocator, result.stderr);
-                        const colored_stderr = try termColor(allocator, escaped_stderr);
-                        try shell_out.print("\n{s}\n", .{colored_stderr});
-                    },
-                    .test_safety => |error_match| {
-                        var test_args = std.ArrayList([]const u8).init(allocator);
-                        defer test_args.deinit();
-
-                        try test_args.appendSlice(&[_][]const u8{
-                            zig_exe,              "test",
-                            tmp_source_file_name,
-                        });
-                        if (opt_zig_lib_dir) |zig_lib_dir| {
-                            try test_args.appendSlice(&.{ "--zig-lib-dir", zig_lib_dir });
-                        }
-                        var mode_arg: []const u8 = "";
-                        switch (code.mode) {
-                            .Debug => {},
-                            .ReleaseSafe => {
-                                try test_args.append("-OReleaseSafe");
-                                mode_arg = "-OReleaseSafe";
-                            },
-                            .ReleaseFast => {
-                                try test_args.append("-OReleaseFast");
-                                mode_arg = "-OReleaseFast";
-                            },
-                            .ReleaseSmall => {
-                                try test_args.append("-OReleaseSmall");
-                                mode_arg = "-OReleaseSmall";
-                            },
-                        }
-
-                        const result = try ChildProcess.run(.{
-                            .allocator = allocator,
-                            .argv = test_args.items,
-                            .env_map = &env_map,
-                            .max_output_bytes = max_doc_file_size,
-                        });
-                        switch (result.term) {
-                            .Exited => |exit_code| {
-                                if (exit_code == 0) {
-                                    progress.log("", .{});
-                                    print("{s}\nThe following command incorrectly succeeded:\n", .{result.stderr});
-                                    dumpArgs(test_args.items);
-                                    return parseError(tokenizer, code.source_token, "example test incorrectly succeeded", .{});
-                                }
-                            },
-                            else => {
-                                progress.log("", .{});
-                                print("{s}\nThe following command crashed:\n", .{result.stderr});
-                                dumpArgs(test_args.items);
-                                return parseError(tokenizer, code.source_token, "example compile crashed", .{});
-                            },
-                        }
-                        if (mem.indexOf(u8, result.stderr, error_match) == null) {
-                            progress.log("", .{});
-                            print("{s}\nExpected to find '{s}' in stderr\n", .{ result.stderr, error_match });
-                            return parseError(tokenizer, code.source_token, "example did not have expected runtime safety error message", .{});
-                        }
-                        const escaped_stderr = try escapeHtml(allocator, result.stderr);
-                        const colored_stderr = try termColor(allocator, escaped_stderr);
-                        try shell_out.print("$ zig test {s}.zig {s}\n{s}\n", .{
-                            code.name,
-                            mode_arg,
-                            colored_stderr,
-                        });
-                    },
-                    .obj => |maybe_error_match| {
-                        const name_plus_obj_ext = try std.fmt.allocPrint(allocator, "{s}{s}", .{ code.name, obj_ext });
-                        var build_args = std.ArrayList([]const u8).init(allocator);
-                        defer build_args.deinit();
-
-                        try build_args.appendSlice(&[_][]const u8{
-                            zig_exe,              "build-obj",
-                            "--color",            "on",
-                            "--name",             code.name,
-                            tmp_source_file_name,
-                            try std.fmt.allocPrint(allocator, "-femit-bin={s}{c}{s}", .{
-                                tmp_dir_name, fs.path.sep, name_plus_obj_ext,
-                            }),
-                        });
-                        if (opt_zig_lib_dir) |zig_lib_dir| {
-                            try build_args.appendSlice(&.{ "--zig-lib-dir", zig_lib_dir });
-                        }
-
-                        try shell_out.print("$ zig build-obj {s}.zig ", .{code.name});
-
-                        switch (code.mode) {
-                            .Debug => {},
-                            else => {
-                                try build_args.appendSlice(&[_][]const u8{ "-O", @tagName(code.mode) });
-                                try shell_out.print("-O {s} ", .{@tagName(code.mode)});
-                            },
-                        }
-
-                        if (code.target_str) |triple| {
-                            try build_args.appendSlice(&[_][]const u8{ "-target", triple });
-                            try shell_out.print("-target {s} ", .{triple});
-                        }
-                        for (code.additional_options) |option| {
-                            try build_args.append(option);
-                            try shell_out.print("{s} ", .{option});
-                        }
-
-                        if (maybe_error_match) |error_match| {
-                            const result = try ChildProcess.run(.{
-                                .allocator = allocator,
-                                .argv = build_args.items,
-                                .env_map = &env_map,
-                                .max_output_bytes = max_doc_file_size,
-                            });
-                            switch (result.term) {
-                                .Exited => |exit_code| {
-                                    if (exit_code == 0) {
-                                        progress.log("", .{});
-                                        print("{s}\nThe following command incorrectly succeeded:\n", .{result.stderr});
-                                        dumpArgs(build_args.items);
-                                        return parseError(tokenizer, code.source_token, "example build incorrectly succeeded", .{});
-                                    }
-                                },
-                                else => {
-                                    progress.log("", .{});
-                                    print("{s}\nThe following command crashed:\n", .{result.stderr});
-                                    dumpArgs(build_args.items);
-                                    return parseError(tokenizer, code.source_token, "example compile crashed", .{});
-                                },
-                            }
-                            if (mem.indexOf(u8, result.stderr, error_match) == null) {
-                                progress.log("", .{});
-                                print("{s}\nExpected to find '{s}' in stderr\n", .{ result.stderr, error_match });
-                                return parseError(tokenizer, code.source_token, "example did not have expected compile error message", .{});
-                            }
-                            const escaped_stderr = try escapeHtml(allocator, result.stderr);
-                            const colored_stderr = try termColor(allocator, escaped_stderr);
-                            try shell_out.print("\n{s} ", .{colored_stderr});
-                        } else {
-                            _ = run(allocator, &env_map, null, build_args.items) catch return parseError(tokenizer, code.source_token, "example failed to compile", .{});
-                        }
-                        try shell_out.writeAll("\n");
-                    },
-                    .lib => {
-                        const bin_basename = try std.zig.binNameAlloc(allocator, .{
-                            .root_name = code.name,
-                            .target = builtin.target,
-                            .output_mode = .Lib,
-                        });
-
-                        var test_args = std.ArrayList([]const u8).init(allocator);
-                        defer test_args.deinit();
-
-                        try test_args.appendSlice(&[_][]const u8{
-                            zig_exe,              "build-lib",
-                            tmp_source_file_name,
-                            try std.fmt.allocPrint(allocator, "-femit-bin={s}{s}{s}", .{
-                                tmp_dir_name, fs.path.sep_str, bin_basename,
-                            }),
-                        });
-                        if (opt_zig_lib_dir) |zig_lib_dir| {
-                            try test_args.appendSlice(&.{ "--zig-lib-dir", zig_lib_dir });
-                        }
-                        try shell_out.print("$ zig build-lib {s}.zig ", .{code.name});
-
-                        switch (code.mode) {
-                            .Debug => {},
-                            else => {
-                                try test_args.appendSlice(&[_][]const u8{ "-O", @tagName(code.mode) });
-                                try shell_out.print("-O {s} ", .{@tagName(code.mode)});
-                            },
-                        }
-                        if (code.target_str) |triple| {
-                            try test_args.appendSlice(&[_][]const u8{ "-target", triple });
-                            try shell_out.print("-target {s} ", .{triple});
-                        }
-                        if (code.link_mode) |link_mode| {
-                            switch (link_mode) {
-                                .static => {
-                                    try test_args.append("-static");
-                                    try shell_out.print("-static ", .{});
-                                },
-                                .dynamic => {
-                                    try test_args.append("-dynamic");
-                                    try shell_out.print("-dynamic ", .{});
-                                },
-                            }
-                        }
-                        for (code.additional_options) |option| {
-                            try test_args.append(option);
-                            try shell_out.print("{s} ", .{option});
-                        }
-                        const result = run(allocator, &env_map, null, test_args.items) catch return parseError(tokenizer, code.source_token, "test failed", .{});
-                        const escaped_stderr = try escapeHtml(allocator, result.stderr);
-                        const escaped_stdout = try escapeHtml(allocator, result.stdout);
-                        try shell_out.print("\n{s}{s}\n", .{ escaped_stderr, escaped_stdout });
-                    },
-                }
-
-                if (!code.just_check_syntax) {
-                    try printShell(out, shell_buffer.items, false);
-                }
+                try out.writeAll(contents);
             },
         }
-    }
-}
-
-fn run(
-    allocator: Allocator,
-    env_map: *process.EnvMap,
-    cwd: ?[]const u8,
-    args: []const []const u8,
-) !ChildProcess.RunResult {
-    const result = try ChildProcess.run(.{
-        .allocator = allocator,
-        .argv = args,
-        .env_map = env_map,
-        .cwd = cwd,
-        .max_output_bytes = max_doc_file_size,
-    });
-    switch (result.term) {
-        .Exited => |exit_code| {
-            if (exit_code != 0) {
-                print("{s}\nThe following command exited with code {}:\n", .{ result.stderr, exit_code });
-                dumpArgs(args);
-                return error.ChildExitError;
-            }
-        },
-        else => {
-            print("{s}\nThe following command crashed:\n", .{result.stderr});
-            dumpArgs(args);
-            return error.ChildCrashed;
-        },
-    }
-    return result;
-}
-
-fn getBuiltinCode(
-    allocator: Allocator,
-    env_map: *process.EnvMap,
-    zig_exe: []const u8,
-    opt_zig_lib_dir: ?[]const u8,
-) ![]const u8 {
-    if (opt_zig_lib_dir) |zig_lib_dir| {
-        const result = try run(allocator, env_map, null, &.{
-            zig_exe, "build-obj", "--show-builtin", "--zig-lib-dir", zig_lib_dir,
-        });
-        return result.stdout;
-    } else {
-        const result = try run(allocator, env_map, null, &.{
-            zig_exe, "build-obj", "--show-builtin",
-        });
-        return result.stdout;
-    }
-}
-
-fn dumpArgs(args: []const []const u8) void {
-    for (args) |arg|
-        print("{s} ", .{arg})
-    else
-        print("\n", .{});
-}
-
-test "term supported colors" {
-    const test_allocator = testing.allocator;
-
-    {
-        const input = "A\x1b[31;1mred\x1b[0mB";
-        const expect = "A<span class=\"sgr-31_1m\">red</span>B";
-
-        const result = try termColor(test_allocator, input);
-        defer test_allocator.free(result);
-        try testing.expectEqualSlices(u8, expect, result);
-    }
-
-    {
-        const input = "A\x1b[32;1mgreen\x1b[0mB";
-        const expect = "A<span class=\"sgr-32_1m\">green</span>B";
-
-        const result = try termColor(test_allocator, input);
-        defer test_allocator.free(result);
-        try testing.expectEqualSlices(u8, expect, result);
-    }
-
-    {
-        const input = "A\x1b[36;1mcyan\x1b[0mB";
-        const expect = "A<span class=\"sgr-36_1m\">cyan</span>B";
-
-        const result = try termColor(test_allocator, input);
-        defer test_allocator.free(result);
-        try testing.expectEqualSlices(u8, expect, result);
-    }
-
-    {
-        const input = "A\x1b[1mbold\x1b[0mB";
-        const expect = "A<span class=\"sgr-1m\">bold</span>B";
-
-        const result = try termColor(test_allocator, input);
-        defer test_allocator.free(result);
-        try testing.expectEqualSlices(u8, expect, result);
-    }
-
-    {
-        const input = "A\x1b[2mdim\x1b[0mB";
-        const expect = "A<span class=\"sgr-2m\">dim</span>B";
-
-        const result = try termColor(test_allocator, input);
-        defer test_allocator.free(result);
-        try testing.expectEqualSlices(u8, expect, result);
-    }
-}
-
-test "term output from zig" {
-    // Use data generated by https://github.com/perillo/zig-tty-test-data,
-    // with zig version 0.11.0-dev.1898+36d47dd19.
-    const test_allocator = testing.allocator;
-
-    {
-        // 1.1-with-build-progress.out
-        const input = "Semantic Analysis [1324] \x1b[25D\x1b[0KLLVM Emit Object... \x1b[20D\x1b[0KLLVM Emit Object... \x1b[20D\x1b[0KLLD Link... \x1b[12D\x1b[0K";
-        const expect = "";
-
-        const result = try termColor(test_allocator, input);
-        defer test_allocator.free(result);
-        try testing.expectEqualSlices(u8, expect, result);
-    }
-
-    {
-        // 2.1-with-reference-traces.out
-        const input = "\x1b[1msrc/2.1-with-reference-traces.zig:3:7: \x1b[31;1merror: \x1b[0m\x1b[1mcannot assign to constant\n\x1b[0m    x += 1;\n    \x1b[32;1m~~^~~~\n\x1b[0m\x1b[0m\x1b[2mreferenced by:\n    main: src/2.1-with-reference-traces.zig:7:5\n    callMain: /usr/local/lib/zig/lib/std/start.zig:607:17\n    remaining reference traces hidden; use '-freference-trace' to see all reference traces\n\n\x1b[0m";
-        const expect =
-            \\<span class="sgr-1m">src/2.1-with-reference-traces.zig:3:7: </span><span class="sgr-31_1m">error: </span><span class="sgr-1m">cannot assign to constant
-            \\</span>    x += 1;
-            \\    <span class="sgr-32_1m">~~^~~~
-            \\</span><span class="sgr-2m">referenced by:
-            \\    main: src/2.1-with-reference-traces.zig:7:5
-            \\    callMain: /usr/local/lib/zig/lib/std/start.zig:607:17
-            \\    remaining reference traces hidden; use '-freference-trace' to see all reference traces
-            \\
-            \\</span>
-        ;
-
-        const result = try termColor(test_allocator, input);
-        defer test_allocator.free(result);
-        try testing.expectEqualSlices(u8, expect, result);
-    }
-
-    {
-        // 2.2-without-reference-traces.out
-        const input = "\x1b[1m/usr/local/lib/zig/lib/std/io/fixed_buffer_stream.zig:128:29: \x1b[31;1merror: \x1b[0m\x1b[1minvalid type given to fixedBufferStream\n\x1b[0m                    else => @compileError(\"invalid type given to fixedBufferStream\"),\n                            \x1b[32;1m^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\x1b[0m\x1b[1m/usr/local/lib/zig/lib/std/io/fixed_buffer_stream.zig:116:66: \x1b[36;1mnote: \x1b[0m\x1b[1mcalled from here\n\x1b[0mpub fn fixedBufferStream(buffer: anytype) FixedBufferStream(Slice(@TypeOf(buffer))) {\n;                                                            \x1b[32;1m~~~~~^~~~~~~~~~~~~~~~~\n\x1b[0m";
-        const expect =
-            \\<span class="sgr-1m">/usr/local/lib/zig/lib/std/io/fixed_buffer_stream.zig:128:29: </span><span class="sgr-31_1m">error: </span><span class="sgr-1m">invalid type given to fixedBufferStream
-            \\</span>                    else => @compileError("invalid type given to fixedBufferStream"),
-            \\                            <span class="sgr-32_1m">^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-            \\</span><span class="sgr-1m">/usr/local/lib/zig/lib/std/io/fixed_buffer_stream.zig:116:66: </span><span class="sgr-36_1m">note: </span><span class="sgr-1m">called from here
-            \\</span>pub fn fixedBufferStream(buffer: anytype) FixedBufferStream(Slice(@TypeOf(buffer))) {
-            \\;                                                            <span class="sgr-32_1m">~~~~~^~~~~~~~~~~~~~~~~
-            \\</span>
-        ;
-
-        const result = try termColor(test_allocator, input);
-        defer test_allocator.free(result);
-        try testing.expectEqualSlices(u8, expect, result);
-    }
-
-    {
-        // 2.3-with-notes.out
-        const input = "\x1b[1msrc/2.3-with-notes.zig:6:9: \x1b[31;1merror: \x1b[0m\x1b[1mexpected type '*2.3-with-notes.Derp', found '*2.3-with-notes.Wat'\n\x1b[0m    bar(w);\n        \x1b[32;1m^\n\x1b[0m\x1b[1msrc/2.3-with-notes.zig:6:9: \x1b[36;1mnote: \x1b[0m\x1b[1mpointer type child '2.3-with-notes.Wat' cannot cast into pointer type child '2.3-with-notes.Derp'\n\x1b[0m\x1b[1msrc/2.3-with-notes.zig:2:13: \x1b[36;1mnote: \x1b[0m\x1b[1mopaque declared here\n\x1b[0mconst Wat = opaque {};\n            \x1b[32;1m^~~~~~~~~\n\x1b[0m\x1b[1msrc/2.3-with-notes.zig:1:14: \x1b[36;1mnote: \x1b[0m\x1b[1mopaque declared here\n\x1b[0mconst Derp = opaque {};\n             \x1b[32;1m^~~~~~~~~\n\x1b[0m\x1b[1msrc/2.3-with-notes.zig:4:18: \x1b[36;1mnote: \x1b[0m\x1b[1mparameter type declared here\n\x1b[0mextern fn bar(d: *Derp) void;\n                 \x1b[32;1m^~~~~\n\x1b[0m\x1b[0m\x1b[2mreferenced by:\n    main: src/2.3-with-notes.zig:10:5\n    callMain: /usr/local/lib/zig/lib/std/start.zig:607:17\n    remaining reference traces hidden; use '-freference-trace' to see all reference traces\n\n\x1b[0m";
-        const expect =
-            \\<span class="sgr-1m">src/2.3-with-notes.zig:6:9: </span><span class="sgr-31_1m">error: </span><span class="sgr-1m">expected type '*2.3-with-notes.Derp', found '*2.3-with-notes.Wat'
-            \\</span>    bar(w);
-            \\        <span class="sgr-32_1m">^
-            \\</span><span class="sgr-1m">src/2.3-with-notes.zig:6:9: </span><span class="sgr-36_1m">note: </span><span class="sgr-1m">pointer type child '2.3-with-notes.Wat' cannot cast into pointer type child '2.3-with-notes.Derp'
-            \\</span><span class="sgr-1m">src/2.3-with-notes.zig:2:13: </span><span class="sgr-36_1m">note: </span><span class="sgr-1m">opaque declared here
-            \\</span>const Wat = opaque {};
-            \\            <span class="sgr-32_1m">^~~~~~~~~
-            \\</span><span class="sgr-1m">src/2.3-with-notes.zig:1:14: </span><span class="sgr-36_1m">note: </span><span class="sgr-1m">opaque declared here
-            \\</span>const Derp = opaque {};
-            \\             <span class="sgr-32_1m">^~~~~~~~~
-            \\</span><span class="sgr-1m">src/2.3-with-notes.zig:4:18: </span><span class="sgr-36_1m">note: </span><span class="sgr-1m">parameter type declared here
-            \\</span>extern fn bar(d: *Derp) void;
-            \\                 <span class="sgr-32_1m">^~~~~
-            \\</span><span class="sgr-2m">referenced by:
-            \\    main: src/2.3-with-notes.zig:10:5
-            \\    callMain: /usr/local/lib/zig/lib/std/start.zig:607:17
-            \\    remaining reference traces hidden; use '-freference-trace' to see all reference traces
-            \\
-            \\</span>
-        ;
-
-        const result = try termColor(test_allocator, input);
-        defer test_allocator.free(result);
-        try testing.expectEqualSlices(u8, expect, result);
-    }
-
-    {
-        // 3.1-with-error-return-traces.out
-
-        const input = "error: Error\n\x1b[1m/home/zig/src/3.1-with-error-return-traces.zig:5:5\x1b[0m: \x1b[2m0x20b008 in callee (3.1-with-error-return-traces)\x1b[0m\n    return error.Error;\n    \x1b[32;1m^\x1b[0m\n\x1b[1m/home/zig/src/3.1-with-error-return-traces.zig:9:5\x1b[0m: \x1b[2m0x20b113 in caller (3.1-with-error-return-traces)\x1b[0m\n    try callee();\n    \x1b[32;1m^\x1b[0m\n\x1b[1m/home/zig/src/3.1-with-error-return-traces.zig:13:5\x1b[0m: \x1b[2m0x20b153 in main (3.1-with-error-return-traces)\x1b[0m\n    try caller();\n    \x1b[32;1m^\x1b[0m\n";
-        const expect =
-            \\error: Error
-            \\<span class="sgr-1m">/home/zig/src/3.1-with-error-return-traces.zig:5:5</span>: <span class="sgr-2m">0x20b008 in callee (3.1-with-error-return-traces)</span>
-            \\    return error.Error;
-            \\    <span class="sgr-32_1m">^</span>
-            \\<span class="sgr-1m">/home/zig/src/3.1-with-error-return-traces.zig:9:5</span>: <span class="sgr-2m">0x20b113 in caller (3.1-with-error-return-traces)</span>
-            \\    try callee();
-            \\    <span class="sgr-32_1m">^</span>
-            \\<span class="sgr-1m">/home/zig/src/3.1-with-error-return-traces.zig:13:5</span>: <span class="sgr-2m">0x20b153 in main (3.1-with-error-return-traces)</span>
-            \\    try caller();
-            \\    <span class="sgr-32_1m">^</span>
-            \\
-        ;
-
-        const result = try termColor(test_allocator, input);
-        defer test_allocator.free(result);
-        try testing.expectEqualSlices(u8, expect, result);
-    }
-
-    {
-        // 3.2-with-stack-trace.out
-        const input = "\x1b[1m/usr/local/lib/zig/lib/std/debug.zig:561:19\x1b[0m: \x1b[2m0x22a107 in writeCurrentStackTrace__anon_5898 (3.2-with-stack-trace)\x1b[0m\n    while (it.next()) |return_address| {\n                  \x1b[32;1m^\x1b[0m\n\x1b[1m/usr/local/lib/zig/lib/std/debug.zig:157:80\x1b[0m: \x1b[2m0x20bb23 in dumpCurrentStackTrace (3.2-with-stack-trace)\x1b[0m\n        writeCurrentStackTrace(stderr, debug_info, detectTTYConfig(io.getStdErr()), start_addr) catch |err| {\n                                                                               \x1b[32;1m^\x1b[0m\n\x1b[1m/home/zig/src/3.2-with-stack-trace.zig:5:36\x1b[0m: \x1b[2m0x20d3b2 in foo (3.2-with-stack-trace)\x1b[0m\n    std.debug.dumpCurrentStackTrace(null);\n                                   \x1b[32;1m^\x1b[0m\n\x1b[1m/home/zig/src/3.2-with-stack-trace.zig:9:8\x1b[0m: \x1b[2m0x20b458 in main (3.2-with-stack-trace)\x1b[0m\n    foo();\n       \x1b[32;1m^\x1b[0m\n\x1b[1m/usr/local/lib/zig/lib/std/start.zig:607:22\x1b[0m: \x1b[2m0x20a965 in posixCallMainAndExit (3.2-with-stack-trace)\x1b[0m\n            root.main();\n                     \x1b[32;1m^\x1b[0m\n\x1b[1m/usr/local/lib/zig/lib/std/start.zig:376:5\x1b[0m: \x1b[2m0x20a411 in _start (3.2-with-stack-trace)\x1b[0m\n    @call(.never_inline, posixCallMainAndExit, .{});\n    \x1b[32;1m^\x1b[0m\n";
-        const expect =
-            \\<span class="sgr-1m">/usr/local/lib/zig/lib/std/debug.zig:561:19</span>: <span class="sgr-2m">0x22a107 in writeCurrentStackTrace__anon_5898 (3.2-with-stack-trace)</span>
-            \\    while (it.next()) |return_address| {
-            \\                  <span class="sgr-32_1m">^</span>
-            \\<span class="sgr-1m">/usr/local/lib/zig/lib/std/debug.zig:157:80</span>: <span class="sgr-2m">0x20bb23 in dumpCurrentStackTrace (3.2-with-stack-trace)</span>
-            \\        writeCurrentStackTrace(stderr, debug_info, detectTTYConfig(io.getStdErr()), start_addr) catch |err| {
-            \\                                                                               <span class="sgr-32_1m">^</span>
-            \\<span class="sgr-1m">/home/zig/src/3.2-with-stack-trace.zig:5:36</span>: <span class="sgr-2m">0x20d3b2 in foo (3.2-with-stack-trace)</span>
-            \\    std.debug.dumpCurrentStackTrace(null);
-            \\                                   <span class="sgr-32_1m">^</span>
-            \\<span class="sgr-1m">/home/zig/src/3.2-with-stack-trace.zig:9:8</span>: <span class="sgr-2m">0x20b458 in main (3.2-with-stack-trace)</span>
-            \\    foo();
-            \\       <span class="sgr-32_1m">^</span>
-            \\<span class="sgr-1m">/usr/local/lib/zig/lib/std/start.zig:607:22</span>: <span class="sgr-2m">0x20a965 in posixCallMainAndExit (3.2-with-stack-trace)</span>
-            \\            root.main();
-            \\                     <span class="sgr-32_1m">^</span>
-            \\<span class="sgr-1m">/usr/local/lib/zig/lib/std/start.zig:376:5</span>: <span class="sgr-2m">0x20a411 in _start (3.2-with-stack-trace)</span>
-            \\    @call(.never_inline, posixCallMainAndExit, .{});
-            \\    <span class="sgr-32_1m">^</span>
-            \\
-        ;
-
-        const result = try termColor(test_allocator, input);
-        defer test_allocator.free(result);
-        try testing.expectEqualSlices(u8, expect, result);
-    }
-}
-
-test "printShell" {
-    const test_allocator = std.testing.allocator;
-
-    {
-        const shell_out =
-            \\$ zig build test.zig
-        ;
-        const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
-            \\</samp></pre></figure>
-        ;
-
-        var buffer = std.ArrayList(u8).init(test_allocator);
-        defer buffer.deinit();
-
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
-    }
-    {
-        const shell_out =
-            \\$ zig build test.zig
-            \\build output
-        ;
-        const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
-            \\build output
-            \\</samp></pre></figure>
-        ;
-
-        var buffer = std.ArrayList(u8).init(test_allocator);
-        defer buffer.deinit();
-
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
-    }
-    {
-        const shell_out = "$ zig build test.zig\r\nbuild output\r\n";
-        const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
-            \\build output
-            \\</samp></pre></figure>
-        ;
-
-        var buffer = std.ArrayList(u8).init(test_allocator);
-        defer buffer.deinit();
-
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
-    }
-    {
-        const shell_out =
-            \\$ zig build test.zig
-            \\build output
-            \\$ ./test
-        ;
-        const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
-            \\build output
-            \\$ <kbd>./test</kbd>
-            \\</samp></pre></figure>
-        ;
-
-        var buffer = std.ArrayList(u8).init(test_allocator);
-        defer buffer.deinit();
-
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
-    }
-    {
-        const shell_out =
-            \\$ zig build test.zig
-            \\
-            \\$ ./test
-            \\output
-        ;
-        const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
-            \\
-            \\$ <kbd>./test</kbd>
-            \\output
-            \\</samp></pre></figure>
-        ;
-
-        var buffer = std.ArrayList(u8).init(test_allocator);
-        defer buffer.deinit();
-
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
-    }
-    {
-        const shell_out =
-            \\$ zig build test.zig
-            \\$ ./test
-            \\output
-        ;
-        const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
-            \\$ <kbd>./test</kbd>
-            \\output
-            \\</samp></pre></figure>
-        ;
-
-        var buffer = std.ArrayList(u8).init(test_allocator);
-        defer buffer.deinit();
-
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
-    }
-    {
-        const shell_out =
-            \\$ zig build test.zig \
-            \\ --build-option
-            \\build output
-            \\$ ./test
-            \\output
-        ;
-        const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig \
-            \\ --build-option</kbd>
-            \\build output
-            \\$ <kbd>./test</kbd>
-            \\output
-            \\</samp></pre></figure>
-        ;
-
-        var buffer = std.ArrayList(u8).init(test_allocator);
-        defer buffer.deinit();
-
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
-    }
-    {
-        // intentional space after "--build-option1 \"
-        const shell_out =
-            \\$ zig build test.zig \
-            \\ --build-option1 \ 
-            \\ --build-option2
-            \\$ ./test
-        ;
-        const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig \
-            \\ --build-option1 \
-            \\ --build-option2</kbd>
-            \\$ <kbd>./test</kbd>
-            \\</samp></pre></figure>
-        ;
-
-        var buffer = std.ArrayList(u8).init(test_allocator);
-        defer buffer.deinit();
-
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
-    }
-    {
-        const shell_out =
-            \\$ zig build test.zig \
-            \\$ ./test
-        ;
-        const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig \
-            \\$ ./test</kbd>
-            \\</samp></pre></figure>
-        ;
-
-        var buffer = std.ArrayList(u8).init(test_allocator);
-        defer buffer.deinit();
-
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
-    }
-    {
-        const shell_out =
-            \\$ zig build test.zig
-            \\$ ./test
-            \\$1
-        ;
-        const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig build test.zig</kbd>
-            \\$ <kbd>./test</kbd>
-            \\$1
-            \\</samp></pre></figure>
-        ;
-
-        var buffer = std.ArrayList(u8).init(test_allocator);
-        defer buffer.deinit();
-
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
-    }
-    {
-        const shell_out =
-            \\$zig build test.zig
-        ;
-        const expected =
-            \\<figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$zig build test.zig
-            \\</samp></pre></figure>
-        ;
-
-        var buffer = std.ArrayList(u8).init(test_allocator);
-        defer buffer.deinit();
-
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
     }
 }

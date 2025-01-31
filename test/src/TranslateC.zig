@@ -2,6 +2,7 @@ b: *std.Build,
 step: *std.Build.Step,
 test_index: usize,
 test_filters: []const []const u8,
+test_target_filters: []const []const u8,
 
 const TestCase = struct {
     name: []const u8,
@@ -92,14 +93,26 @@ pub fn addCase(self: *TranslateCContext, case: *const TestCase) void {
         if (mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
     } else if (self.test_filters.len > 0) return;
 
+    const target = b.resolveTargetQuery(case.target);
+
+    if (self.test_target_filters.len > 0) {
+        const triple_txt = target.result.zigTriple(b.allocator) catch @panic("OOM");
+
+        for (self.test_target_filters) |filter| {
+            if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+        } else return;
+    }
+
     const write_src = b.addWriteFiles();
-    for (case.sources.items) |src_file| {
+    const first_src = case.sources.items[0];
+    const root_source_file = write_src.add(first_src.filename, first_src.source);
+    for (case.sources.items[1..]) |src_file| {
         _ = write_src.add(src_file.filename, src_file.source);
     }
 
     const translate_c = b.addTranslateC(.{
-        .root_source_file = write_src.files.items[0].getPath(),
-        .target = b.resolveTargetQuery(case.target),
+        .root_source_file = root_source_file,
+        .target = target,
         .optimize = .Debug,
     });
 

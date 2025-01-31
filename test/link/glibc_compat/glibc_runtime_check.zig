@@ -21,7 +21,7 @@ const c_string = @cImport(
 );
 
 // Version of glibc this test is being built to run against
-const glibc_ver = builtin.target.os.version_range.linux.glibc;
+const glibc_ver = builtin.os.versionRange().gnuLibCVersion().?;
 
 // PR #17034 - fstat moved between libc_nonshared and libc
 fn checkStat() !void {
@@ -91,7 +91,7 @@ fn checkStrlcpy() !void {
 fn checkStrlcpy_v2_38() !void {
     var buf: [99]u8 = undefined;
     const used = c_string.strlcpy(&buf, "strlcpy works!", buf.len);
-    assert(used == 15);
+    assert(used == 14);
 }
 
 // atexit is part of libc_nonshared, so ensure its linked in correctly

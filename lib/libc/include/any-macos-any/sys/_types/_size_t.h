@@ -25,8 +25,32 @@
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_END@
  */
+#if defined(__has_feature) && __has_feature(modules)
+#define USE_CLANG_STDDEF 1
+#else
+#define USE_CLANG_STDDEF 0
+#endif
+
+#if USE_CLANG_STDDEF
+
+#ifndef __SIZE_T
+#define __SIZE_T
+
+#define __need_size_t
+#include <stddef.h>
+#undef __need_size_t
+
+#endif  /* __SIZE_T */
+
+#else
+
 #ifndef _SIZE_T
 #define _SIZE_T
 #include <machine/_types.h> /* __darwin_size_t */
 typedef __darwin_size_t        size_t;
 #endif  /* _SIZE_T */
+
+#endif
+
+
+#undef USE_CLANG_STDDEF

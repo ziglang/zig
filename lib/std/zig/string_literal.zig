@@ -1,6 +1,5 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
-const utf8Decode = std.unicode.utf8Decode;
 const utf8Encode = std.unicode.utf8Encode;
 
 pub const ParseError = error{
@@ -37,12 +36,51 @@ pub const Error = union(enum) {
     expected_single_quote: usize,
     /// The character at this index cannot be represented without an escape sequence.
     invalid_character: usize,
+    /// `''`. Not returned for string literals.
+    empty_char_literal,
+
+    /// Returns `func(first_args[0], ..., first_args[n], offset + bad_idx, format, args)`.
+    pub fn lower(
+        err: Error,
+        raw_string: []const u8,
+        offset: u32,
+        comptime func: anytype,
+        first_args: anytype,
+    ) @typeInfo(@TypeOf(func)).@"fn".return_type.? {
+        switch (err) {
+            inline else => |bad_index_or_void, tag| {
+                const bad_index: u32 = switch (@TypeOf(bad_index_or_void)) {
+                    void => 0,
+                    else => @intCast(bad_index_or_void),
+                };
+                const fmt_str: []const u8, const args = switch (tag) {
+                    .invalid_escape_character => .{ "invalid escape character: '{c}'", .{raw_string[bad_index]} },
+                    .expected_hex_digit => .{ "expected hex digit, found '{c}'", .{raw_string[bad_index]} },
+                    .empty_unicode_escape_sequence => .{ "empty unicode escape sequence", .{} },
+                    .expected_hex_digit_or_rbrace => .{ "expected hex digit or '}}', found '{c}'", .{raw_string[bad_index]} },
+                    .invalid_unicode_codepoint => .{ "unicode escape does not correspond to a valid unicode scalar value", .{} },
+                    .expected_lbrace => .{ "expected '{{', found '{c}'", .{raw_string[bad_index]} },
+                    .expected_rbrace => .{ "expected '}}', found '{c}'", .{raw_string[bad_index]} },
+                    .expected_single_quote => .{ "expected singel quote ('), found '{c}'", .{raw_string[bad_index]} },
+                    .invalid_character => .{ "invalid byte in string or character literal: '{c}'", .{raw_string[bad_index]} },
+                    .empty_char_literal => .{ "empty character literal", .{} },
+                };
+                return @call(.auto, func, first_args ++ .{
+                    offset + bad_index,
+                    fmt_str,
+                    args,
+                });
+            },
+        }
+    }
 };
 
-/// Only validates escape sequence characters.
-/// Slice must be valid utf8 starting and ending with "'" and exactly one codepoint in between.
+/// Asserts the slice starts and ends with single-quotes.
+/// Returns an error if there is not exactly one UTF-8 codepoint in between.
 pub fn parseCharLiteral(slice: []const u8) ParsedCharLiteral {
-    assert(slice.len >= 3 and slice[0] == '\'' and slice[slice.len - 1] == '\'');
+    if (slice.len < 3) return .{ .failure = .empty_char_literal };
+    assert(slice[0] == '\'');
+    assert(slice[slice.len - 1] == '\'');
 
     switch (slice[1]) {
         '\\' => {
@@ -55,7 +93,18 @@ pub fn parseCharLiteral(slice: []const u8) ParsedCharLiteral {
         },
         0 => return .{ .failure = .{ .invalid_character = 1 } },
         else => {
-            const codepoint = utf8Decode(slice[1 .. slice.len - 1]) catch unreachable;
+            const inner = slice[1 .. slice.len - 1];
+            const n = std.unicode.utf8ByteSequenceLength(inner[0]) catch return .{
+                .failure = .{ .invalid_unicode_codepoint = 1 },
+            };
+            if (inner.len > n) return .{ .failure = .{ .expected_single_quote = 1 + n } };
+            const codepoint = switch (n) {
+                1 => inner[0],
+                2 => std.unicode.utf8Decode2(inner[0..2].*),
+                3 => std.unicode.utf8Decode3(inner[0..3].*),
+                4 => std.unicode.utf8Decode4(inner[0..4].*),
+                else => unreachable,
+            } catch return .{ .failure = .{ .invalid_unicode_codepoint = 1 } };
             return .{ .success = codepoint };
         },
     }

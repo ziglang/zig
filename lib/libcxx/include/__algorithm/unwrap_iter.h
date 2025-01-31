@@ -13,7 +13,7 @@
 #include <__iterator/iterator_traits.h>
 #include <__memory/pointer_traits.h>
 #include <__type_traits/enable_if.h>
-#include <__type_traits/is_copy_constructible.h>
+#include <__type_traits/is_constructible.h>
 #include <__utility/declval.h>
 #include <__utility/move.h>
 
@@ -57,11 +57,11 @@ struct __unwrap_iter_impl<_Iter, true> {
   }
 };
 
-template<class _Iter,
-         class _Impl = __unwrap_iter_impl<_Iter>,
-         __enable_if_t<is_copy_constructible<_Iter>::value, int> = 0>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14
-decltype(_Impl::__unwrap(std::declval<_Iter>())) __unwrap_iter(_Iter __i) _NOEXCEPT {
+template <class _Iter,
+          class _Impl                                             = __unwrap_iter_impl<_Iter>,
+          __enable_if_t<is_copy_constructible<_Iter>::value, int> = 0>
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 decltype(_Impl::__unwrap(std::declval<_Iter>()))
+__unwrap_iter(_Iter __i) _NOEXCEPT {
   return _Impl::__unwrap(__i);
 }
 
@@ -80,6 +80,6 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _OrigIter __rewrap_iter(_OrigIter __orig
 
 _LIBCPP_END_NAMESPACE_STD
 
-_LIBCPP_PUSH_MACROS
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_UNWRAP_ITER_H

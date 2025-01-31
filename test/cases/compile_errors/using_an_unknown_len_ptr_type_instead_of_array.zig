@@ -10,4 +10,4 @@ comptime {
 // backend=stage2
 // target=native
 //
-// :1:22: error: type '[*][*]const u8' does not support array initialization syntax
+// :1:21: error: type '[*][*]const u8' does not support array initialization syntax

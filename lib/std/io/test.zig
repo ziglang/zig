@@ -16,7 +16,7 @@ test "write a file, read it, then delete it" {
     defer tmp.cleanup();
 
     var data: [1024]u8 = undefined;
-    var prng = DefaultPrng.init(1234);
+    var prng = DefaultPrng.init(std.testing.random_seed);
     const random = prng.random();
     random.bytes(data[0..]);
     const tmp_file_name = "temp_test_file.txt";
@@ -82,7 +82,7 @@ test "BitStreams with File Stream" {
 
         var bit_stream = io.bitReader(native_endian, file.reader());
 
-        var out_bits: usize = undefined;
+        var out_bits: u16 = undefined;
 
         try expect(1 == try bit_stream.readBits(u2, 1, &out_bits));
         try expect(out_bits == 1);

@@ -46,6 +46,12 @@
 #elif defined(_AIX)
 // The traceback table at the end of each function is used for unwinding.
 #define _LIBUNWIND_SUPPORT_TBTAB_UNWIND 1
+#elif defined(__HAIKU__)
+  #if defined(_LIBUNWIND_USE_HAIKU_BSD_LIB)
+    #define _LIBUNWIND_USE_DL_ITERATE_PHDR 1
+  #endif
+  #define _LIBUNWIND_SUPPORT_DWARF_UNWIND 1
+  #define _LIBUNWIND_SUPPORT_DWARF_INDEX 1
 #else
   // Assume an ELF system with a dl_iterate_phdr function.
   #define _LIBUNWIND_USE_DL_ITERATE_PHDR 1
@@ -83,7 +89,7 @@
   __asm__(".globl " SYMBOL_NAME(aliasname));                                   \
   __asm__(SYMBOL_NAME(aliasname) " = " SYMBOL_NAME(name));                     \
   _LIBUNWIND_ALIAS_VISIBILITY(SYMBOL_NAME(aliasname))
-#elif defined(__ELF__) || defined(_AIX)
+#elif defined(__ELF__) || defined(_AIX) || defined(__wasm__)
 #define _LIBUNWIND_WEAK_ALIAS(name, aliasname)                                 \
   extern "C" _LIBUNWIND_EXPORT __typeof(name) aliasname                        \
       __attribute__((weak, alias(#name)));
@@ -108,10 +114,6 @@
 #define _LIBUNWIND_BUILD_SJLJ_APIS
 #endif
 
-#if defined(__i386__) || defined(__x86_64__) || defined(__powerpc__)
-#define _LIBUNWIND_SUPPORT_FRAME_APIS
-#endif
-
 #if defined(__i386__) || defined(__x86_64__) || defined(__powerpc__) ||        \
     (!defined(__APPLE__) && defined(__arm__)) || defined(__aarch64__) ||       \
     defined(__mips__) || defined(__riscv) || defined(__hexagon__) ||           \
@@ -125,7 +127,7 @@
 #if defined(_LIBUNWIND_REMEMBER_STACK_ALLOC) || defined(__APPLE__) ||          \
     defined(__linux__) || defined(__ANDROID__) || defined(__MINGW32__) ||      \
     defined(_LIBUNWIND_IS_BAREMETAL)
-#define _LIBUNWIND_REMEMBER_ALLOC(_size) alloca(_size)
+#define _LIBUNWIND_REMEMBER_ALLOC(_size) __builtin_alloca(_size)
 #define _LIBUNWIND_REMEMBER_FREE(_ptr)                                         \
   do {                                                                         \
   } while (0)

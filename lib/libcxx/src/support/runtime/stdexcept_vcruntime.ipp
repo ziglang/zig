@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #ifndef _LIBCPP_ABI_VCRUNTIME
-#error This file may only be used when deferring to vcruntime
+#  error This file may only be used when deferring to vcruntime
 #endif
 
 namespace std {

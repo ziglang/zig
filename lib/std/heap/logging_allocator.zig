@@ -15,7 +15,7 @@ pub fn LoggingAllocator(
 /// with the given scope on every call to the allocator.
 /// For logging to a `std.io.Writer` see `std.heap.LogToWriterAllocator`
 pub fn ScopedLoggingAllocator(
-    comptime scope: @Type(.EnumLiteral),
+    comptime scope: @Type(.enum_literal),
     comptime success_log_level: std.log.Level,
     comptime failure_log_level: std.log.Level,
 ) type {

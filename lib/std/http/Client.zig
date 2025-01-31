@@ -253,7 +253,7 @@ pub const Connection = struct {
         if (conn.read_end != conn.read_start) return;
 
         var iovecs = [1]std.posix.iovec{
-            .{ .iov_base = &conn.read_buf, .iov_len = conn.read_buf.len },
+            .{ .base = &conn.read_buf, .len = conn.read_buf.len },
         };
         const nread = try conn.readvDirect(&iovecs);
         if (nread == 0) return error.EndOfStream;
@@ -289,8 +289,8 @@ pub const Connection = struct {
         }
 
         var iovecs = [2]std.posix.iovec{
-            .{ .iov_base = buffer.ptr, .iov_len = buffer.len },
-            .{ .iov_base = &conn.read_buf, .iov_len = conn.read_buf.len },
+            .{ .base = buffer.ptr, .len = buffer.len },
+            .{ .base = &conn.read_buf, .len = conn.read_buf.len },
         };
         const nread = try conn.readvDirect(&iovecs);
 
@@ -388,6 +388,7 @@ pub const Connection = struct {
 
             // try to cleanly close the TLS connection, for any server that cares.
             _ = conn.tls_client.writeEnd(conn.stream, "", true) catch {};
+            if (conn.tls_client.ssl_key_log) |key_log| key_log.file.close();
             allocator.destroy(conn.tls_client);
         }
 
@@ -566,7 +567,7 @@ pub const Response = struct {
             .reason = undefined,
             .version = undefined,
             .keep_alive = false,
-            .parser = proto.HeadersParser.init(&header_buffer),
+            .parser = .init(&header_buffer),
         };
 
         @memcpy(header_buffer[0..response_bytes.len], response_bytes);
@@ -610,7 +611,7 @@ pub const Response = struct {
     }
 
     pub fn iterateHeaders(r: Response) http.HeaderIterator {
-        return http.HeaderIterator.init(r.parser.get());
+        return .init(r.parser.get());
     }
 
     test iterateHeaders {
@@ -628,7 +629,7 @@ pub const Response = struct {
             .reason = undefined,
             .version = undefined,
             .keep_alive = false,
-            .parser = proto.HeadersParser.init(&header_buffer),
+            .parser = .init(&header_buffer),
         };
 
         @memcpy(header_buffer[0..response_bytes.len], response_bytes);
@@ -771,7 +772,7 @@ pub const Request = struct {
         req.client.connection_pool.release(req.client.allocator, req.connection.?);
         req.connection = null;
 
-        var server_header = std.heap.FixedBufferAllocator.init(req.response.parser.header_bytes_buffer);
+        var server_header: std.heap.FixedBufferAllocator = .init(req.response.parser.header_bytes_buffer);
         defer req.response.parser.header_bytes_buffer = server_header.buffer[server_header.end_index..];
         const protocol, const valid_uri = try validateUri(uri, server_header.allocator());
 
@@ -1354,7 +1355,27 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
         conn.data.tls_client = try client.allocator.create(std.crypto.tls.Client);
         errdefer client.allocator.destroy(conn.data.tls_client);
 
-        conn.data.tls_client.* = std.crypto.tls.Client.init(stream, client.ca_bundle, host) catch return error.TlsInitializationFailed;
+        const ssl_key_log_file: ?std.fs.File = if (std.options.http_enable_ssl_key_log_file) ssl_key_log_file: {
+            const ssl_key_log_path = std.process.getEnvVarOwned(client.allocator, "SSLKEYLOGFILE") catch |err| switch (err) {
+                error.EnvironmentVariableNotFound, error.InvalidWtf8 => break :ssl_key_log_file null,
+                error.OutOfMemory => return error.OutOfMemory,
+            };
+            defer client.allocator.free(ssl_key_log_path);
+            break :ssl_key_log_file std.fs.cwd().createFile(ssl_key_log_path, .{
+                .truncate = false,
+                .mode = switch (builtin.os.tag) {
+                    .windows, .wasi => 0,
+                    else => 0o600,
+                },
+            }) catch null;
+        } else null;
+        errdefer if (ssl_key_log_file) |key_log_file| key_log_file.close();
+
+        conn.data.tls_client.* = std.crypto.tls.Client.init(stream, .{
+            .host = .{ .explicit = host },
+            .ca = .{ .bundle = client.ca_bundle },
+            .ssl_key_log_file = ssl_key_log_file,
+        }) catch return error.TlsInitializationFailed;
         // This is appropriate for HTTPS because the HTTP headers contain
         // the content length which is used to detect truncation attacks.
         conn.data.tls_client.allow_truncation_attacks = true;
@@ -1570,7 +1591,7 @@ pub const RequestOptions = struct {
 };
 
 fn validateUri(uri: Uri, arena: Allocator) !struct { Connection.Protocol, Uri } {
-    const protocol_map = std.ComptimeStringMap(Connection.Protocol, .{
+    const protocol_map = std.StaticStringMap(Connection.Protocol).initComptime(.{
         .{ "http", .plain },
         .{ "ws", .plain },
         .{ "https", .tls },
@@ -1620,7 +1641,7 @@ pub fn open(
         }
     }
 
-    var server_header = std.heap.FixedBufferAllocator.init(options.server_header_buffer);
+    var server_header: std.heap.FixedBufferAllocator = .init(options.server_header_buffer);
     const protocol, const valid_uri = try validateUri(uri, server_header.allocator());
 
     if (protocol == .tls and @atomicLoad(bool, &client.next_https_rescan_certs, .acquire)) {
@@ -1654,7 +1675,7 @@ pub fn open(
             .status = undefined,
             .reason = undefined,
             .keep_alive = undefined,
-            .parser = proto.HeadersParser.init(server_header.buffer[server_header.end_index..]),
+            .parser = .init(server_header.buffer[server_header.end_index..]),
         },
         .headers = options.headers,
         .extra_headers = options.extra_headers,

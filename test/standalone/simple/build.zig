@@ -42,11 +42,13 @@ pub fn build(b: *std.Build) void {
             if (case.is_exe) {
                 const exe = b.addExecutable(.{
                     .name = std.fs.path.stem(case.src_path),
-                    .root_source_file = b.path(case.src_path),
-                    .optimize = optimize,
-                    .target = resolved_target,
+                    .root_module = b.createModule(.{
+                        .root_source_file = b.path(case.src_path),
+                        .optimize = optimize,
+                        .target = resolved_target,
+                    }),
                 });
-                if (case.link_libc) exe.linkLibC();
+                if (case.link_libc) exe.root_module.link_libc = true;
 
                 _ = exe.getEmittedBin();
 
@@ -56,11 +58,13 @@ pub fn build(b: *std.Build) void {
             if (case.is_test) {
                 const exe = b.addTest(.{
                     .name = std.fs.path.stem(case.src_path),
-                    .root_source_file = b.path(case.src_path),
-                    .optimize = optimize,
-                    .target = resolved_target,
+                    .root_module = b.createModule(.{
+                        .root_source_file = b.path(case.src_path),
+                        .optimize = optimize,
+                        .target = resolved_target,
+                    }),
                 });
-                if (case.link_libc) exe.linkLibC();
+                if (case.link_libc) exe.root_module.link_libc = true;
 
                 const run = b.addRunArtifact(exe);
                 step.dependOn(&run.step);

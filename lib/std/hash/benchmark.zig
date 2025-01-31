@@ -56,12 +56,8 @@ const hashes = [_]Hash{
         .name = "adler32",
     },
     Hash{
-        .ty = hash.crc.Crc32WithPoly(.IEEE),
-        .name = "crc32-slicing-by-8",
-    },
-    Hash{
-        .ty = hash.crc.Crc32SmallWithPoly(.IEEE),
-        .name = "crc32-half-byte-lookup",
+        .ty = hash.crc.Crc32,
+        .name = "crc32",
     },
     Hash{
         .ty = hash.CityHash32,
@@ -414,7 +410,7 @@ pub fn main() !void {
         }
     }
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 

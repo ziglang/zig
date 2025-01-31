@@ -20,29 +20,48 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-template<class _Tp>
-_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14
-_Tp __rotr(_Tp __t, unsigned int __cnt) _NOEXCEPT
-{
-    static_assert(__libcpp_is_unsigned_integer<_Tp>::value, "__rotr requires an unsigned integer type");
-    const unsigned int __dig = numeric_limits<_Tp>::digits;
-    if ((__cnt % __dig) == 0)
-        return __t;
-    return (__t >> (__cnt % __dig)) | (__t << (__dig - (__cnt % __dig)));
+// Writing two full functions for rotl and rotr makes it easier for the compiler
+// to optimize the code. On x86 this function becomes the ROL instruction and
+// the rotr function becomes the ROR instruction.
+template <class _Tp>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Tp __rotl(_Tp __x, int __s) _NOEXCEPT {
+  static_assert(__libcpp_is_unsigned_integer<_Tp>::value, "__rotl requires an unsigned integer type");
+  const int __N = numeric_limits<_Tp>::digits;
+  int __r       = __s % __N;
+
+  if (__r == 0)
+    return __x;
+
+  if (__r > 0)
+    return (__x << __r) | (__x >> (__N - __r));
+
+  return (__x >> -__r) | (__x << (__N + __r));
+}
+
+template <class _Tp>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 _Tp __rotr(_Tp __x, int __s) _NOEXCEPT {
+  static_assert(__libcpp_is_unsigned_integer<_Tp>::value, "__rotr requires an unsigned integer type");
+  const int __N = numeric_limits<_Tp>::digits;
+  int __r       = __s % __N;
+
+  if (__r == 0)
+    return __x;
+
+  if (__r > 0)
+    return (__x >> __r) | (__x << (__N - __r));
+
+  return (__x << -__r) | (__x >> (__N + __r));
 }
 
 #if _LIBCPP_STD_VER >= 20
 
 template <__libcpp_unsigned_integer _Tp>
-[[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr _Tp rotl(_Tp __t, unsigned int __cnt) noexcept {
-  const unsigned int __dig = numeric_limits<_Tp>::digits;
-  if ((__cnt % __dig) == 0)
-    return __t;
-  return (__t << (__cnt % __dig)) | (__t >> (__dig - (__cnt % __dig)));
+[[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr _Tp rotl(_Tp __t, int __cnt) noexcept {
+  return std::__rotl(__t, __cnt);
 }
 
 template <__libcpp_unsigned_integer _Tp>
-[[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr _Tp rotr(_Tp __t, unsigned int __cnt) noexcept {
+[[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr _Tp rotr(_Tp __t, int __cnt) noexcept {
   return std::__rotr(__t, __cnt);
 }
 

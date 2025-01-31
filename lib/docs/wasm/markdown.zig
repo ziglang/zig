@@ -1112,7 +1112,7 @@ fn testRender(input: []const u8, expected: []const u8) !void {
     var parser = try Parser.init(testing.allocator);
     defer parser.deinit();
 
-    var lines = std.mem.split(u8, input, "\n");
+    var lines = std.mem.splitScalar(u8, input, '\n');
     while (lines.next()) |line| {
         try parser.feedLine(line);
     }

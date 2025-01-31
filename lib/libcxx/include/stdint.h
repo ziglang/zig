@@ -12,7 +12,7 @@
 // is defined until an inclusion of it without _STD_TYPES_T occurs, in which
 // case the header guard macro is defined.
 #if !defined(_AIX) || !defined(_STD_TYPES_T)
-#define _LIBCPP_STDINT_H
+#  define _LIBCPP_STDINT_H
 #endif // _STD_TYPES_T
 
 /*
@@ -114,10 +114,10 @@ Macros:
    are defined
 */
 #if defined(__cplusplus) && !defined(__STDC_LIMIT_MACROS)
-#   define __STDC_LIMIT_MACROS
+#  define __STDC_LIMIT_MACROS
 #endif
 #if defined(__cplusplus) && !defined(__STDC_CONSTANT_MACROS)
-#   define __STDC_CONSTANT_MACROS
+#  define __STDC_CONSTANT_MACROS
 #endif
 
 #if __has_include_next(<stdint.h>)

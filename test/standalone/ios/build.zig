@@ -18,16 +18,19 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "main",
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = null,
+            .optimize = optimize,
+            .target = target,
+            .link_libc = true,
+        }),
     });
-    exe.addCSourceFile(.{ .file = b.path("main.m"), .flags = &.{} });
-    exe.addSystemIncludePath(b.path(b.pathJoin(&.{ sdk, "/usr/include" })));
-    exe.addSystemFrameworkPath(b.path(b.pathJoin(&.{ sdk, "/System/Library/Frameworks" })));
-    exe.addLibraryPath(b.path(b.pathJoin(&.{ sdk, "/usr/lib" })));
-    exe.linkFramework("Foundation");
-    exe.linkFramework("UIKit");
-    exe.linkLibC();
+    exe.root_module.addCSourceFile(.{ .file = b.path("main.m"), .flags = &.{} });
+    exe.root_module.addSystemIncludePath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "/usr/include" }) });
+    exe.root_module.addSystemFrameworkPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "/System/Library/Frameworks" }) });
+    exe.root_module.addLibraryPath(.{ .cwd_relative = b.pathJoin(&.{ sdk, "/usr/lib" }) });
+    exe.root_module.linkFramework("Foundation", .{});
+    exe.root_module.linkFramework("UIKit", .{});
 
     const check = exe.checkObject();
     check.checkInHeaders();

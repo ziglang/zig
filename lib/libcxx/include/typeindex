@@ -45,7 +45,6 @@ struct hash<type_index>
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 #include <__functional/unary_function.h>
 #include <typeinfo>
@@ -60,59 +59,40 @@ struct hash<type_index>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-class _LIBCPP_TEMPLATE_VIS type_index
-{
-    const type_info* __t_;
+class _LIBCPP_TEMPLATE_VIS type_index {
+  const type_info* __t_;
+
 public:
-    _LIBCPP_INLINE_VISIBILITY
-    type_index(const type_info& __y) _NOEXCEPT : __t_(&__y) {}
+  _LIBCPP_HIDE_FROM_ABI type_index(const type_info& __y) _NOEXCEPT : __t_(&__y) {}
 
-    _LIBCPP_INLINE_VISIBILITY
-    bool operator==(const type_index& __y) const _NOEXCEPT
-        {return *__t_ == *__y.__t_;}
-    _LIBCPP_INLINE_VISIBILITY
+  _LIBCPP_HIDE_FROM_ABI bool operator==(const type_index& __y) const _NOEXCEPT { return *__t_ == *__y.__t_; }
 #if _LIBCPP_STD_VER <= 17
-    bool operator!=(const type_index& __y) const _NOEXCEPT
-        {return *__t_ != *__y.__t_;}
+  _LIBCPP_HIDE_FROM_ABI bool operator!=(const type_index& __y) const _NOEXCEPT { return *__t_ != *__y.__t_; }
 #endif
-    _LIBCPP_INLINE_VISIBILITY
-    bool operator< (const type_index& __y) const _NOEXCEPT
-        {return  __t_->before(*__y.__t_);}
-    _LIBCPP_INLINE_VISIBILITY
-    bool operator<=(const type_index& __y) const _NOEXCEPT
-        {return !__y.__t_->before(*__t_);}
-    _LIBCPP_INLINE_VISIBILITY
-    bool operator> (const type_index& __y) const _NOEXCEPT
-        {return  __y.__t_->before(*__t_);}
-    _LIBCPP_INLINE_VISIBILITY
-    bool operator>=(const type_index& __y) const _NOEXCEPT
-        {return !__t_->before(*__y.__t_);}
+  _LIBCPP_HIDE_FROM_ABI bool operator<(const type_index& __y) const _NOEXCEPT { return __t_->before(*__y.__t_); }
+  _LIBCPP_HIDE_FROM_ABI bool operator<=(const type_index& __y) const _NOEXCEPT { return !__y.__t_->before(*__t_); }
+  _LIBCPP_HIDE_FROM_ABI bool operator>(const type_index& __y) const _NOEXCEPT { return __y.__t_->before(*__t_); }
+  _LIBCPP_HIDE_FROM_ABI bool operator>=(const type_index& __y) const _NOEXCEPT { return !__t_->before(*__y.__t_); }
 #if _LIBCPP_STD_VER >= 20
-    _LIBCPP_HIDE_FROM_ABI
-    strong_ordering operator<=>(const type_index& __y) const noexcept {
-      if (*__t_ == *__y.__t_)
-        return strong_ordering::equal;
-      if (__t_->before(*__y.__t_))
-        return strong_ordering::less;
-      return strong_ordering::greater;
-    }
+  _LIBCPP_HIDE_FROM_ABI strong_ordering operator<=>(const type_index& __y) const noexcept {
+    if (*__t_ == *__y.__t_)
+      return strong_ordering::equal;
+    if (__t_->before(*__y.__t_))
+      return strong_ordering::less;
+    return strong_ordering::greater;
+  }
 #endif
 
-    _LIBCPP_INLINE_VISIBILITY
-    size_t hash_code() const _NOEXCEPT {return __t_->hash_code();}
-    _LIBCPP_INLINE_VISIBILITY
-    const char* name() const _NOEXCEPT {return __t_->name();}
+  _LIBCPP_HIDE_FROM_ABI size_t hash_code() const _NOEXCEPT { return __t_->hash_code(); }
+  _LIBCPP_HIDE_FROM_ABI const char* name() const _NOEXCEPT { return __t_->name(); }
 };
 
-template <class _Tp> struct _LIBCPP_TEMPLATE_VIS hash;
+template <class _Tp>
+struct _LIBCPP_TEMPLATE_VIS hash;
 
 template <>
-struct _LIBCPP_TEMPLATE_VIS hash<type_index>
-    : public __unary_function<type_index, size_t>
-{
-    _LIBCPP_INLINE_VISIBILITY
-    size_t operator()(type_index __index) const _NOEXCEPT
-        {return __index.hash_code();}
+struct _LIBCPP_TEMPLATE_VIS hash<type_index> : public __unary_function<type_index, size_t> {
+  _LIBCPP_HIDE_FROM_ABI size_t operator()(type_index __index) const _NOEXCEPT { return __index.hash_code(); }
 };
 
 _LIBCPP_END_NAMESPACE_STD

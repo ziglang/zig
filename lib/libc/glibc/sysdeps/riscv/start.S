@@ -1,5 +1,5 @@
 /* Startup code compliant to the ELF RISC-V ABI.
-   Copyright (C) 1995-2023 Free Software Foundation, Inc.
+   Copyright (C) 1995-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -50,7 +50,13 @@ ENTRY (ENTRY_POINT)
 	call  load_gp
 	mv    a5, a0  /* rtld_fini.  */
 	/* main may be in a shared library.  */
+#if defined PIC && !defined SHARED
+	/* Avoid relocation in static PIE since _start is called before it
+	   is relocated.  */
+	lla   a0, __wrap_main
+#else
 	la   a0, main
+#endif
 	REG_L a1, 0(sp)      /* argc.  */
 	addi  a2, sp, SZREG  /* argv.  */
 	andi  sp, sp, ALMASK /* Align stack. */
@@ -61,6 +67,11 @@ ENTRY (ENTRY_POINT)
 	call  __libc_start_main@plt
 	ebreak
 END (ENTRY_POINT)
+
+#if defined PIC && !defined SHARED
+__wrap_main:
+	tail  main@plt
+#endif
 
 /* Dynamic links need the global pointer to be initialized prior to calling
    any shared library's initializers, so we use preinit_array to load it.

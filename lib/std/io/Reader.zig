@@ -277,7 +277,7 @@ pub fn readBoundedBytes(self: Self, comptime num_bytes: usize) anyerror!std.Boun
 }
 
 pub inline fn readInt(self: Self, comptime T: type, endian: std.builtin.Endian) anyerror!T {
-    const bytes = try self.readBytesNoEof(@divExact(@typeInfo(T).Int.bits, 8));
+    const bytes = try self.readBytesNoEof(@divExact(@typeInfo(T).int.bits, 8));
     return mem.readInt(T, &bytes, endian);
 }
 
@@ -326,7 +326,7 @@ pub fn isBytes(self: Self, slice: []const u8) anyerror!bool {
 
 pub fn readStruct(self: Self, comptime T: type) anyerror!T {
     // Only extern and packed structs have defined in-memory layout.
-    comptime assert(@typeInfo(T).Struct.layout != .auto);
+    comptime assert(@typeInfo(T).@"struct".layout != .auto);
     var res: [1]T = undefined;
     try self.readNoEof(mem.sliceAsBytes(res[0..]));
     return res[0];
@@ -348,7 +348,7 @@ pub fn readEnum(self: Self, comptime Enum: type, endian: std.builtin.Endian) any
         /// An integer was read, but it did not match any of the tags in the supplied enum.
         InvalidValue,
     };
-    const type_info = @typeInfo(Enum).Enum;
+    const type_info = @typeInfo(Enum).@"enum";
     const tag = try self.readInt(type_info.tag_type, endian);
 
     inline for (std.meta.fields(Enum)) |field| {

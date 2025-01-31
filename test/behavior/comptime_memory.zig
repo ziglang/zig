@@ -32,32 +32,22 @@ test "type pun signed and unsigned as array pointer" {
 }
 
 test "type pun signed and unsigned as offset many pointer" {
-    if (true) {
-        // TODO https://github.com/ziglang/zig/issues/9646
-        return error.SkipZigTest;
-    }
-
     comptime {
-        var x: u32 = 0;
-        var y = @as([*]i32, @ptrCast(&x));
+        var x: [11]u32 = undefined;
+        var y: [*]i32 = @ptrCast(&x[10]);
         y -= 10;
         y[10] = -1;
-        try testing.expectEqual(@as(u32, 0xFFFFFFFF), x);
+        try testing.expectEqual(@as(u32, 0xFFFFFFFF), x[10]);
     }
 }
 
 test "type pun signed and unsigned as array pointer with pointer arithemtic" {
-    if (true) {
-        // TODO https://github.com/ziglang/zig/issues/9646
-        return error.SkipZigTest;
-    }
-
     comptime {
-        var x: u32 = 0;
-        const y = @as([*]i32, @ptrCast(&x)) - 10;
+        var x: [11]u32 = undefined;
+        const y = @as([*]i32, @ptrCast(&x[10])) - 10;
         const z: *[15]i32 = y[0..15];
         z[10] = -1;
-        try testing.expectEqual(@as(u32, 0xFFFFFFFF), x);
+        try testing.expectEqual(@as(u32, 0xFFFFFFFF), x[10]);
     }
 }
 
@@ -129,7 +119,7 @@ fn shuffle(ptr: usize, comptime From: type, comptime To: type) usize {
     const pResult = @as(*align(1) [array_len]To, @ptrCast(&result));
     var i: usize = 0;
     while (i < array_len) : (i += 1) {
-        inline for (@typeInfo(To).Struct.fields) |f| {
+        inline for (@typeInfo(To).@"struct".fields) |f| {
             @field(pResult[i], f.name) = @field(pSource[i], f.name);
         }
     }
@@ -171,10 +161,13 @@ fn doTypePunBitsTest(as_bits: *Bits) !void {
 
 test "type pun bits" {
     if (true) {
-        // TODO https://github.com/ziglang/zig/issues/9646
+        // TODO: currently, marking one bit of `Bits` as `undefined` does
+        // mark the whole value as `undefined`, since the pointer interpretation
+        // logic reads it back in as a `u32`, which is partially-undef and thus
+        // has value `undefined`. We need an improved comptime memory representation
+        // to make this work.
         return error.SkipZigTest;
     }
-
     comptime {
         var v: u32 = undefined;
         try doTypePunBitsTest(@as(*Bits, @ptrCast(&v)));
@@ -296,11 +289,6 @@ test "dance on linker values" {
 }
 
 test "offset array ptr by element size" {
-    if (true) {
-        // TODO https://github.com/ziglang/zig/issues/9646
-        return error.SkipZigTest;
-    }
-
     comptime {
         const VirtualStruct = struct { x: u32 };
         var arr: [4]VirtualStruct = .{
@@ -310,15 +298,10 @@ test "offset array ptr by element size" {
             .{ .x = bigToNativeEndian(u32, 0x03070b0f) },
         };
 
-        const address = @intFromPtr(&arr);
-        try testing.expectEqual(@intFromPtr(&arr[0]), address);
-        try testing.expectEqual(@intFromPtr(&arr[0]) + 10, address + 10);
-        try testing.expectEqual(@intFromPtr(&arr[1]), address + @sizeOf(VirtualStruct));
-        try testing.expectEqual(@intFromPtr(&arr[2]), address + 2 * @sizeOf(VirtualStruct));
-        try testing.expectEqual(@intFromPtr(&arr[3]), address + @sizeOf(VirtualStruct) * 3);
+        const buf: [*]align(@alignOf(VirtualStruct)) u8 = @ptrCast(&arr);
 
-        const secondElement = @as(*VirtualStruct, @ptrFromInt(@intFromPtr(&arr[0]) + 2 * @sizeOf(VirtualStruct)));
-        try testing.expectEqual(bigToNativeEndian(u32, 0x02060a0e), secondElement.x);
+        const second_element: *VirtualStruct = @ptrCast(buf + 2 * @sizeOf(VirtualStruct));
+        try testing.expectEqual(bigToNativeEndian(u32, 0x02060a0e), second_element.x);
     }
 }
 
@@ -364,7 +347,7 @@ test "offset field ptr by enclosing array element size" {
 
         var i: usize = 0;
         while (i < 4) : (i += 1) {
-            var ptr: [*]u8 = @as([*]u8, @ptrCast(&arr[0]));
+            var ptr: [*]u8 = @ptrCast(&arr[0]);
             ptr += i;
             ptr += @offsetOf(VirtualStruct, "x");
             var j: usize = 0;
@@ -400,23 +383,18 @@ test "accessing reinterpreted memory of parent object" {
 }
 
 test "bitcast packed union to integer" {
-    if (true) {
-        // https://github.com/ziglang/zig/issues/19384
-        return error.SkipZigTest;
-    }
     const U = packed union {
-        x: u1,
+        x: i2,
         y: u2,
     };
 
     comptime {
-        const a = U{ .x = 1 };
-        const b = U{ .y = 2 };
-        const cast_a = @as(u2, @bitCast(a));
-        const cast_b = @as(u2, @bitCast(b));
+        const a: U = .{ .x = -1 };
+        const b: U = .{ .y = 2 };
+        const cast_a: u2 = @bitCast(a);
+        const cast_b: u2 = @bitCast(b);
 
-        // truncated because the upper bit is garbage memory that we don't care about
-        try testing.expectEqual(@as(u1, 1), @as(u1, @truncate(cast_a)));
+        try testing.expectEqual(@as(u2, 3), cast_a);
         try testing.expectEqual(@as(u2, 2), cast_b);
     }
 }

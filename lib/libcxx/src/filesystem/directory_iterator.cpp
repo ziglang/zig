@@ -17,11 +17,11 @@
 #include "file_descriptor.h"
 
 #if defined(_LIBCPP_WIN32API)
-# define WIN32_LEAN_AND_MEAN
-# define NOMINMAX
-# include <windows.h>
+#  define WIN32_LEAN_AND_MEAN
+#  define NOMINMAX
+#  include <windows.h>
 #else
-# include <dirent.h>   // for DIR & friends
+#  include <dirent.h> // for DIR & friends
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM
@@ -31,12 +31,11 @@ using detail::ErrorHandler;
 #if defined(_LIBCPP_WIN32API)
 class __dir_stream {
 public:
-  __dir_stream() = delete;
+  __dir_stream()                               = delete;
   __dir_stream& operator=(const __dir_stream&) = delete;
 
-  __dir_stream(__dir_stream&& __ds) noexcept : __stream_(__ds.__stream_),
-                                               __root_(std::move(__ds.__root_)),
-                                               __entry_(std::move(__ds.__entry_)) {
+  __dir_stream(__dir_stream&& __ds) noexcept
+      : __stream_(__ds.__stream_), __root_(std::move(__ds.__root_)), __entry_(std::move(__ds.__entry_)) {
     __ds.__stream_ = INVALID_HANDLE_VALUE;
   }
 
@@ -48,11 +47,9 @@ public:
     }
     __stream_ = ::FindFirstFileW((root / "*").c_str(), &__data_);
     if (__stream_ == INVALID_HANDLE_VALUE) {
-      ec = detail::make_windows_error(GetLastError());
-      const bool ignore_permission_denied =
-          bool(opts & directory_options::skip_permission_denied);
-      if (ignore_permission_denied &&
-          ec.value() == static_cast<int>(errc::permission_denied))
+      ec                                  = detail::make_windows_error(GetLastError());
+      const bool ignore_permission_denied = bool(opts & directory_options::skip_permission_denied);
+      if (ignore_permission_denied && ec.value() == static_cast<int>(errc::permission_denied))
         ec.clear();
       return;
     }
@@ -81,13 +78,12 @@ public:
     if (!wcscmp(__data_.cFileName, L".") || !wcscmp(__data_.cFileName, L".."))
       return false;
     // FIXME: Cache more of this
-    //directory_entry::__cached_data cdata;
-    //cdata.__type_ = get_file_type(__data_);
-    //cdata.__size_ = get_file_size(__data_);
-    //cdata.__write_time_ = get_write_time(__data_);
+    // directory_entry::__cached_data cdata;
+    // cdata.__type_ = get_file_type(__data_);
+    // cdata.__size_ = get_file_size(__data_);
+    // cdata.__write_time_ = get_write_time(__data_);
     __entry_.__assign_iter_entry(
-        __root_ / __data_.cFileName,
-        directory_entry::__create_iter_result(detail::get_file_type(__data_)));
+        __root_ / __data_.cFileName, directory_entry::__create_iter_result(detail::get_file_type(__data_)));
     return true;
   }
 
@@ -110,21 +106,18 @@ public:
 #else
 class __dir_stream {
 public:
-  __dir_stream() = delete;
+  __dir_stream()                               = delete;
   __dir_stream& operator=(const __dir_stream&) = delete;
 
-  __dir_stream(__dir_stream&& other) noexcept : __stream_(other.__stream_),
-                                                __root_(std::move(other.__root_)),
-                                                __entry_(std::move(other.__entry_)) {
+  __dir_stream(__dir_stream&& other) noexcept
+      : __stream_(other.__stream_), __root_(std::move(other.__root_)), __entry_(std::move(other.__entry_)) {
     other.__stream_ = nullptr;
   }
 
-  __dir_stream(const path& root, directory_options opts, error_code& ec)
-      : __stream_(nullptr), __root_(root) {
+  __dir_stream(const path& root, directory_options opts, error_code& ec) : __stream_(nullptr), __root_(root) {
     if ((__stream_ = ::opendir(root.c_str())) == nullptr) {
-      ec = detail::capture_errno();
-      const bool allow_eacces =
-          bool(opts & directory_options::skip_permission_denied);
+      ec                      = detail::capture_errno();
+      const bool allow_eacces = bool(opts & directory_options::skip_permission_denied);
       if (allow_eacces && ec.value() == EACCES)
         ec.clear();
       return;
@@ -142,16 +135,14 @@ public:
   bool advance(error_code& ec) {
     while (true) {
       auto str_type_pair = detail::posix_readdir(__stream_, ec);
-      auto& str = str_type_pair.first;
+      auto& str          = str_type_pair.first;
       if (str == "." || str == "..") {
         continue;
       } else if (ec || str.empty()) {
         close();
         return false;
       } else {
-        __entry_.__assign_iter_entry(
-            __root_ / str,
-            directory_entry::__create_iter_result(str_type_pair.second));
+        __entry_.__assign_iter_entry(__root_ / str, directory_entry::__create_iter_result(str_type_pair.second));
         return true;
       }
     }
@@ -176,8 +167,7 @@ public:
 
 // directory_iterator
 
-directory_iterator::directory_iterator(const path& p, error_code* ec,
-                                       directory_options opts) {
+directory_iterator::directory_iterator(const path& p, error_code* ec, directory_options opts) {
   ErrorHandler<void> err("directory_iterator::directory_iterator(...)", ec, &p);
 
   error_code m_ec;
@@ -192,7 +182,7 @@ directory_iterator::directory_iterator(const path& p, error_code* ec,
 }
 
 directory_iterator& directory_iterator::__increment(error_code* ec) {
-  _LIBCPP_ASSERT_UNCATEGORIZED(__imp_, "Attempting to increment an invalid iterator");
+  _LIBCPP_ASSERT_NON_NULL(__imp_ != nullptr, "Attempting to increment an invalid iterator");
   ErrorHandler<void> err("directory_iterator::operator++()", ec);
 
   error_code m_ec;
@@ -206,7 +196,7 @@ directory_iterator& directory_iterator::__increment(error_code* ec) {
 }
 
 directory_entry const& directory_iterator::__dereference() const {
-  _LIBCPP_ASSERT_UNCATEGORIZED(__imp_, "Attempting to dereference an invalid iterator");
+  _LIBCPP_ASSERT_NON_NULL(__imp_ != nullptr, "Attempting to dereference an invalid iterator");
   return __imp_->__entry_;
 }
 
@@ -217,8 +207,7 @@ struct recursive_directory_iterator::__shared_imp {
   directory_options __options_;
 };
 
-recursive_directory_iterator::recursive_directory_iterator(
-    const path& p, directory_options opt, error_code* ec)
+recursive_directory_iterator::recursive_directory_iterator(const path& p, directory_options opt, error_code* ec)
     : __imp_(nullptr), __rec_(true) {
   ErrorHandler<void> err("recursive_directory_iterator", ec, &p);
 
@@ -229,13 +218,13 @@ recursive_directory_iterator::recursive_directory_iterator(
   if (m_ec || !new_s.good())
     return;
 
-  __imp_ = make_shared<__shared_imp>();
+  __imp_             = make_shared<__shared_imp>();
   __imp_->__options_ = opt;
   __imp_->__stack_.push(std::move(new_s));
 }
 
 void recursive_directory_iterator::__pop(error_code* ec) {
-  _LIBCPP_ASSERT_UNCATEGORIZED(__imp_, "Popping the end iterator");
+  _LIBCPP_ASSERT_NON_NULL(__imp_ != nullptr, "Popping the end iterator");
   if (ec)
     ec->clear();
   __imp_->__stack_.pop();
@@ -245,20 +234,13 @@ void recursive_directory_iterator::__pop(error_code* ec) {
     __advance(ec);
 }
 
-directory_options recursive_directory_iterator::options() const {
-  return __imp_->__options_;
-}
+directory_options recursive_directory_iterator::options() const { return __imp_->__options_; }
 
-int recursive_directory_iterator::depth() const {
-  return __imp_->__stack_.size() - 1;
-}
+int recursive_directory_iterator::depth() const { return __imp_->__stack_.size() - 1; }
 
-const directory_entry& recursive_directory_iterator::__dereference() const {
-  return __imp_->__stack_.top().__entry_;
-}
+const directory_entry& recursive_directory_iterator::__dereference() const { return __imp_->__stack_.top().__entry_; }
 
-recursive_directory_iterator&
-recursive_directory_iterator::__increment(error_code* ec) {
+recursive_directory_iterator& recursive_directory_iterator::__increment(error_code* ec) {
   if (ec)
     ec->clear();
   if (recursion_pending()) {
@@ -324,16 +306,14 @@ bool recursive_directory_iterator::__try_recursion(error_code* ec) {
     }
   }
   if (m_ec) {
-    const bool allow_eacess =
-        bool(__imp_->__options_ & directory_options::skip_permission_denied);
+    const bool allow_eacess = bool(__imp_->__options_ & directory_options::skip_permission_denied);
     if (m_ec.value() == EACCES && allow_eacess) {
       if (ec)
         ec->clear();
     } else {
       path at_ent = std::move(curr_it.__entry_.__p_);
       __imp_.reset();
-      err.report(m_ec, "attempting recursion into " PATH_CSTR_FMT,
-                 at_ent.c_str());
+      err.report(m_ec, "attempting recursion into " PATH_CSTR_FMT, at_ent.c_str());
     }
   }
   return false;

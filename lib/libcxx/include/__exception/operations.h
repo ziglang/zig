@@ -9,7 +9,6 @@
 #ifndef _LIBCPP___EXCEPTION_OPERATIONS_H
 #define _LIBCPP___EXCEPTION_OPERATIONS_H
 
-#include <__availability>
 #include <__config>
 #include <cstddef>
 
@@ -31,7 +30,7 @@ _LIBCPP_EXPORTED_FROM_ABI terminate_handler set_terminate(terminate_handler) _NO
 _LIBCPP_EXPORTED_FROM_ABI terminate_handler get_terminate() _NOEXCEPT;
 
 _LIBCPP_EXPORTED_FROM_ABI bool uncaught_exception() _NOEXCEPT;
-_LIBCPP_EXPORTED_FROM_ABI _LIBCPP_AVAILABILITY_UNCAUGHT_EXCEPTIONS int uncaught_exceptions() _NOEXCEPT;
+_LIBCPP_EXPORTED_FROM_ABI int uncaught_exceptions() _NOEXCEPT;
 
 class _LIBCPP_EXPORTED_FROM_ABI exception_ptr;
 

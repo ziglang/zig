@@ -1,5 +1,5 @@
 /* Definitions for POSIX 1003.1b-1993 (aka POSIX.4) scheduling interface.
-   Copyright (C) 1996-2023 Free Software Foundation, Inc.
+   Copyright (C) 1996-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -74,7 +74,7 @@ extern int sched_get_priority_max (int __algorithm) __THROW;
 extern int sched_get_priority_min (int __algorithm) __THROW;
 
 /* Get the SCHED_RR interval for the named process.  */
-#ifndef __USE_TIME_BITS64
+#ifndef __USE_TIME64_REDIRECTS
 extern int sched_rr_get_interval (__pid_t __pid, struct timespec *__t) __THROW;
 #else
 # ifdef __REDIRECT_NTH

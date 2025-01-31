@@ -58,7 +58,7 @@ pub fn detectNativeCpuAndFeatures(arch: Target.Cpu.Arch, os: Target.Os, query: T
                 detectIntelProcessor(&cpu, family, model, brand_id);
             },
             0x68747541 => {
-                detectAMDProcessor(&cpu, family, model);
+                if (detectAMDProcessor(cpu.features, family, model)) |m| cpu.model = m;
             },
             else => {},
         }
@@ -149,8 +149,12 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
                     cpu.model = &Target.x86.cpu.broadwell;
                     return;
                 },
-                0x4e, 0x5e, 0x8e, 0x9e => {
+                0x4e, 0x5e, 0x8e, 0x9e, 0xa5, 0xa6 => {
                     cpu.model = &Target.x86.cpu.skylake;
+                    return;
+                },
+                0xa7 => {
+                    cpu.model = &Target.x86.cpu.rocketlake;
                     return;
                 },
                 0x55 => {
@@ -177,6 +181,58 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
                     cpu.model = &Target.x86.cpu.icelake_server;
                     return;
                 },
+                0x8c, 0x8d => {
+                    cpu.model = &Target.x86.cpu.tigerlake;
+                    return;
+                },
+                0x97, 0x9a => {
+                    cpu.model = &Target.x86.cpu.alderlake;
+                    return;
+                },
+                0xbe => {
+                    cpu.model = &Target.x86.cpu.gracemont;
+                    return;
+                },
+                0xb7, 0xba, 0xbf => {
+                    cpu.model = &Target.x86.cpu.raptorlake;
+                    return;
+                },
+                0xaa, 0xac => {
+                    cpu.model = &Target.x86.cpu.meteorlake;
+                    return;
+                },
+                0xc5, 0xb5 => {
+                    cpu.model = &Target.x86.cpu.arrowlake;
+                    return;
+                },
+                0xc6 => {
+                    cpu.model = &Target.x86.cpu.arrowlake_s;
+                    return;
+                },
+                0xbd => {
+                    cpu.model = &Target.x86.cpu.lunarlake;
+                    return;
+                },
+                0xcc => {
+                    cpu.model = &Target.x86.cpu.pantherlake;
+                    return;
+                },
+                0xad => {
+                    cpu.model = &Target.x86.cpu.graniterapids;
+                    return;
+                },
+                0xae => {
+                    cpu.model = &Target.x86.cpu.graniterapids_d;
+                    return;
+                },
+                0xcf => {
+                    cpu.model = &Target.x86.cpu.emeraldrapids;
+                    return;
+                },
+                0x8f => {
+                    cpu.model = &Target.x86.cpu.sapphirerapids;
+                    return;
+                },
                 0x1c, 0x26, 0x27, 0x35, 0x36 => {
                     cpu.model = &Target.x86.cpu.bonnell;
                     return;
@@ -193,8 +249,20 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
                     cpu.model = &Target.x86.cpu.goldmont_plus;
                     return;
                 },
-                0x86 => {
+                0x86, 0x8a, 0x96, 0x9c => {
                     cpu.model = &Target.x86.cpu.tremont;
+                    return;
+                },
+                0xaf => {
+                    cpu.model = &Target.x86.cpu.sierraforest;
+                    return;
+                },
+                0xb6 => {
+                    cpu.model = &Target.x86.cpu.grandridge;
+                    return;
+                },
+                0xdd => {
+                    cpu.model = &Target.x86.cpu.clearwaterforest;
                     return;
                 },
                 0x57 => {
@@ -224,97 +292,44 @@ fn detectIntelProcessor(cpu: *Target.Cpu, family: u32, model: u32, brand_id: u32
     }
 }
 
-fn detectAMDProcessor(cpu: *Target.Cpu, family: u32, model: u32) void {
-    // AMD's cpuid information is less than optimal for determining a CPU model.
-    // This is very unscientific, and not necessarily correct.
-    switch (family) {
-        4 => {
-            cpu.model = &Target.x86.cpu.i486;
-            return;
+fn detectAMDProcessor(features: Target.Cpu.Feature.Set, family: u32, model: u32) ?*const Target.Cpu.Model {
+    return switch (family) {
+        4 => &Target.x86.cpu.i486,
+        5 => switch (model) {
+            6, 7 => &Target.x86.cpu.k6,
+            8 => &Target.x86.cpu.k6_2,
+            9, 13 => &Target.x86.cpu.k6_3,
+            10 => &Target.x86.cpu.geode,
+            else => &Target.x86.cpu.pentium,
         },
-        5 => {
-            cpu.model = &Target.x86.cpu.pentium;
-            switch (model) {
-                6, 7 => {
-                    cpu.model = &Target.x86.cpu.k6;
-                    return;
-                },
-                8 => {
-                    cpu.model = &Target.x86.cpu.k6_2;
-                    return;
-                },
-                9, 13 => {
-                    cpu.model = &Target.x86.cpu.k6_3;
-                    return;
-                },
-                10 => {
-                    cpu.model = &Target.x86.cpu.geode;
-                    return;
-                },
-                else => {},
-            }
-            return;
+        6 => if (Target.x86.featureSetHas(features, .sse))
+            &Target.x86.cpu.athlon_xp
+        else
+            &Target.x86.cpu.athlon,
+        15 => if (Target.x86.featureSetHas(features, .sse3))
+            &Target.x86.cpu.k8_sse3
+        else
+            &Target.x86.cpu.k8,
+        16, 18 => &Target.x86.cpu.amdfam10,
+        20 => &Target.x86.cpu.btver1,
+        21 => switch (model) {
+            0x60...0x7f => &Target.x86.cpu.bdver4,
+            0x30...0x3f => &Target.x86.cpu.bdver3,
+            0x02, 0x10...0x1f => &Target.x86.cpu.bdver2,
+            else => &Target.x86.cpu.bdver1,
         },
-        6 => {
-            if (Target.x86.featureSetHas(cpu.features, .sse)) {
-                cpu.model = &Target.x86.cpu.athlon_xp;
-                return;
-            }
-            cpu.model = &Target.x86.cpu.athlon;
-            return;
+        22 => &Target.x86.cpu.btver2,
+        23 => switch (model) {
+            0x30...0x3f, 0x47, 0x60...0x6f, 0x70...0x7f, 0x84...0x87, 0x90...0x9f, 0xa0...0xaf => &Target.x86.cpu.znver2,
+            else => &Target.x86.cpu.znver1,
         },
-        15 => {
-            if (Target.x86.featureSetHas(cpu.features, .sse3)) {
-                cpu.model = &Target.x86.cpu.k8_sse3;
-                return;
-            }
-            cpu.model = &Target.x86.cpu.k8;
-            return;
+        25 => switch (model) {
+            0x10...0x1f, 0x60...0x6f, 0x70...0x7f, 0xa0...0xaf => &Target.x86.cpu.znver4,
+            else => &Target.x86.cpu.znver3,
         },
-        16 => {
-            cpu.model = &Target.x86.cpu.amdfam10;
-            return;
-        },
-        20 => {
-            cpu.model = &Target.x86.cpu.btver1;
-            return;
-        },
-        21 => {
-            cpu.model = &Target.x86.cpu.bdver1;
-            if (model >= 0x60 and model <= 0x7f) {
-                cpu.model = &Target.x86.cpu.bdver4;
-                return;
-            }
-            if (model >= 0x30 and model <= 0x3f) {
-                cpu.model = &Target.x86.cpu.bdver3;
-                return;
-            }
-            if ((model >= 0x10 and model <= 0x1f) or model == 0x02) {
-                cpu.model = &Target.x86.cpu.bdver2;
-                return;
-            }
-            return;
-        },
-        22 => {
-            cpu.model = &Target.x86.cpu.btver2;
-            return;
-        },
-        23 => {
-            cpu.model = &Target.x86.cpu.znver1;
-            if ((model >= 0x30 and model <= 0x3f) or model == 0x71) {
-                cpu.model = &Target.x86.cpu.znver2;
-                return;
-            }
-            return;
-        },
-        25 => {
-            cpu.model = &Target.x86.cpu.znver3;
-            return;
-        },
-        else => {
-            return;
-        },
-    }
+        26 => &Target.x86.cpu.znver5,
+        else => null,
+    };
 }
 
 fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
@@ -423,6 +438,7 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
         setFeature(cpu, .bmi, bit(leaf.ebx, 3));
         // AVX2 is only supported if we have the OS save support from AVX.
         setFeature(cpu, .avx2, bit(leaf.ebx, 5) and has_avx_save);
+        setFeature(cpu, .smep, bit(leaf.ebx, 7));
         setFeature(cpu, .bmi2, bit(leaf.ebx, 8));
         setFeature(cpu, .invpcid, bit(leaf.ebx, 10));
         setFeature(cpu, .rtm, bit(leaf.ebx, 11));
@@ -431,6 +447,7 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
         setFeature(cpu, .avx512dq, bit(leaf.ebx, 17) and has_avx512_save);
         setFeature(cpu, .rdseed, bit(leaf.ebx, 18));
         setFeature(cpu, .adx, bit(leaf.ebx, 19));
+        setFeature(cpu, .smap, bit(leaf.ebx, 20));
         setFeature(cpu, .avx512ifma, bit(leaf.ebx, 21) and has_avx512_save);
         setFeature(cpu, .clflushopt, bit(leaf.ebx, 23));
         setFeature(cpu, .clwb, bit(leaf.ebx, 24));
@@ -471,6 +488,7 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
         // detecting features using the "-march=native" flag.
         // For more info, see X86 ISA docs.
         setFeature(cpu, .pconfig, bit(leaf.edx, 18));
+        setFeature(cpu, .uintr, bit(leaf.edx, 5));
 
         // TODO I feel unsure about this check.
         //      It doesn't really seem to check for 7.1, just for 7.
@@ -529,7 +547,7 @@ const CpuidLeaf = packed struct {
 
 /// This is a workaround for the C backend until zig has the ability to put
 /// C code in inline assembly.
-extern fn zig_x86_cpuid(leaf_id: u32, subid: u32, eax: *u32, ebx: *u32, ecx: *u32, edx: *u32) callconv(.C) void;
+extern fn zig_x86_cpuid(leaf_id: u32, subid: u32, eax: *u32, ebx: *u32, ecx: *u32, edx: *u32) callconv(.c) void;
 
 fn cpuid(leaf_id: u32, subid: u32) CpuidLeaf {
     // valid for both x86 and x86_64
@@ -556,7 +574,7 @@ fn cpuid(leaf_id: u32, subid: u32) CpuidLeaf {
 
 /// This is a workaround for the C backend until zig has the ability to put
 /// C code in inline assembly.
-extern fn zig_x86_get_xcr0() callconv(.C) u32;
+extern fn zig_x86_get_xcr0() callconv(.c) u32;
 
 // Read control register 0 (XCR0). Used to detect features such as AVX.
 fn getXCR0() u32 {

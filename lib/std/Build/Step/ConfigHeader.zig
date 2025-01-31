@@ -52,15 +52,14 @@ pub const Options = struct {
 };
 
 pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
-    const self = owner.allocator.create(ConfigHeader) catch @panic("OOM");
+    const config_header = owner.allocator.create(ConfigHeader) catch @panic("OOM");
 
     var include_path: []const u8 = "config.h";
 
     if (options.style.getPath()) |s| default_include_path: {
         const sub_path = switch (s) {
             .src_path => |sp| sp.sub_path,
-            .path => |path| path,
-            .generated, .generated_dirname => break :default_include_path,
+            .generated => break :default_include_path,
             .cwd_relative => |sub_path| sub_path,
             .dependency => |dependency| dependency.sub_path,
         };
@@ -81,7 +80,7 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
     else
         owner.fmt("configure {s} header to {s}", .{ @tagName(options.style), include_path });
 
-    self.* = .{
+    config_header.* = .{
         .step = Step.init(.{
             .id = base_id,
             .name = name,
@@ -95,64 +94,64 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
         .max_bytes = options.max_bytes,
         .include_path = include_path,
         .include_guard_override = options.include_guard_override,
-        .output_file = .{ .step = &self.step },
+        .output_file = .{ .step = &config_header.step },
     };
 
-    return self;
+    return config_header;
 }
 
-pub fn addValues(self: *ConfigHeader, values: anytype) void {
-    return addValuesInner(self, values) catch @panic("OOM");
+pub fn addValues(config_header: *ConfigHeader, values: anytype) void {
+    return addValuesInner(config_header, values) catch @panic("OOM");
 }
 
-pub fn getOutput(self: *ConfigHeader) std.Build.LazyPath {
-    return .{ .generated = &self.output_file };
+pub fn getOutput(config_header: *ConfigHeader) std.Build.LazyPath {
+    return .{ .generated = .{ .file = &config_header.output_file } };
 }
 
-fn addValuesInner(self: *ConfigHeader, values: anytype) !void {
-    inline for (@typeInfo(@TypeOf(values)).Struct.fields) |field| {
-        try putValue(self, field.name, field.type, @field(values, field.name));
+fn addValuesInner(config_header: *ConfigHeader, values: anytype) !void {
+    inline for (@typeInfo(@TypeOf(values)).@"struct".fields) |field| {
+        try putValue(config_header, field.name, field.type, @field(values, field.name));
     }
 }
 
-fn putValue(self: *ConfigHeader, field_name: []const u8, comptime T: type, v: T) !void {
+fn putValue(config_header: *ConfigHeader, field_name: []const u8, comptime T: type, v: T) !void {
     switch (@typeInfo(T)) {
-        .Null => {
-            try self.values.put(field_name, .undef);
+        .null => {
+            try config_header.values.put(field_name, .undef);
         },
-        .Void => {
-            try self.values.put(field_name, .defined);
+        .void => {
+            try config_header.values.put(field_name, .defined);
         },
-        .Bool => {
-            try self.values.put(field_name, .{ .boolean = v });
+        .bool => {
+            try config_header.values.put(field_name, .{ .boolean = v });
         },
-        .Int => {
-            try self.values.put(field_name, .{ .int = v });
+        .int => {
+            try config_header.values.put(field_name, .{ .int = v });
         },
-        .ComptimeInt => {
-            try self.values.put(field_name, .{ .int = v });
+        .comptime_int => {
+            try config_header.values.put(field_name, .{ .int = v });
         },
-        .EnumLiteral => {
-            try self.values.put(field_name, .{ .ident = @tagName(v) });
+        .enum_literal => {
+            try config_header.values.put(field_name, .{ .ident = @tagName(v) });
         },
-        .Optional => {
+        .optional => {
             if (v) |x| {
-                return putValue(self, field_name, @TypeOf(x), x);
+                return putValue(config_header, field_name, @TypeOf(x), x);
             } else {
-                try self.values.put(field_name, .undef);
+                try config_header.values.put(field_name, .undef);
             }
         },
-        .Pointer => |ptr| {
+        .pointer => |ptr| {
             switch (@typeInfo(ptr.child)) {
-                .Array => |array| {
-                    if (ptr.size == .One and array.child == u8) {
-                        try self.values.put(field_name, .{ .string = v });
+                .array => |array| {
+                    if (ptr.size == .one and array.child == u8) {
+                        try config_header.values.put(field_name, .{ .string = v });
                         return;
                     }
                 },
-                .Int => {
-                    if (ptr.size == .Slice and ptr.child == u8) {
-                        try self.values.put(field_name, .{ .string = v });
+                .int => {
+                    if (ptr.size == .slice and ptr.child == u8) {
+                        try config_header.values.put(field_name, .{ .string = v });
                         return;
                     }
                 },
@@ -165,10 +164,12 @@ fn putValue(self: *ConfigHeader, field_name: []const u8, comptime T: type, v: T)
     }
 }
 
-fn make(step: *Step, prog_node: *std.Progress.Node) !void {
-    _ = prog_node;
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    _ = options;
     const b = step.owner;
-    const self: *ConfigHeader = @fieldParentPtr("step", step);
+    const config_header: *ConfigHeader = @fieldParentPtr("step", step);
+    if (config_header.style.getPath()) |lp| try step.singleUnchangingWatchInput(lp);
+
     const gpa = b.allocator;
     const arena = b.allocator;
 
@@ -179,8 +180,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     // random bytes when ConfigHeader implementation is modified in a
     // non-backwards-compatible way.
     man.hash.add(@as(u32, 0xdef08d23));
-    man.hash.addBytes(self.include_path);
-    man.hash.addOptionalBytes(self.include_guard_override);
+    man.hash.addBytes(config_header.include_path);
+    man.hash.addOptionalBytes(config_header.include_guard_override);
 
     var output = std.ArrayList(u8).init(gpa);
     defer output.deinit();
@@ -189,30 +190,34 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     const c_generated_line = "/* " ++ header_text ++ " */\n";
     const asm_generated_line = "; " ++ header_text ++ "\n";
 
-    switch (self.style) {
+    switch (config_header.style) {
         .autoconf => |file_source| {
             try output.appendSlice(c_generated_line);
-            const src_path = file_source.getPath(b);
-            const contents = std.fs.cwd().readFileAlloc(arena, src_path, self.max_bytes) catch |err| {
+            const src_path = file_source.getPath2(b, step);
+            const contents = std.fs.cwd().readFileAlloc(arena, src_path, config_header.max_bytes) catch |err| {
                 return step.fail("unable to read autoconf input file '{s}': {s}", .{
                     src_path, @errorName(err),
                 });
             };
-            try render_autoconf(step, contents, &output, self.values, src_path);
+            try render_autoconf(step, contents, &output, config_header.values, src_path);
         },
         .cmake => |file_source| {
             try output.appendSlice(c_generated_line);
-            const src_path = file_source.getPath(b);
-            const contents = try std.fs.cwd().readFileAlloc(arena, src_path, self.max_bytes);
-            try render_cmake(step, contents, &output, self.values, src_path);
+            const src_path = file_source.getPath2(b, step);
+            const contents = std.fs.cwd().readFileAlloc(arena, src_path, config_header.max_bytes) catch |err| {
+                return step.fail("unable to read cmake input file '{s}': {s}", .{
+                    src_path, @errorName(err),
+                });
+            };
+            try render_cmake(step, contents, &output, config_header.values, src_path);
         },
         .blank => {
             try output.appendSlice(c_generated_line);
-            try render_blank(&output, self.values, self.include_path, self.include_guard_override);
+            try render_blank(&output, config_header.values, config_header.include_path, config_header.include_guard_override);
         },
         .nasm => {
             try output.appendSlice(asm_generated_line);
-            try render_nasm(&output, self.values);
+            try render_nasm(&output, config_header.values);
         },
     }
 
@@ -220,8 +225,8 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
 
     if (try step.cacheHit(&man)) {
         const digest = man.final();
-        self.output_file.path = try b.cache_root.join(arena, &.{
-            "o", &digest, self.include_path,
+        config_header.output_file.path = try b.cache_root.join(arena, &.{
+            "o", &digest, config_header.include_path,
         });
         return;
     }
@@ -233,7 +238,7 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
     // output_path is libavutil/avconfig.h
     // We want to open directory zig-cache/o/HASH/libavutil/
     // but keep output_dir as zig-cache/o/HASH for -I include
-    const sub_path = try std.fs.path.join(arena, &.{ "o", &digest, self.include_path });
+    const sub_path = b.pathJoin(&.{ "o", &digest, config_header.include_path });
     const sub_path_dirname = std.fs.path.dirname(sub_path).?;
 
     b.cache_root.handle.makePath(sub_path_dirname) catch |err| {
@@ -242,13 +247,13 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         });
     };
 
-    b.cache_root.handle.writeFile(sub_path, output.items) catch |err| {
+    b.cache_root.handle.writeFile(.{ .sub_path = sub_path, .data = output.items }) catch |err| {
         return step.fail("unable to write file '{}{s}': {s}", .{
             b.cache_root, sub_path, @errorName(err),
         });
     };
 
-    self.output_file.path = try b.cache_root.join(arena, &.{sub_path});
+    config_header.output_file.path = try b.cache_root.join(arena, &.{sub_path});
     try man.writeManifest();
 }
 
@@ -565,7 +570,7 @@ fn expand_variables_cmake(
                     }
 
                     const key = contents[curr + 1 .. close_pos];
-                    const value = values.get(key) orelse .undef;
+                    const value = values.get(key) orelse return error.MissingValue;
                     const missing = contents[source_offset..curr];
                     try result.appendSlice(missing);
                     switch (value) {
@@ -620,7 +625,10 @@ fn expand_variables_cmake(
 
                 const key_start = open_pos.target + open_var.len;
                 const key = result.items[key_start..];
-                const value = values.get(key) orelse .undef;
+                if (key.len == 0) {
+                    return error.MissingKey;
+                }
+                const value = values.get(key) orelse return error.MissingValue;
                 result.shrinkRetainingCapacity(result.items.len - key.len - open_var.len);
                 switch (value) {
                     .undef, .defined => {},
@@ -690,8 +698,8 @@ test "expand_variables_cmake simple cases" {
     // line with misc content is preserved
     try testReplaceVariables(allocator, "no substitution", "no substitution", values);
 
-    // empty ${} wrapper is removed
-    try testReplaceVariables(allocator, "${}", "", values);
+    // empty ${} wrapper leads to an error
+    try std.testing.expectError(error.MissingKey, testReplaceVariables(allocator, "${}", "", values));
 
     // empty @ sigils are preserved
     try testReplaceVariables(allocator, "@", "@", values);
@@ -754,9 +762,9 @@ test "expand_variables_cmake simple cases" {
     try testReplaceVariables(allocator, "undef@", "undef@", values);
     try testReplaceVariables(allocator, "undef}", "undef}", values);
 
-    // unknown key is removed
-    try testReplaceVariables(allocator, "@bad@", "", values);
-    try testReplaceVariables(allocator, "${bad}", "", values);
+    // unknown key leads to an error
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "@bad@", "", values));
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${bad}", "", values));
 }
 
 test "expand_variables_cmake edge cases" {
@@ -801,17 +809,17 @@ test "expand_variables_cmake edge cases" {
     try testReplaceVariables(allocator, "@dollar@{@string@}", "${text}", values);
 
     // when expanded variables contain invalid characters, they prevent further expansion
-    try testReplaceVariables(allocator, "${${string_var}}", "", values);
-    try testReplaceVariables(allocator, "${@string_var@}", "", values);
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${${string_var}}", "", values));
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${@string_var@}", "", values));
 
     // nested expanded variables are expanded from the inside out
     try testReplaceVariables(allocator, "${string${underscore}proxy}", "string", values);
     try testReplaceVariables(allocator, "${string@underscore@proxy}", "string", values);
 
     // nested vars are only expanded when ${} is closed
-    try testReplaceVariables(allocator, "@nest@underscore@proxy@", "underscore", values);
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "@nest@underscore@proxy@", "", values));
     try testReplaceVariables(allocator, "${nest${underscore}proxy}", "nest_underscore_proxy", values);
-    try testReplaceVariables(allocator, "@nest@@nest_underscore@underscore@proxy@@proxy@", "underscore", values);
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "@nest@@nest_underscore@underscore@proxy@@proxy@", "", values));
     try testReplaceVariables(allocator, "${nest${${nest_underscore${underscore}proxy}}proxy}", "nest_underscore_proxy", values);
 
     // invalid characters lead to an error
@@ -837,5 +845,5 @@ test "expand_variables_cmake escaped characters" {
     try testReplaceVariables(allocator, "$\\{string}", "$\\{string}", values);
 
     // backslash is skipped when checking for invalid characters, yet it mangles the key
-    try testReplaceVariables(allocator, "${string\\}", "", values);
+    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${string\\}", "", values));
 }

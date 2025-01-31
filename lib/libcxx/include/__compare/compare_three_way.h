@@ -22,16 +22,15 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER >= 20
 
-struct _LIBCPP_TEMPLATE_VIS compare_three_way
-{
-    template<class _T1, class _T2>
-        requires three_way_comparable_with<_T1, _T2>
-    constexpr _LIBCPP_HIDE_FROM_ABI
-    auto operator()(_T1&& __t, _T2&& __u) const
-        noexcept(noexcept(_VSTD::forward<_T1>(__t) <=> _VSTD::forward<_T2>(__u)))
-        { return          _VSTD::forward<_T1>(__t) <=> _VSTD::forward<_T2>(__u); }
+struct _LIBCPP_TEMPLATE_VIS compare_three_way {
+  template <class _T1, class _T2>
+    requires three_way_comparable_with<_T1, _T2>
+  constexpr _LIBCPP_HIDE_FROM_ABI auto operator()(_T1&& __t, _T2&& __u) const
+      noexcept(noexcept(std::forward<_T1>(__t) <=> std::forward<_T2>(__u))) {
+    return std::forward<_T1>(__t) <=> std::forward<_T2>(__u);
+  }
 
-    using is_transparent = void;
+  using is_transparent = void;
 };
 
 #endif // _LIBCPP_STD_VER >= 20

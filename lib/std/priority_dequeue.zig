@@ -866,7 +866,7 @@ test "shrinkAndFree" {
 }
 
 test "fuzz testing min" {
-    var prng = std.Random.DefaultPrng.init(0x12345678);
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const random = prng.random();
 
     const test_case_count = 100;
@@ -895,7 +895,7 @@ fn fuzzTestMin(rng: std.Random, comptime queue_size: usize) !void {
 }
 
 test "fuzz testing max" {
-    var prng = std.Random.DefaultPrng.init(0x87654321);
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const random = prng.random();
 
     const test_case_count = 100;
@@ -924,7 +924,7 @@ fn fuzzTestMax(rng: std.Random, queue_size: usize) !void {
 }
 
 test "fuzz testing min and max" {
-    var prng = std.Random.DefaultPrng.init(0x87654321);
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const random = prng.random();
 
     const test_case_count = 100;

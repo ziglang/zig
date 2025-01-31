@@ -6,15 +6,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include <__config>
-
-#ifndef _LIBCPP_HAS_NO_THREADS
-
-#  include <mutex>
-#  include <shared_mutex>
-#  if defined(__ELF__) && defined(_LIBCPP_LINK_PTHREAD_LIB)
-#    pragma comment(lib, "pthread")
-#  endif
+#include <mutex>
+#include <shared_mutex>
+#if defined(__ELF__) && defined(_LIBCPP_LINK_PTHREAD_LIB)
+#  pragma comment(lib, "pthread")
+#endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -95,5 +91,3 @@ bool shared_timed_mutex::try_lock_shared() { return __base_.try_lock_shared(); }
 void shared_timed_mutex::unlock_shared() { return __base_.unlock_shared(); }
 
 _LIBCPP_END_NAMESPACE_STD
-
-#endif // !_LIBCPP_HAS_NO_THREADS

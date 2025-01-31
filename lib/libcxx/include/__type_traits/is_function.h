@@ -11,8 +11,6 @@
 
 #include <__config>
 #include <__type_traits/integral_constant.h>
-#include <__type_traits/is_const.h>
-#include <__type_traits/is_reference.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -20,22 +18,12 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if __has_builtin(__is_function)
-
 template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS is_function : integral_constant<bool, __is_function(_Tp)> {};
 
-#else
-
-template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_function
-    : public integral_constant<bool, !(is_reference<_Tp>::value || is_const<const _Tp>::value)> {};
-
-#endif // __has_builtin(__is_function)
-
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp>
-inline constexpr bool is_function_v = is_function<_Tp>::value;
+inline constexpr bool is_function_v = __is_function(_Tp);
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

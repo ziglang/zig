@@ -100,6 +100,7 @@ const ParseInfo = struct {
 };
 
 fn parsePartialNumberBase(comptime T: type, stream: *FloatStream, negative: bool, n: *usize, comptime info: ParseInfo) ?Number(T) {
+    std.debug.assert(info.base == 10 or info.base == 16);
     const MantissaT = common.mantissaType(T);
 
     // parse initial digits before dot
@@ -107,12 +108,10 @@ fn parsePartialNumberBase(comptime T: type, stream: *FloatStream, negative: bool
     tryParseDigits(MantissaT, stream, &mantissa, info.base);
     const int_end = stream.offsetTrue();
     var n_digits = @as(isize, @intCast(stream.offsetTrue()));
-    // the base being 16 implies a 0x prefix, which shouldn't be included in the digit count
-    if (info.base == 16) n_digits -= 2;
 
     // handle dot with the following digits
     var exponent: i64 = 0;
-    if (stream.firstIs('.')) {
+    if (stream.firstIs(".")) {
         stream.advance(1);
         const marker = stream.offsetTrue();
         tryParseDigits(MantissaT, stream, &mantissa, info.base);
@@ -132,14 +131,14 @@ fn parsePartialNumberBase(comptime T: type, stream: *FloatStream, negative: bool
 
     // handle scientific format
     var exp_number: i64 = 0;
-    if (stream.firstIsLower(info.exp_char_lower)) {
+    if (stream.firstIsLower(&.{info.exp_char_lower})) {
         stream.advance(1);
         exp_number = parseScientific(stream) orelse return null;
         exponent += exp_number;
     }
 
     const len = stream.offset; // length must be complete parsed length
-    n.* = len;
+    n.* += len;
 
     if (stream.underscore_count > 0 and !validUnderscores(stream.slice, info.base)) {
         return null;
@@ -159,7 +158,7 @@ fn parsePartialNumberBase(comptime T: type, stream: *FloatStream, negative: bool
     n_digits -= info.max_mantissa_digits;
     var many_digits = false;
     stream.reset(); // re-parse from beginning
-    while (stream.firstIs3('0', '.', '_')) {
+    while (stream.firstIs("0._")) {
         // '0' = '.' + 2
         const next = stream.firstUnchecked();
         if (next != '_') {
@@ -193,6 +192,9 @@ fn parsePartialNumberBase(comptime T: type, stream: *FloatStream, negative: bool
                 break :blk @as(i64, @intCast(marker)) - @as(i64, @intCast(stream.offsetTrue()));
             }
         };
+        if (info.base == 16) {
+            exponent *= 4;
+        }
         // add back the explicit part
         exponent += exp_number;
     }
@@ -212,17 +214,19 @@ fn parsePartialNumberBase(comptime T: type, stream: *FloatStream, negative: bool
 /// significant digits and the decimal exponent.
 fn parsePartialNumber(comptime T: type, s: []const u8, negative: bool, n: *usize) ?Number(T) {
     std.debug.assert(s.len != 0);
-    var stream = FloatStream.init(s);
     const MantissaT = common.mantissaType(T);
+    n.* = 0;
 
-    if (stream.hasLen(2) and stream.atUnchecked(0) == '0' and std.ascii.toLower(stream.atUnchecked(1)) == 'x') {
-        stream.advance(2);
+    if (s.len >= 2 and s[0] == '0' and std.ascii.toLower(s[1]) == 'x') {
+        var stream = FloatStream.init(s[2..]);
+        n.* += 2;
         return parsePartialNumberBase(T, &stream, negative, n, .{
             .base = 16,
             .max_mantissa_digits = if (MantissaT == u64) 16 else 32,
             .exp_char_lower = 'p',
         });
     } else {
+        var stream = FloatStream.init(s);
         return parsePartialNumberBase(T, &stream, negative, n, .{
             .base = 10,
             .max_mantissa_digits = if (MantissaT == u64) 19 else 38,

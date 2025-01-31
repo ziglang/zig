@@ -14,11 +14,12 @@
 #include <__concepts/arithmetic.h>
 #include <__config>
 #include <__format/concepts.h>
-#include <__format/format_fwd.h>
 #include <__format/format_parse_context.h>
 #include <__functional/invoke.h>
+#include <__fwd/format.h>
 #include <__memory/addressof.h>
 #include <__type_traits/conditional.h>
+#include <__type_traits/remove_const.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
 #include <__utility/unreachable.h>
@@ -29,6 +30,9 @@
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
 #endif
+
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -53,7 +57,7 @@ namespace __format {
 /// handle to satisfy the user observable behaviour. The internal function
 /// __visit_format_arg doesn't do this wrapping. So in the format functions
 /// this function is used to avoid unneeded overhead.
-enum class _LIBCPP_ENUM_VIS __arg_t : uint8_t {
+enum class __arg_t : uint8_t {
   __none,
   __boolean,
   __char_type,
@@ -73,17 +77,17 @@ enum class _LIBCPP_ENUM_VIS __arg_t : uint8_t {
 };
 
 inline constexpr unsigned __packed_arg_t_bits = 5;
-inline constexpr uint8_t __packed_arg_t_mask = 0x1f;
+inline constexpr uint8_t __packed_arg_t_mask  = 0x1f;
 
 inline constexpr unsigned __packed_types_storage_bits = 64;
-inline constexpr unsigned __packed_types_max = __packed_types_storage_bits / __packed_arg_t_bits;
+inline constexpr unsigned __packed_types_max          = __packed_types_storage_bits / __packed_arg_t_bits;
 
-_LIBCPP_HIDE_FROM_ABI
-constexpr bool __use_packed_format_arg_store(size_t __size) { return __size <= __packed_types_max; }
+_LIBCPP_HIDE_FROM_ABI constexpr bool __use_packed_format_arg_store(size_t __size) {
+  return __size <= __packed_types_max;
+}
 
-_LIBCPP_HIDE_FROM_ABI
-constexpr __arg_t __get_packed_type(uint64_t __types, size_t __id) {
-  _LIBCPP_ASSERT_UNCATEGORIZED(__id <= __packed_types_max, "");
+_LIBCPP_HIDE_FROM_ABI constexpr __arg_t __get_packed_type(uint64_t __types, size_t __id) {
+  _LIBCPP_ASSERT_INTERNAL(__id <= __packed_types_max, "");
 
   if (__id > 0)
     __types >>= __id * __packed_arg_t_bits;
@@ -93,57 +97,109 @@ constexpr __arg_t __get_packed_type(uint64_t __types, size_t __id) {
 
 } // namespace __format
 
-// This function is not user obervable, so it can directly use the non-standard
+// This function is not user observable, so it can directly use the non-standard
 // types of the "variant". See __arg_t for more details.
 template <class _Visitor, class _Context>
-_LIBCPP_HIDE_FROM_ABI decltype(auto)
-__visit_format_arg(_Visitor&& __vis, basic_format_arg<_Context> __arg) {
+_LIBCPP_HIDE_FROM_ABI decltype(auto) __visit_format_arg(_Visitor&& __vis, basic_format_arg<_Context> __arg) {
   switch (__arg.__type_) {
   case __format::__arg_t::__none:
-    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), __arg.__value_.__monostate_);
+    return std::invoke(std::forward<_Visitor>(__vis), __arg.__value_.__monostate_);
   case __format::__arg_t::__boolean:
-    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), __arg.__value_.__boolean_);
+    return std::invoke(std::forward<_Visitor>(__vis), __arg.__value_.__boolean_);
   case __format::__arg_t::__char_type:
-    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), __arg.__value_.__char_type_);
+    return std::invoke(std::forward<_Visitor>(__vis), __arg.__value_.__char_type_);
   case __format::__arg_t::__int:
-    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), __arg.__value_.__int_);
+    return std::invoke(std::forward<_Visitor>(__vis), __arg.__value_.__int_);
   case __format::__arg_t::__long_long:
-    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), __arg.__value_.__long_long_);
+    return std::invoke(std::forward<_Visitor>(__vis), __arg.__value_.__long_long_);
   case __format::__arg_t::__i128:
 #  ifndef _LIBCPP_HAS_NO_INT128
-    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), __arg.__value_.__i128_);
+    return std::invoke(std::forward<_Visitor>(__vis), __arg.__value_.__i128_);
 #  else
     __libcpp_unreachable();
 #  endif
   case __format::__arg_t::__unsigned:
-    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), __arg.__value_.__unsigned_);
+    return std::invoke(std::forward<_Visitor>(__vis), __arg.__value_.__unsigned_);
   case __format::__arg_t::__unsigned_long_long:
-    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), __arg.__value_.__unsigned_long_long_);
+    return std::invoke(std::forward<_Visitor>(__vis), __arg.__value_.__unsigned_long_long_);
   case __format::__arg_t::__u128:
 #  ifndef _LIBCPP_HAS_NO_INT128
-    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), __arg.__value_.__u128_);
+    return std::invoke(std::forward<_Visitor>(__vis), __arg.__value_.__u128_);
 #  else
     __libcpp_unreachable();
 #  endif
   case __format::__arg_t::__float:
-    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), __arg.__value_.__float_);
+    return std::invoke(std::forward<_Visitor>(__vis), __arg.__value_.__float_);
   case __format::__arg_t::__double:
-    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), __arg.__value_.__double_);
+    return std::invoke(std::forward<_Visitor>(__vis), __arg.__value_.__double_);
   case __format::__arg_t::__long_double:
-    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), __arg.__value_.__long_double_);
+    return std::invoke(std::forward<_Visitor>(__vis), __arg.__value_.__long_double_);
   case __format::__arg_t::__const_char_type_ptr:
-    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), __arg.__value_.__const_char_type_ptr_);
+    return std::invoke(std::forward<_Visitor>(__vis), __arg.__value_.__const_char_type_ptr_);
   case __format::__arg_t::__string_view:
-    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), __arg.__value_.__string_view_);
+    return std::invoke(std::forward<_Visitor>(__vis), __arg.__value_.__string_view_);
   case __format::__arg_t::__ptr:
-    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), __arg.__value_.__ptr_);
+    return std::invoke(std::forward<_Visitor>(__vis), __arg.__value_.__ptr_);
   case __format::__arg_t::__handle:
-    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis),
-                         typename basic_format_arg<_Context>::handle{__arg.__value_.__handle_});
+    return std::invoke(
+        std::forward<_Visitor>(__vis), typename basic_format_arg<_Context>::handle{__arg.__value_.__handle_});
   }
 
   __libcpp_unreachable();
 }
+
+#  if _LIBCPP_STD_VER >= 26 && defined(_LIBCPP_HAS_EXPLICIT_THIS_PARAMETER)
+
+template <class _Rp, class _Visitor, class _Context>
+_LIBCPP_HIDE_FROM_ABI _Rp __visit_format_arg(_Visitor&& __vis, basic_format_arg<_Context> __arg) {
+  switch (__arg.__type_) {
+  case __format::__arg_t::__none:
+    return std::invoke_r<_Rp>(std::forward<_Visitor>(__vis), __arg.__value_.__monostate_);
+  case __format::__arg_t::__boolean:
+    return std::invoke_r<_Rp>(std::forward<_Visitor>(__vis), __arg.__value_.__boolean_);
+  case __format::__arg_t::__char_type:
+    return std::invoke_r<_Rp>(std::forward<_Visitor>(__vis), __arg.__value_.__char_type_);
+  case __format::__arg_t::__int:
+    return std::invoke_r<_Rp>(std::forward<_Visitor>(__vis), __arg.__value_.__int_);
+  case __format::__arg_t::__long_long:
+    return std::invoke_r<_Rp>(std::forward<_Visitor>(__vis), __arg.__value_.__long_long_);
+  case __format::__arg_t::__i128:
+#    ifndef _LIBCPP_HAS_NO_INT128
+    return std::invoke_r<_Rp>(std::forward<_Visitor>(__vis), __arg.__value_.__i128_);
+#    else
+    __libcpp_unreachable();
+#    endif
+  case __format::__arg_t::__unsigned:
+    return std::invoke_r<_Rp>(std::forward<_Visitor>(__vis), __arg.__value_.__unsigned_);
+  case __format::__arg_t::__unsigned_long_long:
+    return std::invoke_r<_Rp>(std::forward<_Visitor>(__vis), __arg.__value_.__unsigned_long_long_);
+  case __format::__arg_t::__u128:
+#    ifndef _LIBCPP_HAS_NO_INT128
+    return std::invoke_r<_Rp>(std::forward<_Visitor>(__vis), __arg.__value_.__u128_);
+#    else
+    __libcpp_unreachable();
+#    endif
+  case __format::__arg_t::__float:
+    return std::invoke_r<_Rp>(std::forward<_Visitor>(__vis), __arg.__value_.__float_);
+  case __format::__arg_t::__double:
+    return std::invoke_r<_Rp>(std::forward<_Visitor>(__vis), __arg.__value_.__double_);
+  case __format::__arg_t::__long_double:
+    return std::invoke_r<_Rp>(std::forward<_Visitor>(__vis), __arg.__value_.__long_double_);
+  case __format::__arg_t::__const_char_type_ptr:
+    return std::invoke_r<_Rp>(std::forward<_Visitor>(__vis), __arg.__value_.__const_char_type_ptr_);
+  case __format::__arg_t::__string_view:
+    return std::invoke_r<_Rp>(std::forward<_Visitor>(__vis), __arg.__value_.__string_view_);
+  case __format::__arg_t::__ptr:
+    return std::invoke_r<_Rp>(std::forward<_Visitor>(__vis), __arg.__value_.__ptr_);
+  case __format::__arg_t::__handle:
+    return std::invoke_r<_Rp>(
+        std::forward<_Visitor>(__vis), typename basic_format_arg<_Context>::handle{__arg.__value_.__handle_});
+  }
+
+  __libcpp_unreachable();
+}
+
+#  endif // _LIBCPP_STD_VER >= 26 && defined(_LIBCPP_HAS_EXPLICIT_THIS_PARAMETER)
 
 /// Contains the values used in basic_format_arg.
 ///
@@ -158,7 +214,7 @@ public:
   struct __handle {
     template <class _Tp>
     _LIBCPP_HIDE_FROM_ABI explicit __handle(_Tp& __v) noexcept
-        : __ptr_(_VSTD::addressof(__v)),
+        : __ptr_(std::addressof(__v)),
           __format_([](basic_format_parse_context<_CharT>& __parse_ctx, _Context& __ctx, const void* __ptr) {
             using _Dp = remove_const_t<_Tp>;
             using _Qp = conditional_t<__formattable_with<const _Dp, _Context>, const _Dp, _Dp>;
@@ -224,12 +280,55 @@ class _LIBCPP_TEMPLATE_VIS basic_format_arg {
 public:
   class _LIBCPP_TEMPLATE_VIS handle;
 
-  _LIBCPP_HIDE_FROM_ABI basic_format_arg() noexcept
-      : __type_{__format::__arg_t::__none} {}
+  _LIBCPP_HIDE_FROM_ABI basic_format_arg() noexcept : __type_{__format::__arg_t::__none} {}
 
-  _LIBCPP_HIDE_FROM_ABI explicit operator bool() const noexcept {
-    return __type_ != __format::__arg_t::__none;
+  _LIBCPP_HIDE_FROM_ABI explicit operator bool() const noexcept { return __type_ != __format::__arg_t::__none; }
+
+#  if _LIBCPP_STD_VER >= 26 && defined(_LIBCPP_HAS_EXPLICIT_THIS_PARAMETER)
+
+  // This function is user facing, so it must wrap the non-standard types of
+  // the "variant" in a handle to stay conforming. See __arg_t for more details.
+  template <class _Visitor>
+  _LIBCPP_HIDE_FROM_ABI decltype(auto) visit(this basic_format_arg __arg, _Visitor&& __vis) {
+    switch (__arg.__type_) {
+#    ifndef _LIBCPP_HAS_NO_INT128
+    case __format::__arg_t::__i128: {
+      typename __basic_format_arg_value<_Context>::__handle __h{__arg.__value_.__i128_};
+      return std::invoke(std::forward<_Visitor>(__vis), typename basic_format_arg<_Context>::handle{__h});
+    }
+
+    case __format::__arg_t::__u128: {
+      typename __basic_format_arg_value<_Context>::__handle __h{__arg.__value_.__u128_};
+      return std::invoke(std::forward<_Visitor>(__vis), typename basic_format_arg<_Context>::handle{__h});
+    }
+#    endif
+    default:
+      return std::__visit_format_arg(std::forward<_Visitor>(__vis), __arg);
+    }
   }
+
+  // This function is user facing, so it must wrap the non-standard types of
+  // the "variant" in a handle to stay conforming. See __arg_t for more details.
+  template <class _Rp, class _Visitor>
+  _LIBCPP_HIDE_FROM_ABI _Rp visit(this basic_format_arg __arg, _Visitor&& __vis) {
+    switch (__arg.__type_) {
+#    ifndef _LIBCPP_HAS_NO_INT128
+    case __format::__arg_t::__i128: {
+      typename __basic_format_arg_value<_Context>::__handle __h{__arg.__value_.__i128_};
+      return std::invoke_r<_Rp>(std::forward<_Visitor>(__vis), typename basic_format_arg<_Context>::handle{__h});
+    }
+
+    case __format::__arg_t::__u128: {
+      typename __basic_format_arg_value<_Context>::__handle __h{__arg.__value_.__u128_};
+      return std::invoke_r<_Rp>(std::forward<_Visitor>(__vis), typename basic_format_arg<_Context>::handle{__h});
+    }
+#    endif
+    default:
+      return std::__visit_format_arg<_Rp>(std::forward<_Visitor>(__vis), __arg);
+    }
+  }
+
+#  endif // _LIBCPP_STD_VER >= 26 && defined(_LIBCPP_HAS_EXPLICIT_THIS_PARAMETER)
 
 private:
   using char_type = typename _Context::char_type;
@@ -257,8 +356,7 @@ public:
 template <class _Context>
 class _LIBCPP_TEMPLATE_VIS basic_format_arg<_Context>::handle {
 public:
-  _LIBCPP_HIDE_FROM_ABI
-  void format(basic_format_parse_context<char_type>& __parse_ctx, _Context& __ctx) const {
+  _LIBCPP_HIDE_FROM_ABI void format(basic_format_parse_context<char_type>& __parse_ctx, _Context& __ctx) const {
     __handle_.__format_(__parse_ctx, __ctx, __handle_.__ptr_);
   }
 
@@ -272,27 +370,32 @@ private:
 // This function is user facing, so it must wrap the non-standard types of
 // the "variant" in a handle to stay conforming. See __arg_t for more details.
 template <class _Visitor, class _Context>
-_LIBCPP_HIDE_FROM_ABI decltype(auto)
-visit_format_arg(_Visitor&& __vis, basic_format_arg<_Context> __arg) {
+#  if _LIBCPP_STD_VER >= 26 && defined(_LIBCPP_HAS_EXPLICIT_THIS_PARAMETER)
+_LIBCPP_DEPRECATED_IN_CXX26
+#  endif
+    _LIBCPP_HIDE_FROM_ABI decltype(auto)
+    visit_format_arg(_Visitor&& __vis, basic_format_arg<_Context> __arg) {
   switch (__arg.__type_) {
 #  ifndef _LIBCPP_HAS_NO_INT128
   case __format::__arg_t::__i128: {
     typename __basic_format_arg_value<_Context>::__handle __h{__arg.__value_.__i128_};
-    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), typename basic_format_arg<_Context>::handle{__h});
+    return std::invoke(std::forward<_Visitor>(__vis), typename basic_format_arg<_Context>::handle{__h});
   }
 
   case __format::__arg_t::__u128: {
     typename __basic_format_arg_value<_Context>::__handle __h{__arg.__value_.__u128_};
-    return _VSTD::invoke(_VSTD::forward<_Visitor>(__vis), typename basic_format_arg<_Context>::handle{__h});
+    return std::invoke(std::forward<_Visitor>(__vis), typename basic_format_arg<_Context>::handle{__h});
   }
-#  endif
+#  endif // _LIBCPP_STD_VER >= 26 && defined(_LIBCPP_HAS_EXPLICIT_THIS_PARAMETER)
   default:
-    return _VSTD::__visit_format_arg(_VSTD::forward<_Visitor>(__vis), __arg);
+    return std::__visit_format_arg(std::forward<_Visitor>(__vis), __arg);
   }
 }
 
 #endif //_LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___FORMAT_FORMAT_ARG_H

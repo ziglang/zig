@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const assert = std.debug.assert;
 const math = std.math;
 const mem = std.mem;
-const utils = std.crypto.utils;
 
 const Precomp = u128;
 
@@ -403,7 +402,7 @@ fn Hash(comptime endian: std.builtin.Endian, comptime shift_key: bool) type {
             st.pad();
             mem.writeInt(u128, out[0..16], st.acc, endian);
 
-            utils.secureZero(u8, @as([*]u8, @ptrCast(st))[0..@sizeOf(Self)]);
+            std.crypto.secureZero(u8, @as([*]u8, @ptrCast(st))[0..@sizeOf(Self)]);
         }
 
         /// Compute the GHASH of a message.

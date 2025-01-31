@@ -23,9 +23,9 @@
 #include "format_string.h"
 
 #if defined(_LIBCPP_WIN32API)
-# define WIN32_LEAN_AND_MEAN
-# define NOMINMAX
-# include <windows.h> // ERROR_* macros
+#  define WIN32_LEAN_AND_MEAN
+#  define NOMINMAX
+#  include <windows.h> // ERROR_* macros
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM
@@ -90,7 +90,7 @@ inline errc __win_err_to_errc(int err) {
       {ERROR_WRITE_PROTECT, errc::permission_denied},
   };
 
-  for (const auto &pair : win_error_mapping)
+  for (const auto& pair : win_error_mapping)
     if (pair.win == static_cast<DWORD>(err))
       return pair.errc;
   return errc::invalid_argument;
@@ -99,20 +99,18 @@ inline errc __win_err_to_errc(int err) {
 #endif // _LIBCPP_WIN32API
 
 inline error_code capture_errno() {
-  _LIBCPP_ASSERT_UNCATEGORIZED(errno != 0, "Expected errno to be non-zero");
+  _LIBCPP_ASSERT_INTERNAL(errno != 0, "Expected errno to be non-zero");
   return error_code(errno, generic_category());
 }
 
 #if defined(_LIBCPP_WIN32API)
-inline error_code make_windows_error(int err) {
-  return make_error_code(__win_err_to_errc(err));
-}
+inline error_code make_windows_error(int err) { return make_error_code(__win_err_to_errc(err)); }
 #endif
 
 template <class T>
 T error_value();
 template <>
-inline _LIBCPP_CONSTEXPR_SINCE_CXX14 void error_value<void>() {}
+inline constexpr void error_value<void>() {}
 template <>
 inline bool error_value<bool>() {
   return false;
@@ -128,7 +126,7 @@ inline uintmax_t error_value<uintmax_t>() {
   return uintmax_t(-1);
 }
 template <>
-inline _LIBCPP_CONSTEXPR_SINCE_CXX14 file_time_type error_value<file_time_type>() {
+inline constexpr file_time_type error_value<file_time_type>() {
   return file_time_type::min();
 }
 template <>
@@ -143,8 +141,7 @@ struct ErrorHandler {
   const path* p1_ = nullptr;
   const path* p2_ = nullptr;
 
-  ErrorHandler(const char* fname, error_code* ec, const path* p1 = nullptr,
-               const path* p2 = nullptr)
+  ErrorHandler(const char* fname, error_code* ec, const path* p1 = nullptr, const path* p2 = nullptr)
       : func_name_(fname), ec_(ec), p1_(p1), p2_(p2) {
     if (ec_)
       ec_->clear();
@@ -173,8 +170,7 @@ struct ErrorHandler {
       *ec_ = ec;
       return;
     }
-    string what =
-        string("in ") + func_name_ + ": " + detail::vformat_string(msg, ap);
+    string what = string("in ") + func_name_ + ": " + detail::vformat_string(msg, ap);
     switch (bool(p1_) + bool(p2_)) {
     case 0:
       __throw_filesystem_error(what, ec);
@@ -204,9 +200,7 @@ struct ErrorHandler {
     return error_value<T>();
   }
 
-  T report(errc const& err) const {
-    return report(make_error_code(err));
-  }
+  T report(errc const& err) const { return report(make_error_code(err)); }
 
   _LIBCPP_ATTRIBUTE_FORMAT(__printf__, 3, 4)
   T report(errc const& err, const char* msg, ...) const {
@@ -227,7 +221,7 @@ struct ErrorHandler {
   }
 
 private:
-  ErrorHandler(ErrorHandler const&) = delete;
+  ErrorHandler(ErrorHandler const&)            = delete;
   ErrorHandler& operator=(ErrorHandler const&) = delete;
 };
 

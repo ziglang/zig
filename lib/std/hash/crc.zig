@@ -7,8 +7,7 @@ pub const Polynomial = impl.Polynomial;
 pub const Crc32WithPoly = impl.Crc32WithPoly;
 pub const Crc32SmallWithPoly = impl.Crc32SmallWithPoly;
 
-// IEEE is by far the most common CRC and so is aliased by default.
-pub const Crc32 = Crc32WithPoly(.IEEE);
+pub const Crc32 = Crc32IsoHdlc;
 
 test {
     _ = @import("crc/test.zig");
@@ -820,6 +819,14 @@ pub const Crc32Jamcrc = Crc(u32, .{
     .reflect_input = true,
     .reflect_output = true,
     .xor_output = 0x00000000,
+});
+
+pub const Crc32Koopman = Crc(u32, .{
+    .polynomial = 0x741b8cd7,
+    .initial = 0xffffffff,
+    .reflect_input = true,
+    .reflect_output = true,
+    .xor_output = 0xffffffff,
 });
 
 pub const Crc32Mef = Crc(u32, .{

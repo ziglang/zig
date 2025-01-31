@@ -7,8 +7,8 @@
 //! occur. Thus, we want to provide a real result pointer (from an alloc) only
 //! when necessary.
 //!
-//! To achive this, we need to determine which expressions require a result
-//! pointer. This pass is reponsible for analyzing all syntax forms which may
+//! To achieve this, we need to determine which expressions require a result
+//! pointer. This pass is responsible for analyzing all syntax forms which may
 //! provide a result location and, if sub-expressions consume this result
 //! pointer non-trivially (e.g. writing through field pointers), marking the
 //! node as requiring a result location.
@@ -829,6 +829,10 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
     }
     switch (info.tag) {
         .import => return false,
+        .branch_hint => {
+            _ = try astrl.expr(args[0], block, ResultInfo.type_only);
+            return false;
+        },
         .compile_log, .TypeOf => {
             for (args) |arg_node| {
                 _ = try astrl.expr(arg_node, block, ResultInfo.none);
@@ -877,6 +881,7 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         .error_return_trace,
         .frame,
         .breakpoint,
+        .disable_instrumentation,
         .in_comptime,
         .panic,
         .trap,
@@ -903,15 +908,11 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         .c_include,
         .wasm_memory_size,
         .splat,
-        .fence,
         .set_float_mode,
-        .set_align_stack,
-        .set_cold,
         .type_info,
         .work_item_id,
         .work_group_size,
         .work_group_id,
-        .field_parent_ptr,
         => {
             _ = try astrl.expr(args[0], block, ResultInfo.type_only);
             return false;
@@ -980,9 +981,15 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         .has_decl,
         .has_field,
         .field,
+        .FieldType,
         => {
             _ = try astrl.expr(args[0], block, ResultInfo.type_only);
             _ = try astrl.expr(args[1], block, ResultInfo.type_only);
+            return false;
+        },
+        .field_parent_ptr => {
+            _ = try astrl.expr(args[0], block, ResultInfo.type_only);
+            _ = try astrl.expr(args[1], block, ResultInfo.none);
             return false;
         },
         .wasm_memory_grow => {

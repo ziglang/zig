@@ -338,6 +338,8 @@
 
 #define F_ATTRIBUTION_TAG       111      /* Based on flags, query/set/delete a file's attribution tag */
 
+#define F_ADDSIGS_MAIN_BINARY   113             /* add detached signatures for main binary -- development only */
+
 // FS-specific fcntl()'s numbers begin at 0x00010000 and go up
 #define FCNTL_FS_SPECIFIC_BASE  0x00010000
 

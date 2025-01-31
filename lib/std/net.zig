@@ -248,14 +248,13 @@ pub const Address = extern union {
                 posix.SO.REUSEADDR,
                 &mem.toBytes(@as(c_int, 1)),
             );
-            switch (native_os) {
-                .windows => {},
-                else => try posix.setsockopt(
+            if (@hasDecl(posix.SO, "REUSEPORT") and address.any.family != posix.AF.UNIX) {
+                try posix.setsockopt(
                     sockfd,
                     posix.SOL.SOCKET,
                     posix.SO.REUSEPORT,
                     &mem.toBytes(@as(c_int, 1)),
-                ),
+                );
             }
         }
 
@@ -271,7 +270,7 @@ pub const Ip4Address = extern struct {
     sa: posix.sockaddr.in,
 
     pub fn parse(buf: []const u8, port: u16) IPv4ParseError!Ip4Address {
-        var result = Ip4Address{
+        var result: Ip4Address = .{
             .sa = .{
                 .port = mem.nativeToBig(u16, port),
                 .addr = undefined,
@@ -853,8 +852,8 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) Get
         defer allocator.free(port_c);
 
         const ws2_32 = windows.ws2_32;
-        const hints = posix.addrinfo{
-            .flags = ws2_32.AI.NUMERICSERV,
+        const hints: posix.addrinfo = .{
+            .flags = .{ .NUMERICSERV = true },
             .family = posix.AF.UNSPEC,
             .socktype = posix.SOCK.STREAM,
             .protocol = posix.IPPROTO.TCP,
@@ -925,8 +924,8 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) Get
         defer allocator.free(port_c);
 
         const sys = if (native_os == .windows) windows.ws2_32 else posix.system;
-        const hints = posix.addrinfo{
-            .flags = sys.AI.NUMERICSERV,
+        const hints: posix.addrinfo = .{
+            .flags = .{ .NUMERICSERV = true },
             .family = posix.AF.UNSPEC,
             .socktype = posix.SOCK.STREAM,
             .protocol = posix.IPPROTO.TCP,
@@ -985,7 +984,6 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) Get
     }
 
     if (native_os == .linux) {
-        const flags = std.c.AI.NUMERICSERV;
         const family = posix.AF.UNSPEC;
         var lookup_addrs = std.ArrayList(LookupAddr).init(allocator);
         defer lookup_addrs.deinit();
@@ -993,7 +991,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) Get
         var canon = std.ArrayList(u8).init(arena);
         defer canon.deinit();
 
-        try linuxLookupName(&lookup_addrs, &canon, name, family, flags, port);
+        try linuxLookupName(&lookup_addrs, &canon, name, family, .{ .NUMERICSERV = true }, port);
 
         result.addrs = try arena.alloc(Address, lookup_addrs.items.len);
         if (canon.items.len != 0) {
@@ -1028,7 +1026,7 @@ fn linuxLookupName(
     canon: *std.ArrayList(u8),
     opt_name: ?[]const u8,
     family: posix.sa_family_t,
-    flags: u32,
+    flags: posix.AI,
     port: u16,
 ) !void {
     if (opt_name) |name| {
@@ -1037,7 +1035,7 @@ fn linuxLookupName(
         try canon.appendSlice(name);
         if (Address.parseExpectingFamily(name, family, port)) |addr| {
             try addrs.append(LookupAddr{ .addr = addr });
-        } else |name_err| if ((flags & std.c.AI.NUMERICHOST) != 0) {
+        } else |name_err| if (flags.NUMERICHOST) {
             return name_err;
         } else {
             try linuxLookupNameFromHosts(addrs, canon, name, family, port);
@@ -1269,10 +1267,10 @@ fn addrCmpLessThan(context: void, b: LookupAddr, a: LookupAddr) bool {
 fn linuxLookupNameFromNull(
     addrs: *std.ArrayList(LookupAddr),
     family: posix.sa_family_t,
-    flags: u32,
+    flags: posix.AI,
     port: u16,
 ) !void {
-    if ((flags & std.c.AI.PASSIVE) != 0) {
+    if (flags.PASSIVE) {
         if (family != posix.AF.INET6) {
             (try addrs.addOne()).* = LookupAddr{
                 .addr = Address.initIp4([1]u8{0} ** 4, port),
@@ -1363,7 +1361,7 @@ pub fn isValidHostName(hostname: []const u8) bool {
     if (hostname.len >= 254) return false;
     if (!std.unicode.utf8ValidateSlice(hostname)) return false;
     for (hostname) |byte| {
-        if (!std.ascii.isASCII(byte) or byte == '.' or byte == '-' or std.ascii.isAlphanumeric(byte)) {
+        if (!std.ascii.isAscii(byte) or byte == '.' or byte == '-' or std.ascii.isAlphanumeric(byte)) {
             continue;
         }
         return false;
@@ -1826,7 +1824,7 @@ pub const Stream = struct {
             // TODO improve this to use ReadFileScatter
             if (iovecs.len == 0) return @as(usize, 0);
             const first = iovecs[0];
-            return windows.ReadFile(s.handle, first.iov_base[0..first.iov_len], null);
+            return windows.ReadFile(s.handle, first.base[0..first.len], null);
         }
 
         return posix.readv(s.handle, iovecs);
@@ -1889,13 +1887,13 @@ pub const Stream = struct {
         var i: usize = 0;
         while (true) {
             var amt = try self.writev(iovecs[i..]);
-            while (amt >= iovecs[i].iov_len) {
-                amt -= iovecs[i].iov_len;
+            while (amt >= iovecs[i].len) {
+                amt -= iovecs[i].len;
                 i += 1;
                 if (i >= iovecs.len) return;
             }
-            iovecs[i].iov_base += amt;
-            iovecs[i].iov_len -= amt;
+            iovecs[i].base += amt;
+            iovecs[i].len -= amt;
         }
     }
 };
@@ -1930,8 +1928,10 @@ pub const Server = struct {
 };
 
 test {
-    _ = @import("net/test.zig");
-    _ = Server;
-    _ = Stream;
-    _ = Address;
+    if (builtin.os.tag != .wasi) {
+        _ = Server;
+        _ = Stream;
+        _ = Address;
+        _ = @import("net/test.zig");
+    }
 }

@@ -23,7 +23,9 @@
 #include <__iterator/projected.h>
 #include <__ranges/access.h>
 #include <__ranges/concepts.h>
+#include <__type_traits/desugars_to.h>
 #include <__type_traits/is_reference.h>
+#include <__type_traits/is_trivially_copyable.h>
 #include <__type_traits/remove_cvref.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
@@ -50,7 +52,7 @@ struct __fn {
   template <class _Type,
             class _Proj                                                      = identity,
             indirect_strict_weak_order<projected<const _Type*, _Proj>> _Comp = ranges::less>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr ranges::minmax_result<const _Type&>
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr ranges::minmax_result<const _Type&>
   operator()(_LIBCPP_LIFETIMEBOUND const _Type& __a,
              _LIBCPP_LIFETIMEBOUND const _Type& __b,
              _Comp __comp = {},
@@ -63,9 +65,10 @@ struct __fn {
   template <copyable _Type,
             class _Proj                                                      = identity,
             indirect_strict_weak_order<projected<const _Type*, _Proj>> _Comp = ranges::less>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr ranges::minmax_result<_Type>
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr ranges::minmax_result<_Type>
   operator()(initializer_list<_Type> __il, _Comp __comp = {}, _Proj __proj = {}) const {
-    _LIBCPP_ASSERT_UNCATEGORIZED(__il.begin() != __il.end(), "initializer_list has to contain at least one element");
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
+        __il.begin() != __il.end(), "initializer_list has to contain at least one element");
     auto __iters = std::__minmax_element_impl(__il.begin(), __il.end(), __comp, __proj);
     return ranges::minmax_result<_Type>{*__iters.first, *__iters.second};
   }
@@ -74,15 +77,28 @@ struct __fn {
             class _Proj                                                            = identity,
             indirect_strict_weak_order<projected<iterator_t<_Range>, _Proj>> _Comp = ranges::less>
     requires indirectly_copyable_storable<iterator_t<_Range>, range_value_t<_Range>*>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr ranges::minmax_result<range_value_t<_Range>>
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr ranges::minmax_result<range_value_t<_Range>>
   operator()(_Range&& __r, _Comp __comp = {}, _Proj __proj = {}) const {
     auto __first  = ranges::begin(__r);
     auto __last   = ranges::end(__r);
     using _ValueT = range_value_t<_Range>;
 
-    _LIBCPP_ASSERT_UNCATEGORIZED(__first != __last, "range has to contain at least one element");
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(__first != __last, "range has to contain at least one element");
 
-    if constexpr (forward_range<_Range>) {
+    // This optimiation is not in minmax_element because clang doesn't see through the pointers and as a result doesn't
+    // vectorize the code.
+    if constexpr (contiguous_range<_Range> && is_integral_v<_ValueT> &&
+                  __is_cheap_to_copy<_ValueT> & __is_identity<_Proj>::value &&
+                  __desugars_to_v<__less_tag, _Comp, _ValueT, _ValueT>) {
+      minmax_result<_ValueT> __result = {__r[0], __r[0]};
+      for (auto __e : __r) {
+        if (__e < __result.min)
+          __result.min = __e;
+        if (__result.max < __e)
+          __result.max = __e;
+      }
+      return __result;
+    } else if constexpr (forward_range<_Range>) {
       // Special-case the one element case. Avoid repeatedly initializing objects from the result of an iterator
       // dereference when doing so might not be idempotent. The `if constexpr` avoids the extra branch in cases where
       // it's not needed.

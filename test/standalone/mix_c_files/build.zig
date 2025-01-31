@@ -18,12 +18,14 @@ pub fn build(b: *std.Build) void {
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = b.path("main.zig"),
-        .target = b.host,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
     });
-    exe.addCSourceFile(.{ .file = b.path("test.c"), .flags = &[_][]const u8{"-std=c11"} });
-    exe.linkLibC();
+    exe.root_module.addCSourceFile(.{ .file = b.path("test.c"), .flags = &[_][]const u8{"-std=c11"} });
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.skip_foreign_checks = true;

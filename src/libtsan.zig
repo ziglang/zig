@@ -13,7 +13,7 @@ pub const BuildError = error{
     TSANUnsupportedCPUArchitecture,
 };
 
-pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!void {
+pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -25,10 +25,19 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const root_name = "tsan";
-    const output_mode = .Lib;
-    const link_mode = .static;
     const target = comp.getTarget();
+    const root_name = switch (target.os.tag) {
+        // On Apple platforms, we use the same name as LLVM because the
+        // TSAN library implementation hard-codes a check for these names.
+        .driverkit, .macos => "clang_rt.tsan_osx_dynamic",
+        .ios => if (target.abi == .simulator) "clang_rt.tsan_iossim_dynamic" else "clang_rt.tsan_ios_dynamic",
+        .tvos => if (target.abi == .simulator) "clang_rt.tsan_tvossim_dynamic" else "clang_rt.tsan_tvos_dynamic",
+        .visionos => if (target.abi == .simulator) "clang_rt.tsan_xrossim_dynamic" else "clang_rt.tsan_xros_dynamic",
+        .watchos => if (target.abi == .simulator) "clang_rt.tsan_watchossim_dynamic" else "clang_rt.tsan_watchos_dynamic",
+        else => "tsan",
+    };
+    const link_mode: std.builtin.LinkMode = if (target.isDarwin()) .dynamic else .static;
+    const output_mode = .Lib;
     const basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
         .target = target,
@@ -43,6 +52,9 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
 
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
+    const link_libcpp = target.isDarwin();
+    const unwind_tables: std.builtin.UnwindTables =
+        if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .@"async";
 
     const config = Compilation.Config.resolve(.{
         .output_mode = output_mode,
@@ -54,6 +66,10 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
         .root_optimize_mode = optimize_mode,
         .root_strip = strip,
         .link_libc = true,
+        .link_libcpp = link_libcpp,
+        .any_unwind_tables = unwind_tables != .none,
+        // LLVM disables LTO for its libtsan.
+        .lto = .none,
     }) catch |err| {
         comp.setMiscFailure(
             .libtsan,
@@ -82,11 +98,14 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
             .sanitize_c = false,
             .sanitize_thread = false,
             .red_zone = comp.root_mod.red_zone,
-            .omit_frame_pointer = comp.root_mod.omit_frame_pointer,
+            .omit_frame_pointer = optimize_mode != .Debug and !target.os.tag.isDarwin(),
             .valgrind = false,
+            .unwind_tables = unwind_tables,
             .optimize_mode = optimize_mode,
             .structured_cfg = comp.root_mod.structured_cfg,
             .pic = true,
+            .no_builtin = true,
+            .code_model = comp.root_mod.code_model,
         },
         .global = config,
         .cc_argv = &common_flags,
@@ -112,10 +131,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
 
-        try cflags.append("-nostdinc++");
-        try cflags.append("-fvisibility-inlines-hidden");
-        try cflags.append("-std=c++17");
-        try cflags.append("-fno-rtti");
+        try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &.{ "tsan", tsan_src }),
@@ -125,7 +141,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
     }
 
     const platform_tsan_sources = switch (target.os.tag) {
-        .ios, .macos, .watchos, .tvos => &darwin_tsan_sources,
+        .ios, .macos, .watchos, .tvos, .visionos => &darwin_tsan_sources,
         .windows => &windows_tsan_sources,
         else => &unix_tsan_sources,
     };
@@ -136,10 +152,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
 
-        try cflags.append("-nostdinc++");
-        try cflags.append("-fvisibility-inlines-hidden");
-        try cflags.append("-std=c++17");
-        try cflags.append("-fno-rtti");
+        try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "tsan", tsan_src }),
@@ -149,10 +162,13 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
     }
     {
         const asm_source = switch (target.cpu.arch) {
-            .aarch64 => "tsan_rtl_aarch64.S",
+            .aarch64, .aarch64_be => "tsan_rtl_aarch64.S",
+            .loongarch64 => "tsan_rtl_loongarch64.S",
+            .mips64, .mips64el => "tsan_rtl_mips64.S",
+            .powerpc64, .powerpc64le => "tsan_rtl_ppc64.S",
+            .riscv64 => "tsan_rtl_riscv64.S",
+            .s390x => "tsan_rtl_s390x.S",
             .x86_64 => "tsan_rtl_amd64.S",
-            .mips64 => "tsan_rtl_mips64.S",
-            .powerpc64 => "tsan_rtl_ppc64.S",
             else => return error.TSANUnsupportedCPUArchitecture,
         };
         var cflags = std.ArrayList([]const u8).init(arena);
@@ -181,10 +197,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
 
-        try cflags.append("-nostdinc++");
-        try cflags.append("-fvisibility-inlines-hidden");
-        try cflags.append("-std=c++17");
-        try cflags.append("-fno-rtti");
+        try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -208,10 +221,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
 
-        try cflags.append("-nostdinc++");
-        try cflags.append("-fvisibility-inlines-hidden");
-        try cflags.append("-std=c++17");
-        try cflags.append("-fno-rtti");
+        try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -229,10 +239,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
 
-        try cflags.append("-nostdinc++");
-        try cflags.append("-fvisibility-inlines-hidden");
-        try cflags.append("-std=c++17");
-        try cflags.append("-fno-rtti");
+        try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -258,10 +265,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
 
-        try cflags.append("-nostdinc++");
-        try cflags.append("-fvisibility-inlines-hidden");
-        try cflags.append("-std=c++17");
-        try cflags.append("-fno-rtti");
+        try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
@@ -272,6 +276,14 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
         });
     }
 
+    const skip_linker_dependencies = !target.isDarwin();
+    const linker_allow_shlib_undefined = target.isDarwin();
+    const install_name = if (target.isDarwin())
+        try std.fmt.allocPrintZ(arena, "@rpath/{s}", .{basename})
+    else
+        null;
+    // Workaround for https://github.com/llvm/llvm-project/issues/97627
+    const headerpad_size: ?u32 = if (target.isDarwin()) 32 else null;
     const sub_compilation = Compilation.create(comp.gpa, arena, .{
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
@@ -294,7 +306,10 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
-        .skip_linker_dependencies = true,
+        .skip_linker_dependencies = skip_linker_dependencies,
+        .linker_allow_shlib_undefined = linker_allow_shlib_undefined,
+        .install_name = install_name,
+        .headerpad_size = headerpad_size,
     }) catch |err| {
         comp.setMiscFailure(
             .libtsan,
@@ -305,17 +320,41 @@ pub fn buildTsan(comp: *Compilation, prog_node: *std.Progress.Node) BuildError!v
     };
     defer sub_compilation.destroy();
 
-    comp.updateSubCompilation(sub_compilation, .libtsan, prog_node) catch |err| {
-        comp.setMiscFailure(
-            .libtsan,
-            "unable to build thread sanitizer runtime: compilation failed: {s}",
-            .{@errorName(err)},
-        );
-        return error.SubCompilationFailed;
+    comp.updateSubCompilation(sub_compilation, .libtsan, prog_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return error.SubCompilationFailed,
+        else => |e| {
+            comp.setMiscFailure(
+                .libtsan,
+                "unable to build thread sanitizer runtime: compilation failed: {s}",
+                .{@errorName(e)},
+            );
+            return error.SubCompilationFailed;
+        },
     };
 
-    assert(comp.tsan_static_lib == null);
-    comp.tsan_static_lib = try sub_compilation.toCrtFile();
+    const crt_file = try sub_compilation.toCrtFile();
+    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
+    assert(comp.tsan_lib == null);
+    comp.tsan_lib = crt_file;
+}
+
+fn addCcArgs(target: std.Target, args: *std.ArrayList([]const u8)) error{OutOfMemory}!void {
+    try args.appendSlice(&[_][]const u8{
+        "-nostdinc++",
+        "-fvisibility=hidden",
+        "-fvisibility-inlines-hidden",
+        "-std=c++17",
+        "-fno-rtti",
+        "-fno-exceptions",
+    });
+
+    if (target.abi.isAndroid() and target.os.version_range.linux.android >= 29) {
+        try args.append("-fno-emulated-tls");
+    }
+
+    if (target.isMinGW()) {
+        try args.append("-fms-extensions");
+    }
 }
 
 const tsan_sources = [_][]const u8{
@@ -391,7 +430,6 @@ const sanitizer_common_sources = [_][]const u8{
     "sanitizer_platform_limits_freebsd.cpp",
     "sanitizer_platform_limits_linux.cpp",
     "sanitizer_platform_limits_netbsd.cpp",
-    "sanitizer_platform_limits_openbsd.cpp",
     "sanitizer_platform_limits_posix.cpp",
     "sanitizer_platform_limits_solaris.cpp",
     "sanitizer_posix.cpp",
@@ -404,7 +442,6 @@ const sanitizer_common_sources = [_][]const u8{
     "sanitizer_procmaps_solaris.cpp",
     "sanitizer_range.cpp",
     "sanitizer_solaris.cpp",
-    "sanitizer_stack_store.cpp",
     "sanitizer_stoptheworld_fuchsia.cpp",
     "sanitizer_stoptheworld_mac.cpp",
     "sanitizer_stoptheworld_win.cpp",
@@ -427,6 +464,7 @@ const sanitizer_nolibc_sources = [_][]const u8{
 const sanitizer_libcdep_sources = [_][]const u8{
     "sanitizer_common_libcdep.cpp",
     "sanitizer_allocator_checks.cpp",
+    "sanitizer_dl.cpp",
     "sanitizer_linux_libcdep.cpp",
     "sanitizer_mac_libcdep.cpp",
     "sanitizer_posix_libcdep.cpp",
@@ -436,6 +474,7 @@ const sanitizer_libcdep_sources = [_][]const u8{
 
 const sanitizer_symbolizer_sources = [_][]const u8{
     "sanitizer_allocator_report.cpp",
+    "sanitizer_stack_store.cpp",
     "sanitizer_stackdepot.cpp",
     "sanitizer_stacktrace.cpp",
     "sanitizer_stacktrace_libcdep.cpp",
@@ -446,10 +485,13 @@ const sanitizer_symbolizer_sources = [_][]const u8{
     "sanitizer_symbolizer_libcdep.cpp",
     "sanitizer_symbolizer_mac.cpp",
     "sanitizer_symbolizer_markup.cpp",
+    "sanitizer_symbolizer_markup_fuchsia.cpp",
     "sanitizer_symbolizer_posix_libcdep.cpp",
     "sanitizer_symbolizer_report.cpp",
+    "sanitizer_symbolizer_report_fuchsia.cpp",
     "sanitizer_symbolizer_win.cpp",
     "sanitizer_unwind_linux_libcdep.cpp",
+    "sanitizer_unwind_fuchsia.cpp",
     "sanitizer_unwind_win.cpp",
 };
 

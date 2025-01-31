@@ -1904,174 +1904,27 @@ STRSAFE_INLINE_API StringGetsExWorkerW(STRSAFE_LPWSTR pszDest,size_t cchDest,siz
 }
 #endif /* !__STRSAFE__NO_INLINE */
 
-#define StringCopyWorkerA StringCopyWorkerA_instead_use_StringCchCopyA_or_StringCchCopyExA;
-#define StringCopyWorkerW StringCopyWorkerW_instead_use_StringCchCopyW_or_StringCchCopyExW;
-#define StringCopyExWorkerA StringCopyExWorkerA_instead_use_StringCchCopyA_or_StringCchCopyExA;
-#define StringCopyExWorkerW StringCopyExWorkerW_instead_use_StringCchCopyW_or_StringCchCopyExW;
-#define StringCatWorkerA StringCatWorkerA_instead_use_StringCchCatA_or_StringCchCatExA;
-#define StringCatWorkerW StringCatWorkerW_instead_use_StringCchCatW_or_StringCchCatExW;
-#define StringCatExWorkerA StringCatExWorkerA_instead_use_StringCchCatA_or_StringCchCatExA;
-#define StringCatExWorkerW StringCatExWorkerW_instead_use_StringCchCatW_or_StringCchCatExW;
-#define StringCatNWorkerA StringCatNWorkerA_instead_use_StringCchCatNA_or_StrincCbCatNA;
-#define StringCatNWorkerW StringCatNWorkerW_instead_use_StringCchCatNW_or_StringCbCatNW;
-#define StringCatNExWorkerA StringCatNExWorkerA_instead_use_StringCchCatNExA_or_StringCbCatNExA;
-#define StringCatNExWorkerW StringCatNExWorkerW_instead_use_StringCchCatNExW_or_StringCbCatNExW;
-#define StringVPrintfWorkerA StringVPrintfWorkerA_instead_use_StringCchVPrintfA_or_StringCchVPrintfExA;
-#define StringVPrintfWorkerW StringVPrintfWorkerW_instead_use_StringCchVPrintfW_or_StringCchVPrintfExW;
-#define StringVPrintfExWorkerA StringVPrintfExWorkerA_instead_use_StringCchVPrintfA_or_StringCchVPrintfExA;
-#define StringVPrintfExWorkerW StringVPrintfExWorkerW_instead_use_StringCchVPrintfW_or_StringCchVPrintfExW;
-#define StringLengthWorkerA StringLengthWorkerA_instead_use_StringCchLengthA_or_StringCbLengthA;
-#define StringLengthWorkerW StringLengthWorkerW_instead_use_StringCchLengthW_or_StringCbLengthW;
+#ifndef DEPRECATE_SUPPORTED
+#define StringCopyWorkerA StringCopyWorkerA_instead_use_StringCchCopyA_or_StringCchCopyExA
+#define StringCopyWorkerW StringCopyWorkerW_instead_use_StringCchCopyW_or_StringCchCopyExW
+#define StringCopyExWorkerA StringCopyExWorkerA_instead_use_StringCchCopyA_or_StringCchCopyExA
+#define StringCopyExWorkerW StringCopyExWorkerW_instead_use_StringCchCopyW_or_StringCchCopyExW
+#define StringCatWorkerA StringCatWorkerA_instead_use_StringCchCatA_or_StringCchCatExA
+#define StringCatWorkerW StringCatWorkerW_instead_use_StringCchCatW_or_StringCchCatExW
+#define StringCatExWorkerA StringCatExWorkerA_instead_use_StringCchCatA_or_StringCchCatExA
+#define StringCatExWorkerW StringCatExWorkerW_instead_use_StringCchCatW_or_StringCchCatExW
+#define StringCatNWorkerA StringCatNWorkerA_instead_use_StringCchCatNA_or_StrincCbCatNA
+#define StringCatNWorkerW StringCatNWorkerW_instead_use_StringCchCatNW_or_StringCbCatNW
+#define StringCatNExWorkerA StringCatNExWorkerA_instead_use_StringCchCatNExA_or_StringCbCatNExA
+#define StringCatNExWorkerW StringCatNExWorkerW_instead_use_StringCchCatNExW_or_StringCbCatNExW
+#define StringVPrintfWorkerA StringVPrintfWorkerA_instead_use_StringCchVPrintfA_or_StringCchVPrintfExA
+#define StringVPrintfWorkerW StringVPrintfWorkerW_instead_use_StringCchVPrintfW_or_StringCchVPrintfExW
+#define StringVPrintfExWorkerA StringVPrintfExWorkerA_instead_use_StringCchVPrintfA_or_StringCchVPrintfExA
+#define StringVPrintfExWorkerW StringVPrintfExWorkerW_instead_use_StringCchVPrintfW_or_StringCchVPrintfExW
+#define StringLengthWorkerA StringLengthWorkerA_instead_use_StringCchLengthA_or_StringCbLengthA
+#define StringLengthWorkerW StringLengthWorkerW_instead_use_StringCchLengthW_or_StringCbLengthW
 #define StringGetsExWorkerA StringGetsExWorkerA_instead_use_StringCchGetsA_or_StringCbGetsA
 #define StringGetsExWorkerW StringGetsExWorkerW_instead_use_StringCchGetsW_or_StringCbGetsW
+#endif /* !DEPRECATE_SUPPORTED */
 
-#ifndef STRSAFE_NO_DEPRECATE
-
-#undef strcpy
-#define strcpy strcpy_instead_use_StringCbCopyA_or_StringCchCopyA;
-
-#undef wcscpy
-#define wcscpy wcscpy_instead_use_StringCbCopyW_or_StringCchCopyW;
-
-#undef strcat
-#define strcat strcat_instead_use_StringCbCatA_or_StringCchCatA;
-
-#undef wcscat
-#define wcscat wcscat_instead_use_StringCbCatW_or_StringCchCatW;
-
-#undef sprintf
-#define sprintf sprintf_instead_use_StringCbPrintfA_or_StringCchPrintfA;
-
-#undef swprintf
-#define swprintf swprintf_instead_use_StringCbPrintfW_or_StringCchPrintfW;
-
-#undef vsprintf
-#define vsprintf vsprintf_instead_use_StringCbVPrintfA_or_StringCchVPrintfA;
-
-#undef vswprintf
-#define vswprintf vswprintf_instead_use_StringCbVPrintfW_or_StringCchVPrintfW;
-
-#undef _snprintf
-#define _snprintf _snprintf_instead_use_StringCbPrintfA_or_StringCchPrintfA;
-
-#undef _snwprintf
-#define _snwprintf _snwprintf_instead_use_StringCbPrintfW_or_StringCchPrintfW;
-
-#undef _vsnprintf
-#define _vsnprintf _vsnprintf_instead_use_StringCbVPrintfA_or_StringCchVPrintfA;
-
-#undef _vsnwprintf
-#define _vsnwprintf _vsnwprintf_instead_use_StringCbVPrintfW_or_StringCchVPrintfW;
-
-#undef strcpyA
-#define strcpyA strcpyA_instead_use_StringCbCopyA_or_StringCchCopyA;
-
-#undef strcpyW
-#define strcpyW strcpyW_instead_use_StringCbCopyW_or_StringCchCopyW;
-
-#undef lstrcpy
-#define lstrcpy lstrcpy_instead_use_StringCbCopy_or_StringCchCopy;
-
-#undef lstrcpyA
-#define lstrcpyA lstrcpyA_instead_use_StringCbCopyA_or_StringCchCopyA;
-
-#undef lstrcpyW
-#define lstrcpyW lstrcpyW_instead_use_StringCbCopyW_or_StringCchCopyW;
-
-#undef StrCpy
-#define StrCpy StrCpy_instead_use_StringCbCopy_or_StringCchCopy;
-
-#undef StrCpyA
-#define StrCpyA StrCpyA_instead_use_StringCbCopyA_or_StringCchCopyA;
-
-#undef StrCpyW
-#define StrCpyW StrCpyW_instead_use_StringCbCopyW_or_StringCchCopyW;
-
-#undef _tcscpy
-#define _tcscpy _tcscpy_instead_use_StringCbCopy_or_StringCchCopy;
-
-#undef _ftcscpy
-#define _ftcscpy _ftcscpy_instead_use_StringCbCopy_or_StringCchCopy;
-
-#undef lstrcat
-#define lstrcat lstrcat_instead_use_StringCbCat_or_StringCchCat;
-
-#undef lstrcatA
-#define lstrcatA lstrcatA_instead_use_StringCbCatA_or_StringCchCatA;
-
-#undef lstrcatW
-#define lstrcatW lstrcatW_instead_use_StringCbCatW_or_StringCchCatW;
-
-#undef StrCat
-#define StrCat StrCat_instead_use_StringCbCat_or_StringCchCat;
-
-#undef StrCatA
-#define StrCatA StrCatA_instead_use_StringCbCatA_or_StringCchCatA;
-
-#undef StrCatW
-#define StrCatW StrCatW_instead_use_StringCbCatW_or_StringCchCatW;
-
-#undef StrNCat
-#define StrNCat StrNCat_instead_use_StringCbCatN_or_StringCchCatN;
-
-#undef StrNCatA
-#define StrNCatA StrNCatA_instead_use_StringCbCatNA_or_StringCchCatNA;
-
-#undef StrNCatW
-#define StrNCatW StrNCatW_instead_use_StringCbCatNW_or_StringCchCatNW;
-
-#undef StrCatN
-#define StrCatN StrCatN_instead_use_StringCbCatN_or_StringCchCatN;
-
-#undef StrCatNA
-#define StrCatNA StrCatNA_instead_use_StringCbCatNA_or_StringCchCatNA;
-
-#undef StrCatNW
-#define StrCatNW StrCatNW_instead_use_StringCbCatNW_or_StringCchCatNW;
-
-#undef _tcscat
-#define _tcscat _tcscat_instead_use_StringCbCat_or_StringCchCat;
-
-#undef _ftcscat
-#define _ftcscat _ftcscat_instead_use_StringCbCat_or_StringCchCat;
-
-#undef wsprintf
-#define wsprintf wsprintf_instead_use_StringCbPrintf_or_StringCchPrintf;
-
-#undef wsprintfA
-#define wsprintfA wsprintfA_instead_use_StringCbPrintfA_or_StringCchPrintfA;
-
-#undef wsprintfW
-#define wsprintfW wsprintfW_instead_use_StringCbPrintfW_or_StringCchPrintfW;
-
-#undef wvsprintf
-#define wvsprintf wvsprintf_instead_use_StringCbVPrintf_or_StringCchVPrintf;
-
-#undef wvsprintfA
-#define wvsprintfA wvsprintfA_instead_use_StringCbVPrintfA_or_StringCchVPrintfA;
-
-#undef wvsprintfW
-#define wvsprintfW wvsprintfW_instead_use_StringCbVPrintfW_or_StringCchVPrintfW;
-
-#undef _vstprintf
-#define _vstprintf _vstprintf_instead_use_StringCbVPrintf_or_StringCchVPrintf;
-
-#undef _vsntprintf
-#define _vsntprintf _vsntprintf_instead_use_StringCbVPrintf_or_StringCchVPrintf;
-
-#undef _stprintf
-#define _stprintf _stprintf_instead_use_StringCbPrintf_or_StringCchPrintf;
-
-#undef _sntprintf
-#define _sntprintf _sntprintf_instead_use_StringCbPrintf_or_StringCchPrintf;
-
-#undef _getts
-#define _getts _getts_instead_use_StringCbGets_or_StringCchGets;
-
-#undef gets
-#define gets _gets_instead_use_StringCbGetsA_or_StringCchGetsA;
-
-#undef _getws
-#define _getws _getws_instead_use_StringCbGetsW_or_StringCchGetsW;
-#endif
 #endif

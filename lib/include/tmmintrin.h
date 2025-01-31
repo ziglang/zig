@@ -17,8 +17,13 @@
 #include <pmmintrin.h>
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS __attribute__((__always_inline__, __nodebug__, __target__("ssse3"), __min_vector_width__(64)))
-#define __DEFAULT_FN_ATTRS_MMX __attribute__((__always_inline__, __nodebug__, __target__("mmx,ssse3"), __min_vector_width__(64)))
+#define __DEFAULT_FN_ATTRS                                                     \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("ssse3,no-evex512"), __min_vector_width__(64)))
+#define __DEFAULT_FN_ATTRS_MMX                                                 \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("mmx,ssse3,no-evex512"),                           \
+                 __min_vector_width__(64)))
 
 /// Computes the absolute value of each of the packed 8-bit signed
 ///    integers in the source operand and stores the 8-bit unsigned integer
@@ -266,10 +271,11 @@ _mm_hadd_pi32(__m64 __a, __m64 __b)
     return (__m64)__builtin_ia32_phaddd((__v2si)__a, (__v2si)__b);
 }
 
-/// Horizontally adds the adjacent pairs of values contained in 2 packed
-///    128-bit vectors of [8 x i16]. Positive sums greater than 0x7FFF are
-///    saturated to 0x7FFF. Negative sums less than 0x8000 are saturated to
-///    0x8000.
+/// Horizontally adds, with saturation, the adjacent pairs of values contained
+///    in two packed 128-bit vectors of [8 x i16].
+///
+///    Positive sums greater than 0x7FFF are saturated to 0x7FFF. Negative sums
+///    less than 0x8000 are saturated to 0x8000.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -291,10 +297,11 @@ _mm_hadds_epi16(__m128i __a, __m128i __b)
     return (__m128i)__builtin_ia32_phaddsw128((__v8hi)__a, (__v8hi)__b);
 }
 
-/// Horizontally adds the adjacent pairs of values contained in 2 packed
-///    64-bit vectors of [4 x i16]. Positive sums greater than 0x7FFF are
-///    saturated to 0x7FFF. Negative sums less than 0x8000 are saturated to
-///    0x8000.
+/// Horizontally adds, with saturation, the adjacent pairs of values contained
+///    in two packed 64-bit vectors of [4 x i16].
+///
+///    Positive sums greater than 0x7FFF are saturated to 0x7FFF. Negative sums
+///    less than 0x8000 are saturated to 0x8000.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -408,10 +415,11 @@ _mm_hsub_pi32(__m64 __a, __m64 __b)
     return (__m64)__builtin_ia32_phsubd((__v2si)__a, (__v2si)__b);
 }
 
-/// Horizontally subtracts the adjacent pairs of values contained in 2
-///    packed 128-bit vectors of [8 x i16]. Positive differences greater than
-///    0x7FFF are saturated to 0x7FFF. Negative differences less than 0x8000 are
-///    saturated to 0x8000.
+/// Horizontally subtracts, with saturation, the adjacent pairs of values
+///    contained in two packed 128-bit vectors of [8 x i16].
+///
+///    Positive differences greater than 0x7FFF are saturated to 0x7FFF.
+///    Negative differences less than 0x8000 are saturated to 0x8000.
 ///
 /// \headerfile <x86intrin.h>
 ///
@@ -433,10 +441,11 @@ _mm_hsubs_epi16(__m128i __a, __m128i __b)
     return (__m128i)__builtin_ia32_phsubsw128((__v8hi)__a, (__v8hi)__b);
 }
 
-/// Horizontally subtracts the adjacent pairs of values contained in 2
-///    packed 64-bit vectors of [4 x i16]. Positive differences greater than
-///    0x7FFF are saturated to 0x7FFF. Negative differences less than 0x8000 are
-///    saturated to 0x8000.
+/// Horizontally subtracts, with saturation, the adjacent pairs of values
+///    contained in two packed 64-bit vectors of [4 x i16].
+///
+///    Positive differences greater than 0x7FFF are saturated to 0x7FFF.
+///    Negative differences less than 0x8000 are saturated to 0x8000.
 ///
 /// \headerfile <x86intrin.h>
 ///

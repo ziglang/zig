@@ -31,7 +31,9 @@ The GNU C Library supports a very wide set of platforms and architectures.
 The current Zig support for glibc only includes Linux.
 
 Zig supports glibc versions back to v2.17 (2012) as the Zig standard
-library depends on symbols that were introduced in 2.17.
+library depends on symbols that were introduced in 2.17. When used as a C
+or C++ compiler (i.e., `zig cc`) zig supports glibc versions back to
+v2.2.5.
 
 ## Glibc stubs
 

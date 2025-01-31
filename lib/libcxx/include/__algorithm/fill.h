@@ -22,28 +22,22 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // fill isn't specialized for std::memset, because the compiler already optimizes the loop to a call to std::memset.
 
 template <class _ForwardIterator, class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-void
-__fill(_ForwardIterator __first, _ForwardIterator __last, const _Tp& __value, forward_iterator_tag)
-{
-    for (; __first != __last; ++__first)
-        *__first = __value;
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void
+__fill(_ForwardIterator __first, _ForwardIterator __last, const _Tp& __value, forward_iterator_tag) {
+  for (; __first != __last; ++__first)
+    *__first = __value;
 }
 
 template <class _RandomAccessIterator, class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-void
-__fill(_RandomAccessIterator __first, _RandomAccessIterator __last, const _Tp& __value, random_access_iterator_tag)
-{
-    _VSTD::fill_n(__first, __last - __first, __value);
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void
+__fill(_RandomAccessIterator __first, _RandomAccessIterator __last, const _Tp& __value, random_access_iterator_tag) {
+  std::fill_n(__first, __last - __first, __value);
 }
 
 template <class _ForwardIterator, class _Tp>
-inline _LIBCPP_INLINE_VISIBILITY _LIBCPP_CONSTEXPR_SINCE_CXX20
-void
-fill(_ForwardIterator __first, _ForwardIterator __last, const _Tp& __value)
-{
-    _VSTD::__fill(__first, __last, __value, typename iterator_traits<_ForwardIterator>::iterator_category());
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void
+fill(_ForwardIterator __first, _ForwardIterator __last, const _Tp& __value) {
+  std::__fill(__first, __last, __value, typename iterator_traits<_ForwardIterator>::iterator_category());
 }
 
 _LIBCPP_END_NAMESPACE_STD

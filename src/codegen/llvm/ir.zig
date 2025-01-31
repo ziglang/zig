@@ -19,9 +19,144 @@ const LineAbbrev = AbbrevOp{ .vbr = 8 };
 const ColumnAbbrev = AbbrevOp{ .vbr = 8 };
 
 const BlockAbbrev = AbbrevOp{ .vbr = 6 };
+const BlockArrayAbbrev = AbbrevOp{ .array_vbr = 6 };
 
-pub const MetadataKind = enum(u1) {
+/// Unused tags are commented out so that they are omitted in the generated
+/// bitcode, which scans over this enum using reflection.
+pub const FixedMetadataKind = enum(u8) {
     dbg = 0,
+    //tbaa = 1,
+    prof = 2,
+    //fpmath = 3,
+    //range = 4,
+    //@"tbaa.struct" = 5,
+    //@"invariant.load" = 6,
+    //@"alias.scope" = 7,
+    //@"noalias" = 8,
+    //nontemporal = 9,
+    //@"llvm.mem.parallel_loop_access" = 10,
+    //nonnull = 11,
+    //dereferenceable = 12,
+    //dereferenceable_or_null = 13,
+    //@"make.implicit" = 14,
+    unpredictable = 15,
+    //@"invariant.group" = 16,
+    //@"align" = 17,
+    //@"llvm.loop" = 18,
+    //type = 19,
+    //section_prefix = 20,
+    //absolute_symbol = 21,
+    //associated = 22,
+    //callees = 23,
+    //irr_loop = 24,
+    //@"llvm.access.group" = 25,
+    //callback = 26,
+    //@"llvm.preserve.access.index" = 27,
+    //vcall_visibility = 28,
+    //noundef = 29,
+    //annotation = 30,
+    //nosanitize = 31,
+    //func_sanitize = 32,
+    //exclude = 33,
+    //memprof = 34,
+    //callsite = 35,
+    //kcfi_type = 36,
+    //pcsections = 37,
+    //DIAssignID = 38,
+    //@"coro.outside.frame" = 39,
+};
+
+pub const MetadataCode = enum(u8) {
+    /// MDSTRING:      [values]
+    STRING_OLD = 1,
+    /// VALUE:         [type num, value num]
+    VALUE = 2,
+    /// NODE:          [n x md num]
+    NODE = 3,
+    /// STRING:        [values]
+    NAME = 4,
+    /// DISTINCT_NODE: [n x md num]
+    DISTINCT_NODE = 5,
+    /// [n x [id, name]]
+    KIND = 6,
+    /// [distinct, line, col, scope, inlined-at?]
+    LOCATION = 7,
+    /// OLD_NODE:      [n x (type num, value num)]
+    OLD_NODE = 8,
+    /// OLD_FN_NODE:   [n x (type num, value num)]
+    OLD_FN_NODE = 9,
+    /// NAMED_NODE:    [n x mdnodes]
+    NAMED_NODE = 10,
+    /// [m x [value, [n x [id, mdnode]]]
+    ATTACHMENT = 11,
+    /// [distinct, tag, vers, header, n x md num]
+    GENERIC_DEBUG = 12,
+    /// [distinct, count, lo]
+    SUBRANGE = 13,
+    /// [isUnsigned|distinct, value, name]
+    ENUMERATOR = 14,
+    /// [distinct, tag, name, size, align, enc]
+    BASIC_TYPE = 15,
+    /// [distinct, filename, directory, checksumkind, checksum]
+    FILE = 16,
+    /// [distinct, ...]
+    DERIVED_TYPE = 17,
+    /// [distinct, ...]
+    COMPOSITE_TYPE = 18,
+    /// [distinct, flags, types, cc]
+    SUBROUTINE_TYPE = 19,
+    /// [distinct, ...]
+    COMPILE_UNIT = 20,
+    /// [distinct, ...]
+    SUBPROGRAM = 21,
+    /// [distinct, scope, file, line, column]
+    LEXICAL_BLOCK = 22,
+    ///[distinct, scope, file, discriminator]
+    LEXICAL_BLOCK_FILE = 23,
+    /// [distinct, scope, file, name, line, exportSymbols]
+    NAMESPACE = 24,
+    /// [distinct, scope, name, type, ...]
+    TEMPLATE_TYPE = 25,
+    /// [distinct, scope, name, type, value, ...]
+    TEMPLATE_VALUE = 26,
+    /// [distinct, ...]
+    GLOBAL_VAR = 27,
+    /// [distinct, ...]
+    LOCAL_VAR = 28,
+    /// [distinct, n x element]
+    EXPRESSION = 29,
+    /// [distinct, name, file, line, ...]
+    OBJC_PROPERTY = 30,
+    /// [distinct, tag, scope, entity, line, name]
+    IMPORTED_ENTITY = 31,
+    /// [distinct, scope, name, ...]
+    MODULE = 32,
+    /// [distinct, macinfo, line, name, value]
+    MACRO = 33,
+    /// [distinct, macinfo, line, file, ...]
+    MACRO_FILE = 34,
+    /// [count, offset] blob([lengths][chars])
+    STRINGS = 35,
+    /// [valueid, n x [id, mdnode]]
+    GLOBAL_DECL_ATTACHMENT = 36,
+    /// [distinct, var, expr]
+    GLOBAL_VAR_EXPR = 37,
+    /// [offset]
+    INDEX_OFFSET = 38,
+    /// [bitpos]
+    INDEX = 39,
+    /// [distinct, scope, name, file, line]
+    LABEL = 40,
+    /// [distinct, name, size, align,...]
+    STRING_TYPE = 41,
+    /// [distinct, scope, name, variable,...]
+    COMMON_BLOCK = 44,
+    /// [distinct, count, lo, up, stride]
+    GENERIC_SUBRANGE = 45,
+    /// [n x [type num, value num]]
+    ARG_LIST = 46,
+    /// [distinct, ...]
+    ASSIGN_ID = 47,
 };
 
 pub const Identification = struct {
@@ -622,16 +757,29 @@ pub const MetadataAttachmentBlock = struct {
     pub const id = 16;
 
     pub const abbrevs = [_]type{
-        AttachmentSingle,
+        AttachmentGlobalSingle,
+        AttachmentInstructionSingle,
     };
 
-    pub const AttachmentSingle = struct {
+    pub const AttachmentGlobalSingle = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 11 },
+            .{ .literal = @intFromEnum(MetadataCode.ATTACHMENT) },
             .{ .fixed = 1 },
             MetadataAbbrev,
         };
-        kind: MetadataKind,
+        kind: FixedMetadataKind,
+        metadata: Builder.Metadata,
+    };
+
+    pub const AttachmentInstructionSingle = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = @intFromEnum(MetadataCode.ATTACHMENT) },
+            ValueAbbrev,
+            .{ .fixed = 5 },
+            MetadataAbbrev,
+        };
+        inst: u32,
+        kind: FixedMetadataKind,
         metadata: Builder.Metadata,
     };
 };
@@ -666,7 +814,7 @@ pub const MetadataBlock = struct {
 
     pub const Strings = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 35 },
+            .{ .literal = @intFromEnum(MetadataCode.STRINGS) },
             .{ .vbr = 6 },
             .{ .vbr = 6 },
             .blob,
@@ -678,7 +826,7 @@ pub const MetadataBlock = struct {
 
     pub const File = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 16 },
+            .{ .literal = @intFromEnum(MetadataCode.FILE) },
             .{ .literal = 0 }, // is distinct
             MetadataAbbrev, // filename
             MetadataAbbrev, // directory
@@ -692,7 +840,7 @@ pub const MetadataBlock = struct {
 
     pub const CompileUnit = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 20 },
+            .{ .literal = @intFromEnum(MetadataCode.COMPILE_UNIT) },
             .{ .literal = 1 }, // is distinct
             .{ .literal = std.dwarf.LANG.C99 }, // source language
             MetadataAbbrev, // file
@@ -726,7 +874,7 @@ pub const MetadataBlock = struct {
 
     pub const Subprogram = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 21 },
+            .{ .literal = @intFromEnum(MetadataCode.SUBPROGRAM) },
             .{ .literal = 0b111 }, // is distinct | has sp flags | has flags
             MetadataAbbrev, // scope
             MetadataAbbrev, // name
@@ -763,7 +911,7 @@ pub const MetadataBlock = struct {
 
     pub const LexicalBlock = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 22 },
+            .{ .literal = @intFromEnum(MetadataCode.LEXICAL_BLOCK) },
             .{ .literal = 0 }, // is distinct
             MetadataAbbrev, // scope
             MetadataAbbrev, // file
@@ -779,7 +927,7 @@ pub const MetadataBlock = struct {
 
     pub const Location = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 7 },
+            .{ .literal = @intFromEnum(MetadataCode.LOCATION) },
             .{ .literal = 0 }, // is distinct
             LineAbbrev, // line
             ColumnAbbrev, // column
@@ -796,7 +944,7 @@ pub const MetadataBlock = struct {
 
     pub const BasicType = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 15 },
+            .{ .literal = @intFromEnum(MetadataCode.BASIC_TYPE) },
             .{ .literal = 0 }, // is distinct
             .{ .literal = std.dwarf.TAG.base_type }, // tag
             MetadataAbbrev, // name
@@ -813,7 +961,7 @@ pub const MetadataBlock = struct {
 
     pub const CompositeType = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 18 },
+            .{ .literal = @intFromEnum(MetadataCode.COMPOSITE_TYPE) },
             .{ .literal = 0 | 0x2 }, // is distinct | is not used in old type ref
             .{ .fixed = 32 }, // tag
             MetadataAbbrev, // name
@@ -852,7 +1000,7 @@ pub const MetadataBlock = struct {
 
     pub const DerivedType = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 17 },
+            .{ .literal = @intFromEnum(MetadataCode.DERIVED_TYPE) },
             .{ .literal = 0 }, // is distinct
             .{ .fixed = 32 }, // tag
             MetadataAbbrev, // name
@@ -880,7 +1028,7 @@ pub const MetadataBlock = struct {
 
     pub const SubroutineType = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 19 },
+            .{ .literal = @intFromEnum(MetadataCode.SUBROUTINE_TYPE) },
             .{ .literal = 0 | 0x2 }, // is distinct | has no old type refs
             .{ .literal = 0 }, // flags
             MetadataAbbrev, // types
@@ -891,7 +1039,7 @@ pub const MetadataBlock = struct {
     };
 
     pub const Enumerator = struct {
-        pub const id = 14;
+        pub const id: MetadataCode = .ENUMERATOR;
 
         pub const Flags = packed struct(u3) {
             distinct: bool = false,
@@ -900,7 +1048,7 @@ pub const MetadataBlock = struct {
         };
 
         pub const ops = [_]AbbrevOp{
-            .{ .literal = Enumerator.id },
+            .{ .literal = @intFromEnum(Enumerator.id) },
             .{ .fixed = @bitSizeOf(Flags) }, // flags
             .{ .vbr = 6 }, // bit width
             MetadataAbbrev, // name
@@ -915,7 +1063,7 @@ pub const MetadataBlock = struct {
 
     pub const Subrange = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 13 },
+            .{ .literal = @intFromEnum(MetadataCode.SUBRANGE) },
             .{ .literal = 0b10 }, // is distinct | version
             MetadataAbbrev, // count
             MetadataAbbrev, // lower bound
@@ -929,7 +1077,7 @@ pub const MetadataBlock = struct {
 
     pub const Expression = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 29 },
+            .{ .literal = @intFromEnum(MetadataCode.EXPRESSION) },
             .{ .literal = 0 | (3 << 1) }, // is distinct | version
             MetadataArrayAbbrev, // elements
         };
@@ -939,7 +1087,7 @@ pub const MetadataBlock = struct {
 
     pub const Node = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 3 },
+            .{ .literal = @intFromEnum(MetadataCode.NODE) },
             MetadataArrayAbbrev, // elements
         };
 
@@ -948,7 +1096,7 @@ pub const MetadataBlock = struct {
 
     pub const LocalVar = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 28 },
+            .{ .literal = @intFromEnum(MetadataCode.LOCAL_VAR) },
             .{ .literal = 0b10 }, // is distinct | has alignment
             MetadataAbbrev, // scope
             MetadataAbbrev, // name
@@ -970,7 +1118,7 @@ pub const MetadataBlock = struct {
 
     pub const Parameter = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 28 },
+            .{ .literal = @intFromEnum(MetadataCode.LOCAL_VAR) },
             .{ .literal = 0b10 }, // is distinct | has alignment
             MetadataAbbrev, // scope
             MetadataAbbrev, // name
@@ -993,7 +1141,7 @@ pub const MetadataBlock = struct {
 
     pub const GlobalVar = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 27 },
+            .{ .literal = @intFromEnum(MetadataCode.GLOBAL_VAR) },
             .{ .literal = 0b101 }, // is distinct | version
             MetadataAbbrev, // scope
             MetadataAbbrev, // name
@@ -1020,7 +1168,7 @@ pub const MetadataBlock = struct {
 
     pub const GlobalVarExpression = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 37 },
+            .{ .literal = @intFromEnum(MetadataCode.GLOBAL_VAR_EXPR) },
             .{ .literal = 0 }, // is distinct
             MetadataAbbrev, // variable
             MetadataAbbrev, // expression
@@ -1032,7 +1180,7 @@ pub const MetadataBlock = struct {
 
     pub const Constant = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 2 },
+            .{ .literal = @intFromEnum(MetadataCode.VALUE) },
             MetadataAbbrev, // type
             MetadataAbbrev, // value
         };
@@ -1043,7 +1191,7 @@ pub const MetadataBlock = struct {
 
     pub const Name = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 4 },
+            .{ .literal = @intFromEnum(MetadataCode.NAME) },
             .{ .array_fixed = 8 }, // name
         };
 
@@ -1052,7 +1200,7 @@ pub const MetadataBlock = struct {
 
     pub const NamedNode = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 10 },
+            .{ .literal = @intFromEnum(MetadataCode.NAMED_NODE) },
             MetadataArrayAbbrev, // elements
         };
 
@@ -1061,15 +1209,29 @@ pub const MetadataBlock = struct {
 
     pub const GlobalDeclAttachment = struct {
         pub const ops = [_]AbbrevOp{
-            .{ .literal = 36 },
+            .{ .literal = @intFromEnum(MetadataCode.GLOBAL_DECL_ATTACHMENT) },
             ValueAbbrev, // value id
             .{ .fixed = 1 }, // kind
             MetadataAbbrev, // elements
         };
 
         value: Builder.Constant,
-        kind: MetadataKind,
+        kind: FixedMetadataKind,
         metadata: Builder.Metadata,
+    };
+};
+
+pub const OperandBundleTags = struct {
+    pub const id = 21;
+
+    pub const abbrevs = [_]type{OperandBundleTag};
+
+    pub const OperandBundleTag = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 1 },
+            .array_char6,
+        };
+        tag: []const u8,
     };
 };
 
@@ -1132,6 +1294,8 @@ pub const FunctionBlock = struct {
         Fence,
         DebugLoc,
         DebugLocAgain,
+        ColdOperandBundle,
+        IndirectBr,
     };
 
     pub const DeclareBlocks = struct {
@@ -1643,6 +1807,25 @@ pub const FunctionBlock = struct {
         pub const ops = [_]AbbrevOp{
             .{ .literal = 33 },
         };
+    };
+
+    pub const ColdOperandBundle = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 55 },
+            .{ .literal = 0 },
+        };
+    };
+
+    pub const IndirectBr = struct {
+        pub const ops = [_]AbbrevOp{
+            .{ .literal = 31 },
+            .{ .fixed_runtime = Builder.Type },
+            ValueAbbrev,
+            BlockArrayAbbrev,
+        };
+        ty: Builder.Type,
+        addr: Builder.Value,
+        targets: []const Builder.Function.Block.Index,
     };
 };
 

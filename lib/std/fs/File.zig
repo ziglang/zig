@@ -39,6 +39,7 @@ pub const OpenError = error{
     FileNotFound,
     AccessDenied,
     PipeBusy,
+    NoDevice,
     NameTooLong,
     /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
@@ -188,7 +189,7 @@ pub fn sync(self: File) SyncError!void {
 }
 
 /// Test whether the file refers to a terminal.
-/// See also `supportsAnsiEscapeCodes`.
+/// See also `getOrEnableAnsiEscapeSupport` and `supportsAnsiEscapeCodes`.
 pub fn isTty(self: File) bool {
     return posix.isatty(self.handle);
 }
@@ -245,7 +246,48 @@ pub fn isCygwinPty(file: File) bool {
         std.mem.indexOf(u16, name_wide, &[_]u16{ '-', 'p', 't', 'y' }) != null;
 }
 
-/// Test whether ANSI escape codes will be treated as such.
+/// Returns whether or not ANSI escape codes will be treated as such,
+/// and attempts to enable support for ANSI escape codes if necessary
+/// (on Windows).
+///
+/// Returns `true` if ANSI escape codes are supported or support was
+/// successfully enabled. Returns false if ANSI escape codes are not
+/// supported or support was unable to be enabled.
+///
+/// See also `supportsAnsiEscapeCodes`.
+pub fn getOrEnableAnsiEscapeSupport(self: File) bool {
+    if (builtin.os.tag == .windows) {
+        var original_console_mode: windows.DWORD = 0;
+
+        // For Windows Terminal, VT Sequences processing is enabled by default.
+        if (windows.kernel32.GetConsoleMode(self.handle, &original_console_mode) != 0) {
+            if (original_console_mode & windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING != 0) return true;
+
+            // For Windows Console, VT Sequences processing support was added in Windows 10 build 14361, but disabled by default.
+            // https://devblogs.microsoft.com/commandline/tmux-support-arrives-for-bash-on-ubuntu-on-windows/
+            //
+            // Note: In Microsoft's example for enabling virtual terminal processing, it
+            // shows attempting to enable `DISABLE_NEWLINE_AUTO_RETURN` as well:
+            // https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences#example-of-enabling-virtual-terminal-processing
+            // This is avoided because in the old Windows Console, that flag causes \n (as opposed to \r\n)
+            // to behave unexpectedly (the cursor moves down 1 row but remains on the same column).
+            // Additionally, the default console mode in Windows Terminal does not have
+            // `DISABLE_NEWLINE_AUTO_RETURN` set, so by only enabling `ENABLE_VIRTUAL_TERMINAL_PROCESSING`
+            // we end up matching the mode of Windows Terminal.
+            const requested_console_modes = windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            const console_mode = original_console_mode | requested_console_modes;
+            if (windows.kernel32.SetConsoleMode(self.handle, console_mode) != 0) return true;
+        }
+
+        return self.isCygwinPty();
+    }
+    return self.supportsAnsiEscapeCodes();
+}
+
+/// Test whether ANSI escape codes will be treated as such without
+/// attempting to enable support for ANSI escape codes.
+///
+/// See also `getOrEnableAnsiEscapeSupport`.
 pub fn supportsAnsiEscapeCodes(self: File) bool {
     if (builtin.os.tag == .windows) {
         var console_mode: windows.DWORD = 0;
@@ -301,7 +343,7 @@ pub fn seekTo(self: File, offset: u64) SeekError!void {
     return posix.lseek_SET(self.handle, offset);
 }
 
-pub const GetSeekPosError = posix.SeekError || posix.FStatError;
+pub const GetSeekPosError = posix.SeekError || StatError;
 
 /// TODO: integrate with async I/O
 pub fn getPos(self: File) GetSeekPosError!u64 {
@@ -316,7 +358,7 @@ pub fn getEndPos(self: File) GetSeekPosError!u64 {
     return (try self.stat()).size;
 }
 
-pub const ModeError = posix.FStatError;
+pub const ModeError = StatError;
 
 /// TODO: integrate with async I/O
 pub fn mode(self: File) ModeError!Mode {
@@ -351,7 +393,7 @@ pub const Stat = struct {
     /// Last status/metadata change time in nanoseconds, relative to UTC 1970-01-01.
     ctime: i128,
 
-    pub fn fromSystem(st: posix.Stat) Stat {
+    pub fn fromPosix(st: posix.Stat) Stat {
         const atime = st.atime();
         const mtime = st.mtime();
         const ctime = st.ctime();
@@ -379,9 +421,34 @@ pub const Stat = struct {
 
                 break :k .unknown;
             },
-            .atime = @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec,
-            .mtime = @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec,
-            .ctime = @as(i128, ctime.tv_sec) * std.time.ns_per_s + ctime.tv_nsec,
+            .atime = @as(i128, atime.sec) * std.time.ns_per_s + atime.nsec,
+            .mtime = @as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec,
+            .ctime = @as(i128, ctime.sec) * std.time.ns_per_s + ctime.nsec,
+        };
+    }
+
+    pub fn fromLinux(stx: linux.Statx) Stat {
+        const atime = stx.atime;
+        const mtime = stx.mtime;
+        const ctime = stx.ctime;
+
+        return .{
+            .inode = stx.ino,
+            .size = stx.size,
+            .mode = stx.mode,
+            .kind = switch (stx.mode & linux.S.IFMT) {
+                linux.S.IFDIR => .directory,
+                linux.S.IFCHR => .character_device,
+                linux.S.IFBLK => .block_device,
+                linux.S.IFREG => .file,
+                linux.S.IFIFO => .named_pipe,
+                linux.S.IFLNK => .sym_link,
+                linux.S.IFSOCK => .unix_domain_socket,
+                else => .unknown,
+            },
+            .atime = @as(i128, atime.sec) * std.time.ns_per_s + atime.nsec,
+            .mtime = @as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec,
+            .ctime = @as(i128, ctime.sec) * std.time.ns_per_s + ctime.nsec,
         };
     }
 
@@ -461,8 +528,34 @@ pub fn stat(self: File) StatError!Stat {
         return Stat.fromWasi(st);
     }
 
+    if (builtin.os.tag == .linux) {
+        var stx = std.mem.zeroes(linux.Statx);
+
+        const rc = linux.statx(
+            self.handle,
+            "",
+            linux.AT.EMPTY_PATH,
+            linux.STATX_TYPE | linux.STATX_MODE | linux.STATX_ATIME | linux.STATX_MTIME | linux.STATX_CTIME,
+            &stx,
+        );
+
+        return switch (linux.E.init(rc)) {
+            .SUCCESS => Stat.fromLinux(stx),
+            .ACCES => unreachable,
+            .BADF => unreachable,
+            .FAULT => unreachable,
+            .INVAL => unreachable,
+            .LOOP => unreachable,
+            .NAMETOOLONG => unreachable,
+            .NOENT => unreachable,
+            .NOMEM => error.SystemResources,
+            .NOTDIR => unreachable,
+            else => |err| posix.unexpectedErrno(err),
+        };
+    }
+
     const st = try posix.fstat(self.handle);
-    return Stat.fromSystem(st);
+    return Stat.fromPosix(st);
 }
 
 pub const ChmodError = posix.FChmodError;
@@ -690,7 +783,7 @@ pub const Metadata = struct {
 
     /// Returns the time the file was created in nanoseconds since UTC 1970-01-01
     /// On Windows, this cannot return null
-    /// On Linux, this returns null if the filesystem does not support creation times, or if the kernel is older than 4.11
+    /// On Linux, this returns null if the filesystem does not support creation times
     /// On Unices, this returns null if the filesystem or OS does not support creation times
     /// On MacOS, this returns the ctime if the filesystem does not support creation times; this is insanity, and yet another reason to hate on Apple
     pub fn created(self: Self) ?i128 {
@@ -750,13 +843,13 @@ pub const MetadataUnix = struct {
     /// Returns the last time the file was accessed in nanoseconds since UTC 1970-01-01
     pub fn accessed(self: Self) i128 {
         const atime = self.stat.atime();
-        return @as(i128, atime.tv_sec) * std.time.ns_per_s + atime.tv_nsec;
+        return @as(i128, atime.sec) * std.time.ns_per_s + atime.nsec;
     }
 
     /// Returns the last time the file was modified in nanoseconds since UTC 1970-01-01
     pub fn modified(self: Self) i128 {
         const mtime = self.stat.mtime();
-        return @as(i128, mtime.tv_sec) * std.time.ns_per_s + mtime.tv_nsec;
+        return @as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec;
     }
 
     /// Returns the time the file was created in nanoseconds since UTC 1970-01-01.
@@ -766,22 +859,21 @@ pub const MetadataUnix = struct {
         const birthtime = self.stat.birthtime();
 
         // If the filesystem doesn't support this the value *should* be:
-        // On FreeBSD: tv_nsec = 0, tv_sec = -1
-        // On NetBSD and OpenBSD: tv_nsec = 0, tv_sec = 0
+        // On FreeBSD: nsec = 0, sec = -1
+        // On NetBSD and OpenBSD: nsec = 0, sec = 0
         // On MacOS, it is set to ctime -- we cannot detect this!!
         switch (builtin.os.tag) {
-            .freebsd => if (birthtime.tv_sec == -1 and birthtime.tv_nsec == 0) return null,
-            .netbsd, .openbsd => if (birthtime.tv_sec == 0 and birthtime.tv_nsec == 0) return null,
+            .freebsd => if (birthtime.sec == -1 and birthtime.nsec == 0) return null,
+            .netbsd, .openbsd => if (birthtime.sec == 0 and birthtime.nsec == 0) return null,
             .macos => {},
             else => @compileError("Creation time detection not implemented for OS"),
         }
 
-        return @as(i128, birthtime.tv_sec) * std.time.ns_per_s + birthtime.tv_nsec;
+        return @as(i128, birthtime.sec) * std.time.ns_per_s + birthtime.nsec;
     }
 };
 
 /// `MetadataUnix`, but using Linux's `statx` syscall.
-/// On Linux versions below 4.11, `statx` will be filled with data from stat.
 pub const MetadataLinux = struct {
     statx: std.os.linux.Statx,
 
@@ -817,19 +909,19 @@ pub const MetadataLinux = struct {
 
     /// Returns the last time the file was accessed in nanoseconds since UTC 1970-01-01
     pub fn accessed(self: Self) i128 {
-        return @as(i128, self.statx.atime.tv_sec) * std.time.ns_per_s + self.statx.atime.tv_nsec;
+        return @as(i128, self.statx.atime.sec) * std.time.ns_per_s + self.statx.atime.nsec;
     }
 
     /// Returns the last time the file was modified in nanoseconds since UTC 1970-01-01
     pub fn modified(self: Self) i128 {
-        return @as(i128, self.statx.mtime.tv_sec) * std.time.ns_per_s + self.statx.mtime.tv_nsec;
+        return @as(i128, self.statx.mtime.sec) * std.time.ns_per_s + self.statx.mtime.nsec;
     }
 
     /// Returns the time the file was created in nanoseconds since UTC 1970-01-01.
     /// Returns null if this is not supported by the filesystem, or on kernels before than version 4.11
     pub fn created(self: Self) ?i128 {
         if (self.statx.mask & std.os.linux.STATX_BTIME == 0) return null;
-        return @as(i128, self.statx.btime.tv_sec) * std.time.ns_per_s + self.statx.btime.tv_nsec;
+        return @as(i128, self.statx.btime.sec) * std.time.ns_per_s + self.statx.btime.nsec;
     }
 };
 
@@ -969,34 +1061,29 @@ pub fn metadata(self: File) MetadataError!Metadata {
                 };
             },
             .linux => blk: {
-                const l = std.os.linux;
-                var stx = std.mem.zeroes(l.Statx);
-                const rcx = l.statx(self.handle, "\x00", l.AT.EMPTY_PATH, l.STATX_TYPE |
-                    l.STATX_MODE | l.STATX_ATIME | l.STATX_MTIME | l.STATX_BTIME, &stx);
+                var stx = std.mem.zeroes(linux.Statx);
 
-                switch (posix.errno(rcx)) {
+                // We are gathering information for Metadata, which is meant to contain all the
+                // native OS information about the file, so use all known flags.
+                const rc = linux.statx(
+                    self.handle,
+                    "",
+                    linux.AT.EMPTY_PATH,
+                    linux.STATX_BASIC_STATS | linux.STATX_BTIME,
+                    &stx,
+                );
+
+                switch (linux.E.init(rc)) {
                     .SUCCESS => {},
-                    // NOSYS happens when `statx` is unsupported, which is the case on kernel versions before 4.11
-                    // Here, we call `fstat` and fill `stx` with the data we need
-                    .NOSYS => {
-                        const st = try posix.fstat(self.handle);
-
-                        stx.mode = @as(u16, @intCast(st.mode));
-
-                        // Hacky conversion from timespec to statx_timestamp
-                        stx.atime = std.mem.zeroes(l.statx_timestamp);
-                        stx.atime.tv_sec = st.atim.tv_sec;
-                        stx.atime.tv_nsec = @as(u32, @intCast(st.atim.tv_nsec)); // Guaranteed to succeed (tv_nsec is always below 10^9)
-
-                        stx.mtime = std.mem.zeroes(l.statx_timestamp);
-                        stx.mtime.tv_sec = st.mtim.tv_sec;
-                        stx.mtime.tv_nsec = @as(u32, @intCast(st.mtim.tv_nsec));
-
-                        stx.mask = l.STATX_BASIC_STATS | l.STATX_MTIME;
-                    },
+                    .ACCES => unreachable,
                     .BADF => unreachable,
                     .FAULT => unreachable,
+                    .INVAL => unreachable,
+                    .LOOP => unreachable,
+                    .NAMETOOLONG => unreachable,
+                    .NOENT => unreachable,
                     .NOMEM => return error.SystemResources,
+                    .NOTDIR => unreachable,
                     else => |err| return posix.unexpectedErrno(err),
                 }
 
@@ -1031,12 +1118,12 @@ pub fn updateTimes(
     }
     const times = [2]posix.timespec{
         posix.timespec{
-            .tv_sec = math.cast(isize, @divFloor(atime, std.time.ns_per_s)) orelse maxInt(isize),
-            .tv_nsec = math.cast(isize, @mod(atime, std.time.ns_per_s)) orelse maxInt(isize),
+            .sec = math.cast(isize, @divFloor(atime, std.time.ns_per_s)) orelse maxInt(isize),
+            .nsec = math.cast(isize, @mod(atime, std.time.ns_per_s)) orelse maxInt(isize),
         },
         posix.timespec{
-            .tv_sec = math.cast(isize, @divFloor(mtime, std.time.ns_per_s)) orelse maxInt(isize),
-            .tv_nsec = math.cast(isize, @mod(mtime, std.time.ns_per_s)) orelse maxInt(isize),
+            .sec = math.cast(isize, @divFloor(mtime, std.time.ns_per_s)) orelse maxInt(isize),
+            .nsec = math.cast(isize, @mod(mtime, std.time.ns_per_s)) orelse maxInt(isize),
         },
     };
     try posix.futimens(self.handle, &times);
@@ -1138,7 +1225,7 @@ pub fn readv(self: File, iovecs: []const posix.iovec) ReadError!usize {
         // TODO improve this to use ReadFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
         const first = iovecs[0];
-        return windows.ReadFile(self.handle, first.iov_base[0..first.iov_len], null);
+        return windows.ReadFile(self.handle, first.base[0..first.len], null);
     }
 
     return posix.readv(self.handle, iovecs);
@@ -1153,7 +1240,7 @@ pub fn readv(self: File, iovecs: []const posix.iovec) ReadError!usize {
 ///   reads from the underlying OS layer.
 /// * The OS layer expects pointer addresses to be inside the application's address space
 ///   even if the length is zero. Meanwhile, in Zig, slices may have undefined pointer
-///   addresses when the length is zero. So this function modifies the iov_base fields
+///   addresses when the length is zero. So this function modifies the base fields
 ///   when the length is zero.
 ///
 /// Related open issue: https://github.com/ziglang/zig/issues/7699
@@ -1165,7 +1252,7 @@ pub fn readvAll(self: File, iovecs: []posix.iovec) ReadError!usize {
     // addresses outside the application's address space.
     var garbage: [1]u8 = undefined;
     for (iovecs) |*v| {
-        if (v.iov_len == 0) v.iov_base = &garbage;
+        if (v.len == 0) v.base = &garbage;
     }
 
     var i: usize = 0;
@@ -1174,15 +1261,15 @@ pub fn readvAll(self: File, iovecs: []posix.iovec) ReadError!usize {
         var amt = try self.readv(iovecs[i..]);
         var eof = amt == 0;
         off += amt;
-        while (amt >= iovecs[i].iov_len) {
-            amt -= iovecs[i].iov_len;
+        while (amt >= iovecs[i].len) {
+            amt -= iovecs[i].len;
             i += 1;
             if (i >= iovecs.len) return off;
             eof = false;
         }
         if (eof) return off;
-        iovecs[i].iov_base += amt;
-        iovecs[i].iov_len -= amt;
+        iovecs[i].base += amt;
+        iovecs[i].len -= amt;
     }
 }
 
@@ -1194,7 +1281,7 @@ pub fn preadv(self: File, iovecs: []const posix.iovec, offset: u64) PReadError!u
         // TODO improve this to use ReadFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
         const first = iovecs[0];
-        return windows.ReadFile(self.handle, first.iov_base[0..first.iov_len], offset);
+        return windows.ReadFile(self.handle, first.base[0..first.len], offset);
     }
 
     return posix.preadv(self.handle, iovecs, offset);
@@ -1217,15 +1304,15 @@ pub fn preadvAll(self: File, iovecs: []posix.iovec, offset: u64) PReadError!usiz
         var amt = try self.preadv(iovecs[i..], offset + off);
         var eof = amt == 0;
         off += amt;
-        while (amt >= iovecs[i].iov_len) {
-            amt -= iovecs[i].iov_len;
+        while (amt >= iovecs[i].len) {
+            amt -= iovecs[i].len;
             i += 1;
             if (i >= iovecs.len) return off;
             eof = false;
         }
         if (eof) return off;
-        iovecs[i].iov_base += amt;
-        iovecs[i].iov_len -= amt;
+        iovecs[i].base += amt;
+        iovecs[i].len -= amt;
     }
 }
 
@@ -1273,7 +1360,7 @@ pub fn writev(self: File, iovecs: []const posix.iovec_const) WriteError!usize {
         // TODO improve this to use WriteFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
         const first = iovecs[0];
-        return windows.WriteFile(self.handle, first.iov_base[0..first.iov_len], null);
+        return windows.WriteFile(self.handle, first.base[0..first.len], null);
     }
 
     return posix.writev(self.handle, iovecs);
@@ -1284,7 +1371,7 @@ pub fn writev(self: File, iovecs: []const posix.iovec_const) WriteError!usize {
 ///   writes from the underlying OS layer.
 /// * The OS layer expects pointer addresses to be inside the application's address space
 ///   even if the length is zero. Meanwhile, in Zig, slices may have undefined pointer
-///   addresses when the length is zero. So this function modifies the iov_base fields
+///   addresses when the length is zero. So this function modifies the base fields
 ///   when the length is zero.
 /// See https://github.com/ziglang/zig/issues/7699
 /// See equivalent function: `std.net.Stream.writevAll`.
@@ -1296,19 +1383,19 @@ pub fn writevAll(self: File, iovecs: []posix.iovec_const) WriteError!void {
     // addresses outside the application's address space.
     var garbage: [1]u8 = undefined;
     for (iovecs) |*v| {
-        if (v.iov_len == 0) v.iov_base = &garbage;
+        if (v.len == 0) v.base = &garbage;
     }
 
     var i: usize = 0;
     while (true) {
         var amt = try self.writev(iovecs[i..]);
-        while (amt >= iovecs[i].iov_len) {
-            amt -= iovecs[i].iov_len;
+        while (amt >= iovecs[i].len) {
+            amt -= iovecs[i].len;
             i += 1;
             if (i >= iovecs.len) return;
         }
-        iovecs[i].iov_base += amt;
-        iovecs[i].iov_len -= amt;
+        iovecs[i].base += amt;
+        iovecs[i].len -= amt;
     }
 }
 
@@ -1320,7 +1407,7 @@ pub fn pwritev(self: File, iovecs: []posix.iovec_const, offset: u64) PWriteError
         // TODO improve this to use WriteFileScatter
         if (iovecs.len == 0) return @as(usize, 0);
         const first = iovecs[0];
-        return windows.WriteFile(self.handle, first.iov_base[0..first.iov_len], offset);
+        return windows.WriteFile(self.handle, first.base[0..first.len], offset);
     }
 
     return posix.pwritev(self.handle, iovecs, offset);
@@ -1339,13 +1426,13 @@ pub fn pwritevAll(self: File, iovecs: []posix.iovec_const, offset: u64) PWriteEr
     while (true) {
         var amt = try self.pwritev(iovecs[i..], offset + off);
         off += amt;
-        while (amt >= iovecs[i].iov_len) {
-            amt -= iovecs[i].iov_len;
+        while (amt >= iovecs[i].len) {
+            amt -= iovecs[i].len;
             i += 1;
             if (i >= iovecs.len) return;
         }
-        iovecs[i].iov_base += amt;
-        iovecs[i].iov_len -= amt;
+        iovecs[i].base += amt;
+        iovecs[i].len -= amt;
     }
 }
 
@@ -1456,13 +1543,13 @@ fn writeFileAllSendfile(self: File, in_file: File, args: WriteFileOptions) posix
         var i: usize = 0;
         while (i < headers.len) {
             amt = try posix.sendfile(out_fd, in_fd, offset, count, headers[i..], trls, flags);
-            while (amt >= headers[i].iov_len) {
-                amt -= headers[i].iov_len;
+            while (amt >= headers[i].len) {
+                amt -= headers[i].len;
                 i += 1;
                 if (i >= headers.len) break :hdrs;
             }
-            headers[i].iov_base += amt;
-            headers[i].iov_len -= amt;
+            headers[i].base += amt;
+            headers[i].len -= amt;
         }
     }
     if (count == 0) {
@@ -1482,13 +1569,13 @@ fn writeFileAllSendfile(self: File, in_file: File, args: WriteFileOptions) posix
     }
     var i: usize = 0;
     while (i < trailers.len) {
-        while (amt >= trailers[i].iov_len) {
-            amt -= trailers[i].iov_len;
+        while (amt >= trailers[i].len) {
+            amt -= trailers[i].len;
             i += 1;
             if (i >= trailers.len) return;
         }
-        trailers[i].iov_base += amt;
-        trailers[i].iov_len -= amt;
+        trailers[i].base += amt;
+        trailers[i].len -= amt;
         amt = try posix.writev(self.handle, trailers[i..]);
     }
 }
@@ -1690,6 +1777,7 @@ const posix = std.posix;
 const io = std.io;
 const math = std.math;
 const assert = std.debug.assert;
+const linux = std.os.linux;
 const windows = std.os.windows;
 const Os = std.builtin.Os;
 const maxInt = std.math.maxInt;

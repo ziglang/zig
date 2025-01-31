@@ -10,29 +10,28 @@ const is_test = builtin.is_test;
 const common = @import("common.zig");
 const udivmod = @import("udivmod.zig").udivmod;
 const __divti3 = @import("divti3.zig").__divti3;
-const arm = @import("arm.zig");
 
 pub const panic = common.panic;
 
 comptime {
-    @export(__divmodti4, .{ .name = "__divmodti4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__udivmoddi4, .{ .name = "__udivmoddi4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__divmoddi4, .{ .name = "__divmoddi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__divmodti4, .{ .name = "__divmodti4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__udivmoddi4, .{ .name = "__udivmoddi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__divmoddi4, .{ .name = "__divmoddi4", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_aeabi) {
-        @export(__aeabi_idiv, .{ .name = "__aeabi_idiv", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__aeabi_uidiv, .{ .name = "__aeabi_uidiv", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_idiv, .{ .name = "__aeabi_idiv", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_uidiv, .{ .name = "__aeabi_uidiv", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__divsi3, .{ .name = "__divsi3", .linkage = common.linkage, .visibility = common.visibility });
-        @export(__udivsi3, .{ .name = "__udivsi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__divsi3, .{ .name = "__divsi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__udivsi3, .{ .name = "__udivsi3", .linkage = common.linkage, .visibility = common.visibility });
     }
-    @export(__divdi3, .{ .name = "__divdi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__udivdi3, .{ .name = "__udivdi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__modsi3, .{ .name = "__modsi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__moddi3, .{ .name = "__moddi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__umodsi3, .{ .name = "__umodsi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__umoddi3, .{ .name = "__umoddi3", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__divmodsi4, .{ .name = "__divmodsi4", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__udivmodsi4, .{ .name = "__udivmodsi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__divdi3, .{ .name = "__divdi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__udivdi3, .{ .name = "__udivdi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__modsi3, .{ .name = "__modsi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__moddi3, .{ .name = "__moddi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__umodsi3, .{ .name = "__umodsi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__umoddi3, .{ .name = "__umoddi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__divmodsi4, .{ .name = "__divmodsi4", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__udivmodsi4, .{ .name = "__udivmodsi4", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 pub fn __divmodti4(a: i128, b: i128, rem: *i128) callconv(.C) i128 {
@@ -99,25 +98,6 @@ const cases__divmoddi4 =
 test "test_divmoddi4" {
     for (cases__divmoddi4) |case| {
         try test_one_divmoddi4(case[0], case[1], case[2], case[3]);
-    }
-}
-
-fn test_one_aeabi_ldivmod(a: i64, b: i64, expected_q: i64, expected_r: i64) !void {
-    const LdivmodRes = extern struct {
-        q: i64, // r1:r0
-        r: i64, // r3:r2
-    };
-    const actualIdivmod = @as(*const fn (a: i64, b: i64) callconv(.AAPCS) LdivmodRes, @ptrCast(&arm.__aeabi_ldivmod));
-    const arm_res = actualIdivmod(a, b);
-    try testing.expectEqual(expected_q, arm_res.q);
-    try testing.expectEqual(expected_r, arm_res.r);
-}
-
-test "arm.__aeabi_ldivmod" {
-    if (!builtin.cpu.arch.isARM()) return error.SkipZigTest;
-
-    for (cases__divmodsi4) |case| {
-        try test_one_aeabi_ldivmod(case[0], case[1], case[2], case[3]);
     }
 }
 
@@ -258,25 +238,6 @@ fn test_one_divmodsi4(a: i32, b: i32, expected_q: i32, expected_r: i32) !void {
 test "test_divmodsi4" {
     for (cases__divmodsi4) |case| {
         try test_one_divmodsi4(case[0], case[1], case[2], case[3]);
-    }
-}
-
-fn test_one_aeabi_idivmod(a: i32, b: i32, expected_q: i32, expected_r: i32) !void {
-    const IdivmodRes = extern struct {
-        q: i32, // r0
-        r: i32, // r1
-    };
-    const actualIdivmod = @as(*const fn (a: i32, b: i32) callconv(.AAPCS) IdivmodRes, @ptrCast(&arm.__aeabi_idivmod));
-    const arm_res = actualIdivmod(a, b);
-    try testing.expectEqual(expected_q, arm_res.q);
-    try testing.expectEqual(expected_r, arm_res.r);
-}
-
-test "arm.__aeabi_idivmod" {
-    if (!builtin.cpu.arch.isARM()) return error.SkipZigTest;
-
-    for (cases__divmodsi4) |case| {
-        try test_one_aeabi_idivmod(case[0], case[1], case[2], case[3]);
     }
 }
 

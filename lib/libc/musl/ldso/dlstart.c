@@ -140,6 +140,21 @@ hidden void _dlstart_c(size_t *sp, size_t *dynv)
 		size_t *rel_addr = (void *)(base + rel[0]);
 		*rel_addr = base + rel[2];
 	}
+
+	rel = (void *)(base+dyn[DT_RELR]);
+	rel_size = dyn[DT_RELRSZ];
+	size_t *relr_addr = 0;
+	for (; rel_size; rel++, rel_size-=sizeof(size_t)) {
+		if ((rel[0]&1) == 0) {
+			relr_addr = (void *)(base + rel[0]);
+			*relr_addr++ += base;
+		} else {
+			for (size_t i=0, bitmap=rel[0]; bitmap>>=1; i++)
+				if (bitmap&1)
+					relr_addr[i] += base;
+			relr_addr += 8*sizeof(size_t)-1;
+		}
+	}
 #endif
 
 	stage2_func dls2;

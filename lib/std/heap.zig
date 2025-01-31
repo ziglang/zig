@@ -18,7 +18,6 @@ pub const GeneralPurposeAllocatorConfig = @import("heap/general_purpose_allocato
 pub const GeneralPurposeAllocator = @import("heap/general_purpose_allocator.zig").GeneralPurposeAllocator;
 pub const Check = @import("heap/general_purpose_allocator.zig").Check;
 pub const WasmAllocator = @import("heap/WasmAllocator.zig");
-pub const WasmPageAllocator = @import("heap/WasmPageAllocator.zig");
 pub const PageAllocator = @import("heap/PageAllocator.zig");
 pub const ThreadSafeAllocator = @import("heap/ThreadSafeAllocator.zig");
 pub const SbrkAllocator = @import("heap/sbrk_allocator.zig").SbrkAllocator;
@@ -40,15 +39,18 @@ const CAllocator = struct {
     }
 
     pub const supports_malloc_size = @TypeOf(malloc_size) != void;
-    pub const malloc_size = if (@hasDecl(c, "malloc_size"))
+    pub const malloc_size = if (@TypeOf(c.malloc_size) != void)
         c.malloc_size
-    else if (@hasDecl(c, "malloc_usable_size"))
+    else if (@TypeOf(c.malloc_usable_size) != void)
         c.malloc_usable_size
-    else if (@hasDecl(c, "_msize"))
+    else if (@TypeOf(c._msize) != void)
         c._msize
     else {};
 
-    pub const supports_posix_memalign = @hasDecl(c, "posix_memalign");
+    pub const supports_posix_memalign = switch (builtin.os.tag) {
+        .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos => true,
+        else => false,
+    };
 
     fn getHeader(ptr: [*]u8) *[*]u8 {
         return @as(*[*]u8, @ptrFromInt(@intFromPtr(ptr) - @sizeOf(usize)));
@@ -220,36 +222,35 @@ fn rawCFree(
     c.free(buf.ptr);
 }
 
-/// This allocator makes a syscall directly for every allocation and free.
-/// Thread-safe and lock-free.
-pub const page_allocator = if (@hasDecl(root, "os") and
+/// On operating systems that support memory mapping, this allocator makes a
+/// syscall directly for every allocation and free.
+///
+/// Otherwise, it falls back to the preferred singleton for the target.
+///
+/// Thread-safe.
+pub const page_allocator: Allocator = if (@hasDecl(root, "os") and
     @hasDecl(root.os, "heap") and
     @hasDecl(root.os.heap, "page_allocator"))
     root.os.heap.page_allocator
-else if (builtin.target.isWasm())
-    Allocator{
-        .ptr = undefined,
-        .vtable = &WasmPageAllocator.vtable,
-    }
-else if (builtin.target.os.tag == .plan9)
-    Allocator{
-        .ptr = undefined,
-        .vtable = &SbrkAllocator(std.os.plan9.sbrk).vtable,
-    }
-else
-    Allocator{
-        .ptr = undefined,
-        .vtable = &PageAllocator.vtable,
-    };
+else if (builtin.target.isWasm()) .{
+    .ptr = undefined,
+    .vtable = &WasmAllocator.vtable,
+} else if (builtin.target.os.tag == .plan9) .{
+    .ptr = undefined,
+    .vtable = &SbrkAllocator(std.os.plan9.sbrk).vtable,
+} else .{
+    .ptr = undefined,
+    .vtable = &PageAllocator.vtable,
+};
 
 /// This allocator is fast, small, and specific to WebAssembly. In the future,
 /// this will be the implementation automatically selected by
 /// `GeneralPurposeAllocator` when compiling in `ReleaseSmall` mode for wasm32
 /// and wasm64 architectures.
 /// Until then, it is available here to play with.
-pub const wasm_allocator = Allocator{
+pub const wasm_allocator: Allocator = .{
     .ptr = undefined,
-    .vtable = &std.heap.WasmAllocator.vtable,
+    .vtable = &WasmAllocator.vtable,
 };
 
 /// Verifies that the adjusted length will still map to the full length
@@ -497,8 +498,6 @@ pub const FixedBufferAllocator = struct {
         self.end_index = 0;
     }
 };
-
-pub const ThreadSafeFixedBufferAllocator = @compileError("ThreadSafeFixedBufferAllocator has been replaced with `threadSafeAllocator` on FixedBufferAllocator");
 
 /// Returns a `StackFallbackAllocator` allocating using either a
 /// `FixedBufferAllocator` on an array of size `size` and falling back to
@@ -889,8 +888,7 @@ test {
     _ = @import("heap/memory_pool.zig");
     _ = ArenaAllocator;
     _ = GeneralPurposeAllocator;
-    if (comptime builtin.target.isWasm()) {
+    if (builtin.target.isWasm()) {
         _ = WasmAllocator;
-        _ = WasmPageAllocator;
     }
 }

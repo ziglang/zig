@@ -117,12 +117,12 @@ pub const io_uring_sqe = extern struct {
     }
 
     pub fn prep_read_fixed(sqe: *linux.io_uring_sqe, fd: linux.fd_t, buffer: *std.posix.iovec, offset: u64, buffer_index: u16) void {
-        sqe.prep_rw(.READ_FIXED, fd, @intFromPtr(buffer.iov_base), buffer.iov_len, offset);
+        sqe.prep_rw(.READ_FIXED, fd, @intFromPtr(buffer.base), buffer.len, offset);
         sqe.buf_index = buffer_index;
     }
 
     pub fn prep_write_fixed(sqe: *linux.io_uring_sqe, fd: linux.fd_t, buffer: *std.posix.iovec, offset: u64, buffer_index: u16) void {
-        sqe.prep_rw(.WRITE_FIXED, fd, @intFromPtr(buffer.iov_base), buffer.iov_len, offset);
+        sqe.prep_rw(.WRITE_FIXED, fd, @intFromPtr(buffer.base), buffer.len, offset);
         sqe.buf_index = buffer_index;
     }
 

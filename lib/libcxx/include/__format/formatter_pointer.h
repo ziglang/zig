@@ -10,7 +10,6 @@
 #ifndef _LIBCPP___FORMAT_FORMATTER_POINTER_H
 #define _LIBCPP___FORMAT_FORMATTER_POINTER_H
 
-#include <__availability>
 #include <__config>
 #include <__format/concepts.h>
 #include <__format/format_parse_context.h>
@@ -60,14 +59,11 @@ public:
 // - template<> struct formatter<void*, charT>;
 // - template<> struct formatter<const void*, charT>;
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS formatter<nullptr_t, _CharT>
-    : public __formatter_pointer<_CharT> {};
+struct _LIBCPP_TEMPLATE_VIS formatter<nullptr_t, _CharT> : public __formatter_pointer<_CharT> {};
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS formatter<void*, _CharT> : public __formatter_pointer<_CharT> {
-};
+struct _LIBCPP_TEMPLATE_VIS formatter<void*, _CharT> : public __formatter_pointer<_CharT> {};
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS formatter<const void*, _CharT>
-    : public __formatter_pointer<_CharT> {};
+struct _LIBCPP_TEMPLATE_VIS formatter<const void*, _CharT> : public __formatter_pointer<_CharT> {};
 
 #endif //_LIBCPP_STD_VER >= 20
 
