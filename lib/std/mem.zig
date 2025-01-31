@@ -18,6 +18,60 @@ pub const byte_size_in_bits = 8;
 
 pub const Allocator = @import("mem/Allocator.zig");
 
+/// Stored as a power-of-two.
+pub const Alignment = enum(math.Log2Int(usize)) {
+    @"1" = 0,
+    @"2" = 1,
+    @"4" = 2,
+    @"8" = 3,
+    @"16" = 4,
+    @"32" = 5,
+    @"64" = 6,
+    _,
+
+    pub fn toByteUnits(a: Alignment) usize {
+        return @as(usize, 1) << @intFromEnum(a);
+    }
+
+    pub fn fromByteUnits(n: usize) Alignment {
+        assert(std.math.isPowerOfTwo(n));
+        return @enumFromInt(@ctz(n));
+    }
+
+    pub fn order(lhs: Alignment, rhs: Alignment) std.math.Order {
+        return std.math.order(@intFromEnum(lhs), @intFromEnum(rhs));
+    }
+
+    pub fn compare(lhs: Alignment, op: std.math.CompareOperator, rhs: Alignment) bool {
+        return std.math.compare(@intFromEnum(lhs), op, @intFromEnum(rhs));
+    }
+
+    pub fn max(lhs: Alignment, rhs: Alignment) Alignment {
+        return @enumFromInt(@max(@intFromEnum(lhs), @intFromEnum(rhs)));
+    }
+
+    pub fn min(lhs: Alignment, rhs: Alignment) Alignment {
+        return @enumFromInt(@min(@intFromEnum(lhs), @intFromEnum(rhs)));
+    }
+
+    /// Return next address with this alignment.
+    pub fn forward(a: Alignment, address: usize) usize {
+        const x = (@as(usize, 1) << @intFromEnum(a)) - 1;
+        return (address + x) & ~x;
+    }
+
+    /// Return previous address with this alignment.
+    pub fn backward(a: Alignment, address: usize) usize {
+        const x = (@as(usize, 1) << @intFromEnum(a)) - 1;
+        return address & ~x;
+    }
+
+    /// Return whether address is aligned to this amount.
+    pub fn check(a: Alignment, address: usize) bool {
+        return @ctz(address) >= @intFromEnum(a);
+    }
+};
+
 /// Detects and asserts if the std.mem.Allocator interface is violated by the caller
 /// or the allocator.
 pub fn ValidationAllocator(comptime T: type) type {
