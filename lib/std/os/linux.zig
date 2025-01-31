@@ -854,7 +854,7 @@ pub fn readlinkat(dirfd: i32, noalias path: [*:0]const u8, noalias buf_ptr: [*]u
     return syscall4(.readlinkat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(buf_ptr), buf_len);
 }
 
-pub fn mkdir(path: [*:0]const u8, mode: u32) usize {
+pub fn mkdir(path: [*:0]const u8, mode: mode_t) usize {
     if (@hasField(SYS, "mkdir")) {
         return syscall2(.mkdir, @intFromPtr(path), mode);
     } else {
@@ -862,11 +862,11 @@ pub fn mkdir(path: [*:0]const u8, mode: u32) usize {
     }
 }
 
-pub fn mkdirat(dirfd: i32, path: [*:0]const u8, mode: u32) usize {
+pub fn mkdirat(dirfd: i32, path: [*:0]const u8, mode: mode_t) usize {
     return syscall3(.mkdirat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), mode);
 }
 
-pub fn mknod(path: [*:0]const u8, mode: u32, dev: u32) usize {
+pub fn mknod(path: [*:0]const u8, mode: mode_t, dev: dev_t) usize {
     if (@hasField(SYS, "mknod")) {
         return syscall3(.mknod, @intFromPtr(path), mode, dev);
     } else {
@@ -874,7 +874,7 @@ pub fn mknod(path: [*:0]const u8, mode: u32, dev: u32) usize {
     }
 }
 
-pub fn mknodat(dirfd: i32, path: [*:0]const u8, mode: u32, dev: u32) usize {
+pub fn mknodat(dirfd: i32, path: [*:0]const u8, mode: mode_t, dev: dev_t) usize {
     return syscall4(.mknodat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), mode, dev);
 }
 
@@ -1105,16 +1105,16 @@ pub fn pread(fd: i32, buf: [*]u8, count: usize, offset: i64) usize {
     }
 }
 
-pub fn access(path: [*:0]const u8, mode: u32) usize {
+pub fn access(path: [*:0]const u8, mode: i32) usize {
     if (@hasField(SYS, "access")) {
-        return syscall2(.access, @intFromPtr(path), mode);
+        return syscall2(.access, @intFromPtr(path), @bitCast(@as(isize, mode)));
     } else {
-        return syscall4(.faccessat, @as(usize, @bitCast(@as(isize, AT.FDCWD))), @intFromPtr(path), mode, 0);
+        return syscall4(.faccessat, @as(usize, @bitCast(@as(isize, AT.FDCWD))), @intFromPtr(path), @bitCast(@as(isize, mode)), 0);
     }
 }
 
-pub fn faccessat(dirfd: i32, path: [*:0]const u8, mode: u32, flags: u32) usize {
-    return syscall4(.faccessat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), mode, flags);
+pub fn faccessat(dirfd: i32, path: [*:0]const u8, mode: i32, flags: i32) usize {
+    return syscall4(.faccessat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @bitCast(@as(isize, mode)), @bitCast(@as(isize, flags)));
 }
 
 pub fn pipe(fd: *[2]i32) usize {
@@ -1512,12 +1512,12 @@ fn init_vdso_clock_gettime(clk: clockid_t, ts: *timespec) callconv(.c) usize {
     return @as(usize, @bitCast(-@as(isize, @intFromEnum(E.NOSYS))));
 }
 
-pub fn clock_getres(clk_id: i32, tp: *timespec) usize {
-    return syscall2(.clock_getres, @as(usize, @bitCast(@as(isize, clk_id))), @intFromPtr(tp));
+pub fn clock_getres(clk_id: clockid_t, tp: *timespec) usize {
+    return syscall2(.clock_getres, @intFromEnum(clk_id), @intFromPtr(tp));
 }
 
-pub fn clock_settime(clk_id: i32, tp: *const timespec) usize {
-    return syscall2(.clock_settime, @as(usize, @bitCast(@as(isize, clk_id))), @intFromPtr(tp));
+pub fn clock_settime(clk_id: clockid_t, tp: *const timespec) usize {
+    return syscall2(.clock_settime, @intFromEnum(clk_id), @intFromPtr(tp));
 }
 
 pub fn clock_nanosleep(clockid: clockid_t, flags: TIMER, request: *const timespec, remain: ?*timespec) usize {
