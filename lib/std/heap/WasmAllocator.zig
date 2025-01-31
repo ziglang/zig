@@ -40,11 +40,11 @@ const size_class_count = math.log2(bigpage_size) - min_class;
 /// etc.
 const big_size_class_count = math.log2(bigpage_count);
 
-var next_addrs = [1]usize{0} ** size_class_count;
+var next_addrs: [size_class_count]usize = @splat(0);
 /// For each size class, points to the freed pointer.
-var frees = [1]usize{0} ** size_class_count;
+var frees: [size_class_count]usize = @splat(0);
 /// For each big size class, points to the freed pointer.
-var big_frees = [1]usize{0} ** big_size_class_count;
+var big_frees: [big_size_class_count]usize = @splat(0);
 
 fn alloc(ctx: *anyopaque, len: usize, log2_align: u8, return_address: usize) ?[*]u8 {
     _ = ctx;
@@ -160,7 +160,7 @@ fn allocBigPages(n: usize) usize {
     return @as(usize, @intCast(page_index)) * wasm.page_size;
 }
 
-const test_ally = Allocator{
+const test_ally: Allocator = .{
     .ptr = undefined,
     .vtable = &vtable,
 };
