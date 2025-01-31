@@ -329,8 +329,7 @@ pub fn isBytes(self: Self, slice: []const u8) anyerror!bool {
 /// Packed structs must have a `@bitSizeOf` that is a multiple of eight.
 pub fn readStruct(self: Self, comptime T: type) anyerror!T {
     switch (@typeInfo(T).@"struct".layout) {
-        .auto => @compileError("readStruct only supports packed and extern structs, " ++
-            "but the given type: " ++ @typeName(T) ++ " is a normal struct."),
+        .auto => comptime unreachable,
         .@"extern" => {
             var res: [1]T = undefined;
             try self.readNoEof(mem.sliceAsBytes(res[0..]));
@@ -349,8 +348,7 @@ pub fn readStruct(self: Self, comptime T: type) anyerror!T {
 /// Packed structs must have a `@bitSizeOf` that is a multiple of eight.
 pub fn readStructEndian(self: Self, comptime T: type, endian: std.builtin.Endian) anyerror!T {
     switch (@typeInfo(T).@"struct".layout) {
-        .auto => @compileError("readStructEndian only supports packed and extern structs, " ++
-            "but the given type: " ++ @typeName(T) ++ " is a normal struct."),
+        .auto => comptime unreachable,
         .@"extern" => {
             var res = try self.readStruct(T);
             if (native_endian != endian) {

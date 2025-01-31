@@ -60,8 +60,7 @@ pub inline fn writeInt(self: Self, comptime T: type, value: T, endian: std.built
 pub fn writeStruct(self: Self, value: anytype) anyerror!void {
     // Only extern and packed structs have defined in-memory layout.
     switch (@typeInfo(@TypeOf(value)).@"struct".layout) {
-        .auto => @compileError("writeStruct only supports packed and extern structs, " ++
-            "but the given type: " ++ @typeName(@TypeOf(value)) ++ " is a normal struct."),
+        .auto => comptime unreachable,
         .@"extern" => {
             return try self.writeAll(mem.asBytes(&value));
         },
@@ -78,8 +77,7 @@ pub fn writeStruct(self: Self, value: anytype) anyerror!void {
 pub fn writeStructEndian(self: Self, value: anytype, endian: std.builtin.Endian) anyerror!void {
     // TODO: make sure this value is not a reference type
     switch (@typeInfo(@TypeOf(value)).@"struct".layout) {
-        .auto => @compileError("writeStructEndian only supports packed and extern structs, " ++
-            "but the given type: " ++ @typeName(@TypeOf(value)) ++ " is a normal struct."),
+        .auto => comptime unreachable,
         .@"extern" => {
             if (native_endian == endian) {
                 return try self.writeStruct(value);
