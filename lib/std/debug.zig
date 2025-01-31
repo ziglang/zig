@@ -165,6 +165,12 @@ pub fn dump_hex_fallible(bytes: []const u8) !void {
     }
 }
 
+pub const StackTraceMode = enum {
+    none,
+    slim,
+    full,
+};
+
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
@@ -268,7 +274,7 @@ pub inline fn getContext(context: *ThreadContext) bool {
 /// TODO multithreaded awareness
 pub fn dumpStackTraceFromBase(context: *const ThreadContext) void {
     nosuspend {
-        if (std.options.debug_stacktrace_kind == .none) return;
+        if (std.options.debug_stacktrace_mode == .none) return;
 
         if (comptime builtin.target.isWasm()) {
             if (native_os == .wasi) {
@@ -783,7 +789,7 @@ pub fn writeCurrentStackTrace(
     tty_config: io.tty.Config,
     start_addr: ?usize,
 ) !void {
-    if (std.options.debug_stacktrace_kind == .none) return;
+    if (std.options.debug_stacktrace_mode == .none) return;
 
     var context: ThreadContext = undefined;
     const has_context = getContext(&context);
@@ -995,7 +1001,7 @@ fn printLineInfo(
     comptime printLineFromFile: anytype,
 ) !void {
     nosuspend {
-        if (std.options.debug_stacktrace_kind == .none) return;
+        if (std.options.debug_stacktrace_mode == .none) return;
 
         try tty_config.setColor(out_stream, .bold);
 
@@ -1012,7 +1018,7 @@ fn printLineInfo(
         try tty_config.setColor(out_stream, .reset);
         try out_stream.writeAll("\n");
 
-        if (std.options.debug_stacktrace_kind != .full) return;
+        if (std.options.debug_stacktrace_mode != .full) return;
 
         // Show the matching source code line if possible
         if (line_info) |li| {
