@@ -19,8 +19,8 @@ const Ast = std.zig.Ast;
 const Zcu = @This();
 const Compilation = @import("Compilation.zig");
 const Cache = std.Build.Cache;
-const Value = @import("Value.zig");
-const Type = @import("Type.zig");
+pub const Value = @import("Value.zig");
+pub const Type = @import("Type.zig");
 const Package = @import("Package.zig");
 const link = @import("link.zig");
 const Air = @import("Air.zig");
@@ -79,11 +79,11 @@ local_zir_cache: Compilation.Directory,
 all_exports: std.ArrayListUnmanaged(Export) = .empty,
 /// This is a list of free indices in `all_exports`. These indices may be reused by exports from
 /// future semantic analysis.
-free_exports: std.ArrayListUnmanaged(u32) = .empty,
+free_exports: std.ArrayListUnmanaged(Export.Index) = .empty,
 /// Maps from an `AnalUnit` which performs a single export, to the index into `all_exports` of
 /// the export it performs. Note that the key is not the `Decl` being exported, but the `AnalUnit`
 /// whose analysis triggered the export.
-single_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, u32) = .empty,
+single_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, Export.Index) = .empty,
 /// Like `single_exports`, but for `AnalUnit`s which perform multiple exports.
 /// The exports are `all_exports.items[index..][0..len]`.
 multi_exports: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
@@ -127,6 +127,7 @@ transitive_failed_analysis: std.AutoArrayHashMapUnmanaged(AnalUnit, void) = .emp
 /// This may be a simple "value" `Nav`, or it may be a function.
 /// The ErrorMsg memory is owned by the `AnalUnit`, using Module's general purpose allocator.
 failed_codegen: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, *ErrorMsg) = .empty,
+failed_types: std.AutoArrayHashMapUnmanaged(InternPool.Index, *ErrorMsg) = .empty,
 /// Keep track of one `@compileLog` callsite per `AnalUnit`.
 /// The value is the source location of the `@compileLog` call, convertible to a `LazySrcLoc`.
 compile_log_sources: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
@@ -142,10 +143,7 @@ compile_log_sources: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `File`, using Module's general purpose allocator.
 failed_files: std.AutoArrayHashMapUnmanaged(*File, ?*ErrorMsg) = .empty,
-/// The ErrorMsg memory is owned by the `EmbedFile`, using Module's general purpose allocator.
-failed_embed_files: std.AutoArrayHashMapUnmanaged(*EmbedFile, *ErrorMsg) = .empty,
-/// Key is index into `all_exports`.
-failed_exports: std.AutoArrayHashMapUnmanaged(u32, *ErrorMsg) = .empty,
+failed_exports: std.AutoArrayHashMapUnmanaged(Export.Index, *ErrorMsg) = .empty,
 /// If analysis failed due to a cimport error, the corresponding Clang errors
 /// are stored here.
 cimport_errors: std.AutoArrayHashMapUnmanaged(AnalUnit, std.zig.ErrorBundle) = .empty,
@@ -219,8 +217,6 @@ free_type_references: std.ArrayListUnmanaged(u32) = .empty,
 
 /// Populated by analysis of `AnalUnit.wrap(.{ .memoized_state = s })`, where `s` depends on the element.
 builtin_decl_values: BuiltinDecl.Memoized = .initFill(.none),
-/// Populated by analysis of `AnalUnit.wrap(.{ .memoized_state = .panic })`.
-null_stack_trace: InternPool.Index = .none,
 
 generation: u32 = 0,
 
@@ -269,34 +265,33 @@ pub const BuiltinDecl = enum {
     @"Type.Opaque",
     @"Type.Declaration",
 
-    Panic,
-    @"Panic.call",
-    @"Panic.sentinelMismatch",
-    @"Panic.unwrapError",
-    @"Panic.outOfBounds",
-    @"Panic.startGreaterThanEnd",
-    @"Panic.inactiveUnionField",
-    @"Panic.messages",
-    @"Panic.messages.reached_unreachable",
-    @"Panic.messages.unwrap_null",
-    @"Panic.messages.cast_to_null",
-    @"Panic.messages.incorrect_alignment",
-    @"Panic.messages.invalid_error_code",
-    @"Panic.messages.cast_truncated_data",
-    @"Panic.messages.negative_to_unsigned",
-    @"Panic.messages.integer_overflow",
-    @"Panic.messages.shl_overflow",
-    @"Panic.messages.shr_overflow",
-    @"Panic.messages.divide_by_zero",
-    @"Panic.messages.exact_division_remainder",
-    @"Panic.messages.integer_part_out_of_bounds",
-    @"Panic.messages.corrupt_switch",
-    @"Panic.messages.shift_rhs_too_big",
-    @"Panic.messages.invalid_enum_value",
-    @"Panic.messages.for_len_mismatch",
-    @"Panic.messages.memcpy_len_mismatch",
-    @"Panic.messages.memcpy_alias",
-    @"Panic.messages.noreturn_returned",
+    panic,
+    @"panic.call",
+    @"panic.sentinelMismatch",
+    @"panic.unwrapError",
+    @"panic.outOfBounds",
+    @"panic.startGreaterThanEnd",
+    @"panic.inactiveUnionField",
+    @"panic.reachedUnreachable",
+    @"panic.unwrapNull",
+    @"panic.castToNull",
+    @"panic.incorrectAlignment",
+    @"panic.invalidErrorCode",
+    @"panic.castTruncatedData",
+    @"panic.negativeToUnsigned",
+    @"panic.integerOverflow",
+    @"panic.shlOverflow",
+    @"panic.shrOverflow",
+    @"panic.divideByZero",
+    @"panic.exactDivisionRemainder",
+    @"panic.integerPartOutOfBounds",
+    @"panic.corruptSwitch",
+    @"panic.shiftRhsTooBig",
+    @"panic.invalidEnumValue",
+    @"panic.forLenMismatch",
+    @"panic.memcpyLenMismatch",
+    @"panic.memcpyAlias",
+    @"panic.noreturnReturned",
 
     VaList,
 
@@ -345,39 +340,35 @@ pub const BuiltinDecl = enum {
             .@"Type.Declaration",
             => .type,
 
-            .Panic => .type,
+            .panic => .type,
 
-            .@"Panic.call",
-            .@"Panic.sentinelMismatch",
-            .@"Panic.unwrapError",
-            .@"Panic.outOfBounds",
-            .@"Panic.startGreaterThanEnd",
-            .@"Panic.inactiveUnionField",
+            .@"panic.call",
+            .@"panic.sentinelMismatch",
+            .@"panic.unwrapError",
+            .@"panic.outOfBounds",
+            .@"panic.startGreaterThanEnd",
+            .@"panic.inactiveUnionField",
+            .@"panic.reachedUnreachable",
+            .@"panic.unwrapNull",
+            .@"panic.castToNull",
+            .@"panic.incorrectAlignment",
+            .@"panic.invalidErrorCode",
+            .@"panic.castTruncatedData",
+            .@"panic.negativeToUnsigned",
+            .@"panic.integerOverflow",
+            .@"panic.shlOverflow",
+            .@"panic.shrOverflow",
+            .@"panic.divideByZero",
+            .@"panic.exactDivisionRemainder",
+            .@"panic.integerPartOutOfBounds",
+            .@"panic.corruptSwitch",
+            .@"panic.shiftRhsTooBig",
+            .@"panic.invalidEnumValue",
+            .@"panic.forLenMismatch",
+            .@"panic.memcpyLenMismatch",
+            .@"panic.memcpyAlias",
+            .@"panic.noreturnReturned",
             => .func,
-
-            .@"Panic.messages" => .type,
-
-            .@"Panic.messages.reached_unreachable",
-            .@"Panic.messages.unwrap_null",
-            .@"Panic.messages.cast_to_null",
-            .@"Panic.messages.incorrect_alignment",
-            .@"Panic.messages.invalid_error_code",
-            .@"Panic.messages.cast_truncated_data",
-            .@"Panic.messages.negative_to_unsigned",
-            .@"Panic.messages.integer_overflow",
-            .@"Panic.messages.shl_overflow",
-            .@"Panic.messages.shr_overflow",
-            .@"Panic.messages.divide_by_zero",
-            .@"Panic.messages.exact_division_remainder",
-            .@"Panic.messages.integer_part_out_of_bounds",
-            .@"Panic.messages.corrupt_switch",
-            .@"Panic.messages.shift_rhs_too_big",
-            .@"Panic.messages.invalid_enum_value",
-            .@"Panic.messages.for_len_mismatch",
-            .@"Panic.messages.memcpy_len_mismatch",
-            .@"Panic.messages.memcpy_alias",
-            .@"Panic.messages.noreturn_returned",
-            => .string,
         };
     }
 
@@ -423,7 +414,7 @@ pub const BuiltinDecl = enum {
     const Memoized = std.enums.EnumArray(BuiltinDecl, InternPool.Index);
 };
 
-pub const PanicId = enum {
+pub const SimplePanicId = enum {
     reached_unreachable,
     unwrap_null,
     cast_to_null,
@@ -445,19 +436,31 @@ pub const PanicId = enum {
     memcpy_alias,
     noreturn_returned,
 
-    pub fn toBuiltin(id: PanicId) BuiltinDecl {
-        const first_msg: PanicId = @enumFromInt(0);
-        const first_decl = @field(BuiltinDecl, "Panic.messages." ++ @tagName(first_msg));
-        comptime {
-            // Ensure that the messages are ordered the same in `BuiltinDecl` as they are here.
-            for (@typeInfo(PanicId).@"enum".fields) |panic_field| {
-                const expect_name = "Panic.messages." ++ panic_field.name;
-                const expect_idx = @intFromEnum(first_decl) + panic_field.value;
-                const actual_idx = @intFromEnum(@field(BuiltinDecl, expect_name));
-                assert(expect_idx == actual_idx);
-            }
-        }
-        return @enumFromInt(@intFromEnum(first_decl) + @intFromEnum(id));
+    pub fn toBuiltin(id: SimplePanicId) BuiltinDecl {
+        return switch (id) {
+            // zig fmt: off
+            .reached_unreachable        => .@"panic.reachedUnreachable",
+            .unwrap_null                => .@"panic.unwrapNull",
+            .cast_to_null               => .@"panic.castToNull",
+            .incorrect_alignment        => .@"panic.incorrectAlignment",
+            .invalid_error_code         => .@"panic.invalidErrorCode",
+            .cast_truncated_data        => .@"panic.castTruncatedData",
+            .negative_to_unsigned       => .@"panic.negativeToUnsigned",
+            .integer_overflow           => .@"panic.integerOverflow",
+            .shl_overflow               => .@"panic.shlOverflow",
+            .shr_overflow               => .@"panic.shrOverflow",
+            .divide_by_zero             => .@"panic.divideByZero",
+            .exact_division_remainder   => .@"panic.exactDivisionRemainder",
+            .integer_part_out_of_bounds => .@"panic.integerPartOutOfBounds",
+            .corrupt_switch             => .@"panic.corruptSwitch",
+            .shift_rhs_too_big          => .@"panic.shiftRhsTooBig",
+            .invalid_enum_value         => .@"panic.invalidEnumValue",
+            .for_len_mismatch           => .@"panic.forLenMismatch",
+            .memcpy_len_mismatch        => .@"panic.memcpyLenMismatch",
+            .memcpy_alias               => .@"panic.memcpyAlias",
+            .noreturn_returned          => .@"panic.noreturnReturned",
+            // zig fmt: on
+        };
     }
 };
 
@@ -523,6 +526,15 @@ pub const Export = struct {
         linkage: std.builtin.GlobalLinkage = .strong,
         section: InternPool.OptionalNullTerminatedString = .none,
         visibility: std.builtin.SymbolVisibility = .default,
+    };
+
+    /// Index into `all_exports`.
+    pub const Index = enum(u32) {
+        _,
+
+        pub fn ptr(i: Index, zcu: *const Zcu) *Export {
+            return &zcu.all_exports.items[@intFromEnum(i)];
+        }
     };
 };
 
@@ -884,13 +896,23 @@ pub const File = struct {
 };
 
 pub const EmbedFile = struct {
-    /// Relative to the owning module's root directory.
-    sub_file_path: InternPool.NullTerminatedString,
     /// Module that this file is a part of, managed externally.
     owner: *Package.Module,
-    stat: Cache.File.Stat,
+    /// Relative to the owning module's root directory.
+    sub_file_path: InternPool.NullTerminatedString,
+
+    /// `.none` means the file was not loaded, so `stat` is undefined.
     val: InternPool.Index,
-    src_loc: LazySrcLoc,
+    /// If this is `null` and `val` is `.none`, the file has never been loaded.
+    err: ?(std.fs.File.OpenError || std.fs.File.StatError || std.fs.File.ReadError || error{UnexpectedEof}),
+    stat: Cache.File.Stat,
+
+    pub const Index = enum(u32) {
+        _,
+        pub fn get(idx: Index, zcu: *const Zcu) *EmbedFile {
+            return zcu.embed_table.values()[@intFromEnum(idx)];
+        }
+    };
 };
 
 /// This struct holds data necessary to construct API-facing `AllErrors.Message`.
@@ -1855,15 +1877,16 @@ pub const SrcLoc = struct {
                         if (want_case_idx.isSpecial()) {
                             break case;
                         }
+                        continue;
                     }
 
                     const is_multi = case.ast.values.len != 1 or
                         node_tags[case.ast.values[0]] == .switch_range;
 
-                    if (!want_case_idx.isSpecial()) switch (want_case_idx.kind) {
+                    switch (want_case_idx.kind) {
                         .scalar => if (!is_multi and want_case_idx.index == scalar_i) break case,
                         .multi => if (is_multi and want_case_idx.index == multi_i) break case,
-                    };
+                    }
 
                     if (is_multi) {
                         multi_i += 1;
@@ -1927,6 +1950,24 @@ pub const SrcLoc = struct {
                         } else unreachable;
                     },
                 }
+            },
+            .func_decl_param_comptime => |param_idx| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                var buf: [1]Ast.Node.Index = undefined;
+                const full = tree.fullFnProto(&buf, src_loc.base_node).?;
+                var param_it = full.iterate(tree);
+                for (0..param_idx) |_| assert(param_it.next() != null);
+                const param = param_it.next().?;
+                return tree.tokenToSpan(param.comptime_noalias.?);
+            },
+            .func_decl_param_ty => |param_idx| {
+                const tree = try src_loc.file_scope.getTree(gpa);
+                var buf: [1]Ast.Node.Index = undefined;
+                const full = tree.fullFnProto(&buf, src_loc.base_node).?;
+                var param_it = full.iterate(tree);
+                for (0..param_idx) |_| assert(param_it.next() != null);
+                const param = param_it.next().?;
+                return tree.nodeToSpan(param.type_expr);
             },
         }
     }
@@ -2235,6 +2276,12 @@ pub const LazySrcLoc = struct {
         /// The source location points to the "tag" capture (second capture) of
         /// a specific case of a `switch`.
         switch_tag_capture: SwitchCapture,
+        /// The source location points to the `comptime` token on the given comptime parameter,
+        /// where the base node is a function declaration. The value is the parameter index.
+        func_decl_param_comptime: u32,
+        /// The source location points to the type annotation on the given function parameter,
+        /// where the base node is a function declaration. The value is the parameter index.
+        func_decl_param_ty: u32,
 
         pub const FnProtoParam = struct {
             /// The offset of the function prototype AST node.
@@ -2371,10 +2418,6 @@ pub const CompileError = error{
     OutOfMemory,
     /// When this is returned, the compile error for the failure has already been recorded.
     AnalysisFail,
-    /// A Type or Value was needed to be used during semantic analysis, but it was not available
-    /// because the function is generic. This is only seen when analyzing the body of a param
-    /// instruction.
-    GenericPoison,
     /// In a comptime scope, a return instruction was encountered. This error is only seen when
     /// doing a comptime function call.
     ComptimeReturn,
@@ -2415,26 +2458,19 @@ pub fn deinit(zcu: *Zcu) void {
         zcu.local_zir_cache.handle.close();
         zcu.global_zir_cache.handle.close();
 
-        for (zcu.failed_analysis.values()) |value| {
-            value.destroy(gpa);
-        }
-        for (zcu.failed_codegen.values()) |value| {
-            value.destroy(gpa);
-        }
+        for (zcu.failed_analysis.values()) |value| value.destroy(gpa);
+        for (zcu.failed_codegen.values()) |value| value.destroy(gpa);
+        for (zcu.failed_types.values()) |value| value.destroy(gpa);
         zcu.analysis_in_progress.deinit(gpa);
         zcu.failed_analysis.deinit(gpa);
         zcu.transitive_failed_analysis.deinit(gpa);
         zcu.failed_codegen.deinit(gpa);
+        zcu.failed_types.deinit(gpa);
 
         for (zcu.failed_files.values()) |value| {
             if (value) |msg| msg.destroy(gpa);
         }
         zcu.failed_files.deinit(gpa);
-
-        for (zcu.failed_embed_files.values()) |msg| {
-            msg.destroy(gpa);
-        }
-        zcu.failed_embed_files.deinit(gpa);
 
         for (zcu.failed_exports.values()) |value| {
             value.destroy(gpa);
@@ -3069,7 +3105,7 @@ pub fn deleteUnitExports(zcu: *Zcu, anal_unit: AnalUnit) void {
     const gpa = zcu.gpa;
 
     const exports_base, const exports_len = if (zcu.single_exports.fetchSwapRemove(anal_unit)) |kv|
-        .{ kv.value, 1 }
+        .{ @intFromEnum(kv.value), 1 }
     else if (zcu.multi_exports.fetchSwapRemove(anal_unit)) |info|
         .{ info.value.index, info.value.len }
     else
@@ -3083,11 +3119,12 @@ pub fn deleteUnitExports(zcu: *Zcu, anal_unit: AnalUnit) void {
     // This case is needed because in some rare edge cases, `Sema` wants to add and delete exports
     // within a single update.
     if (dev.env.supports(.incremental)) {
-        for (exports, exports_base..) |exp, export_idx| {
+        for (exports, exports_base..) |exp, export_index_usize| {
+            const export_idx: Export.Index = @enumFromInt(export_index_usize);
             if (zcu.comp.bin_file) |lf| {
                 lf.deleteExport(exp.exported, exp.opts.name);
             }
-            if (zcu.failed_exports.fetchSwapRemove(@intCast(export_idx))) |failed_kv| {
+            if (zcu.failed_exports.fetchSwapRemove(export_idx)) |failed_kv| {
                 failed_kv.value.destroy(gpa);
             }
         }
@@ -3099,7 +3136,7 @@ pub fn deleteUnitExports(zcu: *Zcu, anal_unit: AnalUnit) void {
         return;
     };
     for (exports_base..exports_base + exports_len) |export_idx| {
-        zcu.free_exports.appendAssumeCapacity(@intCast(export_idx));
+        zcu.free_exports.appendAssumeCapacity(@enumFromInt(export_idx));
     }
 }
 
@@ -3245,7 +3282,7 @@ fn lockAndClearFileCompileError(zcu: *Zcu, file: *File) void {
 
 pub fn handleUpdateExports(
     zcu: *Zcu,
-    export_indices: []const u32,
+    export_indices: []const Export.Index,
     result: link.File.UpdateExportsError!void,
 ) Allocator.Error!void {
     const gpa = zcu.gpa;
@@ -3253,12 +3290,10 @@ pub fn handleUpdateExports(
         error.OutOfMemory => return error.OutOfMemory,
         error.AnalysisFail => {
             const export_idx = export_indices[0];
-            const new_export = &zcu.all_exports.items[export_idx];
+            const new_export = export_idx.ptr(zcu);
             new_export.status = .failed_retryable;
             try zcu.failed_exports.ensureUnusedCapacity(gpa, 1);
-            const msg = try ErrorMsg.create(gpa, new_export.src, "unable to export: {s}", .{
-                @errorName(err),
-            });
+            const msg = try ErrorMsg.create(gpa, new_export.src, "unable to export: {s}", .{@errorName(err)});
             zcu.failed_exports.putAssumeCapacityNoClobber(export_idx, msg);
         },
     };
@@ -3278,7 +3313,7 @@ pub fn addGlobalAssembly(zcu: *Zcu, unit: AnalUnit, source: []const u8) !void {
 
 pub const Feature = enum {
     /// When this feature is enabled, Sema will emit calls to
-    /// `std.builtin.Panic` functions for things like safety checks and
+    /// `std.builtin.panic` functions for things like safety checks and
     /// unreachables. Otherwise traps will be emitted.
     panic_fn,
     /// When this feature is enabled, Sema will insert tracer functions for gathering a stack
@@ -3294,6 +3329,7 @@ pub const Feature = enum {
     /// * `Air.Inst.Tag.add_safe`
     /// * `Air.Inst.Tag.sub_safe`
     /// * `Air.Inst.Tag.mul_safe`
+    /// * `Air.Inst.Tag.intcast_safe`
     /// The motivation for this feature is that it makes AIR smaller, and makes it easier
     /// to generate better machine code in the backends. All backends should migrate to
     /// enabling this feature.
@@ -3419,7 +3455,7 @@ pub fn atomicPtrAlignment(
 /// * `@TypeOf(.{})`
 /// * A struct which has no fields (`struct {}`).
 /// * Not a struct.
-pub fn typeToStruct(zcu: *Zcu, ty: Type) ?InternPool.LoadedStructType {
+pub fn typeToStruct(zcu: *const Zcu, ty: Type) ?InternPool.LoadedStructType {
     if (ty.ip_index == .none) return null;
     const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.ip_index)) {
@@ -3428,7 +3464,7 @@ pub fn typeToStruct(zcu: *Zcu, ty: Type) ?InternPool.LoadedStructType {
     };
 }
 
-pub fn typeToPackedStruct(zcu: *Zcu, ty: Type) ?InternPool.LoadedStructType {
+pub fn typeToPackedStruct(zcu: *const Zcu, ty: Type) ?InternPool.LoadedStructType {
     const s = zcu.typeToStruct(ty) orelse return null;
     if (s.layout != .@"packed") return null;
     return s;
@@ -3453,11 +3489,7 @@ pub fn iesFuncIndex(zcu: *const Zcu, ies_index: InternPool.Index) InternPool.Ind
 }
 
 pub fn funcInfo(zcu: *const Zcu, func_index: InternPool.Index) InternPool.Key.Func {
-    return zcu.intern_pool.indexToKey(func_index).func;
-}
-
-pub fn toEnum(zcu: *const Zcu, comptime E: type, val: Value) E {
-    return zcu.intern_pool.toEnum(E, val.toIntern());
+    return zcu.intern_pool.toFunc(func_index);
 }
 
 pub const UnionLayout = struct {
@@ -3767,6 +3799,18 @@ pub fn navSrcLoc(zcu: *const Zcu, nav_index: InternPool.Nav.Index) LazySrcLoc {
     };
 }
 
+pub fn typeSrcLoc(zcu: *const Zcu, ty_index: InternPool.Index) LazySrcLoc {
+    _ = zcu;
+    _ = ty_index;
+    @panic("TODO");
+}
+
+pub fn typeFileScope(zcu: *Zcu, ty_index: InternPool.Index) *File {
+    _ = zcu;
+    _ = ty_index;
+    @panic("TODO");
+}
+
 pub fn navSrcLine(zcu: *Zcu, nav_index: InternPool.Nav.Index) u32 {
     const ip = &zcu.intern_pool;
     const inst_info = ip.getNav(nav_index).srcInst(ip).resolveFull(ip).?;
@@ -3846,6 +3890,14 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
             .struct_type, .union_type, .enum_type => return writer.print("type('{}')", .{Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip)}),
             .func => |f| return writer.print("ies('{}')", .{ip.getNav(f.owner_nav).fqn.fmt(ip)}),
             else => unreachable,
+        },
+        .embed_file => |ef_idx| {
+            const ef = ef_idx.get(zcu);
+            return writer.print("embed_file('{s}')", .{std.fs.path.fmtJoin(&.{
+                ef.owner.root.root_dir.path orelse "",
+                ef.owner.root.sub_path,
+                ef.sub_file_path.toSlice(ip),
+            })});
         },
         .namespace => |ti| {
             const info = ti.resolveFull(ip) orelse {
@@ -4026,4 +4078,55 @@ pub fn navValIsConst(zcu: *const Zcu, val: InternPool.Index) bool {
         .@"extern" => |e| e.is_const,
         else => true,
     };
+}
+
+pub const CodegenFailError = error{
+    /// Indicates the error message has been already stored at `Zcu.failed_codegen`.
+    CodegenFail,
+    OutOfMemory,
+};
+
+pub fn codegenFail(
+    zcu: *Zcu,
+    nav_index: InternPool.Nav.Index,
+    comptime format: []const u8,
+    args: anytype,
+) CodegenFailError {
+    const gpa = zcu.gpa;
+    try zcu.failed_codegen.ensureUnusedCapacity(gpa, 1);
+    const msg = try Zcu.ErrorMsg.create(gpa, zcu.navSrcLoc(nav_index), format, args);
+    zcu.failed_codegen.putAssumeCapacityNoClobber(nav_index, msg);
+    return error.CodegenFail;
+}
+
+pub fn codegenFailMsg(zcu: *Zcu, nav_index: InternPool.Nav.Index, msg: *ErrorMsg) CodegenFailError {
+    const gpa = zcu.gpa;
+    {
+        errdefer msg.deinit(gpa);
+        try zcu.failed_codegen.putNoClobber(gpa, nav_index, msg);
+    }
+    return error.CodegenFail;
+}
+
+pub fn codegenFailType(
+    zcu: *Zcu,
+    ty_index: InternPool.Index,
+    comptime format: []const u8,
+    args: anytype,
+) CodegenFailError {
+    const gpa = zcu.gpa;
+    try zcu.failed_types.ensureUnusedCapacity(gpa, 1);
+    const msg = try Zcu.ErrorMsg.create(gpa, zcu.typeSrcLoc(ty_index), format, args);
+    zcu.failed_types.putAssumeCapacityNoClobber(ty_index, msg);
+    return error.CodegenFail;
+}
+
+pub fn codegenFailTypeMsg(zcu: *Zcu, ty_index: InternPool.Index, msg: *ErrorMsg) CodegenFailError {
+    const gpa = zcu.gpa;
+    {
+        errdefer msg.deinit(gpa);
+        try zcu.failed_types.ensureUnusedCapacity(gpa, 1);
+    }
+    zcu.failed_types.putAssumeCapacityNoClobber(ty_index, msg);
+    return error.CodegenFail;
 }

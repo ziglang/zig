@@ -2029,7 +2029,7 @@ pub const DeleteTreeError = error{
     NetworkNotFound,
 } || posix.UnexpectedError;
 
-/// Whether `full_path` describes a symlink, file, or directory, this function
+/// Whether `sub_path` describes a symlink, file, or directory, this function
 /// removes it. If it cannot be removed because it is a non-empty directory,
 /// this function recursively removes its entries and then tries again.
 /// This operation is not atomic on most file systems.

@@ -177,7 +177,7 @@ pub const ASTUnit = opaque {
     extern fn ZigClangASTUnit_visitLocalTopLevelDecls(
         *ASTUnit,
         context: ?*anyopaque,
-        Fn: ?*const fn (?*anyopaque, *const Decl) callconv(.C) bool,
+        Fn: ?*const fn (?*anyopaque, *const Decl) callconv(.c) bool,
     ) bool;
 
     pub const getLocalPreprocessingEntities_begin = ZigClangASTUnit_getLocalPreprocessingEntities_begin;

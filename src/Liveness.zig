@@ -202,14 +202,6 @@ pub fn operandDies(l: Liveness, inst: Air.Inst.Index, operand: OperandInt) bool 
     return (l.tomb_bits[usize_index] & mask) != 0;
 }
 
-pub fn clearOperandDeath(l: Liveness, inst: Air.Inst.Index, operand: OperandInt) void {
-    assert(operand < bpi - 1);
-    const usize_index = (@intFromEnum(inst) * bpi) / @bitSizeOf(usize);
-    const mask = @as(usize, 1) <<
-        @as(Log2Int(usize), @intCast((@intFromEnum(inst) % (@bitSizeOf(usize) / bpi)) * bpi + operand));
-    l.tomb_bits[usize_index] &= ~mask;
-}
-
 const OperandCategory = enum {
     /// The operand lives on, but this instruction cannot possibly mutate memory.
     none,
@@ -353,6 +345,7 @@ pub fn categorizeOperand(
         .fpext,
         .fptrunc,
         .intcast,
+        .intcast_safe,
         .trunc,
         .optional_payload,
         .optional_payload_ptr,
@@ -727,32 +720,25 @@ pub const SwitchBrTable = struct {
 
 /// Caller owns the memory.
 pub fn getSwitchBr(l: Liveness, gpa: Allocator, inst: Air.Inst.Index, cases_len: u32) Allocator.Error!SwitchBrTable {
-    var index: usize = l.special.get(inst) orelse return SwitchBrTable{
-        .deaths = &.{},
-    };
+    var index: usize = l.special.get(inst) orelse return .{ .deaths = &.{} };
     const else_death_count = l.extra[index];
     index += 1;
 
-    var deaths = std.ArrayList([]const Air.Inst.Index).init(gpa);
-    defer deaths.deinit();
-    try deaths.ensureTotalCapacity(cases_len + 1);
+    var deaths = try gpa.alloc([]const Air.Inst.Index, cases_len);
+    errdefer gpa.free(deaths);
 
     var case_i: u32 = 0;
     while (case_i < cases_len - 1) : (case_i += 1) {
         const case_death_count: u32 = l.extra[index];
         index += 1;
-        const case_deaths: []const Air.Inst.Index = @ptrCast(l.extra[index..][0..case_death_count]);
+        deaths[case_i] = @ptrCast(l.extra[index..][0..case_death_count]);
         index += case_death_count;
-        deaths.appendAssumeCapacity(case_deaths);
     }
     {
         // Else
-        const else_deaths: []const Air.Inst.Index = @ptrCast(l.extra[index..][0..else_death_count]);
-        deaths.appendAssumeCapacity(else_deaths);
+        deaths[case_i] = @ptrCast(l.extra[index..][0..else_death_count]);
     }
-    return SwitchBrTable{
-        .deaths = try deaths.toOwnedSlice(),
-    };
+    return .{ .deaths = deaths };
 }
 
 /// Note that this information is technically redundant, but is useful for
@@ -843,12 +829,6 @@ const Analysis = struct {
     tomb_bits: []usize,
     special: std.AutoHashMapUnmanaged(Air.Inst.Index, u32),
     extra: std.ArrayListUnmanaged(u32),
-
-    fn storeTombBits(a: *Analysis, inst: Air.Inst.Index, tomb_bits: Bpi) void {
-        const usize_index = (inst * bpi) / @bitSizeOf(usize);
-        a.tomb_bits[usize_index] |= @as(usize, tomb_bits) <<
-            @as(Log2Int(usize), @intCast((inst % (@bitSizeOf(usize) / bpi)) * bpi));
-    }
 
     fn addExtra(a: *Analysis, extra: anytype) Allocator.Error!u32 {
         const fields = std.meta.fields(@TypeOf(extra));
@@ -998,6 +978,7 @@ fn analyzeInst(
         .fpext,
         .fptrunc,
         .intcast,
+        .intcast_safe,
         .trunc,
         .optional_payload,
         .optional_payload_ptr,

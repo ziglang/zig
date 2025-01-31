@@ -35,7 +35,7 @@ fillFn: *const fn (ptr: *anyopaque, buf: []u8) void,
 pub fn init(pointer: anytype, comptime fillFn: fn (ptr: @TypeOf(pointer), buf: []u8) void) Random {
     const Ptr = @TypeOf(pointer);
     assert(@typeInfo(Ptr) == .pointer); // Must be a pointer
-    assert(@typeInfo(Ptr).pointer.size == .One); // Must be a single-item pointer
+    assert(@typeInfo(Ptr).pointer.size == .one); // Must be a single-item pointer
     assert(@typeInfo(@typeInfo(Ptr).pointer.child) == .@"struct"); // Must point to a struct
     const gen = struct {
         fn fill(ptr: *anyopaque, buf: []u8) void {

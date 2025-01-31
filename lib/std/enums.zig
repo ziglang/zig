@@ -19,7 +19,7 @@ pub fn EnumFieldStruct(comptime E: type, comptime Data: type, comptime field_def
         struct_field.* = .{
             .name = enum_field.name ++ "",
             .type = Data,
-            .default_value = if (field_default) |d| @as(?*const anyopaque, @ptrCast(&d)) else null,
+            .default_value_ptr = if (field_default) |d| @as(?*const anyopaque, @ptrCast(&d)) else null,
             .is_comptime = false,
             .alignment = if (@sizeOf(Data) > 0) @alignOf(Data) else 0,
         };

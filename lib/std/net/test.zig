@@ -312,6 +312,21 @@ test "listen on a unix socket, send bytes, receive bytes" {
     try testing.expectEqualSlices(u8, "Hello world!", buf[0..n]);
 }
 
+test "listen on a unix socket with reuse_port option" {
+    if (!net.has_unix_sockets) return error.SkipZigTest;
+    // Windows doesn't implement reuse port option.
+    if (builtin.os.tag == .windows) return error.SkipZigTest;
+
+    const socket_path = try generateFileName("socket.unix");
+    defer testing.allocator.free(socket_path);
+
+    const socket_addr = try net.Address.initUnix(socket_path);
+    defer std.fs.cwd().deleteFile(socket_path) catch {};
+
+    var server = try socket_addr.listen(.{ .reuse_port = true });
+    server.deinit();
+}
+
 fn generateFileName(base_name: []const u8) ![]const u8 {
     const random_bytes_count = 12;
     const sub_path_len = comptime std.fs.base64_encoder.calcSize(random_bytes_count);

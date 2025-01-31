@@ -104,6 +104,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .fptrunc,
             .fpext,
             .intcast,
+            .intcast_safe,
             .trunc,
             .optional_payload,
             .optional_payload_ptr,
@@ -455,9 +456,8 @@ pub fn checkVal(val: Value, zcu: *Zcu) bool {
 
 pub fn checkType(ty: Type, zcu: *Zcu) bool {
     const ip = &zcu.intern_pool;
-    return switch (ty.zigTypeTagOrPoison(zcu) catch |err| switch (err) {
-        error.GenericPoison => return true,
-    }) {
+    if (ty.isGenericPoison()) return true;
+    return switch (ty.zigTypeTag(zcu)) {
         .type,
         .void,
         .bool,

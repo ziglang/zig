@@ -67,7 +67,7 @@ pub const syscall_pipe = syscall_bits.syscall_pipe;
 pub const syscall_fork = syscall_bits.syscall_fork;
 
 pub fn clone(
-    func: *const fn (arg: usize) callconv(.C) u8,
+    func: *const fn (arg: usize) callconv(.c) u8,
     stack: usize,
     flags: u32,
     arg: usize,
@@ -77,14 +77,14 @@ pub fn clone(
 ) usize {
     // Can't directly call a naked function; cast to C calling convention first.
     return @as(*const fn (
-        *const fn (arg: usize) callconv(.C) u8,
+        *const fn (arg: usize) callconv(.c) u8,
         usize,
         u32,
         usize,
         ?*i32,
         usize,
         ?*i32,
-    ) callconv(.C) usize, @ptrCast(&syscall_bits.clone))(func, stack, flags, arg, ptid, tp, ctid);
+    ) callconv(.c) usize, @ptrCast(&syscall_bits.clone))(func, stack, flags, arg, ptid, tp, ctid);
 }
 
 pub const ARCH = arch_bits.ARCH;
@@ -494,7 +494,7 @@ pub const getauxval = if (extern_getauxval) struct {
     extern fn getauxval(index: usize) usize;
 }.getauxval else getauxvalImpl;
 
-fn getauxvalImpl(index: usize) callconv(.C) usize {
+fn getauxvalImpl(index: usize) callconv(.c) usize {
     const auxv = elf_aux_maybe orelse return 0;
     var i: usize = 0;
     while (auxv[i].a_type != std.elf.AT_NULL) : (i += 1) {
@@ -608,11 +608,11 @@ pub inline fn vfork() usize {
     return @call(.always_inline, syscall0, .{.vfork});
 }
 
-pub fn futimens(fd: i32, times: *const [2]timespec) usize {
+pub fn futimens(fd: i32, times: ?*const [2]timespec) usize {
     return utimensat(fd, null, times, 0);
 }
 
-pub fn utimensat(dirfd: i32, path: ?[*:0]const u8, times: *const [2]timespec, flags: u32) usize {
+pub fn utimensat(dirfd: i32, path: ?[*:0]const u8, times: ?*const [2]timespec, flags: u32) usize {
     return syscall4(.utimensat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(times), flags);
 }
 
@@ -854,7 +854,7 @@ pub fn readlinkat(dirfd: i32, noalias path: [*:0]const u8, noalias buf_ptr: [*]u
     return syscall4(.readlinkat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(buf_ptr), buf_len);
 }
 
-pub fn mkdir(path: [*:0]const u8, mode: u32) usize {
+pub fn mkdir(path: [*:0]const u8, mode: mode_t) usize {
     if (@hasField(SYS, "mkdir")) {
         return syscall2(.mkdir, @intFromPtr(path), mode);
     } else {
@@ -862,7 +862,7 @@ pub fn mkdir(path: [*:0]const u8, mode: u32) usize {
     }
 }
 
-pub fn mkdirat(dirfd: i32, path: [*:0]const u8, mode: u32) usize {
+pub fn mkdirat(dirfd: i32, path: [*:0]const u8, mode: mode_t) usize {
     return syscall3(.mkdirat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), mode);
 }
 
@@ -1485,7 +1485,7 @@ pub fn flock(fd: fd_t, operation: i32) usize {
 }
 
 // We must follow the C calling convention when we call into the VDSO
-const VdsoClockGettime = *align(1) const fn (clockid_t, *timespec) callconv(.C) usize;
+const VdsoClockGettime = *align(1) const fn (clockid_t, *timespec) callconv(.c) usize;
 var vdso_clock_gettime: ?VdsoClockGettime = &init_vdso_clock_gettime;
 
 pub fn clock_gettime(clk_id: clockid_t, tp: *timespec) usize {
@@ -1502,7 +1502,7 @@ pub fn clock_gettime(clk_id: clockid_t, tp: *timespec) usize {
     return syscall2(.clock_gettime, @intFromEnum(clk_id), @intFromPtr(tp));
 }
 
-fn init_vdso_clock_gettime(clk: clockid_t, ts: *timespec) callconv(.C) usize {
+fn init_vdso_clock_gettime(clk: clockid_t, ts: *timespec) callconv(.c) usize {
     const ptr: ?VdsoClockGettime = @ptrFromInt(vdso.lookup(VDSO.CGT_VER, VDSO.CGT_SYM));
     // Note that we may not have a VDSO at all, update the stub address anyway
     // so that clock_gettime will fall back on the good old (and slow) syscall
@@ -1759,6 +1759,14 @@ pub fn sigaddset(set: *sigset_t, sig: u6) void {
     (set.*)[@as(usize, @intCast(s)) / usize_bits] |= val;
 }
 
+pub fn sigdelset(set: *sigset_t, sig: u6) void {
+    const s = sig - 1;
+    // shift in musl: s&8*sizeof *set->__bits-1
+    const shift = @as(u5, @intCast(s & (usize_bits - 1)));
+    const val = @as(u32, @intCast(1)) << shift;
+    (set.*)[@as(usize, @intCast(s)) / usize_bits] ^= val;
+}
+
 pub fn sigismember(set: *const sigset_t, sig: u6) bool {
     const s = sig - 1;
     return ((set.*)[@as(usize, @intCast(s)) / usize_bits] & (@as(usize, @intCast(1)) << @intCast(s & (usize_bits - 1)))) != 0;
@@ -1868,6 +1876,17 @@ pub fn recvmsg(fd: i32, msg: *msghdr, flags: u32) usize {
     } else {
         return syscall3(.recvmsg, fd_usize, msg_usize, flags);
     }
+}
+
+pub fn recvmmsg(fd: i32, msgvec: ?[*]mmsghdr, vlen: u32, flags: u32, timeout: ?*timespec) usize {
+    return syscall5(
+        .recvmmsg,
+        @as(usize, @bitCast(@as(isize, fd))),
+        @intFromPtr(msgvec),
+        vlen,
+        flags,
+        @intFromPtr(timeout),
+    );
 }
 
 pub fn recvfrom(
@@ -5070,8 +5089,8 @@ pub const all_mask: sigset_t = [_]u32{0xffffffff} ** @typeInfo(sigset_t).array.l
 pub const app_mask: sigset_t = [2]u32{ 0xfffffffc, 0x7fffffff } ++ [_]u32{0xffffffff} ** 30;
 
 const k_sigaction_funcs = struct {
-    const handler = ?*align(1) const fn (i32) callconv(.C) void;
-    const restorer = *const fn () callconv(.C) void;
+    const handler = ?*align(1) const fn (i32) callconv(.c) void;
+    const restorer = *const fn () callconv(.c) void;
 };
 
 pub const k_sigaction = switch (native_arch) {
@@ -5097,8 +5116,8 @@ pub const k_sigaction = switch (native_arch) {
 
 /// Renamed from `sigaction` to `Sigaction` to avoid conflict with the syscall.
 pub const Sigaction = extern struct {
-    pub const handler_fn = *align(1) const fn (i32) callconv(.C) void;
-    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.C) void;
+    pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
+    pub const sigaction_fn = *const fn (i32, *const siginfo_t, ?*anyopaque) callconv(.c) void;
 
     handler: extern union {
         handler: ?handler_fn,
@@ -5106,7 +5125,7 @@ pub const Sigaction = extern struct {
     },
     mask: sigset_t,
     flags: c_uint,
-    restorer: ?*const fn () callconv(.C) void = null,
+    restorer: ?*const fn () callconv(.c) void = null,
 };
 
 const sigset_len = @typeInfo(sigset_t).array.len;

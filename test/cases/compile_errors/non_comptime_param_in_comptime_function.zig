@@ -11,5 +11,6 @@ export fn entry() void {
 // error
 //
 // :8:11: error: unable to resolve comptime value
-// :1:20: note: function with comptime-only return type 'type' is evaluated at comptime
-// :1:20: note: types are not available at runtime
+// :8:10: note: call to function with comptime-only return type 'type' is evaluated at comptime
+// :1:20: note: return type declared here
+// :8:10: note: types are not available at runtime

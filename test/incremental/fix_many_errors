@@ -24,7 +24,26 @@ export fn f6() void { @compileError("f6"); }
 export fn f7() void { @compileError("f7"); }
 export fn f8() void { @compileError("f8"); }
 export fn f9() void { @compileError("f9"); }
-#expect_error=ignored
+#expect_error=main.zig:2:12: error: c0
+#expect_error=main.zig:3:12: error: c1
+#expect_error=main.zig:4:12: error: c2
+#expect_error=main.zig:5:12: error: c3
+#expect_error=main.zig:6:12: error: c4
+#expect_error=main.zig:7:12: error: c5
+#expect_error=main.zig:8:12: error: c6
+#expect_error=main.zig:9:12: error: c7
+#expect_error=main.zig:10:12: error: c8
+#expect_error=main.zig:11:12: error: c9
+#expect_error=main.zig:12:23: error: f0
+#expect_error=main.zig:13:23: error: f1
+#expect_error=main.zig:14:23: error: f2
+#expect_error=main.zig:15:23: error: f3
+#expect_error=main.zig:16:23: error: f4
+#expect_error=main.zig:17:23: error: f5
+#expect_error=main.zig:18:23: error: f6
+#expect_error=main.zig:19:23: error: f7
+#expect_error=main.zig:20:23: error: f8
+#expect_error=main.zig:21:23: error: f9
 #update=fix all the errors
 #file=main.zig
 pub fn main() !void {}

@@ -6,7 +6,8 @@ pub fn build(b: *std.Build) void {
 
     const empty_c = b.addWriteFiles().add("empty.c", "");
 
-    const libfoo = b.addStaticLibrary(.{
+    const libfoo = b.addLibrary(.{
+        .linkage = .static,
         .name = "foo",
         .root_module = b.createModule(.{
             .root_source_file = null,
@@ -61,7 +62,8 @@ pub fn build(b: *std.Build) void {
         .FOO_CONFIG_2 = "2",
     }));
 
-    const libbar = b.addStaticLibrary(.{
+    const libbar = b.addLibrary(.{
+        .linkage = .static,
         .name = "bar",
         .root_module = b.createModule(.{
             .root_source_file = null,

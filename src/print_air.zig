@@ -96,8 +96,8 @@ const Writer = struct {
     fn writeInst(w: *Writer, s: anytype, inst: Air.Inst.Index) @TypeOf(s).Error!void {
         const tag = w.air.instructions.items(.tag)[@intFromEnum(inst)];
         try s.writeByteNTimes(' ', w.indent);
-        try s.print("%{d}{c}= {s}(", .{
-            @intFromEnum(inst),
+        try s.print("{}{c}= {s}(", .{
+            inst,
             @as(u8, if (if (w.liveness) |liveness| liveness.isUnused(inst) else false) '!' else ' '),
             @tagName(tag),
         });
@@ -223,6 +223,7 @@ const Writer = struct {
             .fptrunc,
             .fpext,
             .intcast,
+            .intcast_safe,
             .trunc,
             .optional_payload,
             .optional_payload_ptr,
@@ -409,7 +410,7 @@ const Writer = struct {
         try s.writeAll("}");
 
         for (liveness_block.deaths) |operand| {
-            try s.print(" %{d}!", .{@intFromEnum(operand)});
+            try s.print(" {}!", .{operand});
         }
     }
 
@@ -728,7 +729,7 @@ const Writer = struct {
             try s.writeByteNTimes(' ', w.indent);
             for (liveness_condbr.else_deaths, 0..) |operand, i| {
                 if (i != 0) try s.writeAll(" ");
-                try s.print("%{d}!", .{@intFromEnum(operand)});
+                try s.print("{}!", .{operand});
             }
             try s.writeAll("\n");
         }
@@ -739,7 +740,7 @@ const Writer = struct {
         try s.writeAll("}");
 
         for (liveness_condbr.then_deaths) |operand| {
-            try s.print(" %{d}!", .{@intFromEnum(operand)});
+            try s.print(" {}!", .{operand});
         }
     }
 
@@ -765,7 +766,7 @@ const Writer = struct {
             try s.writeByteNTimes(' ', w.indent);
             for (liveness_condbr.else_deaths, 0..) |operand, i| {
                 if (i != 0) try s.writeAll(" ");
-                try s.print("%{d}!", .{@intFromEnum(operand)});
+                try s.print("{}!", .{operand});
             }
             try s.writeAll("\n");
         }
@@ -776,7 +777,7 @@ const Writer = struct {
         try s.writeAll("}");
 
         for (liveness_condbr.then_deaths) |operand| {
-            try s.print(" %{d}!", .{@intFromEnum(operand)});
+            try s.print(" {}!", .{operand});
         }
     }
 
@@ -807,7 +808,7 @@ const Writer = struct {
             try s.writeByteNTimes(' ', w.indent);
             for (liveness_condbr.then_deaths, 0..) |operand, i| {
                 if (i != 0) try s.writeAll(" ");
-                try s.print("%{d}!", .{@intFromEnum(operand)});
+                try s.print("{}!", .{operand});
             }
             try s.writeAll("\n");
         }
@@ -827,7 +828,7 @@ const Writer = struct {
             try s.writeByteNTimes(' ', w.indent);
             for (liveness_condbr.else_deaths, 0..) |operand, i| {
                 if (i != 0) try s.writeAll(" ");
-                try s.print("%{d}!", .{@intFromEnum(operand)});
+                try s.print("{}!", .{operand});
             }
             try s.writeAll("\n");
         }
@@ -884,7 +885,7 @@ const Writer = struct {
                 try s.writeByteNTimes(' ', w.indent);
                 for (deaths, 0..) |operand, i| {
                     if (i != 0) try s.writeAll(" ");
-                    try s.print("%{d}!", .{@intFromEnum(operand)});
+                    try s.print("{}!", .{operand});
                 }
                 try s.writeAll("\n");
             }
@@ -910,7 +911,7 @@ const Writer = struct {
                 try s.writeByteNTimes(' ', w.indent);
                 for (deaths, 0..) |operand, i| {
                     if (i != 0) try s.writeAll(" ");
-                    try s.print("%{d}!", .{@intFromEnum(operand)});
+                    try s.print("{}!", .{operand});
                 }
                 try s.writeAll("\n");
             }
@@ -994,7 +995,7 @@ const Writer = struct {
         dies: bool,
     ) @TypeOf(s).Error!void {
         _ = w;
-        try s.print("%{d}", .{@intFromEnum(inst)});
+        try s.print("{}", .{inst});
         if (dies) try s.writeByte('!');
     }
 

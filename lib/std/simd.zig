@@ -163,7 +163,7 @@ pub fn interlace(vecs: anytype) @Vector(vectorLength(@TypeOf(vecs[0])) * vecs.le
     //  The indices are correct. The problem seems to be with the @shuffle builtin.
     //  On MIPS, the test that interlaces small_base gives { 0, 2, 0, 0, 64, 255, 248, 200, 0, 0 }.
     //  Calling this with two inputs seems to work fine, but I'll let the compile error trigger for all inputs, just to be safe.
-    comptime if (builtin.cpu.arch.isMIPS()) @compileError("TODO: Find out why interlace() doesn't work on MIPS");
+    if (builtin.cpu.arch.isMIPS()) @compileError("TODO: Find out why interlace() doesn't work on MIPS");
 
     const VecType = @TypeOf(vecs[0]);
     const vecs_arr = @as([vecs.len]VecType, vecs);
@@ -248,7 +248,7 @@ test "vector patterns" {
     try std.testing.expectEqual([8]u32{ 10, 20, 30, 40, 55, 66, 77, 88 }, join(base, other_base));
     try std.testing.expectEqual([2]u32{ 20, 30 }, extract(base, 1, 2));
 
-    if (comptime !builtin.cpu.arch.isMIPS()) {
+    if (!builtin.cpu.arch.isMIPS()) {
         try std.testing.expectEqual([8]u32{ 10, 55, 20, 66, 30, 77, 40, 88 }, interlace(.{ base, other_base }));
 
         const small_braid = interlace(small_bases);
@@ -390,7 +390,7 @@ pub fn prefixScanWithFunc(
     comptime identity: std.meta.Child(@TypeOf(vec)),
 ) if (ErrorType == void) @TypeOf(vec) else ErrorType!@TypeOf(vec) {
     // I haven't debugged this, but it might be a cousin of sorts to what's going on with interlace.
-    comptime if (builtin.cpu.arch.isMIPS()) @compileError("TODO: Find out why prefixScan doesn't work on MIPS");
+    if (builtin.cpu.arch.isMIPS()) @compileError("TODO: Find out why prefixScan doesn't work on MIPS");
 
     const len = vectorLength(@TypeOf(vec));
 
@@ -465,9 +465,7 @@ test "vector prefix scan" {
     if ((builtin.cpu.arch == .armeb or builtin.cpu.arch == .thumbeb) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22060
     if (builtin.cpu.arch == .aarch64_be and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21893
 
-    if (comptime builtin.cpu.arch.isMIPS()) {
-        return error.SkipZigTest;
-    }
+    if (builtin.cpu.arch.isMIPS()) return error.SkipZigTest;
 
     const int_base = @Vector(4, i32){ 11, 23, 9, -21 };
     const float_base = @Vector(4, f32){ 2, 0.5, -10, 6.54321 };

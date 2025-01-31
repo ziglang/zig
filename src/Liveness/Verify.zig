@@ -81,6 +81,7 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .fpext,
             .fptrunc,
             .intcast,
+            .intcast_safe,
             .trunc,
             .optional_payload,
             .optional_payload_ptr,

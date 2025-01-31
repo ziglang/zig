@@ -14,7 +14,8 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    const shared = b.addSharedLibrary(.{
+    const shared = b.addLibrary(.{
+        .linkage = .dynamic,
         .name = "shared",
         .root_module = b.createModule(.{
             .root_source_file = null,

@@ -1789,12 +1789,9 @@ test {
     _ = UnpackResult;
 }
 
-// Detects executable header: ELF magic header or shebang line.
+// Detects executable header: ELF or Macho-O magic header or shebang line.
 const FileHeader = struct {
-    const elf_magic = std.elf.MAGIC;
-    const shebang = "#!";
-
-    header: [@max(elf_magic.len, shebang.len)]u8 = undefined,
+    header: [4]u8 = undefined,
     bytes_read: usize = 0,
 
     pub fn update(self: *FileHeader, buf: []const u8) void {
@@ -1804,9 +1801,27 @@ const FileHeader = struct {
         self.bytes_read += n;
     }
 
+    fn isScript(self: *FileHeader) bool {
+        const shebang = "#!";
+        return std.mem.eql(u8, self.header[0..@min(self.bytes_read, shebang.len)], shebang);
+    }
+
+    fn isElf(self: *FileHeader) bool {
+        const elf_magic = std.elf.MAGIC;
+        return std.mem.eql(u8, self.header[0..@min(self.bytes_read, elf_magic.len)], elf_magic);
+    }
+
+    fn isMachO(self: *FileHeader) bool {
+        if (self.bytes_read < 4) return false;
+        const magic_number = std.mem.readInt(u32, &self.header, builtin.cpu.arch.endian());
+        return magic_number == std.macho.MH_MAGIC or
+            magic_number == std.macho.MH_MAGIC_64 or
+            magic_number == std.macho.FAT_MAGIC or
+            magic_number == std.macho.FAT_MAGIC_64;
+    }
+
     pub fn isExecutable(self: *FileHeader) bool {
-        return std.mem.eql(u8, self.header[0..@min(self.bytes_read, shebang.len)], shebang) or
-            std.mem.eql(u8, self.header[0..@min(self.bytes_read, elf_magic.len)], elf_magic);
+        return self.isScript() or self.isElf() or self.isMachO();
     }
 };
 
@@ -1814,12 +1829,18 @@ test FileHeader {
     var h: FileHeader = .{};
     try std.testing.expect(!h.isExecutable());
 
-    h.update(FileHeader.elf_magic[0..2]);
+    const elf_magic = std.elf.MAGIC;
+    h.update(elf_magic[0..2]);
     try std.testing.expect(!h.isExecutable());
-    h.update(FileHeader.elf_magic[2..4]);
+    h.update(elf_magic[2..4]);
     try std.testing.expect(h.isExecutable());
 
-    h.update(FileHeader.elf_magic[2..4]);
+    h.update(elf_magic[2..4]);
+    try std.testing.expect(h.isExecutable());
+
+    const macho64_magic_bytes = [_]u8{ 0xCF, 0xFA, 0xED, 0xFE };
+    h.bytes_read = 0;
+    h.update(&macho64_magic_bytes);
     try std.testing.expect(h.isExecutable());
 }
 
