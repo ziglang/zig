@@ -99,7 +99,11 @@ const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
-const page_size = std.heap.pageSize(); // TODO: allow this to be runtime known
+const page_size: usize = @max(std.heap.page_size_max, switch (builtin.os.tag) {
+    .windows => 64 * 1024, // Makes `std.heap.PageAllocator` take the happy path.
+    .wasi => 64 * 1024, // Max alignment supported by `std.heap.WasmAllocator`.
+    else => 2 * 1024 * 1024, // Avoids too many active mappings when `page_size_max` is low.
+});
 const StackTrace = std.builtin.StackTrace;
 
 /// Integer type for pointing to slots in a small allocation
