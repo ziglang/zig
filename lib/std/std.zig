@@ -173,8 +173,8 @@ pub const Options = struct {
     /// /src/test4.zig:24:10: 0x10660e8 in lorem (test4)
     /// ```
     ///
-    /// 'none': this will print no stack trace. By not inlcuding the stack printer code this option can
-    /// reduce binary size without stripping and using an external debugger would still be able inspect.
+    /// 'none': this will print no stack trace. By not including the stack printer code this option can
+    /// reduce binary size without stripping thus using an external debugger would still be able inspect.
     ///
     /// ```
     /// thread 183137 panic: oops!
