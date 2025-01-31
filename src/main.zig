@@ -7479,13 +7479,27 @@ const Templates = struct {
         const contents = templates.dir.readFileAlloc(arena, template_path, max_bytes) catch |err| {
             fatal("unable to read template file '{s}': {s}", .{ template_path, @errorName(err) });
         };
+
         templates.buffer.clearRetainingCapacity();
         try templates.buffer.ensureUnusedCapacity(contents.len);
-        for (contents) |c| {
-            if (c == '$') {
-                try templates.buffer.appendSlice(root_name);
-            } else {
-                try templates.buffer.append(c);
+
+        if (mem.eql(u8, template_path, Package.Manifest.basename)) {
+            for (contents) |c| {
+                if (c == '$') {
+                    try templates.buffer.appendSlice(root_name);
+                } else if (c == '*') {
+                    try templates.buffer.appendSlice(build_options.version);
+                } else {
+                    try templates.buffer.append(c);
+                }
+            }
+        } else {
+            for (contents) |c| {
+                if (c == '$') {
+                    try templates.buffer.appendSlice(root_name);
+                } else {
+                    try templates.buffer.append(c);
+                }
             }
         }
 
