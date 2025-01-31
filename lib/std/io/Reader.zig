@@ -215,36 +215,43 @@ pub fn streamUntilDelimiter(
     }
 }
 
-/// Appends to the ArrayList contents by reading from the stream until Eof.
+/// Appends to the `writer` contents by reading from the stream until Eof.
+/// buf_size is used for intermediate buffer when transfering data from reader to writer
 /// If `optional_max_size` is not null and amount of written bytes exceeds `optional_max_size`,
 /// returns `error.StreamTooLong` and finishes appending.
 /// If `optional_max_size` is null, appending is unbounded.
 pub fn streamUntilEof(
     self: Self,
-    array_list: *std.ArrayList(u8),
+    writer: anytype,
+    comptime buf_size: usize,
     optional_max_size: ?usize,
 ) anyerror!void {
-    try array_list.ensureTotalCapacity(4096);
-    const original_len = array_list.items.len;
-    var start_index: usize = original_len;
+    var total_read: usize = 0;
+    var fifo = std.fifo.LinearFifo(u8, .{ .Static = buf_size }).init();
     while (true) {
-        array_list.expandToCapacity();
-        const dest_slice = array_list.items[start_index..];
-        const bytes_read = try self.readAll(dest_slice);
-        start_index += bytes_read;
+        if (fifo.writableLength() > 0) {
+            const n = try self.read(fifo.writableSlice(0));
+            total_read += n;
+            if (n == 0) break; // EOF
+            fifo.update(n);
+        }
 
         if (optional_max_size) |max_size| {
-            if (start_index - original_len > max_size) {
-                array_list.shrinkAndFree(original_len + max_size);
+            if (total_read > max_size) {
+                const diff = total_read - max_size;
+                const current_len = fifo.count;
+                const amt_to_grab = current_len - diff;
+
+                // Here we read a truncated buffer to ensure we don't go over optional_max_size
+                fifo.discard(try writer.write(fifo.readableSliceOfLen(amt_to_grab)));
+
+                break;
+            } else {
+                fifo.discard(try writer.write(fifo.readableSlice(0)));
             }
+        } else {
+            fifo.discard(try writer.write(fifo.readableSlice(0)));
         }
-
-        if (bytes_read != dest_slice.len) {
-            array_list.shrinkAndFree(start_index);
-            return;
-        }
-
-        try array_list.ensureTotalCapacity(start_index + 1);
     }
 }
 
