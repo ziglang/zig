@@ -452,6 +452,13 @@ pub fn hasRuntimeBitsIgnoreComptime(ty: Type, zcu: *const Zcu) bool {
     return hasRuntimeBitsInner(ty, true, .eager, zcu, {}) catch unreachable;
 }
 
+pub fn hasRuntimeBitsIgnoreComptimeSema(ty: Type, pt: Zcu.PerThread) SemaError!bool {
+    return hasRuntimeBitsInner(ty, true, .sema, pt.zcu, pt.tid) catch |err| switch (err) {
+        error.NeedLazy => unreachable, // this would require a resolve strat of lazy
+        else => |e| return e,
+    };
+}
+
 /// true if and only if the type takes up space in memory at runtime.
 /// There are two reasons a type will return false:
 /// * the type is a comptime-only type. For example, the type `type` itself.

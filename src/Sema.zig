@@ -24581,8 +24581,12 @@ fn zirSplat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
 
     const len = try sema.usizeCast(block, src, dest_ty.arrayLen(zcu));
 
-    // `len == 0` because `[0:s]T` always has a comptime-known splat.
-    if (!dest_ty.hasRuntimeBits(zcu) or len == 0) {
+    if (try sema.typeHasOnePossibleValue(dest_ty)) |val| {
+        return Air.internedToRef(val.toIntern());
+    }
+
+    // We also need this case because `[0:s]T` is not OPV.
+    if (len == 0) {
         const empty_aggregate = try pt.intern(.{ .aggregate = .{
             .ty = dest_ty.toIntern(),
             .storage = .{ .elems = &.{} },
@@ -25922,6 +25926,22 @@ fn zirMemcpy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!void
         if (try sema.resolveDefinedValue(block, src_src, src_len)) |src_len_val| {
             len_val = src_len_val;
         }
+    }
+
+    zero_bit: {
+        const src_comptime = try src_elem_ty.comptimeOnlySema(pt);
+        const dest_comptime = try dest_elem_ty.comptimeOnlySema(pt);
+        assert(src_comptime == dest_comptime); // IMC
+        if (src_comptime) break :zero_bit;
+
+        const src_has_bits = try src_elem_ty.hasRuntimeBitsIgnoreComptimeSema(pt);
+        const dest_has_bits = try dest_elem_ty.hasRuntimeBitsIgnoreComptimeSema(pt);
+        assert(src_has_bits == dest_has_bits); // IMC
+        if (src_has_bits) break :zero_bit;
+
+        // The element type is zero-bit. We've done all validation (aside from the aliasing check,
+        // which we must skip) so we're done.
+        return;
     }
 
     const runtime_src = rs: {
