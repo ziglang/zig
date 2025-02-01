@@ -1055,7 +1055,17 @@ const backend_supports_vectors = switch (builtin.zig_backend) {
     else => false,
 };
 
+extern "C" fn wcslen(s: [*:0]const u16) usize;
+extern "C" fn strlen(s: [*:0]const u8) usize;
+
 pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]const T) usize {
+    if (comptime T == u16 and sentinel == 0 and builtin.target.os.tag == .windows) {
+        return wcslen(p);
+    }
+    if (comptime T == u8 and sentinel == 0) {
+        return strlen(p);
+    }
+
     var i: usize = 0;
 
     if (backend_supports_vectors and

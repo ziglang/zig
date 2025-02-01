@@ -4807,6 +4807,8 @@ pub const AccessError = error{
     /// Windows-only; file paths provided by the user must be valid WTF-8.
     /// https://simonsapin.github.io/wtf-8/
     InvalidWtf8,
+    /// Windows-only
+    InvalidArgument,
 } || UnexpectedError;
 
 /// check user's permissions for a file
@@ -4979,8 +4981,8 @@ pub fn faccessatW(dirfd: fd_t, sub_path_w: [*:0]const u16) AccessError!void {
         .SUCCESS => return,
         .OBJECT_NAME_NOT_FOUND => return error.FileNotFound,
         .OBJECT_PATH_NOT_FOUND => return error.FileNotFound,
-        .OBJECT_NAME_INVALID => unreachable,
-        .INVALID_PARAMETER => unreachable,
+        .OBJECT_NAME_INVALID => return error.BadPathName,
+        .INVALID_PARAMETER => return error.InvalidArgument,
         .ACCESS_DENIED => return error.PermissionDenied,
         .OBJECT_PATH_SYNTAX_BAD => unreachable,
         else => |rc| return windows.unexpectedStatus(rc),
@@ -5488,6 +5490,10 @@ pub fn realpathZ(pathname: [*:0]const u8, out_buffer: *[max_path_bytes]u8) RealP
 /// Calling this function is usually a bug.
 pub fn realpathW(pathname: []const u16, out_buffer: *[max_path_bytes]u8) RealPathError![]u8 {
     const w = windows;
+
+    if (pathname.len == 1 and pathname[0] == '.') {
+        return std.os.getFdPath(std.fs.cwd().fd, out_buffer);
+    }
 
     const dir = fs.cwd().fd;
     const access_mask = w.GENERIC_READ | w.SYNCHRONIZE;
