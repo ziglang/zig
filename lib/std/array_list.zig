@@ -110,8 +110,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         pub fn toOwnedSlice(self: *Self) Allocator.Error!Slice {
             const allocator = self.allocator;
 
-            const old_memory = self.allocatedSlice();
-            if (allocator.resize(old_memory, self.items.len)) {
+            if (@sizeOf(T) == 0 or allocator.resize(self.allocatedSlice(), self.items.len)) {
                 const result = self.items;
                 self.* = init(allocator);
                 return result;
