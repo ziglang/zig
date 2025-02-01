@@ -213,6 +213,23 @@ pub const ARCH = switch (native_os) {
     .linux => linux.ARCH,
     else => void,
 };
+
+// For use with posix.timerfd_create()
+// Actually, the parameter for the timerfd_create() function is an integer,
+// which means that the developer has to figure out which value is appropriate.
+// To make this easier and, above all, safer, because an incorrect value leads
+// to a panic, an enum is introduced which only allows the values
+// that actually work.
+pub const TIMERFD_CLOCK = timerfd_clockid_t;
+pub const timerfd_clockid_t = switch (native_os) {
+    .linux, .freebsd => enum(u32) {
+        REALTIME = 0,
+        MONOTONIC = 1,
+        _,
+    },
+    else => clockid_t,
+};
+
 pub const CLOCK = clockid_t;
 pub const clockid_t = switch (native_os) {
     .linux, .emscripten => linux.clockid_t,
@@ -9256,7 +9273,7 @@ pub extern "c" fn epoll_pwait(
     sigmask: *const sigset_t,
 ) c_int;
 
-pub extern "c" fn timerfd_create(clockid: clockid_t, flags: c_int) c_int;
+pub extern "c" fn timerfd_create(clockid: timerfd_clockid_t, flags: c_int) c_int;
 pub extern "c" fn timerfd_settime(
     fd: c_int,
     flags: c_int,

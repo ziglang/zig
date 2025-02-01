@@ -2215,7 +2215,7 @@ pub fn eventfd(count: u32, flags: u32) usize {
     return syscall2(.eventfd2, count, flags);
 }
 
-pub fn timerfd_create(clockid: clockid_t, flags: TFD) usize {
+pub fn timerfd_create(clockid: timerfd_clockid_t, flags: TFD) usize {
     return syscall2(
         .timerfd_create,
         @intFromEnum(clockid),
@@ -4696,8 +4696,32 @@ pub const clockid_t = enum(u32) {
     BOOTTIME = 7,
     REALTIME_ALARM = 8,
     BOOTTIME_ALARM = 9,
-    SGI_CYCLE = 10,
-    TAI = 11,
+    // In the linux kernel header file (time.h) is the following note:
+    // * The driver implementing this got removed. The clock ID is kept as a
+    // * place holder. Do not reuse!
+    // Therefore, calling clock_gettime() with these IDs will result in an error.
+    //
+    // Some backgrond:
+    // - SGI_CYCLE was for Silicon Graphics (SGI) workstations,
+    // which are probably no longer in use, so it makes sense to disable
+    // - TAI_CLOCK was designed as CLOCK_REALTIME(UTC) + tai_offset,
+    // but tai_offset was always 0 in the kernel.
+    // So there is no point in using this clock.
+    // SGI_CYCLE = 10,
+    // TAI = 11,
+    _,
+};
+
+// For use with posix.timerfd_create()
+// Actually, the parameter for the timerfd_create() function is in integer,
+// which means that the developer has to figure out which value is appropriate.
+// To make this easier and, above all, safer, because an incorrect value leads
+// to a panic, an enum is introduced which only allows the values
+// that actually work.
+pub const TIMERFD_CLOCK = timerfd_clockid_t;
+pub const timerfd_clockid_t = enum(u32) {
+    REALTIME = 0,
+    MONOTONIC = 1,
     _,
 };
 

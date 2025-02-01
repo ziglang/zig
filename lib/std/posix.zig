@@ -121,6 +121,7 @@ pub const blkcnt_t = system.blkcnt_t;
 pub const blksize_t = system.blksize_t;
 pub const clock_t = system.clock_t;
 pub const clockid_t = system.clockid_t;
+pub const timerfd_clockid_t = system.timerfd_clockid_t;
 pub const cpu_set_t = system.cpu_set_t;
 pub const dev_t = system.dev_t;
 pub const dl_phdr_info = system.dl_phdr_info;
@@ -155,6 +156,7 @@ pub const socklen_t = system.socklen_t;
 pub const stack_t = system.stack_t;
 pub const time_t = system.time_t;
 pub const timespec = system.timespec;
+pub const timestamp_t = system.timestamp_t;
 pub const timeval = system.timeval;
 pub const timezone = system.timezone;
 pub const ucontext_t = system.ucontext_t;
@@ -5653,13 +5655,13 @@ pub fn dl_iterate_phdr(
 
 pub const ClockGetTimeError = error{UnsupportedClock} || UnexpectedError;
 
-/// TODO: change this to return the timespec as a return value
-pub fn clock_gettime(clock_id: clockid_t, tp: *timespec) ClockGetTimeError!void {
+pub fn clock_gettime(clock_id: clockid_t) ClockGetTimeError!timespec {
+    var tp: timespec = undefined;
     if (native_os == .wasi and !builtin.link_libc) {
-        var ts: wasi.timestamp_t = undefined;
+        var ts: timestamp_t = undefined;
         switch (system.clock_time_get(clock_id, 1, &ts)) {
             .SUCCESS => {
-                tp.* = .{
+                tp = .{
                     .sec = @intCast(ts / std.time.ns_per_s),
                     .nsec = @intCast(ts % std.time.ns_per_s),
                 };
@@ -5667,7 +5669,7 @@ pub fn clock_gettime(clock_id: clockid_t, tp: *timespec) ClockGetTimeError!void 
             .INVAL => return error.UnsupportedClock,
             else => |err| return unexpectedErrno(err),
         }
-        return;
+        return tp;
     }
     if (native_os == .windows) {
         if (clock_id == .REALTIME) {
@@ -5676,19 +5678,19 @@ pub fn clock_gettime(clock_id: clockid_t, tp: *timespec) ClockGetTimeError!void 
             // FileTime has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch.
             const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
             const ft_per_s = std.time.ns_per_s / 100;
-            tp.* = .{
+            tp = .{
                 .sec = @as(i64, @intCast(ft64 / ft_per_s)) + std.time.epoch.windows,
                 .nsec = @as(c_long, @intCast(ft64 % ft_per_s)) * 100,
             };
-            return;
+            return tp;
         } else {
             // TODO POSIX implementation of CLOCK.MONOTONIC on Windows.
             return error.UnsupportedClock;
         }
     }
 
-    switch (errno(system.clock_gettime(clock_id, tp))) {
-        .SUCCESS => return,
+    switch (errno(system.clock_gettime(clock_id, &tp))) {
+        .SUCCESS => return tp,
         .FAULT => unreachable,
         .INVAL => return error.UnsupportedClock,
         else => |err| return unexpectedErrno(err),
@@ -5697,7 +5699,7 @@ pub fn clock_gettime(clock_id: clockid_t, tp: *timespec) ClockGetTimeError!void 
 
 pub fn clock_getres(clock_id: clockid_t, res: *timespec) ClockGetTimeError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        var ts: wasi.timestamp_t = undefined;
+        var ts: timestamp_t = undefined;
         switch (system.clock_res_get(@bitCast(clock_id), &ts)) {
             .SUCCESS => res.* = .{
                 .sec = @intCast(ts / std.time.ns_per_s),
@@ -5910,8 +5912,7 @@ pub fn res_mkquery(
     q[i + 3] = class;
 
     // Make a reasonably unpredictable id
-    var ts: timespec = undefined;
-    clock_gettime(.REALTIME, &ts) catch {};
+    const ts = clock_gettime(.REALTIME) catch unreachable;
     const UInt = std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(ts.nsec)));
     const unsec: UInt = @bitCast(ts.nsec);
     const id: u32 = @truncate(unsec + unsec / 65536);
@@ -7293,7 +7294,7 @@ pub const TimerFdCreateError = error{
 pub const TimerFdGetError = error{InvalidHandle} || UnexpectedError;
 pub const TimerFdSetError = TimerFdGetError || error{Canceled};
 
-pub fn timerfd_create(clock_id: clockid_t, flags: system.TFD) TimerFdCreateError!fd_t {
+pub fn timerfd_create(clock_id: system.timerfd_clockid_t, flags: system.TFD) TimerFdCreateError!fd_t {
     const rc = system.timerfd_create(clock_id, @bitCast(flags));
     return switch (errno(rc)) {
         .SUCCESS => @intCast(rc),
