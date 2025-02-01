@@ -5154,7 +5154,6 @@ pub const FuncGen = struct {
                 .ret_ptr        => try self.airRetPtr(inst),
                 .arg            => try self.airArg(inst),
                 .bitcast        => try self.airBitCast(inst),
-                .int_from_bool  => try self.airIntFromBool(inst),
                 .breakpoint     => try self.airBreakpoint(inst),
                 .ret_addr       => try self.airRetAddr(inst),
                 .frame_addr     => try self.airFrameAddress(inst),
@@ -5167,7 +5166,6 @@ pub const FuncGen = struct {
                 .trunc          => try self.airTrunc(inst),
                 .fptrunc        => try self.airFptrunc(inst),
                 .fpext          => try self.airFpext(inst),
-                .int_from_ptr   => try self.airIntFromPtr(inst),
                 .load           => try self.airLoad(body[i..]),
                 .not            => try self.airNot(inst),
                 .store          => try self.airStore(inst, false),
@@ -9435,16 +9433,6 @@ pub const FuncGen = struct {
         }
     }
 
-    fn airIntFromPtr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.ng.object;
-        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-        const operand = try self.resolveInst(un_op);
-        const ptr_ty = self.typeOf(un_op);
-        const operand_ptr = try self.sliceOrArrayPtr(operand, ptr_ty);
-        const dest_llvm_ty = try o.lowerType(self.typeOfIndex(inst));
-        return self.wip.cast(.ptrtoint, operand_ptr, dest_llvm_ty, "");
-    }
-
     fn airBitCast(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_ty = self.typeOf(ty_op.operand);
@@ -9474,6 +9462,10 @@ pub const FuncGen = struct {
 
         if (operand_ty.zigTypeTag(zcu) == .int and inst_ty.isPtrAtRuntime(zcu)) {
             return self.wip.cast(.inttoptr, operand, llvm_dest_ty, "");
+        }
+
+        if (operand_ty.isPtrAtRuntime(zcu) and inst_ty.zigTypeTag(zcu) == .int) {
+            return self.wip.cast(.ptrtoint, operand, llvm_dest_ty, "");
         }
 
         if (operand_ty.zigTypeTag(zcu) == .vector and inst_ty.zigTypeTag(zcu) == .array) {
@@ -9562,12 +9554,6 @@ pub const FuncGen = struct {
         }
 
         return self.wip.cast(.bitcast, operand, llvm_dest_ty, "");
-    }
-
-    fn airIntFromBool(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-        const operand = try self.resolveInst(un_op);
-        return operand;
     }
 
     fn airArg(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {

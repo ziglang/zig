@@ -1707,6 +1707,21 @@ pub const Pool = struct {
                 };
                 return pool.fromFields(allocator, .@"struct", &fields, kind);
             },
+            .vector_2_f32_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .f32,
+                    .len = 2,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.f32.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
             .vector_4_f32_type => {
                 const vector_ctype = try pool.getVector(allocator, .{
                     .elem_ctype = .f32,

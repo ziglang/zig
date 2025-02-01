@@ -3336,6 +3336,15 @@ pub const Feature = enum {
     safety_checked_instructions,
     /// If the backend supports running from another thread.
     separate_thread,
+    /// If the backend supports the following AIR instructions with vector types:
+    /// * `Air.Inst.Tag.bit_and`
+    /// * `Air.Inst.Tag.bit_or`
+    /// * `Air.Inst.Tag.bitcast`
+    /// * `Air.Inst.Tag.float_from_int`
+    /// * `Air.Inst.Tag.fptrunc`
+    /// * `Air.Inst.Tag.int_from_float`
+    /// If not supported, Sema will scalarize the operation.
+    all_vector_instructions,
 };
 
 pub fn backendSupportsFeature(zcu: *const Zcu, comptime feature: Feature) bool {
