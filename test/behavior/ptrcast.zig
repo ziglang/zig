@@ -350,3 +350,159 @@ test "@ptrCast restructures sliced comptime-only array" {
     comptime assert(sub[2] == 5);
     comptime assert(sub[3] == 6);
 }
+
+test "@ptrCast slice multiplying length" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest(zero: u32) !void {
+            const in: []const u32 = &.{ zero, zero };
+            const out: []const u8 = @ptrCast(in);
+            try expect(out.len == 8);
+            try expect(@as([*]const u8, @ptrCast(in.ptr)) == out.ptr);
+        }
+    };
+    try S.doTheTest(0);
+    try comptime S.doTheTest(0);
+}
+
+test "@ptrCast array pointer to slice multiplying length" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest(zero: u32) !void {
+            const in: *const [2]u32 = &.{ zero, zero };
+            const out: []const u8 = @ptrCast(in);
+            try expect(out.len == 8);
+            try expect(out.ptr == @as([*]const u8, @ptrCast(in.ptr)));
+        }
+    };
+    try S.doTheTest(0);
+    try comptime S.doTheTest(0);
+}
+
+test "@ptrCast slice dividing length" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest(zero: u8) !void {
+            const in: []const u8 = &.{ zero, zero, zero, zero, zero, zero, zero, zero };
+            const out: []align(1) const u32 = @ptrCast(in);
+            try expect(out.len == 2);
+            try expect(out.ptr == @as([*]align(1) const u32, @ptrCast(in.ptr)));
+        }
+    };
+    try S.doTheTest(0);
+    try comptime S.doTheTest(0);
+}
+
+test "@ptrCast array pointer to slice dividing length" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest(zero: u8) !void {
+            const in: *const [8]u8 = &.{ zero, zero, zero, zero, zero, zero, zero, zero };
+            const out: []align(1) const u32 = @ptrCast(in);
+            try expect(out.len == 2);
+            try expect(out.ptr == @as([*]align(1) const u32, @ptrCast(in.ptr)));
+        }
+    };
+    try S.doTheTest(0);
+    try comptime S.doTheTest(0);
+}
+
+test "@ptrCast slice with complex length increase" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const TwoBytes = [2]u8;
+    const ThreeBytes = [3]u8;
+
+    const S = struct {
+        fn doTheTest(zero: ThreeBytes) !void {
+            const in: []const ThreeBytes = &.{ zero, zero };
+            const out: []const TwoBytes = @ptrCast(in);
+            try expect(out.len == 3);
+            try expect(out.ptr == @as([*]const TwoBytes, @ptrCast(in.ptr)));
+        }
+    };
+    try S.doTheTest(@splat(0));
+    try comptime S.doTheTest(@splat(0));
+}
+
+test "@ptrCast array pointer to slice with complex length increase" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const TwoBytes = [2]u8;
+    const ThreeBytes = [3]u8;
+
+    const S = struct {
+        fn doTheTest(zero: ThreeBytes) !void {
+            const in: *const [2]ThreeBytes = &.{ zero, zero };
+            const out: []const TwoBytes = @ptrCast(in);
+            try expect(out.len == 3);
+            try expect(out.ptr == @as([*]const TwoBytes, @ptrCast(in.ptr)));
+        }
+    };
+    try S.doTheTest(@splat(0));
+    try comptime S.doTheTest(@splat(0));
+}
+
+test "@ptrCast slice with complex length decrease" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const TwoBytes = [2]u8;
+    const ThreeBytes = [3]u8;
+
+    const S = struct {
+        fn doTheTest(zero: TwoBytes) !void {
+            const in: []const TwoBytes = &.{ zero, zero, zero };
+            const out: []const ThreeBytes = @ptrCast(in);
+            try expect(out.len == 2);
+            try expect(out.ptr == @as([*]const ThreeBytes, @ptrCast(in.ptr)));
+        }
+    };
+    try S.doTheTest(@splat(0));
+    try comptime S.doTheTest(@splat(0));
+}
+
+test "@ptrCast array pointer to slice with complex length decrease" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
+    const TwoBytes = [2]u8;
+    const ThreeBytes = [3]u8;
+
+    const S = struct {
+        fn doTheTest(zero: TwoBytes) !void {
+            const in: *const [3]TwoBytes = &.{ zero, zero, zero };
+            const out: []const ThreeBytes = @ptrCast(in);
+            try expect(out.len == 2);
+            try expect(out.ptr == @as([*]const ThreeBytes, @ptrCast(in.ptr)));
+        }
+    };
+    try S.doTheTest(@splat(0));
+    try comptime S.doTheTest(@splat(0));
+}
