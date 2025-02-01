@@ -24,27 +24,32 @@ inline fn runtime(comptime Type: type, comptime value: Type) Type {
     }.variable;
 }
 
+fn Scalar(comptime Type: type) type {
+    return switch (@typeInfo(Type)) {
+        else => Type,
+        .vector => |info| info.child,
+    };
+}
+// inline to avoid a runtime `@splat`
+inline fn splat(comptime Type: type, scalar: Scalar(Type)) Type {
+    return switch (@typeInfo(Type)) {
+        else => scalar,
+        .vector => @splat(scalar),
+    };
+}
 fn sign(rhs: anytype) switch (@typeInfo(@TypeOf(rhs))) {
     else => bool,
     .vector => |vector| @Vector(vector.len, bool),
 } {
-    switch (@typeInfo(@TypeOf(rhs))) {
-        else => {
-            const I = @Type(.{ .int = .{
-                .signedness = .unsigned,
-                .bits = @bitSizeOf(@TypeOf(rhs)),
-            } });
-            return @as(I, @bitCast(rhs)) & @as(I, 1) << (@bitSizeOf(I) - 1) != 0;
-        },
-        .vector => |vector| {
-            const I = @Type(.{ .int = .{
-                .signedness = .unsigned,
-                .bits = @bitSizeOf(vector.child),
-            } });
-            const V = @Vector(vector.len, I);
-            return @as(V, @bitCast(rhs)) & @as(V, @splat(@as(I, 1) << (@bitSizeOf(I) - 1))) != @as(V, @splat(0));
-        },
-    }
+    const ScalarInt = @Type(.{ .int = .{
+        .signedness = .unsigned,
+        .bits = @bitSizeOf(Scalar(@TypeOf(rhs))),
+    } });
+    const VectorInt = switch (@typeInfo(@TypeOf(rhs))) {
+        else => ScalarInt,
+        .vector => |vector| @Vector(vector.len, ScalarInt),
+    };
+    return @as(VectorInt, @bitCast(rhs)) & splat(VectorInt, @as(ScalarInt, 1) << @bitSizeOf(ScalarInt) - 1) != splat(VectorInt, 0);
 }
 fn boolAnd(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
     switch (@typeInfo(@TypeOf(lhs))) {
@@ -1648,12 +1653,12 @@ fn cast(comptime op: anytype, comptime opts: struct { strict: bool = false }) ty
             comptime imm_arg: Type,
             mem_arg: Type,
         ) !void {
-            const expected = comptime op(Result, Type, imm_arg);
+            const expected = comptime op(Result, Type, imm_arg, imm_arg);
             var reg_arg = mem_arg;
             _ = .{&reg_arg};
-            try checkExpected(expected, op(Result, Type, reg_arg), opts.strict);
-            try checkExpected(expected, op(Result, Type, mem_arg), opts.strict);
-            try checkExpected(expected, op(Result, Type, imm_arg), opts.strict);
+            try checkExpected(expected, op(Result, Type, reg_arg, imm_arg), opts.strict);
+            try checkExpected(expected, op(Result, Type, mem_arg, imm_arg), opts.strict);
+            try checkExpected(expected, op(Result, Type, imm_arg, imm_arg), opts.strict);
         }
         // noinline for a more helpful stack trace
         noinline fn testArgs(comptime Result: type, comptime Type: type, comptime imm_arg: Type) !void {
@@ -5218,6 +5223,39 @@ fn cast(comptime op: anytype, comptime opts: struct { strict: bool = false }) ty
             try testArgs(f128, f128, nan(f128));
         }
         fn testIntVectors() !void {
+            try testArgs(@Vector(1, i8), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, u8), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, i16), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, u16), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, i32), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, u32), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, i64), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, u64), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, i128), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, u128), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, i256), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, u256), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, i512), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, u512), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, i1024), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, u1024), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, i8), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, u8), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, i16), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, u16), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, i32), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, u32), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, i64), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, u64), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, i128), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, u128), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, i256), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, u256), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, i512), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, u512), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, i1024), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, u1024), @Vector(1, u1), .{1});
+
             try testArgs(@Vector(2, i8), @Vector(2, i1), .{ -1, 0 });
             try testArgs(@Vector(2, u8), @Vector(2, i1), .{ -1, 0 });
             try testArgs(@Vector(2, i16), @Vector(2, i1), .{ -1, 0 });
@@ -9917,21 +9955,18 @@ test clz {
     try test_clz.testIntVectors();
 }
 
-inline fn intCast(comptime Result: type, comptime Type: type, rhs: Type) Result {
+inline fn intCast(comptime Result: type, comptime Type: type, rhs: Type, comptime ct_rhs: Type) Result {
+    @setRuntimeSafety(false); // TODO
     const res_info = switch (@typeInfo(Result)) {
         .int => |info| info,
         .vector => |info| @typeInfo(info.child).int,
         else => @compileError(@typeName(Result)),
     };
-    const rhs_info = switch (@typeInfo(Type)) {
-        .int => |info| info,
-        .vector => |info| @typeInfo(info.child).int,
-        else => @compileError(@typeName(Type)),
-    };
+    const rhs_info = @typeInfo(Scalar(Type)).int;
     const min_bits = @min(res_info.bits, rhs_info.bits);
     return @intCast(switch (@as(union(enum) {
-        shift: std.math.Log2Int(Type),
-        mask: std.math.Log2IntCeil(Type),
+        shift: std.math.Log2Int(Scalar(Type)),
+        mask: std.math.Log2IntCeil(Scalar(Type)),
     }, switch (res_info.signedness) {
         .signed => switch (rhs_info.signedness) {
             .signed => .{ .shift = rhs_info.bits - min_bits },
@@ -9943,21 +9978,34 @@ inline fn intCast(comptime Result: type, comptime Type: type, rhs: Type) Result 
         },
     })) {
         // TODO: if (bits == 0) rhs else rhs >> bits,
-        .shift => |bits| if (bits == 0)
-            rhs
-        else if (rhs < 0)
-            rhs | std.math.minInt(Type) >> bits
-        else
-            rhs & std.math.maxInt(Type) >> bits,
-        .mask => |bits| if (bits == rhs_info.bits) rhs else rhs & (1 << bits) - 1,
+        .shift => |bits| if (bits == 0) rhs else switch (@typeInfo(Type)) {
+            .int => if (ct_rhs < 0)
+                rhs | std.math.minInt(Type) >> bits
+            else
+                rhs & std.math.maxInt(Type) >> bits,
+            .vector => rhs | @select(
+                Scalar(Type),
+                ct_rhs < splat(Type, 0),
+                splat(Type, std.math.minInt(Scalar(Type)) >> bits),
+                splat(Type, 0),
+            ) & ~@select(
+                Scalar(Type),
+                ct_rhs >= splat(Type, 0),
+                splat(Type, std.math.minInt(Scalar(Type)) >> bits),
+                splat(Type, 0),
+            ),
+            else => comptime unreachable,
+        },
+        .mask => |bits| if (bits == rhs_info.bits) rhs else rhs & splat(Type, (1 << bits) - 1),
     });
 }
 test intCast {
     const test_int_cast = cast(intCast, .{});
     try test_int_cast.testInts();
+    try test_int_cast.testIntVectors();
 }
 
-inline fn floatCast(comptime Result: type, comptime Type: type, rhs: Type) Result {
+inline fn floatCast(comptime Result: type, comptime Type: type, rhs: Type, comptime _: Type) Result {
     return @floatCast(rhs);
 }
 test floatCast {
