@@ -23414,18 +23414,29 @@ fn ptrCastFull(
         return sema.fail(block, src, "illegal pointer cast to slice", .{});
     }
 
-    if (dest_info.flags.size == .slice) {
-        const src_elem_size = switch (src_info.flags.size) {
-            .slice => Type.fromInterned(src_info.child).abiSize(zcu),
-            // pointer to array
-            .one => Type.fromInterned(src_info.child).childType(zcu).abiSize(zcu),
-            else => unreachable,
-        };
-        const dest_elem_size = Type.fromInterned(dest_info.child).abiSize(zcu);
-        if (src_elem_size != dest_elem_size) {
-            return sema.fail(block, src, "TODO: implement {s} between slices changing the length", .{operation});
+    // Only defined if `src_slice_like`
+    const src_slice_like_elem: Type = if (src_slice_like) switch (src_info.flags.size) {
+        .slice => .fromInterned(src_info.child),
+        // pointer to array
+        .one => Type.fromInterned(src_info.child).childType(zcu),
+        else => unreachable,
+    } else undefined;
+
+    const slice_needs_len_change: bool = if (dest_info.flags.size == .slice) need_len_change: {
+        const dest_elem: Type = .fromInterned(dest_info.child);
+        if (src_slice_like_elem.toIntern() == dest_elem.toIntern()) {
+            break :need_len_change false;
         }
-    }
+        if (src_slice_like_elem.comptimeOnly(zcu) or dest_elem.comptimeOnly(zcu)) {
+            return sema.fail(block, src, "cannot infer length of slice of '{}' from slice of '{}'", .{ dest_elem.fmt(pt), src_slice_like_elem.fmt(pt) });
+        }
+        const src_elem_size = src_slice_like_elem.abiSize(zcu);
+        const dest_elem_size = dest_elem.abiSize(zcu);
+        if (src_elem_size == 0 or dest_elem_size == 0) {
+            return sema.fail(block, src, "cannot infer length of slice of '{}' from slice of '{}'", .{ dest_elem.fmt(pt), src_slice_like_elem.fmt(pt) });
+        }
+        break :need_len_change src_elem_size != dest_elem_size;
+    } else false;
 
     // The checking logic in this function must stay in sync with Sema.coerceInMemoryAllowedPtrs
 
@@ -23638,155 +23649,300 @@ fn ptrCastFull(
         }
     }
 
-    const ptr = if (src_info.flags.size == .slice and dest_info.flags.size != .slice) ptr: {
-        if (operand_ty.zigTypeTag(zcu) == .optional) {
-            break :ptr try sema.analyzeOptionalSlicePtr(block, operand_src, operand, operand_ty);
-        } else {
-            break :ptr try sema.analyzeSlicePtr(block, operand_src, operand, operand_ty);
-        }
-    } else operand;
+    // Type validation done -- this cast is okay. Let's do it!
+    //
+    // `operand` is a maybe-optional pointer or slice.
+    // `dest_ty` is a maybe-optional pointer or slice.
+    //
+    // We have a few safety checks:
+    // * if the destination does not allow zero, check the operand is not null / 0
+    // * if the destination is more aligned than the operand, check the pointer alignment
+    // * if `slice_needs_len_change`, check the element count divides neatly
 
-    const dest_ptr_ty = if (dest_info.flags.size == .slice and src_info.flags.size != .slice) blk: {
-        // Only convert to a many-pointer at first
-        var info = dest_info;
-        info.flags.size = .many;
-        const ty = try pt.ptrTypeSema(info);
-        if (dest_ty.zigTypeTag(zcu) == .optional) {
-            break :blk try pt.optionalType(ty.toIntern());
-        } else {
-            break :blk ty;
-        }
-    } else dest_ty;
+    ct: {
+        if (flags.addrspace_cast) break :ct; // cannot `@addrSpaceCast` at comptime
+        const operand_val = try sema.resolveValue(operand) orelse break :ct;
 
-    // Cannot do @addrSpaceCast at comptime
-    if (!flags.addrspace_cast) {
-        if (try sema.resolveValue(ptr)) |ptr_val| {
-            if (!dest_ty.ptrAllowsZero(zcu) and ptr_val.isUndef(zcu)) {
+        if (operand_val.isUndef(zcu)) {
+            if (!dest_ty.ptrAllowsZero(zcu)) {
                 return sema.failWithUseOfUndef(block, operand_src);
             }
-            if (!dest_ty.ptrAllowsZero(zcu) and ptr_val.isNull(zcu)) {
+            return pt.undefRef(dest_ty);
+        }
+
+        if (operand_val.isNull(zcu)) {
+            if (!dest_ty.ptrAllowsZero(zcu)) {
                 return sema.fail(block, operand_src, "null pointer casted to type '{}'", .{dest_ty.fmt(pt)});
             }
-            if (dest_align.compare(.gt, src_align)) {
-                if (try ptr_val.getUnsignedIntSema(pt)) |addr| {
-                    if (!dest_align.check(addr)) {
-                        return sema.fail(block, operand_src, "pointer address 0x{X} is not aligned to {d} bytes", .{
-                            addr,
-                            dest_align.toByteUnits().?,
-                        });
-                    }
-                }
-            }
-            if (dest_info.flags.size == .slice and src_info.flags.size != .slice) {
-                if (ptr_val.isUndef(zcu)) return pt.undefRef(dest_ty);
-                const arr_len = try pt.intValue(Type.usize, Type.fromInterned(src_info.child).arrayLen(zcu));
-                const ptr_val_key = zcu.intern_pool.indexToKey(ptr_val.toIntern()).ptr;
-                return Air.internedToRef((try pt.intern(.{ .slice = .{
-                    .ty = dest_ty.toIntern(),
-                    .ptr = try pt.intern(.{ .ptr = .{
-                        .ty = dest_ty.slicePtrFieldType(zcu).toIntern(),
-                        .base_addr = ptr_val_key.base_addr,
-                        .byte_offset = ptr_val_key.byte_offset,
-                    } }),
-                    .len = arr_len.toIntern(),
-                } })));
+            if (dest_ty.zigTypeTag(zcu) == .optional) {
+                return Air.internedToRef((try pt.nullValue(dest_ty)).toIntern());
             } else {
-                assert(dest_ptr_ty.eql(dest_ty, zcu));
-                return Air.internedToRef((try pt.getCoerced(ptr_val, dest_ty)).toIntern());
+                return Air.internedToRef((try pt.ptrIntValue(dest_ty, 0)).toIntern());
             }
         }
+
+        const ptr_val: Value, const maybe_len_val: ?Value = switch (src_info.flags.size) {
+            .slice => switch (zcu.intern_pool.indexToKey(operand_val.toIntern())) {
+                .slice => |slice| .{ .fromInterned(slice.ptr), .fromInterned(slice.len) },
+                else => unreachable,
+            },
+            .one, .many, .c => .{ operand_val, null },
+        };
+
+        if (dest_align.compare(.gt, src_align)) {
+            if (try ptr_val.getUnsignedIntSema(pt)) |addr| {
+                if (!dest_align.check(addr)) {
+                    return sema.fail(block, operand_src, "pointer address 0x{X} is not aligned to {d} bytes", .{
+                        addr,
+                        dest_align.toByteUnits().?,
+                    });
+                }
+            }
+        }
+
+        if (dest_info.flags.size != .slice) {
+            // Any to non-slice
+            const new_ptr_val = try pt.getCoerced(ptr_val, dest_ty);
+            return Air.internedToRef(new_ptr_val.toIntern());
+        }
+
+        // Slice-like to slice, compatible element type
+        // Here, we can preserve a lazy length.
+        if (!slice_needs_len_change) {
+            if (maybe_len_val) |len_val| {
+                return Air.internedToRef(try pt.intern(.{ .slice = .{
+                    .ty = dest_ty.toIntern(),
+                    .ptr = (try pt.getCoerced(ptr_val, dest_ty.slicePtrFieldType(zcu))).toIntern(),
+                    .len = len_val.toIntern(),
+                } }));
+            }
+        }
+
+        // Slice-like to slice, fallback
+
+        const src_len: u64 = if (maybe_len_val) |val|
+            try val.toUnsignedIntSema(pt)
+        else
+            Type.fromInterned(src_info.child).arrayLen(zcu);
+
+        const dest_len: u64 = if (slice_needs_len_change) len: {
+            const src_elem_size = src_slice_like_elem.abiSize(zcu);
+            const dest_elem_size = Type.fromInterned(dest_info.child).abiSize(zcu);
+            const bytes = src_len * src_elem_size;
+            // Check: element count divides neatly
+            break :len std.math.divExact(u64, bytes, dest_elem_size) catch |err| switch (err) {
+                error.DivisionByZero => unreachable,
+                error.UnexpectedRemainder => return sema.fail(block, src, "slice length '{d}' does not divide exactly into destination elements", .{src_len}),
+            };
+        } else src_len;
+
+        return Air.internedToRef(try pt.intern(.{ .slice = .{
+            .ty = dest_ty.toIntern(),
+            .ptr = (try pt.getCoerced(ptr_val, dest_ty.slicePtrFieldType(zcu))).toIntern(),
+            .len = (try pt.intValue(.usize, dest_len)).toIntern(),
+        } }));
     }
 
-    try sema.requireRuntimeBlock(block, src, null);
-    try sema.validateRuntimeValue(block, operand_src, ptr);
+    try sema.validateRuntimeValue(block, operand_src, operand);
 
-    if (block.wantSafety() and operand_ty.ptrAllowsZero(zcu) and !dest_ty.ptrAllowsZero(zcu) and
-        (try Type.fromInterned(dest_info.child).hasRuntimeBitsSema(pt) or Type.fromInterned(dest_info.child).zigTypeTag(zcu) == .@"fn"))
-    {
-        const actual_ptr = if (src_info.flags.size == .slice)
-            try sema.analyzeSlicePtr(block, src, ptr, operand_ty)
-        else
-            ptr;
-        const ptr_int = try block.addBitCast(.usize, actual_ptr);
-        const is_non_zero = try block.addBinOp(.cmp_neq, ptr_int, .zero_usize);
+    const need_null_check = block.wantSafety() and operand_ty.ptrAllowsZero(zcu) and !dest_ty.ptrAllowsZero(zcu);
+    const need_align_check = block.wantSafety() and dest_align.compare(.gt, src_align);
+
+    // `operand` might be a slice. If `need_operand_ptr`, we'll populate `operand_ptr` with the raw pointer.
+    const need_operand_ptr = src_info.flags.size != .slice or // we already have it
+        dest_info.flags.size != .slice or // the result is a raw pointer
+        need_null_check or // safety check happens on pointer
+        need_align_check or // safety check happens on pointer
+        flags.addrspace_cast or // AIR addrspace_cast acts on a pointer
+        slice_needs_len_change; // to change the length, we reconstruct the slice
+
+    // This is not quite just the pointer part of `operand` -- it's also had the address space cast done already.
+    const operand_ptr: Air.Inst.Ref = ptr: {
+        if (!need_operand_ptr) break :ptr .none;
+        // First, just get the pointer.
+        const pre_addrspace_cast = inner: {
+            if (src_info.flags.size != .slice) break :inner operand;
+            if (operand_ty.zigTypeTag(zcu) == .optional) {
+                break :inner try sema.analyzeOptionalSlicePtr(block, operand_src, operand, operand_ty);
+            } else {
+                break :inner try sema.analyzeSlicePtr(block, operand_src, operand, operand_ty);
+            }
+        };
+        // Now, do an addrspace cast if necessary!
+        if (!flags.addrspace_cast) break :ptr pre_addrspace_cast;
+
+        const intermediate_ptr_ty = try pt.ptrTypeSema(info: {
+            var info = src_info;
+            info.flags.address_space = dest_info.flags.address_space;
+            break :info info;
+        });
+        const intermediate_ty = if (operand_ty.zigTypeTag(zcu) == .optional) blk: {
+            break :blk try pt.optionalType(intermediate_ptr_ty.toIntern());
+        } else intermediate_ptr_ty;
+        break :ptr try block.addInst(.{
+            .tag = .addrspace_cast,
+            .data = .{ .ty_op = .{
+                .ty = Air.internedToRef(intermediate_ty.toIntern()),
+                .operand = pre_addrspace_cast,
+            } },
+        });
+    };
+
+    // Whether we need to know if the (slice) operand has `len == 0`.
+    const need_operand_len_is_zero = src_info.flags.size == .slice and
+        dest_info.flags.size == .slice and
+        (need_null_check or need_align_check);
+    // Whether we need to get the (slice) operand's `len`.
+    const need_operand_len = need_len: {
+        if (src_info.flags.size != .slice) break :need_len false;
+        if (dest_info.flags.size != .slice) break :need_len false;
+        if (need_operand_len_is_zero) break :need_len true;
+        if (flags.addrspace_cast or slice_needs_len_change) break :need_len true;
+        break :need_len false;
+    };
+    // `.none` if `!need_operand_len`.
+    const operand_len: Air.Inst.Ref = len: {
+        if (!need_operand_len) break :len .none;
+        break :len try block.addTyOp(.slice_len, .usize, operand);
+    };
+    // `.none` if `!need_operand_len_is_zero`.
+    const operand_len_is_zero: Air.Inst.Ref = zero: {
+        if (!need_operand_len_is_zero) break :zero .none;
+        assert(need_operand_len);
+        break :zero try block.addBinOp(.cmp_eq, operand_len, .zero_usize);
+    };
+
+    // `operand_ptr` converted to an integer, for safety checks.
+    const operand_ptr_int: Air.Inst.Ref = if (need_null_check or need_align_check) i: {
+        assert(need_operand_ptr);
+        break :i try block.addBitCast(.usize, operand_ptr);
+    } else .none;
+
+    if (need_null_check) {
+        assert(operand_ptr_int != .none);
+        const ptr_is_non_zero = try block.addBinOp(.cmp_neq, operand_ptr_int, .zero_usize);
         const ok = if (src_info.flags.size == .slice and dest_info.flags.size == .slice) ok: {
-            const len = try sema.analyzeSliceLen(block, operand_src, ptr);
-            const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
-            break :ok try block.addBinOp(.bool_or, len_zero, is_non_zero);
-        } else is_non_zero;
+            break :ok try block.addBinOp(.bool_or, operand_len_is_zero, ptr_is_non_zero);
+        } else ptr_is_non_zero;
         try sema.addSafetyCheck(block, src, ok, .cast_to_null);
     }
-
-    if (block.wantSafety() and
-        dest_align.compare(.gt, src_align) and
-        try Type.fromInterned(dest_info.child).hasRuntimeBitsSema(pt))
-    {
-        const align_bytes_minus_1 = dest_align.toByteUnits().? - 1;
-        const align_mask = Air.internedToRef((try pt.intValue(
-            Type.usize,
-            if (Type.fromInterned(dest_info.child).fnPtrMaskOrNull(zcu)) |mask|
-                align_bytes_minus_1 & mask
-            else
-                align_bytes_minus_1,
-        )).toIntern());
-        const actual_ptr = if (src_info.flags.size == .slice)
-            try sema.analyzeSlicePtr(block, src, ptr, operand_ty)
-        else
-            ptr;
-        const ptr_int = try block.addBitCast(.usize, actual_ptr);
-        const remainder = try block.addBinOp(.bit_and, ptr_int, align_mask);
-        const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
+    if (need_align_check) {
+        assert(operand_ptr_int != .none);
+        const align_mask = try pt.intRef(.usize, mask: {
+            const target_ptr_mask: u64 = Type.fromInterned(dest_info.child).fnPtrMaskOrNull(zcu) orelse ~@as(u64, 0);
+            break :mask (dest_align.toByteUnits().? - 1) & target_ptr_mask;
+        });
+        const ptr_masked = try block.addBinOp(.bit_and, operand_ptr_int, align_mask);
+        const is_aligned = try block.addBinOp(.cmp_eq, ptr_masked, .zero_usize);
         const ok = if (src_info.flags.size == .slice and dest_info.flags.size == .slice) ok: {
-            const len = try sema.analyzeSliceLen(block, operand_src, ptr);
-            const len_zero = try block.addBinOp(.cmp_eq, len, .zero_usize);
-            break :ok try block.addBinOp(.bool_or, len_zero, is_aligned);
+            break :ok try block.addBinOp(.bool_or, operand_len_is_zero, is_aligned);
         } else is_aligned;
         try sema.addSafetyCheck(block, src, ok, .incorrect_alignment);
     }
 
-    // If we're going from an array pointer to a slice, this will only be the pointer part!
-    const result_ptr = if (flags.addrspace_cast) ptr: {
-        // We can't change address spaces with a bitcast, so this requires two instructions
-        var intermediate_info = src_info;
-        intermediate_info.flags.address_space = dest_info.flags.address_space;
-        const intermediate_ptr_ty = try pt.ptrTypeSema(intermediate_info);
-        const intermediate_ty = if (dest_ptr_ty.zigTypeTag(zcu) == .optional) blk: {
-            break :blk try pt.optionalType(intermediate_ptr_ty.toIntern());
-        } else intermediate_ptr_ty;
-        const intermediate = try block.addInst(.{
-            .tag = .addrspace_cast,
-            .data = .{ .ty_op = .{
-                .ty = Air.internedToRef(intermediate_ty.toIntern()),
-                .operand = ptr,
-            } },
-        });
-        if (intermediate_ty.eql(dest_ptr_ty, zcu)) {
-            // We only changed the address space, so no need for a bitcast
-            break :ptr intermediate;
+    if (dest_info.flags.size == .slice) {
+        if (src_info.flags.size == .slice and !flags.addrspace_cast and !slice_needs_len_change) {
+            // Fast path: just bitcast!
+            return block.addBitCast(dest_ty, operand);
         }
-        break :ptr try block.addBitCast(dest_ptr_ty, intermediate);
-    } else ptr: {
-        break :ptr try block.addBitCast(dest_ptr_ty, ptr);
-    };
 
-    if (dest_info.flags.size == .slice and src_info.flags.size != .slice) {
-        // We have to construct a slice using the operand's child's array length
-        // Note that we know from the check at the start of the function that operand_ty is slice-like
-        const arr_len = Air.internedToRef((try pt.intValue(Type.usize, Type.fromInterned(src_info.child).arrayLen(zcu))).toIntern());
+        // We need to deconstruct the slice (if applicable) and reconstruct it.
+        assert(need_operand_ptr);
+
+        const result_len: Air.Inst.Ref = len: {
+            if (src_info.flags.size == .slice and !slice_needs_len_change) {
+                assert(need_operand_len);
+                break :len operand_len;
+            }
+
+            const src_elem_size = src_slice_like_elem.abiSize(zcu);
+            const dest_elem_size = Type.fromInterned(dest_info.child).abiSize(zcu);
+            if (src_info.flags.size != .slice) {
+                assert(src_slice_like);
+                const src_len = Type.fromInterned(src_info.child).arrayLen(zcu);
+                const bytes = src_len * src_elem_size;
+                const dest_len = std.math.divExact(u64, bytes, dest_elem_size) catch |err| switch (err) {
+                    error.DivisionByZero => unreachable,
+                    error.UnexpectedRemainder => return sema.fail(block, src, "slice length '{d}' does not divide exactly into destination elements", .{src_len}),
+                };
+                break :len try pt.intRef(.usize, dest_len);
+            }
+
+            assert(need_operand_len);
+
+            // If `src_elem_size * n == dest_elem_size`, then just multiply the length by `n`.
+            if (std.math.divExact(u64, src_elem_size, dest_elem_size)) |dest_per_src| {
+                const multiplier = try pt.intRef(.usize, dest_per_src);
+                break :len try block.addBinOp(.mul, operand_len, multiplier);
+            } else |err| switch (err) {
+                error.DivisionByZero => unreachable,
+                error.UnexpectedRemainder => {}, // fall through to code below
+            }
+
+            // If `src_elem_size == dest_elem_size * n`, then divide the length by `n`.
+            // This incurs a safety check.
+            if (std.math.divExact(u64, dest_elem_size, src_elem_size)) |src_per_dest| {
+                const divisor = try pt.intRef(.usize, src_per_dest);
+                if (block.wantSafety()) {
+                    // Check that the element count divides neatly.
+                    const remainder = try block.addBinOp(.rem, operand_len, divisor);
+                    const ok = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
+                    try sema.addSafetyCheckCall(block, src, ok, .@"panic.sliceCastLenRemainder", &.{operand_len});
+                }
+                break :len try block.addBinOp(.div_exact, operand_len, divisor);
+            } else |err| switch (err) {
+                error.DivisionByZero => unreachable,
+                error.UnexpectedRemainder => {}, // fall through to code below
+            }
+
+            // Fallback: the elements don't divide easily.
+            // We'll multiply up to a byte count, then divide down to a new element count.
+            // This incurs a safety check.
+
+            const src_elem_size_ref = try pt.intRef(.usize, src_elem_size);
+            const dest_elem_size_ref = try pt.intRef(.usize, dest_elem_size);
+
+            const byte_count = try block.addBinOp(.mul, operand_len, src_elem_size_ref);
+            if (block.wantSafety()) {
+                // Check that `byte_count` divides neatly into `dest_elem_size`.
+                const remainder = try block.addBinOp(.rem, byte_count, dest_elem_size_ref);
+                const ok = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
+                try sema.addSafetyCheckCall(block, src, ok, .@"panic.sliceCastLenRemainder", &.{operand_len});
+            }
+            break :len try block.addBinOp(.div_exact, byte_count, dest_elem_size_ref);
+        };
+
+        const operand_ptr_ty = sema.typeOf(operand_ptr);
+        const want_ptr_ty = switch (dest_ty.zigTypeTag(zcu)) {
+            .optional => try pt.optionalType(dest_ty.childType(zcu).slicePtrFieldType(zcu).toIntern()),
+            .pointer => dest_ty.slicePtrFieldType(zcu),
+            else => unreachable,
+        };
+        const coerced_ptr = if (operand_ptr_ty.toIntern() != want_ptr_ty.toIntern()) ptr: {
+            break :ptr try block.addBitCast(want_ptr_ty, operand_ptr);
+        } else operand_ptr;
+
         return block.addInst(.{
             .tag = .slice,
             .data = .{ .ty_pl = .{
                 .ty = Air.internedToRef(dest_ty.toIntern()),
                 .payload = try sema.addExtra(Air.Bin{
-                    .lhs = result_ptr,
-                    .rhs = arr_len,
+                    .lhs = coerced_ptr,
+                    .rhs = result_len,
                 }),
             } },
         });
     } else {
-        assert(dest_ptr_ty.eql(dest_ty, zcu));
-        try sema.checkKnownAllocPtr(block, operand, result_ptr);
-        return result_ptr;
+        assert(need_operand_ptr);
+        // We just need to bitcast the pointer, if necessary.
+        // It might not be necessary, since we might have just needed the `addrspace_cast`.
+        const result = if (sema.typeOf(operand_ptr).toIntern() == dest_ty.toIntern())
+            operand_ptr
+        else
+            try block.addBitCast(dest_ty, operand_ptr);
+
+        try sema.checkKnownAllocPtr(block, operand, result);
+        return result;
     }
 }
 
@@ -38825,6 +38981,12 @@ fn getExpectedBuiltinFnType(sema: *Sema, decl: Zcu.BuiltinDecl) CompileError!Typ
         // `fn (anyerror) noreturn`
         .@"panic.unwrapError" => try pt.funcType(.{
             .param_types = &.{.anyerror_type},
+            .return_type = .noreturn_type,
+        }),
+
+        // `fn (usize) noreturn`
+        .@"panic.sliceCastLenRemainder" => try pt.funcType(.{
+            .param_types = &.{.usize_type},
             .return_type = .noreturn_type,
         }),
 
