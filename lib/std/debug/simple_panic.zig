@@ -47,6 +47,11 @@ pub fn inactiveUnionField(active: anytype, accessed: @TypeOf(active)) noreturn {
     call("access of inactive union field", null);
 }
 
+pub fn sliceCastLenRemainder(src_len: usize) noreturn {
+    _ = src_len;
+    call("slice length does not divide exactly into destination elements", null);
+}
+
 pub fn reachedUnreachable() noreturn {
     call("reached unreachable code", null);
 }
