@@ -381,7 +381,7 @@
       In this case, the {#syntax#}!{#endsyntax#} may be omitted from the return
       type of <code>main</code> because no errors are returned from the function.
       </p>
-      {#see_also|Values|Tuples|@import|Errors|Root Source File|Source Encoding|try#}
+      {#see_also|Values|Tuples|@import|Errors|Entry Point|Source Encoding|try#}
       {#header_close#}
       {#header_open|Comments#}
       <p>
@@ -823,7 +823,7 @@
         <kbd>zig test</kbd> is a tool that creates and runs a test build. By default, it builds and runs an
         executable program using the <em>default test runner</em> provided by the {#link|Zig Standard Library#}
         as its main entry point. During the build, {#syntax#}test{#endsyntax#} declarations found while
-        {#link|resolving|Root Source File#} the given Zig source file are included for the default test runner
+        {#link|resolving|File and Declaration Discovery#} the given Zig source file are included for the default test runner
         to run and report on.
       </p>
       <aside>
@@ -5222,7 +5222,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
         <li>From library code, calling the programmer's panic function if they exposed one in the root source file.</li>
         <li>When mixing C and Zig code, calling the canonical panic implementation across multiple .o files.</li>
       </ul>
-      {#see_also|Root Source File#}
+      {#see_also|Panic Handler#}
       {#header_close#}
 
       {#header_open|@popCount#}
@@ -6480,14 +6480,155 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#builtin#}
       {#see_also|Build Mode#}
       {#header_close#}
-      {#header_open|Root Source File#}
-      <p>TODO: explain how root source file finds other files</p>
-      <p>TODO: pub fn main</p>
-      <p>TODO: pub fn panic</p>
-      <p>TODO: if linking with libc you can use export fn main</p>
-      <p>TODO: order independent top level declarations</p>
-      <p>TODO: lazy analysis</p>
-      <p>TODO: using comptime { _ = @import() }</p>
+      {#header_open|Compilation Model#}
+      <p>
+      A Zig compilation is separated into <em>modules</em>. Each module is a collection of Zig source files,
+      one of which is the module's <em>root source file</em>. Each module can <em>depend</em> on any number of
+      other modules, forming a directed graph (dependency loops between modules are allowed). If module A
+      depends on module B, then any Zig source file in module A can import the <em>root source file</em> of
+      module B using {#syntax#}@import{#endsyntax#} with the module's name. In essence, a module acts as an
+      alias to import a Zig source file (which might exist in a completely separate part of the filesystem).
+      </p>
+      <p>
+      A simple Zig program compiled with <code>zig build-exe</code> has two key modules: the one containing your
+      code, known as the "main" or "root" module, and the standard library. Your module <em>depends on</em>
+      the standard library module under the name "std", which is what allows you to write
+      {#syntax#}@import("std"){#endsyntax#}! In fact, every single module in a Zig compilation &mdash; including
+      the standard library itself &mdash; implicitly depends on the standard library module under the name "std".
+      </p>
+      <p>
+      The "root module" (the one provided by you in the <code>zig build-exe</code> example) has a special
+      property. Like the standard library, it is implicitly made available to all modules (including itself),
+      this time under the name "root". So, {#syntax#}@import("root"){#endsyntax#} will always be equivalent to
+      {#syntax#}@import{#endsyntax#} of your "main" source file (often, but not necessarily, named
+      <code>main.zig</code>).
+      </p>
+      {#header_open|Source File Structs#}
+      <p>
+      Every Zig source file is implicitly a {#syntax#}struct{#endsyntax#} declaration; you can imagine that
+      the file's contents are literally surrounded by {#syntax#}struct { ... }{#endsyntax#}. This means that
+      as well as declarations, the top level of a file is permitted to contain fields:
+      </p>
+      {#code|TopLevelFields.zig#}
+      <p>
+      Such files can be instantiated just like any other {#syntax#}struct{#endsyntax#} type. A file's "root
+      struct type" can be referred to within that file using {#link|@This#}.
+      </p>
+      {#header_close#}
+      {#header_open|File and Declaration Discovery#}
+      <p>
+      Zig places importance on the concept of whether any piece of code is <em>semantically analyzed</em>; in
+      essence, whether the compiler "looks at" it. What code is analyzed is based on what files and
+      declarations are "discovered" from a certain point. This process of "discovery" is based on a simple set
+      of recursive rules:
+      </p>
+      <ul>
+        <li>If a call to {#syntax#}@import{#endsyntax#} is analyzed, the file being imported is analyzed.</li>
+        <li>If a type (including a file) is analyzed, all {#syntax#}comptime{#endsyntax#}, {#syntax#}usingnamespace{#endsyntax#}, and {#syntax#}export{#endsyntax#} declarations within it are analyzed.</li>
+        <li>If a type (including a file) is analyzed, and the compilation is for a {#link|test|Zig Test#}, and the module the type is within is the root module of the compilation, then all {#syntax#}test{#endsyntax#} declarations within it are also analyzed.</li>
+        <li>If a reference to a named declaration (i.e. a usage of it) is analyzed, the declaration being referenced is analyzed. Declarations are order-independent, so this reference may be above or below the declaration being referenced, or even in another file entirely.</li>
+      </ul>
+      <p>
+      That's it! Those rules define how Zig files and declarations are discovered. All that remains is to
+      understand where this process <em>starts</em>.
+      </p>
+      <p>
+      The answer to that is the root of the standard library: every Zig compilation begins by analyzing the
+      file <code>lib/std/std.zig</code>. This file contains a {#syntax#}comptime{#endsyntax#} declaration
+      which imports {#syntax#}lib/std/start.zig{#endsyntax#}, and that file in turn uses
+      {#syntax#}@import("root"){#endsyntax#} to reference the "root module"; so, the file you provide as your
+      main module's root source file is effectively also a root, because the standard library will always
+      reference it.
+      </p>
+      <p>
+      It is often desirable to make sure that certain declarations &mdash; particularly {#syntax#}test{#endsyntax#}
+      or {#syntax#}export{#endsyntax#} declarations &mdash; are discovered. Based on the above rules, a common
+      strategy for this is to use {#syntax#}@import{#endsyntax#} within a {#syntax#}comptime{#endsyntax#} or
+      {#syntax#}test{#endsyntax#} block:
+      </p>
+      {#syntax_block|zig|force_file_discovery.zig#}
+comptime {
+    // This will ensure that the file 'api.zig' is always discovered (as long as this file is discovered).
+    // It is useful if 'api.zig' contains important exported declarations.
+    _ = @import("api.zig");
+
+    // We could also have a file which contains declarations we only want to export depending on a comptime
+    // condition. In that case, we can use an `if` statement here:
+    if (builtin.os.tag == .windows) {
+        _ = @import("windows_api.zig");
+    }
+}
+
+test {
+    // This will ensure that the file 'tests.zig' is always discovered (as long as this file is discovered),
+    // if this compilation is a test. It is useful if 'tests.zig' contains tests we want to ensure are run.
+    _ = @import("tests.zig");
+
+    // We could also have a file which contains tests we only want to run depending on a comptime condition.
+    // In that case, we can use an `if` statement here:
+    if (builtin.os.tag == .windows) {
+        _ = @import("windows_tests.zig");
+    }
+}
+
+const builtin = @import("builtin");
+      {#end_syntax_block#}
+      {#header_close#}
+      {#header_open|Special Root Declarations#}
+      <p>
+      Because the root module's root source file is always accessible using
+      {#syntax#}@import("root"){#endsyntax#}, is is sometimes used by libraries &mdash; including the Zig Standard
+      Library &mdash; as a place for the program to expose some "global" information to that library. The Zig
+      Standard Library will look for several declarations in this file.
+      </p>
+      {#header_open|Entry Point#}
+      <p>
+      When building an executable, the most important thing to be looked up in this file is the program's
+      <em>entry point</em>. Most commonly, this is a function named {#syntax#}main{#endsyntax#}, which
+      {#syntax#}std.start{#endsyntax#} will call just after performing important initialization work.
+      </p>
+      <p>
+      Alternatively, the presence of a declaration named {#syntax#}_start{#endsyntax#} (for instance,
+      {#syntax#}pub const _start = {};{#endsyntax#}) will disable the default {#syntax#}std.start{#endsyntax#}
+      logic, allowing your root source file to export a low-level entry point as needed.
+      </p>
+      {#code|entry_point.zig#}
+      <p>
+      If the Zig compilation links libc, the {#syntax#}main{#endsyntax#} function can optionally be an
+      {#syntax#}export fn{#endsyntax#} which matches the signature of the C <code>main</code> function:
+      </p>
+      {#code|libc_export_entry_point.zig#}
+      <p>
+      {#syntax#}std.start{#endsyntax#} may also use other entry point declarations in certain situations, such
+      as {#syntax#}wWinMain{#endsyntax#} or {#syntax#}EfiMain{#endsyntax#}. Refer to the
+      {#syntax#}lib/std/start.zig{#endsyntax#} logic for details of these declarations.
+      </p>
+      {#header_close#}
+      {#header_open|Standard Library Options#}
+      <p>
+      The standard library also looks for a declaration in the root module's root source file named
+      {#syntax#}std_options{#endsyntax#}. If present, this declaration is expected to be a struct of type
+      {#syntax#}std.Options{#endsyntax#}, and allows the program to customize some standard library
+      functionality, such as the {#syntax#}std.log{#endsyntax#} implementation.
+      </p>
+      {#code|std_options.zig#}
+      {#header_close#}
+      {#header_open|Panic Handler#}
+      <p>
+      The Zig Standard Library looks for a declaration named {#syntax#}panic{#endsyntax#} in the root module's
+      root source file. If present, it is expected to be a namespace (container type) with declarations
+      providing different panic handlers.
+      </p>
+      <p>
+      See {#syntax#}std.debug.simple_panic{#endsyntax#} for a basic implementation of this namespace.
+      </p>
+      <p>
+      Overriding how the panic handler actually outputs messages, but keeping the formatted safety panics
+      which are enabled by default, can be easily achieved with {#syntax#}std.debug.FullPanic{#endsyntax#}:
+      </p>
+      {#code|panic_handler.zig#}
+      {#header_close#}
+      {#header_close#}
       {#header_close#}
       {#header_open|Zig Build System#}
       <p>
