@@ -721,14 +721,6 @@ pub const Inst = struct {
         /// Result is always void.
         /// Uses the `un_node` union field. Node is the initializer. Operand is the initializer value.
         validate_const,
-        /// Given a type `T`, construct the type `E!T`, where `E` is this function's error set, to be used
-        /// as the result type of a `try` operand. Generic poison is propagated.
-        /// Uses the `un_node` union field. Node is the `try` expression. Operand is the type `T`.
-        try_operand_ty,
-        /// Given a type `*T`, construct the type `*E!T`, where `E` is this function's error set, to be used
-        /// as the result type of a `try` operand whose address is taken with `&`. Generic poison is propagated.
-        /// Uses the `un_node` union field. Node is the `try` expression. Operand is the type `*T`.
-        try_ref_operand_ty,
 
         // The following tags all relate to struct initialization expressions.
 
@@ -1304,8 +1296,6 @@ pub const Inst = struct {
                 .array_init_elem_ptr,
                 .validate_ref_ty,
                 .validate_const,
-                .try_operand_ty,
-                .try_ref_operand_ty,
                 .restore_err_ret_index_unconditional,
                 .restore_err_ret_index_fn_entry,
                 => false,
@@ -1365,8 +1355,6 @@ pub const Inst = struct {
                 .validate_ptr_array_init,
                 .validate_ref_ty,
                 .validate_const,
-                .try_operand_ty,
-                .try_ref_operand_ty,
                 => true,
 
                 .param,
@@ -1749,8 +1737,6 @@ pub const Inst = struct {
                 .coerce_ptr_elem_ty = .pl_node,
                 .validate_ref_ty = .un_tok,
                 .validate_const = .un_node,
-                .try_operand_ty = .un_node,
-                .try_ref_operand_ty = .un_node,
 
                 .int_from_ptr = .un_node,
                 .compile_error = .un_node,
@@ -4196,8 +4182,6 @@ fn findTrackableInner(
         .coerce_ptr_elem_ty,
         .validate_ref_ty,
         .validate_const,
-        .try_operand_ty,
-        .try_ref_operand_ty,
         .struct_init_empty,
         .struct_init_empty_result,
         .struct_init_empty_ref_result,
