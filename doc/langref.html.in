@@ -4907,7 +4907,12 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@fieldParentPtr#}
       <pre>{#syntax#}@fieldParentPtr(comptime field_name: []const u8, field_ptr: *T) anytype{#endsyntax#}</pre>
       <p>
-      Given a pointer to a field, returns the base pointer of a struct.
+      Given a pointer to a struct field, returns a pointer to the struct containing that field.
+      The return type (and struct in question) is the inferred result type.
+      </p>
+      <p>
+      If {#syntax#}field_ptr{#endsyntax#} does not point to the {#syntax#}field_name{#endsyntax#} field of an instance of
+      the result type, and the result type has ill-defined layout, invokes unchecked {#link|Undefined Behavior#}.
       </p>
       {#header_close#}
 
