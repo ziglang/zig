@@ -56,7 +56,7 @@ pub const std_options: std.Options = .{
     },
 };
 
-pub const Panic = crash_report.Panic;
+pub const panic = crash_report.panic;
 
 var wasi_preopens: fs.wasi.Preopens = undefined;
 pub fn wasi_cwd() std.os.wasi.fd_t {
@@ -826,9 +826,9 @@ fn buildOutputType(
     var listen: Listen = .none;
     var debug_compile_errors = false;
     var verbose_link = (native_os != .wasi or builtin.link_libc) and
-        EnvVar.ZIG_VERBOSE_LINK.isSet();
+        try EnvVar.ZIG_VERBOSE_LINK.isSet(arena);
     var verbose_cc = (native_os != .wasi or builtin.link_libc) and
-        EnvVar.ZIG_VERBOSE_CC.isSet();
+        try EnvVar.ZIG_VERBOSE_CC.isSet(arena);
     var verbose_air = false;
     var verbose_intern_pool = false;
     var verbose_generic_instances = false;
@@ -1006,9 +1006,9 @@ fn buildOutputType(
     // if set, default the color setting to .off or .on, respectively
     // explicit --color arguments will still override this setting.
     // Disable color on WASI per https://github.com/WebAssembly/WASI/issues/162
-    var color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet())
+    var color: Color = if (native_os == .wasi or try EnvVar.NO_COLOR.isSet(arena))
         .off
-    else if (EnvVar.CLICOLOR_FORCE.isSet())
+    else if (try EnvVar.CLICOLOR_FORCE.isSet(arena))
         .on
     else
         .auto;
@@ -1961,6 +1961,7 @@ fn buildOutputType(
                             try create_module.cli_link_inputs.append(arena, .{ .name_query = .{
                                 .name = it.only_arg,
                                 .query = .{
+                                    .must_link = must_link,
                                     .needed = needed,
                                     .weak = false,
                                     .preferred_mode = lib_preferred_mode,
@@ -2515,6 +2516,20 @@ fn buildOutputType(
                     stack_size = parseStackSize(linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "--image-base")) {
                     image_base = parseImageBase(linker_args_it.nextOrFatal());
+                } else if (mem.eql(u8, arg, "--enable-auto-image-base") or
+                    mem.eql(u8, arg, "--disable-auto-image-base"))
+                {
+                    // `--enable-auto-image-base` is a flag that binutils added in ~2000 for MinGW.
+                    // It does a hash of the file and uses that as part of the image base value.
+                    // Presumably the idea was to avoid DLLs needing to be relocated when loaded.
+                    // This is practically irrelevant today as all PEs produced since Windows Vista
+                    // have ASLR enabled by default anyway, and Windows 10+ has Mandatory ASLR which
+                    // doesn't even care what the PE file wants and relocates it anyway.
+                    //
+                    // Unfortunately, Libtool hardcodes usage of this archaic flag when targeting
+                    // MinGW, so to make `zig cc` for that use case work, accept and ignore the
+                    // flag, and warn the user that it has no effect.
+                    warn("auto-image-base options are unimplemented and ignored", .{});
                 } else if (mem.eql(u8, arg, "-T") or mem.eql(u8, arg, "--script")) {
                     linker_script = linker_args_it.nextOrFatal();
                 } else if (mem.eql(u8, arg, "--eh-frame-hdr")) {
@@ -2718,7 +2733,9 @@ fn buildOutputType(
             switch (c_out_mode orelse .link) {
                 .link => {
                     create_module.opts.output_mode = if (is_shared_lib) .Lib else .Exe;
-                    emit_bin = if (out_path) |p| .{ .yes = p } else EmitBin.yes_a_out;
+                    if (emit_bin != .no) {
+                        emit_bin = if (out_path) |p| .{ .yes = p } else EmitBin.yes_a_out;
+                    }
                     if (emit_llvm) {
                         fatal("-emit-llvm cannot be used when linking", .{});
                     }
@@ -2768,10 +2785,13 @@ fn buildOutputType(
                         emit_bin = if (out_path) |p| .{ .yes = p } else .yes_default_path;
                         clang_preprocessor_mode = .pch;
                     } else {
-                        if (out_path) |p| {
-                            emit_bin = .{ .yes = p };
+                        // If the output path is "-" (stdout), then we need to emit the preprocessed output to stdout
+                        // like "clang -E main.c -o -" does.
+                        if (out_path != null and !mem.eql(u8, out_path.?, "-")) {
+                            emit_bin = .{ .yes = out_path.? };
                             clang_preprocessor_mode = .yes;
                         } else {
+                            emit_bin = .no;
                             clang_preprocessor_mode = .stdout;
                         }
                     }
@@ -4749,9 +4769,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var reference_trace: ?u32 = null;
     var debug_compile_errors = false;
     var verbose_link = (native_os != .wasi or builtin.link_libc) and
-        EnvVar.ZIG_VERBOSE_LINK.isSet();
+        try EnvVar.ZIG_VERBOSE_LINK.isSet(arena);
     var verbose_cc = (native_os != .wasi or builtin.link_libc) and
-        EnvVar.ZIG_VERBOSE_CC.isSet();
+        try EnvVar.ZIG_VERBOSE_CC.isSet(arena);
     var verbose_air = false;
     var verbose_intern_pool = false;
     var verbose_generic_instances = false;
@@ -4934,7 +4954,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     }
 
     const work_around_btrfs_bug = native_os == .linux and
-        EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
+        try EnvVar.ZIG_BTRFS_WORKAROUND.isSet(arena);
     const root_prog_node = std.Progress.start(.{
         .disable_printing = (color == .off),
         .root_name = "Compile Build Script",
@@ -4997,8 +5017,16 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
     var global_cache_directory: Directory = l: {
         const p = override_global_cache_dir orelse try introspect.resolveGlobalCacheDir(arena);
+        const dir = fs.cwd().makeOpenPath(p, .{}) catch |err| {
+            const base_msg = "unable to open or create the global Zig cache at '{s}': {s}.{s}";
+            const extra = "\nIf this location is not writable then consider specifying an " ++
+                "alternative with the ZIG_GLOBAL_CACHE_DIR environment variable or the " ++
+                "--global-cache-dir option.";
+            const show_extra = err == error.AccessDenied or err == error.ReadOnlyFileSystem;
+            fatal(base_msg, .{ p, @errorName(err), if (show_extra) extra else "" });
+        };
         break :l .{
-            .handle = try fs.cwd().makeOpenPath(p, .{}),
+            .handle = dir,
             .path = p,
         };
     };
@@ -5433,7 +5461,7 @@ fn jitCmd(
         fatal("unable to find self exe path: {s}", .{@errorName(err)});
     };
 
-    const optimize_mode: std.builtin.OptimizeMode = if (EnvVar.ZIG_DEBUG_CMD.isSet())
+    const optimize_mode: std.builtin.OptimizeMode = if (try EnvVar.ZIG_DEBUG_CMD.isSet(arena))
         .Debug
     else
         .ReleaseFast;
@@ -6965,7 +6993,7 @@ fn cmdFetch(
 
     const color: Color = .auto;
     const work_around_btrfs_bug = native_os == .linux and
-        EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
+        try EnvVar.ZIG_BTRFS_WORKAROUND.isSet(arena);
     var opt_path_or_url: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
     var debug_hash: bool = false;

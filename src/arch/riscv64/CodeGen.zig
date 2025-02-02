@@ -1517,6 +1517,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .add_safe,
             .sub_safe,
             .mul_safe,
+            .intcast_safe,
             => return func.fail("TODO implement safety_checked_instructions", .{}),
 
             .cmp_lt,
@@ -1556,7 +1557,6 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .fpext           => try func.airFpext(inst),
             .intcast         => try func.airIntCast(inst),
             .trunc           => try func.airTrunc(inst),
-            .int_from_bool   => try func.airIntFromBool(inst),
             .is_non_null     => try func.airIsNonNull(inst),
             .is_non_null_ptr => try func.airIsNonNullPtr(inst),
             .is_null         => try func.airIsNull(inst),
@@ -1568,7 +1568,6 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .load            => try func.airLoad(inst),
             .loop            => try func.airLoop(inst),
             .not             => try func.airNot(inst),
-            .int_from_ptr    => try func.airIntFromPtr(inst),
             .ret             => try func.airRet(inst, false),
             .ret_safe        => try func.airRet(inst, true),
             .ret_load        => try func.airRetLoad(inst),
@@ -2296,13 +2295,6 @@ fn airTrunc(func: *Func, inst: Air.Inst.Index) !void {
     }
 
     return func.finishAir(inst, operand, .{ ty_op.operand, .none, .none });
-}
-
-fn airIntFromBool(func: *Func, inst: Air.Inst.Index) !void {
-    const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const operand = try func.resolveInst(un_op);
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else operand;
-    return func.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn airNot(func: *Func, inst: Air.Inst.Index) !void {
@@ -7261,21 +7253,6 @@ fn genSetMem(
     }
 }
 
-fn airIntFromPtr(func: *Func, inst: Air.Inst.Index) !void {
-    const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const result = result: {
-        const src_mcv = try func.resolveInst(un_op);
-        const src_ty = func.typeOfIndex(inst);
-        if (func.reuseOperand(inst, un_op, 0, src_mcv)) break :result src_mcv;
-
-        const dst_mcv = try func.allocRegOrMem(src_ty, inst, true);
-        const dst_ty = func.typeOfIndex(inst);
-        try func.genCopy(dst_ty, dst_mcv, src_mcv);
-        break :result dst_mcv;
-    };
-    return func.finishAir(inst, result, .{ un_op, .none, .none });
-}
-
 fn airBitCast(func: *Func, inst: Air.Inst.Index) !void {
     const pt = func.pt;
     const zcu = pt.zcu;
@@ -7284,8 +7261,9 @@ fn airBitCast(func: *Func, inst: Air.Inst.Index) !void {
     const result = if (func.liveness.isUnused(inst)) .unreach else result: {
         const src_mcv = try func.resolveInst(ty_op.operand);
 
-        const dst_ty = func.typeOfIndex(inst);
         const src_ty = func.typeOf(ty_op.operand);
+        if (src_ty.toIntern() == .bool_type) break :result src_mcv;
+        const dst_ty = func.typeOfIndex(inst);
 
         const src_lock = if (src_mcv.getReg()) |reg| func.register_manager.lockReg(reg) else null;
         defer if (src_lock) |lock| func.register_manager.unlockReg(lock);

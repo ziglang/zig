@@ -354,6 +354,8 @@ pub const Inst = struct {
         fn_env,
         /// Float No Wait ___ status word
         fn_sw,
+        /// Float Extended ___
+        fx_,
 
         /// ___ in 32-bit and Compatibility Mode
         _32,
@@ -465,7 +467,7 @@ pub const Inst = struct {
         /// Mask ___ Quadword
         k_q,
 
-        pub fn fromCondition(cc: bits.Condition) Fixes {
+        pub fn fromCond(cc: bits.Condition) Fixes {
             return switch (cc) {
                 inline else => |cc_tag| @field(Fixes, "_" ++ @tagName(cc_tag)),
                 .z_and_np, .nz_or_p => unreachable,
@@ -817,8 +819,10 @@ pub const Inst = struct {
         /// Round to integer
         rndint,
         /// Restore x87 FPU state
+        /// Restore x87 FPU, MMX, XMM, and MXCSR state
         rstor,
         /// Store x87 FPU state
+        /// Save x87 FPU, MMX technology, and MXCSR state
         save,
         /// Scale
         scale,
@@ -923,10 +927,6 @@ pub const Inst = struct {
         /// Extract doubleword
         /// Extract quadword
         extr,
-        /// Restore x87 FPU, MMX, XMM, and MXCSR state
-        fxrstor,
-        /// Save x87 FPU, MMX technology, and MXCSR state
-        fxsave,
         /// Insert byte
         /// Insert word
         /// Insert doubleword

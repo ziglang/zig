@@ -295,27 +295,8 @@ pub fn resolve(options: Options) ResolveError!Config {
         }
 
         if (options.lto) |x| break :b x;
-        if (!options.any_c_source_files) break :b .none;
 
-        // https://github.com/llvm/llvm-project/pull/116537
-        switch (target.abi) {
-            .gnuabin32,
-            .gnuilp32,
-            .gnux32,
-            .ilp32,
-            .muslabin32,
-            .muslx32,
-            => break :b .none,
-            else => {},
-        }
-
-        break :b switch (options.output_mode) {
-            .Lib, .Obj => .none,
-            .Exe => switch (root_optimize_mode) {
-                .Debug => .none,
-                .ReleaseSafe, .ReleaseFast, .ReleaseSmall => .full,
-            },
-        };
+        break :b .none;
     };
 
     const link_libcpp = b: {

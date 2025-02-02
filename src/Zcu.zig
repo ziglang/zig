@@ -143,8 +143,6 @@ compile_log_sources: std.AutoArrayHashMapUnmanaged(AnalUnit, extern struct {
 /// Using a map here for consistency with the other fields here.
 /// The ErrorMsg memory is owned by the `File`, using Module's general purpose allocator.
 failed_files: std.AutoArrayHashMapUnmanaged(*File, ?*ErrorMsg) = .empty,
-/// The ErrorMsg memory is owned by the `EmbedFile`, using Module's general purpose allocator.
-failed_embed_files: std.AutoArrayHashMapUnmanaged(*EmbedFile, *ErrorMsg) = .empty,
 failed_exports: std.AutoArrayHashMapUnmanaged(Export.Index, *ErrorMsg) = .empty,
 /// If analysis failed due to a cimport error, the corresponding Clang errors
 /// are stored here.
@@ -219,8 +217,6 @@ free_type_references: std.ArrayListUnmanaged(u32) = .empty,
 
 /// Populated by analysis of `AnalUnit.wrap(.{ .memoized_state = s })`, where `s` depends on the element.
 builtin_decl_values: BuiltinDecl.Memoized = .initFill(.none),
-/// Populated by analysis of `AnalUnit.wrap(.{ .memoized_state = .panic })`.
-null_stack_trace: InternPool.Index = .none,
 
 generation: u32 = 0,
 
@@ -269,34 +265,33 @@ pub const BuiltinDecl = enum {
     @"Type.Opaque",
     @"Type.Declaration",
 
-    Panic,
-    @"Panic.call",
-    @"Panic.sentinelMismatch",
-    @"Panic.unwrapError",
-    @"Panic.outOfBounds",
-    @"Panic.startGreaterThanEnd",
-    @"Panic.inactiveUnionField",
-    @"Panic.messages",
-    @"Panic.messages.reached_unreachable",
-    @"Panic.messages.unwrap_null",
-    @"Panic.messages.cast_to_null",
-    @"Panic.messages.incorrect_alignment",
-    @"Panic.messages.invalid_error_code",
-    @"Panic.messages.cast_truncated_data",
-    @"Panic.messages.negative_to_unsigned",
-    @"Panic.messages.integer_overflow",
-    @"Panic.messages.shl_overflow",
-    @"Panic.messages.shr_overflow",
-    @"Panic.messages.divide_by_zero",
-    @"Panic.messages.exact_division_remainder",
-    @"Panic.messages.integer_part_out_of_bounds",
-    @"Panic.messages.corrupt_switch",
-    @"Panic.messages.shift_rhs_too_big",
-    @"Panic.messages.invalid_enum_value",
-    @"Panic.messages.for_len_mismatch",
-    @"Panic.messages.memcpy_len_mismatch",
-    @"Panic.messages.memcpy_alias",
-    @"Panic.messages.noreturn_returned",
+    panic,
+    @"panic.call",
+    @"panic.sentinelMismatch",
+    @"panic.unwrapError",
+    @"panic.outOfBounds",
+    @"panic.startGreaterThanEnd",
+    @"panic.inactiveUnionField",
+    @"panic.reachedUnreachable",
+    @"panic.unwrapNull",
+    @"panic.castToNull",
+    @"panic.incorrectAlignment",
+    @"panic.invalidErrorCode",
+    @"panic.castTruncatedData",
+    @"panic.negativeToUnsigned",
+    @"panic.integerOverflow",
+    @"panic.shlOverflow",
+    @"panic.shrOverflow",
+    @"panic.divideByZero",
+    @"panic.exactDivisionRemainder",
+    @"panic.integerPartOutOfBounds",
+    @"panic.corruptSwitch",
+    @"panic.shiftRhsTooBig",
+    @"panic.invalidEnumValue",
+    @"panic.forLenMismatch",
+    @"panic.memcpyLenMismatch",
+    @"panic.memcpyAlias",
+    @"panic.noreturnReturned",
 
     VaList,
 
@@ -345,39 +340,35 @@ pub const BuiltinDecl = enum {
             .@"Type.Declaration",
             => .type,
 
-            .Panic => .type,
+            .panic => .type,
 
-            .@"Panic.call",
-            .@"Panic.sentinelMismatch",
-            .@"Panic.unwrapError",
-            .@"Panic.outOfBounds",
-            .@"Panic.startGreaterThanEnd",
-            .@"Panic.inactiveUnionField",
+            .@"panic.call",
+            .@"panic.sentinelMismatch",
+            .@"panic.unwrapError",
+            .@"panic.outOfBounds",
+            .@"panic.startGreaterThanEnd",
+            .@"panic.inactiveUnionField",
+            .@"panic.reachedUnreachable",
+            .@"panic.unwrapNull",
+            .@"panic.castToNull",
+            .@"panic.incorrectAlignment",
+            .@"panic.invalidErrorCode",
+            .@"panic.castTruncatedData",
+            .@"panic.negativeToUnsigned",
+            .@"panic.integerOverflow",
+            .@"panic.shlOverflow",
+            .@"panic.shrOverflow",
+            .@"panic.divideByZero",
+            .@"panic.exactDivisionRemainder",
+            .@"panic.integerPartOutOfBounds",
+            .@"panic.corruptSwitch",
+            .@"panic.shiftRhsTooBig",
+            .@"panic.invalidEnumValue",
+            .@"panic.forLenMismatch",
+            .@"panic.memcpyLenMismatch",
+            .@"panic.memcpyAlias",
+            .@"panic.noreturnReturned",
             => .func,
-
-            .@"Panic.messages" => .type,
-
-            .@"Panic.messages.reached_unreachable",
-            .@"Panic.messages.unwrap_null",
-            .@"Panic.messages.cast_to_null",
-            .@"Panic.messages.incorrect_alignment",
-            .@"Panic.messages.invalid_error_code",
-            .@"Panic.messages.cast_truncated_data",
-            .@"Panic.messages.negative_to_unsigned",
-            .@"Panic.messages.integer_overflow",
-            .@"Panic.messages.shl_overflow",
-            .@"Panic.messages.shr_overflow",
-            .@"Panic.messages.divide_by_zero",
-            .@"Panic.messages.exact_division_remainder",
-            .@"Panic.messages.integer_part_out_of_bounds",
-            .@"Panic.messages.corrupt_switch",
-            .@"Panic.messages.shift_rhs_too_big",
-            .@"Panic.messages.invalid_enum_value",
-            .@"Panic.messages.for_len_mismatch",
-            .@"Panic.messages.memcpy_len_mismatch",
-            .@"Panic.messages.memcpy_alias",
-            .@"Panic.messages.noreturn_returned",
-            => .string,
         };
     }
 
@@ -423,7 +414,7 @@ pub const BuiltinDecl = enum {
     const Memoized = std.enums.EnumArray(BuiltinDecl, InternPool.Index);
 };
 
-pub const PanicId = enum {
+pub const SimplePanicId = enum {
     reached_unreachable,
     unwrap_null,
     cast_to_null,
@@ -445,19 +436,31 @@ pub const PanicId = enum {
     memcpy_alias,
     noreturn_returned,
 
-    pub fn toBuiltin(id: PanicId) BuiltinDecl {
-        const first_msg: PanicId = @enumFromInt(0);
-        const first_decl = @field(BuiltinDecl, "Panic.messages." ++ @tagName(first_msg));
-        comptime {
-            // Ensure that the messages are ordered the same in `BuiltinDecl` as they are here.
-            for (@typeInfo(PanicId).@"enum".fields) |panic_field| {
-                const expect_name = "Panic.messages." ++ panic_field.name;
-                const expect_idx = @intFromEnum(first_decl) + panic_field.value;
-                const actual_idx = @intFromEnum(@field(BuiltinDecl, expect_name));
-                assert(expect_idx == actual_idx);
-            }
-        }
-        return @enumFromInt(@intFromEnum(first_decl) + @intFromEnum(id));
+    pub fn toBuiltin(id: SimplePanicId) BuiltinDecl {
+        return switch (id) {
+            // zig fmt: off
+            .reached_unreachable        => .@"panic.reachedUnreachable",
+            .unwrap_null                => .@"panic.unwrapNull",
+            .cast_to_null               => .@"panic.castToNull",
+            .incorrect_alignment        => .@"panic.incorrectAlignment",
+            .invalid_error_code         => .@"panic.invalidErrorCode",
+            .cast_truncated_data        => .@"panic.castTruncatedData",
+            .negative_to_unsigned       => .@"panic.negativeToUnsigned",
+            .integer_overflow           => .@"panic.integerOverflow",
+            .shl_overflow               => .@"panic.shlOverflow",
+            .shr_overflow               => .@"panic.shrOverflow",
+            .divide_by_zero             => .@"panic.divideByZero",
+            .exact_division_remainder   => .@"panic.exactDivisionRemainder",
+            .integer_part_out_of_bounds => .@"panic.integerPartOutOfBounds",
+            .corrupt_switch             => .@"panic.corruptSwitch",
+            .shift_rhs_too_big          => .@"panic.shiftRhsTooBig",
+            .invalid_enum_value         => .@"panic.invalidEnumValue",
+            .for_len_mismatch           => .@"panic.forLenMismatch",
+            .memcpy_len_mismatch        => .@"panic.memcpyLenMismatch",
+            .memcpy_alias               => .@"panic.memcpyAlias",
+            .noreturn_returned          => .@"panic.noreturnReturned",
+            // zig fmt: on
+        };
     }
 };
 
@@ -893,13 +896,23 @@ pub const File = struct {
 };
 
 pub const EmbedFile = struct {
-    /// Relative to the owning module's root directory.
-    sub_file_path: InternPool.NullTerminatedString,
     /// Module that this file is a part of, managed externally.
     owner: *Package.Module,
-    stat: Cache.File.Stat,
+    /// Relative to the owning module's root directory.
+    sub_file_path: InternPool.NullTerminatedString,
+
+    /// `.none` means the file was not loaded, so `stat` is undefined.
     val: InternPool.Index,
-    src_loc: LazySrcLoc,
+    /// If this is `null` and `val` is `.none`, the file has never been loaded.
+    err: ?(std.fs.File.OpenError || std.fs.File.StatError || std.fs.File.ReadError || error{UnexpectedEof}),
+    stat: Cache.File.Stat,
+
+    pub const Index = enum(u32) {
+        _,
+        pub fn get(idx: Index, zcu: *const Zcu) *EmbedFile {
+            return zcu.embed_table.values()[@intFromEnum(idx)];
+        }
+    };
 };
 
 /// This struct holds data necessary to construct API-facing `AllErrors.Message`.
@@ -2459,11 +2472,6 @@ pub fn deinit(zcu: *Zcu) void {
         }
         zcu.failed_files.deinit(gpa);
 
-        for (zcu.failed_embed_files.values()) |msg| {
-            msg.destroy(gpa);
-        }
-        zcu.failed_embed_files.deinit(gpa);
-
         for (zcu.failed_exports.values()) |value| {
             value.destroy(gpa);
         }
@@ -3305,7 +3313,7 @@ pub fn addGlobalAssembly(zcu: *Zcu, unit: AnalUnit, source: []const u8) !void {
 
 pub const Feature = enum {
     /// When this feature is enabled, Sema will emit calls to
-    /// `std.builtin.Panic` functions for things like safety checks and
+    /// `std.builtin.panic` functions for things like safety checks and
     /// unreachables. Otherwise traps will be emitted.
     panic_fn,
     /// When this feature is enabled, Sema will insert tracer functions for gathering a stack
@@ -3321,12 +3329,22 @@ pub const Feature = enum {
     /// * `Air.Inst.Tag.add_safe`
     /// * `Air.Inst.Tag.sub_safe`
     /// * `Air.Inst.Tag.mul_safe`
+    /// * `Air.Inst.Tag.intcast_safe`
     /// The motivation for this feature is that it makes AIR smaller, and makes it easier
     /// to generate better machine code in the backends. All backends should migrate to
     /// enabling this feature.
     safety_checked_instructions,
     /// If the backend supports running from another thread.
     separate_thread,
+    /// If the backend supports the following AIR instructions with vector types:
+    /// * `Air.Inst.Tag.bit_and`
+    /// * `Air.Inst.Tag.bit_or`
+    /// * `Air.Inst.Tag.bitcast`
+    /// * `Air.Inst.Tag.float_from_int`
+    /// * `Air.Inst.Tag.fptrunc`
+    /// * `Air.Inst.Tag.int_from_float`
+    /// If not supported, Sema will scalarize the operation.
+    all_vector_instructions,
 };
 
 pub fn backendSupportsFeature(zcu: *const Zcu, comptime feature: Feature) bool {
@@ -3881,6 +3899,14 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
             .struct_type, .union_type, .enum_type => return writer.print("type('{}')", .{Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip)}),
             .func => |f| return writer.print("ies('{}')", .{ip.getNav(f.owner_nav).fqn.fmt(ip)}),
             else => unreachable,
+        },
+        .embed_file => |ef_idx| {
+            const ef = ef_idx.get(zcu);
+            return writer.print("embed_file('{s}')", .{std.fs.path.fmtJoin(&.{
+                ef.owner.root.root_dir.path orelse "",
+                ef.owner.root.sub_path,
+                ef.sub_file_path.toSlice(ip),
+            })});
         },
         .namespace => |ti| {
             const info = ti.resolveFull(ip) orelse {

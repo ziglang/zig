@@ -15,7 +15,8 @@ pub fn main() void {
     const u: U = .{ .a = 123 };
     _ = u;
 }
-#expect_error=ignored
+#expect_error=main.zig:6:5: error: no field named 'd' in enum 'main.E'
+#expect_error=main.zig:1:11: note: enum declared here
 #update=remove invalid backing enum
 #file=main.zig
 const U = union {

@@ -32,7 +32,14 @@ pub fn build(b: *std.Build) void {
             .cpu_features_sub = std.Target.x86.featureSet(&.{
                 .cmov,
                 //.sse,
+                .sse2,
             }),
+        },
+        .{
+            .cpu_arch = .x86_64,
+            .cpu_model = .{ .explicit = &std.Target.x86.cpu.x86_64 },
+            .cpu_features_add = std.Target.x86.featureSet(&.{.sahf}),
+            .cpu_features_sub = std.Target.x86.featureSet(&.{.cmov}),
         },
         //.{
         //    .cpu_arch = .x86_64,

@@ -266,7 +266,8 @@ pub const Inst = struct {
         /// Boolean or binary NOT.
         /// Uses the `ty_op` field.
         not,
-        /// Reinterpret the memory representation of a value as a different type.
+        /// Reinterpret the bits of a value as a different type.  This is like `@bitCast` but
+        /// also supports enums and pointers.
         /// Uses the `ty_op` field.
         bitcast,
         /// Uses the `ty_pl` field with payload `Block`.  A block runs its body which always ends
@@ -517,14 +518,6 @@ pub const Inst = struct {
         /// Read a value from a pointer.
         /// Uses the `ty_op` field.
         load,
-        /// Converts a pointer to its address. Result type is always `usize`.
-        /// Pointer type size may be any, including slice.
-        /// Uses the `un_op` field.
-        int_from_ptr,
-        /// Given a boolean, returns 0 or 1.
-        /// Result type is always `u1`.
-        /// Uses the `un_op` field.
-        int_from_bool,
         /// Return a value from a function.
         /// Result type is always noreturn; no instructions in a block follow this one.
         /// Uses the `un_op` field.
@@ -574,6 +567,12 @@ pub const Inst = struct {
         /// See `trunc` for integer truncation.
         /// Uses the `ty_op` field.
         intcast,
+        /// Like `intcast`, but includes two safety checks:
+        /// * triggers a safety panic if the cast truncates bits
+        /// * triggers a safety panic if the destination type is an exhaustive enum
+        ///   and the operand is not a valid value of this type; i.e. equivalent to
+        ///   a safety check based on `.is_named_enum_value`
+        intcast_safe,
         /// Truncate higher bits from an integer, resulting in an integer with the same
         /// sign but an equal or smaller number of bits.
         /// Uses the `ty_op` field.
@@ -984,6 +983,29 @@ pub const Inst = struct {
         single_const_pointer_to_comptime_int_type = @intFromEnum(InternPool.Index.single_const_pointer_to_comptime_int_type),
         slice_const_u8_type = @intFromEnum(InternPool.Index.slice_const_u8_type),
         slice_const_u8_sentinel_0_type = @intFromEnum(InternPool.Index.slice_const_u8_sentinel_0_type),
+        vector_16_i8_type = @intFromEnum(InternPool.Index.vector_16_i8_type),
+        vector_32_i8_type = @intFromEnum(InternPool.Index.vector_32_i8_type),
+        vector_16_u8_type = @intFromEnum(InternPool.Index.vector_16_u8_type),
+        vector_32_u8_type = @intFromEnum(InternPool.Index.vector_32_u8_type),
+        vector_8_i16_type = @intFromEnum(InternPool.Index.vector_8_i16_type),
+        vector_16_i16_type = @intFromEnum(InternPool.Index.vector_16_i16_type),
+        vector_8_u16_type = @intFromEnum(InternPool.Index.vector_8_u16_type),
+        vector_16_u16_type = @intFromEnum(InternPool.Index.vector_16_u16_type),
+        vector_4_i32_type = @intFromEnum(InternPool.Index.vector_4_i32_type),
+        vector_8_i32_type = @intFromEnum(InternPool.Index.vector_8_i32_type),
+        vector_4_u32_type = @intFromEnum(InternPool.Index.vector_4_u32_type),
+        vector_8_u32_type = @intFromEnum(InternPool.Index.vector_8_u32_type),
+        vector_2_i64_type = @intFromEnum(InternPool.Index.vector_2_i64_type),
+        vector_4_i64_type = @intFromEnum(InternPool.Index.vector_4_i64_type),
+        vector_2_u64_type = @intFromEnum(InternPool.Index.vector_2_u64_type),
+        vector_4_u64_type = @intFromEnum(InternPool.Index.vector_4_u64_type),
+        vector_4_f16_type = @intFromEnum(InternPool.Index.vector_4_f16_type),
+        vector_8_f16_type = @intFromEnum(InternPool.Index.vector_8_f16_type),
+        vector_2_f32_type = @intFromEnum(InternPool.Index.vector_2_f32_type),
+        vector_4_f32_type = @intFromEnum(InternPool.Index.vector_4_f32_type),
+        vector_8_f32_type = @intFromEnum(InternPool.Index.vector_8_f32_type),
+        vector_2_f64_type = @intFromEnum(InternPool.Index.vector_2_f64_type),
+        vector_4_f64_type = @intFromEnum(InternPool.Index.vector_4_f64_type),
         optional_noreturn_type = @intFromEnum(InternPool.Index.optional_noreturn_type),
         anyerror_void_error_union_type = @intFromEnum(InternPool.Index.anyerror_void_error_union_type),
         adhoc_inferred_error_set_type = @intFromEnum(InternPool.Index.adhoc_inferred_error_set_type),
@@ -1441,6 +1463,7 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .fpext,
         .fptrunc,
         .intcast,
+        .intcast_safe,
         .trunc,
         .optional_payload,
         .optional_payload_ptr,
@@ -1513,7 +1536,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
         .c_va_end,
         => return Type.void,
 
-        .int_from_ptr,
         .slice_len,
         .ret_addr,
         .frame_addr,
@@ -1522,8 +1544,6 @@ pub fn typeOfIndex(air: *const Air, inst: Air.Inst.Index, ip: *const InternPool)
 
         .wasm_memory_grow => return Type.isize,
         .wasm_memory_size => return Type.usize,
-
-        .int_from_bool => return Type.u1,
 
         .tag_name, .error_name => return Type.slice_const_u8_sentinel_0,
 
@@ -1690,6 +1710,7 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .add_safe,
         .sub_safe,
         .mul_safe,
+        .intcast_safe,
         => true,
 
         .add,
@@ -1785,8 +1806,6 @@ pub fn mustLower(air: Air, inst: Air.Inst.Index, ip: *const InternPool) bool {
         .is_non_err_ptr,
         .bool_and,
         .bool_or,
-        .int_from_ptr,
-        .int_from_bool,
         .fptrunc,
         .fpext,
         .intcast,

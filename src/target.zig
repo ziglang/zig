@@ -482,16 +482,6 @@ pub fn arePointersLogical(target: std.Target, as: AddressSpace) bool {
 }
 
 pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
-    // This special-casing should be removed with LLVM 20.
-    switch (target.cpu.arch) {
-        .mips, .mipsel => return "o32",
-        .mips64, .mips64el => return switch (target.abi) {
-            .gnuabin32, .muslabin32 => "n32",
-            else => "n64",
-        },
-        else => {},
-    }
-
     // LLD does not support ELFv1. Rather than having LLVM produce ELFv1 code and then linking it
     // into a broken ELFv2 binary, just force LLVM to use ELFv2 as well. This will break when glibc
     // is linked as glibc only supports ELFv2 for little endian, but there's nothing we can do about
@@ -500,33 +490,57 @@ pub fn llvmMachineAbi(target: std.Target) ?[:0]const u8 {
     // Once our self-hosted linker can handle both ABIs, this hack should go away.
     if (target.cpu.arch == .powerpc64) return "elfv2";
 
-    switch (target.cpu.arch) {
-        .riscv64 => {
-            const featureSetHas = std.Target.riscv.featureSetHas;
-            if (featureSetHas(target.cpu.features, .e)) {
-                return "lp64e";
-            } else if (featureSetHas(target.cpu.features, .d)) {
-                return "lp64d";
-            } else if (featureSetHas(target.cpu.features, .f)) {
-                return "lp64f";
-            } else {
-                return "lp64";
-            }
+    return switch (target.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => "aapcs",
+        // TODO: `muslsf` and `muslf32` in LLVM 20.
+        .loongarch64 => switch (target.abi) {
+            .gnusf => "lp64s",
+            .gnuf32 => "lp64f",
+            else => "lp64d",
         },
-        .riscv32 => {
-            const featureSetHas = std.Target.riscv.featureSetHas;
-            if (featureSetHas(target.cpu.features, .e)) {
-                return "ilp32e";
-            } else if (featureSetHas(target.cpu.features, .d)) {
-                return "ilp32d";
-            } else if (featureSetHas(target.cpu.features, .f)) {
-                return "ilp32f";
-            } else {
-                return "ilp32";
-            }
+        .loongarch32 => switch (target.abi) {
+            .gnusf => "ilp32s",
+            .gnuf32 => "ilp32f",
+            else => "ilp32d",
         },
-        else => return null,
-    }
+        .mips, .mipsel => "o32",
+        .mips64, .mips64el => switch (target.abi) {
+            .gnuabin32, .muslabin32 => "n32",
+            else => "n64",
+        },
+        .powerpc64 => switch (target.os.tag) {
+            .freebsd => if (target.os.version_range.semver.isAtLeast(.{ .major = 13, .minor = 0, .patch = 0 }) orelse false)
+                "elfv2"
+            else
+                "elfv1",
+            .openbsd => "elfv2",
+            else => if (target.abi.isMusl()) "elfv2" else "elfv1",
+        },
+        .powerpc64le => "elfv2",
+        .riscv64 => b: {
+            const featureSetHas = std.Target.riscv.featureSetHas;
+            break :b if (featureSetHas(target.cpu.features, .e))
+                "lp64e"
+            else if (featureSetHas(target.cpu.features, .d))
+                "lp64d"
+            else if (featureSetHas(target.cpu.features, .f))
+                "lp64f"
+            else
+                "lp64";
+        },
+        .riscv32 => b: {
+            const featureSetHas = std.Target.riscv.featureSetHas;
+            break :b if (featureSetHas(target.cpu.features, .e))
+                "ilp32e"
+            else if (featureSetHas(target.cpu.features, .d))
+                "ilp32d"
+            else if (featureSetHas(target.cpu.features, .f))
+                "ilp32f"
+            else
+                "ilp32";
+        },
+        else => null,
+    };
 }
 
 /// This function returns 1 if function alignment is not observable or settable. Note that this
@@ -730,6 +744,9 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
         .separate_thread => switch (backend) {
             .stage2_llvm => false,
             else => true,
+        },
+        .all_vector_instructions => switch (backend) {
+            else => false,
         },
     };
 }

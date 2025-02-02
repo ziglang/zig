@@ -4885,3 +4885,70 @@ pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory
         },
     };
 }
+
+/// Returns whether `ptr_val_a[0..elem_count]` and `ptr_val_b[0..elem_count]` overlap.
+/// `ptr_val_a` and `ptr_val_b` are indexable pointers (not slices) whose element types are in-memory coercible.
+pub fn doPointersOverlap(ptr_val_a: Value, ptr_val_b: Value, elem_count: u64, zcu: *const Zcu) bool {
+    const ip = &zcu.intern_pool;
+
+    const a_elem_ty = ptr_val_a.typeOf(zcu).indexablePtrElem(zcu);
+    const b_elem_ty = ptr_val_b.typeOf(zcu).indexablePtrElem(zcu);
+
+    const a_ptr = ip.indexToKey(ptr_val_a.toIntern()).ptr;
+    const b_ptr = ip.indexToKey(ptr_val_b.toIntern()).ptr;
+
+    // If `a_elem_ty` is not comptime-only, then overlapping pointers have identical
+    // `base_addr`, and we just need to look at the byte offset. If it *is* comptime-only,
+    // then `base_addr` may be an `arr_elem`, and we'll have to consider the element index.
+    if (a_elem_ty.comptimeOnly(zcu)) {
+        assert(a_elem_ty.toIntern() == b_elem_ty.toIntern()); // IMC comptime-only types are equivalent
+
+        const a_base_addr: InternPool.Key.Ptr.BaseAddr, const a_idx: u64 = switch (a_ptr.base_addr) {
+            else => .{ a_ptr.base_addr, 0 },
+            .arr_elem => |arr_elem| a: {
+                const base_ptr = Value.fromInterned(arr_elem.base);
+                const base_child_ty = base_ptr.typeOf(zcu).childType(zcu);
+                if (base_child_ty.toIntern() == a_elem_ty.toIntern()) {
+                    // This `arr_elem` is indexing into the element type we want.
+                    const base_ptr_info = ip.indexToKey(base_ptr.toIntern()).ptr;
+                    if (base_ptr_info.byte_offset != 0) {
+                        return false; // this pointer is invalid, just let the access fail
+                    }
+                    break :a .{ base_ptr_info.base_addr, arr_elem.index };
+                }
+                break :a .{ a_ptr.base_addr, 0 };
+            },
+        };
+        const b_base_addr: InternPool.Key.Ptr.BaseAddr, const b_idx: u64 = switch (a_ptr.base_addr) {
+            else => .{ b_ptr.base_addr, 0 },
+            .arr_elem => |arr_elem| b: {
+                const base_ptr = Value.fromInterned(arr_elem.base);
+                const base_child_ty = base_ptr.typeOf(zcu).childType(zcu);
+                if (base_child_ty.toIntern() == b_elem_ty.toIntern()) {
+                    // This `arr_elem` is indexing into the element type we want.
+                    const base_ptr_info = ip.indexToKey(base_ptr.toIntern()).ptr;
+                    if (base_ptr_info.byte_offset != 0) {
+                        return false; // this pointer is invalid, just let the access fail
+                    }
+                    break :b .{ base_ptr_info.base_addr, arr_elem.index };
+                }
+                break :b .{ b_ptr.base_addr, 0 };
+            },
+        };
+        if (!std.meta.eql(a_base_addr, b_base_addr)) return false;
+        const diff = if (a_idx >= b_idx) a_idx - b_idx else b_idx - a_idx;
+        return diff < elem_count;
+    } else {
+        assert(a_elem_ty.abiSize(zcu) == b_elem_ty.abiSize(zcu));
+
+        if (!std.meta.eql(a_ptr.base_addr, b_ptr.base_addr)) return false;
+
+        const bytes_diff = if (a_ptr.byte_offset >= b_ptr.byte_offset)
+            a_ptr.byte_offset - b_ptr.byte_offset
+        else
+            b_ptr.byte_offset - a_ptr.byte_offset;
+
+        const need_bytes_diff = elem_count * a_elem_ty.abiSize(zcu);
+        return bytes_diff < need_bytes_diff;
+    }
+}

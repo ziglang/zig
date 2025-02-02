@@ -448,8 +448,7 @@ pub fn fieldNames(comptime T: type) *const [fields(T).len][:0]const u8 {
     return comptime blk: {
         const fieldInfos = fields(T);
         var names: [fieldInfos.len][:0]const u8 = undefined;
-        // This concat can be removed with the next zig1 update.
-        for (&names, fieldInfos) |*name, field| name.* = field.name ++ "";
+        for (&names, fieldInfos) |*name, field| name.* = field.name;
         const final = names;
         break :blk &final;
     };
@@ -1209,6 +1208,7 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
             var sum_size = @as(usize, 0);
 
             inline for (info.fields) |field| {
+                if (field.is_comptime) continue;
                 if (!hasUniqueRepresentation(field.type)) return false;
                 sum_size += @sizeOf(field.type);
             }
@@ -1311,4 +1311,12 @@ test hasUniqueRepresentation {
 
     try testing.expect(hasUniqueRepresentation(@Vector(std.simd.suggestVectorLength(u8) orelse 1, u8)));
     try testing.expect(@sizeOf(@Vector(3, u8)) == 3 or !hasUniqueRepresentation(@Vector(3, u8)));
+
+    const StructWithComptimeFields = struct {
+        comptime should_be_ignored: u64 = 42,
+        comptime should_also_be_ignored: [*:0]const u8 = "hope you're having a good day :)",
+        field: u32,
+    };
+
+    try testing.expect(hasUniqueRepresentation(StructWithComptimeFields));
 }

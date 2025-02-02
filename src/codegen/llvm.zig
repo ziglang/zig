@@ -5019,18 +5019,6 @@ pub const FuncGen = struct {
         );
     }
 
-    fn resolveNullOptUsize(self: *FuncGen) Error!Builder.Constant {
-        const o = self.ng.object;
-        const pt = o.pt;
-        if (o.null_opt_usize == .no_init) {
-            o.null_opt_usize = try self.resolveValue(Value.fromInterned(try pt.intern(.{ .opt = .{
-                .ty = try pt.intern(.{ .opt_type = .usize_type }),
-                .val = .none,
-            } })));
-        }
-        return o.null_opt_usize;
-    }
-
     fn genBody(self: *FuncGen, body: []const Air.Inst.Index, coverage_point: Air.CoveragePoint) Error!void {
         const o = self.ng.object;
         const zcu = o.pt.zcu;
@@ -5166,7 +5154,6 @@ pub const FuncGen = struct {
                 .ret_ptr        => try self.airRetPtr(inst),
                 .arg            => try self.airArg(inst),
                 .bitcast        => try self.airBitCast(inst),
-                .int_from_bool  => try self.airIntFromBool(inst),
                 .breakpoint     => try self.airBreakpoint(inst),
                 .ret_addr       => try self.airRetAddr(inst),
                 .frame_addr     => try self.airFrameAddress(inst),
@@ -5174,11 +5161,11 @@ pub const FuncGen = struct {
                 .try_cold       => try self.airTry(body[i..], true),
                 .try_ptr        => try self.airTryPtr(inst, false),
                 .try_ptr_cold   => try self.airTryPtr(inst, true),
-                .intcast        => try self.airIntCast(inst),
+                .intcast        => try self.airIntCast(inst, false),
+                .intcast_safe   => try self.airIntCast(inst, true),
                 .trunc          => try self.airTrunc(inst),
                 .fptrunc        => try self.airFptrunc(inst),
                 .fpext          => try self.airFpext(inst),
-                .int_from_ptr   => try self.airIntFromPtr(inst),
                 .load           => try self.airLoad(body[i..]),
                 .not            => try self.airNot(inst),
                 .store          => try self.airStore(inst, false),
@@ -5732,30 +5719,14 @@ pub const FuncGen = struct {
         }
     }
 
-    fn buildSimplePanic(fg: *FuncGen, panic_id: Zcu.PanicId) !void {
+    fn buildSimplePanic(fg: *FuncGen, panic_id: Zcu.SimplePanicId) !void {
         const o = fg.ng.object;
         const zcu = o.pt.zcu;
-        const ip = &zcu.intern_pool;
-        const msg_len: u64, const msg_ptr: Builder.Constant = msg: {
-            const str_val = zcu.builtin_decl_values.get(panic_id.toBuiltin());
-            assert(str_val != .none);
-            const slice = ip.indexToKey(str_val).slice;
-            break :msg .{ Value.fromInterned(slice.len).toUnsignedInt(zcu), try o.lowerValue(slice.ptr) };
-        };
-        const null_opt_addr_global = try fg.resolveNullOptUsize();
         const target = zcu.getTarget();
-        const llvm_usize = try o.lowerType(Type.usize);
-        // example:
-        // call fastcc void @test2.panic(
-        //   ptr @builtin.panic_messages.integer_overflow__anon_987, ; msg.ptr
-        //   i64 16,                                                 ; msg.len
-        //   ptr null,                                               ; stack trace
-        //   ptr @2,                                                 ; addr (null ?usize)
-        // )
-        const panic_func = zcu.funcInfo(zcu.builtin_decl_values.get(.@"Panic.call"));
-        const panic_nav = ip.getNav(panic_func.owner_nav);
-        const fn_info = zcu.typeToFunc(Type.fromInterned(panic_nav.typeOf(ip))).?;
+        const panic_func = zcu.funcInfo(zcu.builtin_decl_values.get(panic_id.toBuiltin()));
+        const fn_info = zcu.typeToFunc(.fromInterned(panic_func.ty)).?;
         const panic_global = try o.resolveLlvmFunction(panic_func.owner_nav);
+
         const has_err_trace = zcu.comp.config.any_error_tracing and fn_info.cc == .auto;
         if (has_err_trace) assert(fg.err_ret_trace != .none);
         _ = try fg.wip.callIntrinsicAssumeCold();
@@ -5765,18 +5736,7 @@ pub const FuncGen = struct {
             .none,
             panic_global.typeOf(&o.builder),
             panic_global.toValue(&o.builder),
-            if (has_err_trace) &.{
-                fg.err_ret_trace,
-                msg_ptr.toValue(),
-                try o.builder.intValue(llvm_usize, msg_len),
-                try o.builder.nullValue(.ptr),
-                null_opt_addr_global.toValue(),
-            } else &.{
-                msg_ptr.toValue(),
-                try o.builder.intValue(llvm_usize, msg_len),
-                try o.builder.nullValue(.ptr),
-                null_opt_addr_global.toValue(),
-            },
+            if (has_err_trace) &.{fg.err_ret_trace} else &.{},
             "",
         );
         _ = try fg.wip.@"unreachable"();
@@ -9285,20 +9245,110 @@ pub const FuncGen = struct {
         }
     }
 
-    fn airIntCast(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.ng.object;
+    fn airIntCast(fg: *FuncGen, inst: Air.Inst.Index, safety: bool) !Builder.Value {
+        const o = fg.ng.object;
         const zcu = o.pt.zcu;
-        const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-        const dest_ty = self.typeOfIndex(inst);
+        const ty_op = fg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
+        const dest_ty = fg.typeOfIndex(inst);
         const dest_llvm_ty = try o.lowerType(dest_ty);
-        const operand = try self.resolveInst(ty_op.operand);
-        const operand_ty = self.typeOf(ty_op.operand);
+        const operand = try fg.resolveInst(ty_op.operand);
+        const operand_ty = fg.typeOf(ty_op.operand);
         const operand_info = operand_ty.intInfo(zcu);
 
-        return self.wip.conv(switch (operand_info.signedness) {
+        const dest_is_enum = dest_ty.zigTypeTag(zcu) == .@"enum";
+
+        safety: {
+            if (!safety) break :safety;
+            const dest_scalar = dest_ty.scalarType(zcu);
+            const operand_scalar = operand_ty.scalarType(zcu);
+
+            const dest_info = dest_ty.intInfo(zcu);
+
+            const have_min_check, const have_max_check = c: {
+                const dest_pos_bits = dest_info.bits - @intFromBool(dest_info.signedness == .signed);
+                const operand_pos_bits = operand_info.bits - @intFromBool(operand_info.signedness == .signed);
+
+                const dest_allows_neg = dest_info.signedness == .signed and dest_info.bits > 0;
+                const operand_maybe_neg = operand_info.signedness == .signed and operand_info.bits > 0;
+
+                break :c .{
+                    operand_maybe_neg and (!dest_allows_neg or dest_info.bits < operand_info.bits),
+                    dest_pos_bits < operand_pos_bits,
+                };
+            };
+
+            if (!have_min_check and !have_max_check) break :safety;
+
+            const operand_llvm_ty = try o.lowerType(operand_ty);
+            const operand_scalar_llvm_ty = try o.lowerType(operand_scalar);
+
+            const is_vector = operand_ty.zigTypeTag(zcu) == .vector;
+            assert(is_vector == (dest_ty.zigTypeTag(zcu) == .vector));
+
+            const min_panic_id: Zcu.SimplePanicId, const max_panic_id: Zcu.SimplePanicId = id: {
+                if (dest_is_enum) break :id .{ .invalid_enum_value, .invalid_enum_value };
+                if (dest_info.signedness == .unsigned) break :id .{ .negative_to_unsigned, .cast_truncated_data };
+                break :id .{ .cast_truncated_data, .cast_truncated_data };
+            };
+
+            if (have_min_check) {
+                const min_const_scalar = try minIntConst(&o.builder, dest_scalar, operand_scalar_llvm_ty, zcu);
+                const min_val = if (is_vector) try o.builder.splatValue(operand_llvm_ty, min_const_scalar) else min_const_scalar.toValue();
+                const ok_maybe_vec = try fg.cmp(.normal, .gte, operand_ty, operand, min_val);
+                const ok = if (is_vector) ok: {
+                    const vec_ty = ok_maybe_vec.typeOfWip(&fg.wip);
+                    break :ok try fg.wip.callIntrinsic(.normal, .none, .@"vector.reduce.and", &.{vec_ty}, &.{ok_maybe_vec}, "");
+                } else ok_maybe_vec;
+                const fail_block = try fg.wip.block(1, "IntMinFail");
+                const ok_block = try fg.wip.block(1, "IntMinOk");
+                _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
+                fg.wip.cursor = .{ .block = fail_block };
+                try fg.buildSimplePanic(min_panic_id);
+                fg.wip.cursor = .{ .block = ok_block };
+            }
+
+            if (have_max_check) {
+                const max_const_scalar = try maxIntConst(&o.builder, dest_scalar, operand_scalar_llvm_ty, zcu);
+                const max_val = if (is_vector) try o.builder.splatValue(operand_llvm_ty, max_const_scalar) else max_const_scalar.toValue();
+                const ok_maybe_vec = try fg.cmp(.normal, .lte, operand_ty, operand, max_val);
+                const ok = if (is_vector) ok: {
+                    const vec_ty = ok_maybe_vec.typeOfWip(&fg.wip);
+                    break :ok try fg.wip.callIntrinsic(.normal, .none, .@"vector.reduce.and", &.{vec_ty}, &.{ok_maybe_vec}, "");
+                } else ok_maybe_vec;
+                const fail_block = try fg.wip.block(1, "IntMaxFail");
+                const ok_block = try fg.wip.block(1, "IntMaxOk");
+                _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
+                fg.wip.cursor = .{ .block = fail_block };
+                try fg.buildSimplePanic(max_panic_id);
+                fg.wip.cursor = .{ .block = ok_block };
+            }
+        }
+
+        const result = try fg.wip.conv(switch (operand_info.signedness) {
             .signed => .signed,
             .unsigned => .unsigned,
         }, operand, dest_llvm_ty, "");
+
+        if (safety and dest_is_enum and !dest_ty.isNonexhaustiveEnum(zcu)) {
+            const llvm_fn = try fg.getIsNamedEnumValueFunction(dest_ty);
+            const is_valid_enum_val = try fg.wip.call(
+                .normal,
+                .fastcc,
+                .none,
+                llvm_fn.typeOf(&o.builder),
+                llvm_fn.toValue(&o.builder),
+                &.{result},
+                "",
+            );
+            const fail_block = try fg.wip.block(1, "ValidEnumFail");
+            const ok_block = try fg.wip.block(1, "ValidEnumOk");
+            _ = try fg.wip.brCond(is_valid_enum_val, ok_block, fail_block, .none);
+            fg.wip.cursor = .{ .block = fail_block };
+            try fg.buildSimplePanic(.invalid_enum_value);
+            fg.wip.cursor = .{ .block = ok_block };
+        }
+
+        return result;
     }
 
     fn airTrunc(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -9383,16 +9433,6 @@ pub const FuncGen = struct {
         }
     }
 
-    fn airIntFromPtr(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const o = self.ng.object;
-        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-        const operand = try self.resolveInst(un_op);
-        const ptr_ty = self.typeOf(un_op);
-        const operand_ptr = try self.sliceOrArrayPtr(operand, ptr_ty);
-        const dest_llvm_ty = try o.lowerType(self.typeOfIndex(inst));
-        return self.wip.cast(.ptrtoint, operand_ptr, dest_llvm_ty, "");
-    }
-
     fn airBitCast(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand_ty = self.typeOf(ty_op.operand);
@@ -9422,6 +9462,10 @@ pub const FuncGen = struct {
 
         if (operand_ty.zigTypeTag(zcu) == .int and inst_ty.isPtrAtRuntime(zcu)) {
             return self.wip.cast(.inttoptr, operand, llvm_dest_ty, "");
+        }
+
+        if (operand_ty.isPtrAtRuntime(zcu) and inst_ty.zigTypeTag(zcu) == .int) {
+            return self.wip.cast(.ptrtoint, operand, llvm_dest_ty, "");
         }
 
         if (operand_ty.zigTypeTag(zcu) == .vector and inst_ty.zigTypeTag(zcu) == .array) {
@@ -9510,12 +9554,6 @@ pub const FuncGen = struct {
         }
 
         return self.wip.cast(.bitcast, operand, llvm_dest_ty, "");
-    }
-
-    fn airIntFromBool(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
-        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-        const operand = try self.resolveInst(un_op);
-        return operand;
     }
 
     fn airArg(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
@@ -12991,4 +13029,43 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
         .propeller2,
         => unreachable,
     }
+}
+
+fn minIntConst(b: *Builder, min_ty: Type, as_ty: Builder.Type, zcu: *const Zcu) Allocator.Error!Builder.Constant {
+    const info = min_ty.intInfo(zcu);
+    if (info.signedness == .unsigned or info.bits == 0) {
+        return b.intConst(as_ty, 0);
+    }
+    if (std.math.cast(u6, info.bits - 1)) |shift| {
+        const min_val: i64 = @as(i64, std.math.minInt(i64)) >> (63 - shift);
+        return b.intConst(as_ty, min_val);
+    }
+    var res: std.math.big.int.Managed = try .init(zcu.gpa);
+    defer res.deinit();
+    try res.setTwosCompIntLimit(.min, info.signedness, info.bits);
+    return b.bigIntConst(as_ty, res.toConst());
+}
+
+fn maxIntConst(b: *Builder, max_ty: Type, as_ty: Builder.Type, zcu: *const Zcu) Allocator.Error!Builder.Constant {
+    const info = max_ty.intInfo(zcu);
+    switch (info.bits) {
+        0 => return b.intConst(as_ty, 0),
+        1 => switch (info.signedness) {
+            .signed => return b.intConst(as_ty, 0),
+            .unsigned => return b.intConst(as_ty, 1),
+        },
+        else => {},
+    }
+    const unsigned_bits = switch (info.signedness) {
+        .unsigned => info.bits,
+        .signed => info.bits - 1,
+    };
+    if (std.math.cast(u6, unsigned_bits)) |shift| {
+        const max_val: u64 = (@as(u64, 1) << shift) - 1;
+        return b.intConst(as_ty, max_val);
+    }
+    var res: std.math.big.int.Managed = try .init(zcu.gpa);
+    defer res.deinit();
+    try res.setTwosCompIntLimit(.max, info.signedness, info.bits);
+    return b.bigIntConst(as_ty, res.toConst());
 }

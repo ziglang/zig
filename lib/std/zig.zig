@@ -54,11 +54,8 @@ pub const Color = enum {
     }
 
     pub fn renderOptions(color: Color) std.zig.ErrorBundle.RenderOptions {
-        const ttyconf = get_tty_conf(color);
         return .{
-            .ttyconf = ttyconf,
-            .include_source_line = ttyconf != .no_color,
-            .include_reference_trace = ttyconf != .no_color,
+            .ttyconf = get_tty_conf(color),
         };
     }
 };
@@ -700,10 +697,6 @@ pub const EnvVar = enum {
     XDG_CACHE_HOME,
     HOME,
 
-    pub fn isSet(comptime ev: EnvVar) bool {
-        return std.process.hasEnvVarConstant(@tagName(ev));
-    }
-
     pub fn get(ev: EnvVar, arena: std.mem.Allocator) !?[]u8 {
         if (std.process.getEnvVarOwned(arena, @tagName(ev))) |value| {
             return value;
@@ -715,6 +708,11 @@ pub const EnvVar = enum {
 
     pub fn getPosix(comptime ev: EnvVar) ?[:0]const u8 {
         return std.posix.getenvZ(@tagName(ev));
+    }
+
+    pub fn isSet(ev: EnvVar, arena: std.mem.Allocator) !bool {
+        const value = try ev.get(arena) orelse return false;
+        return value.len != 0;
     }
 };
 
@@ -748,7 +746,6 @@ pub const SimpleComptimeReason = enum(u32) {
     atomic_order,
     array_mul_factor,
     slice_cat_operand,
-    comptime_call_target,
     inline_call_target,
     generic_call_target,
     wasm_memory_index,
@@ -829,7 +826,6 @@ pub const SimpleComptimeReason = enum(u32) {
             .atomic_order         => "atomic order must be comptime-known",
             .array_mul_factor     => "array multiplication factor must be comptime-known",
             .slice_cat_operand    => "slice being concatenated must be comptime-known",
-            .comptime_call_target => "function being called at comptime must be comptime-known",
             .inline_call_target   => "function being called inline must be comptime-known",
             .generic_call_target  => "generic function being called must be comptime-known",
             .wasm_memory_index    => "wasm memory index must be comptime-known",

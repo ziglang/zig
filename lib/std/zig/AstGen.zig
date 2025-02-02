@@ -851,7 +851,7 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .async_call_comma,
         => {
             var buf: [1]Ast.Node.Index = undefined;
-            return callExpr(gz, scope, ri, node, tree.fullCall(&buf, node).?);
+            return callExpr(gz, scope, ri, .none, node, tree.fullCall(&buf, node).?);
         },
 
         .unreachable_literal => {
@@ -3009,8 +3009,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .validate_ptr_array_init,
             .validate_ref_ty,
             .validate_const,
-            .try_operand_ty,
-            .try_ref_operand_ty,
             => break :b true,
 
             .@"defer" => unreachable,
@@ -6158,20 +6156,24 @@ fn tryExpr(
     const try_lc: LineColumn = .{ astgen.source_line - parent_gz.decl_line, astgen.source_column };
 
     const operand_rl: ResultInfo.Loc, const block_tag: Zir.Inst.Tag = switch (ri.rl) {
-        .ref => .{ .ref, .try_ptr },
-        .ref_coerced_ty => |payload_ptr_ty| .{
-            .{ .ref_coerced_ty = try parent_gz.addUnNode(.try_ref_operand_ty, payload_ptr_ty, node) },
-            .try_ptr,
-        },
-        else => if (try ri.rl.resultType(parent_gz, node)) |payload_ty| .{
-            // `coerced_ty` is OK due to the `rvalue` call below
-            .{ .coerced_ty = try parent_gz.addUnNode(.try_operand_ty, payload_ty, node) },
-            .@"try",
-        } else .{ .none, .@"try" },
+        .ref, .ref_coerced_ty => .{ .ref, .try_ptr },
+        else => .{ .none, .@"try" },
     };
     const operand_ri: ResultInfo = .{ .rl = operand_rl, .ctx = .error_handling_expr };
-    // This could be a pointer or value depending on the `ri` parameter.
-    const operand = try reachableExpr(parent_gz, scope, operand_ri, operand_node, node);
+    const operand = operand: {
+        // As a special case, we need to detect this form:
+        // `try .foo(...)`
+        // This is a decl literal form, even though we don't propagate a result type through `try`.
+        var buf: [1]Ast.Node.Index = undefined;
+        if (astgen.tree.fullCall(&buf, operand_node)) |full_call| {
+            const res_ty: Zir.Inst.Ref = try ri.rl.resultType(parent_gz, operand_node) orelse .none;
+            break :operand try callExpr(parent_gz, scope, operand_ri, res_ty, operand_node, full_call);
+        }
+
+        // This could be a pointer or value depending on the `ri` parameter.
+        break :operand try reachableExpr(parent_gz, scope, operand_ri, operand_node, node);
+    };
+
     const try_inst = try parent_gz.makeBlockInst(block_tag, node);
     try parent_gz.instructions.append(astgen.gpa, try_inst);
 
@@ -10236,12 +10238,15 @@ fn callExpr(
     gz: *GenZir,
     scope: *Scope,
     ri: ResultInfo,
+    /// If this is not `.none` and this call is a decl literal form (`.foo(...)`), then this
+    /// type is used as the decl literal result type instead of the result type from `ri.rl`.
+    override_decl_literal_type: Zir.Inst.Ref,
     node: Ast.Node.Index,
     call: Ast.full.Call,
 ) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
 
-    const callee = try calleeExpr(gz, scope, ri.rl, call.ast.fn_expr);
+    const callee = try calleeExpr(gz, scope, ri.rl, override_decl_literal_type, call.ast.fn_expr);
     const modifier: std.builtin.CallModifier = blk: {
         if (call.async_token != null) {
             break :blk .async_kw;
@@ -10367,6 +10372,9 @@ fn calleeExpr(
     gz: *GenZir,
     scope: *Scope,
     call_rl: ResultInfo.Loc,
+    /// If this is not `.none` and this call is a decl literal form (`.foo(...)`), then this
+    /// type is used as the decl literal result type instead of the result type from `call_rl`.
+    override_decl_literal_type: Zir.Inst.Ref,
     node: Ast.Node.Index,
 ) InnerError!Callee {
     const astgen = gz.astgen;
@@ -10393,7 +10401,14 @@ fn calleeExpr(
                 .field_name_start = str_index,
             } };
         },
-        .enum_literal => if (try call_rl.resultType(gz, node)) |res_ty| {
+        .enum_literal => {
+            const res_ty = res_ty: {
+                if (override_decl_literal_type != .none) break :res_ty override_decl_literal_type;
+                break :res_ty try call_rl.resultType(gz, node) orelse {
+                    // No result type; lower to a literal call of an enum literal.
+                    return .{ .direct = try expr(gz, scope, .{ .rl = .none }, node) };
+                };
+            };
             // Decl literal call syntax, e.g.
             // `const foo: T = .init();`
             // Look up `init` in `T`, but don't try and coerce it.
@@ -10403,8 +10418,6 @@ fn calleeExpr(
                 .field_name_start = str_index,
             });
             return .{ .direct = callee };
-        } else {
-            return .{ .direct = try expr(gz, scope, .{ .rl = .none }, node) };
         },
         else => return .{ .direct = try expr(gz, scope, .{ .rl = .none }, node) },
     }
