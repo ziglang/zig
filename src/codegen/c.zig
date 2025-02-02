@@ -438,7 +438,7 @@ pub const Function = struct {
     fn allocAlignedLocal(f: *Function, inst: ?Air.Inst.Index, local_type: LocalType) !CValue {
         const result: CValue = result: {
             if (f.free_locals_map.getPtr(local_type)) |locals_list| {
-                if (locals_list.popOrNull()) |local_entry| {
+                if (locals_list.pop()) |local_entry| {
                     break :result .{ .new_local = local_entry.key };
                 }
             }
