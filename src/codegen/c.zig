@@ -3325,7 +3325,6 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .bitcast          => try airBitcast(f, inst),
             .intcast          => try airIntCast(f, inst),
             .trunc            => try airTrunc(f, inst),
-            .int_from_bool      => try airIntFromBool(f, inst),
             .load             => try airLoad(f, inst),
             .store            => try airStore(f, inst, false),
             .store_safe       => try airStore(f, inst, true),
@@ -3370,8 +3369,6 @@ fn genBodyInner(f: *Function, body: []const Air.Inst.Index) error{ AnalysisFail,
             .fptrunc,
             .fpext,
             => try airFloatCast(f, inst),
-
-            .int_from_ptr => try airIntFromPtr(f, inst),
 
             .atomic_store_unordered => try airAtomicStore(f, inst, toMemoryOrder(.unordered)),
             .atomic_store_monotonic => try airAtomicStore(f, inst, toMemoryOrder(.monotonic)),
@@ -3980,21 +3977,6 @@ fn airTrunc(f: *Function, inst: Air.Inst.Index) !CValue {
     if (need_lo) try writer.writeByte(')');
     try a.end(f, writer);
     try v.end(f, inst, writer);
-    return local;
-}
-
-fn airIntFromBool(f: *Function, inst: Air.Inst.Index) !CValue {
-    const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const operand = try f.resolveInst(un_op);
-    try reap(f, inst, &.{un_op});
-    const writer = f.object.writer();
-    const inst_ty = f.typeOfIndex(inst);
-    const local = try f.allocLocal(inst, inst_ty);
-    const a = try Assignment.start(f, writer, try f.ctypeFromType(inst_ty, .complete));
-    try f.writeCValue(writer, local, .Other);
-    try a.assign(f, writer);
-    try f.writeCValue(writer, operand, .Other);
-    try a.end(f, writer);
     return local;
 }
 
@@ -4970,7 +4952,7 @@ fn bitcast(f: *Function, dest_ty: Type, operand: CValue, operand_ty: Type) !CVal
             src_info.bits == dest_info.bits) return operand;
     }
 
-    if (dest_ty.isPtrAtRuntime(zcu) and operand_ty.isPtrAtRuntime(zcu)) {
+    if (dest_ty.isPtrAtRuntime(zcu) or operand_ty.isPtrAtRuntime(zcu)) {
         const local = try f.allocLocal(null, dest_ty);
         try f.writeCValue(writer, local, .Other);
         try writer.writeAll(" = (");
@@ -6452,30 +6434,6 @@ fn airFloatCast(f: *Function, inst: Air.Inst.Index) !CValue {
     try a.end(f, writer);
     try v.end(f, inst, writer);
 
-    return local;
-}
-
-fn airIntFromPtr(f: *Function, inst: Air.Inst.Index) !CValue {
-    const pt = f.object.dg.pt;
-    const zcu = pt.zcu;
-    const un_op = f.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-
-    const operand = try f.resolveInst(un_op);
-    const operand_ty = f.typeOf(un_op);
-    try reap(f, inst, &.{un_op});
-    const inst_ty = f.typeOfIndex(inst);
-    const writer = f.object.writer();
-    const local = try f.allocLocal(inst, inst_ty);
-    try f.writeCValue(writer, local, .Other);
-
-    try writer.writeAll(" = (");
-    try f.renderType(writer, inst_ty);
-    try writer.writeByte(')');
-    if (operand_ty.isSlice(zcu))
-        try f.writeCValueMember(writer, operand, .{ .identifier = "ptr" })
-    else
-        try f.writeCValue(writer, operand, .Other);
-    try writer.writeAll(";\n");
     return local;
 }
 
