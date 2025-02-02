@@ -657,7 +657,7 @@ pub const CObject = struct {
                     .end_block => |block| switch (@as(BlockId, @enumFromInt(block.id))) {
                         .Meta => {},
                         .Diag => {
-                            var wip_diag = stack.pop();
+                            var wip_diag = stack.pop().?;
                             errdefer wip_diag.deinit(gpa);
 
                             const src_ranges = try wip_diag.src_ranges.toOwnedSlice(gpa);
