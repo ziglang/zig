@@ -559,7 +559,7 @@ set(ZIG_STAGE2_SOURCES
     src/arch/x86_64/abi.zig
     src/arch/x86_64/bits.zig
     src/arch/x86_64/encoder.zig
-    src/arch/x86_64/encodings.zig
+    src/arch/x86_64/encodings.zon
     src/clang.zig
     src/clang_options.zig
     src/clang_options_data.zig
