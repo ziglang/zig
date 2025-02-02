@@ -2134,7 +2134,7 @@ pub fn embedFile(
         errdefer gpa.free(resolved_path);
 
         const gop = try zcu.embed_table.getOrPut(gpa, resolved_path);
-        errdefer assert(std.mem.eql(u8, zcu.embed_table.pop().key, resolved_path));
+        errdefer assert(std.mem.eql(u8, zcu.embed_table.pop().?.key, resolved_path));
 
         if (gop.found_existing) {
             gpa.free(resolved_path); // we're not using this key
@@ -2157,7 +2157,7 @@ pub fn embedFile(
     errdefer gpa.free(resolved_path);
 
     const gop = try zcu.embed_table.getOrPut(gpa, resolved_path);
-    errdefer assert(std.mem.eql(u8, zcu.embed_table.pop().key, resolved_path));
+    errdefer assert(std.mem.eql(u8, zcu.embed_table.pop().?.key, resolved_path));
 
     if (gop.found_existing) {
         gpa.free(resolved_path); // we're not using this key

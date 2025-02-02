@@ -3583,7 +3583,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
     }
 
     while (true) {
-        if (type_queue.popOrNull()) |kv| {
+        if (type_queue.pop()) |kv| {
             const ty = kv.key;
             const referencer = kv.value;
             try checked_types.putNoClobber(gpa, ty, {});
@@ -3712,7 +3712,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
             }
             continue;
         }
-        if (unit_queue.popOrNull()) |kv| {
+        if (unit_queue.pop()) |kv| {
             const unit = kv.key;
             try result.putNoClobber(gpa, unit, kv.value);
 

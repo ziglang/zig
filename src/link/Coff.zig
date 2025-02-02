@@ -2300,7 +2300,7 @@ fn flushModuleInner(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id) !void 
         }
     }
 
-    while (coff.unresolved.popOrNull()) |entry| {
+    while (coff.unresolved.pop()) |entry| {
         assert(entry.value);
         const global = coff.globals.items[entry.key];
         const sym = coff.getSymbol(global);
