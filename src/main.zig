@@ -7466,12 +7466,6 @@ fn loadManifest(
 const Replacement = struct {
     variable: []const u8,
     replacement: []const u8,
-
-    pub inline fn check_variable(self: *@This()) !void {
-        if (self.variable.len < 2) {
-            return error.InvalidVariable;
-        }
-    }
 };
 
 const Templates = struct {
@@ -7512,7 +7506,6 @@ const Templates = struct {
         // replace variables like $root and $version with the project name
         // and zig compiler version respectively
         while (iterator.next()) |line| {
-
             var i: usize = 0;
             while (i < line.len) : (i += 1) {
                 const c = line[i];
@@ -7522,7 +7515,9 @@ const Templates = struct {
                         var found: bool = false;
 
                         for (replace_items) |replacement| {
-                            try replacement.check_variable();
+                            if (replacement.variable.len < 2) {
+                                return error.InvalidVariable;
+                            }
 
                             if (line.len - i < replacement.variable.len) {
                                 continue;
