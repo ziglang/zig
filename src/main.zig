@@ -4739,8 +4739,14 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     };
     var ok_count: usize = 0;
 
+    // default replacements for templates
+    const replacements = &[_]Replacement{
+        .{ .variable = "$root", .replacement = cwd_basename },
+        .{ .variable = "$version", .replacement = build_options.version },
+    };
+
     for (template_paths) |template_path| {
-        if (templates.write(arena, fs.cwd(), cwd_basename, template_path)) |_| {
+        if (templates.write(arena, fs.cwd(), template_path, replacements)) |_| {
             std.log.info("created {s}", .{template_path});
             ok_count += 1;
         } else |err| switch (err) {
@@ -7410,7 +7416,12 @@ fn loadManifest(
                 var templates = findTemplates(gpa, arena);
                 defer templates.deinit();
 
-                templates.write(arena, options.dir, options.root_name, Package.Manifest.basename) catch |e| {
+                const replacements = &[_]Replacement{
+                    .{ .variable = "$root", .replacement = options.root_name },
+                    .{ .variable = "$version", .replacement = build_options.version },
+                };
+
+                templates.write(arena, options.dir, Package.Manifest.basename, replacements) catch |e| {
                     fatal("unable to write {s}: {s}", .{
                         Package.Manifest.basename, @errorName(e),
                     });
@@ -7450,6 +7461,19 @@ fn loadManifest(
     return .{ manifest, ast };
 }
 
+/// replace variables for Zig templates
+/// $root -> "project_name"
+const Replacement = struct {
+    variable: []const u8,
+    replacement: []const u8,
+
+    pub inline fn check_variable(self: *@This()) !void {
+        if (self.variable.len < 2) {
+            return error.InvalidVariable;
+        }
+    }
+};
+
 const Templates = struct {
     zig_lib_directory: Cache.Directory,
     dir: fs.Dir,
@@ -7466,8 +7490,8 @@ const Templates = struct {
         templates: *Templates,
         arena: Allocator,
         out_dir: fs.Dir,
-        root_name: []const u8,
         template_path: []const u8,
+        replacements: ?[]const Replacement,
     ) !void {
         if (fs.path.dirname(template_path)) |dirname| {
             out_dir.makePath(dirname) catch |err| {
@@ -7483,24 +7507,47 @@ const Templates = struct {
         templates.buffer.clearRetainingCapacity();
         try templates.buffer.ensureUnusedCapacity(contents.len);
 
-        if (mem.eql(u8, template_path, Package.Manifest.basename)) {
-            for (contents) |c| {
-                if (c == '$') {
-                    try templates.buffer.appendSlice(root_name);
-                } else if (c == '*') {
-                    try templates.buffer.appendSlice(build_options.version);
+        var iterator = mem.splitScalar(u8, contents, '\n');
+
+        // replace variables like $root and $version with the project name
+        // and zig compiler version respectively
+        while (iterator.next()) |line| {
+
+            var i: usize = 0;
+            while (i < line.len) : (i += 1) {
+                const c = line[i];
+
+                if (replacements) |replace_items| {
+                    if (c == '$') {
+                        var found: bool = false;
+
+                        for (replace_items) |replacement| {
+                            try replacement.check_variable();
+
+                            if (line.len - i < replacement.variable.len) {
+                                continue;
+                            }
+
+                            // found a match, break out
+                            if (mem.eql(u8, replacement.variable, line[i .. i + replacement.variable.len])) {
+                                try templates.buffer.appendSlice(replacement.replacement);
+                                i += replacement.variable.len - 1;
+                                found = true;
+                                break;
+                            }
+                        }
+
+                        if (!found) try templates.buffer.append(c);
+                    } else {
+                        // if we make it out here, no replacement was found, and we write out the literal '$'
+                        try templates.buffer.append(c);
+                    }
                 } else {
                     try templates.buffer.append(c);
                 }
             }
-        } else {
-            for (contents) |c| {
-                if (c == '$') {
-                    try templates.buffer.appendSlice(root_name);
-                } else {
-                    try templates.buffer.append(c);
-                }
-            }
+
+            try templates.buffer.append('\n');
         }
 
         return out_dir.writeFile(.{
