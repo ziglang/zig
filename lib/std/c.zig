@@ -224,7 +224,7 @@ pub const TIMERFD_CLOCK = timerfd_clockid_t;
 pub const timerfd_clockid_t = switch (native_os) {
     .freebsd => enum(u32) {
         REALTIME = 0,
-        MONOTONIC = 1,
+        MONOTONIC = 4,
         _,
     },
     .linux => linux.timerfd_clockid_t,
