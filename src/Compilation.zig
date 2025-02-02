@@ -5855,7 +5855,7 @@ pub fn addCCArgs(
                     try san_arg.appendSlice(arena, "fuzzer-no-link,");
                 }
                 // Chop off the trailing comma and append to argv.
-                if (san_arg.popOrNull()) |_| {
+                if (san_arg.pop()) |_| {
                     try argv.append(san_arg.items);
 
                     // These args have to be added after the `-fsanitize` arg or
