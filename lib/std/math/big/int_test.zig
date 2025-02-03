@@ -1934,6 +1934,31 @@ test "truncate multi unsigned many" {
     try testing.expect((try b.toInt(i1)) == 0);
 }
 
+test "truncate to mutable with fewer limbs" {
+    var res_limbs: [1]Limb = undefined;
+    var res: Mutable = .{
+        .limbs = &res_limbs,
+        .len = undefined,
+        .positive = undefined,
+    };
+    res.truncate(.{ .positive = true, .limbs = &.{ 0, 1 } }, .unsigned, @bitSizeOf(Limb));
+    try testing.expect(res.eqlZero());
+    res.truncate(.{ .positive = true, .limbs = &.{ 0, 1 } }, .signed, @bitSizeOf(Limb));
+    try testing.expect(res.eqlZero());
+    res.truncate(.{ .positive = false, .limbs = &.{ 0, 1 } }, .unsigned, @bitSizeOf(Limb));
+    try testing.expect(res.eqlZero());
+    res.truncate(.{ .positive = false, .limbs = &.{ 0, 1 } }, .signed, @bitSizeOf(Limb));
+    try testing.expect(res.eqlZero());
+    res.truncate(.{ .positive = true, .limbs = &.{ std.math.maxInt(Limb), 1 } }, .unsigned, @bitSizeOf(Limb));
+    try testing.expect(res.toConst().orderAgainstScalar(std.math.maxInt(Limb)).compare(.eq));
+    res.truncate(.{ .positive = true, .limbs = &.{ std.math.maxInt(Limb), 1 } }, .signed, @bitSizeOf(Limb));
+    try testing.expect(res.toConst().orderAgainstScalar(-1).compare(.eq));
+    res.truncate(.{ .positive = false, .limbs = &.{ std.math.maxInt(Limb), 1 } }, .unsigned, @bitSizeOf(Limb));
+    try testing.expect(res.toConst().orderAgainstScalar(1).compare(.eq));
+    res.truncate(.{ .positive = false, .limbs = &.{ std.math.maxInt(Limb), 1 } }, .signed, @bitSizeOf(Limb));
+    try testing.expect(res.toConst().orderAgainstScalar(1).compare(.eq));
+}
+
 test "saturate single signed positive" {
     var a = try Managed.initSet(testing.allocator, 0xBBBB_BBBB);
     defer a.deinit();

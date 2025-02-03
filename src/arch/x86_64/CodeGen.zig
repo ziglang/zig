@@ -2414,7 +2414,7 @@ fn genBodyBlock(self: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
 }
 
 fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
-    @setEvalBranchQuota(4_500);
+    @setEvalBranchQuota(4_600);
     const pt = cg.pt;
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -2499,7 +2499,6 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             .cmp_lt_errors_len => try cg.airCmpLtErrorsLen(inst),
 
             .bitcast          => try cg.airBitCast(inst),
-            .trunc            => try cg.airTrunc(inst),
             .is_non_null      => try cg.airIsNonNull(inst),
             .is_null          => try cg.airIsNull(inst),
             .is_non_err       => try cg.airIsNonErr(inst),
@@ -25507,7 +25506,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 }, .{
                     .required_features = .{ .@"64bit", null, null, null },
                     .src_constraints = .{ .{ .signed_int = .byte }, .any },
-                    .dst_constraints = .{.{ .signed_remainder_int = .{ .of = .qword, .is = .qword } }},
+                    .dst_constraints = .{.{ .remainder_signed_int = .{ .of = .qword, .is = .qword } }},
                     .patterns = &.{
                         .{ .src = .{ .mem, .none } },
                         .{ .src = .{ .to_gpr, .none } },
@@ -25564,7 +25563,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     } },
                 }, .{
                     .src_constraints = .{ .{ .signed_int = .byte }, .any },
-                    .dst_constraints = .{.{ .signed_remainder_int = .{ .of = .dword, .is = .dword } }},
+                    .dst_constraints = .{.{ .remainder_signed_int = .{ .of = .dword, .is = .dword } }},
                     .patterns = &.{
                         .{ .src = .{ .mem, .none } },
                         .{ .src = .{ .to_gpr, .none } },
@@ -25667,7 +25666,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 }, .{
                     .required_features = .{ .@"64bit", null, null, null },
                     .src_constraints = .{ .{ .signed_int = .word }, .any },
-                    .dst_constraints = .{.{ .signed_remainder_int = .{ .of = .qword, .is = .qword } }},
+                    .dst_constraints = .{.{ .remainder_signed_int = .{ .of = .qword, .is = .qword } }},
                     .patterns = &.{
                         .{ .src = .{ .mem, .none } },
                         .{ .src = .{ .to_gpr, .none } },
@@ -25724,7 +25723,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     } },
                 }, .{
                     .src_constraints = .{ .{ .signed_int = .word }, .any },
-                    .dst_constraints = .{.{ .signed_remainder_int = .{ .of = .dword, .is = .dword } }},
+                    .dst_constraints = .{.{ .remainder_signed_int = .{ .of = .dword, .is = .dword } }},
                     .patterns = &.{
                         .{ .src = .{ .mem, .none } },
                         .{ .src = .{ .to_gpr, .none } },
@@ -25805,7 +25804,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 }, .{
                     .required_features = .{ .@"64bit", null, null, null },
                     .src_constraints = .{ .{ .signed_int = .dword }, .any },
-                    .dst_constraints = .{.{ .signed_remainder_int = .{ .of = .qword, .is = .qword } }},
+                    .dst_constraints = .{.{ .remainder_signed_int = .{ .of = .qword, .is = .qword } }},
                     .patterns = &.{
                         .{ .src = .{ .mem, .none } },
                         .{ .src = .{ .to_gpr, .none } },
@@ -25862,7 +25861,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     } },
                 }, .{
                     .src_constraints = .{ .{ .signed_int = .dword }, .any },
-                    .dst_constraints = .{.{ .signed_remainder_int = .{ .of = .dword, .is = .dword } }},
+                    .dst_constraints = .{.{ .remainder_signed_int = .{ .of = .dword, .is = .dword } }},
                     .patterns = &.{
                         .{ .src = .{ .mem, .none } },
                         .{ .src = .{ .to_gpr, .none } },
@@ -25919,7 +25918,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                 }, .{
                     .required_features = .{ .@"64bit", null, null, null },
                     .src_constraints = .{ .{ .signed_int = .qword }, .any },
-                    .dst_constraints = .{.{ .signed_remainder_int = .{ .of = .qword, .is = .qword } }},
+                    .dst_constraints = .{.{ .remainder_signed_int = .{ .of = .qword, .is = .qword } }},
                     .patterns = &.{
                         .{ .src = .{ .mem, .none } },
                         .{ .src = .{ .to_gpr, .none } },
@@ -25976,8 +25975,8 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                     } },
                 }, .{
                     .required_features = .{ .@"64bit", null, null, null },
-                    .src_constraints = .{ .{ .signed_remainder_int = .{ .of = .qword, .is = .qword } }, .any },
-                    .dst_constraints = .{.{ .signed_remainder_int = .{ .of = .qword, .is = .qword } }},
+                    .src_constraints = .{ .{ .remainder_signed_int = .{ .of = .qword, .is = .qword } }, .any },
+                    .dst_constraints = .{.{ .remainder_signed_int = .{ .of = .qword, .is = .qword } }},
                     .patterns = &.{
                         .{ .src = .{ .to_mem, .none } },
                     },
@@ -28849,6 +28848,524 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                         @tagName(air_tag),
                         dst_ty.fmt(pt),
                         src_ty.fmt(pt),
+                        ops[0].tracking(cg),
+                    }),
+                    else => |e| return e,
+                };
+                try res[0].finish(inst, &.{ty_op.operand}, &ops, cg);
+            },
+            .trunc => |air_tag| if (use_old) try cg.airTrunc(inst) else fallback: {
+                const ty_op = air_datas[@intFromEnum(inst)].ty_op;
+                if (ty_op.ty.toType().isVector(zcu)) break :fallback try cg.airTrunc(inst);
+                var ops = try cg.tempsFromOperands(inst, .{ty_op.operand});
+                var res: [1]Temp = undefined;
+                cg.select(&res, &.{ty_op.ty.toType()}, &ops, comptime &.{ .{
+                    .src_constraints = .{ .{ .signed_int = .gpr }, .any },
+                    .dst_constraints = .{.{ .exact_signed_int = 1 }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mut_gpr, .none } },
+                    },
+                    .dst_temps = .{.{ .ref = .src0 }},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .@"and", .dst0d, .si(1), ._, ._ },
+                        .{ ._, ._, .neg, .dst0d, ._, ._, ._ },
+                    } },
+                }, .{
+                    .src_constraints = .{ .any_signed_int, .any },
+                    .dst_constraints = .{.{ .exact_signed_int = 1 }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .movzx, .dst0d, .mem(.src0b), ._, ._ },
+                        .{ ._, ._, .@"and", .dst0d, .si(1), ._, ._ },
+                        .{ ._, ._, .neg, .dst0d, ._, ._, ._ },
+                    } },
+                }, .{
+                    .src_constraints = .{ .{ .int = .gpr }, .any },
+                    .dst_constraints = .{.{ .exact_int = 8 }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mut_gpr, .none } },
+                    },
+                    .dst_temps = .{.{ .ref = .src0 }},
+                    .each = .{ .once = &.{} },
+                }, .{
+                    .src_constraints = .{ .any_signed_int, .any },
+                    .dst_constraints = .{.{ .exact_signed_int = 8 }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .movsx, .dst0d, .mem(.src0b), ._, ._ },
+                    } },
+                }, .{
+                    .src_constraints = .{ .any_unsigned_int, .any },
+                    .dst_constraints = .{.{ .exact_unsigned_int = 8 }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .movzx, .dst0d, .mem(.src0b), ._, ._ },
+                    } },
+                }, .{
+                    .src_constraints = .{ .{ .signed_int = .gpr }, .any },
+                    .dst_constraints = .{.{ .signed_int = .byte }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mut_gpr, .none } },
+                    },
+                    .dst_temps = .{.{ .ref = .src0 }},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._l, .sa, .dst0b, .uia(8, .dst0, .sub_bit_size), ._, ._ },
+                        .{ ._, ._r, .sa, .dst0b, .uia(8, .dst0, .sub_bit_size), ._, ._ },
+                    } },
+                }, .{
+                    .src_constraints = .{ .{ .unsigned_int = .gpr }, .any },
+                    .dst_constraints = .{.{ .unsigned_int = .byte }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mut_gpr, .none } },
+                    },
+                    .dst_temps = .{.{ .ref = .src0 }},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .@"and", .dst0b, .sa(.dst0, .add_umax), ._, ._ },
+                    } },
+                }, .{
+                    .src_constraints = .{ .any_int, .any },
+                    .dst_constraints = .{.{ .unsigned_int = .byte }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .movzx, .dst0d, .mem(.src0b), ._, ._ },
+                        .{ ._, ._, .@"and", .dst0b, .sa(.dst0, .add_umax), ._, ._ },
+                    } },
+                }, .{
+                    .src_constraints = .{ .{ .int = .gpr }, .any },
+                    .dst_constraints = .{.{ .exact_int = 16 }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mut_gpr, .none } },
+                    },
+                    .dst_temps = .{.{ .ref = .src0 }},
+                    .each = .{ .once = &.{} },
+                }, .{
+                    .src_constraints = .{ .any_signed_int, .any },
+                    .dst_constraints = .{.{ .exact_signed_int = 16 }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .movsx, .dst0d, .mem(.src0w), ._, ._ },
+                    } },
+                }, .{
+                    .src_constraints = .{ .any_unsigned_int, .any },
+                    .dst_constraints = .{.{ .exact_unsigned_int = 16 }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .movzx, .dst0d, .mem(.src0w), ._, ._ },
+                    } },
+                }, .{
+                    .required_features = .{ .fast_imm16, null, null, null },
+                    .src_constraints = .{ .{ .unsigned_int = .gpr }, .any },
+                    .dst_constraints = .{.{ .unsigned_int = .word }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mut_gpr, .none } },
+                    },
+                    .dst_temps = .{.{ .ref = .src0 }},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .@"and", .dst0w, .sa(.dst0, .add_umax), ._, ._ },
+                    } },
+                }, .{
+                    .required_features = .{ .fast_imm16, null, null, null },
+                    .src_constraints = .{ .any_unsigned_int, .any },
+                    .dst_constraints = .{.{ .unsigned_int = .word }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .movzx, .dst0d, .mem(.src0w), ._, ._ },
+                        .{ ._, ._, .@"and", .dst0w, .sa(.dst0, .add_umax), ._, ._ },
+                    } },
+                }, .{
+                    .src_constraints = .{ .{ .int = .gpr }, .any },
+                    .dst_constraints = .{.{ .exact_int = 32 }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mut_gpr, .none } },
+                    },
+                    .dst_temps = .{.{ .ref = .src0 }},
+                    .each = .{ .once = &.{} },
+                }, .{
+                    .src_constraints = .{ .any_int, .any },
+                    .dst_constraints = .{.{ .exact_int = 32 }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .mov, .dst0d, .mem(.src0d), ._, ._ },
+                    } },
+                }, .{
+                    .src_constraints = .{ .{ .signed_int = .gpr }, .any },
+                    .dst_constraints = .{.{ .signed_int = .dword }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mut_gpr, .none } },
+                    },
+                    .dst_temps = .{.{ .ref = .src0 }},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._l, .sa, .dst0d, .uia(32, .dst0, .sub_bit_size), ._, ._ },
+                        .{ ._, ._r, .sa, .dst0d, .uia(32, .dst0, .sub_bit_size), ._, ._ },
+                    } },
+                }, .{
+                    .src_constraints = .{ .any_signed_int, .any },
+                    .dst_constraints = .{.{ .signed_int = .dword }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .mov, .dst0d, .mem(.src0d), ._, ._ },
+                        .{ ._, ._l, .sa, .dst0d, .uia(32, .dst0, .sub_bit_size), ._, ._ },
+                        .{ ._, ._r, .sa, .dst0d, .uia(32, .dst0, .sub_bit_size), ._, ._ },
+                    } },
+                }, .{
+                    .src_constraints = .{ .{ .unsigned_int = .gpr }, .any },
+                    .dst_constraints = .{.{ .unsigned_int = .dword }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mut_gpr, .none } },
+                    },
+                    .dst_temps = .{.{ .ref = .src0 }},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .@"and", .dst0d, .sa(.dst0, .add_umax), ._, ._ },
+                    } },
+                }, .{
+                    .src_constraints = .{ .any_unsigned_int, .any },
+                    .dst_constraints = .{.{ .unsigned_int = .dword }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .mov, .dst0d, .mem(.src0d), ._, ._ },
+                        .{ ._, ._, .@"and", .dst0d, .sa(.dst0, .add_umax), ._, ._ },
+                    } },
+                }, .{
+                    .required_features = .{ .@"64bit", null, null, null },
+                    .src_constraints = .{ .any_int, .any },
+                    .dst_constraints = .{.{ .exact_int = 64 }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .mov, .dst0q, .mem(.src0q), ._, ._ },
+                    } },
+                }, .{
+                    .required_features = .{ .@"64bit", null, null, null },
+                    .src_constraints = .{ .{ .signed_int = .gpr }, .any },
+                    .dst_constraints = .{.{ .signed_int = .qword }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mut_gpr, .none } },
+                    },
+                    .dst_temps = .{.{ .ref = .src0 }},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._l, .sa, .dst0q, .uia(64, .dst0, .sub_bit_size), ._, ._ },
+                        .{ ._, ._r, .sa, .dst0q, .uia(64, .dst0, .sub_bit_size), ._, ._ },
+                    } },
+                }, .{
+                    .required_features = .{ .@"64bit", null, null, null },
+                    .src_constraints = .{ .any_signed_int, .any },
+                    .dst_constraints = .{.{ .signed_int = .qword }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .mov, .dst0q, .mem(.src0q), ._, ._ },
+                        .{ ._, ._l, .sa, .dst0q, .uia(64, .dst0, .sub_bit_size), ._, ._ },
+                        .{ ._, ._r, .sa, .dst0q, .uia(64, .dst0, .sub_bit_size), ._, ._ },
+                    } },
+                }, .{
+                    .required_features = .{ .@"64bit", .bmi2, null, null },
+                    .src_constraints = .{ .{ .unsigned_int = .gpr }, .any },
+                    .dst_constraints = .{.{ .unsigned_int = .qword }},
+                    .patterns = &.{
+                        .{ .src = .{ .mem, .none } },
+                        .{ .src = .{ .to_gpr, .none } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .mov, .dst0d, .sa(.dst0, .add_bit_size), ._, ._ },
+                        .{ ._, ._, .bzhi, .dst0q, .src0q, .dst0q, ._ },
+                    } },
+                }, .{
+                    .required_features = .{ .@"64bit", .bmi2, null, null },
+                    .src_constraints = .{ .any_unsigned_int, .any },
+                    .dst_constraints = .{.{ .unsigned_int = .qword }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .mov, .dst0d, .sa(.dst0, .add_bit_size), ._, ._ },
+                        .{ ._, ._, .bzhi, .dst0q, .mem(.src0q), .dst0q, ._ },
+                    } },
+                }, .{
+                    .required_features = .{ .@"64bit", null, null, null },
+                    .src_constraints = .{ .{ .unsigned_int = .gpr }, .any },
+                    .dst_constraints = .{.{ .unsigned_int = .qword }},
+                    .patterns = &.{
+                        .{ .src = .{ .mem, .none } },
+                        .{ .src = .{ .to_gpr, .none } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .mov, .dst0q, .ua(.dst0, .add_umax), ._, ._ },
+                        .{ ._, ._, .@"and", .dst0q, .src0q, ._, ._ },
+                    } },
+                }, .{
+                    .required_features = .{ .@"64bit", null, null, null },
+                    .src_constraints = .{ .any_unsigned_int, .any },
+                    .dst_constraints = .{.{ .unsigned_int = .qword }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .dst_temps = .{.{ .rc = .general_purpose }},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .mov, .dst0q, .ua(.dst0, .add_umax), ._, ._ },
+                        .{ ._, ._, .@"and", .dst0q, .mem(.src0q), ._, ._ },
+                    } },
+                }, .{
+                    .required_features = .{ .@"64bit", null, null, null },
+                    .src_constraints = .{ .any_int, .any },
+                    .dst_constraints = .{.{ .exact_remainder_int = .{ .of = .xword, .is = .xword } }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .extra_temps = .{
+                        .{ .type = .usize, .kind = .{ .reg = .rsi } },
+                        .{ .type = .usize, .kind = .{ .reg = .rdi } },
+                        .{ .type = .u32, .kind = .{ .reg = .ecx } },
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                    },
+                    .dst_temps = .{.mem},
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .lea, .tmp0p, .mem(.src0), ._, ._ },
+                        .{ ._, ._, .lea, .tmp1p, .mem(.dst0), ._, ._ },
+                        .{ ._, ._, .mov, .tmp2d, .sa(.dst0, .add_size_div_8), ._, ._ },
+                        .{ ._, .@"rep _sq", .mov, ._, ._, ._, ._ },
+                    } },
+                }, .{
+                    .required_features = .{ .@"64bit", null, null, null },
+                    .src_constraints = .{ .any_signed_int, .any },
+                    .dst_constraints = .{.{ .exact_remainder_signed_int = .{ .of = .xword, .is = .qword } }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .extra_temps = .{
+                        .{ .type = .usize, .kind = .{ .reg = .rsi } },
+                        .{ .type = .usize, .kind = .{ .reg = .rdi } },
+                        .{ .type = .u32, .kind = .{ .reg = .ecx } },
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                    },
+                    .dst_temps = .{.mem},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .lea, .tmp0p, .mem(.src0), ._, ._ },
+                        .{ ._, ._, .lea, .tmp1p, .mem(.dst0), ._, ._ },
+                        .{ ._, ._, .mov, .tmp2d, .sia(-2, .dst0, .add_size_div_8), ._, ._ },
+                        .{ ._, .@"rep _sq", .mov, ._, ._, ._, ._ },
+                        .{ ._, ._, .mov, .tmp0q, .memad(.src0q, .add_size, -16), ._, ._ },
+                        .{ ._, ._, .mov, .memad(.dst0q, .add_size, -16), .tmp0q, ._, ._ },
+                        .{ ._, ._r, .sa, .tmp0q, .ui(63), ._, ._ },
+                        .{ ._, ._, .mov, .memad(.dst0q, .add_size, -8), .tmp0q, ._, ._ },
+                    } },
+                }, .{
+                    .required_features = .{ .@"64bit", null, null, null },
+                    .src_constraints = .{ .any_signed_int, .any },
+                    .dst_constraints = .{.{ .remainder_signed_int = .{ .of = .xword, .is = .qword } }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .extra_temps = .{
+                        .{ .type = .usize, .kind = .{ .reg = .rsi } },
+                        .{ .type = .usize, .kind = .{ .reg = .rdi } },
+                        .{ .type = .u32, .kind = .{ .reg = .ecx } },
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                    },
+                    .dst_temps = .{.mem},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .lea, .tmp0p, .mem(.src0), ._, ._ },
+                        .{ ._, ._, .lea, .tmp1p, .mem(.dst0), ._, ._ },
+                        .{ ._, ._, .mov, .tmp2d, .sia(-2, .dst0, .add_size_div_8), ._, ._ },
+                        .{ ._, .@"rep _sq", .mov, ._, ._, ._, ._ },
+                        .{ ._, ._, .mov, .tmp0q, .memad(.src0q, .add_size, -16), ._, ._ },
+                        .{ ._, ._l, .sa, .tmp0q, .uia(64, .dst0, .sub_bit_size_rem_64), ._, ._ },
+                        .{ ._, ._r, .sa, .tmp0q, .uia(64, .dst0, .sub_bit_size_rem_64), ._, ._ },
+                        .{ ._, ._, .mov, .memad(.dst0q, .add_size, -16), .tmp0q, ._, ._ },
+                        .{ ._, ._r, .sa, .tmp0q, .ui(63), ._, ._ },
+                        .{ ._, ._, .mov, .memad(.dst0q, .add_size, -8), .tmp0q, ._, ._ },
+                    } },
+                }, .{
+                    .required_features = .{ .@"64bit", null, null, null },
+                    .src_constraints = .{ .any_signed_int, .any },
+                    .dst_constraints = .{.{ .remainder_signed_int = .{ .of = .xword, .is = .xword } }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .extra_temps = .{
+                        .{ .type = .usize, .kind = .{ .reg = .rsi } },
+                        .{ .type = .usize, .kind = .{ .reg = .rdi } },
+                        .{ .type = .u32, .kind = .{ .reg = .ecx } },
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                    },
+                    .dst_temps = .{.mem},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .lea, .tmp0p, .mem(.src0), ._, ._ },
+                        .{ ._, ._, .lea, .tmp1p, .mem(.dst0), ._, ._ },
+                        .{ ._, ._, .mov, .tmp2d, .sia(-1, .dst0, .add_size_div_8), ._, ._ },
+                        .{ ._, .@"rep _sq", .mov, ._, ._, ._, ._ },
+                        .{ ._, ._, .mov, .tmp0q, .memad(.src0q, .add_size, -8), ._, ._ },
+                        .{ ._, ._l, .sa, .tmp0q, .uia(64, .dst0, .sub_bit_size_rem_64), ._, ._ },
+                        .{ ._, ._r, .sa, .tmp0q, .uia(64, .dst0, .sub_bit_size_rem_64), ._, ._ },
+                        .{ ._, ._, .mov, .memad(.dst0q, .add_size, -8), .tmp0q, ._, ._ },
+                    } },
+                }, .{
+                    .required_features = .{ .@"64bit", null, null, null },
+                    .src_constraints = .{ .any_unsigned_int, .any },
+                    .dst_constraints = .{.{ .exact_remainder_unsigned_int = .{ .of = .xword, .is = .qword } }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .extra_temps = .{
+                        .{ .type = .usize, .kind = .{ .reg = .rsi } },
+                        .{ .type = .usize, .kind = .{ .reg = .rdi } },
+                        .{ .type = .u32, .kind = .{ .reg = .ecx } },
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                    },
+                    .dst_temps = .{.mem},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .lea, .tmp0p, .mem(.src0), ._, ._ },
+                        .{ ._, ._, .lea, .tmp1p, .mem(.dst0), ._, ._ },
+                        .{ ._, ._, .mov, .tmp2d, .sia(-1, .dst0, .add_size_div_8), ._, ._ },
+                        .{ ._, .@"rep _sq", .mov, ._, ._, ._, ._ },
+                        .{ ._, ._, .mov, .memad(.dst0q, .add_size, -8), .si(0), ._, ._ },
+                    } },
+                }, .{
+                    .required_features = .{ .@"64bit", null, null, null },
+                    .src_constraints = .{ .any_unsigned_int, .any },
+                    .dst_constraints = .{.{ .remainder_unsigned_int = .{ .of = .xword, .is = .qword } }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .extra_temps = .{
+                        .{ .type = .usize, .kind = .{ .reg = .rsi } },
+                        .{ .type = .usize, .kind = .{ .reg = .rdi } },
+                        .{ .type = .u32, .kind = .{ .reg = .ecx } },
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                    },
+                    .dst_temps = .{.mem},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .lea, .tmp0p, .mem(.src0), ._, ._ },
+                        .{ ._, ._, .lea, .tmp1p, .mem(.dst0), ._, ._ },
+                        .{ ._, ._, .mov, .tmp2d, .sia(-2, .dst0, .add_size_div_8), ._, ._ },
+                        .{ ._, .@"rep _sq", .mov, ._, ._, ._, ._ },
+                        .{ ._, ._, .mov, .tmp0q, .ua(.dst0, .add_umax), ._, ._ },
+                        .{ ._, ._, .@"and", .tmp0q, .memad(.src0q, .add_size, -16), ._, ._ },
+                        .{ ._, ._, .mov, .memad(.dst0q, .add_size, -16), .tmp0q, ._, ._ },
+                        .{ ._, ._, .mov, .memad(.dst0q, .add_size, -8), .si(0), ._, ._ },
+                    } },
+                }, .{
+                    .required_features = .{ .@"64bit", null, null, null },
+                    .src_constraints = .{ .any_unsigned_int, .any },
+                    .dst_constraints = .{.{ .remainder_unsigned_int = .{ .of = .xword, .is = .xword } }},
+                    .patterns = &.{
+                        .{ .src = .{ .to_mem, .none } },
+                    },
+                    .extra_temps = .{
+                        .{ .type = .usize, .kind = .{ .reg = .rsi } },
+                        .{ .type = .usize, .kind = .{ .reg = .rdi } },
+                        .{ .type = .u32, .kind = .{ .reg = .ecx } },
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                        .unused,
+                    },
+                    .dst_temps = .{.mem},
+                    .clobbers = .{ .eflags = true },
+                    .each = .{ .once = &.{
+                        .{ ._, ._, .lea, .tmp0p, .mem(.src0), ._, ._ },
+                        .{ ._, ._, .lea, .tmp1p, .mem(.dst0), ._, ._ },
+                        .{ ._, ._, .mov, .tmp2d, .sia(-1, .dst0, .add_size_div_8), ._, ._ },
+                        .{ ._, .@"rep _sq", .mov, ._, ._, ._, ._ },
+                        .{ ._, ._, .mov, .tmp0q, .ua(.dst0, .add_umax), ._, ._ },
+                        .{ ._, ._, .@"and", .tmp0q, .memad(.src0q, .add_size, -8), ._, ._ },
+                        .{ ._, ._, .mov, .memad(.dst0q, .add_size, -8), .tmp0q, ._, ._ },
+                    } },
+                } }) catch |err| switch (err) {
+                    error.SelectFailed => return cg.fail("failed to select {s} {} {} {}", .{
+                        @tagName(air_tag),
+                        ty_op.ty.toType().fmt(pt),
+                        cg.typeOf(ty_op.operand).fmt(pt),
                         ops[0].tracking(cg),
                     }),
                     else => |e| return e,
@@ -48551,8 +49068,8 @@ const Temp = struct {
                 }, .{
                     .required_features = .{ .@"64bit", null, null, null },
                     .src_constraints = .{
-                        .{ .signed_remainder_int = .{ .of = .qword, .is = .qword } },
-                        .{ .signed_remainder_int = .{ .of = .qword, .is = .qword } },
+                        .{ .remainder_signed_int = .{ .of = .qword, .is = .qword } },
+                        .{ .remainder_signed_int = .{ .of = .qword, .is = .qword } },
                     },
                     .patterns = &.{
                         .{ .src = .{ .to_mem, .to_mem } },
@@ -48583,8 +49100,8 @@ const Temp = struct {
                 }, .{
                     .required_features = .{ .@"64bit", null, null, null },
                     .src_constraints = .{
-                        .{ .unsigned_remainder_int = .{ .of = .qword, .is = .qword } },
-                        .{ .unsigned_remainder_int = .{ .of = .qword, .is = .qword } },
+                        .{ .remainder_unsigned_int = .{ .of = .qword, .is = .qword } },
+                        .{ .remainder_unsigned_int = .{ .of = .qword, .is = .qword } },
                     },
                     .patterns = &.{
                         .{ .src = .{ .to_mem, .to_mem } },
@@ -48612,8 +49129,8 @@ const Temp = struct {
                     } },
                 }, .{
                     .src_constraints = .{
-                        .{ .signed_remainder_int = .{ .of = .dword, .is = .dword } },
-                        .{ .signed_remainder_int = .{ .of = .dword, .is = .dword } },
+                        .{ .remainder_signed_int = .{ .of = .dword, .is = .dword } },
+                        .{ .remainder_signed_int = .{ .of = .dword, .is = .dword } },
                     },
                     .patterns = &.{
                         .{ .src = .{ .to_mem, .to_mem } },
@@ -48643,8 +49160,8 @@ const Temp = struct {
                     } },
                 }, .{
                     .src_constraints = .{
-                        .{ .unsigned_remainder_int = .{ .of = .dword, .is = .dword } },
-                        .{ .unsigned_remainder_int = .{ .of = .dword, .is = .dword } },
+                        .{ .remainder_unsigned_int = .{ .of = .dword, .is = .dword } },
+                        .{ .remainder_unsigned_int = .{ .of = .dword, .is = .dword } },
                     },
                     .patterns = &.{
                         .{ .src = .{ .to_mem, .to_mem } },
@@ -49536,6 +50053,7 @@ const Operand = union(enum) {
 
 const Select = struct {
     cg: *CodeGen,
+    types: [@intFromEnum(Select.Operand.Ref.none)]Type,
     temps: [@intFromEnum(Select.Operand.Ref.none)]Temp,
     labels: [@intFromEnum(Label._)]struct {
         backward: ?Mir.Inst.Index,
@@ -49762,9 +50280,11 @@ const Select = struct {
         signed_po2_int: Memory.Size,
         unsigned_po2_or_exact_int: Memory.Size,
         remainder_int: OfIsSizes,
-        signed_remainder_int: OfIsSizes,
-        unsigned_remainder_int: OfIsSizes,
+        remainder_signed_int: OfIsSizes,
+        remainder_unsigned_int: OfIsSizes,
         exact_remainder_int: OfIsSizes,
+        exact_remainder_signed_int: OfIsSizes,
+        exact_remainder_unsigned_int: OfIsSizes,
         signed_or_exact_remainder_int: OfIsSizes,
         unsigned_or_exact_remainder_int: OfIsSizes,
         signed_int: Memory.Size,
@@ -49878,14 +50398,18 @@ const Select = struct {
                     of_is.is.bitSize(cg.target) >= (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1
                 else
                     false,
-                .signed_remainder_int => |of_is| if (cg.intInfo(ty)) |int_info| int_info.signedness == .signed and
+                .remainder_signed_int => |of_is| if (cg.intInfo(ty)) |int_info| int_info.signedness == .signed and
                     of_is.is.bitSize(cg.target) >= (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1 else false,
-                .unsigned_remainder_int => |of_is| if (cg.intInfo(ty)) |int_info| int_info.signedness == .unsigned and
+                .remainder_unsigned_int => |of_is| if (cg.intInfo(ty)) |int_info| int_info.signedness == .unsigned and
                     of_is.is.bitSize(cg.target) >= (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1 else false,
                 .exact_remainder_int => |of_is| if (cg.intInfo(ty)) |int_info|
                     of_is.is.bitSize(cg.target) == (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1
                 else
                     false,
+                .exact_remainder_signed_int => |of_is| if (cg.intInfo(ty)) |int_info| int_info.signedness == .signed and
+                    of_is.is.bitSize(cg.target) == (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1 else false,
+                .exact_remainder_unsigned_int => |of_is| if (cg.intInfo(ty)) |int_info| int_info.signedness == .unsigned and
+                    of_is.is.bitSize(cg.target) == (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1 else false,
                 .signed_or_exact_remainder_int => |of_is| if (cg.intInfo(ty)) |int_info| switch (int_info.signedness) {
                     .signed => of_is.is.bitSize(cg.target) >= (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1,
                     .unsigned => of_is.is.bitSize(cg.target) == (int_info.bits - 1) % of_is.of.bitSize(cg.target) + 1,
@@ -50129,11 +50653,11 @@ const Select = struct {
                 .unused => unreachable,
                 .any => .{ try cg.tempAlloc(spec.type), true },
                 .cc => |cc| .{ try cg.tempInit(spec.type, .{ .eflags = cc }), true },
-                .ref => |ref| .{ ref.deref(s), false },
+                .ref => |ref| .{ ref.tempOf(s), false },
                 .reg => |reg| .{ try cg.tempInit(spec.type, .{ .register = reg }), true },
                 .rc => |rc| .{ try cg.tempAllocReg(spec.type, regSetForRegClass(rc)), true },
                 .mut_rc => |ref_rc| {
-                    const temp = ref_rc.ref.deref(s);
+                    const temp = ref_rc.ref.tempOf(s);
                     if (temp.isMut(cg)) switch (temp.tracking(cg).short) {
                         .register => |reg| if (reg.class() == ref_rc.rc) return .{ temp, false },
                         .register_offset => |reg_off| if (reg_off.off == 0 and reg_off.reg.class() == ref_rc.rc) return .{ temp, false },
@@ -50141,10 +50665,10 @@ const Select = struct {
                     };
                     return .{ try cg.tempAllocReg(spec.type, regSetForRegClass(ref_rc.rc)), true };
                 },
-                .ref_mask => |ref_mask| .{ ref_mask.ref.deref(s), false },
+                .ref_mask => |ref_mask| .{ ref_mask.ref.tempOf(s), false },
                 .rc_mask => |rc_mask| .{ try cg.tempAllocReg(spec.type, regSetForRegClass(rc_mask.rc)), true },
                 .mut_rc_mask => |ref_rc_mask| {
-                    const temp = ref_rc_mask.ref.deref(s);
+                    const temp = ref_rc_mask.ref.tempOf(s);
                     if (temp.isMut(cg)) switch (temp.tracking(cg).short) {
                         .register => |reg| if (reg.class() == ref_rc_mask.rc) return .{ temp, false },
                         .register_offset => |reg_off| if (reg_off.off == 0 and reg_off.reg.class() == ref_rc_mask.rc) return .{ temp, false },
@@ -50157,7 +50681,7 @@ const Select = struct {
                     const pt = cg.pt;
                     const zcu = pt.zcu;
                     const ip = &zcu.intern_pool;
-                    const ty = const_info.ref.deref(s).typeOf(cg);
+                    const ty = const_info.ref.typeOf(s);
                     const vector_len, const scalar_ty: Type = switch (ip.indexToKey(ty.toIntern())) {
                         else => .{ null, ty },
                         .vector_type => |vector_type| .{ vector_type.len, .fromInterned(vector_type.child) },
@@ -50246,7 +50770,7 @@ const Select = struct {
         flags: packed struct(u16) {
             tag: Tag,
             adjust: Adjust = .none,
-            unused: u4 = 0,
+            unused: u3 = 0,
         },
         base: Ref.Sized = .none,
         index: packed struct(u6) {
@@ -50265,7 +50789,7 @@ const Select = struct {
             lea,
             mem,
         };
-        const Adjust = packed struct(u9) {
+        const Adjust = packed struct(u10) {
             sign: enum(u1) { neg, pos },
             lhs: enum(u5) {
                 none,
@@ -50288,7 +50812,7 @@ const Select = struct {
                 smax,
                 umax,
             },
-            op: enum(u1) { mul, div },
+            op: enum(u2) { mul, div, rem_8_mul },
             rhs: Memory.Scale,
 
             const none: Adjust = .{ .sign = .pos, .lhs = .none, .op = .mul, .rhs = .@"1" };
@@ -50308,6 +50832,7 @@ const Select = struct {
             const sub_unaligned_size: Adjust = .{ .sign = .neg, .lhs = .unaligned_size, .op = .mul, .rhs = .@"1" };
             const add_2_bit_size: Adjust = .{ .sign = .pos, .lhs = .bit_size, .op = .mul, .rhs = .@"2" };
             const add_bit_size: Adjust = .{ .sign = .pos, .lhs = .bit_size, .op = .mul, .rhs = .@"1" };
+            const sub_bit_size_rem_64: Adjust = .{ .sign = .pos, .lhs = .bit_size, .op = .rem_8_mul, .rhs = .@"8" };
             const sub_bit_size: Adjust = .{ .sign = .neg, .lhs = .bit_size, .op = .mul, .rhs = .@"1" };
             const add_src0_bit_size: Adjust = .{ .sign = .pos, .lhs = .src0_bit_size, .op = .mul, .rhs = .@"1" };
             const sub_src0_bit_size: Adjust = .{ .sign = .neg, .lhs = .src0_bit_size, .op = .mul, .rhs = .@"1" };
@@ -50356,6 +50881,7 @@ const Select = struct {
                 const tmp0w: Sized = .{ .ref = .tmp0, .size = .word };
                 const tmp0d: Sized = .{ .ref = .tmp0, .size = .dword };
                 const tmp0p: Sized = .{ .ref = .tmp0, .size = .ptr };
+                const tmp0g: Sized = .{ .ref = .tmp0, .size = .gpr };
                 const tmp0q: Sized = .{ .ref = .tmp0, .size = .qword };
                 const tmp0t: Sized = .{ .ref = .tmp0, .size = .tbyte };
                 const tmp0x: Sized = .{ .ref = .tmp0, .size = .xword };
@@ -50366,6 +50892,7 @@ const Select = struct {
                 const tmp1w: Sized = .{ .ref = .tmp1, .size = .word };
                 const tmp1d: Sized = .{ .ref = .tmp1, .size = .dword };
                 const tmp1p: Sized = .{ .ref = .tmp1, .size = .ptr };
+                const tmp1g: Sized = .{ .ref = .tmp1, .size = .gpr };
                 const tmp1q: Sized = .{ .ref = .tmp1, .size = .qword };
                 const tmp1t: Sized = .{ .ref = .tmp1, .size = .tbyte };
                 const tmp1x: Sized = .{ .ref = .tmp1, .size = .xword };
@@ -50376,6 +50903,7 @@ const Select = struct {
                 const tmp2w: Sized = .{ .ref = .tmp2, .size = .word };
                 const tmp2d: Sized = .{ .ref = .tmp2, .size = .dword };
                 const tmp2p: Sized = .{ .ref = .tmp2, .size = .ptr };
+                const tmp2g: Sized = .{ .ref = .tmp2, .size = .gpr };
                 const tmp2q: Sized = .{ .ref = .tmp2, .size = .qword };
                 const tmp2t: Sized = .{ .ref = .tmp2, .size = .tbyte };
                 const tmp2x: Sized = .{ .ref = .tmp2, .size = .xword };
@@ -50386,6 +50914,7 @@ const Select = struct {
                 const tmp3w: Sized = .{ .ref = .tmp3, .size = .word };
                 const tmp3d: Sized = .{ .ref = .tmp3, .size = .dword };
                 const tmp3p: Sized = .{ .ref = .tmp3, .size = .ptr };
+                const tmp3g: Sized = .{ .ref = .tmp3, .size = .gpr };
                 const tmp3q: Sized = .{ .ref = .tmp3, .size = .qword };
                 const tmp3t: Sized = .{ .ref = .tmp3, .size = .tbyte };
                 const tmp3x: Sized = .{ .ref = .tmp3, .size = .xword };
@@ -50396,6 +50925,7 @@ const Select = struct {
                 const tmp4w: Sized = .{ .ref = .tmp4, .size = .word };
                 const tmp4d: Sized = .{ .ref = .tmp4, .size = .dword };
                 const tmp4p: Sized = .{ .ref = .tmp4, .size = .ptr };
+                const tmp4g: Sized = .{ .ref = .tmp4, .size = .gpr };
                 const tmp4q: Sized = .{ .ref = .tmp4, .size = .qword };
                 const tmp4t: Sized = .{ .ref = .tmp4, .size = .tbyte };
                 const tmp4x: Sized = .{ .ref = .tmp4, .size = .xword };
@@ -50406,6 +50936,7 @@ const Select = struct {
                 const tmp5w: Sized = .{ .ref = .tmp5, .size = .word };
                 const tmp5d: Sized = .{ .ref = .tmp5, .size = .dword };
                 const tmp5p: Sized = .{ .ref = .tmp5, .size = .ptr };
+                const tmp5g: Sized = .{ .ref = .tmp5, .size = .gpr };
                 const tmp5q: Sized = .{ .ref = .tmp5, .size = .qword };
                 const tmp5t: Sized = .{ .ref = .tmp5, .size = .tbyte };
                 const tmp5x: Sized = .{ .ref = .tmp5, .size = .xword };
@@ -50416,6 +50947,7 @@ const Select = struct {
                 const tmp6w: Sized = .{ .ref = .tmp6, .size = .word };
                 const tmp6d: Sized = .{ .ref = .tmp6, .size = .dword };
                 const tmp6p: Sized = .{ .ref = .tmp6, .size = .ptr };
+                const tmp6g: Sized = .{ .ref = .tmp6, .size = .gpr };
                 const tmp6q: Sized = .{ .ref = .tmp6, .size = .qword };
                 const tmp6t: Sized = .{ .ref = .tmp6, .size = .tbyte };
                 const tmp6x: Sized = .{ .ref = .tmp6, .size = .xword };
@@ -50426,6 +50958,7 @@ const Select = struct {
                 const tmp7w: Sized = .{ .ref = .tmp7, .size = .word };
                 const tmp7d: Sized = .{ .ref = .tmp7, .size = .dword };
                 const tmp7p: Sized = .{ .ref = .tmp7, .size = .ptr };
+                const tmp7g: Sized = .{ .ref = .tmp7, .size = .gpr };
                 const tmp7q: Sized = .{ .ref = .tmp7, .size = .qword };
                 const tmp7t: Sized = .{ .ref = .tmp7, .size = .tbyte };
                 const tmp7x: Sized = .{ .ref = .tmp7, .size = .xword };
@@ -50436,6 +50969,7 @@ const Select = struct {
                 const tmp8w: Sized = .{ .ref = .tmp8, .size = .word };
                 const tmp8d: Sized = .{ .ref = .tmp8, .size = .dword };
                 const tmp8p: Sized = .{ .ref = .tmp8, .size = .ptr };
+                const tmp8g: Sized = .{ .ref = .tmp8, .size = .gpr };
                 const tmp8q: Sized = .{ .ref = .tmp8, .size = .qword };
                 const tmp8t: Sized = .{ .ref = .tmp8, .size = .tbyte };
                 const tmp8x: Sized = .{ .ref = .tmp8, .size = .xword };
@@ -50446,6 +50980,7 @@ const Select = struct {
                 const dst0w: Sized = .{ .ref = .dst0, .size = .word };
                 const dst0d: Sized = .{ .ref = .dst0, .size = .dword };
                 const dst0p: Sized = .{ .ref = .dst0, .size = .ptr };
+                const dst0g: Sized = .{ .ref = .dst0, .size = .gpr };
                 const dst0q: Sized = .{ .ref = .dst0, .size = .qword };
                 const dst0t: Sized = .{ .ref = .dst0, .size = .tbyte };
                 const dst0x: Sized = .{ .ref = .dst0, .size = .xword };
@@ -50456,6 +50991,7 @@ const Select = struct {
                 const src0w: Sized = .{ .ref = .src0, .size = .word };
                 const src0d: Sized = .{ .ref = .src0, .size = .dword };
                 const src0p: Sized = .{ .ref = .src0, .size = .ptr };
+                const src0g: Sized = .{ .ref = .src0, .size = .gpr };
                 const src0q: Sized = .{ .ref = .src0, .size = .qword };
                 const src0t: Sized = .{ .ref = .src0, .size = .tbyte };
                 const src0x: Sized = .{ .ref = .src0, .size = .xword };
@@ -50466,14 +51002,23 @@ const Select = struct {
                 const src1w: Sized = .{ .ref = .src1, .size = .word };
                 const src1d: Sized = .{ .ref = .src1, .size = .dword };
                 const src1p: Sized = .{ .ref = .src1, .size = .ptr };
+                const src1g: Sized = .{ .ref = .src1, .size = .gpr };
                 const src1q: Sized = .{ .ref = .src1, .size = .qword };
                 const src1t: Sized = .{ .ref = .src1, .size = .tbyte };
                 const src1x: Sized = .{ .ref = .src1, .size = .xword };
                 const src1y: Sized = .{ .ref = .src1, .size = .yword };
             };
 
-            fn deref(ref: Ref, s: *const Select) Temp {
+            fn typeOf(ref: Ref, s: *const Select) Type {
+                return s.types[@intFromEnum(ref)];
+            }
+
+            fn tempOf(ref: Ref, s: *const Select) Temp {
                 return s.temps[@intFromEnum(ref)];
+            }
+
+            fn valueOf(ref: Ref, s: *const Select) MCValue {
+                return s.temps[@intFromEnum(ref)].tracking(s.cg).short;
             }
         };
 
@@ -50490,6 +51035,7 @@ const Select = struct {
         const tmp0w: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp0w };
         const tmp0d: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp0d };
         const tmp0p: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp0p };
+        const tmp0g: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp0g };
         const tmp0q: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp0q };
         const tmp0t: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp0t };
         const tmp0x: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp0x };
@@ -50499,6 +51045,7 @@ const Select = struct {
         const tmp1w: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp1w };
         const tmp1d: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp1d };
         const tmp1p: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp1p };
+        const tmp1g: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp1g };
         const tmp1q: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp1q };
         const tmp1t: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp1t };
         const tmp1x: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp1x };
@@ -50508,6 +51055,7 @@ const Select = struct {
         const tmp2w: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp2w };
         const tmp2d: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp2d };
         const tmp2p: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp2p };
+        const tmp2g: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp2g };
         const tmp2q: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp2q };
         const tmp2t: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp2t };
         const tmp2x: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp2x };
@@ -50517,6 +51065,7 @@ const Select = struct {
         const tmp3w: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp3w };
         const tmp3d: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp3d };
         const tmp3p: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp3p };
+        const tmp3g: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp3g };
         const tmp3q: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp3q };
         const tmp3t: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp3t };
         const tmp3x: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp3x };
@@ -50526,6 +51075,7 @@ const Select = struct {
         const tmp4w: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp4w };
         const tmp4d: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp4d };
         const tmp4p: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp4p };
+        const tmp4g: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp4g };
         const tmp4q: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp4q };
         const tmp4t: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp4t };
         const tmp4x: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp4x };
@@ -50535,6 +51085,7 @@ const Select = struct {
         const tmp5w: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp5w };
         const tmp5d: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp5d };
         const tmp5p: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp5p };
+        const tmp5g: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp5g };
         const tmp5q: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp5q };
         const tmp5t: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp5t };
         const tmp5x: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp5x };
@@ -50544,6 +51095,7 @@ const Select = struct {
         const tmp6w: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp6w };
         const tmp6d: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp6d };
         const tmp6p: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp6p };
+        const tmp6g: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp6g };
         const tmp6q: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp6q };
         const tmp6t: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp6t };
         const tmp6x: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp6x };
@@ -50553,6 +51105,7 @@ const Select = struct {
         const tmp7w: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp7w };
         const tmp7d: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp7d };
         const tmp7p: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp7p };
+        const tmp7g: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp7g };
         const tmp7q: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp7q };
         const tmp7t: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp7t };
         const tmp7x: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp7x };
@@ -50562,6 +51115,7 @@ const Select = struct {
         const tmp8w: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp8w };
         const tmp8d: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp8d };
         const tmp8p: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp8p };
+        const tmp8g: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp8g };
         const tmp8q: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp8q };
         const tmp8t: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp8t };
         const tmp8x: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .tmp8x };
@@ -50571,6 +51125,7 @@ const Select = struct {
         const dst0w: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .dst0w };
         const dst0d: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .dst0d };
         const dst0p: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .dst0p };
+        const dst0g: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .dst0g };
         const dst0q: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .dst0q };
         const dst0t: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .dst0t };
         const dst0x: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .dst0x };
@@ -50580,6 +51135,7 @@ const Select = struct {
         const src0w: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .src0w };
         const src0d: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .src0d };
         const src0p: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .src0p };
+        const src0g: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .src0g };
         const src0q: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .src0q };
         const src0t: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .src0t };
         const src0x: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .src0x };
@@ -50589,6 +51145,7 @@ const Select = struct {
         const src1w: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .src1w };
         const src1d: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .src1d };
         const src1p: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .src1p };
+        const src1g: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .src1g };
         const src1q: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .src1q };
         const src1t: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .src1t };
         const src1x: Select.Operand = .{ .flags = .{ .tag = .ref }, .base = .src1x };
@@ -50786,36 +51343,36 @@ const Select = struct {
                 .none => 0,
                 .ptr_size => @divExact(s.cg.target.ptrBitWidth(), 8),
                 .ptr_bit_size => s.cg.target.ptrBitWidth(),
-                .size => @intCast(op.base.ref.deref(s).typeOf(s.cg).abiSize(s.cg.pt.zcu)),
-                .delta_size => @intCast(@as(SignedImm, @intCast(op.base.ref.deref(s).typeOf(s.cg).abiSize(s.cg.pt.zcu))) -
-                    @as(SignedImm, @intCast(op.index.ref.deref(s).typeOf(s.cg).abiSize(s.cg.pt.zcu)))),
-                .delta_elem_size => @intCast(@as(SignedImm, @intCast(op.base.ref.deref(s).typeOf(s.cg).elemType2(s.cg.pt.zcu).abiSize(s.cg.pt.zcu))) -
-                    @as(SignedImm, @intCast(op.index.ref.deref(s).typeOf(s.cg).elemType2(s.cg.pt.zcu).abiSize(s.cg.pt.zcu)))),
+                .size => @intCast(op.base.ref.typeOf(s).abiSize(s.cg.pt.zcu)),
+                .delta_size => @intCast(@as(SignedImm, @intCast(op.base.ref.typeOf(s).abiSize(s.cg.pt.zcu))) -
+                    @as(SignedImm, @intCast(op.index.ref.typeOf(s).abiSize(s.cg.pt.zcu)))),
+                .delta_elem_size => @intCast(@as(SignedImm, @intCast(op.base.ref.typeOf(s).elemType2(s.cg.pt.zcu).abiSize(s.cg.pt.zcu))) -
+                    @as(SignedImm, @intCast(op.index.ref.typeOf(s).elemType2(s.cg.pt.zcu).abiSize(s.cg.pt.zcu)))),
                 .size_sub_elem_size => {
-                    const ty = op.base.ref.deref(s).typeOf(s.cg);
+                    const ty = op.base.ref.typeOf(s);
                     break :lhs @intCast(ty.abiSize(s.cg.pt.zcu) - ty.elemType2(s.cg.pt.zcu).abiSize(s.cg.pt.zcu));
                 },
-                .unaligned_size => @intCast(s.cg.unalignedSize(op.base.ref.deref(s).typeOf(s.cg))),
-                .bit_size => @intCast(op.base.ref.deref(s).typeOf(s.cg).scalarType(s.cg.pt.zcu).bitSize(s.cg.pt.zcu)),
-                .src0_bit_size => @intCast(Select.Operand.Ref.src0.deref(s).typeOf(s.cg).scalarType(s.cg.pt.zcu).bitSize(s.cg.pt.zcu)),
-                .len => @intCast(op.base.ref.deref(s).typeOf(s.cg).vectorLen(s.cg.pt.zcu)),
+                .unaligned_size => @intCast(s.cg.unalignedSize(op.base.ref.typeOf(s))),
+                .bit_size => @intCast(op.base.ref.typeOf(s).scalarType(s.cg.pt.zcu).bitSize(s.cg.pt.zcu)),
+                .src0_bit_size => @intCast(Select.Operand.Ref.src0.typeOf(s).scalarType(s.cg.pt.zcu).bitSize(s.cg.pt.zcu)),
+                .len => @intCast(op.base.ref.typeOf(s).vectorLen(s.cg.pt.zcu)),
                 .elem_limbs => @intCast(@divExact(
-                    op.base.ref.deref(s).typeOf(s.cg).scalarType(s.cg.pt.zcu).abiSize(s.cg.pt.zcu),
+                    op.base.ref.typeOf(s).scalarType(s.cg.pt.zcu).abiSize(s.cg.pt.zcu),
                     @divExact(op.base.size.bitSize(s.cg.target), 8),
                 )),
-                .elem_size => @intCast(op.base.ref.deref(s).typeOf(s.cg).elemType2(s.cg.pt.zcu).abiSize(s.cg.pt.zcu)),
-                .src0_elem_size => @intCast(Select.Operand.Ref.src0.deref(s).typeOf(s.cg).elemType2(s.cg.pt.zcu).abiSize(s.cg.pt.zcu)),
-                .src0_elem_size_times_src1 => @intCast(Select.Operand.Ref.src0.deref(s).typeOf(s.cg).elemType2(s.cg.pt.zcu).abiSize(s.cg.pt.zcu) *
-                    Select.Operand.Ref.src1.deref(s).tracking(s.cg).short.immediate),
-                .log2_src0_elem_size => @intCast(std.math.log2(Select.Operand.Ref.src0.deref(s).typeOf(s.cg).elemType2(s.cg.pt.zcu).abiSize(s.cg.pt.zcu))),
+                .elem_size => @intCast(op.base.ref.typeOf(s).elemType2(s.cg.pt.zcu).abiSize(s.cg.pt.zcu)),
+                .src0_elem_size => @intCast(Select.Operand.Ref.src0.typeOf(s).elemType2(s.cg.pt.zcu).abiSize(s.cg.pt.zcu)),
+                .src0_elem_size_times_src1 => @intCast(Select.Operand.Ref.src0.typeOf(s).elemType2(s.cg.pt.zcu).abiSize(s.cg.pt.zcu) *
+                    Select.Operand.Ref.src1.valueOf(s).immediate),
+                .log2_src0_elem_size => @intCast(std.math.log2(Select.Operand.Ref.src0.typeOf(s).elemType2(s.cg.pt.zcu).abiSize(s.cg.pt.zcu))),
                 .smin => @as(SignedImm, std.math.minInt(SignedImm)) >> @truncate(
-                    -%op.base.ref.deref(s).typeOf(s.cg).scalarType(s.cg.pt.zcu).bitSize(s.cg.pt.zcu),
+                    -%op.base.ref.typeOf(s).scalarType(s.cg.pt.zcu).bitSize(s.cg.pt.zcu),
                 ),
                 .smax => @as(SignedImm, std.math.maxInt(SignedImm)) >> @truncate(
-                    -%op.base.ref.deref(s).typeOf(s.cg).scalarType(s.cg.pt.zcu).bitSize(s.cg.pt.zcu),
+                    -%op.base.ref.typeOf(s).scalarType(s.cg.pt.zcu).bitSize(s.cg.pt.zcu),
                 ),
                 .umax => @bitCast(@as(UnsignedImm, std.math.maxInt(UnsignedImm)) >> @truncate(
-                    -%op.base.ref.deref(s).typeOf(s.cg).scalarType(s.cg.pt.zcu).bitSize(s.cg.pt.zcu),
+                    -%op.base.ref.typeOf(s).scalarType(s.cg.pt.zcu).bitSize(s.cg.pt.zcu),
                 )),
             };
             const rhs = op.flags.adjust.rhs.toLog2();
@@ -50826,6 +51383,7 @@ const Select = struct {
                     break :res res[0];
                 },
                 .div => @shrExact(lhs, rhs),
+                .rem_8_mul => lhs & (@as(SignedImm, 1) << @intCast(@as(u3, 3) + rhs)) - 1,
             };
             return switch (op.flags.adjust.sign) {
                 .neg => op.imm - res,
@@ -50842,7 +51400,7 @@ const Select = struct {
                     label.* = @intCast(s.cg.mir_instructions.len);
                     break .{ .inst = undefined };
                 } else unreachable,
-                .ref => switch (op.base.ref.deref(s).tracking(s.cg).short) {
+                .ref => switch (op.base.ref.valueOf(s)) {
                     .immediate => |imm| .{ .imm = switch (op.base.size) {
                         .byte => if (std.math.cast(i8, @as(i64, @bitCast(imm)))) |simm| .s(simm) else .u(@as(u8, @intCast(imm))),
                         .word => if (std.math.cast(i16, @as(i64, @bitCast(imm)))) |simm| .s(simm) else .u(@as(u16, @intCast(imm))),
@@ -50857,21 +51415,21 @@ const Select = struct {
                 .simm => .{ .imm = .s(op.adjustedImm(i32, s)) },
                 .uimm => .{ .imm = .u(@bitCast(op.adjustedImm(i64, s))) },
                 .lea => .{ .mem = .{
-                    .base = .{ .reg = registerAlias(op.base.ref.deref(s).tracking(s.cg).short.register, @divExact(s.cg.target.ptrBitWidth(), 8)) },
+                    .base = .{ .reg = registerAlias(op.base.ref.valueOf(s).register, @divExact(s.cg.target.ptrBitWidth(), 8)) },
                     .mod = .{ .rm = .{
                         .size = op.base.size,
                         .index = switch (op.index.ref) {
-                            else => |ref| registerAlias(ref.deref(s).tracking(s.cg).short.register, @divExact(s.cg.target.ptrBitWidth(), 8)),
+                            else => |ref| registerAlias(ref.valueOf(s).register, @divExact(s.cg.target.ptrBitWidth(), 8)),
                             .none => .none,
                         },
                         .scale = op.index.scale,
                         .disp = op.adjustedImm(i32, s),
                     } },
                 } },
-                .mem => .{ .mem = try op.base.ref.deref(s).tracking(s.cg).short.mem(s.cg, .{
+                .mem => .{ .mem = try op.base.ref.valueOf(s).mem(s.cg, .{
                     .size = op.base.size,
                     .index = switch (op.index.ref) {
-                        else => |ref| registerAlias(ref.deref(s).tracking(s.cg).short.register, @divExact(s.cg.target.ptrBitWidth(), 8)),
+                        else => |ref| registerAlias(ref.valueOf(s).register, @divExact(s.cg.target.ptrBitWidth(), 8)),
                         .none => .none,
                     },
                     .scale = op.index.scale,
@@ -50888,7 +51446,7 @@ fn select(
     src_temps: []Temp,
     cases: []const Select.Case,
 ) !void {
-    @setEvalBranchQuota(33_600);
+    @setEvalBranchQuota(33_500);
     cases: for (cases) |case| {
         for (case.required_features) |required_feature| if (required_feature) |feature| if (!cg.hasFeature(feature)) continue :cases;
         for (case.src_constraints[0..src_temps.len], src_temps) |src_constraint, src_temp| if (!src_constraint.accepts(src_temp.typeOf(cg), cg)) continue :cases;
@@ -50914,12 +51472,21 @@ fn select(
             var s: Select = .{
                 .cg = cg,
                 .temps = undefined,
+                .types = undefined,
                 .labels = @splat(.{ .forward = @splat(null), .backward = null }),
                 .top = 0,
             };
-            const tmp_slots = s.temps[@intFromEnum(Select.Operand.Ref.tmp0)..@intFromEnum(Select.Operand.Ref.dst0)];
-            const dst_slots = s.temps[@intFromEnum(Select.Operand.Ref.dst0)..@intFromEnum(Select.Operand.Ref.src0)];
-            const src_slots = s.temps[@intFromEnum(Select.Operand.Ref.src0)..@intFromEnum(Select.Operand.Ref.none)];
+            const s_tmp_types = s.types[@intFromEnum(Select.Operand.Ref.tmp0)..@intFromEnum(Select.Operand.Ref.dst0)];
+            const s_tmp_temps = s.temps[@intFromEnum(Select.Operand.Ref.tmp0)..@intFromEnum(Select.Operand.Ref.dst0)];
+            const s_dst_types = s.types[@intFromEnum(Select.Operand.Ref.dst0)..@intFromEnum(Select.Operand.Ref.src0)];
+            const s_dst_temps = s.temps[@intFromEnum(Select.Operand.Ref.dst0)..@intFromEnum(Select.Operand.Ref.src0)];
+            const s_src_types = s.types[@intFromEnum(Select.Operand.Ref.src0)..@intFromEnum(Select.Operand.Ref.none)];
+            const s_src_temps = s.temps[@intFromEnum(Select.Operand.Ref.src0)..@intFromEnum(Select.Operand.Ref.none)];
+
+            for (s_tmp_types, case.extra_temps) |*ty, spec| ty.* = spec.type;
+            @memcpy(s_dst_types[0..dst_tys.len], dst_tys);
+            for (s_src_types[0..src_temps.len], src_temps) |*ty, temp| ty.* = temp.typeOf(cg);
+            std.mem.swap(Type, &s_src_types[pattern.commute[0]], &s_src_types[pattern.commute[1]]);
 
             caller_preserved: {
                 const cc = switch (case.clobbers.caller_preserved) {
@@ -50943,23 +51510,23 @@ fn select(
                 }
             }
 
-            @memcpy(src_slots[0..src_temps.len], src_temps);
-            std.mem.swap(Temp, &src_slots[pattern.commute[0]], &src_slots[pattern.commute[1]]);
+            @memcpy(s_src_temps[0..src_temps.len], src_temps);
+            std.mem.swap(Temp, &s_src_temps[pattern.commute[0]], &s_src_temps[pattern.commute[1]]);
             for (dst_temps, dst_tys, case.dst_temps[0..dst_temps.len]) |*dst_temp, dst_ty, dst_kind| {
                 if (dst_kind.pass() != 1) continue;
                 dst_temp.*, _ = try Select.TempSpec.create(.{ .type = dst_ty, .kind = dst_kind }, &s);
             }
-            var tmp_owned: [tmp_slots.len]bool = @splat(false);
-            for (1..3) |pass| for (tmp_slots, &tmp_owned, case.extra_temps) |*slot, *owned, spec| {
+            var tmp_owned: [s_tmp_temps.len]bool = @splat(false);
+            for (1..3) |pass| for (s_tmp_temps, &tmp_owned, case.extra_temps) |*temp, *owned, spec| {
                 if (spec.kind.pass() != pass) continue;
-                slot.*, owned.* = try spec.create(&s);
+                temp.*, owned.* = try spec.create(&s);
             };
 
             while (true) for (pattern.src[0..src_temps.len], src_temps) |src_pattern, *src_temp| {
                 if (try src_pattern.convert(src_temp, cg)) break;
             } else break;
-            @memcpy(src_slots[0..src_temps.len], src_temps);
-            std.mem.swap(Temp, &src_slots[pattern.commute[0]], &src_slots[pattern.commute[1]]);
+            @memcpy(s_src_temps[0..src_temps.len], src_temps);
+            std.mem.swap(Temp, &s_src_temps[pattern.commute[0]], &s_src_temps[pattern.commute[1]]);
 
             if (case.clobbers.eflags) try cg.spillEflagsIfOccupied();
 
@@ -50967,7 +51534,7 @@ fn select(
                 if (dst_kind.pass() != 2) continue;
                 dst_temp.*, _ = try Select.TempSpec.create(.{ .type = dst_ty, .kind = dst_kind }, &s);
             }
-            @memcpy(dst_slots[0..dst_temps.len], dst_temps);
+            @memcpy(s_dst_temps[0..dst_temps.len], dst_temps);
 
             switch (case.each) {
                 .once => |body| {
@@ -50996,7 +51563,7 @@ fn select(
                 }
             }
             for (dst_temps, case.dst_temps[0..dst_temps.len]) |dst_temp, dst_kind| dst_kind.finish(dst_temp, &s);
-            for (tmp_owned, tmp_slots) |owned, temp| if (owned) try temp.die(cg);
+            for (tmp_owned, s_tmp_temps) |owned, temp| if (owned) try temp.die(cg);
             return;
         }
     }

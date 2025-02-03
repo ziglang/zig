@@ -702,6 +702,7 @@ pub const Memory = struct {
     pub const Size = enum(u4) {
         none,
         ptr,
+        gpr,
         byte,
         word,
         dword,
@@ -742,6 +743,11 @@ pub const Memory = struct {
             return switch (s) {
                 .none => 0,
                 .ptr => target.ptrBitWidth(),
+                .gpr => switch (target.cpu.arch) {
+                    else => unreachable,
+                    .x86 => 32,
+                    .x86_64 => 64,
+                },
                 .byte => 8,
                 .word => 16,
                 .dword => 32,
@@ -763,7 +769,7 @@ pub const Memory = struct {
             try writer.writeAll(@tagName(s));
             switch (s) {
                 .none => unreachable,
-                .ptr => {},
+                .ptr, .gpr => {},
                 else => {
                     try writer.writeByte(' ');
                     try writer.writeAll("ptr");
