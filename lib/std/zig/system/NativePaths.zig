@@ -37,6 +37,10 @@ pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
                 if (mem.startsWith(u8, word, "-frandom-seed=")) {
                     continue;
                 }
+                if (mem.eql(u8, word, "-idirafter")) {
+                    _ = it.next().?;
+                    continue;
+                }
                 try self.addWarningFmt("Unrecognized C flag from NIX_CFLAGS_COMPILE: {s}", .{word});
             }
         }
