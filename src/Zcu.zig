@@ -687,7 +687,6 @@ pub const File = struct {
     pub const Status = enum {
         never_loaded,
         retryable_failure,
-        parse_failure,
         astgen_failure,
         success_zir,
     };
@@ -852,7 +851,7 @@ pub const File = struct {
 
     pub fn okToReportErrors(file: File) bool {
         return switch (file.status) {
-            .parse_failure, .astgen_failure => false,
+            .astgen_failure => false,
             else => true,
         };
     }
@@ -3299,7 +3298,7 @@ pub fn optimizeMode(zcu: *const Zcu) std.builtin.OptimizeMode {
 fn lockAndClearFileCompileError(zcu: *Zcu, file: *File) void {
     switch (file.status) {
         .success_zir, .retryable_failure => {},
-        .never_loaded, .parse_failure, .astgen_failure => {
+        .never_loaded, .astgen_failure => {
             zcu.comp.mutex.lock();
             defer zcu.comp.mutex.unlock();
             if (zcu.failed_files.fetchSwapRemove(file)) |kv| {

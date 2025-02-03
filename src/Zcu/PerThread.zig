@@ -109,7 +109,7 @@ pub fn astGenFile(
 
             break :lock .shared;
         },
-        .parse_failure, .astgen_failure, .success_zir => lock: {
+        .astgen_failure, .success_zir => lock: {
             const unchanged_metadata =
                 stat.size == file.stat.size and
                 stat.mtime == file.stat.mtime and
