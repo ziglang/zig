@@ -3211,7 +3211,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             } else {
                 // Must be ZIR or Zoir errors. Note that this may include AST errors.
                 _ = try file.getTree(gpa); // Tree must be loaded.
-                if (file.zir_loaded) {
+                if (file.zir != null) {
                     try addZirErrorMessages(&bundle, file);
                 } else if (file.zoir != null) {
                     try addZoirErrorMessages(&bundle, file);
@@ -3623,22 +3623,17 @@ pub fn addModuleErrorMsg(
 }
 
 pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Zcu.File) !void {
-    assert(file.zir_loaded);
-    assert(file.tree_loaded);
-    assert(file.source_loaded);
     const gpa = eb.gpa;
     const src_path = try file.fullPath(gpa);
     defer gpa.free(src_path);
-    return eb.addZirErrorMessages(file.zir, file.tree, file.source, src_path);
+    return eb.addZirErrorMessages(file.zir.?, file.tree.?, file.source.?, src_path);
 }
 
 pub fn addZoirErrorMessages(eb: *ErrorBundle.Wip, file: *Zcu.File) !void {
-    assert(file.source_loaded);
-    assert(file.tree_loaded);
     const gpa = eb.gpa;
     const src_path = try file.fullPath(gpa);
     defer gpa.free(src_path);
-    return eb.addZoirErrorMessages(file.zoir.?, file.tree, file.source, src_path);
+    return eb.addZoirErrorMessages(file.zoir.?, file.tree.?, file.source.?, src_path);
 }
 
 pub fn performAllTheWork(
@@ -4312,18 +4307,17 @@ fn workerAstGenFile(
     // Pre-emptively look for `@import` paths and queue them up.
     // If we experience an error preemptively fetching the
     // file, just ignore it and let it happen again later during Sema.
-    assert(file.zir_loaded);
-    const imports_index = file.zir.extra[@intFromEnum(Zir.ExtraIndex.imports)];
+    const imports_index = file.zir.?.extra[@intFromEnum(Zir.ExtraIndex.imports)];
     if (imports_index != 0) {
-        const extra = file.zir.extraData(Zir.Inst.Imports, imports_index);
+        const extra = file.zir.?.extraData(Zir.Inst.Imports, imports_index);
         var import_i: u32 = 0;
         var extra_index = extra.end;
 
         while (import_i < extra.data.imports_len) : (import_i += 1) {
-            const item = file.zir.extraData(Zir.Inst.Imports.Item, extra_index);
+            const item = file.zir.?.extraData(Zir.Inst.Imports.Item, extra_index);
             extra_index = item.end;
 
-            const import_path = file.zir.nullTerminatedString(item.data.name);
+            const import_path = file.zir.?.nullTerminatedString(item.data.name);
             // `@import("builtin")` is handled specially.
             if (mem.eql(u8, import_path, "builtin")) continue;
 

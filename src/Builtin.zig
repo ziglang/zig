@@ -264,14 +264,12 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
 }
 
 pub fn populateFile(comp: *Compilation, mod: *Module, file: *File) !void {
-    assert(file.source_loaded == true);
-
     if (mod.root.statFile(mod.root_src_path)) |stat| {
-        if (stat.size != file.source.len) {
+        if (stat.size != file.source.?.len) {
             std.log.warn(
                 "the cached file '{}{s}' had the wrong size. Expected {d}, found {d}. " ++
                     "Overwriting with correct file contents now",
-                .{ mod.root, mod.root_src_path, file.source.len, stat.size },
+                .{ mod.root, mod.root_src_path, file.source.?.len, stat.size },
             );
 
             try writeFile(file, mod);
@@ -296,15 +294,13 @@ pub fn populateFile(comp: *Compilation, mod: *Module, file: *File) !void {
 
     log.debug("parsing and generating '{s}'", .{mod.root_src_path});
 
-    file.tree = try std.zig.Ast.parse(comp.gpa, file.source, .zig);
-    assert(file.tree.errors.len == 0); // builtin.zig must parse
-    file.tree_loaded = true;
+    file.tree = try std.zig.Ast.parse(comp.gpa, file.source.?, .zig);
+    assert(file.tree.?.errors.len == 0); // builtin.zig must parse
 
-    file.zir = try AstGen.generate(comp.gpa, file.tree);
-    assert(!file.zir.hasCompileErrors()); // builtin.zig must not have astgen errors
-    file.zir_loaded = true;
+    file.zir = try AstGen.generate(comp.gpa, file.tree.?);
+    assert(!file.zir.?.hasCompileErrors()); // builtin.zig must not have astgen errors
     file.status = .success_zir;
-    // Note that whilst we set `zir_loaded` here, we populated `path_digest`
+    // Note that whilst we set `zir` here, we populated `path_digest`
     // all the way back in `Package.Module.create`.
 }
 
@@ -312,7 +308,7 @@ fn writeFile(file: *File, mod: *Module) !void {
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     var af = try mod.root.atomicFile(mod.root_src_path, .{ .make_path = true }, &buf);
     defer af.deinit();
-    try af.file.writeAll(file.source);
+    try af.file.writeAll(file.source.?);
     af.finish() catch |err| switch (err) {
         error.AccessDenied => switch (builtin.os.tag) {
             .windows => {
@@ -326,7 +322,7 @@ fn writeFile(file: *File, mod: *Module) !void {
     };
 
     file.stat = .{
-        .size = file.source.len,
+        .size = file.source.?.len,
         .inode = 0, // dummy value
         .mtime = 0, // dummy value
     };

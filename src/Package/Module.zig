@@ -482,13 +482,11 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         };
         new_file.* = .{
             .sub_file_path = "builtin.zig",
-            .source = generated_builtin_source,
-            .source_loaded = true,
-            .tree_loaded = false,
-            .zir_loaded = false,
             .stat = undefined,
-            .tree = undefined,
-            .zir = undefined,
+            .source = generated_builtin_source,
+            .tree = null,
+            .zir = null,
+            .zoir = null,
             .status = .never_loaded,
             .prev_status = .never_loaded,
             .mod = new,

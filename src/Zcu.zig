@@ -660,22 +660,17 @@ pub const Namespace = struct {
 pub const File = struct {
     status: Status,
     prev_status: Status,
-    source_loaded: bool,
-    tree_loaded: bool,
-    zir_loaded: bool,
     /// Relative to the owning package's root source directory.
     /// Memory is stored in gpa, owned by File.
     sub_file_path: []const u8,
-    /// Whether this is populated depends on `source_loaded`.
-    source: [:0]const u8,
     /// Whether this is populated depends on `status`.
     stat: Cache.File.Stat,
-    /// Whether this is populated or not depends on `tree_loaded`.
-    tree: Ast,
-    /// Whether this is populated or not depends on `zir_loaded`.
-    zir: Zir,
-    /// Cached Zoir, generated lazily.
-    zoir: ?Zoir = null,
+
+    source: ?[:0]const u8,
+    tree: ?Ast,
+    zir: ?Zir,
+    zoir: ?Zoir,
+
     /// Module that this file is a part of, managed externally.
     mod: *Package.Module,
     /// Whether this file is a part of multiple packages. This is an error condition which will be reported after AstGen.
@@ -727,23 +722,23 @@ pub const File = struct {
     }
 
     pub fn unloadTree(file: *File, gpa: Allocator) void {
-        if (file.tree_loaded) {
-            file.tree_loaded = false;
-            file.tree.deinit(gpa);
+        if (file.tree) |*tree| {
+            tree.deinit(gpa);
+            file.tree = null;
         }
     }
 
     pub fn unloadSource(file: *File, gpa: Allocator) void {
-        if (file.source_loaded) {
-            file.source_loaded = false;
-            gpa.free(file.source);
+        if (file.source) |source| {
+            gpa.free(source);
+            file.source = null;
         }
     }
 
     pub fn unloadZir(file: *File, gpa: Allocator) void {
-        if (file.zir_loaded) {
-            file.zir_loaded = false;
-            file.zir.deinit(gpa);
+        if (file.zir) |*zir| {
+            zir.deinit(gpa);
+            file.zir = null;
         }
     }
 
@@ -753,8 +748,8 @@ pub const File = struct {
     };
 
     pub fn getSource(file: *File, gpa: Allocator) !Source {
-        if (file.source_loaded) return Source{
-            .bytes = file.source,
+        if (file.source) |source| return .{
+            .bytes = source,
             .stat = file.stat,
         };
 
@@ -769,7 +764,8 @@ pub const File = struct {
             return error.FileTooBig;
 
         const source = try gpa.allocSentinel(u8, @as(usize, @intCast(stat.size)), 0);
-        defer if (!file.source_loaded) gpa.free(source);
+        defer gpa.free(source);
+
         const amt = try f.readAll(source);
         if (amt != stat.size)
             return error.UnexpectedEndOfFile;
@@ -778,9 +774,9 @@ pub const File = struct {
         // used for error reporting. We need to keep the stat fields stale so that
         // astGenFile can know to regenerate ZIR.
 
+        errdefer comptime unreachable; // don't error after populating `source`
         file.source = source;
-        file.source_loaded = true;
-        return Source{
+        return .{
             .bytes = source,
             .stat = .{
                 .size = stat.size,
@@ -791,20 +787,20 @@ pub const File = struct {
     }
 
     pub fn getTree(file: *File, gpa: Allocator) !*const Ast {
-        if (file.tree_loaded) return &file.tree;
+        if (file.tree) |*tree| return tree;
 
         const source = try file.getSource(gpa);
-        file.tree = try Ast.parse(gpa, source.bytes, file.getMode());
-        file.tree_loaded = true;
-        return &file.tree;
+        file.tree = try .parse(gpa, source.bytes, file.getMode());
+        return &file.tree.?;
     }
 
     pub fn getZoir(file: *File, zcu: *Zcu) !*const Zoir {
         if (file.zoir) |*zoir| return zoir;
 
-        assert(file.tree_loaded);
-        assert(file.tree.mode == .zon);
-        file.zoir = try ZonGen.generate(zcu.gpa, file.tree, .{});
+        const tree = file.tree.?;
+        assert(tree.mode == .zon);
+
+        file.zoir = try ZonGen.generate(zcu.gpa, tree, .{});
         if (file.zoir.?.hasCompileErrors()) {
             try zcu.failed_files.putNoClobber(zcu.gpa, file, null);
             return error.AnalysisFail;
@@ -900,18 +896,18 @@ pub const File = struct {
 
         // We can only mark children as failed if the ZIR is loaded, which may not
         // be the case if there were other astgen failures in this file
-        if (!file.zir_loaded) return;
+        if (file.zir == null) return;
 
-        const imports_index = file.zir.extra[@intFromEnum(Zir.ExtraIndex.imports)];
+        const imports_index = file.zir.?.extra[@intFromEnum(Zir.ExtraIndex.imports)];
         if (imports_index == 0) return;
-        const extra = file.zir.extraData(Zir.Inst.Imports, imports_index);
+        const extra = file.zir.?.extraData(Zir.Inst.Imports, imports_index);
 
         var extra_index = extra.end;
         for (0..extra.data.imports_len) |_| {
-            const item = file.zir.extraData(Zir.Inst.Imports.Item, extra_index);
+            const item = file.zir.?.extraData(Zir.Inst.Imports.Item, extra_index);
             extra_index = item.end;
 
-            const import_path = file.zir.nullTerminatedString(item.data.name);
+            const import_path = file.zir.?.nullTerminatedString(item.data.name);
             if (mem.eql(u8, import_path, "builtin")) continue;
 
             const res = pt.importFile(file, import_path) catch continue;
@@ -1012,7 +1008,7 @@ pub const SrcLoc = struct {
     lazy: LazySrcLoc.Offset,
 
     pub fn baseSrcToken(src_loc: SrcLoc) Ast.TokenIndex {
-        const tree = src_loc.file_scope.tree;
+        const tree = src_loc.file_scope.tree.?;
         return tree.firstToken(src_loc.base_node);
     }
 
@@ -1057,7 +1053,6 @@ pub const SrcLoc = struct {
                 const node_off = traced_off.x;
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.relativeToNodeIndex(node_off);
-                assert(src_loc.file_scope.tree_loaded);
                 return tree.nodeToSpan(node);
             },
             .node_offset_main_token => |node_off| {
@@ -1069,7 +1064,6 @@ pub const SrcLoc = struct {
             .node_offset_bin_op => |node_off| {
                 const tree = try src_loc.file_scope.getTree(gpa);
                 const node = src_loc.relativeToNodeIndex(node_off);
-                assert(src_loc.file_scope.tree_loaded);
                 return tree.nodeToSpan(node);
             },
             .node_offset_initializer => |node_off| {
@@ -2408,9 +2402,8 @@ pub const LazySrcLoc = struct {
         if (zir_inst == .main_struct_inst) return .{ file, 0 };
 
         // Otherwise, make sure ZIR is loaded.
-        assert(file.zir_loaded);
+        const zir = file.zir.?;
 
-        const zir = file.zir;
         const inst = zir.instructions.get(@intFromEnum(zir_inst));
         const base_node: Ast.Node.Index = switch (inst.tag) {
             .declaration => inst.data.declaration.src_node,
@@ -3671,7 +3664,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 const inst_info = nav.analysis.?.zir_index.resolveFull(ip) orelse continue;
                 const file = zcu.fileByIndex(inst_info.file);
                 // If the file failed AstGen, the TrackedInst refers to the old ZIR.
-                const zir = if (file.status == .success_zir) file.zir else file.prev_zir.?.*;
+                const zir = if (file.status == .success_zir) file.zir.? else file.prev_zir.?.*;
                 const decl = zir.getDeclaration(inst_info.inst);
 
                 if (!comp.config.is_test or file.mod != zcu.main_mod) continue;
@@ -3703,7 +3696,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 const inst_info = ip.getNav(nav).analysis.?.zir_index.resolveFull(ip) orelse continue;
                 const file = zcu.fileByIndex(inst_info.file);
                 // If the file failed AstGen, the TrackedInst refers to the old ZIR.
-                const zir = if (file.status == .success_zir) file.zir else file.prev_zir.?.*;
+                const zir = if (file.status == .success_zir) file.zir.? else file.prev_zir.?.*;
                 const decl = zir.getDeclaration(inst_info.inst);
                 if (decl.linkage == .@"export") {
                     const unit: AnalUnit = .wrap(.{ .nav_val = nav });
@@ -3721,7 +3714,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 const inst_info = ip.getNav(nav).analysis.?.zir_index.resolveFull(ip) orelse continue;
                 const file = zcu.fileByIndex(inst_info.file);
                 // If the file failed AstGen, the TrackedInst refers to the old ZIR.
-                const zir = if (file.status == .success_zir) file.zir else file.prev_zir.?.*;
+                const zir = if (file.status == .success_zir) file.zir.? else file.prev_zir.?.*;
                 const decl = zir.getDeclaration(inst_info.inst);
                 if (decl.linkage == .@"export") {
                     const unit: AnalUnit = .wrap(.{ .nav_val = nav });
@@ -3858,7 +3851,7 @@ pub fn navSrcLine(zcu: *Zcu, nav_index: InternPool.Nav.Index) u32 {
     const ip = &zcu.intern_pool;
     const inst_info = ip.getNav(nav_index).srcInst(ip).resolveFull(ip).?;
     const zir = zcu.fileByIndex(inst_info.file).zir;
-    return zir.getDeclaration(inst_info.inst).src_line;
+    return zir.?.getDeclaration(inst_info.inst).src_line;
 }
 
 pub fn navValue(zcu: *const Zcu, nav_index: InternPool.Nav.Index) Value {
