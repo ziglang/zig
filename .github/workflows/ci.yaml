@@ -6,6 +6,7 @@ on:
       - master
       - llvm19
       - 014-dev
+      - actions-test
 concurrency:
   # Cancels pending runs when a PR gets updated.
   group: ${{ github.head_ref || github.run_id }}-${{ github.actor }}
@@ -14,139 +15,84 @@ permissions:
   # Sets permission policy for `GITHUB_TOKEN`
   contents: read
 jobs:
-  x86_64-linux-debug:
-    timeout-minutes: 420
-    runs-on: [self-hosted, Linux, x86_64]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Build
-        run: sh ci/x86_64-linux-debug.sh
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: x86_64-linux-debug
-          path: build-debug/stage3-debug/bin/zig
-  x86_64-linux-release:
-    timeout-minutes: 420
-    runs-on: [self-hosted, Linux, x86_64]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Build
-        run: sh ci/x86_64-linux-release.sh
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: x86_64-linux-release
-          path: build-release/stage3-release/bin/zig
-  aarch64-linux-debug:
-    timeout-minutes: 480
-    runs-on: [self-hosted, Linux, aarch64]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Build
-        run: sh ci/aarch64-linux-debug.sh
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: aarch64-linux-debug
-          path: build-debug/stage3-debug/bin/zig
-  aarch64-linux-release:
-    timeout-minutes: 480
-    runs-on: [self-hosted, Linux, aarch64]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Build
-        run: sh ci/aarch64-linux-release.sh
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: aarch64-linux-release
-          path: build-release/stage3-release/bin/zig
-  x86_64-macos-release:
-    runs-on: "macos-13"
-    env:
-      ARCH: "x86_64"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Build
-        run: ci/x86_64-macos-release.sh
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: x86_64-macos-release
-          path: build-release/stage3-release/bin/zig
   aarch64-macos-debug:
-    runs-on: [self-hosted, macOS, aarch64]
+    runs-on: macos-13-xlarge
     env:
       ARCH: "aarch64"
+      TARGET: "aarch64-macos-none"
+      CACHE_BASENAME: "zig+llvm+lld+clang-aarch64-macos-none-0.14.0-dev.1622+2ac543388"
+      MCPU: "baseline"
+      BUILD_TYPE: "Debug"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Cache Zig toolchain
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.home }}/${{ env.CACHE_BASENAME }}
+          key: ${{ env.CACHE_BASENAME }}
+          restore-keys: |
+            ${{ env.CACHE_BASENAME }}
+      - name: Install Ninja
+        run: brew install ninja
       - name: Build
-        run: ci/aarch64-macos-debug.sh
+        run: ci/macos.sh
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: aarch64-macos-debug
-          path: build-debug/stage3-debug/bin/zig
+          path: build/stage3/bin/zig
   aarch64-macos-release:
-    runs-on: [self-hosted, macOS, aarch64]
+    runs-on: macos-13-xlarge
     env:
       ARCH: "aarch64"
+      TARGET: "aarch64-macos-none"
+      CACHE_BASENAME: "zig+llvm+lld+clang-aarch64-macos-none-0.14.0-dev.1622+2ac543388"
+      MCPU: "baseline"
+      BUILD_TYPE: "Release"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Cache Zig toolchain
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.home }}/${{ env.CACHE_BASENAME }}
+          key: ${{ env.CACHE_BASENAME }}
+          restore-keys: |
+            ${{ env.CACHE_BASENAME }}
+      - name: Install Ninja
+        run: brew install ninja
       - name: Build
-        run: ci/aarch64-macos-release.sh
+        run: ci/macos.sh
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: aarch64-macos-release
-          path: build-release/stage3-release/bin/zig
-  x86_64-windows-debug:
-    runs-on: [self-hosted, Windows, x86_64]
+          path: build/stage3/bin/zig
+  x86_64-macos-release:
+    runs-on: macos-13-large
     env:
       ARCH: "x86_64"
+      TARGET: "x86_64-macos-none"
+      CACHE_BASENAME: "zig+llvm+lld+clang-x86_64-macos-none-0.14.0-dev.1622+2ac543388"
+      MCPU: "baseline"
+      BUILD_TYPE: "Release"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Cache Zig toolchain
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.home }}/${{ env.CACHE_BASENAME }}
+          key: ${{ env.CACHE_BASENAME }}
+          restore-keys: |
+            ${{ env.CACHE_BASENAME }}
+      - name: Install Ninja
+        run: brew install ninja
       - name: Build
-        run: ci/x86_64-windows-debug.ps1
+        run: ci/macos.sh
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: x86_64-windows-debug
-          path: build-debug/stage3-debug/bin/zig.exe
-  x86_64-windows-release:
-    runs-on: [self-hosted, Windows, x86_64]
-    env:
-      ARCH: "x86_64"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Build
-        run: ci/x86_64-windows-release.ps1
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: x86_64-windows-release
-          path: build-release/stage3-release/bin/zig.exe
-  aarch64-windows:
-    runs-on: [self-hosted, Windows, aarch64]
-    env:
-      ARCH: "aarch64"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Build
-        run: ci/aarch64-windows.ps1
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: aarch64-windows
-          path: build-release/stage3-release/bin/zig.exe
+          name: x86_64-macos-release
+          path: build/stage3/bin/zig
