@@ -21,6 +21,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     exe.use_llvm = false;
     exe.use_lld = false;
     exe.root_module.export_symbol_names = &.{"foo"};
+    // Don't pull in ubsan, since we're just expecting a very minimal executable.
     exe.bundle_ubsan_rt = false;
     b.installArtifact(exe);
 

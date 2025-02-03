@@ -22,6 +22,8 @@ pub fn build(b: *std.Build) void {
                 .link_libc = true,
             }),
         });
+        // We disable UBSAN for these tests as the libc being tested here is
+        // so old, it doesn't even support compiling our UBSAN implementation.
         exe.bundle_ubsan_rt = false;
         exe.root_module.sanitize_c = false;
         exe.root_module.addCSourceFile(.{ .file = b.path("main.c") });
@@ -64,6 +66,8 @@ pub fn build(b: *std.Build) void {
                 .link_libc = true,
             }),
         });
+        // We disable UBSAN for these tests as the libc being tested here is
+        // so old, it doesn't even support compiling our UBSAN implementation.
         exe.bundle_ubsan_rt = false;
         exe.root_module.sanitize_c = false;
         exe.root_module.addCSourceFile(.{ .file = b.path("glibc_runtime_check.c") });
@@ -165,6 +169,8 @@ pub fn build(b: *std.Build) void {
                 .link_libc = true,
             }),
         });
+        // We disable UBSAN for these tests as the libc being tested here is
+        // so old, it doesn't even support compiling our UBSAN implementation.
         exe.bundle_ubsan_rt = false;
         exe.root_module.sanitize_c = false;
 
