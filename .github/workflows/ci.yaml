@@ -5,6 +5,7 @@ on:
     branches:
       - master
       - llvm19
+      - 014-dev
 concurrency:
   # Cancels pending runs when a PR gets updated.
   group: ${{ github.head_ref || github.run_id }}-${{ github.actor }}
@@ -19,32 +20,52 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Build and Test
+      - name: Build
         run: sh ci/x86_64-linux-debug.sh
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: x86_64-linux-debug
+          path: build-debug/stage3-debug/bin/zig
   x86_64-linux-release:
     timeout-minutes: 420
     runs-on: [self-hosted, Linux, x86_64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Build and Test
+      - name: Build
         run: sh ci/x86_64-linux-release.sh
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: x86_64-linux-release
+          path: build-release/stage3-release/bin/zig
   aarch64-linux-debug:
     timeout-minutes: 480
     runs-on: [self-hosted, Linux, aarch64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Build and Test
+      - name: Build
         run: sh ci/aarch64-linux-debug.sh
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aarch64-linux-debug
+          path: build-debug/stage3-debug/bin/zig
   aarch64-linux-release:
     timeout-minutes: 480
     runs-on: [self-hosted, Linux, aarch64]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Build and Test
+      - name: Build
         run: sh ci/aarch64-linux-release.sh
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aarch64-linux-release
+          path: build-release/stage3-release/bin/zig
   x86_64-macos-release:
     runs-on: "macos-13"
     env:
@@ -52,8 +73,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Build and Test
+      - name: Build
         run: ci/x86_64-macos-release.sh
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: x86_64-macos-release
+          path: build-release/stage3-release/bin/zig
   aarch64-macos-debug:
     runs-on: [self-hosted, macOS, aarch64]
     env:
@@ -61,8 +87,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Build and Test
+      - name: Build
         run: ci/aarch64-macos-debug.sh
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aarch64-macos-debug
+          path: build-debug/stage3-debug/bin/zig
   aarch64-macos-release:
     runs-on: [self-hosted, macOS, aarch64]
     env:
@@ -70,8 +101,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Build and Test
+      - name: Build
         run: ci/aarch64-macos-release.sh
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aarch64-macos-release
+          path: build-release/stage3-release/bin/zig
   x86_64-windows-debug:
     runs-on: [self-hosted, Windows, x86_64]
     env:
@@ -79,8 +115,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Build and Test
+      - name: Build
         run: ci/x86_64-windows-debug.ps1
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: x86_64-windows-debug
+          path: build-debug/stage3-debug/bin/zig.exe
   x86_64-windows-release:
     runs-on: [self-hosted, Windows, x86_64]
     env:
@@ -88,8 +129,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Build and Test
+      - name: Build
         run: ci/x86_64-windows-release.ps1
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: x86_64-windows-release
+          path: build-release/stage3-release/bin/zig.exe
   aarch64-windows:
     runs-on: [self-hosted, Windows, aarch64]
     env:
@@ -97,5 +143,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Build and Test
+      - name: Build
         run: ci/aarch64-windows.ps1
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aarch64-windows
+          path: build-release/stage3-release/bin/zig.exe

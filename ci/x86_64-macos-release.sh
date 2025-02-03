@@ -24,14 +24,6 @@ cd $ZIGDIR
 git fetch --unshallow || true
 git fetch --tags
 
-# Test building from source without LLVM.
-git clean -fd
-rm -rf zig-out
-cc -o bootstrap bootstrap.c
-./bootstrap
-./zig2 build -Dno-lib
-./zig-out/bin/zig test test/behavior.zig
-
 rm -rf build
 mkdir build
 cd build

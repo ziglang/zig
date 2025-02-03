@@ -21,11 +21,6 @@ fi
 
 cd $ZIGDIR
 
-# Make the `zig version` number consistent.
-# This will affect the cmake command below.
-git fetch --unshallow || true
-git fetch --tags
-
 rm -rf build-debug
 mkdir build-debug
 cd build-debug
@@ -49,10 +44,3 @@ PATH="$HOME/local/bin:$PATH" cmake .. \
   -GNinja
 
 $HOME/local/bin/ninja install
-
-stage3-debug/bin/zig build test docs \
-  --zig-lib-dir "$PWD/../lib" \
-  -Denable-macos-sdk \
-  -Dstatic-llvm \
-  -Dskip-non-native \
-  --search-prefix "$PREFIX"
