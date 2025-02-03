@@ -54,7 +54,7 @@ pub const Node = union(enum) {
     /// A floating-point literal.
     float_literal: f128,
     /// A Unicode codepoint literal.
-    char_literal: u32,
+    char_literal: u21,
     /// An enum literal. The string is the literal, i.e. `foo` for `.foo`.
     enum_literal: NullTerminatedString,
     /// A string literal.
@@ -96,7 +96,7 @@ pub const Node = union(enum) {
                 } } },
                 .float_literal_small => .{ .float_literal = @as(f32, @bitCast(repr.data)) },
                 .float_literal => .{ .float_literal = @bitCast(zoir.extra[repr.data..][0..4].*) },
-                .char_literal => .{ .char_literal = repr.data },
+                .char_literal => .{ .char_literal = @intCast(repr.data) },
                 .enum_literal => .{ .enum_literal = @enumFromInt(repr.data) },
                 .string_literal => .{ .string_literal = s: {
                     const start, const len = zoir.extra[repr.data..][0..2].*;

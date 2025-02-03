@@ -2220,7 +2220,10 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         try comp.astgen_work_queue.ensureUnusedCapacity(zcu.import_table.count());
         for (zcu.import_table.values()) |file_index| {
             if (zcu.fileByIndex(file_index).mod.isBuiltin()) continue;
-            comp.astgen_work_queue.writeItemAssumeCapacity(file_index);
+            const file = zcu.fileByIndex(file_index);
+            if (file.getMode() == .zig) {
+                comp.astgen_work_queue.writeItemAssumeCapacity(file_index);
+            }
         }
         if (comp.file_system_inputs) |fsi| {
             for (zcu.import_table.values()) |file_index| {
@@ -3206,10 +3209,16 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             if (error_msg) |msg| {
                 try addModuleErrorMsg(zcu, &bundle, msg.*);
             } else {
-                // Must be ZIR errors. Note that this may include AST errors.
-                // addZirErrorMessages asserts that the tree is loaded.
-                _ = try file.getTree(gpa);
-                try addZirErrorMessages(&bundle, file);
+                // Must be ZIR or Zoir errors. Note that this may include AST errors.
+                _ = try file.getTree(gpa); // Tree must be loaded.
+                if (file.zir_loaded) {
+                    try addZirErrorMessages(&bundle, file);
+                } else if (file.zoir != null) {
+                    try addZoirErrorMessages(&bundle, file);
+                } else {
+                    // Either Zir or Zoir must have been loaded.
+                    unreachable;
+                }
             }
         }
         var sorted_failed_analysis: std.AutoArrayHashMapUnmanaged(InternPool.AnalUnit, *Zcu.ErrorMsg).DataList.Slice = s: {
@@ -3621,6 +3630,15 @@ pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Zcu.File) !void {
     const src_path = try file.fullPath(gpa);
     defer gpa.free(src_path);
     return eb.addZirErrorMessages(file.zir, file.tree, file.source, src_path);
+}
+
+pub fn addZoirErrorMessages(eb: *ErrorBundle.Wip, file: *Zcu.File) !void {
+    assert(file.source_loaded);
+    assert(file.tree_loaded);
+    const gpa = eb.gpa;
+    const src_path = try file.fullPath(gpa);
+    defer gpa.free(src_path);
+    return eb.addZoirErrorMessages(file.zoir.?, file.tree, file.source, src_path);
 }
 
 pub fn performAllTheWork(
@@ -4272,6 +4290,7 @@ fn workerAstGenFile(
     wg: *WaitGroup,
     src: Zcu.AstGenSrc,
 ) void {
+    assert(file.getMode() == .zig);
     const child_prog_node = prog_node.start(file.sub_file_path, 0);
     defer child_prog_node.end();
 
@@ -4325,7 +4344,7 @@ fn workerAstGenFile(
                 const imported_path_digest = pt.zcu.filePathDigest(res.file_index);
                 break :blk .{ res, imported_path_digest };
             };
-            if (import_result.is_new) {
+            if (import_result.is_new and import_result.file.getMode() == .zig) {
                 log.debug("AstGen of {s} has import '{s}'; queuing AstGen of {s}", .{
                     file.sub_file_path, import_path, import_result.file.sub_file_path,
                 });

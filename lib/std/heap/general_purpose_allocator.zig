@@ -1235,6 +1235,8 @@ test "shrink large object to large object" {
 }
 
 test "shrink large object to large object with larger alignment" {
+    if (!builtin.link_libc and builtin.os.tag == .wasi) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22731
+
     var gpa = GeneralPurposeAllocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
@@ -1307,6 +1309,8 @@ test "non-page-allocator backing allocator" {
 }
 
 test "realloc large object to larger alignment" {
+    if (!builtin.link_libc and builtin.os.tag == .wasi) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22731
+
     var gpa = GeneralPurposeAllocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();

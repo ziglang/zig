@@ -4389,7 +4389,7 @@ pub const LoadedEnumType = struct {
         // Auto-numbered enum. Convert `int_tag_val` to field index.
         const field_index = switch (ip.indexToKey(int_tag_val).int.storage) {
             inline .u64, .i64 => |x| std.math.cast(u32, x) orelse return null,
-            .big_int => |x| x.to(u32) catch return null,
+            .big_int => |x| x.toInt(u32) catch return null,
             .lazy_align, .lazy_size => unreachable,
         };
         return if (field_index < self.names.len) field_index else null;
@@ -7957,7 +7957,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                     .big_int => |big_int| {
                         items.appendAssumeCapacity(.{
                             .tag = .int_u8,
-                            .data = big_int.to(u8) catch unreachable,
+                            .data = big_int.toInt(u8) catch unreachable,
                         });
                         break :b;
                     },
@@ -7974,7 +7974,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                     .big_int => |big_int| {
                         items.appendAssumeCapacity(.{
                             .tag = .int_u16,
-                            .data = big_int.to(u16) catch unreachable,
+                            .data = big_int.toInt(u16) catch unreachable,
                         });
                         break :b;
                     },
@@ -7991,7 +7991,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                     .big_int => |big_int| {
                         items.appendAssumeCapacity(.{
                             .tag = .int_u32,
-                            .data = big_int.to(u32) catch unreachable,
+                            .data = big_int.toInt(u32) catch unreachable,
                         });
                         break :b;
                     },
@@ -8006,7 +8006,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                 },
                 .i32_type => switch (int.storage) {
                     .big_int => |big_int| {
-                        const casted = big_int.to(i32) catch unreachable;
+                        const casted = big_int.toInt(i32) catch unreachable;
                         items.appendAssumeCapacity(.{
                             .tag = .int_i32,
                             .data = @as(u32, @bitCast(casted)),
@@ -8024,7 +8024,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                 },
                 .usize_type => switch (int.storage) {
                     .big_int => |big_int| {
-                        if (big_int.to(u32)) |casted| {
+                        if (big_int.toInt(u32)) |casted| {
                             items.appendAssumeCapacity(.{
                                 .tag = .int_usize,
                                 .data = casted,
@@ -8045,14 +8045,14 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                 },
                 .comptime_int_type => switch (int.storage) {
                     .big_int => |big_int| {
-                        if (big_int.to(u32)) |casted| {
+                        if (big_int.toInt(u32)) |casted| {
                             items.appendAssumeCapacity(.{
                                 .tag = .int_comptime_int_u32,
                                 .data = casted,
                             });
                             break :b;
                         } else |_| {}
-                        if (big_int.to(i32)) |casted| {
+                        if (big_int.toInt(i32)) |casted| {
                             items.appendAssumeCapacity(.{
                                 .tag = .int_comptime_int_i32,
                                 .data = @as(u32, @bitCast(casted)),
@@ -8082,7 +8082,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             }
             switch (int.storage) {
                 .big_int => |big_int| {
-                    if (big_int.to(u32)) |casted| {
+                    if (big_int.toInt(u32)) |casted| {
                         items.appendAssumeCapacity(.{
                             .tag = .int_small,
                             .data = try addExtra(extra, IntSmall{

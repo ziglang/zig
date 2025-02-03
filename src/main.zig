@@ -6278,7 +6278,7 @@ fn cmdAstCheck(
             }
         },
         .zon => {
-            const zoir = try ZonGen.generate(gpa, file.tree);
+            const zoir = try ZonGen.generate(gpa, file.tree, .{});
             defer zoir.deinit(gpa);
 
             if (zoir.hasCompileErrors()) {

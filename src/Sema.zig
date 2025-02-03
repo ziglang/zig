@@ -187,6 +187,7 @@ const Alignment = InternPool.Alignment;
 const AnalUnit = InternPool.AnalUnit;
 const ComptimeAllocIndex = InternPool.ComptimeAllocIndex;
 const Cache = std.Build.Cache;
+const LowerZon = @import("Sema/LowerZon.zig");
 
 pub const default_branch_quota = 1000;
 pub const default_reference_trace_len = 2;
@@ -5790,7 +5791,7 @@ fn addNullTerminatedStrLit(sema: *Sema, string: InternPool.NullTerminatedString)
     return sema.addStrLit(string.toString(), string.length(&sema.pt.zcu.intern_pool));
 }
 
-fn addStrLit(sema: *Sema, string: InternPool.String, len: u64) CompileError!Air.Inst.Ref {
+pub fn addStrLit(sema: *Sema, string: InternPool.String, len: u64) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const array_ty = try pt.arrayType(.{
         .len = len,
@@ -13964,9 +13965,10 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
 
     const pt = sema.pt;
     const zcu = pt.zcu;
-    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].str_tok;
+    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_tok;
+    const extra = sema.code.extraData(Zir.Inst.Import, inst_data.payload_index).data;
     const operand_src = block.tokenOffset(inst_data.src_tok);
-    const operand = inst_data.get(sema.code);
+    const operand = sema.code.nullTerminatedString(extra.path);
 
     const result = pt.importFile(block.getFileScope(zcu), operand) catch |err| switch (err) {
         error.ImportOutsideModulePath => {
@@ -13983,12 +13985,42 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
         },
     };
-    try sema.declareDependency(.{ .file = result.file_index });
-    try pt.ensureFileAnalyzed(result.file_index);
-    const ty = zcu.fileRootType(result.file_index);
-    try sema.declareDependency(.{ .interned = ty });
-    try sema.addTypeReferenceEntry(operand_src, ty);
-    return Air.internedToRef(ty);
+    switch (result.file.getMode()) {
+        .zig => {
+            try sema.declareDependency(.{ .file = result.file_index });
+            try pt.ensureFileAnalyzed(result.file_index);
+            const ty = zcu.fileRootType(result.file_index);
+            try sema.declareDependency(.{ .interned = ty });
+            try sema.addTypeReferenceEntry(operand_src, ty);
+            return Air.internedToRef(ty);
+        },
+        .zon => {
+            _ = result.file.getTree(zcu.gpa) catch |err| {
+                // TODO: these errors are file system errors; make sure an update() will
+                // retry this and not cache the file system error, which may be transient.
+                return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ result.file.sub_file_path, @errorName(err) });
+            };
+
+            if (extra.res_ty == .none) {
+                return sema.fail(block, operand_src, "'@import' of ZON must have a known result type", .{});
+            }
+            const res_ty_inst = try sema.resolveInst(extra.res_ty);
+            const res_ty = try sema.analyzeAsType(block, operand_src, res_ty_inst);
+            if (res_ty.isGenericPoison()) {
+                return sema.fail(block, operand_src, "'@import' of ZON must have a known result type", .{});
+            }
+
+            const interned = try LowerZon.run(
+                sema,
+                result.file,
+                result.file_index,
+                res_ty,
+                operand_src,
+                block,
+            );
+            return Air.internedToRef(interned);
+        },
+    }
 }
 
 fn zirEmbedFile(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
