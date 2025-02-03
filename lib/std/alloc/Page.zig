@@ -1,6 +1,5 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
-const Allocator = std.mem.Allocator;
 const mem = std.mem;
 const maxInt = std.math.maxInt;
 const assert = std.debug.assert;
@@ -8,7 +7,10 @@ const native_os = builtin.os.tag;
 const windows = std.os.windows;
 const posix = std.posix;
 
-pub const vtable = Allocator.VTable{
+// TODO Utilize this on Windows.
+var next_mmap_addr_hint: ?[*]align(mem.page_size) u8 = null;
+
+pub const vtable = mem.Allocator.VTable{
     .alloc = alloc,
     .resize = resize,
     .free = free,
@@ -35,7 +37,7 @@ fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
     }
 
     const aligned_len = mem.alignForward(usize, n, mem.page_size);
-    const hint = @atomicLoad(@TypeOf(std.heap.next_mmap_addr_hint), &std.heap.next_mmap_addr_hint, .unordered);
+    const hint = @atomicLoad(@TypeOf(next_mmap_addr_hint), &next_mmap_addr_hint, .unordered);
     const slice = posix.mmap(
         hint,
         aligned_len,
@@ -46,7 +48,7 @@ fn alloc(_: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
     ) catch return null;
     assert(mem.isAligned(@intFromPtr(slice.ptr), mem.page_size));
     const new_hint: [*]align(mem.page_size) u8 = @alignCast(slice.ptr + aligned_len);
-    _ = @cmpxchgStrong(@TypeOf(std.heap.next_mmap_addr_hint), &std.heap.next_mmap_addr_hint, hint, new_hint, .monotonic, .monotonic);
+    _ = @cmpxchgStrong(@TypeOf(next_mmap_addr_hint), &next_mmap_addr_hint, hint, new_hint, .monotonic, .monotonic);
     return slice.ptr;
 }
 

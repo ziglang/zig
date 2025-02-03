@@ -1,19 +1,18 @@
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const math = std.math;
-const Allocator = std.mem.Allocator;
 const mem = std.mem;
 const assert = std.debug.assert;
 
-pub fn SbrkAllocator(comptime sbrk: *const fn (n: usize) usize) type {
+pub fn Allocator(comptime sbrk: *const fn (n: usize) usize) type {
     return struct {
-        pub const vtable: Allocator.VTable = .{
+        pub const vtable: mem.Allocator.VTable = .{
             .alloc = alloc,
             .resize = resize,
             .free = free,
         };
 
-        pub const Error = Allocator.Error;
+        pub const Error = mem.Allocator.Error;
 
         const max_usize = math.maxInt(usize);
         const ushift = math.Log2Int(usize);
@@ -44,7 +43,7 @@ pub fn SbrkAllocator(comptime sbrk: *const fn (n: usize) usize) type {
             lock.lock();
             defer lock.unlock();
             // Make room for the freelist next pointer.
-            const alignment = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_align));
+            const alignment = @as(usize, 1) << @as(mem.Allocator.Log2Align, @intCast(log2_align));
             const actual_len = @max(len +| @sizeOf(usize), alignment);
             const slot_size = math.ceilPowerOfTwo(usize, actual_len) catch return null;
             const class = math.log2(slot_size) - min_class;
@@ -91,7 +90,7 @@ pub fn SbrkAllocator(comptime sbrk: *const fn (n: usize) usize) type {
             defer lock.unlock();
             // We don't want to move anything from one size class to another, but we
             // can recover bytes in between powers of two.
-            const buf_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_buf_align));
+            const buf_align = @as(usize, 1) << @as(mem.Allocator.Log2Align, @intCast(log2_buf_align));
             const old_actual_len = @max(buf.len + @sizeOf(usize), buf_align);
             const new_actual_len = @max(new_len +| @sizeOf(usize), buf_align);
             const old_small_slot_size = math.ceilPowerOfTwoAssert(usize, old_actual_len);
@@ -118,7 +117,7 @@ pub fn SbrkAllocator(comptime sbrk: *const fn (n: usize) usize) type {
             _ = return_address;
             lock.lock();
             defer lock.unlock();
-            const buf_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_buf_align));
+            const buf_align = @as(usize, 1) << @as(mem.Allocator.Log2Align, @intCast(log2_buf_align));
             const actual_len = @max(buf.len + @sizeOf(usize), buf_align);
             const slot_size = math.ceilPowerOfTwoAssert(usize, actual_len);
             const class = math.log2(slot_size) - min_class;

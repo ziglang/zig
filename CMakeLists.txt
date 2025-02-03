@@ -392,6 +392,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Thread/Pool.zig
     lib/std/Thread/ResetEvent.zig
     lib/std/Thread/WaitGroup.zig
+    lib/std/alloc/Arena.zig
     lib/std/array_hash_map.zig
     lib/std/array_list.zig
     lib/std/ascii.zig
@@ -428,7 +429,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/hash/wyhash.zig
     lib/std/hash_map.zig
     lib/std/heap.zig
-    lib/std/heap/arena_allocator.zig
     lib/std/io.zig
     lib/std/io/Reader.zig
     lib/std/io/Writer.zig

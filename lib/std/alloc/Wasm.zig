@@ -2,7 +2,6 @@
 
 const std = @import("../std.zig");
 const builtin = @import("builtin");
-const Allocator = std.mem.Allocator;
 const mem = std.mem;
 const assert = std.debug.assert;
 const wasm = std.wasm;
@@ -17,13 +16,13 @@ comptime {
     }
 }
 
-pub const vtable: Allocator.VTable = .{
+pub const vtable: mem.Allocator.VTable = .{
     .alloc = alloc,
     .resize = resize,
     .free = free,
 };
 
-pub const Error = Allocator.Error;
+pub const Error = mem.Allocator.Error;
 
 const max_usize = math.maxInt(usize);
 const ushift = math.Log2Int(usize);
@@ -50,7 +49,7 @@ fn alloc(ctx: *anyopaque, len: usize, log2_align: u8, return_address: usize) ?[*
     _ = ctx;
     _ = return_address;
     // Make room for the freelist next pointer.
-    const alignment = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_align));
+    const alignment = @as(usize, 1) << @as(mem.Allocator.Log2Align, @intCast(log2_align));
     const actual_len = @max(len +| @sizeOf(usize), alignment);
     const slot_size = math.ceilPowerOfTwo(usize, actual_len) catch return null;
     const class = math.log2(slot_size) - min_class;
@@ -94,7 +93,7 @@ fn resize(
     _ = return_address;
     // We don't want to move anything from one size class to another, but we
     // can recover bytes in between powers of two.
-    const buf_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_buf_align));
+    const buf_align = @as(usize, 1) << @as(mem.Allocator.Log2Align, @intCast(log2_buf_align));
     const old_actual_len = @max(buf.len + @sizeOf(usize), buf_align);
     const new_actual_len = @max(new_len +| @sizeOf(usize), buf_align);
     const old_small_slot_size = math.ceilPowerOfTwoAssert(usize, old_actual_len);
@@ -119,7 +118,7 @@ fn free(
 ) void {
     _ = ctx;
     _ = return_address;
-    const buf_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_buf_align));
+    const buf_align = @as(usize, 1) << @as(mem.Allocator.Log2Align, @intCast(log2_buf_align));
     const actual_len = @max(buf.len + @sizeOf(usize), buf_align);
     const slot_size = math.ceilPowerOfTwoAssert(usize, actual_len);
     const class = math.log2(slot_size) - min_class;
@@ -160,7 +159,7 @@ fn allocBigPages(n: usize) usize {
     return @as(usize, @intCast(page_index)) * wasm.page_size;
 }
 
-const test_ally = Allocator{
+const test_ally = mem.Allocator{
     .ptr = undefined,
     .vtable = &vtable,
 };
@@ -313,6 +312,6 @@ test "objects of size 1024 and 2048" {
 }
 
 test "standard allocator tests" {
-    try std.heap.testAllocator(test_ally);
-    try std.heap.testAllocatorAligned(test_ally);
+    try std.alloc.testAllocator(test_ally);
+    try std.alloc.testAllocatorAligned(test_ally);
 }
