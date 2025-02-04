@@ -13985,9 +13985,9 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
         },
     };
+    try sema.declareDependency(.{ .file = result.file_index });
     switch (result.file.getMode()) {
         .zig => {
-            try sema.declareDependency(.{ .file = result.file_index });
             try pt.ensureFileAnalyzed(result.file_index);
             const ty = zcu.fileRootType(result.file_index);
             try sema.declareDependency(.{ .interned = ty });
@@ -14000,6 +14000,37 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                 // retry this and not cache the file system error, which may be transient.
                 return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ result.file.sub_file_path, @errorName(err) });
             };
+
+            // Add the file path to the `whole` cache manifest if necessary.
+            cache: {
+                const whole = switch (zcu.comp.cache_use) {
+                    .whole => |whole| whole,
+                    .incremental => break :cache,
+                };
+                const man = whole.cache_manifest orelse break :cache;
+
+                const resolved_path = std.fs.path.resolve(zcu.gpa, &.{
+                    result.file.mod.root.root_dir.path orelse ".",
+                    result.file.mod.root.sub_path,
+                    result.file.sub_file_path,
+                }) catch |err| {
+                    try pt.reportRetryableFileError(result.file_index, "unable to resolve path: {s}", .{@errorName(err)});
+                    return error.AnalysisFail;
+                };
+                errdefer zcu.gpa.free(resolved_path);
+
+                const copied_resolved_path = try zcu.gpa.dupe(u8, resolved_path);
+                errdefer zcu.gpa.free(copied_resolved_path);
+
+                whole.cache_manifest_mutex.lock();
+                defer whole.cache_manifest_mutex.unlock();
+
+                man.addFilePost(copied_resolved_path) catch |err| {
+                    // TODO: these errors are file system errors; make sure an update() will
+                    // retry this and not cache the file system error, which may be transient.
+                    return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
+                };
+            }
 
             if (extra.res_ty == .none) {
                 return sema.fail(block, operand_src, "'@import' of ZON must have a known result type", .{});
