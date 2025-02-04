@@ -14017,15 +14017,12 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                     try pt.reportRetryableFileError(result.file_index, "unable to resolve path: {s}", .{@errorName(err)});
                     return error.AnalysisFail;
                 };
-                errdefer zcu.gpa.free(resolved_path);
-
-                const copied_resolved_path = try zcu.gpa.dupe(u8, resolved_path);
-                errdefer zcu.gpa.free(copied_resolved_path);
+                defer zcu.gpa.free(resolved_path);
 
                 whole.cache_manifest_mutex.lock();
                 defer whole.cache_manifest_mutex.unlock();
 
-                man.addFilePost(copied_resolved_path) catch |err| {
+                man.addFilePost(resolved_path) catch |err| {
                     // TODO: these errors are file system errors; make sure an update() will
                     // retry this and not cache the file system error, which may be transient.
                     return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ operand, @errorName(err) });
