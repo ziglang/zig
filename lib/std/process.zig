@@ -423,11 +423,13 @@ pub fn getEnvVarOwned(allocator: Allocator, key: []const u8) GetEnvVarOwnedError
 pub fn hasEnvVarConstant(comptime key: []const u8) bool {
     if (native_os == .windows) {
         const key_w = comptime unicode.utf8ToUtf16LeStringLiteral(key);
-        return getenvW(key_w) != null;
+        const value = getenvW(key_w) orelse return false;
+        return value.len != 0;
     } else if (native_os == .wasi and !builtin.link_libc) {
         @compileError("hasEnvVarConstant is not supported for WASI without libc");
     } else {
-        return posix.getenv(key) != null;
+        const value = posix.getenv(key) orelse return false;
+        return value.len != 0;
     }
 }
 
@@ -467,13 +469,16 @@ pub fn hasEnvVar(allocator: Allocator, key: []const u8) HasEnvVarError!bool {
         const stack_allocator = stack_alloc.get();
         const key_w = try unicode.wtf8ToWtf16LeAllocZ(stack_allocator, key);
         defer stack_allocator.free(key_w);
-        return getenvW(key_w) != null;
+        const value = getenvW(key_w) orelse return false;
+        return value.len != 0;
     } else if (native_os == .wasi and !builtin.link_libc) {
         var envmap = getEnvMap(allocator) catch return error.OutOfMemory;
         defer envmap.deinit();
-        return envmap.getPtr(key) != null;
+        const value = envmap.getPtr(key) orelse return false;
+        return value.len != 0;
     } else {
-        return posix.getenv(key) != null;
+        const value = posix.getenv(key) != null;
+        return value.len != 0;
     }
 }
 
