@@ -2795,21 +2795,32 @@ pub fn getErrorValueFromSlice(pt: Zcu.PerThread, name: []const u8) Allocator.Err
 /// Removes any entry from `Zcu.failed_files` associated with `file`. Acquires `Compilation.mutex` as needed.
 /// `file.zir` must be unchanged from the last update, as it is used to determine if there is such an entry.
 fn lockAndClearFileCompileError(pt: Zcu.PerThread, file: *Zcu.File) void {
-    switch (file.getMode()) {
-        .zig => {
-            const zir = file.zir orelse return;
-            if (!zir.hasCompileErrors()) return;
+    const maybe_has_error = switch (file.status) {
+        .never_loaded => false,
+        .retryable_failure => true,
+        .astgen_failure => true,
+        .success => switch (file.getMode()) {
+            .zig => has_error: {
+                const zir = file.zir orelse break :has_error false;
+                break :has_error zir.hasCompileErrors();
+            },
+            .zon => has_error: {
+                const zoir = file.zoir orelse break :has_error false;
+                break :has_error zoir.hasCompileErrors();
+            },
         },
-        .zon => {
-            const zoir = file.zoir orelse return;
-            if (!zoir.hasCompileErrors()) return;
-        },
+    };
+
+    // If runtime safety is on, let's quickly lock the mutex and check anyway.
+    if (!maybe_has_error and !std.debug.runtime_safety) {
+        return;
     }
 
     pt.zcu.comp.mutex.lock();
     defer pt.zcu.comp.mutex.unlock();
     if (pt.zcu.failed_files.fetchSwapRemove(file)) |kv| {
-        if (kv.value) |msg| msg.destroy(pt.zcu.gpa); // Delete previous error message.
+        assert(maybe_has_error); // the runtime safety case above
+        if (kv.value) |msg| msg.destroy(pt.zcu.gpa); // delete previous error message
     }
 }
 
