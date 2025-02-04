@@ -770,19 +770,19 @@ pub const Request = struct {
         switch (request.head.transfer_encoding) {
             .chunked => {
                 request.reader_state = .{ .chunk_parser = http.ChunkParser.init };
-                return .{
+                return .{ .context = .{
                     .readFn = read_chunked,
                     .context = request,
-                };
+                } };
             },
             .none => {
                 request.reader_state = .{
                     .remaining_content_length = request.head.content_length orelse 0,
                 };
-                return .{
+                return .{ .context = .{
                     .readFn = read_cl,
                     .context = request,
-                };
+                } };
             },
         }
     }

@@ -831,10 +831,10 @@ const Resource = union(enum) {
     }
 
     fn reader(resource: *Resource) std.io.AnyReader {
-        return .{
+        return .{ .context = .{
             .context = resource,
             .readFn = read,
-        };
+        } };
     }
 
     fn read(context: *const anyopaque, buffer: []u8) anyerror!usize {
