@@ -7779,7 +7779,7 @@ fn toAtomicRmwSuffix(order: std.builtin.AtomicRmwOp) []const u8 {
 const ArrayListWriter = ErrorOnlyGenericWriter(std.ArrayList(u8).Writer.Error);
 
 fn arrayListWriter(list: *std.ArrayList(u8)) ArrayListWriter {
-    return .{ .context = .{
+    return .{ .context = .{ .context = .{
         .context = list,
         .writeFn = struct {
             fn write(context: *const anyopaque, bytes: []const u8) anyerror!usize {
@@ -7787,7 +7787,7 @@ fn arrayListWriter(list: *std.ArrayList(u8)) ArrayListWriter {
                 return l.writer().write(bytes);
             }
         }.write,
-    } };
+    } } };
 }
 
 fn IndentWriter(comptime UnderlyingWriter: type) type {
@@ -7803,10 +7803,10 @@ fn IndentWriter(comptime UnderlyingWriter: type) type {
         current_line_empty: bool = true,
 
         pub fn writer(self: *Self) Writer {
-            return .{ .context = .{
+            return .{ .context = .{ .context = .{
                 .context = self,
                 .writeFn = writeAny,
-            } };
+            } } };
         }
 
         pub fn write(self: *Self, bytes: []const u8) Error!usize {

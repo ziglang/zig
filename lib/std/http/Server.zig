@@ -1116,13 +1116,13 @@ pub const Response = struct {
     }
 
     pub fn writer(r: *Response) std.io.AnyWriter {
-        return .{
+        return .{ .context = .{
             .writeFn = switch (r.transfer_encoding) {
                 .none, .content_length => write_cl,
                 .chunked => write_chunked,
             },
             .context = r,
-        };
+        } };
     }
 };
 
