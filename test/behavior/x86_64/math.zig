@@ -37,6 +37,14 @@ inline fn splat(comptime Type: type, scalar: Scalar(Type)) Type {
         .vector => @splat(scalar),
     };
 }
+// inline to avoid a runtime `@select`
+inline fn select(cond: anytype, lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
+    return switch (@typeInfo(@TypeOf(cond))) {
+        .bool => if (cond) lhs else rhs,
+        .vector => @select(Scalar(@TypeOf(lhs)), cond, lhs, rhs),
+        else => @compileError(@typeName(@TypeOf(cond))),
+    };
+}
 fn sign(rhs: anytype) switch (@typeInfo(@TypeOf(rhs))) {
     else => bool,
     .vector => |vector| @Vector(vector.len, bool),
@@ -84,65 +92,78 @@ fn boolOr(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
     @compileError("unsupported boolOr type: " ++ @typeName(@TypeOf(lhs)));
 }
 
+const Compare = enum { strict, relaxed, approx, approx_int };
 // noinline for a more helpful stack trace
-noinline fn checkExpected(expected: anytype, actual: @TypeOf(expected), comptime strict: bool) !void {
-    const info = @typeInfo(@TypeOf(expected));
-    const unexpected = unexpected: switch (switch (info) {
-        else => info,
-        .vector => |vector| @typeInfo(vector.child),
-    }) {
+noinline fn checkExpected(expected: anytype, actual: @TypeOf(expected), comptime compare: Compare) !void {
+    const Expected = @TypeOf(expected);
+    const unexpected = unexpected: switch (@typeInfo(Scalar(Expected))) {
         else => expected != actual,
-        .float => {
-            const unequal = boolAnd(expected != actual, boolOr(expected == expected, actual == actual));
-            break :unexpected switch (strict) {
-                false => unequal,
-                true => boolOr(unequal, sign(expected) != sign(actual)),
-            };
+        .float => switch (compare) {
+            .strict, .relaxed => {
+                const unequal = boolAnd(expected != actual, boolOr(expected == expected, actual == actual));
+                break :unexpected switch (compare) {
+                    .strict => boolOr(unequal, sign(expected) != sign(actual)),
+                    .relaxed => unequal,
+                    .approx, .approx_int => comptime unreachable,
+                };
+            },
+            .approx, .approx_int => {
+                const epsilon = math.floatEps(Scalar(Expected));
+                const tolerance = @sqrt(epsilon);
+                break :unexpected @abs(expected - actual) > @max(
+                    @abs(expected) * splat(Expected, tolerance),
+                    splat(Expected, switch (compare) {
+                        .strict, .relaxed => comptime unreachable,
+                        .approx => tolerance,
+                        .approx_int => 1,
+                    }),
+                );
+            },
         },
     };
-    if (switch (info) {
+    if (switch (@typeInfo(Expected)) {
         else => unexpected,
         .vector => @reduce(.Or, unexpected),
     }) return error.Unexpected;
 }
 test checkExpected {
-    if (checkExpected(nan(f16), nan(f16), true) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(nan(f16), -nan(f16), true) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f16, 0.0), @as(f16, 0.0), true) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f16, -0.0), @as(f16, -0.0), true) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f16, -0.0), @as(f16, 0.0), true) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f16, 0.0), @as(f16, -0.0), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f16), nan(f16), .strict) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f16), -nan(f16), .strict) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, 0.0), @as(f16, 0.0), .strict) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, -0.0), @as(f16, -0.0), .strict) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, -0.0), @as(f16, 0.0), .strict) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, 0.0), @as(f16, -0.0), .strict) != error.Unexpected) return error.Unexpected;
 
-    if (checkExpected(nan(f32), nan(f32), true) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(nan(f32), -nan(f32), true) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f32, 0.0), @as(f32, 0.0), true) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f32, -0.0), @as(f32, -0.0), true) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f32, -0.0), @as(f32, 0.0), true) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f32, 0.0), @as(f32, -0.0), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f32), nan(f32), .strict) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f32), -nan(f32), .strict) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f32, 0.0), @as(f32, 0.0), .strict) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f32, -0.0), @as(f32, -0.0), .strict) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f32, -0.0), @as(f32, 0.0), .strict) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f32, 0.0), @as(f32, -0.0), .strict) != error.Unexpected) return error.Unexpected;
 
-    if (checkExpected(nan(f64), nan(f64), true) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(nan(f64), -nan(f64), true) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f64, 0.0), @as(f64, 0.0), true) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f64, -0.0), @as(f64, -0.0), true) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f64, -0.0), @as(f64, 0.0), true) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f64, 0.0), @as(f64, -0.0), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f64), nan(f64), .strict) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f64), -nan(f64), .strict) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, 0.0), @as(f64, 0.0), .strict) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, -0.0), @as(f64, -0.0), .strict) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, -0.0), @as(f64, 0.0), .strict) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, 0.0), @as(f64, -0.0), .strict) != error.Unexpected) return error.Unexpected;
 
-    if (checkExpected(nan(f80), nan(f80), true) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(nan(f80), -nan(f80), true) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f80, 0.0), @as(f80, 0.0), true) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f80, -0.0), @as(f80, -0.0), true) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f80, -0.0), @as(f80, 0.0), true) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f80, 0.0), @as(f80, -0.0), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f80), nan(f80), .strict) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f80), -nan(f80), .strict) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, 0.0), @as(f80, 0.0), .strict) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, -0.0), @as(f80, -0.0), .strict) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, -0.0), @as(f80, 0.0), .strict) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, 0.0), @as(f80, -0.0), .strict) != error.Unexpected) return error.Unexpected;
 
-    if (checkExpected(nan(f128), nan(f128), true) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(nan(f128), -nan(f128), true) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f128, 0.0), @as(f128, 0.0), true) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f128, -0.0), @as(f128, -0.0), true) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f128, -0.0), @as(f128, 0.0), true) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f128, 0.0), @as(f128, -0.0), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f128), nan(f128), .strict) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f128), -nan(f128), .strict) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, 0.0), @as(f128, 0.0), .strict) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, -0.0), @as(f128, -0.0), .strict) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, -0.0), @as(f128, 0.0), .strict) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, 0.0), @as(f128, -0.0), .strict) != error.Unexpected) return error.Unexpected;
 }
 
-fn unary(comptime op: anytype, comptime opts: struct { strict: bool = false }) type {
+fn unary(comptime op: anytype, comptime opts: struct { compare: Compare = .relaxed }) type {
     return struct {
         // noinline so that `mem_arg` is on the stack
         noinline fn testArgKinds(
@@ -169,9 +190,9 @@ fn unary(comptime op: anytype, comptime opts: struct { strict: bool = false }) t
             const expected = comptime op(Type, imm_arg);
             var reg_arg = mem_arg;
             _ = .{&reg_arg};
-            try checkExpected(expected, op(Type, reg_arg), opts.strict);
-            try checkExpected(expected, op(Type, mem_arg), opts.strict);
-            try checkExpected(expected, op(Type, imm_arg), opts.strict);
+            try checkExpected(expected, op(Type, reg_arg), opts.compare);
+            try checkExpected(expected, op(Type, mem_arg), opts.compare);
+            try checkExpected(expected, op(Type, imm_arg), opts.compare);
         }
         // noinline for a more helpful stack trace
         noinline fn testArgs(comptime Type: type, comptime imm_arg: Type) !void {
@@ -1628,7 +1649,7 @@ fn unary(comptime op: anytype, comptime opts: struct { strict: bool = false }) t
     };
 }
 
-fn cast(comptime op: anytype, comptime opts: struct { strict: bool = false }) type {
+fn cast(comptime op: anytype, comptime opts: struct { compare: Compare = .relaxed }) type {
     return struct {
         // noinline so that `mem_arg` is on the stack
         noinline fn testArgKinds(
@@ -1656,9 +1677,9 @@ fn cast(comptime op: anytype, comptime opts: struct { strict: bool = false }) ty
             const expected = comptime op(Result, Type, imm_arg, imm_arg);
             var reg_arg = mem_arg;
             _ = .{&reg_arg};
-            try checkExpected(expected, op(Result, Type, reg_arg, imm_arg), opts.strict);
-            try checkExpected(expected, op(Result, Type, mem_arg, imm_arg), opts.strict);
-            try checkExpected(expected, op(Result, Type, imm_arg, imm_arg), opts.strict);
+            try checkExpected(expected, op(Result, Type, reg_arg, imm_arg), opts.compare);
+            try checkExpected(expected, op(Result, Type, mem_arg, imm_arg), opts.compare);
+            try checkExpected(expected, op(Result, Type, imm_arg, imm_arg), opts.compare);
         }
         // noinline for a more helpful stack trace
         noinline fn testArgs(comptime Result: type, comptime Type: type, comptime imm_arg: Type) !void {
@@ -8504,7 +8525,7 @@ fn cast(comptime op: anytype, comptime opts: struct { strict: bool = false }) ty
     };
 }
 
-fn binary(comptime op: anytype, comptime opts: struct { strict: bool = false }) type {
+fn binary(comptime op: anytype, comptime opts: struct { compare: Compare = .relaxed }) type {
     return struct {
         // noinline so that `mem_lhs` and `mem_rhs` are on the stack
         noinline fn testArgKinds(
@@ -8534,14 +8555,14 @@ fn binary(comptime op: anytype, comptime opts: struct { strict: bool = false }) 
             var reg_lhs = mem_lhs;
             var reg_rhs = mem_rhs;
             _ = .{ &reg_lhs, &reg_rhs };
-            try checkExpected(expected, op(Type, reg_lhs, reg_rhs), opts.strict);
-            try checkExpected(expected, op(Type, reg_lhs, mem_rhs), opts.strict);
-            try checkExpected(expected, op(Type, reg_lhs, imm_rhs), opts.strict);
-            try checkExpected(expected, op(Type, mem_lhs, reg_rhs), opts.strict);
-            try checkExpected(expected, op(Type, mem_lhs, mem_rhs), opts.strict);
-            try checkExpected(expected, op(Type, mem_lhs, imm_rhs), opts.strict);
-            try checkExpected(expected, op(Type, imm_lhs, reg_rhs), opts.strict);
-            try checkExpected(expected, op(Type, imm_lhs, mem_rhs), opts.strict);
+            try checkExpected(expected, op(Type, reg_lhs, reg_rhs), opts.compare);
+            try checkExpected(expected, op(Type, reg_lhs, mem_rhs), opts.compare);
+            try checkExpected(expected, op(Type, reg_lhs, imm_rhs), opts.compare);
+            try checkExpected(expected, op(Type, mem_lhs, reg_rhs), opts.compare);
+            try checkExpected(expected, op(Type, mem_lhs, mem_rhs), opts.compare);
+            try checkExpected(expected, op(Type, mem_lhs, imm_rhs), opts.compare);
+            try checkExpected(expected, op(Type, imm_lhs, reg_rhs), opts.compare);
+            try checkExpected(expected, op(Type, imm_lhs, mem_rhs), opts.compare);
         }
         // noinline for a more helpful stack trace
         noinline fn testArgs(comptime Type: type, comptime imm_lhs: Type, comptime imm_rhs: Type) !void {
@@ -11315,6 +11336,124 @@ fn binary(comptime op: anytype, comptime opts: struct { strict: bool = false }) 
     };
 }
 
+inline fn add(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs + rhs) {
+    return lhs + rhs;
+}
+test add {
+    const test_add = binary(add, .{});
+    try test_add.testFloats();
+    try test_add.testFloatVectors();
+}
+
+inline fn subtract(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs - rhs) {
+    return lhs - rhs;
+}
+test subtract {
+    const test_subtract = binary(subtract, .{});
+    try test_subtract.testFloats();
+    try test_subtract.testFloatVectors();
+}
+
+inline fn multiply(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs * rhs) {
+    if (@inComptime() and @typeInfo(Type) == .vector) {
+        // workaround https://github.com/ziglang/zig/issues/22743
+        // TODO: return @select(Scalar(Type), boolAnd(lhs == lhs, rhs == rhs), lhs * rhs, lhs + rhs);
+        // workaround https://github.com/ziglang/zig/issues/22744
+        var res: Type = undefined;
+        for (0..@typeInfo(Type).vector.len) |i| res[i] = lhs[i] * rhs[i];
+        return res;
+    }
+    // workaround https://github.com/ziglang/zig/issues/22745
+    // TODO: return lhs * rhs;
+    var rt_lhs = lhs;
+    var rt_rhs = rhs;
+    _ = .{ &rt_lhs, &rt_rhs };
+    return rt_lhs * rt_rhs;
+}
+test multiply {
+    const test_multiply = binary(multiply, .{});
+    try test_multiply.testFloats();
+    try test_multiply.testFloatVectors();
+}
+
+inline fn divide(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs / rhs) {
+    return lhs / rhs;
+}
+test divide {
+    const test_divide = binary(divide, .{ .compare = .approx });
+    try test_divide.testFloats();
+    try test_divide.testFloatVectors();
+}
+
+// workaround https://github.com/ziglang/zig/issues/22748
+// TODO: @TypeOf(@divTrunc(lhs, rhs))
+inline fn divTrunc(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs / rhs) {
+    if (@inComptime()) {
+        // workaround https://github.com/ziglang/zig/issues/22748
+        return @trunc(lhs / rhs);
+    }
+    // workaround https://github.com/ziglang/zig/issues/22748
+    // workaround https://github.com/ziglang/zig/issues/22749
+    // TODO: return @divTrunc(lhs, rhs);
+    var rt_lhs = lhs;
+    var rt_rhs = rhs;
+    _ = .{ &rt_lhs, &rt_rhs };
+    return @divTrunc(rt_lhs, rt_rhs);
+}
+test divTrunc {
+    const test_div_trunc = binary(divTrunc, .{ .compare = .approx_int });
+    try test_div_trunc.testFloats();
+    try test_div_trunc.testFloatVectors();
+}
+
+// workaround https://github.com/ziglang/zig/issues/22748
+// TODO: @TypeOf(@divFloor(lhs, rhs))
+inline fn divFloor(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs / rhs) {
+    if (@inComptime()) {
+        // workaround https://github.com/ziglang/zig/issues/22748
+        return @floor(lhs / rhs);
+    }
+    // workaround https://github.com/ziglang/zig/issues/22748
+    // workaround https://github.com/ziglang/zig/issues/22749
+    // TODO: return @divFloor(lhs, rhs);
+    var rt_lhs = lhs;
+    var rt_rhs = rhs;
+    _ = &rt_lhs;
+    _ = &rt_rhs;
+    return @divFloor(rt_lhs, rt_rhs);
+}
+test divFloor {
+    const test_div_floor = binary(divFloor, .{ .compare = .approx_int });
+    try test_div_floor.testFloats();
+    try test_div_floor.testFloatVectors();
+}
+
+// workaround https://github.com/ziglang/zig/issues/22748
+// TODO: @TypeOf(@rem(lhs, rhs))
+inline fn rem(comptime Type: type, lhs: Type, rhs: Type) Type {
+    if (@inComptime()) {
+        // workaround https://github.com/ziglang/zig/issues/22748
+        switch (@typeInfo(Type)) {
+            else => return if (rhs != 0) @rem(lhs, rhs) else nan(Type),
+            .vector => |info| {
+                var res: Type = undefined;
+                inline for (0..info.len) |i| res[i] = if (rhs[i] != 0) @rem(lhs[i], rhs[i]) else nan(Scalar(Type));
+                return res;
+            },
+        }
+    }
+    // workaround https://github.com/ziglang/zig/issues/22748
+    // TODO: return @rem(lhs, rhs);
+    var rt_rhs = rhs;
+    _ = &rt_rhs;
+    return @rem(lhs, rt_rhs);
+}
+test rem {
+    const test_rem = binary(rem, .{});
+    try test_rem.testFloats();
+    try test_rem.testFloatVectors();
+}
+
 inline fn bitNot(comptime Type: type, rhs: Type) @TypeOf(~rhs) {
     return ~rhs;
 }
@@ -11324,17 +11463,6 @@ test bitNot {
     try test_bit_not.testIntVectors();
 }
 
-inline fn abs(comptime Type: type, rhs: Type) @TypeOf(@abs(rhs)) {
-    return @abs(rhs);
-}
-test abs {
-    const test_abs = unary(abs, .{ .strict = true });
-    try test_abs.testInts();
-    try test_abs.testIntVectors();
-    try test_abs.testFloats();
-    try test_abs.testFloatVectors();
-}
-
 inline fn clz(comptime Type: type, rhs: Type) @TypeOf(@clz(rhs)) {
     return @clz(rhs);
 }
@@ -11342,6 +11470,143 @@ test clz {
     const test_clz = unary(clz, .{});
     try test_clz.testInts();
     try test_clz.testIntVectors();
+}
+
+inline fn sqrt(comptime Type: type, rhs: Type) @TypeOf(@sqrt(rhs)) {
+    return @sqrt(rhs);
+}
+test sqrt {
+    const test_sqrt = unary(sqrt, .{});
+    try test_sqrt.testFloats();
+    try test_sqrt.testFloatVectors();
+}
+
+inline fn sin(comptime Type: type, rhs: Type) @TypeOf(@sin(rhs)) {
+    return @sin(rhs);
+}
+test sin {
+    const test_sin = unary(sin, .{ .compare = .strict });
+    try test_sin.testFloats();
+    try test_sin.testFloatVectors();
+}
+
+inline fn cos(comptime Type: type, rhs: Type) @TypeOf(@cos(rhs)) {
+    return @cos(rhs);
+}
+test cos {
+    const test_cos = unary(cos, .{ .compare = .strict });
+    try test_cos.testFloats();
+    try test_cos.testFloatVectors();
+}
+
+inline fn tan(comptime Type: type, rhs: Type) @TypeOf(@tan(rhs)) {
+    return @tan(rhs);
+}
+test tan {
+    const test_tan = unary(tan, .{ .compare = .strict });
+    try test_tan.testFloats();
+    try test_tan.testFloatVectors();
+}
+
+inline fn exp(comptime Type: type, rhs: Type) @TypeOf(@exp(rhs)) {
+    return @exp(rhs);
+}
+test exp {
+    const test_exp = unary(exp, .{ .compare = .strict });
+    try test_exp.testFloats();
+    try test_exp.testFloatVectors();
+}
+
+inline fn exp2(comptime Type: type, rhs: Type) @TypeOf(@exp2(rhs)) {
+    return @exp2(rhs);
+}
+test exp2 {
+    const test_exp2 = unary(exp2, .{ .compare = .strict });
+    try test_exp2.testFloats();
+    try test_exp2.testFloatVectors();
+}
+
+inline fn log(comptime Type: type, rhs: Type) @TypeOf(@log(rhs)) {
+    return @log(rhs);
+}
+test log {
+    const test_log = unary(log, .{ .compare = .strict });
+    try test_log.testFloats();
+    try test_log.testFloatVectors();
+}
+
+inline fn log2(comptime Type: type, rhs: Type) @TypeOf(@log2(rhs)) {
+    return @log2(rhs);
+}
+test log2 {
+    const test_log2 = unary(log2, .{ .compare = .strict });
+    try test_log2.testFloats();
+    try test_log2.testFloatVectors();
+}
+
+inline fn log10(comptime Type: type, rhs: Type) @TypeOf(@log10(rhs)) {
+    return @log10(rhs);
+}
+test log10 {
+    const test_log10 = unary(log10, .{ .compare = .strict });
+    try test_log10.testFloats();
+    try test_log10.testFloatVectors();
+}
+
+inline fn abs(comptime Type: type, rhs: Type) @TypeOf(@abs(rhs)) {
+    return @abs(rhs);
+}
+test abs {
+    const test_abs = unary(abs, .{ .compare = .strict });
+    try test_abs.testInts();
+    try test_abs.testIntVectors();
+    try test_abs.testFloats();
+    try test_abs.testFloatVectors();
+}
+
+inline fn floor(comptime Type: type, rhs: Type) @TypeOf(@floor(rhs)) {
+    return @floor(rhs);
+}
+test floor {
+    const test_floor = unary(floor, .{ .compare = .strict });
+    try test_floor.testFloats();
+    try test_floor.testFloatVectors();
+}
+
+inline fn ceil(comptime Type: type, rhs: Type) @TypeOf(@ceil(rhs)) {
+    return @ceil(rhs);
+}
+test ceil {
+    const test_ceil = unary(ceil, .{ .compare = .strict });
+    try test_ceil.testFloats();
+    try test_ceil.testFloatVectors();
+}
+
+inline fn round(comptime Type: type, rhs: Type) @TypeOf(@round(rhs)) {
+    return @round(rhs);
+}
+test round {
+    const test_round = unary(round, .{ .compare = .strict });
+    try test_round.testFloats();
+    try test_round.testFloatVectors();
+}
+
+inline fn trunc(comptime Type: type, rhs: Type) @TypeOf(@trunc(rhs)) {
+    return @trunc(rhs);
+}
+test trunc {
+    const test_trunc = unary(trunc, .{ .compare = .strict });
+    try test_trunc.testFloats();
+    try test_trunc.testFloatVectors();
+}
+
+inline fn negate(comptime Type: type, rhs: Type) @TypeOf(-rhs) {
+    return -rhs;
+}
+test negate {
+    const test_negate = unary(negate, .{ .compare = .strict });
+    try test_negate.testFloats();
+    try test_negate.testFloatVectors();
 }
 
 inline fn intCast(comptime Result: type, comptime Type: type, rhs: Type, comptime ct_rhs: Type) Result {
@@ -11407,7 +11672,7 @@ inline fn floatCast(comptime Result: type, comptime Type: type, rhs: Type, compt
     return @floatCast(rhs);
 }
 test floatCast {
-    const test_float_cast = cast(floatCast, .{ .strict = true });
+    const test_float_cast = cast(floatCast, .{ .compare = .strict });
     try test_float_cast.testFloats();
     try test_float_cast.testFloatVectors();
 }
@@ -11609,4 +11874,13 @@ test optionalsNotEqual {
     const test_optionals_not_equal = binary(optionalsNotEqual, .{});
     try test_optionals_not_equal.testInts();
     try test_optionals_not_equal.testFloats();
+}
+
+inline fn mulAdd(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(@mulAdd(Type, lhs, rhs, rhs)) {
+    return @mulAdd(Type, lhs, rhs, rhs);
+}
+test mulAdd {
+    const test_mul_add = binary(mulAdd, .{ .compare = .approx });
+    try test_mul_add.testFloats();
+    try test_mul_add.testFloatVectors();
 }
