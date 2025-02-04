@@ -10,7 +10,10 @@ const builtin = @import("builtin");
 pub const Error = error{OutOfMemory};
 pub const Log2Align = math.Log2Int(usize);
 
-// The type erased pointer to the allocator implementation
+/// The type erased pointer to the allocator implementation.
+/// Any comparison of this field may result in illegal behavior, since it may be set to
+/// `undefined` in cases where the allocator implementation does not have any associated
+/// state.
 ptr: *anyopaque,
 vtable: *const VTable,
 
