@@ -8,11 +8,6 @@ const c = std.c;
 const Allocator = std.mem.Allocator;
 const windows = std.os.windows;
 
-pub const LoggingAllocator = @import("heap/logging_allocator.zig").LoggingAllocator;
-pub const loggingAllocator = @import("heap/logging_allocator.zig").loggingAllocator;
-pub const ScopedLoggingAllocator = @import("heap/logging_allocator.zig").ScopedLoggingAllocator;
-pub const LogToWriterAllocator = @import("heap/log_to_writer_allocator.zig").LogToWriterAllocator;
-pub const logToWriterAllocator = @import("heap/log_to_writer_allocator.zig").logToWriterAllocator;
 pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
 pub const GeneralPurposeAllocatorConfig = @import("heap/general_purpose_allocator.zig").Config;
 pub const GeneralPurposeAllocator = @import("heap/general_purpose_allocator.zig").GeneralPurposeAllocator;
@@ -1062,9 +1057,6 @@ const page_size_max_default: ?usize = switch (builtin.os.tag) {
 };
 
 test {
-    _ = LoggingAllocator;
-    _ = LogToWriterAllocator;
-    _ = ScopedLoggingAllocator;
     _ = @import("heap/memory_pool.zig");
     _ = ArenaAllocator;
     _ = GeneralPurposeAllocator;
