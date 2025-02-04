@@ -658,11 +658,27 @@ pub const Namespace = struct {
 };
 
 pub const File = struct {
-    status: Status,
-    prev_status: Status,
     /// Relative to the owning package's root source directory.
     /// Memory is stored in gpa, owned by File.
     sub_file_path: []const u8,
+
+    status: enum {
+        /// We have not yet attempted to load this file.
+        /// `stat` is not populated and may be `undefined`.
+        never_loaded,
+        /// A filesystem access failed. It should be retried on the next update.
+        /// There is a `failed_files` entry containing a non-`null` message.
+        /// `stat` is not populated and may be `undefined`.
+        retryable_failure,
+        /// Parsing/AstGen/ZonGen of this file has failed.
+        /// There is an error in `zir` or `zoir`.
+        /// There is a `failed_files` entry (with a `null` message).
+        /// `stat` is populated.
+        astgen_failure,
+        /// Parsing and AstGen/ZonGen of this file has succeeded.
+        /// `stat` is populated.
+        success,
+    },
     /// Whether this is populated depends on `status`.
     stat: Cache.File.Stat,
 
@@ -678,18 +694,16 @@ pub const File = struct {
     /// List of references to this file, used for multi-package errors.
     references: std.ArrayListUnmanaged(File.Reference) = .empty,
 
-    /// The most recent successful ZIR for this file, with no errors.
-    /// This is only populated when a previously successful ZIR
-    /// newly introduces compile errors during an update. When ZIR is
-    /// successful, this field is unloaded.
+    /// The ZIR for this file from the last update with no file failures. As such, this ZIR is never
+    /// failed (although it may have compile errors).
+    ///
+    /// Because updates with file failures do not perform ZIR mapping or semantic analysis, we keep
+    /// this around so we have the "old" ZIR to map when an update is ready to do so. Once such an
+    /// update occurs, this field is unloaded, since it is no longer necessary.
+    ///
+    /// In other words, if `TrackedInst`s are tied to ZIR other than what's in the `zir` field, this
+    /// field is populated with that old ZIR.
     prev_zir: ?*Zir = null,
-
-    pub const Status = enum {
-        never_loaded,
-        retryable_failure,
-        astgen_failure,
-        success_zir,
-    };
 
     /// A single reference to a file.
     pub const Reference = union(enum) {
@@ -763,7 +777,7 @@ pub const File = struct {
             return error.FileTooBig;
 
         const source = try gpa.allocSentinel(u8, @as(usize, @intCast(stat.size)), 0);
-        defer gpa.free(source);
+        errdefer gpa.free(source);
 
         const amt = try f.readAll(source);
         if (amt != stat.size)
@@ -773,8 +787,9 @@ pub const File = struct {
         // used for error reporting. We need to keep the stat fields stale so that
         // astGenFile can know to regenerate ZIR.
 
-        errdefer comptime unreachable; // don't error after populating `source`
         file.source = source;
+        errdefer comptime unreachable; // don't error after populating `source`
+
         return .{
             .bytes = source,
             .stat = .{
@@ -847,13 +862,6 @@ pub const File = struct {
     pub fn dumpSrc(file: *File, src: LazySrcLoc) void {
         const loc = std.zig.findLineColumn(file.source.bytes, src);
         std.debug.print("{s}:{d}:{d}\n", .{ file.sub_file_path, loc.line + 1, loc.column + 1 });
-    }
-
-    pub fn okToReportErrors(file: File) bool {
-        return switch (file.status) {
-            .astgen_failure => false,
-            else => true,
-        };
     }
 
     /// Add a reference to this file during AstGen.
@@ -3295,19 +3303,6 @@ pub fn optimizeMode(zcu: *const Zcu) std.builtin.OptimizeMode {
     return zcu.root_mod.optimize_mode;
 }
 
-fn lockAndClearFileCompileError(zcu: *Zcu, file: *File) void {
-    switch (file.status) {
-        .success_zir, .retryable_failure => {},
-        .never_loaded, .astgen_failure => {
-            zcu.comp.mutex.lock();
-            defer zcu.comp.mutex.unlock();
-            if (zcu.failed_files.fetchSwapRemove(file)) |kv| {
-                if (kv.value) |msg| msg.destroy(zcu.gpa); // Delete previous error message.
-            }
-        },
-    }
-}
-
 pub fn handleUpdateExports(
     zcu: *Zcu,
     export_indices: []const Export.Index,
@@ -3662,9 +3657,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 // `test` declarations are analyzed depending on the test filter.
                 const inst_info = nav.analysis.?.zir_index.resolveFull(ip) orelse continue;
                 const file = zcu.fileByIndex(inst_info.file);
-                // If the file failed AstGen, the TrackedInst refers to the old ZIR.
-                const zir = if (file.status == .success_zir) file.zir.? else file.prev_zir.?.*;
-                const decl = zir.getDeclaration(inst_info.inst);
+                const decl = file.zir.?.getDeclaration(inst_info.inst);
 
                 if (!comp.config.is_test or file.mod != zcu.main_mod) continue;
 
@@ -3694,9 +3687,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 // These are named declarations. They are analyzed only if marked `export`.
                 const inst_info = ip.getNav(nav).analysis.?.zir_index.resolveFull(ip) orelse continue;
                 const file = zcu.fileByIndex(inst_info.file);
-                // If the file failed AstGen, the TrackedInst refers to the old ZIR.
-                const zir = if (file.status == .success_zir) file.zir.? else file.prev_zir.?.*;
-                const decl = zir.getDeclaration(inst_info.inst);
+                const decl = file.zir.?.getDeclaration(inst_info.inst);
                 if (decl.linkage == .@"export") {
                     const unit: AnalUnit = .wrap(.{ .nav_val = nav });
                     if (!result.contains(unit)) {
@@ -3712,9 +3703,7 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
                 // These are named declarations. They are analyzed only if marked `export`.
                 const inst_info = ip.getNav(nav).analysis.?.zir_index.resolveFull(ip) orelse continue;
                 const file = zcu.fileByIndex(inst_info.file);
-                // If the file failed AstGen, the TrackedInst refers to the old ZIR.
-                const zir = if (file.status == .success_zir) file.zir.? else file.prev_zir.?.*;
-                const decl = zir.getDeclaration(inst_info.inst);
+                const decl = file.zir.?.getDeclaration(inst_info.inst);
                 if (decl.linkage == .@"export") {
                     const unit: AnalUnit = .wrap(.{ .nav_val = nav });
                     if (!result.contains(unit)) {

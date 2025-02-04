@@ -3203,8 +3203,6 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
     }
 
     if (comp.zcu) |zcu| {
-        const ip = &zcu.intern_pool;
-
         for (zcu.failed_files.keys(), zcu.failed_files.values()) |file, error_msg| {
             if (error_msg) |msg| {
                 try addModuleErrorMsg(zcu, &bundle, msg.*);
@@ -3277,20 +3275,6 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 if (!refs.contains(anal_unit)) continue;
             }
 
-            report_ok: {
-                const file_index = switch (anal_unit.unwrap()) {
-                    .@"comptime" => |cu| ip.getComptimeUnit(cu).zir_index.resolveFile(ip),
-                    .nav_val, .nav_ty => |nav| ip.getNav(nav).analysis.?.zir_index.resolveFile(ip),
-                    .type => |ty| Type.fromInterned(ty).typeDeclInst(zcu).?.resolveFile(ip),
-                    .func => |ip_index| zcu.funcInfo(ip_index).zir_body_inst.resolveFile(ip),
-                    .memoized_state => break :report_ok, // always report std.builtin errors
-                };
-
-                // Skip errors for AnalUnits within files that had a parse failure.
-                // We'll try again once parsing succeeds.
-                if (!zcu.fileByIndex(file_index).okToReportErrors()) continue;
-            }
-
             std.log.scoped(.zcu).debug("analysis error '{s}' reported from unit '{}'", .{
                 error_msg.msg,
                 zcu.fmtAnalUnit(anal_unit),
@@ -3318,12 +3302,10 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 }
             }
         }
-        for (zcu.failed_codegen.keys(), zcu.failed_codegen.values()) |nav, error_msg| {
-            if (!zcu.navFileScope(nav).okToReportErrors()) continue;
+        for (zcu.failed_codegen.values()) |error_msg| {
             try addModuleErrorMsg(zcu, &bundle, error_msg.*);
         }
-        for (zcu.failed_types.keys(), zcu.failed_types.values()) |ty_index, error_msg| {
-            if (!zcu.typeFileScope(ty_index).okToReportErrors()) continue;
+        for (zcu.failed_types.values()) |error_msg| {
             try addModuleErrorMsg(zcu, &bundle, error_msg.*);
         }
         for (zcu.failed_exports.values()) |value| {
@@ -3827,12 +3809,35 @@ fn performAllTheWorkInner(
     if (comp.zcu) |zcu| {
         const pt: Zcu.PerThread = .activate(zcu, .main);
         defer pt.deactivate();
+
+        try reportMultiModuleErrors(pt);
+
+        const any_fatal_files = for (zcu.import_table.values()) |file_index| {
+            const file = zcu.fileByIndex(file_index);
+            if (file.getMode() == .zon) continue;
+            switch (file.status) {
+                .never_loaded => unreachable, // everything is loaded by the workers
+                .retryable_failure, .astgen_failure => break true,
+                .success => {},
+            }
+        } else false;
+
+        if (any_fatal_files) {
+            // We give up right now! No updating of ZIR refs, no nothing. The idea is that this prevents
+            // us from invalidating lots of incremental dependencies due to files with e.g. parse errors.
+            // However, this means our analysis data is invalid, so we want to omit all analysis errors.
+            // To do that, let's just clear the analysis roots!
+
+            assert(zcu.failed_files.count() > 0); // we will get an error
+            zcu.analysis_roots.clear(); // no analysis happened
+            return;
+        }
+
         if (comp.incremental) {
             const update_zir_refs_node = main_progress_node.start("Update ZIR References", 0);
             defer update_zir_refs_node.end();
             try pt.updateZirRefs();
         }
-        try reportMultiModuleErrors(pt);
         try zcu.flushRetryableFailures();
 
         zcu.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
@@ -4294,11 +4299,12 @@ fn workerAstGenFile(
     pt.astGenFile(file, path_digest) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
-            file.status = .retryable_failure;
             pt.reportRetryableAstGenError(src, file_index, err) catch |oom| switch (oom) {
-                // Swallowing this error is OK because it's implied to be OOM when
-                // there is a missing `failed_files` error message.
-                error.OutOfMemory => {},
+                error.OutOfMemory => {
+                    comp.mutex.lock();
+                    defer comp.mutex.unlock();
+                    comp.setAllocFailure();
+                },
             };
             return;
         },

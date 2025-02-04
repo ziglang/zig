@@ -299,7 +299,7 @@ pub fn populateFile(comp: *Compilation, mod: *Module, file: *File) !void {
 
     file.zir = try AstGen.generate(comp.gpa, file.tree.?);
     assert(!file.zir.?.hasCompileErrors()); // builtin.zig must not have astgen errors
-    file.status = .success_zir;
+    file.status = .success;
     // Note that whilst we set `zir` here, we populated `path_digest`
     // all the way back in `Package.Module.create`.
 }
