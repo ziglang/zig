@@ -431,7 +431,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/heap/arena_allocator.zig
     lib/std/io.zig
     lib/std/io/reader.zig
-    lib/std/io/Writer.zig
+    lib/std/io/writer.zig
     lib/std/io/buffered_atomic_file.zig
     lib/std/io/buffered_writer.zig
     lib/std/io/change_detection_stream.zig
