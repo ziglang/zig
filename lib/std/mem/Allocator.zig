@@ -128,25 +128,25 @@ pub fn noFree(
 }
 
 /// This function is not intended to be called except from within the
-/// implementation of an Allocator
+/// implementation of an `Allocator`.
 pub inline fn rawAlloc(a: Allocator, len: usize, alignment: Alignment, ret_addr: usize) ?[*]u8 {
     return a.vtable.alloc(a.ptr, len, alignment, ret_addr);
 }
 
 /// This function is not intended to be called except from within the
-/// implementation of an Allocator.
+/// implementation of an `Allocator`.
 pub inline fn rawResize(a: Allocator, memory: []u8, alignment: Alignment, new_len: usize, ret_addr: usize) bool {
     return a.vtable.resize(a.ptr, memory, alignment, new_len, ret_addr);
 }
 
 /// This function is not intended to be called except from within the
-/// implementation of an Allocator.
+/// implementation of an `Allocator`.
 pub inline fn rawRemap(a: Allocator, memory: []u8, alignment: Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
     return a.vtable.remap(a.ptr, memory, alignment, new_len, ret_addr);
 }
 
 /// This function is not intended to be called except from within the
-/// implementation of an Allocator
+/// implementation of an `Allocator`.
 pub inline fn rawFree(a: Allocator, memory: []u8, alignment: Alignment, ret_addr: usize) void {
     return a.vtable.free(a.ptr, memory, alignment, ret_addr);
 }
@@ -271,7 +271,6 @@ fn allocBytesWithAlignment(self: Allocator, comptime alignment: u29, byte_count:
     }
 
     const byte_ptr = self.rawAlloc(byte_count, .fromByteUnits(alignment), return_address) orelse return Error.OutOfMemory;
-    // TODO: https://github.com/ziglang/zig/issues/4298
     @memset(byte_ptr[0..byte_count], undefined);
     return @alignCast(byte_ptr);
 }
@@ -391,7 +390,6 @@ pub fn reallocAdvanced(
         return error.OutOfMemory;
     const copy_len = @min(byte_count, old_byte_slice.len);
     @memcpy(new_mem[0..copy_len], old_byte_slice[0..copy_len]);
-    // TODO https://github.com/ziglang/zig/issues/4298
     @memset(old_byte_slice, undefined);
     self.rawFree(old_byte_slice, .fromByteUnits(Slice.alignment), return_address);
 
@@ -408,7 +406,6 @@ pub fn free(self: Allocator, memory: anytype) void {
     const bytes_len = bytes.len + if (Slice.sentinel() != null) @sizeOf(Slice.child) else 0;
     if (bytes_len == 0) return;
     const non_const_ptr = @constCast(bytes.ptr);
-    // TODO: https://github.com/ziglang/zig/issues/4298
     @memset(non_const_ptr[0..bytes_len], undefined);
     self.rawFree(non_const_ptr[0..bytes_len], .fromByteUnits(Slice.alignment), @returnAddress());
 }

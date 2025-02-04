@@ -157,6 +157,9 @@ pub const Config = struct {
 
     /// Enables emitting info messages with the size and address of every allocation.
     verbose_log: bool = false,
+
+    /// Tell whether the backing allocator returns already-zeroed memory.
+    backing_allocator_zeroes: bool = true,
 };
 
 pub const Check = enum { ok, leak };
@@ -179,7 +182,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
         const Self = @This();
 
-        /// The initial state of a `GeneralPurposeAllocator`, containing no allocations and backed by the system page allocator.
+        /// The initial state of a `GeneralPurposeAllocator`, containing no
+        /// allocations and backed by the system page allocator.
         pub const init: Self = .{
             .backing_allocator = std.heap.page_allocator,
             .buckets = [1]Buckets{.{}} ** small_bucket_count,
@@ -508,7 +512,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         fn collectStackTrace(first_trace_addr: usize, addresses: *[stack_n]usize) void {
             if (stack_n == 0) return;
             @memset(addresses, 0);
-            var stack_trace = StackTrace{
+            var stack_trace: StackTrace = .{
                 .instruction_addresses = addresses,
                 .index = 0,
             };
@@ -1092,22 +1096,29 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         }
 
         fn createBucket(self: *Self, size_class: usize) Error!*BucketHeader {
-            const page = try self.backing_allocator.alignedAlloc(u8, page_size, page_size);
-            errdefer self.backing_allocator.free(page);
+            const alignment: mem.Alignment = .fromByteUnits(page_size);
+            const page = self.backing_allocator.rawAlloc(page_size, alignment, @returnAddress()) orelse
+                return error.OutOfMemory;
+            errdefer self.backing_allocator.rawFree(page[0..page_size], alignment, @returnAddress());
 
             const bucket_size = bucketSize(size_class);
-            const bucket_bytes = try self.backing_allocator.alignedAlloc(u8, @alignOf(BucketHeader), bucket_size);
-            const ptr: *BucketHeader = @ptrCast(bucket_bytes.ptr);
+            const header_align: mem.Alignment = .fromByteUnits(@alignOf(BucketHeader));
+            const ptr: *BucketHeader = @alignCast(@ptrCast(self.backing_allocator.rawAlloc(
+                bucket_size,
+                header_align,
+                @returnAddress(),
+            ) orelse return error.OutOfMemory));
             ptr.* = .{
-                .page = page.ptr,
+                .page = @alignCast(page),
                 .alloc_cursor = 0,
                 .used_count = 0,
             };
-            // Set the used bits to all zeroes
-            @memset(@as([*]u8, @as(*[1]u8, ptr.usedBits(0)))[0..usedBitsCount(size_class)], 0);
-            if (config.safety) {
-                // Set the requested sizes to zeroes
-                @memset(mem.sliceAsBytes(ptr.requestedSizes(size_class)), 0);
+            if (!config.backing_allocator_zeroes) {
+                @memset(@as([*]u8, @as(*[1]u8, ptr.usedBits(0)))[0..usedBitsCount(size_class)], 0);
+                if (config.safety) {
+                    // Set the requested sizes to zeroes
+                    @memset(mem.sliceAsBytes(ptr.requestedSizes(size_class)), 0);
+                }
             }
             return ptr;
         }
