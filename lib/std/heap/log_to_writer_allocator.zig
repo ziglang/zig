@@ -23,6 +23,7 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
                 .vtable = &.{
                     .alloc = alloc,
                     .resize = resize,
+                    .remap = remap,
                     .free = free,
                 },
             };
@@ -31,12 +32,12 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
         fn alloc(
             ctx: *anyopaque,
             len: usize,
-            log2_ptr_align: u8,
+            alignment: std.mem.Alignment,
             ra: usize,
         ) ?[*]u8 {
             const self: *Self = @ptrCast(@alignCast(ctx));
             self.writer.print("alloc : {}", .{len}) catch {};
-            const result = self.parent_allocator.rawAlloc(len, log2_ptr_align, ra);
+            const result = self.parent_allocator.rawAlloc(len, alignment, ra);
             if (result != null) {
                 self.writer.print(" success!\n", .{}) catch {};
             } else {
@@ -48,7 +49,7 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
         fn resize(
             ctx: *anyopaque,
             buf: []u8,
-            log2_buf_align: u8,
+            alignment: std.mem.Alignment,
             new_len: usize,
             ra: usize,
         ) bool {
@@ -59,7 +60,7 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
                 self.writer.print("expand: {} to {}", .{ buf.len, new_len }) catch {};
             }
 
-            if (self.parent_allocator.rawResize(buf, log2_buf_align, new_len, ra)) {
+            if (self.parent_allocator.rawResize(buf, alignment, new_len, ra)) {
                 if (new_len > buf.len) {
                     self.writer.print(" success!\n", .{}) catch {};
                 }
@@ -71,15 +72,41 @@ pub fn LogToWriterAllocator(comptime Writer: type) type {
             return false;
         }
 
+        fn remap(
+            ctx: *anyopaque,
+            buf: []u8,
+            alignment: std.mem.Alignment,
+            new_len: usize,
+            ra: usize,
+        ) ?[*]u8 {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            if (new_len <= buf.len) {
+                self.writer.print("shrink: {} to {}\n", .{ buf.len, new_len }) catch {};
+            } else {
+                self.writer.print("expand: {} to {}", .{ buf.len, new_len }) catch {};
+            }
+
+            if (self.parent_allocator.rawRemap(buf, alignment, new_len, ra)) |new_memory| {
+                if (new_len > buf.len) {
+                    self.writer.print(" success!\n", .{}) catch {};
+                }
+                return new_memory;
+            }
+
+            std.debug.assert(new_len > buf.len);
+            self.writer.print(" failure!\n", .{}) catch {};
+            return null;
+        }
+
         fn free(
             ctx: *anyopaque,
             buf: []u8,
-            log2_buf_align: u8,
+            alignment: std.mem.Alignment,
             ra: usize,
         ) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
             self.writer.print("free  : {}\n", .{buf.len}) catch {};
-            self.parent_allocator.rawFree(buf, log2_buf_align, ra);
+            self.parent_allocator.rawFree(buf, alignment, ra);
         }
     };
 }

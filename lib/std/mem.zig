@@ -92,6 +92,7 @@ pub fn ValidationAllocator(comptime T: type) type {
                 .vtable = &.{
                     .alloc = alloc,
                     .resize = resize,
+                    .remap = remap,
                     .free = free,
                 },
             };
@@ -105,41 +106,54 @@ pub fn ValidationAllocator(comptime T: type) type {
         pub fn alloc(
             ctx: *anyopaque,
             n: usize,
-            log2_ptr_align: u8,
+            alignment: mem.Alignment,
             ret_addr: usize,
         ) ?[*]u8 {
             assert(n > 0);
             const self: *Self = @ptrCast(@alignCast(ctx));
             const underlying = self.getUnderlyingAllocatorPtr();
-            const result = underlying.rawAlloc(n, log2_ptr_align, ret_addr) orelse
+            const result = underlying.rawAlloc(n, alignment, ret_addr) orelse
                 return null;
-            assert(mem.isAlignedLog2(@intFromPtr(result), log2_ptr_align));
+            assert(alignment.check(@intFromPtr(result)));
             return result;
         }
 
         pub fn resize(
             ctx: *anyopaque,
             buf: []u8,
-            log2_buf_align: u8,
+            alignment: Alignment,
             new_len: usize,
             ret_addr: usize,
         ) bool {
             const self: *Self = @ptrCast(@alignCast(ctx));
             assert(buf.len > 0);
             const underlying = self.getUnderlyingAllocatorPtr();
-            return underlying.rawResize(buf, log2_buf_align, new_len, ret_addr);
+            return underlying.rawResize(buf, alignment, new_len, ret_addr);
+        }
+
+        pub fn remap(
+            ctx: *anyopaque,
+            buf: []u8,
+            alignment: Alignment,
+            new_len: usize,
+            ret_addr: usize,
+        ) ?[*]u8 {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            assert(buf.len > 0);
+            const underlying = self.getUnderlyingAllocatorPtr();
+            return underlying.rawRemap(buf, alignment, new_len, ret_addr);
         }
 
         pub fn free(
             ctx: *anyopaque,
             buf: []u8,
-            log2_buf_align: u8,
+            alignment: Alignment,
             ret_addr: usize,
         ) void {
             const self: *Self = @ptrCast(@alignCast(ctx));
             assert(buf.len > 0);
             const underlying = self.getUnderlyingAllocatorPtr();
-            underlying.rawFree(buf, log2_buf_align, ret_addr);
+            underlying.rawFree(buf, alignment, ret_addr);
         }
 
         pub fn reset(self: *Self) void {
@@ -167,27 +181,9 @@ pub fn alignAllocLen(full_len: usize, alloc_len: usize, len_align: u29) usize {
     return adjusted;
 }
 
-const fail_allocator = Allocator{
-    .ptr = undefined,
-    .vtable = &failAllocator_vtable,
-};
-
-const failAllocator_vtable = Allocator.VTable{
-    .alloc = failAllocatorAlloc,
-    .resize = Allocator.noResize,
-    .free = Allocator.noFree,
-};
-
-fn failAllocatorAlloc(_: *anyopaque, n: usize, log2_alignment: u8, ra: usize) ?[*]u8 {
-    _ = n;
-    _ = log2_alignment;
-    _ = ra;
-    return null;
-}
-
 test "Allocator basics" {
-    try testing.expectError(error.OutOfMemory, fail_allocator.alloc(u8, 1));
-    try testing.expectError(error.OutOfMemory, fail_allocator.allocSentinel(u8, 1, 0));
+    try testing.expectError(error.OutOfMemory, testing.failing_allocator.alloc(u8, 1));
+    try testing.expectError(error.OutOfMemory, testing.failing_allocator.allocSentinel(u8, 1, 0));
 }
 
 test "Allocator.resize" {
