@@ -6143,7 +6143,6 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     pt.updateFile(result.file, path_digest) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
 
-    try sema.declareDependency(.{ .file = result.file_index });
     try pt.ensureFileAnalyzed(result.file_index);
     const ty = zcu.fileRootType(result.file_index);
     try sema.declareDependency(.{ .interned = ty });
@@ -13986,7 +13985,6 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     };
     switch (result.file.getMode()) {
         .zig => {
-            try sema.declareDependency(.{ .file = result.file_index });
             try pt.ensureFileAnalyzed(result.file_index);
             const ty = zcu.fileRootType(result.file_index);
             try sema.declareDependency(.{ .interned = ty });
@@ -14003,6 +14001,7 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                 return sema.fail(block, operand_src, "'@import' of ZON must have a known result type", .{});
             }
 
+            try sema.declareDependency(.{ .zon_file = result.file_index });
             const interned = try LowerZon.run(
                 sema,
                 result.file,

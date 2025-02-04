@@ -705,6 +705,14 @@ pub const File = struct {
     /// field is populated with that old ZIR.
     prev_zir: ?*Zir = null,
 
+    /// This field serves a similar purpose to `prev_zir`, but for ZOIR. However, since we do not
+    /// need to map old ZOIR to new ZOIR -- instead only invalidating dependencies if the ZOIR
+    /// changed -- this field is just a simple boolean.
+    ///
+    /// When `zoir` is updated, this field is set to `true`. In `updateZirRefs`, if this is `true`,
+    /// we invalidate the corresponding `zon_file` dependency, and reset it to `false`.
+    zoir_invalidated: bool = false,
+
     /// A single reference to a file.
     pub const Reference = union(enum) {
         /// The file is imported directly (i.e. not as a package) with @import.
@@ -4074,10 +4082,6 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
     const zcu = data.zcu;
     const ip = &zcu.intern_pool;
     switch (data.dependee) {
-        .file => |file| {
-            const file_path = zcu.fileByIndex(file).sub_file_path;
-            return writer.print("file('{s}')", .{file_path});
-        },
         .src_hash => |ti| {
             const info = ti.resolveFull(ip) orelse {
                 return writer.writeAll("inst(<lost>)");
@@ -4097,6 +4101,10 @@ fn formatDependee(data: struct { dependee: InternPool.Dependee, zcu: *Zcu }, com
             .struct_type, .union_type, .enum_type => return writer.print("type('{}')", .{Type.fromInterned(ip_index).containerTypeName(ip).fmt(ip)}),
             .func => |f| return writer.print("ies('{}')", .{ip.getNav(f.owner_nav).fqn.fmt(ip)}),
             else => unreachable,
+        },
+        .zon_file => |file| {
+            const file_path = zcu.fileByIndex(file).sub_file_path;
+            return writer.print("zon_file('{s}')", .{file_path});
         },
         .embed_file => |ef_idx| {
             const ef = ef_idx.get(zcu);

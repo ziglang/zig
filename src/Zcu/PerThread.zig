@@ -145,6 +145,9 @@ pub fn updateFile(
         file.zir = null;
     }
 
+    // If ZOIR is changing, then we need to invalidate dependencies on it
+    if (file.zoir != null) file.zoir_invalidated = true;
+
     // We're going to re-load everything, so unload source, AST, ZIR, ZOIR.
     file.unload(gpa);
 
@@ -380,11 +383,23 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
     const gpa = zcu.gpa;
 
     // We need to visit every updated File for every TrackedInst in InternPool.
+    // This only includes Zig files; ZON files are omitted.
     var updated_files: std.AutoArrayHashMapUnmanaged(Zcu.File.Index, UpdatedFile) = .empty;
     defer cleanupUpdatedFiles(gpa, &updated_files);
+
     for (zcu.import_table.values()) |file_index| {
         const file = zcu.fileByIndex(file_index);
         assert(file.status == .success);
+        switch (file.getMode()) {
+            .zig => {}, // logic below
+            .zon => {
+                if (file.zoir_invalidated) {
+                    try zcu.markDependeeOutdated(.not_marked_po, .{ .zon_file = file_index });
+                    file.zoir_invalidated = false;
+                }
+                continue;
+            },
+        }
         const old_zir = file.prev_zir orelse continue;
         const new_zir = file.zir.?;
         const gop = try updated_files.getOrPut(gpa, file_index);

@@ -2903,10 +2903,12 @@ pub fn makeBinFileWritable(comp: *Compilation) !void {
 const Header = extern struct {
     intern_pool: extern struct {
         thread_count: u32,
-        file_deps_len: u32,
         src_hash_deps_len: u32,
         nav_val_deps_len: u32,
         nav_ty_deps_len: u32,
+        interned_deps_len: u32,
+        zon_file_deps_len: u32,
+        embed_file_deps_len: u32,
         namespace_deps_len: u32,
         namespace_name_deps_len: u32,
         first_dependency_len: u32,
@@ -2947,10 +2949,12 @@ pub fn saveState(comp: *Compilation) !void {
         const header: Header = .{
             .intern_pool = .{
                 .thread_count = @intCast(ip.locals.len),
-                .file_deps_len = @intCast(ip.file_deps.count()),
                 .src_hash_deps_len = @intCast(ip.src_hash_deps.count()),
                 .nav_val_deps_len = @intCast(ip.nav_val_deps.count()),
                 .nav_ty_deps_len = @intCast(ip.nav_ty_deps.count()),
+                .interned_deps_len = @intCast(ip.interned_deps.count()),
+                .zon_file_deps_len = @intCast(ip.zon_file_deps.count()),
+                .embed_file_deps_len = @intCast(ip.embed_file_deps.count()),
                 .namespace_deps_len = @intCast(ip.namespace_deps.count()),
                 .namespace_name_deps_len = @intCast(ip.namespace_name_deps.count()),
                 .first_dependency_len = @intCast(ip.first_dependency.count()),
@@ -2975,14 +2979,18 @@ pub fn saveState(comp: *Compilation) !void {
         addBuf(&bufs, mem.asBytes(&header));
         addBuf(&bufs, mem.sliceAsBytes(pt_headers.items));
 
-        addBuf(&bufs, mem.sliceAsBytes(ip.file_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.file_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.src_hash_deps.keys()));
         addBuf(&bufs, mem.sliceAsBytes(ip.src_hash_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.nav_val_deps.keys()));
         addBuf(&bufs, mem.sliceAsBytes(ip.nav_val_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.nav_ty_deps.keys()));
         addBuf(&bufs, mem.sliceAsBytes(ip.nav_ty_deps.values()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.interned_deps.keys()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.interned_deps.values()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.zon_file_deps.keys()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.zon_file_deps.values()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.embed_file_deps.keys()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.embed_file_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.namespace_deps.keys()));
         addBuf(&bufs, mem.sliceAsBytes(ip.namespace_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.namespace_name_deps.keys()));
