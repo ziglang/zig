@@ -9,7 +9,7 @@ end_index: usize,
 buffer: []u8,
 
 pub fn init(buffer: []u8) FixedBufferAllocator {
-    return FixedBufferAllocator{
+    return .{
         .buffer = buffer,
         .end_index = 0,
     };
@@ -22,6 +22,7 @@ pub fn allocator(self: *FixedBufferAllocator) Allocator {
         .vtable = &.{
             .alloc = alloc,
             .resize = resize,
+            .remap = remap,
             .free = free,
         },
     };
@@ -36,6 +37,7 @@ pub fn threadSafeAllocator(self: *FixedBufferAllocator) Allocator {
         .vtable = &.{
             .alloc = threadSafeAlloc,
             .resize = Allocator.noResize,
+            .remap = Allocator.noRemap,
             .free = Allocator.noFree,
         },
     };
@@ -57,10 +59,10 @@ pub fn isLastAllocation(self: *FixedBufferAllocator, buf: []u8) bool {
     return buf.ptr + buf.len == self.buffer.ptr + self.end_index;
 }
 
-pub fn alloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
+pub fn alloc(ctx: *anyopaque, n: usize, alignment: mem.Alignment, ra: usize) ?[*]u8 {
     const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
     _ = ra;
-    const ptr_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
+    const ptr_align = alignment.toByteUnits();
     const adjust_off = mem.alignPointerOffset(self.buffer.ptr + self.end_index, ptr_align) orelse return null;
     const adjusted_index = self.end_index + adjust_off;
     const new_end_index = adjusted_index + n;
@@ -72,12 +74,12 @@ pub fn alloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
 pub fn resize(
     ctx: *anyopaque,
     buf: []u8,
-    log2_buf_align: u8,
+    alignment: mem.Alignment,
     new_size: usize,
     return_address: usize,
 ) bool {
     const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
-    _ = log2_buf_align;
+    _ = alignment;
     _ = return_address;
     assert(@inComptime() or self.ownsSlice(buf));
 
@@ -99,14 +101,24 @@ pub fn resize(
     return true;
 }
 
+pub fn remap(
+    context: *anyopaque,
+    memory: []u8,
+    alignment: mem.Alignment,
+    new_len: usize,
+    return_address: usize,
+) ?[*]u8 {
+    return if (resize(context, memory, alignment, new_len, return_address)) memory.ptr else null;
+}
+
 pub fn free(
     ctx: *anyopaque,
     buf: []u8,
-    log2_buf_align: u8,
+    alignment: mem.Alignment,
     return_address: usize,
 ) void {
     const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
-    _ = log2_buf_align;
+    _ = alignment;
     _ = return_address;
     assert(@inComptime() or self.ownsSlice(buf));
 
@@ -115,10 +127,10 @@ pub fn free(
     }
 }
 
-fn threadSafeAlloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
+fn threadSafeAlloc(ctx: *anyopaque, n: usize, alignment: mem.Alignment, ra: usize) ?[*]u8 {
     const self: *FixedBufferAllocator = @ptrCast(@alignCast(ctx));
     _ = ra;
-    const ptr_align = @as(usize, 1) << @as(Allocator.Log2Align, @intCast(log2_ptr_align));
+    const ptr_align = alignment.toByteUnits();
     var end_index = @atomicLoad(usize, &self.end_index, .seq_cst);
     while (true) {
         const adjust_off = mem.alignPointerOffset(self.buffer.ptr + end_index, ptr_align) orelse return null;

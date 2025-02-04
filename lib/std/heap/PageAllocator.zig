@@ -12,18 +12,18 @@ const page_size_min = std.heap.page_size_min;
 pub const vtable: Allocator.VTable = .{
     .alloc = alloc,
     .resize = resize,
+    .remap = remap,
     .free = free,
 };
 
-fn alloc(context: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
-    const requested_alignment: mem.Alignment = @enumFromInt(log2_align);
+fn alloc(context: *anyopaque, n: usize, alignment: mem.Alignment, ra: usize) ?[*]u8 {
     _ = context;
     _ = ra;
     assert(n > 0);
 
     const page_size = std.heap.pageSize();
     if (n >= maxInt(usize) - page_size) return null;
-    const alignment_bytes = requested_alignment.toByteUnits();
+    const alignment_bytes = alignment.toByteUnits();
 
     if (native_os == .windows) {
         // According to official documentation, VirtualAlloc aligns to page
@@ -103,22 +103,52 @@ fn alloc(context: *anyopaque, n: usize, log2_align: u8, ra: usize) ?[*]u8 {
 
 fn resize(
     context: *anyopaque,
-    buf_unaligned: []u8,
-    log2_buf_align: u8,
-    new_size: usize,
+    memory: []u8,
+    alignment: mem.Alignment,
+    new_len: usize,
     return_address: usize,
 ) bool {
     _ = context;
-    _ = log2_buf_align;
+    _ = alignment;
     _ = return_address;
-    const page_size = std.heap.pageSize();
-    const new_size_aligned = mem.alignForward(usize, new_size, page_size);
+    return realloc(memory, new_len, false) != null;
+}
+
+pub fn remap(
+    context: *anyopaque,
+    memory: []u8,
+    alignment: mem.Alignment,
+    new_len: usize,
+    return_address: usize,
+) ?[*]u8 {
+    _ = context;
+    _ = alignment;
+    _ = return_address;
+    return realloc(memory, new_len, true);
+}
+
+fn free(context: *anyopaque, slice: []u8, alignment: mem.Alignment, return_address: usize) void {
+    _ = context;
+    _ = alignment;
+    _ = return_address;
 
     if (native_os == .windows) {
-        if (new_size <= buf_unaligned.len) {
-            const base_addr = @intFromPtr(buf_unaligned.ptr);
-            const old_addr_end = base_addr + buf_unaligned.len;
-            const new_addr_end = mem.alignForward(usize, base_addr + new_size, page_size);
+        windows.VirtualFree(slice.ptr, 0, windows.MEM_RELEASE);
+    } else {
+        const buf_aligned_len = mem.alignForward(usize, slice.len, std.heap.pageSize());
+        posix.munmap(@alignCast(slice.ptr[0..buf_aligned_len]));
+    }
+}
+
+fn realloc(memory: []u8, new_len: usize, may_move: bool) ?[*]u8 {
+    const page_size = std.heap.pageSize();
+    const new_size_aligned = mem.alignForward(usize, new_len, page_size);
+
+    if (native_os == .windows) {
+        if (new_len <= memory.len) {
+            const base_addr = @intFromPtr(memory.ptr);
+            const old_addr_end = base_addr + memory.len;
+            const new_addr_end = mem.alignForward(usize, base_addr + new_len, page_size);
             if (old_addr_end > new_addr_end) {
                 // For shrinking that is not releasing, we will only decommit
                 // the pages not needed anymore.
@@ -128,40 +158,31 @@ fn resize(
                     windows.MEM_DECOMMIT,
                 );
             }
-            return true;
+            return memory.ptr;
         }
-        const old_size_aligned = mem.alignForward(usize, buf_unaligned.len, page_size);
+        const old_size_aligned = mem.alignForward(usize, memory.len, page_size);
         if (new_size_aligned <= old_size_aligned) {
-            return true;
+            return memory.ptr;
         }
-        return false;
+        return null;
     }
 
-    const buf_aligned_len = mem.alignForward(usize, buf_unaligned.len, page_size);
-    if (new_size_aligned == buf_aligned_len)
-        return true;
+    const page_aligned_len = mem.alignForward(usize, memory.len, page_size);
+    if (new_size_aligned == page_aligned_len)
+        return memory.ptr;
 
-    if (new_size_aligned < buf_aligned_len) {
-        const ptr = buf_unaligned.ptr + new_size_aligned;
+    const mremap_available = false; // native_os == .linux;
+    if (mremap_available) {
+        // TODO: if the next_mmap_addr_hint is within the remapped range, update it
+        return posix.mremap(memory, new_len, .{ .MAYMOVE = may_move }, null) catch return null;
+    }
+
+    if (new_size_aligned < page_aligned_len) {
+        const ptr = memory.ptr + new_size_aligned;
         // TODO: if the next_mmap_addr_hint is within the unmapped range, update it
-        posix.munmap(@alignCast(ptr[0 .. buf_aligned_len - new_size_aligned]));
-        return true;
+        posix.munmap(@alignCast(ptr[0 .. page_aligned_len - new_size_aligned]));
+        return memory.ptr;
     }
 
-    // TODO: call mremap
-    // TODO: if the next_mmap_addr_hint is within the remapped range, update it
-    return false;
-}
-
-fn free(context: *anyopaque, slice: []u8, log2_buf_align: u8, return_address: usize) void {
-    _ = context;
-    _ = log2_buf_align;
-    _ = return_address;
-
-    if (native_os == .windows) {
-        windows.VirtualFree(slice.ptr, 0, windows.MEM_RELEASE);
-    } else {
-        const buf_aligned_len = mem.alignForward(usize, slice.len, std.heap.pageSize());
-        posix.munmap(@alignCast(slice.ptr[0..buf_aligned_len]));
-    }
+    return null;
 }
