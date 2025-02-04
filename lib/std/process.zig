@@ -17,6 +17,569 @@ pub const exit = posix.exit;
 pub const changeCurDir = posix.chdir;
 pub const changeCurDirZ = posix.chdirZ;
 
+/// Startup information passed to the entry point of an application, which
+/// might not otherwise be available on all targets.
+pub const Init = struct {
+    args: Args,
+    env: Env,
+    aux: Aux,
+
+    pub const @"void": Init = .{
+        .args = .{ .data = {} },
+        .env = .{ .data = {} },
+        .aux = .{ .data = {} },
+    };
+
+    pub const Args = struct {
+        data: Data,
+
+        const Data = switch (native_os) {
+            .windows, .freestanding, .other => void,
+            .wasi => if (builtin.link_libc) [][*:0]u8 else void,
+            else => [][*:0]u8,
+        };
+
+        /// Cross-platform command line argument iterator.
+        pub const Iterator = struct {
+            const Inner = switch (native_os) {
+                .windows => Windows,
+                .wasi => if (builtin.link_libc) Posix else Wasi,
+                else => Posix,
+            };
+
+            inner: Inner,
+
+            pub const InitError = Windows.InitError || Posix.InitError || Wasi.InitError;
+
+            /// Get the next argument. Returns 'null' if we are at the end.
+            /// Returned slice is pointing to the iterator's internal buffer.
+            /// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+            /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
+            pub fn next(self: *Iterator) ?([:0]const u8) {
+                return self.inner.next();
+            }
+
+            /// Parse past 1 argument without capturing it.
+            /// Returns `true` if skipped an arg, `false` if we are at the end.
+            pub fn skip(self: *Iterator) bool {
+                return self.inner.skip();
+            }
+
+            /// Call this to free the iterator's internal buffer if the iterator
+            /// was created with `initWithAllocator` function.
+            pub fn deinit(self: *Iterator) void {
+                // Unless we're targeting WASI or Windows, this is a no-op.
+                if (native_os == .wasi and !builtin.link_libc) {
+                    self.inner.deinit();
+                }
+
+                if (native_os == .windows) {
+                    self.inner.deinit();
+                }
+            }
+
+            pub const Posix = struct {
+                index: usize,
+                argv: []const [*:0]u8,
+
+                pub const InitError = error{};
+
+                pub fn init(argv: []const [*:0]u8) Posix {
+                    return .{
+                        .index = 0,
+                        .argv = argv,
+                    };
+                }
+
+                pub fn next(self: *Posix) ?[:0]const u8 {
+                    if (self.index == self.argv.len) return null;
+
+                    const s = std.os.argv[self.index];
+                    self.index += 1;
+                    return mem.sliceTo(s, 0);
+                }
+
+                pub fn skip(self: *Posix) bool {
+                    if (self.index == self.argv.len) return false;
+
+                    self.index += 1;
+                    return true;
+                }
+            };
+
+            pub const Wasi = struct {
+                allocator: Allocator,
+                index: usize,
+                args: [][:0]u8,
+
+                pub const InitError = error{OutOfMemory} || posix.UnexpectedError;
+
+                /// You must call deinit to free the internal buffer of the
+                /// iterator after you are done.
+                pub fn init(allocator: Allocator) Wasi.InitError!Wasi {
+                    const fetched_args = try Wasi.internalInit(allocator);
+                    return Wasi{
+                        .allocator = allocator,
+                        .index = 0,
+                        .args = fetched_args,
+                    };
+                }
+
+                fn internalInit(allocator: Allocator) Wasi.InitError![][:0]u8 {
+                    var count: usize = undefined;
+                    var buf_size: usize = undefined;
+
+                    switch (std.os.wasi.args_sizes_get(&count, &buf_size)) {
+                        .SUCCESS => {},
+                        else => |err| return posix.unexpectedErrno(err),
+                    }
+
+                    if (count == 0) {
+                        return &[_][:0]u8{};
+                    }
+
+                    const argv = try allocator.alloc([*:0]u8, count);
+                    defer allocator.free(argv);
+
+                    const argv_buf = try allocator.alloc(u8, buf_size);
+
+                    switch (std.os.wasi.args_get(argv.ptr, argv_buf.ptr)) {
+                        .SUCCESS => {},
+                        else => |err| return posix.unexpectedErrno(err),
+                    }
+
+                    var result_args = try allocator.alloc([:0]u8, count);
+                    var i: usize = 0;
+                    while (i < count) : (i += 1) {
+                        result_args[i] = mem.sliceTo(argv[i], 0);
+                    }
+
+                    return result_args;
+                }
+
+                pub fn next(self: *Wasi) ?[:0]const u8 {
+                    if (self.index == self.args.len) return null;
+
+                    const arg = self.args[self.index];
+                    self.index += 1;
+                    return arg;
+                }
+
+                pub fn skip(self: *Wasi) bool {
+                    if (self.index == self.args.len) return false;
+
+                    self.index += 1;
+                    return true;
+                }
+
+                /// Call to free the internal buffer of the iterator.
+                pub fn deinit(self: *Wasi) void {
+                    const last_item = self.args[self.args.len - 1];
+                    const last_byte_addr = @intFromPtr(last_item.ptr) + last_item.len + 1; // null terminated
+                    const first_item_ptr = self.args[0].ptr;
+                    const len = last_byte_addr - @intFromPtr(first_item_ptr);
+                    self.allocator.free(first_item_ptr[0..len]);
+                    self.allocator.free(self.args);
+                }
+            };
+
+            /// Iterator that implements the Windows command-line parsing algorithm.
+            /// The implementation is intended to be compatible with the post-2008 C runtime,
+            /// but is *not* intended to be compatible with `CommandLineToArgvW` since
+            /// `CommandLineToArgvW` uses the pre-2008 parsing rules.
+            ///
+            /// This iterator faithfully implements the parsing behavior observed from the C runtime with
+            /// one exception: if the command-line string is empty, the iterator will immediately complete
+            /// without returning any arguments (whereas the C runtime will return a single argument
+            /// representing the name of the current executable).
+            ///
+            /// The essential parts of the algorithm are described in Microsoft's documentation:
+            ///
+            /// - https://learn.microsoft.com/en-us/cpp/cpp/main-function-command-line-args?view=msvc-170#parsing-c-command-line-arguments
+            ///
+            /// David Deley explains some additional undocumented quirks in great detail:
+            ///
+            /// - https://daviddeley.com/autohotkey/parameters/parameters.htm#WINCRULES
+            pub const Windows = struct {
+                allocator: Allocator,
+                /// Encoded as WTF-16 LE.
+                cmd_line: []const u16,
+                index: usize = 0,
+                /// Owned by the iterator. Long enough to hold contiguous NUL-terminated slices
+                /// of each argument encoded as WTF-8.
+                buffer: []u8,
+                start: usize = 0,
+                end: usize = 0,
+
+                pub const InitError = error{OutOfMemory};
+
+                /// `cmd_line_w` *must* be a WTF16-LE-encoded string.
+                ///
+                /// The iterator stores and uses `cmd_line_w`, so its memory must be valid for
+                /// at least as long as the returned Windows.
+                fn init(allocator: Allocator, cmd_line_w: []const u16) Windows.InitError!Windows {
+                    const wtf8_len = unicode.calcWtf8Len(cmd_line_w);
+
+                    // This buffer must be large enough to contain contiguous NUL-terminated slices
+                    // of each argument.
+                    // - During parsing, the length of a parsed argument will always be equal to
+                    //   to less than its unparsed length
+                    // - The first argument needs one extra byte of space allocated for its NUL
+                    //   terminator, but for each subsequent argument the necessary whitespace
+                    //   between arguments guarantees room for their NUL terminator(s).
+                    const buffer = try allocator.alloc(u8, wtf8_len + 1);
+                    errdefer allocator.free(buffer);
+
+                    return .{
+                        .allocator = allocator,
+                        .cmd_line = cmd_line_w,
+                        .buffer = buffer,
+                    };
+                }
+
+                fn initFromPeb(gpa: Allocator) Windows.InitError!Windows {
+                    const cmd_line = std.os.windows.peb().ProcessParameters.CommandLine;
+                    const cmd_line_w = cmd_line.Buffer.?[0 .. cmd_line.Length / 2];
+                    return init(gpa, cmd_line_w);
+                }
+
+                /// Returns the next argument and advances the iterator. Returns `null` if at the end of the
+                /// command-line string. The iterator owns the returned slice.
+                /// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+                pub fn next(self: *Windows) ?[:0]const u8 {
+                    return self.nextWithStrategy(next_strategy);
+                }
+
+                /// Skips the next argument and advances the iterator. Returns `true` if an argument was
+                /// skipped, `false` if at the end of the command-line string.
+                pub fn skip(self: *Windows) bool {
+                    return self.nextWithStrategy(skip_strategy);
+                }
+
+                const next_strategy = struct {
+                    const T = ?[:0]const u8;
+
+                    const eof = null;
+
+                    /// Returns '\' if any backslashes are emitted, otherwise returns `last_emitted_code_unit`.
+                    fn emitBackslashes(self: *Windows, count: usize, last_emitted_code_unit: ?u16) ?u16 {
+                        for (0..count) |_| {
+                            self.buffer[self.end] = '\\';
+                            self.end += 1;
+                        }
+                        return if (count != 0) '\\' else last_emitted_code_unit;
+                    }
+
+                    /// If `last_emitted_code_unit` and `code_unit` form a surrogate pair, then
+                    /// the previously emitted high surrogate is overwritten by the codepoint encoded
+                    /// by the surrogate pair, and `null` is returned.
+                    /// Otherwise, `code_unit` is emitted and returned.
+                    fn emitCharacter(self: *Windows, code_unit: u16, last_emitted_code_unit: ?u16) ?u16 {
+                        // Because we are emitting WTF-8, we need to
+                        // check to see if we've emitted two consecutive surrogate
+                        // codepoints that form a valid surrogate pair in order
+                        // to ensure that we're always emitting well-formed WTF-8
+                        // (https://simonsapin.github.io/wtf-8/#concatenating).
+                        //
+                        // If we do have a valid surrogate pair, we need to emit
+                        // the UTF-8 sequence for the codepoint that they encode
+                        // instead of the WTF-8 encoding for the two surrogate pairs
+                        // separately.
+                        //
+                        // This is relevant when dealing with a WTF-16 encoded
+                        // command line like this:
+                        // "<0xD801>"<0xDC37>
+                        // which would get parsed and converted to WTF-8 as:
+                        // <0xED><0xA0><0x81><0xED><0xB0><0xB7>
+                        // but instead, we need to recognize the surrogate pair
+                        // and emit the codepoint it encodes, which in this
+                        // example is U+10437 (𐐷), which is encoded in UTF-8 as:
+                        // <0xF0><0x90><0x90><0xB7>
+                        if (last_emitted_code_unit != null and
+                            std.unicode.utf16IsLowSurrogate(code_unit) and
+                            std.unicode.utf16IsHighSurrogate(last_emitted_code_unit.?))
+                        {
+                            const codepoint = std.unicode.utf16DecodeSurrogatePair(&.{ last_emitted_code_unit.?, code_unit }) catch unreachable;
+
+                            // Unpaired surrogate is 3 bytes long
+                            const dest = self.buffer[self.end - 3 ..];
+                            const len = unicode.utf8Encode(codepoint, dest) catch unreachable;
+                            // All codepoints that require a surrogate pair (> U+FFFF) are encoded as 4 bytes
+                            assert(len == 4);
+                            self.end += 1;
+                            return null;
+                        }
+
+                        const wtf8_len = std.unicode.wtf8Encode(code_unit, self.buffer[self.end..]) catch unreachable;
+                        self.end += wtf8_len;
+                        return code_unit;
+                    }
+
+                    fn yieldArg(self: *Windows) [:0]const u8 {
+                        self.buffer[self.end] = 0;
+                        const arg = self.buffer[self.start..self.end :0];
+                        self.end += 1;
+                        self.start = self.end;
+                        return arg;
+                    }
+                };
+
+                const skip_strategy = struct {
+                    const T = bool;
+
+                    const eof = false;
+
+                    fn emitBackslashes(_: *Windows, _: usize, last_emitted_code_unit: ?u16) ?u16 {
+                        return last_emitted_code_unit;
+                    }
+
+                    fn emitCharacter(_: *Windows, _: u16, last_emitted_code_unit: ?u16) ?u16 {
+                        return last_emitted_code_unit;
+                    }
+
+                    fn yieldArg(_: *Windows) bool {
+                        return true;
+                    }
+                };
+
+                fn nextWithStrategy(self: *Windows, comptime strategy: type) strategy.T {
+                    var last_emitted_code_unit: ?u16 = null;
+                    // The first argument (the executable name) uses different parsing rules.
+                    if (self.index == 0) {
+                        if (self.cmd_line.len == 0 or self.cmd_line[0] == 0) {
+                            // Immediately complete the iterator.
+                            // The C runtime would return the name of the current executable here.
+                            return strategy.eof;
+                        }
+
+                        var inside_quotes = false;
+                        while (true) : (self.index += 1) {
+                            const char = if (self.index != self.cmd_line.len)
+                                mem.littleToNative(u16, self.cmd_line[self.index])
+                            else
+                                0;
+                            switch (char) {
+                                0 => {
+                                    return strategy.yieldArg(self);
+                                },
+                                '"' => {
+                                    inside_quotes = !inside_quotes;
+                                },
+                                ' ', '\t' => {
+                                    if (inside_quotes) {
+                                        last_emitted_code_unit = strategy.emitCharacter(self, char, last_emitted_code_unit);
+                                    } else {
+                                        self.index += 1;
+                                        return strategy.yieldArg(self);
+                                    }
+                                },
+                                else => {
+                                    last_emitted_code_unit = strategy.emitCharacter(self, char, last_emitted_code_unit);
+                                },
+                            }
+                        }
+                    }
+
+                    // Skip spaces and tabs. The iterator completes if we reach the end of the string here.
+                    while (true) : (self.index += 1) {
+                        const char = if (self.index != self.cmd_line.len)
+                            mem.littleToNative(u16, self.cmd_line[self.index])
+                        else
+                            0;
+                        switch (char) {
+                            0 => return strategy.eof,
+                            ' ', '\t' => continue,
+                            else => break,
+                        }
+                    }
+
+                    // Parsing rules for subsequent arguments:
+                    //
+                    // - The end of the string always terminates the current argument.
+                    // - When not in 'inside_quotes' mode, a space or tab terminates the current argument.
+                    // - 2n backslashes followed by a quote emit n backslashes (note: n can be zero).
+                    //   If in 'inside_quotes' and the quote is immediately followed by a second quote,
+                    //   one quote is emitted and the other is skipped, otherwise, the quote is skipped
+                    //   and 'inside_quotes' is toggled.
+                    // - 2n + 1 backslashes followed by a quote emit n backslashes followed by a quote.
+                    // - n backslashes not followed by a quote emit n backslashes.
+                    var backslash_count: usize = 0;
+                    var inside_quotes = false;
+                    while (true) : (self.index += 1) {
+                        const char = if (self.index != self.cmd_line.len)
+                            mem.littleToNative(u16, self.cmd_line[self.index])
+                        else
+                            0;
+                        switch (char) {
+                            0 => {
+                                last_emitted_code_unit = strategy.emitBackslashes(self, backslash_count, last_emitted_code_unit);
+                                return strategy.yieldArg(self);
+                            },
+                            ' ', '\t' => {
+                                last_emitted_code_unit = strategy.emitBackslashes(self, backslash_count, last_emitted_code_unit);
+                                backslash_count = 0;
+                                if (inside_quotes) {
+                                    last_emitted_code_unit = strategy.emitCharacter(self, char, last_emitted_code_unit);
+                                } else return strategy.yieldArg(self);
+                            },
+                            '"' => {
+                                const char_is_escaped_quote = backslash_count % 2 != 0;
+                                last_emitted_code_unit = strategy.emitBackslashes(self, backslash_count / 2, last_emitted_code_unit);
+                                backslash_count = 0;
+                                if (char_is_escaped_quote) {
+                                    last_emitted_code_unit = strategy.emitCharacter(self, '"', last_emitted_code_unit);
+                                } else {
+                                    if (inside_quotes and
+                                        self.index + 1 != self.cmd_line.len and
+                                        mem.littleToNative(u16, self.cmd_line[self.index + 1]) == '"')
+                                    {
+                                        last_emitted_code_unit = strategy.emitCharacter(self, '"', last_emitted_code_unit);
+                                        self.index += 1;
+                                    } else {
+                                        inside_quotes = !inside_quotes;
+                                    }
+                                }
+                            },
+                            '\\' => {
+                                backslash_count += 1;
+                            },
+                            else => {
+                                last_emitted_code_unit = strategy.emitBackslashes(self, backslash_count, last_emitted_code_unit);
+                                backslash_count = 0;
+                                last_emitted_code_unit = strategy.emitCharacter(self, char, last_emitted_code_unit);
+                            },
+                        }
+                    }
+                }
+
+                /// Frees the iterator's copy of the command-line string and all previously returned
+                /// argument slices.
+                pub fn deinit(self: *Windows) void {
+                    self.allocator.free(self.buffer);
+                }
+            };
+        };
+
+        /// Caller owns returned allocation.
+        /// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+        /// On other platforms, the result is an opaque sequence of bytes with
+        /// no particular encoding, often assumed to be UTF-8 by convention.
+        pub fn toSlice(a: Args, gpa: Allocator) Iterator.InitError![][:0]u8 {
+            var it: Iterator = it: {
+                switch (builtin.os.tag) {
+                    .windows => {
+                        // Need to re-encode as WTF-8.
+                        break :it .{ .inner = try Iterator.Windows.initFromPeb(gpa) };
+                    },
+                    .wasi => if (!builtin.link_libc) {
+                        // Need to fetch arg data from extern functions.
+                        break :it .{ .inner = try Iterator.Wasi.init(gpa) };
+                    },
+                    else => {},
+                }
+                const slices = try gpa.alloc([:0]u8, a.data.len);
+                errdefer comptime unreachable;
+                for (slices, a.data) |*slice, arg| slice.* = mem.sliceTo(arg, 0);
+                return slices;
+            };
+            defer it.deinit();
+
+            var contents = std.ArrayList(u8).init(gpa);
+            defer contents.deinit();
+
+            var slice_list = std.ArrayList(usize).init(gpa);
+            defer slice_list.deinit();
+
+            while (it.next()) |arg| {
+                try contents.appendSlice(arg[0 .. arg.len + 1]);
+                try slice_list.append(arg.len);
+            }
+
+            const contents_slice = contents.items;
+            const slice_sizes = slice_list.items;
+            const slice_list_bytes = math.mul(usize, @sizeOf([]u8), slice_sizes.len) catch return error.OutOfMemory;
+            const total_bytes = math.add(usize, slice_list_bytes, contents_slice.len) catch return error.OutOfMemory;
+            const buf = try gpa.alignedAlloc(u8, @alignOf([]u8), total_bytes);
+            errdefer gpa.free(buf);
+
+            const result_slice_list = mem.bytesAsSlice([:0]u8, buf[0..slice_list_bytes]);
+            const result_contents = buf[slice_list_bytes..];
+            @memcpy(result_contents[0..contents_slice.len], contents_slice);
+
+            var contents_index: usize = 0;
+            for (slice_sizes, 0..) |len, i| {
+                const new_index = contents_index + len;
+                result_slice_list[i] = result_contents[contents_index..new_index :0];
+                contents_index = new_index + 1;
+            }
+
+            return result_slice_list;
+        }
+
+        /// Frees the return value of `toSlice`, which is unnecessary if an
+        /// arena allocator was used.
+        pub fn freeSlice(gpa: Allocator, allocated_slice: []const [:0]u8) void {
+            switch (builtin.os.tag) {
+                .windows => {
+                    var total_bytes: usize = 0;
+                    for (allocated_slice) |arg| {
+                        total_bytes += @sizeOf([]u8) + arg.len + 1;
+                    }
+                    const unaligned_allocated_buf = @as([*]const u8, @ptrCast(allocated_slice.ptr))[0..total_bytes];
+                    const aligned_allocated_buf: []align(@alignOf([]u8)) const u8 = @alignCast(unaligned_allocated_buf);
+                    return gpa.free(aligned_allocated_buf);
+                },
+                else => {
+                    gpa.free(allocated_slice);
+                },
+            }
+        }
+
+        /// Initialize the args iterator. Alternatively, `initWithAllocator` is
+        /// available for cross-platform compatibility.
+        pub fn iterate(a: Args) Iterator {
+            if (native_os == .wasi) {
+                @compileError("In WASI, use initWithAllocator instead.");
+            }
+            if (native_os == .windows) {
+                @compileError("In Windows, use initWithAllocator instead.");
+            }
+
+            return .{ .inner = .init(a.data) };
+        }
+
+        /// Returned `Iterator` has allocated resources to be freed with `deinit`.
+        pub fn iterateWithAllocator(a: Args, gpa: Allocator) Iterator.InitError!Iterator {
+            if (native_os == .wasi and !builtin.link_libc) {
+                return .{ .inner = try Iterator.Wasi.init(gpa) };
+            }
+            if (native_os == .windows) {
+                return .{ .inner = try Iterator.Windows.initFromPeb(gpa) };
+            }
+
+            return .{ .inner = .init(a.data) };
+        }
+    };
+
+    pub const Env = struct {
+        data: Data,
+
+        const Data = switch (native_os) {
+            .freestanding, .other, .windows, .wasi => void,
+            else => [][*:0]u8,
+        };
+    };
+
+    pub const Aux = struct {
+        data: Data,
+
+        const Data = switch (native_os) {
+            .linux => if (builtin.link_libc) void else [*]std.elf.Auxv,
+            else => void,
+        };
+    };
+};
+
 pub const GetCwdError = posix.GetCwdError;
 
 /// The result is a slice of `out_buffer`, from index `0`.
@@ -121,7 +684,7 @@ pub const EnvMap = struct {
     /// That allocator will be used for both backing allocations
     /// and string deduplication.
     pub fn init(allocator: Allocator) EnvMap {
-        return EnvMap{ .hash_map = HashMap.init(allocator) };
+        return .{ .hash_map = HashMap.init(allocator) };
     }
 
     /// Free the backing storage of the map, as well as all
@@ -574,388 +1137,22 @@ test hasEnvVar {
     try testing.expect(!has_env);
 }
 
-pub const ArgIteratorPosix = struct {
-    index: usize,
-    count: usize,
+/// Deprecated, to be removed after 0.14.0 is tagged.
+pub const ArgIteratorPosix = Init.Args.Iterator.Posix;
+/// Deprecated, to be removed after 0.14.0 is tagged.
+pub const ArgIteratorWasi = Init.Args.Iterator.Wasi;
+/// Deprecated, to be removed after 0.14.0 is tagged.
+pub const ArgIteratorWindows = Init.Args.Iterator.Windows;
+/// Deprecated, to be removed after 0.14.0 is tagged.
+pub const ArgIterator = Init.Args.Iterator;
 
-    pub const InitError = error{};
-
-    pub fn init() ArgIteratorPosix {
-        return ArgIteratorPosix{
-            .index = 0,
-            .count = std.os.argv.len,
-        };
-    }
-
-    pub fn next(self: *ArgIteratorPosix) ?[:0]const u8 {
-        if (self.index == self.count) return null;
-
-        const s = std.os.argv[self.index];
-        self.index += 1;
-        return mem.sliceTo(s, 0);
-    }
-
-    pub fn skip(self: *ArgIteratorPosix) bool {
-        if (self.index == self.count) return false;
-
-        self.index += 1;
-        return true;
-    }
-};
-
-pub const ArgIteratorWasi = struct {
-    allocator: Allocator,
-    index: usize,
-    args: [][:0]u8,
-
-    pub const InitError = error{OutOfMemory} || posix.UnexpectedError;
-
-    /// You must call deinit to free the internal buffer of the
-    /// iterator after you are done.
-    pub fn init(allocator: Allocator) InitError!ArgIteratorWasi {
-        const fetched_args = try ArgIteratorWasi.internalInit(allocator);
-        return ArgIteratorWasi{
-            .allocator = allocator,
-            .index = 0,
-            .args = fetched_args,
-        };
-    }
-
-    fn internalInit(allocator: Allocator) InitError![][:0]u8 {
-        var count: usize = undefined;
-        var buf_size: usize = undefined;
-
-        switch (std.os.wasi.args_sizes_get(&count, &buf_size)) {
-            .SUCCESS => {},
-            else => |err| return posix.unexpectedErrno(err),
-        }
-
-        if (count == 0) {
-            return &[_][:0]u8{};
-        }
-
-        const argv = try allocator.alloc([*:0]u8, count);
-        defer allocator.free(argv);
-
-        const argv_buf = try allocator.alloc(u8, buf_size);
-
-        switch (std.os.wasi.args_get(argv.ptr, argv_buf.ptr)) {
-            .SUCCESS => {},
-            else => |err| return posix.unexpectedErrno(err),
-        }
-
-        var result_args = try allocator.alloc([:0]u8, count);
-        var i: usize = 0;
-        while (i < count) : (i += 1) {
-            result_args[i] = mem.sliceTo(argv[i], 0);
-        }
-
-        return result_args;
-    }
-
-    pub fn next(self: *ArgIteratorWasi) ?[:0]const u8 {
-        if (self.index == self.args.len) return null;
-
-        const arg = self.args[self.index];
-        self.index += 1;
-        return arg;
-    }
-
-    pub fn skip(self: *ArgIteratorWasi) bool {
-        if (self.index == self.args.len) return false;
-
-        self.index += 1;
-        return true;
-    }
-
-    /// Call to free the internal buffer of the iterator.
-    pub fn deinit(self: *ArgIteratorWasi) void {
-        const last_item = self.args[self.args.len - 1];
-        const last_byte_addr = @intFromPtr(last_item.ptr) + last_item.len + 1; // null terminated
-        const first_item_ptr = self.args[0].ptr;
-        const len = last_byte_addr - @intFromPtr(first_item_ptr);
-        self.allocator.free(first_item_ptr[0..len]);
-        self.allocator.free(self.args);
-    }
-};
-
-/// Iterator that implements the Windows command-line parsing algorithm.
-/// The implementation is intended to be compatible with the post-2008 C runtime,
-/// but is *not* intended to be compatible with `CommandLineToArgvW` since
-/// `CommandLineToArgvW` uses the pre-2008 parsing rules.
-///
-/// This iterator faithfully implements the parsing behavior observed from the C runtime with
-/// one exception: if the command-line string is empty, the iterator will immediately complete
-/// without returning any arguments (whereas the C runtime will return a single argument
-/// representing the name of the current executable).
-///
-/// The essential parts of the algorithm are described in Microsoft's documentation:
-///
-/// - https://learn.microsoft.com/en-us/cpp/cpp/main-function-command-line-args?view=msvc-170#parsing-c-command-line-arguments
-///
-/// David Deley explains some additional undocumented quirks in great detail:
-///
-/// - https://daviddeley.com/autohotkey/parameters/parameters.htm#WINCRULES
-pub const ArgIteratorWindows = struct {
-    allocator: Allocator,
-    /// Encoded as WTF-16 LE.
-    cmd_line: []const u16,
-    index: usize = 0,
-    /// Owned by the iterator. Long enough to hold contiguous NUL-terminated slices
-    /// of each argument encoded as WTF-8.
-    buffer: []u8,
-    start: usize = 0,
-    end: usize = 0,
-
-    pub const InitError = error{OutOfMemory};
-
-    /// `cmd_line_w` *must* be a WTF16-LE-encoded string.
-    ///
-    /// The iterator stores and uses `cmd_line_w`, so its memory must be valid for
-    /// at least as long as the returned ArgIteratorWindows.
-    pub fn init(allocator: Allocator, cmd_line_w: []const u16) InitError!ArgIteratorWindows {
-        const wtf8_len = unicode.calcWtf8Len(cmd_line_w);
-
-        // This buffer must be large enough to contain contiguous NUL-terminated slices
-        // of each argument.
-        // - During parsing, the length of a parsed argument will always be equal to
-        //   to less than its unparsed length
-        // - The first argument needs one extra byte of space allocated for its NUL
-        //   terminator, but for each subsequent argument the necessary whitespace
-        //   between arguments guarantees room for their NUL terminator(s).
-        const buffer = try allocator.alloc(u8, wtf8_len + 1);
-        errdefer allocator.free(buffer);
-
-        return .{
-            .allocator = allocator,
-            .cmd_line = cmd_line_w,
-            .buffer = buffer,
-        };
-    }
-
-    /// Returns the next argument and advances the iterator. Returns `null` if at the end of the
-    /// command-line string. The iterator owns the returned slice.
-    /// The result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-    pub fn next(self: *ArgIteratorWindows) ?[:0]const u8 {
-        return self.nextWithStrategy(next_strategy);
-    }
-
-    /// Skips the next argument and advances the iterator. Returns `true` if an argument was
-    /// skipped, `false` if at the end of the command-line string.
-    pub fn skip(self: *ArgIteratorWindows) bool {
-        return self.nextWithStrategy(skip_strategy);
-    }
-
-    const next_strategy = struct {
-        const T = ?[:0]const u8;
-
-        const eof = null;
-
-        /// Returns '\' if any backslashes are emitted, otherwise returns `last_emitted_code_unit`.
-        fn emitBackslashes(self: *ArgIteratorWindows, count: usize, last_emitted_code_unit: ?u16) ?u16 {
-            for (0..count) |_| {
-                self.buffer[self.end] = '\\';
-                self.end += 1;
-            }
-            return if (count != 0) '\\' else last_emitted_code_unit;
-        }
-
-        /// If `last_emitted_code_unit` and `code_unit` form a surrogate pair, then
-        /// the previously emitted high surrogate is overwritten by the codepoint encoded
-        /// by the surrogate pair, and `null` is returned.
-        /// Otherwise, `code_unit` is emitted and returned.
-        fn emitCharacter(self: *ArgIteratorWindows, code_unit: u16, last_emitted_code_unit: ?u16) ?u16 {
-            // Because we are emitting WTF-8, we need to
-            // check to see if we've emitted two consecutive surrogate
-            // codepoints that form a valid surrogate pair in order
-            // to ensure that we're always emitting well-formed WTF-8
-            // (https://simonsapin.github.io/wtf-8/#concatenating).
-            //
-            // If we do have a valid surrogate pair, we need to emit
-            // the UTF-8 sequence for the codepoint that they encode
-            // instead of the WTF-8 encoding for the two surrogate pairs
-            // separately.
-            //
-            // This is relevant when dealing with a WTF-16 encoded
-            // command line like this:
-            // "<0xD801>"<0xDC37>
-            // which would get parsed and converted to WTF-8 as:
-            // <0xED><0xA0><0x81><0xED><0xB0><0xB7>
-            // but instead, we need to recognize the surrogate pair
-            // and emit the codepoint it encodes, which in this
-            // example is U+10437 (𐐷), which is encoded in UTF-8 as:
-            // <0xF0><0x90><0x90><0xB7>
-            if (last_emitted_code_unit != null and
-                std.unicode.utf16IsLowSurrogate(code_unit) and
-                std.unicode.utf16IsHighSurrogate(last_emitted_code_unit.?))
-            {
-                const codepoint = std.unicode.utf16DecodeSurrogatePair(&.{ last_emitted_code_unit.?, code_unit }) catch unreachable;
-
-                // Unpaired surrogate is 3 bytes long
-                const dest = self.buffer[self.end - 3 ..];
-                const len = unicode.utf8Encode(codepoint, dest) catch unreachable;
-                // All codepoints that require a surrogate pair (> U+FFFF) are encoded as 4 bytes
-                assert(len == 4);
-                self.end += 1;
-                return null;
-            }
-
-            const wtf8_len = std.unicode.wtf8Encode(code_unit, self.buffer[self.end..]) catch unreachable;
-            self.end += wtf8_len;
-            return code_unit;
-        }
-
-        fn yieldArg(self: *ArgIteratorWindows) [:0]const u8 {
-            self.buffer[self.end] = 0;
-            const arg = self.buffer[self.start..self.end :0];
-            self.end += 1;
-            self.start = self.end;
-            return arg;
-        }
-    };
-
-    const skip_strategy = struct {
-        const T = bool;
-
-        const eof = false;
-
-        fn emitBackslashes(_: *ArgIteratorWindows, _: usize, last_emitted_code_unit: ?u16) ?u16 {
-            return last_emitted_code_unit;
-        }
-
-        fn emitCharacter(_: *ArgIteratorWindows, _: u16, last_emitted_code_unit: ?u16) ?u16 {
-            return last_emitted_code_unit;
-        }
-
-        fn yieldArg(_: *ArgIteratorWindows) bool {
-            return true;
-        }
-    };
-
-    fn nextWithStrategy(self: *ArgIteratorWindows, comptime strategy: type) strategy.T {
-        var last_emitted_code_unit: ?u16 = null;
-        // The first argument (the executable name) uses different parsing rules.
-        if (self.index == 0) {
-            if (self.cmd_line.len == 0 or self.cmd_line[0] == 0) {
-                // Immediately complete the iterator.
-                // The C runtime would return the name of the current executable here.
-                return strategy.eof;
-            }
-
-            var inside_quotes = false;
-            while (true) : (self.index += 1) {
-                const char = if (self.index != self.cmd_line.len)
-                    mem.littleToNative(u16, self.cmd_line[self.index])
-                else
-                    0;
-                switch (char) {
-                    0 => {
-                        return strategy.yieldArg(self);
-                    },
-                    '"' => {
-                        inside_quotes = !inside_quotes;
-                    },
-                    ' ', '\t' => {
-                        if (inside_quotes) {
-                            last_emitted_code_unit = strategy.emitCharacter(self, char, last_emitted_code_unit);
-                        } else {
-                            self.index += 1;
-                            return strategy.yieldArg(self);
-                        }
-                    },
-                    else => {
-                        last_emitted_code_unit = strategy.emitCharacter(self, char, last_emitted_code_unit);
-                    },
-                }
-            }
-        }
-
-        // Skip spaces and tabs. The iterator completes if we reach the end of the string here.
-        while (true) : (self.index += 1) {
-            const char = if (self.index != self.cmd_line.len)
-                mem.littleToNative(u16, self.cmd_line[self.index])
-            else
-                0;
-            switch (char) {
-                0 => return strategy.eof,
-                ' ', '\t' => continue,
-                else => break,
-            }
-        }
-
-        // Parsing rules for subsequent arguments:
-        //
-        // - The end of the string always terminates the current argument.
-        // - When not in 'inside_quotes' mode, a space or tab terminates the current argument.
-        // - 2n backslashes followed by a quote emit n backslashes (note: n can be zero).
-        //   If in 'inside_quotes' and the quote is immediately followed by a second quote,
-        //   one quote is emitted and the other is skipped, otherwise, the quote is skipped
-        //   and 'inside_quotes' is toggled.
-        // - 2n + 1 backslashes followed by a quote emit n backslashes followed by a quote.
-        // - n backslashes not followed by a quote emit n backslashes.
-        var backslash_count: usize = 0;
-        var inside_quotes = false;
-        while (true) : (self.index += 1) {
-            const char = if (self.index != self.cmd_line.len)
-                mem.littleToNative(u16, self.cmd_line[self.index])
-            else
-                0;
-            switch (char) {
-                0 => {
-                    last_emitted_code_unit = strategy.emitBackslashes(self, backslash_count, last_emitted_code_unit);
-                    return strategy.yieldArg(self);
-                },
-                ' ', '\t' => {
-                    last_emitted_code_unit = strategy.emitBackslashes(self, backslash_count, last_emitted_code_unit);
-                    backslash_count = 0;
-                    if (inside_quotes) {
-                        last_emitted_code_unit = strategy.emitCharacter(self, char, last_emitted_code_unit);
-                    } else return strategy.yieldArg(self);
-                },
-                '"' => {
-                    const char_is_escaped_quote = backslash_count % 2 != 0;
-                    last_emitted_code_unit = strategy.emitBackslashes(self, backslash_count / 2, last_emitted_code_unit);
-                    backslash_count = 0;
-                    if (char_is_escaped_quote) {
-                        last_emitted_code_unit = strategy.emitCharacter(self, '"', last_emitted_code_unit);
-                    } else {
-                        if (inside_quotes and
-                            self.index + 1 != self.cmd_line.len and
-                            mem.littleToNative(u16, self.cmd_line[self.index + 1]) == '"')
-                        {
-                            last_emitted_code_unit = strategy.emitCharacter(self, '"', last_emitted_code_unit);
-                            self.index += 1;
-                        } else {
-                            inside_quotes = !inside_quotes;
-                        }
-                    }
-                },
-                '\\' => {
-                    backslash_count += 1;
-                },
-                else => {
-                    last_emitted_code_unit = strategy.emitBackslashes(self, backslash_count, last_emitted_code_unit);
-                    backslash_count = 0;
-                    last_emitted_code_unit = strategy.emitCharacter(self, char, last_emitted_code_unit);
-                },
-            }
-        }
-    }
-
-    /// Frees the iterator's copy of the command-line string and all previously returned
-    /// argument slices.
-    pub fn deinit(self: *ArgIteratorWindows) void {
-        self.allocator.free(self.buffer);
-    }
-};
-
-/// Optional parameters for `ArgIteratorGeneral`
+/// Deprecated, to be removed after 0.14.0 is tagged.
 pub const ArgIteratorGeneralOptions = struct {
     comments: bool = false,
     single_quotes: bool = false,
 };
 
-/// A general Iterator to parse a string into a set of arguments
+/// Deprecated, to be removed after 0.14.0 is tagged.
 pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
     return struct {
         allocator: Allocator,
@@ -1153,132 +1350,31 @@ pub fn ArgIteratorGeneral(comptime options: ArgIteratorGeneralOptions) type {
     };
 }
 
-/// Cross-platform command line argument iterator.
-pub const ArgIterator = struct {
-    const InnerType = switch (native_os) {
-        .windows => ArgIteratorWindows,
-        .wasi => if (builtin.link_libc) ArgIteratorPosix else ArgIteratorWasi,
-        else => ArgIteratorPosix,
-    };
-
-    inner: InnerType,
-
-    /// Initialize the args iterator. Consider using initWithAllocator() instead
-    /// for cross-platform compatibility.
-    pub fn init() ArgIterator {
-        if (native_os == .wasi) {
-            @compileError("In WASI, use initWithAllocator instead.");
-        }
-        if (native_os == .windows) {
-            @compileError("In Windows, use initWithAllocator instead.");
-        }
-
-        return ArgIterator{ .inner = InnerType.init() };
-    }
-
-    pub const InitError = InnerType.InitError;
-
-    /// You must deinitialize iterator's internal buffers by calling `deinit` when done.
-    pub fn initWithAllocator(allocator: Allocator) InitError!ArgIterator {
-        if (native_os == .wasi and !builtin.link_libc) {
-            return ArgIterator{ .inner = try InnerType.init(allocator) };
-        }
-        if (native_os == .windows) {
-            const cmd_line = std.os.windows.peb().ProcessParameters.CommandLine;
-            const cmd_line_w = cmd_line.Buffer.?[0 .. cmd_line.Length / 2];
-            return ArgIterator{ .inner = try InnerType.init(allocator, cmd_line_w) };
-        }
-
-        return ArgIterator{ .inner = InnerType.init() };
-    }
-
-    /// Get the next argument. Returns 'null' if we are at the end.
-    /// Returned slice is pointing to the iterator's internal buffer.
-    /// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-    /// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
-    pub fn next(self: *ArgIterator) ?([:0]const u8) {
-        return self.inner.next();
-    }
-
-    /// Parse past 1 argument without capturing it.
-    /// Returns `true` if skipped an arg, `false` if we are at the end.
-    pub fn skip(self: *ArgIterator) bool {
-        return self.inner.skip();
-    }
-
-    /// Call this to free the iterator's internal buffer if the iterator
-    /// was created with `initWithAllocator` function.
-    pub fn deinit(self: *ArgIterator) void {
-        // Unless we're targeting WASI or Windows, this is a no-op.
-        if (native_os == .wasi and !builtin.link_libc) {
-            self.inner.deinit();
-        }
-
-        if (native_os == .windows) {
-            self.inner.deinit();
-        }
-    }
-};
-
-/// Holds the command-line arguments, with the program name as the first entry.
-/// Use argsWithAllocator() for cross-platform code.
-pub fn args() ArgIterator {
-    return ArgIterator.init();
+/// Deprecated in favor of `Init.Args.iterate`.
+/// To be removed after 0.14.0 is tagged.
+pub fn args() Init.Args.Iterator {
+    var a: Init.Args = .{ .data = if (Init.Args.Data == void) {} else std.os.argv };
+    return a.iterate();
 }
 
-/// You must deinitialize iterator's internal buffers by calling `deinit` when done.
-pub fn argsWithAllocator(allocator: Allocator) ArgIterator.InitError!ArgIterator {
-    return ArgIterator.initWithAllocator(allocator);
+/// Deprecated in favor of `Init.Args.iterate`.
+/// To be removed after 0.14.0 is tagged.
+pub fn argsWithAllocator(allocator: Allocator) ArgIterator.InitError!Init.Args.Iterator {
+    var a: Init.Args = .{ .data = if (Init.Args.Data == void) {} else std.os.argv };
+    return a.iterateWithAllocator(allocator);
 }
 
-/// Caller must call argsFree on result.
-/// On Windows, the result is encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-/// On other platforms, the result is an opaque sequence of bytes with no particular encoding.
+/// Deprecated in favor of `Init.Args.toSlice`.
+/// To be removed after 0.14.0 is tagged.
 pub fn argsAlloc(allocator: Allocator) ![][:0]u8 {
-    // TODO refactor to only make 1 allocation.
-    var it = try argsWithAllocator(allocator);
-    defer it.deinit();
-
-    var contents = std.ArrayList(u8).init(allocator);
-    defer contents.deinit();
-
-    var slice_list = std.ArrayList(usize).init(allocator);
-    defer slice_list.deinit();
-
-    while (it.next()) |arg| {
-        try contents.appendSlice(arg[0 .. arg.len + 1]);
-        try slice_list.append(arg.len);
-    }
-
-    const contents_slice = contents.items;
-    const slice_sizes = slice_list.items;
-    const slice_list_bytes = try math.mul(usize, @sizeOf([]u8), slice_sizes.len);
-    const total_bytes = try math.add(usize, slice_list_bytes, contents_slice.len);
-    const buf = try allocator.alignedAlloc(u8, @alignOf([]u8), total_bytes);
-    errdefer allocator.free(buf);
-
-    const result_slice_list = mem.bytesAsSlice([:0]u8, buf[0..slice_list_bytes]);
-    const result_contents = buf[slice_list_bytes..];
-    @memcpy(result_contents[0..contents_slice.len], contents_slice);
-
-    var contents_index: usize = 0;
-    for (slice_sizes, 0..) |len, i| {
-        const new_index = contents_index + len;
-        result_slice_list[i] = result_contents[contents_index..new_index :0];
-        contents_index = new_index + 1;
-    }
-
-    return result_slice_list;
+    var a: Init.Args = .{ .data = if (Init.Args.Data == void) {} else std.os.argv };
+    return a.toSlice(allocator);
 }
 
+/// Deprecated in favor of `Init.Args.freeSlice`.
+/// To be removed after 0.14.0 is tagged.
 pub fn argsFree(allocator: Allocator, args_alloc: []const [:0]u8) void {
-    var total_bytes: usize = 0;
-    for (args_alloc) |arg| {
-        total_bytes += @sizeOf([]u8) + arg.len + 1;
-    }
-    const unaligned_allocated_buf = @as([*]const u8, @ptrCast(args_alloc.ptr))[0..total_bytes];
-    const aligned_allocated_buf: []align(@alignOf([]u8)) const u8 = @alignCast(unaligned_allocated_buf);
-    return allocator.free(aligned_allocated_buf);
+    Init.Args.freeSlice(allocator, args_alloc);
 }
 
 test ArgIteratorWindows {

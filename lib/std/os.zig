@@ -41,14 +41,14 @@ test {
     _ = windows;
 }
 
-/// See also `getenv`. Populated by startup code before main().
-/// TODO this is a footgun because the value will be undefined when using `zig build-lib`.
-/// https://github.com/ziglang/zig/issues/4524
+/// Deprecated in favor of accepting a `std.process.Init` argument to main.
+/// To be removed after 0.14.0 is tagged.
+/// See https://github.com/ziglang/zig/issues/4524 for more details.
 pub var environ: [][*:0]u8 = undefined;
 
-/// Populated by startup code before main().
-/// Not available on WASI or Windows without libc. See `std.process.argsAlloc`
-/// or `std.process.argsWithAllocator` for a cross-platform alternative.
+/// Deprecated in favor of accepting a `std.process.Init` argument to main.
+/// To be removed after 0.14.0 is tagged.
+/// See https://github.com/ziglang/zig/issues/4524 for more details.
 pub var argv: [][*:0]u8 = if (builtin.link_libc) undefined else switch (native_os) {
     .windows => @compileError("argv isn't supported on Windows: use std.process.argsAlloc instead"),
     .wasi => @compileError("argv isn't supported on WASI: use std.process.argsAlloc instead"),
