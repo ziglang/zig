@@ -6887,7 +6887,7 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .any,
                         },
                         .patterns = &.{
-                            .{ .src = .{ .mem, .mem, .none } },
+                            .{ .src = .{ .to_mem, .to_mem, .none } },
                         },
                         .call_frame = .{ .size = 16, .alignment = .@"16" },
                         .extra_temps = .{
@@ -6913,75 +6913,6 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
                             .{ ._, .f_p, .div, ._, ._, ._, ._ },
                             .{ ._, .f_p, .st, .mem(.tmp2t), ._, ._, ._ },
                             .{ ._, ._, .call, .tmp3d, ._, ._, ._ },
-                        } },
-                    }, .{
-                        .required_features = .{ .x87, null, null, null },
-                        .src_constraints = .{
-                            .{ .scalar_float = .{ .of = .xword, .is = .tbyte } },
-                            .{ .scalar_float = .{ .of = .xword, .is = .tbyte } },
-                            .any,
-                        },
-                        .patterns = &.{
-                            .{ .src = .{ .to_x87, .mem, .none } },
-                        },
-                        .call_frame = .{ .size = 16, .alignment = .@"16" },
-                        .extra_temps = .{
-                            .{ .type = .f80, .kind = .{ .reg = .st7 } },
-                            .{ .type = .f80, .kind = .{ .frame = .call_frame } },
-                            .{ .type = .usize, .kind = .{ .symbol = &.{ .name = switch (direction) {
-                                else => unreachable,
-                                .zero => "__truncx",
-                                .down => "__floorx",
-                            } } } },
-                            .unused,
-                            .unused,
-                            .unused,
-                            .unused,
-                            .unused,
-                            .unused,
-                        },
-                        .dst_temps = .{.{ .reg = .st0 }},
-                        .clobbers = .{ .eflags = true, .caller_preserved = .ccc },
-                        .each = .{ .once = &.{
-                            .{ ._, .f_, .ld, .src0t, ._, ._, ._ },
-                            .{ ._, .f_, .divr, .tmp0t, .src1t, ._, ._ },
-                            .{ ._, .f_p, .st, .mem(.tmp1t), ._, ._, ._ },
-                            .{ ._, ._, .call, .tmp2d, ._, ._, ._ },
-                        } },
-                    }, .{
-                        .required_features = .{ .x87, null, null, null },
-                        .src_constraints = .{
-                            .{ .scalar_float = .{ .of = .xword, .is = .tbyte } },
-                            .{ .scalar_float = .{ .of = .xword, .is = .tbyte } },
-                            .any,
-                        },
-                        .patterns = &.{
-                            .{ .src = .{ .mem, .to_x87, .none } },
-                            .{ .src = .{ .to_x87, .to_x87, .none } },
-                        },
-                        .call_frame = .{ .size = 16, .alignment = .@"16" },
-                        .extra_temps = .{
-                            .{ .type = .f80, .kind = .{ .reg = .st7 } },
-                            .{ .type = .f80, .kind = .{ .frame = .call_frame } },
-                            .{ .type = .usize, .kind = .{ .symbol = &.{ .name = switch (direction) {
-                                else => unreachable,
-                                .zero => "__truncx",
-                                .down => "__floorx",
-                            } } } },
-                            .unused,
-                            .unused,
-                            .unused,
-                            .unused,
-                            .unused,
-                            .unused,
-                        },
-                        .dst_temps = .{.{ .reg = .st0 }},
-                        .clobbers = .{ .eflags = true, .caller_preserved = .ccc },
-                        .each = .{ .once = &.{
-                            .{ ._, .f_, .ld, .src0t, ._, ._, ._ },
-                            .{ ._, .f_, .div, .tmp0t, .src1t, ._, ._ },
-                            .{ ._, .f_p, .st, .mem(.tmp1t), ._, ._, ._ },
-                            .{ ._, ._, .call, .tmp2d, ._, ._, ._ },
                         } },
                     }, .{
                         .required_features = .{ .x87, null, null, null },
