@@ -4722,6 +4722,9 @@ pub const TIMERFD_CLOCK = timerfd_clockid_t;
 pub const timerfd_clockid_t = enum(u32) {
     REALTIME = 0,
     MONOTONIC = 1,
+    BOOTTIME = 7,
+    REALTIME_ALARM = 8,
+    BOOTTIME_ALARM = 9,
     _,
 };
 

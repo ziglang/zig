@@ -39,6 +39,8 @@ const AnalUnit = InternPool.AnalUnit;
 const BuiltinFn = std.zig.BuiltinFn;
 const LlvmObject = @import("codegen/llvm.zig").Object;
 const dev = @import("dev.zig");
+const Zoir = std.zig.Zoir;
+const ZonGen = std.zig.ZonGen;
 
 comptime {
     @setEvalBranchQuota(4000);
@@ -672,6 +674,8 @@ pub const File = struct {
     tree: Ast,
     /// Whether this is populated or not depends on `zir_loaded`.
     zir: Zir,
+    /// Cached Zoir, generated lazily.
+    zoir: ?Zoir = null,
     /// Module that this file is a part of, managed externally.
     mod: *Package.Module,
     /// Whether this file is a part of multiple packages. This is an error condition which will be reported after AstGen.
@@ -704,7 +708,19 @@ pub const File = struct {
         root: *Package.Module,
     };
 
+    pub fn getMode(self: File) Ast.Mode {
+        if (std.mem.endsWith(u8, self.sub_file_path, ".zon")) {
+            return .zon;
+        } else if (std.mem.endsWith(u8, self.sub_file_path, ".zig")) {
+            return .zig;
+        } else {
+            // `Module.importFile` rejects all other extensions
+            unreachable;
+        }
+    }
+
     pub fn unload(file: *File, gpa: Allocator) void {
+        if (file.zoir) |zoir| zoir.deinit(gpa);
         file.unloadTree(gpa);
         file.unloadSource(gpa);
         file.unloadZir(gpa);
@@ -778,9 +794,22 @@ pub const File = struct {
         if (file.tree_loaded) return &file.tree;
 
         const source = try file.getSource(gpa);
-        file.tree = try Ast.parse(gpa, source.bytes, .zig);
+        file.tree = try Ast.parse(gpa, source.bytes, file.getMode());
         file.tree_loaded = true;
         return &file.tree;
+    }
+
+    pub fn getZoir(file: *File, zcu: *Zcu) !*const Zoir {
+        if (file.zoir) |*zoir| return zoir;
+
+        assert(file.tree_loaded);
+        assert(file.tree.mode == .zon);
+        file.zoir = try ZonGen.generate(zcu.gpa, file.tree, .{});
+        if (file.zoir.?.hasCompileErrors()) {
+            try zcu.failed_files.putNoClobber(zcu.gpa, file, null);
+            return error.AnalysisFail;
+        }
+        return &file.zoir.?;
     }
 
     pub fn fullyQualifiedNameLen(file: File) usize {
@@ -895,6 +924,7 @@ pub const File = struct {
     pub const Index = InternPool.FileIndex;
 };
 
+/// Represents the contents of a file loaded with `@embedFile`.
 pub const EmbedFile = struct {
     /// Module that this file is a part of, managed externally.
     owner: *Package.Module,
@@ -2372,6 +2402,12 @@ pub const LazySrcLoc = struct {
             break :inst .{ info.file, info.inst };
         };
         const file = zcu.fileByIndex(file_index);
+
+        // If we're relative to .main_struct_inst, we know the ast node is the root and don't need to resolve the ZIR,
+        // which may not exist e.g. in the case of errors in ZON files.
+        if (zir_inst == .main_struct_inst) return .{ file, 0 };
+
+        // Otherwise, make sure ZIR is loaded.
         assert(file.zir_loaded);
 
         const zir = file.zir;
@@ -3461,8 +3497,6 @@ pub fn atomicPtrAlignment(
 }
 
 /// Returns null in the following cases:
-/// * `@TypeOf(.{})`
-/// * A struct which has no fields (`struct {}`).
 /// * Not a struct.
 pub fn typeToStruct(zcu: *const Zcu, ty: Type) ?InternPool.LoadedStructType {
     if (ty.ip_index == .none) return null;
