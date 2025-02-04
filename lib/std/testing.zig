@@ -7,7 +7,9 @@ const math = std.math;
 /// Initialized on startup. Read-only after that.
 pub var random_seed: u32 = 0;
 
-pub const FailingAllocator = @import("testing/failing_allocator.zig").FailingAllocator;
+pub const FailingAllocator = @import("testing/FailingAllocator.zig");
+pub const failing_allocator = failing_allocator_instance.allocator();
+pub var failing_allocator_instance = FailingAllocator.init(base_allocator_instance.allocator(), .{ .fail_index = 0 });
 
 /// This should only be used in temporary test programs.
 pub const allocator = allocator_instance.allocator();
@@ -16,9 +18,6 @@ pub var allocator_instance: std.heap.GeneralPurposeAllocator(.{}) = b: {
         @compileError("Cannot use testing allocator outside of test block");
     break :b .init;
 };
-
-pub const failing_allocator = failing_allocator_instance.allocator();
-pub var failing_allocator_instance = FailingAllocator.init(base_allocator_instance.allocator(), .{ .fail_index = 0 });
 
 pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 
