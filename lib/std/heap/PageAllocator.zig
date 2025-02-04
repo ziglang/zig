@@ -140,7 +140,8 @@ fn free(context: *anyopaque, slice: []u8, alignment: mem.Alignment, return_addre
     }
 }
 
-fn realloc(memory: []u8, new_len: usize, may_move: bool) ?[*]u8 {
+fn realloc(uncasted_memory: []u8, new_len: usize, may_move: bool) ?[*]u8 {
+    const memory: []align(std.heap.page_size_min) u8 = @alignCast(uncasted_memory);
     const page_size = std.heap.pageSize();
     const new_size_aligned = mem.alignForward(usize, new_len, page_size);
 
@@ -153,7 +154,7 @@ fn realloc(memory: []u8, new_len: usize, may_move: bool) ?[*]u8 {
                 // For shrinking that is not releasing, we will only decommit
                 // the pages not needed anymore.
                 windows.VirtualFree(
-                    @as(*anyopaque, @ptrFromInt(new_addr_end)),
+                    @ptrFromInt(new_addr_end),
                     old_addr_end - new_addr_end,
                     windows.MEM_DECOMMIT,
                 );
@@ -171,10 +172,11 @@ fn realloc(memory: []u8, new_len: usize, may_move: bool) ?[*]u8 {
     if (new_size_aligned == page_aligned_len)
         return memory.ptr;
 
-    const mremap_available = false; // native_os == .linux;
+    const mremap_available = native_os == .linux;
     if (mremap_available) {
         // TODO: if the next_mmap_addr_hint is within the remapped range, update it
-        return posix.mremap(memory, new_len, .{ .MAYMOVE = may_move }, null) catch return null;
+        const new_memory = posix.mremap(memory.ptr, memory.len, new_len, .{ .MAYMOVE = may_move }, null) catch return null;
+        return new_memory.ptr;
     }
 
     if (new_size_aligned < page_aligned_len) {

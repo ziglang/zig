@@ -83,6 +83,7 @@ pub const MAP = system.MAP;
 pub const MAX_ADDR_LEN = system.MAX_ADDR_LEN;
 pub const MFD = system.MFD;
 pub const MMAP2_UNIT = system.MMAP2_UNIT;
+pub const MREMAP = system.MREMAP;
 pub const MSF = system.MSF;
 pub const MSG = system.MSG;
 pub const NAME_MAX = system.NAME_MAX;
@@ -4806,6 +4807,40 @@ pub fn munmap(memory: []align(page_size_min) const u8) void {
         .INVAL => unreachable, // Invalid parameters.
         .NOMEM => unreachable, // Attempted to unmap a region in the middle of an existing mapping.
         else => unreachable,
+    }
+}
+
+pub const MRemapError = error{
+    LockedMemoryLimitExceeded,
+    /// Either a bug in the calling code, or the operating system abused the
+    /// EINVAL error code.
+    InvalidSyscallParameters,
+    OutOfMemory,
+} || UnexpectedError;
+
+pub fn mremap(
+    old_address: ?[*]align(page_size_min) u8,
+    old_len: usize,
+    new_len: usize,
+    flags: system.MREMAP,
+    new_address: ?[*]align(page_size_min) u8,
+) MRemapError![]align(page_size_min) u8 {
+    const rc = system.mremap(old_address, old_len, new_len, flags, new_address);
+    const err: E = if (builtin.link_libc) blk: {
+        if (rc != std.c.MAP_FAILED) return @as([*]align(page_size_min) u8, @ptrCast(@alignCast(rc)))[0..new_len];
+        break :blk @enumFromInt(system._errno().*);
+    } else blk: {
+        const err = errno(rc);
+        if (err == .SUCCESS) return @as([*]align(page_size_min) u8, @ptrFromInt(rc))[0..new_len];
+        break :blk err;
+    };
+    switch (err) {
+        .SUCCESS => unreachable,
+        .AGAIN => return error.LockedMemoryLimitExceeded,
+        .INVAL => return error.InvalidSyscallParameters,
+        .NOMEM => return error.OutOfMemory,
+        .FAULT => unreachable,
+        else => return unexpectedErrno(err),
     }
 }
 
