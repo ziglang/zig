@@ -2643,6 +2643,189 @@ pub fn loadZirCacheBody(gpa: Allocator, header: Zir.Header, cache_file: std.fs.F
     return zir;
 }
 
+pub fn saveZirCache(gpa: Allocator, cache_file: std.fs.File, stat: std.fs.File.Stat, zir: Zir) (std.fs.File.WriteError || Allocator.Error)!void {
+    const safety_buffer = if (data_has_safety_tag)
+        try gpa.alloc([8]u8, zir.instructions.len)
+    else
+        undefined;
+    defer if (data_has_safety_tag) gpa.free(safety_buffer);
+
+    const data_ptr: [*]const u8 = if (data_has_safety_tag)
+        if (zir.instructions.len == 0)
+            undefined
+        else
+            @ptrCast(safety_buffer.ptr)
+    else
+        @ptrCast(zir.instructions.items(.data).ptr);
+
+    if (data_has_safety_tag) {
+        // The `Data` union has a safety tag but in the file format we store it without.
+        for (zir.instructions.items(.data), 0..) |*data, i| {
+            const as_struct: *const HackDataLayout = @ptrCast(data);
+            safety_buffer[i] = as_struct.data;
+        }
+    }
+
+    const header: Zir.Header = .{
+        .instructions_len = @intCast(zir.instructions.len),
+        .string_bytes_len = @intCast(zir.string_bytes.len),
+        .extra_len = @intCast(zir.extra.len),
+
+        .stat_size = stat.size,
+        .stat_inode = stat.inode,
+        .stat_mtime = stat.mtime,
+    };
+    var iovecs: [5]std.posix.iovec_const = .{
+        .{
+            .base = @ptrCast(&header),
+            .len = @sizeOf(Zir.Header),
+        },
+        .{
+            .base = @ptrCast(zir.instructions.items(.tag).ptr),
+            .len = zir.instructions.len,
+        },
+        .{
+            .base = data_ptr,
+            .len = zir.instructions.len * 8,
+        },
+        .{
+            .base = zir.string_bytes.ptr,
+            .len = zir.string_bytes.len,
+        },
+        .{
+            .base = @ptrCast(zir.extra.ptr),
+            .len = zir.extra.len * 4,
+        },
+    };
+    try cache_file.writevAll(&iovecs);
+}
+
+pub fn saveZoirCache(cache_file: std.fs.File, stat: std.fs.File.Stat, zoir: Zoir) std.fs.File.WriteError!void {
+    const header: Zoir.Header = .{
+        .nodes_len = @intCast(zoir.nodes.len),
+        .extra_len = @intCast(zoir.extra.len),
+        .limbs_len = @intCast(zoir.limbs.len),
+        .string_bytes_len = @intCast(zoir.string_bytes.len),
+        .compile_errors_len = @intCast(zoir.compile_errors.len),
+        .error_notes_len = @intCast(zoir.error_notes.len),
+
+        .stat_size = stat.size,
+        .stat_inode = stat.inode,
+        .stat_mtime = stat.mtime,
+    };
+    var iovecs: [9]std.posix.iovec_const = .{
+        .{
+            .base = @ptrCast(&header),
+            .len = @sizeOf(Zoir.Header),
+        },
+        .{
+            .base = @ptrCast(zoir.nodes.items(.tag)),
+            .len = zoir.nodes.len * @sizeOf(Zoir.Node.Repr.Tag),
+        },
+        .{
+            .base = @ptrCast(zoir.nodes.items(.data)),
+            .len = zoir.nodes.len * 4,
+        },
+        .{
+            .base = @ptrCast(zoir.nodes.items(.ast_node)),
+            .len = zoir.nodes.len * 4,
+        },
+        .{
+            .base = @ptrCast(zoir.extra),
+            .len = zoir.extra.len * 4,
+        },
+        .{
+            .base = @ptrCast(zoir.limbs),
+            .len = zoir.limbs.len * 4,
+        },
+        .{
+            .base = zoir.string_bytes.ptr,
+            .len = zoir.string_bytes.len,
+        },
+        .{
+            .base = @ptrCast(zoir.compile_errors),
+            .len = zoir.compile_errors.len * @sizeOf(Zoir.CompileError),
+        },
+        .{
+            .base = @ptrCast(zoir.error_notes),
+            .len = zoir.error_notes.len * @sizeOf(Zoir.CompileError.Note),
+        },
+    };
+    try cache_file.writevAll(&iovecs);
+}
+
+pub fn loadZoirCacheBody(gpa: Allocator, header: Zoir.Header, cache_file: std.fs.File) !Zoir {
+    var zoir: Zoir = .{
+        .nodes = .empty,
+        .extra = &.{},
+        .limbs = &.{},
+        .string_bytes = &.{},
+        .compile_errors = &.{},
+        .error_notes = &.{},
+    };
+    errdefer zoir.deinit(gpa);
+
+    zoir.nodes = nodes: {
+        var nodes: std.MultiArrayList(Zoir.Node.Repr) = .empty;
+        defer nodes.deinit(gpa);
+        try nodes.setCapacity(gpa, header.nodes_len);
+        nodes.len = header.nodes_len;
+        break :nodes nodes.toOwnedSlice();
+    };
+
+    zoir.extra = try gpa.alloc(u32, header.extra_len);
+    zoir.limbs = try gpa.alloc(std.math.big.Limb, header.limbs_len);
+    zoir.string_bytes = try gpa.alloc(u8, header.string_bytes_len);
+
+    zoir.compile_errors = try gpa.alloc(Zoir.CompileError, header.compile_errors_len);
+    zoir.error_notes = try gpa.alloc(Zoir.CompileError.Note, header.error_notes_len);
+
+    var iovecs: [8]std.posix.iovec = .{
+        .{
+            .base = @ptrCast(zoir.nodes.items(.tag)),
+            .len = header.nodes_len * @sizeOf(Zoir.Node.Repr.Tag),
+        },
+        .{
+            .base = @ptrCast(zoir.nodes.items(.data)),
+            .len = header.nodes_len * 4,
+        },
+        .{
+            .base = @ptrCast(zoir.nodes.items(.ast_node)),
+            .len = header.nodes_len * 4,
+        },
+        .{
+            .base = @ptrCast(zoir.extra),
+            .len = header.extra_len * 4,
+        },
+        .{
+            .base = @ptrCast(zoir.limbs),
+            .len = header.limbs_len * @sizeOf(std.math.big.Limb),
+        },
+        .{
+            .base = zoir.string_bytes.ptr,
+            .len = header.string_bytes_len,
+        },
+        .{
+            .base = @ptrCast(zoir.compile_errors),
+            .len = header.compile_errors_len * @sizeOf(Zoir.CompileError),
+        },
+        .{
+            .base = @ptrCast(zoir.error_notes),
+            .len = header.error_notes_len * @sizeOf(Zoir.CompileError.Note),
+        },
+    };
+
+    const bytes_expected = expected: {
+        var n: usize = 0;
+        for (iovecs) |v| n += v.len;
+        break :expected n;
+    };
+
+    const bytes_read = try cache_file.readvAll(&iovecs);
+    if (bytes_read != bytes_expected) return error.UnexpectedFileSize;
+    return zoir;
+}
+
 pub fn markDependeeOutdated(
     zcu: *Zcu,
     /// When we are diffing ZIR and marking things as outdated, we won't yet have marked the dependencies as PO.

@@ -13994,12 +13994,6 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             return Air.internedToRef(ty);
         },
         .zon => {
-            _ = result.file.getTree(zcu.gpa) catch |err| {
-                // TODO: these errors are file system errors; make sure an update() will
-                // retry this and not cache the file system error, which may be transient.
-                return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ result.file.sub_file_path, @errorName(err) });
-            };
-
             if (extra.res_ty == .none) {
                 return sema.fail(block, operand_src, "'@import' of ZON must have a known result type", .{});
             }

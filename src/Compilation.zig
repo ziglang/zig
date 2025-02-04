@@ -2220,10 +2220,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         try comp.astgen_work_queue.ensureUnusedCapacity(zcu.import_table.count());
         for (zcu.import_table.values()) |file_index| {
             if (zcu.fileByIndex(file_index).mod.isBuiltin()) continue;
-            const file = zcu.fileByIndex(file_index);
-            if (file.getMode() == .zig) {
-                comp.astgen_work_queue.writeItemAssumeCapacity(file_index);
-            }
+            comp.astgen_work_queue.writeItemAssumeCapacity(file_index);
         }
         if (comp.file_system_inputs) |fsi| {
             for (zcu.import_table.values()) |file_index| {
@@ -3810,11 +3807,40 @@ fn performAllTheWorkInner(
         const pt: Zcu.PerThread = .activate(zcu, .main);
         defer pt.deactivate();
 
+        // If the cache mode is `whole`, then add every source file to the cache manifest.
+        switch (comp.cache_use) {
+            .whole => |whole| if (whole.cache_manifest) |man| {
+                const gpa = zcu.gpa;
+                for (zcu.import_table.values()) |file_index| {
+                    const file = zcu.fileByIndex(file_index);
+                    const source = file.getSource(gpa) catch |err| {
+                        try pt.reportRetryableFileError(file_index, "unable to load source: {s}", .{@errorName(err)});
+                        continue;
+                    };
+                    const resolved_path = try std.fs.path.resolve(gpa, &.{
+                        file.mod.root.root_dir.path orelse ".",
+                        file.mod.root.sub_path,
+                        file.sub_file_path,
+                    });
+                    errdefer gpa.free(resolved_path);
+                    whole.cache_manifest_mutex.lock();
+                    defer whole.cache_manifest_mutex.unlock();
+                    man.addFilePostContents(resolved_path, source.bytes, source.stat) catch |err| switch (err) {
+                        error.OutOfMemory => |e| return e,
+                        else => {
+                            try pt.reportRetryableFileError(file_index, "unable to update cache: {s}", .{@errorName(err)});
+                            continue;
+                        },
+                    };
+                }
+            },
+            .incremental => {},
+        }
+
         try reportMultiModuleErrors(pt);
 
         const any_fatal_files = for (zcu.import_table.values()) |file_index| {
             const file = zcu.fileByIndex(file_index);
-            if (file.getMode() == .zon) continue;
             switch (file.status) {
                 .never_loaded => unreachable, // everything is loaded by the workers
                 .retryable_failure, .astgen_failure => break true,
@@ -3822,7 +3848,7 @@ fn performAllTheWorkInner(
             }
         } else false;
 
-        if (any_fatal_files) {
+        if (any_fatal_files or comp.alloc_failure_occurred) {
             // We give up right now! No updating of ZIR refs, no nothing. The idea is that this prevents
             // us from invalidating lots of incremental dependencies due to files with e.g. parse errors.
             // However, this means our analysis data is invalid, so we want to omit all analysis errors.
@@ -4290,7 +4316,6 @@ fn workerUpdateFile(
     wg: *WaitGroup,
     src: Zcu.AstGenSrc,
 ) void {
-    assert(file.getMode() == .zig);
     const child_prog_node = prog_node.start(file.sub_file_path, 0);
     defer child_prog_node.end();
 
@@ -4309,6 +4334,11 @@ fn workerUpdateFile(
             return;
         },
     };
+
+    switch (file.getMode()) {
+        .zig => {}, // continue to logic below
+        .zon => return, // ZON can't import anything so we're done
+    }
 
     // Pre-emptively look for `@import` paths and queue them up.
     // If we experience an error preemptively fetching the
@@ -4344,7 +4374,7 @@ fn workerUpdateFile(
                 const imported_path_digest = pt.zcu.filePathDigest(res.file_index);
                 break :blk .{ res, imported_path_digest };
             };
-            if (import_result.is_new and import_result.file.getMode() == .zig) {
+            if (import_result.is_new) {
                 log.debug("AstGen of {s} has import '{s}'; queuing AstGen of {s}", .{
                     file.sub_file_path, import_path, import_result.file.sub_file_path,
                 });

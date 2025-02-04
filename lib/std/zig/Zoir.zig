@@ -10,6 +10,31 @@ string_bytes: []u8,
 compile_errors: []Zoir.CompileError,
 error_notes: []Zoir.CompileError.Note,
 
+/// The data stored at byte offset 0 when ZOIR is stored in a file.
+pub const Header = extern struct {
+    nodes_len: u32,
+    extra_len: u32,
+    limbs_len: u32,
+    string_bytes_len: u32,
+    compile_errors_len: u32,
+    error_notes_len: u32,
+
+    /// We could leave this as padding, however it triggers a Valgrind warning because
+    /// we read and write undefined bytes to the file system. This is harmless, but
+    /// it's essentially free to have a zero field here and makes the warning go away,
+    /// making it more likely that following Valgrind warnings will be taken seriously.
+    unused: u64 = 0,
+
+    stat_inode: std.fs.File.INode,
+    stat_size: u64,
+    stat_mtime: i128,
+
+    comptime {
+        // Check that `unused` is working as expected
+        assert(std.meta.hasUniqueRepresentation(Header));
+    }
+};
+
 pub fn hasCompileErrors(zoir: Zoir) bool {
     if (zoir.compile_errors.len > 0) {
         assert(zoir.nodes.len == 0);
