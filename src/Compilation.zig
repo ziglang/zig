@@ -3779,7 +3779,7 @@ fn performAllTheWorkInner(
                     // will be needed by the worker threads.
                     const path_digest = zcu.filePathDigest(file_index);
                     const file = zcu.fileByIndex(file_index);
-                    comp.thread_pool.spawnWgId(&astgen_wait_group, workerAstGenFile, .{
+                    comp.thread_pool.spawnWgId(&astgen_wait_group, workerUpdateFile, .{
                         comp, file, file_index, path_digest, zir_prog_node, &astgen_wait_group, .root,
                     });
                 }
@@ -3787,7 +3787,7 @@ fn performAllTheWorkInner(
 
             for (0.., zcu.embed_table.values()) |ef_index_usize, ef| {
                 const ef_index: Zcu.EmbedFile.Index = @enumFromInt(ef_index_usize);
-                comp.thread_pool.spawnWgId(&astgen_wait_group, workerCheckEmbedFile, .{
+                comp.thread_pool.spawnWgId(&astgen_wait_group, workerUpdateEmbedFile, .{
                     comp, ef_index, ef,
                 });
             }
@@ -4280,7 +4280,7 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
     };
 }
 
-fn workerAstGenFile(
+fn workerUpdateFile(
     tid: usize,
     comp: *Compilation,
     file: *Zcu.File,
@@ -4296,7 +4296,7 @@ fn workerAstGenFile(
 
     const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
     defer pt.deactivate();
-    pt.astGenFile(file, path_digest) catch |err| switch (err) {
+    pt.updateFile(file, path_digest) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
             pt.reportRetryableAstGenError(src, file_index, err) catch |oom| switch (oom) {
@@ -4352,7 +4352,7 @@ fn workerAstGenFile(
                     .importing_file = file_index,
                     .import_tok = item.data.token,
                 } };
-                comp.thread_pool.spawnWgId(wg, workerAstGenFile, .{
+                comp.thread_pool.spawnWgId(wg, workerUpdateFile, .{
                     comp, import_result.file, import_result.file_index, imported_path_digest, prog_node, wg, sub_src,
                 });
             }
@@ -4375,7 +4375,7 @@ fn workerUpdateBuiltinZigFile(
     };
 }
 
-fn workerCheckEmbedFile(tid: usize, comp: *Compilation, ef_index: Zcu.EmbedFile.Index, ef: *Zcu.EmbedFile) void {
+fn workerUpdateEmbedFile(tid: usize, comp: *Compilation, ef_index: Zcu.EmbedFile.Index, ef: *Zcu.EmbedFile) void {
     comp.detectEmbedFileUpdate(@enumFromInt(tid), ef_index, ef) catch |err| switch (err) {
         error.OutOfMemory => {
             comp.mutex.lock();

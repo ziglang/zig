@@ -785,7 +785,7 @@ pub const File = struct {
 
         // Here we do not modify stat fields because this function is the one
         // used for error reporting. We need to keep the stat fields stale so that
-        // astGenFile can know to regenerate ZIR.
+        // updateFile can know to regenerate ZIR.
 
         file.source = source;
         errdefer comptime unreachable; // don't error after populating `source`

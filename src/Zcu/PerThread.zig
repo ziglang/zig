@@ -73,7 +73,7 @@ pub fn destroyFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) void {
     if (!is_builtin) gpa.destroy(file);
 }
 
-pub fn astGenFile(
+pub fn updateFile(
     pt: Zcu.PerThread,
     file: *Zcu.File,
     path_digest: Cache.BinDigest,
