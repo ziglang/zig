@@ -608,7 +608,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
             if (config.safety and old_mem.len != entry.value_ptr.bytes.len) {
                 var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
-                var free_stack_trace = StackTrace{
+                var free_stack_trace: StackTrace = .{
                     .instruction_addresses = &addresses,
                     .index = 0,
                 };
@@ -635,9 +635,15 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 self.total_requested_bytes = new_req_bytes;
             }
 
-            const opt_resized_ptr = if (may_move)
-                self.backing_allocator.rawRemap(old_mem, alignment, new_size, ret_addr)
-            else if (self.backing_allocator.rawResize(old_mem, alignment, new_size, ret_addr))
+            const opt_resized_ptr = if (may_move) b: {
+                // So that if the allocation moves, we can memcpy the
+                // `LargeAlloc` value directly from old to new location.
+                // It's also not clear to me whether removing one item from std
+                // lib hash map guarantees that unused capacity increases by
+                // one.
+                self.large_allocations.ensureUnusedCapacity(self.backing_allocator, 1) catch return null;
+                break :b self.backing_allocator.rawRemap(old_mem, alignment, new_size, ret_addr);
+            } else if (self.backing_allocator.rawResize(old_mem, alignment, new_size, ret_addr))
                 old_mem.ptr
             else
                 null;
@@ -660,6 +666,25 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             }
             entry.value_ptr.bytes = resized_ptr[0..new_size];
             entry.value_ptr.captureStackTrace(ret_addr, .alloc);
+
+            // Update the key of the hash map if the memory was relocated.
+            if (resized_ptr != old_mem.ptr) {
+                const gop = self.large_allocations.getOrPutAssumeCapacity(@intFromPtr(resized_ptr));
+                if (config.retain_metadata and !config.never_unmap) {
+                    // Backing allocator may be reusing memory that we're retaining metadata for
+                    assert(!gop.found_existing or gop.value_ptr.freed);
+                } else {
+                    assert(!gop.found_existing); // This would mean the kernel double-mapped pages.
+                }
+                gop.value_ptr.* = entry.value_ptr.*;
+                if (!config.retain_metadata) {
+                    self.large_allocations.removeByPtr(entry.key_ptr);
+                } else {
+                    entry.value_ptr.freed = true;
+                    entry.value_ptr.captureStackTrace(ret_addr, .free);
+                }
+            }
+
             return resized_ptr;
         }
 
