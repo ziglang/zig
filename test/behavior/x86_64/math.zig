@@ -163,7 +163,10 @@ test checkExpected {
     if (checkExpected(@as(f128, 0.0), @as(f128, -0.0), .strict) != error.Unexpected) return error.Unexpected;
 }
 
-fn unary(comptime op: anytype, comptime opts: struct { compare: Compare = .relaxed }) type {
+fn unary(comptime op: anytype, comptime opts: struct {
+    libc_name: ?[]const u8 = null,
+    compare: Compare = .relaxed,
+}) type {
     return struct {
         // noinline so that `mem_arg` is on the stack
         noinline fn testArgKinds(
@@ -187,12 +190,34 @@ fn unary(comptime op: anytype, comptime opts: struct { compare: Compare = .relax
             comptime imm_arg: Type,
             mem_arg: Type,
         ) !void {
-            const expected = comptime op(Type, imm_arg);
+            const expected = expected: {
+                if (opts.libc_name) |libc_name| libc: {
+                    const libc_func = @extern(*const fn (Scalar(Type)) callconv(.c) Scalar(Type), .{
+                        .name = switch (Scalar(Type)) {
+                            f16 => "__" ++ libc_name ++ "h",
+                            f32 => libc_name ++ "f",
+                            f64 => libc_name,
+                            f80 => "__" ++ libc_name ++ "x",
+                            f128 => libc_name ++ "q",
+                            else => break :libc,
+                        },
+                    });
+                    switch (@typeInfo(Type)) {
+                        else => break :expected libc_func(imm_arg),
+                        .vector => |vector| {
+                            var res: Type = undefined;
+                            inline for (0..vector.len) |i| res[i] = libc_func(imm_arg[i]);
+                            break :expected res;
+                        },
+                    }
+                }
+                break :expected comptime op(Type, imm_arg);
+            };
             var reg_arg = mem_arg;
             _ = .{&reg_arg};
             try checkExpected(expected, op(Type, reg_arg), opts.compare);
             try checkExpected(expected, op(Type, mem_arg), opts.compare);
-            try checkExpected(expected, op(Type, imm_arg), opts.compare);
+            if (opts.libc_name == null) try checkExpected(expected, op(Type, imm_arg), opts.compare);
         }
         // noinline for a more helpful stack trace
         noinline fn testArgs(comptime Type: type, comptime imm_arg: Type) !void {
@@ -11476,7 +11501,7 @@ inline fn sqrt(comptime Type: type, rhs: Type) @TypeOf(@sqrt(rhs)) {
     return @sqrt(rhs);
 }
 test sqrt {
-    const test_sqrt = unary(sqrt, .{});
+    const test_sqrt = unary(sqrt, .{ .libc_name = "sqrt", .compare = .approx });
     try test_sqrt.testFloats();
     try test_sqrt.testFloatVectors();
 }
@@ -11485,7 +11510,7 @@ inline fn sin(comptime Type: type, rhs: Type) @TypeOf(@sin(rhs)) {
     return @sin(rhs);
 }
 test sin {
-    const test_sin = unary(sin, .{ .compare = .strict });
+    const test_sin = unary(sin, .{ .libc_name = "sin", .compare = .strict });
     try test_sin.testFloats();
     try test_sin.testFloatVectors();
 }
@@ -11494,7 +11519,7 @@ inline fn cos(comptime Type: type, rhs: Type) @TypeOf(@cos(rhs)) {
     return @cos(rhs);
 }
 test cos {
-    const test_cos = unary(cos, .{ .compare = .strict });
+    const test_cos = unary(cos, .{ .libc_name = "cos", .compare = .strict });
     try test_cos.testFloats();
     try test_cos.testFloatVectors();
 }
@@ -11503,7 +11528,7 @@ inline fn tan(comptime Type: type, rhs: Type) @TypeOf(@tan(rhs)) {
     return @tan(rhs);
 }
 test tan {
-    const test_tan = unary(tan, .{ .compare = .strict });
+    const test_tan = unary(tan, .{ .libc_name = "tan", .compare = .strict });
     try test_tan.testFloats();
     try test_tan.testFloatVectors();
 }
@@ -11512,7 +11537,7 @@ inline fn exp(comptime Type: type, rhs: Type) @TypeOf(@exp(rhs)) {
     return @exp(rhs);
 }
 test exp {
-    const test_exp = unary(exp, .{ .compare = .strict });
+    const test_exp = unary(exp, .{ .libc_name = "exp", .compare = .strict });
     try test_exp.testFloats();
     try test_exp.testFloatVectors();
 }
@@ -11521,7 +11546,7 @@ inline fn exp2(comptime Type: type, rhs: Type) @TypeOf(@exp2(rhs)) {
     return @exp2(rhs);
 }
 test exp2 {
-    const test_exp2 = unary(exp2, .{ .compare = .strict });
+    const test_exp2 = unary(exp2, .{ .libc_name = "exp2", .compare = .strict });
     try test_exp2.testFloats();
     try test_exp2.testFloatVectors();
 }
@@ -11530,7 +11555,7 @@ inline fn log(comptime Type: type, rhs: Type) @TypeOf(@log(rhs)) {
     return @log(rhs);
 }
 test log {
-    const test_log = unary(log, .{ .compare = .strict });
+    const test_log = unary(log, .{ .libc_name = "log", .compare = .strict });
     try test_log.testFloats();
     try test_log.testFloatVectors();
 }
@@ -11539,7 +11564,7 @@ inline fn log2(comptime Type: type, rhs: Type) @TypeOf(@log2(rhs)) {
     return @log2(rhs);
 }
 test log2 {
-    const test_log2 = unary(log2, .{ .compare = .strict });
+    const test_log2 = unary(log2, .{ .libc_name = "log2", .compare = .strict });
     try test_log2.testFloats();
     try test_log2.testFloatVectors();
 }
@@ -11548,7 +11573,7 @@ inline fn log10(comptime Type: type, rhs: Type) @TypeOf(@log10(rhs)) {
     return @log10(rhs);
 }
 test log10 {
-    const test_log10 = unary(log10, .{ .compare = .strict });
+    const test_log10 = unary(log10, .{ .libc_name = "log10", .compare = .strict });
     try test_log10.testFloats();
     try test_log10.testFloatVectors();
 }
@@ -11568,7 +11593,7 @@ inline fn floor(comptime Type: type, rhs: Type) @TypeOf(@floor(rhs)) {
     return @floor(rhs);
 }
 test floor {
-    const test_floor = unary(floor, .{ .compare = .strict });
+    const test_floor = unary(floor, .{ .libc_name = "floor", .compare = .strict });
     try test_floor.testFloats();
     try test_floor.testFloatVectors();
 }
@@ -11577,7 +11602,7 @@ inline fn ceil(comptime Type: type, rhs: Type) @TypeOf(@ceil(rhs)) {
     return @ceil(rhs);
 }
 test ceil {
-    const test_ceil = unary(ceil, .{ .compare = .strict });
+    const test_ceil = unary(ceil, .{ .libc_name = "ceil", .compare = .strict });
     try test_ceil.testFloats();
     try test_ceil.testFloatVectors();
 }
@@ -11586,7 +11611,7 @@ inline fn round(comptime Type: type, rhs: Type) @TypeOf(@round(rhs)) {
     return @round(rhs);
 }
 test round {
-    const test_round = unary(round, .{ .compare = .strict });
+    const test_round = unary(round, .{ .libc_name = "round", .compare = .strict });
     try test_round.testFloats();
     try test_round.testFloatVectors();
 }
@@ -11595,7 +11620,7 @@ inline fn trunc(comptime Type: type, rhs: Type) @TypeOf(@trunc(rhs)) {
     return @trunc(rhs);
 }
 test trunc {
-    const test_trunc = unary(trunc, .{ .compare = .strict });
+    const test_trunc = unary(trunc, .{ .libc_name = "trunc", .compare = .strict });
     try test_trunc.testFloats();
     try test_trunc.testFloatVectors();
 }
