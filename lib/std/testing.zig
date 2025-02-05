@@ -9,17 +9,19 @@ pub var random_seed: u32 = 0;
 
 pub const FailingAllocator = @import("testing/FailingAllocator.zig");
 pub const failing_allocator = failing_allocator_instance.allocator();
-pub var failing_allocator_instance = FailingAllocator.init(base_allocator_instance.allocator(), .{ .fail_index = 0 });
+var failing_allocator_instance = FailingAllocator.init(base_allocator_instance.allocator(), .{
+    .fail_index = 0,
+});
+var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 
 /// This should only be used in temporary test programs.
 pub const allocator = allocator_instance.allocator();
-pub var allocator_instance: std.heap.GeneralPurposeAllocator(.{}) = b: {
-    if (!builtin.is_test)
-        @compileError("Cannot use testing allocator outside of test block");
+pub var allocator_instance: std.heap.GeneralPurposeAllocator(.{
+    .stack_trace_frames = 10,
+}) = b: {
+    if (!builtin.is_test) @compileError("testing allocator used when not testing");
     break :b .init;
 };
-
-pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 
 /// TODO https://github.com/ziglang/zig/issues/5738
 pub var log_level = std.log.Level.warn;
