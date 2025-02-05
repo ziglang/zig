@@ -1060,9 +1060,24 @@ test "errorCast to adhoc inferred error set" {
     try std.testing.expect((try S.baz()) == 1234);
 }
 
-test "errorCast from error sets to error unions" {
-    const err_union: Set1!void = @errorCast(error.A);
-    try expectError(error.A, err_union);
+test "@errorCast from error set to error union" {
+    const S = struct {
+        fn doTheTest(set: error{ A, B }) error{A}!i32 {
+            return @errorCast(set);
+        }
+    };
+    try expectError(error.A, S.doTheTest(error.A));
+    try expectError(error.A, comptime S.doTheTest(error.A));
+}
+
+test "@errorCast from error union to error union" {
+    const S = struct {
+        fn doTheTest(set: error{ A, B }!i32) error{A}!i32 {
+            return @errorCast(set);
+        }
+    };
+    try expectError(error.A, S.doTheTest(error.A));
+    try expectError(error.A, comptime S.doTheTest(error.A));
 }
 
 test "result location initialization of error union with OPV payload" {
