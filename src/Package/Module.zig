@@ -27,7 +27,7 @@ red_zone: bool,
 sanitize_c: bool,
 sanitize_thread: bool,
 fuzz: bool,
-unwind_tables: bool,
+unwind_tables: std.builtin.UnwindTables,
 cc_argv: []const []const u8,
 /// (SPIR-V) whether to generate a structured control flow graph or not
 structured_cfg: bool,
@@ -91,7 +91,7 @@ pub const CreateOptions = struct {
         /// other number means stack protection with that buffer size.
         stack_protector: ?u32 = null,
         red_zone: ?bool = null,
-        unwind_tables: ?bool = null,
+        unwind_tables: ?std.builtin.UnwindTables = null,
         sanitize_c: ?bool = null,
         sanitize_thread: ?bool = null,
         fuzz: ?bool = null,
@@ -112,17 +112,14 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     if (options.inherited.sanitize_thread == true) assert(options.global.any_sanitize_thread);
     if (options.inherited.fuzz == true) assert(options.global.any_fuzz);
     if (options.inherited.single_threaded == false) assert(options.global.any_non_single_threaded);
-    if (options.inherited.unwind_tables == true) assert(options.global.any_unwind_tables);
+    if (options.inherited.unwind_tables) |uwt| if (uwt != .none) assert(options.global.any_unwind_tables);
     if (options.inherited.error_tracing == true) assert(options.global.any_error_tracing);
 
     const resolved_target = options.inherited.resolved_target orelse options.parent.?.resolved_target;
     const target = resolved_target.result;
 
     const optimize_mode = options.inherited.optimize_mode orelse
-        if (options.parent) |p| p.optimize_mode else .Debug;
-
-    const unwind_tables = options.inherited.unwind_tables orelse
-        if (options.parent) |p| p.unwind_tables else options.global.any_unwind_tables;
+        if (options.parent) |p| p.optimize_mode else options.global.root_optimize_mode;
 
     const strip = b: {
         if (options.inherited.strip) |x| break :b x;
@@ -205,14 +202,30 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     const omit_frame_pointer = b: {
         if (options.inherited.omit_frame_pointer) |x| break :b x;
         if (options.parent) |p| break :b p.omit_frame_pointer;
-        if (optimize_mode == .Debug) break :b false;
-        break :b true;
+        if (optimize_mode == .ReleaseSmall) {
+            // On x86, in most cases, keeping the frame pointer usually results in smaller binary size.
+            // This has to do with how instructions for memory access via the stack base pointer register (when keeping the frame pointer)
+            // are smaller than instructions for memory access via the stack pointer register (when omitting the frame pointer).
+            break :b !target.cpu.arch.isX86();
+        }
+        break :b false;
     };
 
     const sanitize_thread = b: {
         if (options.inherited.sanitize_thread) |x| break :b x;
         if (options.parent) |p| break :b p.sanitize_thread;
         break :b false;
+    };
+
+    const unwind_tables = b: {
+        if (options.inherited.unwind_tables) |x| break :b x;
+        if (options.parent) |p| break :b p.unwind_tables;
+
+        break :b target_util.defaultUnwindTables(
+            target,
+            options.global.link_libunwind,
+            sanitize_thread or options.global.any_sanitize_thread,
+        );
     };
 
     const fuzz = b: {
@@ -382,6 +395,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .zig_backend = zig_backend,
             .output_mode = options.global.output_mode,
             .link_mode = options.global.link_mode,
+            .unwind_tables = unwind_tables,
             .is_test = options.global.is_test,
             .single_threaded = single_threaded,
             .link_libc = options.global.link_libc,

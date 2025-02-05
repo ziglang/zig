@@ -25,7 +25,7 @@
 #define _XLOCALE__WCHAR_H_
 
 #include <_stdio.h>
-#include <_xlocale.h>
+#include <__xlocale.h>
 #include <sys/_types/_mbstate_t.h>
 #include <sys/_types/_wint_t.h>
 #include <stddef.h> /* wchar_t */

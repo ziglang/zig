@@ -234,7 +234,12 @@ struct mach_header_64 {
 					   the platforms macOS, macCatalyst,
 					   iOSSimulator, tvOSSimulator and
 					   watchOSSimulator. */
-					   
+
+#define	MH_IMPLICIT_PAGEZERO 0x10000000	/* main executable has no __PAGEZERO
+					   segment.  Instead, loader (xnu)
+					   will load program high and block
+					   out all memory below it. */
+
 #define MH_DYLIB_IN_CACHE 0x80000000	/* Only for use on dylibs. When this bit
 					   is set, the dylib is part of the dyld
 					   shared cache, rather than loose in
@@ -670,7 +675,7 @@ struct fvmlib_command {
 };
 
 /*
- * Dynamicly linked shared libraries are identified by two things.  The
+ * Dynamically linked shared libraries are identified by two things.  The
  * pathname (the name of the library as found for execution), and the
  * compatibility version number.  The pathname must match and the compatibility
  * number in the user of the library must be greater than or equal to the
@@ -698,6 +703,30 @@ struct dylib_command {
 	uint32_t	cmdsize;	/* includes pathname string */
 	struct dylib	dylib;		/* the library identification */
 };
+
+
+/*
+ * An alternate encoding for: LC_LOAD_DYLIB.
+ * The flags field contains independent flags DYLIB_USE_*
+ * First supported in macOS 15, iOS 18.
+ */
+struct dylib_use_command {
+    uint32_t    cmd;                     /* LC_LOAD_DYLIB or LC_LOAD_WEAK_DYLIB */
+    uint32_t    cmdsize;                 /* overall size, including path */
+    uint32_t    nameoff;                 /* == 28, dylibs's path offset */
+    uint32_t    marker;                  /* == DYLIB_USE_MARKER */
+    uint32_t    current_version;         /* dylib's current version number */
+    uint32_t    compat_version;          /* dylib's compatibility version number */
+    uint32_t    flags;                   /* DYLIB_USE_... flags */
+};
+#define DYLIB_USE_WEAK_LINK	0x01
+#define DYLIB_USE_REEXPORT	0x02
+#define DYLIB_USE_UPWARD	0x04
+#define DYLIB_USE_DELAYED_INIT	0x08
+
+#define DYLIB_USE_MARKER	0x1a741800
+
+
 
 /*
  * A dynamically linked shared library may be a subframework of an umbrella
@@ -1287,6 +1316,8 @@ struct build_tool_version {
 #define PLATFORM_TVOSSIMULATOR 8
 #define PLATFORM_WATCHOSSIMULATOR 9
 #define PLATFORM_DRIVERKIT 10
+#define PLATFORM_VISIONOS 11
+#define PLATFORM_VISIONOSSIMULATOR 12
 
 #ifndef __OPEN_SOURCE__
 
@@ -1294,6 +1325,10 @@ struct build_tool_version {
 
 #define PLATFORM_FIRMWARE 13
 #define PLATFORM_SEPOS 14
+
+#ifndef __OPEN_SOURCE__
+
+#endif /* __OPEN_SOURCE__ */
 
 #ifndef __OPEN_SOURCE__
 

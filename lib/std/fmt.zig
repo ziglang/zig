@@ -434,7 +434,7 @@ pub fn formatAddress(value: anytype, options: FormatOptions, writer: anytype) @T
     switch (@typeInfo(T)) {
         .pointer => |info| {
             try writer.writeAll(@typeName(info.child) ++ "@");
-            if (info.size == .Slice)
+            if (info.size == .slice)
                 try formatInt(@intFromPtr(value.ptr), 16, .lower, FormatOptions{}, writer)
             else
                 try formatInt(@intFromPtr(value), 16, .lower, FormatOptions{}, writer);
@@ -460,12 +460,12 @@ pub fn defaultSpec(comptime T: type) [:0]const u8 {
     switch (@typeInfo(T)) {
         .array, .vector => return ANY,
         .pointer => |ptr_info| switch (ptr_info.size) {
-            .One => switch (@typeInfo(ptr_info.child)) {
+            .one => switch (@typeInfo(ptr_info.child)) {
                 .array => return ANY,
                 else => {},
             },
-            .Many, .C => return "*",
-            .Slice => return ANY,
+            .many, .c => return "*",
+            .slice => return ANY,
         },
         .optional => |info| return "?" ++ defaultSpec(info.child),
         .error_union => |info| return "!" ++ defaultSpec(info.payload),
@@ -624,16 +624,16 @@ pub fn formatType(
             try writer.writeAll(" }");
         },
         .pointer => |ptr_info| switch (ptr_info.size) {
-            .One => switch (@typeInfo(ptr_info.child)) {
+            .one => switch (@typeInfo(ptr_info.child)) {
                 .array, .@"enum", .@"union", .@"struct" => {
                     return formatType(value.*, actual_fmt, options, writer, max_depth);
                 },
                 else => return format(writer, "{s}@{x}", .{ @typeName(ptr_info.child), @intFromPtr(value) }),
             },
-            .Many, .C => {
+            .many, .c => {
                 if (actual_fmt.len == 0)
                     @compileError("cannot format pointer without a specifier (i.e. {s} or {*})");
-                if (ptr_info.sentinel) |_| {
+                if (ptr_info.sentinel() != null) {
                     return formatType(mem.span(value), actual_fmt, options, writer, max_depth);
                 }
                 if (actual_fmt[0] == 's' and ptr_info.child == u8) {
@@ -641,7 +641,7 @@ pub fn formatType(
                 }
                 invalidFmtError(fmt, value);
             },
-            .Slice => {
+            .slice => {
                 if (actual_fmt.len == 0)
                     @compileError("cannot format slice without a specifier (i.e. {s} or {any})");
                 if (max_depth == 0) {
@@ -679,6 +679,9 @@ pub fn formatType(
             try writer.writeAll(" }");
         },
         .vector => |info| {
+            if (max_depth == 0) {
+                return writer.writeAll("{ ... }");
+            }
             try writer.writeAll("{ ");
             var i: usize = 0;
             while (i < info.len) : (i += 1) {
@@ -2577,6 +2580,15 @@ test "formatType max_depth" {
     fbs.reset();
     try formatType(inst, "", FormatOptions{}, fbs.writer(), 3);
     try std.testing.expectEqualStrings("fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }", fbs.getWritten());
+
+    const vec: @Vector(4, i32) = .{ 1, 2, 3, 4 };
+    fbs.reset();
+    try formatType(vec, "", FormatOptions{}, fbs.writer(), 0);
+    try std.testing.expectEqualStrings("{ ... }", fbs.getWritten());
+
+    fbs.reset();
+    try formatType(vec, "", FormatOptions{}, fbs.writer(), 1);
+    try std.testing.expectEqualStrings("{ 1, 2, 3, 4 }", fbs.getWritten());
 }
 
 test "positional" {
@@ -2596,6 +2608,7 @@ test "positional/alignment/width/precision" {
 }
 
 test "vector" {
+    if ((builtin.cpu.arch == .armeb or builtin.cpu.arch == .thumbeb) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22060
     if (builtin.target.cpu.arch == .riscv64) {
         // https://github.com/ziglang/zig/issues/4486
         return error.SkipZigTest;

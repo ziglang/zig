@@ -80,8 +80,10 @@ pub fn ArrayHashMapWithAllocator(
     comptime V: type,
     /// A namespace that provides these two functions:
     /// * `pub fn hash(self, K) u32`
-    /// * `pub fn eql(self, K, K) bool`
+    /// * `pub fn eql(self, K, K, usize) bool`
     ///
+    /// The final `usize` in the `eql` function represents the index of the key
+    /// that's already inside the map.
     comptime Context: type,
     /// When `false`, this data structure is biased towards cheap `eql`
     /// functions and avoids storing each key's hash in the table. Setting
@@ -525,7 +527,10 @@ pub fn ArrayHashMapUnmanaged(
     comptime V: type,
     /// A namespace that provides these two functions:
     /// * `pub fn hash(self, K) u32`
-    /// * `pub fn eql(self, K, K) bool`
+    /// * `pub fn eql(self, K, K, usize) bool`
+    ///
+    /// The final `usize` in the `eql` function represents the index of the key
+    /// that's already inside the map.
     comptime Context: type,
     /// When `false`, this data structure is biased towards cheap `eql`
     /// functions and avoids storing each key's hash in the table. Setting
@@ -636,10 +641,13 @@ pub fn ArrayHashMapUnmanaged(
             return self;
         }
 
+        /// An empty `value_list` may be passed, in which case the values array becomes `undefined`.
         pub fn reinit(self: *Self, gpa: Allocator, key_list: []const K, value_list: []const V) Oom!void {
             try self.entries.resize(gpa, key_list.len);
             @memcpy(self.keys(), key_list);
-            if (@sizeOf(V) != 0) {
+            if (value_list.len == 0) {
+                @memset(self.values(), undefined);
+            } else {
                 assert(key_list.len == value_list.len);
                 @memcpy(self.values(), value_list);
             }

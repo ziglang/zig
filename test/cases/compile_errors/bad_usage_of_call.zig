@@ -42,8 +42,8 @@ noinline fn dummy2() void {}
 // :2:23: error: expected a tuple, found 'void'
 // :5:21: error: unable to perform 'never_inline' call at compile-time
 // :8:21: error: unable to perform 'never_tail' call at compile-time
-// :11:5: error: 'never_inline' call of inline function
+// :11:5: error: cannot perform inline call with 'never_inline' modifier
 // :15:26: error: modifier 'compile_time' requires a comptime-known function
-// :18:9: error: 'always_inline' call of noinline function
-// :21:9: error: 'always_inline' call of noinline function
+// :18:9: error: inline call of noinline function
+// :21:9: error: inline call of noinline function
 // :26:27: error: modifier 'always_inline' requires a comptime-known function

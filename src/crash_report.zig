@@ -18,18 +18,12 @@ const dev = @import("dev.zig");
 /// To use these crash report diagnostics, publish this panic in your main file
 /// and add `pub const enable_segfault_handler = false;` to your `std_options`.
 /// You will also need to call initialize() on startup, preferably as the very first operation in your program.
-pub const Panic = if (build_options.enable_debug_extensions) struct {
-    pub const call = compilerPanic;
-    pub const sentinelMismatch = std.debug.FormattedPanic.sentinelMismatch;
-    pub const unwrapError = std.debug.FormattedPanic.unwrapError;
-    pub const outOfBounds = std.debug.FormattedPanic.outOfBounds;
-    pub const startGreaterThanEnd = std.debug.FormattedPanic.startGreaterThanEnd;
-    pub const inactiveUnionField = std.debug.FormattedPanic.inactiveUnionField;
-    pub const messages = std.debug.FormattedPanic.messages;
-} else if (dev.env == .bootstrap)
-    std.debug.SimplePanic
+pub const panic = if (build_options.enable_debug_extensions)
+    std.debug.FullPanic(compilerPanic)
+else if (dev.env == .bootstrap)
+    std.debug.simple_panic
 else
-    std.debug.FormattedPanic;
+    std.debug.FullPanic(std.debug.defaultPanic);
 
 /// Install signal handlers to identify crashes and report diagnostics.
 pub fn initialize() void {
@@ -164,12 +158,12 @@ fn writeFilePath(file: *Zcu.File, writer: anytype) !void {
     try writer.writeAll(file.sub_file_path);
 }
 
-pub fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, maybe_ret_addr: ?usize) noreturn {
+pub fn compilerPanic(msg: []const u8, maybe_ret_addr: ?usize) noreturn {
     @branchHint(.cold);
     PanicSwitch.preDispatch();
     const ret_addr = maybe_ret_addr orelse @returnAddress();
     const stack_ctx: StackContext = .{ .current = .{ .ret_addr = ret_addr } };
-    PanicSwitch.dispatch(error_return_trace, stack_ctx, msg);
+    PanicSwitch.dispatch(@errorReturnTrace(), stack_ctx, msg);
 }
 
 /// Attaches a global SIGSEGV handler
@@ -190,7 +184,7 @@ pub fn attachSegfaultHandler() void {
     debug.updateSegfaultHandler(&act);
 }
 
-fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.C) noreturn {
+fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) noreturn {
     // TODO: use alarm() here to prevent infinite loops
     PanicSwitch.preDispatch();
 

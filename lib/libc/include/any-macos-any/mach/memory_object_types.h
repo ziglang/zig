@@ -279,6 +279,7 @@ typedef struct memory_object_attr_info  memory_object_attr_info_data_t;
 	                & 0xFF000000) | ((flags) & 0xFFFFFF));
 
 /* leave room for vm_prot bits (0xFF ?) */
+#define MAP_MEM_PROT_MASK            0xFF
 #define MAP_MEM_LEDGER_TAGGED        0x002000 /* object owned by a specific task and ledger */
 #define MAP_MEM_PURGABLE_KERNEL_ONLY 0x004000 /* volatility controlled by kernel */
 #define MAP_MEM_GRAB_SECLUDED   0x008000 /* can grab secluded pages */

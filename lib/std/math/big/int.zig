@@ -2175,10 +2175,13 @@ pub const Const = struct {
         TargetTooSmall,
     };
 
-    /// Convert self to type T.
+    /// Deprecated; use `toInt`.
+    pub const to = toInt;
+
+    /// Convert self to integer type T.
     ///
     /// Returns an error if self cannot be narrowed into the requested type without truncation.
-    pub fn to(self: Const, comptime T: type) ConvertError!T {
+    pub fn toInt(self: Const, comptime T: type) ConvertError!T {
         switch (@typeInfo(T)) {
             .int => |info| {
                 // Make sure -0 is handled correctly.
@@ -2216,7 +2219,26 @@ pub const Const = struct {
                     }
                 }
             },
-            else => @compileError("cannot convert Const to type " ++ @typeName(T)),
+            else => @compileError("expected int type, found '" ++ @typeName(T) ++ "'"),
+        }
+    }
+
+    /// Convert self to float type T.
+    pub fn toFloat(self: Const, comptime T: type) T {
+        if (self.limbs.len == 0) return 0;
+
+        const base = std.math.maxInt(std.math.big.Limb) + 1;
+        var result: f128 = 0;
+        var i: usize = self.limbs.len;
+        while (i != 0) {
+            i -= 1;
+            const limb: f128 = @floatFromInt(self.limbs[i]);
+            result = @mulAdd(f128, base, result, limb);
+        }
+        if (self.positive) {
+            return @floatCast(result);
+        } else {
+            return @floatCast(-result);
         }
     }
 
@@ -2520,12 +2542,13 @@ pub const Const = struct {
         return order(a, b) == .eq;
     }
 
+    /// Returns the number of leading zeros in twos-complement form.
     pub fn clz(a: Const, bits: Limb) Limb {
-        // Limbs are stored in little-endian order but we need
-        // to iterate big-endian.
+        // Limbs are stored in little-endian order but we need to iterate big-endian.
+        if (!a.positive and !a.eqlZero()) return 0;
         var total_limb_lz: Limb = 0;
         var i: usize = a.limbs.len;
-        const bits_per_limb = @sizeOf(Limb) * 8;
+        const bits_per_limb = @bitSizeOf(Limb);
         while (i != 0) {
             i -= 1;
             const limb = a.limbs[i];
@@ -2537,13 +2560,15 @@ pub const Const = struct {
         return total_limb_lz + bits - total_limb_bits;
     }
 
+    /// Returns the number of trailing zeros in twos-complement form.
     pub fn ctz(a: Const, bits: Limb) Limb {
-        // Limbs are stored in little-endian order.
+        // Limbs are stored in little-endian order. Converting a negative number to twos-complement
+        // flips all bits above the lowest set bit, which does not affect the trailing zero count.
         var result: Limb = 0;
         for (a.limbs) |limb| {
             const limb_tz = @ctz(limb);
             result += limb_tz;
-            if (limb_tz != @sizeOf(Limb) * 8) break;
+            if (limb_tz != @bitSizeOf(Limb)) break;
         }
         return @min(result, bits);
     }
@@ -2772,11 +2797,19 @@ pub const Managed = struct {
 
     pub const ConvertError = Const.ConvertError;
 
-    /// Convert self to type T.
+    /// Deprecated; use `toInt`.
+    pub const to = toInt;
+
+    /// Convert self to integer type T.
     ///
     /// Returns an error if self cannot be narrowed into the requested type without truncation.
-    pub fn to(self: Managed, comptime T: type) ConvertError!T {
-        return self.toConst().to(T);
+    pub fn toInt(self: Managed, comptime T: type) ConvertError!T {
+        return self.toConst().toInt(T);
+    }
+
+    /// Convert self to float type T.
+    pub fn toFloat(self: Managed, comptime T: type) T {
+        return self.toConst().toFloat(T);
     }
 
     /// Set self from the string representation `value`.
@@ -2841,8 +2874,8 @@ pub const Managed = struct {
         return a.toConst().orderAbs(b.toConst());
     }
 
-    /// Returns math.Order.lt, math.Order.eq, math.Order.gt if a < b, a == b or a
-    /// > b respectively.
+    /// Returns math.Order.lt, math.Order.eq, math.Order.gt if a < b, a == b or a > b
+    /// respectively.
     pub fn order(a: Managed, b: Managed) math.Order {
         return a.toConst().order(b.toConst());
     }

@@ -48,6 +48,8 @@ compile_unit_list: std.ArrayListUnmanaged(CompileUnit) = .empty,
 /// Filled later by the initializer
 func_list: std.ArrayListUnmanaged(Func) = .empty,
 
+/// Starts out non-`null` if the `.eh_frame_hdr` section is present. May become `null` later if we
+/// find that `.eh_frame_hdr` is incomplete.
 eh_frame_hdr: ?ExceptionFrameHeader = null,
 /// These lookup tables are only used if `eh_frame_hdr` is null
 cie_map: std.AutoArrayHashMapUnmanaged(u64, CommonInformationEntry) = .empty,
@@ -1754,10 +1756,12 @@ fn readDebugAddr(di: Dwarf, compile_unit: CompileUnit, index: u64) !u64 {
     };
 }
 
-/// If .eh_frame_hdr is present, then only the header needs to be parsed.
+/// If `.eh_frame_hdr` is present, then only the header needs to be parsed. Otherwise, `.eh_frame`
+/// and `.debug_frame` are scanned and a sorted list of FDEs is built for binary searching during
+/// unwinding. Even if `.eh_frame_hdr` is used, we may find during unwinding that it's incomplete,
+/// in which case we build the sorted list of FDEs at that point.
 ///
-/// Otherwise, .eh_frame and .debug_frame are scanned and a sorted list
-/// of FDEs is built for binary searching during unwinding.
+/// See also `scanCieFdeInfo`.
 pub fn scanAllUnwindInfo(di: *Dwarf, allocator: Allocator, base_address: usize) !void {
     if (di.section(.eh_frame_hdr)) |eh_frame_hdr| blk: {
         var fbr: FixedBufferReader = .{ .buf = eh_frame_hdr, .endian = native_endian };
@@ -1797,6 +1801,12 @@ pub fn scanAllUnwindInfo(di: *Dwarf, allocator: Allocator, base_address: usize) 
         return;
     }
 
+    try di.scanCieFdeInfo(allocator, base_address);
+}
+
+/// Scan `.eh_frame` and `.debug_frame` and build a sorted list of FDEs for binary searching during
+/// unwinding.
+pub fn scanCieFdeInfo(di: *Dwarf, allocator: Allocator, base_address: usize) !void {
     const frame_sections = [2]Section.Id{ .eh_frame, .debug_frame };
     for (frame_sections) |frame_section| {
         if (di.section(frame_section)) |section_data| {
@@ -2125,7 +2135,7 @@ pub const ElfModule = struct {
         return self.dwarf.getSymbol(allocator, relocated_address);
     }
 
-    pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*const Dwarf {
+    pub fn getDwarfInfoForAddress(self: *@This(), allocator: Allocator, address: usize) !?*Dwarf {
         _ = allocator;
         _ = address;
         return &self.dwarf;

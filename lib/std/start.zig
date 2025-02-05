@@ -230,6 +230,29 @@ fn _start() callconv(.naked) noreturn {
         );
     }
 
+    // This is the first userspace frame. Prevent DWARF-based unwinders from unwinding further. We
+    // prevent FP-based unwinders from unwinding further by zeroing the register below.
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (switch (native_arch) {
+            .arc => ".cfi_undefined blink",
+            .arm, .armeb, .thumb, .thumbeb => "", // https://github.com/llvm/llvm-project/issues/115891
+            .aarch64, .aarch64_be => ".cfi_undefined lr",
+            .csky => ".cfi_undefined lr",
+            .hexagon => ".cfi_undefined r31",
+            .loongarch32, .loongarch64 => ".cfi_undefined 1",
+            .m68k => ".cfi_undefined pc",
+            .mips, .mipsel, .mips64, .mips64el => ".cfi_undefined $ra",
+            .powerpc, .powerpcle, .powerpc64, .powerpc64le => ".cfi_undefined lr",
+            .riscv32, .riscv64 => if (builtin.zig_backend == .stage2_riscv64)
+                ""
+            else
+                ".cfi_undefined ra",
+            .s390x => ".cfi_undefined %%r14",
+            .sparc, .sparc64 => ".cfi_undefined %%i7",
+            .x86 => ".cfi_undefined %%eip",
+            .x86_64 => ".cfi_undefined %%rip",
+            else => @compileError("unsupported arch"),
+        });
+
     // Move this to the riscv prong below when this is resolved: https://github.com/ziglang/zig/issues/20918
     if (builtin.cpu.arch.isRISCV() and builtin.zig_backend != .stage2_riscv64) asm volatile (
         \\ .weak __global_pointer$
@@ -247,7 +270,6 @@ fn _start() callconv(.naked) noreturn {
     // linker explicitly.
     asm volatile (switch (native_arch) {
             .x86_64 =>
-            \\ .cfi_undefined %%rip
             \\ xorl %%ebp, %%ebp
             \\ movq %%rsp, %%rdi
             \\ andq $-16, %%rsp
@@ -279,8 +301,10 @@ fn _start() callconv(.naked) noreturn {
             ,
             .arm, .armeb, .thumb, .thumbeb =>
             // Note that this code must work for Thumb-1.
+            // r7 = FP (local), r11 = FP (unwind)
             \\ movs v1, #0
-            \\ mov fp, v1
+            \\ mov r7, v1
+            \\ mov r11, v1
             \\ mov lr, v1
             \\ mov a1, sp
             \\ subs v1, #16
@@ -290,20 +314,23 @@ fn _start() callconv(.naked) noreturn {
             ,
             .csky =>
             // The CSKY ABI assumes that `gb` is set to the address of the GOT in order for
-            // position-independent code to work. We depend on this in `std.os.linux.start_pie`
-            // to locate `_DYNAMIC` as well.
+            // position-independent code to work. We depend on this in `std.os.linux.pie` to locate
+            // `_DYNAMIC` as well.
+            // r8 = FP
             \\ grs t0, 1f
             \\ 1:
             \\ lrw gb, 1b@GOTPC
             \\ addu gb, t0
+            \\ movi r8, 0
             \\ movi lr, 0
             \\ mov a0, sp
             \\ andi sp, sp, -8
             \\ jmpi %[posixCallMainAndExit]
             ,
             .hexagon =>
-            // r29 = SP, r30 = FP
+            // r29 = SP, r30 = FP, r31 = LR
             \\ r30 = #0
+            \\ r31 = #0
             \\ r0 = r29
             \\ r29 = and(r29, #-16)
             \\ memw(r29 + #-8) = r29
@@ -312,12 +339,13 @@ fn _start() callconv(.naked) noreturn {
             ,
             .loongarch32, .loongarch64 =>
             \\ move $fp, $zero
+            \\ move $ra, $zero
             \\ move $a0, $sp
             \\ bstrins.d $sp, $zero, 3, 0
             \\ b %[posixCallMainAndExit]
             ,
             .riscv32, .riscv64 =>
-            \\ li s0, 0
+            \\ li fp, 0
             \\ li ra, 0
             \\ mv a0, sp
             \\ andi sp, sp, -16
@@ -371,28 +399,35 @@ fn _start() callconv(.naked) noreturn {
             ,
             .powerpc, .powerpcle =>
             // Set up the initial stack frame, and clear the back chain pointer.
+            // r1 = SP, r31 = FP
             \\ mr 3, 1
             \\ clrrwi 1, 1, 4
             \\ li 0, 0
             \\ stwu 1, -16(1)
             \\ stw 0, 0(1)
+            \\ li 31, 0
             \\ mtlr 0
             \\ b %[posixCallMainAndExit]
             ,
             .powerpc64, .powerpc64le =>
             // Set up the ToC and initial stack frame, and clear the back chain pointer.
+            // r1 = SP, r2 = ToC, r31 = FP
             \\ addis 2, 12, .TOC. - %[_start]@ha
             \\ addi 2, 2, .TOC. - %[_start]@l
             \\ mr 3, 1
             \\ clrrdi 1, 1, 4
             \\ li 0, 0
             \\ stdu 0, -32(1)
+            \\ li 31, 0
             \\ mtlr 0
             \\ b %[posixCallMainAndExit]
             \\ nop
             ,
             .s390x =>
             // Set up the stack frame (register save area and cleared back-chain slot).
+            // r11 = FP, r14 = LR, r15 = SP
+            \\ lghi %%r11, 0
+            \\ lghi %%r14, 0
             \\ lgr %%r2, %%r15
             \\ lghi %%r0, -16
             \\ ngr %%r15, %%r0
@@ -403,7 +438,9 @@ fn _start() callconv(.naked) noreturn {
             ,
             .sparc =>
             // argc is stored after a register window (16 registers * 4 bytes).
+            // i7 = LR
             \\ mov %%g0, %%fp
+            \\ mov %%g0, %%i7
             \\ add %%sp, 64, %%o0
             \\ and %%sp, -8, %%sp
             \\ ba,a %[posixCallMainAndExit]
@@ -411,7 +448,9 @@ fn _start() callconv(.naked) noreturn {
             .sparc64 =>
             // argc is stored after a register window (16 registers * 8 bytes) plus the stack bias
             // (2047 bytes).
+            // i7 = LR
             \\ mov %%g0, %%fp
+            \\ mov %%g0, %%i7
             \\ add %%sp, 2175, %%o0
             \\ add %%sp, 2047, %%sp
             \\ and %%sp, -16, %%sp

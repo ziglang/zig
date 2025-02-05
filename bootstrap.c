@@ -141,6 +141,7 @@ int main(int argc, char **argv) {
             "pub const skip_non_native = false;\n"
             "pub const force_gpa = false;\n"
             "pub const dev = .core;\n"
+            "pub const value_interpret_mode = .direct;\n"
         , zig_version);
         if (written < 100)
             panic("unable to write to config.zig file");

@@ -90,6 +90,11 @@ pub const Case = struct {
     link_libc: bool = false,
     pic: ?bool = null,
     pie: ?bool = null,
+    /// A list of imports to cache alongside the source file.
+    imports: []const []const u8 = &.{},
+    /// Where to look for imports relative to the `cases_dir_path` given to
+    /// `lower_to_build_steps`. If null, file imports will assert.
+    import_path: ?[]const u8 = null,
 
     deps: std.ArrayList(DepModule),
 
@@ -358,7 +363,6 @@ pub fn addFromDir(ctx: *Cases, dir: std.fs.Dir, b: *std.Build) void {
     var current_file: []const u8 = "none";
     ctx.addFromDirInner(dir, &current_file, b) catch |err| {
         std.debug.panicExtra(
-            @errorReturnTrace(),
             @returnAddress(),
             "test harness failed to process file '{s}': {s}\n",
             .{ current_file, @errorName(err) },
@@ -414,6 +418,7 @@ fn addFromDirInner(
         const pic = try manifest.getConfigForKeyAssertSingle("pic", ?bool);
         const pie = try manifest.getConfigForKeyAssertSingle("pie", ?bool);
         const emit_bin = try manifest.getConfigForKeyAssertSingle("emit_bin", bool);
+        const imports = try manifest.getConfigForKeyAlloc(ctx.arena, "imports", []const u8);
 
         if (manifest.type == .translate_c) {
             for (c_frontends) |c_frontend| {
@@ -471,7 +476,7 @@ fn addFromDirInner(
                 const next = ctx.cases.items.len;
                 try ctx.cases.append(.{
                     .name = std.fs.path.stem(filename),
-                    .target = resolved_target,
+                    .import_path = std.fs.path.dirname(filename),
                     .backend = backend,
                     .updates = std.ArrayList(Cases.Update).init(ctx.cases.allocator),
                     .emit_bin = emit_bin,
@@ -481,6 +486,8 @@ fn addFromDirInner(
                     .pic = pic,
                     .pie = pie,
                     .deps = std.ArrayList(DepModule).init(ctx.cases.allocator),
+                    .imports = imports,
+                    .target = resolved_target,
                 });
                 try cases.append(next);
             }
@@ -572,7 +579,10 @@ pub fn lowerToTranslateCSteps(
             });
             translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
 
-            const run_exe = translate_c.addExecutable(.{});
+            const run_exe = b.addExecutable(.{
+                .name = "translated_c",
+                .root_module = translate_c.createModule(),
+            });
             run_exe.step.name = b.fmt("{s} build-exe", .{annotated_case_name});
             run_exe.linkLibC();
             const run = b.addRunArtifact(run_exe);
@@ -617,6 +627,7 @@ pub fn lowerToBuildSteps(
 ) void {
     const host = std.zig.system.resolveTargetQuery(.{}) catch |err|
         std.debug.panic("unable to detect native host: {s}\n", .{@errorName(err)});
+    const cases_dir_path = b.build_root.join(b.allocator, &.{ "test", "cases" }) catch @panic("OOM");
 
     for (self.incremental_cases.items) |incr_case| {
         if (true) {
@@ -660,34 +671,48 @@ pub fn lowerToBuildSteps(
             file_sources.put(file.path, writefiles.add(file.path, file.src)) catch @panic("OOM");
         }
 
-        const artifact = if (case.is_test) b.addTest(.{
+        for (case.imports) |import_rel| {
+            const import_abs = std.fs.path.join(b.allocator, &.{
+                cases_dir_path,
+                case.import_path orelse @panic("import_path not set"),
+                import_rel,
+            }) catch @panic("OOM");
+            _ = writefiles.addCopyFile(.{ .cwd_relative = import_abs }, import_rel);
+        }
+
+        const mod = b.createModule(.{
             .root_source_file = root_source_file,
-            .name = case.name,
             .target = case.target,
             .optimize = case.optimize_mode,
+        });
+
+        if (case.link_libc) mod.link_libc = true;
+        if (case.pic) |pic| mod.pic = pic;
+        for (case.deps.items) |dep| {
+            mod.addAnonymousImport(dep.name, .{
+                .root_source_file = file_sources.get(dep.path).?,
+            });
+        }
+
+        const artifact = if (case.is_test) b.addTest(.{
+            .name = case.name,
+            .root_module = mod,
         }) else switch (case.output_mode) {
             .Obj => b.addObject(.{
-                .root_source_file = root_source_file,
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = mod,
             }),
-            .Lib => b.addStaticLibrary(.{
-                .root_source_file = root_source_file,
+            .Lib => b.addLibrary(.{
+                .linkage = .static,
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = mod,
             }),
             .Exe => b.addExecutable(.{
-                .root_source_file = root_source_file,
                 .name = case.name,
-                .target = case.target,
-                .optimize = case.optimize_mode,
+                .root_module = mod,
             }),
         };
 
-        if (case.link_libc) artifact.linkLibC();
-        if (case.pic) |pic| artifact.root_module.pic = pic;
         if (case.pie) |pie| artifact.pie = pie;
 
         switch (case.backend) {
@@ -699,12 +724,6 @@ pub fn lowerToBuildSteps(
             .llvm => {
                 artifact.use_llvm = true;
             },
-        }
-
-        for (case.deps.items) |dep| {
-            artifact.root_module.addAnonymousImport(dep.name, .{
-                .root_source_file = file_sources.get(dep.path).?,
-            });
         }
 
         switch (update.case) {
@@ -962,6 +981,8 @@ const TestManifestConfigDefaults = struct {
             return "null";
         } else if (std.mem.eql(u8, key, "pie")) {
             return "null";
+        } else if (std.mem.eql(u8, key, "imports")) {
+            return "";
         } else unreachable;
     }
 };
@@ -998,6 +1019,7 @@ const TestManifest = struct {
         .{ "backend", {} },
         .{ "pic", {} },
         .{ "pie", {} },
+        .{ "imports", {} },
     });
 
     const Type = enum {
@@ -1020,7 +1042,7 @@ const TestManifest = struct {
 
     fn ConfigValueIterator(comptime T: type) type {
         return struct {
-            inner: std.mem.SplitIterator(u8, .scalar),
+            inner: std.mem.TokenIterator(u8, .scalar),
 
             fn next(self: *@This()) !?T {
                 const next_raw = self.inner.next() orelse return null;
@@ -1098,7 +1120,9 @@ const TestManifest = struct {
             // Parse key=value(s)
             var kv_it = std.mem.splitScalar(u8, trimmed, '=');
             const key = kv_it.first();
-            if (!valid_keys.has(key)) return error.InvalidKey;
+            if (!valid_keys.has(key)) {
+                return error.InvalidKey;
+            }
             try manifest.config_map.putNoClobber(key, kv_it.next() orelse return error.MissingValuesForConfig);
         }
 
@@ -1115,7 +1139,7 @@ const TestManifest = struct {
     ) ConfigValueIterator(T) {
         const bytes = self.config_map.get(key) orelse TestManifestConfigDefaults.get(self.type, key);
         return ConfigValueIterator(T){
-            .inner = std.mem.splitScalar(u8, bytes, ','),
+            .inner = std.mem.tokenizeScalar(u8, bytes, ','),
         };
     }
 
@@ -1232,6 +1256,18 @@ const TestManifest = struct {
                     return try getDefaultParser(o.child)(str);
                 }
             }.parse,
+            .@"struct" => @compileError("no default parser for " ++ @typeName(T)),
+            .pointer => {
+                if (T == []const u8) {
+                    return struct {
+                        fn parse(str: []const u8) anyerror!T {
+                            return str;
+                        }
+                    }.parse;
+                } else {
+                    @compileError("no default parser for " ++ @typeName(T));
+                }
+            },
             else => @compileError("no default parser for " ++ @typeName(T)),
         }
     }

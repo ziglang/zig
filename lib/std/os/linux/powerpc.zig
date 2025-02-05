@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const linux = std.os.linux;
@@ -133,14 +134,14 @@ pub fn clone() callconv(.Naked) usize {
     // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
     //         0          3,     4,     5,    6,   7
     asm volatile (
-        \\ # store non-volatile regs r30, r31 on stack in order to put our
+        \\ # store non-volatile regs r29, r30 on stack in order to put our
         \\ # start func and its arg there
-        \\ stwu 30, -16(1)
-        \\ stw 31, 4(1)
+        \\ stwu 29, -16(1)
+        \\ stw 30, 4(1)
         \\
-        \\ # save r3 (func) into r30, and r6(arg) into r31
-        \\ mr 30, 3
-        \\ mr 31, 6
+        \\ # save r3 (func) into r29, and r6(arg) into r30
+        \\ mr 29, 3
+        \\ mr 30, 6
         \\
         \\ # create initial stack frame for new thread
         \\ clrrwi 4, 4, 4
@@ -167,28 +168,32 @@ pub fn clone() callconv(.Naked) usize {
         \\ # compare sc result with 0
         \\ cmpwi cr7, 3, 0
         \\
-        \\ # if not 0, jump to end
-        \\ bne cr7, 2f
+        \\ # if not 0, restore stack and return
+        \\ beq cr7, 2f
+        \\ lwz 29, 0(1)
+        \\ lwz 30, 4(1)
+        \\ addi 1, 1, 16
+        \\ blr
         \\
         \\ #else: we're the child
+        \\ 2:
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
+        \\ .cfi_undefined lr
+    );
+    asm volatile (
+        \\ li 31, 0
+        \\ mtlr 0
+        \\
         \\ #call funcptr: move arg (d) into r3
-        \\ mr 3, 31
-        \\ #move r30 (funcptr) into CTR reg
-        \\ mtctr 30
+        \\ mr 3, 30
+        \\ #move r29 (funcptr) into CTR reg
+        \\ mtctr 29
         \\ # call CTR reg
         \\ bctrl
         \\ # mov SYS_exit into r0 (the exit param is already in r3)
         \\ li 0, 1
         \\ sc
-        \\
-        \\ 2:
-        \\
-        \\ # restore stack
-        \\ lwz 30, 0(1)
-        \\ lwz 31, 4(1)
-        \\ addi 1, 1, 16
-        \\
-        \\ blr
     );
 }
 

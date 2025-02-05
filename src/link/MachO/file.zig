@@ -45,29 +45,21 @@ pub const File = union(enum) {
 
     /// Encodes symbol rank so that the following ordering applies:
     /// * strong in object
-    /// * weak in object
-    /// * tentative in object
     /// * strong in archive/dylib
+    /// * weak in object
     /// * weak in archive/dylib
+    /// * tentative in object
     /// * tentative in archive
     /// * unclaimed
+    /// Ties are broken by file priority.
     pub fn getSymbolRank(file: File, args: struct {
         archive: bool = false,
         weak: bool = false,
         tentative: bool = false,
     }) u32 {
-        if (file != .dylib and !args.archive) {
-            const base: u32 = blk: {
-                if (args.tentative) break :blk 3;
-                break :blk if (args.weak) 2 else 1;
-            };
-            return (base << 16) + file.getIndex();
-        }
-        const base: u32 = blk: {
-            if (args.tentative) break :blk 3;
-            break :blk if (args.weak) 2 else 1;
-        };
-        return base + (file.getIndex() << 24);
+        const archive_or_dylib = @as(u32, @intFromBool(file == .dylib or args.archive)) << 29;
+        const strength: u32 = if (args.tentative) 0b10 << 30 else if (args.weak) 0b01 << 30 else 0b00 << 30;
+        return strength | archive_or_dylib | file.getIndex();
     }
 
     pub fn getAtom(file: File, atom_index: Atom.Index) ?*Atom {

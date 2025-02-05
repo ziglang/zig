@@ -9,11 +9,6 @@ pub fn main() !void {
     const zig_src_lib_path = args[1];
     const mingw_src_path = args[2];
 
-    if (std.mem.eql(u8, mingw_src_path, "--missing-mingw-source-directory")) {
-        std.log.err("this build step requires passing -Dmingw-src=[path]", .{});
-        std.process.exit(1);
-    }
-
     const dest_mingw_crt_path = try std.fs.path.join(arena, &.{
         zig_src_lib_path, "libc", "mingw",
     });
@@ -131,30 +126,33 @@ const ok_prefixes = [_][]const u8{
 };
 
 const blacklist = [_][]const u8{
-    "msvcp60.def",
-    "msvcp120_app.def.in",
-    "msvcp60.def",
-    "msvcp120_clr0400.def",
-    "msvcp110.def",
-    "msvcp60.def",
-    "msvcp120_app.def.in",
+    "crtdll.def.in",
 
-    "msvcr100.def.in",
-    "msvcr110.def",
-    "msvcr110.def.in",
-    "msvcr120.def.in",
-    "msvcr120_app.def.in",
-    "msvcr120_clr0400.def",
-    "msvcr120d.def.in",
+    "msvcp60.def",
+    "msvcp110.def",
+    "msvcp120_app.def.in",
+    "msvcp120_clr0400.def",
+
+    "msvcr40d.def.in",
     "msvcr70.def.in",
+    "msvcr70d.def.in",
     "msvcr71.def.in",
+    "msvcr71d.def.in",
     "msvcr80.def.in",
+    "msvcr80d.def.in",
     "msvcr90.def.in",
     "msvcr90d.def.in",
+    "msvcr100.def.in",
+    "msvcr100d.def.in",
+    "msvcr110.def.in",
+    "msvcr110d.def.in",
+    "msvcr120.def.in",
+    "msvcr120d.def.in",
+    "msvcr120_app.def.in",
+
     "msvcrt.def.in",
+    "msvcrtd.def.in",
     "msvcrt10.def.in",
     "msvcrt20.def.in",
     "msvcrt40.def.in",
-
-    "crtdll.def.in",
 };

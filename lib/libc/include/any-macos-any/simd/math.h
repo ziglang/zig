@@ -1143,6 +1143,24 @@ static inline SIMD_NONCONST void __tg_sincospi(simd_double8 x, simd_double8 *sin
 #endif
 /*! @abstract Do not call this function; instead use `isfinite` in C and
  *  Objective-C, and `simd::isfinite` in C++.                                 */
+static inline SIMD_CFUNC simd_short2 __tg_isfinite(simd_half2 x);
+/*! @abstract Do not call this function; instead use `isfinite` in C and
+ *  Objective-C, and `simd::isfinite` in C++.                                 */
+static inline SIMD_CFUNC simd_short3 __tg_isfinite(simd_half3 x);
+/*! @abstract Do not call this function; instead use `isfinite` in C and
+ *  Objective-C, and `simd::isfinite` in C++.                                 */
+static inline SIMD_CFUNC simd_short4 __tg_isfinite(simd_half4 x);
+/*! @abstract Do not call this function; instead use `isfinite` in C and
+ *  Objective-C, and `simd::isfinite` in C++.                                 */
+static inline SIMD_CFUNC simd_short8 __tg_isfinite(simd_half8 x);
+/*! @abstract Do not call this function; instead use `isfinite` in C and
+ *  Objective-C, and `simd::isfinite` in C++.                                 */
+static inline SIMD_CFUNC simd_short16 __tg_isfinite(simd_half16 x);
+/*! @abstract Do not call this function; instead use `isfinite` in C and
+ *  Objective-C, and `simd::isfinite` in C++.                                 */
+static inline SIMD_CFUNC simd_short32 __tg_isfinite(simd_half32 x);
+/*! @abstract Do not call this function; instead use `isfinite` in C and
+ *  Objective-C, and `simd::isfinite` in C++.                                 */
 static inline SIMD_CFUNC simd_int2 __tg_isfinite(simd_float2 x);
 /*! @abstract Do not call this function; instead use `isfinite` in C and
  *  Objective-C, and `simd::isfinite` in C++.                                 */
@@ -1169,6 +1187,24 @@ static inline SIMD_CFUNC simd_long4 __tg_isfinite(simd_double4 x);
  *  Objective-C, and `simd::isfinite` in C++.                                 */
 static inline SIMD_CFUNC simd_long8 __tg_isfinite(simd_double8 x);
 
+/*! @abstract Do not call this function; instead use `isinf` in C and
+ *  Objective-C, and `simd::isinf` in C++.                                    */
+static inline SIMD_CFUNC simd_short2 __tg_isinf(simd_half2 x);
+/*! @abstract Do not call this function; instead use `isinf` in C and
+ *  Objective-C, and `simd::isinf` in C++.                                    */
+static inline SIMD_CFUNC simd_short3 __tg_isinf(simd_half3 x);
+/*! @abstract Do not call this function; instead use `isinf` in C and
+ *  Objective-C, and `simd::isinf` in C++.                                    */
+static inline SIMD_CFUNC simd_short4 __tg_isinf(simd_half4 x);
+/*! @abstract Do not call this function; instead use `isinf` in C and
+ *  Objective-C, and `simd::isinf` in C++.                                    */
+static inline SIMD_CFUNC simd_short8 __tg_isinf(simd_half8 x);
+/*! @abstract Do not call this function; instead use `isinf` in C and
+ *  Objective-C, and `simd::isinf` in C++.                                    */
+static inline SIMD_CFUNC simd_short16 __tg_isinf(simd_half16 x);
+/*! @abstract Do not call this function; instead use `isinf` in C and
+ *  Objective-C, and `simd::isinf` in C++.                                    */
+static inline SIMD_CFUNC simd_short32 __tg_isinf(simd_half32 x);
 /*! @abstract Do not call this function; instead use `isinf` in C and
  *  Objective-C, and `simd::isinf` in C++.                                    */
 static inline SIMD_CFUNC simd_int2 __tg_isinf(simd_float2 x);
@@ -1199,6 +1235,24 @@ static inline SIMD_CFUNC simd_long8 __tg_isinf(simd_double8 x);
 
 /*! @abstract Do not call this function; instead use `isnan` in C and
  *  Objective-C, and `simd::isnan` in C++.                                    */
+static inline SIMD_CFUNC simd_short2 __tg_isnan(simd_half2 x);
+/*! @abstract Do not call this function; instead use `isnan` in C and
+ *  Objective-C, and `simd::isnan` in C++.                                    */
+static inline SIMD_CFUNC simd_short3 __tg_isnan(simd_half3 x);
+/*! @abstract Do not call this function; instead use `isnan` in C and
+ *  Objective-C, and `simd::isnan` in C++.                                    */
+static inline SIMD_CFUNC simd_short4 __tg_isnan(simd_half4 x);
+/*! @abstract Do not call this function; instead use `isnan` in C and
+ *  Objective-C, and `simd::isnan` in C++.                                    */
+static inline SIMD_CFUNC simd_short8 __tg_isnan(simd_half8 x);
+/*! @abstract Do not call this function; instead use `isnan` in C and
+ *  Objective-C, and `simd::isnan` in C++.                                    */
+static inline SIMD_CFUNC simd_short16 __tg_isnan(simd_half16 x);
+/*! @abstract Do not call this function; instead use `isnan` in C and
+ *  Objective-C, and `simd::isnan` in C++.                                    */
+static inline SIMD_CFUNC simd_short32 __tg_isnan(simd_half32 x);
+/*! @abstract Do not call this function; instead use `isnan` in C and
+ *  Objective-C, and `simd::isnan` in C++.                                    */
 static inline SIMD_CFUNC simd_int2 __tg_isnan(simd_float2 x);
 /*! @abstract Do not call this function; instead use `isnan` in C and
  *  Objective-C, and `simd::isnan` in C++.                                    */
@@ -1227,6 +1281,24 @@ static inline SIMD_CFUNC simd_long8 __tg_isnan(simd_double8 x);
 
 /*! @abstract Do not call this function; instead use `isnormal` in C and
  *  Objective-C, and `simd::isnormal` in C++.                                 */
+static inline SIMD_CFUNC simd_short2 __tg_isnormal(simd_half2 x);
+/*! @abstract Do not call this function; instead use `isnormal` in C and
+ *  Objective-C, and `simd::isnormal` in C++.                                 */
+static inline SIMD_CFUNC simd_short3 __tg_isnormal(simd_half3 x);
+/*! @abstract Do not call this function; instead use `isnormal` in C and
+ *  Objective-C, and `simd::isnormal` in C++.                                 */
+static inline SIMD_CFUNC simd_short4 __tg_isnormal(simd_half4 x);
+/*! @abstract Do not call this function; instead use `isnormal` in C and
+ *  Objective-C, and `simd::isnormal` in C++.                                 */
+static inline SIMD_CFUNC simd_short8 __tg_isnormal(simd_half8 x);
+/*! @abstract Do not call this function; instead use `isnormal` in C and
+ *  Objective-C, and `simd::isnormal` in C++.                                 */
+static inline SIMD_CFUNC simd_short16 __tg_isnormal(simd_half16 x);
+/*! @abstract Do not call this function; instead use `isnormal` in C and
+ *  Objective-C, and `simd::isnormal` in C++.                                 */
+static inline SIMD_CFUNC simd_short32 __tg_isnormal(simd_half32 x);
+/*! @abstract Do not call this function; instead use `isnormal` in C and
+ *  Objective-C, and `simd::isnormal` in C++.                                 */
 static inline SIMD_CFUNC simd_int2 __tg_isnormal(simd_float2 x);
 /*! @abstract Do not call this function; instead use `isnormal` in C and
  *  Objective-C, and `simd::isnormal` in C++.                                 */
@@ -1252,6 +1324,120 @@ static inline SIMD_CFUNC simd_long4 __tg_isnormal(simd_double4 x);
 /*! @abstract Do not call this function; instead use `isnormal` in C and
  *  Objective-C, and `simd::isnormal` in C++.                                 */
 static inline SIMD_CFUNC simd_long8 __tg_isnormal(simd_double8 x);
+
+/*! @abstract Do not call this function; instead use `fabs` in C and
+ *  Objective-C, and `simd::fabs` in C++.                                     */
+static inline SIMD_CFUNC simd_half2 __tg_fabs(simd_half2 x);
+/*! @abstract Do not call this function; instead use `fabs` in C and
+ *  Objective-C, and `simd::fabs` in C++.                                     */
+static inline SIMD_CFUNC simd_half3 __tg_fabs(simd_half3 x);
+/*! @abstract Do not call this function; instead use `fabs` in C and
+ *  Objective-C, and `simd::fabs` in C++.                                     */
+static inline SIMD_CFUNC simd_half4 __tg_fabs(simd_half4 x);
+/*! @abstract Do not call this function; instead use `fabs` in C and
+ *  Objective-C, and `simd::fabs` in C++.                                     */
+static inline SIMD_CFUNC simd_half8 __tg_fabs(simd_half8 x);
+/*! @abstract Do not call this function; instead use `fabs` in C and
+ *  Objective-C, and `simd::fabs` in C++.                                     */
+static inline SIMD_CFUNC simd_half16 __tg_fabs(simd_half16 x);
+/*! @abstract Do not call this function; instead use `fabs` in C and
+ *  Objective-C, and `simd::fabs` in C++.                                     */
+static inline SIMD_CFUNC simd_half32 __tg_fabs(simd_half32 x);
+
+/*! @abstract Do not call this function; instead use `sqrt` in C and
+ *  Objective-C, and `simd::sqrt` in C++.                                     */
+static inline SIMD_CFUNC simd_half2 __tg_sqrt(simd_half2 x);
+/*! @abstract Do not call this function; instead use `sqrt` in C and
+ *  Objective-C, and `simd::sqrt` in C++.                                     */
+static inline SIMD_CFUNC simd_half3 __tg_sqrt(simd_half3 x);
+/*! @abstract Do not call this function; instead use `sqrt` in C and
+ *  Objective-C, and `simd::sqrt` in C++.                                     */
+static inline SIMD_CFUNC simd_half4 __tg_sqrt(simd_half4 x);
+/*! @abstract Do not call this function; instead use `sqrt` in C and
+ *  Objective-C, and `simd::sqrt` in C++.                                     */
+static inline SIMD_CFUNC simd_half8 __tg_sqrt(simd_half8 x);
+/*! @abstract Do not call this function; instead use `sqrt` in C and
+ *  Objective-C, and `simd::sqrt` in C++.                                     */
+static inline SIMD_CFUNC simd_half16 __tg_sqrt(simd_half16 x);
+/*! @abstract Do not call this function; instead use `sqrt` in C and
+ *  Objective-C, and `simd::sqrt` in C++.                                     */
+static inline SIMD_CFUNC simd_half32 __tg_sqrt(simd_half32 x);
+
+/*! @abstract Do not call this function; instead use `ceil` in C and
+ *  Objective-C, and `simd::ceil` in C++.                                     */
+static inline SIMD_CFUNC simd_half2 __tg_ceil(simd_half2 x);
+/*! @abstract Do not call this function; instead use `ceil` in C and
+ *  Objective-C, and `simd::ceil` in C++.                                     */
+static inline SIMD_CFUNC simd_half3 __tg_ceil(simd_half3 x);
+/*! @abstract Do not call this function; instead use `ceil` in C and
+ *  Objective-C, and `simd::ceil` in C++.                                     */
+static inline SIMD_CFUNC simd_half4 __tg_ceil(simd_half4 x);
+/*! @abstract Do not call this function; instead use `ceil` in C and
+ *  Objective-C, and `simd::ceil` in C++.                                     */
+static inline SIMD_CFUNC simd_half8 __tg_ceil(simd_half8 x);
+/*! @abstract Do not call this function; instead use `ceil` in C and
+ *  Objective-C, and `simd::ceil` in C++.                                     */
+static inline SIMD_CFUNC simd_half16 __tg_ceil(simd_half16 x);
+/*! @abstract Do not call this function; instead use `ceil` in C and
+ *  Objective-C, and `simd::ceil` in C++.                                     */
+static inline SIMD_CFUNC simd_half32 __tg_ceil(simd_half32 x);
+
+/*! @abstract Do not call this function; instead use `floor` in C and
+ *  Objective-C, and `simd::floor` in C++.                                    */
+static inline SIMD_CFUNC simd_half2 __tg_floor(simd_half2 x);
+/*! @abstract Do not call this function; instead use `floor` in C and
+ *  Objective-C, and `simd::floor` in C++.                                    */
+static inline SIMD_CFUNC simd_half3 __tg_floor(simd_half3 x);
+/*! @abstract Do not call this function; instead use `floor` in C and
+ *  Objective-C, and `simd::floor` in C++.                                    */
+static inline SIMD_CFUNC simd_half4 __tg_floor(simd_half4 x);
+/*! @abstract Do not call this function; instead use `floor` in C and
+ *  Objective-C, and `simd::floor` in C++.                                    */
+static inline SIMD_CFUNC simd_half8 __tg_floor(simd_half8 x);
+/*! @abstract Do not call this function; instead use `floor` in C and
+ *  Objective-C, and `simd::floor` in C++.                                    */
+static inline SIMD_CFUNC simd_half16 __tg_floor(simd_half16 x);
+/*! @abstract Do not call this function; instead use `floor` in C and
+ *  Objective-C, and `simd::floor` in C++.                                    */
+static inline SIMD_CFUNC simd_half32 __tg_floor(simd_half32 x);
+
+/*! @abstract Do not call this function; instead use `rint` in C and
+ *  Objective-C, and `simd::rint` in C++.                                     */
+static inline SIMD_CFUNC simd_half2 __tg_rint(simd_half2 x);
+/*! @abstract Do not call this function; instead use `rint` in C and
+ *  Objective-C, and `simd::rint` in C++.                                     */
+static inline SIMD_CFUNC simd_half3 __tg_rint(simd_half3 x);
+/*! @abstract Do not call this function; instead use `rint` in C and
+ *  Objective-C, and `simd::rint` in C++.                                     */
+static inline SIMD_CFUNC simd_half4 __tg_rint(simd_half4 x);
+/*! @abstract Do not call this function; instead use `rint` in C and
+ *  Objective-C, and `simd::rint` in C++.                                     */
+static inline SIMD_CFUNC simd_half8 __tg_rint(simd_half8 x);
+/*! @abstract Do not call this function; instead use `rint` in C and
+ *  Objective-C, and `simd::rint` in C++.                                     */
+static inline SIMD_CFUNC simd_half16 __tg_rint(simd_half16 x);
+/*! @abstract Do not call this function; instead use `rint` in C and
+ *  Objective-C, and `simd::rint` in C++.                                     */
+static inline SIMD_CFUNC simd_half32 __tg_rint(simd_half32 x);
+
+/*! @abstract Do not call this function; instead use `trunc` in C and
+ *  Objective-C, and `simd::trunc` in C++.                                    */
+static inline SIMD_CFUNC simd_half2 __tg_trunc(simd_half2 x);
+/*! @abstract Do not call this function; instead use `trunc` in C and
+ *  Objective-C, and `simd::trunc` in C++.                                    */
+static inline SIMD_CFUNC simd_half3 __tg_trunc(simd_half3 x);
+/*! @abstract Do not call this function; instead use `trunc` in C and
+ *  Objective-C, and `simd::trunc` in C++.                                    */
+static inline SIMD_CFUNC simd_half4 __tg_trunc(simd_half4 x);
+/*! @abstract Do not call this function; instead use `trunc` in C and
+ *  Objective-C, and `simd::trunc` in C++.                                    */
+static inline SIMD_CFUNC simd_half8 __tg_trunc(simd_half8 x);
+/*! @abstract Do not call this function; instead use `trunc` in C and
+ *  Objective-C, and `simd::trunc` in C++.                                    */
+static inline SIMD_CFUNC simd_half16 __tg_trunc(simd_half16 x);
+/*! @abstract Do not call this function; instead use `trunc` in C and
+ *  Objective-C, and `simd::trunc` in C++.                                    */
+static inline SIMD_CFUNC simd_half32 __tg_trunc(simd_half32 x);
 
 
 /*! @abstract Do not call this function; instead use `atan2` in C and
@@ -1534,6 +1720,63 @@ static inline SIMD_CFUNC simd_double4 __tg_fmin(simd_double4 x, simd_double4 y);
  *  Objective-C, and `simd::fmin` in C++.                                     */
 static inline SIMD_CFUNC simd_double8 __tg_fmin(simd_double8 x, simd_double8 y);
 
+/*! @abstract Do not call this function; instead use `fmin` in C and
+ *  Objective-C, and `simd::fmin` in C++.                                     */
+static inline SIMD_CFUNC simd_half2 __tg_fmin(simd_half2 x, simd_half2 y);
+/*! @abstract Do not call this function; instead use `fmin` in C and
+ *  Objective-C, and `simd::fmin` in C++.                                     */
+static inline SIMD_CFUNC simd_half3 __tg_fmin(simd_half3 x, simd_half3 y);
+/*! @abstract Do not call this function; instead use `fmin` in C and
+ *  Objective-C, and `simd::fmin` in C++.                                     */
+static inline SIMD_CFUNC simd_half4 __tg_fmin(simd_half4 x, simd_half4 y);
+/*! @abstract Do not call this function; instead use `fmin` in C and
+ *  Objective-C, and `simd::fmin` in C++.                                     */
+static inline SIMD_CFUNC simd_half8 __tg_fmin(simd_half8 x, simd_half8 y);
+/*! @abstract Do not call this function; instead use `fmin` in C and
+ *  Objective-C, and `simd::fmin` in C++.                                     */
+static inline SIMD_CFUNC simd_half16 __tg_fmin(simd_half16 x, simd_half16 y);
+/*! @abstract Do not call this function; instead use `fmin` in C and
+ *  Objective-C, and `simd::fmin` in C++.                                     */
+static inline SIMD_CFUNC simd_half32 __tg_fmin(simd_half32 x, simd_half32 y);
+
+/*! @abstract Do not call this function; instead use `fmax` in C and
+ *  Objective-C, and `simd::fmax` in C++.                                     */
+static inline SIMD_CFUNC simd_half2 __tg_fmax(simd_half2 x, simd_half2 y);
+/*! @abstract Do not call this function; instead use `fmax` in C and
+ *  Objective-C, and `simd::fmax` in C++.                                     */
+static inline SIMD_CFUNC simd_half3 __tg_fmax(simd_half3 x, simd_half3 y);
+/*! @abstract Do not call this function; instead use `fmax` in C and
+ *  Objective-C, and `simd::fmax` in C++.                                     */
+static inline SIMD_CFUNC simd_half4 __tg_fmax(simd_half4 x, simd_half4 y);
+/*! @abstract Do not call this function; instead use `fmax` in C and
+ *  Objective-C, and `simd::fmax` in C++.                                     */
+static inline SIMD_CFUNC simd_half8 __tg_fmax(simd_half8 x, simd_half8 y);
+/*! @abstract Do not call this function; instead use `fmax` in C and
+ *  Objective-C, and `simd::fmax` in C++.                                     */
+static inline SIMD_CFUNC simd_half16 __tg_fmax(simd_half16 x, simd_half16 y);
+/*! @abstract Do not call this function; instead use `fmax` in C and
+ *  Objective-C, and `simd::fmax` in C++.                                     */
+static inline SIMD_CFUNC simd_half32 __tg_fmax(simd_half32 x, simd_half32 y);
+
+/*! @abstract Do not call this function; instead use `copysign` in C and
+ *  Objective-C, and `simd::copysign` in C++.                                 */
+static inline SIMD_CFUNC simd_half2 __tg_copysign(simd_half2 x, simd_half2 y);
+/*! @abstract Do not call this function; instead use `copysign` in C and
+ *  Objective-C, and `simd::copysign` in C++.                                 */
+static inline SIMD_CFUNC simd_half3 __tg_copysign(simd_half3 x, simd_half3 y);
+/*! @abstract Do not call this function; instead use `copysign` in C and
+ *  Objective-C, and `simd::copysign` in C++.                                 */
+static inline SIMD_CFUNC simd_half4 __tg_copysign(simd_half4 x, simd_half4 y);
+/*! @abstract Do not call this function; instead use `copysign` in C and
+ *  Objective-C, and `simd::copysign` in C++.                                 */
+static inline SIMD_CFUNC simd_half8 __tg_copysign(simd_half8 x, simd_half8 y);
+/*! @abstract Do not call this function; instead use `copysign` in C and
+ *  Objective-C, and `simd::copysign` in C++.                                 */
+static inline SIMD_CFUNC simd_half16 __tg_copysign(simd_half16 x, simd_half16 y);
+/*! @abstract Do not call this function; instead use `copysign` in C and
+ *  Objective-C, and `simd::copysign` in C++.                                 */
+static inline SIMD_CFUNC simd_half32 __tg_copysign(simd_half32 x, simd_half32 y);
+
 
 /*! @abstract Do not call this function; instead use `fma` in C and Objective-C,
  *  and `simd::fma` in C++.                                                   */
@@ -1563,6 +1806,27 @@ static inline SIMD_CFUNC simd_double4 __tg_fma(simd_double4 x, simd_double4 y, s
  *  and `simd::fma` in C++.                                                   */
 static inline SIMD_CFUNC simd_double8 __tg_fma(simd_double8 x, simd_double8 y, simd_double8 z);
     
+/*! @abstract Computes accum + x*y by the most efficient means available;
+ *  either a fused multiply add or separate multiply and add instructions.    */
+static inline SIMD_CFUNC _Float16 simd_muladd(_Float16 x, _Float16 y, _Float16 z);
+/*! @abstract Computes accum + x*y by the most efficient means available;
+ *  either a fused multiply add or separate multiply and add instructions.    */
+static inline SIMD_CFUNC simd_half2 simd_muladd(simd_half2 x, simd_half2 y, simd_half2 z);
+/*! @abstract Computes accum + x*y by the most efficient means available;
+ *  either a fused multiply add or separate multiply and add instructions.    */
+static inline SIMD_CFUNC simd_half3 simd_muladd(simd_half3 x, simd_half3 y, simd_half3 z);
+/*! @abstract Computes accum + x*y by the most efficient means available;
+ *  either a fused multiply add or separate multiply and add instructions.    */
+static inline SIMD_CFUNC simd_half4 simd_muladd(simd_half4 x, simd_half4 y, simd_half4 z);
+/*! @abstract Computes accum + x*y by the most efficient means available;
+ *  either a fused multiply add or separate multiply and add instructions.    */
+static inline SIMD_CFUNC simd_half8 simd_muladd(simd_half8 x, simd_half8 y, simd_half8 z);
+/*! @abstract Computes accum + x*y by the most efficient means available;
+ *  either a fused multiply add or separate multiply and add instructions.    */
+static inline SIMD_CFUNC simd_half16 simd_muladd(simd_half16 x, simd_half16 y, simd_half16 z);
+/*! @abstract Computes accum + x*y by the most efficient means available;
+ *  either a fused multiply add or separate multiply and add instructions.    */
+static inline SIMD_CFUNC simd_half32 simd_muladd(simd_half32 x, simd_half32 y, simd_half32 z);
 /*! @abstract Computes accum + x*y by the most efficient means available;
  *  either a fused multiply add or separate multiply and add instructions.    */
 static inline SIMD_CFUNC float simd_muladd(float x, float y, float z);
@@ -1753,26 +2017,40 @@ static SIMD_INLINE SIMD_NODEBUG void __tg_sincospi(float x, float *sinp, float *
  *  instead.                                                                  */
 static SIMD_INLINE SIMD_NODEBUG void __tg_sincospi(double x, double *sinp, double *cosp) { ::__sincospi(x, sinp, cosp); }
 #endif
+#if SIMD_LIBRARY_VERSION >= 6
+/*! @abstract Do not call this function directly; use simd::fabs instead.     */
+static SIMD_CPPFUNC _Float16 __tg_fabs(_Float16 x) { return ::__fabsf16(x); }
+/*! @abstract Do not call this function directly; use simd::sqrt instead.     */
+static SIMD_CPPFUNC _Float16 __tg_sqrt(_Float16 x) { return ::__sqrtf16(x); }
+/*! @abstract Do not call this function directly; use simd::ceil instead.     */
+static SIMD_CPPFUNC _Float16 __tg_ceil(_Float16 x) { return ::__ceilf16(x); }
+/*! @abstract Do not call this function directly; use simd::floor instead.    */
+static SIMD_CPPFUNC _Float16 __tg_floor(_Float16 x) { return ::__floorf16(x); }
+/*! @abstract Do not call this function directly; use simd::rint instead.     */
+static SIMD_CPPFUNC _Float16 __tg_rint(_Float16 x) { return ::__rintf16(x); }
+/*! @abstract Do not call this function directly; use simd::trunc instead.    */
+static SIMD_CPPFUNC _Float16 __tg_trunc(_Float16 x) { return ::__truncf16(x); }
+#endif
 /*! @abstract Do not call this function directly; use simd::isfinite
  *  instead.                                                                  */
-static SIMD_CPPFUNC float __tg_isfinite(float x) { return ::isfinite(x); }
+static SIMD_CPPFUNC float __tg_isfinite(float x) { return std::isfinite(x); }
 /*! @abstract Do not call this function directly; use simd::isfinite
  *  instead.                                                                  */
-static SIMD_CPPFUNC double __tg_isfinite(double x) { return ::isfinite(x); }
+static SIMD_CPPFUNC double __tg_isfinite(double x) { return std::isfinite(x); }
 /*! @abstract Do not call this function directly; use simd::isinf instead.    */
-static SIMD_CPPFUNC float __tg_isinf(float x) { return ::isinf(x); }
+static SIMD_CPPFUNC float __tg_isinf(float x) { return std::isinf(x); }
 /*! @abstract Do not call this function directly; use simd::isinf instead.    */
-static SIMD_CPPFUNC double __tg_isinf(double x) { return ::isinf(x); }
+static SIMD_CPPFUNC double __tg_isinf(double x) { return std::isinf(x); }
 /*! @abstract Do not call this function directly; use simd::isnan instead.    */
-static SIMD_CPPFUNC float __tg_isnan(float x) { return ::isnan(x); }
+static SIMD_CPPFUNC float __tg_isnan(float x) { return std::isnan(x); }
 /*! @abstract Do not call this function directly; use simd::isnan instead.    */
-static SIMD_CPPFUNC double __tg_isnan(double x) { return ::isnan(x); }
+static SIMD_CPPFUNC double __tg_isnan(double x) { return std::isnan(x); }
 /*! @abstract Do not call this function directly; use simd::isnormal
  *  instead.                                                                  */
-static SIMD_CPPFUNC float __tg_isnormal(float x) { return ::isnormal(x); }
+static SIMD_CPPFUNC float __tg_isnormal(float x) { return std::isnormal(x); }
 /*! @abstract Do not call this function directly; use simd::isnormal
  *  instead.                                                                  */
-static SIMD_CPPFUNC double __tg_isnormal(double x) { return ::isnormal(x); }
+static SIMD_CPPFUNC double __tg_isnormal(double x) { return std::isnormal(x); }
 /*! @abstract Do not call this function directly; use simd::atan2 instead.    */
 static SIMD_CPPFUNC float __tg_atan2(float x, float y) { return ::atan2f(x, y); }
 /*! @abstract Do not call this function directly; use simd::atan2 instead.    */
@@ -1819,11 +2097,20 @@ static SIMD_CPPFUNC double __tg_fmax(double x, double y) { return ::fmax(x, y); 
 static SIMD_CPPFUNC float __tg_fmin(float x, float y) { return ::fminf(x, y); }
 /*! @abstract Do not call this function directly; use simd::fmin instead.     */
 static SIMD_CPPFUNC double __tg_fmin(double x, double y) { return ::fmin(x, y); }
+#if SIMD_LIBRARY_VERSION >= 6
+/*! @abstract Do not call this function directly; use simd::fmin instead.     */
+static SIMD_CPPFUNC _Float16 __tg_fmin(_Float16 x, _Float16 y) { return ::__fminf16(x, y); }
+/*! @abstract Do not call this function directly; use simd::fmax instead.     */
+static SIMD_CPPFUNC _Float16 __tg_fmax(_Float16 x, _Float16 y) { return ::__fmaxf16(x, y); }
+/*! @abstract Do not call this function directly; use simd::copysign
+ *  instead.                                                                  */
+static SIMD_CPPFUNC _Float16 __tg_copysign(_Float16 x, _Float16 y) { return ::__copysignf16(x, y); }
+#endif
 /*! @abstract Do not call this function directly; use simd::fma instead.      */
 static SIMD_CPPFUNC float __tg_fma(float x, float y, float z) { return ::fmaf(x, y, z); }
 /*! @abstract Do not call this function directly; use simd::fma instead.      */
 static SIMD_CPPFUNC double __tg_fma(double x, double y, double z) { return ::fma(x, y, z); }
-  
+
 namespace simd {
 /*! @abstract Generalizes the <cmath> function acos to operate on vectors of
  *  floats and doubles.                                                       */
@@ -2111,6 +2398,12 @@ extern "C" {
 #else
 #include <tgmath.h>
 /* C and Objective-C, we need some infrastructure to piggyback on tgmath.h    */
+static SIMD_OVERLOAD simd_half2 __tg_promote(simd_half2);
+static SIMD_OVERLOAD simd_half3 __tg_promote(simd_half3);
+static SIMD_OVERLOAD simd_half4 __tg_promote(simd_half4);
+static SIMD_OVERLOAD simd_half8 __tg_promote(simd_half8);
+static SIMD_OVERLOAD simd_half16 __tg_promote(simd_half16);
+static SIMD_OVERLOAD simd_half32 __tg_promote(simd_half32);
 static SIMD_OVERLOAD simd_float2 __tg_promote(simd_float2);
 static SIMD_OVERLOAD simd_float3 __tg_promote(simd_float3);
 static SIMD_OVERLOAD simd_float4 __tg_promote(simd_float4);
@@ -2185,6 +2478,7 @@ static inline SIMD_CFUNC double __tg_exp10(double x) { return __exp10(x); }
  *  and doubles as provided by `<simd/simd.h>`.                               */
 #define exp10(__x) __tg_exp10(__tg_promote1((__x))(__x))
 #endif
+
 
 #if (defined(__GNUC__) && 0 == __FINITE_MATH_ONLY__)
 static inline SIMD_CFUNC int __tg_isfinite(float x) { return __inline_isfinitef(x); }
@@ -2272,6 +2566,12 @@ static inline SIMD_CFUNC int __tg_isnormal(long double x) { return __isnormall(x
 #endif /* !__cplusplus */
   
 #pragma mark - fabs implementation
+static inline SIMD_CFUNC simd_half2 __tg_fabs(simd_half2 x) { return simd_bitselect(0.0, x, 0x7fff); }
+static inline SIMD_CFUNC simd_half3 __tg_fabs(simd_half3 x) { return simd_bitselect(0.0, x, 0x7fff); }
+static inline SIMD_CFUNC simd_half4 __tg_fabs(simd_half4 x) { return simd_bitselect(0.0, x, 0x7fff); }
+static inline SIMD_CFUNC simd_half8 __tg_fabs(simd_half8 x) { return simd_bitselect(0.0, x, 0x7fff); }
+static inline SIMD_CFUNC simd_half16 __tg_fabs(simd_half16 x) { return simd_bitselect(0.0, x, 0x7fff); }
+static inline SIMD_CFUNC simd_half32 __tg_fabs(simd_half32 x) { return simd_bitselect(0.0, x, 0x7fff); }
 static inline SIMD_CFUNC simd_float2 __tg_fabs(simd_float2 x) { return simd_bitselect(0.0, x, 0x7fffffff); }
 static inline SIMD_CFUNC simd_float3 __tg_fabs(simd_float3 x) { return simd_bitselect(0.0, x, 0x7fffffff); }
 static inline SIMD_CFUNC simd_float4 __tg_fabs(simd_float4 x) { return simd_bitselect(0.0, x, 0x7fffffff); }
@@ -2283,6 +2583,12 @@ static inline SIMD_CFUNC simd_double4 __tg_fabs(simd_double4 x) { return simd_bi
 static inline SIMD_CFUNC simd_double8 __tg_fabs(simd_double8 x) { return simd_bitselect(0.0, x, 0x7fffffffffffffff); }
   
 #pragma mark - isfinite implementation
+static inline SIMD_CFUNC simd_short2 __tg_isfinite(simd_half2 x) { return x == x && __tg_fabs(x) != (simd_half2)INFINITY; }
+static inline SIMD_CFUNC simd_short3 __tg_isfinite(simd_half3 x) { return x == x && __tg_fabs(x) != (simd_half3)INFINITY; }
+static inline SIMD_CFUNC simd_short4 __tg_isfinite(simd_half4 x) { return x == x && __tg_fabs(x) != (simd_half4)INFINITY; }
+static inline SIMD_CFUNC simd_short8 __tg_isfinite(simd_half8 x) { return x == x && __tg_fabs(x) != (simd_half8)INFINITY; }
+static inline SIMD_CFUNC simd_short16 __tg_isfinite(simd_half16 x) { return x == x && __tg_fabs(x) != (simd_half16)INFINITY; }
+static inline SIMD_CFUNC simd_short32 __tg_isfinite(simd_half32 x) { return x == x && __tg_fabs(x) != (simd_half32)INFINITY; }
 static inline SIMD_CFUNC simd_int2 __tg_isfinite(simd_float2 x) { return x == x && __tg_fabs(x) != (simd_float2)INFINITY; }
 static inline SIMD_CFUNC simd_int3 __tg_isfinite(simd_float3 x) { return x == x && __tg_fabs(x) != (simd_float3)INFINITY; }
 static inline SIMD_CFUNC simd_int4 __tg_isfinite(simd_float4 x) { return x == x && __tg_fabs(x) != (simd_float4)INFINITY; }
@@ -2294,6 +2600,12 @@ static inline SIMD_CFUNC simd_long4 __tg_isfinite(simd_double4 x) { return x == 
 static inline SIMD_CFUNC simd_long8 __tg_isfinite(simd_double8 x) { return x == x && __tg_fabs(x) != (simd_double8)INFINITY; }
 
 #pragma mark - isinf implementation
+static inline SIMD_CFUNC simd_short2 __tg_isinf(simd_half2 x) { return __tg_fabs(x) == (simd_half2)INFINITY; }
+static inline SIMD_CFUNC simd_short3 __tg_isinf(simd_half3 x) { return __tg_fabs(x) == (simd_half3)INFINITY; }
+static inline SIMD_CFUNC simd_short4 __tg_isinf(simd_half4 x) { return __tg_fabs(x) == (simd_half4)INFINITY; }
+static inline SIMD_CFUNC simd_short8 __tg_isinf(simd_half8 x) { return __tg_fabs(x) == (simd_half8)INFINITY; }
+static inline SIMD_CFUNC simd_short16 __tg_isinf(simd_half16 x) { return __tg_fabs(x) == (simd_half16)INFINITY; }
+static inline SIMD_CFUNC simd_short32 __tg_isinf(simd_half32 x) { return __tg_fabs(x) == (simd_half32)INFINITY; }
 static inline SIMD_CFUNC simd_int2 __tg_isinf(simd_float2 x) { return __tg_fabs(x) == (simd_float2)INFINITY; }
 static inline SIMD_CFUNC simd_int3 __tg_isinf(simd_float3 x) { return __tg_fabs(x) == (simd_float3)INFINITY; }
 static inline SIMD_CFUNC simd_int4 __tg_isinf(simd_float4 x) { return __tg_fabs(x) == (simd_float4)INFINITY; }
@@ -2305,6 +2617,12 @@ static inline SIMD_CFUNC simd_long4 __tg_isinf(simd_double4 x) { return __tg_fab
 static inline SIMD_CFUNC simd_long8 __tg_isinf(simd_double8 x) { return __tg_fabs(x) == (simd_double8)INFINITY; }
 
 #pragma mark - isnan implementation
+static inline SIMD_CFUNC simd_short2 __tg_isnan(simd_half2 x) { return x != x; }
+static inline SIMD_CFUNC simd_short3 __tg_isnan(simd_half3 x) { return x != x; }
+static inline SIMD_CFUNC simd_short4 __tg_isnan(simd_half4 x) { return x != x; }
+static inline SIMD_CFUNC simd_short8 __tg_isnan(simd_half8 x) { return x != x; }
+static inline SIMD_CFUNC simd_short16 __tg_isnan(simd_half16 x) { return x != x; }
+static inline SIMD_CFUNC simd_short32 __tg_isnan(simd_half32 x) { return x != x; }
 static inline SIMD_CFUNC simd_int2 __tg_isnan(simd_float2 x) { return x != x; }
 static inline SIMD_CFUNC simd_int3 __tg_isnan(simd_float3 x) { return x != x; }
 static inline SIMD_CFUNC simd_int4 __tg_isnan(simd_float4 x) { return x != x; }
@@ -2316,6 +2634,12 @@ static inline SIMD_CFUNC simd_long4 __tg_isnan(simd_double4 x) { return x != x; 
 static inline SIMD_CFUNC simd_long8 __tg_isnan(simd_double8 x) { return x != x; }
 
 #pragma mark - isnormal implementation
+static inline SIMD_CFUNC simd_short2 __tg_isnormal(simd_half2 x) { return __tg_isfinite(x) && __tg_fabs(x) >= (simd_half2)__DBL_MIN__; }
+static inline SIMD_CFUNC simd_short3 __tg_isnormal(simd_half3 x) { return __tg_isfinite(x) && __tg_fabs(x) >= (simd_half3)__DBL_MIN__; }
+static inline SIMD_CFUNC simd_short4 __tg_isnormal(simd_half4 x) { return __tg_isfinite(x) && __tg_fabs(x) >= (simd_half4)__DBL_MIN__; }
+static inline SIMD_CFUNC simd_short8 __tg_isnormal(simd_half8 x) { return __tg_isfinite(x) && __tg_fabs(x) >= (simd_half8)__DBL_MIN__; }
+static inline SIMD_CFUNC simd_short16 __tg_isnormal(simd_half16 x) { return __tg_isfinite(x) && __tg_fabs(x) >= (simd_half16)__DBL_MIN__; }
+static inline SIMD_CFUNC simd_short32 __tg_isnormal(simd_half32 x) { return __tg_isfinite(x) && __tg_fabs(x) >= (simd_half32)__DBL_MIN__; }
 static inline SIMD_CFUNC simd_int2 __tg_isnormal(simd_float2 x) { return __tg_isfinite(x) && __tg_fabs(x) >= (simd_float2)__FLT_MIN__; }
 static inline SIMD_CFUNC simd_int3 __tg_isnormal(simd_float3 x) { return __tg_isfinite(x) && __tg_fabs(x) >= (simd_float3)__FLT_MIN__; }
 static inline SIMD_CFUNC simd_int4 __tg_isnormal(simd_float4 x) { return __tg_isfinite(x) && __tg_fabs(x) >= (simd_float4)__FLT_MIN__; }
@@ -2327,10 +2651,42 @@ static inline SIMD_CFUNC simd_long4 __tg_isnormal(simd_double4 x) { return __tg_
 static inline SIMD_CFUNC simd_long8 __tg_isnormal(simd_double8 x) { return __tg_isfinite(x) && __tg_fabs(x) >= (simd_double8)__DBL_MIN__; }
 
 #pragma mark - fmin, fmax implementation
+static SIMD_CFUNC simd_half2 __tg_fmin(simd_half2 x, simd_half2 y) {
+  return __tg_fmin(simd_make_half4_undef(x), simd_make_half4_undef(y)).lo;
+}
+
+static SIMD_CFUNC simd_half3 __tg_fmin(simd_half3 x, simd_half3 y) {
+  return simd_make_half3(__tg_fmin(simd_make_half4_undef(x), simd_make_half4_undef(y)));
+}
+
+static SIMD_CFUNC simd_half4 __tg_fmin(simd_half4 x, simd_half4 y) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return vminnm_f16(x, y);
+#else
+  return simd_bitselect(y, x, (x <= y) | (y != y));
+#endif
+}
+
+static SIMD_CFUNC simd_half8 __tg_fmin(simd_half8 x, simd_half8 y) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return vminnmq_f16(x, y);
+#else
+  return simd_make_half8(__tg_fmin(x.lo, y.lo), __tg_fmin(x.hi, y.hi));
+#endif
+}
+
+static SIMD_CFUNC simd_half16 __tg_fmin(simd_half16 x, simd_half16 y) {
+  return simd_make_half16(__tg_fmin(x.lo, y.lo), __tg_fmin(x.hi, y.hi));
+}
+
+static SIMD_CFUNC simd_half32 __tg_fmin(simd_half32 x, simd_half32 y) {
+  return simd_make_half32(__tg_fmin(x.lo, y.lo), __tg_fmin(x.hi, y.hi));
+}
+
 static SIMD_CFUNC simd_float2 __tg_fmin(simd_float2 x, simd_float2 y) {
 #if defined __SSE2__
   return simd_make_float2(__tg_fmin(simd_make_float4_undef(x), simd_make_float4_undef(y)));
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vminnm_f32(x, y);
 #elif defined __arm__ && __FINITE_MATH_ONLY__
   return vmin_f32(x, y);
@@ -2350,7 +2706,7 @@ static SIMD_CFUNC simd_float4 __tg_fmin(simd_float4 x, simd_float4 y) {
   return _mm_min_ps(x, y);
 #elif defined __SSE2__
   return simd_bitselect(_mm_min_ps(x, y), x, y != y);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vminnmq_f32(x, y);
 #elif defined __arm__ && __FINITE_MATH_ONLY__
   return vminq_f32(x, y);
@@ -2390,7 +2746,7 @@ static SIMD_CFUNC simd_double2 __tg_fmin(simd_double2 x, simd_double2 y) {
   return _mm_min_pd(x, y);
 #elif defined __SSE2__
   return simd_bitselect(_mm_min_pd(x, y), x, y != y);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vminnmq_f64(x, y);
 #else
   return simd_bitselect(y, x, (x <= y) | (y != y));
@@ -2425,10 +2781,42 @@ static SIMD_CFUNC simd_double8 __tg_fmin(simd_double8 x, simd_double8 y) {
 #endif
 }
 
+static SIMD_CFUNC simd_half2 __tg_fmax(simd_half2 x, simd_half2 y) {
+  return __tg_fmax(simd_make_half4_undef(x), simd_make_half4_undef(y)).lo;
+}
+
+static SIMD_CFUNC simd_half3 __tg_fmax(simd_half3 x, simd_half3 y) {
+  return simd_make_half3(__tg_fmax(simd_make_half4_undef(x), simd_make_half4_undef(y)));
+}
+
+static SIMD_CFUNC simd_half4 __tg_fmax(simd_half4 x, simd_half4 y) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return vmaxnm_f16(x, y);
+#else
+  return simd_bitselect(y, x, (x >= y) | (y != y));
+#endif
+}
+
+static SIMD_CFUNC simd_half8 __tg_fmax(simd_half8 x, simd_half8 y) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return vmaxnmq_f16(x, y);
+#else
+  return simd_make_half8(__tg_fmax(x.lo, y.lo), __tg_fmax(x.hi, y.hi));
+#endif
+}
+
+static SIMD_CFUNC simd_half16 __tg_fmax(simd_half16 x, simd_half16 y) {
+  return simd_make_half16(__tg_fmax(x.lo, y.lo), __tg_fmax(x.hi, y.hi));
+}
+
+static SIMD_CFUNC simd_half32 __tg_fmax(simd_half32 x, simd_half32 y) {
+  return simd_make_half32(__tg_fmax(x.lo, y.lo), __tg_fmax(x.hi, y.hi));
+}
+
 static SIMD_CFUNC simd_float2 __tg_fmax(simd_float2 x, simd_float2 y) {
 #if defined __SSE2__
   return simd_make_float2(__tg_fmax(simd_make_float4_undef(x), simd_make_float4_undef(y)));
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vmaxnm_f32(x, y);
 #elif defined __arm__ && __FINITE_MATH_ONLY__
   return vmax_f32(x, y);
@@ -2448,7 +2836,7 @@ static SIMD_CFUNC simd_float4 __tg_fmax(simd_float4 x, simd_float4 y) {
   return _mm_max_ps(x, y);
 #elif defined __SSE2__
   return simd_bitselect(_mm_max_ps(x, y), x, y != y);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vmaxnmq_f32(x, y);
 #elif defined __arm__ && __FINITE_MATH_ONLY__
   return vmaxq_f32(x, y);
@@ -2488,7 +2876,7 @@ static SIMD_CFUNC simd_double2 __tg_fmax(simd_double2 x, simd_double2 y) {
   return _mm_max_pd(x, y);
 #elif defined __SSE2__
   return simd_bitselect(_mm_max_pd(x, y), x, y != y);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vmaxnmq_f64(x, y);
 #else
   return simd_bitselect(y, x, (x >= y) | (y != y));
@@ -2524,6 +2912,12 @@ static SIMD_CFUNC simd_double8 __tg_fmax(simd_double8 x, simd_double8 y) {
 }
 
 #pragma mark - copysign implementation
+static inline SIMD_CFUNC simd_half2 __tg_copysign(simd_half2 x, simd_half2 y) { return simd_bitselect(y, x, 0x7fff); }
+static inline SIMD_CFUNC simd_half3 __tg_copysign(simd_half3 x, simd_half3 y) { return simd_bitselect(y, x, 0x7fff); }
+static inline SIMD_CFUNC simd_half4 __tg_copysign(simd_half4 x, simd_half4 y) { return simd_bitselect(y, x, 0x7fff); }
+static inline SIMD_CFUNC simd_half8 __tg_copysign(simd_half8 x, simd_half8 y) { return simd_bitselect(y, x, 0x7fff); }
+static inline SIMD_CFUNC simd_half16 __tg_copysign(simd_half16 x, simd_half16 y) { return simd_bitselect(y, x, 0x7fff); }
+static inline SIMD_CFUNC simd_half32 __tg_copysign(simd_half32 x, simd_half32 y) { return simd_bitselect(y, x, 0x7fff); }
 static inline SIMD_CFUNC simd_float2 __tg_copysign(simd_float2 x, simd_float2 y) { return simd_bitselect(y, x, 0x7fffffff); }
 static inline SIMD_CFUNC simd_float3 __tg_copysign(simd_float3 x, simd_float3 y) { return simd_bitselect(y, x, 0x7fffffff); }
 static inline SIMD_CFUNC simd_float4 __tg_copysign(simd_float4 x, simd_float4 y) { return simd_bitselect(y, x, 0x7fffffff); }
@@ -2535,10 +2929,50 @@ static inline SIMD_CFUNC simd_double4 __tg_copysign(simd_double4 x, simd_double4
 static inline SIMD_CFUNC simd_double8 __tg_copysign(simd_double8 x, simd_double8 y) { return simd_bitselect(y, x, 0x7fffffffffffffff); }
   
 #pragma mark - sqrt implementation
+static SIMD_CFUNC simd_half2 __tg_sqrt(simd_half2 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return __tg_sqrt(simd_make_half4_undef(x)).lo;
+#else
+  return simd_make_half2(__sqrtf16(x.x), __sqrtf16(x.y));
+#endif
+}
+
+static SIMD_CFUNC simd_half3 __tg_sqrt(simd_half3 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return simd_make_half3(__tg_sqrt(simd_make_half4_undef(x)));
+#else
+  return simd_make_half3(__sqrtf16(x.x), __sqrtf16(x.y), __sqrtf16(x.z));
+#endif
+}
+
+static SIMD_CFUNC simd_half4 __tg_sqrt(simd_half4 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return vsqrt_f16(x);
+#else
+  return simd_make_half4(__tg_sqrt(x.lo), __tg_sqrt(x.hi));
+#endif
+}
+
+static SIMD_CFUNC simd_half8 __tg_sqrt(simd_half8 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return vsqrtq_f16(x);
+#else
+  return simd_make_half8(__tg_sqrt(x.lo), __tg_sqrt(x.hi));
+#endif
+}
+
+static SIMD_CFUNC simd_half16 __tg_sqrt(simd_half16 x) {
+  return simd_make_half16(__tg_sqrt(x.lo), __tg_sqrt(x.hi));
+}
+
+static SIMD_CFUNC simd_half32 __tg_sqrt(simd_half32 x) {
+  return simd_make_half32(__tg_sqrt(x.lo), __tg_sqrt(x.hi));
+}
+
 static SIMD_CFUNC simd_float2 __tg_sqrt(simd_float2 x) {
 #if defined __SSE2__
   return simd_make_float2(__tg_sqrt(simd_make_float4_undef(x)));
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vsqrt_f32(x);
 #else
   return simd_make_float2(sqrt(x.x), sqrt(x.y));
@@ -2552,7 +2986,7 @@ static SIMD_CFUNC simd_float3 __tg_sqrt(simd_float3 x) {
 static SIMD_CFUNC simd_float4 __tg_sqrt(simd_float4 x) {
 #if defined __SSE2__
   return _mm_sqrt_ps(x);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vsqrtq_f32(x);
 #else
   return simd_make_float4(__tg_sqrt(x.lo), __tg_sqrt(x.hi));
@@ -2578,7 +3012,7 @@ static SIMD_CFUNC simd_float16 __tg_sqrt(simd_float16 x) {
 static SIMD_CFUNC simd_double2 __tg_sqrt(simd_double2 x) {
 #if defined __SSE2__
   return _mm_sqrt_pd(x);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vsqrtq_f64(x);
 #else
   return simd_make_double2(sqrt(x.x), sqrt(x.y));
@@ -2606,8 +3040,145 @@ static SIMD_CFUNC simd_double8 __tg_sqrt(simd_double8 x) {
 }
   
 #pragma mark - ceil, floor, rint, trunc implementation
+static SIMD_CFUNC simd_half2 __tg_ceil(simd_half2 x) {
+  return simd_make_half2(__tg_ceil(simd_make_half8_undef(x)));
+}
+
+static SIMD_CFUNC simd_half3 __tg_ceil(simd_half3 x) {
+  return simd_make_half3(__tg_ceil(simd_make_half4_undef(x)));
+}
+
+static SIMD_CFUNC simd_half4 __tg_ceil(simd_half4 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return vrndp_f16(x);
+#else
+  return simd_make_half4(__tg_ceil(simd_make_half8_undef(x)));
+#endif
+}
+
+static SIMD_CFUNC simd_half8 __tg_ceil(simd_half8 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return vrndpq_f16(x);
+#else
+  simd_half8 truncated = __tg_trunc(x);
+  simd_half8 adjust = simd_bitselect((simd_half8)0, 1, truncated < x);
+  return __tg_copysign(truncated + adjust, x);
+#endif
+}
+
+static SIMD_CFUNC simd_half16 __tg_ceil(simd_half16 x) {
+  return simd_make_half16(__tg_ceil(x.lo), __tg_ceil(x.hi));
+}
+
+static SIMD_CFUNC simd_half32 __tg_ceil(simd_half32 x) {
+  return simd_make_half32(__tg_ceil(x.lo), __tg_ceil(x.hi));
+}
+
+static SIMD_CFUNC simd_half2 __tg_floor(simd_half2 x) {
+  return simd_make_half2(__tg_floor(simd_make_half8_undef(x)));
+}
+
+static SIMD_CFUNC simd_half3 __tg_floor(simd_half3 x) {
+  return simd_make_half3(__tg_floor(simd_make_half4_undef(x)));
+}
+
+static SIMD_CFUNC simd_half4 __tg_floor(simd_half4 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return vrndm_f16(x);
+#else
+  return simd_make_half4(__tg_floor(simd_make_half8_undef(x)));
+#endif
+}
+
+static SIMD_CFUNC simd_half8 __tg_floor(simd_half8 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return vrndmq_f16(x);
+#else
+  simd_half8 truncated = __tg_trunc(x);
+  simd_half8 adjust = simd_bitselect((simd_half8)0, 1, truncated > x);
+  return truncated - adjust;
+#endif
+}
+
+static SIMD_CFUNC simd_half16 __tg_floor(simd_half16 x) {
+  return simd_make_half16(__tg_floor(x.lo), __tg_floor(x.hi));
+}
+
+static SIMD_CFUNC simd_half32 __tg_floor(simd_half32 x) {
+  return simd_make_half32(__tg_floor(x.lo), __tg_floor(x.hi));
+}
+
+static SIMD_CFUNC simd_half2 __tg_rint(simd_half2 x) {
+  return simd_make_half2(__tg_rint(simd_make_half8_undef(x)));
+}
+
+static SIMD_CFUNC simd_half3 __tg_rint(simd_half3 x) {
+  return simd_make_half3(__tg_rint(simd_make_half4_undef(x)));
+}
+
+static SIMD_CFUNC simd_half4 __tg_rint(simd_half4 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return vrndx_f16(x);
+#else
+  return simd_make_half4(__tg_rint(simd_make_half8_undef(x)));
+#endif
+}
+
+static SIMD_CFUNC simd_half8 __tg_rint(simd_half8 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return vrndxq_f16(x);
+#else
+  simd_half8 magic = __tg_copysign(0x1.0p10, x);
+  simd_short8 x_is_small = __tg_fabs(x) < 0x1.0p10;
+  return simd_bitselect(x, (x + magic) - magic, x_is_small & 0x7fff);
+#endif
+}
+
+static SIMD_CFUNC simd_half16 __tg_rint(simd_half16 x) {
+  return simd_make_half16(__tg_rint(x.lo), __tg_rint(x.hi));
+}
+
+static SIMD_CFUNC simd_half32 __tg_rint(simd_half32 x) {
+  return simd_make_half32(__tg_rint(x.lo), __tg_rint(x.hi));
+}
+
+static SIMD_CFUNC simd_half2 __tg_trunc(simd_half2 x) {
+  return simd_make_half2(__tg_trunc(simd_make_half8_undef(x)));
+}
+
+static SIMD_CFUNC simd_half3 __tg_trunc(simd_half3 x) {
+  return simd_make_half3(__tg_trunc(simd_make_half4_undef(x)));
+}
+
+static SIMD_CFUNC simd_half4 __tg_trunc(simd_half4 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return vrnd_f16(x);
+#else
+  return simd_make_half4(__tg_trunc(simd_make_half8_undef(x)));
+#endif
+}
+
+static SIMD_CFUNC simd_half8 __tg_trunc(simd_half8 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return vrndq_f16(x);
+#else
+  simd_half8 binade = simd_bitselect(0, x, 0x3c00);
+  simd_short8 mask = (simd_short8)__tg_fmin(-2*binade + 1, -0);
+  simd_half8 result = simd_bitselect(0, x, mask);
+  return simd_bitselect(x, result, binade < 0x1.0p10);
+#endif
+}
+
+static SIMD_CFUNC simd_half16 __tg_trunc(simd_half16 x) {
+  return simd_make_half16(__tg_trunc(x.lo), __tg_trunc(x.hi));
+}
+
+static SIMD_CFUNC simd_half32 __tg_trunc(simd_half32 x) {
+  return simd_make_half32(__tg_trunc(x.lo), __tg_trunc(x.hi));
+}
+
 static SIMD_CFUNC simd_float2 __tg_ceil(simd_float2 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vrndp_f32(x);
 #else
   return simd_make_float2(__tg_ceil(simd_make_float4_undef(x)));
@@ -2625,7 +3196,7 @@ extern simd_float4 _simd_ceil_f4(simd_float4 x);
 static SIMD_CFUNC simd_float4 __tg_ceil(simd_float4 x) {
 #if defined __SSE4_1__
   return _mm_round_ps(x, _MM_FROUND_TO_POS_INF | _MM_FROUND_NO_EXC);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vrndpq_f32(x);
 #elif defined __arm__ && SIMD_LIBRARY_VERSION >= 3
   return _simd_ceil_f4(x);
@@ -2659,7 +3230,7 @@ extern simd_double2 _simd_ceil_d2(simd_double2 x);
 static SIMD_CFUNC simd_double2 __tg_ceil(simd_double2 x) {
 #if defined __SSE4_1__
   return _mm_round_pd(x, _MM_FROUND_TO_POS_INF | _MM_FROUND_NO_EXC);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vrndpq_f64(x);
 #elif defined __arm__ && SIMD_LIBRARY_VERSION >= 3
   return _simd_ceil_d2(x);
@@ -2691,7 +3262,7 @@ static SIMD_CFUNC simd_double8 __tg_ceil(simd_double8 x) {
 }
 
 static SIMD_CFUNC simd_float2 __tg_floor(simd_float2 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vrndm_f32(x);
 #else
   return simd_make_float2(__tg_floor(simd_make_float4_undef(x)));
@@ -2709,7 +3280,7 @@ extern simd_float4 _simd_floor_f4(simd_float4 x);
 static SIMD_CFUNC simd_float4 __tg_floor(simd_float4 x) {
 #if defined __SSE4_1__
   return _mm_round_ps(x, _MM_FROUND_TO_NEG_INF | _MM_FROUND_NO_EXC);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vrndmq_f32(x);
 #elif defined __arm__ && SIMD_LIBRARY_VERSION >= 3
   return _simd_floor_f4(x);
@@ -2743,7 +3314,7 @@ extern simd_double2 _simd_floor_d2(simd_double2 x);
 static SIMD_CFUNC simd_double2 __tg_floor(simd_double2 x) {
 #if defined __SSE4_1__
   return _mm_round_pd(x, _MM_FROUND_TO_NEG_INF | _MM_FROUND_NO_EXC);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vrndmq_f64(x);
 #elif defined __arm__ && SIMD_LIBRARY_VERSION >= 3
   return _simd_floor_d2(x);
@@ -2775,7 +3346,7 @@ static SIMD_CFUNC simd_double8 __tg_floor(simd_double8 x) {
 }
 
 static SIMD_CFUNC simd_float2 __tg_rint(simd_float2 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vrndx_f32(x);
 #else
   return simd_make_float2(__tg_rint(simd_make_float4_undef(x)));
@@ -2793,7 +3364,7 @@ extern simd_float4 _simd_rint_f4(simd_float4 x);
 static SIMD_CFUNC simd_float4 __tg_rint(simd_float4 x) {
 #if defined __SSE4_1__
   return _mm_round_ps(x, _MM_FROUND_RINT);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vrndxq_f32(x);
 #elif defined __arm__ && SIMD_LIBRARY_VERSION >= 3
   return _simd_rint_f4(x);
@@ -2827,7 +3398,7 @@ extern simd_double2 _simd_rint_d2(simd_double2 x);
 static SIMD_CFUNC simd_double2 __tg_rint(simd_double2 x) {
 #if defined __SSE4_1__
   return _mm_round_pd(x, _MM_FROUND_RINT);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vrndxq_f64(x);
 #elif defined __arm__ && SIMD_LIBRARY_VERSION >= 3
   return _simd_rint_d2(x);
@@ -2859,7 +3430,7 @@ static SIMD_CFUNC simd_double8 __tg_rint(simd_double8 x) {
 }
 
 static SIMD_CFUNC simd_float2 __tg_trunc(simd_float2 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vrnd_f32(x);
 #else
   return simd_make_float2(__tg_trunc(simd_make_float4_undef(x)));
@@ -2877,7 +3448,7 @@ extern simd_float4 _simd_trunc_f4(simd_float4 x);
 static SIMD_CFUNC simd_float4 __tg_trunc(simd_float4 x) {
 #if defined __SSE4_1__
   return _mm_round_ps(x, _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vrndq_f32(x);
 #elif defined __arm__ && SIMD_LIBRARY_VERSION >= 3
   return _simd_trunc_f4(x);
@@ -2912,7 +3483,7 @@ extern simd_double2 _simd_trunc_d2(simd_double2 x);
 static SIMD_CFUNC simd_double2 __tg_trunc(simd_double2 x) {
 #if defined __SSE4_1__
   return _mm_round_pd(x, _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vrndq_f64(x);
 #elif defined __arm__ && SIMD_LIBRARY_VERSION >= 3
   return _simd_trunc_d2(x);
@@ -5117,7 +5688,7 @@ static inline SIMD_CFUNC simd_float3 __tg_round(simd_float3 x) {
 #if SIMD_LIBRARY_VERSION >= 3
 extern simd_float4 _simd_round_f4(simd_float4 x);
 static inline SIMD_CFUNC simd_float4 __tg_round(simd_float4 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vrndaq_f32(x);
 #else
   return _simd_round_f4(x);
@@ -5154,7 +5725,7 @@ static inline SIMD_CFUNC simd_float16 __tg_round(simd_float16 x) {
 #if SIMD_LIBRARY_VERSION >= 3
 extern simd_double2 _simd_round_d2(simd_double2 x);
 static inline SIMD_CFUNC simd_double2 __tg_round(simd_double2 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vrndaq_f64(x);
 #else
   return _simd_round_d2(x);
@@ -5868,7 +6439,7 @@ static inline SIMD_CFUNC simd_double4 __tg_fdim(simd_double4 x, simd_double4 y) 
 static inline SIMD_CFUNC simd_double8 __tg_fdim(simd_double8 x, simd_double8 y) { return simd_bitselect(x-y, 0, x<y); }
  
 static inline SIMD_CFUNC simd_float2 __tg_fma(simd_float2 x, simd_float2 y, simd_float2 z) {
-#if defined __arm64__ || defined __ARM_VFPV4__
+#if defined __arm64__ || defined __aarch64__ || defined __ARM_VFPV4__
   return vfma_f32(z, x, y);
 #else
   return simd_make_float2(__tg_fma(simd_make_float4_undef(x), simd_make_float4_undef(y), simd_make_float4_undef(z)));
@@ -5883,7 +6454,7 @@ static inline SIMD_CFUNC simd_float3 __tg_fma(simd_float3 x, simd_float3 y, simd
 extern simd_float4 _simd_fma_f4(simd_float4 x, simd_float4 y, simd_float4 z);
 #endif
 static inline SIMD_CFUNC simd_float4 __tg_fma(simd_float4 x, simd_float4 y, simd_float4 z) {
-#if defined __arm64__ || defined __ARM_VFPV4__
+#if defined __arm64__ || defined __aarch64__ || defined __ARM_VFPV4__
   return vfmaq_f32(z, x, y);
 #elif (defined __i386__ || defined __x86_64__) && defined __FMA__
   return _mm_fmadd_ps(x, y, z);
@@ -5914,7 +6485,7 @@ static inline SIMD_CFUNC simd_float16 __tg_fma(simd_float16 x, simd_float16 y, s
 extern simd_double2 _simd_fma_d2(simd_double2 x, simd_double2 y, simd_double2 z);
 #endif
 static inline SIMD_CFUNC simd_double2 __tg_fma(simd_double2 x, simd_double2 y, simd_double2 z) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vfmaq_f64(z, x, y);
 #elif (defined __i386__ || defined __x86_64__) && defined __FMA__
   return _mm_fmadd_pd(x, y, z);
@@ -5945,6 +6516,34 @@ static inline SIMD_CFUNC simd_double8 __tg_fma(simd_double8 x, simd_double8 y, s
 #endif
 }
 
+static inline SIMD_CFUNC _Float16 simd_muladd(_Float16 x, _Float16 y, _Float16 z) {
+#pragma STDC FP_CONTRACT ON
+  return x*y + z;
+}
+static inline SIMD_CFUNC simd_half2 simd_muladd(simd_half2 x, simd_half2 y, simd_half2 z) {
+#pragma STDC FP_CONTRACT ON
+  return x*y + z;
+}
+static inline SIMD_CFUNC simd_half3 simd_muladd(simd_half3 x, simd_half3 y, simd_half3 z) {
+#pragma STDC FP_CONTRACT ON
+  return x*y + z;
+}
+static inline SIMD_CFUNC simd_half4 simd_muladd(simd_half4 x, simd_half4 y, simd_half4 z) {
+#pragma STDC FP_CONTRACT ON
+  return x*y + z;
+}
+static inline SIMD_CFUNC simd_half8 simd_muladd(simd_half8 x, simd_half8 y, simd_half8 z) {
+#pragma STDC FP_CONTRACT ON
+  return x*y + z;
+}
+static inline SIMD_CFUNC simd_half16 simd_muladd(simd_half16 x, simd_half16 y, simd_half16 z) {
+#pragma STDC FP_CONTRACT ON
+  return x*y + z;
+}
+static inline SIMD_CFUNC simd_half32 simd_muladd(simd_half32 x, simd_half32 y, simd_half32 z) {
+#pragma STDC FP_CONTRACT ON
+  return x*y + z;
+}
 static inline SIMD_CFUNC float simd_muladd(float x, float y, float z) {
 #pragma STDC FP_CONTRACT ON
   return x*y + z;

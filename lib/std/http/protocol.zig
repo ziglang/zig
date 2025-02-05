@@ -4,7 +4,6 @@ const testing = std.testing;
 const mem = std.mem;
 
 const assert = std.debug.assert;
-const use_vectors = builtin.zig_backend != .stage2_x86_64;
 
 pub const State = enum {
     invalid,

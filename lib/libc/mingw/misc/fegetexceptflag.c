@@ -3,13 +3,11 @@
  * This file is part of the mingw-w64 runtime package.
  * No warranty is given; refer to the file DISCLAIMER.PD within this package.
  */
+
 #include <fenv.h>
+#include <internal.h>
 
-#if !(defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__))
-extern int __mingw_has_sse (void);
-#endif /* !(defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__)) */
-
-/* 7.6.2.2  
+/* 7.6.2.2
    The fegetexceptflag function stores an implementation-defined
    representation of the exception flags indicated by the argument
    excepts in the object pointed to by the argument flagp.  */
@@ -32,7 +30,7 @@ int fegetexceptflag (fexcept_t * flagp, int excepts)
   _mxcsr = 0;
   if (__mingw_has_sse ())
     __asm__ volatile ("stmxcsr %0" : "=m" (_mxcsr));
-    
+
   *flagp = (_mxcsr | _status) & excepts & FE_ALL_EXCEPT;
 #endif /* defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__) */
   return 0;

@@ -14,12 +14,15 @@ pub fn build(b: *std.Build) void {
     for ([_][]const u8{ "aarch64-linux-gnu.2.27", "aarch64-linux-gnu.2.34" }) |t| {
         const exe = b.addExecutable(.{
             .name = t,
-            .target = b.resolveTargetQuery(std.Target.Query.parse(
-                .{ .arch_os_abi = t },
-            ) catch unreachable),
+            .root_module = b.createModule(.{
+                .root_source_file = null,
+                .target = b.resolveTargetQuery(std.Target.Query.parse(
+                    .{ .arch_os_abi = t },
+                ) catch unreachable),
+                .link_libc = true,
+            }),
         });
-        exe.addCSourceFile(.{ .file = b.path("main.c") });
-        exe.linkLibC();
+        exe.root_module.addCSourceFile(.{ .file = b.path("main.c") });
         // TODO: actually test the output
         _ = exe.getEmittedBin();
         test_step.dependOn(&exe.step);
@@ -53,10 +56,13 @@ pub fn build(b: *std.Build) void {
 
         const exe = b.addExecutable(.{
             .name = t,
-            .target = target,
+            .root_module = b.createModule(.{
+                .root_source_file = null,
+                .target = target,
+                .link_libc = true,
+            }),
         });
-        exe.addCSourceFile(.{ .file = b.path("glibc_runtime_check.c") });
-        exe.linkLibC();
+        exe.root_module.addCSourceFile(.{ .file = b.path("glibc_runtime_check.c") });
 
         // Only try running the test if the host glibc is known to be good enough.  Ideally, the Zig
         // test runner would be able to check this, but see https://github.com/ziglang/zig/pull/17702#issuecomment-1831310453
@@ -149,10 +155,12 @@ pub fn build(b: *std.Build) void {
 
         const exe = b.addExecutable(.{
             .name = t,
-            .root_source_file = b.path("glibc_runtime_check.zig"),
-            .target = target,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("glibc_runtime_check.zig"),
+                .target = target,
+                .link_libc = true,
+            }),
         });
-        exe.linkLibC();
 
         // Only try running the test if the host glibc is known to be good enough.  Ideally, the Zig
         // test runner would be able to check this, but see https://github.com/ziglang/zig/pull/17702#issuecomment-1831310453

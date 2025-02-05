@@ -13,6 +13,7 @@ const usage_fmt =
     \\                         if the list is non-empty
     \\  --ast-check            Run zig ast-check on every file
     \\  --exclude [file]       Exclude file or directory from formatting
+    \\  --zon                  Treat all input files as ZON, regardless of file extension
     \\
     \\
 ;
@@ -21,6 +22,7 @@ const Fmt = struct {
     seen: SeenMap,
     any_error: bool,
     check_ast: bool,
+    force_zon: bool,
     color: Color,
     gpa: Allocator,
     arena: Allocator,
@@ -35,9 +37,10 @@ pub fn run(
     args: []const []const u8,
 ) !void {
     var color: Color = .auto;
-    var stdin_flag: bool = false;
-    var check_flag: bool = false;
-    var check_ast_flag: bool = false;
+    var stdin_flag = false;
+    var check_flag = false;
+    var check_ast_flag = false;
+    var force_zon = false;
     var input_files = std.ArrayList([]const u8).init(gpa);
     defer input_files.deinit();
     var excluded_files = std.ArrayList([]const u8).init(gpa);
@@ -74,6 +77,8 @@ pub fn run(
                     i += 1;
                     const next_arg = args[i];
                     try excluded_files.append(next_arg);
+                } else if (mem.eql(u8, arg, "--zon")) {
+                    force_zon = true;
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
@@ -94,23 +99,40 @@ pub fn run(
         };
         defer gpa.free(source_code);
 
-        var tree = std.zig.Ast.parse(gpa, source_code, .zig) catch |err| {
+        var tree = std.zig.Ast.parse(gpa, source_code, if (force_zon) .zon else .zig) catch |err| {
             fatal("error parsing stdin: {}", .{err});
         };
         defer tree.deinit(gpa);
 
         if (check_ast_flag) {
-            var zir = try std.zig.AstGen.generate(gpa, tree);
+            if (!force_zon) {
+                var zir = try std.zig.AstGen.generate(gpa, tree);
+                defer zir.deinit(gpa);
 
-            if (zir.hasCompileErrors()) {
-                var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-                try wip_errors.init(gpa);
-                defer wip_errors.deinit();
-                try wip_errors.addZirErrorMessages(zir, tree, source_code, "<stdin>");
-                var error_bundle = try wip_errors.toOwnedBundle("");
-                defer error_bundle.deinit(gpa);
-                error_bundle.renderToStdErr(color.renderOptions());
-                process.exit(2);
+                if (zir.hasCompileErrors()) {
+                    var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+                    try wip_errors.init(gpa);
+                    defer wip_errors.deinit();
+                    try wip_errors.addZirErrorMessages(zir, tree, source_code, "<stdin>");
+                    var error_bundle = try wip_errors.toOwnedBundle("");
+                    defer error_bundle.deinit(gpa);
+                    error_bundle.renderToStdErr(color.renderOptions());
+                    process.exit(2);
+                }
+            } else {
+                const zoir = try std.zig.ZonGen.generate(gpa, tree, .{});
+                defer zoir.deinit(gpa);
+
+                if (zoir.hasCompileErrors()) {
+                    var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+                    try wip_errors.init(gpa);
+                    defer wip_errors.deinit();
+                    try wip_errors.addZoirErrorMessages(zoir, tree, source_code, "<stdin>");
+                    var error_bundle = try wip_errors.toOwnedBundle("");
+                    defer error_bundle.deinit(gpa);
+                    error_bundle.renderToStdErr(color.renderOptions());
+                    process.exit(2);
+                }
             }
         } else if (tree.errors.len != 0) {
             try std.zig.printAstErrorsToStderr(gpa, tree, "<stdin>", color);
@@ -131,12 +153,13 @@ pub fn run(
         fatal("expected at least one source file argument", .{});
     }
 
-    var fmt = Fmt{
+    var fmt: Fmt = .{
         .gpa = gpa,
         .arena = arena,
-        .seen = Fmt.SeenMap.init(gpa),
+        .seen = .init(gpa),
         .any_error = false,
         .check_ast = check_ast_flag,
+        .force_zon = force_zon,
         .color = color,
         .out_buffer = std.ArrayList(u8).init(gpa),
     };
@@ -276,7 +299,13 @@ fn fmtPathFile(
     // Add to set after no longer possible to get error.IsDir.
     if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
 
-    var tree = try std.zig.Ast.parse(gpa, source_code, .zig);
+    const mode: std.zig.Ast.Mode = mode: {
+        if (fmt.force_zon) break :mode .zon;
+        if (mem.endsWith(u8, sub_path, ".zon")) break :mode .zon;
+        break :mode .zig;
+    };
+
+    var tree = try std.zig.Ast.parse(gpa, source_code, mode);
     defer tree.deinit(gpa);
 
     if (tree.errors.len != 0) {
@@ -289,18 +318,37 @@ fn fmtPathFile(
         if (stat.size > std.zig.max_src_size)
             return error.FileTooBig;
 
-        var zir = try std.zig.AstGen.generate(gpa, tree);
-        defer zir.deinit(gpa);
+        switch (mode) {
+            .zig => {
+                var zir = try std.zig.AstGen.generate(gpa, tree);
+                defer zir.deinit(gpa);
 
-        if (zir.hasCompileErrors()) {
-            var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-            try wip_errors.init(gpa);
-            defer wip_errors.deinit();
-            try wip_errors.addZirErrorMessages(zir, tree, source_code, file_path);
-            var error_bundle = try wip_errors.toOwnedBundle("");
-            defer error_bundle.deinit(gpa);
-            error_bundle.renderToStdErr(fmt.color.renderOptions());
-            fmt.any_error = true;
+                if (zir.hasCompileErrors()) {
+                    var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+                    try wip_errors.init(gpa);
+                    defer wip_errors.deinit();
+                    try wip_errors.addZirErrorMessages(zir, tree, source_code, file_path);
+                    var error_bundle = try wip_errors.toOwnedBundle("");
+                    defer error_bundle.deinit(gpa);
+                    error_bundle.renderToStdErr(fmt.color.renderOptions());
+                    fmt.any_error = true;
+                }
+            },
+            .zon => {
+                var zoir = try std.zig.ZonGen.generate(gpa, tree, .{});
+                defer zoir.deinit(gpa);
+
+                if (zoir.hasCompileErrors()) {
+                    var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+                    try wip_errors.init(gpa);
+                    defer wip_errors.deinit();
+                    try wip_errors.addZoirErrorMessages(zoir, tree, source_code, file_path);
+                    var error_bundle = try wip_errors.toOwnedBundle("");
+                    defer error_bundle.deinit(gpa);
+                    error_bundle.renderToStdErr(fmt.color.renderOptions());
+                    fmt.any_error = true;
+                }
+            },
         }
     }
 

@@ -26,6 +26,7 @@
 
 #include <sys/cdefs.h>
 #include <Availability.h>
+#include <TargetConditionals.h>
 
 /*
 **  OSThermalNotification.h

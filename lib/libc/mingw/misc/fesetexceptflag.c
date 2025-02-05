@@ -3,11 +3,9 @@
  * This file is part of the mingw-w64 runtime package.
  * No warranty is given; refer to the file DISCLAIMER.PD within this package.
  */
-#include <fenv.h>
 
-#if !(defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__))
-extern int __mingw_has_sse (void);
-#endif /* !(defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__)) */
+#include <fenv.h>
+#include <internal.h>
 
 /* 7.6.2.4
    The fesetexceptflag function sets the complete status for those
@@ -16,9 +14,9 @@ extern int __mingw_has_sse (void);
    *flagp shall have been set by a previous call to fegetexceptflag
    whose second argument represented at least those exceptions
    represented by the argument excepts. This function does not raise
-   exceptions, but only sets the state of the flags. */ 
+   exceptions, but only sets the state of the flags. */
 
-int fesetexceptflag (const fexcept_t * flagp, int excepts) 
+int fesetexceptflag (const fexcept_t * flagp, int excepts)
 {
   fenv_t _env;
 

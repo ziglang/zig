@@ -100,13 +100,13 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
 
         .pointer => |pointer| {
             switch (pointer.size) {
-                .One, .Many, .C => {
+                .one, .many, .c => {
                     if (actual != expected) {
                         print("expected {*}, found {*}\n", .{ expected, actual });
                         return error.TestExpectedEqual;
                     }
                 },
-                .Slice => {
+                .slice => {
                     if (actual.ptr != expected.ptr) {
                         print("expected slice ptr {*}, found {*}\n", .{ expected.ptr, actual.ptr });
                         return error.TestExpectedEqual;
@@ -125,7 +125,7 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
             var i: usize = 0;
             while (i < info.len) : (i += 1) {
                 if (!std.meta.eql(expected[i], actual[i])) {
-                    print("index {} incorrect. expected {}, found {}\n", .{
+                    print("index {d} incorrect. expected {any}, found {any}\n", .{
                         i, expected[i], actual[i],
                     });
                     return error.TestExpectedEqual;
@@ -212,6 +212,34 @@ test "expectEqual union with comptime-only field" {
     };
 
     try expectEqual(U{ .a = {} }, .a);
+}
+
+test "expectEqual nested array" {
+    const a = [2][2]f32{
+        [_]f32{ 1.0, 0.0 },
+        [_]f32{ 0.0, 1.0 },
+    };
+
+    const b = [2][2]f32{
+        [_]f32{ 1.0, 0.0 },
+        [_]f32{ 0.0, 1.0 },
+    };
+
+    try expectEqual(a, b);
+}
+
+test "expectEqual vector" {
+    const a: @Vector(4, u32) = @splat(4);
+    const b: @Vector(4, u32) = @splat(4);
+
+    try expectEqual(a, b);
+}
+
+test "expectEqual null" {
+    const a = .{null};
+    const b = @Vector(1, ?*u8){null};
+
+    try expectEqual(a, b);
 }
 
 /// This function is intended to be used only in tests. When the formatted result of the template
@@ -584,27 +612,6 @@ pub fn tmpDir(opts: std.fs.Dir.OpenOptions) TmpDir {
     };
 }
 
-test "expectEqual nested array" {
-    const a = [2][2]f32{
-        [_]f32{ 1.0, 0.0 },
-        [_]f32{ 0.0, 1.0 },
-    };
-
-    const b = [2][2]f32{
-        [_]f32{ 1.0, 0.0 },
-        [_]f32{ 0.0, 1.0 },
-    };
-
-    try expectEqual(a, b);
-}
-
-test "expectEqual vector" {
-    const a: @Vector(4, u32) = @splat(4);
-    const b: @Vector(4, u32) = @splat(4);
-
-    try expectEqual(a, b);
-}
-
 pub fn expectEqualStrings(expected: []const u8, actual: []const u8) !void {
     if (std.mem.indexOfDiff(u8, actual, expected)) |diff_index| {
         print("\n====== expected this output: =========\n", .{});
@@ -726,13 +733,13 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
         .pointer => |pointer| {
             switch (pointer.size) {
                 // We have no idea what is behind those pointers, so the best we can do is `==` check.
-                .C, .Many => {
+                .c, .many => {
                     if (actual != expected) {
                         print("expected {*}, found {*}\n", .{ expected, actual });
                         return error.TestExpectedEqual;
                     }
                 },
-                .One => {
+                .one => {
                     // Length of those pointers are runtime value, so the best we can do is `==` check.
                     switch (@typeInfo(pointer.child)) {
                         .@"fn", .@"opaque" => {
@@ -744,7 +751,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
                         else => try expectEqualDeep(expected.*, actual.*),
                     }
                 },
-                .Slice => {
+                .slice => {
                     if (expected.len != actual.len) {
                         print("Slice len not the same, expected {d}, found {d}\n", .{ expected.len, actual.len });
                         return error.TestExpectedEqual;

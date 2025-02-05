@@ -121,6 +121,7 @@ pub const blkcnt_t = system.blkcnt_t;
 pub const blksize_t = system.blksize_t;
 pub const clock_t = system.clock_t;
 pub const clockid_t = system.clockid_t;
+pub const timerfd_clockid_t = system.timerfd_clockid_t;
 pub const cpu_set_t = system.cpu_set_t;
 pub const dev_t = system.dev_t;
 pub const dl_phdr_info = system.dl_phdr_info;
@@ -155,6 +156,7 @@ pub const socklen_t = system.socklen_t;
 pub const stack_t = system.stack_t;
 pub const time_t = system.time_t;
 pub const timespec = system.timespec;
+pub const timestamp_t = system.timestamp_t;
 pub const timeval = system.timeval;
 pub const timezone = system.timezone;
 pub const ucontext_t = system.ucontext_t;
@@ -1169,8 +1171,7 @@ pub const WriteError = error{
     DeviceBusy,
     InvalidArgument,
 
-    /// In WASI, this error may occur when the file descriptor does
-    /// not hold the required rights to write to it.
+    /// File descriptor does not hold the required rights to write to it.
     AccessDenied,
     BrokenPipe,
     SystemResources,
@@ -1191,6 +1192,9 @@ pub const WriteError = error{
     /// This error occurs in Linux if the process being written to
     /// no longer exists.
     ProcessNotFound,
+    /// This error occurs when a device gets disconnected before or mid-flush
+    /// while it's being written to - errno(6): No such device or address.
+    NoDevice,
 } || UnexpectedError;
 
 /// Write to a file descriptor.
@@ -1266,10 +1270,12 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             .FBIG => return error.FileTooBig,
             .IO => return error.InputOutput,
             .NOSPC => return error.NoSpaceLeft,
+            .ACCES => return error.AccessDenied,
             .PERM => return error.AccessDenied,
             .PIPE => return error.BrokenPipe,
             .CONNRESET => return error.ConnectionResetByPeer,
             .BUSY => return error.DeviceBusy,
+            .NXIO => return error.NoDevice,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -1533,6 +1539,12 @@ pub const OpenError = error{
     ProcessFdQuotaExceeded,
     SystemFdQuotaExceeded,
     NoDevice,
+    /// Either:
+    /// * One of the path components does not exist.
+    /// * Cwd was used, but cwd has been deleted.
+    /// * The path associated with the open directory handle has been deleted.
+    /// * On macOS, multiple processes or threads raced to create the same file
+    ///   with `O.EXCL` set to `false`.
     FileNotFound,
 
     /// The path exceeded `max_path_bytes` bytes.
@@ -2865,7 +2877,7 @@ pub fn renameatW(
 /// On Windows, `sub_dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `sub_dir_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_dir_path` is an opaque sequence of bytes with no particular encoding.
-pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!void {
+pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: mode_t) MakeDirError!void {
     if (native_os == .windows) {
         const sub_dir_path_w = try windows.sliceToPrefixedFileW(dir_fd, sub_dir_path);
         return mkdiratW(dir_fd, sub_dir_path_w.span(), mode);
@@ -2877,7 +2889,7 @@ pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!v
     }
 }
 
-pub fn mkdiratWasi(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!void {
+pub fn mkdiratWasi(dir_fd: fd_t, sub_dir_path: []const u8, mode: mode_t) MakeDirError!void {
     _ = mode;
     switch (wasi.path_create_directory(dir_fd, sub_dir_path.ptr, sub_dir_path.len)) {
         .SUCCESS => return,
@@ -2902,7 +2914,7 @@ pub fn mkdiratWasi(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirErr
 }
 
 /// Same as `mkdirat` except the parameters are null-terminated.
-pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
+pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: mode_t) MakeDirError!void {
     if (native_os == .windows) {
         const sub_dir_path_w = try windows.cStrToPrefixedFileW(dir_fd, sub_dir_path);
         return mkdiratW(dir_fd, sub_dir_path_w.span(), mode);
@@ -2936,7 +2948,7 @@ pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirErr
 }
 
 /// Windows-only. Same as `mkdirat` except the parameter WTF16 LE encoded.
-pub fn mkdiratW(dir_fd: fd_t, sub_path_w: []const u16, mode: u32) MakeDirError!void {
+pub fn mkdiratW(dir_fd: fd_t, sub_path_w: []const u16, mode: mode_t) MakeDirError!void {
     _ = mode;
     const sub_dir_handle = windows.OpenFile(sub_path_w, .{
         .dir = dir_fd,
@@ -2984,7 +2996,7 @@ pub const MakeDirError = error{
 /// On Windows, `dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `dir_path` should be encoded as valid UTF-8.
 /// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
-pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
+pub fn mkdir(dir_path: []const u8, mode: mode_t) MakeDirError!void {
     if (native_os == .wasi and !builtin.link_libc) {
         return mkdirat(wasi.AT.FDCWD, dir_path, mode);
     } else if (native_os == .windows) {
@@ -3000,7 +3012,7 @@ pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
 /// On Windows, `dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `dir_path` should be encoded as valid UTF-8.
 /// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
-pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
+pub fn mkdirZ(dir_path: [*:0]const u8, mode: mode_t) MakeDirError!void {
     if (native_os == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(null, dir_path);
         return mkdirW(dir_path_w.span(), mode);
@@ -3031,7 +3043,7 @@ pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
 }
 
 /// Windows-only. Same as `mkdir` but the parameters is WTF16LE encoded.
-pub fn mkdirW(dir_path_w: []const u16, mode: u32) MakeDirError!void {
+pub fn mkdirW(dir_path_w: []const u16, mode: mode_t) MakeDirError!void {
     _ = mode;
     const sub_dir_handle = windows.OpenFile(dir_path_w, .{
         .dir = fs.cwd().fd,
@@ -4263,6 +4275,35 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
             .CONNABORTED => unreachable, // Tried to reuse socket that previously received error.ConnectionRefused.
             else => |err| return unexpectedErrno(err),
         }
+    }
+}
+
+pub const GetSockOptError = error{
+    /// The calling process does not have the appropriate privileges.
+    AccessDenied,
+
+    /// The option is not supported by the protocol.
+    InvalidProtocolOption,
+
+    /// Insufficient resources are available in the system to complete the call.
+    SystemResources,
+} || UnexpectedError;
+
+pub fn getsockopt(fd: socket_t, level: i32, optname: u32, opt: []u8) GetSockOptError!void {
+    var len: socklen_t = undefined;
+    switch (errno(system.getsockopt(fd, level, optname, opt.ptr, &len))) {
+        .SUCCESS => {
+            std.debug.assert(len == opt.len);
+        },
+        .BADF => unreachable,
+        .NOTSOCK => unreachable,
+        .INVAL => unreachable,
+        .FAULT => unreachable,
+        .NOPROTOOPT => return error.InvalidProtocolOption,
+        .NOMEM => return error.SystemResources,
+        .NOBUFS => return error.SystemResources,
+        .ACCES => return error.AccessDenied,
+        else => |err| return unexpectedErrno(err),
     }
 }
 
@@ -5542,7 +5583,7 @@ pub fn dl_iterate_phdr(
 
     if (builtin.link_libc) {
         switch (system.dl_iterate_phdr(struct {
-            fn callbackC(info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int {
+            fn callbackC(info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.c) c_int {
                 const context_ptr: *const Context = @ptrCast(@alignCast(data));
                 callback(info, size, context_ptr.*) catch |err| return @intFromError(err);
                 return 0;
@@ -5614,13 +5655,13 @@ pub fn dl_iterate_phdr(
 
 pub const ClockGetTimeError = error{UnsupportedClock} || UnexpectedError;
 
-/// TODO: change this to return the timespec as a return value
-pub fn clock_gettime(clock_id: clockid_t, tp: *timespec) ClockGetTimeError!void {
+pub fn clock_gettime(clock_id: clockid_t) ClockGetTimeError!timespec {
+    var tp: timespec = undefined;
     if (native_os == .wasi and !builtin.link_libc) {
-        var ts: wasi.timestamp_t = undefined;
+        var ts: timestamp_t = undefined;
         switch (system.clock_time_get(clock_id, 1, &ts)) {
             .SUCCESS => {
-                tp.* = .{
+                tp = .{
                     .sec = @intCast(ts / std.time.ns_per_s),
                     .nsec = @intCast(ts % std.time.ns_per_s),
                 };
@@ -5628,7 +5669,7 @@ pub fn clock_gettime(clock_id: clockid_t, tp: *timespec) ClockGetTimeError!void 
             .INVAL => return error.UnsupportedClock,
             else => |err| return unexpectedErrno(err),
         }
-        return;
+        return tp;
     }
     if (native_os == .windows) {
         if (clock_id == .REALTIME) {
@@ -5637,19 +5678,19 @@ pub fn clock_gettime(clock_id: clockid_t, tp: *timespec) ClockGetTimeError!void 
             // FileTime has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch.
             const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
             const ft_per_s = std.time.ns_per_s / 100;
-            tp.* = .{
+            tp = .{
                 .sec = @as(i64, @intCast(ft64 / ft_per_s)) + std.time.epoch.windows,
                 .nsec = @as(c_long, @intCast(ft64 % ft_per_s)) * 100,
             };
-            return;
+            return tp;
         } else {
             // TODO POSIX implementation of CLOCK.MONOTONIC on Windows.
             return error.UnsupportedClock;
         }
     }
 
-    switch (errno(system.clock_gettime(clock_id, tp))) {
-        .SUCCESS => return,
+    switch (errno(system.clock_gettime(clock_id, &tp))) {
+        .SUCCESS => return tp,
         .FAULT => unreachable,
         .INVAL => return error.UnsupportedClock,
         else => |err| return unexpectedErrno(err),
@@ -5658,7 +5699,7 @@ pub fn clock_gettime(clock_id: clockid_t, tp: *timespec) ClockGetTimeError!void 
 
 pub fn clock_getres(clock_id: clockid_t, res: *timespec) ClockGetTimeError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        var ts: wasi.timestamp_t = undefined;
+        var ts: timestamp_t = undefined;
         switch (system.clock_res_get(@bitCast(clock_id), &ts)) {
             .SUCCESS => res.* = .{
                 .sec = @intCast(ts / std.time.ns_per_s),
@@ -5757,17 +5798,27 @@ pub const FutimensError = error{
     ReadOnlyFileSystem,
 } || UnexpectedError;
 
-pub fn futimens(fd: fd_t, times: *const [2]timespec) FutimensError!void {
+pub fn futimens(fd: fd_t, times: ?*const [2]timespec) FutimensError!void {
     if (native_os == .wasi and !builtin.link_libc) {
         // TODO WASI encodes `wasi.fstflags` to signify magic values
         // similar to UTIME_NOW and UTIME_OMIT. Currently, we ignore
         // this here, but we should really handle it somehow.
-        const atim = times[0].toTimestamp();
-        const mtim = times[1].toTimestamp();
-        switch (wasi.fd_filestat_set_times(fd, atim, mtim, .{
-            .ATIM = true,
-            .MTIM = true,
-        })) {
+        const error_code = blk: {
+            if (times) |times_arr| {
+                const atim = times_arr[0].toTimestamp();
+                const mtim = times_arr[1].toTimestamp();
+                break :blk wasi.fd_filestat_set_times(fd, atim, mtim, .{
+                    .ATIM = true,
+                    .MTIM = true,
+                });
+            }
+
+            break :blk wasi.fd_filestat_set_times(fd, 0, 0, .{
+                .ATIM_NOW = true,
+                .MTIM_NOW = true,
+            });
+        };
+        switch (error_code) {
             .SUCCESS => return,
             .ACCES => return error.AccessDenied,
             .PERM => return error.PermissionDenied,
@@ -5861,8 +5912,7 @@ pub fn res_mkquery(
     q[i + 3] = class;
 
     // Make a reasonably unpredictable id
-    var ts: timespec = undefined;
-    clock_gettime(.REALTIME, &ts) catch {};
+    const ts = clock_gettime(.REALTIME) catch unreachable;
     const UInt = std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(ts.nsec)));
     const unsec: UInt = @bitCast(ts.nsec);
     const id: u32 = @truncate(unsec + unsec / 65536);
@@ -6742,6 +6792,7 @@ pub const SetSockOptError = error{
     // Setting the socket option requires more elevated permissions.
     PermissionDenied,
 
+    OperationNotSupported,
     NetworkSubsystemFailed,
     FileDescriptorNotASocket,
     SocketNotBound,
@@ -6777,6 +6828,7 @@ pub fn setsockopt(fd: socket_t, level: i32, optname: u32, opt: []const u8) SetSo
             .NOBUFS => return error.SystemResources,
             .PERM => return error.PermissionDenied,
             .NODEV => return error.NoDevice,
+            .OPNOTSUPP => return error.OperationNotSupported,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -7242,7 +7294,7 @@ pub const TimerFdCreateError = error{
 pub const TimerFdGetError = error{InvalidHandle} || UnexpectedError;
 pub const TimerFdSetError = TimerFdGetError || error{Canceled};
 
-pub fn timerfd_create(clock_id: clockid_t, flags: system.TFD) TimerFdCreateError!fd_t {
+pub fn timerfd_create(clock_id: system.timerfd_clockid_t, flags: system.TFD) TimerFdCreateError!fd_t {
     const rc = system.timerfd_create(clock_id, @bitCast(flags));
     return switch (errno(rc)) {
         .SUCCESS => @intCast(rc),
