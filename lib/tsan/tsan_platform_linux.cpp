@@ -418,7 +418,6 @@ void InitializePlatform() {
     Die();
   }
 
-  InitTlsSize();
 #endif  // !SANITIZER_GO
 }
 
