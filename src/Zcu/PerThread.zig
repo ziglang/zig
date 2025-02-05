@@ -3810,6 +3810,13 @@ fn recreateStructType(
     // No need to re-scan the namespace -- `zirStructDecl` will ultimately do that if the type is still alive.
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
 
+    codegen_type: {
+        if (zcu.comp.config.use_llvm) break :codegen_type;
+        if (file.mod.strip) break :codegen_type;
+        // This job depends on any resolve_type_fully jobs queued up before it.
+        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+    }
+
     const new_ty = wip_ty.finish(ip, struct_obj.namespace);
     if (inst_info.inst == .main_struct_inst) {
         // This is the root type of a file! Update the reference.
@@ -3898,6 +3905,14 @@ fn recreateUnionType(
     zcu.namespacePtr(namespace_index).owner_type = wip_ty.index;
     // No need to re-scan the namespace -- `zirUnionDecl` will ultimately do that if the type is still alive.
     try zcu.comp.queueJob(.{ .resolve_type_fully = wip_ty.index });
+
+    codegen_type: {
+        if (zcu.comp.config.use_llvm) break :codegen_type;
+        if (file.mod.strip) break :codegen_type;
+        // This job depends on any resolve_type_fully jobs queued up before it.
+        try zcu.comp.queueJob(.{ .codegen_type = wip_ty.index });
+    }
+
     return wip_ty.finish(ip, namespace_index);
 }
 
