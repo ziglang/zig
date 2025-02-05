@@ -34603,14 +34603,14 @@ fn resolvePeerTypesInner(
                     }
                     // Clear existing sentinel
                     ptr_info.sentinel = .none;
-                    switch (ip.indexToKey(ptr_info.child)) {
+                    if (ptr_info.flags.size == .one) switch (ip.indexToKey(ptr_info.child)) {
                         .array_type => |array_type| ptr_info.child = (try pt.arrayType(.{
                             .len = array_type.len,
                             .child = array_type.child,
                             .sentinel = .none,
                         })).toIntern(),
                         else => {},
-                    }
+                    };
                 }
 
                 opt_ptr_info = ptr_info;
