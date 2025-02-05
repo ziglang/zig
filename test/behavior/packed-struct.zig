@@ -1355,6 +1355,9 @@ test "reinterpret bytes into packed struct" {
 }
 
 test "misaligned pointer in packed struct" {
+    // TODO: airAggregateInit packed structs
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     const X = packed struct { a: i3, b: *i64 };
 
     var i: i64 = 1;
