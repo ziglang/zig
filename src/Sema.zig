@@ -504,7 +504,17 @@ pub const Block = struct {
         };
     }
 
-    pub fn wantSafety(block: *const Block) bool {
+    fn wantSafeTypes(block: *const Block) bool {
+        return block.want_safety orelse switch (block.sema.pt.zcu.optimizeMode()) {
+            .Debug => true,
+            .ReleaseSafe => true,
+            .ReleaseFast => false,
+            .ReleaseSmall => false,
+        };
+    }
+
+    fn wantSafety(block: *const Block) bool {
+        if (block.isComptime()) return false; // runtime safety checks are pointless in comptime blocks
         return block.want_safety orelse switch (block.sema.pt.zcu.optimizeMode()) {
             .Debug => true,
             .ReleaseSafe => true,
@@ -3294,7 +3304,7 @@ fn zirUnionDecl(
                 .tagged
             else if (small.layout != .auto)
                 .none
-            else switch (block.wantSafety()) {
+            else switch (block.wantSafeTypes()) {
                 true => .safety,
                 false => .none,
             },
@@ -22219,7 +22229,7 @@ fn reifyUnion(
                 .tagged
             else if (layout != .auto)
                 .none
-            else switch (block.wantSafety()) {
+            else switch (block.wantSafeTypes()) {
                 true => .safety,
                 false => .none,
             },
