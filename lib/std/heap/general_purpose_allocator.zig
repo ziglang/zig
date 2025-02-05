@@ -412,12 +412,11 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             const size_class = @as(usize, 1) << @as(Log2USize, @intCast(size_class_index));
             const slot_count = slot_counts[size_class_index];
             var leaks = false;
-            var used_bits_byte: usize = 0;
-            while (used_bits_byte < used_bits_count) : (used_bits_byte += 1) {
+            for (0..used_bits_count) |used_bits_byte| {
                 const used_byte = bucket.usedBits(used_bits_byte).*;
                 if (used_byte != 0) {
-                    var bit_index: u3 = 0;
-                    while (true) : (bit_index += 1) {
+                    for (0..8) |bit_index_usize| {
+                        const bit_index: u3 = @intCast(bit_index_usize);
                         const is_used = @as(u1, @truncate(used_byte >> bit_index)) != 0;
                         if (is_used) {
                             const slot_index: SlotIndex = @intCast(used_bits_byte * 8 + bit_index);
@@ -427,8 +426,6 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                             log.err("memory address 0x{x} leaked: {}", .{ addr, stack_trace });
                             leaks = true;
                         }
-                        if (bit_index == math.maxInt(u3))
-                            break;
                     }
                 }
             }
