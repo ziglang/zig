@@ -4,27 +4,27 @@ air: Air,
 lower: Lower,
 atom_index: u32,
 debug_output: link.File.DebugInfoOutput,
-code: *std.ArrayList(u8),
+code: *std.ArrayListUnmanaged(u8),
 
 prev_di_loc: Loc,
 /// Relative to the beginning of `code`.
 prev_di_pc: usize,
-
-code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .empty,
-relocs: std.ArrayListUnmanaged(Reloc) = .empty,
 
 pub const Error = Lower.Error || error{
     EmitFail,
 } || link.File.UpdateDebugInfoError;
 
 pub fn emitMir(emit: *Emit) Error!void {
+    const gpa = emit.lower.bin_file.comp.gpa;
+    const code_offset_mapping = try emit.lower.allocator.alloc(u32, emit.lower.mir.instructions.len);
+    defer emit.lower.allocator.free(code_offset_mapping);
+    var relocs: std.ArrayListUnmanaged(Reloc) = .empty;
+    defer relocs.deinit(emit.lower.allocator);
+    var table_relocs: std.ArrayListUnmanaged(TableReloc) = .empty;
+    defer table_relocs.deinit(emit.lower.allocator);
     for (0..emit.lower.mir.instructions.len) |mir_i| {
         const mir_index: Mir.Inst.Index = @intCast(mir_i);
-        try emit.code_offset_mapping.putNoClobber(
-            emit.lower.allocator,
-            mir_index,
-            @intCast(emit.code.items.len),
-        );
+        code_offset_mapping[mir_index] = @intCast(emit.code.items.len);
         const lowered = try emit.lower.lowerMir(mir_index);
         var lowered_relocs = lowered.relocs;
         for (lowered.insts, 0..) |lowered_inst, lowered_index| {
@@ -82,27 +82,31 @@ pub fn emitMir(emit: *Emit) Error!void {
                 }
                 continue;
             }
-            try lowered_inst.encode(emit.code.writer(), .{});
+            try lowered_inst.encode(emit.code.writer(gpa), .{});
             const end_offset: u32 = @intCast(emit.code.items.len);
             while (lowered_relocs.len > 0 and
                 lowered_relocs[0].lowered_inst_index == lowered_index) : ({
                 lowered_relocs = lowered_relocs[1..];
             }) switch (lowered_relocs[0].target) {
-                .inst => |target| try emit.relocs.append(emit.lower.allocator, .{
+                .inst => |target| try relocs.append(emit.lower.allocator, .{
                     .source = start_offset,
                     .source_offset = end_offset - 4,
                     .target = target,
                     .target_offset = lowered_relocs[0].off,
                     .length = @intCast(end_offset - start_offset),
                 }),
+                .table => try table_relocs.append(emit.lower.allocator, .{
+                    .source_offset = end_offset - 4,
+                    .target_offset = lowered_relocs[0].off,
+                }),
                 .linker_extern_fn => |sym_index| if (emit.lower.bin_file.cast(.elf)) |elf_file| {
                     // Add relocation to the decl.
                     const zo = elf_file.zigObjectPtr().?;
                     const atom_ptr = zo.symbol(emit.atom_index).atom(elf_file).?;
                     const r_type = @intFromEnum(std.elf.R_X86_64.PLT32);
-                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
+                    try atom_ptr.addReloc(gpa, .{
                         .r_offset = end_offset - 4,
-                        .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
+                        .r_info = @as(u64, sym_index) << 32 | r_type,
                         .r_addend = lowered_relocs[0].off - 4,
                     }, zo);
                 } else if (emit.lower.bin_file.cast(.macho)) |macho_file| {
@@ -147,9 +151,9 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const zo = elf_file.zigObjectPtr().?;
                     const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
                     const r_type = @intFromEnum(std.elf.R_X86_64.TLSLD);
-                    try atom.addReloc(elf_file.base.comp.gpa, .{
+                    try atom.addReloc(gpa, .{
                         .r_offset = end_offset - 4,
-                        .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
+                        .r_info = @as(u64, sym_index) << 32 | r_type,
                         .r_addend = lowered_relocs[0].off - 4,
                     }, zo);
                 },
@@ -158,9 +162,9 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const zo = elf_file.zigObjectPtr().?;
                     const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
                     const r_type = @intFromEnum(std.elf.R_X86_64.DTPOFF32);
-                    try atom.addReloc(elf_file.base.comp.gpa, .{
+                    try atom.addReloc(gpa, .{
                         .r_offset = end_offset - 4,
-                        .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
+                        .r_info = @as(u64, sym_index) << 32 | r_type,
                         .r_addend = lowered_relocs[0].off,
                     }, zo);
                 },
@@ -173,9 +177,9 @@ pub fn emitMir(emit: *Emit) Error!void {
                             @intFromEnum(std.elf.R_X86_64.GOTPCREL)
                         else
                             @intFromEnum(std.elf.R_X86_64.PC32);
-                        try atom.addReloc(elf_file.base.comp.gpa, .{
+                        try atom.addReloc(gpa, .{
                             .r_offset = end_offset - 4,
-                            .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
+                            .r_info = @as(u64, sym_index) << 32 | r_type,
                             .r_addend = lowered_relocs[0].off - 4,
                         }, zo);
                     } else {
@@ -183,9 +187,9 @@ pub fn emitMir(emit: *Emit) Error!void {
                             @intFromEnum(std.elf.R_X86_64.TPOFF32)
                         else
                             @intFromEnum(std.elf.R_X86_64.@"32");
-                        try atom.addReloc(elf_file.base.comp.gpa, .{
+                        try atom.addReloc(gpa, .{
                             .r_offset = end_offset - 4,
-                            .r_info = (@as(u64, @intCast(sym_index)) << 32) | r_type,
+                            .r_info = @as(u64, sym_index) << 32 | r_type,
                             .r_addend = lowered_relocs[0].off,
                         }, zo);
                     }
@@ -411,7 +415,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                                             loc_buf[0] = switch (mem.base()) {
                                                 .none => .{ .constu = 0 },
                                                 .reg => |reg| .{ .breg = reg.dwarfNum() },
-                                                .frame => unreachable,
+                                                .frame, .table => unreachable,
                                                 .reloc => |sym_index| .{ .addr = .{ .sym = sym_index } },
                                             };
                                             break :base &loc_buf[0];
@@ -462,13 +466,40 @@ pub fn emitMir(emit: *Emit) Error!void {
             }
         }
     }
-    try emit.fixupRelocs();
-}
+    {
+        // TODO this function currently assumes all relocs via JMP/CALL instructions are 32bit in size.
+        // This should be reversed like it is done in aarch64 MIR emit code: start with the smallest
+        // possible resolution, i.e., 8bit, and iteratively converge on the minimum required resolution
+        // until the entire decl is correctly emitted with all JMP/CALL instructions within range.
+        for (relocs.items) |reloc| {
+            const target = code_offset_mapping[reloc.target];
+            const disp = @as(i64, @intCast(target)) - @as(i64, @intCast(reloc.source + reloc.length)) + reloc.target_offset;
+            std.mem.writeInt(i32, emit.code.items[reloc.source_offset..][0..4], @intCast(disp), .little);
+        }
+    }
+    if (emit.lower.mir.table.len > 0) {
+        if (emit.lower.bin_file.cast(.elf)) |elf_file| {
+            const zo = elf_file.zigObjectPtr().?;
+            const atom = zo.symbol(emit.atom_index).atom(elf_file).?;
 
-pub fn deinit(emit: *Emit) void {
-    emit.relocs.deinit(emit.lower.allocator);
-    emit.code_offset_mapping.deinit(emit.lower.allocator);
-    emit.* = undefined;
+            const ptr_size = @divExact(emit.lower.target.ptrBitWidth(), 8);
+            var table_offset = std.mem.alignForward(u32, @intCast(emit.code.items.len), ptr_size);
+            for (table_relocs.items) |table_reloc| try atom.addReloc(gpa, .{
+                .r_offset = table_reloc.source_offset,
+                .r_info = @as(u64, emit.atom_index) << 32 | @intFromEnum(std.elf.R_X86_64.@"32"),
+                .r_addend = @as(i64, table_offset) + table_reloc.target_offset,
+            }, zo);
+            for (emit.lower.mir.table) |entry| {
+                try atom.addReloc(gpa, .{
+                    .r_offset = table_offset,
+                    .r_info = @as(u64, emit.atom_index) << 32 | @intFromEnum(std.elf.R_X86_64.@"64"),
+                    .r_addend = code_offset_mapping[entry],
+                }, zo);
+                table_offset += ptr_size;
+            }
+            try emit.code.appendNTimes(gpa, 0, table_offset - emit.code.items.len);
+        } else unreachable;
+    }
 }
 
 fn fail(emit: *Emit, comptime format: []const u8, args: anytype) Error {
@@ -480,7 +511,7 @@ fn fail(emit: *Emit, comptime format: []const u8, args: anytype) Error {
 
 const Reloc = struct {
     /// Offset of the instruction.
-    source: usize,
+    source: u32,
     /// Offset of the relocation within the instruction.
     source_offset: u32,
     /// Target of the relocation.
@@ -491,18 +522,12 @@ const Reloc = struct {
     length: u5,
 };
 
-fn fixupRelocs(emit: *Emit) Error!void {
-    // TODO this function currently assumes all relocs via JMP/CALL instructions are 32bit in size.
-    // This should be reversed like it is done in aarch64 MIR emit code: start with the smallest
-    // possible resolution, i.e., 8bit, and iteratively converge on the minimum required resolution
-    // until the entire decl is correctly emitted with all JMP/CALL instructions within range.
-    for (emit.relocs.items) |reloc| {
-        const target = emit.code_offset_mapping.get(reloc.target) orelse
-            return emit.fail("JMP/CALL relocation target not found!", .{});
-        const disp = @as(i64, @intCast(target)) - @as(i64, @intCast(reloc.source + reloc.length)) + reloc.target_offset;
-        std.mem.writeInt(i32, emit.code.items[reloc.source_offset..][0..4], @intCast(disp), .little);
-    }
-}
+const TableReloc = struct {
+    /// Offset of the relocation.
+    source_offset: u32,
+    /// Offset from the start of the table.
+    target_offset: i32,
+};
 
 const Loc = struct {
     line: u32,

@@ -582,7 +582,7 @@ fn initPointerLiterals(self: *Object, allocator: Allocator, macho_file: *MachO) 
             );
             return error.MalformedObject;
         }
-        const num_ptrs = math.cast(usize, @divExact(sect.size, rec_size)) orelse return error.Overflow;
+        const num_ptrs = try macho_file.cast(usize, @divExact(sect.size, rec_size));
 
         for (0..num_ptrs) |i| {
             const pos: u32 = @as(u32, @intCast(i)) * rec_size;
@@ -650,8 +650,8 @@ pub fn resolveLiterals(self: *Object, lp: *MachO.LiteralPool, macho_file: *MachO
 
             for (subs.items) |sub| {
                 const atom = self.getAtom(sub.atom).?;
-                const atom_off = math.cast(usize, atom.off) orelse return error.Overflow;
-                const atom_size = math.cast(usize, atom.size) orelse return error.Overflow;
+                const atom_off = try macho_file.cast(usize, atom.off);
+                const atom_size = try macho_file.cast(usize, atom.size);
                 const atom_data = data[atom_off..][0..atom_size];
                 const res = try lp.insert(gpa, header.type(), atom_data);
                 if (!res.found_existing) {
@@ -674,8 +674,8 @@ pub fn resolveLiterals(self: *Object, lp: *MachO.LiteralPool, macho_file: *MachO
                     .local => rel.getTargetAtom(atom.*, macho_file),
                     .@"extern" => rel.getTargetSymbol(atom.*, macho_file).getAtom(macho_file).?,
                 };
-                const addend = math.cast(u32, rel.addend) orelse return error.Overflow;
-                const target_size = math.cast(usize, target.size) orelse return error.Overflow;
+                const addend = try macho_file.cast(u32, rel.addend);
+                const target_size = try macho_file.cast(usize, target.size);
                 try buffer.ensureUnusedCapacity(target_size);
                 buffer.resize(target_size) catch unreachable;
                 const gop = try sections_data.getOrPut(target.n_sect);
@@ -683,7 +683,7 @@ pub fn resolveLiterals(self: *Object, lp: *MachO.LiteralPool, macho_file: *MachO
                     gop.value_ptr.* = try self.readSectionData(gpa, file, @intCast(target.n_sect));
                 }
                 const data = gop.value_ptr.*;
-                const target_off = math.cast(usize, target.off) orelse return error.Overflow;
+                const target_off = try macho_file.cast(usize, target.off);
                 @memcpy(buffer.items, data[target_off..][0..target_size]);
                 const res = try lp.insert(gpa, header.type(), buffer.items[addend..]);
                 buffer.clearRetainingCapacity();
@@ -1033,7 +1033,7 @@ fn initEhFrameRecords(self: *Object, allocator: Allocator, sect_id: u8, file: Fi
     const sect = slice.items(.header)[sect_id];
     const relocs = slice.items(.relocs)[sect_id];
 
-    const size = math.cast(usize, sect.size) orelse return error.Overflow;
+    const size = try macho_file.cast(usize, sect.size);
     try self.eh_frame_data.resize(allocator, size);
     const amt = try file.preadAll(self.eh_frame_data.items, sect.offset + self.offset);
     if (amt != self.eh_frame_data.items.len) return error.InputOutput;
@@ -1696,7 +1696,7 @@ pub fn updateArSize(self: *Object, macho_file: *MachO) !void {
 
 pub fn writeAr(self: Object, ar_format: Archive.Format, macho_file: *MachO, writer: anytype) !void {
     // Header
-    const size = std.math.cast(usize, self.output_ar_state.size) orelse return error.Overflow;
+    const size = try macho_file.cast(usize, self.output_ar_state.size);
     const basename = std.fs.path.basename(self.path.sub_path);
     try Archive.writeHeader(basename, size, ar_format, writer);
     // Data
@@ -1826,7 +1826,7 @@ pub fn writeAtoms(self: *Object, macho_file: *MachO) !void {
 
     for (headers, 0..) |header, n_sect| {
         if (header.isZerofill()) continue;
-        const size = math.cast(usize, header.size) orelse return error.Overflow;
+        const size = try macho_file.cast(usize, header.size);
         const data = try gpa.alloc(u8, size);
         const amt = try file.preadAll(data, header.offset + self.offset);
         if (amt != data.len) return error.InputOutput;
@@ -1837,9 +1837,9 @@ pub fn writeAtoms(self: *Object, macho_file: *MachO) !void {
         if (!atom.isAlive()) continue;
         const sect = atom.getInputSection(macho_file);
         if (sect.isZerofill()) continue;
-        const value = math.cast(usize, atom.value) orelse return error.Overflow;
-        const off = math.cast(usize, atom.off) orelse return error.Overflow;
-        const size = math.cast(usize, atom.size) orelse return error.Overflow;
+        const value = try macho_file.cast(usize, atom.value);
+        const off = try macho_file.cast(usize, atom.off);
+        const size = try macho_file.cast(usize, atom.size);
         const buffer = macho_file.sections.items(.out)[atom.out_n_sect].items;
         const data = sections_data[atom.n_sect];
         @memcpy(buffer[value..][0..size], data[off..][0..size]);
@@ -1865,7 +1865,7 @@ pub fn writeAtomsRelocatable(self: *Object, macho_file: *MachO) !void {
 
     for (headers, 0..) |header, n_sect| {
         if (header.isZerofill()) continue;
-        const size = math.cast(usize, header.size) orelse return error.Overflow;
+        const size = try macho_file.cast(usize, header.size);
         const data = try gpa.alloc(u8, size);
         const amt = try file.preadAll(data, header.offset + self.offset);
         if (amt != data.len) return error.InputOutput;
@@ -1876,9 +1876,9 @@ pub fn writeAtomsRelocatable(self: *Object, macho_file: *MachO) !void {
         if (!atom.isAlive()) continue;
         const sect = atom.getInputSection(macho_file);
         if (sect.isZerofill()) continue;
-        const value = math.cast(usize, atom.value) orelse return error.Overflow;
-        const off = math.cast(usize, atom.off) orelse return error.Overflow;
-        const size = math.cast(usize, atom.size) orelse return error.Overflow;
+        const value = try macho_file.cast(usize, atom.value);
+        const off = try macho_file.cast(usize, atom.off);
+        const size = try macho_file.cast(usize, atom.size);
         const buffer = macho_file.sections.items(.out)[atom.out_n_sect].items;
         const data = sections_data[atom.n_sect];
         @memcpy(buffer[value..][0..size], data[off..][0..size]);
@@ -1909,28 +1909,26 @@ pub fn calcCompactUnwindSizeRelocatable(self: *Object, macho_file: *MachO) void 
     }
 }
 
+fn addReloc(offset: u32, arch: std.Target.Cpu.Arch) !macho.relocation_info {
+    return .{
+        .r_address = std.math.cast(i32, offset) orelse return error.Overflow,
+        .r_symbolnum = 0,
+        .r_pcrel = 0,
+        .r_length = 3,
+        .r_extern = 0,
+        .r_type = switch (arch) {
+            .aarch64 => @intFromEnum(macho.reloc_type_arm64.ARM64_RELOC_UNSIGNED),
+            .x86_64 => @intFromEnum(macho.reloc_type_x86_64.X86_64_RELOC_UNSIGNED),
+            else => unreachable,
+        },
+    };
+}
+
 pub fn writeCompactUnwindRelocatable(self: *Object, macho_file: *MachO) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
     const cpu_arch = macho_file.getTarget().cpu.arch;
-
-    const addReloc = struct {
-        fn addReloc(offset: u32, arch: std.Target.Cpu.Arch) !macho.relocation_info {
-            return .{
-                .r_address = math.cast(i32, offset) orelse return error.Overflow,
-                .r_symbolnum = 0,
-                .r_pcrel = 0,
-                .r_length = 3,
-                .r_extern = 0,
-                .r_type = switch (arch) {
-                    .aarch64 => @intFromEnum(macho.reloc_type_arm64.ARM64_RELOC_UNSIGNED),
-                    .x86_64 => @intFromEnum(macho.reloc_type_x86_64.X86_64_RELOC_UNSIGNED),
-                    else => unreachable,
-                },
-            };
-        }
-    }.addReloc;
 
     const nsect = macho_file.unwind_info_sect_index.?;
     const buffer = macho_file.sections.items(.out)[nsect].items;
@@ -1967,7 +1965,7 @@ pub fn writeCompactUnwindRelocatable(self: *Object, macho_file: *MachO) !void {
 
         // Personality function
         if (rec.getPersonality(macho_file)) |sym| {
-            const r_symbolnum = math.cast(u24, sym.getOutputSymtabIndex(macho_file).?) orelse return error.Overflow;
+            const r_symbolnum = try macho_file.cast(u24, sym.getOutputSymtabIndex(macho_file).?);
             var reloc = try addReloc(offset + 16, cpu_arch);
             reloc.r_symbolnum = r_symbolnum;
             reloc.r_extern = 1;

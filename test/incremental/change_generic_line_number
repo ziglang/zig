@@ -1,0 +1,33 @@
+#target=x86_64-linux-selfhosted
+#target=wasm32-wasi-selfhosted
+#update=initial version
+#file=main.zig
+const std = @import("std");
+fn Printer(message: []const u8) type {
+    return struct {
+        fn print() !void {
+            try std.io.getStdOut().writeAll(message);
+        }
+    };
+}
+pub fn main() !void {
+    try Printer("foo\n").print();
+    try Printer("bar\n").print();
+}
+#expect_stdout="foo\nbar\n"
+#update=change line number
+#file=main.zig
+const std = @import("std");
+
+fn Printer(message: []const u8) type {
+    return struct {
+        fn print() !void {
+            try std.io.getStdOut().writeAll(message);
+        }
+    };
+}
+pub fn main() !void {
+    try Printer("foo\n").print();
+    try Printer("bar\n").print();
+}
+#expect_stdout="foo\nbar\n"

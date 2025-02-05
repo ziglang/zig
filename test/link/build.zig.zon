@@ -24,9 +24,6 @@
         .wasm_basic_features = .{
             .path = "wasm/basic-features",
         },
-        .wasm_bss = .{
-            .path = "wasm/bss",
-        },
         .wasm_export = .{
             .path = "wasm/export",
         },
@@ -47,9 +44,6 @@
         },
         .wasm_producers = .{
             .path = "wasm/producers",
-        },
-        .wasm_segments = .{
-            .path = "wasm/segments",
         },
         .wasm_shared_memory = .{
             .path = "wasm/shared-memory",

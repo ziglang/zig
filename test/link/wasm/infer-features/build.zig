@@ -1,7 +1,5 @@
 const std = @import("std");
 
-pub const requires_stage2 = true;
-
 pub fn build(b: *std.Build) void {
     // Wasm Object file which we will use to infer the features from
     const c_obj = b.addObject(.{
@@ -37,27 +35,10 @@ pub fn build(b: *std.Build) void {
     lib.use_lld = false;
     lib.root_module.addObject(c_obj);
 
-    // Verify the result contains the features from the C Object file.
-    const check = lib.checkObject();
-    check.checkInHeaders();
-    check.checkExact("name target_features");
-    check.checkExact("features 14");
-    check.checkExact("+ atomics");
-    check.checkExact("+ bulk-memory");
-    check.checkExact("+ exception-handling");
-    check.checkExact("+ extended-const");
-    check.checkExact("+ half-precision");
-    check.checkExact("+ multimemory");
-    check.checkExact("+ multivalue");
-    check.checkExact("+ mutable-globals");
-    check.checkExact("+ nontrapping-fptoint");
-    check.checkExact("+ reference-types");
-    check.checkExact("+ relaxed-simd");
-    check.checkExact("+ sign-ext");
-    check.checkExact("+ simd128");
-    check.checkExact("+ tail-call");
+    lib.expect_errors = .{ .contains = "error: object requires atomics but specified target features exclude atomics" };
+    _ = lib.getEmittedBin();
 
     const test_step = b.step("test", "Run linker test");
-    test_step.dependOn(&check.step);
+    test_step.dependOn(&lib.step);
     b.default_step = test_step;
 }

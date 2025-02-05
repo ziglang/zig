@@ -370,7 +370,7 @@ pub const Os = struct {
         range: std.SemanticVersion.Range,
         glibc: std.SemanticVersion,
         /// Android API level.
-        android: u32 = 14, // This default value is to be deleted after zig1.wasm is updated.
+        android: u32,
 
         pub inline fn includesVersion(range: LinuxVersionRange, ver: std.SemanticVersion) bool {
             return range.range.includesVersion(ver);
@@ -528,13 +528,13 @@ pub const Os = struct {
                 .freebsd => .{
                     .semver = .{
                         .min = .{ .major = 12, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 14, .minor = 1, .patch = 0 },
+                        .max = .{ .major = 14, .minor = 2, .patch = 0 },
                     },
                 },
                 .netbsd => .{
                     .semver = .{
                         .min = .{ .major = 8, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 10, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 10, .minor = 1, .patch = 0 },
                     },
                 },
                 .openbsd => .{
@@ -553,31 +553,31 @@ pub const Os = struct {
                 .macos => .{
                     .semver = .{
                         .min = .{ .major = 13, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 15, .minor = 2, .patch = 0 },
+                        .max = .{ .major = 15, .minor = 3, .patch = 0 },
                     },
                 },
                 .ios => .{
                     .semver = .{
                         .min = .{ .major = 12, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 18, .minor = 1, .patch = 0 },
+                        .max = .{ .major = 18, .minor = 3, .patch = 0 },
                     },
                 },
                 .tvos => .{
                     .semver = .{
                         .min = .{ .major = 13, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 18, .minor = 1, .patch = 0 },
+                        .max = .{ .major = 18, .minor = 3, .patch = 0 },
                     },
                 },
                 .visionos => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 2, .minor = 1, .patch = 0 },
+                        .max = .{ .major = 2, .minor = 3, .patch = 0 },
                     },
                 },
                 .watchos => .{
                     .semver = .{
                         .min = .{ .major = 6, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 11, .minor = 1, .patch = 0 },
+                        .max = .{ .major = 11, .minor = 3, .patch = 0 },
                     },
                 },
 
@@ -1217,6 +1217,12 @@ pub const Cpu = struct {
                 return for (set.ints) |x| {
                     if (x != 0) break false;
                 } else true;
+            }
+
+            pub fn count(set: Set) std.math.IntFittingRange(0, needed_bit_count) {
+                var sum: usize = 0;
+                for (set.ints) |x| sum += @popCount(x);
+                return @intCast(sum);
             }
 
             pub fn isEnabled(set: Set, arch_feature_index: Index) bool {
@@ -1952,7 +1958,7 @@ pub const Cpu = struct {
                 .x86_64 => &x86.cpu.x86_64,
                 .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
                 .ve => &ve.cpu.generic,
-                .wasm32, .wasm64 => &wasm.cpu.generic,
+                .wasm32, .wasm64 => &wasm.cpu.mvp,
                 .xcore => &xcore.cpu.generic,
                 .xtensa => &xtensa.cpu.generic,
 
@@ -2006,6 +2012,7 @@ pub const Cpu = struct {
                     else => generic(arch),
                 },
                 .xcore => &xcore.cpu.xs1b_generic,
+                .wasm32, .wasm64 => &wasm.cpu.lime1,
 
                 else => generic(arch),
             };

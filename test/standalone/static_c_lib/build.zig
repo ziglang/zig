@@ -6,7 +6,8 @@ pub fn build(b: *std.Build) void {
 
     const optimize: std.builtin.OptimizeMode = .Debug;
 
-    const foo = b.addStaticLibrary(.{
+    const foo = b.addLibrary(.{
+        .linkage = .static,
         .name = "foo",
         .root_module = b.createModule(.{
             .root_source_file = null,

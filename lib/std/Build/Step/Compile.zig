@@ -56,8 +56,7 @@ global_base: ?u64 = null,
 zig_lib_dir: ?LazyPath,
 exec_cmd_args: ?[]const ?[]const u8,
 filters: []const []const u8,
-test_runner: ?LazyPath,
-test_server_mode: bool,
+test_runner: ?TestRunner,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
 
 installed_headers: ArrayList(HeaderInstallation),
@@ -268,7 +267,7 @@ pub const Options = struct {
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
     filters: []const []const u8 = &.{},
-    test_runner: ?LazyPath = null,
+    test_runner: ?TestRunner = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -347,6 +346,14 @@ pub const HeaderInstallation = union(enum) {
     }
 };
 
+pub const TestRunner = struct {
+    path: LazyPath,
+    /// Test runners can either be "simple", running tests when spawned and terminating when the
+    /// tests are complete, or they can use `std.zig.Server` over stdio to interact more closely
+    /// with the build system.
+    mode: enum { simple, server },
+};
+
 pub fn create(owner: *std.Build, options: Options) *Compile {
     const name = owner.dupe(options.name);
     if (mem.indexOf(u8, name, "/") != null or mem.indexOf(u8, name, "\\") != null) {
@@ -411,8 +418,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .zig_lib_dir = null,
         .exec_cmd_args = null,
         .filters = options.filters,
-        .test_runner = null,
-        .test_server_mode = options.test_runner == null,
+        .test_runner = null, // set below
         .rdynamic = false,
         .installed_path = null,
         .force_undefined_symbols = StringHashMap(void).init(owner.allocator),
@@ -438,9 +444,12 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         lp.addStepDependencies(&compile.step);
     }
 
-    if (options.test_runner) |lp| {
-        compile.test_runner = lp.dupe(compile.step.owner);
-        lp.addStepDependencies(&compile.step);
+    if (options.test_runner) |runner| {
+        compile.test_runner = .{
+            .path = runner.path.dupe(compile.step.owner),
+            .mode = runner.mode,
+        };
+        runner.path.addStepDependencies(&compile.step);
     }
 
     // Only the PE/COFF format has a Resource Table which is where the manifest
@@ -601,7 +610,7 @@ pub fn forceUndefinedSymbol(compile: *Compile, symbol_name: []const u8) void {
 
 /// Returns whether the library, executable, or object depends on a particular system library.
 /// Includes transitive dependencies.
-pub fn dependsOnSystemLibrary(compile: *const Compile, name: []const u8) bool {
+pub fn dependsOnSystemLibrary(compile: *Compile, name: []const u8) bool {
     var is_linking_libc = false;
     var is_linking_libcpp = false;
 
@@ -613,8 +622,8 @@ pub fn dependsOnSystemLibrary(compile: *const Compile, name: []const u8) bool {
                     else => {},
                 }
             }
-            if (mod.link_libc) is_linking_libc = true;
-            if (mod.link_libcpp) is_linking_libcpp = true;
+            if (mod.link_libc orelse false) is_linking_libc = true;
+            if (mod.link_libcpp orelse false) is_linking_libcpp = true;
         }
     }
 
@@ -823,7 +832,12 @@ pub fn setVerboseCC(compile: *Compile, value: bool) void {
 
 pub fn setLibCFile(compile: *Compile, libc_file: ?LazyPath) void {
     const b = compile.step.owner;
-    compile.libc_file = if (libc_file) |f| f.dupe(b) else null;
+    if (libc_file) |f| {
+        compile.libc_file = f.dupe(b);
+        f.addStepDependencies(&compile.step);
+    } else {
+        compile.libc_file = null;
+    }
 }
 
 fn getEmittedFileGeneric(compile: *Compile, output_file: *?*GeneratedFile) LazyPath {
@@ -1245,45 +1259,54 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                         .c_source_file => |c_source_file| l: {
                             if (!my_responsibility) break :l;
 
-                            if (c_source_file.flags.len == 0) {
-                                if (prev_has_cflags) {
-                                    try zig_args.append("-cflags");
-                                    try zig_args.append("--");
-                                    prev_has_cflags = false;
-                                }
-                            } else {
+                            if (prev_has_cflags or c_source_file.flags.len != 0) {
                                 try zig_args.append("-cflags");
                                 for (c_source_file.flags) |arg| {
                                     try zig_args.append(arg);
                                 }
                                 try zig_args.append("--");
-                                prev_has_cflags = true;
                             }
+                            prev_has_cflags = (c_source_file.flags.len != 0);
+
+                            if (c_source_file.language) |lang| {
+                                try zig_args.append("-x");
+                                try zig_args.append(lang.internalIdentifier());
+                            }
+
                             try zig_args.append(c_source_file.file.getPath2(mod.owner, step));
+
+                            if (c_source_file.language != null) {
+                                try zig_args.append("-x");
+                                try zig_args.append("none");
+                            }
                             total_linker_objects += 1;
                         },
 
                         .c_source_files => |c_source_files| l: {
                             if (!my_responsibility) break :l;
 
-                            if (c_source_files.flags.len == 0) {
-                                if (prev_has_cflags) {
-                                    try zig_args.append("-cflags");
-                                    try zig_args.append("--");
-                                    prev_has_cflags = false;
-                                }
-                            } else {
+                            if (prev_has_cflags or c_source_files.flags.len != 0) {
                                 try zig_args.append("-cflags");
-                                for (c_source_files.flags) |flag| {
-                                    try zig_args.append(flag);
+                                for (c_source_files.flags) |arg| {
+                                    try zig_args.append(arg);
                                 }
                                 try zig_args.append("--");
-                                prev_has_cflags = true;
+                            }
+                            prev_has_cflags = (c_source_files.flags.len != 0);
+
+                            if (c_source_files.language) |lang| {
+                                try zig_args.append("-x");
+                                try zig_args.append(lang.internalIdentifier());
                             }
 
                             const root_path = c_source_files.root.getPath2(mod.owner, step);
                             for (c_source_files.files) |file| {
                                 try zig_args.append(b.pathJoin(&.{ root_path, file }));
+                            }
+
+                            if (c_source_files.language != null) {
+                                try zig_args.append("-x");
+                                try zig_args.append("none");
                             }
 
                             total_linker_objects += c_source_files.files.len;
@@ -1394,7 +1417,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     if (compile.test_runner) |test_runner| {
         try zig_args.append("--test-runner");
-        try zig_args.append(test_runner.getPath2(b, step));
+        try zig_args.append(test_runner.path.getPath2(b, step));
     }
 
     for (b.debug_log_scopes) |log_scope| {

@@ -804,7 +804,7 @@ test "getrlimit and setrlimit" {
         //
         // This happens for example if RLIMIT_MEMLOCK is bigger than ~2GiB.
         // In that case the following the limit would be RLIM_INFINITY and the following setrlimit fails with EPERM.
-        if (comptime builtin.cpu.arch.isMIPS() and builtin.link_libc) {
+        if (builtin.cpu.arch.isMIPS() and builtin.link_libc) {
             if (limit.cur != linux.RLIM.INFINITY) {
                 try posix.setrlimit(resource, limit);
             }
@@ -849,7 +849,7 @@ test "sigaction" {
     const S = struct {
         var handler_called_count: u32 = 0;
 
-        fn handler(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.C) void {
+        fn handler(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
             _ = ctx_ptr;
             // Check that we received the correct signal.
             switch (native_os) {

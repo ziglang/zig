@@ -363,7 +363,7 @@ test "comptime modification of const struct field" {
 }
 
 test "refer to the type of a generic function" {
-    const Func = fn (type) void;
+    const Func = fn (comptime type) void;
     const f: Func = doNothingWithType;
     f(i32);
 }
@@ -522,7 +522,7 @@ test "runtime 128 bit integer division" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -1743,4 +1743,11 @@ test "block with comptime-known result but possible runtime exit is comptime-kno
 
     comptime assert(a == 123);
     comptime assert(b == 456);
+}
+
+test "comptime labeled block implicit exit" {
+    const result = comptime b: {
+        if (false) break :b 123;
+    };
+    comptime assert(result == {});
 }

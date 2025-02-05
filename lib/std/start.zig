@@ -231,8 +231,8 @@ fn _start() callconv(.naked) noreturn {
     }
 
     // This is the first userspace frame. Prevent DWARF-based unwinders from unwinding further. We
-    // prevent FP-based unwinders from unwinding further by zeroing the register further below.
-    asm volatile (switch (native_arch) {
+    // prevent FP-based unwinders from unwinding further by zeroing the register below.
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (switch (native_arch) {
             .arc => ".cfi_undefined blink",
             .arm, .armeb, .thumb, .thumbeb => "", // https://github.com/llvm/llvm-project/issues/115891
             .aarch64, .aarch64_be => ".cfi_undefined lr",

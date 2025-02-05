@@ -11,7 +11,8 @@ pub fn build(b: *std.Build) void {
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
-    const lib_a = b.addStaticLibrary(.{
+    const lib_a = b.addLibrary(.{
+        .linkage = .static,
         .name = "a",
         .root_module = b.createModule(.{
             .root_source_file = null,

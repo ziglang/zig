@@ -21,8 +21,121 @@ pub const SelfInfo = @import("debug/SelfInfo.zig");
 pub const Info = @import("debug/Info.zig");
 pub const Coverage = @import("debug/Coverage.zig");
 
-pub const FormattedPanic = @import("debug/FormattedPanic.zig");
-pub const SimplePanic = @import("debug/SimplePanic.zig");
+pub const simple_panic = @import("debug/simple_panic.zig");
+pub const no_panic = @import("debug/no_panic.zig");
+
+/// A fully-featured panic handler namespace which lowers all panics to calls to `panicFn`.
+/// Safety panics will use formatted printing to provide a meaningful error message.
+/// The signature of `panicFn` should match that of `defaultPanic`.
+pub fn FullPanic(comptime panicFn: fn ([]const u8, ?usize) noreturn) type {
+    return struct {
+        pub const call = panicFn;
+        pub fn sentinelMismatch(expected: anytype, found: @TypeOf(expected)) noreturn {
+            @branchHint(.cold);
+            std.debug.panicExtra(@returnAddress(), "sentinel mismatch: expected {any}, found {any}", .{
+                expected, found,
+            });
+        }
+        pub fn unwrapError(err: anyerror) noreturn {
+            @branchHint(.cold);
+            std.debug.panicExtra(@returnAddress(), "attempt to unwrap error: {s}", .{@errorName(err)});
+        }
+        pub fn outOfBounds(index: usize, len: usize) noreturn {
+            @branchHint(.cold);
+            std.debug.panicExtra(@returnAddress(), "index out of bounds: index {d}, len {d}", .{ index, len });
+        }
+        pub fn startGreaterThanEnd(start: usize, end: usize) noreturn {
+            @branchHint(.cold);
+            std.debug.panicExtra(@returnAddress(), "start index {d} is larger than end index {d}", .{ start, end });
+        }
+        pub fn inactiveUnionField(active: anytype, accessed: @TypeOf(active)) noreturn {
+            @branchHint(.cold);
+            std.debug.panicExtra(@returnAddress(), "access of union field '{s}' while field '{s}' is active", .{
+                @tagName(accessed), @tagName(active),
+            });
+        }
+        pub fn reachedUnreachable() noreturn {
+            @branchHint(.cold);
+            call("reached unreachable code", @returnAddress());
+        }
+        pub fn unwrapNull() noreturn {
+            @branchHint(.cold);
+            call("attempt to use null value", @returnAddress());
+        }
+        pub fn castToNull() noreturn {
+            @branchHint(.cold);
+            call("cast causes pointer to be null", @returnAddress());
+        }
+        pub fn incorrectAlignment() noreturn {
+            @branchHint(.cold);
+            call("incorrect alignment", @returnAddress());
+        }
+        pub fn invalidErrorCode() noreturn {
+            @branchHint(.cold);
+            call("invalid error code", @returnAddress());
+        }
+        pub fn castTruncatedData() noreturn {
+            @branchHint(.cold);
+            call("integer cast truncated bits", @returnAddress());
+        }
+        pub fn negativeToUnsigned() noreturn {
+            @branchHint(.cold);
+            call("attempt to cast negative value to unsigned integer", @returnAddress());
+        }
+        pub fn integerOverflow() noreturn {
+            @branchHint(.cold);
+            call("integer overflow", @returnAddress());
+        }
+        pub fn shlOverflow() noreturn {
+            @branchHint(.cold);
+            call("left shift overflowed bits", @returnAddress());
+        }
+        pub fn shrOverflow() noreturn {
+            @branchHint(.cold);
+            call("right shift overflowed bits", @returnAddress());
+        }
+        pub fn divideByZero() noreturn {
+            @branchHint(.cold);
+            call("division by zero", @returnAddress());
+        }
+        pub fn exactDivisionRemainder() noreturn {
+            @branchHint(.cold);
+            call("exact division produced remainder", @returnAddress());
+        }
+        pub fn integerPartOutOfBounds() noreturn {
+            @branchHint(.cold);
+            call("integer part of floating point value out of bounds", @returnAddress());
+        }
+        pub fn corruptSwitch() noreturn {
+            @branchHint(.cold);
+            call("switch on corrupt value", @returnAddress());
+        }
+        pub fn shiftRhsTooBig() noreturn {
+            @branchHint(.cold);
+            call("shift amount is greater than the type size", @returnAddress());
+        }
+        pub fn invalidEnumValue() noreturn {
+            @branchHint(.cold);
+            call("invalid enum value", @returnAddress());
+        }
+        pub fn forLenMismatch() noreturn {
+            @branchHint(.cold);
+            call("for loop over objects with non-equal lengths", @returnAddress());
+        }
+        pub fn memcpyLenMismatch() noreturn {
+            @branchHint(.cold);
+            call("@memcpy arguments have non-equal lengths", @returnAddress());
+        }
+        pub fn memcpyAlias() noreturn {
+            @branchHint(.cold);
+            call("@memcpy arguments alias", @returnAddress());
+        }
+        pub fn noreturnReturned() noreturn {
+            @branchHint(.cold);
+            call("'noreturn' function returned", @returnAddress());
+        }
+    };
+}
 
 /// Unresolved source locations can be represented with a single `usize` that
 /// corresponds to a virtual memory address of the program counter. Combined
@@ -179,7 +292,7 @@ pub fn dumpHexFallible(bytes: []const u8) !void {
 /// TODO multithreaded awareness
 pub fn dumpCurrentStackTrace(start_addr: ?usize) void {
     nosuspend {
-        if (comptime builtin.target.isWasm()) {
+        if (builtin.target.isWasm()) {
             if (native_os == .wasi) {
                 const stderr = io.getStdErr().writer();
                 stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
@@ -267,7 +380,7 @@ pub inline fn getContext(context: *ThreadContext) bool {
 /// TODO multithreaded awareness
 pub fn dumpStackTraceFromBase(context: *ThreadContext) void {
     nosuspend {
-        if (comptime builtin.target.isWasm()) {
+        if (builtin.target.isWasm()) {
             if (native_os == .wasi) {
                 const stderr = io.getStdErr().writer();
                 stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
@@ -365,7 +478,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
 /// TODO multithreaded awareness
 pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
     nosuspend {
-        if (comptime builtin.target.isWasm()) {
+        if (builtin.target.isWasm()) {
             if (native_os == .wasi) {
                 const stderr = io.getStdErr().writer();
                 stderr.print("Unable to dump stack trace: not implemented for Wasm\n", .{}) catch return;
@@ -412,23 +525,15 @@ pub fn assertReadable(slice: []const volatile u8) void {
     for (slice) |*byte| _ = byte.*;
 }
 
-/// By including a call to this function, the caller gains an error return trace
-/// secret parameter, making `@errorReturnTrace()` more useful. This is not
-/// necessary if the function already contains a call to an errorable function
-/// elsewhere.
-pub fn errorReturnTraceHelper() anyerror!void {}
-
 /// Equivalent to `@panic` but with a formatted message.
 pub fn panic(comptime format: []const u8, args: anytype) noreturn {
     @branchHint(.cold);
-    errorReturnTraceHelper() catch unreachable;
-    panicExtra(@errorReturnTrace(), @returnAddress(), format, args);
+    panicExtra(@returnAddress(), format, args);
 }
 
 /// Equivalent to `@panic` but with a formatted message, and with an explicitly
-/// provided `@errorReturnTrace` and return address.
+/// provided return address.
 pub fn panicExtra(
-    trace: ?*std.builtin.StackTrace,
     ret_addr: ?usize,
     comptime format: []const u8,
     args: anytype,
@@ -447,7 +552,7 @@ pub fn panicExtra(
             break :blk &buf;
         },
     };
-    std.builtin.Panic.call(msg, trace, ret_addr);
+    std.builtin.panic.call(msg, ret_addr);
 }
 
 /// Non-zero whenever the program triggered a panic.
@@ -461,7 +566,6 @@ threadlocal var panic_stage: usize = 0;
 /// Dumps a stack trace to standard error, then aborts.
 pub fn defaultPanic(
     msg: []const u8,
-    error_return_trace: ?*const std.builtin.StackTrace,
     first_trace_addr: ?usize,
 ) noreturn {
     @branchHint(.cold);
@@ -548,7 +652,7 @@ pub fn defaultPanic(
                 }
                 stderr.print("{s}\n", .{msg}) catch posix.abort();
 
-                if (error_return_trace) |t| dumpStackTrace(t.*);
+                if (@errorReturnTrace()) |t| dumpStackTrace(t.*);
                 dumpCurrentStackTrace(first_trace_addr orelse @returnAddress());
             }
 
@@ -671,6 +775,7 @@ pub const StackIterator = struct {
     }
 
     pub fn deinit(it: *StackIterator) void {
+        it.ma.deinit();
         if (have_ucontext and it.unwind_state != null) it.unwind_state.?.dwarf_context.deinit();
     }
 
@@ -738,11 +843,12 @@ pub const StackIterator = struct {
                 // via DWARF before attempting to use the compact unwind info will produce incorrect results.
                 if (module.unwind_info) |unwind_info| {
                     if (SelfInfo.unwindFrameMachO(
+                        unwind_state.debug_info.allocator,
+                        module.base_address,
                         &unwind_state.dwarf_context,
                         &it.ma,
                         unwind_info,
                         module.eh_frame,
-                        module.base_address,
                     )) |return_address| {
                         return return_address;
                     } else |err| {
@@ -754,7 +860,14 @@ pub const StackIterator = struct {
         }
 
         if (try module.getDwarfInfoForAddress(unwind_state.debug_info.allocator, unwind_state.dwarf_context.pc)) |di| {
-            return SelfInfo.unwindFrameDwarf(di, &unwind_state.dwarf_context, &it.ma, null);
+            return SelfInfo.unwindFrameDwarf(
+                unwind_state.debug_info.allocator,
+                di,
+                module.base_address,
+                &unwind_state.dwarf_context,
+                &it.ma,
+                null,
+            );
         } else return error.MissingDebugInfo;
     }
 
@@ -1269,7 +1382,7 @@ fn resetSegfaultHandler() void {
     updateSegfaultHandler(&act);
 }
 
-fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.C) noreturn {
+fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) noreturn {
     // Reset to the default handler so that if a segfault happens in this handler it will crash
     // the process. Also when this handler returns, the original instruction will be repeated
     // and the resulting segfault will crash the process rather than continually dump stack traces.
@@ -1512,7 +1625,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
         }
 
         pub fn format(
-            t: Trace,
+            t: @This(),
             comptime fmt: []const u8,
             options: std.fmt.FormatOptions,
             writer: anytype,

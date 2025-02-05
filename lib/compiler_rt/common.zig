@@ -9,11 +9,13 @@ else if (ofmt_c)
     .strong
 else
     .weak;
+
 /// Determines the symbol's visibility to other objects.
 /// For WebAssembly this allows the symbol to be resolved to other modules, but will not
 /// export it to the host runtime.
 pub const visibility: std.builtin.SymbolVisibility =
     if (builtin.target.isWasm() and linkage != .internal) .hidden else .default;
+
 pub const want_aeabi = switch (builtin.abi) {
     .eabi,
     .eabihf,
@@ -29,7 +31,9 @@ pub const want_aeabi = switch (builtin.abi) {
     },
     else => false,
 };
-pub const want_mingw_arm_abi = builtin.cpu.arch.isArm() and builtin.target.isMinGW();
+
+/// These functions are provided by libc when targeting MSVC, but not MinGW.
+pub const want_windows_arm_abi = builtin.cpu.arch.isArm() and builtin.os.tag == .windows and (builtin.abi.isGnu() or !builtin.link_libc);
 
 pub const want_ppc_abi = builtin.cpu.arch.isPowerPC();
 
@@ -78,16 +82,7 @@ pub const want_sparc_abi = builtin.cpu.arch.isSPARC();
 
 // Avoid dragging in the runtime safety mechanisms into this .o file, unless
 // we're trying to test compiler-rt.
-pub const Panic = if (builtin.is_test) std.debug.FormattedPanic else struct {};
-
-/// To be deleted after zig1.wasm is updated.
-pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, ret_addr: ?usize) noreturn {
-    if (builtin.is_test) {
-        std.debug.defaultPanic(msg, error_return_trace, ret_addr orelse @returnAddress());
-    } else {
-        unreachable;
-    }
-}
+pub const panic = if (builtin.is_test) std.debug.FullPanic(std.debug.defaultPanic) else std.debug.no_panic;
 
 /// AArch64 is the only ABI (at the moment) to support f16 arguments without the
 /// need for extending them to wider fp types.

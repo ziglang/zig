@@ -57,7 +57,7 @@ fn testNullPtrsEql() !void {
 
 test "optional with zero-bit type" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
@@ -496,6 +496,20 @@ test "optional of noreturn used with orelse" {
     NoReturn.a = 64;
     const val = NoReturn.testOrelse();
     try expect(val == 123);
+}
+
+test "mutable optional of noreturn" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    var a: ?noreturn = null;
+    if (a) |*ptr| {
+        _ = ptr;
+        @compileError("bad");
+    } else {
+        // this is what we expect to hit
+        return;
+    }
+    @compileError("bad");
 }
 
 test "orelse on C pointer" {

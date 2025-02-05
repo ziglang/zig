@@ -29,13 +29,16 @@ pub const RomuTrio = @import("Random/RomuTrio.zig");
 pub const SplitMix64 = @import("Random/SplitMix64.zig");
 pub const ziggurat = @import("Random/ziggurat.zig");
 
+/// Any comparison of this field may result in illegal behavior, since it may be set to
+/// `undefined` in cases where the random implementation does not have any associated
+/// state.
 ptr: *anyopaque,
 fillFn: *const fn (ptr: *anyopaque, buf: []u8) void,
 
 pub fn init(pointer: anytype, comptime fillFn: fn (ptr: @TypeOf(pointer), buf: []u8) void) Random {
     const Ptr = @TypeOf(pointer);
     assert(@typeInfo(Ptr) == .pointer); // Must be a pointer
-    assert(@typeInfo(Ptr).pointer.size == .One); // Must be a single-item pointer
+    assert(@typeInfo(Ptr).pointer.size == .one); // Must be a single-item pointer
     assert(@typeInfo(@typeInfo(Ptr).pointer.child) == .@"struct"); // Must point to a struct
     const gen = struct {
         fn fill(ptr: *anyopaque, buf: []u8) void {

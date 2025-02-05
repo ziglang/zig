@@ -418,8 +418,8 @@ test "packed struct 24bits" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.cpu.arch == .wasm32) return error.SkipZigTest; // TODO
-    if (comptime builtin.cpu.arch.isArm()) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch.isWasm()) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch.isArm()) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
@@ -803,7 +803,7 @@ test "fn with C calling convention returns struct by value" {
             handle: i32,
         };
 
-        fn makeBar(t: i32) callconv(.C) ExternBar {
+        fn makeBar(t: i32) callconv(.c) ExternBar {
             return ExternBar{
                 .handle = t,
             };
@@ -818,7 +818,7 @@ test "non-packed struct with u128 entry in union" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const U = union(enum) {
@@ -941,7 +941,7 @@ test "tuple assigned to variable" {
 
 test "comptime struct field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (comptime builtin.cpu.arch.isArm()) return error.SkipZigTest; // TODO
+    if (builtin.cpu.arch.isArm()) return error.SkipZigTest; // TODO
 
     const T = struct {
         a: i32,
@@ -1511,7 +1511,7 @@ test "if inside struct init inside if" {
 
 test "optional generic function label struct field" {
     const Options = struct {
-        isFoo: ?fn (type) u8 = defaultIsFoo,
+        isFoo: ?fn (comptime type) u8 = defaultIsFoo,
         fn defaultIsFoo(comptime _: type) u8 {
             return 123;
         }

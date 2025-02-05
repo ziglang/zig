@@ -23,4 +23,5 @@ export fn function_with_return_type_type() void {
 //
 // :3:7: error: unable to evaluate comptime expression
 // :3:5: note: operation is runtime due to this operand
-// :16:19: note: called from here
+// :16:19: note: called at comptime from here
+// :16:19: note: types must be comptime-known

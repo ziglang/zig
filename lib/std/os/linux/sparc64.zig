@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const pid_t = linux.pid_t;
@@ -215,7 +216,11 @@ pub fn clone() callconv(.Naked) usize {
         \\ restore
         \\2:
         \\ # Child process
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
         \\ .cfi_undefined %%i7
+    );
+    asm volatile (
         \\ mov %%g0, %%fp
         \\ mov %%g0, %%i7
         \\
@@ -233,7 +238,7 @@ pub const restore = restore_rt;
 
 // Need to use C ABI here instead of naked
 // to prevent an infinite loop when calling rt_sigreturn.
-pub fn restore_rt() callconv(.C) void {
+pub fn restore_rt() callconv(.c) void {
     return asm volatile ("t 0x6d"
         :
         : [number] "{g1}" (@intFromEnum(SYS.rt_sigreturn)),
