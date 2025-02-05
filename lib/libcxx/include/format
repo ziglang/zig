@@ -126,6 +126,9 @@ namespace std {
   // [format.formatter], formatter
   template<class T, class charT = char> struct formatter;
 
+  template<class T>
+  constexpr bool enable_nonlocking_formatter_optimization = false;   // since C++23
+
   // [format.parse.ctx], class template basic_format_parse_context
   template<class charT> class basic_format_parse_context;
   using format_parse_context = basic_format_parse_context<char>;
@@ -133,7 +136,7 @@ namespace std {
 
   // [format.range], formatting of ranges
   // [format.range.fmtkind], variable template format_kind
-  enum class range_format {                                     // since C++23
+  enum class range_format {                                          // since C++23
     disabled,
     map,
     set,
@@ -143,20 +146,20 @@ namespace std {
   };
 
   template<class R>
-    constexpr unspecified format_kind = unspecified;            // since C++23
+    constexpr unspecified format_kind = unspecified;                 // since C++23
 
   template<ranges::input_range R>
       requires same_as<R, remove_cvref_t<R>>
-    constexpr range_format format_kind<R> = see below;          // since C++23
+    constexpr range_format format_kind<R> = see below;               // since C++23
 
   // [format.range.formatter], class template range_formatter
   template<class T, class charT = char>
     requires same_as<remove_cvref_t<T>, T> && formattable<T, charT>
-  class range_formatter;                                        // since C++23
+  class range_formatter;                                             // since C++23
 
   // [format.range.fmtdef], class template range-default-formatter
   template<range_format K, ranges::input_range R, class charT>
-    struct range-default-formatter;                             // exposition only, since C++23
+    struct range-default-formatter;                                  // exposition only, since C++23
 
   // [format.range.fmtmap], [format.range.fmtset], [format.range.fmtstr],
   // specializations for maps, sets, and strings
@@ -173,7 +176,7 @@ namespace std {
     see below visit_format_arg(Visitor&& vis, basic_format_arg<Context> arg); // Deprecated in C++26
 
   // [format.arg.store], class template format-arg-store
-  template<class Context, class... Args> struct format-arg-store;      // exposition only
+  template<class Context, class... Args> struct format-arg-store;    // exposition only
 
   template<class Context = format_context, class... Args>
     format-arg-store<Context, Args...>
@@ -188,70 +191,74 @@ namespace std {
 
 */
 
-#include <__config>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/format>
+#else
+#  include <__config>
 
-#if _LIBCPP_STD_VER >= 20
-#  include <__format/buffer.h>
-#  include <__format/concepts.h>
-#  include <__format/container_adaptor.h>
-#  include <__format/enable_insertable.h>
-#  include <__format/escaped_output_table.h>
-#  include <__format/extended_grapheme_cluster_table.h>
-#  include <__format/format_arg.h>
-#  include <__format/format_arg_store.h>
-#  include <__format/format_args.h>
-#  include <__format/format_context.h>
-#  include <__format/format_error.h>
-#  include <__format/format_functions.h>
-#  include <__format/format_parse_context.h>
-#  include <__format/format_string.h>
-#  include <__format/format_to_n_result.h>
-#  include <__format/formatter.h>
-#  include <__format/formatter_bool.h>
-#  include <__format/formatter_char.h>
-#  include <__format/formatter_floating_point.h>
-#  include <__format/formatter_integer.h>
-#  include <__format/formatter_pointer.h>
-#  include <__format/formatter_string.h>
-#  include <__format/formatter_tuple.h>
-#  include <__format/parser_std_format_spec.h>
-#  include <__format/range_default_formatter.h>
-#  include <__format/range_formatter.h>
-#  include <__format/unicode.h>
-#  include <__fwd/format.h>
-#endif
-
-#include <version>
-
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
-
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <array>
-#  include <cctype>
-#  include <cerrno>
-#  include <clocale>
-#  include <cmath>
-#  include <cstddef>
-#  include <cstdint>
-#  include <cstdlib>
-#  include <cstring>
-#  include <initializer_list>
-#  include <limits>
-#  include <locale>
-#  include <new>
-#  include <optional>
-#  include <queue>
-#  include <stack>
-#  include <stdexcept>
-#  include <string>
-#  include <string_view>
-#  include <tuple>
-
-#  if !defined(_LIBCPP_HAS_NO_WIDE_CHARACTERS)
-#    include <cwchar>
+#  if _LIBCPP_STD_VER >= 20
+#    include <__format/buffer.h>
+#    include <__format/concepts.h>
+#    include <__format/container_adaptor.h>
+#    include <__format/enable_insertable.h>
+#    include <__format/escaped_output_table.h>
+#    include <__format/extended_grapheme_cluster_table.h>
+#    include <__format/format_arg.h>
+#    include <__format/format_arg_store.h>
+#    include <__format/format_args.h>
+#    include <__format/format_context.h>
+#    include <__format/format_error.h>
+#    include <__format/format_functions.h>
+#    include <__format/format_parse_context.h>
+#    include <__format/format_string.h>
+#    include <__format/format_to_n_result.h>
+#    include <__format/formatter.h>
+#    include <__format/formatter_bool.h>
+#    include <__format/formatter_char.h>
+#    include <__format/formatter_floating_point.h>
+#    include <__format/formatter_integer.h>
+#    include <__format/formatter_pointer.h>
+#    include <__format/formatter_string.h>
+#    include <__format/formatter_tuple.h>
+#    include <__format/parser_std_format_spec.h>
+#    include <__format/range_default_formatter.h>
+#    include <__format/range_formatter.h>
+#    include <__format/unicode.h>
+#    include <__fwd/format.h>
 #  endif
-#endif
+
+#  include <version>
+
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
+
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <array>
+#    include <cctype>
+#    include <cerrno>
+#    include <clocale>
+#    include <cmath>
+#    include <cstddef>
+#    include <cstdint>
+#    include <cstdlib>
+#    include <cstring>
+#    include <initializer_list>
+#    include <limits>
+#    include <locale>
+#    include <new>
+#    include <optional>
+#    include <queue>
+#    include <stack>
+#    include <stdexcept>
+#    include <string>
+#    include <string_view>
+#    include <tuple>
+
+#    if _LIBCPP_HAS_WIDE_CHARACTERS
+#      include <cwchar>
+#    endif
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_FORMAT

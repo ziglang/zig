@@ -19,6 +19,9 @@
 
 #include <__assert>
 #include <__config>
+
+#include <__concepts/arithmetic.h>
+#include <__cstddef/byte.h>
 #include <__type_traits/common_type.h>
 #include <__type_traits/is_convertible.h>
 #include <__type_traits/is_nothrow_constructible.h>
@@ -27,9 +30,7 @@
 #include <__utility/integer_sequence.h>
 #include <__utility/unreachable.h>
 #include <array>
-#include <cinttypes>
 #include <concepts>
-#include <cstddef>
 #include <limits>
 #include <span>
 
@@ -128,14 +129,14 @@ private:
   // Static values member
   static constexpr size_t __size_         = sizeof...(_Values);
   static constexpr size_t __size_dynamic_ = ((_Values == _DynTag) + ... + 0);
-  using _StaticValues                     = __static_array<_TStatic, _Values...>;
-  using _DynamicValues                    = __possibly_empty_array<_TDynamic, __size_dynamic_>;
+  using _StaticValues _LIBCPP_NODEBUG     = __static_array<_TStatic, _Values...>;
+  using _DynamicValues _LIBCPP_NODEBUG    = __possibly_empty_array<_TDynamic, __size_dynamic_>;
 
   // Dynamic values member
   _LIBCPP_NO_UNIQUE_ADDRESS _DynamicValues __dyn_vals_;
 
   // static mapping of indices to the position in the dynamic values array
-  using _DynamicIdxMap = __static_partial_sums<static_cast<size_t>(_Values == _DynTag)...>;
+  using _DynamicIdxMap _LIBCPP_NODEBUG = __static_partial_sums<static_cast<size_t>(_Values == _DynTag)...>;
 
   template <size_t... _Indices>
   _LIBCPP_HIDE_FROM_ABI static constexpr _DynamicValues __zeros(index_sequence<_Indices...>) noexcept {
@@ -282,8 +283,7 @@ public:
   using size_type  = make_unsigned_t<index_type>;
   using rank_type  = size_t;
 
-  static_assert(is_integral<index_type>::value && !is_same<index_type, bool>::value,
-                "extents::index_type must be a signed or unsigned integer type");
+  static_assert(__libcpp_integer<index_type>, "extents::index_type must be a signed or unsigned integer type");
   static_assert(((__mdspan_detail::__is_representable_as<index_type>(_Extents) || (_Extents == dynamic_extent)) && ...),
                 "extents ctor: arguments must be representable as index_type and nonnegative");
 
@@ -292,7 +292,8 @@ private:
   static constexpr rank_type __rank_dynamic_ = ((_Extents == dynamic_extent) + ... + 0);
 
   // internal storage type using __maybe_static_array
-  using _Values = __mdspan_detail::__maybe_static_array<_IndexType, size_t, dynamic_extent, _Extents...>;
+  using _Values _LIBCPP_NODEBUG =
+      __mdspan_detail::__maybe_static_array<_IndexType, size_t, dynamic_extent, _Extents...>;
   [[no_unique_address]] _Values __vals_;
 
 public:
@@ -448,7 +449,7 @@ struct __make_dextents< _IndexType, 0, extents<_IndexType, _ExtentsPack...>> {
   using type = extents<_IndexType, _ExtentsPack...>;
 };
 
-} // end namespace __mdspan_detail
+} // namespace __mdspan_detail
 
 // [mdspan.extents.dextents], alias template
 template <class _IndexType, size_t _Rank>

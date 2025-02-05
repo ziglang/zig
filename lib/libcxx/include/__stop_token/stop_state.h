@@ -24,10 +24,10 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_THREADS)
+#if _LIBCPP_STD_VER >= 20 && _LIBCPP_HAS_THREADS
 
 struct __stop_callback_base : __intrusive_node_base<__stop_callback_base> {
-  using __callback_fn_t = void(__stop_callback_base*) noexcept;
+  using __callback_fn_t _LIBCPP_NODEBUG = void(__stop_callback_base*) noexcept;
   _LIBCPP_HIDE_FROM_ABI explicit __stop_callback_base(__callback_fn_t* __callback_fn) : __callback_fn_(__callback_fn) {}
 
   _LIBCPP_HIDE_FROM_ABI void __invoke() noexcept { __callback_fn_(this); }
@@ -58,9 +58,9 @@ class __stop_state {
   // It is used by __intrusive_shared_ptr, but it is stored here for better layout
   atomic<uint32_t> __ref_count_ = 0;
 
-  using __state_t            = uint32_t;
-  using __callback_list_lock = __atomic_unique_lock<__state_t, __callback_list_locked_bit>;
-  using __callback_list      = __intrusive_list_view<__stop_callback_base>;
+  using __state_t _LIBCPP_NODEBUG            = uint32_t;
+  using __callback_list_lock _LIBCPP_NODEBUG = __atomic_unique_lock<__state_t, __callback_list_locked_bit>;
+  using __callback_list _LIBCPP_NODEBUG      = __intrusive_list_view<__stop_callback_base>;
 
   __callback_list __callback_list_;
   __thread_id __requesting_thread_;
@@ -229,7 +229,7 @@ struct __intrusive_shared_ptr_traits<__stop_state> {
   }
 };
 
-#endif // _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_THREADS)
+#endif // _LIBCPP_STD_VER >= 20 && _LIBCPP_HAS_THREADS
 
 _LIBCPP_END_NAMESPACE_STD
 

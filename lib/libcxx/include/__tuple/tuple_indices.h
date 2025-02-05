@@ -10,8 +10,8 @@
 #define _LIBCPP___TUPLE_MAKE_TUPLE_INDICES_H
 
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__utility/integer_sequence.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

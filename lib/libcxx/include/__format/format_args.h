@@ -11,10 +11,10 @@
 #define _LIBCPP___FORMAT_FORMAT_ARGS_H
 
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__format/format_arg.h>
 #include <__format/format_arg_store.h>
 #include <__fwd/format.h>
-#include <cstddef>
 #include <cstdint>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -71,7 +71,7 @@ private:
 template <class _Context, class... _Args>
 basic_format_args(__format_arg_store<_Context, _Args...>) -> basic_format_args<_Context>;
 
-#endif //_LIBCPP_STD_VER >= 20
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

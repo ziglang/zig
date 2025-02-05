@@ -312,22 +312,30 @@ typedef basic_stringstream<wchar_t> wstringstream;
 
 // clang-format on
 
-#include <__config>
-#include <__fwd/sstream.h>
-#include <__ostream/basic_ostream.h>
-#include <__type_traits/is_convertible.h>
-#include <__utility/swap.h>
-#include <istream>
-#include <string>
-#include <string_view>
-#include <version>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/sstream>
+#else
+#  include <__config>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if _LIBCPP_HAS_LOCALIZATION
+
+#    include <__fwd/sstream.h>
+#    include <__ostream/basic_ostream.h>
+#    include <__type_traits/is_convertible.h>
+#    include <__utility/swap.h>
+#    include <ios>
+#    include <istream>
+#    include <locale>
+#    include <string>
+#    include <string_view>
+#    include <version>
+
+#    if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#      pragma GCC system_header
+#    endif
 
 _LIBCPP_PUSH_MACROS
-#include <__undef_macros>
+#    include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -354,9 +362,15 @@ private:
 
 public:
   // [stringbuf.cons] constructors:
-  _LIBCPP_HIDE_FROM_ABI basic_stringbuf() : __hm_(nullptr), __mode_(ios_base::in | ios_base::out) {}
+  _LIBCPP_HIDE_FROM_ABI basic_stringbuf() : __hm_(nullptr), __mode_(ios_base::in | ios_base::out) {
+    // it is implementation-defined whether we initialize eback() & friends to nullptr, and libc++ doesn't
+    __init_buf_ptrs();
+  }
 
-  _LIBCPP_HIDE_FROM_ABI explicit basic_stringbuf(ios_base::openmode __wch) : __hm_(nullptr), __mode_(__wch) {}
+  _LIBCPP_HIDE_FROM_ABI explicit basic_stringbuf(ios_base::openmode __wch) : __hm_(nullptr), __mode_(__wch) {
+    // it is implementation-defined whether we initialize eback() & friends to nullptr, and libc++ doesn't
+    __init_buf_ptrs();
+  }
 
   _LIBCPP_HIDE_FROM_ABI explicit basic_stringbuf(const string_type& __s,
                                                  ios_base::openmode __wch = ios_base::in | ios_base::out)
@@ -364,12 +378,14 @@ public:
     str(__s);
   }
 
-#if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
   _LIBCPP_HIDE_FROM_ABI explicit basic_stringbuf(const allocator_type& __a)
       : basic_stringbuf(ios_base::in | ios_base::out, __a) {}
 
   _LIBCPP_HIDE_FROM_ABI basic_stringbuf(ios_base::openmode __wch, const allocator_type& __a)
-      : __str_(__a), __hm_(nullptr), __mode_(__wch) {}
+      : __str_(__a), __hm_(nullptr), __mode_(__wch) {
+    __init_buf_ptrs();
+  }
 
   _LIBCPP_HIDE_FROM_ABI explicit basic_stringbuf(string_type&& __s,
                                                  ios_base::openmode __wch = ios_base::in | ios_base::out)
@@ -396,9 +412,9 @@ public:
       : __str_(__s), __hm_(nullptr), __mode_(__wch) {
     __init_buf_ptrs();
   }
-#endif // _LIBCPP_STD_VER >= 20
+#    endif // _LIBCPP_STD_VER >= 20
 
-#if _LIBCPP_STD_VER >= 26
+#    if _LIBCPP_STD_VER >= 26
 
   template <class _Tp>
     requires is_convertible_v<const _Tp&, basic_string_view<_CharT, _Traits>>
@@ -420,37 +436,37 @@ public:
     __init_buf_ptrs();
   }
 
-#endif //  _LIBCPP_STD_VER >= 26
+#    endif //  _LIBCPP_STD_VER >= 26
 
   basic_stringbuf(const basic_stringbuf&) = delete;
   basic_stringbuf(basic_stringbuf&& __rhs) : __mode_(__rhs.__mode_) { __move_init(std::move(__rhs)); }
 
-#if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
   _LIBCPP_HIDE_FROM_ABI basic_stringbuf(basic_stringbuf&& __rhs, const allocator_type& __a)
       : basic_stringbuf(__rhs.__mode_, __a) {
     __move_init(std::move(__rhs));
   }
-#endif
+#    endif
 
   // [stringbuf.assign] Assign and swap:
   basic_stringbuf& operator=(const basic_stringbuf&) = delete;
   basic_stringbuf& operator=(basic_stringbuf&& __rhs);
   void swap(basic_stringbuf& __rhs)
-#if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
       noexcept(allocator_traits<allocator_type>::propagate_on_container_swap::value ||
                allocator_traits<allocator_type>::is_always_equal::value)
-#endif
+#    endif
           ;
 
   // [stringbuf.members] Member functions:
 
-#if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
   _LIBCPP_HIDE_FROM_ABI allocator_type get_allocator() const noexcept { return __str_.get_allocator(); }
-#endif
+#    endif
 
-#if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_BUILDING_LIBRARY)
+#    if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_BUILDING_LIBRARY)
   string_type str() const;
-#else
+#    else
   _LIBCPP_HIDE_FROM_ABI string_type str() const& { return str(__str_.get_allocator()); }
 
   _LIBCPP_HIDE_FROM_ABI string_type str() && {
@@ -464,9 +480,9 @@ public:
     __init_buf_ptrs();
     return __result;
   }
-#endif // _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_BUILDING_LIBRARY)
+#    endif // _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_BUILDING_LIBRARY)
 
-#if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
   template <class _SAlloc>
     requires __is_allocator<_SAlloc>::value
   _LIBCPP_HIDE_FROM_ABI basic_string<char_type, traits_type, _SAlloc> str(const _SAlloc& __sa) const {
@@ -474,14 +490,14 @@ public:
   }
 
   _LIBCPP_HIDE_FROM_ABI basic_string_view<char_type, traits_type> view() const noexcept;
-#endif // _LIBCPP_STD_VER >= 20
+#    endif // _LIBCPP_STD_VER >= 20
 
   void str(const string_type& __s) {
     __str_ = __s;
     __init_buf_ptrs();
   }
 
-#if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
   template <class _SAlloc>
     requires(!is_same_v<_SAlloc, allocator_type>)
   _LIBCPP_HIDE_FROM_ABI void str(const basic_string<char_type, traits_type, _SAlloc>& __s) {
@@ -493,9 +509,9 @@ public:
     __str_ = std::move(__s);
     __init_buf_ptrs();
   }
-#endif // _LIBCPP_STD_VER >= 20
+#    endif // _LIBCPP_STD_VER >= 20
 
-#if _LIBCPP_STD_VER >= 26
+#    if _LIBCPP_STD_VER >= 26
 
   template <class _Tp>
     requires is_convertible_v<const _Tp&, basic_string_view<_CharT, _Traits>>
@@ -505,7 +521,7 @@ public:
     __init_buf_ptrs();
   }
 
-#endif //  _LIBCPP_STD_VER >= 26
+#    endif //  _LIBCPP_STD_VER >= 26
 
 protected:
   // [stringbuf.virtuals] Overridden virtual functions:
@@ -601,10 +617,10 @@ basic_stringbuf<_CharT, _Traits, _Allocator>::operator=(basic_stringbuf&& __rhs)
 
 template <class _CharT, class _Traits, class _Allocator>
 void basic_stringbuf<_CharT, _Traits, _Allocator>::swap(basic_stringbuf& __rhs)
-#if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
     noexcept(allocator_traits<_Allocator>::propagate_on_container_swap::value ||
              allocator_traits<_Allocator>::is_always_equal::value)
-#endif
+#    endif
 {
   char_type* __p    = const_cast<char_type*>(__rhs.__str_.data());
   ptrdiff_t __rbinp = -1;
@@ -674,14 +690,14 @@ void basic_stringbuf<_CharT, _Traits, _Allocator>::swap(basic_stringbuf& __rhs)
 template <class _CharT, class _Traits, class _Allocator>
 inline _LIBCPP_HIDE_FROM_ABI void
 swap(basic_stringbuf<_CharT, _Traits, _Allocator>& __x, basic_stringbuf<_CharT, _Traits, _Allocator>& __y)
-#if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
     noexcept(noexcept(__x.swap(__y)))
-#endif
+#    endif
 {
   __x.swap(__y);
 }
 
-#if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_BUILDING_LIBRARY)
+#    if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_BUILDING_LIBRARY)
 template <class _CharT, class _Traits, class _Allocator>
 basic_string<_CharT, _Traits, _Allocator> basic_stringbuf<_CharT, _Traits, _Allocator>::str() const {
   if (__mode_ & ios_base::out) {
@@ -692,7 +708,7 @@ basic_string<_CharT, _Traits, _Allocator> basic_stringbuf<_CharT, _Traits, _Allo
     return string_type(this->eback(), this->egptr(), __str_.get_allocator());
   return string_type(__str_.get_allocator());
 }
-#endif // _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_BUILDING_LIBRARY)
+#    endif // _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_BUILDING_LIBRARY)
 
 template <class _CharT, class _Traits, class _Allocator>
 _LIBCPP_HIDE_FROM_ABI void basic_stringbuf<_CharT, _Traits, _Allocator>::__init_buf_ptrs() {
@@ -718,7 +734,7 @@ _LIBCPP_HIDE_FROM_ABI void basic_stringbuf<_CharT, _Traits, _Allocator>::__init_
   }
 }
 
-#if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
 template <class _CharT, class _Traits, class _Allocator>
 _LIBCPP_HIDE_FROM_ABI basic_string_view<_CharT, _Traits>
 basic_stringbuf<_CharT, _Traits, _Allocator>::view() const noexcept {
@@ -730,7 +746,7 @@ basic_stringbuf<_CharT, _Traits, _Allocator>::view() const noexcept {
     return basic_string_view<_CharT, _Traits>(this->eback(), this->egptr());
   return basic_string_view<_CharT, _Traits>();
 }
-#endif // _LIBCPP_STD_VER >= 20
+#    endif // _LIBCPP_STD_VER >= 20
 
 template <class _CharT, class _Traits, class _Allocator>
 typename basic_stringbuf<_CharT, _Traits, _Allocator>::int_type
@@ -773,9 +789,9 @@ basic_stringbuf<_CharT, _Traits, _Allocator>::overflow(int_type __c) {
     if (this->pptr() == this->epptr()) {
       if (!(__mode_ & ios_base::out))
         return traits_type::eof();
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
       try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
         ptrdiff_t __nout = this->pptr() - this->pbase();
         ptrdiff_t __hm   = __hm_ - this->pbase();
         __str_.push_back(char_type());
@@ -784,11 +800,11 @@ basic_stringbuf<_CharT, _Traits, _Allocator>::overflow(int_type __c) {
         this->setp(__p, __p + __str_.size());
         this->__pbump(__nout);
         __hm_ = this->pbase() + __hm;
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
       } catch (...) {
         return traits_type::eof();
       }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
     }
     __hm_ = std::max(this->pptr() + 1, __hm_);
     if (__mode_ & ios_base::in) {
@@ -864,15 +880,16 @@ private:
 
 public:
   // [istringstream.cons] Constructors:
-  _LIBCPP_HIDE_FROM_ABI basic_istringstream() : basic_istream<_CharT, _Traits>(&__sb_), __sb_(ios_base::in) {}
+  _LIBCPP_HIDE_FROM_ABI basic_istringstream()
+      : basic_istream<_CharT, _Traits>(std::addressof(__sb_)), __sb_(ios_base::in) {}
 
   _LIBCPP_HIDE_FROM_ABI explicit basic_istringstream(ios_base::openmode __wch)
-      : basic_istream<_CharT, _Traits>(&__sb_), __sb_(__wch | ios_base::in) {}
+      : basic_istream<_CharT, _Traits>(std::addressof(__sb_)), __sb_(__wch | ios_base::in) {}
 
   _LIBCPP_HIDE_FROM_ABI explicit basic_istringstream(const string_type& __s, ios_base::openmode __wch = ios_base::in)
-      : basic_istream<_CharT, _Traits>(&__sb_), __sb_(__s, __wch | ios_base::in) {}
+      : basic_istream<_CharT, _Traits>(std::addressof(__sb_)), __sb_(__s, __wch | ios_base::in) {}
 
-#if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
   _LIBCPP_HIDE_FROM_ABI basic_istringstream(ios_base::openmode __wch, const _Allocator& __a)
       : basic_istream<_CharT, _Traits>(std::addressof(__sb_)), __sb_(__wch | ios_base::in, __a) {}
 
@@ -892,9 +909,9 @@ public:
   _LIBCPP_HIDE_FROM_ABI explicit basic_istringstream(const basic_string<_CharT, _Traits, _SAlloc>& __s,
                                                      ios_base::openmode __wch = ios_base::in)
       : basic_istream<_CharT, _Traits>(std::addressof(__sb_)), __sb_(__s, __wch | ios_base::in) {}
-#endif // _LIBCPP_STD_VER >= 20
+#    endif // _LIBCPP_STD_VER >= 20
 
-#if _LIBCPP_STD_VER >= 26
+#    if _LIBCPP_STD_VER >= 26
 
   template <class _Tp>
     requires is_convertible_v<const _Tp&, basic_string_view<_CharT, _Traits>>
@@ -911,12 +928,12 @@ public:
   _LIBCPP_HIDE_FROM_ABI basic_istringstream(const _Tp& __t, ios_base::openmode __which, const _Allocator& __a)
       : basic_istream<_CharT, _Traits>(std::addressof(__sb_)), __sb_(__t, __which | ios_base::in, __a) {}
 
-#endif //  _LIBCPP_STD_VER >= 26
+#    endif //  _LIBCPP_STD_VER >= 26
 
   basic_istringstream(const basic_istringstream&) = delete;
   _LIBCPP_HIDE_FROM_ABI basic_istringstream(basic_istringstream&& __rhs)
       : basic_istream<_CharT, _Traits>(std::move(__rhs)), __sb_(std::move(__rhs.__sb_)) {
-    basic_istream<_CharT, _Traits>::set_rdbuf(&__sb_);
+    basic_istream<_CharT, _Traits>::set_rdbuf(std::addressof(__sb_));
   }
 
   // [istringstream.assign] Assign and swap:
@@ -933,18 +950,18 @@ public:
 
   // [istringstream.members] Member functions:
   _LIBCPP_HIDE_FROM_ABI basic_stringbuf<char_type, traits_type, allocator_type>* rdbuf() const {
-    return const_cast<basic_stringbuf<char_type, traits_type, allocator_type>*>(&__sb_);
+    return const_cast<basic_stringbuf<char_type, traits_type, allocator_type>*>(std::addressof(__sb_));
   }
 
-#if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_BUILDING_LIBRARY)
+#    if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_BUILDING_LIBRARY)
   _LIBCPP_HIDE_FROM_ABI string_type str() const { return __sb_.str(); }
-#else
+#    else
   _LIBCPP_HIDE_FROM_ABI string_type str() const& { return __sb_.str(); }
 
   _LIBCPP_HIDE_FROM_ABI string_type str() && { return std::move(__sb_).str(); }
-#endif
+#    endif
 
-#if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
   template <class _SAlloc>
     requires __is_allocator<_SAlloc>::value
   _LIBCPP_HIDE_FROM_ABI basic_string<char_type, traits_type, _SAlloc> str(const _SAlloc& __sa) const {
@@ -952,26 +969,26 @@ public:
   }
 
   _LIBCPP_HIDE_FROM_ABI basic_string_view<char_type, traits_type> view() const noexcept { return __sb_.view(); }
-#endif // _LIBCPP_STD_VER >= 20
+#    endif // _LIBCPP_STD_VER >= 20
 
   _LIBCPP_HIDE_FROM_ABI void str(const string_type& __s) { __sb_.str(__s); }
 
-#if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
   template <class _SAlloc>
   _LIBCPP_HIDE_FROM_ABI void str(const basic_string<char_type, traits_type, _SAlloc>& __s) {
     __sb_.str(__s);
   }
 
   _LIBCPP_HIDE_FROM_ABI void str(string_type&& __s) { __sb_.str(std::move(__s)); }
-#endif // _LIBCPP_STD_VER >= 20
+#    endif // _LIBCPP_STD_VER >= 20
 
-#if _LIBCPP_STD_VER >= 26
+#    if _LIBCPP_STD_VER >= 26
   template <class _Tp>
     requires is_convertible_v<const _Tp&, basic_string_view<_CharT, _Traits>>
   _LIBCPP_HIDE_FROM_ABI void str(const _Tp& __t) {
     rdbuf()->str(__t);
   }
-#endif //  _LIBCPP_STD_VER >= 26
+#    endif //  _LIBCPP_STD_VER >= 26
 };
 
 template <class _CharT, class _Traits, class _Allocator>
@@ -999,15 +1016,16 @@ private:
 
 public:
   // [ostringstream.cons] Constructors:
-  _LIBCPP_HIDE_FROM_ABI basic_ostringstream() : basic_ostream<_CharT, _Traits>(&__sb_), __sb_(ios_base::out) {}
+  _LIBCPP_HIDE_FROM_ABI basic_ostringstream()
+      : basic_ostream<_CharT, _Traits>(std::addressof(__sb_)), __sb_(ios_base::out) {}
 
   _LIBCPP_HIDE_FROM_ABI explicit basic_ostringstream(ios_base::openmode __wch)
-      : basic_ostream<_CharT, _Traits>(&__sb_), __sb_(__wch | ios_base::out) {}
+      : basic_ostream<_CharT, _Traits>(std::addressof(__sb_)), __sb_(__wch | ios_base::out) {}
 
   _LIBCPP_HIDE_FROM_ABI explicit basic_ostringstream(const string_type& __s, ios_base::openmode __wch = ios_base::out)
-      : basic_ostream<_CharT, _Traits>(&__sb_), __sb_(__s, __wch | ios_base::out) {}
+      : basic_ostream<_CharT, _Traits>(std::addressof(__sb_)), __sb_(__s, __wch | ios_base::out) {}
 
-#if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
   _LIBCPP_HIDE_FROM_ABI basic_ostringstream(ios_base::openmode __wch, const _Allocator& __a)
       : basic_ostream<_CharT, _Traits>(std::addressof(__sb_)), __sb_(__wch | ios_base::out, __a) {}
 
@@ -1028,9 +1046,9 @@ public:
   _LIBCPP_HIDE_FROM_ABI explicit basic_ostringstream(const basic_string<_CharT, _Traits, _SAlloc>& __s,
                                                      ios_base::openmode __wch = ios_base::out)
       : basic_ostream<_CharT, _Traits>(std::addressof(__sb_)), __sb_(__s, __wch | ios_base::out) {}
-#endif // _LIBCPP_STD_VER >= 20
+#    endif // _LIBCPP_STD_VER >= 20
 
-#if _LIBCPP_STD_VER >= 26
+#    if _LIBCPP_STD_VER >= 26
 
   template <class _Tp>
     requires is_convertible_v<const _Tp&, basic_string_view<_CharT, _Traits>>
@@ -1047,12 +1065,12 @@ public:
   _LIBCPP_HIDE_FROM_ABI basic_ostringstream(const _Tp& __t, ios_base::openmode __which, const _Allocator& __a)
       : basic_ostream<_CharT, _Traits>(std::addressof(__sb_)), __sb_(__t, __which | ios_base::out, __a) {}
 
-#endif //  _LIBCPP_STD_VER >= 26
+#    endif //  _LIBCPP_STD_VER >= 26
 
   basic_ostringstream(const basic_ostringstream&) = delete;
   _LIBCPP_HIDE_FROM_ABI basic_ostringstream(basic_ostringstream&& __rhs)
       : basic_ostream<_CharT, _Traits>(std::move(__rhs)), __sb_(std::move(__rhs.__sb_)) {
-    basic_ostream<_CharT, _Traits>::set_rdbuf(&__sb_);
+    basic_ostream<_CharT, _Traits>::set_rdbuf(std::addressof(__sb_));
   }
 
   // [ostringstream.assign] Assign and swap:
@@ -1070,18 +1088,18 @@ public:
 
   // [ostringstream.members] Member functions:
   _LIBCPP_HIDE_FROM_ABI basic_stringbuf<char_type, traits_type, allocator_type>* rdbuf() const {
-    return const_cast<basic_stringbuf<char_type, traits_type, allocator_type>*>(&__sb_);
+    return const_cast<basic_stringbuf<char_type, traits_type, allocator_type>*>(std::addressof(__sb_));
   }
 
-#if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_BUILDING_LIBRARY)
+#    if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_BUILDING_LIBRARY)
   _LIBCPP_HIDE_FROM_ABI string_type str() const { return __sb_.str(); }
-#else
+#    else
   _LIBCPP_HIDE_FROM_ABI string_type str() const& { return __sb_.str(); }
 
   _LIBCPP_HIDE_FROM_ABI string_type str() && { return std::move(__sb_).str(); }
-#endif
+#    endif
 
-#if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
   template <class _SAlloc>
     requires __is_allocator<_SAlloc>::value
   _LIBCPP_HIDE_FROM_ABI basic_string<char_type, traits_type, _SAlloc> str(const _SAlloc& __sa) const {
@@ -1089,26 +1107,26 @@ public:
   }
 
   _LIBCPP_HIDE_FROM_ABI basic_string_view<char_type, traits_type> view() const noexcept { return __sb_.view(); }
-#endif // _LIBCPP_STD_VER >= 20
+#    endif // _LIBCPP_STD_VER >= 20
 
   _LIBCPP_HIDE_FROM_ABI void str(const string_type& __s) { __sb_.str(__s); }
 
-#if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
   template <class _SAlloc>
   _LIBCPP_HIDE_FROM_ABI void str(const basic_string<char_type, traits_type, _SAlloc>& __s) {
     __sb_.str(__s);
   }
 
   _LIBCPP_HIDE_FROM_ABI void str(string_type&& __s) { __sb_.str(std::move(__s)); }
-#endif // _LIBCPP_STD_VER >= 20
+#    endif // _LIBCPP_STD_VER >= 20
 
-#if _LIBCPP_STD_VER >= 26
+#    if _LIBCPP_STD_VER >= 26
   template <class _Tp>
     requires is_convertible_v<const _Tp&, basic_string_view<_CharT, _Traits>>
   _LIBCPP_HIDE_FROM_ABI void str(const _Tp& __t) {
     rdbuf()->str(__t);
   }
-#endif //  _LIBCPP_STD_VER >= 26
+#    endif //  _LIBCPP_STD_VER >= 26
 };
 
 template <class _CharT, class _Traits, class _Allocator>
@@ -1137,16 +1155,16 @@ private:
 public:
   // [stringstream.cons] constructors
   _LIBCPP_HIDE_FROM_ABI basic_stringstream()
-      : basic_iostream<_CharT, _Traits>(&__sb_), __sb_(ios_base::in | ios_base::out) {}
+      : basic_iostream<_CharT, _Traits>(std::addressof(__sb_)), __sb_(ios_base::in | ios_base::out) {}
 
   _LIBCPP_HIDE_FROM_ABI explicit basic_stringstream(ios_base::openmode __wch)
-      : basic_iostream<_CharT, _Traits>(&__sb_), __sb_(__wch) {}
+      : basic_iostream<_CharT, _Traits>(std::addressof(__sb_)), __sb_(__wch) {}
 
   _LIBCPP_HIDE_FROM_ABI explicit basic_stringstream(const string_type& __s,
                                                     ios_base::openmode __wch = ios_base::in | ios_base::out)
-      : basic_iostream<_CharT, _Traits>(&__sb_), __sb_(__s, __wch) {}
+      : basic_iostream<_CharT, _Traits>(std::addressof(__sb_)), __sb_(__s, __wch) {}
 
-#if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
   _LIBCPP_HIDE_FROM_ABI basic_stringstream(ios_base::openmode __wch, const _Allocator& __a)
       : basic_iostream<_CharT, _Traits>(std::addressof(__sb_)), __sb_(__wch, __a) {}
 
@@ -1168,9 +1186,9 @@ public:
   _LIBCPP_HIDE_FROM_ABI explicit basic_stringstream(const basic_string<_CharT, _Traits, _SAlloc>& __s,
                                                     ios_base::openmode __wch = ios_base::out | ios_base::in)
       : basic_iostream<_CharT, _Traits>(std::addressof(__sb_)), __sb_(__s, __wch) {}
-#endif // _LIBCPP_STD_VER >= 20
+#    endif // _LIBCPP_STD_VER >= 20
 
-#if _LIBCPP_STD_VER >= 26
+#    if _LIBCPP_STD_VER >= 26
 
   template <class _Tp>
     requires is_convertible_v<const _Tp&, basic_string_view<_CharT, _Traits>>
@@ -1188,12 +1206,12 @@ public:
   _LIBCPP_HIDE_FROM_ABI basic_stringstream(const _Tp& __t, ios_base::openmode __which, const _Allocator& __a)
       : basic_iostream<_CharT, _Traits>(std::addressof(__sb_)), __sb_(__t, __which, __a) {}
 
-#endif //  _LIBCPP_STD_VER >= 26
+#    endif //  _LIBCPP_STD_VER >= 26
 
   basic_stringstream(const basic_stringstream&) = delete;
   _LIBCPP_HIDE_FROM_ABI basic_stringstream(basic_stringstream&& __rhs)
       : basic_iostream<_CharT, _Traits>(std::move(__rhs)), __sb_(std::move(__rhs.__sb_)) {
-    basic_istream<_CharT, _Traits>::set_rdbuf(&__sb_);
+    basic_istream<_CharT, _Traits>::set_rdbuf(std::addressof(__sb_));
   }
 
   // [stringstream.assign] Assign and swap:
@@ -1210,18 +1228,18 @@ public:
 
   // [stringstream.members] Member functions:
   _LIBCPP_HIDE_FROM_ABI basic_stringbuf<char_type, traits_type, allocator_type>* rdbuf() const {
-    return const_cast<basic_stringbuf<char_type, traits_type, allocator_type>*>(&__sb_);
+    return const_cast<basic_stringbuf<char_type, traits_type, allocator_type>*>(std::addressof(__sb_));
   }
 
-#if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_BUILDING_LIBRARY)
+#    if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_BUILDING_LIBRARY)
   _LIBCPP_HIDE_FROM_ABI string_type str() const { return __sb_.str(); }
-#else
+#    else
   _LIBCPP_HIDE_FROM_ABI string_type str() const& { return __sb_.str(); }
 
   _LIBCPP_HIDE_FROM_ABI string_type str() && { return std::move(__sb_).str(); }
-#endif
+#    endif
 
-#if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
   template <class _SAlloc>
     requires __is_allocator<_SAlloc>::value
   _LIBCPP_HIDE_FROM_ABI basic_string<char_type, traits_type, _SAlloc> str(const _SAlloc& __sa) const {
@@ -1229,26 +1247,26 @@ public:
   }
 
   _LIBCPP_HIDE_FROM_ABI basic_string_view<char_type, traits_type> view() const noexcept { return __sb_.view(); }
-#endif // _LIBCPP_STD_VER >= 20
+#    endif // _LIBCPP_STD_VER >= 20
 
   _LIBCPP_HIDE_FROM_ABI void str(const string_type& __s) { __sb_.str(__s); }
 
-#if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
   template <class _SAlloc>
   _LIBCPP_HIDE_FROM_ABI void str(const basic_string<char_type, traits_type, _SAlloc>& __s) {
     __sb_.str(__s);
   }
 
   _LIBCPP_HIDE_FROM_ABI void str(string_type&& __s) { __sb_.str(std::move(__s)); }
-#endif // _LIBCPP_STD_VER >= 20
+#    endif // _LIBCPP_STD_VER >= 20
 
-#if _LIBCPP_STD_VER >= 26
+#    if _LIBCPP_STD_VER >= 26
   template <class _Tp>
     requires is_convertible_v<const _Tp&, basic_string_view<_CharT, _Traits>>
   _LIBCPP_HIDE_FROM_ABI void str(const _Tp& __t) {
     rdbuf()->str(__t);
   }
-#endif //  _LIBCPP_STD_VER >= 26
+#    endif //  _LIBCPP_STD_VER >= 26
 };
 
 template <class _CharT, class _Traits, class _Allocator>
@@ -1257,20 +1275,23 @@ swap(basic_stringstream<_CharT, _Traits, _Allocator>& __x, basic_stringstream<_C
   __x.swap(__y);
 }
 
-#if _LIBCPP_AVAILABILITY_HAS_ADDITIONAL_IOSTREAM_EXPLICIT_INSTANTIATIONS_1
+#    if _LIBCPP_AVAILABILITY_HAS_ADDITIONAL_IOSTREAM_EXPLICIT_INSTANTIATIONS_1
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_stringbuf<char>;
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_stringstream<char>;
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_ostringstream<char>;
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_istringstream<char>;
-#endif
+#    endif
 
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#if _LIBCPP_STD_VER <= 20 && !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES)
-#  include <ostream>
-#  include <type_traits>
-#endif
+#  endif // _LIBCPP_HAS_LOCALIZATION
+
+#  if _LIBCPP_STD_VER <= 20 && !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES)
+#    include <ostream>
+#    include <type_traits>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_SSTREAM
