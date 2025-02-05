@@ -252,7 +252,7 @@ void *user_reallocarray(ThreadState *thr, uptr pc, void *p, uptr size, uptr n) {
     if (AllocatorMayReturnNull())
       return SetErrnoOnNull(nullptr);
     GET_STACK_TRACE_FATAL(thr, pc);
-    ReportReallocArrayOverflow(size, n, &stack);
+    ReportReallocArrayOverflow(n, size, &stack);
   }
   return user_realloc(thr, pc, p, size * n);
 }

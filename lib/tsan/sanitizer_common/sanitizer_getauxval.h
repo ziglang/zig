@@ -21,22 +21,21 @@
 
 #if SANITIZER_LINUX || SANITIZER_FUCHSIA
 
-# if (__GLIBC_PREREQ(2, 16) || (SANITIZER_ANDROID && __ANDROID_API__ >= 21) || \
-      SANITIZER_FUCHSIA) &&                                                    \
-     !SANITIZER_GO
-#  define SANITIZER_USE_GETAUXVAL 1
-# else
-#  define SANITIZER_USE_GETAUXVAL 0
-# endif
+#  if (__GLIBC_PREREQ(2, 16) || SANITIZER_ANDROID || SANITIZER_FUCHSIA) && \
+      !SANITIZER_GO
+#    define SANITIZER_USE_GETAUXVAL 1
+#  else
+#    define SANITIZER_USE_GETAUXVAL 0
+#  endif
 
-# if SANITIZER_USE_GETAUXVAL
-#  include <sys/auxv.h>
-# else
+#  if SANITIZER_USE_GETAUXVAL
+#    include <sys/auxv.h>
+#  else
 // The weak getauxval definition allows to check for the function at runtime.
 // This is useful for Android, when compiled at a lower API level yet running
 // on a more recent platform that offers the function.
 extern "C" SANITIZER_WEAK_ATTRIBUTE unsigned long getauxval(unsigned long type);
-# endif
+#  endif
 
 #elif SANITIZER_NETBSD
 

@@ -514,7 +514,7 @@ bool IsExpectedReport(uptr addr, uptr size);
 StackID CurrentStackId(ThreadState *thr, uptr pc);
 ReportStack *SymbolizeStackId(StackID stack_id);
 void PrintCurrentStack(ThreadState *thr, uptr pc);
-void PrintCurrentStackSlow(uptr pc);  // uses libunwind
+void PrintCurrentStack(uptr pc, bool fast);  // may uses libunwind
 MBlock *JavaHeapBlock(uptr addr, uptr *start);
 
 void Initialize(ThreadState *thr);

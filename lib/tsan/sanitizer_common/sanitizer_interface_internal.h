@@ -49,6 +49,11 @@ __sanitizer_sandbox_on_notify(__sanitizer_sandbox_arguments *args);
 SANITIZER_INTERFACE_ATTRIBUTE SANITIZER_WEAK_ATTRIBUTE void
 __sanitizer_report_error_summary(const char *error_summary);
 
+// Returns size of dynamically allocated block. This function can be overridden
+// by the client.
+SANITIZER_INTERFACE_ATTRIBUTE SANITIZER_WEAK_ATTRIBUTE __sanitizer::uptr
+__sanitizer_get_dtls_size(const void *tls_begin);
+
 SANITIZER_INTERFACE_ATTRIBUTE void __sanitizer_cov_dump();
 SANITIZER_INTERFACE_ATTRIBUTE void __sanitizer_dump_coverage(
     const __sanitizer::uptr *pcs, const __sanitizer::uptr len);
@@ -70,6 +75,11 @@ void __sanitizer_annotate_double_ended_contiguous_container(
     const void *storage_beg, const void *storage_end,
     const void *old_container_beg, const void *old_container_end,
     const void *new_container_beg, const void *new_container_end);
+SANITIZER_INTERFACE_ATTRIBUTE
+void __sanitizer_copy_contiguous_container_annotations(const void *src_begin,
+                                                       const void *src_end,
+                                                       const void *dst_begin,
+                                                       const void *dst_end);
 SANITIZER_INTERFACE_ATTRIBUTE
 int __sanitizer_verify_contiguous_container(const void *beg, const void *mid,
                                             const void *end);

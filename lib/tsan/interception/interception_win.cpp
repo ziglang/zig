@@ -27,7 +27,7 @@
 //
 // 1) Detour
 //
-//    The Detour hooking technique is assuming the presence of an header with
+//    The Detour hooking technique is assuming the presence of a header with
 //    padding and an overridable 2-bytes nop instruction (mov edi, edi). The
 //    nop instruction can safely be replaced by a 2-bytes jump without any need
 //    to save the instruction. A jump to the target is encoded in the function
@@ -47,7 +47,7 @@
 //
 //        func:  jmp <label>     -->     func:  jmp <hook>
 //
-//    On an 64-bit architecture, a trampoline is inserted.
+//    On a 64-bit architecture, a trampoline is inserted.
 //
 //        func:  jmp <label>     -->     func:  jmp <tramp>
 //                                              [...]
@@ -60,7 +60,7 @@
 //
 // 3) HotPatch
 //
-//    The HotPatch hooking is assuming the presence of an header with padding
+//    The HotPatch hooking is assuming the presence of a header with padding
 //    and a first instruction with at least 2-bytes.
 //
 //    The reason to enforce the 2-bytes limitation is to provide the minimal
@@ -80,7 +80,7 @@
 //                                       real:  <instr>
 //                                              jmp <body>
 //
-//    On an 64-bit architecture:
+//    On a 64-bit architecture:
 //
 //        head:   6 x nop                head:  jmp QWORD [addr1]
 //        func:   <instr>        -->     func:  jmp short <head>
@@ -110,7 +110,7 @@
 //                                              <instr>
 //                                              jmp <body>
 //
-//    On an 64-bit architecture:
+//    On a 64-bit architecture:
 //
 //        func:   <instr>        -->     func:  jmp QWORD [addr1]
 //                <instr>
@@ -130,6 +130,7 @@
 #include "sanitizer_common/sanitizer_platform.h"
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <psapi.h>
 
 namespace __interception {
 
@@ -186,8 +187,12 @@ static uptr GetMmapGranularity() {
   return si.dwAllocationGranularity;
 }
 
+UNUSED static uptr RoundDownTo(uptr size, uptr boundary) {
+  return size & ~(boundary - 1);
+}
+
 UNUSED static uptr RoundUpTo(uptr size, uptr boundary) {
-  return (size + boundary - 1) & ~(boundary - 1);
+  return RoundDownTo(size + boundary - 1, boundary);
 }
 
 // FIXME: internal_str* and internal_mem* functions should be moved from the
@@ -206,6 +211,18 @@ static char* _strchr(char* str, char c) {
     ++str;
   }
   return nullptr;
+}
+
+static int _strcmp(const char *s1, const char *s2) {
+  while (true) {
+    unsigned c1 = *s1;
+    unsigned c2 = *s2;
+    if (c1 != c2) return (c1 < c2) ? -1 : 1;
+    if (c1 == 0) break;
+    s1++;
+    s2++;
+  }
+  return 0;
 }
 
 static void _memset(void *p, int value, size_t sz) {
@@ -284,8 +301,11 @@ static void WriteJumpInstruction(uptr from, uptr target) {
 
 static void WriteShortJumpInstruction(uptr from, uptr target) {
   sptr offset = target - from - kShortJumpInstructionLength;
-  if (offset < -128 || offset > 127)
+  if (offset < -128 || offset > 127) {
+    ReportError("interception_win: cannot write short jmp from %p to %p\n",
+                (void *)from, (void *)target);
     InterceptionFailed();
+  }
   *(u8*)from = 0xEB;
   *(u8*)(from + 1) = (u8)offset;
 }
@@ -339,32 +359,78 @@ struct TrampolineMemoryRegion {
   uptr max_size;
 };
 
-UNUSED static const uptr kTrampolineScanLimitRange = 1ull << 31;  // 2 gig
+UNUSED static const uptr kTrampolineRangeLimit = 1ull << 31;  // 2 gig
 static const int kMaxTrampolineRegion = 1024;
 static TrampolineMemoryRegion TrampolineRegions[kMaxTrampolineRegion];
 
-static void *AllocateTrampolineRegion(uptr image_address, size_t granularity) {
-#if SANITIZER_WINDOWS64
-  uptr address = image_address;
-  uptr scanned = 0;
-  while (scanned < kTrampolineScanLimitRange) {
-    MEMORY_BASIC_INFORMATION info;
-    if (!::VirtualQuery((void*)address, &info, sizeof(info)))
-      return nullptr;
+static void *AllocateTrampolineRegion(uptr min_addr, uptr max_addr,
+                                      uptr func_addr, size_t granularity) {
+#  if SANITIZER_WINDOWS64
+  // Clamp {min,max}_addr to the accessible address space.
+  SYSTEM_INFO system_info;
+  ::GetSystemInfo(&system_info);
+  uptr min_virtual_addr =
+      RoundUpTo((uptr)system_info.lpMinimumApplicationAddress, granularity);
+  uptr max_virtual_addr =
+      RoundDownTo((uptr)system_info.lpMaximumApplicationAddress, granularity);
+  if (min_addr < min_virtual_addr)
+    min_addr = min_virtual_addr;
+  if (max_addr > max_virtual_addr)
+    max_addr = max_virtual_addr;
 
-    // Check whether a region can be allocated at |address|.
+  // This loop probes the virtual address space to find free memory in the
+  // [min_addr, max_addr] interval. The search starts from func_addr and
+  // proceeds "outwards" towards the interval bounds using two probes, lo_addr
+  // and hi_addr, for addresses lower/higher than func_addr. At each step, it
+  // considers the probe closest to func_addr. If that address is not free, the
+  // probe is advanced (lower or higher depending on the probe) to the next
+  // memory block and the search continues.
+  uptr lo_addr = RoundDownTo(func_addr, granularity);
+  uptr hi_addr = RoundUpTo(func_addr, granularity);
+  while (lo_addr >= min_addr || hi_addr <= max_addr) {
+    // Consider the in-range address closest to func_addr.
+    uptr addr;
+    if (lo_addr < min_addr)
+      addr = hi_addr;
+    else if (hi_addr > max_addr)
+      addr = lo_addr;
+    else
+      addr = (hi_addr - func_addr < func_addr - lo_addr) ? hi_addr : lo_addr;
+
+    MEMORY_BASIC_INFORMATION info;
+    if (!::VirtualQuery((void *)addr, &info, sizeof(info))) {
+      ReportError(
+          "interception_win: VirtualQuery in AllocateTrampolineRegion failed "
+          "for %p\n",
+          (void *)addr);
+      return nullptr;
+    }
+
+    // Check whether a region can be allocated at |addr|.
     if (info.State == MEM_FREE && info.RegionSize >= granularity) {
-      void *page = ::VirtualAlloc((void*)RoundUpTo(address, granularity),
-                                  granularity,
-                                  MEM_RESERVE | MEM_COMMIT,
-                                  PAGE_EXECUTE_READWRITE);
+      void *page =
+          ::VirtualAlloc((void *)addr, granularity, MEM_RESERVE | MEM_COMMIT,
+                         PAGE_EXECUTE_READWRITE);
+      if (page == nullptr)
+        ReportError(
+            "interception_win: VirtualAlloc in AllocateTrampolineRegion failed "
+            "for %p\n",
+            (void *)addr);
       return page;
     }
 
-    // Move to the next region.
-    address = (uptr)info.BaseAddress + info.RegionSize;
-    scanned += info.RegionSize;
+    if (addr == lo_addr)
+      lo_addr =
+          RoundDownTo((uptr)info.AllocationBase - granularity, granularity);
+    if (addr == hi_addr)
+      hi_addr =
+          RoundUpTo((uptr)info.BaseAddress + info.RegionSize, granularity);
   }
+
+  ReportError(
+      "interception_win: AllocateTrampolineRegion failed to find free memory; "
+      "min_addr: %p, max_addr: %p, func_addr: %p, granularity: %zu\n",
+      (void *)min_addr, (void *)max_addr, (void *)func_addr, granularity);
   return nullptr;
 #else
   return ::VirtualAlloc(nullptr,
@@ -385,15 +451,51 @@ void TestOnlyReleaseTrampolineRegions() {
   }
 }
 
-static uptr AllocateMemoryForTrampoline(uptr image_address, size_t size) {
-  // Find a region within 2G with enough space to allocate |size| bytes.
+static uptr AllocateMemoryForTrampoline(uptr func_address, size_t size) {
+#  if SANITIZER_WINDOWS64
+  uptr min_addr = func_address - kTrampolineRangeLimit;
+  uptr max_addr = func_address + kTrampolineRangeLimit - size;
+
+  // Allocate memory within 2GB of the module (DLL or EXE file) so that any
+  // address within the module can be referenced with PC-relative operands.
+  // This allows us to not just jump to the trampoline with a PC-relative
+  // offset, but to relocate any instructions that we copy to the trampoline
+  // which have references to the original module. If we can't find the base
+  // address of the module (e.g. if func_address is in mmap'ed memory), just
+  // stay within 2GB of func_address.
+  HMODULE module;
+  if (::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCWSTR)func_address, &module)) {
+    MODULEINFO module_info;
+    if (::GetModuleInformation(::GetCurrentProcess(), module,
+                                &module_info, sizeof(module_info))) {
+      min_addr = (uptr)module_info.lpBaseOfDll + module_info.SizeOfImage -
+                 kTrampolineRangeLimit;
+      max_addr = (uptr)module_info.lpBaseOfDll + kTrampolineRangeLimit - size;
+    }
+  }
+
+  // Check for overflow.
+  if (min_addr > func_address)
+    min_addr = 0;
+  if (max_addr < func_address)
+    max_addr = ~(uptr)0;
+#  else
+  uptr min_addr = 0;
+  uptr max_addr = ~min_addr;
+#  endif
+
+  // Find a region within [min_addr,max_addr] with enough space to allocate
+  // |size| bytes.
   TrampolineMemoryRegion *region = nullptr;
   for (size_t bucket = 0; bucket < kMaxTrampolineRegion; ++bucket) {
     TrampolineMemoryRegion* current = &TrampolineRegions[bucket];
     if (current->content == 0) {
       // No valid region found, allocate a new region.
       size_t bucket_size = GetMmapGranularity();
-      void *content = AllocateTrampolineRegion(image_address, bucket_size);
+      void *content = AllocateTrampolineRegion(min_addr, max_addr, func_address,
+                                               bucket_size);
       if (content == nullptr)
         return 0U;
 
@@ -403,13 +505,9 @@ static uptr AllocateMemoryForTrampoline(uptr image_address, size_t size) {
       region = current;
       break;
     } else if (current->max_size - current->allocated_size > size) {
-#if SANITIZER_WINDOWS64
-        // In 64-bits, the memory space must be allocated within 2G boundary.
-        uptr next_address = current->content + current->allocated_size;
-        if (next_address < image_address ||
-            next_address - image_address >= 0x7FFF0000)
-          continue;
-#endif
+      uptr next_address = current->content + current->allocated_size;
+      if (next_address < min_addr || next_address > max_addr)
+        continue;
       // The space can be allocated in the current region.
       region = current;
       break;
@@ -458,6 +556,10 @@ static const u8 kPrologueWithShortJump2[] = {
 
 // Returns 0 on error.
 static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
+  if (rel_offset) {
+    *rel_offset = 0;
+  }
+
 #if SANITIZER_ARM64
   // An ARM64 instruction is 4 bytes long.
   return 4;
@@ -497,8 +599,14 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
     case 0x6A:  // 6A XX = push XX
       return 2;
 
+    // This instruction can be encoded with a 16-bit immediate but that is
+    // incredibly unlikely.
+    case 0x68:  // 68 XX XX XX XX : push imm32
+      return 5;
+
     case 0xb8:  // b8 XX XX XX XX : mov eax, XX XX XX XX
     case 0xB9:  // b9 XX XX XX XX : mov ecx, XX XX XX XX
+    case 0xBA:  // ba XX XX XX XX : mov edx, XX XX XX XX
       return 5;
 
     // Cannot overwrite control-instruction. Return 0 to indicate failure.
@@ -529,19 +637,43 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
     case 0xFF8B:  // 8B FF : mov edi, edi
     case 0xEC8B:  // 8B EC : mov ebp, esp
     case 0xc889:  // 89 C8 : mov eax, ecx
+    case 0xD189:  // 89 D1 : mov ecx, edx
     case 0xE589:  // 89 E5 : mov ebp, esp
     case 0xC18B:  // 8B C1 : mov eax, ecx
+    case 0xC031:  // 31 C0 : xor eax, eax
+    case 0xC931:  // 31 C9 : xor ecx, ecx
+    case 0xD231:  // 31 D2 : xor edx, edx
     case 0xC033:  // 33 C0 : xor eax, eax
     case 0xC933:  // 33 C9 : xor ecx, ecx
     case 0xD233:  // 33 D2 : xor edx, edx
+    case 0xDB84:  // 84 DB : test bl,bl
+    case 0xC084:  // 84 C0 : test al,al
+    case 0xC984:  // 84 C9 : test cl,cl
+    case 0xD284:  // 84 D2 : test dl,dl
       return 2;
 
+    case 0x3980:  // 80 39 XX : cmp BYTE PTR [rcx], XX
+    case 0x4D8B:  // 8B 4D XX : mov XX(%ebp), ecx
+    case 0x558B:  // 8B 55 XX : mov XX(%ebp), edx
+    case 0x758B:  // 8B 75 XX : mov XX(%ebp), esp
+    case 0xE483:  // 83 E4 XX : and esp, XX
+    case 0xEC83:  // 83 EC XX : sub esp, XX
+    case 0xC1F6:  // F6 C1 XX : test cl, XX
+      return 3;
+
+    case 0x89FF:  // FF 89 XX XX XX XX : dec dword ptr [ecx + XX XX XX XX]
+    case 0xEC81:  // 81 EC XX XX XX XX : sub esp, XX XX XX XX
+      return 6;
+
     // Cannot overwrite control-instruction. Return 0 to indicate failure.
-    case 0x25FF:  // FF 25 XX XX XX XX : jmp [XXXXXXXX]
+    case 0x25FF:  // FF 25 XX YY ZZ WW : jmp dword ptr ds:[WWZZYYXX]
       return 0;
   }
 
-  switch (0x00FFFFFF & *(u32*)address) {
+  switch (0x00FFFFFF & *(u32 *)address) {
+    case 0x244C8D:  // 8D 4C 24 XX : lea ecx, [esp + XX]
+    case 0x2474FF:  // FF 74 24 XX : push qword ptr [rsp + XX]
+      return 4;
     case 0x24A48D:  // 8D A4 24 XX XX XX XX : lea esp, [esp + XX XX XX XX]
       return 7;
   }
@@ -556,6 +688,21 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
     case 0xA1:  // A1 XX XX XX XX XX XX XX XX :
                 //   movabs eax, dword ptr ds:[XXXXXXXX]
       return 9;
+    case 0xF2:
+      switch (*(u32 *)(address + 1)) {
+          case 0x2444110f:  //  f2 0f 11 44 24 XX       movsd  QWORD PTR
+                            //  [rsp + XX], xmm0
+          case 0x244c110f:  //  f2 0f 11 4c 24 XX       movsd  QWORD PTR
+                            //  [rsp + XX], xmm1
+          case 0x2454110f:  //  f2 0f 11 54 24 XX       movsd  QWORD PTR
+                            //  [rsp + XX], xmm2
+          case 0x245c110f:  //  f2 0f 11 5c 24 XX       movsd  QWORD PTR
+                            //  [rsp + XX], xmm3
+          case 0x2464110f:  //  f2 0f 11 64 24 XX       movsd  QWORD PTR
+                            //  [rsp + XX], xmm4
+            return 6;
+      }
+      break;
 
     case 0x83:
       const u8 next_byte = *(u8*)(address + 1);
@@ -584,55 +731,155 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
     case 0x018a:  // mov al, byte ptr [rcx]
       return 2;
 
+    case 0x7E80:  // 80 7E YY XX  cmp BYTE PTR [rsi+YY], XX
+    case 0x7D80:  // 80 7D YY XX  cmp BYTE PTR [rbp+YY], XX
+    case 0x7A80:  // 80 7A YY XX  cmp BYTE PTR [rdx+YY], XX
+    case 0x7880:  // 80 78 YY XX  cmp BYTE PTR [rax+YY], XX
+    case 0x7B80:  // 80 7B YY XX  cmp BYTE PTR [rbx+YY], XX
+    case 0x7980:  // 80 79 YY XX  cmp BYTE ptr [rcx+YY], XX
+      return 4;
+
     case 0x058A:  // 8A 05 XX XX XX XX : mov al, byte ptr [XX XX XX XX]
     case 0x058B:  // 8B 05 XX XX XX XX : mov eax, dword ptr [XX XX XX XX]
       if (rel_offset)
         *rel_offset = 2;
+    case 0xB841:  // 41 B8 XX XX XX XX : mov r8d, XX XX XX XX
       return 6;
+
+    case 0x7E81:  // 81 7E YY XX XX XX XX  cmp DWORD PTR [rsi+YY], XX XX XX XX
+    case 0x7D81:  // 81 7D YY XX XX XX XX  cmp DWORD PTR [rbp+YY], XX XX XX XX
+    case 0x7A81:  // 81 7A YY XX XX XX XX  cmp DWORD PTR [rdx+YY], XX XX XX XX
+    case 0x7881:  // 81 78 YY XX XX XX XX  cmp DWORD PTR [rax+YY], XX XX XX XX
+    case 0x7B81:  // 81 7B YY XX XX XX XX  cmp DWORD PTR [rbx+YY], XX XX XX XX
+    case 0x7981:  // 81 79 YY XX XX XX XX  cmp dword ptr [rcx+YY], XX XX XX XX
+      return 7;
   }
 
-  switch (0x00FFFFFF & *(u32*)address) {
-    case 0xe58948:    // 48 8b c4 : mov rbp, rsp
-    case 0xc18b48:    // 48 8b c1 : mov rax, rcx
-    case 0xc48b48:    // 48 8b c4 : mov rax, rsp
-    case 0xd9f748:    // 48 f7 d9 : neg rcx
-    case 0xd12b48:    // 48 2b d1 : sub rdx, rcx
-    case 0x07c1f6:    // f6 c1 07 : test cl, 0x7
-    case 0xc98548:    // 48 85 C9 : test rcx, rcx
-    case 0xd28548:    // 48 85 d2 : test rdx, rdx
-    case 0xc0854d:    // 4d 85 c0 : test r8, r8
-    case 0xc2b60f:    // 0f b6 c2 : movzx eax, dl
+  switch (0x00FFFFFF & *(u32 *)address) {
+    case 0x10b70f:    // 0f b7 10 : movzx edx, WORD PTR [rax]
+    case 0xc00b4d:    // 4d 0b c0 : or r8, r8
     case 0xc03345:    // 45 33 c0 : xor r8d, r8d
+    case 0xc08548:    // 48 85 c0 : test rax, rax
+    case 0xc0854d:    // 4d 85 c0 : test r8, r8
+    case 0xc08b41:    // 41 8b c0 : mov eax, r8d
+    case 0xc0ff48:    // 48 ff c0 : inc rax
+    case 0xc0ff49:    // 49 ff c0 : inc r8
+    case 0xc18b41:    // 41 8b c1 : mov eax, r9d
+    case 0xc18b48:    // 48 8b c1 : mov rax, rcx
+    case 0xc18b4c:    // 4c 8b c1 : mov r8, rcx
+    case 0xc1ff48:    // 48 ff c1 : inc rcx
+    case 0xc1ff49:    // 49 ff c1 : inc r9
+    case 0xc28b41:    // 41 8b c2 : mov eax, r10d
+    case 0x01b60f:    // 0f b6 01 : movzx eax, BYTE PTR [rcx]
+    case 0x09b60f:    // 0f b6 09 : movzx ecx, BYTE PTR [rcx]
+    case 0x11b60f:    // 0f b6 11 : movzx edx, BYTE PTR [rcx]
+    case 0xc2b60f:    // 0f b6 c2 : movzx eax, dl
+    case 0xc2ff48:    // 48 ff c2 : inc rdx
+    case 0xc2ff49:    // 49 ff c2 : inc r10
+    case 0xc38b41:    // 41 8b c3 : mov eax, r11d
+    case 0xc3ff48:    // 48 ff c3 : inc rbx
+    case 0xc3ff49:    // 49 ff c3 : inc r11
+    case 0xc48b41:    // 41 8b c4 : mov eax, r12d
+    case 0xc48b48:    // 48 8b c4 : mov rax, rsp
+    case 0xc4ff49:    // 49 ff c4 : inc r12
+    case 0xc5ff49:    // 49 ff c5 : inc r13
+    case 0xc6ff48:    // 48 ff c6 : inc rsi
+    case 0xc6ff49:    // 49 ff c6 : inc r14
+    case 0xc7ff48:    // 48 ff c7 : inc rdi
+    case 0xc7ff49:    // 49 ff c7 : inc r15
     case 0xc93345:    // 45 33 c9 : xor r9d, r9d
-    case 0xdb3345:    // 45 33 DB : xor r11d, r11d
-    case 0xd98b4c:    // 4c 8b d9 : mov r11, rcx
-    case 0xd28b4c:    // 4c 8b d2 : mov r10, rdx
-    case 0xc98b4c:    // 4C 8B C9 : mov r9, rcx
-    case 0xc18b4c:    // 4C 8B C1 : mov r8, rcx
-    case 0xd2b60f:    // 0f b6 d2 : movzx edx, dl
+    case 0xc98548:    // 48 85 c9 : test rcx, rcx
+    case 0xc9854d:    // 4d 85 c9 : test r9, r9
+    case 0xc98b4c:    // 4c 8b c9 : mov r9, rcx
+    case 0xd12948:    // 48 29 d1 : sub rcx, rdx
     case 0xca2b48:    // 48 2b ca : sub rcx, rdx
     case 0xca3b48:    // 48 3b ca : cmp rcx, rdx
-    case 0x10b70f:    // 0f b7 10 : movzx edx, WORD PTR [rax]
-    case 0xc00b4d:    // 3d 0b c0 : or r8, r8
-    case 0xc08b41:    // 41 8b c0 : mov eax, r8d
+    case 0xd12b48:    // 48 2b d1 : sub rdx, rcx
     case 0xd18b48:    // 48 8b d1 : mov rdx, rcx
-    case 0xdc8b4c:    // 4c 8b dc : mov r11, rsp
     case 0xd18b4c:    // 4c 8b d1 : mov r10, rcx
-    case 0xE0E483:    // 83 E4 E0 : and esp, 0xFFFFFFE0
+    case 0xd28548:    // 48 85 d2 : test rdx, rdx
+    case 0xd2854d:    // 4d 85 d2 : test r10, r10
+    case 0xd28b4c:    // 4c 8b d2 : mov r10, rdx
+    case 0xd2b60f:    // 0f b6 d2 : movzx edx, dl
+    case 0xd2be0f:    // 0f be d2 : movsx edx, dl
+    case 0xd98b4c:    // 4c 8b d9 : mov r11, rcx
+    case 0xd9f748:    // 48 f7 d9 : neg rcx
+    case 0xc03145:    // 45 31 c0 : xor r8d,r8d
+    case 0xc93145:    // 45 31 c9 : xor r9d,r9d
+    case 0xdb3345:    // 45 33 db : xor r11d, r11d
+    case 0xc08445:    // 45 84 c0 : test r8b,r8b
+    case 0xd28445:    // 45 84 d2 : test r10b,r10b
+    case 0xdb8548:    // 48 85 db : test rbx, rbx
+    case 0xdb854d:    // 4d 85 db : test r11, r11
+    case 0xdc8b4c:    // 4c 8b dc : mov r11, rsp
+    case 0xe48548:    // 48 85 e4 : test rsp, rsp
+    case 0xe4854d:    // 4d 85 e4 : test r12, r12
+    case 0xc88948:    // 48 89 c8 : mov rax,rcx
+    case 0xcb8948:    // 48 89 cb : mov rbx,rcx
+    case 0xd08948:    // 48 89 d0 : mov rax,rdx
+    case 0xd18948:    // 48 89 d1 : mov rcx,rdx
+    case 0xd38948:    // 48 89 d3 : mov rbx,rdx
+    case 0xe58948:    // 48 89 e5 : mov rbp, rsp
+    case 0xed8548:    // 48 85 ed : test rbp, rbp
+    case 0xc88949:    // 49 89 c8 : mov r8, rcx
+    case 0xc98949:    // 49 89 c9 : mov r9, rcx
+    case 0xca8949:    // 49 89 ca : mov r10,rcx
+    case 0xd08949:    // 49 89 d0 : mov r8, rdx
+    case 0xd18949:    // 49 89 d1 : mov r9, rdx
+    case 0xd28949:    // 49 89 d2 : mov r10, rdx
+    case 0xd38949:    // 49 89 d3 : mov r11, rdx
+    case 0xed854d:    // 4d 85 ed : test r13, r13
+    case 0xf6854d:    // 4d 85 f6 : test r14, r14
+    case 0xff854d:    // 4d 85 ff : test r15, r15
       return 3;
 
+    case 0x245489:    // 89 54 24 XX : mov DWORD PTR[rsp + XX], edx
+    case 0x428d44:    // 44 8d 42 XX : lea r8d , [rdx + XX]
+    case 0x588948:    // 48 89 58 XX : mov QWORD PTR[rax + XX], rbx
     case 0xec8348:    // 48 83 ec XX : sub rsp, XX
     case 0xf88349:    // 49 83 f8 XX : cmp r8, XX
-    case 0x588948:    // 48 89 58 XX : mov QWORD PTR[rax + XX], rbx
+    case 0x488d49:    // 49 8d 48 XX : lea rcx, [...]
+    case 0x048d4c:    // 4c 8d 04 XX : lea r8, [...]
+    case 0x148d4e:    // 4e 8d 14 XX : lea r10, [...]
+    case 0x398366:    // 66 83 39 XX : cmp WORD PTR [rcx], XX
       return 4;
 
+    case 0x441F0F:  // 0F 1F 44 XX XX :   nop DWORD PTR [...]
+    case 0x246483:  // 83 64 24 XX YY :   and    DWORD PTR [rsp+XX], YY
+      return 5;
+
+    case 0x788166:  // 66 81 78 XX YY YY  cmp WORD PTR [rax+XX], YY YY
+    case 0x798166:  // 66 81 79 XX YY YY  cmp WORD PTR [rcx+XX], YY YY
+    case 0x7a8166:  // 66 81 7a XX YY YY  cmp WORD PTR [rdx+XX], YY YY
+    case 0x7b8166:  // 66 81 7b XX YY YY  cmp WORD PTR [rbx+XX], YY YY
+    case 0x7e8166:  // 66 81 7e XX YY YY  cmp WORD PTR [rsi+XX], YY YY
+    case 0x7f8166:  // 66 81 7f XX YY YY  cmp WORD PTR [rdi+XX], YY YY
+      return 6;
+
     case 0xec8148:    // 48 81 EC XX XX XX XX : sub rsp, XXXXXXXX
+    case 0xc0c748:    // 48 C7 C0 XX XX XX XX : mov rax, XX XX XX XX
       return 7;
+
+    // clang-format off
+    case 0x788141:  // 41 81 78 XX YY YY YY YY : cmp DWORD PTR [r8+YY], XX XX XX XX
+    case 0x798141:  // 41 81 79 XX YY YY YY YY : cmp DWORD PTR [r9+YY], XX XX XX XX
+    case 0x7a8141:  // 41 81 7a XX YY YY YY YY : cmp DWORD PTR [r10+YY], XX XX XX XX
+    case 0x7b8141:  // 41 81 7b XX YY YY YY YY : cmp DWORD PTR [r11+YY], XX XX XX XX
+    case 0x7d8141:  // 41 81 7d XX YY YY YY YY : cmp DWORD PTR [r13+YY], XX XX XX XX
+    case 0x7e8141:  // 41 81 7e XX YY YY YY YY : cmp DWORD PTR [r14+YY], XX XX XX XX
+    case 0x7f8141:  // 41 81 7f YY XX XX XX XX : cmp DWORD PTR [r15+YY], XX XX XX XX
+    case 0x247c81:  // 81 7c 24 YY XX XX XX XX : cmp DWORD PTR [rsp+YY], XX XX XX XX
+      return 8;
+      // clang-format on
 
     case 0x058b48:    // 48 8b 05 XX XX XX XX :
                       //   mov rax, QWORD PTR [rip + XXXXXXXX]
     case 0x058d48:    // 48 8d 05 XX XX XX XX :
                       //   lea rax, QWORD PTR [rip + XXXXXXXX]
+    case 0x0d8948:    // 48 89 0d XX XX XX XX :
+                      //   mov QWORD PTR [rip + XXXXXXXX], rcx
+    case 0x158948:    // 48 89 15 XX XX XX XX :
+                      //   mov QWORD PTR [rip + XXXXXXXX], rdx
     case 0x25ff48:    // 48 ff 25 XX XX XX XX :
                       //   rex.W jmp QWORD PTR [rip + XXXXXXXX]
     case 0x158D4C:    // 4c 8d 15 XX XX XX XX : lea r10, [rip + XX]
@@ -644,9 +891,19 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
     case 0x2444c7:    // C7 44 24 XX YY YY YY YY
                       //   mov dword ptr [rsp + XX], YYYYYYYY
       return 8;
+
+    case 0x7c8141:  // 41 81 7c ZZ YY XX XX XX XX
+                    // cmp DWORD PTR [reg+reg*n+YY], XX XX XX XX
+      return 9;
   }
 
   switch (*(u32*)(address)) {
+    case 0x01b60f44:  // 44 0f b6 01 : movzx r8d, BYTE PTR [rcx]
+    case 0x09b60f44:  // 44 0f b6 09 : movzx r9d, BYTE PTR [rcx]
+    case 0x0ab60f44:  // 44 0f b6 0a : movzx r8d, BYTE PTR [rdx]
+    case 0x11b60f44:  // 44 0f b6 11 : movzx r10d, BYTE PTR [rcx]
+    case 0x1ab60f44:  // 44 0f b6 1a : movzx r11d, BYTE PTR [rdx]
+      return 4;
     case 0x24448b48:  // 48 8b 44 24 XX : mov rax, QWORD ptr [rsp + XX]
     case 0x246c8948:  // 48 89 6C 24 XX : mov QWORD ptr [rsp + XX], rbp
     case 0x245c8948:  // 48 89 5c 24 XX : mov QWORD PTR [rsp + XX], rbx
@@ -656,9 +913,19 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
     case 0x24548948:  // 48 89 54 24 XX : mov QWORD PTR [rsp + XX], rdx
     case 0x244c894c:  // 4c 89 4c 24 XX : mov QWORD PTR [rsp + XX], r9
     case 0x2444894c:  // 4c 89 44 24 XX : mov QWORD PTR [rsp + XX], r8
+    case 0x244c8944:  // 44 89 4c 24 XX   mov DWORD PTR [rsp + XX], r9d
+    case 0x24448944:  // 44 89 44 24 XX   mov DWORD PTR [rsp + XX], r8d
+    case 0x246c8d48:  // 48 8d 6c 24 XX : lea rbp, [rsp + XX]
       return 5;
-    case 0x24648348:  // 48 83 64 24 XX : and QWORD PTR [rsp + XX], YY
+    case 0x24648348:  // 48 83 64 24 XX YY : and QWORD PTR [rsp + XX], YY
       return 6;
+    case 0x24A48D48:  // 48 8D A4 24 XX XX XX XX : lea rsp, [rsp + XX XX XX XX]
+      return 8;
+  }
+
+  switch (0xFFFFFFFFFFULL & *(u64 *)(address)) {
+    case 0xC07E0F4866:  // 66 48 0F 7E C0 : movq rax, xmm0
+      return 5;
   }
 
 #else
@@ -671,11 +938,10 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
     case 0x458B:  // 8B 45 XX : mov eax, dword ptr [ebp + XX]
     case 0x5D8B:  // 8B 5D XX : mov ebx, dword ptr [ebp + XX]
     case 0x7D8B:  // 8B 7D XX : mov edi, dword ptr [ebp + XX]
-    case 0xEC83:  // 83 EC XX : sub esp, XX
+    case 0x758B:  // 8B 75 XX : mov esi, dword ptr [ebp + XX]
     case 0x75FF:  // FF 75 XX : push dword ptr [ebp + XX]
       return 3;
     case 0xC1F7:  // F7 C1 XX YY ZZ WW : test ecx, WWZZYYXX
-    case 0x25FF:  // FF 25 XX YY ZZ WW : jmp dword ptr ds:[WWZZYYXX]
       return 6;
     case 0x3D83:  // 83 3D XX YY ZZ WW TT : cmp TT, WWZZYYXX
       return 7;
@@ -718,6 +984,10 @@ static size_t GetInstructionSize(uptr address, size_t* rel_offset = nullptr) {
   return 0;
 }
 
+size_t TestOnlyGetInstructionSize(uptr address, size_t *rel_offset) {
+  return GetInstructionSize(address, rel_offset);
+}
+
 // Returns 0 on error.
 static size_t RoundUpToInstrBoundary(size_t size, uptr address) {
   size_t cursor = 0;
@@ -745,8 +1015,14 @@ static bool CopyInstructions(uptr to, uptr from, size_t size) {
       // this will be untrue if relocated_offset \notin [-2**31, 2**31)
       s64 delta = to - from;
       s64 relocated_offset = *(s32 *)(to + cursor + rel_offset) - delta;
-      if (-0x8000'0000ll > relocated_offset || relocated_offset > 0x7FFF'FFFFll)
+      if (-0x8000'0000ll > relocated_offset ||
+          relocated_offset > 0x7FFF'FFFFll) {
+        ReportError(
+            "interception_win: CopyInstructions relocated_offset %lld outside "
+            "32-bit range\n",
+            (long long)relocated_offset);
         return false;
+      }
 #  else
       // on 32-bit, the relative offset will always be correct
       s32 delta = to - from;
@@ -969,8 +1245,7 @@ static void **InterestingDLLsAvailable() {
     "libc++.dll",     // libc++
     "libunwind.dll",  // libunwind
 #  endif
-    // NTDLL should go last as it exports some functions that we should
-    // override in the CRT [presumably only used internally].
+    // NTDLL must go last as it gets special treatment in OverrideFunction.
     "ntdll.dll",
     NULL
   };
@@ -1027,7 +1302,7 @@ uptr InternalGetProcAddress(void *module, const char *func_name) {
 
   for (DWORD i = 0; i < exports->NumberOfNames; i++) {
     RVAPtr<char> name(module, names[i]);
-    if (!strcmp(func_name, name)) {
+    if (!_strcmp(func_name, name)) {
       DWORD index = ordinals[i];
       RVAPtr<char> func(module, functions[index]);
 
@@ -1040,19 +1315,27 @@ uptr InternalGetProcAddress(void *module, const char *func_name) {
         // exported directory.
         char function_name[256];
         size_t funtion_name_length = _strlen(func);
-        if (funtion_name_length >= sizeof(function_name) - 1)
+        if (funtion_name_length >= sizeof(function_name) - 1) {
+          ReportError("interception_win: func too long: '%s'\n", (char *)func);
           InterceptionFailed();
+        }
 
         _memcpy(function_name, func, funtion_name_length);
         function_name[funtion_name_length] = '\0';
         char* separator = _strchr(function_name, '.');
-        if (!separator)
+        if (!separator) {
+          ReportError("interception_win: no separator in '%s'\n",
+                      function_name);
           InterceptionFailed();
+        }
         *separator = '\0';
 
         void* redirected_module = GetModuleHandleA(function_name);
-        if (!redirected_module)
+        if (!redirected_module) {
+          ReportError("interception_win: GetModuleHandleA failed for '%s'\n",
+                      function_name);
           InterceptionFailed();
+        }
         return InternalGetProcAddress(redirected_module, separator + 1);
       }
 
@@ -1065,9 +1348,22 @@ uptr InternalGetProcAddress(void *module, const char *func_name) {
 
 bool OverrideFunction(
     const char *func_name, uptr new_func, uptr *orig_old_func) {
+  static const char *kNtDllIgnore[] = {
+    "memcmp", "memcpy", "memmove", "memset"
+  };
+
   bool hooked = false;
   void **DLLs = InterestingDLLsAvailable();
   for (size_t i = 0; DLLs[i]; ++i) {
+    if (DLLs[i + 1] == nullptr) {
+      // This is the last DLL, i.e. NTDLL. It exports some functions that
+      // we only want to override in the CRT.
+      for (const char *ignored : kNtDllIgnore) {
+        if (_strcmp(func_name, ignored) == 0)
+          return hooked;
+      }
+    }
+
     uptr func_addr = InternalGetProcAddress(DLLs[i], func_name);
     if (func_addr &&
         OverrideFunction(func_addr, new_func, orig_old_func)) {
@@ -1121,7 +1417,7 @@ bool OverrideImportedFunction(const char *module_to_patch,
       RVAPtr<IMAGE_IMPORT_BY_NAME> import_by_name(
           module, name_table->u1.ForwarderString);
       const char *funcname = &import_by_name->Name[0];
-      if (strcmp(funcname, function_name) == 0)
+      if (_strcmp(funcname, function_name) == 0)
         break;
     }
   }
@@ -1144,4 +1440,4 @@ bool OverrideImportedFunction(const char *module_to_patch,
 
 }  // namespace __interception
 
-#endif  // SANITIZER_APPLE
+#endif  // SANITIZER_WINDOWS
