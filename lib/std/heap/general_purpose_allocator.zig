@@ -104,7 +104,7 @@ const StackTrace = std.builtin.StackTrace;
 const page_size: usize = @max(std.heap.page_size_max, switch (builtin.os.tag) {
     .windows => 64 * 1024, // Makes `std.heap.PageAllocator` take the happy path.
     .wasi => 64 * 1024, // Max alignment supported by `std.heap.WasmAllocator`.
-    else => 512 * 1024, // Avoids too many active mappings when `page_size_max` is low.
+    else => 128 * 1024, // Avoids too many active mappings when `page_size_max` is low.
 });
 const page_align: mem.Alignment = .fromByteUnits(page_size);
 
@@ -112,8 +112,7 @@ const page_align: mem.Alignment = .fromByteUnits(page_size);
 const SlotIndex = std.meta.Int(.unsigned, math.log2(page_size) + 1);
 const Log2USize = std.math.Log2Int(usize);
 
-const default_test_stack_trace_frames: usize = if (builtin.is_test) 10 else 6;
-const default_sys_stack_trace_frames: usize = if (std.debug.sys_can_stack_trace) default_test_stack_trace_frames else 0;
+const default_sys_stack_trace_frames: usize = if (std.debug.sys_can_stack_trace) 6 else 0;
 const default_stack_trace_frames: usize = switch (builtin.mode) {
     .Debug => default_sys_stack_trace_frames,
     else => 0,
@@ -219,7 +218,10 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
         pub const Error = mem.Allocator.Error;
 
-        const small_bucket_count = math.log2(page_size);
+        /// Avoids creating buckets that would only be able to store a small
+        /// number of slots. Value of 1 means 2 is the minimum slot count.
+        const minimum_slots_per_bucket_log2 = 1;
+        const small_bucket_count = math.log2(page_size) - minimum_slots_per_bucket_log2;
         const largest_bucket_object_size = 1 << (small_bucket_count - 1);
         const LargestSizeClassInt = std.math.IntFittingRange(0, largest_bucket_object_size);
 
@@ -385,21 +387,24 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         /// This is executed only at compile-time to prepopulate a lookup table.
         fn calculateSlotCount(size_class_index: usize) SlotIndex {
             const size_class = @as(usize, 1) << @as(Log2USize, @intCast(size_class_index));
-            var lower: usize = 8;
+            var lower: usize = 1 << minimum_slots_per_bucket_log2;
             var upper: usize = (page_size - bucketSize(lower)) / size_class;
             while (upper > lower) {
                 const proposed: usize = lower + (upper - lower) / 2;
                 if (proposed == lower) return lower;
                 const slots_end = proposed * size_class;
                 const header_begin = mem.alignForward(usize, slots_end, @alignOf(BucketHeader));
-                const bucket_size = bucketSize(proposed);
-                const end = header_begin + bucket_size;
+                const end = header_begin + bucketSize(proposed);
                 if (end > page_size) {
                     upper = proposed - 1;
                 } else {
                     lower = proposed;
                 }
             }
+            const slots_end = lower * size_class;
+            const header_begin = mem.alignForward(usize, slots_end, @alignOf(BucketHeader));
+            const end = header_begin + bucketSize(lower);
+            assert(end <= page_size);
             return lower;
         }
 
