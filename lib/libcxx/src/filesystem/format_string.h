@@ -56,21 +56,21 @@ inline _LIBCPP_ATTRIBUTE_FORMAT(__printf__, 1, 2) string format_string(const cha
   string ret;
   va_list ap;
   va_start(ap, msg);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#if _LIBCPP_HAS_EXCEPTIONS
   try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_EXCEPTIONS
     ret = detail::vformat_string(msg, ap);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#if _LIBCPP_HAS_EXCEPTIONS
   } catch (...) {
     va_end(ap);
     throw;
   }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#endif // _LIBCPP_HAS_EXCEPTIONS
   va_end(ap);
   return ret;
 }
 
-} // end namespace detail
+} // namespace detail
 
 _LIBCPP_END_NAMESPACE_FILESYSTEM
 

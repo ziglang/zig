@@ -12,7 +12,6 @@
 #include <__algorithm/min.h>
 #include <__config>
 #include <__fwd/bit_reference.h>
-#include <__iterator/iterator_traits.h>
 #include <__memory/pointer_traits.h>
 #include <__utility/convert_to_integral.h>
 
@@ -33,7 +32,7 @@ __fill_n(_OutputIterator __first, _Size __n, const _Tp& __value);
 
 template <bool _FillVal, class _Cp>
 _LIBCPP_CONSTEXPR_SINCE_CXX20 _LIBCPP_HIDE_FROM_ABI void
-__fill_n_bool(__bit_iterator<_Cp, false> __first, typename _Cp::size_type __n) {
+__fill_n_bool(__bit_iterator<_Cp, false> __first, typename __size_difference_type_traits<_Cp>::size_type __n) {
   using _It            = __bit_iterator<_Cp, false>;
   using __storage_type = typename _It::__storage_type;
 

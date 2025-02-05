@@ -95,7 +95,7 @@ inline constexpr uint64_t __pow10_64[20] = {
     UINT64_C(1000000000000000000),
     UINT64_C(10000000000000000000)};
 
-#  ifndef _LIBCPP_HAS_NO_INT128
+#  if _LIBCPP_HAS_INT128
 inline constexpr int __pow10_128_offset      = 0;
 inline constexpr __uint128_t __pow10_128[40] = {
     UINT64_C(0),

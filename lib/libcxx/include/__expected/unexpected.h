@@ -48,12 +48,12 @@ template <class _Err>
 struct __is_std_unexpected<unexpected<_Err>> : true_type {};
 
 template <class _Tp>
-using __valid_std_unexpected = _BoolConstant< //
-    is_object_v<_Tp> &&                       //
-    !is_array_v<_Tp> &&                       //
-    !__is_std_unexpected<_Tp>::value &&       //
-    !is_const_v<_Tp> &&                       //
-    !is_volatile_v<_Tp>                       //
+using __valid_std_unexpected _LIBCPP_NODEBUG = _BoolConstant< //
+    is_object_v<_Tp> &&                                       //
+    !is_array_v<_Tp> &&                                       //
+    !__is_std_unexpected<_Tp>::value &&                       //
+    !is_const_v<_Tp> &&                                       //
+    !is_volatile_v<_Tp>                                       //
     >;
 
 template <class _Err>
@@ -108,7 +108,7 @@ public:
 
   template <class _Err2>
   _LIBCPP_HIDE_FROM_ABI friend constexpr bool operator==(const unexpected& __x, const unexpected<_Err2>& __y) {
-    return __x.__unex_ == __y.__unex_;
+    return __x.__unex_ == __y.error();
   }
 
 private:
