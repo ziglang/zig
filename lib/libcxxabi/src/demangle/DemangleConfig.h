@@ -15,7 +15,7 @@
 // build systems to override this value.
 // https://libcxx.llvm.org/UsingLibcxx.html#enabling-the-safe-libc-mode
 #ifndef _LIBCPP_VERBOSE_ABORT
-#define _LIBCPP_VERBOSE_ABORT(...) abort_message(__VA_ARGS__)
+#define _LIBCPP_VERBOSE_ABORT(...) __abort_message(__VA_ARGS__)
 #include "../abort_message.h"
 #endif
 
