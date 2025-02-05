@@ -14,6 +14,7 @@
 #ifndef __GFNIINTRIN_H
 #define __GFNIINTRIN_H
 
+#if defined(__EVEX512__) && !defined(__AVX10_1_512__)
 /* Default attributes for simple form (no masking). */
 #define __DEFAULT_FN_ATTRS                                                     \
   __attribute__((__always_inline__, __nodebug__,                               \
@@ -25,6 +26,37 @@
                  __target__("avx,gfni,no-evex512"),                            \
                  __min_vector_width__(256)))
 
+/* Default attributes for VLX masked forms. */
+#define __DEFAULT_FN_ATTRS_VL128                                               \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx512bw,avx512vl,gfni,no-evex512"),              \
+                 __min_vector_width__(128)))
+#define __DEFAULT_FN_ATTRS_VL256                                               \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx512bw,avx512vl,gfni,no-evex512"),              \
+                 __min_vector_width__(256)))
+#else
+/* Default attributes for simple form (no masking). */
+#define __DEFAULT_FN_ATTRS                                                     \
+  __attribute__((__always_inline__, __nodebug__, __target__("gfni"),           \
+                 __min_vector_width__(128)))
+
+/* Default attributes for YMM unmasked form. */
+#define __DEFAULT_FN_ATTRS_Y                                                   \
+  __attribute__((__always_inline__, __nodebug__, __target__("avx,gfni"),       \
+                 __min_vector_width__(256)))
+
+/* Default attributes for VLX masked forms. */
+#define __DEFAULT_FN_ATTRS_VL128                                               \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx512bw,avx512vl,gfni"),                         \
+                 __min_vector_width__(128)))
+#define __DEFAULT_FN_ATTRS_VL256                                               \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx512bw,avx512vl,gfni"),                         \
+                 __min_vector_width__(256)))
+#endif
+
 /* Default attributes for ZMM unmasked forms. */
 #define __DEFAULT_FN_ATTRS_Z                                                   \
   __attribute__((__always_inline__, __nodebug__,                               \
@@ -35,16 +67,6 @@
   __attribute__((__always_inline__, __nodebug__,                               \
                  __target__("avx512bw,evex512,gfni"),                          \
                  __min_vector_width__(512)))
-
-/* Default attributes for VLX masked forms. */
-#define __DEFAULT_FN_ATTRS_VL128                                               \
-  __attribute__((__always_inline__, __nodebug__,                               \
-                 __target__("avx512bw,avx512vl,gfni,no-evex512"),              \
-                 __min_vector_width__(128)))
-#define __DEFAULT_FN_ATTRS_VL256                                               \
-  __attribute__((__always_inline__, __nodebug__,                               \
-                 __target__("avx512bw,avx512vl,gfni,no-evex512"),              \
-                 __min_vector_width__(256)))
 
 #define _mm_gf2p8affineinv_epi64_epi8(A, B, I) \
   ((__m128i)__builtin_ia32_vgf2p8affineinvqb_v16qi((__v16qi)(__m128i)(A), \
