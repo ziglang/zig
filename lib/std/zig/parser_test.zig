@@ -2933,6 +2933,29 @@ test "zig fmt: destructure" {
     );
 }
 
+test "zig fmt: destructure multiline" {
+    try testTransform(
+        \\test {
+        \\    const x, y,
+        \\    const z = .{ 1, 2, 3 };
+        \\    const x,
+        \\    y, const z = .{ 1, 2, 3 };
+        \\    const
+        \\    w = 1;
+        \\}
+        \\
+    ,
+        \\test {
+        \\    const x, y, const z = .{ 1, 2, 3 };
+        \\    const x,
+        \\    y,
+        \\    const z = .{ 1, 2, 3 };
+        \\    const w = 1;
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: infix operators" {
     try testCanonical(
         \\test {
