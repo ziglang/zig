@@ -89,13 +89,13 @@ pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
             try self.addFrameworkDir(try std.fs.path.join(arena, &.{ sdk, "System/Library/Frameworks" }));
             try self.addIncludeDir(try std.fs.path.join(arena, &.{ sdk, "usr/include" }));
         }
-        
+
         // Check for homebrew paths
         if (std.posix.getenv("HOMEBREW_PREFIX")) |prefix| {
             try self.addLibDir(try std.fs.path.join(arena, &.{ prefix, "/lib" }));
             try self.addIncludeDir(try std.fs.path.join(arena, &.{ prefix, "/include" }));
         }
-        
+
         return self;
     }
 
