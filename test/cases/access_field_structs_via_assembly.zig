@@ -1,4 +1,4 @@
-const X = struct {
+const X = packed struct {
     x: u64,
 };
 
