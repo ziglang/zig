@@ -779,6 +779,10 @@ const targets = [_]ArchTarget{
                 .zig_name = "v9_5a",
             },
             .{
+                .llvm_name = "armv9.6-a",
+                .zig_name = "v9_6a",
+            },
+            .{
                 .llvm_name = "armv9-a",
                 .zig_name = "v9a",
             },
@@ -893,6 +897,10 @@ const targets = [_]ArchTarget{
             .{
                 .llvm_name = "v9.5a",
                 .zig_name = "has_v9_5a",
+            },
+            .{
+                .llvm_name = "v9.6a",
+                .zig_name = "has_v9_6a",
             },
         },
         .extra_cpus = &.{
@@ -1097,20 +1105,6 @@ const targets = [_]ArchTarget{
                 .zig_name = "nontrapping_bulk_memory_len0",
                 .desc = "Bulk memory operations with a zero length do not trap",
                 .deps = &.{"bulk_memory"},
-            },
-        },
-        .extra_cpus = &.{
-            .{
-                .llvm_name = null,
-                .zig_name = "lime1",
-                .features = &.{
-                    "bulk_memory",
-                    "extended_const",
-                    "multivalue",
-                    "mutable_globals",
-                    "nontrapping_fptoint",
-                    "sign_ext",
-                },
             },
         },
     },
