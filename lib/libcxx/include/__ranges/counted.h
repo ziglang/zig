@@ -12,6 +12,7 @@
 
 #include <__concepts/convertible_to.h>
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__iterator/concepts.h>
 #include <__iterator/counted_iterator.h>
 #include <__iterator/default_sentinel.h>
@@ -22,7 +23,6 @@
 #include <__type_traits/decay.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
-#include <cstddef>
 #include <span>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

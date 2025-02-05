@@ -158,26 +158,33 @@ template <class Stream, class T>
 
 */
 
-#include <__config>
-#include <__fwd/istream.h>
-#include <__iterator/istreambuf_iterator.h>
-#include <__ostream/basic_ostream.h>
-#include <__type_traits/conjunction.h>
-#include <__type_traits/enable_if.h>
-#include <__type_traits/is_base_of.h>
-#include <__utility/declval.h>
-#include <__utility/forward.h>
-#include <bitset>
-#include <ios>
-#include <locale>
-#include <version>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/istream>
+#else
+#  include <__config>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if _LIBCPP_HAS_LOCALIZATION
+
+#    include <__fwd/istream.h>
+#    include <__iterator/istreambuf_iterator.h>
+#    include <__ostream/basic_ostream.h>
+#    include <__type_traits/conjunction.h>
+#    include <__type_traits/enable_if.h>
+#    include <__type_traits/is_base_of.h>
+#    include <__type_traits/make_unsigned.h>
+#    include <__utility/declval.h>
+#    include <__utility/forward.h>
+#    include <bitset>
+#    include <ios>
+#    include <locale>
+#    include <version>
+
+#    if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#      pragma GCC system_header
+#    endif
 
 _LIBCPP_PUSH_MACROS
-#include <__undef_macros>
+#    include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -353,13 +360,13 @@ __input_arithmetic(basic_istream<_CharT, _Traits>& __is, _Tp& __n) {
   ios_base::iostate __state = ios_base::goodbit;
   typename basic_istream<_CharT, _Traits>::sentry __s(__is);
   if (__s) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
       typedef istreambuf_iterator<_CharT, _Traits> _Ip;
       typedef num_get<_CharT, _Ip> _Fp;
       std::use_facet<_Fp>(__is.getloc()).get(_Ip(__is), _Ip(), __is, __state, __n);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       __is.__setstate_nothrow(__state);
@@ -367,7 +374,7 @@ __input_arithmetic(basic_istream<_CharT, _Traits>& __is, _Tp& __n) {
         throw;
       }
     }
-#endif
+#    endif
     __is.setstate(__state);
   }
   return __is;
@@ -434,9 +441,9 @@ __input_arithmetic_with_numeric_limits(basic_istream<_CharT, _Traits>& __is, _Tp
   ios_base::iostate __state = ios_base::goodbit;
   typename basic_istream<_CharT, _Traits>::sentry __s(__is);
   if (__s) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
       typedef istreambuf_iterator<_CharT, _Traits> _Ip;
       typedef num_get<_CharT, _Ip> _Fp;
       long __temp;
@@ -450,7 +457,7 @@ __input_arithmetic_with_numeric_limits(basic_istream<_CharT, _Traits>& __is, _Tp
       } else {
         __n = static_cast<_Tp>(__temp);
       }
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       __is.__setstate_nothrow(__state);
@@ -458,7 +465,7 @@ __input_arithmetic_with_numeric_limits(basic_istream<_CharT, _Traits>& __is, _Tp
         throw;
       }
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
     __is.setstate(__state);
   }
   return __is;
@@ -480,9 +487,9 @@ __input_c_string(basic_istream<_CharT, _Traits>& __is, _CharT* __p, size_t __n) 
   ios_base::iostate __state = ios_base::goodbit;
   typename basic_istream<_CharT, _Traits>::sentry __sen(__is);
   if (__sen) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif
+#    endif
       _CharT* __s               = __p;
       const ctype<_CharT>& __ct = std::use_facet<ctype<_CharT> >(__is.getloc());
       while (__s != __p + (__n - 1)) {
@@ -501,7 +508,7 @@ __input_c_string(basic_istream<_CharT, _Traits>& __is, _CharT* __p, size_t __n) 
       __is.width(0);
       if (__s == __p)
         __state |= ios_base::failbit;
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       __is.__setstate_nothrow(__state);
@@ -509,13 +516,13 @@ __input_c_string(basic_istream<_CharT, _Traits>& __is, _CharT* __p, size_t __n) 
         throw;
       }
     }
-#endif
+#    endif
     __is.setstate(__state);
   }
   return __is;
 }
 
-#if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
 
 template <class _CharT, class _Traits, size_t _Np>
 inline _LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
@@ -538,7 +545,7 @@ operator>>(basic_istream<char, _Traits>& __is, signed char (&__buf)[_Np]) {
   return __is >> (char(&)[_Np])__buf;
 }
 
-#else
+#    else
 
 template <class _CharT, class _Traits>
 inline _LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>&
@@ -561,22 +568,22 @@ operator>>(basic_istream<char, _Traits>& __is, signed char* __s) {
   return __is >> (char*)__s;
 }
 
-#endif // _LIBCPP_STD_VER >= 20
+#    endif // _LIBCPP_STD_VER >= 20
 
 template <class _CharT, class _Traits>
 _LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>& operator>>(basic_istream<_CharT, _Traits>& __is, _CharT& __c) {
   ios_base::iostate __state = ios_base::goodbit;
   typename basic_istream<_CharT, _Traits>::sentry __sen(__is);
   if (__sen) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif
+#    endif
       typename _Traits::int_type __i = __is.rdbuf()->sbumpc();
       if (_Traits::eq_int_type(__i, _Traits::eof()))
         __state |= ios_base::eofbit | ios_base::failbit;
       else
         __c = _Traits::to_char_type(__i);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       __is.__setstate_nothrow(__state);
@@ -584,7 +591,7 @@ _LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>& operator>>(basic_istream<_
         throw;
       }
     }
-#endif
+#    endif
     __is.setstate(__state);
   }
   return __is;
@@ -610,9 +617,9 @@ basic_istream<_CharT, _Traits>::operator>>(basic_streambuf<char_type, traits_typ
   sentry __s(*this, true);
   if (__s) {
     if (__sb) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
       try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
         while (true) {
           typename traits_type::int_type __i = this->rdbuf()->sgetc();
           if (traits_type::eq_int_type(__i, _Traits::eof())) {
@@ -626,7 +633,7 @@ basic_istream<_CharT, _Traits>::operator>>(basic_streambuf<char_type, traits_typ
         }
         if (__gc_ == 0)
           __state |= ios_base::failbit;
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
       } catch (...) {
         __state |= ios_base::badbit;
         if (__gc_ == 0)
@@ -637,7 +644,7 @@ basic_istream<_CharT, _Traits>::operator>>(basic_streambuf<char_type, traits_typ
           throw;
         }
       }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
     } else {
       __state |= ios_base::failbit;
     }
@@ -653,22 +660,22 @@ typename basic_istream<_CharT, _Traits>::int_type basic_istream<_CharT, _Traits>
   int_type __r              = traits_type::eof();
   sentry __s(*this, true);
   if (__s) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif
+#    endif
       __r = this->rdbuf()->sbumpc();
       if (traits_type::eq_int_type(__r, traits_type::eof()))
         __state |= ios_base::failbit | ios_base::eofbit;
       else
         __gc_ = 1;
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       this->__setstate_nothrow(this->rdstate() | ios_base::badbit);
       if (this->exceptions() & ios_base::badbit) {
         throw;
       }
     }
-#endif
+#    endif
     this->setstate(__state);
   }
   return __r;
@@ -681,9 +688,9 @@ basic_istream<_CharT, _Traits>& basic_istream<_CharT, _Traits>::get(char_type* _
   sentry __sen(*this, true);
   if (__sen) {
     if (__n > 0) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
       try {
-#endif
+#    endif
         while (__gc_ < __n - 1) {
           int_type __i = this->rdbuf()->sgetc();
           if (traits_type::eq_int_type(__i, traits_type::eof())) {
@@ -699,7 +706,7 @@ basic_istream<_CharT, _Traits>& basic_istream<_CharT, _Traits>::get(char_type* _
         }
         if (__gc_ == 0)
           __state |= ios_base::failbit;
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
       } catch (...) {
         __state |= ios_base::badbit;
         this->__setstate_nothrow(__state);
@@ -709,7 +716,7 @@ basic_istream<_CharT, _Traits>& basic_istream<_CharT, _Traits>::get(char_type* _
           throw;
         }
       }
-#endif
+#    endif
     } else {
       __state |= ios_base::failbit;
     }
@@ -730,9 +737,9 @@ basic_istream<_CharT, _Traits>::get(basic_streambuf<char_type, traits_type>& __s
   __gc_                     = 0;
   sentry __sen(*this, true);
   if (__sen) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
       while (true) {
         typename traits_type::int_type __i = this->rdbuf()->sgetc();
         if (traits_type::eq_int_type(__i, traits_type::eof())) {
@@ -747,12 +754,12 @@ basic_istream<_CharT, _Traits>::get(basic_streambuf<char_type, traits_type>& __s
         __inc_gcount();
         this->rdbuf()->sbumpc();
       }
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       // according to the spec, exceptions here are caught but not rethrown
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
     if (__gc_ == 0)
       __state |= ios_base::failbit;
     this->setstate(__state);
@@ -767,9 +774,9 @@ basic_istream<_CharT, _Traits>::getline(char_type* __s, streamsize __n, char_typ
   __gc_                     = 0;
   sentry __sen(*this, true);
   if (__sen) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
       while (true) {
         typename traits_type::int_type __i = this->rdbuf()->sgetc();
         if (traits_type::eq_int_type(__i, traits_type::eof())) {
@@ -790,7 +797,7 @@ basic_istream<_CharT, _Traits>::getline(char_type* __s, streamsize __n, char_typ
         this->rdbuf()->sbumpc();
         __inc_gcount();
       }
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       this->__setstate_nothrow(__state);
@@ -802,7 +809,7 @@ basic_istream<_CharT, _Traits>::getline(char_type* __s, streamsize __n, char_typ
         throw;
       }
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
   }
   if (__n > 0)
     *__s = char_type();
@@ -818,9 +825,9 @@ basic_istream<_CharT, _Traits>& basic_istream<_CharT, _Traits>::ignore(streamsiz
   __gc_                     = 0;
   sentry __sen(*this, true);
   if (__sen) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
       if (__n == numeric_limits<streamsize>::max()) {
         while (true) {
           typename traits_type::int_type __i = this->rdbuf()->sbumpc();
@@ -844,7 +851,7 @@ basic_istream<_CharT, _Traits>& basic_istream<_CharT, _Traits>::ignore(streamsiz
             break;
         }
       }
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       this->__setstate_nothrow(__state);
@@ -852,7 +859,7 @@ basic_istream<_CharT, _Traits>& basic_istream<_CharT, _Traits>::ignore(streamsiz
         throw;
       }
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
     this->setstate(__state);
   }
   return *this;
@@ -865,13 +872,13 @@ typename basic_istream<_CharT, _Traits>::int_type basic_istream<_CharT, _Traits>
   int_type __r              = traits_type::eof();
   sentry __sen(*this, true);
   if (__sen) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
       __r = this->rdbuf()->sgetc();
       if (traits_type::eq_int_type(__r, traits_type::eof()))
         __state |= ios_base::eofbit;
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       this->__setstate_nothrow(__state);
@@ -879,7 +886,7 @@ typename basic_istream<_CharT, _Traits>::int_type basic_istream<_CharT, _Traits>
         throw;
       }
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
     this->setstate(__state);
   }
   return __r;
@@ -891,13 +898,13 @@ basic_istream<_CharT, _Traits>& basic_istream<_CharT, _Traits>::read(char_type* 
   __gc_                     = 0;
   sentry __sen(*this, true);
   if (__sen) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
       __gc_ = this->rdbuf()->sgetn(__s, __n);
       if (__gc_ != __n)
         __state |= ios_base::failbit | ios_base::eofbit;
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       this->__setstate_nothrow(__state);
@@ -905,7 +912,7 @@ basic_istream<_CharT, _Traits>& basic_istream<_CharT, _Traits>::read(char_type* 
         throw;
       }
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
   } else {
     __state |= ios_base::failbit;
   }
@@ -919,9 +926,9 @@ streamsize basic_istream<_CharT, _Traits>::readsome(char_type* __s, streamsize _
   __gc_                     = 0;
   sentry __sen(*this, true);
   if (__sen) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
       streamsize __c = this->rdbuf()->in_avail();
       switch (__c) {
       case -1:
@@ -936,7 +943,7 @@ streamsize basic_istream<_CharT, _Traits>::readsome(char_type* __s, streamsize _
           __state |= ios_base::failbit | ios_base::eofbit;
         break;
       }
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       this->__setstate_nothrow(__state);
@@ -944,7 +951,7 @@ streamsize basic_istream<_CharT, _Traits>::readsome(char_type* __s, streamsize _
         throw;
       }
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
   } else {
     __state |= ios_base::failbit;
   }
@@ -959,12 +966,12 @@ basic_istream<_CharT, _Traits>& basic_istream<_CharT, _Traits>::putback(char_typ
   this->clear(__state);
   sentry __sen(*this, true);
   if (__sen) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
       if (this->rdbuf() == nullptr || this->rdbuf()->sputbackc(__c) == traits_type::eof())
         __state |= ios_base::badbit;
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       this->__setstate_nothrow(__state);
@@ -972,7 +979,7 @@ basic_istream<_CharT, _Traits>& basic_istream<_CharT, _Traits>::putback(char_typ
         throw;
       }
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
   } else {
     __state |= ios_base::failbit;
   }
@@ -987,12 +994,12 @@ basic_istream<_CharT, _Traits>& basic_istream<_CharT, _Traits>::unget() {
   this->clear(__state);
   sentry __sen(*this, true);
   if (__sen) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
       if (this->rdbuf() == nullptr || this->rdbuf()->sungetc() == traits_type::eof())
         __state |= ios_base::badbit;
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       this->__setstate_nothrow(__state);
@@ -1000,7 +1007,7 @@ basic_istream<_CharT, _Traits>& basic_istream<_CharT, _Traits>::unget() {
         throw;
       }
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
   } else {
     __state |= ios_base::failbit;
   }
@@ -1017,14 +1024,14 @@ int basic_istream<_CharT, _Traits>::sync() {
 
   int __r = 0;
   if (__sen) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
       if (this->rdbuf()->pubsync() == -1) {
         __state |= ios_base::badbit;
         __r = -1;
       }
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       this->__setstate_nothrow(__state);
@@ -1032,7 +1039,7 @@ int basic_istream<_CharT, _Traits>::sync() {
         throw;
       }
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
     this->setstate(__state);
   }
   return __r;
@@ -1044,11 +1051,11 @@ typename basic_istream<_CharT, _Traits>::pos_type basic_istream<_CharT, _Traits>
   pos_type __r(-1);
   sentry __sen(*this, true);
   if (__sen) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
       __r = this->rdbuf()->pubseekoff(0, ios_base::cur, ios_base::in);
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       this->__setstate_nothrow(__state);
@@ -1056,7 +1063,7 @@ typename basic_istream<_CharT, _Traits>::pos_type basic_istream<_CharT, _Traits>
         throw;
       }
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
     this->setstate(__state);
   }
   return __r;
@@ -1068,12 +1075,12 @@ basic_istream<_CharT, _Traits>& basic_istream<_CharT, _Traits>::seekg(pos_type _
   this->clear(__state);
   sentry __sen(*this, true);
   if (__sen) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
       if (this->rdbuf()->pubseekpos(__pos, ios_base::in) == pos_type(-1))
         __state |= ios_base::failbit;
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       this->__setstate_nothrow(__state);
@@ -1081,7 +1088,7 @@ basic_istream<_CharT, _Traits>& basic_istream<_CharT, _Traits>::seekg(pos_type _
         throw;
       }
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
     this->setstate(__state);
   }
   return *this;
@@ -1093,12 +1100,12 @@ basic_istream<_CharT, _Traits>& basic_istream<_CharT, _Traits>::seekg(off_type _
   this->clear(__state);
   sentry __sen(*this, true);
   if (__sen) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
       if (this->rdbuf()->pubseekoff(__off, __dir, ios_base::in) == pos_type(-1))
         __state |= ios_base::failbit;
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       this->__setstate_nothrow(__state);
@@ -1106,7 +1113,7 @@ basic_istream<_CharT, _Traits>& basic_istream<_CharT, _Traits>::seekg(off_type _
         throw;
       }
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
     this->setstate(__state);
   }
   return *this;
@@ -1117,9 +1124,9 @@ _LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>& ws(basic_istream<_CharT, _
   ios_base::iostate __state = ios_base::goodbit;
   typename basic_istream<_CharT, _Traits>::sentry __sen(__is, true);
   if (__sen) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
       const ctype<_CharT>& __ct = std::use_facet<ctype<_CharT> >(__is.getloc());
       while (true) {
         typename _Traits::int_type __i = __is.rdbuf()->sgetc();
@@ -1131,7 +1138,7 @@ _LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>& ws(basic_istream<_CharT, _
           break;
         __is.rdbuf()->sbumpc();
       }
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       __is.__setstate_nothrow(__state);
@@ -1139,7 +1146,7 @@ _LIBCPP_HIDE_FROM_ABI basic_istream<_CharT, _Traits>& ws(basic_istream<_CharT, _
         throw;
       }
     }
-#endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#    endif // _LIBCPP_HAS_EXCEPTIONS
     __is.setstate(__state);
   }
   return __is;
@@ -1207,16 +1214,21 @@ operator>>(basic_istream<_CharT, _Traits>& __is, basic_string<_CharT, _Traits, _
   ios_base::iostate __state = ios_base::goodbit;
   typename basic_istream<_CharT, _Traits>::sentry __sen(__is);
   if (__sen) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif
+#    endif
       __str.clear();
-      streamsize __n = __is.width();
-      if (__n <= 0)
-        __n = __str.max_size();
-      if (__n <= 0)
-        __n = numeric_limits<streamsize>::max();
-      streamsize __c            = 0;
+      using _Size              = typename basic_string<_CharT, _Traits, _Allocator>::size_type;
+      streamsize const __width = __is.width();
+      _Size const __max_size   = __str.max_size();
+      _Size __n;
+      if (__width <= 0) {
+        __n = __max_size;
+      } else {
+        __n = std::__to_unsigned_like(__width) < __max_size ? static_cast<_Size>(__width) : __max_size;
+      }
+
+      _Size __c                 = 0;
       const ctype<_CharT>& __ct = std::use_facet<ctype<_CharT> >(__is.getloc());
       while (__c < __n) {
         typename _Traits::int_type __i = __is.rdbuf()->sgetc();
@@ -1234,7 +1246,7 @@ operator>>(basic_istream<_CharT, _Traits>& __is, basic_string<_CharT, _Traits, _
       __is.width(0);
       if (__c == 0)
         __state |= ios_base::failbit;
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       __is.__setstate_nothrow(__state);
@@ -1242,7 +1254,7 @@ operator>>(basic_istream<_CharT, _Traits>& __is, basic_string<_CharT, _Traits, _
         throw;
       }
     }
-#endif
+#    endif
     __is.setstate(__state);
   }
   return __is;
@@ -1254,9 +1266,9 @@ getline(basic_istream<_CharT, _Traits>& __is, basic_string<_CharT, _Traits, _All
   ios_base::iostate __state = ios_base::goodbit;
   typename basic_istream<_CharT, _Traits>::sentry __sen(__is, true);
   if (__sen) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif
+#    endif
       __str.clear();
       streamsize __extr = 0;
       while (true) {
@@ -1277,7 +1289,7 @@ getline(basic_istream<_CharT, _Traits>& __is, basic_string<_CharT, _Traits, _All
       }
       if (__extr == 0)
         __state |= ios_base::failbit;
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       __is.__setstate_nothrow(__state);
@@ -1285,7 +1297,7 @@ getline(basic_istream<_CharT, _Traits>& __is, basic_string<_CharT, _Traits, _All
         throw;
       }
     }
-#endif
+#    endif
     __is.setstate(__state);
   }
   return __is;
@@ -1315,9 +1327,9 @@ operator>>(basic_istream<_CharT, _Traits>& __is, bitset<_Size>& __x) {
   ios_base::iostate __state = ios_base::goodbit;
   typename basic_istream<_CharT, _Traits>::sentry __sen(__is);
   if (__sen) {
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     try {
-#endif
+#    endif
       basic_string<_CharT, _Traits> __str;
       const ctype<_CharT>& __ct = std::use_facet<ctype<_CharT> >(__is.getloc());
       size_t __c                = 0;
@@ -1339,7 +1351,7 @@ operator>>(basic_istream<_CharT, _Traits>& __is, bitset<_Size>& __x) {
       __x = bitset<_Size>(__str);
       if (_Size > 0 && __c == 0)
         __state |= ios_base::failbit;
-#ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
     } catch (...) {
       __state |= ios_base::badbit;
       __is.__setstate_nothrow(__state);
@@ -1347,27 +1359,31 @@ operator>>(basic_istream<_CharT, _Traits>& __is, bitset<_Size>& __x) {
         throw;
       }
     }
-#endif
+#    endif
     __is.setstate(__state);
   }
   return __is;
 }
 
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_istream<char>;
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#    if _LIBCPP_HAS_WIDE_CHARACTERS
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_istream<wchar_t>;
-#endif
+#    endif
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS basic_iostream<char>;
 
 _LIBCPP_END_NAMESPACE_STD
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <concepts>
-#  include <iosfwd>
-#  include <ostream>
-#  include <type_traits>
-#endif
+#  endif // _LIBCPP_HAS_LOCALIZATION
+
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <concepts>
+#    include <iosfwd>
+#    include <ostream>
+#    include <type_traits>
+#  endif
 
 _LIBCPP_POP_MACROS
+
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_ISTREAM

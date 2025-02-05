@@ -32,7 +32,7 @@ using ifstream = basic_ifstream<char>;
 using ofstream = basic_ofstream<char>;
 using fstream  = basic_fstream<char>;
 
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#if _LIBCPP_HAS_WIDE_CHARACTERS
 using wfilebuf  = basic_filebuf<wchar_t>;
 using wifstream = basic_ifstream<wchar_t>;
 using wofstream = basic_ofstream<wchar_t>;

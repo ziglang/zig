@@ -10,7 +10,6 @@
 #define _LIBCPP___ALGORITHM_RANGES_SET_UNION_H
 
 #include <__algorithm/in_in_out_result.h>
-#include <__algorithm/iterator_operations.h>
 #include <__algorithm/make_projected.h>
 #include <__algorithm/set_union.h>
 #include <__config>
@@ -43,9 +42,7 @@ namespace ranges {
 template <class _InIter1, class _InIter2, class _OutIter>
 using set_union_result = in_in_out_result<_InIter1, _InIter2, _OutIter>;
 
-namespace __set_union {
-
-struct __fn {
+struct __set_union {
   template <input_iterator _InIter1,
             sentinel_for<_InIter1> _Sent1,
             input_iterator _InIter2,
@@ -64,7 +61,7 @@ struct __fn {
       _Comp __comp   = {},
       _Proj1 __proj1 = {},
       _Proj2 __proj2 = {}) const {
-    auto __ret = std::__set_union<_RangeAlgPolicy>(
+    auto __ret = std::__set_union(
         std::move(__first1),
         std::move(__last1),
         std::move(__first2),
@@ -88,7 +85,7 @@ struct __fn {
              _Comp __comp   = {},
              _Proj1 __proj1 = {},
              _Proj2 __proj2 = {}) const {
-    auto __ret = std::__set_union<_RangeAlgPolicy>(
+    auto __ret = std::__set_union(
         ranges::begin(__range1),
         ranges::end(__range1),
         ranges::begin(__range2),
@@ -99,10 +96,8 @@ struct __fn {
   }
 };
 
-} // namespace __set_union
-
 inline namespace __cpo {
-inline constexpr auto set_union = __set_union::__fn{};
+inline constexpr auto set_union = __set_union{};
 } // namespace __cpo
 } // namespace ranges
 
