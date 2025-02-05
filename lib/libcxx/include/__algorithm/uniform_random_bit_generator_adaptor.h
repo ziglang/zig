@@ -10,7 +10,7 @@
 #define _LIBCPP___ALGORITHM_RANGES_UNIFORM_RANDOM_BIT_GENERATOR_ADAPTOR_H
 
 #include <__config>
-#include <__functional/invoke.h>
+#include <__type_traits/invoke.h>
 #include <__type_traits/remove_cvref.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

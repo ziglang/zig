@@ -11,8 +11,8 @@
 
 #include <__concepts/copyable.h>
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__iterator/concepts.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

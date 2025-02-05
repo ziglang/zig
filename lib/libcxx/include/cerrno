@@ -22,21 +22,24 @@ Macros:
 
 */
 
-#include <__config>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/cerrno>
+#else
+#  include <__config>
 
-#include <errno.h>
+#  include <errno.h>
 
-#ifndef _LIBCPP_ERRNO_H
+#  ifndef _LIBCPP_ERRNO_H
 #   error <cerrno> tried including <errno.h> but didn't find libc++'s <errno.h> header. \
           This usually means that your header search paths are not configured properly. \
           The header search paths should contain the C++ Standard Library headers before \
           any C Standard Library, and you are probably using compiler flags that make that \
           not be the case.
-#endif
+#  endif
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 // LWG3869 Deprecate std::errc constants related to UNIX STREAMS
 //
@@ -44,5 +47,6 @@ Macros:
 // deprecated in libc++ in https://github.com/llvm/llvm-project/pull/80542.
 // Based on the post commit feedback the macro are no longer deprecated.
 // Instead libc++ leaves the deprecation to the provider of errno.h.
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_CERRNO

@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP___STOP_TOKEN_ATOMIC_UNIQUE_GUARD_H
-#define _LIBCPP___STOP_TOKEN_ATOMIC_UNIQUE_GUARD_H
+#ifndef _LIBCPP___STOP_TOKEN_ATOMIC_UNIQUE_LOCK_H
+#define _LIBCPP___STOP_TOKEN_ATOMIC_UNIQUE_LOCK_H
 
 #include <__bit/popcount.h>
 #include <__config>
@@ -133,8 +133,8 @@ private:
   _LIBCPP_HIDE_FROM_ABI static constexpr auto __set_locked_bit = [](_State __state) { return __state | _LockedBit; };
 };
 
-#endif // _LIBCPP_STD_VER >= 20
+#endif // _LIBCPP_STD_VER >= 20 && _LIBCPP_HAS_THREADS
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP___STOP_TOKEN_ATOMIC_UNIQUE_GUARD_H
+#endif // _LIBCPP___STOP_TOKEN_ATOMIC_UNIQUE_LOCK_H

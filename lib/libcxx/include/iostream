@@ -33,20 +33,23 @@ extern wostream wclog;
 
 */
 
-#include <__config>
-#include <version>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/iostream>
+#else
+#  include <__config>
+#  include <version>
 
 // standard-mandated includes
 
 // [iostream.syn]
-#include <ios>
-#include <istream>
-#include <ostream>
-#include <streambuf>
+#  include <ios>
+#  include <istream>
+#  include <ostream>
+#  include <streambuf>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -55,13 +58,15 @@ extern _LIBCPP_EXPORTED_FROM_ABI ostream cout;
 extern _LIBCPP_EXPORTED_FROM_ABI ostream cerr;
 extern _LIBCPP_EXPORTED_FROM_ABI ostream clog;
 
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 extern _LIBCPP_EXPORTED_FROM_ABI wistream wcin;
 extern _LIBCPP_EXPORTED_FROM_ABI wostream wcout;
 extern _LIBCPP_EXPORTED_FROM_ABI wostream wcerr;
 extern _LIBCPP_EXPORTED_FROM_ABI wostream wclog;
-#endif
+#  endif
 
 _LIBCPP_END_NAMESPACE_STD
+
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_IOSTREAM
