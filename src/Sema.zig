@@ -9145,6 +9145,7 @@ fn zirErrUnionCode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErro
     return sema.analyzeErrUnionCode(block, src, operand);
 }
 
+/// If `operand` is comptime-known, asserts that it is an error value rather than a payload value.
 fn analyzeErrUnionCode(sema: *Sema, block: *Block, src: LazySrcLoc, operand: Air.Inst.Ref) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -17599,10 +17600,16 @@ fn analyzeCmp(
         return sema.cmpNumeric(block, src, lhs, rhs, op, lhs_src, rhs_src);
     }
     if (is_equality_cmp and lhs_ty.zigTypeTag(zcu) == .error_union and rhs_ty.zigTypeTag(zcu) == .error_set) {
+        if (try sema.resolveDefinedValue(block, lhs_src, lhs)) |lhs_val| {
+            if (lhs_val.errorUnionIsPayload(zcu)) return .bool_false;
+        }
         const casted_lhs = try sema.analyzeErrUnionCode(block, lhs_src, lhs);
         return sema.cmpSelf(block, src, casted_lhs, rhs, op, lhs_src, rhs_src);
     }
     if (is_equality_cmp and lhs_ty.zigTypeTag(zcu) == .error_set and rhs_ty.zigTypeTag(zcu) == .error_union) {
+        if (try sema.resolveDefinedValue(block, rhs_src, rhs)) |rhs_val| {
+            if (rhs_val.errorUnionIsPayload(zcu)) return .bool_false;
+        }
         const casted_rhs = try sema.analyzeErrUnionCode(block, rhs_src, rhs);
         return sema.cmpSelf(block, src, lhs, casted_rhs, op, lhs_src, rhs_src);
     }
@@ -23254,7 +23261,7 @@ fn zirErrorCast(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData
         zcu.backendSupportsFeature(.error_set_has_value))
     {
         if (dest_tag == .error_union) {
-            const err_code = try sema.analyzeErrUnionCode(block, operand_src, operand);
+            const err_code = try block.addTyOp(.unwrap_errunion_err, operand_ty, operand);
             const err_int = try block.addBitCast(err_int_ty, err_code);
             const zero_err = try pt.intRef(try pt.errorIntType(), 0);
 

@@ -1100,3 +1100,14 @@ test "return error union with i65" {
 fn add(x: i65, y: i65) anyerror!i65 {
     return x + y;
 }
+
+test "compare error union to error set" {
+    const S = struct {
+        fn doTheTest(val: error{Foo}!i32) !void {
+            if (error.Foo == val) return error.Unexpected;
+            if (val == error.Foo) return error.Unexpected;
+        }
+    };
+    try S.doTheTest(0);
+    try comptime S.doTheTest(0);
+}
