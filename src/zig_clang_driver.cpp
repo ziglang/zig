@@ -12,6 +12,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Driver/Driver.h"
+#include "clang/Basic/AllDiagnostics.h"
 #include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Basic/HeaderInclude.h"
 #include "clang/Basic/Stack.h"
@@ -21,8 +22,10 @@
 #include "clang/Driver/Options.h"
 #include "clang/Driver/ToolChain.h"
 #include "clang/Frontend/ChainedDiagnosticConsumer.h"
+#include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/CompilerInvocation.h"
 #include "clang/Frontend/SerializedDiagnosticPrinter.h"
+#include "clang/Frontend/TextDiagnosticBuffer.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
 #include "clang/Frontend/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -55,6 +58,86 @@
 using namespace clang;
 using namespace clang::driver;
 using namespace llvm::opt;
+
+struct DiagnosticRecord {
+  const char *NameStr;
+  short DiagID;
+  uint8_t NameLen;
+
+  llvm::StringRef getName() const {
+    return llvm::StringRef(NameStr, NameLen);
+  }
+
+  bool operator<(const DiagnosticRecord &Other) const {
+    return getName() < Other.getName();
+  }
+};
+
+static const DiagnosticRecord BuiltinDiagnosticsByName[] = {
+#define DIAG_NAME_INDEX(ENUM) { #ENUM, diag::ENUM, STR_SIZE(#ENUM, uint8_t) },
+#include "clang/Basic/DiagnosticIndexName.inc"
+#undef DIAG_NAME_INDEX
+};
+
+static llvm::ArrayRef<DiagnosticRecord> getBuiltinDiagnosticsByName() {
+  return llvm::ArrayRef(BuiltinDiagnosticsByName);
+}
+
+namespace {
+  struct PrettyDiag {
+    StringRef Name;
+    StringRef Flag;
+    DiagnosticsEngine::Level Level;
+
+    PrettyDiag(StringRef name, StringRef flag, DiagnosticsEngine::Level level)
+    : Name(name), Flag(flag), Level(level) {}
+
+    bool operator<(const PrettyDiag &x) const { return Name < x.Name; }
+  };
+}
+
+static char getCharForLevel(DiagnosticsEngine::Level Level) {
+  switch (Level) {
+  case DiagnosticsEngine::Ignored: return ' ';
+  case DiagnosticsEngine::Note:    return '-';
+  case DiagnosticsEngine::Remark:  return 'R';
+  case DiagnosticsEngine::Warning: return 'W';
+  case DiagnosticsEngine::Error:   return 'E';
+  case DiagnosticsEngine::Fatal:   return 'F';
+  }
+
+  llvm_unreachable("Unknown diagnostic level");
+}
+
+static IntrusiveRefCntPtr<DiagnosticsEngine>
+createDiagnostics(SmallVector<const char *, 256> &Args) {
+  IntrusiveRefCntPtr<DiagnosticIDs> DiagIDs(new DiagnosticIDs());
+
+  // Buffer diagnostics from argument parsing so that we can output them using a
+  // well formed diagnostic object.
+  TextDiagnosticBuffer *DiagsBuffer = new TextDiagnosticBuffer;
+
+  // Try to build a CompilerInvocation.
+  CreateInvocationOptions CIOpts;
+  CIOpts.Diags =
+      new DiagnosticsEngine(DiagIDs, new DiagnosticOptions(), DiagsBuffer);
+  std::unique_ptr<CompilerInvocation> Invocation =
+      createInvocation(Args, CIOpts);
+  if (!Invocation)
+    return nullptr;
+
+  // Build the diagnostics parser
+  IntrusiveRefCntPtr<DiagnosticsEngine> FinalDiags =
+      CompilerInstance::createDiagnostics(&Invocation->getDiagnosticOpts());
+  if (!FinalDiags)
+    return nullptr;
+
+  // Flush any errors created when initializing everything. This could happen
+  // for invalid command lines, which will probably give non-sensical results.
+  DiagsBuffer->FlushDiagnostics(*FinalDiags);
+
+  return FinalDiags;
+}
 
 std::string GetExecutablePath(const char *Argv0, bool CanonicalPrefixes) {
   if (!CanonicalPrefixes) {
@@ -225,7 +308,35 @@ static int clang_main(int Argc, char **Argv, const llvm::ToolContext &ToolContex
                         " and include the crash backtrace, preprocessed "
                         "source, and associated run script.\n");
   size_t argv_offset = (strcmp(Argv[1], "-cc1") == 0 || strcmp(Argv[1], "-cc1as") == 0) ? 0 : 1;
-  SmallVector<const char *, 256> Args(Argv + argv_offset, Argv + Argc);
+  SmallVector<const char *, 256> Args;
+
+  size_t q_offset = 0;
+  for (int i=argv_offset+1; i<Argc; ++i) {
+    if (strcmp(Argv[i], "-Q") == 0) {
+      q_offset = i;
+      break;
+    }
+  }
+
+  bool DiagtoolMode = q_offset;
+  bool ShouldShowLevels = true;
+  if (DiagtoolMode) {
+    Args.push_back("diagtool");
+    Args.append(Argv + argv_offset + 1, Argv + q_offset);
+    q_offset += 1;
+    if ((Argc > q_offset + 1)) {
+      if (strcmp(Argv[q_offset + 1], "--no-levels") == 0) {
+        q_offset += 1;
+        ShouldShowLevels = false;
+      } else if (strcmp(Argv[q_offset + 1], "--levels") == 0) {
+        q_offset += 1;
+        ShouldShowLevels = true;
+      }
+      Args.append(Argv + q_offset, Argv + Argc);
+    }
+  } else {
+    Args.append(Argv + argv_offset, Argv + Argc);
+  }
 
   if (llvm::sys::Process::FixupStandardFileDescriptors())
     return 1;
@@ -307,6 +418,47 @@ static int clang_main(int Argc, char **Argv, const llvm::ToolContext &ToolContex
                            .Case("-fno-integrated-cc1", true)
                            .Case("-fintegrated-cc1", false)
                            .Default(UseNewCC1Process);
+
+  if (DiagtoolMode) {
+    IntrusiveRefCntPtr<DiagnosticsEngine> Diags = createDiagnostics(Args);
+    if (!Diags) {
+      llvm::errs() << "Usage: ";
+      for (int i=0; i<=argv_offset; ++i)
+        llvm::errs() << Argv[i] << " ";
+      llvm::errs() << "-Q [<flags>] <single-input.c>\n";
+      return 1;
+    }
+
+    std::vector<PrettyDiag> Active;
+
+    for (const DiagnosticRecord &DR : getBuiltinDiagnosticsByName()) {
+      unsigned DiagID = DR.DiagID;
+
+      if (DiagnosticIDs::isBuiltinNote(DiagID))
+        continue;
+
+      if (!DiagnosticIDs::isBuiltinWarningOrExtension(DiagID))
+        continue;
+
+      DiagnosticsEngine::Level DiagLevel =
+        Diags->getDiagnosticLevel(DiagID, SourceLocation());
+
+      StringRef WarningOpt = DiagnosticIDs::getWarningOptionForDiag(DiagID);
+      Active.push_back(PrettyDiag(DR.getName(), WarningOpt, DiagLevel));
+    }
+
+    // Print them all out.
+    for (const PrettyDiag &PD : Active) {
+      if (ShouldShowLevels)
+        llvm::outs() << getCharForLevel(PD.Level) << "  ";
+      llvm::outs() << PD.Name;
+      if (!PD.Flag.empty())
+        llvm::outs() << " [-W" << PD.Flag << "]";
+      llvm::outs() << '\n';
+    }
+
+    return 0;
+  }
 
   IntrusiveRefCntPtr<DiagnosticOptions> DiagOpts =
       CreateAndPopulateDiagOpts(Args);
