@@ -893,7 +893,10 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
             .link_libc = options.link_libc,
             .single_threaded = options.single_threaded,
             .pic = options.pic,
-            .strip = options.strip,
+            .strip = if (options.strip) |should_strip| switch (should_strip) {
+                false => .none,
+                true => .all,
+            } else null,
             .unwind_tables = options.unwind_tables,
             .omit_frame_pointer = options.omit_frame_pointer,
             .sanitize_thread = options.sanitize_thread,
@@ -964,7 +967,10 @@ pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile 
             .link_libc = options.link_libc,
             .single_threaded = options.single_threaded,
             .pic = options.pic,
-            .strip = options.strip,
+            .strip = if (options.strip) |should_strip| switch (should_strip) {
+                false => .none,
+                true => .all,
+            } else null,
             .unwind_tables = options.unwind_tables,
             .omit_frame_pointer = options.omit_frame_pointer,
             .sanitize_thread = options.sanitize_thread,
