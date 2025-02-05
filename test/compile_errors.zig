@@ -4,8 +4,7 @@ const Cases = @import("src/Cases.zig");
 
 pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     {
-        const case = ctx.obj("multiline error messages", b.graph.host);
-
+        const case = ctx.obj("multiline error message", b.graph.host);
         case.addError(
             \\comptime {
             \\    @compileError("hello\nworld");
@@ -14,7 +13,10 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\:2:5: error: hello
             \\             world
         });
+    }
 
+    {
+        const case = ctx.obj("multiline error message with trailing newline", b.graph.host);
         case.addError(
             \\comptime {
             \\    @compileError(

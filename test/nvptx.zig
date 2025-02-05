@@ -91,9 +91,10 @@ fn addPtx(ctx: *Cases, target: std.Build.ResolvedTarget, name: []const u8) *Case
     ctx.cases.append(.{
         .name = name,
         .target = target,
-        .updates = std.ArrayList(Cases.Update).init(ctx.cases.allocator),
+        .files = .init(ctx.arena),
+        .case = null,
         .output_mode = .Obj,
-        .deps = std.ArrayList(Cases.DepModule).init(ctx.cases.allocator),
+        .deps = .init(ctx.arena),
         .link_libc = false,
         .emit_bin = false,
         .backend = .llvm,
