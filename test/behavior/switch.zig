@@ -1018,3 +1018,49 @@ test "unlabeled break ignores switch" {
     };
     try expect(result == 123);
 }
+
+test "return before try in nested switch" {
+    const doNothing = struct {
+        fn doNothing() !void {}
+    }.doNothing;
+
+    const nestedSwitchReturnBeforeTry = struct {
+        fn nestedSwitchReturnBeforeTry(t: u32) !void {
+            try switch (t) {
+                7 => doNothing(),
+                0x70000000...0x7fffffff => doNothing(),
+                else => {
+                    return switch (t) {
+                        else => doNothing(),
+                    };
+                },
+            };
+        }
+    }.nestedSwitchReturnBeforeTry;
+
+    try nestedSwitchReturnBeforeTry(42);
+}
+
+test "comparing switch results across inferred anytype" {
+    const anytypeInner = struct {
+        fn anytypeInner(thing: anytype) []const u8 {
+            return thing[0];
+        }
+    }.anytypeInner;
+
+    const x: u32 = 1;
+    var y: u32 = undefined;
+    y = x;
+
+    const a = switch (x) {
+        1 => 1,
+        else => 3,
+    };
+
+    const b = anytypeInner(.{switch (y) {
+        1 => "1",
+        else => "3",
+    }});
+
+    if (b[0] - '0' != a) return error.Miscompilation;
+}

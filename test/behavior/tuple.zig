@@ -591,3 +591,10 @@ test "empty union in tuple" {
     try std.testing.expectEqualStrings("0", info.@"struct".fields[0].name);
     try std.testing.expect(@typeInfo(info.@"struct".fields[0].type) == .@"union");
 }
+
+test "runtime tuple of single element tuple" {
+    var someint: u16 = 0;
+    var crashes = .{.{someint}};
+    someint = undefined;
+    crashes = undefined;
+}

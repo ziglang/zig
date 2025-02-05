@@ -4,7 +4,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :3:27: error: expected type 'u32', found '@Vector(4, u32)'

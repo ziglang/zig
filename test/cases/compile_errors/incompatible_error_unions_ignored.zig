@@ -14,8 +14,6 @@ fn b() !void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:19: error: incompatible types: 'fn () @typeInfo(@typeInfo(@TypeOf(tmp.a)).@"fn".return_type.?).error_union.error_set!void' and 'fn () @typeInfo(@typeInfo(@TypeOf(tmp.b)).@"fn".return_type.?).error_union.error_set!void'
 // :4:29: note: type 'fn () @typeInfo(@typeInfo(@TypeOf(tmp.a)).@"fn".return_type.?).error_union.error_set!void' here

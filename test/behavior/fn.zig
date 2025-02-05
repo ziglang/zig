@@ -711,3 +711,37 @@ test "inline call propagates comptime-known argument to generic parameter and re
     try expect(a1 == 12340);
     try expect(b1 == 12340);
 }
+
+test "discarded comptime-known value and runtime-known struct parameters" {
+    const fnTwo = struct {
+        pub fn fnTwo(comptime comp_val: usize, opts: struct { flag1: bool }) void {
+            _ = comp_val;
+            _ = opts;
+        }
+    }.fnTwo;
+
+    const fnOne = struct {
+        fn fnOne(choice: u32) void {
+            switch (choice) {
+                1 => fnTwo(2, .{ .flag1 = true }),
+                else => fnTwo(2, .{ .flag1 = true }),
+            }
+        }
+    }.fnOne;
+
+    fnOne(1);
+}
+
+test "comptime-known array of optional elements struct parameter" {
+    const Obj = struct { a: [1]?u32, b: u32 = 0 };
+    const func = struct {
+        fn func(comptime dummy: u32, obj: Obj) void {
+            _ = dummy;
+            _ = obj;
+        }
+    }.func;
+
+    var c: u32 = 0;
+    func(0, .{ .a = [1]?u32{42}, .b = c });
+    c = undefined;
+}

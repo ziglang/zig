@@ -1344,3 +1344,20 @@ test "assign packed struct initialized with RLS to packed struct literal field" 
     try expect(outer.inner.x == x);
     try expect(outer.x == x);
 }
+
+test "reinterpret bytes into packed struct" {
+    const Header = packed struct { v: u32 };
+
+    const buf: []const u8 = &@as([4]u8, @bitCast(@as(u32, 1)));
+    const w = buf[0..@sizeOf(Header)];
+    const hdr: *align(1) const Header = @ptrCast(w);
+    assert(hdr.v == 1);
+}
+
+test "misaligned pointer in packed struct" {
+    const X = packed struct { a: i3, b: *i64 };
+
+    var i: i64 = 1;
+    const x = X{ .a = 2, .b = &i };
+    _ = x;
+}

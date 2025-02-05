@@ -15,8 +15,6 @@ const Foo = struct {
 };
 
 // error
-// target=native
-// backend=stage2
 //
 // :3:18: error: unable to resolve comptime value
 // :3:17: note: call to function with comptime-only return type 'tmp.Foo' is evaluated at comptime

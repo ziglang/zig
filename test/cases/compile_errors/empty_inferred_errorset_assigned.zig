@@ -15,8 +15,6 @@ pub fn main() void {
 }
 
 // error
-// target=native
-// backend=stage2
 //
 // :9:18: error: expected type 'tmp.A', found 'error{}!tmp.A'
 // :9:18: note: cannot convert error union to payload type

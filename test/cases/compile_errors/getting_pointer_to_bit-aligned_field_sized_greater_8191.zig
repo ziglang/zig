@@ -9,7 +9,5 @@ pub fn main() void {
 }
 
 // error
-// target=native
-// backend=stage2
 //
 // :1:20: error: size of packed struct '65536' exceeds maximum bit width of 65535

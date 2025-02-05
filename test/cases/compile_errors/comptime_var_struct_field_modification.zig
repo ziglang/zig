@@ -11,8 +11,6 @@ pub fn main() anyerror!void {
 }
 
 // error
-// target=native
-// backend=stage2
 //
 // :10:10: error: runtime value contains reference to comptime var
 // :10:10: note: comptime var pointers are not available at runtime
