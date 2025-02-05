@@ -14,22 +14,21 @@
 #include "sanitizer_common/sanitizer_platform.h"
 #if SANITIZER_APPLE
 
-#include "interception/interception.h"
-#include "tsan_interceptors.h"
-#include "tsan_interface.h"
-#include "tsan_interface_ann.h"
-#include "tsan_spinlock_defs_mac.h"
-#include "sanitizer_common/sanitizer_addrhashmap.h"
+#  include <errno.h>
+#  include <libkern/OSAtomic.h>
+#  include <objc/objc-sync.h>
+#  include <os/lock.h>
+#  include <sys/ucontext.h>
 
-#include <errno.h>
-#include <libkern/OSAtomic.h>
-#include <objc/objc-sync.h>
-#include <os/lock.h>
-#include <sys/ucontext.h>
+#  include "interception/interception.h"
+#  include "sanitizer_common/sanitizer_addrhashmap.h"
+#  include "tsan_interceptors.h"
+#  include "tsan_interface.h"
+#  include "tsan_interface_ann.h"
 
-#if defined(__has_include) && __has_include(<xpc/xpc.h>)
-#include <xpc/xpc.h>
-#endif  // #if defined(__has_include) && __has_include(<xpc/xpc.h>)
+#  if defined(__has_include) && __has_include(<xpc/xpc.h>)
+#    include <xpc/xpc.h>
+#  endif  // #if defined(__has_include) && __has_include(<xpc/xpc.h>)
 
 typedef long long_t;
 
@@ -49,51 +48,55 @@ static constexpr morder kMacOrderBarrier = mo_acq_rel;
 static constexpr morder kMacOrderNonBarrier = mo_acq_rel;
 static constexpr morder kMacFailureOrder = mo_relaxed;
 
-#define OSATOMIC_INTERCEPTOR(return_t, t, tsan_t, f, tsan_atomic_f, mo) \
-  TSAN_INTERCEPTOR(return_t, f, t x, volatile t *ptr) {                 \
-    SCOPED_TSAN_INTERCEPTOR(f, x, ptr);                                 \
-    return tsan_atomic_f((volatile tsan_t *)ptr, x, mo);                \
-  }
+#  define OSATOMIC_INTERCEPTOR(return_t, t, tsan_t, f, tsan_atomic_f, mo) \
+    TSAN_INTERCEPTOR(return_t, f, t x, volatile t *ptr) {                 \
+      SCOPED_TSAN_INTERCEPTOR(f, x, ptr);                                 \
+      return tsan_atomic_f((volatile tsan_t *)ptr, x, mo);                \
+    }
 
-#define OSATOMIC_INTERCEPTOR_PLUS_X(return_t, t, tsan_t, f, tsan_atomic_f, mo) \
-  TSAN_INTERCEPTOR(return_t, f, t x, volatile t *ptr) {                        \
-    SCOPED_TSAN_INTERCEPTOR(f, x, ptr);                                        \
-    return tsan_atomic_f((volatile tsan_t *)ptr, x, mo) + x;                   \
-  }
+#  define OSATOMIC_INTERCEPTOR_PLUS_X(return_t, t, tsan_t, f, tsan_atomic_f, \
+                                      mo)                                    \
+    TSAN_INTERCEPTOR(return_t, f, t x, volatile t *ptr) {                    \
+      SCOPED_TSAN_INTERCEPTOR(f, x, ptr);                                    \
+      return tsan_atomic_f((volatile tsan_t *)ptr, x, mo) + x;               \
+    }
 
-#define OSATOMIC_INTERCEPTOR_PLUS_1(return_t, t, tsan_t, f, tsan_atomic_f, mo) \
-  TSAN_INTERCEPTOR(return_t, f, volatile t *ptr) {                             \
-    SCOPED_TSAN_INTERCEPTOR(f, ptr);                                           \
-    return tsan_atomic_f((volatile tsan_t *)ptr, 1, mo) + 1;                   \
-  }
+#  define OSATOMIC_INTERCEPTOR_PLUS_1(return_t, t, tsan_t, f, tsan_atomic_f, \
+                                      mo)                                    \
+    TSAN_INTERCEPTOR(return_t, f, volatile t *ptr) {                         \
+      SCOPED_TSAN_INTERCEPTOR(f, ptr);                                       \
+      return tsan_atomic_f((volatile tsan_t *)ptr, 1, mo) + 1;               \
+    }
 
-#define OSATOMIC_INTERCEPTOR_MINUS_1(return_t, t, tsan_t, f, tsan_atomic_f, \
-                                     mo)                                    \
-  TSAN_INTERCEPTOR(return_t, f, volatile t *ptr) {                          \
-    SCOPED_TSAN_INTERCEPTOR(f, ptr);                                        \
-    return tsan_atomic_f((volatile tsan_t *)ptr, 1, mo) - 1;                \
-  }
+#  define OSATOMIC_INTERCEPTOR_MINUS_1(return_t, t, tsan_t, f, tsan_atomic_f, \
+                                       mo)                                    \
+    TSAN_INTERCEPTOR(return_t, f, volatile t *ptr) {                          \
+      SCOPED_TSAN_INTERCEPTOR(f, ptr);                                        \
+      return tsan_atomic_f((volatile tsan_t *)ptr, 1, mo) - 1;                \
+    }
 
-#define OSATOMIC_INTERCEPTORS_ARITHMETIC(f, tsan_atomic_f, m)                  \
-  m(int32_t, int32_t, a32, f##32, __tsan_atomic32_##tsan_atomic_f,             \
-    kMacOrderNonBarrier)                                                       \
-  m(int32_t, int32_t, a32, f##32##Barrier, __tsan_atomic32_##tsan_atomic_f,    \
-    kMacOrderBarrier)                                                          \
-  m(int64_t, int64_t, a64, f##64, __tsan_atomic64_##tsan_atomic_f,             \
-    kMacOrderNonBarrier)                                                       \
-  m(int64_t, int64_t, a64, f##64##Barrier, __tsan_atomic64_##tsan_atomic_f,    \
-    kMacOrderBarrier)
+#  define OSATOMIC_INTERCEPTORS_ARITHMETIC(f, tsan_atomic_f, m)              \
+    m(int32_t, int32_t, a32, f##32, __tsan_atomic32_##tsan_atomic_f,         \
+      kMacOrderNonBarrier)                                                   \
+        m(int32_t, int32_t, a32, f##32##Barrier,                             \
+          __tsan_atomic32_##tsan_atomic_f, kMacOrderBarrier)                 \
+            m(int64_t, int64_t, a64, f##64, __tsan_atomic64_##tsan_atomic_f, \
+              kMacOrderNonBarrier)                                           \
+                m(int64_t, int64_t, a64, f##64##Barrier,                     \
+                  __tsan_atomic64_##tsan_atomic_f, kMacOrderBarrier)
 
-#define OSATOMIC_INTERCEPTORS_BITWISE(f, tsan_atomic_f, m, m_orig)             \
-  m(int32_t, uint32_t, a32, f##32, __tsan_atomic32_##tsan_atomic_f,            \
-    kMacOrderNonBarrier)                                                       \
-  m(int32_t, uint32_t, a32, f##32##Barrier, __tsan_atomic32_##tsan_atomic_f,   \
-    kMacOrderBarrier)                                                          \
-  m_orig(int32_t, uint32_t, a32, f##32##Orig, __tsan_atomic32_##tsan_atomic_f, \
-    kMacOrderNonBarrier)                                                       \
-  m_orig(int32_t, uint32_t, a32, f##32##OrigBarrier,                           \
-    __tsan_atomic32_##tsan_atomic_f, kMacOrderBarrier)
+#  define OSATOMIC_INTERCEPTORS_BITWISE(f, tsan_atomic_f, m, m_orig)     \
+    m(int32_t, uint32_t, a32, f##32, __tsan_atomic32_##tsan_atomic_f,    \
+      kMacOrderNonBarrier)                                               \
+        m(int32_t, uint32_t, a32, f##32##Barrier,                        \
+          __tsan_atomic32_##tsan_atomic_f, kMacOrderBarrier)             \
+            m_orig(int32_t, uint32_t, a32, f##32##Orig,                  \
+                   __tsan_atomic32_##tsan_atomic_f, kMacOrderNonBarrier) \
+                m_orig(int32_t, uint32_t, a32, f##32##OrigBarrier,       \
+                       __tsan_atomic32_##tsan_atomic_f, kMacOrderBarrier)
 
+#  pragma clang diagnostic push  // OSAtomic* deprecation
+#  pragma clang diagnostic ignored "-Wdeprecated-declarations"
 OSATOMIC_INTERCEPTORS_ARITHMETIC(OSAtomicAdd, fetch_add,
                                  OSATOMIC_INTERCEPTOR_PLUS_X)
 OSATOMIC_INTERCEPTORS_ARITHMETIC(OSAtomicIncrement, fetch_add,
@@ -106,23 +109,26 @@ OSATOMIC_INTERCEPTORS_BITWISE(OSAtomicAnd, fetch_and,
                               OSATOMIC_INTERCEPTOR_PLUS_X, OSATOMIC_INTERCEPTOR)
 OSATOMIC_INTERCEPTORS_BITWISE(OSAtomicXor, fetch_xor,
                               OSATOMIC_INTERCEPTOR_PLUS_X, OSATOMIC_INTERCEPTOR)
+#  pragma clang diagnostic pop  // OSAtomic* deprecation
 
-#define OSATOMIC_INTERCEPTORS_CAS(f, tsan_atomic_f, tsan_t, t)              \
-  TSAN_INTERCEPTOR(bool, f, t old_value, t new_value, t volatile *ptr) {    \
-    SCOPED_TSAN_INTERCEPTOR(f, old_value, new_value, ptr);                  \
-    return tsan_atomic_f##_compare_exchange_strong(                         \
-        (volatile tsan_t *)ptr, (tsan_t *)&old_value, (tsan_t)new_value,    \
-        kMacOrderNonBarrier, kMacFailureOrder);                             \
-  }                                                                         \
-                                                                            \
-  TSAN_INTERCEPTOR(bool, f##Barrier, t old_value, t new_value,              \
-                   t volatile *ptr) {                                       \
-    SCOPED_TSAN_INTERCEPTOR(f##Barrier, old_value, new_value, ptr);         \
-    return tsan_atomic_f##_compare_exchange_strong(                         \
-        (volatile tsan_t *)ptr, (tsan_t *)&old_value, (tsan_t)new_value,    \
-        kMacOrderBarrier, kMacFailureOrder);                                \
-  }
+#  define OSATOMIC_INTERCEPTORS_CAS(f, tsan_atomic_f, tsan_t, t)           \
+    TSAN_INTERCEPTOR(bool, f, t old_value, t new_value, t volatile *ptr) { \
+      SCOPED_TSAN_INTERCEPTOR(f, old_value, new_value, ptr);               \
+      return tsan_atomic_f##_compare_exchange_strong(                      \
+          (volatile tsan_t *)ptr, (tsan_t *)&old_value, (tsan_t)new_value, \
+          kMacOrderNonBarrier, kMacFailureOrder);                          \
+    }                                                                      \
+                                                                           \
+    TSAN_INTERCEPTOR(bool, f##Barrier, t old_value, t new_value,           \
+                     t volatile *ptr) {                                    \
+      SCOPED_TSAN_INTERCEPTOR(f##Barrier, old_value, new_value, ptr);      \
+      return tsan_atomic_f##_compare_exchange_strong(                      \
+          (volatile tsan_t *)ptr, (tsan_t *)&old_value, (tsan_t)new_value, \
+          kMacOrderBarrier, kMacFailureOrder);                             \
+    }
 
+#  pragma clang diagnostic push  // OSAtomicCompareAndSwap* deprecation
+#  pragma clang diagnostic ignored "-Wdeprecated-declarations"
 OSATOMIC_INTERCEPTORS_CAS(OSAtomicCompareAndSwapInt, __tsan_atomic32, a32, int)
 OSATOMIC_INTERCEPTORS_CAS(OSAtomicCompareAndSwapLong, __tsan_atomic64, a64,
                           long_t)
@@ -132,24 +138,28 @@ OSATOMIC_INTERCEPTORS_CAS(OSAtomicCompareAndSwap32, __tsan_atomic32, a32,
                           int32_t)
 OSATOMIC_INTERCEPTORS_CAS(OSAtomicCompareAndSwap64, __tsan_atomic64, a64,
                           int64_t)
+#  pragma clang diagnostic pop  // OSAtomicCompareAndSwap* deprecation
 
-#define OSATOMIC_INTERCEPTOR_BITOP(f, op, clear, mo)             \
-  TSAN_INTERCEPTOR(bool, f, uint32_t n, volatile void *ptr) {    \
-    SCOPED_TSAN_INTERCEPTOR(f, n, ptr);                          \
-    volatile char *byte_ptr = ((volatile char *)ptr) + (n >> 3); \
-    char bit = 0x80u >> (n & 7);                                 \
-    char mask = clear ? ~bit : bit;                              \
-    char orig_byte = op((volatile a8 *)byte_ptr, mask, mo);      \
-    return orig_byte & bit;                                      \
-  }
+#  define OSATOMIC_INTERCEPTOR_BITOP(f, op, clear, mo)             \
+    TSAN_INTERCEPTOR(bool, f, uint32_t n, volatile void *ptr) {    \
+      SCOPED_TSAN_INTERCEPTOR(f, n, ptr);                          \
+      volatile char *byte_ptr = ((volatile char *)ptr) + (n >> 3); \
+      char bit = 0x80u >> (n & 7);                                 \
+      char mask = clear ? ~bit : bit;                              \
+      char orig_byte = op((volatile a8 *)byte_ptr, mask, mo);      \
+      return orig_byte & bit;                                      \
+    }
 
-#define OSATOMIC_INTERCEPTORS_BITOP(f, op, clear)               \
-  OSATOMIC_INTERCEPTOR_BITOP(f, op, clear, kMacOrderNonBarrier) \
-  OSATOMIC_INTERCEPTOR_BITOP(f##Barrier, op, clear, kMacOrderBarrier)
+#  define OSATOMIC_INTERCEPTORS_BITOP(f, op, clear)               \
+    OSATOMIC_INTERCEPTOR_BITOP(f, op, clear, kMacOrderNonBarrier) \
+    OSATOMIC_INTERCEPTOR_BITOP(f##Barrier, op, clear, kMacOrderBarrier)
 
+#  pragma clang diagnostic push  // OSAtomicTestAnd* deprecation
+#  pragma clang diagnostic ignored "-Wdeprecated-declarations"
 OSATOMIC_INTERCEPTORS_BITOP(OSAtomicTestAndSet, __tsan_atomic8_fetch_or, false)
 OSATOMIC_INTERCEPTORS_BITOP(OSAtomicTestAndClear, __tsan_atomic8_fetch_and,
                             true)
+#  pragma clang diagnostic pop  // OSAtomicTestAnd* deprecation
 
 TSAN_INTERCEPTOR(void, OSAtomicEnqueue, OSQueueHead *list, void *item,
                  size_t offset) {
@@ -161,12 +171,13 @@ TSAN_INTERCEPTOR(void, OSAtomicEnqueue, OSQueueHead *list, void *item,
 TSAN_INTERCEPTOR(void *, OSAtomicDequeue, OSQueueHead *list, size_t offset) {
   SCOPED_TSAN_INTERCEPTOR(OSAtomicDequeue, list, offset);
   void *item = REAL(OSAtomicDequeue)(list, offset);
-  if (item) __tsan_acquire(item);
+  if (item)
+    __tsan_acquire(item);
   return item;
 }
 
 // OSAtomicFifoEnqueue and OSAtomicFifoDequeue are only on OS X.
-#if !SANITIZER_IOS
+#  if !SANITIZER_IOS
 
 TSAN_INTERCEPTOR(void, OSAtomicFifoEnqueue, OSFifoQueueHead *list, void *item,
                  size_t offset) {
@@ -179,11 +190,22 @@ TSAN_INTERCEPTOR(void *, OSAtomicFifoDequeue, OSFifoQueueHead *list,
                  size_t offset) {
   SCOPED_TSAN_INTERCEPTOR(OSAtomicFifoDequeue, list, offset);
   void *item = REAL(OSAtomicFifoDequeue)(list, offset);
-  if (item) __tsan_acquire(item);
+  if (item)
+    __tsan_acquire(item);
   return item;
 }
 
-#endif
+#  endif
+
+// If `OSSPINLOCK_USE_INLINED=1` is set, then SDK headers don't declare these
+// as functions, but macros that call non-deprecated APIs.  Undefine these
+// macros so they don't interfere with the interceptor machinery.
+#  undef OSSpinLockLock
+#  undef OSSpinLockTry
+#  undef OSSpinLockUnlock
+
+#  pragma clang diagnostic push  // OSSpinLock* deprecation
+#  pragma clang diagnostic ignored "-Wdeprecated-declarations"
 
 TSAN_INTERCEPTOR(void, OSSpinLockLock, volatile OSSpinLock *lock) {
   CHECK(!cur_thread()->is_dead);
@@ -216,6 +238,7 @@ TSAN_INTERCEPTOR(void, OSSpinLockUnlock, volatile OSSpinLock *lock) {
   Release(thr, pc, (uptr)lock);
   REAL(OSSpinLockUnlock)(lock);
 }
+#  pragma clang diagnostic pop  // OSSpinLock* deprecation
 
 TSAN_INTERCEPTOR(void, os_lock_lock, void *lock) {
   CHECK(!cur_thread()->is_dead);
@@ -288,7 +311,7 @@ TSAN_INTERCEPTOR(void, os_unfair_lock_unlock, os_unfair_lock_t lock) {
   REAL(os_unfair_lock_unlock)(lock);
 }
 
-#if defined(__has_include) && __has_include(<xpc/xpc.h>)
+#  if defined(__has_include) && __has_include(<xpc/xpc.h>)
 
 TSAN_INTERCEPTOR(void, xpc_connection_set_event_handler,
                  xpc_connection_t connection, xpc_handler_t handler) {
@@ -342,7 +365,7 @@ TSAN_INTERCEPTOR(void, xpc_connection_cancel, xpc_connection_t connection) {
   REAL(xpc_connection_cancel)(connection);
 }
 
-#endif  // #if defined(__has_include) && __has_include(<xpc/xpc.h>)
+#  endif  // #if defined(__has_include) && __has_include(<xpc/xpc.h>)
 
 // Determines whether the Obj-C object pointer is a tagged pointer. Tagged
 // pointers encode the object data directly in their pointer bits and do not
@@ -365,7 +388,7 @@ static uptr GetOrCreateSyncAddress(uptr addr, ThreadState *thr, uptr pc) {
   Map::Handle h(&Addresses, addr);
   if (h.created()) {
     ThreadIgnoreBegin(thr, pc);
-    *h = (uptr) user_alloc(thr, pc, /*size=*/1);
+    *h = (uptr)user_alloc(thr, pc, /*size=*/1);
     ThreadIgnoreEnd(thr);
   }
   return *h;
@@ -383,7 +406,8 @@ static uptr SyncAddressForObjCObject(id obj, ThreadState *thr, uptr pc) {
 
 TSAN_INTERCEPTOR(int, objc_sync_enter, id obj) {
   SCOPED_TSAN_INTERCEPTOR(objc_sync_enter, obj);
-  if (!obj) return REAL(objc_sync_enter)(obj);
+  if (!obj)
+    return REAL(objc_sync_enter)(obj);
   uptr addr = SyncAddressForObjCObject(obj, thr, pc);
   MutexPreLock(thr, pc, addr, MutexFlagWriteReentrant);
   int result = REAL(objc_sync_enter)(obj);
@@ -394,11 +418,13 @@ TSAN_INTERCEPTOR(int, objc_sync_enter, id obj) {
 
 TSAN_INTERCEPTOR(int, objc_sync_exit, id obj) {
   SCOPED_TSAN_INTERCEPTOR(objc_sync_exit, obj);
-  if (!obj) return REAL(objc_sync_exit)(obj);
+  if (!obj)
+    return REAL(objc_sync_exit)(obj);
   uptr addr = SyncAddressForObjCObject(obj, thr, pc);
   MutexUnlock(thr, pc, addr);
   int result = REAL(objc_sync_exit)(obj);
-  if (result != OBJC_SYNC_SUCCESS) MutexInvalidAccess(thr, pc, addr);
+  if (result != OBJC_SYNC_SUCCESS)
+    MutexInvalidAccess(thr, pc, addr);
   return result;
 }
 
@@ -429,7 +455,7 @@ TSAN_INTERCEPTOR(int, swapcontext, ucontext_t *oucp, const ucontext_t *ucp) {
 
 // On macOS, libc++ is always linked dynamically, so intercepting works the
 // usual way.
-#define STDCXX_INTERCEPTOR TSAN_INTERCEPTOR
+#  define STDCXX_INTERCEPTOR TSAN_INTERCEPTOR
 
 namespace {
 struct fake_shared_weak_count {

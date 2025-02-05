@@ -94,8 +94,9 @@
 #if SANITIZER_LINUX
 # include <utime.h>
 # include <sys/ptrace.h>
-#    if defined(__mips64) || defined(__aarch64__) || defined(__arm__) || \
-        defined(__hexagon__) || defined(__loongarch__) ||SANITIZER_RISCV64
+#    if defined(__mips64) || defined(__aarch64__) || defined(__arm__) ||       \
+        defined(__hexagon__) || defined(__loongarch__) || SANITIZER_RISCV64 || \
+        defined(__sparc__)
 #      include <asm/ptrace.h>
 #      ifdef __arm__
 typedef struct user_fpregs elf_fpregset_t;
@@ -117,15 +118,16 @@ typedef struct user_fpregs elf_fpregset_t;
 #if SANITIZER_LINUX
 #if SANITIZER_GLIBC
 #include <fstab.h>
-#include <net/if_ppp.h>
-#include <netax25/ax25.h>
-#include <netipx/ipx.h>
-#include <netrom/netrom.h>
-#include <obstack.h>
-#if HAVE_RPC_XDR_H
-# include <rpc/xdr.h>
-#endif
-#include <scsi/scsi.h>
+#      include <linux/filter.h>
+#      include <net/if_ppp.h>
+#      include <netax25/ax25.h>
+#      include <netipx/ipx.h>
+#      include <netrom/netrom.h>
+#      include <obstack.h>
+#      if HAVE_RPC_XDR_H
+#        include <rpc/xdr.h>
+#      endif
+#      include <scsi/scsi.h>
 #else
 #include <linux/if_ppp.h>
 #include <linux/kd.h>
@@ -358,11 +360,12 @@ unsigned struct_ElfW_Phdr_sz = sizeof(Elf_Phdr);
   const int wordexp_wrde_dooffs = WRDE_DOOFFS;
 #  endif  // !SANITIZER_ANDROID
 
-#if SANITIZER_LINUX && !SANITIZER_ANDROID &&                               \
-    (defined(__i386) || defined(__x86_64) || defined(__mips64) ||          \
-     defined(__powerpc64__) || defined(__aarch64__) || defined(__arm__) || \
-     defined(__s390__) || defined(__loongarch__)|| SANITIZER_RISCV64)
-#if defined(__mips64) || defined(__powerpc64__) || defined(__arm__)
+#  if SANITIZER_LINUX && !SANITIZER_ANDROID &&                               \
+      (defined(__i386) || defined(__x86_64) || defined(__mips64) ||          \
+       defined(__powerpc64__) || defined(__aarch64__) || defined(__arm__) || \
+       defined(__s390__) || defined(__loongarch__) || SANITIZER_RISCV64 ||   \
+       defined(__sparc__))
+#    if defined(__mips64) || defined(__powerpc64__) || defined(__arm__)
   unsigned struct_user_regs_struct_sz = sizeof(struct pt_regs);
   unsigned struct_user_fpregs_struct_sz = sizeof(elf_fpregset_t);
 #elif SANITIZER_RISCV64
@@ -377,19 +380,22 @@ unsigned struct_ElfW_Phdr_sz = sizeof(Elf_Phdr);
 #elif defined(__s390__)
   unsigned struct_user_regs_struct_sz = sizeof(struct _user_regs_struct);
   unsigned struct_user_fpregs_struct_sz = sizeof(struct _user_fpregs_struct);
-#else
+#    elif defined(__sparc__)
+  unsigned struct_user_regs_struct_sz = sizeof(struct sunos_regs);
+  unsigned struct_user_fpregs_struct_sz = sizeof(struct sunos_fp);
+#    else
   unsigned struct_user_regs_struct_sz = sizeof(struct user_regs_struct);
   unsigned struct_user_fpregs_struct_sz = sizeof(struct user_fpregs_struct);
-#endif // __mips64 || __powerpc64__ || __aarch64__ || __loongarch__
-#if defined(__x86_64) || defined(__mips64) || defined(__powerpc64__) || \
-    defined(__aarch64__) || defined(__arm__) || defined(__s390__) ||    \
-    defined(__loongarch__) || SANITIZER_RISCV64
+#    endif  // __mips64 || __powerpc64__ || __aarch64__ || __loongarch__
+#    if defined(__x86_64) || defined(__mips64) || defined(__powerpc64__) || \
+        defined(__aarch64__) || defined(__arm__) || defined(__s390__) ||    \
+        defined(__loongarch__) || SANITIZER_RISCV64 || defined(__sparc__)
   unsigned struct_user_fpxregs_struct_sz = 0;
 #else
   unsigned struct_user_fpxregs_struct_sz = sizeof(struct user_fpxregs_struct);
 #endif // __x86_64 || __mips64 || __powerpc64__ || __aarch64__ || __arm__
-// || __s390__ || __loongarch__
-#ifdef __arm__
+  // || __s390__ || __loongarch__ || SANITIZER_RISCV64 || __sparc__
+#    ifdef __arm__
   unsigned struct_user_vfpregs_struct_sz = ARM_VFPREGS_SIZE;
 #else
   unsigned struct_user_vfpregs_struct_sz = 0;
@@ -531,12 +537,15 @@ unsigned struct_ElfW_Phdr_sz = sizeof(Elf_Phdr);
 
   unsigned struct_audio_buf_info_sz = sizeof(struct audio_buf_info);
   unsigned struct_ppp_stats_sz = sizeof(struct ppp_stats);
-#endif  // SANITIZER_GLIBC
+  unsigned struct_sock_fprog_sz = sizeof(struct sock_fprog);
+#  endif  // SANITIZER_GLIBC
 
-#if !SANITIZER_ANDROID && !SANITIZER_APPLE
+#  if !SANITIZER_ANDROID && !SANITIZER_APPLE
   unsigned struct_sioc_sg_req_sz = sizeof(struct sioc_sg_req);
   unsigned struct_sioc_vif_req_sz = sizeof(struct sioc_vif_req);
 #endif
+
+  unsigned fpos_t_sz = sizeof(fpos_t);
 
   const unsigned long __sanitizer_bufsiz = BUFSIZ;
 
@@ -1084,7 +1093,7 @@ CHECK_SIZE_AND_OFFSET(cmsghdr, cmsg_len);
 CHECK_SIZE_AND_OFFSET(cmsghdr, cmsg_level);
 CHECK_SIZE_AND_OFFSET(cmsghdr, cmsg_type);
 
-#if SANITIZER_LINUX && (__ANDROID_API__ >= 21 || __GLIBC_PREREQ (2, 14))
+#  if SANITIZER_LINUX && (SANITIZER_ANDROID || __GLIBC_PREREQ(2, 14))
 CHECK_TYPE_SIZE(mmsghdr);
 CHECK_SIZE_AND_OFFSET(mmsghdr, msg_hdr);
 CHECK_SIZE_AND_OFFSET(mmsghdr, msg_len);

@@ -120,7 +120,7 @@ class DeadlockDetectorTLS {
     u32 lock;
     u32 stk;
   };
-  LockWithContext all_locks_with_contexts_[64];
+  LockWithContext all_locks_with_contexts_[128];
   uptr n_all_locks_;
 };
 
