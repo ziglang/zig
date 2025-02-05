@@ -111,11 +111,14 @@
 #define ULLONG_MAX (__LONG_LONG_MAX__*2ULL+1ULL)
 #endif
 
-/* LONG_LONG_MIN/LONG_LONG_MAX/ULONG_LONG_MAX are a GNU extension.  It's too bad
-   that we don't have something like #pragma poison that could be used to
-   deprecate a macro - the code should just use LLONG_MAX and friends.
+/* LONG_LONG_MIN/LONG_LONG_MAX/ULONG_LONG_MAX are a GNU extension. Android's
+   bionic also defines them. It's too bad that we don't have something like
+   #pragma poison that could be used to deprecate a macro - the code should just
+   use LLONG_MAX and friends.
  */
-#if defined(__GNU_LIBRARY__) ? defined(__USE_GNU) : !defined(__STRICT_ANSI__)
+#if (defined(__GNU_LIBRARY__) ? defined(__USE_GNU)                             \
+                              : !defined(__STRICT_ANSI__)) ||                  \
+    defined(__BIONIC__)
 
 #undef   LONG_LONG_MIN
 #undef   LONG_LONG_MAX
