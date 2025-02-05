@@ -89,7 +89,7 @@ namespace {
       // __cxa_thread_atexit() may be called arbitrarily late (for example, from
       // global destructors or atexit() handlers).
       if (std::__libcpp_tls_create(&dtors_key, run_dtors) != 0) {
-        abort_message("std::__libcpp_tls_create() failed in __cxa_thread_atexit()");
+        __abort_message("std::__libcpp_tls_create() failed in __cxa_thread_atexit()");
       }
     }
 
