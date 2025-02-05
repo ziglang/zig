@@ -856,14 +856,17 @@ pub const Response = struct {
     /// when the end of stream occurs by calling `end`.
     pub fn write(r: *Response, bytes: []const u8) WriteError!usize {
         switch (r.transfer_encoding) {
-            .content_length, .none => return write_cl(r, bytes),
-            .chunked => return write_chunked(r, bytes),
+            .content_length, .none => return writeLength(r, bytes),
+            .chunked => return writeChunked(r, bytes),
         }
     }
 
-    fn write_cl(context: *const anyopaque, bytes: []const u8) WriteError!usize {
+    fn writeFnLength(context: *const anyopaque, bytes: []const u8) WriteError!usize {
         const r: *Response = @constCast(@alignCast(@ptrCast(context)));
+        return writeLength(r, bytes);
+    }
 
+    fn writeLength(r: *Response, bytes: []const u8) WriteError!usize {
         var trash: u64 = std.math.maxInt(u64);
         const len = switch (r.transfer_encoding) {
             .content_length => |*len| len,
@@ -904,8 +907,12 @@ pub const Response = struct {
         return bytes.len;
     }
 
-    fn write_chunked(context: *const anyopaque, bytes: []const u8) WriteError!usize {
+    fn writeFnChunked(context: *const anyopaque, bytes: []const u8) WriteError!usize {
         const r: *Response = @constCast(@alignCast(@ptrCast(context)));
+        return writeChunked(r, bytes);
+    }
+
+    fn writeChunked(r: *Response, bytes: []const u8) WriteError!usize {
         assert(r.transfer_encoding == .chunked);
 
         if (r.elide_body)
@@ -1032,8 +1039,8 @@ pub const Response = struct {
     pub fn writer(r: *Response) std.io.AnyWriter {
         return .{
             .writeFn = switch (r.transfer_encoding) {
-                .none, .content_length => write_cl,
-                .chunked => write_chunked,
+                .none, .content_length => writeFnLength,
+                .chunked => writeFnChunked,
             },
             .context = r,
         };
