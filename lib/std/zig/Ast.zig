@@ -205,9 +205,11 @@ pub fn extraData(tree: Ast, index: usize, comptime T: type) T {
 }
 
 pub fn rootDecls(tree: Ast) []const Node.Index {
-    // Root is always index 0.
     const nodes_data = tree.nodes.items(.data);
-    return tree.extra_data[nodes_data[0].lhs..nodes_data[0].rhs];
+    return switch (tree.mode) {
+        .zig => tree.extra_data[nodes_data[0].lhs..nodes_data[0].rhs],
+        .zon => (&nodes_data[0].lhs)[0..1],
+    };
 }
 
 pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
@@ -2155,14 +2157,13 @@ fn fullFnProtoComponents(tree: Ast, info: full.FnProto.Components) full.FnProto 
 
 fn fullPtrTypeComponents(tree: Ast, info: full.PtrType.Components) full.PtrType {
     const token_tags = tree.tokens.items(.tag);
-    const Size = std.builtin.Type.Pointer.Size;
-    const size: Size = switch (token_tags[info.main_token]) {
+    const size: std.builtin.Type.Pointer.Size = switch (token_tags[info.main_token]) {
         .asterisk,
         .asterisk_asterisk,
-        => .One,
+        => .one,
         .l_bracket => switch (token_tags[info.main_token + 1]) {
-            .asterisk => if (token_tags[info.main_token + 2] == .identifier) Size.C else Size.Many,
-            else => Size.Slice,
+            .asterisk => if (token_tags[info.main_token + 2] == .identifier) .c else .many,
+            else => .slice,
         },
         else => unreachable,
     };
@@ -2178,7 +2179,7 @@ fn fullPtrTypeComponents(tree: Ast, info: full.PtrType.Components) full.PtrType 
     // positives. Therefore, start after a sentinel if there is one and
     // skip over any align node and bit range nodes.
     var i = if (info.sentinel != 0) tree.lastToken(info.sentinel) + 1 else switch (size) {
-        .Many, .C => info.main_token + 1,
+        .many, .c => info.main_token + 1,
         else => info.main_token,
     };
     const end = tree.firstToken(info.child_type);

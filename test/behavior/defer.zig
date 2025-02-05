@@ -234,3 +234,12 @@ test "errdefer capture" {
     s.bar2() catch {};
     if (s.fail) return error.TestExpectedError;
 }
+
+test "errdefer in test block" {
+    errdefer |err| {
+        _ = &err;
+    }
+    var x: bool = false;
+    _ = &x;
+    if (x) return error.Something;
+}

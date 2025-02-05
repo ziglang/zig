@@ -127,7 +127,7 @@ fn rebuildTestsWorkerRunFallible(run: *Step.Run, ttyconf: std.io.tty.Config, par
     if (show_error_msgs or show_compile_errors or show_stderr) {
         std.debug.lockStdErr();
         defer std.debug.unlockStdErr();
-        build_runner.printErrorMessages(gpa, &compile.step, ttyconf, stderr, false) catch {};
+        build_runner.printErrorMessages(gpa, &compile.step, .{ .ttyconf = ttyconf }, stderr, false) catch {};
     }
 
     const rebuilt_bin_path = result catch |err| switch (err) {
@@ -155,7 +155,7 @@ fn fuzzWorkerRun(
             const stderr = std.io.getStdErr();
             std.debug.lockStdErr();
             defer std.debug.unlockStdErr();
-            build_runner.printErrorMessages(gpa, &run.step, ttyconf, stderr, false) catch {};
+            build_runner.printErrorMessages(gpa, &run.step, .{ .ttyconf = ttyconf }, stderr, false) catch {};
             return;
         },
         else => {

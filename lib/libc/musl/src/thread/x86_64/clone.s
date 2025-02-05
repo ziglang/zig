@@ -16,8 +16,9 @@ __clone:
 	mov %rcx,(%rsi)
 	syscall
 	test %eax,%eax
-	jnz 1f
-	xor %ebp,%ebp
+	jz 1f
+	ret
+1:	xor %ebp,%ebp
 	pop %rdi
 	call *%r9
 	mov %eax,%edi
@@ -25,4 +26,3 @@ __clone:
 	mov $60,%al
 	syscall
 	hlt
-1:	ret

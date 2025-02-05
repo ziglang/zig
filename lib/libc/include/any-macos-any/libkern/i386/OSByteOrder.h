@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1999-2006 Apple Computer, Inc. All rights reserved.
+ * Copyright (c) 1999-2023 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -28,6 +28,8 @@
 
 #ifndef _OS_OSBYTEORDERI386_H
 #define _OS_OSBYTEORDERI386_H
+
+#if defined(__i386__) || defined(__x86_64__)
 
 #include <stdint.h>
 #include <libkern/i386/_OSByteOrder.h>
@@ -108,5 +110,7 @@ OSWriteSwapInt64(
 {
 	*(volatile uint64_t *)((uintptr_t)base + byteOffset) = _OSSwapInt64(data);
 }
+
+#endif /* defined(__i386__) || defined(__x86_64__) */
 
 #endif /* ! _OS_OSBYTEORDERI386_H */

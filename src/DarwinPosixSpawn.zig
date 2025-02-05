@@ -161,8 +161,8 @@ pub fn spawn(
     path: []const u8,
     actions: ?Actions,
     attr: ?Attr,
-    argv: [*:null]?[*:0]const u8,
-    envp: [*:null]?[*:0]const u8,
+    argv: [*:null]const ?[*:0]const u8,
+    envp: [*:null]const ?[*:0]const u8,
 ) Error!std.c.pid_t {
     const posix_path = try std.posix.toPosixPath(path);
     return spawnZ(&posix_path, actions, attr, argv, envp);
@@ -172,8 +172,8 @@ pub fn spawnZ(
     path: [*:0]const u8,
     actions: ?Actions,
     attr: ?Attr,
-    argv: [*:null]?[*:0]const u8,
-    envp: [*:null]?[*:0]const u8,
+    argv: [*:null]const ?[*:0]const u8,
+    envp: [*:null]const ?[*:0]const u8,
 ) Error!std.c.pid_t {
     var pid: std.c.pid_t = undefined;
     switch (errno(std.c.posix_spawn(

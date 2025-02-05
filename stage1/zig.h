@@ -1,32 +1,142 @@
 #undef linux
 
-#ifndef __STDC_WANT_IEC_60559_TYPES_EXT__
-#define __STDC_WANT_IEC_60559_TYPES_EXT__
-#endif
-#include <float.h>
-#include <limits.h>
 #include <stdarg.h>
 #include <stddef.h>
-#include <stdint.h>
 
-#if _MSC_VER
-#include <intrin.h>
-#elif defined(__i386__) || defined(__x86_64__)
-#include <cpuid.h>
+#if defined(_MSC_VER)
+#define zig_msvc
+#elif defined(__clang__)
+#define zig_clang
+#define zig_gnuc
+#elif defined(__GNUC__)
+#define zig_gnuc
+#elif defined(__IBMC__)
+#define zig_xlc
+#elif defined(__TINYC__)
+#define zig_tinyc
+#elif defined(__slimcc__)
+#define zig_slimcc
 #endif
 
-#if !defined(__cplusplus) && __STDC_VERSION__ <= 201710L
-#if __STDC_VERSION__ >= 199901L
-#include <stdbool.h>
+#if defined(__aarch64__) || (defined(zig_msvc) && defined(_M_ARM64))
+#define zig_aarch64
+#elif defined(__thumb__) || (defined(zig_msvc) && defined(_M_ARM))
+#define zig_thumb
+#define zig_arm
+#elif defined(__arm__)
+#define zig_arm
+#elif defined(__hexagon__)
+#define zig_hexagon
+#elif defined(__loongarch32)
+#define zig_loongarch32
+#define zig_loongarch
+#elif defined(__loongarch64)
+#define zig_loongarch64
+#define zig_loongarch
+#elif defined(__mips64)
+#define zig_mips64
+#define zig_mips
+#elif defined(__mips__)
+#define zig_mips32
+#define zig_mips
+#elif defined(__powerpc64__)
+#define zig_powerpc64
+#define zig_powerpc
+#elif defined(__powerpc__)
+#define zig_powerpc32
+#define zig_powerpc
+#elif defined(__riscv) && __riscv_xlen == 32
+#define zig_riscv32
+#define zig_riscv
+#elif defined(__riscv) && __riscv_xlen == 64
+#define zig_riscv64
+#define zig_riscv
+#elif defined(__s390x__)
+#define zig_s390x
+#elif defined(__sparc__) && defined(__arch64__)
+#define zig_sparc64
+#define zig_sparc
+#elif defined(__sparc__)
+#define zig_sparc32
+#define zig_sparc
+#elif defined(__wasm32__)
+#define zig_wasm32
+#define zig_wasm
+#elif defined(__wasm64__)
+#define zig_wasm64
+#define zig_wasm
+#elif defined(__i386__) || (defined(zig_msvc) && defined(_M_IX86))
+#define zig_x86_32
+#define zig_x86
+#elif defined (__x86_64__) || (defined(zig_msvc) && defined(_M_X64))
+#define zig_x86_64
+#define zig_x86
+#endif
+
+#if defined(zig_msvc) || __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#define zig_little_endian 1
+#define zig_big_endian 0
 #else
-typedef char bool;
-#define false 0
-#define true  1
+#define zig_little_endian 0
+#define zig_big_endian 1
 #endif
+
+#if defined(_AIX)
+#define zig_aix
+#elif defined(__MACH__)
+#define zig_darwin
+#elif defined(__DragonFly__)
+#define zig_dragonfly
+#define zig_bsd
+#elif defined(__EMSCRIPTEN__)
+#define zig_emscripten
+#elif defined(__FreeBSD__)
+#define zig_freebsd
+#define zig_bsd
+#elif defined(__Fuchsia__)
+#define zig_fuchsia
+#elif defined(__HAIKU__)
+#define zig_haiku
+#elif defined(__gnu_hurd__)
+#define zig_hurd
+#elif defined(__linux__)
+#define zig_linux
+#elif defined(__NetBSD__)
+#define zig_netbsd
+#define zig_bsd
+#elif defined(__OpenBSD__)
+#define zig_openbsd
+#define zig_bsd
+#elif defined(__SVR4)
+#define zig_solaris
+#elif defined(__wasi__)
+#define zig_wasi
+#elif defined(_WIN32)
+#define zig_windows
+#elif defined(__MVS__)
+#define zig_zos
+#endif
+
+#if defined(zig_windows)
+#define zig_coff
+#elif defined(__ELF__)
+#define zig_elf
+#elif defined(zig_zos)
+#define zig_goff
+#elif defined(zig_darwin)
+#define zig_macho
+#elif defined(zig_aix)
+#define zig_xcoff
 #endif
 
 #define zig_concat(lhs, rhs) lhs##rhs
 #define zig_expand_concat(lhs, rhs) zig_concat(lhs, rhs)
+
+#if defined(__has_include)
+#define zig_has_include(include) __has_include(include)
+#else
+#define zig_has_include(include) 0
+#endif
 
 #if defined(__has_builtin)
 #define zig_has_builtin(builtin) __has_builtin(__builtin_##builtin)
@@ -41,37 +151,19 @@ typedef char bool;
 #define zig_has_attribute(attribute) 0
 #endif
 
-#if __LITTLE_ENDIAN__ || _MSC_VER
-#define zig_little_endian 1
-#define zig_big_endian 0
-#else
-#define zig_little_endian 0
-#define zig_big_endian 1
-#endif
-
-#if __STDC_VERSION__ >= 201112L
+#if __STDC_VERSION__ >= 202311L
+#define zig_threadlocal thread_local
+#elif __STDC_VERSION__ >= 201112L
 #define zig_threadlocal _Thread_local
-#elif defined(__GNUC__)
+#elif defined(zig_gnuc) || defined(zig_slimcc)
 #define zig_threadlocal __thread
-#elif _MSC_VER
+#elif defined(zig_msvc)
 #define zig_threadlocal __declspec(thread)
 #else
 #define zig_threadlocal zig_threadlocal_unavailable
 #endif
 
-#if defined(__clang__)
-#define zig_clang
-#elif defined(__GNUC__)
-#define zig_gnuc
-#endif
-
-#if defined(zig_gnuc) && (defined(__i386__) || defined(__x86_64__))
-#define zig_f128_has_miscompilations 1
-#else
-#define zig_f128_has_miscompilations 0
-#endif
-
-#if _MSC_VER
+#if defined(zig_msvc)
 #define zig_const_arr
 #define zig_callconv(c) __##c
 #else
@@ -82,7 +174,7 @@ typedef char bool;
 #if zig_has_attribute(naked) || defined(zig_gnuc)
 #define zig_naked_decl __attribute__((naked))
 #define zig_naked __attribute__((naked))
-#elif defined(_MSC_VER)
+#elif defined(zig_msvc)
 #define zig_naked_decl
 #define zig_naked __declspec(naked)
 #else
@@ -104,7 +196,7 @@ typedef char bool;
 
 #if zig_has_attribute(noinline)
 #define zig_never_inline __attribute__((noinline)) zig_maybe_flatten
-#elif defined(_MSC_VER)
+#elif defined(zig_msvc)
 #define zig_never_inline __declspec(noinline) zig_maybe_flatten
 #else
 #define zig_never_inline zig_never_inline_unavailable
@@ -124,46 +216,48 @@ typedef char bool;
 
 #if __STDC_VERSION__ >= 199901L
 #define zig_restrict restrict
-#elif defined(__GNUC__)
+#elif defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_restrict __restrict
 #else
 #define zig_restrict
 #endif
 
-#if zig_has_attribute(aligned)
+#if zig_has_attribute(aligned) || defined(zig_tinyc)
 #define zig_under_align(alignment) __attribute__((aligned(alignment)))
-#elif _MSC_VER
+#elif defined(zig_msvc)
 #define zig_under_align(alignment) __declspec(align(alignment))
 #else
 #define zig_under_align zig_align_unavailable
 #endif
 
-#if __STDC_VERSION__ >= 201112L
+#if __STDC_VERSION__ >= 202311L
+#define zig_align(alignment) alignas(alignment)
+#elif __STDC_VERSION__ >= 201112L
 #define zig_align(alignment) _Alignas(alignment)
 #else
 #define zig_align(alignment) zig_under_align(alignment)
 #endif
 
-#if zig_has_attribute(aligned)
+#if zig_has_attribute(aligned) || defined(zig_tinyc)
 #define zig_align_fn(alignment) __attribute__((aligned(alignment)))
-#elif _MSC_VER
+#elif defined(zig_msvc)
 #define zig_align_fn(alignment)
 #else
 #define zig_align_fn zig_align_fn_unavailable
 #endif
 
-#if zig_has_attribute(packed)
+#if zig_has_attribute(packed) || defined(zig_tinyc)
 #define zig_packed(definition) __attribute__((packed)) definition
-#elif _MSC_VER
+#elif defined(zig_msvc)
 #define zig_packed(definition) __pragma(pack(1)) definition __pragma(pack())
 #else
 #define zig_packed(definition) zig_packed_unavailable
 #endif
 
-#if zig_has_attribute(section)
+#if zig_has_attribute(section) || defined(zig_tinyc)
 #define zig_linksection(name) __attribute__((section(name)))
 #define zig_linksection_fn zig_linksection
-#elif _MSC_VER
+#elif defined(zig_msvc)
 #define zig_linksection(name) __pragma(section(name, read, write)) __declspec(allocate(name))
 #define zig_linksection_fn(name) __pragma(section(name, read, execute)) __declspec(code_seg(name))
 #else
@@ -171,8 +265,10 @@ typedef char bool;
 #define zig_linksection_fn zig_linksection
 #endif
 
-#if zig_has_builtin(unreachable) || defined(zig_gnuc)
+#if zig_has_builtin(unreachable) || defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_unreachable() __builtin_unreachable()
+#elif defined(zig_msvc)
+#define zig_unreachable() __assume(0)
 #else
 #define zig_unreachable()
 #endif
@@ -183,23 +279,23 @@ typedef char bool;
 #define zig_extern extern
 #endif
 
-#if _MSC_VER
-#if _M_X64
+#if defined(zig_msvc)
+#if defined(zig_x86_64)
 #define zig_mangle_c(symbol) symbol
-#else /*_M_X64 */
+#else /* zig_x86_64 */
 #define zig_mangle_c(symbol) "_" symbol
-#endif /*_M_X64 */
-#else /* _MSC_VER */
-#if __APPLE__
+#endif /* zig_x86_64 */
+#else /* zig_msvc */
+#if defined(zig_macho)
 #define zig_mangle_c(symbol) "_" symbol
-#else /* __APPLE__ */
+#else /* zig_macho */
 #define zig_mangle_c(symbol) symbol
-#endif /* __APPLE__ */
-#endif /* _MSC_VER */
+#endif /* zig_macho */
+#endif /* zig_msvc */
 
-#if zig_has_attribute(alias) && !__APPLE__
+#if (zig_has_attribute(alias) || defined(zig_tinyc)) && !defined(zig_macho)
 #define zig_export(symbol, name) __attribute__((alias(symbol)))
-#elif _MSC_VER
+#elif defined(zig_msvc)
 #define zig_export(symbol, name) ; \
     __pragma(comment(linker, "/alternatename:" zig_mangle_c(name) "=" zig_mangle_c(symbol)))
 #else
@@ -209,24 +305,24 @@ typedef char bool;
 
 #define zig_mangled_tentative zig_mangled
 #define zig_mangled_final zig_mangled
-#if _MSC_VER
+#if defined(zig_msvc)
 #define zig_mangled(mangled, unmangled) ; \
     zig_export(#mangled, unmangled)
 #define zig_mangled_export(mangled, unmangled, symbol) \
     zig_export(unmangled, #mangled) \
     zig_export(symbol, unmangled)
-#else /* _MSC_VER */
+#else /* zig_msvc */
 #define zig_mangled(mangled, unmangled) __asm(zig_mangle_c(unmangled))
 #define zig_mangled_export(mangled, unmangled, symbol) \
     zig_mangled_final(mangled, unmangled) \
     zig_export(symbol, unmangled)
-#endif /* _MSC_VER */
+#endif /* zig_msvc */
 
-#if _MSC_VER
+#if defined(zig_msvc)
 #define zig_import(Type, fn_name, libc_name, sig_args, call_args) zig_extern Type fn_name sig_args;\
     __pragma(comment(linker, "/alternatename:" zig_mangle_c(#fn_name) "=" zig_mangle_c(#libc_name)));
 #define zig_import_builtin(Type, fn_name, libc_name, sig_args, call_args) zig_import(Type, fn_name, sig_args, call_args)
-#else /* _MSC_VER */
+#else /* zig_msvc */
 #define zig_import(Type, fn_name, libc_name, sig_args, call_args) zig_extern Type fn_name sig_args __asm(zig_mangle_c(#libc_name));
 #define zig_import_builtin(Type, fn_name, libc_name, sig_args, call_args) zig_extern Type libc_name sig_args; \
     static inline Type fn_name sig_args { return libc_name call_args; }
@@ -235,10 +331,10 @@ typedef char bool;
 #define zig_expand_import_0(Type, fn_name, libc_name, sig_args, call_args) zig_import(Type, fn_name, libc_name, sig_args, call_args)
 #define zig_expand_import_1(Type, fn_name, libc_name, sig_args, call_args) zig_import_builtin(Type, fn_name, libc_name, sig_args, call_args)
 
-#if zig_has_attribute(weak) || defined(zig_gnuc)
+#if zig_has_attribute(weak) || defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_weak_linkage __attribute__((weak))
 #define zig_weak_linkage_fn __attribute__((weak))
-#elif _MSC_VER
+#elif defined(zig_msvc)
 #define zig_weak_linkage __declspec(selectany)
 #define zig_weak_linkage_fn
 #else
@@ -246,50 +342,94 @@ typedef char bool;
 #define zig_weak_linkage_fn zig_weak_linkage_unavailable
 #endif
 
+#if defined(zig_gnuc) || defined(zig_tinyc) || defined(zig_slimcc)
+#define zig_gnuc_asm
+#endif
+
 #if zig_has_builtin(trap)
 #define zig_trap() __builtin_trap()
-#elif _MSC_VER && (_M_IX86 || _M_X64)
+#elif defined(zig_msvc)
+
+#if defined(zig_x86)
 #define zig_trap() __ud2()
-#elif _MSC_VER
-#define zig_trap() __fastfail(0)
-#elif defined(__i386__) || defined(__x86_64__)
-#define zig_trap() __asm__ volatile("ud2");
-#elif defined(__arm__) || defined(__aarch64__)
-#define zig_trap() __asm__ volatile("udf #0");
 #else
-#include <stdlib.h>
-#define zig_trap() abort()
+#define zig_trap() __fastfail(7)
+#endif
+
+#elif defined(zig_gnuc_asm)
+
+#if defined(zig_thumb)
+#define zig_trap() __asm__ volatile("udf #0xfe")
+#elif defined(zig_arm) || defined(zig_aarch64)
+#define zig_trap() __asm__ volatile("udf #0xfdee")
+#elif defined(zig_hexagon)
+#define zig_trap() __asm__ volatile("r27:26 = memd(#0xbadc0fee)")
+#elif defined(zig_loongarch) || defined(zig_powerpc)
+#define zig_trap() __asm__ volatile(".word 0x0")
+#elif defined(zig_mips)
+#define zig_trap() __asm__ volatile(".word 0x3d")
+#elif defined(zig_riscv)
+#define zig_trap() __asm__ volatile("unimp")
+#elif defined(zig_s390x)
+#define zig_trap() __asm__ volatile("j 0x2")
+#elif defined(zig_sparc)
+#define zig_trap() __asm__ volatile("illtrap")
+#elif defined(zig_x86)
+#define zig_trap() __asm__ volatile("ud2")
+#else
+#define zig_trap() zig_trap_unavailable
+#endif
+
+#else
+#define zig_trap() zig_trap_unavailable
 #endif
 
 #if zig_has_builtin(debugtrap)
 #define zig_breakpoint() __builtin_debugtrap()
-#elif defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__)
+#elif defined(zig_msvc)
 #define zig_breakpoint() __debugbreak()
-#elif defined(__i386__) || defined(__x86_64__)
-#define zig_breakpoint() __asm__ volatile("int $0x03");
-#elif defined(__arm__)
-#define zig_breakpoint() __asm__ volatile("bkpt #0");
-#elif defined(__aarch64__)
-#define zig_breakpoint() __asm__ volatile("brk #0");
-#else
-#include <signal.h>
-#if defined(SIGTRAP)
-#define zig_breakpoint() raise(SIGTRAP)
+#elif defined(zig_gnuc_asm)
+
+#if defined(zig_arm)
+#define zig_breakpoint() __asm__ volatile("bkpt #0x0")
+#elif defined(zig_aarch64)
+#define zig_breakpoint() __asm__ volatile("brk #0xf000")
+#elif defined(zig_hexagon)
+#define zig_breakpoint() __asm__ volatile("brkpt")
+#elif defined(zig_loongarch)
+#define zig_breakpoint() __asm__ volatile("break 0x0")
+#elif defined(zig_mips)
+#define zig_breakpoint() __asm__ volatile("break")
+#elif defined(zig_powerpc)
+#define zig_breakpoint() __asm__ volatile("trap")
+#elif defined(zig_riscv)
+#define zig_breakpoint() __asm__ volatile("ebreak")
+#elif defined(zig_s390x)
+#define zig_breakpoint() __asm__ volatile("j 0x6")
+#elif defined(zig_sparc)
+#define zig_breakpoint() __asm__ volatile("ta 0x1")
+#elif defined(zig_x86)
+#define zig_breakpoint() __asm__ volatile("int $0x3")
 #else
 #define zig_breakpoint() zig_breakpoint_unavailable
 #endif
+
+#else
+#define zig_breakpoint() zig_breakpoint_unavailable
 #endif
 
-#if zig_has_builtin(return_address) || defined(zig_gnuc)
+#if zig_has_builtin(return_address) || defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_return_address() __builtin_extract_return_addr(__builtin_return_address(0))
-#elif defined(_MSC_VER)
+#elif defined(zig_msvc)
 #define zig_return_address() _ReturnAddress()
 #else
 #define zig_return_address() 0
 #endif
 
-#if zig_has_builtin(frame_address) || defined(zig_gnuc)
+#if zig_has_builtin(frame_address) || defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_frame_address() __builtin_frame_address(0)
+#elif defined(zig_msvc)
+#define zig_frame_address() _AddressOfReturnAddress()
 #else
 #define zig_frame_address() 0
 #endif
@@ -308,17 +448,17 @@ typedef char bool;
 #define zig_wasm_memory_grow(index, delta) zig_unimplemented()
 #endif
 
-#if __STDC_VERSION__ >= 201112L
+#if __STDC_VERSION__ >= 202311L
+#define zig_noreturn [[noreturn]]
+#elif __STDC_VERSION__ >= 201112L
 #define zig_noreturn _Noreturn
-#elif zig_has_attribute(noreturn) || defined(zig_gnuc)
+#elif zig_has_attribute(noreturn) || defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_noreturn __attribute__((noreturn))
-#elif _MSC_VER
+#elif defined(zig_msvc)
 #define zig_noreturn __declspec(noreturn)
 #else
 #define zig_noreturn
 #endif
-
-#define zig_bitSizeOf(T) (CHAR_BIT * sizeof(T))
 
 #define zig_compiler_rt_abbrev_uint32_t si
 #define zig_compiler_rt_abbrev_int32_t  si
@@ -335,12 +475,25 @@ typedef char bool;
 zig_extern void *memcpy (void *zig_restrict, void const *zig_restrict, size_t);
 zig_extern void *memset (void *, int, size_t);
 
-/* ===================== 8/16/32/64-bit Integer Support ===================== */
+/* ================ Bool and 8/16/32/64-bit Integer Support ================= */
 
-#if __STDC_VERSION__ >= 199901L || _MSC_VER
+#include <limits.h>
+
+#define zig_bitSizeOf(T) (CHAR_BIT * sizeof(T))
+
+#if __STDC_VERSION__ >= 202311L
+/* bool, true, and false are provided by the language. */
+#elif __STDC_VERSION__ >= 199901L || zig_has_include(<stdbool.h>)
+#include <stdbool.h>
+#else
+typedef char bool;
+#define false 0
+#define true  1
+#endif
+
+#if __STDC_VERSION__ >= 199901L || defined(zig_msvc) || zig_has_include(<stdint.h>)
 #include <stdint.h>
 #else
-
 #if SCHAR_MIN == ~0x7F && SCHAR_MAX == 0x7F && UCHAR_MAX == 0xFF
 typedef unsigned      char uint8_t;
 typedef   signed      char  int8_t;
@@ -1114,7 +1267,7 @@ static inline int64_t zig_bit_reverse_i64(int64_t val, uint8_t bits) {
     static inline uint8_t zig_popcount_i##w(int##w##_t val, uint8_t bits) { \
         return zig_popcount_u##w((uint##w##_t)val, bits); \
     }
-#if zig_has_builtin(popcount) || defined(zig_gnuc)
+#if zig_has_builtin(popcount) || defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_builtin_popcount(w) \
     static inline uint8_t zig_popcount_u##w(uint##w##_t val, uint8_t bits) { \
         (void)bits; \
@@ -1143,7 +1296,7 @@ zig_builtin_popcount(64)
     static inline uint8_t zig_ctz_i##w(int##w##_t val, uint8_t bits) { \
         return zig_ctz_u##w((uint##w##_t)val, bits); \
     }
-#if zig_has_builtin(ctz) || defined(zig_gnuc)
+#if zig_has_builtin(ctz) || defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_builtin_ctz(w) \
     static inline uint8_t zig_ctz_u##w(uint##w##_t val, uint8_t bits) { \
         if (val == 0) return bits; \
@@ -1168,7 +1321,7 @@ zig_builtin_ctz(64)
     static inline uint8_t zig_clz_i##w(int##w##_t val, uint8_t bits) { \
         return zig_clz_u##w((uint##w##_t)val, bits); \
     }
-#if zig_has_builtin(clz) || defined(zig_gnuc)
+#if zig_has_builtin(clz) || defined(zig_gnuc) || defined(zig_tinyc)
 #define zig_builtin_clz(w) \
     static inline uint8_t zig_clz_u##w(uint##w##_t val, uint8_t bits) { \
         if (val == 0) return bits; \
@@ -1236,7 +1389,7 @@ typedef struct { zig_align(16)  int64_t hi; uint64_t lo; } zig_i128;
 #define zig_make_u128(hi, lo) ((zig_u128){ .h##i = (hi), .l##o = (lo) })
 #define zig_make_i128(hi, lo) ((zig_i128){ .h##i = (hi), .l##o = (lo) })
 
-#if _MSC_VER /* MSVC doesn't allow struct literals in constant expressions */
+#if defined(zig_msvc) /* MSVC doesn't allow struct literals in constant expressions */
 #define zig_init_u128(hi, lo) { .h##i = (hi), .l##o = (lo) }
 #define zig_init_i128(hi, lo) { .h##i = (hi), .l##o = (lo) }
 #else /* But non-MSVC doesn't like the unprotected commas */
@@ -2998,7 +3151,13 @@ static inline uint16_t zig_popcount_big(const void *val, bool is_signed, uint16_
 
 /* ========================= Floating Point Support ========================= */
 
-#if _MSC_VER
+#ifndef __STDC_WANT_IEC_60559_TYPES_EXT__
+#define __STDC_WANT_IEC_60559_TYPES_EXT__
+#endif
+
+#include <float.h>
+
+#if defined(zig_msvc)
 float __cdecl nanf(char const* input);
 double __cdecl nan(char const* input);
 long double __cdecl nanl(char const* input);
@@ -3060,7 +3219,7 @@ typedef uint16_t zig_f16;
 #undef zig_init_special_f16
 #define zig_init_special_f16(sign, name, arg, repr) repr
 #endif
-#if __APPLE__ && (defined(__i386__) || defined(__x86_64__))
+#if defined(zig_darwin) && defined(zig_x86)
 typedef uint16_t zig_compiler_rt_f16;
 #else
 typedef zig_f16 zig_compiler_rt_f16;
@@ -3068,7 +3227,7 @@ typedef zig_f16 zig_compiler_rt_f16;
 
 #define zig_has_f32 1
 #define zig_libc_name_f32(name) name##f
-#if _MSC_VER
+#if defined(zig_msvc)
 #define zig_init_special_f32(sign, name, arg, repr) sign zig_make_f32(zig_msvc_flt_##name, )
 #else
 #define zig_init_special_f32(sign, name, arg, repr) zig_make_special_f32(sign, name, arg, repr)
@@ -3100,7 +3259,7 @@ typedef uint32_t zig_f32;
 #define zig_has_f64 1
 #define zig_libc_name_f64(name) name
 
-#if _MSC_VER
+#if defined(zig_msvc)
 #define zig_init_special_f64(sign, name, arg, repr) sign zig_make_f64(zig_msvc_flt_##name, )
 #else
 #define zig_init_special_f64(sign, name, arg, repr) zig_make_special_f64(sign, name, arg, repr)
@@ -3165,6 +3324,12 @@ typedef zig_u128 zig_f80;
 #define zig_init_special_f80(sign, name, arg, repr) repr
 #endif
 
+#if !defined(zig_clang) && defined(zig_gnuc) && defined(zig_x86)
+#define zig_f128_has_miscompilations 1
+#else
+#define zig_f128_has_miscompilations 0
+#endif
+
 #define zig_has_f128 1
 #define zig_libc_name_f128(name) name##q
 #define zig_init_special_f128(sign, name, arg, repr) zig_make_special_f128(sign, name, arg, repr)
@@ -3193,7 +3358,7 @@ typedef __float128 zig_f128;
 #define zig_has_f128 0
 #undef zig_make_special_f128
 #undef zig_init_special_f128
-#if __APPLE__ || defined(__aarch64__)
+#if defined(zig_darwin) || defined(zig_aarch64)
 typedef __attribute__((__vector_size__(2 * sizeof(uint64_t)))) uint64_t zig_v2u64;
 zig_basic_operator(zig_v2u64, xor_v2u64, ^)
 #define zig_repr_f128 v2u64
@@ -3212,10 +3377,10 @@ typedef zig_u128 zig_f128;
 #endif
 #endif
 
-#if !_MSC_VER && defined(ZIG_TARGET_ABI_MSVC)
+#if !defined(zig_msvc) && defined(ZIG_TARGET_ABI_MSVC)
 /* Emulate msvc abi on a gnu compiler */
 typedef zig_f64 zig_c_longdouble;
-#elif _MSC_VER && !defined(ZIG_TARGET_ABI_MSVC)
+#elif defined(zig_msvc) && !defined(ZIG_TARGET_ABI_MSVC)
 /* Emulate gnu abi on an msvc compiler */
 typedef zig_f128 zig_c_longdouble;
 #else
@@ -3564,7 +3729,7 @@ zig_float_builtins(64)
     res = zig_atomicrmw_expected; \
 } while (0)
 
-#if __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_ATOMICS__)
+#if (__STDC_VERSION__ >= 201112L || (zig_has_include(<stdatomic.h>) && !defined(zig_msvc))) && !defined(__STDC_NO_ATOMICS__)
 #include <stdatomic.h>
 typedef enum memory_order zig_memory_order;
 #define zig_memory_order_relaxed memory_order_relaxed
@@ -3592,8 +3757,7 @@ typedef enum memory_order zig_memory_order;
 #define zig_atomicrmw_add_float zig_atomicrmw_add
 #undef  zig_atomicrmw_sub_float
 #define zig_atomicrmw_sub_float zig_atomicrmw_sub
-#define zig_fence(order) atomic_thread_fence(order)
-#elif defined(__GNUC__)
+#elif defined(zig_gnuc)
 typedef int zig_memory_order;
 #define zig_memory_order_relaxed __ATOMIC_RELAXED
 #define zig_memory_order_acquire __ATOMIC_ACQUIRE
@@ -3616,8 +3780,7 @@ typedef int zig_memory_order;
 #define    zig_atomic_load(res, obj,      order, Type, ReprType)       __atomic_load      (obj, &(res), order)
 #undef  zig_atomicrmw_xchg_float
 #define zig_atomicrmw_xchg_float zig_atomicrmw_xchg
-#define zig_fence(order) __atomic_thread_fence(order)
-#elif _MSC_VER && (_M_IX86 || _M_X64)
+#elif defined(zig_msvc) && defined(zig_x86)
 #define zig_memory_order_relaxed 0
 #define zig_memory_order_acquire 2
 #define zig_memory_order_release 3
@@ -3637,12 +3800,7 @@ typedef int zig_memory_order;
 #define  zig_atomicrmw_max(res, obj, arg, order, Type, ReprType) res = zig_msvc_atomicrmw_max_ ##Type(obj, arg)
 #define   zig_atomic_store(     obj, arg, order, Type, ReprType)       zig_msvc_atomic_store_  ##Type(obj, arg)
 #define    zig_atomic_load(res, obj,      order, Type, ReprType) res = zig_msvc_atomic_load_   ##order##_##Type(obj)
-#if _M_X64
-#define zig_fence(order) __faststorefence()
-#else
-#define zig_fence(order) zig_msvc_atomic_barrier()
-#endif
-/* TODO: _MSC_VER && (_M_ARM || _M_ARM64) */
+/* TODO: zig_msvc && (zig_thumb || zig_aarch64) */
 #else
 #define zig_memory_order_relaxed 0
 #define zig_memory_order_acquire 2
@@ -3663,10 +3821,9 @@ typedef int zig_memory_order;
 #define  zig_atomicrmw_max(res, obj, arg, order, Type, ReprType) zig_atomics_unavailable
 #define   zig_atomic_store(     obj, arg, order, Type, ReprType) zig_atomics_unavailable
 #define    zig_atomic_load(res, obj,      order, Type, ReprType) zig_atomics_unavailable
-#define zig_fence(order) zig_fence_unavailable
 #endif
 
-#if _MSC_VER && (_M_IX86 || _M_X64)
+#if defined(zig_msvc) && defined(zig_x86)
 
 /* TODO: zig_msvc_atomic_load should load 32 bit without interlocked on x86, and load 64 bit without interlocked on x64 */
 
@@ -3763,7 +3920,7 @@ zig_msvc_atomics(i16,  int16_t,   short, 16, 16)
 zig_msvc_atomics(u32, uint32_t,    long,   , 32)
 zig_msvc_atomics(i32,  int32_t,    long,   , 32)
 
-#if _M_X64
+#if defined(zig_x86_64)
 zig_msvc_atomics(u64, uint64_t, __int64, 64, 64)
 zig_msvc_atomics(i64,  int64_t, __int64, 64, 64)
 #endif
@@ -3808,11 +3965,11 @@ zig_msvc_atomics(i64,  int64_t, __int64, 64, 64)
     }
 
 zig_msvc_flt_atomics(f32,    long,   , 32)
-#if _M_X64
+#if defined(zig_x86_64)
 zig_msvc_flt_atomics(f64, int64_t, 64, 64)
 #endif
 
-#if _M_IX86
+#if defined(zig_x86_32)
 static inline void zig_msvc_atomic_barrier() {
     int32_t barrier;
     __asm {
@@ -3849,7 +4006,7 @@ static inline bool zig_msvc_cmpxchg_p32(void volatile* obj, void* expected, void
     if (!success) *(void**)expected = initial;
     return success;
 }
-#else /* _M_IX86 */
+#else /* zig_x86_32 */
 static inline void* zig_msvc_atomicrmw_xchg_p64(void volatile* obj, void* arg) {
     return _InterlockedExchangePointer(obj, arg);
 }
@@ -3910,61 +4067,99 @@ static inline void zig_msvc_atomic_store_i128(zig_i128 volatile* obj, zig_i128 a
     while (!zig_cmpxchg_weak(obj, expected, arg, zig_memory_order_seq_cst, zig_memory_order_seq_cst, i128, zig_i128));
 }
 
-#endif /* _M_IX86 */
+#endif /* zig_x86_32 */
 
-#endif /* _MSC_VER && (_M_IX86 || _M_X64) */
+#endif /* zig_msvc && zig_x86 */
 
 /* ======================== Special Case Intrinsics ========================= */
 
-#if (_MSC_VER && _M_X64) || defined(__x86_64__)
-
-static inline void* zig_x86_64_windows_teb(void) {
-#if _MSC_VER
-    return (void*)__readgsqword(0x30);
-#else
-    void* teb;
-    __asm volatile(" movq %%gs:0x30, %[ptr]": [ptr]"=r"(teb)::);
-    return teb;
+#if defined(zig_msvc)
+#include <intrin.h>
 #endif
+
+#if defined(zig_thumb)
+
+static inline void* zig_thumb_windows_teb(void) {
+    void* teb = 0;
+#if defined(zig_msvc)
+    teb = (void*)_MoveFromCoprocessor(15, 0, 13, 0, 2);
+#elif defined(zig_gnuc_asm)
+    __asm__ ("mrc p15, 0, %[ptr], c13, c0, 2" : [ptr] "=r" (teb));
+#endif
+    return teb;
 }
 
-#elif (_MSC_VER && _M_IX86) || defined(__i386__) || defined(__X86__)
+#elif defined(zig_aarch64)
+
+static inline void* zig_aarch64_windows_teb(void) {
+    void* teb = 0;
+#if defined(zig_msvc)
+    teb = (void*)__readx18qword(0x0);
+#elif defined(zig_gnuc_asm)
+    __asm__ ("mov %[ptr], x18" : [ptr] "=r" (teb));
+#endif
+    return teb;
+}
+
+#elif defined(zig_x86_32)
 
 static inline void* zig_x86_windows_teb(void) {
-#if _MSC_VER
-    return (void*)__readfsdword(0x18);
-#else
-    void* teb;
-    __asm volatile(" movl %%fs:0x18, %[ptr]": [ptr]"=r"(teb)::);
-    return teb;
+    void* teb = 0;
+#if defined(zig_msvc)
+    teb = (void*)__readfsdword(0x18);
+#elif defined(zig_gnuc_asm)
+    __asm__ ("movl %%fs:0x18, %[ptr]" : [ptr] "=r" (teb));
 #endif
+    return teb;
+}
+
+#elif defined(zig_x86_64)
+
+static inline void* zig_x86_64_windows_teb(void) {
+    void* teb = 0;
+#if defined(zig_msvc)
+    teb = (void*)__readgsqword(0x30);
+#elif defined(zig_gnuc_asm)
+    __asm__ ("movq %%gs:0x30, %[ptr]" : [ptr] "=r" (teb));
+#endif
+    return teb;
 }
 
 #endif
 
-#if (_MSC_VER && (_M_IX86 || _M_X64)) || defined(__i386__) || defined(__x86_64__)
+#if defined(zig_x86)
 
 static inline void zig_x86_cpuid(uint32_t leaf_id, uint32_t subid, uint32_t* eax, uint32_t* ebx, uint32_t* ecx, uint32_t* edx) {
-#if _MSC_VER
+#if defined(zig_msvc)
     int cpu_info[4];
     __cpuidex(cpu_info, leaf_id, subid);
     *eax = (uint32_t)cpu_info[0];
     *ebx = (uint32_t)cpu_info[1];
     *ecx = (uint32_t)cpu_info[2];
     *edx = (uint32_t)cpu_info[3];
+#elif defined(zig_gnuc_asm)
+    __asm__("cpuid" : "=a"(*eax), "=b"(*ebx), "=c"(*ecx), "=d"(*edx) : "a"(leaf_id), "c"(subid));
 #else
-    __cpuid_count(leaf_id, subid, *eax, *ebx, *ecx, *edx);
+    *eax = 0;
+    *ebx = 0;
+    *ecx = 0;
+    *edx = 0;
 #endif
 }
 
 static inline uint32_t zig_x86_get_xcr0(void) {
-#if _MSC_VER
+#if defined(zig_msvc)
     return (uint32_t)_xgetbv(0);
-#else
+#elif defined(zig_gnuc_asm)
     uint32_t eax;
     uint32_t edx;
     __asm__("xgetbv" : "=a"(eax), "=d"(edx) : "c"(0));
     return eax;
+#else
+    *eax = 0;
+    *ebx = 0;
+    *ecx = 0;
+    *edx = 0;
 #endif
 }
 

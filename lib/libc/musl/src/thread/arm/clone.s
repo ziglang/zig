@@ -19,7 +19,8 @@ __clone:
 	ldmfd sp!,{r4,r5,r6,r7}
 	bx lr
 
-1:	mov r0,r6
+1:	mov fp,#0
+	mov r0,r6
 	bl 3f
 2:	mov r7,#1
 	svc 0

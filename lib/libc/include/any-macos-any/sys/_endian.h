@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2004, 2006 Apple Computer, Inc. All rights reserved.
+ * Copyright (c) 2004, 2006, 2023 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -91,7 +91,7 @@
 #define _SYS__ENDIAN_H_
 
 #include <sys/cdefs.h>
-#include <machine/endian.h>
+#include <machine/_endian.h>
 
 /*
  * Macros for network/external number representation conversion.
@@ -118,12 +118,12 @@ __END_DECLS
 #define ntohll(x)       ((__uint64_t)(x))
 #define htonll(x)       ((__uint64_t)(x))
 
-#define NTOHL(x)        (x)
-#define NTOHS(x)        (x)
-#define NTOHLL(x)       (x)
-#define HTONL(x)        (x)
-#define HTONS(x)        (x)
-#define HTONLL(x)       (x)
+#define NTOHL(x)        (x) = (x)
+#define NTOHS(x)        (x) = (x)
+#define NTOHLL(x)       (x) = (x)
+#define HTONL(x)        (x) = (x)
+#define HTONS(x)        (x) = (x)
+#define HTONLL(x)       (x) = (x)
 #endif /* defined(KERNEL) || (!defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE)) */
 
 #else   /* __DARWIN_BYTE_ORDER == __DARWIN_LITTLE_ENDIAN */

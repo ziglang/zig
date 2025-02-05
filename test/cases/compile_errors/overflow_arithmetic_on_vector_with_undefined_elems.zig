@@ -21,6 +21,6 @@ comptime {
 // :14:5: note: also here
 //
 // Compile Log Output:
-// @as(struct{@Vector(3, u8), @Vector(3, u1)}, .{ .{ 2, 144, undefined }, .{ 0, 1, undefined } })
-// @as(struct{@Vector(3, u8), @Vector(3, u1)}, .{ .{ 1, 255, undefined }, .{ 0, 1, undefined } })
-// @as(struct{@Vector(3, u8), @Vector(3, u1)}, .{ .{ 1, 64, undefined }, .{ 0, 1, undefined } })
+// @as(struct { @Vector(3, u8), @Vector(3, u1) }, .{ .{ 2, 144, undefined }, .{ 0, 1, undefined } })
+// @as(struct { @Vector(3, u8), @Vector(3, u1) }, .{ .{ 1, 255, undefined }, .{ 0, 1, undefined } })
+// @as(struct { @Vector(3, u8), @Vector(3, u1) }, .{ .{ 1, 64, undefined }, .{ 0, 1, undefined } })

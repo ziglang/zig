@@ -159,7 +159,7 @@ pub fn writeOperand(section: *Section, comptime Operand: type, operand: Operand)
                 section.writeOperand(info.child, child);
             },
             .pointer => |info| {
-                std.debug.assert(info.size == .Slice); // Should be no other pointer types in the spec.
+                std.debug.assert(info.size == .slice); // Should be no other pointer types in the spec.
                 for (operand) |item| {
                     section.writeOperand(info.child, item);
                 }
@@ -292,7 +292,7 @@ fn operandSize(comptime Operand: type, operand: Operand) usize {
             .@"enum" => 1,
             .optional => |info| if (operand) |child| operandSize(info.child, child) else 0,
             .pointer => |info| blk: {
-                std.debug.assert(info.size == .Slice); // Should be no other pointer types in the spec.
+                std.debug.assert(info.size == .slice); // Should be no other pointer types in the spec.
                 var total: usize = 0;
                 for (operand) |item| {
                     total += operandSize(info.child, item);

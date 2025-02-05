@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const linux = std.os.linux;
 const SYS = linux.SYS;
@@ -121,6 +122,14 @@ pub fn clone() callconv(.Naked) usize {
         \\ beqz    $a0, 1f         # whether child process
         \\ jirl    $zero, $ra, 0   # parent process return
         \\1:
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
+        \\ .cfi_undefined 1
+    );
+    asm volatile (
+        \\ move    $fp, $zero
+        \\ move    $ra, $zero
+        \\
         \\ ld.d    $t8, $sp, 0     # function pointer
         \\ ld.d    $a0, $sp, 8     # argument pointer
         \\ jirl    $ra, $t8, 0     # call the user's function

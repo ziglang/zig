@@ -4,7 +4,6 @@ export fn foo(num: anytype) i32 {
 }
 
 // error
-// backend=stage2
-// target=native
+// target=x86_64-linux
 //
-// :1:15: error: generic parameters not allowed in function with calling convention 'C'
+// :1:15: error: generic parameters not allowed in function with calling convention 'x86_64_sysv'

@@ -43,7 +43,7 @@ __TypeMatch
 __current_exception
 __current_exception_context
 __dcrt_get_wide_environment_from_os
-__dcrt_initial_narrow_environment
+__dcrt_initial_narrow_environment DATA
 __intrinsic_abnormal_termination
 __intrinsic_setjmp
 F64(__intrinsic_setjmpex)

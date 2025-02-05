@@ -596,42 +596,8 @@ test "type coercion of anon struct literal to array" {
 
             var x2: U = .{ .a = 42 };
             _ = &x2;
-            const t2 = .{ x2, .{ .b = true }, .{ .c = "hello" } };
+            const t2 = .{ x2, U{ .b = true }, U{ .c = "hello" } };
             const arr2: [3]U = t2;
-            try expect(arr2[0].a == 42);
-            try expect(arr2[1].b == true);
-            try expect(mem.eql(u8, arr2[2].c, "hello"));
-        }
-    };
-    try S.doTheTest();
-    try comptime S.doTheTest();
-}
-
-test "type coercion of pointer to anon struct literal to pointer to array" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
-    const S = struct {
-        const U = union {
-            a: u32,
-            b: bool,
-            c: []const u8,
-        };
-
-        fn doTheTest() !void {
-            var x1: u8 = 42;
-            _ = &x1;
-            const t1 = &.{ x1, 56, 54 };
-            const arr1: *const [3]u8 = t1;
-            try expect(arr1[0] == 42);
-            try expect(arr1[1] == 56);
-            try expect(arr1[2] == 54);
-
-            var x2: U = .{ .a = 42 };
-            _ = &x2;
-            const t2 = &.{ x2, .{ .b = true }, .{ .c = "hello" } };
-            const arr2: *const [3]U = t2;
             try expect(arr2[0].a == 42);
             try expect(arr2[1].b == true);
             try expect(mem.eql(u8, arr2[2].c, "hello"));

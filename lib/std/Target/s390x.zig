@@ -289,7 +289,7 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const arch10 = CpuModel{
+    pub const arch10: CpuModel = .{
         .name = "arch10",
         .llvm_name = "arch10",
         .features = featureSet(&[_]Feature{
@@ -312,7 +312,7 @@ pub const cpu = struct {
             .transactional_execution,
         }),
     };
-    pub const arch11 = CpuModel{
+    pub const arch11: CpuModel = .{
         .name = "arch11",
         .llvm_name = "arch11",
         .features = featureSet(&[_]Feature{
@@ -340,7 +340,7 @@ pub const cpu = struct {
             .vector,
         }),
     };
-    pub const arch12 = CpuModel{
+    pub const arch12: CpuModel = .{
         .name = "arch12",
         .llvm_name = "arch12",
         .features = featureSet(&[_]Feature{
@@ -376,7 +376,7 @@ pub const cpu = struct {
             .vector_packed_decimal,
         }),
     };
-    pub const arch13 = CpuModel{
+    pub const arch13: CpuModel = .{
         .name = "arch13",
         .llvm_name = "arch13",
         .features = featureSet(&[_]Feature{
@@ -418,7 +418,7 @@ pub const cpu = struct {
             .vector_packed_decimal_enhancement,
         }),
     };
-    pub const arch14 = CpuModel{
+    pub const arch14: CpuModel = .{
         .name = "arch14",
         .llvm_name = "arch14",
         .features = featureSet(&[_]Feature{
@@ -465,12 +465,12 @@ pub const cpu = struct {
             .vector_packed_decimal_enhancement_2,
         }),
     };
-    pub const arch8 = CpuModel{
+    pub const arch8: CpuModel = .{
         .name = "arch8",
         .llvm_name = "arch8",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const arch9 = CpuModel{
+    pub const arch9: CpuModel = .{
         .name = "arch9",
         .llvm_name = "arch9",
         .features = featureSet(&[_]Feature{
@@ -486,17 +486,17 @@ pub const cpu = struct {
             .reset_reference_bits_multiple,
         }),
     };
-    pub const generic = CpuModel{
+    pub const generic: CpuModel = .{
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const z10 = CpuModel{
+    pub const z10: CpuModel = .{
         .name = "z10",
         .llvm_name = "z10",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const z13 = CpuModel{
+    pub const z13: CpuModel = .{
         .name = "z13",
         .llvm_name = "z13",
         .features = featureSet(&[_]Feature{
@@ -524,7 +524,7 @@ pub const cpu = struct {
             .vector,
         }),
     };
-    pub const z14 = CpuModel{
+    pub const z14: CpuModel = .{
         .name = "z14",
         .llvm_name = "z14",
         .features = featureSet(&[_]Feature{
@@ -560,7 +560,7 @@ pub const cpu = struct {
             .vector_packed_decimal,
         }),
     };
-    pub const z15 = CpuModel{
+    pub const z15: CpuModel = .{
         .name = "z15",
         .llvm_name = "z15",
         .features = featureSet(&[_]Feature{
@@ -602,7 +602,7 @@ pub const cpu = struct {
             .vector_packed_decimal_enhancement,
         }),
     };
-    pub const z16 = CpuModel{
+    pub const z16: CpuModel = .{
         .name = "z16",
         .llvm_name = "z16",
         .features = featureSet(&[_]Feature{
@@ -649,7 +649,7 @@ pub const cpu = struct {
             .vector_packed_decimal_enhancement_2,
         }),
     };
-    pub const z196 = CpuModel{
+    pub const z196: CpuModel = .{
         .name = "z196",
         .llvm_name = "z196",
         .features = featureSet(&[_]Feature{
@@ -665,7 +665,7 @@ pub const cpu = struct {
             .reset_reference_bits_multiple,
         }),
     };
-    pub const zEC12 = CpuModel{
+    pub const zEC12: CpuModel = .{
         .name = "zEC12",
         .llvm_name = "zEC12",
         .features = featureSet(&[_]Feature{

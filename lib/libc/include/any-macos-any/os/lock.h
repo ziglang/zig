@@ -195,6 +195,47 @@ OS_UNFAIR_LOCK_AVAILABILITY
 OS_EXPORT OS_NOTHROW OS_NONNULL_ALL
 void os_unfair_lock_assert_not_owner(const os_unfair_lock *lock);
 
+/*!
+ * @typedef os_unfair_lock_flags_t
+ *
+ * @const OS_UNFAIR_LOCK_FLAG_ADAPTIVE_SPIN
+ * This flag allows the caller of os_unfair_lock_lock_with_flags API to spin
+ * temporarily before blocking, particularly useful when the holder of the
+ * lock is on core. This should only be used for locks where the protected
+ * critical section is always extremely short.
+ */
+OS_REFINED_FOR_SWIFT
+OS_OPTIONS(os_unfair_lock_flags, uint32_t,
+	OS_UNFAIR_LOCK_FLAG_NONE
+		__API_AVAILABLE(macos(15.0), ios(18.0),
+		tvos(18.0), watchos(11.0), visionos(2.0))
+		OS_SWIFT_UNAVAILABLE("Use OSAllocatedUnfairLock APIs that do not require flags.")
+		= 0x00000000,
+	OS_UNFAIR_LOCK_FLAG_ADAPTIVE_SPIN
+		__API_AVAILABLE(macos(15.0), ios(18.0),
+		tvos(18.0), watchos(11.0), visionos(2.0))
+		OS_SWIFT_UNAVAILABLE("Use OSAllocatedUnfairLockFlags.AdaptiveSpin")
+		= 0x00040000,
+);
+
+/*!
+ * @function os_unfair_lock_lock_with_flags
+ *
+ * @abstract
+ * Locks an os_unfair_lock.
+ *
+ * @param lock
+ * Pointer to an os_unfair_lock.
+ *
+ * @param flags
+ * Flags to alter the behavior of the lock. See os_unfair_lock_flags_t.
+ */
+__API_AVAILABLE(macos(15.0), ios(18.0), tvos(18.0), watchos(11.0), visionos(2.0))
+OS_EXPORT OS_NOTHROW OS_NONNULL_ALL
+OS_SWIFT_UNAVAILABLE_FROM_ASYNC("Use OSAllocatedUnfairLock for async-safe scoped locking")
+void os_unfair_lock_lock_with_flags(os_unfair_lock_t lock,
+	os_unfair_lock_flags_t flags);
+
 __END_DECLS
 
 OS_ASSUME_NONNULL_END

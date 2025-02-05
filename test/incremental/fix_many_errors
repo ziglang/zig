@@ -1,0 +1,71 @@
+#target=x86_64-linux-selfhosted
+#target=x86_64-linux-cbe
+#target=x86_64-windows-cbe
+#update=initial version
+#file=main.zig
+pub fn main() !void {}
+comptime { @compileError("c0"); }
+comptime { @compileError("c1"); }
+comptime { @compileError("c2"); }
+comptime { @compileError("c3"); }
+comptime { @compileError("c4"); }
+comptime { @compileError("c5"); }
+comptime { @compileError("c6"); }
+comptime { @compileError("c7"); }
+comptime { @compileError("c8"); }
+comptime { @compileError("c9"); }
+export fn f0() void { @compileError("f0"); }
+export fn f1() void { @compileError("f1"); }
+export fn f2() void { @compileError("f2"); }
+export fn f3() void { @compileError("f3"); }
+export fn f4() void { @compileError("f4"); }
+export fn f5() void { @compileError("f5"); }
+export fn f6() void { @compileError("f6"); }
+export fn f7() void { @compileError("f7"); }
+export fn f8() void { @compileError("f8"); }
+export fn f9() void { @compileError("f9"); }
+#expect_error=main.zig:2:12: error: c0
+#expect_error=main.zig:3:12: error: c1
+#expect_error=main.zig:4:12: error: c2
+#expect_error=main.zig:5:12: error: c3
+#expect_error=main.zig:6:12: error: c4
+#expect_error=main.zig:7:12: error: c5
+#expect_error=main.zig:8:12: error: c6
+#expect_error=main.zig:9:12: error: c7
+#expect_error=main.zig:10:12: error: c8
+#expect_error=main.zig:11:12: error: c9
+#expect_error=main.zig:12:23: error: f0
+#expect_error=main.zig:13:23: error: f1
+#expect_error=main.zig:14:23: error: f2
+#expect_error=main.zig:15:23: error: f3
+#expect_error=main.zig:16:23: error: f4
+#expect_error=main.zig:17:23: error: f5
+#expect_error=main.zig:18:23: error: f6
+#expect_error=main.zig:19:23: error: f7
+#expect_error=main.zig:20:23: error: f8
+#expect_error=main.zig:21:23: error: f9
+#update=fix all the errors
+#file=main.zig
+pub fn main() !void {}
+comptime {}
+comptime {}
+comptime {}
+comptime {}
+comptime {}
+comptime {}
+comptime {}
+comptime {}
+comptime {}
+comptime {}
+export fn f0() void {}
+export fn f1() void {}
+export fn f2() void {}
+export fn f3() void {}
+export fn f4() void {}
+export fn f5() void {}
+export fn f6() void {}
+export fn f7() void {}
+export fn f8() void {}
+export fn f9() void {}
+const std = @import("std");
+#expect_stdout=""

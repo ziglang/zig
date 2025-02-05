@@ -25,6 +25,17 @@ pub const init: MemoryAccessor = .{
     },
 };
 
+pub fn deinit(ma: *MemoryAccessor) void {
+    switch (native_os) {
+        .linux => switch (ma.mem.handle) {
+            -2, -1 => {},
+            else => ma.mem.close(),
+        },
+        else => {},
+    }
+    ma.* = undefined;
+}
+
 fn read(ma: *MemoryAccessor, address: usize, buf: []u8) bool {
     switch (native_os) {
         .linux => while (true) switch (ma.mem.handle) {
@@ -48,7 +59,8 @@ fn read(ma: *MemoryAccessor, address: usize, buf: []u8) bool {
                 switch (linux.E.init(bytes_read)) {
                     .SUCCESS => return bytes_read == buf.len,
                     .FAULT => return false,
-                    .INVAL, .PERM, .SRCH => unreachable, // own pid is always valid
+                    .INVAL, .SRCH => unreachable, // own pid is always valid
+                    .PERM => {}, // Known to happen in containers.
                     .NOMEM => {},
                     .NOSYS => {}, // QEMU is known not to implement this syscall.
                     else => unreachable, // unexpected
@@ -79,7 +91,7 @@ pub fn load(ma: *MemoryAccessor, comptime Type: type, address: usize) ?Type {
 
 pub fn isValidMemory(address: usize) bool {
     // We are unable to determine validity of memory for freestanding targets
-    if (native_os == .freestanding or native_os == .uefi) return true;
+    if (native_os == .freestanding or native_os == .other or native_os == .uefi) return true;
 
     const aligned_address = address & ~@as(usize, @intCast((page_size - 1)));
     if (aligned_address == 0) return false;

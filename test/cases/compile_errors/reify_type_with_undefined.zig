@@ -1,5 +1,5 @@
 comptime {
-    _ = @Type(.{ .array = .{ .len = 0, .child = u8, .sentinel = undefined } });
+    _ = @Type(.{ .array = .{ .len = 0, .child = u8, .sentinel_ptr = undefined } });
 }
 comptime {
     _ = @Type(.{

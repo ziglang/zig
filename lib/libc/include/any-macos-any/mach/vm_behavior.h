@@ -75,5 +75,6 @@ typedef int             vm_behavior_t;
 #define VM_BEHAVIOR_REUSE       ((vm_behavior_t) 9)
 #define VM_BEHAVIOR_CAN_REUSE   ((vm_behavior_t) 10)
 #define VM_BEHAVIOR_PAGEOUT     ((vm_behavior_t) 11)
+#define VM_BEHAVIOR_ZERO        ((vm_behavior_t) 12)   /* zero pages without faulting in additional pages */
 
 #endif  /*_MACH_VM_BEHAVIOR_H_*/

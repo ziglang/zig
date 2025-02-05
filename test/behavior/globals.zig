@@ -66,3 +66,99 @@ test "global loads can affect liveness" {
     S.f();
     try std.testing.expect(y.a == 1);
 }
+
+test "global const can be self-referential" {
+    const S = struct {
+        self: *const @This(),
+        x: u32,
+
+        const foo: @This() = .{ .self = &foo, .x = 123 };
+    };
+
+    try std.testing.expect(S.foo.x == 123);
+    try std.testing.expect(S.foo.self.x == 123);
+    try std.testing.expect(S.foo.self.self.x == 123);
+    try std.testing.expect(S.foo.self == &S.foo);
+    try std.testing.expect(S.foo.self.self == &S.foo);
+}
+
+test "global var can be self-referential" {
+    const S = struct {
+        self: *@This(),
+        x: u32,
+
+        var foo: @This() = .{ .self = &foo, .x = undefined };
+    };
+
+    S.foo.x = 123;
+
+    try std.testing.expect(S.foo.x == 123);
+    try std.testing.expect(S.foo.self.x == 123);
+    try std.testing.expect(S.foo.self == &S.foo);
+
+    S.foo.self.x = 456;
+
+    try std.testing.expect(S.foo.x == 456);
+    try std.testing.expect(S.foo.self.x == 456);
+    try std.testing.expect(S.foo.self == &S.foo);
+
+    S.foo.self.self.x = 789;
+
+    try std.testing.expect(S.foo.x == 789);
+    try std.testing.expect(S.foo.self.x == 789);
+    try std.testing.expect(S.foo.self == &S.foo);
+}
+
+test "global const can be indirectly self-referential" {
+    const S = struct {
+        other: *const @This(),
+        x: u32,
+
+        const foo: @This() = .{ .other = &bar, .x = 123 };
+        const bar: @This() = .{ .other = &foo, .x = 456 };
+    };
+
+    try std.testing.expect(S.foo.x == 123);
+    try std.testing.expect(S.foo.other.x == 456);
+    try std.testing.expect(S.foo.other.other.x == 123);
+    try std.testing.expect(S.foo.other.other.other.x == 456);
+    try std.testing.expect(S.foo.other == &S.bar);
+    try std.testing.expect(S.foo.other.other == &S.foo);
+
+    try std.testing.expect(S.bar.x == 456);
+    try std.testing.expect(S.bar.other.x == 123);
+    try std.testing.expect(S.bar.other.other.x == 456);
+    try std.testing.expect(S.bar.other.other.other.x == 123);
+    try std.testing.expect(S.bar.other == &S.foo);
+    try std.testing.expect(S.bar.other.other == &S.bar);
+}
+
+test "global var can be indirectly self-referential" {
+    const S = struct {
+        other: *@This(),
+        x: u32,
+
+        var foo: @This() = .{ .other = &bar, .x = undefined };
+        var bar: @This() = .{ .other = &foo, .x = undefined };
+    };
+
+    S.foo.other.x = 123; // bar.x
+    S.foo.other.other.x = 456; // foo.x
+
+    try std.testing.expect(S.foo.x == 456);
+    try std.testing.expect(S.foo.other.x == 123);
+    try std.testing.expect(S.foo.other.other.x == 456);
+    try std.testing.expect(S.foo.other.other.other.x == 123);
+    try std.testing.expect(S.foo.other == &S.bar);
+    try std.testing.expect(S.foo.other.other == &S.foo);
+
+    S.bar.other.x = 111; // foo.x
+    S.bar.other.other.x = 222; // bar.x
+
+    try std.testing.expect(S.bar.x == 222);
+    try std.testing.expect(S.bar.other.x == 111);
+    try std.testing.expect(S.bar.other.other.x == 222);
+    try std.testing.expect(S.bar.other.other.other.x == 111);
+    try std.testing.expect(S.bar.other == &S.foo);
+    try std.testing.expect(S.bar.other.other == &S.bar);
+}

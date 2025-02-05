@@ -48,9 +48,16 @@ neg 3, 3 #negate the result (errno)
 # compare sc result with 0
 cmpwi cr7, 3, 0
 
-# if not 0, jump to end
-bne cr7, 2f
+# if not 0, restore stack and return
+beq cr7, 2f
 
+lwz 30, 0(1)
+lwz 31, 4(1)
+addi 1, 1, 16
+
+blr
+
+2:
 #else: we're the child
 #call funcptr: move arg (d) into r3
 mr 3, 31
@@ -61,13 +68,3 @@ bctrl
 # mov SYS_exit into r0 (the exit param is already in r3)
 li 0, 1
 sc
-
-2:
-
-# restore stack
-lwz 30, 0(1)
-lwz 31, 4(1)
-addi 1, 1, 16
-
-blr
-

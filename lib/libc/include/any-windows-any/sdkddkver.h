@@ -146,8 +146,12 @@
 #define NTDDI_WIN10_FE 0x0A00000A
 #define NTDDI_WIN10_CO 0x0A00000B
 #define NTDDI_WIN10_NI 0x0A00000C
+#define NTDDI_WIN10_CU 0x0A00000D
+#define NTDDI_WIN11_ZN 0x0A00000E
+#define NTDDI_WIN11_GA 0x0A00000F
+#define NTDDI_WIN11_GE 0x0A000010
 
-#define WDK_NTDDI_VERSION NTDDI_WIN10_NI
+#define WDK_NTDDI_VERSION NTDDI_WIN11_GE
 
 /* Version Fields in NTDDI_VERSION */
 #define OSVERSION_MASK 0xFFFF0000U
@@ -170,11 +174,18 @@
 
 /* Choose NTDDI Version */
 #ifndef NTDDI_VERSION
-#ifdef _WIN32_WINNT
-#define NTDDI_VERSION NTDDI_VERSION_FROM_WIN32_WINNT(_WIN32_WINNT)
-#else
-#define NTDDI_VERSION NTDDI_WS03
-#endif
+# ifdef _WIN32_WINNT
+#  if _WIN32_WINNT < _WIN32_WINNT_WIN10
+/* For versions before Windows 10, set the corresponding NTDDI_VERSION. */
+#   define NTDDI_VERSION NTDDI_VERSION_FROM_WIN32_WINNT(_WIN32_WINNT)
+#  else
+/* As _WIN32_WINNT doesn't distinguish between versions of Windows 10/11,
+ * set NTDDI_VERSION to the highest version. */
+#   define NTDDI_VERSION WDK_NTDDI_VERSION
+#  endif
+# else
+#  define NTDDI_VERSION NTDDI_WS03
+# endif
 #endif
 
 /* Choose WINVER Value */

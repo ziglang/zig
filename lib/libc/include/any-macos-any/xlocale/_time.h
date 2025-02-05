@@ -27,7 +27,7 @@
 #include <sys/cdefs.h>
 #include <sys/_types/_size_t.h>
 #include <_types.h>
-#include <_xlocale.h>
+#include <__xlocale.h>
 
 __BEGIN_DECLS
 size_t	 strftime_l(char * __restrict, size_t, const char * __restrict,

@@ -4,13 +4,10 @@
  * No warranty is given; refer to the file DISCLAIMER.PD within this package.
  */
 
-#include <fenv.h> 
+#include <fenv.h>
+#include <internal.h>
 
-#if !(defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__))
-extern int __mingw_has_sse (void);
-#endif /* !(defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__)) */
-
-/* 7.6.2.5 
+/* 7.6.2.5
    The fetestexcept function determines which of a specified subset of
    the exception flags are currently set. The excepts argument
    specifies the exception flags to be queried.

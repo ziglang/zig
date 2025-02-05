@@ -1,6 +1,6 @@
 pub fn main() void {
     const x = 1;
-    const y, var z = .{ 2, 3 };
+    const y, var z: u32 = .{ 2, 3 };
 }
 
 // error

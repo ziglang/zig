@@ -6,7 +6,7 @@ const io = std.io;
 const testing = std.testing;
 const assert = std.debug.assert;
 
-pub const std_options = .{
+pub const std_options: std.Options = .{
     .logFn = log,
 };
 
@@ -136,7 +136,7 @@ fn mainServer() !void {
                         .leak = leak,
                         .fuzz = is_fuzz_test,
                         .log_err_count = std.math.lossyCast(
-                            @TypeOf(@as(std.zig.Server.Message.TestResults.Flags, undefined).log_err_count),
+                            @FieldType(std.zig.Server.Message.TestResults.Flags, "log_err_count"),
                             log_err_count,
                         ),
                     },

@@ -23,7 +23,6 @@
 /*****************************************************************************
  * Error code handling
  */
-#define FACILITY_DIRECTMUSIC 0x878
 #define DMUS_ERRBASE 0x1000
 
 #ifndef MAKE_HRESULT

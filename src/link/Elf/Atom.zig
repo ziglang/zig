@@ -102,9 +102,13 @@ pub fn relocsShndx(self: Atom) ?u32 {
     return self.relocs_section_index;
 }
 
-pub fn priority(self: Atom, elf_file: *Elf) u64 {
-    const index = self.file(elf_file).?.index();
-    return (@as(u64, @intCast(index)) << 32) | @as(u64, @intCast(self.input_section_index));
+pub fn priority(atom: Atom, elf_file: *Elf) u64 {
+    const index = atom.file(elf_file).?.index();
+    return priorityLookup(index, atom.input_section_index);
+}
+
+pub fn priorityLookup(file_index: File.Index, input_section_index: u32) u64 {
+    return (@as(u64, @intCast(file_index)) << 32) | @as(u64, @intCast(input_section_index));
 }
 
 /// Returns how much room there is to grow in virtual address space.
@@ -255,19 +259,13 @@ pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.El
     }
 }
 
-pub fn fdes(self: Atom, elf_file: *Elf) []Fde {
-    const extras = self.extra(elf_file);
-    return switch (self.file(elf_file).?) {
-        .shared_object => unreachable,
-        .linker_defined, .zig_object => &[0]Fde{},
-        .object => |x| x.fdes.items[extras.fde_start..][0..extras.fde_count],
-    };
+pub fn fdes(atom: Atom, object: *Object) []Fde {
+    const extras = object.atomExtra(atom.extra_index);
+    return object.fdes.items[extras.fde_start..][0..extras.fde_count];
 }
 
-pub fn markFdesDead(self: Atom, elf_file: *Elf) void {
-    for (self.fdes(elf_file)) |*fde| {
-        fde.alive = false;
-    }
+pub fn markFdesDead(self: Atom, object: *Object) void {
+    for (self.fdes(object)) |*fde| fde.alive = false;
 }
 
 pub fn addReloc(self: Atom, alloc: Allocator, reloc: elf.Elf64_Rela, zo: *ZigObject) !void {
@@ -525,7 +523,7 @@ fn reportUnhandledRelocError(self: Atom, rel: elf.Elf64_Rela, elf_file: *Elf) Re
         relocation.fmtRelocType(rel.r_type(), elf_file.getTarget().cpu.arch),
         rel.r_offset,
     });
-    try err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
+    err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
     return error.RelocFailure;
 }
 
@@ -541,7 +539,7 @@ fn reportTextRelocError(
         rel.r_offset,
         symbol.name(elf_file),
     });
-    try err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
+    err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
     return error.RelocFailure;
 }
 
@@ -557,8 +555,8 @@ fn reportPicError(
         rel.r_offset,
         symbol.name(elf_file),
     });
-    try err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
-    try err.addNote("recompile with -fPIC", .{});
+    err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
+    err.addNote("recompile with -fPIC", .{});
     return error.RelocFailure;
 }
 
@@ -574,8 +572,8 @@ fn reportNoPicError(
         rel.r_offset,
         symbol.name(elf_file),
     });
-    try err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
-    try err.addNote("recompile with -fno-PIC", .{});
+    err.addNote("in {}:{s}", .{ self.file(elf_file).?.fmtPath(), self.name(elf_file) });
+    err.addNote("recompile with -fno-PIC", .{});
     return error.RelocFailure;
 }
 
@@ -728,7 +726,7 @@ fn resolveDynAbsReloc(
         .copyrel,
         .cplt,
         .none,
-        => try writer.writeInt(i32, @as(i32, @truncate(S + A)), .little),
+        => try writer.writeInt(i64, S + A, .little),
 
         .dyn_copyrel => {
             if (is_writeable or elf_file.z_nocopyreloc) {
@@ -741,7 +739,7 @@ fn resolveDynAbsReloc(
                 });
                 try applyDynamicReloc(A, elf_file, writer);
             } else {
-                try writer.writeInt(i32, @as(i32, @truncate(S + A)), .little);
+                try writer.writeInt(i64, S + A, .little);
             }
         },
 
@@ -756,7 +754,7 @@ fn resolveDynAbsReloc(
                 });
                 try applyDynamicReloc(A, elf_file, writer);
             } else {
-                try writer.writeInt(i32, @as(i32, @truncate(S + A)), .little);
+                try writer.writeInt(i64, S + A, .little);
             }
         },
 
@@ -946,16 +944,21 @@ fn format2(
         atom.output_section_index, atom.alignment.toByteUnits() orelse 0, atom.size,
         atom.prev_atom_ref,        atom.next_atom_ref,
     });
-    if (atom.fdes(elf_file).len > 0) {
-        try writer.writeAll(" : fdes{ ");
-        const extras = atom.extra(elf_file);
-        for (atom.fdes(elf_file), extras.fde_start..) |fde, i| {
-            try writer.print("{d}", .{i});
-            if (!fde.alive) try writer.writeAll("([*])");
-            if (i - extras.fde_start < extras.fde_count - 1) try writer.writeAll(", ");
-        }
-        try writer.writeAll(" }");
-    }
+    if (atom.file(elf_file)) |atom_file| switch (atom_file) {
+        .object => |object| {
+            if (atom.fdes(object).len > 0) {
+                try writer.writeAll(" : fdes{ ");
+                const extras = atom.extra(elf_file);
+                for (atom.fdes(object), extras.fde_start..) |fde, i| {
+                    try writer.print("{d}", .{i});
+                    if (!fde.alive) try writer.writeAll("([*])");
+                    if (i - extras.fde_start < extras.fde_count - 1) try writer.writeAll(", ");
+                }
+                try writer.writeAll(" }");
+            }
+        },
+        else => {},
+    };
     if (!atom.alive) {
         try writer.writeAll(" : [*]");
     }
@@ -973,6 +976,7 @@ const x86_64 = struct {
         it: *RelocsIterator,
     ) !void {
         dev.check(.x86_64_backend);
+        const t = &elf_file.base.comp.root_mod.resolved_target.result;
         const is_static = elf_file.base.isStatic();
         const is_dyn_lib = elf_file.isEffectivelyDynLib();
 
@@ -1043,7 +1047,7 @@ const x86_64 = struct {
             .GOTTPOFF => {
                 const should_relax = blk: {
                     if (is_dyn_lib or symbol.flags.import) break :blk false;
-                    if (!x86_64.canRelaxGotTpOff(code.?[r_offset - 3 ..])) break :blk false;
+                    if (!x86_64.canRelaxGotTpOff(code.?[r_offset - 3 ..], t)) break :blk false;
                     break :blk true;
                 };
                 if (!should_relax) {
@@ -1087,6 +1091,7 @@ const x86_64 = struct {
         stream: anytype,
     ) (error{ InvalidInstruction, CannotEncode } || RelocError)!void {
         dev.check(.x86_64_backend);
+        const t = &elf_file.base.comp.root_mod.resolved_target.result;
         const diags = &elf_file.base.comp.link_diags;
         const r_type: elf.R_X86_64 = @enumFromInt(rel.r_type());
         const r_offset = std.math.cast(usize, rel.r_offset) orelse return error.Overflow;
@@ -1117,7 +1122,7 @@ const x86_64 = struct {
 
             .GOTPCRELX => {
                 if (!target.flags.import and !target.isIFunc(elf_file) and !target.isAbs(elf_file)) blk: {
-                    x86_64.relaxGotpcrelx(code[r_offset - 2 ..]) catch break :blk;
+                    x86_64.relaxGotpcrelx(code[r_offset - 2 ..], t) catch break :blk;
                     try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little);
                     return;
                 }
@@ -1126,7 +1131,7 @@ const x86_64 = struct {
 
             .REX_GOTPCRELX => {
                 if (!target.flags.import and !target.isIFunc(elf_file) and !target.isAbs(elf_file)) blk: {
-                    x86_64.relaxRexGotpcrelx(code[r_offset - 3 ..]) catch break :blk;
+                    x86_64.relaxRexGotpcrelx(code[r_offset - 3 ..], t) catch break :blk;
                     try cwriter.writeInt(i32, @as(i32, @intCast(S + A - P)), .little);
                     return;
                 }
@@ -1181,10 +1186,10 @@ const x86_64 = struct {
                     const S_ = target.tlsDescAddress(elf_file);
                     try cwriter.writeInt(i32, @as(i32, @intCast(S_ + A - P)), .little);
                 } else {
-                    x86_64.relaxGotPcTlsDesc(code[r_offset - 3 ..]) catch {
+                    x86_64.relaxGotPcTlsDesc(code[r_offset - 3 ..], t) catch {
                         var err = try diags.addErrorWithNotes(1);
                         try err.addMsg("could not relax {s}", .{@tagName(r_type)});
-                        try err.addNote("in {}:{s} at offset 0x{x}", .{
+                        err.addNote("in {}:{s} at offset 0x{x}", .{
                             atom.file(elf_file).?.fmtPath(),
                             atom.name(elf_file),
                             rel.r_offset,
@@ -1205,7 +1210,7 @@ const x86_64 = struct {
                     const S_ = target.gotTpAddress(elf_file);
                     try cwriter.writeInt(i32, @as(i32, @intCast(S_ + A - P)), .little);
                 } else {
-                    x86_64.relaxGotTpOff(code[r_offset - 3 ..]);
+                    x86_64.relaxGotTpOff(code[r_offset - 3 ..], t);
                     try cwriter.writeInt(i32, @as(i32, @intCast(S - TP)), .little);
                 }
             },
@@ -1266,31 +1271,31 @@ const x86_64 = struct {
         }
     }
 
-    fn relaxGotpcrelx(code: []u8) !void {
+    fn relaxGotpcrelx(code: []u8, t: *const std.Target) !void {
         dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return error.RelaxFailure;
-        const inst = switch (old_inst.encoding.mnemonic) {
-            .call => try Instruction.new(old_inst.prefix, .call, &.{
+        const inst: Instruction = switch (old_inst.encoding.mnemonic) {
+            .call => try .new(old_inst.prefix, .call, &.{
                 // TODO: hack to force imm32s in the assembler
-                .{ .imm = Immediate.s(-129) },
-            }),
-            .jmp => try Instruction.new(old_inst.prefix, .jmp, &.{
+                .{ .imm = .s(-129) },
+            }, t),
+            .jmp => try .new(old_inst.prefix, .jmp, &.{
                 // TODO: hack to force imm32s in the assembler
-                .{ .imm = Immediate.s(-129) },
-            }),
+                .{ .imm = .s(-129) },
+            }, t),
             else => return error.RelaxFailure,
         };
         relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
-        const nop = try Instruction.new(.none, .nop, &.{});
+        const nop: Instruction = try .new(.none, .nop, &.{}, t);
         try encode(&.{ nop, inst }, code);
     }
 
-    fn relaxRexGotpcrelx(code: []u8) !void {
+    fn relaxRexGotpcrelx(code: []u8, t: *const std.Target) !void {
         dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return error.RelaxFailure;
         switch (old_inst.encoding.mnemonic) {
             .mov => {
-                const inst = try Instruction.new(old_inst.prefix, .lea, &old_inst.ops);
+                const inst: Instruction = try .new(old_inst.prefix, .lea, &old_inst.ops, t);
                 relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
                 try encode(&.{inst}, code);
             },
@@ -1329,7 +1334,7 @@ const x86_64 = struct {
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
                 });
-                try err.addNote("in {}:{s} at offset 0x{x}", .{
+                err.addNote("in {}:{s} at offset 0x{x}", .{
                     self.file(elf_file).?.fmtPath(),
                     self.name(elf_file),
                     rels[0].r_offset,
@@ -1385,7 +1390,7 @@ const x86_64 = struct {
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
                 });
-                try err.addNote("in {}:{s} at offset 0x{x}", .{
+                err.addNote("in {}:{s} at offset 0x{x}", .{
                     self.file(elf_file).?.fmtPath(),
                     self.name(elf_file),
                     rels[0].r_offset,
@@ -1395,23 +1400,24 @@ const x86_64 = struct {
         }
     }
 
-    fn canRelaxGotTpOff(code: []const u8) bool {
+    fn canRelaxGotTpOff(code: []const u8, t: *const std.Target) bool {
         dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return false;
         switch (old_inst.encoding.mnemonic) {
-            .mov => if (Instruction.new(old_inst.prefix, .mov, &.{
-                old_inst.ops[0],
-                // TODO: hack to force imm32s in the assembler
-                .{ .imm = Immediate.s(-129) },
-            })) |inst| {
+            .mov => {
+                const inst = Instruction.new(old_inst.prefix, .mov, &.{
+                    old_inst.ops[0],
+                    // TODO: hack to force imm32s in the assembler
+                    .{ .imm = .s(-129) },
+                }, t) catch return false;
                 inst.encode(std.io.null_writer, .{}) catch return false;
                 return true;
-            } else |_| return false,
+            },
             else => return false,
         }
     }
 
-    fn relaxGotTpOff(code: []u8) void {
+    fn relaxGotTpOff(code: []u8, t: *const std.Target) void {
         dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse unreachable;
         switch (old_inst.encoding.mnemonic) {
@@ -1419,8 +1425,8 @@ const x86_64 = struct {
                 const inst = Instruction.new(old_inst.prefix, .mov, &.{
                     old_inst.ops[0],
                     // TODO: hack to force imm32s in the assembler
-                    .{ .imm = Immediate.s(-129) },
-                }) catch unreachable;
+                    .{ .imm = .s(-129) },
+                }, t) catch unreachable;
                 relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
                 encode(&.{inst}, code) catch unreachable;
             },
@@ -1428,16 +1434,16 @@ const x86_64 = struct {
         }
     }
 
-    fn relaxGotPcTlsDesc(code: []u8) !void {
+    fn relaxGotPcTlsDesc(code: []u8, target: *const std.Target) !void {
         dev.check(.x86_64_backend);
         const old_inst = disassemble(code) orelse return error.RelaxFailure;
         switch (old_inst.encoding.mnemonic) {
             .lea => {
-                const inst = try Instruction.new(old_inst.prefix, .mov, &.{
+                const inst: Instruction = try .new(old_inst.prefix, .mov, &.{
                     old_inst.ops[0],
                     // TODO: hack to force imm32s in the assembler
-                    .{ .imm = Immediate.s(-129) },
-                });
+                    .{ .imm = .s(-129) },
+                }, target);
                 relocs_log.debug("    relaxing {} => {}", .{ old_inst.encoding, inst.encoding });
                 try encode(&.{inst}, code);
             },
@@ -1482,7 +1488,7 @@ const x86_64 = struct {
                     relocation.fmtRelocType(rels[0].r_type(), .x86_64),
                     relocation.fmtRelocType(rels[1].r_type(), .x86_64),
                 });
-                try err.addNote("in {}:{s} at offset 0x{x}", .{
+                err.addNote("in {}:{s} at offset 0x{x}", .{
                     self.file(elf_file).?.fmtPath(),
                     self.name(elf_file),
                     rels[0].r_offset,
@@ -1669,7 +1675,7 @@ const aarch64 = struct {
                 // TODO: relax
                 var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("TODO: relax ADR_GOT_PAGE", .{});
-                try err.addNote("in {}:{s} at offset 0x{x}", .{
+                err.addNote("in {}:{s} at offset 0x{x}", .{
                     atom.file(elf_file).?.fmtPath(),
                     atom.name(elf_file),
                     r_offset,
@@ -1776,7 +1782,7 @@ const aarch64 = struct {
                     const off: u12 = @truncate(@as(u64, @bitCast(S_ + A)));
                     aarch64_util.writeAddImmInst(off, code);
                 } else {
-                    const old_inst = Instruction{
+                    const old_inst: Instruction = .{
                         .add_subtract_immediate = mem.bytesToValue(std.meta.TagPayload(
                             Instruction,
                             Instruction.add_subtract_immediate,
@@ -1790,7 +1796,7 @@ const aarch64 = struct {
             },
 
             .TLSDESC_CALL => if (!target.flags.has_tlsdesc) {
-                const old_inst = Instruction{
+                const old_inst: Instruction = .{
                     .unconditional_branch_register = mem.bytesToValue(std.meta.TagPayload(
                         Instruction,
                         Instruction.unconditional_branch_register,
@@ -1956,7 +1962,7 @@ const riscv = struct {
                     // TODO: implement searching forward
                     var err = try diags.addErrorWithNotes(1);
                     try err.addMsg("TODO: find HI20 paired reloc scanning forward", .{});
-                    try err.addNote("in {}:{s} at offset 0x{x}", .{
+                    err.addNote("in {}:{s} at offset 0x{x}", .{
                         atom.file(elf_file).?.fmtPath(),
                         atom.name(elf_file),
                         rel.r_offset,

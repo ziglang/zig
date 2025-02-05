@@ -1886,10 +1886,10 @@ _exit
 _initterm
 _initterm_e
 _invalid_parameter
-_onexit
+; _onexit ; disable _onexit for compatibility with DLL builds, real _onexit function provided by mingw-w64
 _purecall
 _time64
-atexit
+_crt_atexit == atexit ; rename atexit to _crt_atexit for compatibility with UCRT, real atexit function provided by mingw-w64
 exit
 hgets
 hwprintf

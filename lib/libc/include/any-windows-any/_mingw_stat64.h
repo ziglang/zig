@@ -2,17 +2,11 @@
 
 #ifdef _USE_32BIT_TIME_T
 #define _fstat _fstat32
-#define _stat _stat32
-#define _wstat _wstat32
-#ifdef _UCRT
 #define _fstati64 _fstat32i64
+#define _stat _stat32
 #define _stati64 _stat32i64
+#define _wstat _wstat32
 #define _wstati64 _wstat32i64
-#else
-#define _fstat32i64 _fstati64
-#define _stat32i64 _stati64
-#define _wstat32i64 _wstati64
-#endif
 #else
 #define _fstat _fstat64i32
 #define _fstati64 _fstat64

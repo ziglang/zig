@@ -38,7 +38,7 @@ export fn f() void {
 // :8:18: error: expected type '*u8', found '[*c]const u8'
 // :8:18: note: cast discards const qualifier
 // :13:19: error: expected type '*u32', found '[*c]u8'
-// :13:19: note: pointer type child 'u8' cannot cast into pointer type child 'u32'
+// :13:19: note: '[*c]u8' could have null values which are illegal in type '*u32'
 // :18:22: error: expected type '[*c]u32', found '*align(1) u32'
 // :18:22: note: pointer alignment '1' cannot cast into pointer alignment '4'
 // :23:21: error: expected type '[*c]u8', found '*const u8'

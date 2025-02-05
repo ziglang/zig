@@ -52,7 +52,6 @@ struct _exception;
 #define M_SQRT1_2	0.70710678118654752440
 #endif
 
-#ifndef __STRICT_ANSI__
 /* See also float.h  */
 #ifndef __MINGW_FPCLASS_DEFINED
 #define __MINGW_FPCLASS_DEFINED 1
@@ -67,7 +66,6 @@ struct _exception;
 #define	_FPCLASS_PD	0x0080	/* Positive Denormal */
 #define	_FPCLASS_PN	0x0100	/* Positive Normal */
 #define	_FPCLASS_PINF	0x0200	/* Positive Infinity */
-#endif
 #endif
 
 #ifndef RC_INVOKED
@@ -143,13 +141,8 @@ extern "C" {
 #endif
 
 #ifndef _HUGE
-#ifdef _UCRT
-  extern double const _HUGE;
-#define _HUGE _HUGE
-#else
   extern double * __MINGW_IMP_SYMBOL(_HUGE);
 #define _HUGE	(* __MINGW_IMP_SYMBOL(_HUGE))
-#endif /* _UCRT */
 #endif
 
 #ifdef __GNUC__
@@ -258,8 +251,6 @@ extern "C" {
 #define EDOM 33
 #define ERANGE 34
 
-#ifndef __STRICT_ANSI__
-
 #ifndef _COMPLEX_DEFINED
 #define _COMPLEX_DEFINED
   struct _complex {
@@ -301,7 +292,7 @@ extern "C" {
 
 /* END FLOAT.H COPY */
 
-#if !defined(NO_OLDNAMES)
+#if !defined(__STRICT_ANSI__) || defined(_POSIX_C_SOURCE) || defined(_POSIX_SOURCE) || defined(_XOPEN_SOURCE) || defined(_GNU_SOURCE) || defined(_BSD_SOURCE)
 
 _CRTIMP double __cdecl j0 (double) __MINGW_ATTRIB_DEPRECATED_MSVC2005;
 _CRTIMP double __cdecl j1 (double) __MINGW_ATTRIB_DEPRECATED_MSVC2005;
@@ -309,6 +300,8 @@ _CRTIMP double __cdecl jn (int, double) __MINGW_ATTRIB_DEPRECATED_MSVC2005;
 _CRTIMP double __cdecl y0 (double) __MINGW_ATTRIB_DEPRECATED_MSVC2005;
 _CRTIMP double __cdecl y1 (double) __MINGW_ATTRIB_DEPRECATED_MSVC2005;
 _CRTIMP double __cdecl yn (int, double) __MINGW_ATTRIB_DEPRECATED_MSVC2005;
+
+#if !defined(NO_OLDNAMES)
 
 _CRTIMP double __cdecl chgsign (double);
 /*
@@ -333,12 +326,11 @@ _CRTIMP double __cdecl scalb (double, long);
 #define FP_NNORM   _FPCLASS_NN
 #define FP_PNORM   _FPCLASS_PN
 
-#endif /* !defined (_NO_OLDNAMES) && !define (NO_OLDNAMES) */
+#endif /* !define (NO_OLDNAMES) */
+#endif
 
 #if(defined(_X86_) && !defined(__x86_64))
   _CRTIMP int __cdecl _set_SSE2_enable(int _Flag);
-#endif
-
 #endif
 
 #ifndef __NO_ISOCEXT
@@ -586,14 +578,14 @@ __mingw_choose_expr (                                         \
 #define isnan(x) \
 __mingw_choose_expr (                                         \
   __mingw_types_compatible_p (__typeof__ (x), double),            \
-    __isnan(x),                                                 \
+    __isnan((double)(x)),                                         \
     __mingw_choose_expr (                                     \
       __mingw_types_compatible_p (__typeof__ (x), float),         \
-        __isnanf(x),                                            \
+        __isnanf((float)(x)),                                     \
     __mingw_choose_expr (                                     \
       __mingw_types_compatible_p (__typeof__ (x), long double),   \
-        __isnanl(x),                                            \
-    __dfp_expansion(__isnan,(__builtin_trap(),x),x))))
+        __isnanl((long double)(x)),                               \
+    __dfp_expansion(__isnan,(__builtin_trap(),(int)0),x))))
 
 /* 7.12.3.5 */
 #define isnormal(x) (fpclassify(x) == FP_NORMAL)
@@ -1217,28 +1209,28 @@ __MINGW_EXTENSION long long __cdecl llrintl (long double);
   extern int __cdecl __signbitd128 (_Decimal128);
 
 #ifndef __CRT__NO_INLINE
-  __CRT_INLINE __cdecl __isnand32(_Decimal32 x){
+  __CRT_INLINE int __cdecl __isnand32(_Decimal32 x){
     return __builtin_isnand32(x);
   }
 
-  __CRT_INLINE __cdecl __isnand64(_Decimal64 x){
+  __CRT_INLINE int __cdecl __isnand64(_Decimal64 x){
     return __builtin_isnand64(x);
   }
 
-  __CRT_INLINE __cdecl __isnand128(_Decimal128 x){
+  __CRT_INLINE int __cdecl __isnand128(_Decimal128 x){
     return __builtin_isnand128(x);
   }
 
   __CRT_INLINE int __cdecl __signbitd32 (_Decimal32 x){
-    return __buintin_signbitd32(x);
+    return __builtin_signbitd32(x);
   }
 
   __CRT_INLINE int __cdecl __signbitd64 (_Decimal64 x){
-    return __buintin_signbitd64(x);
+    return __builtin_signbitd64(x);
   }
 
   __CRT_INLINE int __cdecl __signbitd128 (_Decimal128 x){
-    return __buintin_signbitd128(x);
+    return __builtin_signbitd128(x);
   }
 
 #endif

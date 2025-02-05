@@ -31,6 +31,8 @@ pub fn build(b: *std.Build) void {
     const tools_target = b.resolveTargetQuery(.{});
     for ([_][]const u8{
         // Alphabetically sorted. No need to build `tools/spirv/grammar.zig`.
+        "../../tools/fetch_them_macos_headers.zig",
+        "../../tools/gen_macos_headers_c.zig",
         "../../tools/gen_outline_atomics.zig",
         "../../tools/gen_spirv_spec.zig",
         "../../tools/gen_stubs.zig",
@@ -45,9 +47,11 @@ pub fn build(b: *std.Build) void {
     }) |tool_src_path| {
         const tool = b.addTest(.{
             .name = std.fs.path.stem(tool_src_path),
-            .root_source_file = b.path(tool_src_path),
-            .optimize = .Debug,
-            .target = tools_target,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(tool_src_path),
+                .optimize = .Debug,
+                .target = tools_target,
+            }),
         });
         const run = b.addRunArtifact(tool);
         tools_tests_step.dependOn(&run.step);

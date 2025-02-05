@@ -747,6 +747,7 @@ RegisterDeviceNotificationA@12
 RegisterDeviceNotificationW@12
 RegisterErrorReportingDialog@8
 RegisterFrostWindow@8
+RegisterForTooltipDismissNotification@8
 RegisterGhostWindow@8
 RegisterHotKey@16
 RegisterLogonProcess@8
@@ -799,6 +800,7 @@ SendMessageW@16
 SendNotifyMessageA@16
 SendNotifyMessageW@16
 SetActiveWindow@4
+SetAdditionalForegroundBoostProcesses@12
 SetCapture@4
 SetCaretBlinkTime@4
 SetCaretPos@8
@@ -856,6 +858,7 @@ SetProcessDPIAware@0
 SetProcessDefaultLayout@4
 SetProcessDpiAwarenessContext@4
 SetProcessDpiAwarenessInternal@4
+SetProcessLaunchForegroundPolicy@8
 SetProcessRestrictionExemption@4
 SetProcessWindowStation@4
 SetProgmanWindow@4
@@ -913,6 +916,8 @@ SfmDxReleaseSwapChain@8
 SfmDxReportPendingBindingsToDwm@0
 SfmDxSetSwapChainBindingStatus@8
 SfmDxSetSwapChainStats@8
+ShellMigrateWindow@12
+ShellSetWindowPos@24
 ShowCaret@4
 ShowCursor@4
 ShowOwnedPopups@8

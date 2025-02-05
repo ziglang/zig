@@ -3,8 +3,8 @@
  * This file is part of the mingw-w64 runtime package.
  * No warranty is given; refer to the file DISCLAIMER.PD within this package.
  */
-#ifndef _INC_FUNCTIONDISCOVERYKEYS
-#define _INC_FUNCTIONDISCOVERYKEYS
+#ifndef _INC_FUNCTIONDISCOVERYKEYS_DEVPKEY
+#define _INC_FUNCTIONDISCOVERYKEYS_DEVPKEY
 
 #include <propkeydef.h>
 

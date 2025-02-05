@@ -1171,7 +1171,11 @@ test "shrink" {
 }
 
 test "large object - grow" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    if (builtin.target.isWasm()) {
+        // Not expected to pass on targets that do not have memory mapping.
+        return error.SkipZigTest;
+    }
+    var gpa: GeneralPurposeAllocator(test_config) = .{};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1231,6 +1235,8 @@ test "shrink large object to large object" {
 }
 
 test "shrink large object to large object with larger alignment" {
+    if (!builtin.link_libc and builtin.os.tag == .wasi) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22731
+
     var gpa = GeneralPurposeAllocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
@@ -1303,6 +1309,8 @@ test "non-page-allocator backing allocator" {
 }
 
 test "realloc large object to larger alignment" {
+    if (!builtin.link_libc and builtin.os.tag == .wasi) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22731
+
     var gpa = GeneralPurposeAllocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
@@ -1344,6 +1352,11 @@ test "realloc large object to larger alignment" {
 }
 
 test "large object shrinks to small but allocation fails during shrink" {
+    if (builtin.target.isWasm()) {
+        // Not expected to pass on targets that do not have memory mapping.
+        return error.SkipZigTest;
+    }
+
     var failing_allocator = std.testing.FailingAllocator.init(std.heap.page_allocator, .{ .fail_index = 3 });
     var gpa = GeneralPurposeAllocator(.{}){ .backing_allocator = failing_allocator.allocator() };
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");

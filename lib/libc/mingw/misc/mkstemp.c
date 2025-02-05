@@ -7,6 +7,7 @@
 #include <share.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <limits.h>
 
 /*
     The mkstemp() function generates a unique temporary filename from template,
@@ -25,8 +26,8 @@
  */
 int __cdecl mkstemp (char *template_name)
 {
-    int i, j, fd, len, index;
-    unsigned int r;
+    int j, fd, len, index;
+    unsigned int i, r;
 
     /* These are the (62) characters used in temporary filenames. */
     static const char letters[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -41,11 +42,8 @@ int __cdecl mkstemp (char *template_name)
     /* User may supply more than six trailing Xs */
     for (index = len - 6; index > 0 && template_name[index - 1] == 'X'; index--);
 
-    /*
-        Like OpenBSD, mkstemp() will try at least 2 ** 31 combinations before
-        giving up.
-     */
-    for (i = 0; i >= 0; i++) {
+    /* Like OpenBSD, mkstemp() will try 2 ** 31 combinations before giving up. */
+    for (i = 0; i <= INT_MAX; i++) {
         for(j = index; j < len; j++) {
             if (rand_s(&r))
                 r = rand();

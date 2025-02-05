@@ -48,6 +48,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     // pow(nan, y) = nan    for all y
     // pow(x, nan) = nan    for all x
     if (math.isNan(x) or math.isNan(y)) {
+        @branchHint(.unlikely);
         return math.nan(T);
     }
 

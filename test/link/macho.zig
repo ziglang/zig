@@ -937,9 +937,13 @@ fn testLinksection(b: *Build, opts: Options) *Step {
     const obj = addObject(b, opts, .{ .name = "main", .zig_source_bytes = 
     \\export var test_global: u32 linksection("__DATA,__TestGlobal") = undefined;
     \\export fn testFn() linksection("__TEXT,__TestFn") callconv(.C) void {
-    \\    testGenericFn("A");
+    \\    TestGenericFn("A").f();
     \\}
-    \\fn testGenericFn(comptime suffix: []const u8) linksection("__TEXT,__TestGenFn" ++ suffix) void {}
+    \\fn TestGenericFn(comptime suffix: []const u8) type {
+    \\    return struct {
+    \\        fn f() linksection("__TEXT,__TestGenFn" ++ suffix) void {}
+    \\    };
+    \\}
     });
 
     const check = obj.checkObject();
@@ -950,7 +954,7 @@ fn testLinksection(b: *Build, opts: Options) *Step {
 
     if (opts.optimize == .Debug) {
         check.checkInSymtab();
-        check.checkContains("(__TEXT,__TestGenFnA) _main.testGenericFn__anon_");
+        check.checkContains("(__TEXT,__TestGenFnA) _main.TestGenericFn(");
     }
 
     test_step.dependOn(&check.step);

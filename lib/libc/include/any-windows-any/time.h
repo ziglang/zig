@@ -116,7 +116,6 @@ extern "C" {
 #define TIME_UTC 1
 #endif
 
-#ifdef _UCRT
   _CRTIMP int *__cdecl __daylight(void);
   _CRTIMP long *__cdecl __dstbias(void);
   _CRTIMP long *__cdecl __timezone(void);
@@ -125,12 +124,6 @@ extern "C" {
 #define _dstbias (* __dstbias())
 #define _timezone (* __timezone())
 #define _tzname (__tzname())
-#else
-  __MINGW_IMPORT int _daylight;
-  __MINGW_IMPORT long _dstbias;
-  __MINGW_IMPORT long _timezone;
-  __MINGW_IMPORT char * _tzname[2];
-#endif
 
 #undef __MINGW_STRFTIME_FORMAT
 
@@ -213,26 +206,20 @@ extern "C" {
 
 #if !defined (RC_INVOKED) && !defined (_INC_WTIME_INL)
 #define _INC_WTIME_INL
-  wchar_t *__cdecl _wctime(const time_t *) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
-#ifndef __CRT__NO_INLINE
 #ifndef _USE_32BIT_TIME_T
-  __CRT_INLINE wchar_t *__cdecl _wctime(const time_t *_Time) { return _wctime64(_Time); }
+  wchar_t *__cdecl _wctime(const time_t *_Time) __MINGW_ASM_CALL(_wctime64) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
 #else
-  __CRT_INLINE wchar_t *__cdecl _wctime(const time_t *_Time) { return _wctime32(_Time); }
+  wchar_t *__cdecl _wctime(const time_t *_Time) __MINGW_ASM_CALL(_wctime32) __MINGW_ATTRIB_DEPRECATED_SEC_WARN;
 #endif
-#endif /* __CRT__NO_INLINE */
 #endif
 
 #if !defined (RC_INVOKED) && !defined (_INC_WTIME_S_INL)
 #define _INC_WTIME_S_INL
-  errno_t __cdecl _wctime_s(wchar_t *, size_t, const time_t *);
-#ifndef __CRT__NO_INLINE
 #ifndef _USE_32BIT_TIME_T
-  __CRT_INLINE errno_t __cdecl _wctime_s (wchar_t *_Buffer,size_t _SizeInWords,const time_t *_Time) { return _wctime64_s (_Buffer,_SizeInWords,_Time); }
+  errno_t __cdecl _wctime_s (wchar_t *_Buffer,size_t _SizeInWords,const time_t *_Time) __MINGW_ASM_CALL(_wctime64_s);
 #else
-  __CRT_INLINE errno_t __cdecl _wctime_s (wchar_t *_Buffer,size_t _SizeInWords,const time_t *_Time) { return _wctime32_s (_Buffer,_SizeInWords,_Time); }
+  errno_t __cdecl _wctime_s (wchar_t *_Buffer,size_t _SizeInWords,const time_t *_Time) __MINGW_ASM_CALL(_wctime32_s);
 #endif
-#endif  /* __CRT__NO_INLINE */
 #endif
 
 #define _WTIME_DEFINED
@@ -241,33 +228,33 @@ extern "C" {
 #ifndef RC_INVOKED
 
 #ifdef _USE_32BIT_TIME_T
-static __inline time_t __CRTDECL time(time_t *_Time) { return _time32(_Time); }
+time_t __CRTDECL time(time_t *_Time) __MINGW_ASM_CALL(_time32);
 #ifdef _UCRT
-static __inline int __CRTDECL timespec_get(struct timespec* _Ts, int _Base) { return _timespec32_get((struct _timespec32*)_Ts, _Base); }
+int __CRTDECL timespec_get(struct timespec* _Ts, int _Base) __MINGW_ASM_CALL(_timespec32_get);
 #endif
-static __inline double __CRTDECL difftime(time_t _Time1,time_t _Time2)  { return _difftime32(_Time1,_Time2); }
-static __inline struct tm *__CRTDECL localtime(const time_t *_Time) { return _localtime32(_Time); }
-static __inline errno_t __CRTDECL localtime_s(struct tm *_Tm,const time_t *_Time) { return _localtime32_s(_Tm,_Time); }
-static __inline struct tm *__CRTDECL gmtime(const time_t *_Time) { return _gmtime32(_Time); }
-static __inline errno_t __CRTDECL gmtime_s(struct tm *_Tm, const time_t *_Time)   { return _gmtime32_s(_Tm, _Time); }
-static __inline char *__CRTDECL ctime(const time_t *_Time) { return _ctime32(_Time); }
-static __inline errno_t __CRTDECL ctime_s(char *_Buf,size_t _SizeInBytes,const time_t *_Time) { return _ctime32_s(_Buf,_SizeInBytes,_Time); }
-static __inline time_t __CRTDECL mktime(struct tm *_Tm) { return _mktime32(_Tm); }
-static __inline time_t __CRTDECL _mkgmtime(struct tm *_Tm) { return _mkgmtime32(_Tm); }
+double __CRTDECL difftime(time_t _Time1,time_t _Time2) __MINGW_ASM_CALL(_difftime32);
+struct tm *__CRTDECL localtime(const time_t *_Time) __MINGW_ASM_CALL(_localtime32);
+errno_t __CRTDECL localtime_s(struct tm *_Tm,const time_t *_Time) __MINGW_ASM_CALL(_localtime32_s);
+struct tm *__CRTDECL gmtime(const time_t *_Time) __MINGW_ASM_CALL(_gmtime32);
+errno_t __CRTDECL gmtime_s(struct tm *_Tm, const time_t *_Time) __MINGW_ASM_CALL(_gmtime32_s);
+char *__CRTDECL ctime(const time_t *_Time) __MINGW_ASM_CALL(_ctime32);
+errno_t __CRTDECL ctime_s(char *_Buf,size_t _SizeInBytes,const time_t *_Time) __MINGW_ASM_CALL(_ctime32_s);
+time_t __CRTDECL mktime(struct tm *_Tm) __MINGW_ASM_CALL(_mktime32);
+time_t __CRTDECL _mkgmtime(struct tm *_Tm) __MINGW_ASM_CALL(_mkgmtime32);
 #else
-static __inline time_t __CRTDECL time(time_t *_Time) { return _time64(_Time); }
+time_t __CRTDECL time(time_t *_Time) __MINGW_ASM_CALL(_time64);
 #ifdef _UCRT
-static __inline int __CRTDECL timespec_get(struct timespec* _Ts, int _Base) { return _timespec64_get((struct _timespec64*)_Ts, _Base); }
+int __CRTDECL timespec_get(struct timespec* _Ts, int _Base) __MINGW_ASM_CALL(_timespec64_get);
 #endif
-static __inline double __CRTDECL difftime(time_t _Time1,time_t _Time2) { return _difftime64(_Time1,_Time2); }
-static __inline struct tm *__CRTDECL localtime(const time_t *_Time) { return _localtime64(_Time); }
-static __inline errno_t __CRTDECL localtime_s(struct tm *_Tm,const time_t *_Time) { return _localtime64_s(_Tm,_Time); }
-static __inline struct tm *__CRTDECL gmtime(const time_t *_Time) { return _gmtime64(_Time); }
-static __inline errno_t __CRTDECL gmtime_s(struct tm *_Tm, const time_t *_Time) { return _gmtime64_s(_Tm, _Time); }
-static __inline char *__CRTDECL ctime(const time_t *_Time) { return _ctime64(_Time); }
-static __inline errno_t __CRTDECL ctime_s(char *_Buf,size_t _SizeInBytes,const time_t *_Time) { return _ctime64_s(_Buf,_SizeInBytes,_Time); }
-static __inline time_t __CRTDECL mktime(struct tm *_Tm) { return _mktime64(_Tm); }
-static __inline time_t __CRTDECL _mkgmtime(struct tm *_Tm) { return _mkgmtime64(_Tm); }
+double __CRTDECL difftime(time_t _Time1,time_t _Time2) __MINGW_ASM_CALL(_difftime64);
+struct tm *__CRTDECL localtime(const time_t *_Time) __MINGW_ASM_CALL(_localtime64);
+errno_t __CRTDECL localtime_s(struct tm *_Tm,const time_t *_Time) __MINGW_ASM_CALL(_localtime64_s);
+struct tm *__CRTDECL gmtime(const time_t *_Time) __MINGW_ASM_CALL(_gmtime64);
+errno_t __CRTDECL gmtime_s(struct tm *_Tm, const time_t *_Time) __MINGW_ASM_CALL(_gmtime64_s);
+char *__CRTDECL ctime(const time_t *_Time) __MINGW_ASM_CALL(_ctime64);
+errno_t __CRTDECL ctime_s(char *_Buf,size_t _SizeInBytes,const time_t *_Time) __MINGW_ASM_CALL(_ctime64_s);
+time_t __CRTDECL mktime(struct tm *_Tm) __MINGW_ASM_CALL(_mktime64);
+time_t __CRTDECL _mkgmtime(struct tm *_Tm) __MINGW_ASM_CALL(_mkgmtime64);
 #endif
 
 #endif /* !RC_INVOKED */

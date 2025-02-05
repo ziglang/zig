@@ -39,8 +39,7 @@ __RTtypeid
 __TypeMatch
 __current_exception
 __current_exception_context
-F_X86_ANY(__intrinsic_setjmp)
-F_ARM32(__intrinsic_setjmp)
+F_NON_ARM64(__intrinsic_setjmp)
 F_NON_I386(__intrinsic_setjmpex)
 F_ARM32(__jump_unwind)
 __processing_throw

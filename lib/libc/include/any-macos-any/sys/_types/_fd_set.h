@@ -26,5 +26,6 @@
  * @APPLE_OSREFERENCE_LICENSE_HEADER_END@
  */
 #ifndef FD_SET
+#include <sys/_types/_fd_def.h>
 #define FD_SET(n, p)    __DARWIN_FD_SET(n, p)
 #endif /* FD_SET */

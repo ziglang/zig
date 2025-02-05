@@ -69,17 +69,7 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
         pub fn initPreheated(allocator: std.mem.Allocator, initial_size: usize) MemoryPoolError!Pool {
             var pool = init(allocator);
             errdefer pool.deinit();
-
-            var i: usize = 0;
-            while (i < initial_size) : (i += 1) {
-                const raw_mem = try pool.allocNew();
-                const free_node = @as(NodePtr, @ptrCast(raw_mem));
-                free_node.* = Node{
-                    .next = pool.free_list,
-                };
-                pool.free_list = free_node;
-            }
-
+            try pool.preheat(initial_size);
             return pool;
         }
 
@@ -87,6 +77,21 @@ pub fn MemoryPoolExtra(comptime Item: type, comptime pool_options: Options) type
         pub fn deinit(pool: *Pool) void {
             pool.arena.deinit();
             pool.* = undefined;
+        }
+
+        /// Preheats the memory pool by pre-allocating `size` items.
+        /// This allows up to `size` active allocations before an
+        /// `OutOfMemory` error might happen when calling `create()`.
+        pub fn preheat(pool: *Pool, size: usize) MemoryPoolError!void {
+            var i: usize = 0;
+            while (i < size) : (i += 1) {
+                const raw_mem = try pool.allocNew();
+                const free_node = @as(NodePtr, @ptrCast(raw_mem));
+                free_node.* = Node{
+                    .next = pool.free_list,
+                };
+                pool.free_list = free_node;
+            }
         }
 
         pub const ResetMode = std.heap.ArenaAllocator.ResetMode;

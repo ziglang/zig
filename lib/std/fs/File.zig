@@ -39,6 +39,7 @@ pub const OpenError = error{
     FileNotFound,
     AccessDenied,
     PipeBusy,
+    NoDevice,
     NameTooLong,
     /// WASI-only; file paths must be valid UTF-8.
     InvalidUtf8,
@@ -1072,7 +1073,7 @@ pub fn metadata(self: File) MetadataError!Metadata {
                     &stx,
                 );
 
-                switch (posix.errno(rc)) {
+                switch (linux.E.init(rc)) {
                     .SUCCESS => {},
                     .ACCES => unreachable,
                     .BADF => unreachable,
@@ -1155,7 +1156,7 @@ pub fn readToEndAllocOptions(
     // The file size returned by stat is used as hint to set the buffer
     // size. If the reported size is zero, as it happens on Linux for files
     // in /proc, a small buffer is allocated instead.
-    const initial_cap = (if (size > 0) size else 1024) + @intFromBool(optional_sentinel != null);
+    const initial_cap = @min((if (size > 0) size else 1024), max_bytes) + @intFromBool(optional_sentinel != null);
     var array_list = try std.ArrayListAligned(u8, alignment).initCapacity(allocator, initial_cap);
     defer array_list.deinit();
 

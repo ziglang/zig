@@ -653,15 +653,7 @@ char	*fflagstostr(unsigned long);
 int	 getdomainname(char *, int);
 int	 getgrouplist(const char *, int, int *, int *);
 __END_DECLS
-#if defined(__has_include)
-#if __has_include(<gethostuuid_private.h>)
-#include <gethostuuid_private.h>
-#else
 #include <gethostuuid.h>
-#endif
-#else
-#include <gethostuuid.h>
-#endif
 __BEGIN_DECLS
 mode_t	 getmode(const void *, mode_t);
 int	 getpeereid(int, uid_t *, gid_t *);

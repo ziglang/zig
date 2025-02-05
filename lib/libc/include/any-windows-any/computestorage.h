@@ -30,6 +30,8 @@ HRESULT WINAPI HcsDetachLayerStorageFilter (PCWSTR layerPath);
 HRESULT WINAPI HcsFormatWritableLayerVhd (HANDLE vhdHandle);
 HRESULT WINAPI HcsGetLayerVhdMountPath (HANDLE vhdHandle, PWSTR *mountPath);
 HRESULT WINAPI HcsSetupBaseOSVolume (PCWSTR layerPath, PCWSTR volumePath, PCWSTR options);
+HRESULT WINAPI HcsAttachOverlayFilter (PCWSTR VolumeMountPoint, PCWSTR LayerData);
+HRESULT WINAPI HcsDetachOverlayFilter (PCWSTR VolumeMountPoint, PCWSTR LayerData);
 
 #ifdef __cplusplus
 }

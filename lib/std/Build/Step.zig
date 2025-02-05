@@ -339,7 +339,7 @@ pub fn captureChildProcess(
         .allocator = arena,
         .argv = argv,
         .progress_node = progress_node,
-    }) catch |err| return s.fail("unable to spawn {s}: {s}", .{ argv[0], @errorName(err) });
+    }) catch |err| return s.fail("failed to run {s}: {s}", .{ argv[0], @errorName(err) });
 
     if (result.stderr.len > 0) {
         try s.result_error_msgs.append(arena, result.stderr);
@@ -423,7 +423,7 @@ pub fn evalZigProcess(
     child.request_resource_usage_statistics = true;
     child.progress_node = prog_node;
 
-    child.spawn() catch |err| return s.fail("unable to spawn {s}: {s}", .{
+    child.spawn() catch |err| return s.fail("failed to spawn zig compiler {s}: {s}", .{
         argv[0], @errorName(err),
     });
 
@@ -754,11 +754,24 @@ pub fn cacheHitAndWatch(s: *Step, man: *Build.Cache.Manifest) !bool {
     return is_hit;
 }
 
-fn failWithCacheError(s: *Step, man: *const Build.Cache.Manifest, err: anyerror) anyerror {
-    const i = man.failed_file_index orelse return err;
-    const pp = man.files.keys()[i].prefixed_path;
-    const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
-    return s.fail("{s}: {s}/{s}", .{ @errorName(err), prefix, pp.sub_path });
+fn failWithCacheError(s: *Step, man: *const Build.Cache.Manifest, err: Build.Cache.Manifest.HitError) error{ OutOfMemory, MakeFailed } {
+    switch (err) {
+        error.CacheCheckFailed => switch (man.diagnostic) {
+            .none => unreachable,
+            .manifest_create, .manifest_read, .manifest_lock => |e| return s.fail("failed to check cache: {s} {s}", .{
+                @tagName(man.diagnostic), @errorName(e),
+            }),
+            .file_open, .file_stat, .file_read, .file_hash => |op| {
+                const pp = man.files.keys()[op.file_index].prefixed_path;
+                const prefix = man.cache.prefixes()[pp.prefix].path orelse "";
+                return s.fail("failed to check cache: '{s}{s}' {s} {s}", .{
+                    prefix, pp.sub_path, @tagName(man.diagnostic), @errorName(op.err),
+                });
+            },
+        },
+        error.OutOfMemory => return error.OutOfMemory,
+        error.InvalidFormat => return s.fail("failed to check cache: invalid manifest file format", .{}),
+    }
 }
 
 /// Prefer `writeManifestAndWatch` unless you already added watch inputs

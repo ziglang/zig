@@ -2954,7 +2954,6 @@ DIALOG_DPI_CHANGE_BEHAVIORS WINAPI GetDialogDpiChangeBehavior(HWND hDlg);
   WINUSERAPI LRESULT WINAPI PackTouchHitTestingProximityEvaluation (const TOUCH_HIT_TESTING_INPUT *pHitTestingInput, const TOUCH_HIT_TESTING_PROXIMITY_EVALUATION *pProximityEval);
   WINUSERAPI WINBOOL WINAPI GetWindowFeedbackSetting (HWND hwnd, FEEDBACK_TYPE feedback, DWORD dwFlags, UINT32 *pSize, VOID *config);
   WINUSERAPI WINBOOL WINAPI SetWindowFeedbackSetting (HWND hwnd, FEEDBACK_TYPE feedback, DWORD dwFlags, UINT32 size, CONST VOID *configuration);
-#endif
 
 #if WDK_NTDDI_VERSION >= NTDDI_WIN10_RS3
 WINUSERAPI WINBOOL WINAPI EnableMouseInPointerForThread(VOID);
@@ -2966,6 +2965,8 @@ WINUSERAPI HSYNTHETICPOINTERDEVICE WINAPI CreateSyntheticPointerDevice(POINTER_I
 WINUSERAPI WINBOOL WINAPI InjectSyntheticPointerInput(HSYNTHETICPOINTERDEVICE device, CONST POINTER_TYPE_INFO* pointerInfo, UINT32 count);
 WINUSERAPI VOID WINAPI DestroySyntheticPointerDevice(HSYNTHETICPOINTERDEVICE device);
 #endif /* NTDDI_VERSION >= NTDDI_WIN10_RS5 */
+
+#endif /* WINVER >= 0x0602 */
 
   typedef struct tagLASTINPUTINFO {
     UINT cbSize;

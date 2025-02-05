@@ -24,7 +24,7 @@
 #ifndef _XLOCALE__WCTYPE_H_
 #define _XLOCALE__WCTYPE_H_
 
-#include <__wctype.h>
+#include <___wctype.h>
 #include <_types/_wctrans_t.h>
 #include <xlocale/_ctype.h>
 

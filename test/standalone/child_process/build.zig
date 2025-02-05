@@ -12,16 +12,20 @@ pub fn build(b: *std.Build) void {
 
     const child = b.addExecutable(.{
         .name = "child",
-        .root_source_file = b.path("child.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("child.zig"),
+            .optimize = optimize,
+            .target = target,
+        }),
     });
 
     const main = b.addExecutable(.{
         .name = "main",
-        .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .optimize = optimize,
+            .target = target,
+        }),
     });
     const run = b.addRunArtifact(main);
     run.addArtifactArg(child);

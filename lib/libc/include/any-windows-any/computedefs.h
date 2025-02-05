@@ -29,7 +29,11 @@ typedef enum HCS_OPERATION_TYPE {
   HcsOperationTypeGetProcessInfo = 12,
   HcsOperationTypeGetProcessProperties = 13,
   HcsOperationTypeModifyProcess = 14,
-  HcsOperationTypeCrash = 15
+  HcsOperationTypeCrash = 15,
+  HcsOperationTypeLiveMigration = 19,
+  HcsOperationTypeReserved1 = 16,
+  HcsOperationTypeReserved2 = 17,
+  HcsOperationTypeReserved3 = 18
 } HCS_OPERATION_TYPE;
 
 #define HCS_INVALID_OPERATION_ID (UINT64)(-1)
@@ -48,6 +52,7 @@ typedef enum HCS_EVENT_TYPE {
   HcsEventOperationCallback = 0x01000000,
   HcsEventServiceDisconnect = 0x02000000,
   HcsEventGroupVmLifecycle = 0x80000002,
+  HcsEventGroupLiveMigration = 0x80000003,
   HcsEventGroupOperationInfo = 0xC0000001
 } HCS_EVENT_TYPE;
 
@@ -60,14 +65,16 @@ typedef struct HCS_EVENT {
 typedef enum HCS_EVENT_OPTIONS {
   HcsEventOptionNone = 0x00000000,
   HcsEventOptionEnableOperationCallbacks = 0x00000001,
-  HcsEventOptionEnableVmLifecycle = 0x00000002
+  HcsEventOptionEnableVmLifecycle = 0x00000002,
+  HcsEventOptionEnableLiveMigrationEvents = 0x00000004
 } HCS_EVENT_OPTIONS;
 
 DEFINE_ENUM_FLAG_OPERATORS(HCS_EVENT_OPTIONS);
 
 typedef enum HCS_OPERATION_OPTIONS {
   HcsOperationOptionNone = 0x00000000,
-  HcsOperationOptionProgressUpdate = 0x00000001
+  HcsOperationOptionProgressUpdate = 0x00000001,
+  HcsOperationOptionReserved1 = 0x00000002
 } HCS_OPERATION_OPTIONS;
 
 DEFINE_ENUM_FLAG_OPERATORS(HCS_OPERATION_OPTIONS);
@@ -77,7 +84,9 @@ typedef void (CALLBACK *HCS_EVENT_CALLBACK)(HCS_EVENT *event, void *context);
 typedef enum HCS_RESOURCE_TYPE {
   HcsResourceTypeNone = 0,
   HcsResourceTypeFile = 1,
-  HcsResourceTypeJob = 2
+  HcsResourceTypeJob = 2,
+  HcsResourceTypeComObject = 3,
+  HcsResourceTypeSocket = 4
 } HCS_RESOURCE_TYPE;
 
 typedef enum HCS_NOTIFICATION_FLAGS {

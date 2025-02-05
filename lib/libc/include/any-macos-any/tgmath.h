@@ -49,6 +49,7 @@ static double               _TG_ATTRSp __tg_promote(long);
 static double               _TG_ATTRSp __tg_promote(unsigned long);
 static double               _TG_ATTRSp __tg_promote(long long);
 static double               _TG_ATTRSp __tg_promote(unsigned long long);
+static _Float16             _TG_ATTRSp __tg_promote(_Float16);
 static float                _TG_ATTRSp __tg_promote(float);
 static double               _TG_ATTRSp __tg_promote(double);
 static long double          _TG_ATTRSp __tg_promote(long double);
@@ -502,6 +503,10 @@ static long double _Complex
 
 // sqrt
 
+static _Float16
+    _TG_ATTRS
+    __tg_sqrt(_Float16 __x) {return __sqrtf16(__x);}
+
 static float
     _TG_ATTRS
     __tg_sqrt(float __x) {return sqrtf(__x);}
@@ -530,6 +535,10 @@ static long double _Complex
 #define sqrt(__x) __tg_sqrt(__tg_promote1((__x))(__x))
 
 // fabs
+
+static _Float16
+    _TG_ATTRS
+    __tg_fabs(_Float16 __x) {return __fabsf16(__x);}
 
 static float
     _TG_ATTRS
@@ -595,6 +604,10 @@ static long double
 
 // ceil
 
+static _Float16
+    _TG_ATTRS
+    __tg_ceil(_Float16 __x) {return __ceilf16(__x);}
+
 static float
     _TG_ATTRS
     __tg_ceil(float __x) {return ceilf(__x);}
@@ -611,6 +624,10 @@ static long double
 #define ceil(__x) __tg_ceil(__tg_promote1((__x))(__x))
 
 // copysign
+
+static _Float16
+    _TG_ATTRS
+    __tg_copysign(_Float16 __x, _Float16 __y) {return __copysignf16(__x, __y);}
 
 static float
     _TG_ATTRS
@@ -716,6 +733,10 @@ static long double
 
 // floor
 
+static _Float16
+    _TG_ATTRS
+    __tg_floor(_Float16 __x) {return __floorf16(__x);}
+
 static float
     _TG_ATTRS
     __tg_floor(float __x) {return floorf(__x);}
@@ -732,6 +753,11 @@ static long double
 #define floor(__x) __tg_floor(__tg_promote1((__x))(__x))
 
 // fma
+
+static _Float16
+    _TG_ATTRS
+    __tg_fma(_Float16 __x, _Float16 __y, _Float16 __z)
+    {return __fmaf16(__x, __y, __z);}
 
 static float
     _TG_ATTRS
@@ -756,6 +782,10 @@ static long double
 
 // fmax
 
+static _Float16
+    _TG_ATTRS
+    __tg_fmax(_Float16 __x, _Float16 __y) {return __fmaxf16(__x, __y);}
+
 static float
     _TG_ATTRS
     __tg_fmax(float __x, float __y) {return fmaxf(__x, __y);}
@@ -773,6 +803,10 @@ static long double
                                  __tg_promote2((__x), (__y))(__y))
 
 // fmin
+
+static _Float16
+    _TG_ATTRS
+    __tg_fmin(_Float16 __x, _Float16 __y) {return __fminf16(__x, __y);}
 
 static float
     _TG_ATTRS
@@ -826,6 +860,10 @@ static long double
 #define frexp(__x, __y) __tg_frexp(__tg_promote1((__x))(__x), __y)
 
 // hypot
+
+static _Float16
+    _TG_ATTRS
+    __tg_hypot(_Float16 __x, _Float16 __y) {return __hypotf16(__x, __y);}
 
 static float
     _TG_ATTRS
@@ -894,6 +932,10 @@ static long double
 #undef lgamma
 #define lgamma(__x) __tg_lgamma(__tg_promote1((__x))(__x))
 
+/*  long long is not part of C90. Make sure you are passing -std=c99 or
+ -std=gnu99 or higher if you need these functions returning long longs     */
+#if !(__DARWIN_NO_LONG_LONG)
+
 // llrint
 
 static long long
@@ -927,6 +969,8 @@ static long long
 
 #undef llround
 #define llround(__x) __tg_llround(__tg_promote1((__x))(__x))
+
+#endif /* !(__DARWIN_NO_LONG_LONG) */
 
 // log10
 
@@ -1049,6 +1093,10 @@ static long double
 
 // nextafter
 
+static _Float16
+    _TG_ATTRS
+    __tg_nextafter(_Float16 __x, _Float16 __y) {return __nextafterf16(__x, __y);}
+
 static float
     _TG_ATTRS
     __tg_nextafter(float __x, float __y) {return nextafterf(__x, __y);}
@@ -1125,6 +1173,10 @@ static long double
 
 // rint
 
+static _Float16
+    _TG_ATTRS
+    __tg_rint(_Float16 __x) {return __rintf16(__x);}
+
 static float
     _TG_ATTRS
     __tg_rint(float __x) {return rintf(__x);}
@@ -1141,6 +1193,10 @@ static long double
 #define rint(__x) __tg_rint(__tg_promote1((__x))(__x))
 
 // round
+
+static _Float16
+    _TG_ATTRS
+    __tg_round(_Float16 __x) {return __roundf16(__x);}
 
 static float
     _TG_ATTRS
@@ -1209,6 +1265,10 @@ static long double
 #define tgamma(__x) __tg_tgamma(__tg_promote1((__x))(__x))
 
 // trunc
+
+static _Float16
+    _TG_ATTRS
+    __tg_trunc(_Float16 __x) {return __truncf16(__x);}
 
 static float
     _TG_ATTRS

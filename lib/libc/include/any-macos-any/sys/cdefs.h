@@ -97,6 +97,9 @@
 #ifndef __has_attribute
 #define __has_attribute(x) 0
 #endif
+#ifndef __has_cpp_attribute
+#define __has_cpp_attribute(x) 0
+#endif
 #ifndef __has_extension
 #define __has_extension(x) 0
 #endif
@@ -323,6 +326,19 @@
 #endif
 
 /*
+ * Attributes to support Swift concurrency.
+ */
+#if __has_attribute(__swift_attr__)
+#define __swift_unavailable_from_async(_msg)    __attribute__((__swift_attr__("@_unavailableFromAsync(message: \"" _msg "\")")))
+#define __swift_nonisolated                     __attribute__((__swift_attr__("nonisolated")))
+#define __swift_nonisolated_unsafe              __attribute__((__swift_attr__("nonisolated(unsafe)")))
+#else
+#define __swift_unavailable_from_async(_msg)
+#define __swift_nonisolated
+#define __swift_nonisolated_unsafe
+#endif
+
+/*
  * __abortlike is the attribute to put on functions like abort() that are
  * typically used to mark assertions. These optimize the codegen
  * for outlining while still maintaining debugability.
@@ -477,6 +493,94 @@
 #define __alloc_size(...)
 #endif
 #endif // __alloc_size
+
+/*
+ * Facilities below assist adoption of -Wunsafe-buffer-usage, an off-by-default
+ * Clang compiler warning that helps the developer minimize unsafe, raw
+ * buffer manipulation in the code that may lead to buffer overflow
+ * vulnerabilities.
+ *
+ * They are primarily designed for modern C++ code where -Wunsafe-buffer-usage
+ * comes with automatic fix-it hints that help the developer transform
+ * their code to use modern C++ containers, which may be made bounds-safe by
+ * linking against a version of the C++ standard library that offers
+ * bounds-checked containers.
+ * They can be used in plain C, but -fbounds-safety is the preferred solution
+ * for plain C (see also <ptrcheck.h>).
+ *
+ * Attribute __unsafe_buffer_usage can be used to label functions that should be
+ * avoided as they may perform or otherwise introduce unsafe buffer
+ * manipulation operations.
+ *
+ * Calls to such functions are flagged by -Wunsafe-buffer-usage, similarly to
+ * how unchecked buffer manipulation operations are flagged when observed
+ * by the compiler directly:
+ *
+ *   // An unsafe function that needs to be avoided.
+ *   __unsafe_buffer_usage
+ *   void foo(int *buf, size_t size);
+ *
+ *   // A safe alternative to foo().
+ *   void foo(std::span<int> buf);
+ *
+ *   void bar(size_t idx) {
+ *       int array[5];
+ *
+ *       // Direct unsafe buffer manipulation through subscript operator:
+ *       array[idx] = 3;  // warning [-Wunsafe-buffer-usage]
+ *       // Unsafe buffer manipulation through function foo():
+ *       foo(array, 5);   // warning [-Wunsafe-buffer-usage]
+ *       // Checked buffer manipulation, with bounds information automatically
+ *       // preserved for the purposes of runtime checks in standard library:
+ *       foo(array);      // no warning
+ *   }
+ *
+ * While annotating a function as __unsafe_buffer_usage has an effect similar
+ * to annotating it as __deprecated, the __unsafe_buffer_usage attribute
+ * should be used whenever the resulting warning needs to be controlled
+ * by the -Wunsafe-buffer-usage flag (which is turned off in codebases that
+ * don't attempt to achieve bounds safety this way) as opposed to -Wdeprecated
+ * (enabled in most codebases).
+ *
+ * The attribute does NOT suppress -Wunsafe-buffer-usage warnings inside
+ * the function's body; it simply introduces new warnings at each call site
+ * to help the developers avoid the function entirely. Most of the time
+ * it does not make sense to annotate a function as __unsafe_buffer_usage
+ * without providing the users with a safe alternative.
+ *
+ * Pragmas __unsafe_buffer_usage_begin and __unsafe_buffer_usage_end
+ * annotate a range of code as intentionally containing unsafe buffer
+ * operations. They suppress -Wunsafe-buffer-usage warnings
+ * for unsafe operations in range:
+ *
+ *   __unsafe_buffer_usage_begin
+ *   array[idx] = 3; // warning suppressed
+ *   foo(array, 5);  // warning suppressed
+ *   __unsafe_buffer_usage_end
+ *
+ * These pragmas are NOT a way to mass-annotate functions with the attribute
+ * __unsafe_buffer_usage. Functions declared within the pragma range
+ * do NOT get annotated automatically. In some rare situations it makes sense
+ * to do all three: put the attribute on the function, put pragmas inside
+ * the body of the function, and put pragmas around some call sites.
+ */
+#if __has_cpp_attribute(clang::unsafe_buffer_usage)
+#define __has_safe_buffers 1
+#define __unsafe_buffer_usage [[clang::unsafe_buffer_usage]]
+#elif __has_attribute(unsafe_buffer_usage)
+#define __has_safe_buffers 1
+#define __unsafe_buffer_usage __attribute__((__unsafe_buffer_usage__))
+#else
+#define __has_safe_buffers 0
+#define __unsafe_buffer_usage
+#endif
+#if __has_safe_buffers
+#define __unsafe_buffer_usage_begin _Pragma("clang unsafe_buffer_usage begin")
+#define __unsafe_buffer_usage_end   _Pragma("clang unsafe_buffer_usage end")
+#else
+#define __unsafe_buffer_usage_begin
+#define __unsafe_buffer_usage_end
+#endif
 
 /*
  * COMPILATION ENVIRONMENTS -- see compat(5) for additional detail
@@ -870,7 +974,9 @@
 #define __single
 #define __unsafe_indexable
 #define __counted_by(N)
+#define __counted_by_or_null(N)
 #define __sized_by(N)
+#define __sized_by_or_null(N)
 #define __ended_by(E)
 #define __terminated_by(T)
 #define __null_terminated
@@ -888,6 +994,8 @@
 /* __unsafe_forge intrinsics are defined as regular C casts. */
 #define __unsafe_forge_bidi_indexable(T, P, S) ((T)(P))
 #define __unsafe_forge_single(T, P) ((T)(P))
+#define __unsafe_forge_terminated_by(T, P, E) ((T)(P))
+#define __unsafe_forge_null_terminated(T, P) ((T)(P))
 #define __terminated_by_to_indexable(P) (P)
 #define __unsafe_terminated_by_to_indexable(P) (P)
 #define __null_terminated_to_indexable(P) (P)
@@ -900,6 +1008,10 @@
 
 /* this is a write-once variable; not useful without pointer checks. */
 #define __unsafe_late_const
+
+#define __ptrcheck_unavailable
+#define __ptrcheck_unavailable_r(REPLACEMENT)
+
 #endif /* !__has_include(<ptrcheck.h>) */
 
 
@@ -977,5 +1089,23 @@
 #define __kernel_dual_semantics
 
 
+
+#if defined(KERNEL_PRIVATE) && \
+        __has_attribute(xnu_data_size) && \
+        __has_attribute(xnu_returns_data_pointer)
+/*
+ * Annotate function parameters to specify that they semantically
+ * represent the size of a data-only backing storage.
+ */
+# define __xnu_data_size __attribute__((xnu_data_size))
+/*
+ * Annotate function declarations to specify that the pointer they return
+ * points to a data-only backing storage.
+ */
+# define __xnu_returns_data_pointer __attribute__((xnu_returns_data_pointer))
+#else
+# define __xnu_data_size
+# define __xnu_returns_data_pointer
+#endif
 
 #endif /* !_CDEFS_H_ */

@@ -26,10 +26,10 @@ pub export fn entry4() void {
 // target=native
 //
 // :4:27: error: unable to resolve comptime value
-// :4:27: note: value being casted to 'comptime_int' must be comptime-known
+// :4:27: note: value casted to 'comptime_int' must be comptime-known
 // :9:29: error: unable to resolve comptime value
-// :9:29: note: value being casted to 'comptime_float' must be comptime-known
+// :9:29: note: value casted to 'comptime_float' must be comptime-known
 // :15:10: error: unable to resolve comptime value
-// :15:10: note: value being casted to 'comptime_float' must be comptime-known
+// :15:10: note: value casted to 'comptime_float' must be comptime-known
 // :21:10: error: unable to resolve comptime value
-// :21:10: note: value being casted to 'comptime_int' must be comptime-known
+// :21:10: note: value casted to 'comptime_int' must be comptime-known

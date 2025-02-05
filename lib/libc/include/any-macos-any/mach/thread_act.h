@@ -52,7 +52,7 @@ typedef function_table_entry   *function_table_t;
 #endif /* AUTOTEST */
 
 #ifndef	thread_act_MSG_COUNT
-#define	thread_act_MSG_COUNT	31
+#define	thread_act_MSG_COUNT	32
 #endif	/* thread_act_MSG_COUNT */
 
 #include <Availability.h>
@@ -493,6 +493,22 @@ kern_return_t thread_get_exception_ports_info
 	exception_flavor_array_t old_flavors
 );
 
+/* Routine thread_adopt_exception_handler */
+#ifdef	mig_external
+mig_external
+#else
+extern
+#endif	/* mig_external */
+__TVOS_PROHIBITED __WATCHOS_PROHIBITED
+kern_return_t thread_adopt_exception_handler
+(
+	thread_t thread,
+	mach_port_t exc_port,
+	exception_mask_t exc_mask,
+	exception_behavior_t behavior_mask,
+	thread_state_flavor_t flavor_mask
+);
+
 __END_DECLS
 
 /********************** Caution **************************/
@@ -905,6 +921,24 @@ __END_DECLS
 #ifdef  __MigPackStructs
 #pragma pack(pop)
 #endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		/* start of the kernel processed data */
+		mach_msg_body_t msgh_body;
+		mach_msg_port_descriptor_t exc_port;
+		/* end of the kernel processed data */
+		NDR_record_t NDR;
+		exception_mask_t exc_mask;
+		exception_behavior_t behavior_mask;
+		thread_state_flavor_t flavor_mask;
+	} __Request__thread_adopt_exception_handler_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
 #endif /* !__Request__thread_act_subsystem__defined */
 
 /* union of all requests */
@@ -942,6 +976,7 @@ union __RequestUnion__thread_act_subsystem {
 	__Request__thread_swap_mach_voucher_t Request_thread_swap_mach_voucher;
 	__Request__thread_convert_thread_state_t Request_thread_convert_thread_state;
 	__Request__thread_get_exception_ports_info_t Request_thread_get_exception_ports_info;
+	__Request__thread_adopt_exception_handler_t Request_thread_adopt_exception_handler;
 };
 #endif /* !__RequestUnion__thread_act_subsystem__defined */
 /* typedefs for all replies */
@@ -1346,6 +1381,18 @@ union __RequestUnion__thread_act_subsystem {
 #ifdef  __MigPackStructs
 #pragma pack(pop)
 #endif
+
+#ifdef  __MigPackStructs
+#pragma pack(push, 4)
+#endif
+	typedef struct {
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		kern_return_t RetCode;
+	} __Reply__thread_adopt_exception_handler_t __attribute__((unused));
+#ifdef  __MigPackStructs
+#pragma pack(pop)
+#endif
 #endif /* !__Reply__thread_act_subsystem__defined */
 
 /* union of all replies */
@@ -1383,6 +1430,7 @@ union __ReplyUnion__thread_act_subsystem {
 	__Reply__thread_swap_mach_voucher_t Reply_thread_swap_mach_voucher;
 	__Reply__thread_convert_thread_state_t Reply_thread_convert_thread_state;
 	__Reply__thread_get_exception_ports_info_t Reply_thread_get_exception_ports_info;
+	__Reply__thread_adopt_exception_handler_t Reply_thread_adopt_exception_handler;
 };
 #endif /* !__RequestUnion__thread_act_subsystem__defined */
 
@@ -1417,7 +1465,8 @@ union __ReplyUnion__thread_act_subsystem {
     { "thread_set_mach_voucher", 3626 },\
     { "thread_swap_mach_voucher", 3627 },\
     { "thread_convert_thread_state", 3628 },\
-    { "thread_get_exception_ports_info", 3630 }
+    { "thread_get_exception_ports_info", 3630 },\
+    { "thread_adopt_exception_handler", 3631 }
 #endif
 
 #ifdef __AfterMigUserHeader

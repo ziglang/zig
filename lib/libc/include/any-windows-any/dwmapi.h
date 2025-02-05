@@ -267,42 +267,42 @@ extern "C" {
 #define DWM_SIT_DISPLAYFRAME 0x1
 #endif
 
-  WINBOOL WINAPI DwmDefWindowProc (HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT *plResult);
-  HRESULT WINAPI DwmEnableBlurBehindWindow (HWND hWnd, const DWM_BLURBEHIND *pBlurBehind);
-  HRESULT WINAPI DwmEnableComposition (UINT uCompositionAction);
-  HRESULT WINAPI DwmEnableMMCSS (WINBOOL fEnableMMCSS);
-  HRESULT WINAPI DwmExtendFrameIntoClientArea (HWND hWnd, const MARGINS *pMarInset);
-  HRESULT WINAPI DwmGetColorizationColor (DWORD *pcrColorization, WINBOOL *pfOpaqueBlend);
-  HRESULT WINAPI DwmGetCompositionTimingInfo (HWND hwnd, DWM_TIMING_INFO *pTimingInfo);
-  HRESULT WINAPI DwmGetWindowAttribute (HWND hwnd, DWORD dwAttribute, PVOID pvAttribute, DWORD cbAttribute);
-  HRESULT WINAPI DwmIsCompositionEnabled (WINBOOL *pfEnabled);
-  HRESULT WINAPI DwmModifyPreviousDxFrameDuration (HWND hwnd, INT cRefreshes, WINBOOL fRelative);
-  HRESULT WINAPI DwmQueryThumbnailSourceSize (HTHUMBNAIL hThumbnail, PSIZE pSize);
-  HRESULT WINAPI DwmRegisterThumbnail (HWND hwndDestination, HWND hwndSource, PHTHUMBNAIL phThumbnailId);
-  HRESULT WINAPI DwmSetDxFrameDuration (HWND hwnd, INT cRefreshes);
-  HRESULT WINAPI DwmSetPresentParameters (HWND hwnd, DWM_PRESENT_PARAMETERS *pPresentParams);
-  HRESULT WINAPI DwmSetWindowAttribute (HWND hwnd, DWORD dwAttribute, LPCVOID pvAttribute, DWORD cbAttribute);
-  HRESULT WINAPI DwmUnregisterThumbnail (HTHUMBNAIL hThumbnailId);
-  HRESULT WINAPI DwmUpdateThumbnailProperties (HTHUMBNAIL hThumbnailId, const DWM_THUMBNAIL_PROPERTIES *ptnProperties);
-  HRESULT WINAPI DwmAttachMilContent (HWND hwnd);
-  HRESULT WINAPI DwmDetachMilContent (HWND hwnd);
-  HRESULT WINAPI DwmFlush ();
-  HRESULT WINAPI DwmGetGraphicsStreamTransformHint (UINT uIndex, MilMatrix3x2D *pTransform);
-  HRESULT WINAPI DwmGetGraphicsStreamClient (UINT uIndex, UUID *pClientUuid);
-  HRESULT WINAPI DwmGetTransportAttributes (WINBOOL *pfIsRemoting, WINBOOL *pfIsConnected, DWORD *pDwGeneration);
-  HRESULT WINAPI DwmTransitionOwnedWindow (HWND hwnd, enum DWMTRANSITION_OWNEDWINDOW_TARGET target);
+  DWMAPI_(WINBOOL) DwmDefWindowProc (HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam, LRESULT *plResult);
+  DWMAPI DwmEnableBlurBehindWindow (HWND hWnd, const DWM_BLURBEHIND *pBlurBehind);
+  DWMAPI DwmEnableComposition (UINT uCompositionAction);
+  DWMAPI DwmEnableMMCSS (WINBOOL fEnableMMCSS);
+  DWMAPI DwmExtendFrameIntoClientArea (HWND hWnd, const MARGINS *pMarInset);
+  DWMAPI DwmGetColorizationColor (DWORD *pcrColorization, WINBOOL *pfOpaqueBlend);
+  DWMAPI DwmGetCompositionTimingInfo (HWND hwnd, DWM_TIMING_INFO *pTimingInfo);
+  DWMAPI DwmGetWindowAttribute (HWND hwnd, DWORD dwAttribute, PVOID pvAttribute, DWORD cbAttribute);
+  DWMAPI DwmIsCompositionEnabled (WINBOOL *pfEnabled);
+  DWMAPI DwmModifyPreviousDxFrameDuration (HWND hwnd, INT cRefreshes, WINBOOL fRelative);
+  DWMAPI DwmQueryThumbnailSourceSize (HTHUMBNAIL hThumbnail, PSIZE pSize);
+  DWMAPI DwmRegisterThumbnail (HWND hwndDestination, HWND hwndSource, PHTHUMBNAIL phThumbnailId);
+  DWMAPI DwmSetDxFrameDuration (HWND hwnd, INT cRefreshes);
+  DWMAPI DwmSetPresentParameters (HWND hwnd, DWM_PRESENT_PARAMETERS *pPresentParams);
+  DWMAPI DwmSetWindowAttribute (HWND hwnd, DWORD dwAttribute, LPCVOID pvAttribute, DWORD cbAttribute);
+  DWMAPI DwmUnregisterThumbnail (HTHUMBNAIL hThumbnailId);
+  DWMAPI DwmUpdateThumbnailProperties (HTHUMBNAIL hThumbnailId, const DWM_THUMBNAIL_PROPERTIES *ptnProperties);
+  DWMAPI DwmAttachMilContent (HWND hwnd);
+  DWMAPI DwmDetachMilContent (HWND hwnd);
+  DWMAPI DwmFlush (void);
+  DWMAPI DwmGetGraphicsStreamTransformHint (UINT uIndex, MilMatrix3x2D *pTransform);
+  DWMAPI DwmGetGraphicsStreamClient (UINT uIndex, UUID *pClientUuid);
+  DWMAPI DwmGetTransportAttributes (WINBOOL *pfIsRemoting, WINBOOL *pfIsConnected, DWORD *pDwGeneration);
+  DWMAPI DwmTransitionOwnedWindow (HWND hwnd, enum DWMTRANSITION_OWNEDWINDOW_TARGET target);
 #if _WIN32_WINNT >= 0x0601
-  HRESULT WINAPI DwmSetIconicThumbnail (HWND hwnd, HBITMAP hbmp, DWORD dwSITFlags);
-  HRESULT WINAPI DwmSetIconicLivePreviewBitmap (HWND hwnd, HBITMAP hbmp, POINT *pptClient, DWORD dwSITFlags);
-  HRESULT WINAPI DwmInvalidateIconicBitmaps (HWND hwnd);
+  DWMAPI DwmSetIconicThumbnail (HWND hwnd, HBITMAP hbmp, DWORD dwSITFlags);
+  DWMAPI DwmSetIconicLivePreviewBitmap (HWND hwnd, HBITMAP hbmp, POINT *pptClient, DWORD dwSITFlags);
+  DWMAPI DwmInvalidateIconicBitmaps (HWND hwnd);
 #endif
 #if NTDDI_VERSION >= NTDDI_WIN8
-  HRESULT WINAPI DwmRenderGesture (enum GESTURE_TYPE gt, UINT cContacts, const DWORD *pdwPointerID, const POINT *pPoints);
-  HRESULT WINAPI DwmTetherContact (DWORD dwPointerID, WINBOOL fEnable, POINT ptTether);
-  HRESULT WINAPI DwmShowContact (DWORD dwPointerID, enum DWM_SHOWCONTACT eShowContact);
+  DWMAPI DwmRenderGesture (enum GESTURE_TYPE gt, UINT cContacts, const DWORD *pdwPointerID, const POINT *pPoints);
+  DWMAPI DwmTetherContact (DWORD dwPointerID, WINBOOL fEnable, POINT ptTether);
+  DWMAPI DwmShowContact (DWORD dwPointerID, enum DWM_SHOWCONTACT eShowContact);
 #endif
 #if NTDDI_VERSION >= NTDDI_WIN10_RS4
-  HRESULT WINAPI DwmGetUnmetTabRequirements (HWND appWindow, enum DWM_TAB_WINDOW_REQUIREMENTS *value);
+  DWMAPI DwmGetUnmetTabRequirements (HWND appWindow, enum DWM_TAB_WINDOW_REQUIREMENTS *value);
 #endif
 
 #ifdef __cplusplus

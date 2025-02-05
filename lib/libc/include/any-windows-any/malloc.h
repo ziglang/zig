@@ -50,7 +50,8 @@ extern "C" {
   } _HEAPINFO;
 #endif
 
-  extern unsigned int _amblksiz;
+#define _amblksiz (*__p__amblksiz())
+  _CRTIMP unsigned int *__cdecl __p__amblksiz(void);
 
 #ifndef _CRT_ALLOCATION_DEFINED
 #define _CRT_ALLOCATION_DEFINED

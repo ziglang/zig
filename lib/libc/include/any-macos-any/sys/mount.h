@@ -383,7 +383,8 @@ struct netfs_status {
 #define VQ_NEARLOWDISK          0x2000  /* Above lowdisk and below desired disk space */
 #define VQ_DESIRED_DISK         0x4000  /* the desired disk space */
 #define VQ_FREE_SPACE_CHANGE    0x8000  /* free disk space has significantly changed */
-#define VQ_FLAG10000    0x10000  /* placeholder */
+#define VQ_PURGEABLE_SPACE_CHANGE  0x10000  /* purgeable disk space has significantly changed */
+#define VQ_FLAG20000    0x20000  /* placeholder */
 
 
 
@@ -407,7 +408,7 @@ typedef struct fhandle  fhandle_t;
  * cryptexes. We need to make sure we do not use the reserved values in each for a new authentication type.
  */
 // bump up the version for any change that has kext dependency
-#define CRYPTEX_AUTH_STRUCT_VERSION 1
+#define CRYPTEX_AUTH_STRUCT_VERSION 2
 OS_ENUM(graftdmg_type, uint32_t,
     GRAFTDMG_CRYPTEX_BOOT = 1,
     GRAFTDMG_CRYPTEX_PREBOOT = 2,
@@ -416,8 +417,9 @@ OS_ENUM(graftdmg_type, uint32_t,
     // Reserved: CRYPTEX1_AUTH_ENV_GENERIC_SUPPLEMENTAL = 5,
     GRAFTDMG_CRYPTEX_PDI_NONCE = 6,
     GRAFTDMG_CRYPTEX_EFFECTIVE_AP = 7,
+    GRAFTDMG_CRYPTEX_MOBILE_ASSET = 8,
     // Update this when a new type is added
-    GRAFTDMG_CRYPTEX_MAX = 7);
+    GRAFTDMG_CRYPTEX_MAX = 8);
 
 OS_ENUM(cryptex_auth_type, uint32_t,
     // Reserved: GRAFTDMG_CRYPTEX_BOOT = 1,
@@ -426,9 +428,10 @@ OS_ENUM(cryptex_auth_type, uint32_t,
     CRYPTEX1_AUTH_ENV_GENERIC = 4,
     CRYPTEX1_AUTH_ENV_GENERIC_SUPPLEMENTAL = 5,
     CRYPTEX_AUTH_PDI_NONCE = 6,
-    // Reserved: GRAFTDMG_CRYPTEX_EFFECTIVE_AP = 7
+    // Reserved: GRAFTDMG_CRYPTEX_EFFECTIVE_AP = 7,
+    CRYPTEX_AUTH_MOBILE_ASSET = 8,
     // Update this when a new type is added
-    CRYPTEX_AUTH_MAX = 7);
+    CRYPTEX_AUTH_MAX = 8);
 
 
 __BEGIN_DECLS

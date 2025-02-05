@@ -182,8 +182,14 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
                 better_capacity += better_capacity / 2 + 8;
                 if (better_capacity >= new_capacity) break;
             }
+            try self.ensureTotalCapacityPrecise(better_capacity);
+        }
+
+        pub fn ensureTotalCapacityPrecise(self: *Self, new_capacity: usize) !void {
+            if (self.capacity() >= new_capacity) return;
+
             const old_memory = self.allocatedSlice();
-            const new_memory = try self.allocator.realloc(old_memory, better_capacity);
+            const new_memory = try self.allocator.realloc(old_memory, new_capacity);
             self.items.ptr = new_memory.ptr;
             self.cap = new_memory.len;
         }
@@ -209,6 +215,16 @@ pub fn PriorityQueue(comptime T: type, comptime Context: type, comptime compareF
 
             self.items.ptr = new_memory.ptr;
             self.cap = new_memory.len;
+        }
+
+        pub fn clearRetainingCapacity(self: *Self) void {
+            self.items.len = 0;
+        }
+
+        pub fn clearAndFree(self: *Self) void {
+            self.allocator.free(self.allocatedSlice());
+            self.items.len = 0;
+            self.cap = 0;
         }
 
         pub fn update(self: *Self, elem: T, new_elem: T) !void {

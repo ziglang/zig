@@ -15,7 +15,7 @@ pub const Child = @import("process/Child.zig");
 pub const abort = posix.abort;
 pub const exit = posix.exit;
 pub const changeCurDir = posix.chdir;
-pub const changeCurDirC = posix.chdirC;
+pub const changeCurDirZ = posix.chdirZ;
 
 pub const GetCwdError = posix.GetCwdError;
 

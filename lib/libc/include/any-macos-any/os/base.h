@@ -246,8 +246,12 @@
 #if __has_attribute(__swift_attr__)
 #define OS_SWIFT_UNAVAILABLE_FROM_ASYNC(msg) \
 	__attribute__((__swift_attr__("@_unavailableFromAsync(message: \"" msg "\")")))
+#define OS_SWIFT_NONISOLATED __attribute__((__swift_attr__("nonisolated")))
+#define OS_SWIFT_NONISOLATED_UNSAFE __attribute__((__swift_attr__("nonisolated(unsafe)")))
 #else
 #define OS_SWIFT_UNAVAILABLE_FROM_ASYNC(msg)
+#define OS_SWIFT_NONISOLATED
+#define OS_SWIFT_NONISOLATED_UNSAFE
 #endif
 
 #if __has_attribute(swift_private)

@@ -1,6 +1,6 @@
 export fn foo() void {
     const a = 1;
-    struct {
+    _ = struct {
         test a {}
     };
 }

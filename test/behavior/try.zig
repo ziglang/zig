@@ -68,25 +68,6 @@ test "`try`ing an if/else expression" {
     try std.testing.expectError(error.Test, S.getError2());
 }
 
-test "try forwards result location" {
-    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    const S = struct {
-        fn foo(err: bool) error{Foo}!u32 {
-            const result: error{ Foo, Bar }!u32 = if (err) error.Foo else 123;
-            const res_int: u32 = try @errorCast(result);
-            return res_int;
-        }
-    };
-
-    try expect((S.foo(false) catch return error.TestUnexpectedResult) == 123);
-    try std.testing.expectError(error.Foo, S.foo(true));
-}
-
 test "'return try' of empty error set in function returning non-error" {
     if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
@@ -122,4 +103,25 @@ test "'return try' of empty error set in function returning non-error" {
     };
     try S.doTheTest();
     try comptime S.doTheTest();
+}
+
+test "'return try' through conditional" {
+    const S = struct {
+        fn get(t: bool) !u32 {
+            return try if (t) inner() else error.TestFailed;
+        }
+        fn inner() !u16 {
+            return 123;
+        }
+    };
+
+    {
+        const result = try S.get(true);
+        try expect(result == 123);
+    }
+
+    {
+        const result = try comptime S.get(true);
+        comptime std.debug.assert(result == 123);
+    }
 }

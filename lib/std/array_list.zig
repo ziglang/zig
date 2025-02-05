@@ -100,7 +100,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// of this ArrayList. Empties this ArrayList.
         pub fn moveToUnmanaged(self: *Self) ArrayListAlignedUnmanaged(T, alignment) {
             const allocator = self.allocator;
-            const result = .{ .items = self.items, .capacity = self.capacity };
+            const result: ArrayListAlignedUnmanaged(T, alignment) = .{ .items = self.items, .capacity = self.capacity };
             self.* = init(allocator);
             return result;
         }
@@ -267,8 +267,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Never invalidates element pointers.
         /// Asserts that the list can hold one additional item.
         pub fn appendAssumeCapacity(self: *Self, item: T) void {
-            const new_item_ptr = self.addOneAssumeCapacity();
-            new_item_ptr.* = item;
+            self.addOneAssumeCapacity().* = item;
         }
 
         /// Remove the element at index `i`, shift elements after index
@@ -879,8 +878,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Never invalidates element pointers.
         /// Asserts that the list can hold one additional item.
         pub fn appendAssumeCapacity(self: *Self, item: T) void {
-            const new_item_ptr = self.addOneAssumeCapacity();
-            new_item_ptr.* = item;
+            self.addOneAssumeCapacity().* = item;
         }
 
         /// Remove the element at index `i` from the list and return its value.

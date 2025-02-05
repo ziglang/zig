@@ -20,22 +20,25 @@ fn add(
 ) void {
     const target = b.graph.host;
 
-    const exe_c = b.addExecutable(.{
-        .name = c_name,
+    const c_mod = b.createModule(.{
         .optimize = optimize,
         .target = target,
     });
-    exe_c.addCSourceFile(.{ .file = b.path("test.c"), .flags = &[0][]const u8{} });
-    exe_c.linkLibC();
+    c_mod.addCSourceFile(.{ .file = b.path("test.c"), .flags = &[0][]const u8{} });
+    c_mod.link_libc = true;
 
-    const exe_cpp = b.addExecutable(.{
-        .name = cpp_name,
+    const exe_c = b.addExecutable(.{ .name = c_name, .root_module = c_mod });
+
+    const cpp_mod = b.createModule(.{
         .optimize = optimize,
         .target = target,
     });
+    cpp_mod.addCSourceFile(.{ .file = b.path("test.cpp"), .flags = &[0][]const u8{} });
+    cpp_mod.link_libcpp = true;
+
+    const exe_cpp = b.addExecutable(.{ .name = cpp_name, .root_module = cpp_mod });
+
     b.default_step.dependOn(&exe_cpp.step);
-    exe_cpp.addCSourceFile(.{ .file = b.path("test.cpp"), .flags = &[0][]const u8{} });
-    exe_cpp.linkLibCpp();
 
     switch (target.result.os.tag) {
         .windows => {

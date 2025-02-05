@@ -23,13 +23,13 @@ pub fn hashPointer(hasher: anytype, key: anytype, comptime strat: HashStrategy) 
     const info = @typeInfo(@TypeOf(key));
 
     switch (info.pointer.size) {
-        .One => switch (strat) {
+        .one => switch (strat) {
             .Shallow => hash(hasher, @intFromPtr(key), .Shallow),
             .Deep => hash(hasher, key.*, .Shallow),
             .DeepRecursive => hash(hasher, key.*, .DeepRecursive),
         },
 
-        .Slice => {
+        .slice => {
             switch (strat) {
                 .Shallow => {
                     hashPointer(hasher, key.ptr, .Shallow);
@@ -40,8 +40,8 @@ pub fn hashPointer(hasher: anytype, key: anytype, comptime strat: HashStrategy) 
             hash(hasher, key.len, .Shallow);
         },
 
-        .Many,
-        .C,
+        .many,
+        .c,
         => switch (strat) {
             .Shallow => hash(hasher, @intFromPtr(key), .Shallow),
             else => @compileError(
@@ -167,7 +167,7 @@ pub fn hash(hasher: anytype, key: anytype, comptime strat: HashStrategy) void {
 
 inline fn typeContainsSlice(comptime K: type) bool {
     return switch (@typeInfo(K)) {
-        .pointer => |info| info.size == .Slice,
+        .pointer => |info| info.size == .slice,
 
         inline .@"struct", .@"union" => |info| {
             inline for (info.fields) |field| {

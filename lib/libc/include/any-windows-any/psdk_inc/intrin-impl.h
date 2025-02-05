@@ -67,6 +67,17 @@ __INTRINSICS_USEINLINE
   #define __has_builtin(x) 0
 #endif
 
+/*
+ * Macro __INTRINSIC_PROLOG uses non-portable Conditional inclusion
+ * (ISO WG14 N2176 (C17) 6.10.1/4). Avoid gcc 7+ -Wexpansion-to-defined
+ * warning enabled by -W or -Wextra option.
+ * In Clang, this warning is enabled by -pedantic.
+ */
+#if defined(__GNUC__) && (__GNUC__ >= 7 || defined(__clang__))
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wexpansion-to-defined"
+#endif
+
 /* These macros are used by the routines below.  While this file may be included 
    multiple times, these macros only need to be defined once. */
 #ifndef _INTRIN_MAC_
@@ -219,9 +230,10 @@ Parameters: (FunctionName, DataType, Segment)
 
 #define __buildreadseg(x, y, z, a) y x(unsigned __LONG32 Offset) { \
     y ret; \
-    __asm__ ("mov{" a " %%" z ":%[offset], %[ret] | %[ret], %%" z ":%[offset]}" \
+    __asm__ ("mov{" a " %%" z ":(%[offset]), %[ret] | %[ret], " z ":[%[offset]] }" \
         : [ret] "=r" (ret) \
-        : [offset] "m" ((*(y *) (size_t) Offset))); \
+        : [offset] "r" (Offset) \
+        : "memory"); \
     return ret; \
 }
 
@@ -236,9 +248,10 @@ Parameters: (FunctionName, DataType, Segment)
    */
 
 #define __buildwriteseg(x, y, z, a) void x(unsigned __LONG32 Offset, y Data) { \
-    __asm__ ("mov{" a " %[Data], %%" z ":%[offset] | %%" z ":%[offset], %[Data]}" \
-        : [offset] "=m" ((*(y *) (size_t) Offset)) \
-        : [Data] "ri" (Data)); \
+    __asm__ volatile ("mov{" a " %[Data], %%" z ":(%[offset]) | " z ":[%[offset]], %[Data] }" \
+        : \
+        : [offset] "r" (Offset), [Data] "r" (Data) \
+        : "memory"); \
 }
 
 /* This macro is used by _BitScanForward, _BitScanForward64, _BitScanReverse _BitScanReverse64
@@ -1608,6 +1621,17 @@ __buildlogicali(_InterlockedXor, __LONG32, xor)
 #define __INTRINSIC_DEFINED__InterlockedXor
 #endif /* __INTRINSIC_PROLOG */
 
+#if __INTRINSIC_PROLOG(_InterlockedCompareExchange8)
+char _InterlockedCompareExchange8(char volatile *destination, char exchange, char comperand);
+#if !__has_builtin(_InterlockedCompareExchange8)
+__INTRINSICS_USEINLINE
+char _InterlockedCompareExchange8(char volatile *destination, char exchange, char comperand) {
+    return __sync_val_compare_and_swap(destination, comperand, exchange);
+}
+#endif
+#define __INTRINSIC_DEFINED__InterlockedCompareExchange8
+#endif /* __INTRINSIC_PROLOG */
+
 #if __INTRINSIC_PROLOG(_InterlockedIncrement16)
 short _InterlockedIncrement16(short volatile *Addend);
 #if !__has_builtin(_InterlockedIncrement16)
@@ -2023,7 +2047,7 @@ void __cpuid(int CPUInfo[4], int InfoType) {
 #define __INTRINSIC_DEFINED___cpuid
 #endif /* __INTRINSIC_PROLOG */
 
-#if (!defined(__GNUC__) || __GNUC__ < 11) && (!defined(__clang__) || __clang_major__ < 18)
+#if (!defined(__GNUC__) || __GNUC__ < 11) && (!defined(__clang__) || __clang_major__ < 19)
 #if __INTRINSIC_PROLOG(__cpuidex)
 void __cpuidex(int CPUInfo[4], int, int);
 #if !__has_builtin(__cpuidex)
@@ -2288,6 +2312,10 @@ __build_writecr(__writecr8, unsigned __LONG32, "8")
 #undef __FLAGSET
 #undef __FLAGCLOBBER1
 #undef __FLAGCLOBBER2
+
+#if defined(__GNUC__) && (__GNUC__ >= 7 || defined(__clang__))
+#pragma GCC diagnostic pop
+#endif
 
 #pragma pop_macro("__has_builtin")
 

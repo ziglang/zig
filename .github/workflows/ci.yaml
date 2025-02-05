@@ -46,7 +46,7 @@ jobs:
       - name: Build and Test
         run: sh ci/aarch64-linux-release.sh
   x86_64-macos-release:
-    runs-on: "macos-12"
+    runs-on: "macos-13"
     env:
       ARCH: "x86_64"
     steps:

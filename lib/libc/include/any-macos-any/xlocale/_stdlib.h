@@ -27,7 +27,7 @@
 #include <sys/cdefs.h>
 #include <sys/_types/_size_t.h>
 #include <sys/_types/_wchar_t.h>
-#include <_xlocale.h>
+#include <__xlocale.h>
 
 __BEGIN_DECLS
 double	 atof_l(const char *, locale_t);

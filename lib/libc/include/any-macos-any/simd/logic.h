@@ -346,6 +346,30 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_ulong8 x);
 /*! @abstract For each lane in the result, selects the corresponding element
  *  of x or y according to whether the high-order bit of the corresponding
  *  lane of mask is 0 or 1, respectively.                                     */
+static inline SIMD_CFUNC simd_half2 simd_select(simd_half2 x, simd_half2 y, simd_short2 mask);
+/*! @abstract For each lane in the result, selects the corresponding element
+ *  of x or y according to whether the high-order bit of the corresponding
+ *  lane of mask is 0 or 1, respectively.                                     */
+static inline SIMD_CFUNC simd_half3 simd_select(simd_half3 x, simd_half3 y, simd_short3 mask);
+/*! @abstract For each lane in the result, selects the corresponding element
+ *  of x or y according to whether the high-order bit of the corresponding
+ *  lane of mask is 0 or 1, respectively.                                     */
+static inline SIMD_CFUNC simd_half4 simd_select(simd_half4 x, simd_half4 y, simd_short4 mask);
+/*! @abstract For each lane in the result, selects the corresponding element
+ *  of x or y according to whether the high-order bit of the corresponding
+ *  lane of mask is 0 or 1, respectively.                                     */
+static inline SIMD_CFUNC simd_half8 simd_select(simd_half8 x, simd_half8 y, simd_short8 mask);
+/*! @abstract For each lane in the result, selects the corresponding element
+ *  of x or y according to whether the high-order bit of the corresponding
+ *  lane of mask is 0 or 1, respectively.                                     */
+static inline SIMD_CFUNC simd_half16 simd_select(simd_half16 x, simd_half16 y, simd_short16 mask);
+/*! @abstract For each lane in the result, selects the corresponding element
+ *  of x or y according to whether the high-order bit of the corresponding
+ *  lane of mask is 0 or 1, respectively.                                     */
+static inline SIMD_CFUNC simd_half32 simd_select(simd_half32 x, simd_half32 y, simd_short32 mask);
+/*! @abstract For each lane in the result, selects the corresponding element
+ *  of x or y according to whether the high-order bit of the corresponding
+ *  lane of mask is 0 or 1, respectively.                                     */
 static inline SIMD_CFUNC simd_float2 simd_select(simd_float2 x, simd_float2 y, simd_int2 mask);
 /*! @abstract For each lane in the result, selects the corresponding element
  *  of x or y according to whether the high-order bit of the corresponding
@@ -492,6 +516,30 @@ static inline SIMD_CFUNC simd_ushort32 simd_bitselect(simd_ushort32 x, simd_usho
 /*! @abstract For each bit in the result, selects the corresponding bit of x
  *  or y according to whether the corresponding bit of mask is 0 or 1,
  *  respectively.                                                             */
+static inline SIMD_CFUNC simd_half2 simd_bitselect(simd_half2 x, simd_half2 y, simd_short2 mask);
+/*! @abstract For each bit in the result, selects the corresponding bit of x
+ *  or y according to whether the corresponding bit of mask is 0 or 1,
+ *  respectively.                                                             */
+static inline SIMD_CFUNC simd_half3 simd_bitselect(simd_half3 x, simd_half3 y, simd_short3 mask);
+/*! @abstract For each bit in the result, selects the corresponding bit of x
+ *  or y according to whether the corresponding bit of mask is 0 or 1,
+ *  respectively.                                                             */
+static inline SIMD_CFUNC simd_half4 simd_bitselect(simd_half4 x, simd_half4 y, simd_short4 mask);
+/*! @abstract For each bit in the result, selects the corresponding bit of x
+ *  or y according to whether the corresponding bit of mask is 0 or 1,
+ *  respectively.                                                             */
+static inline SIMD_CFUNC simd_half8 simd_bitselect(simd_half8 x, simd_half8 y, simd_short8 mask);
+/*! @abstract For each bit in the result, selects the corresponding bit of x
+ *  or y according to whether the corresponding bit of mask is 0 or 1,
+ *  respectively.                                                             */
+static inline SIMD_CFUNC simd_half16 simd_bitselect(simd_half16 x, simd_half16 y, simd_short16 mask);
+/*! @abstract For each bit in the result, selects the corresponding bit of x
+ *  or y according to whether the corresponding bit of mask is 0 or 1,
+ *  respectively.                                                             */
+static inline SIMD_CFUNC simd_half32 simd_bitselect(simd_half32 x, simd_half32 y, simd_short32 mask);
+/*! @abstract For each bit in the result, selects the corresponding bit of x
+ *  or y according to whether the corresponding bit of mask is 0 or 1,
+ *  respectively.                                                             */
 static inline SIMD_CFUNC simd_int2 simd_bitselect(simd_int2 x, simd_int2 y, simd_int2 mask);
 /*! @abstract For each bit in the result, selects the corresponding bit of x
  *  or y according to whether the corresponding bit of mask is 0 or 1,
@@ -629,7 +677,7 @@ extern "C" {
 static inline SIMD_CFUNC simd_bool simd_any(simd_char2 x) {
 #if defined __SSE2__
   return (_mm_movemask_epi8((__m128i)simd_make_char16_undef(x)) & 0x3);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return simd_any(x.xyxy);
 #else
   union { uint16_t i; simd_char2 v; } u = { .v = x };
@@ -639,7 +687,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_char2 x) {
 static inline SIMD_CFUNC simd_bool simd_any(simd_char3 x) {
 #if defined __SSE2__
   return (_mm_movemask_epi8((__m128i)simd_make_char16_undef(x)) & 0x7);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return simd_any(x.xyzz);
 #else
   union { uint32_t i; simd_char3 v; } u = { .v = x };
@@ -649,7 +697,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_char3 x) {
 static inline SIMD_CFUNC simd_bool simd_any(simd_char4 x) {
 #if defined __SSE2__
   return (_mm_movemask_epi8((__m128i)simd_make_char16_undef(x)) & 0xf);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return simd_any(x.xyzwxyzw);
 #else
   union { uint32_t i; simd_char4 v; } u = { .v = x };
@@ -659,7 +707,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_char4 x) {
 static inline SIMD_CFUNC simd_bool simd_any(simd_char8 x) {
 #if defined __SSE2__
   return (_mm_movemask_epi8((__m128i)simd_make_char16_undef(x)) & 0xff);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vmaxv_u8(x) & 0x80;
 #else
   union { uint64_t i; simd_char8 v; } u = { .v = x };
@@ -669,7 +717,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_char8 x) {
 static inline SIMD_CFUNC simd_bool simd_any(simd_char16 x) {
 #if defined __SSE2__
   return _mm_movemask_epi8((__m128i)x);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vmaxvq_u8(x) & 0x80;
 #else
   return simd_any(x.lo | x.hi);
@@ -709,7 +757,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_uchar64 x) {
 static inline SIMD_CFUNC simd_bool simd_any(simd_short2 x) {
 #if defined __SSE2__
   return (_mm_movemask_epi8((__m128i)simd_make_short8_undef(x)) & 0xa);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return simd_any(x.xyxy);
 #else
   union { uint32_t i; simd_short2 v; } u = { .v = x };
@@ -719,7 +767,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_short2 x) {
 static inline SIMD_CFUNC simd_bool simd_any(simd_short3 x) {
 #if defined __SSE2__
   return (_mm_movemask_epi8((__m128i)simd_make_short8_undef(x)) & 0x2a);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return simd_any(x.xyzz);
 #else
   union { uint64_t i; simd_short3 v; } u = { .v = x };
@@ -729,7 +777,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_short3 x) {
 static inline SIMD_CFUNC simd_bool simd_any(simd_short4 x) {
 #if defined __SSE2__
   return (_mm_movemask_epi8((__m128i)simd_make_short8_undef(x)) & 0xaa);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vmaxv_u16(x) & 0x8000;
 #else
   union { uint64_t i; simd_short4 v; } u = { .v = x };
@@ -739,7 +787,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_short4 x) {
 static inline SIMD_CFUNC simd_bool simd_any(simd_short8 x) {
 #if defined __SSE2__
   return (_mm_movemask_epi8((__m128i)x) & 0xaaaa);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vmaxvq_u16(x) & 0x8000;
 #else
   return simd_any(x.lo | x.hi);
@@ -776,7 +824,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_ushort32 x) {
 static inline SIMD_CFUNC simd_bool simd_any(simd_int2 x) {
 #if defined __SSE2__
   return (_mm_movemask_ps((__m128)simd_make_int4_undef(x)) & 0x3);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vmaxv_u32(x) & 0x80000000;
 #else
   union { uint64_t i; simd_int2 v; } u = { .v = x };
@@ -786,7 +834,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_int2 x) {
 static inline SIMD_CFUNC simd_bool simd_any(simd_int3 x) {
 #if defined __SSE2__
   return (_mm_movemask_ps((__m128)simd_make_int4_undef(x)) & 0x7);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return simd_any(x.xyzz);
 #else
   return (x.x | x.y | x.z) & 0x80000000;
@@ -795,7 +843,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_int3 x) {
 static inline SIMD_CFUNC simd_bool simd_any(simd_int4 x) {
 #if defined __SSE2__
   return _mm_movemask_ps((__m128)x);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vmaxvq_u32(x) & 0x80000000;
 #else
   return simd_any(x.lo | x.hi);
@@ -829,7 +877,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_uint16 x) {
 static inline SIMD_CFUNC simd_bool simd_any(simd_long2 x) {
 #if defined __SSE2__
   return _mm_movemask_pd((__m128d)x);
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return (x.x | x.y) & 0x8000000000000000U;
 #else
   return (x.x | x.y) & 0x8000000000000000U;
@@ -868,7 +916,7 @@ static inline SIMD_CFUNC simd_bool simd_any(simd_ulong8 x) {
 static inline SIMD_CFUNC simd_bool simd_all(simd_char2 x) {
 #if defined __SSE2__
   return (_mm_movemask_epi8((__m128i)simd_make_char16_undef(x)) & 0x3) == 0x3;
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return simd_all(x.xyxy);
 #else
   union { uint16_t i; simd_char2 v; } u = { .v = x };
@@ -878,7 +926,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_char2 x) {
 static inline SIMD_CFUNC simd_bool simd_all(simd_char3 x) {
 #if defined __SSE2__
   return (_mm_movemask_epi8((__m128i)simd_make_char16_undef(x)) & 0x7) == 0x7;
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return simd_all(x.xyzz);
 #else
   union { uint32_t i; simd_char3 v; } u = { .v = x };
@@ -888,7 +936,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_char3 x) {
 static inline SIMD_CFUNC simd_bool simd_all(simd_char4 x) {
 #if defined __SSE2__
   return (_mm_movemask_epi8((__m128i)simd_make_char16_undef(x)) & 0xf) == 0xf;
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return simd_all(x.xyzwxyzw);
 #else
   union { uint32_t i; simd_char4 v; } u = { .v = x };
@@ -898,7 +946,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_char4 x) {
 static inline SIMD_CFUNC simd_bool simd_all(simd_char8 x) {
 #if defined __SSE2__
   return (_mm_movemask_epi8((__m128i)simd_make_char16_undef(x)) & 0xff) == 0xff;
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vminv_u8(x) & 0x80;
 #else
   union { uint64_t i; simd_char8 v; } u = { .v = x };
@@ -908,7 +956,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_char8 x) {
 static inline SIMD_CFUNC simd_bool simd_all(simd_char16 x) {
 #if defined __SSE2__
   return _mm_movemask_epi8((__m128i)x) == 0xffff;
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vminvq_u8(x) & 0x80;
 #else
   return simd_all(x.lo & x.hi);
@@ -948,7 +996,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_uchar64 x) {
 static inline SIMD_CFUNC simd_bool simd_all(simd_short2 x) {
 #if defined __SSE2__
   return (_mm_movemask_epi8((__m128i)simd_make_short8_undef(x)) & 0xa) == 0xa;
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return simd_all(x.xyxy);
 #else
   union { uint32_t i; simd_short2 v; } u = { .v = x };
@@ -958,7 +1006,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_short2 x) {
 static inline SIMD_CFUNC simd_bool simd_all(simd_short3 x) {
 #if defined __SSE2__
   return (_mm_movemask_epi8((__m128i)simd_make_short8_undef(x)) & 0x2a) == 0x2a;
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return simd_all(x.xyzz);
 #else
   union { uint64_t i; simd_short3 v; } u = { .v = x };
@@ -968,7 +1016,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_short3 x) {
 static inline SIMD_CFUNC simd_bool simd_all(simd_short4 x) {
 #if defined __SSE2__
   return (_mm_movemask_epi8((__m128i)simd_make_short8_undef(x)) & 0xaa) == 0xaa;
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vminv_u16(x) & 0x8000;
 #else
   union { uint64_t i; simd_short4 v; } u = { .v = x };
@@ -978,7 +1026,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_short4 x) {
 static inline SIMD_CFUNC simd_bool simd_all(simd_short8 x) {
 #if defined __SSE2__
   return (_mm_movemask_epi8((__m128i)x) & 0xaaaa) == 0xaaaa;
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vminvq_u16(x) & 0x8000;
 #else
   return simd_all(x.lo & x.hi);
@@ -1015,7 +1063,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_ushort32 x) {
 static inline SIMD_CFUNC simd_bool simd_all(simd_int2 x) {
 #if defined __SSE2__
   return (_mm_movemask_ps((__m128)simd_make_int4_undef(x)) & 0x3) == 0x3;
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vminv_u32(x) & 0x80000000;
 #else
   union { uint64_t i; simd_int2 v; } u = { .v = x };
@@ -1025,7 +1073,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_int2 x) {
 static inline SIMD_CFUNC simd_bool simd_all(simd_int3 x) {
 #if defined __SSE2__
   return (_mm_movemask_ps((__m128)simd_make_int4_undef(x)) & 0x7) == 0x7;
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return simd_all(x.xyzz);
 #else
   return (x.x & x.y & x.z) & 0x80000000;
@@ -1034,7 +1082,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_int3 x) {
 static inline SIMD_CFUNC simd_bool simd_all(simd_int4 x) {
 #if defined __SSE2__
   return _mm_movemask_ps((__m128)x) == 0xf;
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return vminvq_u32(x) & 0x80000000;
 #else
   return simd_all(x.lo & x.hi);
@@ -1068,7 +1116,7 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_uint16 x) {
 static inline SIMD_CFUNC simd_bool simd_all(simd_long2 x) {
 #if defined __SSE2__
   return _mm_movemask_pd((__m128d)x) == 0x3;
-#elif defined __arm64__
+#elif defined __arm64__ || defined __aarch64__
   return (x.x & x.y) & 0x8000000000000000U;
 #else
   return (x.x & x.y) & 0x8000000000000000U;
@@ -1104,6 +1152,24 @@ static inline SIMD_CFUNC simd_bool simd_all(simd_ulong8 x) {
   return simd_all((simd_long8)x);
 }
   
+static inline SIMD_CFUNC simd_half2 simd_select(simd_half2 x, simd_half2 y, simd_short2 mask) {
+  return simd_make_half2(simd_select(simd_make_half8_undef(x), simd_make_half8_undef(y), simd_make_short8_undef(mask)));
+}
+static inline SIMD_CFUNC simd_half3 simd_select(simd_half3 x, simd_half3 y, simd_short3 mask) {
+  return simd_make_half3(simd_select(simd_make_half8_undef(x), simd_make_half8_undef(y), simd_make_short8_undef(mask)));
+}
+static inline SIMD_CFUNC simd_half4 simd_select(simd_half4 x, simd_half4 y, simd_short4 mask) {
+  return simd_make_half4(simd_select(simd_make_half8_undef(x), simd_make_half8_undef(y), simd_make_short8_undef(mask)));
+}
+static inline SIMD_CFUNC simd_half8 simd_select(simd_half8 x, simd_half8 y, simd_short8 mask) {
+  return simd_bitselect(x, y, mask >> 15);
+}
+static inline SIMD_CFUNC simd_half16 simd_select(simd_half16 x, simd_half16 y, simd_short16 mask) {
+  return simd_bitselect(x, y, mask >> 15);
+}
+static inline SIMD_CFUNC simd_half32 simd_select(simd_half32 x, simd_half32 y, simd_short32 mask) {
+  return simd_bitselect(x, y, mask >> 15);
+}
 static inline SIMD_CFUNC simd_float2 simd_select(simd_float2 x, simd_float2 y, simd_int2 mask) {
   return simd_make_float2(simd_select(simd_make_float4_undef(x), simd_make_float4_undef(y), simd_make_int4_undef(mask)));
 }
@@ -1225,6 +1291,24 @@ static inline SIMD_CFUNC simd_ushort16 simd_bitselect(simd_ushort16 x, simd_usho
 }
 static inline SIMD_CFUNC simd_ushort32 simd_bitselect(simd_ushort32 x, simd_ushort32 y, simd_short32 mask) {
   return (simd_ushort32)simd_bitselect((simd_short32)x, (simd_short32)y, mask);
+}
+static inline SIMD_CFUNC simd_half2 simd_bitselect(simd_half2 x, simd_half2 y, simd_short2 mask) {
+  return (simd_half2)simd_bitselect((simd_short2)x, (simd_short2)y, mask);
+}
+static inline SIMD_CFUNC simd_half3 simd_bitselect(simd_half3 x, simd_half3 y, simd_short3 mask) {
+  return (simd_half3)simd_bitselect((simd_short3)x, (simd_short3)y, mask);
+}
+static inline SIMD_CFUNC simd_half4 simd_bitselect(simd_half4 x, simd_half4 y, simd_short4 mask) {
+  return (simd_half4)simd_bitselect((simd_short4)x, (simd_short4)y, mask);
+}
+static inline SIMD_CFUNC simd_half8 simd_bitselect(simd_half8 x, simd_half8 y, simd_short8 mask) {
+  return (simd_half8)simd_bitselect((simd_short8)x, (simd_short8)y, mask);
+}
+static inline SIMD_CFUNC simd_half16 simd_bitselect(simd_half16 x, simd_half16 y, simd_short16 mask) {
+  return (simd_half16)simd_bitselect((simd_short16)x, (simd_short16)y, mask);
+}
+static inline SIMD_CFUNC simd_half32 simd_bitselect(simd_half32 x, simd_half32 y, simd_short32 mask) {
+  return (simd_half32)simd_bitselect((simd_short32)x, (simd_short32)y, mask);
 }
 static inline SIMD_CFUNC simd_int2 simd_bitselect(simd_int2 x, simd_int2 y, simd_int2 mask) {
   return (x & ~mask) | (y & mask);

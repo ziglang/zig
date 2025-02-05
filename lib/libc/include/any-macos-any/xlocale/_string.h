@@ -26,7 +26,7 @@
 
 #include <sys/cdefs.h>
 #include <sys/_types/_size_t.h>
-#include <_xlocale.h>
+#include <__xlocale.h>
 
 __BEGIN_DECLS
 int	 strcoll_l(const char *, const char *, locale_t);

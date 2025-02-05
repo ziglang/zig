@@ -14,9 +14,9 @@ const maxInt = std.math.maxInt;
 /// Returns the hyperbolic tangent of x.
 ///
 /// Special Cases:
-///  - sinh(+-0)   = +-0
-///  - sinh(+-inf) = +-1
-///  - sinh(nan)   = nan
+///  - tanh(+-0)   = +-0
+///  - tanh(+-inf) = +-1
+///  - tanh(nan)   = nan
 pub fn tanh(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
     return switch (T) {

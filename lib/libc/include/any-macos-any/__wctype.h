@@ -1,25 +1,3 @@
-/*
- * Copyright (c) 2017 Apple Inc. All rights reserved.
- *
- * @APPLE_LICENSE_HEADER_START@
- *
- * This file contains Original Code and/or Modifications of Original Code
- * as defined in and that are subject to the Apple Public Source License
- * Version 2.0 (the 'License'). You may not use this file except in
- * compliance with the License. Please obtain a copy of the License at
- * http://www.opensource.apple.com/apsl/ and read it before using this
- * file.
- *
- * The Original Code and all software distributed under the License are
- * distributed on an 'AS IS' basis, WITHOUT WARRANTY OF ANY KIND, EITHER
- * EXPRESS OR IMPLIED, AND APPLE HEREBY DISCLAIMS ALL SUCH WARRANTIES,
- * INCLUDING WITHOUT LIMITATION, ANY WARRANTIES OF MERCHANTABILITY,
- * FITNESS FOR A PARTICULAR PURPOSE, QUIET ENJOYMENT OR NON-INFRINGEMENT.
- * Please see the License for the specific language governing rights and
- * limitations under the License.
- *
- * @APPLE_LICENSE_HEADER_END@
- */
 /*-
  * Copyright (c)1999 Citrus Project,
  * All rights reserved.
@@ -48,27 +26,18 @@
  */
 
 /*
- * Common header for _wctype.h and xlocale/__wctype.h
+ * Common header for _wctype.h and _wchar.h
+ *
+ * Contains everything required by wctype.h except:
+ *
+ *	#include <_types/_wctrans_t.h>
+ *	int iswblank(wint_t);
+ *	wint_t towctrans(wint_t, wctrans_t);
+ *	wctrans_t wctrans(const char *);
  */
 
-#ifndef ___WCTYPE_H_
-#define ___WCTYPE_H_
+#include <___wctype.h>
 
-#include <sys/cdefs.h>
-#include <_types.h>
-
-#include <sys/_types/_wint_t.h>
-#include <sys/_types/_wint_t.h>
-#include <_types/_wctype_t.h>
-
-#ifndef WEOF
-#define WEOF			__DARWIN_WEOF
-#endif
-
-#ifndef __DARWIN_WCTYPE_TOP_inline
-#define __DARWIN_WCTYPE_TOP_inline __header_inline
-#endif
-
-#include <ctype.h>
-
-#endif /* ___WCTYPE_H_ */
+#ifdef _USE_EXTENDED_LOCALES_
+#include <xlocale/___wctype.h>
+#endif /* _USE_EXTENDED_LOCALES_ */

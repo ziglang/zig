@@ -123,7 +123,7 @@ static LPWSTR xp_getfilepath(const HANDLE f, const LARGE_INTEGER fsize){
   if (temp) free(temp);
   if (pMem) UnmapViewOfFile(pMem);
   if (hFileMap) CloseHandle(hFileMap);
-  _set_errno(EBADF);
+  errno = EBADF;
   return NULL;
 }
 #endif /* _CHECK_SPACE_BY_PSAPI_METHOD_ */
@@ -142,7 +142,7 @@ checkfreespace (const HANDLE f, const ULONGLONG requiredspace)
   check = GetFileSizeEx (f, &currentsize);
   if (!check)
   {
-    _set_errno(EBADF);
+    errno = EBADF;
     return -1; /* Error checking file size */
   }
 
@@ -159,19 +159,19 @@ checkfreespace (const HANDLE f, const ULONGLONG requiredspace)
   check = GetFinalPathNameByHandleW(f,filepath,0,FILE_NAME_NORMALIZED|VOLUME_NAME_GUID);
   err = GetLastError();
   if (err == ERROR_PATH_NOT_FOUND || err == ERROR_INVALID_PARAMETER) {
-     _set_errno(EINVAL);
+     errno = EINVAL;
      return -1; /* IO error */
   }
   filepath = calloc(check + 1,sizeof(wchar_t));
   if (!filepath) {
-    _set_errno(EBADF);
+    errno = EBADF;
     return -1; /* Out of memory */
   }
   check = GetFinalPathNameByHandleW(f,filepath,check,FILE_NAME_NORMALIZED|VOLUME_NAME_GUID);
   /* FIXME: last error was set to error 87 (0x57)
   "The parameter is incorrect." for some reason but works out */
   if (!check) {
-    _set_errno(EBADF);
+    errno = EBADF;
     return -1; /* Error resolving filename */
   }
 #endif /* _CHECK_SPACE_BY_VISTA_METHOD_ */
@@ -185,21 +185,21 @@ checkfreespace (const HANDLE f, const ULONGLONG requiredspace)
   free(filepath);
   filepath =  NULL;
   if (!dirpath) {
-    _set_errno(EBADF);
+    errno = EBADF;
     return -1; /* Out of memory */
   }
 #endif /* _CHECK_SPACE_BY_PSAPI_METHOD_ */
 
 #if _CHECK_SPACE_BY_VOLUME_METHOD_
   if(!GetFileInformationByHandle(f,&fileinfo)) {
-    _set_errno(EINVAL);
+    errno = EINVAL;
     return -1; /* Resolution failure */
   }
 
   volumeid = calloc(51,sizeof(wchar_t));
   volumepath = calloc(MAX_PATH+2,sizeof(wchar_t));
   if(!volumeid || !volumepath) {
-  _set_errno(EBADF);
+    errno = EBADF;
     return -1; /* Out of memory */
   }
 
@@ -226,14 +226,14 @@ checkfreespace (const HANDLE f, const ULONGLONG requiredspace)
   //wprintf(L"freespace %I64u\n",freespace);
   free(dirpath);
   if(!check) {
-    _set_errno(EFBIG);
+    errno = EFBIG;
     return -1; /* Error getting free space */
   }
  
   /* Check space requirements */
   if ((requiredspace - currentsize.QuadPart) > freespace.QuadPart)
   {
-    _set_errno(EFBIG); /* File too big for disk */
+    errno = EFBIG; /* File too big for disk */
     return -1;
   } /* We have enough space to truncate/expand */
   return 0;
@@ -258,7 +258,7 @@ int ftruncate64(int __fd, _off64_t __length) {
 
   f = (HANDLE)_get_osfhandle(__fd);
   if (f == INVALID_HANDLE_VALUE || (GetFileType(f) != FILE_TYPE_DISK)) {
-    _set_errno(EBADF);
+    errno = EBADF;
     return -1;
   }
 
@@ -279,13 +279,13 @@ int ftruncate64(int __fd, _off64_t __length) {
   if (check == INVALID_SET_FILE_POINTER && quad.LowPart != INVALID_SET_FILE_POINTER) {
     switch (GetLastError()) {
       case ERROR_NEGATIVE_SEEK:
-        _set_errno(EFBIG); /* file too big? */
+        errno = EFBIG; /* file too big? */
         return -1;
       case INVALID_SET_FILE_POINTER:
-        _set_errno(EINVAL); /* shouldn't happen */
+        errno = EINVAL; /* shouldn't happen */
         return -1;
       default:
-        _set_errno(EINVAL); /* shouldn't happen */
+        errno = EINVAL; /* shouldn't happen */
         return -1;
     }
   }
@@ -302,7 +302,7 @@ int ftruncate64(int __fd, _off64_t __length) {
   return ret;
 
   errorout:
-  _set_errno(EINVAL);
+  errno = EINVAL;
   return -1;
 }
 

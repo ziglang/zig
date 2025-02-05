@@ -6,6 +6,7 @@
 #define _OBJC_NSOBJCRUNTIME_H_
 
 #include <TargetConditionals.h>
+#include <limits.h>
 #include <objc/objc.h>
 
 #if __LP64__ || NS_BUILD_32_LIKE_64

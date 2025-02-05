@@ -28,7 +28,7 @@
 #include <_types.h>
 #include <sys/_types/_size_t.h>
 #include <sys/_types/_ssize_t.h>
-#include <_xlocale.h>
+#include <__xlocale.h>
 
 __BEGIN_DECLS
 ssize_t	strfmon_l(char *, size_t, locale_t, const char *, ...)

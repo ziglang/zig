@@ -34,6 +34,18 @@
 #if SIMD_COMPILER_HAS_REQUIRED_FEATURES
 
 /*  Matrix types available in C, Objective-C, and C++                         */
+typedef simd_half2x2 matrix_half2x2;
+typedef simd_half3x2 matrix_half3x2;
+typedef simd_half4x2 matrix_half4x2;
+
+typedef simd_half2x3 matrix_half2x3;
+typedef simd_half3x3 matrix_half3x3;
+typedef simd_half4x3 matrix_half4x3;
+
+typedef simd_half2x4 matrix_half2x4;
+typedef simd_half3x4 matrix_half3x4;
+typedef simd_half4x4 matrix_half4x4;
+
 typedef simd_float2x2 matrix_float2x2;
 typedef simd_float3x2 matrix_float3x2;
 typedef simd_float4x2 matrix_float4x2;
@@ -60,6 +72,8 @@ typedef simd_double4x4 matrix_double4x4;
 
 #ifdef __cplusplus
 #if defined SIMD_MATRIX_HEADER
+static   simd_half3x3 SIMD_NOINLINE simd_matrix3x3(simd_quath q);
+static   simd_half4x4 SIMD_NOINLINE simd_matrix4x4(simd_quath q);
 static  simd_float3x3 SIMD_NOINLINE simd_matrix3x3(simd_quatf q);
 static  simd_float4x4 SIMD_NOINLINE simd_matrix4x4(simd_quatf q);
 static simd_double3x3 SIMD_NOINLINE simd_matrix3x3(simd_quatd q);
@@ -68,6 +82,117 @@ static simd_double4x4 SIMD_NOINLINE simd_matrix4x4(simd_quatd q);
 
 namespace simd {
   
+  struct half2x2 : ::simd_half2x2 {
+    SIMD_CONSTEXPR half2x2() SIMD_NOEXCEPT : ::simd_half2x2((simd_half2x2){0}) { }
+#if __has_feature(cxx_delegating_constructors)
+    SIMD_CONSTEXPR half2x2(_Float16 diagonal) SIMD_NOEXCEPT : half2x2((half2)diagonal) { }
+#endif
+    SIMD_CONSTEXPR half2x2(half2 v) SIMD_NOEXCEPT :
+    ::simd_half2x2((simd_half2x2){(half2){v.x,0}, (half2){0,v.y}}) { }
+    SIMD_CONSTEXPR half2x2(half2 c0, half2 c1) SIMD_NOEXCEPT : simd_half2x2((simd_half2x2){c0, c1}) { }
+    SIMD_CONSTEXPR half2x2(::simd_half2x2 m) SIMD_NOEXCEPT : ::simd_half2x2(m) { }
+  };
+
+  struct half3x2 : ::simd_half3x2 {
+    SIMD_CONSTEXPR half3x2() SIMD_NOEXCEPT : ::simd_half3x2((simd_half3x2){0}) { }
+#if __has_feature(cxx_delegating_constructors)
+    SIMD_CONSTEXPR half3x2(_Float16 diagonal) SIMD_NOEXCEPT : half3x2((half2)diagonal) { }
+#endif
+    SIMD_CONSTEXPR half3x2(half2 v) SIMD_NOEXCEPT :
+    ::simd_half3x2((simd_half3x2){(half2){v.x,0}, (half2){0,v.y}, (half2){0}}) { }
+    SIMD_CONSTEXPR half3x2(half2 c0, half2 c1, half2 c2) SIMD_NOEXCEPT :
+    ::simd_half3x2((simd_half3x2){c0, c1, c2}) { }
+    SIMD_CONSTEXPR half3x2(::simd_half3x2 m) SIMD_NOEXCEPT : ::simd_half3x2(m) { }
+  };
+
+  struct half4x2 : ::simd_half4x2 {
+    SIMD_CONSTEXPR half4x2() SIMD_NOEXCEPT : ::simd_half4x2((simd_half4x2){0}) { }
+#if __has_feature(cxx_delegating_constructors)
+    SIMD_CONSTEXPR half4x2(_Float16 diagonal) SIMD_NOEXCEPT : half4x2((half2)diagonal) { }
+#endif
+    SIMD_CONSTEXPR half4x2(half2 v) SIMD_NOEXCEPT :
+    ::simd_half4x2((simd_half4x2){(half2){v.x,0}, (half2){0,v.y}, (half2){0}, (half2){0}}) { }
+    SIMD_CONSTEXPR half4x2(half2 c0, half2 c1, half2 c2, half2 c3) SIMD_NOEXCEPT :
+    ::simd_half4x2((simd_half4x2){c0, c1, c2, c3}) { }
+    SIMD_CONSTEXPR half4x2(::simd_half4x2 m) SIMD_NOEXCEPT : ::simd_half4x2(m) { }
+  };
+
+  struct half2x3 : ::simd_half2x3 {
+    SIMD_CONSTEXPR half2x3() SIMD_NOEXCEPT : ::simd_half2x3((simd_half2x3){0}) { }
+#if __has_feature(cxx_delegating_constructors)
+    SIMD_CONSTEXPR half2x3(_Float16 diagonal) SIMD_NOEXCEPT : half2x3((half2)diagonal) { }
+#endif
+    SIMD_CONSTEXPR half2x3(half2 v) SIMD_NOEXCEPT :
+    ::simd_half2x3((simd_half2x3){(half3){v.x,0,0}, (half3){0,v.y,0}}) { }
+    SIMD_CONSTEXPR half2x3(half3 c0, half3 c1) SIMD_NOEXCEPT : ::simd_half2x3((simd_half2x3){c0, c1}) { }
+    SIMD_CONSTEXPR half2x3(::simd_half2x3 m) SIMD_NOEXCEPT : ::simd_half2x3(m) { }
+  };
+
+  struct half3x3 : ::simd_half3x3 {
+    SIMD_CONSTEXPR half3x3() SIMD_NOEXCEPT : ::simd_half3x3((simd_half3x3){0}) { }
+#if __has_feature(cxx_delegating_constructors)
+    SIMD_CONSTEXPR half3x3(_Float16 diagonal) SIMD_NOEXCEPT : half3x3((half3)diagonal) { }
+#endif
+    SIMD_CONSTEXPR half3x3(half3 v) SIMD_NOEXCEPT :
+    ::simd_half3x3((simd_half3x3){(half3){v.x,0,0}, (half3){0,v.y,0}, (half3){0,0,v.z}}) { }
+    SIMD_CONSTEXPR half3x3(half3 c0, half3 c1, half3 c2) SIMD_NOEXCEPT :
+    ::simd_half3x3((simd_half3x3){c0, c1, c2}) { }
+    SIMD_CONSTEXPR half3x3(::simd_half3x3 m) SIMD_NOEXCEPT : ::simd_half3x3(m) { }
+#if defined SIMD_MATRIX_HEADER
+    SIMD_CONSTEXPR half3x3(::simd_quath q) SIMD_NOEXCEPT : ::simd_half3x3(::simd_matrix3x3(q)) { }
+#endif
+  };
+
+  struct half4x3 : ::simd_half4x3 {
+    SIMD_CONSTEXPR half4x3() SIMD_NOEXCEPT : ::simd_half4x3((simd_half4x3){0}) { }
+#if __has_feature(cxx_delegating_constructors)
+    SIMD_CONSTEXPR half4x3(_Float16 diagonal) SIMD_NOEXCEPT : half4x3((half3)diagonal) { }
+#endif
+    SIMD_CONSTEXPR half4x3(half3 v) SIMD_NOEXCEPT :
+    ::simd_half4x3((simd_half4x3){(half3){v.x,0,0}, (half3){0,v.y,0}, (half3){0,0,v.z}, (half3){0}}) { }
+    SIMD_CONSTEXPR half4x3(half3 c0, half3 c1, half3 c2, half3 c3) SIMD_NOEXCEPT :
+    ::simd_half4x3((simd_half4x3){c0, c1, c2, c3}) { }
+    SIMD_CONSTEXPR half4x3(::simd_half4x3 m) SIMD_NOEXCEPT : ::simd_half4x3(m) { }
+  };
+
+  struct half2x4 : ::simd_half2x4 {
+    SIMD_CONSTEXPR half2x4() SIMD_NOEXCEPT : ::simd_half2x4((simd_half2x4){0}) { }
+#if __has_feature(cxx_delegating_constructors)
+    SIMD_CONSTEXPR half2x4(_Float16 diagonal) SIMD_NOEXCEPT : half2x4((half2)diagonal) { }
+#endif
+    SIMD_CONSTEXPR half2x4(half2 v) SIMD_NOEXCEPT :
+    ::simd_half2x4((simd_half2x4){(half4){v.x,0,0,0}, (half4){0,v.y,0,0}}) { }
+    SIMD_CONSTEXPR half2x4(half4 c0, half4 c1) SIMD_NOEXCEPT : ::simd_half2x4((simd_half2x4){c0, c1}) { }
+    SIMD_CONSTEXPR half2x4(::simd_half2x4 m) SIMD_NOEXCEPT : ::simd_half2x4(m) { }
+  };
+
+  struct half3x4 : ::simd_half3x4 {
+    SIMD_CONSTEXPR half3x4() SIMD_NOEXCEPT : ::simd_half3x4((simd_half3x4){0}) { }
+#if __has_feature(cxx_delegating_constructors)
+    SIMD_CONSTEXPR half3x4(_Float16 diagonal) SIMD_NOEXCEPT : half3x4((half3)diagonal) { }
+#endif
+    SIMD_CONSTEXPR half3x4(half3 v) SIMD_NOEXCEPT :
+    ::simd_half3x4((simd_half3x4){(half4){v.x,0,0,0}, (half4){0,v.y,0,0}, (half4){0,0,v.z,0}}) { }
+    SIMD_CONSTEXPR half3x4(half4 c0, half4 c1, half4 c2) SIMD_NOEXCEPT :
+    ::simd_half3x4((simd_half3x4){c0, c1, c2}) { }
+    SIMD_CONSTEXPR half3x4(::simd_half3x4 m) SIMD_NOEXCEPT : ::simd_half3x4(m) { }
+  };
+
+  struct half4x4 : ::simd_half4x4 {
+    SIMD_CONSTEXPR half4x4() SIMD_NOEXCEPT : ::simd_half4x4((simd_half4x4){0}) { }
+#if __has_feature(cxx_delegating_constructors)
+    SIMD_CONSTEXPR half4x4(_Float16 diagonal) SIMD_NOEXCEPT : half4x4((half4)diagonal) { }
+#endif
+    SIMD_CONSTEXPR half4x4(half4 v) SIMD_NOEXCEPT :
+    ::simd_half4x4((simd_half4x4){(half4){v.x,0,0,0}, (half4){0,v.y,0,0}, (half4){0,0,v.z,0}, (half4){0,0,0,v.w}}) { }
+    SIMD_CONSTEXPR half4x4(half4 c0, half4 c1, half4 c2, half4 c3) SIMD_NOEXCEPT :
+    ::simd_half4x4((simd_half4x4){c0, c1, c2, c3}) { }
+    SIMD_CONSTEXPR half4x4(::simd_half4x4 m) SIMD_NOEXCEPT : ::simd_half4x4(m) { }
+#if defined SIMD_MATRIX_HEADER
+    SIMD_CONSTEXPR half4x4(::simd_quath q) SIMD_NOEXCEPT : ::simd_half4x4(::simd_matrix4x4(q)) { }
+#endif
+  };
+
   struct float2x2 : ::simd_float2x2 {
     SIMD_CONSTEXPR float2x2() SIMD_NOEXCEPT : ::simd_float2x2((simd_float2x2){0}) { }
 #if __has_feature(cxx_delegating_constructors)
@@ -303,6 +428,69 @@ template <typename ScalarType, size_t col, size_t row> struct Matrix {
 template <typename ScalarType, size_t col, size_t row>
 using Matrix_t = typename Matrix<ScalarType, col, row>::type;
 
+template<> struct Matrix<_Float16, 2, 2> {
+    static const size_t col = 2;
+    static const size_t row = 2;
+    typedef _Float16 scalar_t;
+    typedef half2x2 type;
+};
+
+template<> struct Matrix<_Float16, 3, 2> {
+    static const size_t col = 3;
+    static const size_t row = 2;
+    typedef _Float16 scalar_t;
+    typedef half3x2 type;
+};
+
+template<> struct Matrix<_Float16, 4, 2> {
+    static const size_t col = 4;
+    static const size_t row = 2;
+    typedef _Float16 scalar_t;
+    typedef half4x2 type;
+};
+
+template<> struct Matrix<_Float16, 2, 3> {
+    static const size_t col = 2;
+    static const size_t row = 3;
+    typedef _Float16 scalar_t;
+    typedef half2x3 type;
+};
+
+template<> struct Matrix<_Float16, 3, 3> {
+    static const size_t col = 3;
+    static const size_t row = 3;
+    typedef _Float16 scalar_t;
+    typedef half3x3 type;
+};
+
+template<> struct Matrix<_Float16, 4, 3> {
+    static const size_t col = 4;
+    static const size_t row = 3;
+    typedef _Float16 scalar_t;
+    typedef half4x3 type;
+};
+
+template<> struct Matrix<_Float16, 2, 4> {
+    static const size_t col = 2;
+    static const size_t row = 4;
+    typedef _Float16 scalar_t;
+    typedef half2x4 type;
+};
+
+template<> struct Matrix<_Float16, 3, 4> {
+    static const size_t col = 3;
+    static const size_t row = 4;
+    typedef _Float16 scalar_t;
+    typedef half3x4 type;
+};
+
+template<> struct Matrix<_Float16, 4, 4> {
+    static const size_t col = 4;
+    static const size_t row = 4;
+    typedef _Float16 scalar_t;
+    typedef half4x4 type;
+};
+
 template<> struct Matrix<float, 2, 2> {
     static const size_t col = 2;
     static const size_t row = 2;
@@ -427,6 +615,51 @@ template<> struct Matrix<double, 4, 4> {
     static const size_t row = 4;
     typedef double scalar_t;
     typedef double4x4 type;
+};
+
+template <> struct get_traits<half2x2>
+{
+    using type = Matrix<_Float16, 2, 2>;
+};
+
+template <> struct get_traits<half3x2>
+{
+    using type = Matrix<_Float16, 3, 2>;
+};
+
+template <> struct get_traits<half4x2>
+{
+    using type = Matrix<_Float16, 4, 2>;
+};
+
+template <> struct get_traits<half2x3>
+{
+    using type = Matrix<_Float16, 2, 3>;
+};
+
+template <> struct get_traits<half3x3>
+{
+    using type = Matrix<_Float16, 3, 3>;
+};
+
+template <> struct get_traits<half4x3>
+{
+    using type = Matrix<_Float16, 4, 3>;
+};
+
+template <> struct get_traits<half2x4>
+{
+    using type = Matrix<_Float16, 2, 4>;
+};
+
+template <> struct get_traits<half3x4>
+{
+    using type = Matrix<_Float16, 3, 4>;
+};
+
+template <> struct get_traits<half4x4>
+{
+    using type = Matrix<_Float16, 4, 4>;
 };
 
 template <> struct get_traits<float2x2>

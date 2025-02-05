@@ -118,14 +118,14 @@ fn Slice(comptime T: type) type {
         .pointer => |ptr_info| {
             var new_ptr_info = ptr_info;
             switch (ptr_info.size) {
-                .Slice => {},
-                .One => switch (@typeInfo(ptr_info.child)) {
+                .slice => {},
+                .one => switch (@typeInfo(ptr_info.child)) {
                     .array => |info| new_ptr_info.child = info.child,
                     else => @compileError("invalid type given to fixedBufferStream"),
                 },
                 else => @compileError("invalid type given to fixedBufferStream"),
             }
-            new_ptr_info.size = .Slice;
+            new_ptr_info.size = .slice;
             return @Type(.{ .pointer = new_ptr_info });
         },
         else => @compileError("invalid type given to fixedBufferStream"),

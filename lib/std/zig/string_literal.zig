@@ -38,6 +38,83 @@ pub const Error = union(enum) {
     invalid_character: usize,
     /// `''`. Not returned for string literals.
     empty_char_literal,
+
+    const FormatMessage = struct {
+        err: Error,
+        raw_string: []const u8,
+    };
+
+    fn formatMessage(
+        self: FormatMessage,
+        comptime f: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = f;
+        _ = options;
+        switch (self.err) {
+            .invalid_escape_character => |bad_index| try writer.print(
+                "invalid escape character: '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .expected_hex_digit => |bad_index| try writer.print(
+                "expected hex digit, found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .empty_unicode_escape_sequence => try writer.writeAll(
+                "empty unicode escape sequence",
+            ),
+            .expected_hex_digit_or_rbrace => |bad_index| try writer.print(
+                "expected hex digit or '}}', found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .invalid_unicode_codepoint => try writer.writeAll(
+                "unicode escape does not correspond to a valid unicode scalar value",
+            ),
+            .expected_lbrace => |bad_index| try writer.print(
+                "expected '{{', found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .expected_rbrace => |bad_index| try writer.print(
+                "expected '}}', found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .expected_single_quote => |bad_index| try writer.print(
+                "expected single quote ('), found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .invalid_character => |bad_index| try writer.print(
+                "invalid byte in string or character literal: '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .empty_char_literal => try writer.writeAll(
+                "empty character literal",
+            ),
+        }
+    }
+
+    pub fn fmt(self: @This(), raw_string: []const u8) std.fmt.Formatter(formatMessage) {
+        return .{ .data = .{
+            .err = self,
+            .raw_string = raw_string,
+        } };
+    }
+
+    pub fn offset(err: Error) usize {
+        return switch (err) {
+            inline .invalid_escape_character,
+            .expected_hex_digit,
+            .empty_unicode_escape_sequence,
+            .expected_hex_digit_or_rbrace,
+            .invalid_unicode_codepoint,
+            .expected_lbrace,
+            .expected_rbrace,
+            .expected_single_quote,
+            .invalid_character,
+            => |n| n,
+            .empty_char_literal => 0,
+        };
+    }
 };
 
 /// Asserts the slice starts and ends with single-quotes.

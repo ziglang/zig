@@ -250,7 +250,7 @@ test "loadWinsockExtensionFunction" {
         SendBufLen: windows.DWORD,
         BytesSent: *windows.DWORD,
         Overlapped: *windows.OVERLAPPED,
-    ) callconv(windows.WINAPI) windows.BOOL;
+    ) callconv(.winapi) windows.BOOL;
 
     _ = windows.loadWinsockExtensionFunction(
         LPFN_CONNECTEX,

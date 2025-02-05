@@ -5,7 +5,6 @@ export fn entry() i32 {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :2:14: error: comptime call of extern function
+// :2:14: note: initializer of container-level variable must be comptime-known

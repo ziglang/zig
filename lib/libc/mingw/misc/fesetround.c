@@ -3,11 +3,9 @@
  * This file is part of the mingw-w64 runtime package.
  * No warranty is given; refer to the file DISCLAIMER.PD within this package.
  */
-#include <fenv.h>
 
-#if !(defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__))
-int __mingw_has_sse (void);
-#endif /* !(defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__)) */
+#include <fenv.h>
+#include <internal.h>
 
  /* 7.6.3.2
     The fesetround function establishes the rounding direction
@@ -42,7 +40,7 @@ int fesetround (int mode)
   _cw &= ~0xc00;
   _cw |= mode;
   __asm__ volatile ("fldcw %0;" : : "m" (*&_cw));
-  
+
   if (__mingw_has_sse ())
     {
       int mxcsr;

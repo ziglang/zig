@@ -24,6 +24,8 @@
 #ifndef _SECURE__COMMON_H_
 #define _SECURE__COMMON_H_
 
+#include <_types.h>
+
 #undef _USE_FORTIFY_LEVEL
 #if defined(_FORTIFY_SOURCE) && _FORTIFY_SOURCE > 0
 #  if _FORTIFY_SOURCE > 1

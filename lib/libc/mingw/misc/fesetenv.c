@@ -3,13 +3,11 @@
  * This file is part of the mingw-w64 runtime package.
  * No warranty is given; refer to the file DISCLAIMER.PD within this package.
  */
+
 #include <_mingw.h>
 #include <fenv.h>
 #include <float.h>
-
-#if !(defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__))
-extern int __mingw_has_sse (void);
-#endif /* !(defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__)) */
+#include <internal.h>
 
 /* 7.6.4.3
    The fesetenv function establishes the floating-point environment
@@ -28,7 +26,7 @@ int fesetenv (const fenv_t * envp)
 {
 #if defined(_ARM_) || defined(__arm__)
   if (envp == FE_DFL_ENV)
-    /* Use the choice made at app startup */ 
+    /* Use the choice made at app startup */
     _fpreset();
   else
     __asm__ volatile ("fmxr FPSCR, %0" : : "r" (*envp));
@@ -59,7 +57,7 @@ int fesetenv (const fenv_t * envp)
    (* __MINGW_IMP_SYMBOL(_fpreset))();
 
   else if (envp == FE_DFL_ENV)
-    /* Use the choice made at app startup */ 
+    /* Use the choice made at app startup */
     _fpreset();
 
   else

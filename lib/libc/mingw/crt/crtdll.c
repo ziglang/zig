@@ -204,6 +204,8 @@ i__leave:
 
 int __cdecl atexit (_PVFV func)
 {
+    /* Do not use msvcrt's atexit() or UCRT's _crt_atexit() function as it
+     * cannot be called from DLL library which may be unloaded at runtime. */
     return _register_onexit_function(&atexit_table, (_onexit_t)func);
 }
 

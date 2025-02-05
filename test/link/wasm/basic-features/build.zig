@@ -1,18 +1,18 @@
 const std = @import("std");
 
-pub const requires_stage2 = true;
-
 pub fn build(b: *std.Build) void {
     // Library with explicitly set cpu features
     const lib = b.addExecutable(.{
         .name = "lib",
-        .root_source_file = b.path("main.zig"),
-        .optimize = .Debug,
-        .target = b.resolveTargetQuery(.{
-            .cpu_arch = .wasm32,
-            .cpu_model = .{ .explicit = &std.Target.wasm.cpu.mvp },
-            .cpu_features_add = std.Target.wasm.featureSet(&.{.atomics}),
-            .os_tag = .freestanding,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .optimize = .Debug,
+            .target = b.resolveTargetQuery(.{
+                .cpu_arch = .wasm32,
+                .cpu_model = .{ .explicit = &std.Target.wasm.cpu.mvp },
+                .cpu_features_add = std.Target.wasm.featureSet(&.{.atomics}),
+                .os_tag = .freestanding,
+            }),
         }),
     });
     lib.entry = .disabled;

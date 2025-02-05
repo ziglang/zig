@@ -16,10 +16,6 @@ const Allocator = std.mem.Allocator;
 
 fn getStdOutHandle() posix.fd_t {
     if (is_windows) {
-        if (builtin.zig_backend == .stage2_aarch64) {
-            // TODO: this is just a temporary workaround until we advance aarch64 backend further along.
-            return windows.GetStdHandle(windows.STD_OUTPUT_HANDLE) catch windows.INVALID_HANDLE_VALUE;
-        }
         return windows.peb().ProcessParameters.hStdOutput;
     }
 
@@ -36,10 +32,6 @@ pub fn getStdOut() File {
 
 fn getStdErrHandle() posix.fd_t {
     if (is_windows) {
-        if (builtin.zig_backend == .stage2_aarch64) {
-            // TODO: this is just a temporary workaround until we advance aarch64 backend further along.
-            return windows.GetStdHandle(windows.STD_ERROR_HANDLE) catch windows.INVALID_HANDLE_VALUE;
-        }
         return windows.peb().ProcessParameters.hStdError;
     }
 
@@ -56,10 +48,6 @@ pub fn getStdErr() File {
 
 fn getStdInHandle() posix.fd_t {
     if (is_windows) {
-        if (builtin.zig_backend == .stage2_aarch64) {
-            // TODO: this is just a temporary workaround until we advance aarch64 backend further along.
-            return windows.GetStdHandle(windows.STD_INPUT_HANDLE) catch windows.INVALID_HANDLE_VALUE;
-        }
         return windows.peb().ProcessParameters.hStdInput;
     }
 
@@ -646,7 +634,10 @@ pub fn Poller(comptime StreamEnum: type) type {
                 // always check if there's some data waiting to be read first.
                 if (poll_fd.revents & posix.POLL.IN != 0) {
                     const buf = try q.writableWithSize(bump_amt);
-                    const amt = try posix.read(poll_fd.fd, buf);
+                    const amt = posix.read(poll_fd.fd, buf) catch |err| switch (err) {
+                        error.BrokenPipe => 0, // Handle the same as EOF.
+                        else => |e| return e,
+                    };
                     q.update(amt);
                     if (amt == 0) {
                         // Remove the fd when the EOF condition is met.
@@ -814,7 +805,7 @@ pub fn PollFiles(comptime StreamEnum: type) type {
         struct_field.* = .{
             .name = enum_field.name ++ "",
             .type = fs.File,
-            .default_value = null,
+            .default_value_ptr = null,
             .is_comptime = false,
             .alignment = @alignOf(fs.File),
         };

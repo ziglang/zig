@@ -119,7 +119,7 @@ test tagToId {
 }
 
 test "exhaustive tagToId" {
-    inline for (@typeInfo(LanguageId).Enum.fields) |field| {
+    inline for (@typeInfo(LanguageId).@"enum".fields) |field| {
         const id = tagToId(field.name) catch |err| {
             std.debug.print("tag: {s}\n", .{field.name});
             return err;

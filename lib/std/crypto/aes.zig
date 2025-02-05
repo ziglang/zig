@@ -22,6 +22,7 @@ pub const has_hardware_support =
     (builtin.cpu.arch == .aarch64 and has_armaes);
 
 pub const Block = impl.Block;
+pub const BlockVec = impl.BlockVec;
 pub const AesEncryptCtx = impl.AesEncryptCtx;
 pub const AesDecryptCtx = impl.AesDecryptCtx;
 pub const Aes128 = impl.Aes128;

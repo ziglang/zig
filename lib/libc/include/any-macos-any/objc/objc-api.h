@@ -301,4 +301,10 @@
 #   endif
 #endif
 
+#if __has_attribute(not_tail_called)
+#   define OBJC_NOT_TAIL_CALLED __attribute__((not_tail_called))
+#else
+#   define OBJC_NOT_TAIL_CALLED
+#endif
+
 #endif

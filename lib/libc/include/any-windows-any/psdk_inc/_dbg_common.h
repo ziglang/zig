@@ -900,7 +900,7 @@ typedef struct _SYMSRV_INDEX_INFOW {
 #endif
 
   WINBOOL IMAGEAPI SymRegisterCallback64(HANDLE hProcess,PSYMBOL_REGISTERED_CALLBACK64 CallbackFunction,ULONG64 UserContext);
-  WINBOOL IMAGEAPI SymRegisterCallback64W(HANDLE hProcess,PSYMBOL_REGISTERED_CALLBACK64 CallbackFunction,ULONG64 UserContext);
+  WINBOOL IMAGEAPI SymRegisterCallbackW64(HANDLE hProcess,PSYMBOL_REGISTERED_CALLBACK64 CallbackFunction,ULONG64 UserContext);
 
   WINBOOL IMAGEAPI SymRegisterFunctionEntryCallback64(HANDLE hProcess,PSYMBOL_FUNCENTRY_CALLBACK64 CallbackFunction,ULONG64 UserContext);
 

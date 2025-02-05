@@ -33,6 +33,7 @@
 #define valid(n, b)	((n) >= 0 && (n) < (b))
 
 uintmax_t
+__cdecl
 wcstoumax(const wchar_t * __restrict__ nptr, wchar_t ** __restrict__ endptr, int base)
 	{
 	register uintmax_t	accum;	/* accumulates converted value */
@@ -110,6 +111,16 @@ wcstoumax(const wchar_t * __restrict__ nptr, wchar_t ** __restrict__ endptr, int
 	else
 		return minus ? -accum : accum;	/* (yes!) */
 	}
+uintmax_t (__cdecl *__MINGW_IMP_SYMBOL(wcstoumax))(const wchar_t * __restrict__, wchar_t ** __restrict__, int) = wcstoumax;
 
 unsigned long long __attribute__ ((alias ("wcstoumax")))
+__cdecl
 wcstoull (const wchar_t* __restrict__ nptr, wchar_t ** __restrict__ endptr, int base);
+extern unsigned long long __attribute__ ((alias (__MINGW64_STRINGIFY(__MINGW_IMP_SYMBOL(wcstoumax)))))
+(__cdecl *__MINGW_IMP_SYMBOL(wcstoull))(const wchar_t * __restrict__, wchar_t ** __restrict__, int);
+
+unsigned long long __attribute__ ((alias ("wcstoumax")))
+__cdecl
+_wcstoui64 (const wchar_t* __restrict__ nptr, wchar_t ** __restrict__ endptr, int base);
+extern unsigned long long __attribute__ ((alias (__MINGW64_STRINGIFY(__MINGW_IMP_SYMBOL(wcstoumax)))))
+(__cdecl *__MINGW_IMP_SYMBOL(_wcstoui64))(const wchar_t * __restrict__, wchar_t ** __restrict__, int);

@@ -174,6 +174,21 @@ pub fn removeComments(source: []const u8, buf: []u8, source_mappings: ?*SourceMa
                 },
             },
         }
+    } else {
+        switch (state) {
+            .start,
+            .line_comment,
+            .multiline_comment,
+            .multiline_comment_end,
+            .single_quoted,
+            .single_quoted_escape,
+            .double_quoted,
+            .double_quoted_escape,
+            => {},
+            .forward_slash => {
+                result.writeSlice(source[pending_start.?..index]);
+            },
+        }
     }
     return result.getWritten();
 }
@@ -331,6 +346,16 @@ test "comments appended to a line" {
     try testRemoveComments(
         "blah \r\nblah",
         "blah // line comment\r\nblah",
+    );
+}
+
+test "forward slash only" {
+    try testRemoveComments(
+        \\  /
+        \\/
+    ,
+        \\  /
+        \\/
     );
 }
 

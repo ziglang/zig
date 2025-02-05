@@ -43,34 +43,34 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const generic = CpuModel{
+    pub const generic: CpuModel = .{
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const probe = CpuModel{
+    pub const probe: CpuModel = .{
         .name = "probe",
         .llvm_name = "probe",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const v1 = CpuModel{
+    pub const v1: CpuModel = .{
         .name = "v1",
         .llvm_name = "v1",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const v2 = CpuModel{
+    pub const v2: CpuModel = .{
         .name = "v2",
         .llvm_name = "v2",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const v3 = CpuModel{
+    pub const v3: CpuModel = .{
         .name = "v3",
         .llvm_name = "v3",
         .features = featureSet(&[_]Feature{
             .alu32,
         }),
     };
-    pub const v4 = CpuModel{
+    pub const v4: CpuModel = .{
         .name = "v4",
         .llvm_name = "v4",
         .features = featureSet(&[_]Feature{

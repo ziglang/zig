@@ -15,11 +15,13 @@ pub fn build(b: *std.Build) !void {
 
     const kernel = b.addExecutable(.{
         .name = "kernel",
-        .root_source_file = b.path("./main.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("./main.zig"),
+            .optimize = optimize,
+            .target = target,
+        }),
     });
-    kernel.addObjectFile(b.path("./boot.S"));
+    kernel.root_module.addObjectFile(b.path("./boot.S"));
     kernel.setLinkerScript(b.path("./linker.ld"));
     b.installArtifact(kernel);
 
