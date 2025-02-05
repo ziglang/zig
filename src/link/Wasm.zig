@@ -2820,9 +2820,12 @@ pub const Feature = packed struct(u8) {
     pub const Tag = enum(u6) {
         atomics,
         @"bulk-memory",
+        @"bulk-memory-opt",
+        @"call-indirect-overlong",
         @"exception-handling",
         @"extended-const",
-        @"half-precision",
+        fp16,
+        memory64,
         multimemory,
         multivalue,
         @"mutable-globals",
@@ -2834,14 +2837,17 @@ pub const Feature = packed struct(u8) {
         simd128,
         @"tail-call",
         @"shared-mem",
+        @"wide-arithmetic",
 
         pub fn fromCpuFeature(feature: std.Target.wasm.Feature) Tag {
             return switch (feature) {
                 .atomics => .atomics,
                 .bulk_memory => .@"bulk-memory",
+                .bulk_memory_opt => .@"bulk-memory-opt",
+                .call_indirect_overlong => .@"call-indirect-overlong",
                 .exception_handling => .@"exception-handling",
                 .extended_const => .@"extended-const",
-                .half_precision => .@"half-precision",
+                .fp16 => .fp16,
                 .multimemory => .multimemory,
                 .multivalue => .multivalue,
                 .mutable_globals => .@"mutable-globals",
@@ -2852,6 +2858,7 @@ pub const Feature = packed struct(u8) {
                 .sign_ext => .@"sign-ext",
                 .simd128 => .simd128,
                 .tail_call => .@"tail-call",
+                .wide_arithmetic => .@"wide-arithmetic",
             };
         }
 
@@ -2859,9 +2866,12 @@ pub const Feature = packed struct(u8) {
             return switch (tag) {
                 .atomics => .atomics,
                 .@"bulk-memory" => .bulk_memory,
+                .@"bulk-memory-opt" => .bulk_memory_opt,
+                .@"call-indirect-overlong" => .call_indirect_overlong,
                 .@"exception-handling" => .exception_handling,
                 .@"extended-const" => .extended_const,
-                .@"half-precision" => .half_precision,
+                .fp16 => .fp16,
+                .memory64 => null, // Linker-only feature.
                 .multimemory => .multimemory,
                 .multivalue => .multivalue,
                 .@"mutable-globals" => .mutable_globals,
@@ -2873,6 +2883,7 @@ pub const Feature = packed struct(u8) {
                 .simd128 => .simd128,
                 .@"tail-call" => .tail_call,
                 .@"shared-mem" => null, // Linker-only feature.
+                .@"wide-arithmetic" => .wide_arithmetic,
             };
         }
 
