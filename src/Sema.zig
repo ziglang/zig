@@ -18145,10 +18145,16 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
             const ret_ty_opt = try pt.intern(.{ .opt = .{
                 .ty = try pt.intern(.{ .opt_type = .type_type }),
-                .val = if (func_ty_info.return_type == .generic_poison_type)
-                    .none
-                else
-                    func_ty_info.return_type,
+                .val = opt_val: {
+                    const ret_ty: Type = .fromInterned(func_ty_info.return_type);
+                    if (ret_ty.toIntern() == .generic_poison_type) break :opt_val .none;
+                    if (ret_ty.zigTypeTag(zcu) == .error_union) {
+                        if (ret_ty.errorUnionPayload(zcu).toIntern() == .generic_poison_type) {
+                            break :opt_val .none;
+                        }
+                    }
+                    break :opt_val ret_ty.toIntern();
+                },
             } });
 
             const callconv_ty = try sema.getBuiltinType(src, .CallingConvention);
