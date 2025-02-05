@@ -16,3 +16,4 @@ pub fn main() anyerror!void {
 //
 // :10:10: error: runtime value contains reference to comptime var
 // :10:10: note: comptime var pointers are not available at runtime
+// :9:23: note: 'runtime_value' points to comptime var declared here
