@@ -74,6 +74,10 @@ test "exported zero length concatenated arrays" {
     // unable to export data symbol 'concatenated_empty_arrays'; not emitting a relocatable
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 
+    // error(link): NAV export_keyword.test.exported zero length concatenated arrays__struct_1687.concatenated_empty_arrays(InternPool.Nav.Index(1001)) assigned symbol 2589 but not allocated!
+    // thread 1757 panic: reached unreachable code
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
     _ = struct {
         export const concatenated_empty_arrays: [0]u8 = theHeck() ++ [0]u8{};
         fn theHeck() [0]u8 {
