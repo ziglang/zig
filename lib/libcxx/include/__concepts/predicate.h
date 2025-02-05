@@ -12,7 +12,7 @@
 #include <__concepts/boolean_testable.h>
 #include <__concepts/invocable.h>
 #include <__config>
-#include <__functional/invoke.h>
+#include <__type_traits/invoke.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

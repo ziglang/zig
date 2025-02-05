@@ -11,12 +11,12 @@
 
 #include <__algorithm/equal.h>
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__random/is_seed_sequence.h>
 #include <__type_traits/enable_if.h>
 #include <__type_traits/integral_constant.h>
 #include <__type_traits/is_convertible.h>
 #include <__utility/move.h>
-#include <cstddef>
 #include <cstdint>
 #include <iosfwd>
 
@@ -66,7 +66,7 @@ private:
 
 public:
   // engine characteristics
-  static _LIBCPP_CONSTEXPR const size_t table_size = __k;
+  static inline _LIBCPP_CONSTEXPR const size_t table_size = __k;
 
 #ifdef _LIBCPP_CXX03_LANG
   static const result_type _Min = _Engine::_Min;
@@ -172,9 +172,6 @@ private:
     return __y_;
   }
 };
-
-template <class _Engine, size_t __k>
-_LIBCPP_CONSTEXPR const size_t shuffle_order_engine<_Engine, __k>::table_size;
 
 template <class _Eng, size_t _Kp>
 _LIBCPP_HIDE_FROM_ABI bool

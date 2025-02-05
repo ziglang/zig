@@ -10,10 +10,10 @@
 #define _LIBCPP___ITERATOR_ALIASING_ITERATOR_H
 
 #include <__config>
+#include <__cstddef/ptrdiff_t.h>
 #include <__iterator/iterator_traits.h>
 #include <__memory/pointer_traits.h>
 #include <__type_traits/is_trivial.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -31,8 +31,8 @@ struct __aliasing_iterator_wrapper {
   class __iterator {
     _BaseIter __base_ = nullptr;
 
-    using __iter_traits     = iterator_traits<_BaseIter>;
-    using __base_value_type = typename __iter_traits::value_type;
+    using __iter_traits _LIBCPP_NODEBUG     = iterator_traits<_BaseIter>;
+    using __base_value_type _LIBCPP_NODEBUG = typename __iter_traits::value_type;
 
     static_assert(__has_random_access_iterator_category<_BaseIter>::value,
                   "The base iterator has to be a random access iterator!");
@@ -120,7 +120,7 @@ struct __aliasing_iterator_wrapper {
 
 // This is required to avoid ADL instantiations on _BaseT
 template <class _BaseT, class _Alias>
-using __aliasing_iterator = typename __aliasing_iterator_wrapper<_BaseT, _Alias>::__iterator;
+using __aliasing_iterator _LIBCPP_NODEBUG = typename __aliasing_iterator_wrapper<_BaseT, _Alias>::__iterator;
 
 _LIBCPP_END_NAMESPACE_STD
 

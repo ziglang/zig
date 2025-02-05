@@ -124,7 +124,7 @@ __base_10_u64(char* __buffer, uint64_t __value) noexcept {
   return __itoa::__append10(__buffer, __value);
 }
 
-#  ifndef _LIBCPP_HAS_NO_INT128
+#  if _LIBCPP_HAS_INT128
 /// \returns 10^\a exp
 ///
 /// \pre \a exp [19, 39]

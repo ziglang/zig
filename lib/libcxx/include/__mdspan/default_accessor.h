@@ -18,12 +18,11 @@
 #define _LIBCPP___MDSPAN_DEFAULT_ACCESSOR_H
 
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__type_traits/is_abstract.h>
 #include <__type_traits/is_array.h>
 #include <__type_traits/is_convertible.h>
 #include <__type_traits/remove_const.h>
-#include <cinttypes>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

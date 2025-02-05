@@ -21,39 +21,42 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template < class _Tp, class... _Args>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_constructible
+struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_nothrow_constructible
     : public integral_constant<bool, __is_nothrow_constructible(_Tp, _Args...)> {};
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp, class... _Args>
-inline constexpr bool is_nothrow_constructible_v = is_nothrow_constructible<_Tp, _Args...>::value;
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_nothrow_constructible_v =
+    is_nothrow_constructible<_Tp, _Args...>::value;
 #endif
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_copy_constructible
+struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_nothrow_copy_constructible
     : public integral_constant< bool, __is_nothrow_constructible(_Tp, __add_lvalue_reference_t<const _Tp>)> {};
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp>
-inline constexpr bool is_nothrow_copy_constructible_v = is_nothrow_copy_constructible<_Tp>::value;
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_nothrow_copy_constructible_v =
+    is_nothrow_copy_constructible<_Tp>::value;
 #endif
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_move_constructible
+struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_nothrow_move_constructible
     : public integral_constant<bool, __is_nothrow_constructible(_Tp, __add_rvalue_reference_t<_Tp>)> {};
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp>
-inline constexpr bool is_nothrow_move_constructible_v = is_nothrow_move_constructible<_Tp>::value;
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_nothrow_move_constructible_v =
+    is_nothrow_move_constructible<_Tp>::value;
 #endif
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_nothrow_default_constructible
+struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_nothrow_default_constructible
     : public integral_constant<bool, __is_nothrow_constructible(_Tp)> {};
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp>
-inline constexpr bool is_nothrow_default_constructible_v = __is_nothrow_constructible(_Tp);
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_nothrow_default_constructible_v = __is_nothrow_constructible(_Tp);
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

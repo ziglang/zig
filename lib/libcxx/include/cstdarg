@@ -31,24 +31,29 @@ Types:
 
 */
 
-#include <__config>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/cstdarg>
+#else
+#  include <__config>
 
 // <stdarg.h> is not provided by libc++
-#if __has_include(<stdarg.h>)
-#  include <stdarg.h>
-#  ifdef _LIBCPP_STDARG_H
-#    error "If libc++ starts defining <stdarg.h>, the __has_include check should move to libc++'s <stdarg.h>"
+#  if __has_include(<stdarg.h>)
+#    include <stdarg.h>
+#    ifdef _LIBCPP_STDARG_H
+#      error "If libc++ starts defining <stdarg.h>, the __has_include check should move to libc++'s <stdarg.h>"
+#    endif
 #  endif
-#endif
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 using ::va_list _LIBCPP_USING_IF_EXISTS;
 
 _LIBCPP_END_NAMESPACE_STD
+
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_CSTDARG
