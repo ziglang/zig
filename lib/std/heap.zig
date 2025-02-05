@@ -124,6 +124,13 @@ const CAllocator = struct {
         }
     }
 
+    const vtable: Allocator.VTable = .{
+        .alloc = alloc,
+        .resize = resize,
+        .remap = remap,
+        .free = free,
+    };
+
     pub const supports_malloc_size = @TypeOf(malloc_size) != void;
     pub const malloc_size = if (@TypeOf(c.malloc_size) != void)
         c.malloc_size
@@ -139,7 +146,7 @@ const CAllocator = struct {
     };
 
     fn getHeader(ptr: [*]u8) *[*]u8 {
-        return @as(*[*]u8, @ptrFromInt(@intFromPtr(ptr) - @sizeOf(usize)));
+        return @ptrCast(ptr - @sizeOf(usize));
     }
 
     fn alignedAlloc(len: usize, alignment: mem.Alignment) ?[*]u8 {
@@ -147,13 +154,13 @@ const CAllocator = struct {
         if (supports_posix_memalign) {
             // The posix_memalign only accepts alignment values that are a
             // multiple of the pointer size
-            const eff_alignment = @max(alignment_bytes, @sizeOf(usize));
+            const effective_alignment = @max(alignment_bytes, @sizeOf(usize));
 
             var aligned_ptr: ?*anyopaque = undefined;
-            if (c.posix_memalign(&aligned_ptr, eff_alignment, len) != 0)
+            if (c.posix_memalign(&aligned_ptr, effective_alignment, len) != 0)
                 return null;
 
-            return @as([*]u8, @ptrCast(aligned_ptr));
+            return @ptrCast(aligned_ptr);
         }
 
         // Thin wrapper around regular malloc, overallocate to account for
@@ -219,6 +226,18 @@ const CAllocator = struct {
         return false;
     }
 
+    fn remap(
+        context: *anyopaque,
+        memory: []u8,
+        alignment: mem.Alignment,
+        new_len: usize,
+        return_address: usize,
+    ) ?[*]u8 {
+        // realloc would potentially return a new allocation that does not
+        // respect the original alignment.
+        return if (resize(context, memory, alignment, new_len, return_address)) memory.ptr else null;
+    }
+
     fn free(
         _: *anyopaque,
         buf: []u8,
@@ -234,39 +253,36 @@ const CAllocator = struct {
 /// Supports the full Allocator interface, including alignment, and exploiting
 /// `malloc_usable_size` if available. For an allocator that directly calls
 /// `malloc`/`free`, see `raw_c_allocator`.
-pub const c_allocator = Allocator{
+pub const c_allocator: Allocator = .{
     .ptr = undefined,
-    .vtable = &c_allocator_vtable,
-};
-const c_allocator_vtable = Allocator.VTable{
-    .alloc = CAllocator.alloc,
-    .resize = CAllocator.resize,
-    .free = CAllocator.free,
+    .vtable = &CAllocator.vtable,
 };
 
-/// Asserts allocations are within `@alignOf(std.c.max_align_t)` and directly calls
-/// `malloc`/`free`. Does not attempt to utilize `malloc_usable_size`.
+/// Asserts allocations are within `@alignOf(std.c.max_align_t)` and directly
+/// calls `malloc`/`free`. Does not attempt to utilize `malloc_usable_size`.
 /// This allocator is safe to use as the backing allocator with
-/// `ArenaAllocator` for example and is more optimal in such a case
-/// than `c_allocator`.
-pub const raw_c_allocator = Allocator{
+/// `ArenaAllocator` for example and is more optimal in such a case than
+/// `c_allocator`.
+pub const raw_c_allocator: Allocator = .{
     .ptr = undefined,
     .vtable = &raw_c_allocator_vtable,
 };
-const raw_c_allocator_vtable = Allocator.VTable{
+const raw_c_allocator_vtable: Allocator.VTable = .{
     .alloc = rawCAlloc,
     .resize = rawCResize,
+    .remap = rawCRemap,
     .free = rawCFree,
 };
 
 fn rawCAlloc(
-    _: *anyopaque,
+    context: *anyopaque,
     len: usize,
     alignment: mem.Alignment,
-    ret_addr: usize,
+    return_address: usize,
 ) ?[*]u8 {
-    _ = ret_addr;
-    assert(alignment.order(.le, comptime .fromByteUnits(@alignOf(std.c.max_align_t))));
+    _ = context;
+    _ = return_address;
+    assert(alignment.compare(.lte, comptime .fromByteUnits(@alignOf(std.c.max_align_t))));
     // Note that this pointer cannot be aligncasted to max_align_t because if
     // len is < max_align_t then the alignment can be smaller. For example, if
     // max_align_t is 16, but the user requests 8 bytes, there is no built-in
@@ -277,35 +293,43 @@ fn rawCAlloc(
 }
 
 fn rawCResize(
-    _: *anyopaque,
-    buf: []u8,
+    context: *anyopaque,
+    memory: []u8,
     alignment: mem.Alignment,
     new_len: usize,
-    ret_addr: usize,
+    return_address: usize,
 ) bool {
+    _ = context;
+    _ = memory;
     _ = alignment;
-    _ = ret_addr;
-
-    if (new_len <= buf.len)
-        return true;
-
-    if (CAllocator.supports_malloc_size) {
-        const full_len = CAllocator.malloc_size(buf.ptr);
-        if (new_len <= full_len) return true;
-    }
-
+    _ = new_len;
+    _ = return_address;
     return false;
 }
 
-fn rawCFree(
-    _: *anyopaque,
-    buf: []u8,
+fn rawCRemap(
+    context: *anyopaque,
+    memory: []u8,
     alignment: mem.Alignment,
-    ret_addr: usize,
-) void {
+    new_len: usize,
+    return_address: usize,
+) ?[*]u8 {
+    _ = context;
     _ = alignment;
-    _ = ret_addr;
-    c.free(buf.ptr);
+    _ = return_address;
+    return @ptrCast(c.realloc(memory.ptr, new_len));
+}
+
+fn rawCFree(
+    context: *anyopaque,
+    memory: []u8,
+    alignment: mem.Alignment,
+    return_address: usize,
+) void {
+    _ = context;
+    _ = alignment;
+    _ = return_address;
+    c.free(memory.ptr);
 }
 
 /// On operating systems that support memory mapping, this allocator makes a
