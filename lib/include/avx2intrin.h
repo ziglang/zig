@@ -15,12 +15,21 @@
 #define __AVX2INTRIN_H
 
 /* Define the default attributes for the functions in this file. */
+#if defined(__EVEX512__) && !defined(__AVX10_1_512__)
 #define __DEFAULT_FN_ATTRS256                                                  \
   __attribute__((__always_inline__, __nodebug__,                               \
                  __target__("avx2,no-evex512"), __min_vector_width__(256)))
 #define __DEFAULT_FN_ATTRS128                                                  \
   __attribute__((__always_inline__, __nodebug__,                               \
                  __target__("avx2,no-evex512"), __min_vector_width__(128)))
+#else
+#define __DEFAULT_FN_ATTRS256                                                  \
+  __attribute__((__always_inline__, __nodebug__, __target__("avx2"),           \
+                 __min_vector_width__(256)))
+#define __DEFAULT_FN_ATTRS128                                                  \
+  __attribute__((__always_inline__, __nodebug__, __target__("avx2"),           \
+                 __min_vector_width__(128)))
+#endif
 
 /* SSE4 Multiple Packed Sums of Absolute Difference.  */
 /// Computes sixteen sum of absolute difference (SAD) operations on sets of
