@@ -658,7 +658,7 @@ DEFINE_LIBUNWIND_FUNCTION(__libunwind_Registers_arm64_jumpto)
   ldp    x26,x27, [x0, #0x0D0]
   ldp    x28,x29, [x0, #0x0E0]
   ldr    x30,     [x0, #0x100]  // restore pc into lr
-
+#if defined(__ARM_FP) && __ARM_FP != 0
   ldp    d0, d1,  [x0, #0x110]
   ldp    d2, d3,  [x0, #0x120]
   ldp    d4, d5,  [x0, #0x130]
@@ -676,7 +676,7 @@ DEFINE_LIBUNWIND_FUNCTION(__libunwind_Registers_arm64_jumpto)
   ldp    d28,d29, [x0, #0x1F0]
   ldr    d30,     [x0, #0x200]
   ldr    d31,     [x0, #0x208]
-
+#endif
   // Finally, restore sp. This must be done after the last read from the
   // context struct, because it is allocated on the stack, and an exception
   // could clobber the de-allocated portion of the stack after sp has been
@@ -1183,7 +1183,11 @@ DEFINE_LIBUNWIND_FUNCTION(_ZN9libunwind15Registers_riscv6jumptoEv)
     ILOAD x\i, (RISCV_ISIZE * \i)(a0)
   .endr
   // skip a0 for now
+#if defined(__riscv_32e)
+  .irp i,11,12,13,14,15
+#else
   .irp i,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31
+#endif
     ILOAD x\i, (RISCV_ISIZE * \i)(a0)
   .endr
   ILOAD    x10, (RISCV_ISIZE * 10)(a0)   // restore a0
