@@ -62,7 +62,6 @@ const libcxx_base_files = [_][]const u8{
     "src/ios.cpp",
     "src/ios.instantiations.cpp",
     "src/iostream.cpp",
-    "src/legacy_pointer_safety.cpp",
     "src/locale.cpp",
     "src/memory.cpp",
     "src/memory_resource.cpp",
@@ -145,12 +144,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     const cxxabi_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxxabi", "include" });
     const cxx_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "include" });
     const cxx_src_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "src" });
-    const abi_version_arg = try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_VERSION={d}", .{
-        @intFromEnum(comp.libcxx_abi_version),
-    });
-    const abi_namespace_arg = try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
-        @intFromEnum(comp.libcxx_abi_version),
-    });
+    const cxx_libc_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "libc" });
 
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
@@ -220,58 +214,26 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxx_files.len);
 
     for (libcxx_files) |cxx_src| {
-        var cflags = std.ArrayList([]const u8).init(arena);
-
-        if ((target.os.tag == .windows and (target.abi == .msvc or target.abi == .itanium)) or target.os.tag == .wasi) {
-            // Filesystem stuff isn't supported on WASI and Windows (MSVC).
-            if (std.mem.startsWith(u8, cxx_src, "src/filesystem/"))
-                continue;
-        }
-
+        // These don't compile on WASI due to e.g. `fchmod` usage.
+        if (std.mem.startsWith(u8, cxx_src, "src/filesystem/") and target.os.tag == .wasi)
+            continue;
         if (std.mem.startsWith(u8, cxx_src, "src/support/win32/") and target.os.tag != .windows)
             continue;
         if (std.mem.startsWith(u8, cxx_src, "src/support/ibm/") and target.os.tag != .zos)
             continue;
-        if (!comp.config.any_non_single_threaded)
-            try cflags.append("-D_LIBCPP_HAS_NO_THREADS");
+
+        var cflags = std.ArrayList([]const u8).init(arena);
+
+        try addCxxArgs(comp, arena, &cflags);
 
         try cflags.append("-DNDEBUG");
-        try cflags.append(hardeningModeFlag(optimize_mode));
+        try cflags.append("-DLIBC_NAMESPACE=__llvm_libc_common_utils");
         try cflags.append("-D_LIBCPP_BUILDING_LIBRARY");
-        try cflags.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
-        try cflags.append("-D_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER");
-        try cflags.append("-D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS");
         try cflags.append("-DLIBCXX_BUILDING_LIBCXXABI");
-        try cflags.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
-
-        // See libcxx/include/__algorithm/pstl_backends/cpu_backends/backend.h
-        // for potentially enabling some fancy features here, which would
-        // require corresponding changes in libcxx.zig, as well as
-        // Compilation.addCCArgs. This option makes it use serial backend which
-        // is simple and works everywhere.
-        try cflags.append("-D_LIBCPP_PSTL_BACKEND_SERIAL");
-
-        try cflags.append(abi_version_arg);
-        try cflags.append(abi_namespace_arg);
+        try cflags.append("-D_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER");
 
         try cflags.append("-fvisibility=hidden");
         try cflags.append("-fvisibility-inlines-hidden");
-
-        if (target.abi.isMusl()) {
-            try cflags.append("-D_LIBCPP_HAS_MUSL_LIBC");
-        }
-
-        if (target.isGnuLibC()) {
-            // glibc 2.16 introduced aligned_alloc
-            if (target.os.versionRange().gnuLibCVersion().?.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
-                try cflags.append("-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION");
-            }
-        }
-
-        if (target.os.tag == .wasi) {
-            // WASI doesn't support exceptions yet.
-            try cflags.append("-fno-exceptions");
-        }
 
         if (target.os.tag == .zos) {
             try cflags.append("-fno-aligned-allocation");
@@ -298,6 +260,9 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
 
         try cache_exempt_flags.append("-I");
         try cache_exempt_flags.append(cxx_src_include_path);
+
+        try cache_exempt_flags.append("-I");
+        try cache_exempt_flags.append(cxx_libc_include_path);
 
         c_source_files.appendAssumeCapacity(.{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", cxx_src }),
@@ -389,12 +354,6 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     const cxxabi_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxxabi", "include" });
     const cxx_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "include" });
     const cxx_src_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libcxx", "src" });
-    const abi_version_arg = try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_VERSION={d}", .{
-        @intFromEnum(comp.libcxx_abi_version),
-    });
-    const abi_namespace_arg = try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
-        @intFromEnum(comp.libcxx_abi_version),
-    });
 
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
@@ -465,50 +424,25 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxxabi_files.len);
 
     for (libcxxabi_files) |cxxabi_src| {
+        if (!comp.config.any_non_single_threaded and std.mem.startsWith(u8, cxxabi_src, "src/cxa_thread_atexit.cpp"))
+            continue;
+
         var cflags = std.ArrayList([]const u8).init(arena);
 
-        if (target.os.tag == .wasi) {
-            // WASI doesn't support exceptions yet.
-            if (std.mem.startsWith(u8, cxxabi_src, "src/cxa_exception.cpp") or
-                std.mem.startsWith(u8, cxxabi_src, "src/cxa_personality.cpp"))
-                continue;
-            try cflags.append("-fno-exceptions");
-        }
+        try addCxxArgs(comp, arena, &cflags);
 
-        // WASM targets are single threaded.
+        try cflags.append("-DNDEBUG");
+        try cflags.append("-D_LIBCXXABI_BUILDING_LIBRARY");
         if (!comp.config.any_non_single_threaded) {
-            if (std.mem.startsWith(u8, cxxabi_src, "src/cxa_thread_atexit.cpp")) {
-                continue;
-            }
             try cflags.append("-D_LIBCXXABI_HAS_NO_THREADS");
-        } else if (target.abi.isGnu()) {
+        }
+        if (target.abi.isGnu()) {
             if (target.os.tag != .linux or !(target.os.versionRange().gnuLibCVersion().?.order(.{ .major = 2, .minor = 18, .patch = 0 }) == .lt))
                 try cflags.append("-DHAVE___CXA_THREAD_ATEXIT_IMPL");
         }
 
-        try cflags.append("-DNDEBUG");
-        try cflags.append(hardeningModeFlag(optimize_mode));
-        try cflags.append("-D_LIBCXXABI_BUILDING_LIBRARY");
-        try cflags.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
-        try cflags.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
-        try cflags.append("-D_LIBCPP_ENABLE_CXX17_REMOVED_UNEXPECTED_FUNCTIONS");
-
-        try cflags.append(abi_version_arg);
-        try cflags.append(abi_namespace_arg);
-
         try cflags.append("-fvisibility=hidden");
         try cflags.append("-fvisibility-inlines-hidden");
-
-        if (target.abi.isMusl()) {
-            try cflags.append("-D_LIBCPP_HAS_MUSL_LIBC");
-        }
-
-        if (target.isGnuLibC()) {
-            // glibc 2.16 introduced aligned_alloc
-            if (target.os.versionRange().gnuLibCVersion().?.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
-                try cflags.append("-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION");
-            }
-        }
 
         if (target_util.supports_fpic(target)) {
             try cflags.append("-fPIC");
@@ -593,10 +527,58 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
 }
 
-pub fn hardeningModeFlag(optimize_mode: std.builtin.OptimizeMode) []const u8 {
-    return switch (optimize_mode) {
+pub fn addCxxArgs(
+    comp: *const Compilation,
+    arena: std.mem.Allocator,
+    cflags: *std.ArrayList([]const u8),
+) error{OutOfMemory}!void {
+    const target = comp.getTarget();
+    const optimize_mode = comp.compilerRtOptMode();
+
+    try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_VERSION={d}", .{
+        @intFromEnum(comp.libcxx_abi_version),
+    }));
+    try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
+        @intFromEnum(comp.libcxx_abi_version),
+    }));
+    try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_HAS_{s}THREADS", .{
+        if (!comp.config.any_non_single_threaded) "NO_" else "",
+    }));
+    try cflags.append("-D_LIBCPP_HAS_MONOTONIC_CLOCK");
+    try cflags.append("-D_LIBCPP_HAS_TERMINAL");
+    try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_HAS_{s}MUSL_LIBC", .{
+        if (!target.abi.isMusl()) "NO_" else "",
+    }));
+    try cflags.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
+    try cflags.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
+    try cflags.append("-D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS");
+    try cflags.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_HAS_{s}FILESYSTEM", .{
+        if (target.os.tag == .wasi) "NO_" else "",
+    }));
+    try cflags.append("-D_LIBCPP_HAS_RANDOM_DEVICE");
+    try cflags.append("-D_LIBCPP_HAS_LOCALIZATION");
+    try cflags.append("-D_LIBCPP_HAS_UNICODE");
+    try cflags.append("-D_LIBCPP_HAS_WIDE_CHARACTERS");
+    try cflags.append("-D_LIBCPP_HAS_NO_STD_MODULES");
+    if (target.os.tag == .linux) {
+        try cflags.append("-D_LIBCPP_HAS_TIME_ZONE_DATABASE");
+    }
+    // See libcxx/include/__algorithm/pstl_backends/cpu_backends/backend.h
+    // for potentially enabling some fancy features here, which would
+    // require corresponding changes in libcxx.zig, as well as
+    // Compilation.addCCArgs. This option makes it use serial backend which
+    // is simple and works everywhere.
+    try cflags.append("-D_LIBCPP_PSTL_BACKEND_SERIAL");
+    try cflags.append(switch (optimize_mode) {
         .Debug => "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG",
         .ReleaseFast, .ReleaseSmall => "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_NONE",
         .ReleaseSafe => "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST",
-    };
+    });
+    if (target.isGnuLibC()) {
+        // glibc 2.16 introduced aligned_alloc
+        if (target.os.versionRange().gnuLibCVersion().?.order(.{ .major = 2, .minor = 16, .patch = 0 }) == .lt) {
+            try cflags.append("-D_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION");
+        }
+    }
+    try cflags.append("-D_LIBCPP_ENABLE_CXX17_REMOVED_UNEXPECTED_FUNCTIONS");
 }

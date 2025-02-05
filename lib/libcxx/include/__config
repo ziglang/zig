@@ -14,6 +14,7 @@
 #include <__configuration/abi.h>
 #include <__configuration/availability.h>
 #include <__configuration/compiler.h>
+#include <__configuration/language.h>
 #include <__configuration/platform.h>
 
 #ifndef _LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER
@@ -27,10 +28,11 @@
 // _LIBCPP_VERSION represents the version of libc++, which matches the version of LLVM.
 // Given a LLVM release LLVM XX.YY.ZZ (e.g. LLVM 17.0.1 == 17.00.01), _LIBCPP_VERSION is
 // defined to XXYYZZ.
-#  define _LIBCPP_VERSION 190100
+#  define _LIBCPP_VERSION 200100
 
 #  define _LIBCPP_CONCAT_IMPL(_X, _Y) _X##_Y
 #  define _LIBCPP_CONCAT(_X, _Y) _LIBCPP_CONCAT_IMPL(_X, _Y)
+#  define _LIBCPP_CONCAT3(X, Y, Z) _LIBCPP_CONCAT(X, _LIBCPP_CONCAT(Y, Z))
 
 #  if __STDC_HOSTED__ == 0
 #    define _LIBCPP_FREESTANDING
@@ -38,16 +40,9 @@
 
 // HARDENING {
 
-// This is for backward compatibility -- make enabling `_LIBCPP_ENABLE_ASSERTIONS` (which predates hardening modes)
-// equivalent to setting the extensive mode. This is deprecated and will be removed in LLVM 20.
+// TODO: Remove in LLVM 21. We're making this an error to catch folks who might not have migrated.
 #  ifdef _LIBCPP_ENABLE_ASSERTIONS
-#    warning "_LIBCPP_ENABLE_ASSERTIONS is deprecated, please use _LIBCPP_HARDENING_MODE instead"
-#    if _LIBCPP_ENABLE_ASSERTIONS != 0 && _LIBCPP_ENABLE_ASSERTIONS != 1
-#      error "_LIBCPP_ENABLE_ASSERTIONS must be set to 0 or 1"
-#    endif
-#    if _LIBCPP_ENABLE_ASSERTIONS
-#      define _LIBCPP_HARDENING_MODE _LIBCPP_HARDENING_MODE_EXTENSIVE
-#    endif
+#    error "_LIBCPP_ENABLE_ASSERTIONS has been removed, please use _LIBCPP_HARDENING_MODE instead"
 #  endif
 
 // The library provides the macro `_LIBCPP_HARDENING_MODE` which can be set to one of the following values:
@@ -191,25 +186,6 @@ _LIBCPP_HARDENING_MODE_DEBUG
 #    error "libc++ only supports C++03 with Clang-based compilers. Please enable C++11"
 #  endif
 
-// FIXME: ABI detection should be done via compiler builtin macros. This
-// is just a placeholder until Clang implements such macros. For now assume
-// that Windows compilers pretending to be MSVC++ target the Microsoft ABI,
-// and allow the user to explicitly specify the ABI to handle cases where this
-// heuristic falls short.
-#  if defined(_LIBCPP_ABI_FORCE_ITANIUM) && defined(_LIBCPP_ABI_FORCE_MICROSOFT)
-#    error "Only one of _LIBCPP_ABI_FORCE_ITANIUM and _LIBCPP_ABI_FORCE_MICROSOFT can be defined"
-#  elif defined(_LIBCPP_ABI_FORCE_ITANIUM)
-#    define _LIBCPP_ABI_ITANIUM
-#  elif defined(_LIBCPP_ABI_FORCE_MICROSOFT)
-#    define _LIBCPP_ABI_MICROSOFT
-#  else
-#    if defined(_WIN32) && defined(_MSC_VER)
-#      define _LIBCPP_ABI_MICROSOFT
-#    else
-#      define _LIBCPP_ABI_ITANIUM
-#    endif
-#  endif
-
 #  if defined(_LIBCPP_ABI_MICROSOFT) && !defined(_LIBCPP_NO_VCRUNTIME)
 #    define _LIBCPP_ABI_VCRUNTIME
 #  endif
@@ -222,12 +198,15 @@ _LIBCPP_HARDENING_MODE_DEBUG
 
 // Incomplete features get their own specific disabling flags. This makes it
 // easier to grep for target specific flags once the feature is complete.
-#  if !defined(_LIBCPP_ENABLE_EXPERIMENTAL) && !defined(_LIBCPP_BUILDING_LIBRARY)
-#    define _LIBCPP_HAS_NO_INCOMPLETE_PSTL
-#    define _LIBCPP_HAS_NO_EXPERIMENTAL_STOP_TOKEN
-#    define _LIBCPP_HAS_NO_EXPERIMENTAL_TZDB
-#    define _LIBCPP_HAS_NO_EXPERIMENTAL_SYNCSTREAM
+#  if defined(_LIBCPP_ENABLE_EXPERIMENTAL) || defined(_LIBCPP_BUILDING_LIBRARY)
+#    define _LIBCPP_HAS_EXPERIMENTAL_LIBRARY 1
+#  else
+#    define _LIBCPP_HAS_EXPERIMENTAL_LIBRARY 0
 #  endif
+
+#  define _LIBCPP_HAS_EXPERIMENTAL_PSTL _LIBCPP_HAS_EXPERIMENTAL_LIBRARY
+#  define _LIBCPP_HAS_EXPERIMENTAL_TZDB _LIBCPP_HAS_EXPERIMENTAL_LIBRARY
+#  define _LIBCPP_HAS_EXPERIMENTAL_SYNCSTREAM _LIBCPP_HAS_EXPERIMENTAL_LIBRARY
 
 #  if defined(__MVS__)
 #    include <features.h> // for __NATIVE_ASCII_F
@@ -244,9 +223,14 @@ _LIBCPP_HARDENING_MODE_DEBUG
 #      define _LIBCPP_MSVCRT // Using Microsoft's C Runtime library
 #    endif
 #    if (defined(_M_AMD64) || defined(__x86_64__)) || (defined(_M_ARM) || defined(__arm__))
-#      define _LIBCPP_HAS_BITSCAN64
+#      define _LIBCPP_HAS_BITSCAN64 1
+#    else
+#      define _LIBCPP_HAS_BITSCAN64 0
 #    endif
-#    define _LIBCPP_HAS_OPEN_WITH_WCHAR
+#    define _LIBCPP_HAS_OPEN_WITH_WCHAR 1
+#  else
+#    define _LIBCPP_HAS_OPEN_WITH_WCHAR 0
+#    define _LIBCPP_HAS_BITSCAN64 0
 #  endif // defined(_WIN32)
 
 #  if defined(_AIX) && !defined(__64BIT__)
@@ -312,7 +296,6 @@ _LIBCPP_HARDENING_MODE_DEBUG
 #    define _LIBCPP_ALIGNOF(_Tp) alignof(_Tp)
 #    define _ALIGNAS_TYPE(x) alignas(x)
 #    define _ALIGNAS(x) alignas(x)
-#    define _LIBCPP_NORETURN [[noreturn]]
 #    define _NOEXCEPT noexcept
 #    define _NOEXCEPT_(...) noexcept(__VA_ARGS__)
 #    define _LIBCPP_CONSTEXPR constexpr
@@ -322,8 +305,6 @@ _LIBCPP_HARDENING_MODE_DEBUG
 #    define _LIBCPP_ALIGNOF(_Tp) _Alignof(_Tp)
 #    define _ALIGNAS_TYPE(x) __attribute__((__aligned__(_LIBCPP_ALIGNOF(x))))
 #    define _ALIGNAS(x) __attribute__((__aligned__(x)))
-#    define _LIBCPP_NORETURN __attribute__((__noreturn__))
-#    define _LIBCPP_HAS_NO_NOEXCEPT
 #    define nullptr __nullptr
 #    define _NOEXCEPT throw()
 #    define _NOEXCEPT_(...)
@@ -340,23 +321,33 @@ typedef __char32_t char32_t;
 
 // Objective-C++ features (opt-in)
 #  if __has_feature(objc_arc)
-#    define _LIBCPP_HAS_OBJC_ARC
+#    define _LIBCPP_HAS_OBJC_ARC 1
+#  else
+#    define _LIBCPP_HAS_OBJC_ARC 0
 #  endif
 
 #  if __has_feature(objc_arc_weak)
-#    define _LIBCPP_HAS_OBJC_ARC_WEAK
+#    define _LIBCPP_HAS_OBJC_ARC_WEAK 1
+#  else
+#    define _LIBCPP_HAS_OBJC_ARC_WEAK 0
 #  endif
 
 #  if __has_extension(blocks)
-#    define _LIBCPP_HAS_EXTENSION_BLOCKS
+#    define _LIBCPP_HAS_EXTENSION_BLOCKS 1
+#  else
+#    define _LIBCPP_HAS_EXTENSION_BLOCKS 0
 #  endif
 
-#  if defined(_LIBCPP_HAS_EXTENSION_BLOCKS) && defined(__APPLE__)
-#    define _LIBCPP_HAS_BLOCKS_RUNTIME
+#  if _LIBCPP_HAS_EXTENSION_BLOCKS && defined(__APPLE__)
+#    define _LIBCPP_HAS_BLOCKS_RUNTIME 1
+#  else
+#    define _LIBCPP_HAS_BLOCKS_RUNTIME 0
 #  endif
 
-#  if !__has_feature(address_sanitizer)
-#    define _LIBCPP_HAS_NO_ASAN
+#  if __has_feature(address_sanitizer)
+#    define _LIBCPP_HAS_ASAN 1
+#  else
+#    define _LIBCPP_HAS_ASAN 0
 #  endif
 
 #  define _LIBCPP_ALWAYS_INLINE __attribute__((__always_inline__))
@@ -479,7 +470,7 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_HARDENING_SIG n // "none"
 #  endif
 
-#  ifdef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if !_LIBCPP_HAS_EXCEPTIONS
 #    define _LIBCPP_EXCEPTIONS_SIG n
 #  else
 #    define _LIBCPP_EXCEPTIONS_SIG e
@@ -593,6 +584,15 @@ typedef __char32_t char32_t;
                                inline namespace _LIBCPP_ABI_NAMESPACE {
 #  define _LIBCPP_END_NAMESPACE_STD }} _LIBCPP_POP_EXTENSION_DIAGNOSTICS
 
+#define _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL namespace std { namespace experimental {
+#define _LIBCPP_END_NAMESPACE_EXPERIMENTAL }}
+
+#define _LIBCPP_BEGIN_NAMESPACE_LFTS _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL inline namespace fundamentals_v1 {
+#define _LIBCPP_END_NAMESPACE_LFTS } _LIBCPP_END_NAMESPACE_EXPERIMENTAL
+
+#define _LIBCPP_BEGIN_NAMESPACE_LFTS_V2 _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL inline namespace fundamentals_v2 {
+#define _LIBCPP_END_NAMESPACE_LFTS_V2 } _LIBCPP_END_NAMESPACE_EXPERIMENTAL
+
 #ifdef _LIBCPP_ABI_NO_FILESYSTEM_INLINE_NAMESPACE
 #  define _LIBCPP_BEGIN_NAMESPACE_FILESYSTEM _LIBCPP_BEGIN_NAMESPACE_STD namespace filesystem {
 #  define _LIBCPP_END_NAMESPACE_FILESYSTEM } _LIBCPP_END_NAMESPACE_STD
@@ -610,7 +610,9 @@ typedef __char32_t char32_t;
 #  endif
 
 #  if !defined(__SIZEOF_INT128__) || defined(_MSC_VER)
-#    define _LIBCPP_HAS_NO_INT128
+#    define _LIBCPP_HAS_INT128 0
+#  else
+#    define _LIBCPP_HAS_INT128 1
 #  endif
 
 #  ifdef _LIBCPP_CXX03_LANG
@@ -631,10 +633,6 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_DECLARE_STRONG_ENUM_EPILOG(x)
 #  endif // _LIBCPP_CXX03_LANG
 
-#  if defined(__APPLE__) || defined(__FreeBSD__) || defined(_LIBCPP_MSVCRT_LIKE) || defined(__NetBSD__)
-#    define _LIBCPP_LOCALE__L_EXTENSIONS 1
-#  endif
-
 #  ifdef __FreeBSD__
 #    define _DECLARE_C99_LDBL_MATH 1
 #  endif
@@ -642,29 +640,39 @@ typedef __char32_t char32_t;
 // If we are getting operator new from the MSVC CRT, then allocation overloads
 // for align_val_t were added in 19.12, aka VS 2017 version 15.3.
 #  if defined(_LIBCPP_MSVCRT) && defined(_MSC_VER) && _MSC_VER < 1912
-#    define _LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION
+#    define _LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION 0
 #  elif defined(_LIBCPP_ABI_VCRUNTIME) && !defined(__cpp_aligned_new)
 // We're deferring to Microsoft's STL to provide aligned new et al. We don't
 // have it unless the language feature test macro is defined.
-#    define _LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION
+#    define _LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION 0
 #  elif defined(__MVS__)
-#    define _LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION
+#    define _LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION 0
+#  else
+#    define _LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION 1
 #  endif
 
-#  if defined(_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION) || (!defined(__cpp_aligned_new) || __cpp_aligned_new < 201606)
-#    define _LIBCPP_HAS_NO_ALIGNED_ALLOCATION
+#  if !_LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION || (!defined(__cpp_aligned_new) || __cpp_aligned_new < 201606)
+#    define _LIBCPP_HAS_ALIGNED_ALLOCATION 0
+#  else
+#    define _LIBCPP_HAS_ALIGNED_ALLOCATION 1
 #  endif
 
 // It is not yet possible to use aligned_alloc() on all Apple platforms since
 // 10.15 was the first version to ship an implementation of aligned_alloc().
 #  if defined(__APPLE__)
 #    if (defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) &&                                                     \
-         __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ < 101500)
-#      define _LIBCPP_HAS_NO_C11_ALIGNED_ALLOC
+         __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ < 101500) ||                                                    \
+        (defined(__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__) &&                                                    \
+         __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ < 130000)
+#      define _LIBCPP_HAS_C11_ALIGNED_ALLOC 0
+#    else
+#      define _LIBCPP_HAS_C11_ALIGNED_ALLOC 1
 #    endif
 #  elif defined(__ANDROID__) && __ANDROID_API__ < 28
 // Android only provides aligned_alloc when targeting API 28 or higher.
-#    define _LIBCPP_HAS_NO_C11_ALIGNED_ALLOC
+#    define _LIBCPP_HAS_C11_ALIGNED_ALLOC 0
+#  else
+#    define _LIBCPP_HAS_C11_ALIGNED_ALLOC 1
 #  endif
 
 #  if defined(__APPLE__) || defined(__FreeBSD__)
@@ -676,7 +684,9 @@ typedef __char32_t char32_t;
 #  endif
 
 #  if _LIBCPP_STD_VER <= 17 || !defined(__cpp_char8_t)
-#    define _LIBCPP_HAS_NO_CHAR8_T
+#    define _LIBCPP_HAS_CHAR8_T 0
+#  else
+#    define _LIBCPP_HAS_CHAR8_T 1
 #  endif
 
 // Deprecation macros.
@@ -697,14 +707,6 @@ typedef __char32_t char32_t;
 #  else
 #    define _LIBCPP_DEPRECATED
 #    define _LIBCPP_DEPRECATED_(m)
-#  endif
-
-#  if _LIBCPP_STD_VER < 20
-#    define _LIBCPP_DEPRECATED_ATOMIC_SYNC                                                                             \
-      _LIBCPP_DEPRECATED_("The C++20 synchronization library has been deprecated prior to C++20. Please update to "    \
-                          "using -std=c++20 if you need to use these facilities.")
-#  else
-#    define _LIBCPP_DEPRECATED_ATOMIC_SYNC /* nothing */
 #  endif
 
 #  if !defined(_LIBCPP_CXX03_LANG)
@@ -743,7 +745,7 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_DEPRECATED_IN_CXX26
 #  endif
 
-#  if !defined(_LIBCPP_HAS_NO_CHAR8_T)
+#  if _LIBCPP_HAS_CHAR8_T
 #    define _LIBCPP_DEPRECATED_WITH_CHAR8_T _LIBCPP_DEPRECATED
 #  else
 #    define _LIBCPP_DEPRECATED_WITH_CHAR8_T
@@ -796,16 +798,22 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_CONSTEXPR_SINCE_CXX23
 #  endif
 
+#  if _LIBCPP_STD_VER >= 26
+#    define _LIBCPP_CONSTEXPR_SINCE_CXX26 constexpr
+#  else
+#    define _LIBCPP_CONSTEXPR_SINCE_CXX26
+#  endif
+
 #  ifndef _LIBCPP_WEAK
 #    define _LIBCPP_WEAK __attribute__((__weak__))
 #  endif
 
 // Thread API
 // clang-format off
-#  if !defined(_LIBCPP_HAS_NO_THREADS) &&                                                                              \
-      !defined(_LIBCPP_HAS_THREAD_API_PTHREAD) &&                                                                      \
-      !defined(_LIBCPP_HAS_THREAD_API_WIN32) &&                                                                        \
-      !defined(_LIBCPP_HAS_THREAD_API_EXTERNAL)
+#  if _LIBCPP_HAS_THREADS &&                                                                                           \
+      !_LIBCPP_HAS_THREAD_API_PTHREAD &&                                                                               \
+      !_LIBCPP_HAS_THREAD_API_WIN32 &&                                                                                 \
+      !_LIBCPP_HAS_THREAD_API_EXTERNAL
 
 #    if defined(__FreeBSD__) ||                                                                                        \
         defined(__wasi__) ||                                                                                           \
@@ -819,43 +827,49 @@ typedef __char32_t char32_t;
         defined(_AIX) ||                                                                                               \
         defined(__EMSCRIPTEN__)
 // clang-format on
-#      define _LIBCPP_HAS_THREAD_API_PTHREAD
+#      undef _LIBCPP_HAS_THREAD_API_PTHREAD
+#      define _LIBCPP_HAS_THREAD_API_PTHREAD 1
 #    elif defined(__Fuchsia__)
 // TODO(44575): Switch to C11 thread API when possible.
-#      define _LIBCPP_HAS_THREAD_API_PTHREAD
+#      undef _LIBCPP_HAS_THREAD_API_PTHREAD
+#      define _LIBCPP_HAS_THREAD_API_PTHREAD 1
 #    elif defined(_LIBCPP_WIN32API)
-#      define _LIBCPP_HAS_THREAD_API_WIN32
+#      undef _LIBCPP_HAS_THREAD_API_WIN32
+#      define _LIBCPP_HAS_THREAD_API_WIN32 1
 #    else
 #      error "No thread API"
 #    endif // _LIBCPP_HAS_THREAD_API
-#  endif   // _LIBCPP_HAS_NO_THREADS
+#  endif   // _LIBCPP_HAS_THREADS
 
-#  if defined(_LIBCPP_HAS_THREAD_API_PTHREAD)
+#  if _LIBCPP_HAS_THREAD_API_PTHREAD
 #    if defined(__ANDROID__) && __ANDROID_API__ >= 30
-#      define _LIBCPP_HAS_COND_CLOCKWAIT
+#      define _LIBCPP_HAS_COND_CLOCKWAIT 1
 #    elif defined(_LIBCPP_GLIBC_PREREQ)
 #      if _LIBCPP_GLIBC_PREREQ(2, 30)
-#        define _LIBCPP_HAS_COND_CLOCKWAIT
+#        define _LIBCPP_HAS_COND_CLOCKWAIT 1
+#      else
+#        define _LIBCPP_HAS_COND_CLOCKWAIT 0
 #      endif
+#    else
+#      define _LIBCPP_HAS_COND_CLOCKWAIT 0
 #    endif
+#  else
+#    define _LIBCPP_HAS_COND_CLOCKWAIT 0
 #  endif
 
-#  if defined(_LIBCPP_HAS_NO_THREADS) && defined(_LIBCPP_HAS_THREAD_API_PTHREAD)
-#    error _LIBCPP_HAS_THREAD_API_PTHREAD may only be defined when \
-       _LIBCPP_HAS_NO_THREADS is not defined.
+#  if !_LIBCPP_HAS_THREADS && _LIBCPP_HAS_THREAD_API_PTHREAD
+#    error _LIBCPP_HAS_THREAD_API_PTHREAD may only be true when _LIBCPP_HAS_THREADS is true.
 #  endif
 
-#  if defined(_LIBCPP_HAS_NO_THREADS) && defined(_LIBCPP_HAS_THREAD_API_EXTERNAL)
-#    error _LIBCPP_HAS_THREAD_API_EXTERNAL may not be defined when \
-       _LIBCPP_HAS_NO_THREADS is defined.
+#  if !_LIBCPP_HAS_THREADS && _LIBCPP_HAS_THREAD_API_EXTERNAL
+#    error _LIBCPP_HAS_THREAD_API_EXTERNAL may only be true when _LIBCPP_HAS_THREADS is true.
 #  endif
 
-#  if defined(_LIBCPP_HAS_NO_MONOTONIC_CLOCK) && !defined(_LIBCPP_HAS_NO_THREADS)
-#    error _LIBCPP_HAS_NO_MONOTONIC_CLOCK may only be defined when \
-       _LIBCPP_HAS_NO_THREADS is defined.
+#  if !_LIBCPP_HAS_MONOTONIC_CLOCK && _LIBCPP_HAS_THREADS
+#    error _LIBCPP_HAS_MONOTONIC_CLOCK may only be false when _LIBCPP_HAS_THREADS is false.
 #  endif
 
-#  if !defined(_LIBCPP_HAS_NO_THREADS) && !defined(__STDCPP_THREADS__)
+#  if _LIBCPP_HAS_THREADS && !defined(__STDCPP_THREADS__)
 #    define __STDCPP_THREADS__ 1
 #  endif
 
@@ -870,11 +884,13 @@ typedef __char32_t char32_t;
 // TODO(EricWF): Enable this optimization on Bionic after speaking to their
 //               respective stakeholders.
 // clang-format off
-#  if (defined(_LIBCPP_HAS_THREAD_API_PTHREAD) && defined(__GLIBC__)) ||                                               \
-      (defined(_LIBCPP_HAS_THREAD_API_C11) && defined(__Fuchsia__)) ||                                                 \
-       defined(_LIBCPP_HAS_THREAD_API_WIN32)
+#  if (_LIBCPP_HAS_THREAD_API_PTHREAD && defined(__GLIBC__)) ||                                                        \
+      (_LIBCPP_HAS_THREAD_API_C11 && defined(__Fuchsia__)) ||                                                          \
+       _LIBCPP_HAS_THREAD_API_WIN32
 // clang-format on
-#    define _LIBCPP_HAS_TRIVIAL_MUTEX_DESTRUCTION
+#    define _LIBCPP_HAS_TRIVIAL_MUTEX_DESTRUCTION 1
+#  else
+#    define _LIBCPP_HAS_TRIVIAL_MUTEX_DESTRUCTION 0
 #  endif
 
 // Destroying a condvar is a nop on Windows.
@@ -885,25 +901,31 @@ typedef __char32_t char32_t;
 //
 // TODO(EricWF): This is potentially true for some pthread implementations
 // as well.
-#  if (defined(_LIBCPP_HAS_THREAD_API_C11) && defined(__Fuchsia__)) || defined(_LIBCPP_HAS_THREAD_API_WIN32)
-#    define _LIBCPP_HAS_TRIVIAL_CONDVAR_DESTRUCTION
+#  if (_LIBCPP_HAS_THREAD_API_C11 && defined(__Fuchsia__)) || _LIBCPP_HAS_THREAD_API_WIN32
+#    define _LIBCPP_HAS_TRIVIAL_CONDVAR_DESTRUCTION 1
+#  else
+#    define _LIBCPP_HAS_TRIVIAL_CONDVAR_DESTRUCTION 0
 #  endif
 
 #  if defined(__BIONIC__) || defined(__NuttX__) || defined(__Fuchsia__) || defined(__wasi__) ||                        \
-      defined(_LIBCPP_HAS_MUSL_LIBC) || defined(__OpenBSD__)
+      _LIBCPP_HAS_MUSL_LIBC || defined(__OpenBSD__) || defined(__LLVM_LIBC__)
 #    define _LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE
 #  endif
 
 #  if __has_feature(cxx_atomic) || __has_extension(c_atomic) || __has_keyword(_Atomic)
-#    define _LIBCPP_HAS_C_ATOMIC_IMP
+#    define _LIBCPP_HAS_C_ATOMIC_IMP 1
+#    define _LIBCPP_HAS_GCC_ATOMIC_IMP 0
+#    define _LIBCPP_HAS_EXTERNAL_ATOMIC_IMP 0
 #  elif defined(_LIBCPP_COMPILER_GCC)
-#    define _LIBCPP_HAS_GCC_ATOMIC_IMP
+#    define _LIBCPP_HAS_C_ATOMIC_IMP 0
+#    define _LIBCPP_HAS_GCC_ATOMIC_IMP 1
+#    define _LIBCPP_HAS_EXTERNAL_ATOMIC_IMP 0
 #  endif
 
-#  if !defined(_LIBCPP_HAS_C_ATOMIC_IMP) && !defined(_LIBCPP_HAS_GCC_ATOMIC_IMP) &&                                    \
-      !defined(_LIBCPP_HAS_EXTERNAL_ATOMIC_IMP)
-#    define _LIBCPP_HAS_NO_ATOMIC_HEADER
+#  if !_LIBCPP_HAS_C_ATOMIC_IMP && !_LIBCPP_HAS_GCC_ATOMIC_IMP && !_LIBCPP_HAS_EXTERNAL_ATOMIC_IMP
+#    define _LIBCPP_HAS_ATOMIC_HEADER 0
 #  else
+#    define _LIBCPP_HAS_ATOMIC_HEADER 1
 #    ifndef _LIBCPP_ATOMIC_FLAG_TYPE
 #      define _LIBCPP_ATOMIC_FLAG_TYPE bool
 #    endif
@@ -915,19 +937,18 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_NO_THREAD_SAFETY_ANALYSIS
 #  endif
 
-#  if defined(_LIBCPP_ENABLE_THREAD_SAFETY_ANNOTATIONS)
-#    if defined(__clang__) && __has_attribute(acquire_capability)
 // Work around the attribute handling in clang.  When both __declspec and
 // __attribute__ are present, the processing goes awry preventing the definition
 // of the types. In MinGW mode, __declspec evaluates to __attribute__, and thus
 // combining the two does work.
-#      if !defined(_MSC_VER)
-#        define _LIBCPP_HAS_THREAD_SAFETY_ANNOTATIONS
-#      endif
-#    endif
+#  if defined(_LIBCPP_ENABLE_THREAD_SAFETY_ANNOTATIONS) && defined(__clang__) &&                                       \
+      __has_attribute(acquire_capability) && !defined(_MSC_VER)
+#    define _LIBCPP_HAS_THREAD_SAFETY_ANNOTATIONS 1
+#  else
+#    define _LIBCPP_HAS_THREAD_SAFETY_ANNOTATIONS 0
 #  endif
 
-#  ifdef _LIBCPP_HAS_THREAD_SAFETY_ANNOTATIONS
+#  if _LIBCPP_HAS_THREAD_SAFETY_ANNOTATIONS
 #    define _LIBCPP_THREAD_SAFETY_ANNOTATION(x) __attribute__((x))
 #  else
 #    define _LIBCPP_THREAD_SAFETY_ANNOTATION(x)
@@ -962,7 +983,7 @@ typedef __char32_t char32_t;
 // When wide characters are disabled, it can be useful to have a quick way of
 // disabling it without having to resort to #if-#endif, which has a larger
 // impact on readability.
-#  if defined(_LIBCPP_HAS_NO_WIDE_CHARACTERS)
+#  if !_LIBCPP_HAS_WIDE_CHARACTERS
 #    define _LIBCPP_IF_WIDE_CHARACTERS(...)
 #  else
 #    define _LIBCPP_IF_WIDE_CHARACTERS(...) __VA_ARGS__
@@ -999,28 +1020,16 @@ typedef __char32_t char32_t;
 // (If/when MSVC breaks its C++ ABI, it will be changed to work as intended.)
 // However, MSVC implements [[msvc::no_unique_address]] which does what
 // [[no_unique_address]] is supposed to do, in general.
-
-// Clang-cl does not yet (14.0) implement either [[no_unique_address]] or
-// [[msvc::no_unique_address]] though. If/when it does implement
-// [[msvc::no_unique_address]], this should be preferred though.
 #    define _LIBCPP_NO_UNIQUE_ADDRESS [[msvc::no_unique_address]]
-#  elif __has_cpp_attribute(no_unique_address)
-#    define _LIBCPP_NO_UNIQUE_ADDRESS [[__no_unique_address__]]
 #  else
-#    define _LIBCPP_NO_UNIQUE_ADDRESS /* nothing */
-// Note that this can be replaced by #error as soon as clang-cl
-// implements msvc::no_unique_address, since there should be no C++20
-// compiler that doesn't support one of the two attributes at that point.
-// We generally don't want to use this macro outside of C++20-only code,
-// because using it conditionally in one language version only would make
-// the ABI inconsistent.
+#    define _LIBCPP_NO_UNIQUE_ADDRESS [[__no_unique_address__]]
 #  endif
 
 // c8rtomb() and mbrtoc8() were added in C++20 and C23. Support for these
 // functions is gradually being added to existing C libraries. The conditions
 // below check for known C library versions and conditions under which these
 // functions are declared by the C library.
-#  define _LIBCPP_HAS_NO_C8RTOMB_MBRTOC8
+//
 // GNU libc 2.36 and newer declare c8rtomb() and mbrtoc8() in C++ modes if
 // __cpp_char8_t is defined or if C2X extensions are enabled. Determining
 // the latter depends on internal GNU libc details that are not appropriate
@@ -1028,8 +1037,12 @@ typedef __char32_t char32_t;
 // defined are ignored.
 #  if defined(_LIBCPP_GLIBC_PREREQ)
 #    if _LIBCPP_GLIBC_PREREQ(2, 36) && defined(__cpp_char8_t)
-#      undef _LIBCPP_HAS_NO_C8RTOMB_MBRTOC8
+#      define _LIBCPP_HAS_C8RTOMB_MBRTOC8 1
+#    else
+#      define _LIBCPP_HAS_C8RTOMB_MBRTOC8 0
 #    endif
+#  else
+#    define _LIBCPP_HAS_C8RTOMB_MBRTOC8 0
 #  endif
 
 // There are a handful of public standard library types that are intended to
@@ -1124,15 +1137,6 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_USING_IF_EXISTS
 #  endif
 
-#  if __has_cpp_attribute(__nodiscard__)
-#    define _LIBCPP_NODISCARD [[__nodiscard__]]
-#  else
-// We can't use GCC's [[gnu::warn_unused_result]] and
-// __attribute__((warn_unused_result)), because GCC does not silence them via
-// (void) cast.
-#    define _LIBCPP_NODISCARD
-#  endif
-
 #  if __has_attribute(__no_destroy__)
 #    define _LIBCPP_NO_DESTROY __attribute__((__no_destroy__))
 #  else
@@ -1160,10 +1164,19 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_LIFETIMEBOUND
 #  endif
 
-#  if __has_attribute(__nodebug__)
-#    define _LIBCPP_NODEBUG __attribute__((__nodebug__))
+#  if __has_cpp_attribute(_Clang::__noescape__)
+#    define _LIBCPP_NOESCAPE [[_Clang::__noescape__]]
 #  else
-#    define _LIBCPP_NODEBUG
+#    define _LIBCPP_NOESCAPE
+#  endif
+
+#  define _LIBCPP_NODEBUG [[__gnu__::__nodebug__]]
+
+#  if __has_cpp_attribute(_Clang::__no_specializations__)
+#    define _LIBCPP_NO_SPECIALIZATIONS                                                                                 \
+      [[_Clang::__no_specializations__("Users are not allowed to specialize this standard library entity")]]
+#  else
+#    define _LIBCPP_NO_SPECIALIZATIONS
 #  endif
 
 #  if __has_attribute(__standalone_debug__)
@@ -1220,7 +1233,9 @@ typedef __char32_t char32_t;
 
 // Clang-18 has support for deducing this, but it does not set the FTM.
 #  if defined(__cpp_explicit_this_parameter) || (defined(_LIBCPP_CLANG_VER) && _LIBCPP_CLANG_VER >= 1800)
-#    define _LIBCPP_HAS_EXPLICIT_THIS_PARAMETER
+#    define _LIBCPP_HAS_EXPLICIT_THIS_PARAMETER 1
+#  else
+#    define _LIBCPP_HAS_EXPLICIT_THIS_PARAMETER 0
 #  endif
 
 #endif // __cplusplus

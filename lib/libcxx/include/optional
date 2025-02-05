@@ -177,64 +177,71 @@ namespace std {
 
 */
 
-#include <__assert>
-#include <__compare/compare_three_way_result.h>
-#include <__compare/three_way_comparable.h>
-#include <__concepts/invocable.h>
-#include <__config>
-#include <__exception/exception.h>
-#include <__functional/hash.h>
-#include <__functional/invoke.h>
-#include <__functional/unary_function.h>
-#include <__fwd/functional.h>
-#include <__memory/addressof.h>
-#include <__memory/construct_at.h>
-#include <__tuple/sfinae_helpers.h>
-#include <__type_traits/add_pointer.h>
-#include <__type_traits/conditional.h>
-#include <__type_traits/conjunction.h>
-#include <__type_traits/decay.h>
-#include <__type_traits/disjunction.h>
-#include <__type_traits/is_array.h>
-#include <__type_traits/is_assignable.h>
-#include <__type_traits/is_constructible.h>
-#include <__type_traits/is_convertible.h>
-#include <__type_traits/is_destructible.h>
-#include <__type_traits/is_nothrow_assignable.h>
-#include <__type_traits/is_nothrow_constructible.h>
-#include <__type_traits/is_object.h>
-#include <__type_traits/is_reference.h>
-#include <__type_traits/is_scalar.h>
-#include <__type_traits/is_swappable.h>
-#include <__type_traits/is_trivially_assignable.h>
-#include <__type_traits/is_trivially_constructible.h>
-#include <__type_traits/is_trivially_destructible.h>
-#include <__type_traits/is_trivially_relocatable.h>
-#include <__type_traits/negation.h>
-#include <__type_traits/remove_const.h>
-#include <__type_traits/remove_cvref.h>
-#include <__type_traits/remove_reference.h>
-#include <__utility/declval.h>
-#include <__utility/forward.h>
-#include <__utility/in_place.h>
-#include <__utility/move.h>
-#include <__utility/swap.h>
-#include <__verbose_abort>
-#include <initializer_list>
-#include <new>
-#include <version>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/optional>
+#else
+#  include <__assert>
+#  include <__compare/compare_three_way_result.h>
+#  include <__compare/ordering.h>
+#  include <__compare/three_way_comparable.h>
+#  include <__concepts/invocable.h>
+#  include <__config>
+#  include <__exception/exception.h>
+#  include <__functional/hash.h>
+#  include <__functional/invoke.h>
+#  include <__functional/unary_function.h>
+#  include <__fwd/functional.h>
+#  include <__memory/addressof.h>
+#  include <__memory/construct_at.h>
+#  include <__tuple/sfinae_helpers.h>
+#  include <__type_traits/add_pointer.h>
+#  include <__type_traits/conditional.h>
+#  include <__type_traits/conjunction.h>
+#  include <__type_traits/decay.h>
+#  include <__type_traits/disjunction.h>
+#  include <__type_traits/enable_if.h>
+#  include <__type_traits/invoke.h>
+#  include <__type_traits/is_array.h>
+#  include <__type_traits/is_assignable.h>
+#  include <__type_traits/is_constructible.h>
+#  include <__type_traits/is_convertible.h>
+#  include <__type_traits/is_destructible.h>
+#  include <__type_traits/is_nothrow_assignable.h>
+#  include <__type_traits/is_nothrow_constructible.h>
+#  include <__type_traits/is_object.h>
+#  include <__type_traits/is_reference.h>
+#  include <__type_traits/is_same.h>
+#  include <__type_traits/is_scalar.h>
+#  include <__type_traits/is_swappable.h>
+#  include <__type_traits/is_trivially_assignable.h>
+#  include <__type_traits/is_trivially_constructible.h>
+#  include <__type_traits/is_trivially_destructible.h>
+#  include <__type_traits/is_trivially_relocatable.h>
+#  include <__type_traits/negation.h>
+#  include <__type_traits/remove_const.h>
+#  include <__type_traits/remove_cv.h>
+#  include <__type_traits/remove_cvref.h>
+#  include <__type_traits/remove_reference.h>
+#  include <__utility/declval.h>
+#  include <__utility/forward.h>
+#  include <__utility/in_place.h>
+#  include <__utility/move.h>
+#  include <__utility/swap.h>
+#  include <__verbose_abort>
+#  include <initializer_list>
+#  include <version>
 
 // standard-mandated includes
 
 // [optional.syn]
-#include <compare>
+#  include <compare>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_PUSH_MACROS
-#include <__undef_macros>
+#  include <__undef_macros>
 
 namespace std // purposefully not using versioning namespace
 {
@@ -251,17 +258,17 @@ public:
 
 } // namespace std
 
-#if _LIBCPP_STD_VER >= 17
+#  if _LIBCPP_STD_VER >= 17
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-_LIBCPP_NORETURN inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_THROW_BAD_OPTIONAL_ACCESS void
+[[noreturn]] inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_THROW_BAD_OPTIONAL_ACCESS void
 __throw_bad_optional_access() {
-#  ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#    if _LIBCPP_HAS_EXCEPTIONS
   throw bad_optional_access();
-#  else
+#    else
   _LIBCPP_VERBOSE_ABORT("bad_optional_access was thrown in -fno-exceptions mode");
-#  endif
+#    endif
 }
 
 struct nullopt_t {
@@ -284,7 +291,7 @@ struct __optional_destruct_base<_Tp, false> {
   static_assert(is_object_v<value_type>, "instantiation of optional with a non-object type is undefined behavior");
   union {
     char __null_state_;
-    value_type __val_;
+    remove_cv_t<value_type> __val_;
   };
   bool __engaged_;
 
@@ -299,12 +306,12 @@ struct __optional_destruct_base<_Tp, false> {
   _LIBCPP_HIDE_FROM_ABI constexpr explicit __optional_destruct_base(in_place_t, _Args&&... __args)
       : __val_(std::forward<_Args>(__args)...), __engaged_(true) {}
 
-#  if _LIBCPP_STD_VER >= 23
+#    if _LIBCPP_STD_VER >= 23
   template <class _Fp, class... _Args>
   _LIBCPP_HIDE_FROM_ABI constexpr explicit __optional_destruct_base(
       __optional_construct_from_invoke_tag, _Fp&& __f, _Args&&... __args)
       : __val_(std::invoke(std::forward<_Fp>(__f), std::forward<_Args>(__args)...)), __engaged_(true) {}
-#  endif
+#    endif
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void reset() noexcept {
     if (__engaged_) {
@@ -320,7 +327,7 @@ struct __optional_destruct_base<_Tp, true> {
   static_assert(is_object_v<value_type>, "instantiation of optional with a non-object type is undefined behavior");
   union {
     char __null_state_;
-    value_type __val_;
+    remove_cv_t<value_type> __val_;
   };
   bool __engaged_;
 
@@ -330,12 +337,12 @@ struct __optional_destruct_base<_Tp, true> {
   _LIBCPP_HIDE_FROM_ABI constexpr explicit __optional_destruct_base(in_place_t, _Args&&... __args)
       : __val_(std::forward<_Args>(__args)...), __engaged_(true) {}
 
-#  if _LIBCPP_STD_VER >= 23
+#    if _LIBCPP_STD_VER >= 23
   template <class _Fp, class... _Args>
   _LIBCPP_HIDE_FROM_ABI constexpr __optional_destruct_base(
       __optional_construct_from_invoke_tag, _Fp&& __f, _Args&&... __args)
       : __val_(std::invoke(std::forward<_Fp>(__f), std::forward<_Args>(__args)...)), __engaged_(true) {}
-#  endif
+#    endif
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void reset() noexcept {
     if (__engaged_) {
@@ -346,8 +353,8 @@ struct __optional_destruct_base<_Tp, true> {
 
 template <class _Tp, bool = is_reference<_Tp>::value>
 struct __optional_storage_base : __optional_destruct_base<_Tp> {
-  using __base     = __optional_destruct_base<_Tp>;
-  using value_type = _Tp;
+  using __base _LIBCPP_NODEBUG = __optional_destruct_base<_Tp>;
+  using value_type             = _Tp;
   using __base::__base;
 
   _LIBCPP_HIDE_FROM_ABI constexpr bool has_value() const noexcept { return this->__engaged_; }
@@ -374,7 +381,7 @@ struct __optional_storage_base : __optional_destruct_base<_Tp> {
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void __assign_from(_That&& __opt) {
     if (this->__engaged_ == __opt.has_value()) {
       if (this->__engaged_)
-        this->__val_ = std::forward<_That>(__opt).__get();
+        static_cast<_Tp&>(this->__val_) = std::forward<_That>(__opt).__get();
     } else {
       if (this->__engaged_)
         this->reset();
@@ -389,8 +396,8 @@ struct __optional_storage_base : __optional_destruct_base<_Tp> {
 // to ensure we can make the change in an ABI-compatible manner.
 template <class _Tp>
 struct __optional_storage_base<_Tp, true> {
-  using value_type = _Tp;
-  using __raw_type = remove_reference_t<_Tp>;
+  using value_type                 = _Tp;
+  using __raw_type _LIBCPP_NODEBUG = remove_reference_t<_Tp>;
   __raw_type* __value_;
 
   template <class _Up>
@@ -548,23 +555,23 @@ struct __optional_move_assign_base<_Tp, false> : __optional_copy_assign_base<_Tp
 };
 
 template <class _Tp>
-using __optional_sfinae_ctor_base_t =
+using __optional_sfinae_ctor_base_t _LIBCPP_NODEBUG =
     __sfinae_ctor_base< is_copy_constructible<_Tp>::value, is_move_constructible<_Tp>::value >;
 
 template <class _Tp>
-using __optional_sfinae_assign_base_t =
+using __optional_sfinae_assign_base_t _LIBCPP_NODEBUG =
     __sfinae_assign_base< (is_copy_constructible<_Tp>::value && is_copy_assignable<_Tp>::value),
                           (is_move_constructible<_Tp>::value && is_move_assignable<_Tp>::value) >;
 
 template <class _Tp>
 class optional;
 
-#  if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
 
 template <class _Tp>
 concept __is_derived_from_optional = requires(const _Tp& __t) { []<class _Up>(const optional<_Up>&) {}(__t); };
 
-#  endif // _LIBCPP_STD_VER >= 20
+#    endif // _LIBCPP_STD_VER >= 20
 
 template <class _Tp>
 struct __is_std_optional : false_type {};
@@ -576,12 +583,13 @@ class _LIBCPP_DECLSPEC_EMPTY_BASES optional
     : private __optional_move_assign_base<_Tp>,
       private __optional_sfinae_ctor_base_t<_Tp>,
       private __optional_sfinae_assign_base_t<_Tp> {
-  using __base = __optional_move_assign_base<_Tp>;
+  using __base _LIBCPP_NODEBUG = __optional_move_assign_base<_Tp>;
 
 public:
   using value_type = _Tp;
 
-  using __trivially_relocatable = conditional_t<__libcpp_is_trivially_relocatable<_Tp>::value, optional, void>;
+  using __trivially_relocatable _LIBCPP_NODEBUG =
+      conditional_t<__libcpp_is_trivially_relocatable<_Tp>::value, optional, void>;
 
 private:
   // Disable the reference extension using this static assert.
@@ -606,7 +614,7 @@ private:
     }
   };
   template <class _Up>
-  using _CheckOptionalArgsCtor =
+  using _CheckOptionalArgsCtor _LIBCPP_NODEBUG =
       _If< _IsNotSame<__remove_cvref_t<_Up>, in_place_t>::value && _IsNotSame<__remove_cvref_t<_Up>, optional>::value &&
                (!is_same_v<remove_cv_t<_Tp>, bool> || !__is_std_optional<__remove_cvref_t<_Up>>::value),
            _CheckOptionalArgsConstructor,
@@ -614,7 +622,7 @@ private:
   template <class _QualUp>
   struct _CheckOptionalLikeConstructor {
     template <class _Up, class _Opt = optional<_Up>>
-    using __check_constructible_from_opt =
+    using __check_constructible_from_opt _LIBCPP_NODEBUG =
         _Or< is_constructible<_Tp, _Opt&>,
              is_constructible<_Tp, _Opt const&>,
              is_constructible<_Tp, _Opt&&>,
@@ -624,7 +632,7 @@ private:
              is_convertible<_Opt&&, _Tp>,
              is_convertible<_Opt const&&, _Tp> >;
     template <class _Up, class _Opt = optional<_Up>>
-    using __check_assignable_from_opt =
+    using __check_assignable_from_opt _LIBCPP_NODEBUG =
         _Or< is_assignable<_Tp&, _Opt&>,
              is_assignable<_Tp&, _Opt const&>,
              is_assignable<_Tp&, _Opt&&>,
@@ -648,12 +656,12 @@ private:
   };
 
   template <class _Up, class _QualUp>
-  using _CheckOptionalLikeCtor =
+  using _CheckOptionalLikeCtor _LIBCPP_NODEBUG =
       _If< _And< _IsNotSame<_Up, _Tp>, is_constructible<_Tp, _QualUp> >::value,
            _CheckOptionalLikeConstructor<_QualUp>,
            __check_tuple_constructor_fail >;
   template <class _Up, class _QualUp>
-  using _CheckOptionalLikeAssign =
+  using _CheckOptionalLikeAssign _LIBCPP_NODEBUG =
       _If< _And< _IsNotSame<_Up, _Tp>, is_constructible<_Tp, _QualUp>, is_assignable<_Tp&, _QualUp> >::value,
            _CheckOptionalLikeConstructor<_QualUp>,
            __check_tuple_constructor_fail >;
@@ -706,14 +714,14 @@ public:
     this->__construct_from(std::move(__v));
   }
 
-#  if _LIBCPP_STD_VER >= 23
+#    if _LIBCPP_STD_VER >= 23
   template <class _Tag,
             class _Fp,
             class... _Args,
             __enable_if_t<_IsSame<_Tag, __optional_construct_from_invoke_tag>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI constexpr explicit optional(_Tag, _Fp&& __f, _Args&&... __args)
       : __base(__optional_construct_from_invoke_tag{}, std::forward<_Fp>(__f), std::forward<_Args>(__args)...) {}
-#  endif
+#    endif
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 optional& operator=(nullopt_t) noexcept {
     reset();
@@ -859,7 +867,7 @@ public:
     return this->has_value() ? std::move(this->__get()) : static_cast<value_type>(std::forward<_Up>(__v));
   }
 
-#  if _LIBCPP_STD_VER >= 23
+#    if _LIBCPP_STD_VER >= 23
   template <class _Func>
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_AVAILABILITY_THROW_BAD_OPTIONAL_ACCESS constexpr auto and_then(_Func&& __f) & {
     using _Up = invoke_result_t<_Func, value_type&>;
@@ -969,15 +977,15 @@ public:
       return std::move(*this);
     return std::forward<_Func>(__f)();
   }
-#  endif // _LIBCPP_STD_VER >= 23
+#    endif // _LIBCPP_STD_VER >= 23
 
   using __base::reset;
 };
 
-#  if _LIBCPP_STD_VER >= 17
+#    if _LIBCPP_STD_VER >= 17
 template <class _Tp>
 optional(_Tp) -> optional<_Tp>;
-#  endif
+#    endif
 
 // Comparisons between optionals
 template <class _Tp, class _Up>
@@ -1052,7 +1060,7 @@ operator>=(const optional<_Tp>& __x, const optional<_Up>& __y) {
   return *__x >= *__y;
 }
 
-#  if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
 
 template <class _Tp, three_way_comparable_with<_Tp> _Up>
 _LIBCPP_HIDE_FROM_ABI constexpr compare_three_way_result_t<_Tp, _Up>
@@ -1062,7 +1070,7 @@ operator<=>(const optional<_Tp>& __x, const optional<_Up>& __y) {
   return __x.has_value() <=> __y.has_value();
 }
 
-#  endif // _LIBCPP_STD_VER >= 20
+#    endif // _LIBCPP_STD_VER >= 20
 
 // Comparisons with nullopt
 template <class _Tp>
@@ -1070,7 +1078,7 @@ _LIBCPP_HIDE_FROM_ABI constexpr bool operator==(const optional<_Tp>& __x, nullop
   return !static_cast<bool>(__x);
 }
 
-#  if _LIBCPP_STD_VER <= 17
+#    if _LIBCPP_STD_VER <= 17
 
 template <class _Tp>
 _LIBCPP_HIDE_FROM_ABI constexpr bool operator==(nullopt_t, const optional<_Tp>& __x) noexcept {
@@ -1127,14 +1135,14 @@ _LIBCPP_HIDE_FROM_ABI constexpr bool operator>=(nullopt_t, const optional<_Tp>& 
   return !static_cast<bool>(__x);
 }
 
-#  else // _LIBCPP_STD_VER <= 17
+#    else // _LIBCPP_STD_VER <= 17
 
 template <class _Tp>
 _LIBCPP_HIDE_FROM_ABI constexpr strong_ordering operator<=>(const optional<_Tp>& __x, nullopt_t) noexcept {
   return __x.has_value() <=> false;
 }
 
-#  endif // _LIBCPP_STD_VER <= 17
+#    endif // _LIBCPP_STD_VER <= 17
 
 // Comparisons with T
 template <class _Tp, class _Up>
@@ -1233,7 +1241,7 @@ operator>=(const _Tp& __v, const optional<_Up>& __x) {
   return static_cast<bool>(__x) ? __v >= *__x : true;
 }
 
-#  if _LIBCPP_STD_VER >= 20
+#    if _LIBCPP_STD_VER >= 20
 
 template <class _Tp, class _Up>
   requires(!__is_derived_from_optional<_Up>) && three_way_comparable_with<_Tp, _Up>
@@ -1242,7 +1250,7 @@ operator<=>(const optional<_Tp>& __x, const _Up& __v) {
   return __x.has_value() ? *__x <=> __v : strong_ordering::less;
 }
 
-#  endif // _LIBCPP_STD_VER >= 20
+#    endif // _LIBCPP_STD_VER >= 20
 
 template <class _Tp>
 inline _LIBCPP_HIDE_FROM_ABI
@@ -1268,10 +1276,10 @@ _LIBCPP_HIDE_FROM_ABI constexpr optional<_Tp> make_optional(initializer_list<_Up
 
 template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS hash< __enable_hash_helper<optional<_Tp>, remove_const_t<_Tp>> > {
-#  if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_BINDER_TYPEDEFS)
+#    if _LIBCPP_STD_VER <= 17 || defined(_LIBCPP_ENABLE_CXX20_REMOVED_BINDER_TYPEDEFS)
   _LIBCPP_DEPRECATED_IN_CXX17 typedef optional<_Tp> argument_type;
   _LIBCPP_DEPRECATED_IN_CXX17 typedef size_t result_type;
-#  endif
+#    endif
 
   _LIBCPP_HIDE_FROM_ABI size_t operator()(const optional<_Tp>& __opt) const {
     return static_cast<bool>(__opt) ? hash<remove_const_t<_Tp>>()(*__opt) : 0;
@@ -1280,25 +1288,26 @@ struct _LIBCPP_TEMPLATE_VIS hash< __enable_hash_helper<optional<_Tp>, remove_con
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER >= 17
+#  endif // _LIBCPP_STD_VER >= 17
 
 _LIBCPP_POP_MACROS
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <atomic>
-#  include <climits>
-#  include <concepts>
-#  include <ctime>
-#  include <iterator>
-#  include <limits>
-#  include <memory>
-#  include <ratio>
-#  include <stdexcept>
-#  include <tuple>
-#  include <type_traits>
-#  include <typeinfo>
-#  include <utility>
-#  include <variant>
-#endif
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <atomic>
+#    include <climits>
+#    include <concepts>
+#    include <ctime>
+#    include <iterator>
+#    include <limits>
+#    include <memory>
+#    include <ratio>
+#    include <stdexcept>
+#    include <tuple>
+#    include <type_traits>
+#    include <typeinfo>
+#    include <utility>
+#    include <variant>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_OPTIONAL

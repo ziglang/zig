@@ -10,6 +10,7 @@
 #define _LIBCPP___RANDOM_INDEPENDENT_BITS_ENGINE_H
 
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__fwd/istream.h>
 #include <__fwd/ostream.h>
 #include <__random/is_seed_sequence.h>
@@ -18,7 +19,6 @@
 #include <__type_traits/enable_if.h>
 #include <__type_traits/is_convertible.h>
 #include <__utility/move.h>
-#include <cstddef>
 #include <limits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

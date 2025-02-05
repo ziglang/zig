@@ -14,7 +14,7 @@
 
 #include <version>
 // Enable the contents of the header only when libc++ was built with experimental features enabled.
-#if !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_TZDB)
+#if _LIBCPP_HAS_EXPERIMENTAL_TZDB
 
 #  include <__chrono/sys_info.h>
 #  include <__config>
@@ -45,6 +45,6 @@ struct local_info {
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_TZDB)
+#endif // _LIBCPP_HAS_EXPERIMENTAL_TZDB
 
 #endif // _LIBCPP___CHRONO_LOCAL_INFO_H

@@ -52,13 +52,13 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace __format_spec {
 
-_LIBCPP_NORETURN _LIBCPP_HIDE_FROM_ABI inline void
+[[noreturn]] _LIBCPP_HIDE_FROM_ABI inline void
 __throw_invalid_option_format_error(const char* __id, const char* __option) {
   std::__throw_format_error(
       (string("The format specifier for ") + __id + " does not allow the " + __option + " option").c_str());
 }
 
-_LIBCPP_NORETURN _LIBCPP_HIDE_FROM_ABI inline void __throw_invalid_type_format_error(const char* __id) {
+[[noreturn]] _LIBCPP_HIDE_FROM_ABI inline void __throw_invalid_type_format_error(const char* __id) {
   std::__throw_format_error(
       (string("The type option contains an invalid value for ") + __id + " formatting argument").c_str());
 }
@@ -268,7 +268,7 @@ struct __code_point<char> {
   char __data[4] = {' '};
 };
 
-#  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 template <>
 struct __code_point<wchar_t> {
   wchar_t __data[4 / sizeof(wchar_t)] = {L' '};
@@ -321,7 +321,7 @@ struct __parsed_specifications {
 // value in formatting functions.
 static_assert(sizeof(__parsed_specifications<char>) == 16);
 static_assert(is_trivially_copyable_v<__parsed_specifications<char>>);
-#  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 static_assert(sizeof(__parsed_specifications<wchar_t>) == 16);
 static_assert(is_trivially_copyable_v<__parsed_specifications<wchar_t>>);
 #  endif
@@ -580,11 +580,11 @@ private:
       std::__throw_format_error("The fill option contains an invalid value");
   }
 
-#  ifndef _LIBCPP_HAS_NO_UNICODE
+#  if _LIBCPP_HAS_UNICODE
   // range-fill and tuple-fill are identical
   template <contiguous_iterator _Iterator>
     requires same_as<_CharT, char>
-#    ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#    if _LIBCPP_HAS_WIDE_CHARACTERS
           || (same_as<_CharT, wchar_t> && sizeof(wchar_t) == 2)
 #    endif
   _LIBCPP_HIDE_FROM_ABI constexpr bool __parse_fill_align(_Iterator& __begin, _Iterator __end) {
@@ -617,7 +617,7 @@ private:
     return true;
   }
 
-#    ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#    if _LIBCPP_HAS_WIDE_CHARACTERS
   template <contiguous_iterator _Iterator>
     requires(same_as<_CharT, wchar_t> && sizeof(wchar_t) == 4)
   _LIBCPP_HIDE_FROM_ABI constexpr bool __parse_fill_align(_Iterator& __begin, _Iterator __end) {
@@ -643,9 +643,9 @@ private:
     return true;
   }
 
-#    endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#    endif // _LIBCPP_HAS_WIDE_CHARACTERS
 
-#  else // _LIBCPP_HAS_NO_UNICODE
+#  else // _LIBCPP_HAS_UNICODE
   // range-fill and tuple-fill are identical
   template <contiguous_iterator _Iterator>
   _LIBCPP_HIDE_FROM_ABI constexpr bool __parse_fill_align(_Iterator& __begin, _Iterator __end) {
@@ -670,7 +670,7 @@ private:
     return true;
   }
 
-#  endif // _LIBCPP_HAS_NO_UNICODE
+#  endif // _LIBCPP_HAS_UNICODE
 
   template <contiguous_iterator _Iterator>
   _LIBCPP_HIDE_FROM_ABI constexpr bool __parse_sign(_Iterator& __begin) {
@@ -874,7 +874,7 @@ private:
 
 // Validates whether the reserved bitfields don't change the size.
 static_assert(sizeof(__parser<char>) == 16);
-#  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 static_assert(sizeof(__parser<wchar_t>) == 16);
 #  endif
 
@@ -1026,7 +1026,7 @@ __column_width_result(size_t, _Iterator) -> __column_width_result<_Iterator>;
 ///   "rounded up".
 enum class __column_width_rounding { __down, __up };
 
-#  ifndef _LIBCPP_HAS_NO_UNICODE
+#  if _LIBCPP_HAS_UNICODE
 
 namespace __detail {
 template <contiguous_iterator _Iterator>
@@ -1148,7 +1148,7 @@ _LIBCPP_HIDE_FROM_ABI constexpr __column_width_result<_Iterator> __estimate_colu
   __result.__width_ += __ascii_size;
   return __result;
 }
-#  else // !defined(_LIBCPP_HAS_NO_UNICODE)
+#  else // _LIBCPP_HAS_UNICODE
 template <class _CharT>
 _LIBCPP_HIDE_FROM_ABI constexpr __column_width_result<typename basic_string_view<_CharT>::const_iterator>
 __estimate_column_width(basic_string_view<_CharT> __str, size_t __maximum, __column_width_rounding) noexcept {
@@ -1159,11 +1159,11 @@ __estimate_column_width(basic_string_view<_CharT> __str, size_t __maximum, __col
   return {__width, __str.begin() + __width};
 }
 
-#  endif // !defined(_LIBCPP_HAS_NO_UNICODE)
+#  endif // _LIBCPP_HAS_UNICODE
 
 } // namespace __format_spec
 
-#endif //_LIBCPP_STD_VER >= 20
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

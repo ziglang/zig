@@ -22,11 +22,11 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if __has_builtin(__is_pointer)
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_pointer : _BoolConstant<__is_pointer(_Tp)> {};
+struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_pointer : _BoolConstant<__is_pointer(_Tp)> {};
 
 #  if _LIBCPP_STD_VER >= 17
 template <class _Tp>
-inline constexpr bool is_pointer_v = __is_pointer(_Tp);
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_pointer_v = __is_pointer(_Tp);
 #  endif
 
 #else // __has_builtin(__is_pointer)
@@ -40,7 +40,7 @@ template <class _Tp>
 struct __libcpp_remove_objc_qualifiers {
   typedef _Tp type;
 };
-#  if defined(_LIBCPP_HAS_OBJC_ARC)
+#  if _LIBCPP_HAS_OBJC_ARC
 // clang-format off
 template <class _Tp> struct __libcpp_remove_objc_qualifiers<_Tp __strong> { typedef _Tp type; };
 template <class _Tp> struct __libcpp_remove_objc_qualifiers<_Tp __weak> { typedef _Tp type; };

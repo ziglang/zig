@@ -10,8 +10,8 @@
 #define _LIBCPP___MEMORY_ALLOCATE_AT_LEAST_H
 
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__memory/allocator_traits.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -35,7 +35,7 @@ struct __allocation_result {
 };
 
 template <class _Alloc>
-_LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI
+[[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI
 _LIBCPP_CONSTEXPR __allocation_result<typename allocator_traits<_Alloc>::pointer>
 __allocate_at_least(_Alloc& __alloc, size_t __n) {
   return {__alloc.allocate(__n), __n};
