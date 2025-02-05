@@ -21401,7 +21401,7 @@ fn zirTagName(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     try operand_ty.resolveLayout(pt);
     const enum_ty = switch (operand_ty.zigTypeTag(zcu)) {
         .enum_literal => {
-            const val = try sema.resolveConstDefinedValue(block, LazySrcLoc.unneeded, operand, undefined);
+            const val = (try sema.resolveDefinedValue(block, operand_src, operand)).?;
             const tag_name = ip.indexToKey(val.toIntern()).enum_literal;
             return sema.addNullTerminatedStrLit(tag_name);
         },
