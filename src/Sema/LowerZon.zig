@@ -39,8 +39,6 @@ pub fn run(
 ) CompileError!InternPool.Index {
     const pt = sema.pt;
 
-    _ = try file.getZoir(pt.zcu);
-
     const tracked_inst = try pt.zcu.intern_pool.trackZir(pt.zcu.gpa, pt.tid, .{
         .file = file_index,
         .inst = .main_struct_inst, // this is the only trackable instruction in a ZON file

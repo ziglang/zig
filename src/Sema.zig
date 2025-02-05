@@ -6140,10 +6140,9 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
 
     const path_digest = zcu.filePathDigest(result.file_index);
-    pt.astGenFile(result.file, path_digest) catch |err|
+    pt.updateFile(result.file, path_digest) catch |err|
         return sema.fail(&child_block, src, "C import failed: {s}", .{@errorName(err)});
 
-    try sema.declareDependency(.{ .file = result.file_index });
     try pt.ensureFileAnalyzed(result.file_index);
     const ty = zcu.fileRootType(result.file_index);
     try sema.declareDependency(.{ .interned = ty });
@@ -7649,9 +7648,8 @@ fn analyzeCall(
         const nav = ip.getNav(info.owner_nav);
         const resolved_func_inst = info.zir_body_inst.resolveFull(ip) orelse return error.AnalysisFail;
         const file = zcu.fileByIndex(resolved_func_inst.file);
-        assert(file.zir_loaded);
-        const zir_info = file.zir.getFnInfo(resolved_func_inst.inst);
-        break :b .{ nav, file.zir, info.zir_body_inst, resolved_func_inst.inst, zir_info };
+        const zir_info = file.zir.?.getFnInfo(resolved_func_inst.inst);
+        break :b .{ nav, file.zir.?, info.zir_body_inst, resolved_func_inst.inst, zir_info };
     } else .{ undefined, undefined, undefined, undefined, undefined };
 
     // This is the `inst_map` used when evaluating generic parameters and return types.
@@ -13987,7 +13985,6 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
     };
     switch (result.file.getMode()) {
         .zig => {
-            try sema.declareDependency(.{ .file = result.file_index });
             try pt.ensureFileAnalyzed(result.file_index);
             const ty = zcu.fileRootType(result.file_index);
             try sema.declareDependency(.{ .interned = ty });
@@ -13995,12 +13992,6 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             return Air.internedToRef(ty);
         },
         .zon => {
-            _ = result.file.getTree(zcu.gpa) catch |err| {
-                // TODO: these errors are file system errors; make sure an update() will
-                // retry this and not cache the file system error, which may be transient.
-                return sema.fail(block, operand_src, "unable to open '{s}': {s}", .{ result.file.sub_file_path, @errorName(err) });
-            };
-
             if (extra.res_ty == .none) {
                 return sema.fail(block, operand_src, "'@import' of ZON must have a known result type", .{});
             }
@@ -14010,6 +14001,7 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
                 return sema.fail(block, operand_src, "'@import' of ZON must have a known result type", .{});
             }
 
+            try sema.declareDependency(.{ .zon_file = result.file_index });
             const interned = try LowerZon.run(
                 sema,
                 result.file,
@@ -35328,7 +35320,7 @@ fn backingIntType(
         break :blk accumulator;
     };
 
-    const zir = zcu.namespacePtr(struct_type.namespace).fileScope(zcu).zir;
+    const zir = zcu.namespacePtr(struct_type.namespace).fileScope(zcu).zir.?;
     const zir_index = struct_type.zir_index.resolve(ip) orelse return error.AnalysisFail;
     const extended = zir.instructions.items(.data)[@intFromEnum(zir_index)].extended;
     assert(extended.opcode == .struct_decl);
@@ -35948,7 +35940,7 @@ fn structFields(
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     const namespace_index = struct_type.namespace;
-    const zir = zcu.namespacePtr(namespace_index).fileScope(zcu).zir;
+    const zir = zcu.namespacePtr(namespace_index).fileScope(zcu).zir.?;
     const zir_index = struct_type.zir_index.resolve(ip) orelse return error.AnalysisFail;
 
     const fields_len, _, var extra_index = structZirInfo(zir, zir_index);
@@ -36149,7 +36141,7 @@ fn structFieldInits(
     assert(!struct_type.haveFieldInits(ip));
 
     const namespace_index = struct_type.namespace;
-    const zir = zcu.namespacePtr(namespace_index).fileScope(zcu).zir;
+    const zir = zcu.namespacePtr(namespace_index).fileScope(zcu).zir.?;
     const zir_index = struct_type.zir_index.resolve(ip) orelse return error.AnalysisFail;
     const fields_len, _, var extra_index = structZirInfo(zir, zir_index);
 
@@ -36268,7 +36260,7 @@ fn unionFields(
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
-    const zir = zcu.namespacePtr(union_type.namespace).fileScope(zcu).zir;
+    const zir = zcu.namespacePtr(union_type.namespace).fileScope(zcu).zir.?;
     const zir_index = union_type.zir_index.resolve(ip) orelse return error.AnalysisFail;
     const extended = zir.instructions.items(.data)[@intFromEnum(zir_index)].extended;
     assert(extended.opcode == .union_decl);

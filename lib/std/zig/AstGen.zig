@@ -14017,6 +14017,39 @@ fn lowerAstErrors(astgen: *AstGen) !void {
     var notes: std.ArrayListUnmanaged(u32) = .empty;
     defer notes.deinit(gpa);
 
+    const token_starts = tree.tokens.items(.start);
+    const token_tags = tree.tokens.items(.tag);
+    const parse_err = tree.errors[0];
+    const tok = parse_err.token + @intFromBool(parse_err.token_is_prev);
+    const tok_start = token_starts[tok];
+    const start_char = tree.source[tok_start];
+
+    if (token_tags[tok] == .invalid and
+        (start_char == '\"' or start_char == '\'' or start_char == '/' or mem.startsWith(u8, tree.source[tok_start..], "\\\\")))
+    {
+        const tok_len: u32 = @intCast(tree.tokenSlice(tok).len);
+        const tok_end = tok_start + tok_len;
+        const bad_off = blk: {
+            var idx = tok_start;
+            while (idx < tok_end) : (idx += 1) {
+                switch (tree.source[idx]) {
+                    0x00...0x09, 0x0b...0x1f, 0x7f => break,
+                    else => {},
+                }
+            }
+            break :blk idx - tok_start;
+        };
+
+        const err: Ast.Error = .{
+            .tag = Ast.Error.Tag.invalid_byte,
+            .token = tok,
+            .extra = .{ .offset = bad_off },
+        };
+        msg.clearRetainingCapacity();
+        try tree.renderError(err, msg.writer(gpa));
+        return try astgen.appendErrorTokNotesOff(tok, bad_off, "{s}", .{msg.items}, notes.items);
+    }
+
     var cur_err = tree.errors[0];
     for (tree.errors[1..]) |err| {
         if (err.is_note) {

@@ -3587,8 +3587,7 @@ pub fn typeDeclSrcLine(ty: Type, zcu: *Zcu) ?u32 {
     };
     const info = tracked.resolveFull(&zcu.intern_pool) orelse return null;
     const file = zcu.fileByIndex(info.file);
-    assert(file.zir_loaded);
-    const zir = file.zir;
+    const zir = file.zir.?;
     const inst = zir.instructions.get(@intFromEnum(info.inst));
     return switch (inst.tag) {
         .struct_init, .struct_init_ref => zir.extraData(Zir.Inst.StructInit, inst.data.pl_node.payload_index).data.abs_line,
@@ -3905,7 +3904,7 @@ fn resolveStructInner(
     var comptime_err_ret_trace = std.ArrayList(Zcu.LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
-    const zir = zcu.namespacePtr(struct_obj.namespace).fileScope(zcu).zir;
+    const zir = zcu.namespacePtr(struct_obj.namespace).fileScope(zcu).zir.?;
     var sema: Sema = .{
         .pt = pt,
         .gpa = gpa,
@@ -3959,7 +3958,7 @@ fn resolveUnionInner(
     var comptime_err_ret_trace = std.ArrayList(Zcu.LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
-    const zir = zcu.namespacePtr(union_obj.namespace).fileScope(zcu).zir;
+    const zir = zcu.namespacePtr(union_obj.namespace).fileScope(zcu).zir.?;
     var sema: Sema = .{
         .pt = pt,
         .gpa = gpa,

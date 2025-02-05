@@ -418,12 +418,9 @@ test fieldInfo {
     try testing.expect(comptime uf.type == u8);
 }
 
+/// Deprecated: use @FieldType
 pub fn FieldType(comptime T: type, comptime field: FieldEnum(T)) type {
-    if (@typeInfo(T) != .@"struct" and @typeInfo(T) != .@"union") {
-        @compileError("Expected struct or union, found '" ++ @typeName(T) ++ "'");
-    }
-
-    return fieldInfo(T, field).type;
+    return @FieldType(T, @tagName(field));
 }
 
 test FieldType {
