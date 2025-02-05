@@ -33,9 +33,9 @@ pub const Block = struct {
             .abbrevs = .{ .abbrevs = .{} },
         };
 
-        const set_bid: u32 = 1;
-        const block_name: u32 = 2;
-        const set_record_name: u32 = 3;
+        const set_bid_id: u32 = 1;
+        const block_name_id: u32 = 2;
+        const set_record_name_id: u32 = 3;
 
         fn deinit(info: *Info, allocator: std.mem.Allocator) void {
             allocator.free(info.block_name);
@@ -61,7 +61,7 @@ pub const Record = struct {
         assert(record.id == Abbrev.Builtin.define_abbrev.toRecordId());
         var i: usize = 0;
         while (i < record.operands.len) switch (record.operands[i]) {
-            Abbrev.Operand.literal => {
+            Abbrev.Operand.literal_id => {
                 try operands.append(.{ .literal = record.operands[i + 1] });
                 i += 2;
             },
@@ -211,7 +211,7 @@ fn nextRecord(bc: *BitcodeReader) !?Record {
                     .align_32_bits, .block_len => return error.UnsupportedArrayElement,
                     .abbrev_op => switch (try bc.readFixed(u1, 1)) {
                         1 => try operands.appendSlice(&.{
-                            Abbrev.Operand.literal,
+                            Abbrev.Operand.literal_id,
                             try bc.readVbr(u64, 8),
                         }),
                         0 => {
@@ -273,7 +273,7 @@ fn startBlock(bc: *BitcodeReader, block_id: ?u32, new_abbrev_len: u6) !void {
     };
     try state.abbrevs.abbrevs.ensureTotalCapacity(
         bc.allocator,
-        @typeInfo(Abbrev.Builtin).Enum.fields.len + abbrevs.len,
+        @typeInfo(Abbrev.Builtin).@"enum".fields.len + abbrevs.len,
     );
 
     assert(state.abbrevs.abbrevs.items.len == @intFromEnum(Abbrev.Builtin.end_block));
@@ -309,7 +309,7 @@ fn startBlock(bc: *BitcodeReader, block_id: ?u32, new_abbrev_len: u6) !void {
             .{ .encoding = .{ .vbr = 6 } }, // ops
         },
     });
-    assert(state.abbrevs.abbrevs.items.len == @typeInfo(Abbrev.Builtin).Enum.fields.len);
+    assert(state.abbrevs.abbrevs.items.len == @typeInfo(Abbrev.Builtin).@"enum".fields.len);
     for (abbrevs) |abbrev| try state.abbrevs.addAbbrevAssumeCapacity(bc.allocator, abbrev);
 }
 
@@ -334,9 +334,9 @@ fn parseBlockInfoBlock(bc: *BitcodeReader) !void {
                     try record.toOwnedAbbrev(bc.allocator),
                 );
             },
-            Block.Info.set_bid => block_id = std.math.cast(u32, record.operands[0]) orelse
+            Block.Info.set_bid_id => block_id = std.math.cast(u32, record.operands[0]) orelse
                 return error.Overflow,
-            Block.Info.block_name => if (bc.keep_names) {
+            Block.Info.block_name_id => if (bc.keep_names) {
                 const gop = try bc.block_info.getOrPut(bc.allocator, block_id orelse
                     return error.UnspecifiedBlockId);
                 if (!gop.found_existing) gop.value_ptr.* = Block.Info.default;
@@ -346,7 +346,7 @@ fn parseBlockInfoBlock(bc: *BitcodeReader) !void {
                     byte.* = std.math.cast(u8, operand) orelse return error.InvalidName;
                 gop.value_ptr.block_name = name;
             },
-            Block.Info.set_record_name => if (bc.keep_names) {
+            Block.Info.set_record_name_id => if (bc.keep_names) {
                 const gop = try bc.block_info.getOrPut(bc.allocator, block_id orelse
                     return error.UnspecifiedBlockId);
                 if (!gop.found_existing) gop.value_ptr.* = Block.Info.default;
@@ -448,7 +448,7 @@ const Abbrev = struct {
         define_abbrev,
         unabbrev_record,
 
-        const first_record_id: u32 = std.math.maxInt(u32) - @typeInfo(Builtin).Enum.fields.len + 1;
+        const first_record_id: u32 = std.math.maxInt(u32) - @typeInfo(Builtin).@"enum".fields.len + 1;
         fn toRecordId(builtin: Builtin) u32 {
             return first_record_id + @intFromEnum(builtin);
         }
@@ -467,7 +467,7 @@ const Abbrev = struct {
         block_len,
         abbrev_op,
 
-        const literal = std.math.maxInt(u64);
+        const literal_id = std.math.maxInt(u64);
         const Encoding = enum(u3) {
             fixed = 1,
             vbr = 2,

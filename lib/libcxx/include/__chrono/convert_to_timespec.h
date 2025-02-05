@@ -26,23 +26,18 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 // Convert a nanoseconds duration to the given TimeSpec type, which must have
 // the same properties as std::timespec.
 template <class _TimeSpec>
-_LIBCPP_HIDE_FROM_ABI inline
-_TimeSpec __convert_to_timespec(const chrono::nanoseconds& __ns)
-{
+_LIBCPP_HIDE_FROM_ABI inline _TimeSpec __convert_to_timespec(const chrono::nanoseconds& __ns) {
   using namespace chrono;
   seconds __s = duration_cast<seconds>(__ns);
   _TimeSpec __ts;
   typedef decltype(__ts.tv_sec) __ts_sec;
   const __ts_sec __ts_sec_max = numeric_limits<__ts_sec>::max();
 
-  if (__s.count() < __ts_sec_max)
-  {
-    __ts.tv_sec = static_cast<__ts_sec>(__s.count());
+  if (__s.count() < __ts_sec_max) {
+    __ts.tv_sec  = static_cast<__ts_sec>(__s.count());
     __ts.tv_nsec = static_cast<decltype(__ts.tv_nsec)>((__ns - __s).count());
-  }
-  else
-  {
-    __ts.tv_sec = __ts_sec_max;
+  } else {
+    __ts.tv_sec  = __ts_sec_max;
     __ts.tv_nsec = 999999999; // (10^9 - 1)
   }
 

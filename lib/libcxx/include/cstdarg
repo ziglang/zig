@@ -31,7 +31,6 @@ Types:
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 
 // <stdarg.h> is not provided by libc++

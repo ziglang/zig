@@ -9,7 +9,7 @@
 #if defined(__MVS__)
 // As part of monotonic clock support on z/OS we need macro _LARGE_TIME_API
 // to be defined before any system header to include definition of struct timespec64.
-#define _LARGE_TIME_API
+#  define _LARGE_TIME_API
 #endif
 
 #include <__system_error/system_error.h>
@@ -17,22 +17,24 @@
 #include <chrono>
 
 #if defined(__MVS__)
-#include <__support/ibm/gettod_zos.h> // gettimeofdayMonotonic
+#  include <__support/ibm/gettod_zos.h> // gettimeofdayMonotonic
 #endif
 
-#include <time.h>        // clock_gettime and CLOCK_{MONOTONIC,REALTIME,MONOTONIC_RAW}
 #include "include/apple_availability.h"
+#include <time.h> // clock_gettime and CLOCK_{MONOTONIC,REALTIME,MONOTONIC_RAW}
 
 #if __has_include(<unistd.h>)
-# include <unistd.h> // _POSIX_TIMERS
+#  include <unistd.h> // _POSIX_TIMERS
 #endif
 
 #if __has_include(<sys/time.h>)
-# include <sys/time.h> // for gettimeofday and timeval
+#  include <sys/time.h> // for gettimeofday and timeval
 #endif
 
-#if defined(__APPLE__) || defined (__gnu_hurd__) || (defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0)
-# define _LIBCPP_HAS_CLOCK_GETTIME
+// OpenBSD does not have a fully conformant suite of POSIX timers, but
+// it does have clock_gettime and CLOCK_MONOTONIC which is all we need.
+#if defined(__APPLE__) || defined(__gnu_hurd__) || defined(__OpenBSD__) || (defined(_POSIX_TIMERS) && _POSIX_TIMERS > 0)
+#  define _LIBCPP_HAS_CLOCK_GETTIME
 #endif
 
 #if defined(_LIBCPP_WIN32API)
@@ -49,7 +51,7 @@
 #endif
 
 #if __has_include(<mach/mach_time.h>)
-# include <mach/mach_time.h>
+#  include <mach/mach_time.h>
 #endif
 
 #if defined(__ELF__) && defined(_LIBCPP_LINK_RT_LIB)
@@ -58,8 +60,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-namespace chrono
-{
+namespace chrono {
 
 //
 // system_clock
@@ -67,16 +68,16 @@ namespace chrono
 
 #if defined(_LIBCPP_WIN32API)
 
-#if _WIN32_WINNT < _WIN32_WINNT_WIN8
+#  if _WIN32_WINNT < _WIN32_WINNT_WIN8
 
 namespace {
 
-typedef void(WINAPI *GetSystemTimeAsFileTimePtr)(LPFILETIME);
+typedef void(WINAPI* GetSystemTimeAsFileTimePtr)(LPFILETIME);
 
 class GetSystemTimeInit {
 public:
   GetSystemTimeInit() {
-    fp = (GetSystemTimeAsFileTimePtr)GetProcAddress(
+    fp = (GetSystemTimeAsFileTimePtr)(void*)GetProcAddress(
         GetModuleHandleW(L"kernel32.dll"), "GetSystemTimePreciseAsFileTime");
     if (fp == nullptr)
       fp = GetSystemTimeAsFileTime;
@@ -86,33 +87,30 @@ public:
 
 // Pretend we're inside a system header so the compiler doesn't flag the use of the init_priority
 // attribute with a value that's reserved for the implementation (we're the implementation).
-#include "chrono_system_time_init.h"
+#    include "chrono_system_time_init.h"
 } // namespace
 
-#endif
+#  endif
 
 static system_clock::time_point __libcpp_system_clock_now() {
   // FILETIME is in 100ns units
   using filetime_duration =
-      _VSTD::chrono::duration<__int64,
-                              _VSTD::ratio_multiply<_VSTD::ratio<100, 1>,
-                                                    nanoseconds::period>>;
+      std::chrono::duration<__int64, std::ratio_multiply<std::ratio<100, 1>, nanoseconds::period>>;
 
   // The Windows epoch is Jan 1 1601, the Unix epoch Jan 1 1970.
-  static _LIBCPP_CONSTEXPR const seconds nt_to_unix_epoch{11644473600};
+  static constexpr const seconds nt_to_unix_epoch{11644473600};
 
   FILETIME ft;
-#if (_WIN32_WINNT >= _WIN32_WINNT_WIN8 && WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)) || \
-    (_WIN32_WINNT >= _WIN32_WINNT_WIN10)
+#  if (_WIN32_WINNT >= _WIN32_WINNT_WIN8 && WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)) ||                      \
+      (_WIN32_WINNT >= _WIN32_WINNT_WIN10)
   GetSystemTimePreciseAsFileTime(&ft);
-#elif !WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+#  elif !WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
   GetSystemTimeAsFileTime(&ft);
-#else
+#  else
   GetSystemTimeAsFileTimeFunc.fp(&ft);
-#endif
+#  endif
 
-  filetime_duration d{(static_cast<__int64>(ft.dwHighDateTime) << 32) |
-                       static_cast<__int64>(ft.dwLowDateTime)};
+  filetime_duration d{(static_cast<__int64>(ft.dwHighDateTime) << 32) | static_cast<__int64>(ft.dwLowDateTime)};
   return system_clock::time_point(duration_cast<system_clock::duration>(d - nt_to_unix_epoch));
 }
 
@@ -128,32 +126,22 @@ static system_clock::time_point __libcpp_system_clock_now() {
 #else
 
 static system_clock::time_point __libcpp_system_clock_now() {
-    timeval tv;
-    gettimeofday(&tv, 0);
-    return system_clock::time_point(seconds(tv.tv_sec) + microseconds(tv.tv_usec));
+  timeval tv;
+  gettimeofday(&tv, 0);
+  return system_clock::time_point(seconds(tv.tv_sec) + microseconds(tv.tv_usec));
 }
 
 #endif
 
 const bool system_clock::is_steady;
 
-system_clock::time_point
-system_clock::now() noexcept
-{
-    return __libcpp_system_clock_now();
+system_clock::time_point system_clock::now() noexcept { return __libcpp_system_clock_now(); }
+
+time_t system_clock::to_time_t(const time_point& t) noexcept {
+  return time_t(duration_cast<seconds>(t.time_since_epoch()).count());
 }
 
-time_t
-system_clock::to_time_t(const time_point& t) noexcept
-{
-    return time_t(duration_cast<seconds>(t.time_since_epoch()).count());
-}
-
-system_clock::time_point
-system_clock::from_time_t(time_t t) noexcept
-{
-    return system_clock::time_point(seconds(t));
-}
+system_clock::time_point system_clock::from_time_t(time_t t) noexcept { return system_clock::time_point(seconds(t)); }
 
 //
 // steady_clock
@@ -165,7 +153,7 @@ system_clock::from_time_t(time_t t) noexcept
 
 #ifndef _LIBCPP_HAS_NO_MONOTONIC_CLOCK
 
-#if defined(__APPLE__)
+#  if defined(__APPLE__)
 
 // On Apple platforms, only CLOCK_UPTIME_RAW, CLOCK_MONOTONIC_RAW or
 // mach_absolute_time are able to time functions in the nanosecond range.
@@ -173,39 +161,37 @@ system_clock::from_time_t(time_t t) noexcept
 // also counts cycles when the system is asleep. Thus, it is the only
 // acceptable implementation of steady_clock.
 static steady_clock::time_point __libcpp_steady_clock_now() {
-    struct timespec tp;
-    if (0 != clock_gettime(CLOCK_MONOTONIC_RAW, &tp))
-        __throw_system_error(errno, "clock_gettime(CLOCK_MONOTONIC_RAW) failed");
-    return steady_clock::time_point(seconds(tp.tv_sec) + nanoseconds(tp.tv_nsec));
+  struct timespec tp;
+  if (0 != clock_gettime(CLOCK_MONOTONIC_RAW, &tp))
+    __throw_system_error(errno, "clock_gettime(CLOCK_MONOTONIC_RAW) failed");
+  return steady_clock::time_point(seconds(tp.tv_sec) + nanoseconds(tp.tv_nsec));
 }
 
-#elif defined(_LIBCPP_WIN32API)
+#  elif defined(_LIBCPP_WIN32API)
 
 // https://msdn.microsoft.com/en-us/library/windows/desktop/ms644905(v=vs.85).aspx says:
 //    If the function fails, the return value is zero. <snip>
 //    On systems that run Windows XP or later, the function will always succeed
 //      and will thus never return zero.
 
-static LARGE_INTEGER
-__QueryPerformanceFrequency()
-{
-    LARGE_INTEGER val;
-    (void) QueryPerformanceFrequency(&val);
-    return val;
+static LARGE_INTEGER __QueryPerformanceFrequency() {
+  LARGE_INTEGER val;
+  (void)QueryPerformanceFrequency(&val);
+  return val;
 }
 
 static steady_clock::time_point __libcpp_steady_clock_now() {
   static const LARGE_INTEGER freq = __QueryPerformanceFrequency();
 
   LARGE_INTEGER counter;
-  (void) QueryPerformanceCounter(&counter);
-  auto seconds = counter.QuadPart / freq.QuadPart;
+  (void)QueryPerformanceCounter(&counter);
+  auto seconds   = counter.QuadPart / freq.QuadPart;
   auto fractions = counter.QuadPart % freq.QuadPart;
-  auto dur = seconds * nano::den + fractions * nano::den / freq.QuadPart;
+  auto dur       = seconds * nano::den + fractions * nano::den / freq.QuadPart;
   return steady_clock::time_point(steady_clock::duration(dur));
 }
 
-#elif defined(__MVS__)
+#  elif defined(__MVS__)
 
 static steady_clock::time_point __libcpp_steady_clock_now() {
   struct timespec64 ts;
@@ -229,10 +215,10 @@ static steady_clock::time_point __libcpp_steady_clock_now() noexcept {
 #  elif defined(_LIBCPP_HAS_CLOCK_GETTIME)
 
 static steady_clock::time_point __libcpp_steady_clock_now() {
-    struct timespec tp;
-    if (0 != clock_gettime(CLOCK_MONOTONIC, &tp))
-        __throw_system_error(errno, "clock_gettime(CLOCK_MONOTONIC) failed");
-    return steady_clock::time_point(seconds(tp.tv_sec) + nanoseconds(tp.tv_nsec));
+  struct timespec tp;
+  if (0 != clock_gettime(CLOCK_MONOTONIC, &tp))
+    __throw_system_error(errno, "clock_gettime(CLOCK_MONOTONIC) failed");
+  return steady_clock::time_point(seconds(tp.tv_sec) + nanoseconds(tp.tv_nsec));
 }
 
 #  else
@@ -241,14 +227,10 @@ static steady_clock::time_point __libcpp_steady_clock_now() {
 
 const bool steady_clock::is_steady;
 
-steady_clock::time_point
-steady_clock::now() noexcept
-{
-    return __libcpp_steady_clock_now();
-}
+steady_clock::time_point steady_clock::now() noexcept { return __libcpp_steady_clock_now(); }
 
 #endif // !_LIBCPP_HAS_NO_MONOTONIC_CLOCK
 
-}
+} // namespace chrono
 
 _LIBCPP_END_NAMESPACE_STD

@@ -37,6 +37,33 @@
  *  Consider this yet another good reason to avoid doing so.                  */
 
 /*! @abstract A matrix with 2 rows and 2 columns.                             */
+typedef struct { simd_half2 columns[2]; } simd_half2x2;
+
+/*! @abstract A matrix with 2 rows and 3 columns.                             */
+typedef struct { simd_half2 columns[3]; } simd_half3x2;
+
+/*! @abstract A matrix with 2 rows and 4 columns.                             */
+typedef struct { simd_half2 columns[4]; } simd_half4x2;
+
+/*! @abstract A matrix with 3 rows and 2 columns.                             */
+typedef struct { simd_half3 columns[2]; } simd_half2x3;
+
+/*! @abstract A matrix with 3 rows and 3 columns.                             */
+typedef struct { simd_half3 columns[3]; } simd_half3x3;
+
+/*! @abstract A matrix with 3 rows and 4 columns.                             */
+typedef struct { simd_half3 columns[4]; } simd_half4x3;
+
+/*! @abstract A matrix with 4 rows and 2 columns.                             */
+typedef struct { simd_half4 columns[2]; } simd_half2x4;
+
+/*! @abstract A matrix with 4 rows and 3 columns.                             */
+typedef struct { simd_half4 columns[3]; } simd_half3x4;
+
+/*! @abstract A matrix with 4 rows and 4 columns.                             */
+typedef struct { simd_half4 columns[4]; } simd_half4x4;
+
+/*! @abstract A matrix with 2 rows and 2 columns.                             */
 typedef struct { simd_float2 columns[2]; } simd_float2x2;
 
 /*! @abstract A matrix with 2 rows and 3 columns.                             */
@@ -117,6 +144,9 @@ typedef struct { simd_double4 columns[4]; } simd_double4x4;
  *
  *  While the C types are defined here, the operations on quaternions and the
  *  C++ quaternion types are defined in <simd/quaternion.h>                   */
+
+/*! @abstract A half-precision quaternion.                                  */
+typedef struct {   simd_half4 vector; } simd_quath;
 
 /*! @abstract A single-precision quaternion.                                  */
 typedef struct {  simd_float4 vector; } simd_quatf;

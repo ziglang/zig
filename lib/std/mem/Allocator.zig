@@ -10,7 +10,10 @@ const builtin = @import("builtin");
 pub const Error = error{OutOfMemory};
 pub const Log2Align = math.Log2Int(usize);
 
-// The type erased pointer to the allocator implementation
+/// The type erased pointer to the allocator implementation.
+/// Any comparison of this field may result in illegal behavior, since it may be set to
+/// `undefined` in cases where the allocator implementation does not have any associated
+/// state.
 ptr: *anyopaque,
 vtable: *const VTable,
 
@@ -109,8 +112,8 @@ pub fn create(self: Allocator, comptime T: type) Error!*T {
 /// `ptr` should be the return value of `create`, or otherwise
 /// have the same address and alignment property.
 pub fn destroy(self: Allocator, ptr: anytype) void {
-    const info = @typeInfo(@TypeOf(ptr)).Pointer;
-    if (info.size != .One) @compileError("ptr must be a single item pointer");
+    const info = @typeInfo(@TypeOf(ptr)).pointer;
+    if (info.size != .one) @compileError("ptr must be a single item pointer");
     const T = info.child;
     if (@sizeOf(T) == 0) return;
     const non_const_ptr = @as([*]u8, @ptrCast(@constCast(ptr)));
@@ -232,7 +235,7 @@ fn allocBytesWithAlignment(self: Allocator, comptime alignment: u29, byte_count:
 /// the pointer, however the allocator implementation may refuse the resize
 /// request by returning `false`.
 pub fn resize(self: Allocator, old_mem: anytype, new_n: usize) bool {
-    const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
+    const Slice = @typeInfo(@TypeOf(old_mem)).pointer;
     const T = Slice.child;
     if (new_n == 0) {
         self.free(old_mem);
@@ -253,7 +256,7 @@ pub fn resize(self: Allocator, old_mem: anytype, new_n: usize) bool {
 /// can be larger, smaller, or the same size as the old memory allocation.
 /// If `new_n` is 0, this is the same as `free` and it always succeeds.
 pub fn realloc(self: Allocator, old_mem: anytype, new_n: usize) t: {
-    const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
+    const Slice = @typeInfo(@TypeOf(old_mem)).pointer;
     break :t Error![]align(Slice.alignment) Slice.child;
 } {
     return self.reallocAdvanced(old_mem, new_n, @returnAddress());
@@ -265,10 +268,10 @@ pub fn reallocAdvanced(
     new_n: usize,
     return_address: usize,
 ) t: {
-    const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
+    const Slice = @typeInfo(@TypeOf(old_mem)).pointer;
     break :t Error![]align(Slice.alignment) Slice.child;
 } {
-    const Slice = @typeInfo(@TypeOf(old_mem)).Pointer;
+    const Slice = @typeInfo(@TypeOf(old_mem)).pointer;
     const T = Slice.child;
     if (old_mem.len == 0) {
         return self.allocAdvancedWithRetAddr(T, Slice.alignment, new_n, return_address);
@@ -282,11 +285,9 @@ pub fn reallocAdvanced(
     const old_byte_slice = mem.sliceAsBytes(old_mem);
     const byte_count = math.mul(usize, @sizeOf(T), new_n) catch return Error.OutOfMemory;
     // Note: can't set shrunk memory to undefined as memory shouldn't be modified on realloc failure
-    if (mem.isAligned(@intFromPtr(old_byte_slice.ptr), Slice.alignment)) {
-        if (self.rawResize(old_byte_slice, log2a(Slice.alignment), byte_count, return_address)) {
-            const new_bytes: []align(Slice.alignment) u8 = @alignCast(old_byte_slice.ptr[0..byte_count]);
-            return mem.bytesAsSlice(T, new_bytes);
-        }
+    if (self.rawResize(old_byte_slice, log2a(Slice.alignment), byte_count, return_address)) {
+        const new_bytes: []align(Slice.alignment) u8 = @alignCast(old_byte_slice.ptr[0..byte_count]);
+        return mem.bytesAsSlice(T, new_bytes);
     }
 
     const new_mem = self.rawAlloc(byte_count, log2a(Slice.alignment), return_address) orelse
@@ -301,12 +302,13 @@ pub fn reallocAdvanced(
     return mem.bytesAsSlice(T, new_bytes);
 }
 
-/// Free an array allocated with `alloc`. To free a single item,
-/// see `destroy`.
+/// Free an array allocated with `alloc`.
+/// If memory has length 0, free is a no-op.
+/// To free a single item, see `destroy`.
 pub fn free(self: Allocator, memory: anytype) void {
-    const Slice = @typeInfo(@TypeOf(memory)).Pointer;
+    const Slice = @typeInfo(@TypeOf(memory)).pointer;
     const bytes = mem.sliceAsBytes(memory);
-    const bytes_len = bytes.len + if (Slice.sentinel != null) @sizeOf(Slice.child) else 0;
+    const bytes_len = bytes.len + if (Slice.sentinel() != null) @sizeOf(Slice.child) else 0;
     if (bytes_len == 0) return;
     const non_const_ptr = @constCast(bytes.ptr);
     // TODO: https://github.com/ziglang/zig/issues/4298
@@ -332,13 +334,13 @@ pub fn dupeZ(allocator: Allocator, comptime T: type, m: []const T) Error![:0]T {
 /// TODO replace callsites with `@log2` after this proposal is implemented:
 /// https://github.com/ziglang/zig/issues/13642
 inline fn log2a(x: anytype) switch (@typeInfo(@TypeOf(x))) {
-    .Int => math.Log2Int(@TypeOf(x)),
-    .ComptimeInt => comptime_int,
+    .int => math.Log2Int(@TypeOf(x)),
+    .comptime_int => comptime_int,
     else => @compileError("int please"),
 } {
     switch (@typeInfo(@TypeOf(x))) {
-        .Int => return math.log2_int(@TypeOf(x), x),
-        .ComptimeInt => return math.log2(x),
+        .int => return math.log2_int(@TypeOf(x), x),
+        .comptime_int => return math.log2(x),
         else => @compileError("bad"),
     }
 }

@@ -14,10 +14,8 @@ pub const BoundedArrayAligned = @import("bounded_array.zig").BoundedArrayAligned
 pub const Build = @import("Build.zig");
 pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
-/// Deprecated: use `process.Child`.
-pub const ChildProcess = @import("child_process.zig").ChildProcess;
-pub const ComptimeStringMap = comptime_string_map.ComptimeStringMap;
-pub const ComptimeStringMapWithEql = comptime_string_map.ComptimeStringMapWithEql;
+pub const StaticStringMap = static_string_map.StaticStringMap;
+pub const StaticStringMapWithEql = static_string_map.StaticStringMapWithEql;
 pub const DoublyLinkedList = @import("linked_list.zig").DoublyLinkedList;
 pub const DynLib = @import("dynamic_library.zig").DynLib;
 pub const DynamicBitSet = bit_set.DynamicBitSet;
@@ -27,12 +25,7 @@ pub const EnumMap = enums.EnumMap;
 pub const EnumSet = enums.EnumSet;
 pub const HashMap = hash_map.HashMap;
 pub const HashMapUnmanaged = hash_map.HashMapUnmanaged;
-pub const Ini = @import("Ini.zig");
 pub const MultiArrayList = @import("multi_array_list.zig").MultiArrayList;
-pub const PackedIntArray = @import("packed_int_array.zig").PackedIntArray;
-pub const PackedIntArrayEndian = @import("packed_int_array.zig").PackedIntArrayEndian;
-pub const PackedIntSlice = @import("packed_int_array.zig").PackedIntSlice;
-pub const PackedIntSliceEndian = @import("packed_int_array.zig").PackedIntSliceEndian;
 pub const PriorityQueue = @import("priority_queue.zig").PriorityQueue;
 pub const PriorityDequeue = @import("priority_dequeue.zig").PriorityDequeue;
 pub const Progress = @import("Progress.zig");
@@ -46,8 +39,6 @@ pub const StringHashMap = hash_map.StringHashMap;
 pub const StringHashMapUnmanaged = hash_map.StringHashMapUnmanaged;
 pub const StringArrayHashMap = array_hash_map.StringArrayHashMap;
 pub const StringArrayHashMapUnmanaged = array_hash_map.StringArrayHashMapUnmanaged;
-/// deprecated: use `DoublyLinkedList`.
-pub const TailQueue = DoublyLinkedList;
 pub const Target = @import("Target.zig");
 pub const Thread = @import("Thread.zig");
 pub const Treap = @import("treap.zig").Treap;
@@ -62,7 +53,7 @@ pub const builtin = @import("builtin.zig");
 pub const c = @import("c.zig");
 pub const coff = @import("coff.zig");
 pub const compress = @import("compress.zig");
-pub const comptime_string_map = @import("comptime_string_map.zig");
+pub const static_string_map = @import("static_string_map.zig");
 pub const crypto = @import("crypto.zig");
 pub const debug = @import("debug.zig");
 pub const dwarf = @import("dwarf.zig");
@@ -87,12 +78,9 @@ pub const meta = @import("meta.zig");
 pub const net = @import("net.zig");
 pub const os = @import("os.zig");
 pub const once = @import("once.zig").once;
-pub const packed_int_array = @import("packed_int_array.zig");
 pub const pdb = @import("pdb.zig");
 pub const posix = @import("posix.zig");
 pub const process = @import("process.zig");
-/// Deprecated: use `Random` instead.
-pub const rand = Random;
 pub const sort = @import("sort.zig");
 pub const simd = @import("simd.zig");
 pub const ascii = @import("ascii.zig");
@@ -104,6 +92,8 @@ pub const unicode = @import("unicode.zig");
 pub const valgrind = @import("valgrind.zig");
 pub const wasm = @import("wasm.zig");
 pub const zig = @import("zig.zig");
+pub const zip = @import("zip.zig");
+pub const zon = @import("zon.zig");
 pub const start = @import("start.zig");
 
 const root = @import("root");
@@ -156,6 +146,11 @@ pub const Options = struct {
     /// This will likely reduce the size of the binary, but it will also make it impossible to
     /// make a HTTPS connection.
     http_disable_tls: bool = false,
+
+    /// This enables `std.http.Client` to log ssl secrets to the file specified by the SSLKEYLOGFILE
+    /// env var.  Creating such a log file allows other programs with access to that file to decrypt
+    /// all `std.http.Client` traffic made by this program.
+    http_enable_ssl_key_log_file: bool = @import("builtin").mode == .Debug,
 
     side_channels_mitigations: crypto.SideChannelsMitigations = crypto.default_side_channels_mitigations,
 };

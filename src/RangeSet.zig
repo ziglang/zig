@@ -3,25 +3,25 @@ const assert = std.debug.assert;
 const Order = std.math.Order;
 
 const InternPool = @import("InternPool.zig");
-const Type = @import("type.zig").Type;
+const Type = @import("Type.zig");
 const Value = @import("Value.zig");
-const Module = @import("Module.zig");
+const Zcu = @import("Zcu.zig");
 const RangeSet = @This();
-const SwitchProngSrc = @import("Module.zig").SwitchProngSrc;
+const LazySrcLoc = Zcu.LazySrcLoc;
 
+zcu: *Zcu,
 ranges: std.ArrayList(Range),
-module: *Module,
 
 pub const Range = struct {
     first: InternPool.Index,
     last: InternPool.Index,
-    src: SwitchProngSrc,
+    src: LazySrcLoc,
 };
 
-pub fn init(allocator: std.mem.Allocator, module: *Module) RangeSet {
+pub fn init(allocator: std.mem.Allocator, zcu: *Zcu) RangeSet {
     return .{
+        .zcu = zcu,
         .ranges = std.ArrayList(Range).init(allocator),
-        .module = module,
     };
 }
 
@@ -33,10 +33,10 @@ pub fn add(
     self: *RangeSet,
     first: InternPool.Index,
     last: InternPool.Index,
-    src: SwitchProngSrc,
-) !?SwitchProngSrc {
-    const mod = self.module;
-    const ip = &mod.intern_pool;
+    src: LazySrcLoc,
+) !?LazySrcLoc {
+    const zcu = self.zcu;
+    const ip = &zcu.intern_pool;
 
     const ty = ip.typeOf(first);
     assert(ty == ip.typeOf(last));
@@ -45,8 +45,8 @@ pub fn add(
         assert(ty == ip.typeOf(range.first));
         assert(ty == ip.typeOf(range.last));
 
-        if (Value.fromInterned(last).compareScalar(.gte, Value.fromInterned(range.first), Type.fromInterned(ty), mod) and
-            Value.fromInterned(first).compareScalar(.lte, Value.fromInterned(range.last), Type.fromInterned(ty), mod))
+        if (Value.fromInterned(last).compareScalar(.gte, Value.fromInterned(range.first), Type.fromInterned(ty), zcu) and
+            Value.fromInterned(first).compareScalar(.lte, Value.fromInterned(range.last), Type.fromInterned(ty), zcu))
         {
             return range.src; // They overlap.
         }
@@ -61,20 +61,20 @@ pub fn add(
 }
 
 /// Assumes a and b do not overlap
-fn lessThan(mod: *Module, a: Range, b: Range) bool {
-    const ty = Type.fromInterned(mod.intern_pool.typeOf(a.first));
-    return Value.fromInterned(a.first).compareScalar(.lt, Value.fromInterned(b.first), ty, mod);
+fn lessThan(zcu: *Zcu, a: Range, b: Range) bool {
+    const ty = Type.fromInterned(zcu.intern_pool.typeOf(a.first));
+    return Value.fromInterned(a.first).compareScalar(.lt, Value.fromInterned(b.first), ty, zcu);
 }
 
 pub fn spans(self: *RangeSet, first: InternPool.Index, last: InternPool.Index) !bool {
-    const mod = self.module;
-    const ip = &mod.intern_pool;
+    const zcu = self.zcu;
+    const ip = &zcu.intern_pool;
     assert(ip.typeOf(first) == ip.typeOf(last));
 
     if (self.ranges.items.len == 0)
         return false;
 
-    std.mem.sort(Range, self.ranges.items, mod, lessThan);
+    std.mem.sort(Range, self.ranges.items, zcu, lessThan);
 
     if (self.ranges.items[0].first != first or
         self.ranges.items[self.ranges.items.len - 1].last != last)
@@ -93,10 +93,10 @@ pub fn spans(self: *RangeSet, first: InternPool.Index, last: InternPool.Index) !
         const prev = self.ranges.items[i];
 
         // prev.last + 1 == cur.first
-        try counter.copy(Value.fromInterned(prev.last).toBigInt(&space, mod));
+        try counter.copy(Value.fromInterned(prev.last).toBigInt(&space, zcu));
         try counter.addScalar(&counter, 1);
 
-        const cur_start_int = Value.fromInterned(cur.first).toBigInt(&space, mod);
+        const cur_start_int = Value.fromInterned(cur.first).toBigInt(&space, zcu);
         if (!cur_start_int.eql(counter.toConst())) {
             return false;
         }

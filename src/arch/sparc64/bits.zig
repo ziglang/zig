@@ -1,5 +1,4 @@
 const std = @import("std");
-const DW = std.dwarf;
 const assert = std.debug.assert;
 const testing = std.testing;
 
@@ -15,17 +14,17 @@ pub const Register = enum(u6) {
     fp = 62, // frame pointer (i6)
     // zig fmt: on
 
-    pub fn id(self: Register) u5 {
-        return @as(u5, @truncate(@intFromEnum(self)));
+    pub fn id(reg: Register) u5 {
+        return @truncate(@intFromEnum(reg));
     }
 
-    pub fn enc(self: Register) u5 {
+    pub fn enc(reg: Register) u5 {
         // For integer registers, enc() == id().
-        return self.id();
+        return reg.id();
     }
 
-    pub fn dwarfLocOp(reg: Register) u8 {
-        return @as(u8, reg.id()) + DW.OP.reg0;
+    pub fn dwarfNum(reg: Register) u5 {
+        return reg.id();
     }
 };
 

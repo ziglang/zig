@@ -11,4 +11,4 @@ export fn entry() usize {
 // backend=llvm
 // target=native
 //
-// :4:29: error: invalid operands to binary expression: 'Struct' and 'Struct'
+// :4:29: error: invalid operands to binary expression: 'struct' and 'struct'

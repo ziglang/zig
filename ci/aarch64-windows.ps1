@@ -1,5 +1,5 @@
 $TARGET = "$($Env:ARCH)-windows-gnu"
-$ZIG_LLVM_CLANG_LLD_NAME = "zig+llvm+lld+clang-$TARGET-0.12.0-dev.2087+e9a18010b"
+$ZIG_LLVM_CLANG_LLD_NAME = "zig+llvm+lld+clang-$TARGET-0.14.0-dev.1622+2ac543388"
 $MCPU = "baseline"
 $ZIG_LLVM_CLANG_LLD_URL = "https://ziglang.org/deps/$ZIG_LLVM_CLANG_LLD_NAME.zip"
 $PREFIX_PATH = "$(Get-Location)\..\$ZIG_LLVM_CLANG_LLD_NAME"
@@ -30,16 +30,15 @@ if ((git rev-parse --is-shallow-repository) -eq "true") {
     git fetch --unshallow # `git describe` won't work on a shallow repo
 }
 
-Write-Output "Building from source..."
-Remove-Item -Path 'build-release' -Recurse -Force -ErrorAction Ignore
-New-Item -Path 'build-release' -ItemType Directory
-Set-Location -Path 'build-release'
-
 # Override the cache directories because they won't actually help other CI runs
 # which will be testing alternate versions of zig, and ultimately would just
 # fill up space on the hard drive for no reason.
 $Env:ZIG_GLOBAL_CACHE_DIR="$(Get-Location)\zig-global-cache"
 $Env:ZIG_LOCAL_CACHE_DIR="$(Get-Location)\zig-local-cache"
+
+Write-Output "Building from source..."
+New-Item -Path 'build-release' -ItemType Directory
+Set-Location -Path 'build-release'
 
 # CMake gives a syntax error when file paths with backward slashes are used.
 # Here, we use forward slashes only to work around this.
@@ -68,4 +67,23 @@ Write-Output "Main test suite..."
   -Dstatic-llvm `
   -Dskip-non-native `
   -Denable-symlinks-windows
+CheckLastExitCode
+
+# Ensure that stage3 and stage4 are byte-for-byte identical.
+Write-Output "Build and compare stage4..."
+& "stage3-release\bin\zig.exe" build `
+  --prefix stage4-release `
+  -Denable-llvm `
+  -Dno-lib `
+  -Doptimize=ReleaseFast `
+  -Dstrip `
+  -Dtarget="$TARGET" `
+  -Duse-zig-libcxx `
+  -Dversion-string="$(stage3-release\bin\zig version)"
+CheckLastExitCode
+
+# Compare-Object returns an error code if the files differ.
+Write-Output "If the following command fails, it means nondeterminism has been"
+Write-Output "introduced, making stage3 and stage4 no longer byte-for-byte identical."
+Compare-Object (Get-Content stage3-release\bin\zig.exe) (Get-Content stage4-release\bin\zig.exe)
 CheckLastExitCode

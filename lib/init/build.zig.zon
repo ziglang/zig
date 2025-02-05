@@ -1,5 +1,13 @@
 .{
+    // This is the default name used by packages depending on this one. For
+    // example, when a user runs `zig fetch --save <url>`, this field is used
+    // as the key in the `dependencies` table. Although the user can choose a
+    // different name, most users will stick with this provided value.
+    //
+    // It is redundant to include "zig" in this name because it is already
+    // within the Zig package namespace.
     .name = "$",
+
     // This is a [Semantic Version](https://semver.org/).
     // In a future version of Zig it will be used for package deduplication.
     .version = "0.0.0",
@@ -19,7 +27,8 @@
         //.example = .{
         //    // When updating this field to a new URL, be sure to delete the corresponding
         //    // `hash`, otherwise you are communicating that you expect to find the old hash at
-        //    // the new URL.
+        //    // the new URL. If the contents of a URL change this will result in a hash mismatch
+        //    // which will prevent zig from using it.
         //    .url = "https://example.com/foo.tar.gz",
         //
         //    // This is computed from the file contents of the directory of files that is
@@ -37,7 +46,7 @@
         //    // build root. In this case the package's hash is irrelevant and therefore not
         //    // computed. This field and `url` are mutually exclusive.
         //    .path = "foo",
-
+        //
         //    // When this is set to `true`, a package is declared to be lazily
         //    // fetched. This makes the dependency only get fetched if it is
         //    // actually used.
@@ -47,20 +56,17 @@
 
     // Specifies the set of files and directories that are included in this package.
     // Only files and directories listed here are included in the `hash` that
-    // is computed for this package.
+    // is computed for this package. Only files listed here will remain on disk
+    // when using the zig package manager. As a rule of thumb, one should list
+    // files required for compilation plus any license(s).
     // Paths are relative to the build root. Use the empty string (`""`) to refer to
     // the build root itself.
     // A directory listed here means that all files within, recursively, are included.
     .paths = .{
-        // This makes *all* files, recursively, included in this package. It is generally
-        // better to explicitly list the files and directories instead, to insure that
-        // fetching from tarballs, file system paths, and version control all result
-        // in the same contents hash.
-        "",
+        "build.zig",
+        "build.zig.zon",
+        "src",
         // For example...
-        //"build.zig",
-        //"build.zig.zon",
-        //"src",
         //"LICENSE",
         //"README.md",
     },

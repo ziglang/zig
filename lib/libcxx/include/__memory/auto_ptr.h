@@ -21,60 +21,68 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp>
-struct _LIBCPP_DEPRECATED_IN_CXX11 auto_ptr_ref
-{
-    _Tp* __ptr_;
+struct _LIBCPP_DEPRECATED_IN_CXX11 auto_ptr_ref {
+  _Tp* __ptr_;
 };
 
-template<class _Tp>
-class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX11 auto_ptr
-{
+template <class _Tp>
+class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX11 auto_ptr {
 private:
-    _Tp* __ptr_;
+  _Tp* __ptr_;
+
 public:
-    typedef _Tp element_type;
+  typedef _Tp element_type;
 
-    _LIBCPP_INLINE_VISIBILITY explicit auto_ptr(_Tp* __p = 0) _NOEXCEPT : __ptr_(__p) {}
-    _LIBCPP_INLINE_VISIBILITY auto_ptr(auto_ptr& __p) _NOEXCEPT : __ptr_(__p.release()) {}
-    template<class _Up> _LIBCPP_INLINE_VISIBILITY auto_ptr(auto_ptr<_Up>& __p) _NOEXCEPT
-        : __ptr_(__p.release()) {}
-    _LIBCPP_INLINE_VISIBILITY auto_ptr& operator=(auto_ptr& __p) _NOEXCEPT
-        {reset(__p.release()); return *this;}
-    template<class _Up> _LIBCPP_INLINE_VISIBILITY auto_ptr& operator=(auto_ptr<_Up>& __p) _NOEXCEPT
-        {reset(__p.release()); return *this;}
-    _LIBCPP_INLINE_VISIBILITY auto_ptr& operator=(auto_ptr_ref<_Tp> __p) _NOEXCEPT
-        {reset(__p.__ptr_); return *this;}
-    _LIBCPP_INLINE_VISIBILITY ~auto_ptr() _NOEXCEPT {delete __ptr_;}
+  _LIBCPP_HIDE_FROM_ABI explicit auto_ptr(_Tp* __p = 0) _NOEXCEPT : __ptr_(__p) {}
+  _LIBCPP_HIDE_FROM_ABI auto_ptr(auto_ptr& __p) _NOEXCEPT : __ptr_(__p.release()) {}
+  template <class _Up>
+  _LIBCPP_HIDE_FROM_ABI auto_ptr(auto_ptr<_Up>& __p) _NOEXCEPT : __ptr_(__p.release()) {}
+  _LIBCPP_HIDE_FROM_ABI auto_ptr& operator=(auto_ptr& __p) _NOEXCEPT {
+    reset(__p.release());
+    return *this;
+  }
+  template <class _Up>
+  _LIBCPP_HIDE_FROM_ABI auto_ptr& operator=(auto_ptr<_Up>& __p) _NOEXCEPT {
+    reset(__p.release());
+    return *this;
+  }
+  _LIBCPP_HIDE_FROM_ABI auto_ptr& operator=(auto_ptr_ref<_Tp> __p) _NOEXCEPT {
+    reset(__p.__ptr_);
+    return *this;
+  }
+  _LIBCPP_HIDE_FROM_ABI ~auto_ptr() _NOEXCEPT { delete __ptr_; }
 
-    _LIBCPP_INLINE_VISIBILITY _Tp& operator*() const _NOEXCEPT
-        {return *__ptr_;}
-    _LIBCPP_INLINE_VISIBILITY _Tp* operator->() const _NOEXCEPT {return __ptr_;}
-    _LIBCPP_INLINE_VISIBILITY _Tp* get() const _NOEXCEPT {return __ptr_;}
-    _LIBCPP_INLINE_VISIBILITY _Tp* release() _NOEXCEPT
-    {
-        _Tp* __t = __ptr_;
-        __ptr_ = nullptr;
-        return __t;
-    }
-    _LIBCPP_INLINE_VISIBILITY void reset(_Tp* __p = 0) _NOEXCEPT
-    {
-        if (__ptr_ != __p)
-            delete __ptr_;
-        __ptr_ = __p;
-    }
+  _LIBCPP_HIDE_FROM_ABI _Tp& operator*() const _NOEXCEPT { return *__ptr_; }
+  _LIBCPP_HIDE_FROM_ABI _Tp* operator->() const _NOEXCEPT { return __ptr_; }
+  _LIBCPP_HIDE_FROM_ABI _Tp* get() const _NOEXCEPT { return __ptr_; }
+  _LIBCPP_HIDE_FROM_ABI _Tp* release() _NOEXCEPT {
+    _Tp* __t = __ptr_;
+    __ptr_   = nullptr;
+    return __t;
+  }
+  _LIBCPP_HIDE_FROM_ABI void reset(_Tp* __p = 0) _NOEXCEPT {
+    if (__ptr_ != __p)
+      delete __ptr_;
+    __ptr_ = __p;
+  }
 
-    _LIBCPP_INLINE_VISIBILITY auto_ptr(auto_ptr_ref<_Tp> __p) _NOEXCEPT : __ptr_(__p.__ptr_) {}
-    template<class _Up> _LIBCPP_INLINE_VISIBILITY operator auto_ptr_ref<_Up>() _NOEXCEPT
-        {auto_ptr_ref<_Up> __t; __t.__ptr_ = release(); return __t;}
-    template<class _Up> _LIBCPP_INLINE_VISIBILITY operator auto_ptr<_Up>() _NOEXCEPT
-        {return auto_ptr<_Up>(release());}
+  _LIBCPP_HIDE_FROM_ABI auto_ptr(auto_ptr_ref<_Tp> __p) _NOEXCEPT : __ptr_(__p.__ptr_) {}
+  template <class _Up>
+  _LIBCPP_HIDE_FROM_ABI operator auto_ptr_ref<_Up>() _NOEXCEPT {
+    auto_ptr_ref<_Up> __t;
+    __t.__ptr_ = release();
+    return __t;
+  }
+  template <class _Up>
+  _LIBCPP_HIDE_FROM_ABI operator auto_ptr<_Up>() _NOEXCEPT {
+    return auto_ptr<_Up>(release());
+  }
 };
 
 template <>
-class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX11 auto_ptr<void>
-{
+class _LIBCPP_TEMPLATE_VIS _LIBCPP_DEPRECATED_IN_CXX11 auto_ptr<void> {
 public:
-    typedef void element_type;
+  typedef void element_type;
 };
 
 _LIBCPP_END_NAMESPACE_STD

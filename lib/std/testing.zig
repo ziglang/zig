@@ -1,16 +1,20 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
-
+const assert = std.debug.assert;
 const math = std.math;
+
+/// Provides deterministic randomness in unit tests.
+/// Initialized on startup. Read-only after that.
+pub var random_seed: u32 = 0;
 
 pub const FailingAllocator = @import("testing/failing_allocator.zig").FailingAllocator;
 
 /// This should only be used in temporary test programs.
 pub const allocator = allocator_instance.allocator();
-pub var allocator_instance = b: {
+pub var allocator_instance: std.heap.GeneralPurposeAllocator(.{}) = b: {
     if (!builtin.is_test)
         @compileError("Cannot use testing allocator outside of test block");
-    break :b std.heap.GeneralPurposeAllocator(.{}){};
+    break :b .init;
 };
 
 pub const failing_allocator = failing_allocator_instance.allocator();
@@ -22,7 +26,7 @@ pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 pub var log_level = std.log.Level.warn;
 
 // Disable printing in tests for simple backends.
-pub const backend_can_print = builtin.zig_backend != .stage2_spirv64;
+pub const backend_can_print = !(builtin.zig_backend == .stage2_spirv64 or builtin.zig_backend == .stage2_riscv64);
 
 fn print(comptime fmt: []const u8, args: anytype) void {
     if (@inComptime()) {
@@ -37,14 +41,14 @@ fn print(comptime fmt: []const u8, args: anytype) void {
 pub fn expectError(expected_error: anyerror, actual_error_union: anytype) !void {
     if (actual_error_union) |actual_payload| {
         print("expected error.{s}, found {any}\n", .{ @errorName(expected_error), actual_payload });
-        return error.TestUnexpectedError;
+        return error.TestExpectedError;
     } else |actual_error| {
         if (expected_error != actual_error) {
             print("expected error.{s}, found error.{s}\n", .{
                 @errorName(expected_error),
                 @errorName(actual_error),
             });
-            return error.TestExpectedError;
+            return error.TestUnexpectedError;
         }
     }
 }
@@ -60,33 +64,33 @@ pub inline fn expectEqual(expected: anytype, actual: anytype) !void {
 
 fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
     switch (@typeInfo(@TypeOf(actual))) {
-        .NoReturn,
-        .Opaque,
-        .Frame,
-        .AnyFrame,
+        .noreturn,
+        .@"opaque",
+        .frame,
+        .@"anyframe",
         => @compileError("value of type " ++ @typeName(@TypeOf(actual)) ++ " encountered"),
 
-        .Undefined,
-        .Null,
-        .Void,
+        .undefined,
+        .null,
+        .void,
         => return,
 
-        .Type => {
+        .type => {
             if (actual != expected) {
                 print("expected type {s}, found type {s}\n", .{ @typeName(expected), @typeName(actual) });
                 return error.TestExpectedEqual;
             }
         },
 
-        .Bool,
-        .Int,
-        .Float,
-        .ComptimeFloat,
-        .ComptimeInt,
-        .EnumLiteral,
-        .Enum,
-        .Fn,
-        .ErrorSet,
+        .bool,
+        .int,
+        .float,
+        .comptime_float,
+        .comptime_int,
+        .enum_literal,
+        .@"enum",
+        .@"fn",
+        .error_set,
         => {
             if (actual != expected) {
                 print("expected {}, found {}\n", .{ expected, actual });
@@ -94,15 +98,15 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
             }
         },
 
-        .Pointer => |pointer| {
+        .pointer => |pointer| {
             switch (pointer.size) {
-                .One, .Many, .C => {
+                .one, .many, .c => {
                     if (actual != expected) {
                         print("expected {*}, found {*}\n", .{ expected, actual });
                         return error.TestExpectedEqual;
                     }
                 },
-                .Slice => {
+                .slice => {
                     if (actual.ptr != expected.ptr) {
                         print("expected slice ptr {*}, found {*}\n", .{ expected.ptr, actual.ptr });
                         return error.TestExpectedEqual;
@@ -115,13 +119,13 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
             }
         },
 
-        .Array => |array| try expectEqualSlices(array.child, &expected, &actual),
+        .array => |array| try expectEqualSlices(array.child, &expected, &actual),
 
-        .Vector => |info| {
+        .vector => |info| {
             var i: usize = 0;
             while (i < info.len) : (i += 1) {
                 if (!std.meta.eql(expected[i], actual[i])) {
-                    print("index {} incorrect. expected {}, found {}\n", .{
+                    print("index {d} incorrect. expected {any}, found {any}\n", .{
                         i, expected[i], actual[i],
                     });
                     return error.TestExpectedEqual;
@@ -129,13 +133,13 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
             }
         },
 
-        .Struct => |structType| {
+        .@"struct" => |structType| {
             inline for (structType.fields) |field| {
                 try expectEqual(@field(expected, field.name), @field(actual, field.name));
             }
         },
 
-        .Union => |union_info| {
+        .@"union" => |union_info| {
             if (union_info.tag_type == null) {
                 @compileError("Unable to compare untagged union values");
             }
@@ -147,21 +151,13 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
 
             try expectEqual(expectedTag, actualTag);
 
-            // we only reach this loop if the tags are equal
-            inline for (std.meta.fields(@TypeOf(actual))) |fld| {
-                if (std.mem.eql(u8, fld.name, @tagName(actualTag))) {
-                    try expectEqual(@field(expected, fld.name), @field(actual, fld.name));
-                    return;
-                }
+            // we only reach this switch if the tags are equal
+            switch (expected) {
+                inline else => |val, tag| try expectEqual(val, @field(actual, @tagName(tag))),
             }
-
-            // we iterate over *all* union fields
-            // => we should never get here as the loop above is
-            //    including all possible values.
-            unreachable;
         },
 
-        .Optional => {
+        .optional => {
             if (expected) |expected_payload| {
                 if (actual) |actual_payload| {
                     try expectEqual(expected_payload, actual_payload);
@@ -177,7 +173,7 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
             }
         },
 
-        .ErrorUnion => {
+        .error_union => {
             if (expected) |expected_payload| {
                 if (actual) |actual_payload| {
                     try expectEqual(expected_payload, actual_payload);
@@ -208,6 +204,44 @@ test "expectEqual.union(enum)" {
     try expectEqual(a10, a10);
 }
 
+test "expectEqual union with comptime-only field" {
+    const U = union(enum) {
+        a: void,
+        b: void,
+        c: comptime_int,
+    };
+
+    try expectEqual(U{ .a = {} }, .a);
+}
+
+test "expectEqual nested array" {
+    const a = [2][2]f32{
+        [_]f32{ 1.0, 0.0 },
+        [_]f32{ 0.0, 1.0 },
+    };
+
+    const b = [2][2]f32{
+        [_]f32{ 1.0, 0.0 },
+        [_]f32{ 0.0, 1.0 },
+    };
+
+    try expectEqual(a, b);
+}
+
+test "expectEqual vector" {
+    const a: @Vector(4, u32) = @splat(4);
+    const b: @Vector(4, u32) = @splat(4);
+
+    try expectEqual(a, b);
+}
+
+test "expectEqual null" {
+    const a = .{null};
+    const b = @Vector(1, ?*u8){null};
+
+    try expectEqual(a, b);
+}
+
 /// This function is intended to be used only in tests. When the formatted result of the template
 /// and its arguments does not equal the expected text, it prints diagnostics to stderr to show how
 /// they are not equal, then returns an error. It depends on `expectEqualStrings()` for printing
@@ -231,12 +265,12 @@ pub inline fn expectApproxEqAbs(expected: anytype, actual: anytype, tolerance: a
 
 fn expectApproxEqAbsInner(comptime T: type, expected: T, actual: T, tolerance: T) !void {
     switch (@typeInfo(T)) {
-        .Float => if (!math.approxEqAbs(T, expected, actual, tolerance)) {
+        .float => if (!math.approxEqAbs(T, expected, actual, tolerance)) {
             print("actual {}, not within absolute tolerance {} of expected {}\n", .{ actual, tolerance, expected });
             return error.TestExpectedApproxEqAbs;
         },
 
-        .ComptimeFloat => @compileError("Cannot approximately compare two comptime_float values"),
+        .comptime_float => @compileError("Cannot approximately compare two comptime_float values"),
 
         else => @compileError("Unable to compare non floating point values"),
     }
@@ -267,12 +301,12 @@ pub inline fn expectApproxEqRel(expected: anytype, actual: anytype, tolerance: a
 
 fn expectApproxEqRelInner(comptime T: type, expected: T, actual: T, tolerance: T) !void {
     switch (@typeInfo(T)) {
-        .Float => if (!math.approxEqRel(T, expected, actual, tolerance)) {
+        .float => if (!math.approxEqRel(T, expected, actual, tolerance)) {
             print("actual {}, not within relative tolerance {} of expected {}\n", .{ actual, tolerance, expected });
             return error.TestExpectedApproxEqRel;
         },
 
-        .ComptimeFloat => @compileError("Cannot approximately compare two comptime_float values"),
+        .comptime_float => @compileError("Cannot approximately compare two comptime_float values"),
 
         else => @compileError("Unable to compare non floating point values"),
     }
@@ -409,7 +443,7 @@ fn SliceDiffer(comptime T: type) type {
                 const full_index = self.start_index + i;
                 const diff = if (i < self.actual.len) !std.meta.eql(self.actual[i], value) else true;
                 if (diff) try self.ttyconf.setColor(writer, .red);
-                if (@typeInfo(T) == .Pointer) {
+                if (@typeInfo(T) == .pointer) {
                     try writer.print("[{}]{*}: {any}\n", .{ full_index, value, value });
                 } else {
                     try writer.print("[{}]: {any}\n", .{ full_index, value });
@@ -499,10 +533,10 @@ pub fn expectEqualSentinel(comptime T: type, comptime sentinel: T, expected: [:s
 
     const expected_value_sentinel = blk: {
         switch (@typeInfo(@TypeOf(expected))) {
-            .Pointer => {
+            .pointer => {
                 break :blk expected[expected.len];
             },
-            .Array => |array_info| {
+            .array => |array_info| {
                 const indexable_outside_of_bounds = @as([]const array_info.child, &expected);
                 break :blk indexable_outside_of_bounds[indexable_outside_of_bounds.len];
             },
@@ -512,10 +546,10 @@ pub fn expectEqualSentinel(comptime T: type, comptime sentinel: T, expected: [:s
 
     const actual_value_sentinel = blk: {
         switch (@typeInfo(@TypeOf(actual))) {
-            .Pointer => {
+            .pointer => {
                 break :blk actual[actual.len];
             },
-            .Array => |array_info| {
+            .array => |array_info| {
                 const indexable_outside_of_bounds = @as([]const array_info.child, &actual);
                 break :blk indexable_outside_of_bounds[indexable_outside_of_bounds.len];
             },
@@ -556,18 +590,18 @@ pub const TmpDir = struct {
     }
 };
 
-pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
+pub fn tmpDir(opts: std.fs.Dir.OpenOptions) TmpDir {
     var random_bytes: [TmpDir.random_bytes_count]u8 = undefined;
     std.crypto.random.bytes(&random_bytes);
     var sub_path: [TmpDir.sub_path_len]u8 = undefined;
     _ = std.fs.base64_encoder.encode(&sub_path, &random_bytes);
 
     const cwd = std.fs.cwd();
-    var cache_dir = cwd.makeOpenPath("zig-cache", .{}) catch
-        @panic("unable to make tmp dir for testing: unable to make and open zig-cache dir");
+    var cache_dir = cwd.makeOpenPath(".zig-cache", .{}) catch
+        @panic("unable to make tmp dir for testing: unable to make and open .zig-cache dir");
     defer cache_dir.close();
     const parent_dir = cache_dir.makeOpenPath("tmp", .{}) catch
-        @panic("unable to make tmp dir for testing: unable to make and open zig-cache/tmp dir");
+        @panic("unable to make tmp dir for testing: unable to make and open .zig-cache/tmp dir");
     const dir = parent_dir.makeOpenPath(&sub_path, opts) catch
         @panic("unable to make tmp dir for testing: unable to make and open the tmp dir");
 
@@ -576,27 +610,6 @@ pub fn tmpDir(opts: std.fs.Dir.OpenDirOptions) TmpDir {
         .parent_dir = parent_dir,
         .sub_path = sub_path,
     };
-}
-
-test "expectEqual nested array" {
-    const a = [2][2]f32{
-        [_]f32{ 1.0, 0.0 },
-        [_]f32{ 0.0, 1.0 },
-    };
-
-    const b = [2][2]f32{
-        [_]f32{ 1.0, 0.0 },
-        [_]f32{ 0.0, 1.0 },
-    };
-
-    try expectEqual(a, b);
-}
-
-test "expectEqual vector" {
-    const a: @Vector(4, u32) = @splat(4);
-    const b: @Vector(4, u32) = @splat(4);
-
-    try expectEqual(a, b);
 }
 
 pub fn expectEqualStrings(expected: []const u8, actual: []const u8) !void {
@@ -683,33 +696,33 @@ pub inline fn expectEqualDeep(expected: anytype, actual: anytype) error{TestExpe
 
 fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpectedEqual}!void {
     switch (@typeInfo(@TypeOf(actual))) {
-        .NoReturn,
-        .Opaque,
-        .Frame,
-        .AnyFrame,
+        .noreturn,
+        .@"opaque",
+        .frame,
+        .@"anyframe",
         => @compileError("value of type " ++ @typeName(@TypeOf(actual)) ++ " encountered"),
 
-        .Undefined,
-        .Null,
-        .Void,
+        .undefined,
+        .null,
+        .void,
         => return,
 
-        .Type => {
+        .type => {
             if (actual != expected) {
                 print("expected type {s}, found type {s}\n", .{ @typeName(expected), @typeName(actual) });
                 return error.TestExpectedEqual;
             }
         },
 
-        .Bool,
-        .Int,
-        .Float,
-        .ComptimeFloat,
-        .ComptimeInt,
-        .EnumLiteral,
-        .Enum,
-        .Fn,
-        .ErrorSet,
+        .bool,
+        .int,
+        .float,
+        .comptime_float,
+        .comptime_int,
+        .enum_literal,
+        .@"enum",
+        .@"fn",
+        .error_set,
         => {
             if (actual != expected) {
                 print("expected {}, found {}\n", .{ expected, actual });
@@ -717,19 +730,19 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
             }
         },
 
-        .Pointer => |pointer| {
+        .pointer => |pointer| {
             switch (pointer.size) {
                 // We have no idea what is behind those pointers, so the best we can do is `==` check.
-                .C, .Many => {
+                .c, .many => {
                     if (actual != expected) {
                         print("expected {*}, found {*}\n", .{ expected, actual });
                         return error.TestExpectedEqual;
                     }
                 },
-                .One => {
+                .one => {
                     // Length of those pointers are runtime value, so the best we can do is `==` check.
                     switch (@typeInfo(pointer.child)) {
-                        .Fn, .Opaque => {
+                        .@"fn", .@"opaque" => {
                             if (actual != expected) {
                                 print("expected {*}, found {*}\n", .{ expected, actual });
                                 return error.TestExpectedEqual;
@@ -738,7 +751,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
                         else => try expectEqualDeep(expected.*, actual.*),
                     }
                 },
-                .Slice => {
+                .slice => {
                     if (expected.len != actual.len) {
                         print("Slice len not the same, expected {d}, found {d}\n", .{ expected.len, actual.len });
                         return error.TestExpectedEqual;
@@ -756,7 +769,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
             }
         },
 
-        .Array => |_| {
+        .array => |_| {
             if (expected.len != actual.len) {
                 print("Array len not the same, expected {d}, found {d}\n", .{ expected.len, actual.len });
                 return error.TestExpectedEqual;
@@ -772,9 +785,9 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
             }
         },
 
-        .Vector => |info| {
-            if (info.len != @typeInfo(@TypeOf(actual)).Vector.len) {
-                print("Vector len not the same, expected {d}, found {d}\n", .{ info.len, @typeInfo(@TypeOf(actual)).Vector.len });
+        .vector => |info| {
+            if (info.len != @typeInfo(@TypeOf(actual)).vector.len) {
+                print("Vector len not the same, expected {d}, found {d}\n", .{ info.len, @typeInfo(@TypeOf(actual)).vector.len });
                 return error.TestExpectedEqual;
             }
             var i: usize = 0;
@@ -788,7 +801,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
             }
         },
 
-        .Struct => |structType| {
+        .@"struct" => |structType| {
             inline for (structType.fields) |field| {
                 expectEqualDeep(@field(expected, field.name), @field(actual, field.name)) catch |e| {
                     print("Field {s} incorrect. expected {any}, found {any}\n", .{ field.name, @field(expected, field.name), @field(actual, field.name) });
@@ -797,7 +810,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
             }
         },
 
-        .Union => |union_info| {
+        .@"union" => |union_info| {
             if (union_info.tag_type == null) {
                 @compileError("Unable to compare untagged union values");
             }
@@ -809,7 +822,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
 
             try expectEqual(expectedTag, actualTag);
 
-            // we only reach this loop if the tags are equal
+            // we only reach this switch if the tags are equal
             switch (expected) {
                 inline else => |val, tag| {
                     try expectEqualDeep(val, @field(actual, @tagName(tag)));
@@ -817,7 +830,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
             }
         },
 
-        .Optional => {
+        .optional => {
             if (expected) |expected_payload| {
                 if (actual) |actual_payload| {
                     try expectEqualDeep(expected_payload, actual_payload);
@@ -833,7 +846,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
             }
         },
 
-        .ErrorUnion => {
+        .error_union => {
             if (expected) |expected_payload| {
                 if (actual) |actual_payload| {
                     try expectEqualDeep(expected_payload, actual_payload);
@@ -1030,20 +1043,20 @@ test {
 /// }
 /// ```
 pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime test_fn: anytype, extra_args: anytype) !void {
-    switch (@typeInfo(@typeInfo(@TypeOf(test_fn)).Fn.return_type.?)) {
-        .ErrorUnion => |info| {
+    switch (@typeInfo(@typeInfo(@TypeOf(test_fn)).@"fn".return_type.?)) {
+        .error_union => |info| {
             if (info.payload != void) {
                 @compileError("Return type must be !void");
             }
         },
         else => @compileError("Return type must be !void"),
     }
-    if (@typeInfo(@TypeOf(extra_args)) != .Struct) {
+    if (@typeInfo(@TypeOf(extra_args)) != .@"struct") {
         @compileError("Expected tuple or struct argument, found " ++ @typeName(@TypeOf(extra_args)));
     }
 
     const ArgsTuple = std.meta.ArgsTuple(@TypeOf(test_fn));
-    const fn_args_fields = @typeInfo(ArgsTuple).Struct.fields;
+    const fn_args_fields = @typeInfo(ArgsTuple).@"struct".fields;
     if (fn_args_fields.len == 0 or fn_args_fields[0].type != std.mem.Allocator) {
         @compileError("The provided function must have an " ++ @typeName(std.mem.Allocator) ++ " as its first argument");
     }
@@ -1055,7 +1068,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
     // Setup the tuple that will actually be used with @call (we'll need to insert
     // the failing allocator in field @"0" before each @call)
     var args: ArgsTuple = undefined;
-    inline for (@typeInfo(@TypeOf(extra_args)).Struct.fields, 0..) |field, i| {
+    inline for (@typeInfo(@TypeOf(extra_args)).@"struct".fields, 0..) |field, i| {
         const arg_i_str = comptime str: {
             var str_buf: [100]u8 = undefined;
             const args_i = i + 1;
@@ -1123,10 +1136,22 @@ pub fn refAllDeclsRecursive(comptime T: type) void {
     inline for (comptime std.meta.declarations(T)) |decl| {
         if (@TypeOf(@field(T, decl.name)) == type) {
             switch (@typeInfo(@field(T, decl.name))) {
-                .Struct, .Enum, .Union, .Opaque => refAllDeclsRecursive(@field(T, decl.name)),
+                .@"struct", .@"enum", .@"union", .@"opaque" => refAllDeclsRecursive(@field(T, decl.name)),
                 else => {},
             }
         }
         _ = &@field(T, decl.name);
     }
+}
+
+pub const FuzzInputOptions = struct {
+    corpus: []const []const u8 = &.{},
+};
+
+/// Inline to avoid coverage instrumentation.
+pub inline fn fuzz(
+    comptime testOne: fn (input: []const u8) anyerror!void,
+    options: FuzzInputOptions,
+) anyerror!void {
+    return @import("root").fuzz(testOne, options);
 }

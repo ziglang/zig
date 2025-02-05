@@ -8,7 +8,13 @@ const Module = @import("Package/Module.zig");
 const build_options = @import("build_options");
 const trace = @import("tracy.zig").trace;
 
-pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
+pub const BuildError = error{
+    OutOfMemory,
+    SubCompilationFailed,
+    ZigCompilerNotBuiltWithLLVMExtensions,
+};
+
+pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildError!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -21,7 +27,10 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
     const arena = arena_allocator.allocator();
 
     const output_mode = .Lib;
-    const config = try Compilation.Config.resolve(.{
+    const target = comp.root_mod.resolved_target.result;
+    const unwind_tables: std.builtin.UnwindTables =
+        if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .@"async";
+    const config = Compilation.Config.resolve(.{
         .output_mode = .Lib,
         .resolved_target = comp.root_mod.resolved_target,
         .is_test = false,
@@ -30,10 +39,17 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .root_optimize_mode = comp.compilerRtOptMode(),
         .root_strip = comp.compilerRtStrip(),
         .link_libc = true,
-        // Disable LTO to avoid https://github.com/llvm/llvm-project/issues/56825
-        .lto = false,
-    });
-    const root_mod = try Module.create(arena, .{
+        .any_unwind_tables = unwind_tables != .none,
+        .lto = comp.config.lto,
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libunwind,
+            "unable to build libunwind: resolving configuration failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
+    const root_mod = Module.create(arena, .{
         .global_cache_directory = comp.global_cache_directory,
         .paths = .{
             .root = .{ .root_dir = comp.zig_lib_directory },
@@ -50,20 +66,29 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
             .valgrind = false,
             .sanitize_c = false,
             .sanitize_thread = false,
-            .unwind_tables = false,
-            .pic = comp.root_mod.pic,
+            // necessary so that libunwind can unwind through its own stack frames
+            // The old 32-bit x86 variant of SEH doesn't use tables.
+            .unwind_tables = unwind_tables,
+            .pic = if (target_util.supports_fpic(target)) true else null,
             .optimize_mode = comp.compilerRtOptMode(),
+            .code_model = comp.root_mod.code_model,
         },
         .global = config,
         .cc_argv = &.{},
         .parent = null,
         .builtin_mod = null,
         .builtin_modules = null, // there is only one module in this compilation
-    });
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libunwind,
+            "unable to build libunwind: creating module failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
 
     const root_name = "unwind";
     const link_mode = .static;
-    const target = comp.root_mod.resolved_target.result;
     const basename = try std.zig.binNameAlloc(arena, .{
         .root_name = root_name,
         .target = target,
@@ -80,25 +105,25 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
 
         switch (Compilation.classifyFileExt(unwind_src)) {
             .c => {
-                try cflags.append("-std=c11");
+                try cflags.appendSlice(&.{
+                    "-std=c99",
+                    "-fexceptions",
+                });
             },
             .cpp => {
-                try cflags.appendSlice(&[_][]const u8{"-fno-rtti"});
+                try cflags.append("-fno-exceptions");
+                try cflags.append("-fno-rtti");
             },
             .assembly_with_cpp => {},
-            else => unreachable, // You can see the entire list of files just above.
+            else => unreachable, // See `unwind_src_list`.
         }
         try cflags.append("-I");
         try cflags.append(try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libunwind", "include" }));
-        if (target_util.supports_fpic(target)) {
-            try cflags.append("-fPIC");
-        }
         try cflags.append("-D_LIBUNWIND_DISABLE_VISIBILITY_ANNOTATIONS");
         try cflags.append("-Wa,--noexecstack");
         try cflags.append("-fvisibility=hidden");
         try cflags.append("-fvisibility-inlines-hidden");
-        // necessary so that libunwind can unwind through its own stack frames
-        try cflags.append("-funwind-tables");
+        try cflags.append("-fvisibility-global-new-delete=force-hidden");
 
         // This is intentionally always defined because the macro definition means, should it only
         // build for the target specified by compiler defines. Since we pass -target the compiler
@@ -111,12 +136,16 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         if (!comp.config.any_non_single_threaded) {
             try cflags.append("-D_LIBUNWIND_HAS_NO_THREADS");
         }
-        if (target.cpu.arch.isARM() and target.abi.floatAbi() == .hard) {
+        if (target.cpu.arch.isArm() and target.abi.floatAbi() == .hard) {
             try cflags.append("-DCOMPILER_RT_ARMHF_TARGET");
         }
         try cflags.append("-Wno-bitwise-conditional-parentheses");
         try cflags.append("-Wno-visibility");
         try cflags.append("-Wno-incompatible-pointer-types");
+
+        if (target.os.tag == .windows) {
+            try cflags.append("-Wno-dll-attribute-on-redeclaration");
+        }
 
         c_source_files[i] = .{
             .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{unwind_src}),
@@ -124,7 +153,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
             .owner = root_mod,
         };
     }
-    const sub_compilation = try Compilation.create(comp.gpa, arena, .{
+    const sub_compilation = Compilation.create(comp.gpa, arena, .{
         .self_exe_path = comp.self_exe_path,
         .local_cache_directory = comp.global_cache_directory,
         .global_cache_directory = comp.global_cache_directory,
@@ -148,13 +177,32 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: *std.Progress.Node) !void {
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
-    });
+    }) catch |err| {
+        comp.setMiscFailure(
+            .libunwind,
+            "unable to build libunwind: create compilation failed: {s}",
+            .{@errorName(err)},
+        );
+        return error.SubCompilationFailed;
+    };
     defer sub_compilation.destroy();
 
-    try comp.updateSubCompilation(sub_compilation, .libunwind, prog_node);
+    comp.updateSubCompilation(sub_compilation, .libunwind, prog_node) catch |err| switch (err) {
+        error.SubCompilationFailed => return error.SubCompilationFailed,
+        else => |e| {
+            comp.setMiscFailure(
+                .libunwind,
+                "unable to build libunwind: compilation failed: {s}",
+                .{@errorName(e)},
+            );
+            return error.SubCompilationFailed;
+        },
+    };
 
+    const crt_file = try sub_compilation.toCrtFile();
+    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
     assert(comp.libunwind_static_lib == null);
-    comp.libunwind_static_lib = try sub_compilation.toCrtFile();
+    comp.libunwind_static_lib = crt_file;
 }
 
 const unwind_src_list = [_][]const u8{
@@ -164,6 +212,7 @@ const unwind_src_list = [_][]const u8{
     "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindLevel1.c",
     "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindLevel1-gcc-ext.c",
     "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind-sjlj.c",
+    "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind-wasm.c",
     "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindRegistersRestore.S",
     "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "UnwindRegistersSave.S",
     "libunwind" ++ path.sep_str ++ "src" ++ path.sep_str ++ "Unwind_AIXExtras.cpp",

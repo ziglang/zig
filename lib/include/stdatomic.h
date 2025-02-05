@@ -16,7 +16,7 @@
  * Exclude the MSVC path as well as the MSVC header as of the 14.31.30818
  * explicitly disallows `stdatomic.h` in the C mode via an `#error`.  Fallback
  * to the clang resource header until that is fully supported.  The
- * `stdatomic.h` header requires C++ 23 or newer.
+ * `stdatomic.h` header requires C++23 or newer.
  */
 #if __STDC_HOSTED__ &&                                                         \
     __has_include_next(<stdatomic.h>) &&                                       \
@@ -35,6 +35,9 @@ extern "C" {
 
 #define ATOMIC_BOOL_LOCK_FREE       __CLANG_ATOMIC_BOOL_LOCK_FREE
 #define ATOMIC_CHAR_LOCK_FREE       __CLANG_ATOMIC_CHAR_LOCK_FREE
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
+#define ATOMIC_CHAR8_T_LOCK_FREE    __CLANG_ATOMIC_CHAR8_T_LOCK_FREE
+#endif
 #define ATOMIC_CHAR16_T_LOCK_FREE   __CLANG_ATOMIC_CHAR16_T_LOCK_FREE
 #define ATOMIC_CHAR32_T_LOCK_FREE   __CLANG_ATOMIC_CHAR32_T_LOCK_FREE
 #define ATOMIC_WCHAR_T_LOCK_FREE    __CLANG_ATOMIC_WCHAR_T_LOCK_FREE
@@ -45,16 +48,14 @@ extern "C" {
 #define ATOMIC_POINTER_LOCK_FREE    __CLANG_ATOMIC_POINTER_LOCK_FREE
 
 /* 7.17.2 Initialization */
-/* FIXME: This is using the placeholder dates Clang produces for these macros
-   in C2x mode; switch to the correct values once they've been published. */
-#if (defined(__STDC_VERSION__) && __STDC_VERSION__ < 202000L) ||               \
+#if (defined(__STDC_VERSION__) && __STDC_VERSION__ < 202311L) ||               \
     defined(__cplusplus)
-/* ATOMIC_VAR_INIT was removed in C2x, but still remains in C++23. */
+/* ATOMIC_VAR_INIT was removed in C23, but still remains in C++23. */
 #define ATOMIC_VAR_INIT(value) (value)
 #endif
 
 #if ((defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201710L &&              \
-      __STDC_VERSION__ < 202000L) ||                                           \
+      __STDC_VERSION__ < 202311L) ||                                           \
      (defined(__cplusplus) && __cplusplus >= 202002L)) &&                      \
     !defined(_CLANG_DISABLE_CRT_DEPRECATION_WARNINGS)
 /* ATOMIC_VAR_INIT was deprecated in C17 and C++20. */
@@ -106,6 +107,9 @@ typedef _Atomic(long)               atomic_long;
 typedef _Atomic(unsigned long)      atomic_ulong;
 typedef _Atomic(long long)          atomic_llong;
 typedef _Atomic(unsigned long long) atomic_ullong;
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
+typedef _Atomic(unsigned char)      atomic_char8_t;
+#endif
 typedef _Atomic(uint_least16_t)     atomic_char16_t;
 typedef _Atomic(uint_least32_t)     atomic_char32_t;
 typedef _Atomic(wchar_t)            atomic_wchar_t;
@@ -168,7 +172,11 @@ typedef _Atomic(uintmax_t)          atomic_uintmax_t;
 
 typedef struct atomic_flag { atomic_bool _Value; } atomic_flag;
 
+#ifdef __cplusplus
+#define ATOMIC_FLAG_INIT {false}
+#else
 #define ATOMIC_FLAG_INIT { 0 }
+#endif
 
 /* These should be provided by the libc implementation. */
 #ifdef __cplusplus

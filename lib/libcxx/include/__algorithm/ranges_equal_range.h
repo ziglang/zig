@@ -1,6 +1,6 @@
 //===----------------------------------------------------------------------===//
 //
-// Part of the LLVM __project, under the Apache License v2.0 with LLVM Exceptions.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
@@ -30,6 +30,9 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 #if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -43,7 +46,7 @@ struct __fn {
             class _Tp,
             class _Proj                                                           = identity,
             indirect_strict_weak_order<const _Tp*, projected<_Iter, _Proj>> _Comp = ranges::less>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr subrange<_Iter>
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr subrange<_Iter>
   operator()(_Iter __first, _Sent __last, const _Tp& __value, _Comp __comp = {}, _Proj __proj = {}) const {
     auto __ret = std::__equal_range<_RangeAlgPolicy>(std::move(__first), std::move(__last), __value, __comp, __proj);
     return {std::move(__ret.first), std::move(__ret.second)};
@@ -53,7 +56,7 @@ struct __fn {
             class _Tp,
             class _Proj                                                                        = identity,
             indirect_strict_weak_order<const _Tp*, projected<iterator_t<_Range>, _Proj>> _Comp = ranges::less>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr borrowed_subrange_t<_Range>
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr borrowed_subrange_t<_Range>
   operator()(_Range&& __range, const _Tp& __value, _Comp __comp = {}, _Proj __proj = {}) const {
     auto __ret =
         std::__equal_range<_RangeAlgPolicy>(ranges::begin(__range), ranges::end(__range), __value, __comp, __proj);
@@ -71,5 +74,7 @@ inline constexpr auto equal_range = __equal_range::__fn{};
 _LIBCPP_END_NAMESPACE_STD
 
 #endif // _LIBCPP_STD_VER >= 20
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_RANGES_EQUAL_RANGE_H

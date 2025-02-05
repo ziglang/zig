@@ -51,26 +51,53 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
             priority: usize,
             parent: ?*Node,
             children: [2]?*Node,
+
+            pub fn next(node: *Node) ?*Node {
+                return nextOnDirection(node, 1);
+            }
+            pub fn prev(node: *Node) ?*Node {
+                return nextOnDirection(node, 0);
+            }
         };
+
+        fn extremeInSubtreeOnDirection(node: *Node, direction: u1) *Node {
+            var cur = node;
+            while (cur.children[direction]) |next| cur = next;
+            return cur;
+        }
+
+        fn nextOnDirection(node: *Node, direction: u1) ?*Node {
+            if (node.children[direction]) |child| {
+                return extremeInSubtreeOnDirection(child, direction ^ 1);
+            }
+            var cur = node;
+            // Traversing upward until we find `parent` to `cur` is NOT on
+            // `direction`, or equivalently, `cur` to `parent` IS on
+            // `direction` thus `parent` is the next.
+            while (true) {
+                if (cur.parent) |parent| {
+                    // If `parent -> node` is NOT on `direction`, then
+                    // `node -> parent` IS on `direction`
+                    if (parent.children[direction] != cur) return parent;
+                    cur = parent;
+                } else {
+                    return null;
+                }
+            }
+        }
 
         /// Returns the smallest Node by key in the treap if there is one.
         /// Use `getEntryForExisting()` to replace/remove this Node from the treap.
         pub fn getMin(self: Self) ?*Node {
-            var node = self.root;
-            while (node) |current| {
-                node = current.children[0] orelse break;
-            }
-            return node;
+            if (self.root) |root| return extremeInSubtreeOnDirection(root, 0);
+            return null;
         }
 
         /// Returns the largest Node by key in the treap if there is one.
         /// Use `getEntryForExisting()` to replace/remove this Node from the treap.
         pub fn getMax(self: Self) ?*Node {
-            var node = self.root;
-            while (node) |current| {
-                node = current.children[1] orelse break;
-            }
-            return node;
+            if (self.root) |root| return extremeInSubtreeOnDirection(root, 1);
+            return null;
         }
 
         /// Lookup the Entry for the given key in the treap.
@@ -117,7 +144,8 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
                 removed,
             },
 
-            /// Update's the Node at this Entry in the treap with the new node.
+            /// Update's the Node at this Entry in the treap with the new node (null for deleting). `new_node`
+            /// can have `undefind` content because the value will be initialized internally.
             pub fn set(self: *Entry, new_node: ?*Node) void {
                 // Update the entry's node reference after updating the treap below.
                 defer self.node = new_node;
@@ -257,46 +285,26 @@ pub fn Treap(comptime Key: type, comptime compareFn: anytype) type {
             link.* = target;
         }
 
+        /// Usage example:
+        ///   var iter = treap.inorderIterator();
+        ///   while (iter.next()) |node| {
+        ///     ...
+        ///   }
         pub const InorderIterator = struct {
             current: ?*Node,
-            previous: ?*Node = null,
 
             pub fn next(it: *InorderIterator) ?*Node {
-                while (true) {
-                    if (it.current) |current| {
-                        const previous = it.previous;
-                        it.previous = current;
-                        if (previous == current.parent) {
-                            if (current.children[0]) |left_child| {
-                                it.current = left_child;
-                            } else {
-                                if (current.children[1]) |right_child| {
-                                    it.current = right_child;
-                                } else {
-                                    it.current = current.parent;
-                                }
-                                return current;
-                            }
-                        } else if (previous == current.children[0]) {
-                            if (current.children[1]) |right_child| {
-                                it.current = right_child;
-                            } else {
-                                it.current = current.parent;
-                            }
-                            return current;
-                        } else {
-                            std.debug.assert(previous == current.children[1]);
-                            it.current = current.parent;
-                        }
-                    } else {
-                        return null;
-                    }
-                }
+                const current = it.current;
+                it.current = if (current) |cur|
+                    cur.next()
+                else
+                    null;
+                return current;
             }
         };
 
         pub fn inorderIterator(self: *Self) InorderIterator {
-            return .{ .current = self.root };
+            return .{ .current = self.getMin() };
         }
     };
 }
@@ -445,5 +453,230 @@ test "insert, find, replace, remove" {
         entry.set(null);
         try testing.expectEqual(entry.node, null);
         try testing.expectEqual(entry.node, treap.getEntryFor(key).node);
+    }
+}
+
+test "inorderIterator" {
+    var treap = TestTreap{};
+    var nodes: [10]TestNode = undefined;
+
+    // Build the tree.
+    var i: usize = 0;
+    while (i < 10) : (i += 1) {
+        const key = @as(u64, i);
+        var entry = treap.getEntryFor(key);
+        entry.set(&nodes[i]);
+    }
+
+    // Test the iterator.
+    var iter = treap.inorderIterator();
+    i = 0;
+    while (iter.next()) |node| {
+        const key = @as(u64, i);
+        try testing.expectEqual(key, node.key);
+        i += 1;
+    }
+}
+
+test "getMin, getMax, simple" {
+    var treap = TestTreap{};
+    var nodes: [3]TestNode = undefined;
+
+    try testing.expectEqual(null, treap.getMin());
+    try testing.expectEqual(null, treap.getMax());
+    { // nodes[1]
+        var entry = treap.getEntryFor(1);
+        entry.set(&nodes[1]);
+        try testing.expectEqual(&nodes[1], treap.getMin());
+        try testing.expectEqual(&nodes[1], treap.getMax());
+    }
+    { // nodes[0]
+        var entry = treap.getEntryFor(0);
+        entry.set(&nodes[0]);
+        try testing.expectEqual(&nodes[0], treap.getMin());
+        try testing.expectEqual(&nodes[1], treap.getMax());
+    }
+    { // nodes[2]
+        var entry = treap.getEntryFor(2);
+        entry.set(&nodes[2]);
+        try testing.expectEqual(&nodes[0], treap.getMin());
+        try testing.expectEqual(&nodes[2], treap.getMax());
+    }
+}
+
+test "getMin, getMax, random" {
+    var nodes: [100]TestNode = undefined;
+    var prng = std.Random.DefaultPrng.init(0xdeadbeef);
+    var iter = SliceIterRandomOrder(TestNode).init(&nodes, prng.random());
+
+    var treap = TestTreap{};
+    var min: u64 = std.math.maxInt(u64);
+    var max: u64 = 0;
+
+    try testing.expectEqual(null, treap.getMin());
+    try testing.expectEqual(null, treap.getMax());
+
+    // Insert and check min/max after each insertion.
+    iter.reset();
+    while (iter.next()) |node| {
+        const key = prng.random().int(u64);
+
+        // Insert into `treap`.
+        var entry = treap.getEntryFor(key);
+        entry.set(node);
+
+        if (key < min) min = key;
+        if (key > max) max = key;
+
+        const min_node = treap.getMin().?;
+        try std.testing.expectEqual(null, min_node.prev());
+        try std.testing.expectEqual(min, min_node.key);
+
+        const max_node = treap.getMax().?;
+        try std.testing.expectEqual(null, max_node.next());
+        try std.testing.expectEqual(max, max_node.key);
+    }
+}
+
+test "node.{prev(),next()} with sequential insertion and deletion" {
+    // Insert order: 50, 0, 1, 2, ..., 49, 51, 52, ..., 99.
+    // Delete order: 0, 1, 2, ..., 49, 51, 52, ..., 99.
+    // Check 50's neighbors.
+    var treap = TestTreap{};
+    var nodes: [100]TestNode = undefined;
+    {
+        var entry = treap.getEntryFor(50);
+        entry.set(&nodes[50]);
+        try testing.expectEqual(50, nodes[50].key);
+        try testing.expectEqual(null, nodes[50].prev());
+        try testing.expectEqual(null, nodes[50].next());
+    }
+    // Insert others.
+    var i: usize = 0;
+    while (i < 50) : (i += 1) {
+        const key = @as(u64, i);
+        const node = &nodes[i];
+        var entry = treap.getEntryFor(key);
+        entry.set(node);
+        try testing.expectEqual(key, node.key);
+        try testing.expectEqual(node, nodes[50].prev());
+        try testing.expectEqual(null, nodes[50].next());
+    }
+    i = 51;
+    while (i < 100) : (i += 1) {
+        const key = @as(u64, i);
+        const node = &nodes[i];
+        var entry = treap.getEntryFor(key);
+        entry.set(node);
+        try testing.expectEqual(key, node.key);
+        try testing.expectEqual(&nodes[49], nodes[50].prev());
+        try testing.expectEqual(&nodes[51], nodes[50].next());
+    }
+    // Remove others.
+    i = 0;
+    while (i < 49) : (i += 1) {
+        const key = @as(u64, i);
+        var entry = treap.getEntryFor(key);
+        entry.set(null);
+        try testing.expectEqual(&nodes[49], nodes[50].prev());
+        try testing.expectEqual(&nodes[51], nodes[50].next());
+    }
+    { // i = 49.
+        const key = @as(u64, i);
+        var entry = treap.getEntryFor(key);
+        entry.set(null);
+        try testing.expectEqual(null, nodes[50].prev());
+        try testing.expectEqual(&nodes[51], nodes[50].next());
+    }
+    i = 51;
+    while (i < 99) : (i += 1) {
+        const key = @as(u64, i);
+        var entry = treap.getEntryFor(key);
+        entry.set(null);
+        try testing.expectEqual(null, nodes[50].prev());
+        try testing.expectEqual(&nodes[i + 1], nodes[50].next());
+    }
+    { // i = 99.
+        const key = @as(u64, i);
+        var entry = treap.getEntryFor(key);
+        entry.set(null);
+        try testing.expectEqual(null, nodes[50].prev());
+        try testing.expectEqual(null, nodes[50].next());
+    }
+}
+
+fn findFirstGreaterOrEqual(array: []u64, value: u64) usize {
+    var i: usize = 0;
+    while (i < array.len and array[i] < value) i += 1;
+    return i;
+}
+
+fn testOrderedArrayAndTreapConsistency(array: []u64, treap: *TestTreap) !void {
+    var i: usize = 0;
+    while (i < array.len) : (i += 1) {
+        const value = array[i];
+
+        const entry = treap.getEntryFor(value);
+        try testing.expect(entry.node != null);
+        const node = entry.node.?;
+        try testing.expectEqual(value, node.key);
+
+        if (i == 0) {
+            try testing.expectEqual(node.prev(), null);
+        } else {
+            try testing.expectEqual(node.prev(), treap.getEntryFor(array[i - 1]).node);
+        }
+        if (i + 1 == array.len) {
+            try testing.expectEqual(node.next(), null);
+        } else {
+            try testing.expectEqual(node.next(), treap.getEntryFor(array[i + 1]).node);
+        }
+    }
+}
+
+test "node.{prev(),next()} with random data" {
+    var nodes: [100]TestNode = undefined;
+    var prng = std.Random.DefaultPrng.init(0xdeadbeef);
+    var iter = SliceIterRandomOrder(TestNode).init(&nodes, prng.random());
+
+    var treap = TestTreap{};
+    // A slow, stupid but correct reference. Ordered.
+    var golden = std.ArrayList(u64).init(std.testing.allocator);
+    defer golden.deinit();
+
+    // Insert.
+    iter.reset();
+    while (iter.next()) |node| {
+        const key = prng.random().int(u64);
+
+        // Insert into `golden`.
+        const i = findFirstGreaterOrEqual(golden.items, key);
+        // Ensure not found. If found: `prng`'s fault.
+        try testing.expect(i == golden.items.len or golden.items[i] > key);
+        try golden.insert(i, key);
+
+        // Insert into `treap`.
+        var entry = treap.getEntryFor(key);
+        entry.set(node);
+
+        try testOrderedArrayAndTreapConsistency(golden.items, &treap);
+    }
+
+    // Delete.
+    iter.reset();
+    while (iter.next()) |node| {
+        const key = node.key;
+
+        // Delete from `golden`.
+        const i = findFirstGreaterOrEqual(golden.items, key);
+        try testing.expect(i < golden.items.len);
+        _ = golden.orderedRemove(i);
+
+        // Delete from `treap`.
+        var entry = treap.getEntryFor(key);
+        try testing.expect(entry.node != null);
+        entry.set(null);
+
+        try testOrderedArrayAndTreapConsistency(golden.items, &treap);
     }
 }

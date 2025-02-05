@@ -1,4 +1,4 @@
-const Error = error {
+const Error = error{
     One,
     Two,
     Three,

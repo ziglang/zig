@@ -17,3 +17,5 @@ extern hidden volatile int *const __vmlock_lockptr;
 hidden void __malloc_atfork(int);
 hidden void __ldso_atfork(int);
 hidden void __pthread_key_atfork(int);
+
+hidden void __post_Fork(int);

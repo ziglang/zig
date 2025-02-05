@@ -18,6 +18,7 @@ HcnModifySdnRoute
 HcnOpenGuestNetworkService
 HcnOpenSdnRoute
 HcnQueryGuestNetworkServiceProperties
+HcnQueryMetrics
 HcnQuerySdnRouteProperties
 HcnRegisterGuestNetworkServiceCallback
 HcnRegisterNetworkCallback

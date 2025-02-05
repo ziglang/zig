@@ -59,7 +59,7 @@ pub fn preprocess(
 
     if (hasAnyErrors(comp)) return error.PreprocessError;
 
-    try pp.prettyPrintTokens(writer);
+    try pp.prettyPrintTokens(writer, .result_only);
 
     if (maybe_dependencies_list) |dependencies_list| {
         for (comp.sources.values()) |comp_source| {
@@ -96,6 +96,7 @@ pub fn appendAroArgs(arena: Allocator, argv: *std.ArrayList([]const u8), options
         "--emulate=msvc",
         "-nostdinc",
         "-DRC_INVOKED",
+        "-D_WIN32", // undocumented, but defined by default
     });
     for (options.extra_include_paths.items) |extra_include_path| {
         try argv.append("-I");

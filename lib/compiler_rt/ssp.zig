@@ -21,16 +21,16 @@ extern fn memcpy(noalias dest: ?[*]u8, noalias src: ?[*]const u8, n: usize) call
 extern fn memmove(dest: ?[*]u8, src: ?[*]const u8, n: usize) callconv(.C) ?[*]u8;
 
 comptime {
-    @export(__stack_chk_fail, .{ .name = "__stack_chk_fail", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__chk_fail, .{ .name = "__chk_fail", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__stack_chk_guard, .{ .name = "__stack_chk_guard", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__strcpy_chk, .{ .name = "__strcpy_chk", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__strncpy_chk, .{ .name = "__strncpy_chk", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__strcat_chk, .{ .name = "__strcat_chk", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__strncat_chk, .{ .name = "__strncat_chk", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__memcpy_chk, .{ .name = "__memcpy_chk", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__memmove_chk, .{ .name = "__memmove_chk", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__memset_chk, .{ .name = "__memset_chk", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__stack_chk_fail, .{ .name = "__stack_chk_fail", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__chk_fail, .{ .name = "__chk_fail", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__stack_chk_guard, .{ .name = "__stack_chk_guard", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__strcpy_chk, .{ .name = "__strcpy_chk", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__strncpy_chk, .{ .name = "__strncpy_chk", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__strcat_chk, .{ .name = "__strcat_chk", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__strncat_chk, .{ .name = "__strncat_chk", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__memcpy_chk, .{ .name = "__memcpy_chk", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__memmove_chk, .{ .name = "__memmove_chk", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__memset_chk, .{ .name = "__memset_chk", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 fn __stack_chk_fail() callconv(.C) noreturn {

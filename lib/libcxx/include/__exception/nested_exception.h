@@ -15,8 +15,8 @@
 #include <__type_traits/decay.h>
 #include <__type_traits/is_base_of.h>
 #include <__type_traits/is_class.h>
+#include <__type_traits/is_constructible.h>
 #include <__type_traits/is_convertible.h>
-#include <__type_traits/is_copy_constructible.h>
 #include <__type_traits/is_final.h>
 #include <__type_traits/is_polymorphic.h>
 #include <__utility/forward.h>
@@ -33,8 +33,8 @@ class _LIBCPP_EXPORTED_FROM_ABI nested_exception {
 
 public:
   nested_exception() _NOEXCEPT;
-  //     nested_exception(const nested_exception&) noexcept = default;
-  //     nested_exception& operator=(const nested_exception&) noexcept = default;
+  _LIBCPP_HIDE_FROM_ABI nested_exception(const nested_exception&) _NOEXCEPT            = default;
+  _LIBCPP_HIDE_FROM_ABI nested_exception& operator=(const nested_exception&) _NOEXCEPT = default;
   virtual ~nested_exception() _NOEXCEPT;
 
   // access functions
@@ -53,14 +53,14 @@ struct __throw_with_nested;
 
 template <class _Tp, class _Up>
 struct __throw_with_nested<_Tp, _Up, true> {
-  _LIBCPP_NORETURN static inline _LIBCPP_INLINE_VISIBILITY void __do_throw(_Tp&& __t) {
+  _LIBCPP_NORETURN static inline _LIBCPP_HIDE_FROM_ABI void __do_throw(_Tp&& __t) {
     throw __nested<_Up>(std::forward<_Tp>(__t));
   }
 };
 
 template <class _Tp, class _Up>
 struct __throw_with_nested<_Tp, _Up, false> {
-  _LIBCPP_NORETURN static inline _LIBCPP_INLINE_VISIBILITY void __do_throw(_Tp&& __t) { throw std::forward<_Tp>(__t); }
+  _LIBCPP_NORETURN static inline _LIBCPP_HIDE_FROM_ABI void __do_throw(_Tp&& __t) { throw std::forward<_Tp>(__t); }
 };
 #endif
 
@@ -84,17 +84,15 @@ struct __can_dynamic_cast
     : _BoolConstant< is_polymorphic<_From>::value &&
                      (!is_base_of<_To, _From>::value || is_convertible<const _From*, const _To*>::value)> {};
 
-template <class _Ep>
-inline _LIBCPP_HIDE_FROM_ABI void
-rethrow_if_nested(const _Ep& __e, __enable_if_t< __can_dynamic_cast<_Ep, nested_exception>::value>* = 0) {
+template <class _Ep, __enable_if_t< __can_dynamic_cast<_Ep, nested_exception>::value, int> = 0>
+inline _LIBCPP_HIDE_FROM_ABI void rethrow_if_nested(const _Ep& __e) {
   const nested_exception* __nep = dynamic_cast<const nested_exception*>(std::addressof(__e));
   if (__nep)
     __nep->rethrow_nested();
 }
 
-template <class _Ep>
-inline _LIBCPP_HIDE_FROM_ABI void
-rethrow_if_nested(const _Ep&, __enable_if_t<!__can_dynamic_cast<_Ep, nested_exception>::value>* = 0) {}
+template <class _Ep, __enable_if_t<!__can_dynamic_cast<_Ep, nested_exception>::value, int> = 0>
+inline _LIBCPP_HIDE_FROM_ABI void rethrow_if_nested(const _Ep&) {}
 
 } // namespace std
 

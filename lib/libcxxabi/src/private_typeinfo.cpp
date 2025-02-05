@@ -42,13 +42,26 @@
 // is_equal() with use_strcmp=false so the string names are not compared.
 
 #include <cstdint>
+#include <cassert>
 #include <string.h>
+#include "abort_message.h"
 
 #ifdef _LIBCXXABI_FORGIVING_DYNAMIC_CAST
-#include "abort_message.h"
 #include <sys/syslog.h>
 #include <atomic>
 #endif
+
+#if __has_feature(ptrauth_calls)
+#include <ptrauth.h>
+#endif
+
+template <typename T>
+static inline T* strip_vtable(T* vtable) {
+#if __has_feature(ptrauth_calls)
+  vtable = ptrauth_strip(vtable, ptrauth_key_cxx_vtable_pointer);
+#endif
+  return vtable;
+}
 
 static inline
 bool
@@ -74,6 +87,242 @@ static inline ptrdiff_t update_offset_to_base(const char* vtable,
 
 namespace __cxxabiv1
 {
+
+namespace {
+
+struct derived_object_info {
+    const void* dynamic_ptr;
+    const __class_type_info* dynamic_type;
+    std::ptrdiff_t offset_to_derived;
+};
+
+/// A helper function that gets (dynamic_ptr, dynamic_type, offset_to_derived) from static_ptr.
+void dyn_cast_get_derived_info(derived_object_info* info, const void* static_ptr)
+{
+#if __has_feature(cxx_abi_relative_vtable)
+    // The vtable address will point to the first virtual function, which is 8
+    // bytes after the start of the vtable (4 for the offset from top + 4 for
+    // the typeinfo component).
+    const int32_t* vtable =
+        *reinterpret_cast<const int32_t* const*>(static_ptr);
+    info->offset_to_derived = static_cast<std::ptrdiff_t>(vtable[-2]);
+    info->dynamic_ptr = static_cast<const char*>(static_ptr) + info->offset_to_derived;
+
+    // The typeinfo component is now a relative offset to a proxy.
+    int32_t offset_to_ti_proxy = vtable[-1];
+    const uint8_t* ptr_to_ti_proxy =
+        reinterpret_cast<const uint8_t*>(vtable) + offset_to_ti_proxy;
+    info->dynamic_type = *(reinterpret_cast<const __class_type_info* const*>(ptr_to_ti_proxy));
+#else
+  void** vtable = strip_vtable(*static_cast<void** const*>(static_ptr));
+  info->offset_to_derived = reinterpret_cast<ptrdiff_t>(vtable[-2]);
+  info->dynamic_ptr = static_cast<const char*>(static_ptr) + info->offset_to_derived;
+  info->dynamic_type = static_cast<const __class_type_info*>(vtable[-1]);
+#endif
+}
+
+/// A helper function for __dynamic_cast that casts a base sub-object pointer
+/// to the object's dynamic type.
+///
+/// This function returns the casting result directly. No further processing
+/// required.
+///
+/// Specifically, this function can only be called if the following pre-
+/// condition holds:
+///   * The dynamic type of the object pointed to by `static_ptr` is exactly
+///     the same as `dst_type`.
+const void* dyn_cast_to_derived(const void* static_ptr,
+                                const void* dynamic_ptr,
+                                const __class_type_info* static_type,
+                                const __class_type_info* dst_type,
+                                std::ptrdiff_t offset_to_derived,
+                                std::ptrdiff_t src2dst_offset)
+{
+    // We're downcasting from src_type to the complete object's dynamic type.
+    //   This is a really hot path that can be further optimized with the
+    //   `src2dst_offset` hint.
+    // In such a case, dynamic_ptr already gives the casting result if the
+    //   casting ever succeeds. All we have to do now is to check static_ptr
+    //   points to a public base sub-object of dynamic_ptr.
+
+    if (src2dst_offset >= 0)
+    {
+        // The static type is a unique public non-virtual base type of
+        //   dst_type at offset `src2dst_offset` from the origin of dst.
+        // Note that there might be other non-public static_type bases. The
+        //   hint only guarantees that the public base is non-virtual and
+        //   unique. So we have to check whether static_ptr points to that
+        //   unique public base sub-object.
+        if (offset_to_derived != -src2dst_offset)
+            return nullptr;
+        return dynamic_ptr;
+    }
+
+    if (src2dst_offset == -2)
+    {
+        // static_type is not a public base of dst_type.
+        return nullptr;
+    }
+
+    // If src2dst_offset == -3, then:
+    //   src_type is a multiple public base type but never a virtual
+    //   base type. We can't conclude that static_ptr points to those
+    //   public base sub-objects because there might be other non-
+    //   public static_type bases. The search is inevitable.
+
+    // Fallback to the slow path to check that static_type is a public
+    //   base type of dynamic_type.
+    // Using giant short cut.  Add that information to info.
+    __dynamic_cast_info info = {dst_type, static_ptr, static_type, src2dst_offset, 0,      0, 0, 0, 0, 0, 0, 0,
+                                1, // number_of_dst_type
+                                false,    false,      false,       true,           nullptr};
+    // Do the  search
+    dst_type->search_above_dst(&info, dynamic_ptr, dynamic_ptr, public_path, false);
+#ifdef _LIBCXXABI_FORGIVING_DYNAMIC_CAST
+    // The following if should always be false because we should
+    //   definitely find (static_ptr, static_type), either on a public
+    //   or private path
+    if (info.path_dst_ptr_to_static_ptr == unknown)
+    {
+        // We get here only if there is some kind of visibility problem
+        //   in client code.
+        static_assert(std::atomic<size_t>::is_always_lock_free, "");
+        static std::atomic<size_t> error_count(0);
+        size_t error_count_snapshot = error_count.fetch_add(1, std::memory_order_relaxed);
+        if ((error_count_snapshot & (error_count_snapshot-1)) == 0)
+            syslog(LOG_ERR, "dynamic_cast error 1: Both of the following type_info's "
+                    "should have public visibility. At least one of them is hidden. %s"
+                    ", %s.\n", static_type->name(), dst_type->name());
+        // Redo the search comparing type_info's using strcmp
+        info = {dst_type, static_ptr, static_type, src2dst_offset, 0,     0,     0,    0,      0, 0,
+                0,        0,          0,           false,          false, false, true, nullptr};
+        info.number_of_dst_type = 1;
+        dst_type->search_above_dst(&info, dynamic_ptr, dynamic_ptr, public_path, true);
+    }
+#endif // _LIBCXXABI_FORGIVING_DYNAMIC_CAST
+    // Query the search.
+    if (info.path_dst_ptr_to_static_ptr != public_path)
+        return nullptr;
+
+    return dynamic_ptr;
+}
+
+/// A helper function for __dynamic_cast that tries to perform a downcast
+/// before giving up and falling back to the slow path.
+const void* dyn_cast_try_downcast(const void* static_ptr,
+                                  const void* dynamic_ptr,
+                                  const __class_type_info* dst_type,
+                                  const __class_type_info* dynamic_type,
+                                  std::ptrdiff_t src2dst_offset)
+{
+    if (src2dst_offset < 0)
+    {
+        // We can only optimize the case if the static type is a unique public
+        //   base of dst_type. Give up.
+        return nullptr;
+    }
+
+    // Pretend there is a dst_type object that leads to static_ptr. Later we
+    //   will check whether this imagined dst_type object exists. If it exists
+    //   then it will be the casting result.
+    const void* dst_ptr_to_static = reinterpret_cast<const char*>(static_ptr) - src2dst_offset;
+
+    if (reinterpret_cast<std::intptr_t>(dst_ptr_to_static) < reinterpret_cast<std::intptr_t>(dynamic_ptr))
+    {
+        // The imagined dst_type object does not exist. Bail-out quickly.
+        return nullptr;
+    }
+
+    // Try to search a path from dynamic_type to dst_type.
+    __dynamic_cast_info dynamic_to_dst_info = {dynamic_type,
+                                               dst_ptr_to_static,
+                                               dst_type,
+                                               src2dst_offset,
+                                               0,
+                                               0,
+                                               0,
+                                               0,
+                                               0,
+                                               0,
+                                               0,
+                                               0,
+                                               1, // number_of_dst_type
+                                               false,
+                                               false,
+                                               false,
+                                               true,
+                                               nullptr};
+    dynamic_type->search_above_dst(&dynamic_to_dst_info, dynamic_ptr, dynamic_ptr, public_path, false);
+    if (dynamic_to_dst_info.path_dst_ptr_to_static_ptr != unknown) {
+        // We have found at least one path from dynamic_ptr to dst_ptr. The
+        //   downcast can succeed.
+        return dst_ptr_to_static;
+    }
+
+    return nullptr;
+}
+
+const void* dyn_cast_slow(const void* static_ptr,
+                          const void* dynamic_ptr,
+                          const __class_type_info* static_type,
+                          const __class_type_info* dst_type,
+                          const __class_type_info* dynamic_type,
+                          std::ptrdiff_t src2dst_offset)
+{
+    // Not using giant short cut.  Do the search
+
+    // Initialize info struct for this search.
+    __dynamic_cast_info info = {dst_type, static_ptr, static_type, src2dst_offset, 0,     0,     0,    0,      0, 0,
+                                0,        0,          0,           false,          false, false, true, nullptr};
+
+    dynamic_type->search_below_dst(&info, dynamic_ptr, public_path, false);
+#ifdef _LIBCXXABI_FORGIVING_DYNAMIC_CAST
+    // The following if should always be false because we should
+    //   definitely find (static_ptr, static_type), either on a public
+    //   or private path
+    if (info.path_dst_ptr_to_static_ptr == unknown &&
+        info.path_dynamic_ptr_to_static_ptr == unknown)
+    {
+        static_assert(std::atomic<size_t>::is_always_lock_free, "");
+        static std::atomic<size_t> error_count(0);
+        size_t error_count_snapshot = error_count.fetch_add(1, std::memory_order_relaxed);
+        if ((error_count_snapshot & (error_count_snapshot-1)) == 0)
+            syslog(LOG_ERR, "dynamic_cast error 2: One or more of the following type_info's "
+                            "has hidden visibility or is defined in more than one translation "
+                            "unit. They should all have public visibility. "
+                            "%s, %s, %s.\n", static_type->name(), dynamic_type->name(),
+                    dst_type->name());
+        // Redo the search comparing type_info's using strcmp
+        info = {dst_type, static_ptr, static_type, src2dst_offset, 0,     0,     0,    0,      0, 0,
+                0,        0,          0,           false,          false, false, true, nullptr};
+        dynamic_type->search_below_dst(&info, dynamic_ptr, public_path, true);
+    }
+#endif // _LIBCXXABI_FORGIVING_DYNAMIC_CAST
+    // Query the search.
+    switch (info.number_to_static_ptr)
+    {
+    case 0:
+        if (info.number_to_dst_ptr == 1 &&
+                info.path_dynamic_ptr_to_static_ptr == public_path &&
+                info.path_dynamic_ptr_to_dst_ptr == public_path)
+            return info.dst_ptr_not_leading_to_static_ptr;
+        break;
+    case 1:
+        if (info.path_dst_ptr_to_static_ptr == public_path ||
+            (
+                info.number_to_dst_ptr == 0 &&
+                info.path_dynamic_ptr_to_static_ptr == public_path &&
+                info.path_dynamic_ptr_to_dst_ptr == public_path
+            )
+        )
+            return info.dst_ptr_leading_to_static_ptr;
+        break;
+    }
+
+    return nullptr;
+}
+
+}  // namespace
 
 // __shim_type_info
 
@@ -233,7 +482,8 @@ __class_type_info::can_catch(const __shim_type_info* thrown_type,
     if (thrown_class_type == 0)
         return false;
     // bullet 2
-    __dynamic_cast_info info = {thrown_class_type, 0, this, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,};
+    _LIBCXXABI_ASSERT(adjustedPtr, "catching a class without an object?");
+    __dynamic_cast_info info = {thrown_class_type, 0, this, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, true, nullptr};
     info.number_of_dst_type = 1;
     thrown_class_type->has_unambiguous_public_base(&info, adjustedPtr, public_path);
     if (info.path_dst_ptr_to_static_ptr == public_path)
@@ -248,32 +498,46 @@ __class_type_info::can_catch(const __shim_type_info* thrown_type,
 #pragma clang diagnostic pop
 #endif
 
+// When we have an object to inspect - we just pass the pointer to the sub-
+// object that matched the static_type we just checked.  If that is different
+// from any previously recorded pointer to that object type, then we have
+// an ambiguous case.
+
+// When we have no object to inspect, we need to account for virtual bases
+// explicitly.
+// info->vbase_cookie is a pointer to the name of the innermost virtual base
+// type, or nullptr if there is no virtual base on the path so far.
+// adjustedPtr points to the subobject we just found.
+// If vbase_cookie != any previously recorded (including the case of nullptr
+// representing an already-found static sub-object) then we have an ambiguous
+// case.  Assuming that the vbase_cookie values agree; if then we have a
+// different offset (adjustedPtr) from any previously recorded, this indicates
+// an ambiguous case within the virtual base.
+
 void
 __class_type_info::process_found_base_class(__dynamic_cast_info* info,
                                                void* adjustedPtr,
                                                int path_below) const
 {
-    if (info->dst_ptr_leading_to_static_ptr == 0)
-    {
-        // First time here
-        info->dst_ptr_leading_to_static_ptr = adjustedPtr;
-        info->path_dst_ptr_to_static_ptr = path_below;
-        info->number_to_static_ptr = 1;
-    }
-    else if (info->dst_ptr_leading_to_static_ptr == adjustedPtr)
-    {
-        // We've been here before.  Update path to "most public"
-        if (info->path_dst_ptr_to_static_ptr == not_public_path)
-            info->path_dst_ptr_to_static_ptr = path_below;
-    }
-    else
-    {
-        // We've detected an ambiguous cast from (thrown_class_type, adjustedPtr)
-        //   to a static_type
-        info->number_to_static_ptr += 1;
-        info->path_dst_ptr_to_static_ptr = not_public_path;
-        info->search_done = true;
-    }
+  if (info->number_to_static_ptr == 0) {
+    // First time we found this base
+    info->dst_ptr_leading_to_static_ptr = adjustedPtr;
+    info->path_dst_ptr_to_static_ptr = path_below;
+    // stash the virtual base cookie.
+    info->dst_ptr_not_leading_to_static_ptr = info->vbase_cookie;
+    info->number_to_static_ptr = 1;
+  } else if (info->dst_ptr_not_leading_to_static_ptr == info->vbase_cookie &&
+             info->dst_ptr_leading_to_static_ptr == adjustedPtr) {
+    // We've been here before.  Update path to "most public"
+    if (info->path_dst_ptr_to_static_ptr == not_public_path)
+      info->path_dst_ptr_to_static_ptr = path_below;
+  } else {
+    // We've detected an ambiguous cast from (thrown_class_type, adjustedPtr)
+    // to a static_type.
+    info->number_to_static_ptr += 1;
+    info->path_dst_ptr_to_static_ptr = not_public_path;
+    info->search_done = true;
+  }
 }
 
 void
@@ -301,16 +565,30 @@ __base_class_type_info::has_unambiguous_public_base(__dynamic_cast_info* info,
                                                     void* adjustedPtr,
                                                     int path_below) const
 {
-    ptrdiff_t offset_to_base = 0;
-    if (adjustedPtr != nullptr)
-    {
-        offset_to_base = __offset_flags >> __offset_shift;
-        if (__offset_flags & __virtual_mask)
-        {
-            const char* vtable = *static_cast<const char*const*>(adjustedPtr);
-            offset_to_base = update_offset_to_base(vtable, offset_to_base);
-        }
+  bool is_virtual = __offset_flags & __virtual_mask;
+  ptrdiff_t offset_to_base = 0;
+  if (info->have_object) {
+    /* We have an object to inspect, we can look through its vtables to
+       find the layout.  */
+    offset_to_base = __offset_flags >> __offset_shift;
+    if (is_virtual) {
+      const char* vtable = strip_vtable(*static_cast<const char* const*>(adjustedPtr));
+      offset_to_base = update_offset_to_base(vtable, offset_to_base);
     }
+  } else if (!is_virtual) {
+    /* We have no object; however, for non-virtual bases, (since we do not
+       need to inspect any content) we can pretend to have an object based
+       at '0'.  */
+    offset_to_base = __offset_flags >> __offset_shift;
+  } else {
+    /* No object to inspect, and the next base is virtual.
+       We cannot indirect through the vtable to find the actual object offset.
+       So, update vbase_cookie to the new innermost virtual base using the
+       pointer to the typeinfo name as a key.  */
+    info->vbase_cookie = static_cast<const void*>(__base_type->name());
+    // .. and reset the pointer.
+    adjustedPtr = nullptr;
+  }
     __base_type->has_unambiguous_public_base(
             info,
             static_cast<char*>(adjustedPtr) + offset_to_base,
@@ -431,14 +709,22 @@ __pointer_type_info::can_catch(const __shim_type_info* thrown_type,
         dynamic_cast<const __class_type_info*>(thrown_pointer_type->__pointee);
     if (thrown_class_type == 0)
         return false;
-    __dynamic_cast_info info = {thrown_class_type, 0, catch_class_type, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,};
+    bool have_object = adjustedPtr != nullptr;
+    __dynamic_cast_info info = {thrown_class_type, 0,      catch_class_type, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                have_object,       nullptr};
     info.number_of_dst_type = 1;
     thrown_class_type->has_unambiguous_public_base(&info, adjustedPtr, public_path);
     if (info.path_dst_ptr_to_static_ptr == public_path)
     {
-        if (adjustedPtr != NULL)
-            adjustedPtr = const_cast<void*>(info.dst_ptr_leading_to_static_ptr);
-        return true;
+      // In the case of a thrown null pointer, we have no object but we might
+      // well have computed the offset to where a public sub-object would be.
+      // However, we do not want to return that offset to the user; we still
+      // want them to catch a null ptr.
+      if (have_object)
+        adjustedPtr = const_cast<void*>(info.dst_ptr_leading_to_static_ptr);
+      else
+        adjustedPtr = nullptr;
+      return true;
     }
     return false;
 }
@@ -623,174 +909,46 @@ extern "C" _LIBCXXABI_FUNC_VIS void *
 __dynamic_cast(const void *static_ptr, const __class_type_info *static_type,
                const __class_type_info *dst_type,
                std::ptrdiff_t src2dst_offset) {
-    // Possible future optimization:  Take advantage of src2dst_offset
-
     // Get (dynamic_ptr, dynamic_type) from static_ptr
-#if __has_feature(cxx_abi_relative_vtable)
-    // The vtable address will point to the first virtual function, which is 8
-    // bytes after the start of the vtable (4 for the offset from top + 4 for the typeinfo component).
-    const int32_t* vtable =
-        *reinterpret_cast<const int32_t* const*>(static_ptr);
-    int32_t offset_to_derived = vtable[-2];
-    const void* dynamic_ptr = static_cast<const char*>(static_ptr) + offset_to_derived;
-
-    // The typeinfo component is now a relative offset to a proxy.
-    int32_t offset_to_ti_proxy = vtable[-1];
-    const uint8_t* ptr_to_ti_proxy =
-        reinterpret_cast<const uint8_t*>(vtable) + offset_to_ti_proxy;
-    const __class_type_info* dynamic_type =
-        *(reinterpret_cast<const __class_type_info* const*>(ptr_to_ti_proxy));
-#else
-    void **vtable = *static_cast<void ** const *>(static_ptr);
-    ptrdiff_t offset_to_derived = reinterpret_cast<ptrdiff_t>(vtable[-2]);
-    const void* dynamic_ptr = static_cast<const char*>(static_ptr) + offset_to_derived;
-    const __class_type_info* dynamic_type = static_cast<const __class_type_info*>(vtable[-1]);
-#endif
+    derived_object_info derived_info;
+    dyn_cast_get_derived_info(&derived_info, static_ptr);
 
     // Initialize answer to nullptr.  This will be changed from the search
     //    results if a non-null answer is found.  Regardless, this is what will
     //    be returned.
     const void* dst_ptr = 0;
-    // Initialize info struct for this search.
-    __dynamic_cast_info info = {dst_type, static_ptr, static_type, src2dst_offset, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,};
 
     // Find out if we can use a giant short cut in the search
-    if (is_equal(dynamic_type, dst_type, false))
+    if (is_equal(derived_info.dynamic_type, dst_type, false))
     {
-        // We're downcasting from src_type to the complete object's dynamic
-        //   type. This is a really hot path that can be further optimized
-        //   with the `src2dst_offset` hint.
-        // In such a case, dynamic_ptr already gives the casting result if the
-        //   casting ever succeeds. All we have to do now is to check
-        //   static_ptr points to a public base sub-object of dynamic_ptr.
-
-        if (src2dst_offset >= 0)
-        {
-            // The static type is a unique public non-virtual base type of
-            //   dst_type at offset `src2dst_offset` from the origin of dst.
-            // Note that there might be other non-public static_type bases. The
-            //   hint only guarantees that the public base is non-virtual and
-            //   unique. So we have to check whether static_ptr points to that
-            //   unique public base sub-object.
-            if (offset_to_derived == -src2dst_offset)
-                dst_ptr = dynamic_ptr;
-        }
-        else if (src2dst_offset == -2)
-        {
-            // static_type is not a public base of dst_type.
-            dst_ptr = nullptr;
-        }
-        else
-        {
-            // If src2dst_offset == -3, then:
-            //   src_type is a multiple public base type but never a virtual
-            //   base type. We can't conclude that static_ptr points to those
-            //   public base sub-objects because there might be other non-
-            //   public static_type bases. The search is inevitable.
-
-            // Fallback to the slow path to check that static_type is a public
-            //   base type of dynamic_type.
-            // Using giant short cut.  Add that information to info.
-            info.number_of_dst_type = 1;
-            // Do the  search
-            dynamic_type->search_above_dst(&info, dynamic_ptr, dynamic_ptr, public_path, false);
-#ifdef _LIBCXXABI_FORGIVING_DYNAMIC_CAST
-            // The following if should always be false because we should
-            //   definitely find (static_ptr, static_type), either on a public
-            //   or private path
-            if (info.path_dst_ptr_to_static_ptr == unknown)
-            {
-                // We get here only if there is some kind of visibility problem
-                //   in client code.
-                static_assert(std::atomic<size_t>::is_always_lock_free, "");
-                static std::atomic<size_t> error_count(0);
-                size_t error_count_snapshot = error_count.fetch_add(1, std::memory_order_relaxed);
-                if ((error_count_snapshot & (error_count_snapshot-1)) == 0)
-                    syslog(LOG_ERR, "dynamic_cast error 1: Both of the following type_info's "
-                            "should have public visibility. At least one of them is hidden. %s"
-                            ", %s.\n", static_type->name(), dynamic_type->name());
-                // Redo the search comparing type_info's using strcmp
-                info = {dst_type, static_ptr, static_type, src2dst_offset, 0};
-                info.number_of_dst_type = 1;
-                dynamic_type->search_above_dst(&info, dynamic_ptr, dynamic_ptr, public_path, true);
-            }
-#endif // _LIBCXXABI_FORGIVING_DYNAMIC_CAST
-            // Query the search.
-            if (info.path_dst_ptr_to_static_ptr == public_path)
-                dst_ptr = dynamic_ptr;
-        }
+        dst_ptr = dyn_cast_to_derived(static_ptr,
+                                      derived_info.dynamic_ptr,
+                                      static_type,
+                                      dst_type,
+                                      derived_info.offset_to_derived,
+                                      src2dst_offset);
     }
     else
     {
-        if (src2dst_offset >= 0)
-        {
-            // Optimize toward downcasting: dst_type has one unique public
-            //   static_type bases. Let's first try to do a downcast before
-            //   falling back to the slow path. The downcast succeeds if there
-            //   is at least one path regardless of visibility from
-            //   dynamic_type to dst_type.
-            const void* dst_ptr_to_static = reinterpret_cast<const char*>(static_ptr) - src2dst_offset;
-            if (reinterpret_cast<std::intptr_t>(dst_ptr_to_static) >= reinterpret_cast<std::intptr_t>(dynamic_ptr))
-            {
-                // Try to search a path from dynamic_type to dst_type.
-                __dynamic_cast_info dynamic_to_dst_info = {dynamic_type, dst_ptr_to_static, dst_type, src2dst_offset};
-                dynamic_to_dst_info.number_of_dst_type = 1;
-                dynamic_type->search_above_dst(&dynamic_to_dst_info, dynamic_ptr, dynamic_ptr, public_path, false);
-                if (dynamic_to_dst_info.path_dst_ptr_to_static_ptr != unknown) {
-                    // We have found at least one path from dynamic_ptr to
-                    //   dst_ptr. The downcast can succeed.
-                    dst_ptr = dst_ptr_to_static;
-                }
-            }
-        }
+        // Optimize toward downcasting: let's first try to do a downcast before
+        //   falling back to the slow path.
+        dst_ptr = dyn_cast_try_downcast(static_ptr,
+                                        derived_info.dynamic_ptr,
+                                        dst_type,
+                                        derived_info.dynamic_type,
+                                        src2dst_offset);
 
         if (!dst_ptr)
         {
-            // Not using giant short cut.  Do the search
-            dynamic_type->search_below_dst(&info, dynamic_ptr, public_path, false);
-#ifdef _LIBCXXABI_FORGIVING_DYNAMIC_CAST
-            // The following if should always be false because we should
-            //   definitely find (static_ptr, static_type), either on a public
-            //   or private path
-            if (info.path_dst_ptr_to_static_ptr == unknown &&
-                info.path_dynamic_ptr_to_static_ptr == unknown)
-            {
-                static_assert(std::atomic<size_t>::is_always_lock_free, "");
-                static std::atomic<size_t> error_count(0);
-                size_t error_count_snapshot = error_count.fetch_add(1, std::memory_order_relaxed);
-                if ((error_count_snapshot & (error_count_snapshot-1)) == 0)
-                    syslog(LOG_ERR, "dynamic_cast error 2: One or more of the following type_info's "
-                                    "has hidden visibility or is defined in more than one translation "
-                                    "unit. They should all have public visibility. "
-                                    "%s, %s, %s.\n", static_type->name(), dynamic_type->name(),
-                            dst_type->name());
-                // Redo the search comparing type_info's using strcmp
-                info = {dst_type, static_ptr, static_type, src2dst_offset, 0};
-                dynamic_type->search_below_dst(&info, dynamic_ptr, public_path, true);
-            }
-#endif // _LIBCXXABI_FORGIVING_DYNAMIC_CAST
-            // Query the search.
-            switch (info.number_to_static_ptr)
-            {
-            case 0:
-                if (info.number_to_dst_ptr == 1 &&
-                        info.path_dynamic_ptr_to_static_ptr == public_path &&
-                        info.path_dynamic_ptr_to_dst_ptr == public_path)
-                    dst_ptr = info.dst_ptr_not_leading_to_static_ptr;
-                break;
-            case 1:
-                if (info.path_dst_ptr_to_static_ptr == public_path ||
-                    (
-                        info.number_to_dst_ptr == 0 &&
-                        info.path_dynamic_ptr_to_static_ptr == public_path &&
-                        info.path_dynamic_ptr_to_dst_ptr == public_path
-                    )
-                )
-                    dst_ptr = info.dst_ptr_leading_to_static_ptr;
-                break;
-            }
+            dst_ptr = dyn_cast_slow(static_ptr,
+                                    derived_info.dynamic_ptr,
+                                    static_type,
+                                    dst_type,
+                                    derived_info.dynamic_type,
+                                    src2dst_offset);
         }
     }
+
     return const_cast<void*>(dst_ptr);
 }
 
@@ -1075,7 +1233,7 @@ __vmi_class_type_info::search_below_dst(__dynamic_cast_info* info,
                     if (info->search_done)
                         break;
                     // If we just found a dst_type with a public path to (static_ptr, static_type),
-                    //    then the only reason to continue the search is to make sure sure
+                    //    then the only reason to continue the search is to make sure
                     //    no other dst_type points to (static_ptr, static_type).
                     //    If !diamond, then we don't need to search here.
                     // if we just found a dst_type with a private path to (static_ptr, static_type),
@@ -1354,8 +1512,8 @@ __base_class_type_info::search_above_dst(__dynamic_cast_info* info,
     ptrdiff_t offset_to_base = __offset_flags >> __offset_shift;
     if (__offset_flags & __virtual_mask)
     {
-        const char* vtable = *static_cast<const char*const*>(current_ptr);
-        offset_to_base = update_offset_to_base(vtable, offset_to_base);
+      const char* vtable = strip_vtable(*static_cast<const char* const*>(current_ptr));
+      offset_to_base = update_offset_to_base(vtable, offset_to_base);
     }
     __base_type->search_above_dst(info, dst_ptr,
                                   static_cast<const char*>(current_ptr) + offset_to_base,
@@ -1374,8 +1532,8 @@ __base_class_type_info::search_below_dst(__dynamic_cast_info* info,
     ptrdiff_t offset_to_base = __offset_flags >> __offset_shift;
     if (__offset_flags & __virtual_mask)
     {
-        const char* vtable = *static_cast<const char*const*>(current_ptr);
-        offset_to_base = update_offset_to_base(vtable, offset_to_base);
+      const char* vtable = strip_vtable(*static_cast<const char* const*>(current_ptr));
+      offset_to_base = update_offset_to_base(vtable, offset_to_base);
     }
     __base_type->search_below_dst(info,
                                   static_cast<const char*>(current_ptr) + offset_to_base,

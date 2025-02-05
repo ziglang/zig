@@ -55,6 +55,8 @@ pub const Node = extern union {
         var_decl,
         /// const name = struct { init }
         static_local_var,
+        /// const ExternLocal_name = struct { init }
+        extern_local_var,
         /// var name = init.*
         mut_str,
         func,
@@ -365,7 +367,7 @@ pub const Node = extern union {
                 .c_pointer, .single_pointer => Payload.Pointer,
                 .array_type, .null_sentinel_array_type => Payload.Array,
                 .arg_redecl, .alias, .fail_decl => Payload.ArgRedecl,
-                .var_simple, .pub_var_simple, .static_local_var, .mut_str => Payload.SimpleVarDecl,
+                .var_simple, .pub_var_simple, .static_local_var, .extern_local_var, .mut_str => Payload.SimpleVarDecl,
                 .enum_constant => Payload.EnumConstant,
                 .array_filler => Payload.ArrayFiller,
                 .pub_inline_fn => Payload.PubInlineFn,
@@ -548,12 +550,26 @@ pub const Payload = struct {
             is_var_args: bool,
             name: ?[]const u8,
             linksection_string: ?[]const u8,
-            explicit_callconv: ?std.builtin.CallingConvention,
+            explicit_callconv: ?CallingConvention,
             params: []Param,
             return_type: Node,
             body: ?Node,
             alignment: ?c_uint,
         },
+
+        pub const CallingConvention = enum {
+            c,
+            x86_64_sysv,
+            x86_64_win,
+            x86_stdcall,
+            x86_fastcall,
+            x86_thiscall,
+            x86_vectorcall,
+            aarch64_vfabi,
+            arm_aapcs,
+            arm_aapcs_vfp,
+            m68k_rtd,
+        };
     };
 
     pub const Param = struct {
@@ -806,7 +822,7 @@ const Context = struct {
     gpa: Allocator,
     buf: std.ArrayList(u8),
     nodes: std.zig.Ast.NodeList = .{},
-    extra_data: std.ArrayListUnmanaged(std.zig.Ast.Node.Index) = .{},
+    extra_data: std.ArrayListUnmanaged(std.zig.Ast.Node.Index) = .empty,
     tokens: std.zig.Ast.TokenList = .{},
 
     fn addTokenFmt(c: *Context, tag: TokenTag, comptime format: []const u8, args: anytype) Allocator.Error!TokenIndex {
@@ -875,6 +891,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .declaration => unreachable,
         .warning => {
             const payload = node.castTag(.warning).?.data;
+            try c.buf.append('\n');
             try c.buf.appendSlice(payload);
             try c.buf.append('\n');
             return @as(NodeIndex, 0); // error: integer value 0 cannot be coerced to type 'std.mem.Allocator.Error!u32'
@@ -1268,6 +1285,36 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 },
             });
         },
+        .extern_local_var => {
+            const payload = node.castTag(.extern_local_var).?.data;
+
+            const const_tok = try c.addToken(.keyword_const, "const");
+            _ = try c.addIdentifier(payload.name);
+            _ = try c.addToken(.equal, "=");
+
+            const kind_tok = try c.addToken(.keyword_struct, "struct");
+            _ = try c.addToken(.l_brace, "{");
+
+            const container_def = try c.addNode(.{
+                .tag = .container_decl_two_trailing,
+                .main_token = kind_tok,
+                .data = .{
+                    .lhs = try renderNode(c, payload.init),
+                    .rhs = 0,
+                },
+            });
+            _ = try c.addToken(.r_brace, "}");
+            _ = try c.addToken(.semicolon, ";");
+
+            return c.addNode(.{
+                .tag = .simple_var_decl,
+                .main_token = const_tok,
+                .data = .{
+                    .lhs = 0,
+                    .rhs = container_def,
+                },
+            });
+        },
         .mut_str => {
             const payload = node.castTag(.mut_str).?.data;
 
@@ -1494,11 +1541,11 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .c_pointer, .single_pointer => {
             const payload = @as(*Payload.Pointer, @alignCast(@fieldParentPtr("base", node.ptr_otherwise))).data;
 
-            const asterisk = if (node.tag() == .single_pointer)
+            const main_token = if (node.tag() == .single_pointer)
                 try c.addToken(.asterisk, "*")
             else blk: {
-                _ = try c.addToken(.l_bracket, "[");
-                const res = try c.addToken(.asterisk, "*");
+                const res = try c.addToken(.l_bracket, "[");
+                _ = try c.addToken(.asterisk, "*");
                 _ = try c.addIdentifier("c");
                 _ = try c.addToken(.r_bracket, "]");
                 break :blk res;
@@ -1509,7 +1556,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
 
             return c.addNode(.{
                 .tag = .ptr_type_aligned,
-                .main_token = asterisk,
+                .main_token = main_token,
                 .data = .{
                     .lhs = 0,
                     .rhs = elem_type,
@@ -2291,7 +2338,7 @@ fn renderNullSentinelArrayType(c: *Context, len: usize, elem_type: Node) !NodeIn
 fn addSemicolonIfNeeded(c: *Context, node: Node) !void {
     switch (node.tag()) {
         .warning => unreachable,
-        .var_decl, .var_simple, .arg_redecl, .alias, .block, .empty_block, .block_single, .@"switch", .static_local_var, .mut_str => {},
+        .var_decl, .var_simple, .arg_redecl, .alias, .block, .empty_block, .block_single, .@"switch", .static_local_var, .extern_local_var, .mut_str => {},
         .while_true => {
             const payload = node.castTag(.while_true).?.data;
             return addSemicolonIfNotBlock(c, payload);
@@ -2387,6 +2434,7 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
         .shuffle,
         .builtin_extern,
         .static_local_var,
+        .extern_local_var,
         .mut_str,
         .macro_arithmetic,
         => {
@@ -2778,14 +2826,52 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
     const callconv_expr = if (payload.explicit_callconv) |some| blk: {
         _ = try c.addToken(.keyword_callconv, "callconv");
         _ = try c.addToken(.l_paren, "(");
-        _ = try c.addToken(.period, ".");
-        const res = try c.addNode(.{
-            .tag = .enum_literal,
-            .main_token = try c.addTokenFmt(.identifier, "{s}", .{@tagName(some)}),
-            .data = undefined,
-        });
+        const cc_node = switch (some) {
+            .c => cc_node: {
+                _ = try c.addToken(.period, ".");
+                break :cc_node try c.addNode(.{
+                    .tag = .enum_literal,
+                    .main_token = try c.addToken(.identifier, "c"),
+                    .data = undefined,
+                });
+            },
+            .x86_64_sysv,
+            .x86_64_win,
+            .x86_stdcall,
+            .x86_fastcall,
+            .x86_thiscall,
+            .x86_vectorcall,
+            .aarch64_vfabi,
+            .arm_aapcs,
+            .arm_aapcs_vfp,
+            .m68k_rtd,
+            => cc_node: {
+                // .{ .foo = .{} }
+                _ = try c.addToken(.period, ".");
+                const outer_lbrace = try c.addToken(.l_brace, "{");
+                _ = try c.addToken(.period, ".");
+                _ = try c.addToken(.identifier, @tagName(some));
+                _ = try c.addToken(.equal, "=");
+                _ = try c.addToken(.period, ".");
+                const inner_lbrace = try c.addToken(.l_brace, "{");
+                _ = try c.addToken(.r_brace, "}");
+                _ = try c.addToken(.r_brace, "}");
+                break :cc_node try c.addNode(.{
+                    .tag = .struct_init_dot_two,
+                    .main_token = outer_lbrace,
+                    .data = .{
+                        .lhs = try c.addNode(.{
+                            .tag = .struct_init_dot_two,
+                            .main_token = inner_lbrace,
+                            .data = .{ .lhs = 0, .rhs = 0 },
+                        }),
+                        .rhs = 0,
+                    },
+                });
+            },
+        };
         _ = try c.addToken(.r_paren, ")");
-        break :blk res;
+        break :blk cc_node;
     } else 0;
 
     const return_type_expr = try renderNode(c, payload.return_type);

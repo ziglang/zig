@@ -2,7 +2,7 @@ const std = @import("std");
 
 /// Set of primitive type and value names.
 /// Does not include `_` or integer type names.
-pub const names = std.ComptimeStringMap(void, .{
+pub const names = std.StaticStringMap(void).initComptime(.{
     .{"anyerror"},
     .{"anyframe"},
     .{"anyopaque"},

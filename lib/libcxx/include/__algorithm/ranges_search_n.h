@@ -31,6 +31,9 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 #if _LIBCPP_STD_VER >= 20
 
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -68,7 +71,7 @@ struct __fn {
             class _Pred = ranges::equal_to,
             class _Proj = identity>
     requires indirectly_comparable<_Iter, const _Type*, _Pred, _Proj>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr subrange<_Iter>
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr subrange<_Iter>
   operator()(_Iter __first,
              _Sent __last,
              iter_difference_t<_Iter> __count,
@@ -80,7 +83,7 @@ struct __fn {
 
   template <forward_range _Range, class _Type, class _Pred = ranges::equal_to, class _Proj = identity>
     requires indirectly_comparable<iterator_t<_Range>, const _Type*, _Pred, _Proj>
-  _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr borrowed_subrange_t<_Range> operator()(
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr borrowed_subrange_t<_Range> operator()(
       _Range&& __range, range_difference_t<_Range> __count, const _Type& __value, _Pred __pred = {}, _Proj __proj = {})
       const {
     auto __first = ranges::begin(__range);
@@ -107,5 +110,7 @@ inline constexpr auto search_n = __search_n::__fn{};
 _LIBCPP_END_NAMESPACE_STD
 
 #endif // _LIBCPP_STD_VER >= 20
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_RANGES_SEARCH_N_H

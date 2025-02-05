@@ -135,9 +135,9 @@ pub const Rational = struct {
     /// completely represent the provided float.
     pub fn setFloat(self: *Rational, comptime T: type, f: T) !void {
         // Translated from golang.go/src/math/big/rat.go.
-        debug.assert(@typeInfo(T) == .Float);
+        debug.assert(@typeInfo(T) == .float);
 
-        const UnsignedInt = std.meta.Int(.unsigned, @typeInfo(T).Float.bits);
+        const UnsignedInt = std.meta.Int(.unsigned, @typeInfo(T).float.bits);
         const f_bits = @as(UnsignedInt, @bitCast(f));
 
         const exponent_bits = math.floatExponentBits(T);
@@ -193,9 +193,9 @@ pub const Rational = struct {
     pub fn toFloat(self: Rational, comptime T: type) !T {
         // Translated from golang.go/src/math/big/rat.go.
         // TODO: Indicate whether the result is not exact.
-        debug.assert(@typeInfo(T) == .Float);
+        debug.assert(@typeInfo(T) == .float);
 
-        const fsize = @typeInfo(T).Float.bits;
+        const fsize = @typeInfo(T).float.bits;
         const BitReprType = std.meta.Int(.unsigned, fsize);
 
         const msize = math.floatMantissaBits(T);
@@ -473,10 +473,10 @@ pub const Rational = struct {
 };
 
 fn extractLowBits(a: Int, comptime T: type) T {
-    debug.assert(@typeInfo(T) == .Int);
+    debug.assert(@typeInfo(T) == .int);
 
-    const t_bits = @typeInfo(T).Int.bits;
-    const limb_bits = @typeInfo(Limb).Int.bits;
+    const t_bits = @typeInfo(T).int.bits;
+    const limb_bits = @typeInfo(Limb).int.bits;
     if (t_bits <= limb_bits) {
         return @as(T, @truncate(a.limbs[0]));
     } else {
@@ -518,28 +518,28 @@ test "set" {
     defer a.deinit();
 
     try a.setInt(5);
-    try testing.expect((try a.p.to(u32)) == 5);
-    try testing.expect((try a.q.to(u32)) == 1);
+    try testing.expect((try a.p.toInt(u32)) == 5);
+    try testing.expect((try a.q.toInt(u32)) == 1);
 
     try a.setRatio(7, 3);
-    try testing.expect((try a.p.to(u32)) == 7);
-    try testing.expect((try a.q.to(u32)) == 3);
+    try testing.expect((try a.p.toInt(u32)) == 7);
+    try testing.expect((try a.q.toInt(u32)) == 3);
 
     try a.setRatio(9, 3);
-    try testing.expect((try a.p.to(i32)) == 3);
-    try testing.expect((try a.q.to(i32)) == 1);
+    try testing.expect((try a.p.toInt(i32)) == 3);
+    try testing.expect((try a.q.toInt(i32)) == 1);
 
     try a.setRatio(-9, 3);
-    try testing.expect((try a.p.to(i32)) == -3);
-    try testing.expect((try a.q.to(i32)) == 1);
+    try testing.expect((try a.p.toInt(i32)) == -3);
+    try testing.expect((try a.q.toInt(i32)) == 1);
 
     try a.setRatio(9, -3);
-    try testing.expect((try a.p.to(i32)) == -3);
-    try testing.expect((try a.q.to(i32)) == 1);
+    try testing.expect((try a.p.toInt(i32)) == -3);
+    try testing.expect((try a.q.toInt(i32)) == 1);
 
     try a.setRatio(-9, -3);
-    try testing.expect((try a.p.to(i32)) == 3);
-    try testing.expect((try a.q.to(i32)) == 1);
+    try testing.expect((try a.p.toInt(i32)) == 3);
+    try testing.expect((try a.q.toInt(i32)) == 1);
 }
 
 test "setFloat" {
@@ -547,24 +547,24 @@ test "setFloat" {
     defer a.deinit();
 
     try a.setFloat(f64, 2.5);
-    try testing.expect((try a.p.to(i32)) == 5);
-    try testing.expect((try a.q.to(i32)) == 2);
+    try testing.expect((try a.p.toInt(i32)) == 5);
+    try testing.expect((try a.q.toInt(i32)) == 2);
 
     try a.setFloat(f32, -2.5);
-    try testing.expect((try a.p.to(i32)) == -5);
-    try testing.expect((try a.q.to(i32)) == 2);
+    try testing.expect((try a.p.toInt(i32)) == -5);
+    try testing.expect((try a.q.toInt(i32)) == 2);
 
     try a.setFloat(f32, 3.141593);
 
     //                = 3.14159297943115234375
-    try testing.expect((try a.p.to(u32)) == 3294199);
-    try testing.expect((try a.q.to(u32)) == 1048576);
+    try testing.expect((try a.p.toInt(u32)) == 3294199);
+    try testing.expect((try a.q.toInt(u32)) == 1048576);
 
     try a.setFloat(f64, 72.141593120712409172417410926841290461290467124);
 
     //                = 72.1415931207124145885245525278151035308837890625
-    try testing.expect((try a.p.to(u128)) == 5076513310880537);
-    try testing.expect((try a.q.to(u128)) == 70368744177664);
+    try testing.expect((try a.p.toInt(u128)) == 5076513310880537);
+    try testing.expect((try a.q.toInt(u128)) == 70368744177664);
 }
 
 test "setFloatString" {
@@ -574,8 +574,8 @@ test "setFloatString" {
     try a.setFloatString("72.14159312071241458852455252781510353");
 
     //                  = 72.1415931207124145885245525278151035308837890625
-    try testing.expect((try a.p.to(u128)) == 7214159312071241458852455252781510353);
-    try testing.expect((try a.q.to(u128)) == 100000000000000000000000000000000000);
+    try testing.expect((try a.p.toInt(u128)) == 7214159312071241458852455252781510353);
+    try testing.expect((try a.q.toInt(u128)) == 100000000000000000000000000000000000);
 }
 
 test "toFloat" {
@@ -594,7 +594,7 @@ test "toFloat" {
 test "set/to Float round-trip" {
     var a = try Rational.init(testing.allocator);
     defer a.deinit();
-    var prng = std.Random.DefaultPrng.init(0x5EED);
+    var prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const random = prng.random();
     var i: usize = 0;
     while (i < 512) : (i += 1) {
@@ -612,8 +612,8 @@ test "copy" {
     defer b.deinit();
 
     try a.copyInt(b);
-    try testing.expect((try a.p.to(u32)) == 5);
-    try testing.expect((try a.q.to(u32)) == 1);
+    try testing.expect((try a.p.toInt(u32)) == 5);
+    try testing.expect((try a.q.toInt(u32)) == 1);
 
     var c = try Int.initSet(testing.allocator, 7);
     defer c.deinit();
@@ -621,8 +621,8 @@ test "copy" {
     defer d.deinit();
 
     try a.copyRatio(c, d);
-    try testing.expect((try a.p.to(u32)) == 7);
-    try testing.expect((try a.q.to(u32)) == 3);
+    try testing.expect((try a.p.toInt(u32)) == 7);
+    try testing.expect((try a.q.toInt(u32)) == 3);
 
     var e = try Int.initSet(testing.allocator, 9);
     defer e.deinit();
@@ -630,8 +630,8 @@ test "copy" {
     defer f.deinit();
 
     try a.copyRatio(e, f);
-    try testing.expect((try a.p.to(u32)) == 3);
-    try testing.expect((try a.q.to(u32)) == 1);
+    try testing.expect((try a.p.toInt(u32)) == 3);
+    try testing.expect((try a.q.toInt(u32)) == 1);
 }
 
 test "negate" {
@@ -639,16 +639,16 @@ test "negate" {
     defer a.deinit();
 
     try a.setInt(-50);
-    try testing.expect((try a.p.to(i32)) == -50);
-    try testing.expect((try a.q.to(i32)) == 1);
+    try testing.expect((try a.p.toInt(i32)) == -50);
+    try testing.expect((try a.q.toInt(i32)) == 1);
 
     a.negate();
-    try testing.expect((try a.p.to(i32)) == 50);
-    try testing.expect((try a.q.to(i32)) == 1);
+    try testing.expect((try a.p.toInt(i32)) == 50);
+    try testing.expect((try a.q.toInt(i32)) == 1);
 
     a.negate();
-    try testing.expect((try a.p.to(i32)) == -50);
-    try testing.expect((try a.q.to(i32)) == 1);
+    try testing.expect((try a.p.toInt(i32)) == -50);
+    try testing.expect((try a.q.toInt(i32)) == 1);
 }
 
 test "abs" {
@@ -656,16 +656,16 @@ test "abs" {
     defer a.deinit();
 
     try a.setInt(-50);
-    try testing.expect((try a.p.to(i32)) == -50);
-    try testing.expect((try a.q.to(i32)) == 1);
+    try testing.expect((try a.p.toInt(i32)) == -50);
+    try testing.expect((try a.q.toInt(i32)) == 1);
 
     a.abs();
-    try testing.expect((try a.p.to(i32)) == 50);
-    try testing.expect((try a.q.to(i32)) == 1);
+    try testing.expect((try a.p.toInt(i32)) == 50);
+    try testing.expect((try a.q.toInt(i32)) == 1);
 
     a.abs();
-    try testing.expect((try a.p.to(i32)) == 50);
-    try testing.expect((try a.q.to(i32)) == 1);
+    try testing.expect((try a.p.toInt(i32)) == 50);
+    try testing.expect((try a.q.toInt(i32)) == 1);
 }
 
 test "swap" {
@@ -677,19 +677,19 @@ test "swap" {
     try a.setRatio(50, 23);
     try b.setRatio(17, 3);
 
-    try testing.expect((try a.p.to(u32)) == 50);
-    try testing.expect((try a.q.to(u32)) == 23);
+    try testing.expect((try a.p.toInt(u32)) == 50);
+    try testing.expect((try a.q.toInt(u32)) == 23);
 
-    try testing.expect((try b.p.to(u32)) == 17);
-    try testing.expect((try b.q.to(u32)) == 3);
+    try testing.expect((try b.p.toInt(u32)) == 17);
+    try testing.expect((try b.q.toInt(u32)) == 3);
 
     a.swap(&b);
 
-    try testing.expect((try a.p.to(u32)) == 17);
-    try testing.expect((try a.q.to(u32)) == 3);
+    try testing.expect((try a.p.toInt(u32)) == 17);
+    try testing.expect((try a.q.toInt(u32)) == 3);
 
-    try testing.expect((try b.p.to(u32)) == 50);
-    try testing.expect((try b.q.to(u32)) == 23);
+    try testing.expect((try b.p.toInt(u32)) == 50);
+    try testing.expect((try b.q.toInt(u32)) == 23);
 }
 
 test "order" {

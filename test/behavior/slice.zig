@@ -98,6 +98,40 @@ test "comptime slice of slice preserves comptime var" {
     }
 }
 
+test "open slice of open slice with sentinel" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    var slice: [:0]const u8 = "hello";
+    _ = &slice;
+
+    comptime assert(@TypeOf(slice[0..][0.. :0]) == [:0]const u8);
+    try expect(slice[0..][0.. :0].len == 5);
+    try expect(slice[0..][0.. :0][0] == 'h');
+    try expect(slice[0..][0.. :0][5] == 0);
+
+    comptime assert(@TypeOf(slice[1..][0.. :0]) == [:0]const u8);
+    try expect(slice[1..][0.. :0].len == 4);
+    try expect(slice[1..][0.. :0][0] == 'e');
+    try expect(slice[1..][0.. :0][4] == 0);
+}
+
+test "open slice with sentinel of slice with end index" {
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+
+    var slice: [:0]const u8 = "hello";
+    _ = &slice;
+
+    comptime assert(@TypeOf(slice[0.. :0][0..5]) == *const [5]u8);
+    try expect(slice[0.. :0][0..5].len == 5);
+    try expect(slice[0.. :0][0..5][0] == 'h');
+    try expect(slice[0.. :0][0..5][4] == 'o');
+
+    comptime assert(@TypeOf(slice[0.. :0][0..5 :0]) == *const [5:0]u8);
+    try expect(slice[0.. :0][0..5 :0].len == 5);
+    try expect(slice[0.. :0][0..5 :0][0] == 'h');
+    try expect(slice[0.. :0][0..5 :0][5] == 0);
+}
+
 test "slice of type" {
     comptime {
         var types_array = [_]type{ i32, f64, type };
@@ -329,9 +363,9 @@ test "empty array to slice" {
             const align_1: []align(1) u8 = empty;
             const align_4: []align(4) u8 = empty;
             const align_16: []align(16) u8 = empty;
-            try expect(1 == @typeInfo(@TypeOf(align_1)).Pointer.alignment);
-            try expect(4 == @typeInfo(@TypeOf(align_4)).Pointer.alignment);
-            try expect(16 == @typeInfo(@TypeOf(align_16)).Pointer.alignment);
+            try expect(1 == @typeInfo(@TypeOf(align_1)).pointer.alignment);
+            try expect(4 == @typeInfo(@TypeOf(align_4)).pointer.alignment);
+            try expect(16 == @typeInfo(@TypeOf(align_16)).pointer.alignment);
         }
     };
 
@@ -357,6 +391,8 @@ test "@ptrCast slice to pointer" {
 }
 
 test "slice multi-pointer without end" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             try testPointer();
@@ -394,6 +430,7 @@ test "slice syntax resulting in pointer-to-array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -842,6 +879,8 @@ test "global slice field access" {
 }
 
 test "slice of void" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     var n: usize = 10;
     _ = &n;
     var arr: [12]void = undefined;
@@ -930,6 +969,7 @@ test "slicing zero length array field of struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         a: [0]usize,
@@ -959,6 +999,7 @@ test "get address of element of zero-sized slice" {
     if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn destroy(_: *void) void {}
@@ -987,4 +1028,12 @@ test "sentinel-terminated 0-length slices" {
     try expect(array_ptr[0] == 2);
     try expect(comptime_known_array_value[0] == 2);
     try expect(runtime_array_value[0] == 2);
+}
+
+test "peer slices keep abi alignment with empty struct" {
+    var cond: bool = undefined;
+    cond = false;
+    const slice = if (cond) &[1]u32{42} else &.{};
+    comptime assert(@TypeOf(slice) == []const u32);
+    try expect(slice.len == 0);
 }

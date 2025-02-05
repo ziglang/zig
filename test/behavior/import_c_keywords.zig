@@ -33,6 +33,7 @@ test "import c keywords" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt == .coff) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try std.testing.expect(int == .c_keyword_variable);
     try std.testing.expect(long == .c_keyword_variable);
@@ -79,7 +80,7 @@ test "import c keywords" {
     try std.testing.expect(ptr_id == &some_non_c_keyword_constant);
 
     if (builtin.target.ofmt != .coff and builtin.target.os.tag != .windows) {
-        var ptr_fn: *const fn () callconv(.C) Id = &double;
+        var ptr_fn: *const fn () callconv(.c) Id = &double;
         try std.testing.expect(ptr_fn == &float);
         ptr_fn = &an_alias_of_float;
         try std.testing.expect(ptr_fn == &float);

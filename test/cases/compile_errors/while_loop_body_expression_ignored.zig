@@ -32,16 +32,16 @@ export fn f5() void {
 //
 // :5:25: error: value of type 'usize' ignored
 // :5:25: note: all non-void values must be used
-// :5:25: note: this error can be suppressed by assigning the value to '_'
+// :5:25: note: to discard the value, assign it to '_'
 // :10:26: error: value of type 'usize' ignored
 // :10:26: note: all non-void values must be used
-// :10:26: note: this error can be suppressed by assigning the value to '_'
+// :10:26: note: to discard the value, assign it to '_'
 // :15:26: error: value of type 'usize' ignored
 // :15:26: note: all non-void values must be used
-// :15:26: note: this error can be suppressed by assigning the value to '_'
+// :15:26: note: to discard the value, assign it to '_'
 // :20:23: error: value of type 'bool' ignored
 // :20:23: note: all non-void values must be used
-// :20:23: note: this error can be suppressed by assigning the value to '_'
+// :20:23: note: to discard the value, assign it to '_'
 // :25:34: error: value of type 'usize' ignored
 // :25:34: note: all non-void values must be used
-// :25:34: note: this error can be suppressed by assigning the value to '_'
+// :25:34: note: to discard the value, assign it to '_'

@@ -48,30 +48,16 @@ pub fn isEmpty(self: FloatStream) bool {
     return !self.hasLen(1);
 }
 
-pub fn firstIs(self: FloatStream, c: u8) bool {
+pub fn firstIs(self: FloatStream, comptime cs: []const u8) bool {
     if (self.first()) |ok| {
-        return ok == c;
+        inline for (cs) |c| if (ok == c) return true;
     }
     return false;
 }
 
-pub fn firstIsLower(self: FloatStream, c: u8) bool {
+pub fn firstIsLower(self: FloatStream, comptime cs: []const u8) bool {
     if (self.first()) |ok| {
-        return ok | 0x20 == c;
-    }
-    return false;
-}
-
-pub fn firstIs2(self: FloatStream, c1: u8, c2: u8) bool {
-    if (self.first()) |ok| {
-        return ok == c1 or ok == c2;
-    }
-    return false;
-}
-
-pub fn firstIs3(self: FloatStream, c1: u8, c2: u8, c3: u8) bool {
-    if (self.first()) |ok| {
-        return ok == c1 or ok == c2 or ok == c3;
+        inline for (cs) |c| if (ok | 0x20 == c) return true;
     }
     return false;
 }
@@ -89,12 +75,8 @@ pub fn advance(self: *FloatStream, n: usize) void {
     self.offset += n;
 }
 
-pub fn skipChars(self: *FloatStream, c: u8) void {
-    while (self.firstIs(c)) : (self.advance(1)) {}
-}
-
-pub fn skipChars2(self: *FloatStream, c1: u8, c2: u8) void {
-    while (self.firstIs2(c1, c2)) : (self.advance(1)) {}
+pub fn skipChars(self: *FloatStream, comptime cs: []const u8) void {
+    while (self.firstIs(cs)) : (self.advance(1)) {}
 }
 
 pub fn readU64Unchecked(self: FloatStream) u64 {

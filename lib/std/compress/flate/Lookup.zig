@@ -1,7 +1,7 @@
-/// Lookup of the previous locations for the same 4 byte data. Works on hash of
-/// 4 bytes data. Head contains position of the first match for each hash. Chain
-/// points to the previous position of the same hash given the current location.
-///
+//! Lookup of the previous locations for the same 4 byte data. Works on hash of
+//! 4 bytes data. Head contains position of the first match for each hash. Chain
+//! points to the previous position of the same hash given the current location.
+
 const std = @import("std");
 const testing = std.testing;
 const expect = testing.expect;
@@ -26,7 +26,7 @@ pub fn add(self: *Self, data: []const u8, pos: u16) u16 {
     return self.set(h, pos);
 }
 
-// Retruns previous location with the same hash value given the current
+// Returns previous location with the same hash value given the current
 // position.
 pub fn prev(self: *Self, pos: u16) u16 {
     return self.chain[pos];

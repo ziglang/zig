@@ -3,10 +3,10 @@
 # error "Never use <gnu/lib-names-32.h> directly; include <gnu/lib-names.h> instead."
 #endif
 
-#define LD_SO                           "ld.so.1"
+#define LD_LINUX_SO                     "ld-linux.so.2"
+#define LD_SO                           "ld-linux.so.2"
 #define LIBANL_SO                       "libanl.so.1"
 #define LIBBROKENLOCALE_SO              "libBrokenLocale.so.1"
-#define LIBCRYPT_SO                     "libcrypt.so.1"
 #define LIBC_MALLOC_DEBUG_SO            "libc_malloc_debug.so.0"
 #define LIBC_SO                         "libc.so.6"
 #define LIBDL_SO                        "libdl.so.2"

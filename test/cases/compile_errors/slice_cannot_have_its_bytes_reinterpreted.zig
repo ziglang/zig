@@ -7,4 +7,4 @@ export fn foo() void {
 // backend=stage2
 // target=native
 //
-// :3:49: error: comptime dereference requires '[]const u8' to have a well-defined layout, but it does not.
+// :3:49: error: comptime dereference requires '[]const u8' to have a well-defined layout

@@ -499,11 +499,9 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
 fn ChaChaImpl(comptime rounds_nb: usize) type {
     switch (builtin.cpu.arch) {
         .x86_64 => {
-            if (builtin.zig_backend == .stage2_x86_64) return ChaChaNonVecImpl(rounds_nb);
-
             const has_avx2 = std.Target.x86.featureSetHas(builtin.cpu.features, .avx2);
             const has_avx512f = std.Target.x86.featureSetHas(builtin.cpu.features, .avx512f);
-            if (has_avx512f) return ChaChaVecImpl(rounds_nb, 4);
+            if (builtin.zig_backend != .stage2_x86_64 and has_avx512f) return ChaChaVecImpl(rounds_nb, 4);
             if (has_avx2) return ChaChaVecImpl(rounds_nb, 2);
             return ChaChaVecImpl(rounds_nb, 1);
         },
@@ -590,21 +588,21 @@ fn ChaChaWith64BitNonce(comptime rounds_nb: usize) type {
 
             const k = keyToWords(key);
             var c: [4]u32 = undefined;
-            c[0] = @as(u32, @truncate(counter));
-            c[1] = @as(u32, @truncate(counter >> 32));
+            c[0] = @truncate(counter);
+            c[1] = @truncate(counter >> 32);
             c[2] = mem.readInt(u32, nonce[0..4], .little);
             c[3] = mem.readInt(u32, nonce[4..8], .little);
             ChaChaImpl(rounds_nb).chacha20Xor(out, in, k, c, true);
         }
 
         /// Write the output of the ChaCha20 stream cipher into `out`.
-        pub fn stream(out: []u8, counter: u32, key: [key_length]u8, nonce: [nonce_length]u8) void {
+        pub fn stream(out: []u8, counter: u64, key: [key_length]u8, nonce: [nonce_length]u8) void {
             assert(out.len <= 64 * (@as(u71, 1 << 64) - counter));
 
             const k = keyToWords(key);
             var c: [4]u32 = undefined;
-            c[0] = @as(u32, @truncate(counter));
-            c[1] = @as(u32, @truncate(counter >> 32));
+            c[0] = @truncate(counter);
+            c[1] = @truncate(counter >> 32);
             c[2] = mem.readInt(u32, nonce[0..4], .little);
             c[3] = mem.readInt(u32, nonce[4..8], .little);
             ChaChaImpl(rounds_nb).chacha20Stream(out, k, c, true);
@@ -632,7 +630,7 @@ fn XChaChaIETF(comptime rounds_nb: usize) type {
         /// Write the output of the XChaCha20 stream cipher into `out`.
         pub fn stream(out: []u8, counter: u32, key: [key_length]u8, nonce: [nonce_length]u8) void {
             const extended = extend(key, nonce, rounds_nb);
-            ChaChaIETF(rounds_nb).xor(out, counter, extended.key, extended.nonce);
+            ChaChaIETF(rounds_nb).stream(out, counter, extended.key, extended.nonce);
         }
     };
 }
@@ -714,9 +712,9 @@ fn ChaChaPoly1305(comptime rounds_nb: usize) type {
             var computed_tag: [16]u8 = undefined;
             mac.final(computed_tag[0..]);
 
-            const verify = crypto.utils.timingSafeEql([tag_length]u8, computed_tag, tag);
+            const verify = crypto.timing_safe.eql([tag_length]u8, computed_tag, tag);
             if (!verify) {
-                crypto.utils.secureZero(u8, &computed_tag);
+                crypto.secureZero(u8, &computed_tag);
                 @memset(m, undefined);
                 return error.AuthenticationFailed;
             }

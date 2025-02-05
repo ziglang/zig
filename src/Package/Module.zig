@@ -1,6 +1,4 @@
 //! Corresponds to something that Zig source code can `@import`.
-//! Not to be confused with src/Module.zig which will be renamed
-//! to Zcu. https://github.com/ziglang/zig/issues/14307
 
 /// Only files inside this directory can be imported.
 root: Cache.Path,
@@ -28,10 +26,12 @@ stack_protector: u32,
 red_zone: bool,
 sanitize_c: bool,
 sanitize_thread: bool,
-unwind_tables: bool,
+fuzz: bool,
+unwind_tables: std.builtin.UnwindTables,
 cc_argv: []const []const u8,
 /// (SPIR-V) whether to generate a structured control flow graph or not
 structured_cfg: bool,
+no_builtin: bool,
 
 /// If the module is an `@import("builtin")` module, this is the `File` that
 /// is preallocated for it. Otherwise this field is null.
@@ -91,10 +91,12 @@ pub const CreateOptions = struct {
         /// other number means stack protection with that buffer size.
         stack_protector: ?u32 = null,
         red_zone: ?bool = null,
-        unwind_tables: ?bool = null,
+        unwind_tables: ?std.builtin.UnwindTables = null,
         sanitize_c: ?bool = null,
         sanitize_thread: ?bool = null,
+        fuzz: ?bool = null,
         structured_cfg: ?bool = null,
+        no_builtin: ?bool = null,
     };
 };
 
@@ -108,18 +110,16 @@ pub const ResolvedTarget = struct {
 /// At least one of `parent` and `resolved_target` must be non-null.
 pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     if (options.inherited.sanitize_thread == true) assert(options.global.any_sanitize_thread);
+    if (options.inherited.fuzz == true) assert(options.global.any_fuzz);
     if (options.inherited.single_threaded == false) assert(options.global.any_non_single_threaded);
-    if (options.inherited.unwind_tables == true) assert(options.global.any_unwind_tables);
+    if (options.inherited.unwind_tables) |uwt| if (uwt != .none) assert(options.global.any_unwind_tables);
     if (options.inherited.error_tracing == true) assert(options.global.any_error_tracing);
 
     const resolved_target = options.inherited.resolved_target orelse options.parent.?.resolved_target;
     const target = resolved_target.result;
 
     const optimize_mode = options.inherited.optimize_mode orelse
-        if (options.parent) |p| p.optimize_mode else .Debug;
-
-    const unwind_tables = options.inherited.unwind_tables orelse
-        if (options.parent) |p| p.unwind_tables else options.global.any_unwind_tables;
+        if (options.parent) |p| p.optimize_mode else options.global.root_optimize_mode;
 
     const strip = b: {
         if (options.inherited.strip) |x| break :b x;
@@ -202,13 +202,35 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     const omit_frame_pointer = b: {
         if (options.inherited.omit_frame_pointer) |x| break :b x;
         if (options.parent) |p| break :b p.omit_frame_pointer;
-        if (optimize_mode == .Debug) break :b false;
-        break :b true;
+        if (optimize_mode == .ReleaseSmall) {
+            // On x86, in most cases, keeping the frame pointer usually results in smaller binary size.
+            // This has to do with how instructions for memory access via the stack base pointer register (when keeping the frame pointer)
+            // are smaller than instructions for memory access via the stack pointer register (when omitting the frame pointer).
+            break :b !target.cpu.arch.isX86();
+        }
+        break :b false;
     };
 
     const sanitize_thread = b: {
         if (options.inherited.sanitize_thread) |x| break :b x;
         if (options.parent) |p| break :b p.sanitize_thread;
+        break :b false;
+    };
+
+    const unwind_tables = b: {
+        if (options.inherited.unwind_tables) |x| break :b x;
+        if (options.parent) |p| break :b p.unwind_tables;
+
+        break :b target_util.defaultUnwindTables(
+            target,
+            options.global.link_libunwind,
+            sanitize_thread or options.global.any_sanitize_thread,
+        );
+    };
+
+    const fuzz = b: {
+        if (options.inherited.fuzz) |x| break :b x;
+        if (options.parent) |p| break :b p.fuzz;
         break :b false;
     };
 
@@ -291,23 +313,41 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         };
     };
 
+    const no_builtin = b: {
+        if (options.inherited.no_builtin) |x| break :b x;
+        if (options.parent) |p| break :b p.no_builtin;
+
+        break :b target.cpu.arch.isBpf();
+    };
+
     const llvm_cpu_features: ?[*:0]const u8 = b: {
         if (resolved_target.llvm_cpu_features) |x| break :b x;
         if (!options.global.use_llvm) break :b null;
 
         var buf = std.ArrayList(u8).init(arena);
-        for (target.cpu.arch.allFeaturesList(), 0..) |feature, index_usize| {
-            const index = @as(std.Target.Cpu.Feature.Set.Index, @intCast(index_usize));
-            const is_enabled = target.cpu.features.isEnabled(index);
+        var disabled_features = std.ArrayList(u8).init(arena);
+        defer disabled_features.deinit();
 
+        // Append disabled features after enabled ones, so that their effects aren't overwritten.
+        for (target.cpu.arch.allFeaturesList()) |feature| {
             if (feature.llvm_name) |llvm_name| {
-                const plus_or_minus = "-+"[@intFromBool(is_enabled)];
-                try buf.ensureUnusedCapacity(2 + llvm_name.len);
-                buf.appendAssumeCapacity(plus_or_minus);
-                buf.appendSliceAssumeCapacity(llvm_name);
-                buf.appendSliceAssumeCapacity(",");
+                const is_enabled = target.cpu.features.isEnabled(feature.index);
+
+                if (is_enabled) {
+                    try buf.ensureUnusedCapacity(2 + llvm_name.len);
+                    buf.appendAssumeCapacity('+');
+                    buf.appendSliceAssumeCapacity(llvm_name);
+                    buf.appendAssumeCapacity(',');
+                } else {
+                    try disabled_features.ensureUnusedCapacity(2 + llvm_name.len);
+                    disabled_features.appendAssumeCapacity('-');
+                    disabled_features.appendSliceAssumeCapacity(llvm_name);
+                    disabled_features.appendAssumeCapacity(',');
+                }
             }
         }
+
+        try buf.appendSlice(disabled_features.items);
         if (buf.items.len == 0) break :b "";
         assert(std.mem.endsWith(u8, buf.items, ","));
         buf.items[buf.items.len - 1] = 0;
@@ -339,9 +379,11 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         .red_zone = red_zone,
         .sanitize_c = sanitize_c,
         .sanitize_thread = sanitize_thread,
+        .fuzz = fuzz,
         .unwind_tables = unwind_tables,
         .cc_argv = options.cc_argv,
         .structured_cfg = structured_cfg,
+        .no_builtin = no_builtin,
         .builtin_file = null,
     };
 
@@ -353,6 +395,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .zig_backend = zig_backend,
             .output_mode = options.global.output_mode,
             .link_mode = options.global.link_mode,
+            .unwind_tables = unwind_tables,
             .is_test = options.global.is_test,
             .single_threaded = single_threaded,
             .link_libc = options.global.link_libc,
@@ -361,6 +404,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .error_tracing = error_tracing,
             .valgrind = valgrind,
             .sanitize_thread = sanitize_thread,
+            .fuzz = fuzz,
             .pic = pic,
             .pie = options.global.pie,
             .strip = strip,
@@ -381,7 +425,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
 
         const new_file = try arena.create(File);
 
-        const bin_digest, const hex_digest = digest: {
+        const hex_digest = digest: {
             var hasher: Cache.Hasher = Cache.hasher_init;
             hasher.update(generated_builtin_source);
 
@@ -395,7 +439,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
                 .{std.fmt.fmtSliceHexLower(&bin_digest)},
             ) catch unreachable;
 
-            break :digest .{ bin_digest, hex_digest };
+            break :digest hex_digest;
         };
 
         const builtin_sub_path = try arena.dupe(u8, "b" ++ std.fs.path.sep_str ++ hex_digest);
@@ -429,9 +473,11 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .red_zone = red_zone,
             .sanitize_c = sanitize_c,
             .sanitize_thread = sanitize_thread,
+            .fuzz = fuzz,
             .unwind_tables = unwind_tables,
             .cc_argv = &.{},
             .structured_cfg = structured_cfg,
+            .no_builtin = no_builtin,
             .builtin_file = new_file,
         };
         new_file.* = .{
@@ -444,11 +490,8 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .tree = undefined,
             .zir = undefined,
             .status = .never_loaded,
+            .prev_status = .never_loaded,
             .mod = new,
-            .root_decl = .none,
-            // We might as well use this digest for the File `path digest`, since there's a
-            // one-to-one correspondence here between distinct paths and distinct contents.
-            .path_digest = bin_digest,
         };
         break :b new;
     };
@@ -491,9 +534,11 @@ pub fn createLimited(gpa: Allocator, options: LimitedOptions) Allocator.Error!*P
         .red_zone = undefined,
         .sanitize_c = undefined,
         .sanitize_thread = undefined,
+        .fuzz = undefined,
         .unwind_tables = undefined,
         .cc_argv = undefined,
         .structured_cfg = undefined,
+        .no_builtin = undefined,
         .builtin_file = null,
     };
     return mod;
@@ -518,4 +563,4 @@ const Cache = std.Build.Cache;
 const Builtin = @import("../Builtin.zig");
 const assert = std.debug.assert;
 const Compilation = @import("../Compilation.zig");
-const File = @import("../Module.zig").File;
+const File = @import("../Zcu.zig").File;

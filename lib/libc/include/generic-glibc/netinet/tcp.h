@@ -272,6 +272,7 @@ struct tcp_info
 
 /* tcp_md5sig extension flags for TCP_MD5SIG_EXT.  */
 #define TCP_MD5SIG_FLAG_PREFIX	1 /* Address prefix length.  */
+#define TCP_MD5SIG_FLAG_IFINDEX	2 /* Ifindex set.  */
 
 struct tcp_md5sig
 {
@@ -279,7 +280,7 @@ struct tcp_md5sig
   uint8_t	tcpm_flags;			/* Extension flags.  */
   uint8_t	tcpm_prefixlen;			/* Address prefix.  */
   uint16_t	tcpm_keylen;			/* Key length.  */
-  uint32_t	__tcpm_pad;			/* Zero.  */
+  int		tcpm_ifindex;			/* Device index for scope.  */
   uint8_t	tcpm_key[TCP_MD5SIG_MAXKEYLEN];	/* Key (binary).  */
 };
 

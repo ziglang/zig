@@ -49,7 +49,7 @@ __cxa_uncaught_exception() throw() { return false; }
 unsigned int
 __cxa_uncaught_exceptions() throw() { return 0; }
 
-}  // extern "C"
+} // extern "C"
 
 // provide dummy implementations for the 'no exceptions' case.
 uint64_t __getExceptionClass  (const _Unwind_Exception*)           { return 0; }

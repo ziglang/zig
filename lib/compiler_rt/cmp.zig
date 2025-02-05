@@ -6,12 +6,12 @@ const common = @import("common.zig");
 pub const panic = common.panic;
 
 comptime {
-    @export(__cmpsi2, .{ .name = "__cmpsi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__cmpdi2, .{ .name = "__cmpdi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__cmpti2, .{ .name = "__cmpti2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ucmpsi2, .{ .name = "__ucmpsi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ucmpdi2, .{ .name = "__ucmpdi2", .linkage = common.linkage, .visibility = common.visibility });
-    @export(__ucmpti2, .{ .name = "__ucmpti2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__cmpsi2, .{ .name = "__cmpsi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__cmpdi2, .{ .name = "__cmpdi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__cmpti2, .{ .name = "__cmpti2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ucmpsi2, .{ .name = "__ucmpsi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ucmpdi2, .{ .name = "__ucmpdi2", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__ucmpti2, .{ .name = "__ucmpti2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
 // cmp - signed compare

@@ -18,19 +18,18 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _InputIterator, class _Predicate>
-_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
-is_partitioned(_InputIterator __first, _InputIterator __last, _Predicate __pred)
-{
-    for (; __first != __last; ++__first)
-        if (!__pred(*__first))
-            break;
-    if ( __first == __last )
-        return true;
-    ++__first;
-    for (; __first != __last; ++__first)
-        if (__pred(*__first))
-            return false;
+_LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
+is_partitioned(_InputIterator __first, _InputIterator __last, _Predicate __pred) {
+  for (; __first != __last; ++__first)
+    if (!__pred(*__first))
+      break;
+  if (__first == __last)
     return true;
+  ++__first;
+  for (; __first != __last; ++__first)
+    if (__pred(*__first))
+      return false;
+  return true;
 }
 
 _LIBCPP_END_NAMESPACE_STD

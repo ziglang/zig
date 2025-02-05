@@ -73,14 +73,30 @@ static void renderExpr(FILE *out, struct InputStream *in) {
     }
 }
 
+static const uint32_t big_endian = 0xff000000;
+
 int main(int argc, char **argv) {
-    if (argc != 3) {
-        fprintf(stderr, "usage: %s in.wasm.zst out.c\n", argv[0]);
+    if (argc != 3 && argc != 4) {
+        fprintf(stderr, "usage: %s <in.wasm.zst> <out.c> [endian]\n", argv[0]);
         return 1;
     }
 
+    bool is_big_endian;
+
+    if (argc >= 4) {
+        if (!strcmp(argv[3], "big")) {
+            is_big_endian = true;
+        } else if (!strcmp(argv[3], "little")) {
+            is_big_endian = false;
+        } else {
+            fprintf(stderr, "endianness must be 'big' or 'little'\n");
+            return 1;
+        }
+    } else {
+        is_big_endian = *(uint8_t *)&big_endian; // Infer from host endianness.
+    }
+
     const char *mod = "wasm";
-    bool is_big_endian = false; // TODO
 
     struct InputStream in;
     InputStream_open(&in, argv[1]);
@@ -93,7 +109,8 @@ int main(int argc, char **argv) {
 
     FILE *out = fopen(argv[2], "wb");
     if (out == NULL) panic("unable to open output file");
-    fputs("#include <math.h>\n"
+    fputs("#include <float.h>\n"
+          "#include <math.h>\n"
           "#include <stdint.h>\n"
           "#include <stdlib.h>\n"
           "#include <string.h>\n"
@@ -111,55 +128,55 @@ int main(int argc, char **argv) {
           "           (uint64_t)i32_byteswap(src >> 32) <<  0;\n"
           "}\n"
           "\n", out);
-    fputs("static uint16_t load16_align0(const uint8_t *ptr) {\n"
+    fputs("uint16_t load16_align0(const uint8_t *ptr) {\n"
           "    uint16_t val;\n"
           "    memcpy(&val, ptr, sizeof(val));\n", out);
     if (is_big_endian) fputs("    val = i16_byteswap(val);", out);
     fputs("    return val;\n"
           "}\n"
-          "static uint16_t load16_align1(const uint16_t *ptr) {\n"
+          "uint16_t load16_align1(const uint16_t *ptr) {\n"
           "    uint16_t val;\n"
           "    memcpy(&val, ptr, sizeof(val));\n", out);
     if (is_big_endian) fputs("    val = i16_byteswap(val);", out);
     fputs("    return val;\n"
           "}\n"
-          "static uint32_t load32_align0(const uint8_t *ptr) {\n"
+          "uint32_t load32_align0(const uint8_t *ptr) {\n"
           "    uint32_t val;\n"
           "    memcpy(&val, ptr, sizeof(val));\n", out);
     if (is_big_endian) fputs("    val = i32_byteswap(val);", out);
     fputs("    return val;\n"
           "}\n"
-          "static uint32_t load32_align1(const uint16_t *ptr) {\n"
+          "uint32_t load32_align1(const uint16_t *ptr) {\n"
           "    uint32_t val;\n"
           "    memcpy(&val, ptr, sizeof(val));\n", out);
     if (is_big_endian) fputs("    val = i32_byteswap(val);", out);
     fputs("    return val;\n"
           "}\n"
-          "static uint32_t load32_align2(const uint32_t *ptr) {\n"
+          "uint32_t load32_align2(const uint32_t *ptr) {\n"
           "    uint32_t val;\n"
           "    memcpy(&val, ptr, sizeof(val));\n", out);
     if (is_big_endian) fputs("    val = i32_byteswap(val);", out);
     fputs("    return val;\n"
           "}\n"
-          "static uint64_t load64_align0(const uint8_t *ptr) {\n"
+          "uint64_t load64_align0(const uint8_t *ptr) {\n"
           "    uint64_t val;\n"
           "    memcpy(&val, ptr, sizeof(val));\n", out);
     if (is_big_endian) fputs("    val = i64_byteswap(val);", out);
     fputs("    return val;\n"
           "}\n"
-          "static uint64_t load64_align1(const uint16_t *ptr) {\n"
+          "uint64_t load64_align1(const uint16_t *ptr) {\n"
           "    uint64_t val;\n"
           "    memcpy(&val, ptr, sizeof(val));\n", out);
     if (is_big_endian) fputs("    val = i64_byteswap(val);", out);
     fputs("    return val;\n"
           "}\n"
-          "static uint64_t load64_align2(const uint32_t *ptr) {\n"
+          "uint64_t load64_align2(const uint32_t *ptr) {\n"
           "    uint64_t val;\n"
           "    memcpy(&val, ptr, sizeof(val));\n", out);
     if (is_big_endian) fputs("    val = i64_byteswap(val);", out);
     fputs("    return val;\n"
           "}\n"
-          "static uint64_t load64_align3(const uint64_t *ptr) {\n"
+          "uint64_t load64_align3(const uint64_t *ptr) {\n"
           "    uint64_t val;\n"
           "    memcpy(&val, ptr, sizeof(val));\n", out);
     if (is_big_endian) fputs("    val = i64_byteswap(val);", out);
@@ -199,39 +216,39 @@ int main(int argc, char **argv) {
           "    return i64_ctz(lhs);\n"
           "}\n"
           "\n"
-          "static void store16_align0(uint8_t *ptr, uint16_t val) {\n", out);
+          "void store16_align0(uint8_t *ptr, uint16_t val) {\n", out);
     if (is_big_endian) fputs("    val = i16_byteswap(val);", out);
     fputs("    memcpy(ptr, &val, sizeof(val));\n"
           "}\n"
-          "static void store16_align1(uint16_t *ptr, uint16_t val) {\n", out);
+          "void store16_align1(uint16_t *ptr, uint16_t val) {\n", out);
     if (is_big_endian) fputs("    val = i16_byteswap(val);", out);
     fputs("    memcpy(ptr, &val, sizeof(val));\n"
           "}\n"
-          "static void store32_align0(uint8_t *ptr, uint32_t val) {\n", out);
+          "void store32_align0(uint8_t *ptr, uint32_t val) {\n", out);
     if (is_big_endian) fputs("    val = i32_byteswap(val);", out);
     fputs("    memcpy(ptr, &val, sizeof(val));\n"
           "}\n"
-          "static void store32_align1(uint16_t *ptr, uint32_t val) {\n", out);
+          "void store32_align1(uint16_t *ptr, uint32_t val) {\n", out);
     if (is_big_endian) fputs("    val = i32_byteswap(val);", out);
     fputs("    memcpy(ptr, &val, sizeof(val));\n"
           "}\n"
-          "static void store32_align2(uint32_t *ptr, uint32_t val) {\n", out);
+          "void store32_align2(uint32_t *ptr, uint32_t val) {\n", out);
     if (is_big_endian) fputs("    val = i32_byteswap(val);", out);
     fputs("    memcpy(ptr, &val, sizeof(val));\n"
           "}\n"
-          "static void store64_align0(uint8_t *ptr, uint64_t val) {\n", out);
+          "void store64_align0(uint8_t *ptr, uint64_t val) {\n", out);
     if (is_big_endian) fputs("    val = i64_byteswap(val);", out);
     fputs("    memcpy(ptr, &val, sizeof(val));\n"
           "}\n"
-          "static void store64_align1(uint16_t *ptr, uint64_t val) {\n", out);
+          "void store64_align1(uint16_t *ptr, uint64_t val) {\n", out);
     if (is_big_endian) fputs("    val = i64_byteswap(val);", out);
     fputs("    memcpy(ptr, &val, sizeof(val));\n"
           "}\n"
-          "static void store64_align2(uint32_t *ptr, uint64_t val) {\n", out);
+          "void store64_align2(uint32_t *ptr, uint64_t val) {\n", out);
     if (is_big_endian) fputs("    val = i64_byteswap(val);", out);
     fputs("    memcpy(ptr, &val, sizeof(val));\n"
           "}\n"
-          "static void store64_align3(uint64_t *ptr, uint64_t val) {\n", out);
+          "void store64_align3(uint64_t *ptr, uint64_t val) {\n", out);
     if (is_big_endian) fputs("    val = i64_byteswap(val);", out);
     fputs("    memcpy(ptr, &val, sizeof(val));\n"
           "}\n"
@@ -255,6 +272,47 @@ int main(int argc, char **argv) {
           "    double dst;\n"
           "    memcpy(&dst, &src, sizeof(dst));\n"
           "    return dst;\n"
+          "}\n"
+          "\n"
+          "static uint32_t i32_trunc_sat_f32(const float src) {\n"
+          "    if (isnan(src)) return 0;\n"
+          "    if (isinf(src)) return (uint32_t)(signbit(src) == 0 ? INT32_MAX : INT32_MIN);\n"
+          "    return (uint32_t)(int32_t)src;\n"
+          "}\n"
+          "static uint32_t u32_trunc_sat_f32(const float src) {\n"
+          "    if (isnan(src)) return 0;\n"
+          "    if (isinf(src)) return signbit(src) == 0 ? UINT32_MAX : 0;\n"
+          "    return (uint32_t)src;\n"
+          "}\n"
+          "static uint32_t i32_trunc_sat_f64(const double src) {\n"
+          "    if (isnan(src)) return 0;\n"
+          "    if (isinf(src)) return (uint32_t)(signbit(src) == 0 ? INT32_MAX : INT32_MIN);\n"
+          "    return (uint32_t)(int32_t)src;\n"
+          "}\n"
+          "static uint32_t u32_trunc_sat_f64(const double src) {\n"
+          "    if (isnan(src)) return 0;\n"
+          "    if (isinf(src)) return signbit(src) == 0 ? UINT32_MAX : 0;\n"
+          "    return (uint32_t)src;\n"
+          "}\n"
+          "static uint64_t i64_trunc_sat_f32(const float src) {\n"
+          "    if (isnan(src)) return 0;\n"
+          "    if (isinf(src)) return (uint64_t)(signbit(src) == 0 ? INT64_MAX : INT64_MIN);\n"
+          "    return (uint64_t)(int64_t)src;\n"
+          "}\n"
+          "static uint64_t u64_trunc_sat_f32(const float src) {\n"
+          "    if (isnan(src)) return 0;\n"
+          "    if (isinf(src)) return signbit(src) == 0 ? UINT64_MAX : 0;\n"
+          "    return (uint64_t)src;\n"
+          "}\n"
+          "static uint64_t i64_trunc_sat_f64(const double src) {\n"
+          "    if (isnan(src)) return 0;\n"
+          "    if (isinf(src)) return (uint64_t)(signbit(src) == 0 ? INT64_MAX : INT64_MIN);\n"
+          "    return (uint64_t)(int64_t)src;\n"
+          "}\n"
+          "static uint64_t u64_trunc_sat_f64(const double src) {\n"
+          "    if (isnan(src)) return 0;\n"
+          "    if (isinf(src)) return signbit(src) == 0 ? UINT64_MAX : 0;\n"
+          "    return (uint64_t)src;\n"
           "}\n"
           "\n"
           "static uint32_t memory_grow(uint8_t **m, uint32_t *p, uint32_t *c, uint32_t n) {\n"
@@ -2058,14 +2116,61 @@ int main(int argc, char **argv) {
                     case WasmOpcode_prefixed:
                         switch (InputStream_readLeb128_u32(&in)) {
                             case WasmPrefixedOpcode_i32_trunc_sat_f32_s:
+                                if (unreachable_depth == 0) {
+                                    uint32_t lhs = FuncGen_stackPop(&fg);
+                                    FuncGen_stackPush(&fg, out, WasmValType_i32);
+                                    fprintf(out, "i32_trunc_sat_f32(l%" PRIu32 ");\n", lhs);
+                                }
+                                break;
                             case WasmPrefixedOpcode_i32_trunc_sat_f32_u:
+                                if (unreachable_depth == 0) {
+                                    uint32_t lhs = FuncGen_stackPop(&fg);
+                                    FuncGen_stackPush(&fg, out, WasmValType_i32);
+                                    fprintf(out, "u32_trunc_sat_f32(l%" PRIu32 ");\n", lhs);
+                                }
+                                break;
                             case WasmPrefixedOpcode_i32_trunc_sat_f64_s:
+                                if (unreachable_depth == 0) {
+                                    uint32_t lhs = FuncGen_stackPop(&fg);
+                                    FuncGen_stackPush(&fg, out, WasmValType_i32);
+                                    fprintf(out, "i32_trunc_sat_f64(l%" PRIu32 ");\n", lhs);
+                                }
+                                break;
                             case WasmPrefixedOpcode_i32_trunc_sat_f64_u:
+                                if (unreachable_depth == 0) {
+                                    uint32_t lhs = FuncGen_stackPop(&fg);
+                                    FuncGen_stackPush(&fg, out, WasmValType_i32);
+                                    fprintf(out, "u32_trunc_sat_f64(l%" PRIu32 ");\n", lhs);
+                                }
+                                break;
                             case WasmPrefixedOpcode_i64_trunc_sat_f32_s:
+                                if (unreachable_depth == 0) {
+                                    uint32_t lhs = FuncGen_stackPop(&fg);
+                                    FuncGen_stackPush(&fg, out, WasmValType_i32);
+                                    fprintf(out, "i64_trunc_sat_f32(l%" PRIu32 ");\n", lhs);
+                                }
+                                break;
                             case WasmPrefixedOpcode_i64_trunc_sat_f32_u:
+                                if (unreachable_depth == 0) {
+                                    uint32_t lhs = FuncGen_stackPop(&fg);
+                                    FuncGen_stackPush(&fg, out, WasmValType_i32);
+                                    fprintf(out, "u64_trunc_sat_f32(l%" PRIu32 ");\n", lhs);
+                                }
+                                break;
                             case WasmPrefixedOpcode_i64_trunc_sat_f64_s:
+                                if (unreachable_depth == 0) {
+                                    uint32_t lhs = FuncGen_stackPop(&fg);
+                                    FuncGen_stackPush(&fg, out, WasmValType_i32);
+                                    fprintf(out, "i64_trunc_sat_f64(l%" PRIu32 ");\n", lhs);
+                                }
+                                break;
                             case WasmPrefixedOpcode_i64_trunc_sat_f64_u:
-                                if (unreachable_depth == 0) panic("unimplemented opcode");
+                                if (unreachable_depth == 0) {
+                                    uint32_t lhs = FuncGen_stackPop(&fg);
+                                    FuncGen_stackPush(&fg, out, WasmValType_i32);
+                                    fprintf(out, "u64_trunc_sat_f64(l%" PRIu32 ");\n", lhs);
+                                }
+                                break;
 
                             case WasmPrefixedOpcode_memory_init:
                                 (void)InputStream_readLeb128_u32(&in);

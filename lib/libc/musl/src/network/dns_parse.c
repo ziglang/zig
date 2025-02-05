@@ -12,16 +12,15 @@ int __dns_parse(const unsigned char *r, int rlen, int (*callback)(void *, int, c
 	p = r+12;
 	qdcount = r[4]*256 + r[5];
 	ancount = r[6]*256 + r[7];
-	if (qdcount+ancount > 64) return -1;
 	while (qdcount--) {
 		while (p-r < rlen && *p-1U < 127) p++;
-		if (p>r+rlen-6 || *p>193 || (*p==193 && p[1]>254))
+		if (p>r+rlen-6)
 			return -1;
 		p += 5 + !!*p;
 	}
 	while (ancount--) {
 		while (p-r < rlen && *p-1U < 127) p++;
-		if (p>r+rlen-12 || *p>193 || (*p==193 && p[1]>254))
+		if (p>r+rlen-12)
 			return -1;
 		p += 1 + !!*p;
 		len = p[8]*256 + p[9];

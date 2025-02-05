@@ -2,11 +2,13 @@ const std = @import("std");
 const builtin = @import("builtin");
 const mem = std.mem;
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 test "@shuffle int" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and
         !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .ssse3)) return error.SkipZigTest;
 
@@ -48,12 +50,95 @@ test "@shuffle int" {
     try comptime S.doTheTest();
 }
 
+test "@shuffle int strange sizes" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    try comptime testShuffle(2, 2, 2);
+    try testShuffle(2, 2, 2);
+    try comptime testShuffle(4, 4, 4);
+    try testShuffle(4, 4, 4);
+    try comptime testShuffle(7, 4, 4);
+    try testShuffle(7, 4, 4);
+    try comptime testShuffle(8, 6, 4);
+    try testShuffle(8, 6, 4);
+    try comptime testShuffle(2, 7, 5);
+    try testShuffle(2, 7, 5);
+    try comptime testShuffle(13, 16, 12);
+    try testShuffle(13, 16, 12);
+    try comptime testShuffle(19, 3, 17);
+    try testShuffle(19, 3, 17);
+    try comptime testShuffle(1, 10, 1);
+    try testShuffle(1, 10, 1);
+}
+
+fn testShuffle(
+    comptime x_len: comptime_int,
+    comptime a_len: comptime_int,
+    comptime b_len: comptime_int,
+) !void {
+    const T = i32;
+    const XT = @Vector(x_len, T);
+    const AT = @Vector(a_len, T);
+    const BT = @Vector(b_len, T);
+
+    const a_elems = comptime blk: {
+        var elems: [a_len]T = undefined;
+        for (&elems, 0..) |*elem, i| elem.* = @intCast(100 + i);
+        break :blk elems;
+    };
+    var a: AT = a_elems;
+    _ = &a;
+
+    const b_elems = comptime blk: {
+        var elems: [b_len]T = undefined;
+        for (&elems, 0..) |*elem, i| elem.* = @intCast(1000 + i);
+        break :blk elems;
+    };
+    var b: BT = b_elems;
+    _ = &b;
+
+    const mask_seed: []const i32 = &.{ -14, -31, 23, 1, 21, 13, 17, -21, -10, -27, -16, -5, 15, 14, -2, 26, 2, -31, -24, -16 };
+
+    const mask = comptime blk: {
+        var elems: [x_len]i32 = undefined;
+        for (&elems, 0..) |*elem, i| {
+            const mask_val = mask_seed[i];
+            if (mask_val >= 0) {
+                elem.* = @mod(mask_val, a_len);
+            } else {
+                elem.* = @mod(mask_val, -b_len);
+            }
+        }
+
+        break :blk elems;
+    };
+
+    const x: XT = @shuffle(T, a, b, mask);
+
+    const x_elems: [x_len]T = x;
+    for (mask, x_elems) |m, x_elem| {
+        if (m >= 0) {
+            // Element from A
+            try expectEqual(x_elem, a_elems[@intCast(m)]);
+        } else {
+            // Element from B
+            try expectEqual(x_elem, b_elems[@intCast(~m)]);
+        }
+    }
+}
+
 test "@shuffle bool 1" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -76,11 +161,7 @@ test "@shuffle bool 2" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
-    if (builtin.zig_backend == .stage2_llvm) {
-        // https://github.com/ziglang/zig/issues/3246
-        return error.SkipZigTest;
-    }
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {

@@ -5,9 +5,7 @@ const build_options = @import("build_options");
 pub const enable = if (builtin.is_test) false else build_options.enable_tracy;
 pub const enable_allocation = enable and build_options.enable_tracy_allocation;
 pub const enable_callstack = enable and build_options.enable_tracy_callstack;
-
-// TODO: make this configurable
-const callstack_depth = 10;
+pub const callstack_depth = if (enable_callstack and build_options.tracy_callstack_depth > 0) build_options.tracy_callstack_depth else 10;
 
 const ___tracy_c_zone_context = extern struct {
     id: u32,

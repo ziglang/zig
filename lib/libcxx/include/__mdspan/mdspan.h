@@ -27,7 +27,6 @@
 #include <__type_traits/is_array.h>
 #include <__type_traits/is_constructible.h>
 #include <__type_traits/is_convertible.h>
-#include <__type_traits/is_default_constructible.h>
 #include <__type_traits/is_nothrow_constructible.h>
 #include <__type_traits/is_pointer.h>
 #include <__type_traits/is_same.h>
@@ -244,9 +243,14 @@ public:
   _LIBCPP_HIDE_FROM_ABI constexpr const mapping_type& mapping() const noexcept { return __map_; };
   _LIBCPP_HIDE_FROM_ABI constexpr const accessor_type& accessor() const noexcept { return __acc_; };
 
-  _LIBCPP_HIDE_FROM_ABI static constexpr bool is_always_unique() { return mapping_type::is_always_unique(); };
-  _LIBCPP_HIDE_FROM_ABI static constexpr bool is_always_exhaustive() { return mapping_type::is_always_exhaustive(); };
-  _LIBCPP_HIDE_FROM_ABI static constexpr bool is_always_strided() { return mapping_type::is_always_strided(); };
+  // per LWG-4021 "mdspan::is_always_meow() should be noexcept"
+  _LIBCPP_HIDE_FROM_ABI static constexpr bool is_always_unique() noexcept { return mapping_type::is_always_unique(); };
+  _LIBCPP_HIDE_FROM_ABI static constexpr bool is_always_exhaustive() noexcept {
+    return mapping_type::is_always_exhaustive();
+  };
+  _LIBCPP_HIDE_FROM_ABI static constexpr bool is_always_strided() noexcept {
+    return mapping_type::is_always_strided();
+  };
 
   _LIBCPP_HIDE_FROM_ABI constexpr bool is_unique() const { return __map_.is_unique(); };
   _LIBCPP_HIDE_FROM_ABI constexpr bool is_exhaustive() const { return __map_.is_exhaustive(); };
@@ -262,10 +266,17 @@ private:
   friend class mdspan;
 };
 
+#  if _LIBCPP_STD_VER >= 26
 template <class _ElementType, class... _OtherIndexTypes>
   requires((is_convertible_v<_OtherIndexTypes, size_t> && ...) && (sizeof...(_OtherIndexTypes) > 0))
-explicit mdspan(_ElementType*, _OtherIndexTypes...)
-    -> mdspan<_ElementType, dextents<size_t, sizeof...(_OtherIndexTypes)>>;
+explicit mdspan(_ElementType*,
+                _OtherIndexTypes...) -> mdspan<_ElementType, extents<size_t, __maybe_static_ext<_OtherIndexTypes>...>>;
+#  else
+template <class _ElementType, class... _OtherIndexTypes>
+  requires((is_convertible_v<_OtherIndexTypes, size_t> && ...) && (sizeof...(_OtherIndexTypes) > 0))
+explicit mdspan(_ElementType*,
+                _OtherIndexTypes...) -> mdspan<_ElementType, dextents<size_t, sizeof...(_OtherIndexTypes)>>;
+#  endif
 
 template <class _Pointer>
   requires(is_pointer_v<remove_reference_t<_Pointer>>)

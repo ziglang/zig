@@ -16,7 +16,7 @@
 #include <__tuple/tuple_indices.h>
 #include <__tuple/tuple_size.h>
 #include <__tuple/tuple_types.h>
-#include <__type_traits/apply_cv.h>
+#include <__type_traits/copy_cvref.h>
 #include <__type_traits/remove_cv.h>
 #include <__type_traits/remove_reference.h>
 #include <cstddef>
@@ -37,38 +37,38 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template <class _TupleTypes, class _TupleIndices>
 struct __make_tuple_types_flat;
 
-template <template <class...> class _Tuple, class ..._Types, size_t ..._Idx>
+template <template <class...> class _Tuple, class... _Types, size_t... _Idx>
 struct __make_tuple_types_flat<_Tuple<_Types...>, __tuple_indices<_Idx...>> {
   // Specialization for pair, tuple, and __tuple_types
   template <class _Tp>
-  using __apply_quals _LIBCPP_NODEBUG = __tuple_types<__apply_cv_t<_Tp, __type_pack_element<_Idx, _Types...>>...>;
+  using __apply_quals _LIBCPP_NODEBUG = __tuple_types<__copy_cvref_t<_Tp, __type_pack_element<_Idx, _Types...>>...>;
 };
 
-template <class _Vt, size_t _Np, size_t ..._Idx>
+template <class _Vt, size_t _Np, size_t... _Idx>
 struct __make_tuple_types_flat<array<_Vt, _Np>, __tuple_indices<_Idx...>> {
   template <size_t>
   using __value_type = _Vt;
   template <class _Tp>
-  using __apply_quals = __tuple_types<__apply_cv_t<_Tp, __value_type<_Idx>>...>;
+  using __apply_quals = __tuple_types<__copy_cvref_t<_Tp, __value_type<_Idx>>...>;
 };
 
-template <class _Tp, size_t _Ep = tuple_size<__libcpp_remove_reference_t<_Tp> >::value,
-          size_t _Sp = 0,
+template <class _Tp,
+          size_t _Ep     = tuple_size<__libcpp_remove_reference_t<_Tp> >::value,
+          size_t _Sp     = 0,
           bool _SameSize = (_Ep == tuple_size<__libcpp_remove_reference_t<_Tp> >::value)>
-struct __make_tuple_types
-{
-    static_assert(_Sp <= _Ep, "__make_tuple_types input error");
-    using _RawTp = __remove_cv_t<__libcpp_remove_reference_t<_Tp> >;
-    using _Maker = __make_tuple_types_flat<_RawTp, typename __make_tuple_indices<_Ep, _Sp>::type>;
-    using type = typename _Maker::template __apply_quals<_Tp>;
+struct __make_tuple_types {
+  static_assert(_Sp <= _Ep, "__make_tuple_types input error");
+  using _RawTp = __remove_cv_t<__libcpp_remove_reference_t<_Tp> >;
+  using _Maker = __make_tuple_types_flat<_RawTp, typename __make_tuple_indices<_Ep, _Sp>::type>;
+  using type   = typename _Maker::template __apply_quals<_Tp>;
 };
 
-template <class ..._Types, size_t _Ep>
+template <class... _Types, size_t _Ep>
 struct __make_tuple_types<tuple<_Types...>, _Ep, 0, true> {
   typedef _LIBCPP_NODEBUG __tuple_types<_Types...> type;
 };
 
-template <class ..._Types, size_t _Ep>
+template <class... _Types, size_t _Ep>
 struct __make_tuple_types<__tuple_types<_Types...>, _Ep, 0, true> {
   typedef _LIBCPP_NODEBUG __tuple_types<_Types...> type;
 };

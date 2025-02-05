@@ -9,6 +9,10 @@
 #ifndef __CLANG_LIMITS_H
 #define __CLANG_LIMITS_H
 
+#if defined(__MVS__) && __has_include_next(<limits.h>)
+#include_next <limits.h>
+#else
+
 /* The system's limits.h may, in turn, try to #include_next GCC's limits.h.
    Avert this #include_next madness. */
 #if defined __GNUC__ && !defined _GCC_LIMITS_H_
@@ -66,10 +70,8 @@
 
 #define CHAR_BIT  __CHAR_BIT__
 
-/* C2x 5.2.4.2.1 */
-/* FIXME: This is using the placeholder dates Clang produces for these macros
-   in C2x mode; switch to the correct values once they've been published. */
-#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202000L
+/* C23 5.2.4.2.1 */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
 #define BOOL_WIDTH   __BOOL_WIDTH__
 #define CHAR_WIDTH   CHAR_BIT
 #define SCHAR_WIDTH  CHAR_BIT
@@ -124,4 +126,5 @@
 #define ULONG_LONG_MAX (__LONG_LONG_MAX__*2ULL+1ULL)
 #endif
 
+#endif /* __MVS__ */
 #endif /* __CLANG_LIMITS_H */

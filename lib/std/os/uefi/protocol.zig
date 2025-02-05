@@ -14,6 +14,8 @@ pub const SimpleTextOutput = @import("protocol/simple_text_output.zig").SimpleTe
 pub const SimplePointer = @import("protocol/simple_pointer.zig").SimplePointer;
 pub const AbsolutePointer = @import("protocol/absolute_pointer.zig").AbsolutePointer;
 
+pub const SerialIo = @import("protocol/serial_io.zig").SerialIo;
+
 pub const GraphicsOutput = @import("protocol/graphics_output.zig").GraphicsOutput;
 
 pub const edid = @import("protocol/edid.zig");

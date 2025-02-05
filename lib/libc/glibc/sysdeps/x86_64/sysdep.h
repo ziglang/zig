@@ -1,5 +1,5 @@
 /* Assembler macros for x86-64.
-   Copyright (C) 2001-2023 Free Software Foundation, Inc.
+   Copyright (C) 2001-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -26,9 +26,51 @@
 # define LP_SIZE "8"
 #endif
 
+/* __CET__ is defined by GCC with Control-Flow Protection values:
+
+enum cf_protection_level
+{
+  CF_NONE = 0,
+  CF_BRANCH = 1 << 0,
+  CF_RETURN = 1 << 1,
+  CF_FULL = CF_BRANCH | CF_RETURN,
+  CF_SET = 1 << 2
+};
+*/
+
+/* Set if CF_BRANCH (IBT) is enabled.  */
+#define X86_FEATURE_1_IBT	(1U << 0)
+/* Set if CF_RETURN (SHSTK) is enabled.  */
+#define X86_FEATURE_1_SHSTK	(1U << 1)
+
+#ifdef __CET__
+# define CET_ENABLED	1
+# define SHSTK_ENABLED	(__CET__ & X86_FEATURE_1_SHSTK)
+#else
+# define CET_ENABLED	0
+# define SHSTK_ENABLED	0
+#endif
+
 #ifdef	__ASSEMBLER__
 
 /* Syntactic details of assembler.  */
+
+#ifdef _CET_ENDBR
+# define _CET_NOTRACK notrack
+#else
+# define _CET_ENDBR
+# define _CET_NOTRACK
+#endif
+
+/* Define an entry point visible from C.  */
+#define	ENTRY_P2ALIGN(name, alignment)					      \
+  .globl C_SYMBOL_NAME(name);						      \
+  .type C_SYMBOL_NAME(name),@function;					      \
+  .align ALIGNARG(alignment);						      \
+  C_LABEL(name)								      \
+  cfi_startproc;							      \
+  _CET_ENDBR;								      \
+  CALL_MCOUNT
 
 /* This macro is for setting proper CFI with DW_CFA_expression describing
    the register as saved relative to %rsp instead of relative to the CFA.

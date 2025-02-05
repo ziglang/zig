@@ -63,13 +63,8 @@
  *	@(#)ctype.h	8.4 (Berkeley) 1/21/94
  */
 
-#ifndef	_CTYPE_H_
-#define _CTYPE_H_
-
 #include <_ctype.h>
 
 #ifdef _USE_EXTENDED_LOCALES_
 #include <xlocale/_ctype.h>
 #endif /* _USE_EXTENDED_LOCALES_ */
-
-#endif /* !_CTYPE_H_ */

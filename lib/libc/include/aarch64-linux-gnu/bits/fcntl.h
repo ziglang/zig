@@ -1,5 +1,5 @@
 /* O_*, F_*, FD_* bit values for the AArch64 Linux ABI.
-   Copyright (C) 2011-2023 Free Software Foundation, Inc.
+   Copyright (C) 2011-2024 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 

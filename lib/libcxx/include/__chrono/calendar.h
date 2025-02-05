@@ -22,18 +22,18 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-namespace chrono
-{
+namespace chrono {
 
 struct local_t {};
-template<class _Duration>
-using local_time  = time_point<local_t, _Duration>;
+template <class _Duration>
+using local_time    = time_point<local_t, _Duration>;
 using local_seconds = local_time<seconds>;
 using local_days    = local_time<days>;
 
-struct last_spec { explicit last_spec() = default; };
+struct last_spec {
+  explicit last_spec() = default;
+};
 inline constexpr last_spec last{};
-
 
 } // namespace chrono
 

@@ -21,12 +21,15 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 // unique
 
 template <class _AlgPolicy, class _Iter, class _Sent, class _BinaryPredicate>
-_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 std::pair<_Iter, _Iter>
+_LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 std::pair<_Iter, _Iter>
 __unique(_Iter __first, _Sent __last, _BinaryPredicate&& __pred) {
   __first = std::__adjacent_find(__first, __last, __pred);
   if (__first != __last) {
@@ -43,17 +46,19 @@ __unique(_Iter __first, _Sent __last, _BinaryPredicate&& __pred) {
 }
 
 template <class _ForwardIterator, class _BinaryPredicate>
-_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _ForwardIterator
+_LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _ForwardIterator
 unique(_ForwardIterator __first, _ForwardIterator __last, _BinaryPredicate __pred) {
   return std::__unique<_ClassicAlgPolicy>(std::move(__first), std::move(__last), __pred).first;
 }
 
 template <class _ForwardIterator>
-_LIBCPP_NODISCARD_EXT inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _ForwardIterator
+_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _ForwardIterator
 unique(_ForwardIterator __first, _ForwardIterator __last) {
   return std::unique(__first, __last, __equal_to());
 }
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_UNIQUE_H

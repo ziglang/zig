@@ -84,7 +84,7 @@ pub fn match(self: *Self, prev_pos: u16, curr_pos: u16, min_len: u16) u16 {
     const prev_lh = self.buffer[prev_pos..][0..max_len];
     const curr_lh = self.buffer[curr_pos..][0..max_len];
 
-    // If we alread have match (min_len > 0),
+    // If we already have match (min_len > 0),
     // test the first byte above previous len a[min_len] != b[min_len]
     // and then all the bytes from that position to zero.
     // That is likely positions to find difference than looping from first bytes.

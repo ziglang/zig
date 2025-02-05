@@ -1,5 +1,5 @@
 pub export fn entry(param: usize) usize {
-    return struct { param };
+    return struct { @TypeOf(param) };
 }
 
 // error

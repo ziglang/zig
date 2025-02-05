@@ -32,14 +32,6 @@ typedef struct D3DCOLORVALUE
 
 typedef D3DCOLORVALUE D2D_COLOR_F;
 
-typedef struct D2D_RECT_F
-{
-    float left;
-    float top;
-    float right;
-    float bottom;
-} D2D_RECT_F;
-
 typedef struct D2D_SIZE_F
 {
     float width;

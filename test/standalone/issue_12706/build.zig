@@ -6,20 +6,22 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const target = b.host;
+    const target = b.graph.host;
 
     const exe = b.addExecutable(.{
         .name = "main",
-        .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .optimize = optimize,
+            .target = target,
+        }),
     });
 
     const c_sources = [_][]const u8{
         "test.c",
     };
-    exe.addCSourceFiles(.{ .files = &c_sources });
-    exe.linkLibC();
+    exe.root_module.addCSourceFiles(.{ .files = &c_sources });
+    exe.root_module.link_libc = true;
 
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.expectExitCode(0);

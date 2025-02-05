@@ -10,24 +10,30 @@ pub fn build(b: *std.Build) void {
 
     const touch = b.addExecutable(.{
         .name = "touch",
-        .root_source_file = touch_src,
-        .optimize = .Debug,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = touch_src,
+            .optimize = .Debug,
+            .target = target,
+        }),
     });
     const generated = b.addRunArtifact(touch).addOutputFileArg("subdir" ++ std.fs.path.sep_str ++ "generated.txt");
 
     const exists_in = b.addExecutable(.{
         .name = "exists_in",
-        .root_source_file = b.path("exists_in.zig"),
-        .optimize = .Debug,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("exists_in.zig"),
+            .optimize = .Debug,
+            .target = target,
+        }),
     });
 
     const has_basename = b.addExecutable(.{
         .name = "has_basename",
-        .root_source_file = b.path("has_basename.zig"),
-        .optimize = .Debug,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("has_basename.zig"),
+            .optimize = .Debug,
+            .target = target,
+        }),
     });
 
     // Known path:
@@ -55,7 +61,7 @@ pub fn build(b: *std.Build) void {
     const abs_path = setup_abspath: {
         const temp_dir = b.makeTempPath();
 
-        var dir = std.fs.openDirAbsolute(temp_dir, .{}) catch @panic("failed to open temp dir");
+        var dir = std.fs.cwd().openDir(temp_dir, .{}) catch @panic("failed to open temp dir");
         defer dir.close();
 
         var file = dir.createFile("foo.txt", .{}) catch @panic("failed to create file");

@@ -27,7 +27,7 @@
 #include <sys/cdefs.h>
 #include <stdint.h>
 #include <stddef.h> /* wchar_t */
-#include <_xlocale.h>
+#include <__xlocale.h>
 
 __BEGIN_DECLS
 intmax_t  strtoimax_l(const char * __restrict nptr, char ** __restrict endptr,

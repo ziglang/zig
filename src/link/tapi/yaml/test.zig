@@ -237,10 +237,7 @@ test "double quoted string" {
     try testing.expectEqualStrings(
         \\"here" are some escaped quotes
     , arr[1]);
-    try testing.expectEqualStrings(
-        \\newlines and tabs
-        \\are	supported
-    , arr[2]);
+    try testing.expectEqualStrings("newlines and tabs\nare\tsupported", arr[2]);
     try testing.expectEqualStrings(
         \\let's have
         \\some fun!

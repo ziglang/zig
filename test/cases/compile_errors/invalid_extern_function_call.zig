@@ -1,4 +1,4 @@
-const x = @extern(*const fn () callconv(.C) void, .{ .name = "foo" });
+const x = @extern(*const fn () callconv(.c) void, .{ .name = "foo" });
 
 export fn entry0() void {
     comptime x();
@@ -9,8 +9,7 @@ export fn entry1() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// :4:15: error: comptime call of extern function pointer
-// :8:5: error: inline call of extern function pointer
+// :4:15: error: comptime call of extern function
+// :4:5: note: 'comptime' keyword forces comptime evaluation
+// :8:5: error: inline call of extern function

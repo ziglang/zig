@@ -4,7 +4,7 @@
 #include <bits/types.h>
 
 /* Returned by `time'.  */
-#ifdef __USE_TIME_BITS64
+#ifdef __USE_TIME64_REDIRECTS
 typedef __time64_t time_t;
 #else
 typedef __time_t time_t;

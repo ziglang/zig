@@ -37,7 +37,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 namespace __itoa {
 inline constexpr char _Charconv_digits[] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e',
     'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'};
-static_assert(_VSTD::size(_Charconv_digits) == 36);
+static_assert(std::size(_Charconv_digits) == 36);
 } // __itoa
 
 // vvvvvvvvvv DERIVED FROM corecrt_internal_fltintrn.h vvvvvvvvvv
@@ -119,7 +119,7 @@ to_chars_result _Floating_to_chars_hex_precision(
     using _Traits    = _Floating_type_traits<_Floating>;
     using _Uint_type = typename _Traits::_Uint_type;
 
-    const _Uint_type _Uint_value    = _VSTD::bit_cast<_Uint_type>(_Value);
+    const _Uint_type _Uint_value    = std::bit_cast<_Uint_type>(_Value);
     const _Uint_type _Ieee_mantissa = _Uint_value & _Traits::_Denormal_mantissa_mask;
     const int32_t _Ieee_exponent    = static_cast<int32_t>(_Uint_value >> _Traits::_Exponent_shift);
 
@@ -269,7 +269,7 @@ to_chars_result _Floating_to_chars_hex_precision(
     // * Print the leading hexit, then mask it away.
     {
         const uint32_t _Nibble = static_cast<uint32_t>(_Adjusted_mantissa >> _Adjusted_explicit_bits);
-        _LIBCPP_ASSERT_UNCATEGORIZED(_Nibble < 3, "");
+        _LIBCPP_ASSERT_INTERNAL(_Nibble < 3, "");
         const char _Leading_hexit = static_cast<char>('0' + _Nibble);
 
         *_First++ = _Leading_hexit;
@@ -288,12 +288,12 @@ to_chars_result _Floating_to_chars_hex_precision(
         int32_t _Number_of_bits_remaining = _Adjusted_explicit_bits; // 24 for float, 52 for double
 
         for (;;) {
-            _LIBCPP_ASSERT_UNCATEGORIZED(_Number_of_bits_remaining >= 4, "");
-            _LIBCPP_ASSERT_UNCATEGORIZED(_Number_of_bits_remaining % 4 == 0, "");
+            _LIBCPP_ASSERT_INTERNAL(_Number_of_bits_remaining >= 4, "");
+            _LIBCPP_ASSERT_INTERNAL(_Number_of_bits_remaining % 4 == 0, "");
             _Number_of_bits_remaining -= 4;
 
             const uint32_t _Nibble = static_cast<uint32_t>(_Adjusted_mantissa >> _Number_of_bits_remaining);
-            _LIBCPP_ASSERT_UNCATEGORIZED(_Nibble < 16, "");
+            _LIBCPP_ASSERT_INTERNAL(_Nibble < 16, "");
             const char _Hexit = __itoa::_Charconv_digits[_Nibble];
 
             *_First++ = _Hexit;
@@ -307,7 +307,7 @@ to_chars_result _Floating_to_chars_hex_precision(
 
             if (_Number_of_bits_remaining == 0) {
                 // We've finished printing _Adjusted_mantissa, so all remaining hexits are '0'.
-                _VSTD::memset(_First, '0', static_cast<size_t>(_Precision));
+                std::memset(_First, '0', static_cast<size_t>(_Precision));
                 _First += _Precision;
                 break;
             }
@@ -330,7 +330,7 @@ to_chars_result _Floating_to_chars_hex_precision(
     *_First++ = _Sign_character;
 
     // We've already printed '-' if necessary, so uint32_t _Absolute_exponent avoids testing that again.
-    return _VSTD::to_chars(_First, _Last, _Absolute_exponent);
+    return std::to_chars(_First, _Last, _Absolute_exponent);
 }
 
 template <class _Floating>
@@ -347,7 +347,7 @@ to_chars_result _Floating_to_chars_hex_shortest(
     using _Traits    = _Floating_type_traits<_Floating>;
     using _Uint_type = typename _Traits::_Uint_type;
 
-    const _Uint_type _Uint_value = _VSTD::bit_cast<_Uint_type>(_Value);
+    const _Uint_type _Uint_value = std::bit_cast<_Uint_type>(_Value);
 
     if (_Uint_value == 0) { // zero detected; write "0p+0" and return
         // C11 7.21.6.1 "The fprintf function"/8: "If the value is zero, the exponent is zero."
@@ -359,7 +359,7 @@ to_chars_result _Floating_to_chars_hex_shortest(
             return {_Last, errc::value_too_large};
         }
 
-        _VSTD::memcpy(_First, _Str, _Len);
+        std::memcpy(_First, _Str, _Len);
 
         return {_First + _Len, errc{}};
     }
@@ -415,12 +415,12 @@ to_chars_result _Floating_to_chars_hex_shortest(
         // '0' hexits, the same condition works (as we print the final hexit and mask it away); we don't need to test
         // _Number_of_bits_remaining.
         do {
-            _LIBCPP_ASSERT_UNCATEGORIZED(_Number_of_bits_remaining >= 4, "");
-            _LIBCPP_ASSERT_UNCATEGORIZED(_Number_of_bits_remaining % 4 == 0, "");
+            _LIBCPP_ASSERT_INTERNAL(_Number_of_bits_remaining >= 4, "");
+            _LIBCPP_ASSERT_INTERNAL(_Number_of_bits_remaining % 4 == 0, "");
             _Number_of_bits_remaining -= 4;
 
             const uint32_t _Nibble = static_cast<uint32_t>(_Adjusted_mantissa >> _Number_of_bits_remaining);
-            _LIBCPP_ASSERT_UNCATEGORIZED(_Nibble < 16, "");
+            _LIBCPP_ASSERT_INTERNAL(_Nibble < 16, "");
             const char _Hexit = __itoa::_Charconv_digits[_Nibble];
 
             if (_First == _Last) {
@@ -457,7 +457,7 @@ to_chars_result _Floating_to_chars_hex_shortest(
     }
 
     // We've already printed '-' if necessary, so static_cast<uint32_t> avoids testing that again.
-    return _VSTD::to_chars(_First, _Last, static_cast<uint32_t>(_Unbiased_exponent));
+    return std::to_chars(_First, _Last, static_cast<uint32_t>(_Unbiased_exponent));
 }
 
 // For general precision, we can use lookup tables to avoid performing trial formatting.
@@ -839,7 +839,7 @@ to_chars_result _Floating_to_chars_general_precision(
     using _Traits    = _Floating_type_traits<_Floating>;
     using _Uint_type = typename _Traits::_Uint_type;
 
-    const _Uint_type _Uint_value = _VSTD::bit_cast<_Uint_type>(_Value);
+    const _Uint_type _Uint_value = std::bit_cast<_Uint_type>(_Value);
 
     if (_Uint_value == 0) { // zero detected; write "0" and return; _Precision is irrelevant due to zero-trimming
         if (_First == _Last) {
@@ -890,7 +890,7 @@ to_chars_result _Floating_to_chars_general_precision(
         _Table_end   = _Table_begin + _Precision + 5;
     } else {
         _Table_begin = _Tables::_Ordinary_X_table;
-        _Table_end   = _Table_begin + _VSTD::min(_Precision, _Tables::_Max_P) + 5;
+        _Table_end   = _Table_begin + std::min(_Precision, _Tables::_Max_P) + 5;
     }
 
     // Profiling indicates that linear search is faster than binary search for small tables.
@@ -898,11 +898,11 @@ to_chars_result _Floating_to_chars_general_precision(
     const _Uint_type* const _Table_lower_bound = [=] {
         if constexpr (!_IsSame<_Floating, float>::value) {
             if (_Precision > 155) { // threshold determined via profiling
-                return _VSTD::lower_bound(_Table_begin, _Table_end, _Uint_value, less{});
+                return std::lower_bound(_Table_begin, _Table_end, _Uint_value, less{});
             }
         }
 
-        return _VSTD::find_if(_Table_begin, _Table_end, [=](const _Uint_type _Elem) { return _Uint_value <= _Elem; });
+        return std::find_if(_Table_begin, _Table_end, [=](const _Uint_type _Elem) { return _Uint_value <= _Elem; });
     }();
 
     const ptrdiff_t _Table_index     = _Table_lower_bound - _Table_begin;
@@ -937,17 +937,17 @@ to_chars_result _Floating_to_chars_general_precision(
     // Write into the local buffer.
     // Clamping _Effective_precision allows _Buffer to be as small as possible, and increases efficiency.
     if (_Use_fixed_notation) {
-        _Effective_precision = _VSTD::min(_Precision - (_Scientific_exponent_X + 1), _Max_fixed_precision);
+        _Effective_precision = std::min(_Precision - (_Scientific_exponent_X + 1), _Max_fixed_precision);
         const to_chars_result _Buf_result =
-            _Floating_to_chars_fixed_precision(_Buffer, _VSTD::end(_Buffer), _Value, _Effective_precision);
-        _LIBCPP_ASSERT_UNCATEGORIZED(_Buf_result.ec == errc{}, "");
+            _Floating_to_chars_fixed_precision(_Buffer, std::end(_Buffer), _Value, _Effective_precision);
+        _LIBCPP_ASSERT_INTERNAL(_Buf_result.ec == errc{}, "");
         _Significand_last = _Buf_result.ptr;
     } else {
-        _Effective_precision = _VSTD::min(_Precision - 1, _Max_scientific_precision);
+        _Effective_precision = std::min(_Precision - 1, _Max_scientific_precision);
         const to_chars_result _Buf_result =
-            _Floating_to_chars_scientific_precision(_Buffer, _VSTD::end(_Buffer), _Value, _Effective_precision);
-        _LIBCPP_ASSERT_UNCATEGORIZED(_Buf_result.ec == errc{}, "");
-        _Significand_last = _VSTD::find(_Buffer, _Buf_result.ptr, 'e');
+            _Floating_to_chars_scientific_precision(_Buffer, std::end(_Buffer), _Value, _Effective_precision);
+        _LIBCPP_ASSERT_INTERNAL(_Buf_result.ec == errc{}, "");
+        _Significand_last = std::find(_Buffer, _Buf_result.ptr, 'e');
         _Exponent_first   = _Significand_last;
         _Exponent_last    = _Buf_result.ptr;
     }
@@ -968,7 +968,7 @@ to_chars_result _Floating_to_chars_general_precision(
     if (_Last - _First < _Significand_distance) {
         return {_Last, errc::value_too_large};
     }
-    _VSTD::memcpy(_First, _Significand_first, static_cast<size_t>(_Significand_distance));
+    std::memcpy(_First, _Significand_first, static_cast<size_t>(_Significand_distance));
     _First += _Significand_distance;
 
     // Copy the exponent to the output range.
@@ -977,7 +977,7 @@ to_chars_result _Floating_to_chars_general_precision(
         if (_Last - _First < _Exponent_distance) {
             return {_Last, errc::value_too_large};
         }
-        _VSTD::memcpy(_First, _Exponent_first, static_cast<size_t>(_Exponent_distance));
+        std::memcpy(_First, _Exponent_first, static_cast<size_t>(_Exponent_distance));
         _First += _Exponent_distance;
     }
 
@@ -992,9 +992,9 @@ to_chars_result _Floating_to_chars(
     char* _First, char* const _Last, _Floating _Value, const chars_format _Fmt, const int _Precision) noexcept {
 
     if constexpr (_Overload == _Floating_to_chars_overload::_Plain) {
-        _LIBCPP_ASSERT_UNCATEGORIZED(_Fmt == chars_format{}, ""); // plain overload must pass chars_format{} internally
+        _LIBCPP_ASSERT_INTERNAL(_Fmt == chars_format{}, ""); // plain overload must pass chars_format{} internally
     } else {
-        _LIBCPP_ASSERT_UNCATEGORIZED(_Fmt == chars_format::general || _Fmt == chars_format::scientific
+        _LIBCPP_ASSERT_ARGUMENT_WITHIN_DOMAIN(_Fmt == chars_format::general || _Fmt == chars_format::scientific
                          || _Fmt == chars_format::fixed || _Fmt == chars_format::hex,
             "invalid format in to_chars()");
     }
@@ -1002,7 +1002,7 @@ to_chars_result _Floating_to_chars(
     using _Traits    = _Floating_type_traits<_Floating>;
     using _Uint_type = typename _Traits::_Uint_type;
 
-    _Uint_type _Uint_value = _VSTD::bit_cast<_Uint_type>(_Value);
+    _Uint_type _Uint_value = std::bit_cast<_Uint_type>(_Value);
 
     const bool _Was_negative = (_Uint_value & _Traits::_Shifted_sign_mask) != 0;
 
@@ -1014,7 +1014,7 @@ to_chars_result _Floating_to_chars(
         *_First++ = '-';
 
         _Uint_value &= ~_Traits::_Shifted_sign_mask;
-        _Value = _VSTD::bit_cast<_Floating>(_Uint_value);
+        _Value = std::bit_cast<_Floating>(_Uint_value);
     }
 
     if ((_Uint_value & _Traits::_Shifted_exponent_mask) == _Traits::_Shifted_exponent_mask) {
@@ -1044,7 +1044,7 @@ to_chars_result _Floating_to_chars(
             return {_Last, errc::value_too_large};
         }
 
-        _VSTD::memcpy(_First, _Str, _Len);
+        std::memcpy(_First, _Str, _Len);
 
         return {_First + _Len, errc{}};
     }

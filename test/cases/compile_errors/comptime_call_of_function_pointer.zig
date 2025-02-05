@@ -4,7 +4,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// :3:20: error: comptime call of function pointer
+// :3:14: error: unable to resolve comptime value
+// :3:5: note: 'comptime' keyword forces comptime evaluation

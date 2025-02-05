@@ -126,7 +126,9 @@ pub fn norm_zero_case(random: Random, u: f64) f64 {
     }
 }
 
-test "normal dist sanity" {
+test "normal dist smoke test" {
+    // Hardcode 0 as the seed because it's possible a seed exists that fails
+    // this test.
     var prng = Random.DefaultPrng.init(0);
     const random = prng.random();
 

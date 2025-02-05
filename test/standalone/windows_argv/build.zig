@@ -9,34 +9,42 @@ pub fn build(b: *std.Build) !void {
 
     const optimize: std.builtin.OptimizeMode = .Debug;
 
-    const lib_gnu = b.addStaticLibrary(.{
+    const lib_gnu = b.addLibrary(.{
+        .linkage = .static,
         .name = "toargv-gnu",
-        .root_source_file = .{ .path = "lib.zig" },
-        .target = b.resolveTargetQuery(.{
-            .abi = .gnu,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("lib.zig"),
+            .target = b.resolveTargetQuery(.{
+                .abi = .gnu,
+            }),
+            .optimize = optimize,
         }),
-        .optimize = optimize,
     });
     const verify_gnu = b.addExecutable(.{
         .name = "verify-gnu",
-        .target = b.resolveTargetQuery(.{
-            .abi = .gnu,
+        .root_module = b.createModule(.{
+            .root_source_file = null,
+            .target = b.resolveTargetQuery(.{
+                .abi = .gnu,
+            }),
+            .optimize = optimize,
         }),
-        .optimize = optimize,
     });
-    verify_gnu.addCSourceFile(.{
-        .file = .{ .path = "verify.c" },
+    verify_gnu.root_module.addCSourceFile(.{
+        .file = b.path("verify.c"),
         .flags = &.{ "-DUNICODE", "-D_UNICODE" },
     });
     verify_gnu.mingw_unicode_entry_point = true;
-    verify_gnu.linkLibrary(lib_gnu);
-    verify_gnu.linkLibC();
+    verify_gnu.root_module.linkLibrary(lib_gnu);
+    verify_gnu.root_module.link_libc = true;
 
     const fuzz = b.addExecutable(.{
         .name = "fuzz",
-        .root_source_file = .{ .path = "fuzz.zig" },
-        .target = b.host,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("fuzz.zig"),
+            .target = b.graph.host,
+            .optimize = optimize,
+        }),
     });
 
     const fuzz_max_iterations = b.option(u64, "iterations", "The max fuzz iterations (default: 100)") orelse 100;
@@ -59,7 +67,7 @@ pub fn build(b: *std.Build) !void {
 
     // Only target the MSVC ABI if MSVC/Windows SDK is available
     const has_msvc = has_msvc: {
-        const sdk = std.zig.WindowsSdk.find(b.allocator) catch |err| switch (err) {
+        const sdk = std.zig.WindowsSdk.find(b.allocator, builtin.cpu.arch) catch |err| switch (err) {
             error.OutOfMemory => @panic("oom"),
             else => break :has_msvc false,
         };
@@ -67,27 +75,33 @@ pub fn build(b: *std.Build) !void {
         break :has_msvc true;
     };
     if (has_msvc) {
-        const lib_msvc = b.addStaticLibrary(.{
+        const lib_msvc = b.addLibrary(.{
+            .linkage = .static,
             .name = "toargv-msvc",
-            .root_source_file = .{ .path = "lib.zig" },
-            .target = b.resolveTargetQuery(.{
-                .abi = .msvc,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("lib.zig"),
+                .target = b.resolveTargetQuery(.{
+                    .abi = .msvc,
+                }),
+                .optimize = optimize,
             }),
-            .optimize = optimize,
         });
         const verify_msvc = b.addExecutable(.{
             .name = "verify-msvc",
-            .target = b.resolveTargetQuery(.{
-                .abi = .msvc,
+            .root_module = b.createModule(.{
+                .root_source_file = null,
+                .target = b.resolveTargetQuery(.{
+                    .abi = .msvc,
+                }),
+                .optimize = optimize,
             }),
-            .optimize = optimize,
         });
-        verify_msvc.addCSourceFile(.{
-            .file = .{ .path = "verify.c" },
+        verify_msvc.root_module.addCSourceFile(.{
+            .file = b.path("verify.c"),
             .flags = &.{ "-DUNICODE", "-D_UNICODE" },
         });
-        verify_msvc.linkLibrary(lib_msvc);
-        verify_msvc.linkLibC();
+        verify_msvc.root_module.linkLibrary(lib_msvc);
+        verify_msvc.root_module.link_libc = true;
 
         const run_msvc = b.addRunArtifact(fuzz);
         run_msvc.setName("fuzz-msvc");

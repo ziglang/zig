@@ -32,8 +32,8 @@ class ChainedOriginDepot {
   // Retrieves the stored StackDepot ID for the given origin ID.
   u32 Get(u32 id, u32 *other);
 
-  void LockAll();
-  void UnlockAll();
+  void LockBeforeFork();
+  void UnlockAfterFork(bool fork_child);
   void TestOnlyUnmap();
 
  private:

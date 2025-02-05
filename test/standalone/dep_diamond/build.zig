@@ -6,23 +6,23 @@ pub fn build(b: *std.Build) void {
 
     const optimize: std.builtin.OptimizeMode = .Debug;
 
-    const shared = b.createModule(.{
-        .root_source_file = b.path("shared.zig"),
+    const main_mod = b.createModule(.{
+        .root_source_file = b.path("test.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
     });
+    const shared_mod = b.createModule(.{ .root_source_file = b.path("shared.zig") });
+    const foo_mod = b.createModule(.{ .root_source_file = b.path("foo.zig") });
+    const bar_mod = b.createModule(.{ .root_source_file = b.path("bar.zig") });
+
+    main_mod.addImport("foo", foo_mod);
+    main_mod.addImport("bar", bar_mod);
+    foo_mod.addImport("shared", shared_mod);
+    bar_mod.addImport("shared", shared_mod);
 
     const exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = b.path("test.zig"),
-        .target = b.host,
-        .optimize = optimize,
-    });
-    exe.root_module.addAnonymousImport("foo", .{
-        .root_source_file = b.path("foo.zig"),
-        .imports = &.{.{ .name = "shared", .module = shared }},
-    });
-    exe.root_module.addAnonymousImport("bar", .{
-        .root_source_file = b.path("bar.zig"),
-        .imports = &.{.{ .name = "shared", .module = shared }},
+        .root_module = main_mod,
     });
 
     const run = b.addRunArtifact(exe);

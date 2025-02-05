@@ -19,13 +19,21 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
+#ifndef _LIBCPP_CXX03_LANG
+
+template <class _ToType, class _FromType>
+_LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI constexpr _ToType __bit_cast(const _FromType& __from) noexcept {
+  return __builtin_bit_cast(_ToType, __from);
+}
+
+#endif // _LIBCPP_CXX03_LANG
+
 #if _LIBCPP_STD_VER >= 20
 
 template <class _ToType, class _FromType>
-  requires(sizeof(_ToType) == sizeof(_FromType) &&
-           is_trivially_copyable_v<_ToType> &&
+  requires(sizeof(_ToType) == sizeof(_FromType) && is_trivially_copyable_v<_ToType> &&
            is_trivially_copyable_v<_FromType>)
-_LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr _ToType bit_cast(const _FromType& __from) noexcept {
+[[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr _ToType bit_cast(const _FromType& __from) noexcept {
   return __builtin_bit_cast(_ToType, __from);
 }
 

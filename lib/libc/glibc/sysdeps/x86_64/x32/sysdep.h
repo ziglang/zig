@@ -1,5 +1,5 @@
 /* Assembler macros for x32.
-   Copyright (C) 2012-2023 Free Software Foundation, Inc.
+   Copyright (C) 2012-2024 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -17,6 +17,7 @@
    <https://www.gnu.org/licenses/>.  */
 
 #include <sysdeps/x86_64/sysdep.h>
+#undef LP_SIZE
 #ifdef __ASSEMBLER__
 # define LP_SIZE 4
 #else

@@ -17,7 +17,9 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-struct _LIBCPP_TEMPLATE_VIS piecewise_construct_t { explicit piecewise_construct_t() = default; };
+struct _LIBCPP_TEMPLATE_VIS piecewise_construct_t {
+  explicit piecewise_construct_t() = default;
+};
 
 #if _LIBCPP_STD_VER >= 17
 inline constexpr piecewise_construct_t piecewise_construct = piecewise_construct_t();

@@ -10,7 +10,6 @@
 #ifndef _LIBCPP___STOP_TOKEN_STOP_SOURCE_H
 #define _LIBCPP___STOP_TOKEN_STOP_SOURCE_H
 
-#include <__availability>
 #include <__config>
 #include <__stop_token/intrusive_shared_ptr.h>
 #include <__stop_token/stop_state.h>
@@ -23,7 +22,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_STOP_TOKEN)
+#if _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_STOP_TOKEN) && !defined(_LIBCPP_HAS_NO_THREADS)
 
 struct nostopstate_t {
   explicit nostopstate_t() = default;
@@ -89,4 +88,4 @@ private:
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_STOP_TOKEN)
+#endif // _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_STOP_TOKEN) && !defined(_LIBCPP_HAS_NO_THREADS)

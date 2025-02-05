@@ -99,7 +99,7 @@ pub fn Inflate(comptime container: Container, comptime LookaheadType: type, comp
 
         fn storedBlock(self: *Self) !bool {
             self.bits.alignToByte(); // skip padding until byte boundary
-            // everyting after this is byte aligned in stored block
+            // everything after this is byte aligned in stored block
             var len = try self.bits.read(u16);
             const nlen = try self.bits.read(u16);
             if (len != ~nlen) return error.WrongStoredBlockNlen;
@@ -155,7 +155,7 @@ pub fn Inflate(comptime container: Container, comptime LookaheadType: type, comp
         fn dynamicBlockHeader(self: *Self) !void {
             const hlit: u16 = @as(u16, try self.bits.read(u5)) + 257; // number of ll code entries present - 257
             const hdist: u16 = @as(u16, try self.bits.read(u5)) + 1; // number of distance code entries - 1
-            const hclen: u8 = @as(u8, try self.bits.read(u4)) + 4; // hclen + 4 code lenths are encoded
+            const hclen: u8 = @as(u8, try self.bits.read(u4)) + 4; // hclen + 4 code lengths are encoded
 
             if (hlit > 286 or hdist > 30)
                 return error.InvalidDynamicBlockHeader;
@@ -180,7 +180,7 @@ pub fn Inflate(comptime container: Container, comptime LookaheadType: type, comp
                 return error.InvalidDynamicBlockHeader;
             }
 
-            // literal code lengts to literal decoder
+            // literal code lengths to literal decoder
             try self.lit_dec.generate(dec_lens[0..hlit]);
 
             // distance code lengths to distance decoder
@@ -347,6 +347,7 @@ pub fn Inflate(comptime container: Container, comptime LookaheadType: type, comp
         /// If the number of bytes read is 0, it means end of stream.
         /// End of stream is not an error condition.
         pub fn read(self: *Self, buffer: []u8) Error!usize {
+            if (buffer.len == 0) return 0;
             const out = try self.get(buffer.len);
             @memcpy(buffer[0..out.len], out);
             return out.len;
@@ -555,4 +556,15 @@ test "bug 18966" {
 
     try decompress(.gzip, in.reader(), out.writer());
     try testing.expectEqualStrings(expect, out.items);
+}
+
+test "bug 19895" {
+    const input = &[_]u8{
+        0b0000_0001, 0b0000_1100, 0x00, 0b1111_0011, 0xff, // deflate fixed buffer header len, nlen
+        'H', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l', 'd', 0x0a, // non compressed data
+    };
+    var in = std.io.fixedBufferStream(input);
+    var decomp = decompressor(.raw, in.reader());
+    var buf: [0]u8 = undefined;
+    try testing.expectEqual(0, try decomp.read(&buf));
 }

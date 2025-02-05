@@ -114,6 +114,7 @@ test "errdefer with payload" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo() !i32 {
@@ -136,6 +137,7 @@ test "reference to errdefer payload" {
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo() !i32 {
@@ -194,4 +196,50 @@ const defer_assign = switch (block: {
 };
 comptime {
     if (defer_assign != 0) @compileError("defer_assign failed!");
+}
+
+test "errdefer capture" {
+    const S = struct {
+        fail: bool = undefined,
+        fn bar0(self: *@This()) error{a}!void {
+            self.fail = false;
+            errdefer |err| if (@TypeOf(err) != error{a}) {
+                self.fail = true;
+            };
+            return error.a;
+        }
+        fn bar1(self: *@This()) error{a}!void {
+            self.fail = false;
+            errdefer |err| if (@TypeOf(err) != error{a}) {
+                self.fail = true;
+            };
+            const rv: error{a}!void = @errorCast(@as(error{a}!void, error.a));
+            return rv;
+        }
+        // https://github.com/ziglang/zig/issues/20371
+        fn bar2(self: *@This()) error{a}!void {
+            self.fail = false;
+            errdefer |err| if (@TypeOf(err) != error{a}) {
+                self.fail = true;
+            };
+            return @errorCast(@as(error{a}!void, error.a));
+        }
+    };
+
+    var s: S = .{};
+    s.bar0() catch {};
+    if (s.fail) return error.TestExpectedError;
+    s.bar1() catch {};
+    if (s.fail) return error.TestExpectedError;
+    s.bar2() catch {};
+    if (s.fail) return error.TestExpectedError;
+}
+
+test "errdefer in test block" {
+    errdefer |err| {
+        _ = &err;
+    }
+    var x: bool = false;
+    _ = &x;
+    if (x) return error.Something;
 }

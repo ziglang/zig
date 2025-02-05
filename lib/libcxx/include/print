@@ -15,8 +15,10 @@ namespace std {
   // [print.fun], print functions
   template<class... Args>
     void print(format_string<Args...> fmt, Args&&... args);
+  void println();                                                          // Since C++26
   template<class... Args>
     void print(FILE* stream, format_string<Args...> fmt, Args&&... args);
+  void println(FILE* stream);                                              // Since C++26
 
   template<class... Args>
     void println(format_string<Args...> fmt, Args&&... args);
@@ -31,27 +33,17 @@ namespace std {
 }
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
+#include <__assert>
 #include <__concepts/same_as.h>
 #include <__config>
-#include <__format/buffer.h>
-#include <__format/format_arg_store.h>
-#include <__format/format_args.h>
-#include <__format/format_context.h>
-#include <__format/format_error.h>
-#include <__format/format_functions.h>
-#include <__format/unicode.h>
 #include <__system_error/system_error.h>
 #include <__utility/forward.h>
 #include <cerrno>
 #include <cstdio>
+#include <format>
 #include <string>
 #include <string_view>
 #include <version>
-
-#if __has_include(<unistd.h>)
-#  include <unistd.h>
-#endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -59,7 +51,7 @@ namespace std {
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#ifdef _WIN32
+#ifdef _LIBCPP_WIN32API
 _LIBCPP_EXPORTED_FROM_ABI bool __is_windows_terminal(FILE* __stream);
 
 #  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
@@ -74,8 +66,9 @@ _LIBCPP_EXPORTED_FROM_ABI bool __is_windows_terminal(FILE* __stream);
 // Note the function is only implemented on the Windows platform.
 _LIBCPP_EXPORTED_FROM_ABI void __write_to_windows_console(FILE* __stream, wstring_view __view);
 #  endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
-
-#endif // _WIN32
+#elif __has_include(<unistd.h>)
+_LIBCPP_EXPORTED_FROM_ABI bool __is_posix_terminal(FILE* __stream);
+#endif // _LIBCPP_WIN32API
 
 #if _LIBCPP_STD_VER >= 23
 
@@ -122,6 +115,8 @@ _LIBCPP_HIDE_FROM_ABI constexpr void __encode(_OutIt&, char32_t) = delete;
 template <class _OutIt>
   requires __utf16_code_unit<iter_value_t<_OutIt>>
 _LIBCPP_HIDE_FROM_ABI constexpr void __encode(_OutIt& __out_it, char32_t __value) {
+  // [print.fun]/7 : "if `out` contains invalid code units, the behavior is undefined and implementations are encouraged
+  // to diagnose it".
   _LIBCPP_ASSERT_UNCATEGORIZED(__is_scalar_value(__value), "an invalid unicode scalar value results in invalid UTF-16");
 
   if (__value < 0x10000) {
@@ -137,6 +132,8 @@ _LIBCPP_HIDE_FROM_ABI constexpr void __encode(_OutIt& __out_it, char32_t __value
 template <class _OutIt>
   requires __utf32_code_unit<iter_value_t<_OutIt>>
 _LIBCPP_HIDE_FROM_ABI constexpr void __encode(_OutIt& __out_it, char32_t __value) {
+  // [print.fun]/7 : "if `out` contains invalid code units, the behavior is undefined and implementations are encouraged
+  // to diagnose it".
   _LIBCPP_ASSERT_UNCATEGORIZED(__is_scalar_value(__value), "an invalid unicode scalar value results in invalid UTF-32");
   *__out_it++ = __value;
 }
@@ -188,20 +185,26 @@ namespace __print {
 //
 
 #  ifdef _LIBCPP_HAS_NO_UNICODE
-inline constexpr bool __use_unicode = false;
+inline constexpr bool __use_unicode_execution_charset = false;
 #  elif defined(_MSVC_EXECUTION_CHARACTER_SET)
 // This is the same test MSVC STL uses in their implementation of <print>
 // See: https://learn.microsoft.com/en-us/windows/win32/intl/code-page-identifiers
-inline constexpr bool __use_unicode = _MSVC_EXECUTION_CHARACTER_SET == 65001;
+inline constexpr bool __use_unicode_execution_charset = _MSVC_EXECUTION_CHARACTER_SET == 65001;
 #  else
-inline constexpr bool __use_unicode = true;
+inline constexpr bool __use_unicode_execution_charset = true;
 #  endif
 
-_LIBCPP_HIDE_FROM_ABI inline bool __is_terminal(FILE* __stream) {
-#  ifdef _WIN32
+_LIBCPP_HIDE_FROM_ABI inline bool __is_terminal([[maybe_unused]] FILE* __stream) {
+  // The macro _LIBCPP_TESTING_PRINT_IS_TERMINAL is used to change
+  // the behavior in the test. This is not part of the public API.
+#  ifdef _LIBCPP_TESTING_PRINT_IS_TERMINAL
+  return _LIBCPP_TESTING_PRINT_IS_TERMINAL(__stream);
+#  elif _LIBCPP_AVAILABILITY_HAS_PRINT == 0
+  return false;
+#  elif defined(_LIBCPP_WIN32API)
   return std::__is_windows_terminal(__stream);
 #  elif __has_include(<unistd.h>)
-  return isatty(fileno(__stream));
+  return std::__is_posix_terminal(__stream);
 #  else
 #    error "Provide a way to determine whether a FILE* is a terminal"
 #  endif
@@ -210,7 +213,7 @@ _LIBCPP_HIDE_FROM_ABI inline bool __is_terminal(FILE* __stream) {
 template <class = void> // TODO PRINT template or availability markup fires too eagerly (http://llvm.org/PR61563).
 _LIBCPP_HIDE_FROM_ABI inline void
 __vprint_nonunicode(FILE* __stream, string_view __fmt, format_args __args, bool __write_nl) {
-  _LIBCPP_ASSERT_UNCATEGORIZED(__stream, "__stream is a valid pointer to an output C stream");
+  _LIBCPP_ASSERT_NON_NULL(__stream, "__stream must be a valid pointer to an output C stream");
   string __str = std::vformat(__fmt, __args);
   if (__write_nl)
     __str.push_back('\n');
@@ -271,7 +274,7 @@ __vprint_unicode_windows(FILE* __stream, string_view __fmt, format_args __args, 
   // the behavior in the test. This is not part of the public API.
 #      ifdef _LIBCPP_TESTING_PRINT_WRITE_TO_WINDOWS_CONSOLE_FUNCTION
   _LIBCPP_TESTING_PRINT_WRITE_TO_WINDOWS_CONSOLE_FUNCTION(__stream, __view);
-#      elif defined(_WIN32)
+#      elif defined(_LIBCPP_WIN32API)
   std::__write_to_windows_console(__stream, __view);
 #      else
   std::__throw_runtime_error("No defintion of _LIBCPP_TESTING_PRINT_WRITE_TO_WINDOWS_CONSOLE_FUNCTION and "
@@ -286,7 +289,7 @@ __vprint_unicode([[maybe_unused]] FILE* __stream,
                  [[maybe_unused]] string_view __fmt,
                  [[maybe_unused]] format_args __args,
                  [[maybe_unused]] bool __write_nl) {
-  _LIBCPP_ASSERT_UNCATEGORIZED(__stream, "__stream is a valid pointer to an output C stream");
+  _LIBCPP_ASSERT_NON_NULL(__stream, "__stream must be a valid pointer to an output C stream");
 
   // [print.fun]
   //   7 - Effects: If stream refers to a terminal capable of displaying
@@ -309,7 +312,7 @@ __vprint_unicode([[maybe_unused]] FILE* __stream,
   // so there the call can be forwarded to the non_unicode API. On
   // Windows there is a different API. This API requires transcoding.
 
-#    ifndef _WIN32
+#    ifndef _LIBCPP_WIN32API
   __print::__vprint_unicode_posix(__stream, __fmt, __args, __write_nl, __print::__is_terminal(__stream));
 #    elif !defined(_LIBCPP_HAS_NO_WIDE_CHARACTERS)
   __print::__vprint_unicode_windows(__stream, __fmt, __args, __write_nl, __print::__is_terminal(__stream));
@@ -325,7 +328,7 @@ __vprint_unicode([[maybe_unused]] FILE* __stream,
 template <class... _Args>
 _LIBCPP_HIDE_FROM_ABI void print(FILE* __stream, format_string<_Args...> __fmt, _Args&&... __args) {
 #  ifndef _LIBCPP_HAS_NO_UNICODE
-  if constexpr (__print::__use_unicode)
+  if constexpr (__print::__use_unicode_execution_charset)
     __print::__vprint_unicode(__stream, __fmt.get(), std::make_format_args(__args...), false);
   else
     __print::__vprint_nonunicode(__stream, __fmt.get(), std::make_format_args(__args...), false);
@@ -345,13 +348,23 @@ _LIBCPP_HIDE_FROM_ABI void println(FILE* __stream, format_string<_Args...> __fmt
   // Note the wording in the Standard is inefficient. The output of
   // std::format is a std::string which is then copied. This solution
   // just appends a newline at the end of the output.
-  if constexpr (__print::__use_unicode)
+  if constexpr (__print::__use_unicode_execution_charset)
     __print::__vprint_unicode(__stream, __fmt.get(), std::make_format_args(__args...), true);
   else
     __print::__vprint_nonunicode(__stream, __fmt.get(), std::make_format_args(__args...), true);
 #  else  // _LIBCPP_HAS_NO_UNICODE
   __print::__vprint_nonunicode(__stream, __fmt.get(), std::make_format_args(__args...), true);
 #  endif // _LIBCPP_HAS_NO_UNICODE
+}
+
+template <class = void> // TODO PRINT template or availability markup fires too eagerly (http://llvm.org/PR61563).
+_LIBCPP_HIDE_FROM_ABI inline void println(FILE* __stream) {
+  std::print(__stream, "\n");
+}
+
+template <class = void> // TODO PRINT template or availability markup fires too eagerly (http://llvm.org/PR61563).
+_LIBCPP_HIDE_FROM_ABI inline void println() {
+  println(stdout);
 }
 
 template <class... _Args>

@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) void {
     b.default_step = test_step;
 
     const optimize: std.builtin.OptimizeMode = .Debug;
-    const target = b.host;
+    const target = b.graph.host;
 
     // The test requires getFdPath in order to to get the path of the
     // File returned by openSelfExe
@@ -15,16 +15,20 @@ pub fn build(b: *std.Build) void {
 
     const main = b.addExecutable(.{
         .name = "main",
-        .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .optimize = optimize,
+            .target = target,
+        }),
     });
 
     const create_symlink_exe = b.addExecutable(.{
         .name = "create-symlink",
-        .root_source_file = b.path("create-symlink.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("create-symlink.zig"),
+            .optimize = optimize,
+            .target = target,
+        }),
     });
 
     var run_create_symlink = b.addRunArtifact(create_symlink_exe);

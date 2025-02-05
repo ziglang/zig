@@ -36,6 +36,7 @@ static int fstatat_statx(int fd, const char *restrict path, struct stat *restric
 {
 	struct statx stx;
 
+	flag |= AT_NO_AUTOMOUNT;
 	int ret = __syscall(SYS_statx, fd, path, flag, 0x7ff, &stx);
 	if (ret) return ret;
 

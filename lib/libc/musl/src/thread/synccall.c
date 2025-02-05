@@ -11,7 +11,7 @@ weak_alias(dummy_0, __tl_unlock);
 
 static int target_tid;
 static void (*callback)(void *), *context;
-static sem_t target_sem, caller_sem;
+static sem_t target_sem, caller_sem, exit_sem;
 
 static void dummy(void *p)
 {
@@ -33,7 +33,7 @@ static void handler(int sig)
 	/* Inform caller we've complered the callback and wait
 	 * for the caller to release us to return. */
 	sem_post(&caller_sem);
-	sem_wait(&target_sem);
+	sem_wait(&exit_sem);
 
 	/* Inform caller we are returning and state is destroyable. */
 	sem_post(&caller_sem);
@@ -62,6 +62,7 @@ void __synccall(void (*func)(void *), void *ctx)
 
 	sem_init(&target_sem, 0, 0);
 	sem_init(&caller_sem, 0, 0);
+	sem_init(&exit_sem, 0, 0);
 
 	if (!libc.threads_minus_1 || __syscall(SYS_gettid) != self->tid)
 		goto single_threaded;
@@ -107,12 +108,13 @@ single_threaded:
 	/* Only release the caught threads once all threads, including the
 	 * caller, have returned from the callback function. */
 	for (i=0; i<count; i++)
-		sem_post(&target_sem);
+		sem_post(&exit_sem);
 	for (i=0; i<count; i++)
 		sem_wait(&caller_sem);
 
 	sem_destroy(&caller_sem);
 	sem_destroy(&target_sem);
+	sem_destroy(&exit_sem);
 
 	pthread_setcancelstate(cs, 0);
 	__tl_unlock();

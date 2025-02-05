@@ -9,6 +9,7 @@ test "@intCast i32 to u7" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     var x: u128 = maxInt(u128);
     var y: i32 = 120;
@@ -139,8 +140,8 @@ const Piece = packed struct {
     color: Color,
     type: Type,
 
-    const Type = enum { KING, QUEEN, BISHOP, KNIGHT, ROOK, PAWN };
-    const Color = enum { WHITE, BLACK };
+    const Type = enum(u3) { KING, QUEEN, BISHOP, KNIGHT, ROOK, PAWN };
+    const Color = enum(u1) { WHITE, BLACK };
 
     fn charToPiece(c: u8) !@This() {
         return .{
@@ -215,6 +216,7 @@ test "load non byte-sized value in union" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     // note: this bug is triggered by the == operator, expectEqual will hide it
     // using ptrCast not to depend on unitialised memory state

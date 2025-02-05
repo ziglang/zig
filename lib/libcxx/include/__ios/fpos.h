@@ -11,7 +11,7 @@
 #define _LIBCPP___IOS_FPOS_H
 
 #include <__config>
-#include <iosfwd>
+#include <__fwd/ios.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -57,20 +57,17 @@ public:
 };
 
 template <class _StateT>
-inline _LIBCPP_HIDE_FROM_ABI
-streamoff operator-(const fpos<_StateT>& __x, const fpos<_StateT>& __y) {
+inline _LIBCPP_HIDE_FROM_ABI streamoff operator-(const fpos<_StateT>& __x, const fpos<_StateT>& __y) {
   return streamoff(__x) - streamoff(__y);
 }
 
 template <class _StateT>
-inline _LIBCPP_HIDE_FROM_ABI
-bool operator==(const fpos<_StateT>& __x, const fpos<_StateT>& __y) {
+inline _LIBCPP_HIDE_FROM_ABI bool operator==(const fpos<_StateT>& __x, const fpos<_StateT>& __y) {
   return streamoff(__x) == streamoff(__y);
 }
 
 template <class _StateT>
-inline _LIBCPP_HIDE_FROM_ABI
-bool operator!=(const fpos<_StateT>& __x, const fpos<_StateT>& __y) {
+inline _LIBCPP_HIDE_FROM_ABI bool operator!=(const fpos<_StateT>& __x, const fpos<_StateT>& __y) {
   return streamoff(__x) != streamoff(__y);
 }
 

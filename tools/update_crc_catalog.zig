@@ -48,8 +48,7 @@ pub fn main() anyerror!void {
         \\pub const Crc32WithPoly = impl.Crc32WithPoly;
         \\pub const Crc32SmallWithPoly = impl.Crc32SmallWithPoly;
         \\
-        \\// IEEE is by far the most common CRC and so is aliased by default.
-        \\pub const Crc32 = Crc32WithPoly(.IEEE);
+        \\pub const Crc32 = Crc32IsoHdlc;
         \\
         \\test {
         \\    _ = @import("crc/test.zig");
@@ -72,22 +71,25 @@ pub fn main() anyerror!void {
         \\const verify = @import("../verify.zig");
         \\const crc = @import("../crc.zig");
         \\
-        \\test "crc32 ieee" {
-        \\    inline for ([2]type{ crc.Crc32WithPoly(.IEEE), crc.Crc32SmallWithPoly(.IEEE) }) |ieee| {
-        \\        try testing.expect(ieee.hash("") == 0x00000000);
-        \\        try testing.expect(ieee.hash("a") == 0xe8b7be43);
-        \\        try testing.expect(ieee.hash("abc") == 0x352441c2);
-        \\        try verify.iterativeApi(ieee);
-        \\    }
+        \\test "crc32 ieee regression" {
+        \\    const crc32 = crc.Crc32IsoHdlc;
+        \\    try testing.expectEqual(crc32.hash(""), 0x00000000);
+        \\    try testing.expectEqual(crc32.hash("a"), 0xe8b7be43);
+        \\    try testing.expectEqual(crc32.hash("abc"), 0x352441c2);
         \\}
         \\
-        \\test "crc32 castagnoli" {
-        \\    inline for ([2]type{ crc.Crc32WithPoly(.Castagnoli), crc.Crc32SmallWithPoly(.Castagnoli) }) |casta| {
-        \\        try testing.expect(casta.hash("") == 0x00000000);
-        \\        try testing.expect(casta.hash("a") == 0xc1d04330);
-        \\        try testing.expect(casta.hash("abc") == 0x364b3fb7);
-        \\        try verify.iterativeApi(casta);
-        \\    }
+        \\test "crc32 castagnoli regression" {
+        \\    const crc32 = crc.Crc32Iscsi;
+        \\    try testing.expectEqual(crc32.hash(""), 0x00000000);
+        \\    try testing.expectEqual(crc32.hash("a"), 0xc1d04330);
+        \\    try testing.expectEqual(crc32.hash("abc"), 0x364b3fb7);
+        \\}
+        \\
+        \\test "crc32 koopman regression" {
+        \\    const crc32 = crc.Koopman;
+        \\    try testing.expectEqual(crc32.hash(""), 0x00000000);
+        \\    try testing.expectEqual(crc32.hash("a"), 0x0da2aa8a);
+        \\    try testing.expectEqual(crc32.hash("abc"), 0xba2322ac);
         \\}
         \\
     );

@@ -9,8 +9,11 @@ pub const Feature = enum {
     bulk_memory,
     exception_handling,
     extended_const,
+    half_precision,
+    multimemory,
     multivalue,
     mutable_globals,
+    nontrapping_bulk_memory_len0,
     nontrapping_fptoint,
     reference_types,
     relaxed_simd,
@@ -19,13 +22,13 @@ pub const Feature = enum {
     tail_call,
 };
 
-pub const featureSet = CpuFeature.feature_set_fns(Feature).featureSet;
-pub const featureSetHas = CpuFeature.feature_set_fns(Feature).featureSetHas;
-pub const featureSetHasAny = CpuFeature.feature_set_fns(Feature).featureSetHasAny;
-pub const featureSetHasAll = CpuFeature.feature_set_fns(Feature).featureSetHasAll;
+pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
+pub const featureSetHas = CpuFeature.FeatureSetFns(Feature).featureSetHas;
+pub const featureSetHasAny = CpuFeature.FeatureSetFns(Feature).featureSetHasAny;
+pub const featureSetHasAll = CpuFeature.FeatureSetFns(Feature).featureSetHasAll;
 
 pub const all_features = blk: {
-    const len = @typeInfo(Feature).Enum.fields.len;
+    const len = @typeInfo(Feature).@"enum".fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.atomics)] = .{
@@ -48,6 +51,16 @@ pub const all_features = blk: {
         .description = "Enable extended const expressions",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.half_precision)] = .{
+        .llvm_name = "half-precision",
+        .description = "Enable half precision instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.multimemory)] = .{
+        .llvm_name = "multimemory",
+        .description = "Enable multiple memories",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.multivalue)] = .{
         .llvm_name = "multivalue",
         .description = "Enable multivalue blocks, instructions, and functions",
@@ -57,6 +70,13 @@ pub const all_features = blk: {
         .llvm_name = "mutable-globals",
         .description = "Enable mutable globals",
         .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.nontrapping_bulk_memory_len0)] = .{
+        .llvm_name = null,
+        .description = "Bulk memory operations with a zero length do not trap",
+        .dependencies = featureSet(&[_]Feature{
+            .bulk_memory,
+        }),
     };
     result[@intFromEnum(Feature.nontrapping_fptoint)] = .{
         .llvm_name = "nontrapping-fptoint",
@@ -91,34 +111,55 @@ pub const all_features = blk: {
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
-        elem.name = ti.Enum.fields[i].name;
+        elem.name = ti.@"enum".fields[i].name;
     }
     break :blk result;
 };
 
 pub const cpu = struct {
-    pub const bleeding_edge = CpuModel{
+    pub const bleeding_edge: CpuModel = .{
         .name = "bleeding_edge",
         .llvm_name = "bleeding-edge",
         .features = featureSet(&[_]Feature{
             .atomics,
             .bulk_memory,
+            .exception_handling,
+            .extended_const,
+            .half_precision,
+            .multimemory,
+            .multivalue,
             .mutable_globals,
             .nontrapping_fptoint,
+            .reference_types,
+            .relaxed_simd,
             .sign_ext,
             .simd128,
             .tail_call,
         }),
     };
-    pub const generic = CpuModel{
+    pub const generic: CpuModel = .{
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{
+            .multivalue,
             .mutable_globals,
+            .reference_types,
             .sign_ext,
         }),
     };
-    pub const mvp = CpuModel{
+    pub const lime1: CpuModel = .{
+        .name = "lime1",
+        .llvm_name = null,
+        .features = featureSet(&[_]Feature{
+            .bulk_memory,
+            .extended_const,
+            .multivalue,
+            .mutable_globals,
+            .nontrapping_fptoint,
+            .sign_ext,
+        }),
+    };
+    pub const mvp: CpuModel = .{
         .name = "mvp",
         .llvm_name = "mvp",
         .features = featureSet(&[_]Feature{}),

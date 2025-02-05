@@ -39,54 +39,55 @@
 #  pragma GCC system_header
 #endif
 
+_LIBCPP_PUSH_MACROS
+#include <__undef_macros>
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 // stable, 2-3 compares, 0-2 swaps
 
 template <class _AlgPolicy, class _Compare, class _ForwardIterator>
-_LIBCPP_HIDE_FROM_ABI
-_LIBCPP_CONSTEXPR_SINCE_CXX14 unsigned __sort3(_ForwardIterator __x, _ForwardIterator __y, _ForwardIterator __z,
-                                               _Compare __c) {
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 unsigned
+__sort3(_ForwardIterator __x, _ForwardIterator __y, _ForwardIterator __z, _Compare __c) {
   using _Ops = _IterOps<_AlgPolicy>;
 
   unsigned __r = 0;
-  if (!__c(*__y, *__x))   // if x <= y
+  if (!__c(*__y, *__x)) // if x <= y
   {
-    if (!__c(*__z, *__y)) // if y <= z
-      return __r;         // x <= y && y <= z
-                          // x <= y && y > z
-    _Ops::iter_swap(__y, __z);     // x <= z && y < z
+    if (!__c(*__z, *__y))      // if y <= z
+      return __r;              // x <= y && y <= z
+                               // x <= y && y > z
+    _Ops::iter_swap(__y, __z); // x <= z && y < z
     __r = 1;
-    if (__c(*__y, *__x))  // if x > y
+    if (__c(*__y, *__x)) // if x > y
     {
-      _Ops::iter_swap(__x, __y);   // x < y && y <= z
+      _Ops::iter_swap(__x, __y); // x < y && y <= z
       __r = 2;
     }
-    return __r;           // x <= y && y < z
+    return __r; // x <= y && y < z
   }
-  if (__c(*__z, *__y))    // x > y, if y > z
+  if (__c(*__z, *__y)) // x > y, if y > z
   {
-    _Ops::iter_swap(__x, __z);     // x < y && y < z
+    _Ops::iter_swap(__x, __z); // x < y && y < z
     __r = 1;
     return __r;
   }
-  _Ops::iter_swap(__x, __y);       // x > y && y <= z
-  __r = 1;                // x < y && x <= z
-  if (__c(*__z, *__y))    // if y > z
+  _Ops::iter_swap(__x, __y); // x > y && y <= z
+  __r = 1;                   // x < y && x <= z
+  if (__c(*__z, *__y))       // if y > z
   {
-    _Ops::iter_swap(__y, __z);     // x <= y && y < z
+    _Ops::iter_swap(__y, __z); // x <= y && y < z
     __r = 2;
   }
   return __r;
-}                         // x <= y && y <= z
+} // x <= y && y <= z
 
 // stable, 3-6 compares, 0-5 swaps
 
 template <class _AlgPolicy, class _Compare, class _ForwardIterator>
-_LIBCPP_HIDE_FROM_ABI
-void __sort4(_ForwardIterator __x1, _ForwardIterator __x2, _ForwardIterator __x3, _ForwardIterator __x4,
-                 _Compare __c) {
-  using _Ops   = _IterOps<_AlgPolicy>;
+_LIBCPP_HIDE_FROM_ABI void
+__sort4(_ForwardIterator __x1, _ForwardIterator __x2, _ForwardIterator __x3, _ForwardIterator __x4, _Compare __c) {
+  using _Ops = _IterOps<_AlgPolicy>;
   std::__sort3<_AlgPolicy, _Compare>(__x1, __x2, __x3, __c);
   if (__c(*__x4, *__x3)) {
     _Ops::iter_swap(__x3, __x4);
@@ -102,8 +103,13 @@ void __sort4(_ForwardIterator __x1, _ForwardIterator __x2, _ForwardIterator __x3
 // stable, 4-10 compares, 0-9 swaps
 
 template <class _AlgPolicy, class _Comp, class _ForwardIterator>
-_LIBCPP_HIDE_FROM_ABI void __sort5(_ForwardIterator __x1, _ForwardIterator __x2, _ForwardIterator __x3,
-                                   _ForwardIterator __x4, _ForwardIterator __x5, _Comp __comp) {
+_LIBCPP_HIDE_FROM_ABI void
+__sort5(_ForwardIterator __x1,
+        _ForwardIterator __x2,
+        _ForwardIterator __x3,
+        _ForwardIterator __x4,
+        _ForwardIterator __x5,
+        _Comp __comp) {
   using _Ops = _IterOps<_AlgPolicy>;
 
   std::__sort4<_AlgPolicy, _Comp>(__x1, __x2, __x3, __x4, __comp);
@@ -139,8 +145,9 @@ struct __is_simple_comparator<ranges::greater&> : true_type {};
 
 template <class _Compare, class _Iter, class _Tp = typename iterator_traits<_Iter>::value_type>
 using __use_branchless_sort =
-    integral_constant<bool, __libcpp_is_contiguous_iterator<_Iter>::value && sizeof(_Tp) <= sizeof(void*) &&
-                                is_arithmetic<_Tp>::value && __is_simple_comparator<_Compare>::value>;
+    integral_constant<bool,
+                      __libcpp_is_contiguous_iterator<_Iter>::value && sizeof(_Tp) <= sizeof(void*) &&
+                          is_arithmetic<_Tp>::value && __is_simple_comparator<_Compare>::value>;
 
 namespace __detail {
 
@@ -154,46 +161,56 @@ template <class _Compare, class _RandomAccessIterator>
 inline _LIBCPP_HIDE_FROM_ABI void __cond_swap(_RandomAccessIterator __x, _RandomAccessIterator __y, _Compare __c) {
   // Note: this function behaves correctly even with proxy iterators (because it relies on `value_type`).
   using value_type = typename iterator_traits<_RandomAccessIterator>::value_type;
-  bool __r = __c(*__x, *__y);
+  bool __r         = __c(*__x, *__y);
   value_type __tmp = __r ? *__x : *__y;
-  *__y = __r ? *__y : *__x;
-  *__x = __tmp;
+  *__y             = __r ? *__y : *__x;
+  *__x             = __tmp;
 }
 
 // Ensures that *__x, *__y and *__z are ordered according to the comparator __c,
 // under the assumption that *__y and *__z are already ordered.
 template <class _Compare, class _RandomAccessIterator>
-inline _LIBCPP_HIDE_FROM_ABI void __partially_sorted_swap(_RandomAccessIterator __x, _RandomAccessIterator __y,
-                                                          _RandomAccessIterator __z, _Compare __c) {
+inline _LIBCPP_HIDE_FROM_ABI void
+__partially_sorted_swap(_RandomAccessIterator __x, _RandomAccessIterator __y, _RandomAccessIterator __z, _Compare __c) {
   // Note: this function behaves correctly even with proxy iterators (because it relies on `value_type`).
   using value_type = typename iterator_traits<_RandomAccessIterator>::value_type;
-  bool __r = __c(*__z, *__x);
+  bool __r         = __c(*__z, *__x);
   value_type __tmp = __r ? *__z : *__x;
-  *__z = __r ? *__x : *__z;
-  __r = __c(__tmp, *__y);
-  *__x = __r ? *__x : *__y;
-  *__y = __r ? *__y : __tmp;
+  *__z             = __r ? *__x : *__z;
+  __r              = __c(__tmp, *__y);
+  *__x             = __r ? *__x : *__y;
+  *__y             = __r ? *__y : __tmp;
 }
 
-template <class, class _Compare, class _RandomAccessIterator>
-inline _LIBCPP_HIDE_FROM_ABI __enable_if_t<__use_branchless_sort<_Compare, _RandomAccessIterator>::value, void>
-__sort3_maybe_branchless(_RandomAccessIterator __x1, _RandomAccessIterator __x2, _RandomAccessIterator __x3,
-                         _Compare __c) {
+template <class,
+          class _Compare,
+          class _RandomAccessIterator,
+          __enable_if_t<__use_branchless_sort<_Compare, _RandomAccessIterator>::value, int> = 0>
+inline _LIBCPP_HIDE_FROM_ABI void __sort3_maybe_branchless(
+    _RandomAccessIterator __x1, _RandomAccessIterator __x2, _RandomAccessIterator __x3, _Compare __c) {
   std::__cond_swap<_Compare>(__x2, __x3, __c);
   std::__partially_sorted_swap<_Compare>(__x1, __x2, __x3, __c);
 }
 
-template <class _AlgPolicy, class _Compare, class _RandomAccessIterator>
-inline _LIBCPP_HIDE_FROM_ABI __enable_if_t<!__use_branchless_sort<_Compare, _RandomAccessIterator>::value, void>
-__sort3_maybe_branchless(_RandomAccessIterator __x1, _RandomAccessIterator __x2, _RandomAccessIterator __x3,
-                         _Compare __c) {
+template <class _AlgPolicy,
+          class _Compare,
+          class _RandomAccessIterator,
+          __enable_if_t<!__use_branchless_sort<_Compare, _RandomAccessIterator>::value, int> = 0>
+inline _LIBCPP_HIDE_FROM_ABI void __sort3_maybe_branchless(
+    _RandomAccessIterator __x1, _RandomAccessIterator __x2, _RandomAccessIterator __x3, _Compare __c) {
   std::__sort3<_AlgPolicy, _Compare>(__x1, __x2, __x3, __c);
 }
 
-template <class, class _Compare, class _RandomAccessIterator>
-inline _LIBCPP_HIDE_FROM_ABI __enable_if_t<__use_branchless_sort<_Compare, _RandomAccessIterator>::value, void>
-__sort4_maybe_branchless(_RandomAccessIterator __x1, _RandomAccessIterator __x2, _RandomAccessIterator __x3,
-                         _RandomAccessIterator __x4, _Compare __c) {
+template <class,
+          class _Compare,
+          class _RandomAccessIterator,
+          __enable_if_t<__use_branchless_sort<_Compare, _RandomAccessIterator>::value, int> = 0>
+inline _LIBCPP_HIDE_FROM_ABI void __sort4_maybe_branchless(
+    _RandomAccessIterator __x1,
+    _RandomAccessIterator __x2,
+    _RandomAccessIterator __x3,
+    _RandomAccessIterator __x4,
+    _Compare __c) {
   std::__cond_swap<_Compare>(__x1, __x3, __c);
   std::__cond_swap<_Compare>(__x2, __x4, __c);
   std::__cond_swap<_Compare>(__x1, __x2, __c);
@@ -201,16 +218,24 @@ __sort4_maybe_branchless(_RandomAccessIterator __x1, _RandomAccessIterator __x2,
   std::__cond_swap<_Compare>(__x2, __x3, __c);
 }
 
-template <class _AlgPolicy, class _Compare, class _RandomAccessIterator>
-inline _LIBCPP_HIDE_FROM_ABI __enable_if_t<!__use_branchless_sort<_Compare, _RandomAccessIterator>::value, void>
-__sort4_maybe_branchless(_RandomAccessIterator __x1, _RandomAccessIterator __x2, _RandomAccessIterator __x3,
-                         _RandomAccessIterator __x4, _Compare __c) {
+template <class _AlgPolicy,
+          class _Compare,
+          class _RandomAccessIterator,
+          __enable_if_t<!__use_branchless_sort<_Compare, _RandomAccessIterator>::value, int> = 0>
+inline _LIBCPP_HIDE_FROM_ABI void __sort4_maybe_branchless(
+    _RandomAccessIterator __x1,
+    _RandomAccessIterator __x2,
+    _RandomAccessIterator __x3,
+    _RandomAccessIterator __x4,
+    _Compare __c) {
   std::__sort4<_AlgPolicy, _Compare>(__x1, __x2, __x3, __x4, __c);
 }
 
-template <class _AlgPolicy, class _Compare, class _RandomAccessIterator>
-inline _LIBCPP_HIDE_FROM_ABI __enable_if_t<__use_branchless_sort<_Compare, _RandomAccessIterator>::value, void>
-__sort5_maybe_branchless(
+template <class _AlgPolicy,
+          class _Compare,
+          class _RandomAccessIterator,
+          __enable_if_t<__use_branchless_sort<_Compare, _RandomAccessIterator>::value, int> = 0>
+inline _LIBCPP_HIDE_FROM_ABI void __sort5_maybe_branchless(
     _RandomAccessIterator __x1,
     _RandomAccessIterator __x2,
     _RandomAccessIterator __x3,
@@ -225,19 +250,25 @@ __sort5_maybe_branchless(
   std::__partially_sorted_swap<_Compare>(__x2, __x3, __x4, __c);
 }
 
-template <class _AlgPolicy, class _Compare, class _RandomAccessIterator>
-inline _LIBCPP_HIDE_FROM_ABI __enable_if_t<!__use_branchless_sort<_Compare, _RandomAccessIterator>::value, void>
-__sort5_maybe_branchless(_RandomAccessIterator __x1, _RandomAccessIterator __x2, _RandomAccessIterator __x3,
-                         _RandomAccessIterator __x4, _RandomAccessIterator __x5, _Compare __c) {
+template <class _AlgPolicy,
+          class _Compare,
+          class _RandomAccessIterator,
+          __enable_if_t<!__use_branchless_sort<_Compare, _RandomAccessIterator>::value, int> = 0>
+inline _LIBCPP_HIDE_FROM_ABI void __sort5_maybe_branchless(
+    _RandomAccessIterator __x1,
+    _RandomAccessIterator __x2,
+    _RandomAccessIterator __x3,
+    _RandomAccessIterator __x4,
+    _RandomAccessIterator __x5,
+    _Compare __c) {
   std::__sort5<_AlgPolicy, _Compare, _RandomAccessIterator>(
       std::move(__x1), std::move(__x2), std::move(__x3), std::move(__x4), std::move(__x5), __c);
 }
 
 // Assumes size > 0
 template <class _AlgPolicy, class _Compare, class _BidirectionalIterator>
-_LIBCPP_HIDE_FROM_ABI
-_LIBCPP_CONSTEXPR_SINCE_CXX14 void __selection_sort(_BidirectionalIterator __first, _BidirectionalIterator __last,
-                                                    _Compare __comp) {
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 void
+__selection_sort(_BidirectionalIterator __first, _BidirectionalIterator __last, _Compare __comp) {
   _BidirectionalIterator __lm1 = __last;
   for (--__lm1; __first != __lm1; ++__first) {
     _BidirectionalIterator __i = std::__min_element<_Compare>(__first, __last, __comp);
@@ -249,8 +280,8 @@ _LIBCPP_CONSTEXPR_SINCE_CXX14 void __selection_sort(_BidirectionalIterator __fir
 // Sort the iterator range [__first, __last) using the comparator __comp using
 // the insertion sort algorithm.
 template <class _AlgPolicy, class _Compare, class _BidirectionalIterator>
-_LIBCPP_HIDE_FROM_ABI
-void __insertion_sort(_BidirectionalIterator __first, _BidirectionalIterator __last, _Compare __comp) {
+_LIBCPP_HIDE_FROM_ABI void
+__insertion_sort(_BidirectionalIterator __first, _BidirectionalIterator __last, _Compare __comp) {
   using _Ops = _IterOps<_AlgPolicy>;
 
   typedef typename iterator_traits<_BidirectionalIterator>::value_type value_type;
@@ -286,17 +317,18 @@ __insertion_sort_unguarded(_RandomAccessIterator const __first, _RandomAccessIte
   typedef typename iterator_traits<_RandomAccessIterator>::value_type value_type;
   if (__first == __last)
     return;
-  const _RandomAccessIterator __leftmost = __first - difference_type(1); (void)__leftmost; // can be unused when assertions are disabled
+  const _RandomAccessIterator __leftmost = __first - difference_type(1);
+  (void)__leftmost; // can be unused when assertions are disabled
   for (_RandomAccessIterator __i = __first + difference_type(1); __i != __last; ++__i) {
     _RandomAccessIterator __j = __i - difference_type(1);
     if (__comp(*__i, *__j)) {
       value_type __t(_Ops::__iter_move(__i));
       _RandomAccessIterator __k = __j;
-      __j = __i;
+      __j                       = __i;
       do {
         *__j = _Ops::__iter_move(__k);
-        __j = __k;
-        _LIBCPP_ASSERT_UNCATEGORIZED(
+        __j  = __k;
+        _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
             __k != __leftmost,
             "Would read out of bounds, does your comparator satisfy the strict-weak ordering requirement?");
       } while (__comp(__t, *--__k)); // No need for bounds check due to the assumption stated above.
@@ -306,8 +338,8 @@ __insertion_sort_unguarded(_RandomAccessIterator const __first, _RandomAccessIte
 }
 
 template <class _AlgPolicy, class _Comp, class _RandomAccessIterator>
-_LIBCPP_HIDE_FROM_ABI bool __insertion_sort_incomplete(
-    _RandomAccessIterator __first, _RandomAccessIterator __last, _Comp __comp) {
+_LIBCPP_HIDE_FROM_ABI bool
+__insertion_sort_incomplete(_RandomAccessIterator __first, _RandomAccessIterator __last, _Comp __comp) {
   using _Ops = _IterOps<_AlgPolicy>;
 
   typedef typename iterator_traits<_RandomAccessIterator>::difference_type difference_type;
@@ -328,23 +360,27 @@ _LIBCPP_HIDE_FROM_ABI bool __insertion_sort_incomplete(
     return true;
   case 5:
     std::__sort5_maybe_branchless<_AlgPolicy, _Comp>(
-        __first, __first + difference_type(1), __first + difference_type(2), __first + difference_type(3),
-        --__last, __comp);
+        __first,
+        __first + difference_type(1),
+        __first + difference_type(2),
+        __first + difference_type(3),
+        --__last,
+        __comp);
     return true;
   }
   typedef typename iterator_traits<_RandomAccessIterator>::value_type value_type;
   _RandomAccessIterator __j = __first + difference_type(2);
   std::__sort3_maybe_branchless<_AlgPolicy, _Comp>(__first, __first + difference_type(1), __j, __comp);
   const unsigned __limit = 8;
-  unsigned __count = 0;
+  unsigned __count       = 0;
   for (_RandomAccessIterator __i = __j + difference_type(1); __i != __last; ++__i) {
     if (__comp(*__i, *__j)) {
       value_type __t(_Ops::__iter_move(__i));
       _RandomAccessIterator __k = __j;
-      __j = __i;
+      __j                       = __i;
       do {
         *__j = _Ops::__iter_move(__k);
-        __j = __k;
+        __j  = __k;
       } while (__j != __first && __comp(__t, *--__k));
       *__j = std::move(__t);
       if (++__count == __limit)
@@ -500,9 +536,10 @@ __bitset_partition(_RandomAccessIterator __first, _RandomAccessIterator __last, 
   using _Ops = _IterOps<_AlgPolicy>;
   typedef typename std::iterator_traits<_RandomAccessIterator>::value_type value_type;
   typedef typename std::iterator_traits<_RandomAccessIterator>::difference_type difference_type;
-  _LIBCPP_ASSERT_UNCATEGORIZED(__last - __first >= difference_type(3), "");
-  const _RandomAccessIterator __begin = __first;            // used for bounds checking, those are not moved around
-  const _RandomAccessIterator __end = __last; (void)__end;  //
+  _LIBCPP_ASSERT_INTERNAL(__last - __first >= difference_type(3), "");
+  const _RandomAccessIterator __begin = __first; // used for bounds checking, those are not moved around
+  const _RandomAccessIterator __end   = __last;
+  (void)__end; //
 
   value_type __pivot(_Ops::__iter_move(__first));
   // Find the first element greater than the pivot.
@@ -510,7 +547,7 @@ __bitset_partition(_RandomAccessIterator __first, _RandomAccessIterator __last, 
     // Not guarded since we know the last element is greater than the pivot.
     do {
       ++__first;
-      _LIBCPP_ASSERT_UNCATEGORIZED(
+      _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
           __first != __end,
           "Would read out of bounds, does your comparator satisfy the strict-weak ordering requirement?");
     } while (!__comp(__pivot, *__first));
@@ -523,7 +560,7 @@ __bitset_partition(_RandomAccessIterator __first, _RandomAccessIterator __last, 
     // It will be always guarded because __introsort will do the median-of-three
     // before calling this.
     do {
-      _LIBCPP_ASSERT_UNCATEGORIZED(
+      _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
           __last != __begin,
           "Would read out of bounds, does your comparator satisfy the strict-weak ordering requirement?");
       --__last;
@@ -591,16 +628,17 @@ __partition_with_equals_on_right(_RandomAccessIterator __first, _RandomAccessIte
   using _Ops = _IterOps<_AlgPolicy>;
   typedef typename iterator_traits<_RandomAccessIterator>::difference_type difference_type;
   typedef typename std::iterator_traits<_RandomAccessIterator>::value_type value_type;
-  _LIBCPP_ASSERT_UNCATEGORIZED(__last - __first >= difference_type(3), "");
-  const _RandomAccessIterator __begin = __first;            // used for bounds checking, those are not moved around
-  const _RandomAccessIterator __end = __last; (void)__end;  //
+  _LIBCPP_ASSERT_INTERNAL(__last - __first >= difference_type(3), "");
+  const _RandomAccessIterator __begin = __first; // used for bounds checking, those are not moved around
+  const _RandomAccessIterator __end   = __last;
+  (void)__end; //
   value_type __pivot(_Ops::__iter_move(__first));
   // Find the first element greater or equal to the pivot.  It will be always
   // guarded because __introsort will do the median-of-three before calling
   // this.
   do {
     ++__first;
-    _LIBCPP_ASSERT_UNCATEGORIZED(
+    _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
         __first != __end,
         "Would read out of bounds, does your comparator satisfy the strict-weak ordering requirement?");
   } while (__comp(*__first, __pivot));
@@ -612,7 +650,7 @@ __partition_with_equals_on_right(_RandomAccessIterator __first, _RandomAccessIte
   } else {
     // Guarded.
     do {
-      _LIBCPP_ASSERT_UNCATEGORIZED(
+      _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
           __last != __begin,
           "Would read out of bounds, does your comparator satisfy the strict-weak ordering requirement?");
       --__last;
@@ -630,12 +668,12 @@ __partition_with_equals_on_right(_RandomAccessIterator __first, _RandomAccessIte
     _Ops::iter_swap(__first, __last);
     do {
       ++__first;
-      _LIBCPP_ASSERT_UNCATEGORIZED(
+      _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
           __first != __end,
           "Would read out of bounds, does your comparator satisfy the strict-weak ordering requirement?");
     } while (__comp(*__first, __pivot));
     do {
-      _LIBCPP_ASSERT_UNCATEGORIZED(
+      _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
           __last != __begin,
           "Would read out of bounds, does your comparator satisfy the strict-weak ordering requirement?");
       --__last;
@@ -658,15 +696,15 @@ __partition_with_equals_on_left(_RandomAccessIterator __first, _RandomAccessIter
   using _Ops = _IterOps<_AlgPolicy>;
   typedef typename iterator_traits<_RandomAccessIterator>::difference_type difference_type;
   typedef typename std::iterator_traits<_RandomAccessIterator>::value_type value_type;
-  // TODO(LLVM18): Make __begin const, see https://reviews.llvm.org/D147089#4349748
-  _RandomAccessIterator __begin = __first;                  // used for bounds checking, those are not moved around
-  const _RandomAccessIterator __end = __last; (void)__end;  //
+  const _RandomAccessIterator __begin = __first; // used for bounds checking, those are not moved around
+  const _RandomAccessIterator __end   = __last;
+  (void)__end; //
   value_type __pivot(_Ops::__iter_move(__first));
   if (__comp(__pivot, *(__last - difference_type(1)))) {
     // Guarded.
     do {
       ++__first;
-      _LIBCPP_ASSERT_UNCATEGORIZED(
+      _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
           __first != __end,
           "Would read out of bounds, does your comparator satisfy the strict-weak ordering requirement?");
     } while (!__comp(__pivot, *__first));
@@ -679,7 +717,7 @@ __partition_with_equals_on_left(_RandomAccessIterator __first, _RandomAccessIter
     // It will be always guarded because __introsort will do the
     // median-of-three before calling this.
     do {
-      _LIBCPP_ASSERT_UNCATEGORIZED(
+      _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
           __last != __begin,
           "Would read out of bounds, does your comparator satisfy the strict-weak ordering requirement?");
       --__last;
@@ -689,12 +727,12 @@ __partition_with_equals_on_left(_RandomAccessIterator __first, _RandomAccessIter
     _Ops::iter_swap(__first, __last);
     do {
       ++__first;
-      _LIBCPP_ASSERT_UNCATEGORIZED(
+      _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
           __first != __end,
           "Would read out of bounds, does your comparator satisfy the strict-weak ordering requirement?");
     } while (!__comp(__pivot, *__first));
     do {
-      _LIBCPP_ASSERT_UNCATEGORIZED(
+      _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
           __last != __begin,
           "Would read out of bounds, does your comparator satisfy the strict-weak ordering requirement?");
       --__last;
@@ -747,8 +785,12 @@ void __introsort(_RandomAccessIterator __first,
       return;
     case 5:
       std::__sort5_maybe_branchless<_AlgPolicy, _Compare>(
-          __first, __first + difference_type(1), __first + difference_type(2), __first + difference_type(3),
-          --__last, __comp);
+          __first,
+          __first + difference_type(1),
+          __first + difference_type(2),
+          __first + difference_type(3),
+          --__last,
+          __comp);
       return;
     }
     // Use insertion sort if the length of the range is below the specified limit.
@@ -797,10 +839,10 @@ void __introsort(_RandomAccessIterator __first,
       continue;
     }
     // Use bitset partition only if asked for.
-    auto __ret =
-        _UseBitSetPartition
-            ? std::__bitset_partition<_AlgPolicy, _RandomAccessIterator, _Compare>(__first, __last, __comp)
-            : std::__partition_with_equals_on_right<_AlgPolicy, _RandomAccessIterator, _Compare>(__first, __last, __comp);
+    auto __ret                = _UseBitSetPartition
+                                  ? std::__bitset_partition<_AlgPolicy, _RandomAccessIterator, _Compare>(__first, __last, __comp)
+                                  : std::__partition_with_equals_on_right<_AlgPolicy, _RandomAccessIterator, _Compare>(
+                         __first, __last, __comp);
     _RandomAccessIterator __i = __ret.first;
     // [__first, __i) < *__i and *__i <= [__i+1, __last)
     // If we were given a perfect partition, see if insertion sort is quick...
@@ -852,19 +894,27 @@ extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<char>&, char*>(char
 #ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
 extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<wchar_t>&, wchar_t*>(wchar_t*, wchar_t*, __less<wchar_t>&);
 #endif
-extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<signed char>&, signed char*>(signed char*, signed char*, __less<signed char>&);
-extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<unsigned char>&, unsigned char*>(unsigned char*, unsigned char*, __less<unsigned char>&);
+extern template _LIBCPP_EXPORTED_FROM_ABI void
+__sort<__less<signed char>&, signed char*>(signed char*, signed char*, __less<signed char>&);
+extern template _LIBCPP_EXPORTED_FROM_ABI void
+__sort<__less<unsigned char>&, unsigned char*>(unsigned char*, unsigned char*, __less<unsigned char>&);
 extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<short>&, short*>(short*, short*, __less<short>&);
-extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<unsigned short>&, unsigned short*>(unsigned short*, unsigned short*, __less<unsigned short>&);
+extern template _LIBCPP_EXPORTED_FROM_ABI void
+__sort<__less<unsigned short>&, unsigned short*>(unsigned short*, unsigned short*, __less<unsigned short>&);
 extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<int>&, int*>(int*, int*, __less<int>&);
-extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<unsigned>&, unsigned*>(unsigned*, unsigned*, __less<unsigned>&);
+extern template _LIBCPP_EXPORTED_FROM_ABI void
+__sort<__less<unsigned>&, unsigned*>(unsigned*, unsigned*, __less<unsigned>&);
 extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<long>&, long*>(long*, long*, __less<long>&);
-extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<unsigned long>&, unsigned long*>(unsigned long*, unsigned long*, __less<unsigned long>&);
-extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<long long>&, long long*>(long long*, long long*, __less<long long>&);
-extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<unsigned long long>&, unsigned long long*>(unsigned long long*, unsigned long long*, __less<unsigned long long>&);
+extern template _LIBCPP_EXPORTED_FROM_ABI void
+__sort<__less<unsigned long>&, unsigned long*>(unsigned long*, unsigned long*, __less<unsigned long>&);
+extern template _LIBCPP_EXPORTED_FROM_ABI void
+__sort<__less<long long>&, long long*>(long long*, long long*, __less<long long>&);
+extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<unsigned long long>&, unsigned long long*>(
+    unsigned long long*, unsigned long long*, __less<unsigned long long>&);
 extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<float>&, float*>(float*, float*, __less<float>&);
 extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<double>&, double*>(double*, double*, __less<double>&);
-extern template _LIBCPP_EXPORTED_FROM_ABI void __sort<__less<long double>&, long double*>(long double*, long double*, __less<long double>&);
+extern template _LIBCPP_EXPORTED_FROM_ABI void
+__sort<__less<long double>&, long double*>(long double*, long double*, __less<long double>&);
 
 template <class _AlgPolicy, class _RandomAccessIterator, class _Comp>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void
@@ -878,8 +928,7 @@ __sort_dispatch(_RandomAccessIterator __first, _RandomAccessIterator __last, _Co
   std::__introsort<_AlgPolicy,
                    _Comp&,
                    _RandomAccessIterator,
-                   __use_branchless_sort<_Comp, _RandomAccessIterator>::value>(
-      __first, __last, __comp, __depth_limit);
+                   __use_branchless_sort<_Comp, _RandomAccessIterator>::value>(__first, __last, __comp, __depth_limit);
 }
 
 template <class _Type, class... _Options>
@@ -935,8 +984,8 @@ _LIBCPP_HIDE_FROM_ABI void __sort_dispatch(_Type* __first, _Type* __last, ranges
 #endif
 
 template <class _AlgPolicy, class _RandomAccessIterator, class _Comp>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
-void __sort_impl(_RandomAccessIterator __first, _RandomAccessIterator __last, _Comp& __comp) {
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void
+__sort_impl(_RandomAccessIterator __first, _RandomAccessIterator __last, _Comp& __comp) {
   std::__debug_randomize_range<_AlgPolicy>(__first, __last);
 
   if (__libcpp_is_constant_evaluated()) {
@@ -949,17 +998,19 @@ void __sort_impl(_RandomAccessIterator __first, _RandomAccessIterator __last, _C
 }
 
 template <class _RandomAccessIterator, class _Comp>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
-void sort(_RandomAccessIterator __first, _RandomAccessIterator __last, _Comp __comp) {
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void
+sort(_RandomAccessIterator __first, _RandomAccessIterator __last, _Comp __comp) {
   std::__sort_impl<_ClassicAlgPolicy>(std::move(__first), std::move(__last), __comp);
 }
 
 template <class _RandomAccessIterator>
-inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
-void sort(_RandomAccessIterator __first, _RandomAccessIterator __last) {
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void
+sort(_RandomAccessIterator __first, _RandomAccessIterator __last) {
   std::sort(__first, __last, __less<>());
 }
 
 _LIBCPP_END_NAMESPACE_STD
+
+_LIBCPP_POP_MACROS
 
 #endif // _LIBCPP___ALGORITHM_SORT_H

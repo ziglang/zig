@@ -87,7 +87,7 @@ pub fn tagToId(tag: []const u8) error{InvalidLanguageTag}!?LanguageId {
     if (parsed.multiple_suffixes) return null;
     const longest_known_tag = comptime blk: {
         var len = 0;
-        for (@typeInfo(LanguageId).Enum.fields) |field| {
+        for (@typeInfo(LanguageId).@"enum".fields) |field| {
             if (field.name.len > len) len = field.name.len;
         }
         break :blk len;
@@ -119,7 +119,7 @@ test tagToId {
 }
 
 test "exhaustive tagToId" {
-    inline for (@typeInfo(LanguageId).Enum.fields) |field| {
+    inline for (@typeInfo(LanguageId).@"enum".fields) |field| {
         const id = tagToId(field.name) catch |err| {
             std.debug.print("tag: {s}\n", .{field.name});
             return err;

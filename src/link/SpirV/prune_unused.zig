@@ -255,9 +255,8 @@ fn removeIdsFromMap(a: Allocator, map: anytype, info: ModuleInfo, alive_marker: 
     }
 }
 
-pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: *std.Progress.Node) !void {
-    var sub_node = progress.start("Prune unused IDs", 0);
-    sub_node.activate();
+pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Progress.Node) !void {
+    const sub_node = progress.start("Prune unused IDs", 0);
     defer sub_node.end();
 
     var arena = std.heap.ArenaAllocator.init(parser.a);

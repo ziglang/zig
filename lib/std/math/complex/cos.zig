@@ -11,12 +11,11 @@ pub fn cos(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     return cmath.cosh(p);
 }
 
-const epsilon = 0.0001;
-
 test cos {
+    const epsilon = math.floatEps(f32);
     const a = Complex(f32).init(5, 3);
     const c = cos(a);
 
-    try testing.expect(math.approxEqAbs(f32, c.re, 2.855815, epsilon));
-    try testing.expect(math.approxEqAbs(f32, c.im, 9.606383, epsilon));
+    try testing.expectApproxEqAbs(2.8558152, c.re, epsilon);
+    try testing.expectApproxEqAbs(9.606383, c.im, epsilon);
 }

@@ -9,19 +9,6 @@
 
 #include <vadefs.h>
 
-#undef __mingw_ovr
-#if defined (__GNUC__)
-#define __mingw_ovr static __attribute__ ((__unused__)) __inline__ __cdecl
-#ifdef __mingw_static_ovr
-#undef __mingw_static_ovr
-#define __mingw_static_ovr __mingw_ovr
-#endif
-#elif defined(__cplusplus)
-#define __mingw_ovr inline __cdecl
-#else
-#define __mingw_ovr static __cdecl
-#endif
-
 __mingw_ovr
 /* __attribute__((__format__ (gnu_wprintf, 3, 0))) */ __MINGW_ATTRIB_NONNULL(3)
 int vswprintf (wchar_t *__stream, size_t __count, const wchar_t *__format, __builtin_va_list __local_argv)

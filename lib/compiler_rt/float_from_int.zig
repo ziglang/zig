@@ -18,7 +18,7 @@ pub fn floatFromInt(comptime T: type, x: anytype) T {
     const max_exp = exp_bias;
 
     // Sign
-    const abs_val = if (@TypeOf(x) == comptime_int or @typeInfo(@TypeOf(x)).Int.signedness == .signed) @abs(x) else x;
+    const abs_val = if (@TypeOf(x) == comptime_int or @typeInfo(@TypeOf(x)).int.signedness == .signed) @abs(x) else x;
     const sign_bit = if (x < 0) @as(uT, 1) << (float_bits - 1) else 0;
     var result: uT = sign_bit;
 

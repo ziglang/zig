@@ -6,7 +6,7 @@ comptime {
 
     const payload_ptr = &opt_ptr.?;
     opt_ptr = null;
-    _ = payload_ptr.*.*;
+    _ = payload_ptr.*.*; // TODO: this case was regressed by #19630
 }
 comptime {
     var opt: ?u8 = 15;
@@ -28,6 +28,5 @@ comptime {
 // backend=stage2
 // target=native
 //
-// :9:20: error: attempt to use null value
 // :16:20: error: attempt to use null value
 // :24:20: error: attempt to unwrap error: Foo

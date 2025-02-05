@@ -13,11 +13,6 @@
 #include <linux/const.h>
 
 /* PAGE_SHIFT determines the page size */
-#if defined(CONFIG_ARC_PAGE_SIZE_16K)
-#define PAGE_SHIFT 14
-#elif defined(CONFIG_ARC_PAGE_SIZE_4K)
-#define PAGE_SHIFT 12
-#else
 /*
  * Default 8k
  * done this way (instead of under CONFIG_ARC_PAGE_SIZE_8K) because adhoc
@@ -26,7 +21,6 @@
  * not available
  */
 #define PAGE_SHIFT 13
-#endif
 
 #define PAGE_SIZE	_BITUL(PAGE_SHIFT)	/* Default 8K */
 #define PAGE_OFFSET	_AC(0x80000000, UL)	/* Kernel starts at 2G onwrds */

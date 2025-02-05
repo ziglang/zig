@@ -15,8 +15,14 @@
 #define __AVX512VLVNNIINTRIN_H
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS128 __attribute__((__always_inline__, __nodebug__, __target__("avx512vl,avx512vnni"), __min_vector_width__(128)))
-#define __DEFAULT_FN_ATTRS256 __attribute__((__always_inline__, __nodebug__, __target__("avx512vl,avx512vnni"), __min_vector_width__(256)))
+#define __DEFAULT_FN_ATTRS128                                                  \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx512vl,avx512vnni,no-evex512"),                 \
+                 __min_vector_width__(128)))
+#define __DEFAULT_FN_ATTRS256                                                  \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx512vl,avx512vnni,no-evex512"),                 \
+                 __min_vector_width__(256)))
 
 /// Multiply groups of 4 adjacent pairs of unsigned 8-bit integers in \a A with
 /// corresponding signed 8-bit integers in \a B, producing 4 intermediate signed

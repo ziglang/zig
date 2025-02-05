@@ -1,0 +1,35 @@
+#target=x86_64-linux-selfhosted
+#target=x86_64-linux-cbe
+#target=x86_64-windows-cbe
+#update=non-inline version
+#file=main.zig
+pub fn main() !void {
+    try foo();
+}
+fn foo() !void {
+    try std.io.getStdOut().writer().writeAll("Hello, World!\n");
+}
+const std = @import("std");
+#expect_stdout="Hello, World!\n"
+
+#update=make function inline
+#file=main.zig
+pub fn main() !void {
+    try foo();
+}
+inline fn foo() !void {
+    try std.io.getStdOut().writer().writeAll("Hello, World!\n");
+}
+const std = @import("std");
+#expect_stdout="Hello, World!\n"
+
+#update=change string
+#file=main.zig
+pub fn main() !void {
+    try foo();
+}
+inline fn foo() !void {
+    try std.io.getStdOut().writer().writeAll("Hello, `inline` World!\n");
+}
+const std = @import("std");
+#expect_stdout="Hello, `inline` World!\n"

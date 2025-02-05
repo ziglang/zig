@@ -11,6 +11,7 @@
 #define _LIBCPP___FUNCTIONAL_IDENTITY_H
 
 #include <__config>
+#include <__fwd/functional.h>
 #include <__type_traits/integral_constant.h>
 #include <__utility/forward.h>
 
@@ -34,21 +35,28 @@ struct __identity {
 
 template <>
 struct __is_identity<__identity> : true_type {};
+template <>
+struct __is_identity<reference_wrapper<__identity> > : true_type {};
+template <>
+struct __is_identity<reference_wrapper<const __identity> > : true_type {};
 
 #if _LIBCPP_STD_VER >= 20
 
 struct identity {
-    template<class _Tp>
-    _LIBCPP_NODISCARD_EXT _LIBCPP_HIDE_FROM_ABI constexpr _Tp&& operator()(_Tp&& __t) const noexcept
-    {
-        return _VSTD::forward<_Tp>(__t);
-    }
+  template <class _Tp>
+  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr _Tp&& operator()(_Tp&& __t) const noexcept {
+    return std::forward<_Tp>(__t);
+  }
 
-    using is_transparent = void;
+  using is_transparent = void;
 };
 
 template <>
 struct __is_identity<identity> : true_type {};
+template <>
+struct __is_identity<reference_wrapper<identity> > : true_type {};
+template <>
+struct __is_identity<reference_wrapper<const identity> > : true_type {};
 
 #endif // _LIBCPP_STD_VER >= 20
 

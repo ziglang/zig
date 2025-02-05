@@ -30,17 +30,14 @@ void longjmp(jmp_buf env, int val);
 
 */
 
-#include <__assert> // all public C++ headers provide the assertion handler
 #include <__config>
 
-#include <setjmp.h>
-
-#ifndef _LIBCPP_SETJMP_H
-#   error <csetjmp> tried including <setjmp.h> but didn't find libc++'s <setjmp.h> header. \
-          This usually means that your header search paths are not configured properly. \
-          The header search paths should contain the C++ Standard Library headers before \
-          any C Standard Library, and you are probably using compiler flags that make that \
-          not be the case.
+// <setjmp.h> is not provided by libc++
+#if __has_include(<setjmp.h>)
+#  include <setjmp.h>
+#  ifdef _LIBCPP_SETJMP_H
+#    error "If libc++ starts defining <setjmp.h>, the __has_include check should move to libc++'s <setjmp.h>"
+#  endif
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

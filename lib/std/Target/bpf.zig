@@ -10,13 +10,13 @@ pub const Feature = enum {
     dwarfris,
 };
 
-pub const featureSet = CpuFeature.feature_set_fns(Feature).featureSet;
-pub const featureSetHas = CpuFeature.feature_set_fns(Feature).featureSetHas;
-pub const featureSetHasAny = CpuFeature.feature_set_fns(Feature).featureSetHasAny;
-pub const featureSetHasAll = CpuFeature.feature_set_fns(Feature).featureSetHasAll;
+pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
+pub const featureSetHas = CpuFeature.FeatureSetFns(Feature).featureSetHas;
+pub const featureSetHasAny = CpuFeature.FeatureSetFns(Feature).featureSetHasAny;
+pub const featureSetHasAll = CpuFeature.FeatureSetFns(Feature).featureSetHasAll;
 
 pub const all_features = blk: {
-    const len = @typeInfo(Feature).Enum.fields.len;
+    const len = @typeInfo(Feature).@"enum".fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
     result[@intFromEnum(Feature.alu32)] = .{
@@ -37,35 +37,42 @@ pub const all_features = blk: {
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
-        elem.name = ti.Enum.fields[i].name;
+        elem.name = ti.@"enum".fields[i].name;
     }
     break :blk result;
 };
 
 pub const cpu = struct {
-    pub const generic = CpuModel{
+    pub const generic: CpuModel = .{
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const probe = CpuModel{
+    pub const probe: CpuModel = .{
         .name = "probe",
         .llvm_name = "probe",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const v1 = CpuModel{
+    pub const v1: CpuModel = .{
         .name = "v1",
         .llvm_name = "v1",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const v2 = CpuModel{
+    pub const v2: CpuModel = .{
         .name = "v2",
         .llvm_name = "v2",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const v3 = CpuModel{
+    pub const v3: CpuModel = .{
         .name = "v3",
         .llvm_name = "v3",
+        .features = featureSet(&[_]Feature{
+            .alu32,
+        }),
+    };
+    pub const v4: CpuModel = .{
+        .name = "v4",
+        .llvm_name = "v4",
         .features = featureSet(&[_]Feature{
             .alu32,
         }),

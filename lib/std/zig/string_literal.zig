@@ -1,6 +1,5 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
-const utf8Decode = std.unicode.utf8Decode;
 const utf8Encode = std.unicode.utf8Encode;
 
 pub const ParseError = error{
@@ -37,12 +36,93 @@ pub const Error = union(enum) {
     expected_single_quote: usize,
     /// The character at this index cannot be represented without an escape sequence.
     invalid_character: usize,
+    /// `''`. Not returned for string literals.
+    empty_char_literal,
+
+    const FormatMessage = struct {
+        err: Error,
+        raw_string: []const u8,
+    };
+
+    fn formatMessage(
+        self: FormatMessage,
+        comptime f: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = f;
+        _ = options;
+        switch (self.err) {
+            .invalid_escape_character => |bad_index| try writer.print(
+                "invalid escape character: '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .expected_hex_digit => |bad_index| try writer.print(
+                "expected hex digit, found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .empty_unicode_escape_sequence => try writer.writeAll(
+                "empty unicode escape sequence",
+            ),
+            .expected_hex_digit_or_rbrace => |bad_index| try writer.print(
+                "expected hex digit or '}}', found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .invalid_unicode_codepoint => try writer.writeAll(
+                "unicode escape does not correspond to a valid unicode scalar value",
+            ),
+            .expected_lbrace => |bad_index| try writer.print(
+                "expected '{{', found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .expected_rbrace => |bad_index| try writer.print(
+                "expected '}}', found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .expected_single_quote => |bad_index| try writer.print(
+                "expected single quote ('), found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .invalid_character => |bad_index| try writer.print(
+                "invalid byte in string or character literal: '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .empty_char_literal => try writer.writeAll(
+                "empty character literal",
+            ),
+        }
+    }
+
+    pub fn fmt(self: @This(), raw_string: []const u8) std.fmt.Formatter(formatMessage) {
+        return .{ .data = .{
+            .err = self,
+            .raw_string = raw_string,
+        } };
+    }
+
+    pub fn offset(err: Error) usize {
+        return switch (err) {
+            inline .invalid_escape_character,
+            .expected_hex_digit,
+            .empty_unicode_escape_sequence,
+            .expected_hex_digit_or_rbrace,
+            .invalid_unicode_codepoint,
+            .expected_lbrace,
+            .expected_rbrace,
+            .expected_single_quote,
+            .invalid_character,
+            => |n| n,
+            .empty_char_literal => 0,
+        };
+    }
 };
 
-/// Only validates escape sequence characters.
-/// Slice must be valid utf8 starting and ending with "'" and exactly one codepoint in between.
+/// Asserts the slice starts and ends with single-quotes.
+/// Returns an error if there is not exactly one UTF-8 codepoint in between.
 pub fn parseCharLiteral(slice: []const u8) ParsedCharLiteral {
-    assert(slice.len >= 3 and slice[0] == '\'' and slice[slice.len - 1] == '\'');
+    if (slice.len < 3) return .{ .failure = .empty_char_literal };
+    assert(slice[0] == '\'');
+    assert(slice[slice.len - 1] == '\'');
 
     switch (slice[1]) {
         '\\' => {
@@ -55,7 +135,18 @@ pub fn parseCharLiteral(slice: []const u8) ParsedCharLiteral {
         },
         0 => return .{ .failure = .{ .invalid_character = 1 } },
         else => {
-            const codepoint = utf8Decode(slice[1 .. slice.len - 1]) catch unreachable;
+            const inner = slice[1 .. slice.len - 1];
+            const n = std.unicode.utf8ByteSequenceLength(inner[0]) catch return .{
+                .failure = .{ .invalid_unicode_codepoint = 1 },
+            };
+            if (inner.len > n) return .{ .failure = .{ .expected_single_quote = 1 + n } };
+            const codepoint = switch (n) {
+                1 => inner[0],
+                2 => std.unicode.utf8Decode2(inner[0..2].*),
+                3 => std.unicode.utf8Decode3(inner[0..3].*),
+                4 => std.unicode.utf8Decode4(inner[0..4].*),
+                else => unreachable,
+            } catch return .{ .failure = .{ .invalid_unicode_codepoint = 1 } };
             return .{ .success = codepoint };
         },
     }

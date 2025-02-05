@@ -154,7 +154,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
   // The average output length is 16.38 digits, so we check high-to-low.
   // Function precondition: __v is not an 18, 19, or 20-digit number.
   // (17 digits are sufficient for round-tripping.)
-  _LIBCPP_ASSERT_UNCATEGORIZED(__v < 100000000000000000u, "");
+  _LIBCPP_ASSERT_INTERNAL(__v < 100000000000000000u, "");
   if (__v >= 10000000000000000u) { return 17; }
   if (__v >= 1000000000000000u) { return 16; }
   if (__v >= 100000000000000u) { return 15; }

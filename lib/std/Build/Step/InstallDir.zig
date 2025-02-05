@@ -3,17 +3,16 @@ const mem = std.mem;
 const fs = std.fs;
 const Step = std.Build.Step;
 const LazyPath = std.Build.LazyPath;
-const InstallDir = std.Build.InstallDir;
-const InstallDirStep = @This();
+const InstallDir = @This();
 
 step: Step,
 options: Options,
 
-pub const base_id = .install_dir;
+pub const base_id: Step.Id = .install_dir;
 
 pub const Options = struct {
     source_dir: LazyPath,
-    install_dir: InstallDir,
+    install_dir: std.Build.InstallDir,
     install_subdir: []const u8,
     /// File paths which end in any of these suffixes will be excluded
     /// from being installed.
@@ -29,56 +28,57 @@ pub const Options = struct {
     /// `@import("test.zig")` would be a compile error.
     blank_extensions: []const []const u8 = &.{},
 
-    fn dupe(self: Options, b: *std.Build) Options {
+    fn dupe(opts: Options, b: *std.Build) Options {
         return .{
-            .source_dir = self.source_dir.dupe(b),
-            .install_dir = self.install_dir.dupe(b),
-            .install_subdir = b.dupe(self.install_subdir),
-            .exclude_extensions = b.dupeStrings(self.exclude_extensions),
-            .include_extensions = if (self.include_extensions) |incs| b.dupeStrings(incs) else null,
-            .blank_extensions = b.dupeStrings(self.blank_extensions),
+            .source_dir = opts.source_dir.dupe(b),
+            .install_dir = opts.install_dir.dupe(b),
+            .install_subdir = b.dupe(opts.install_subdir),
+            .exclude_extensions = b.dupeStrings(opts.exclude_extensions),
+            .include_extensions = if (opts.include_extensions) |incs| b.dupeStrings(incs) else null,
+            .blank_extensions = b.dupeStrings(opts.blank_extensions),
         };
     }
 };
 
-pub fn create(owner: *std.Build, options: Options) *InstallDirStep {
-    owner.pushInstalledFile(options.install_dir, options.install_subdir);
-    const self = owner.allocator.create(InstallDirStep) catch @panic("OOM");
-    self.* = .{
+pub fn create(owner: *std.Build, options: Options) *InstallDir {
+    const install_dir = owner.allocator.create(InstallDir) catch @panic("OOM");
+    install_dir.* = .{
         .step = Step.init(.{
-            .id = .install_dir,
+            .id = base_id,
             .name = owner.fmt("install {s}/", .{options.source_dir.getDisplayName()}),
             .owner = owner,
             .makeFn = make,
         }),
         .options = options.dupe(owner),
     };
-    options.source_dir.addStepDependencies(&self.step);
-    return self;
+    options.source_dir.addStepDependencies(&install_dir.step);
+    return install_dir;
 }
 
-fn make(step: *Step, prog_node: *std.Progress.Node) !void {
-    _ = prog_node;
+fn make(step: *Step, options: Step.MakeOptions) !void {
+    _ = options;
     const b = step.owner;
-    const self: *InstallDirStep = @fieldParentPtr("step", step);
+    const install_dir: *InstallDir = @fieldParentPtr("step", step);
+    step.clearWatchInputs();
     const arena = b.allocator;
-    const dest_prefix = b.getInstallPath(self.options.install_dir, self.options.install_subdir);
-    const src_dir_path = self.options.source_dir.getPath2(b, step);
-    var src_dir = b.build_root.handle.openDir(src_dir_path, .{ .iterate = true }) catch |err| {
-        return step.fail("unable to open source directory '{}{s}': {s}", .{
-            b.build_root, src_dir_path, @errorName(err),
+    const dest_prefix = b.getInstallPath(install_dir.options.install_dir, install_dir.options.install_subdir);
+    const src_dir_path = install_dir.options.source_dir.getPath3(b, step);
+    const need_derived_inputs = try step.addDirectoryWatchInput(install_dir.options.source_dir);
+    var src_dir = src_dir_path.root_dir.handle.openDir(src_dir_path.subPathOrDot(), .{ .iterate = true }) catch |err| {
+        return step.fail("unable to open source directory '{}': {s}", .{
+            src_dir_path, @errorName(err),
         });
     };
     defer src_dir.close();
     var it = try src_dir.walk(arena);
     var all_cached = true;
     next_entry: while (try it.next()) |entry| {
-        for (self.options.exclude_extensions) |ext| {
+        for (install_dir.options.exclude_extensions) |ext| {
             if (mem.endsWith(u8, entry.path, ext)) {
                 continue :next_entry;
             }
         }
-        if (self.options.include_extensions) |incs| {
+        if (install_dir.options.include_extensions) |incs| {
             var found = false;
             for (incs) |inc| {
                 if (mem.endsWith(u8, entry.path, inc)) {
@@ -90,14 +90,18 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
         }
 
         // relative to src build root
-        const src_sub_path = try fs.path.join(arena, &.{ src_dir_path, entry.path });
-        const dest_path = try fs.path.join(arena, &.{ dest_prefix, entry.path });
+        const src_sub_path = try src_dir_path.join(arena, entry.path);
+        const dest_path = b.pathJoin(&.{ dest_prefix, entry.path });
         const cwd = fs.cwd();
 
         switch (entry.kind) {
-            .directory => try cwd.makePath(dest_path),
+            .directory => {
+                if (need_derived_inputs) try step.addDirectoryWatchInputFromPath(src_sub_path);
+                try cwd.makePath(dest_path);
+                // TODO: set result_cached=false if the directory did not already exist.
+            },
             .file => {
-                for (self.options.blank_extensions) |ext| {
+                for (install_dir.options.blank_extensions) |ext| {
                     if (mem.endsWith(u8, entry.path, ext)) {
                         try b.truncateFile(dest_path);
                         continue :next_entry;
@@ -105,14 +109,14 @@ fn make(step: *Step, prog_node: *std.Progress.Node) !void {
                 }
 
                 const prev_status = fs.Dir.updateFile(
-                    b.build_root.handle,
-                    src_sub_path,
+                    src_sub_path.root_dir.handle,
+                    src_sub_path.sub_path,
                     cwd,
                     dest_path,
                     .{},
                 ) catch |err| {
-                    return step.fail("unable to update file from '{}{s}' to '{s}': {s}", .{
-                        b.build_root, src_sub_path, dest_path, @errorName(err),
+                    return step.fail("unable to update file from '{}' to '{s}': {s}", .{
+                        src_sub_path, dest_path, @errorName(err),
                     });
                 };
                 all_cached = all_cached and prev_status == .fresh;

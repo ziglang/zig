@@ -7,16 +7,16 @@ const native_endian = builtin.cpu.arch.endian();
 pub const panic = common.panic;
 
 comptime {
-    @export(__mulsi3, .{ .name = "__mulsi3", .linkage = common.linkage, .visibility = common.visibility });
+    @export(&__mulsi3, .{ .name = "__mulsi3", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_aeabi) {
-        @export(__aeabi_lmul, .{ .name = "__aeabi_lmul", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__aeabi_lmul, .{ .name = "__aeabi_lmul", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__muldi3, .{ .name = "__muldi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__muldi3, .{ .name = "__muldi3", .linkage = common.linkage, .visibility = common.visibility });
     }
     if (common.want_windows_v2u64_abi) {
-        @export(__multi3_windows_x86_64, .{ .name = "__multi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__multi3_windows_x86_64, .{ .name = "__multi3", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(__multi3, .{ .name = "__multi3", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__multi3, .{ .name = "__multi3", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 

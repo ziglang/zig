@@ -40,7 +40,7 @@ pub fn addPrefix(cache: *Cache, directory: Directory) void {
 
 /// Be sure to call `Manifest.deinit` after successful initialization.
 pub fn obtain(cache: *Cache) Manifest {
-    return Manifest{
+    return .{
         .cache = cache,
         .hash = cache.hash,
         .manifest_file = null,
@@ -99,9 +99,9 @@ fn findPrefixResolved(cache: *const Cache, resolved_path: []u8) !PrefixedPath {
 }
 
 fn getPrefixSubpath(allocator: Allocator, prefix: []const u8, path: []u8) ![]u8 {
-    const relative = try std.fs.path.relative(allocator, prefix, path);
+    const relative = try fs.path.relative(allocator, prefix, path);
     errdefer allocator.free(relative);
-    var component_iterator = std.fs.path.NativeComponentIterator.init(relative) catch {
+    var component_iterator = fs.path.NativeComponentIterator.init(relative) catch {
         return error.NotASubPath;
     };
     if (component_iterator.root() != null) {
@@ -142,6 +142,9 @@ pub const hasher_init: Hasher = Hasher.init(&[_]u8{
 pub const File = struct {
     prefixed_path: PrefixedPath,
     max_file_size: ?usize,
+    /// Populated if the user calls `addOpenedFile`.
+    /// The handle is not owned here.
+    handle: ?fs.File,
     stat: Stat,
     bin_digest: BinDigest,
     contents: ?[]const u8,
@@ -150,6 +153,14 @@ pub const File = struct {
         inode: fs.File.INode,
         size: u64,
         mtime: i128,
+
+        pub fn fromFs(fs_stat: fs.File.Stat) Stat {
+            return .{
+                .inode = fs_stat.inode,
+                .size = fs_stat.size,
+                .mtime = fs_stat.mtime,
+            };
+        }
     };
 
     pub fn deinit(self: *File, gpa: Allocator) void {
@@ -164,6 +175,11 @@ pub const File = struct {
     pub fn updateMaxSize(file: *File, new_max_size: ?usize) void {
         const new = new_max_size orelse return;
         file.max_file_size = if (file.max_file_size) |old| @max(old, new) else new;
+    }
+
+    pub fn updateHandle(file: *File, new_handle: ?fs.File) void {
+        const handle = new_handle orelse return;
+        file.handle = handle;
     }
 };
 
@@ -201,10 +217,16 @@ pub const HashHelper = struct {
             },
             std.Target.Os.TaggedVersionRange => {
                 switch (x) {
+                    .hurd => |hurd| {
+                        hh.add(hurd.range.min);
+                        hh.add(hurd.range.max);
+                        hh.add(hurd.glibc);
+                    },
                     .linux => |linux| {
                         hh.add(linux.range.min);
                         hh.add(linux.range.max);
                         hh.add(linux.glibc);
+                        hh.add(linux.android);
                     },
                     .windows => |windows| {
                         hh.add(windows.min);
@@ -222,7 +244,7 @@ pub const HashHelper = struct {
                 .hexstring => |hex_string| hh.addBytes(hex_string.toSlice()),
             },
             else => switch (@typeInfo(@TypeOf(x))) {
-                .Bool, .Int, .Enum, .Array => hh.addBytes(mem.asBytes(&x)),
+                .bool, .int, .@"enum", .array => hh.addBytes(mem.asBytes(&x)),
                 else => @compileError("unable to hash type " ++ @typeName(@TypeOf(x))),
             },
         }
@@ -250,14 +272,7 @@ pub const HashHelper = struct {
     pub fn final(hh: *HashHelper) HexDigest {
         var bin_digest: BinDigest = undefined;
         hh.hasher.final(&bin_digest);
-
-        var out_digest: HexDigest = undefined;
-        _ = fmt.bufPrint(
-            &out_digest,
-            "{s}",
-            .{fmt.fmtSliceHexLower(&bin_digest)},
-        ) catch unreachable;
-        return out_digest;
+        return binToHex(bin_digest);
     }
 
     pub fn oneShot(bytes: []const u8) [hex_digest_len]u8 {
@@ -265,15 +280,19 @@ pub const HashHelper = struct {
         hasher.update(bytes);
         var bin_digest: BinDigest = undefined;
         hasher.final(&bin_digest);
-        var out_digest: [hex_digest_len]u8 = undefined;
-        _ = fmt.bufPrint(
-            &out_digest,
-            "{s}",
-            .{fmt.fmtSliceHexLower(&bin_digest)},
-        ) catch unreachable;
-        return out_digest;
+        return binToHex(bin_digest);
     }
 };
+
+pub fn binToHex(bin_digest: BinDigest) HexDigest {
+    var out_digest: HexDigest = undefined;
+    _ = fmt.bufPrint(
+        &out_digest,
+        "{s}",
+        .{fmt.fmtSliceHexLower(&bin_digest)},
+    ) catch unreachable;
+    return out_digest;
+}
 
 pub const Lock = struct {
     manifest_file: fs.File,
@@ -308,12 +327,26 @@ pub const Manifest = struct {
     want_refresh_timestamp: bool = true,
     files: Files = .{},
     hex_digest: HexDigest,
-    /// Populated when hit() returns an error because of one
-    /// of the files listed in the manifest.
-    failed_file_index: ?usize = null,
+    diagnostic: Diagnostic = .none,
     /// Keeps track of the last time we performed a file system write to observe
     /// what time the file system thinks it is, according to its own granularity.
     recent_problematic_timestamp: i128 = 0,
+
+    pub const Diagnostic = union(enum) {
+        none,
+        manifest_create: fs.File.OpenError,
+        manifest_read: fs.File.ReadError,
+        manifest_lock: fs.File.LockError,
+        file_open: FileOp,
+        file_stat: FileOp,
+        file_read: FileOp,
+        file_hash: FileOp,
+
+        pub const FileOp = struct {
+            file_index: usize,
+            err: anyerror,
+        };
+    };
 
     pub const Files = std.ArrayHashMapUnmanaged(File, void, FilesContext, false);
 
@@ -357,6 +390,24 @@ pub const Manifest = struct {
     /// ```
     /// var file_contents = cache_hash.files.keys()[file_index].contents.?;
     /// ```
+    pub fn addFilePath(m: *Manifest, file_path: Path, max_file_size: ?usize) !usize {
+        return addOpenedFile(m, file_path, null, max_file_size);
+    }
+
+    /// Same as `addFilePath` except the file has already been opened.
+    pub fn addOpenedFile(m: *Manifest, path: Path, handle: ?fs.File, max_file_size: ?usize) !usize {
+        const gpa = m.cache.gpa;
+        try m.files.ensureUnusedCapacity(gpa, 1);
+        const resolved_path = try fs.path.resolve(gpa, &.{
+            path.root_dir.path orelse ".",
+            path.subPathOrDot(),
+        });
+        errdefer gpa.free(resolved_path);
+        const prefixed_path = try m.cache.findPrefixResolved(resolved_path);
+        return addFileInner(m, prefixed_path, handle, max_file_size);
+    }
+
+    /// Deprecated; use `addFilePath`.
     pub fn addFile(self: *Manifest, file_path: []const u8, max_file_size: ?usize) !usize {
         assert(self.manifest_file == null);
 
@@ -365,9 +416,14 @@ pub const Manifest = struct {
         const prefixed_path = try self.cache.findPrefix(file_path);
         errdefer gpa.free(prefixed_path.sub_path);
 
+        return addFileInner(self, prefixed_path, null, max_file_size);
+    }
+
+    fn addFileInner(self: *Manifest, prefixed_path: PrefixedPath, handle: ?fs.File, max_file_size: ?usize) usize {
         const gop = self.files.getOrPutAssumeCapacityAdapted(prefixed_path, FilesAdapter{});
         if (gop.found_existing) {
             gop.key_ptr.updateMaxSize(max_file_size);
+            gop.key_ptr.updateHandle(handle);
             return gop.index;
         }
         gop.key_ptr.* = .{
@@ -376,6 +432,7 @@ pub const Manifest = struct {
             .max_file_size = max_file_size,
             .stat = undefined,
             .bin_digest = undefined,
+            .handle = handle,
         };
 
         self.hash.add(prefixed_path.prefix);
@@ -384,10 +441,17 @@ pub const Manifest = struct {
         return gop.index;
     }
 
+    /// Deprecated, use `addOptionalFilePath`.
     pub fn addOptionalFile(self: *Manifest, optional_file_path: ?[]const u8) !void {
         self.hash.add(optional_file_path != null);
         const file_path = optional_file_path orelse return;
         _ = try self.addFile(file_path, null);
+    }
+
+    pub fn addOptionalFilePath(self: *Manifest, optional_file_path: ?Path) !void {
+        self.hash.add(optional_file_path != null);
+        const file_path = optional_file_path orelse return;
+        _ = try self.addFilePath(file_path, null);
     }
 
     pub fn addListOfFiles(self: *Manifest, list_of_files: []const []const u8) !void {
@@ -396,6 +460,20 @@ pub const Manifest = struct {
             _ = try self.addFile(file_path, null);
         }
     }
+
+    pub fn addDepFile(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
+        assert(self.manifest_file == null);
+        return self.addDepFileMaybePost(dir, dep_file_basename);
+    }
+
+    pub const HitError = error{
+        /// Unable to check the cache for a reason that has been recorded into
+        /// the `diagnostic` field.
+        CacheCheckFailed,
+        /// A cache manifest file exists however it could not be parsed.
+        InvalidFormat,
+        OutOfMemory,
+    };
 
     /// Check the cache to see if the input exists in it. If it exists, returns `true`.
     /// A hex encoding of its hash is available by calling `final`.
@@ -409,11 +487,11 @@ pub const Manifest = struct {
     /// The lock on the manifest file is released when `deinit` is called. As another
     /// option, one may call `toOwnedLock` to obtain a smaller object which can represent
     /// the lock. `deinit` is safe to call whether or not `toOwnedLock` has been called.
-    pub fn hit(self: *Manifest) !bool {
+    pub fn hit(self: *Manifest) HitError!bool {
         const gpa = self.cache.gpa;
         assert(self.manifest_file == null);
 
-        self.failed_file_index = null;
+        self.diagnostic = .none;
 
         const ext = ".txt";
         var manifest_file_path: [hex_digest_len + ext.len]u8 = undefined;
@@ -421,11 +499,7 @@ pub const Manifest = struct {
         var bin_digest: BinDigest = undefined;
         self.hash.hasher.final(&bin_digest);
 
-        _ = fmt.bufPrint(
-            &self.hex_digest,
-            "{s}",
-            .{fmt.fmtSliceHexLower(&bin_digest)},
-        ) catch unreachable;
+        self.hex_digest = binToHex(bin_digest);
 
         self.hash.hasher = hasher_init;
         self.hash.hasher.update(&bin_digest);
@@ -445,17 +519,56 @@ pub const Manifest = struct {
                 break;
             } else |err| switch (err) {
                 error.WouldBlock => {
-                    self.manifest_file = try self.cache.manifest_dir.openFile(&manifest_file_path, .{
+                    self.manifest_file = self.cache.manifest_dir.openFile(&manifest_file_path, .{
                         .mode = .read_write,
                         .lock = .shared,
-                    });
+                    }) catch |e| {
+                        self.diagnostic = .{ .manifest_create = e };
+                        return error.CacheCheckFailed;
+                    };
                     break;
                 },
-                // There are no dir components, so you would think that this was
-                // unreachable, however we have observed on macOS two processes racing
-                // to do openat() with O_CREAT manifest in ENOENT.
-                error.FileNotFound => continue,
-                else => |e| return e,
+                error.FileNotFound => {
+                    // There are no dir components, so the only possibility
+                    // should be that the directory behind the handle has been
+                    // deleted, however we have observed on macOS two processes
+                    // racing to do openat() with O_CREAT manifest in ENOENT.
+                    //
+                    // As a workaround, we retry with exclusive=true which
+                    // disambiguates by returning EEXIST, indicating original
+                    // failure was a race, or ENOENT, indicating deletion of
+                    // the directory of our open handle.
+                    if (builtin.os.tag != .macos) {
+                        self.diagnostic = .{ .manifest_create = error.FileNotFound };
+                        return error.CacheCheckFailed;
+                    }
+
+                    if (self.cache.manifest_dir.createFile(&manifest_file_path, .{
+                        .read = true,
+                        .truncate = false,
+                        .lock = .exclusive,
+                        .lock_nonblocking = self.want_shared_lock,
+                        .exclusive = true,
+                    })) |manifest_file| {
+                        self.manifest_file = manifest_file;
+                        self.have_exclusive_lock = true;
+                        break;
+                    } else |excl_err| switch (excl_err) {
+                        error.WouldBlock, error.PathAlreadyExists => continue,
+                        error.FileNotFound => {
+                            self.diagnostic = .{ .manifest_create = error.FileNotFound };
+                            return error.CacheCheckFailed;
+                        },
+                        else => |e| {
+                            self.diagnostic = .{ .manifest_create = e };
+                            return error.CacheCheckFailed;
+                        },
+                    }
+                },
+                else => |e| {
+                    self.diagnostic = .{ .manifest_create = e };
+                    return error.CacheCheckFailed;
+                },
             }
         }
 
@@ -463,7 +576,14 @@ pub const Manifest = struct {
 
         const input_file_count = self.files.entries.len;
         while (true) : (self.unhit(bin_digest, input_file_count)) {
-            const file_contents = try self.manifest_file.?.reader().readAllAlloc(gpa, manifest_file_size_max);
+            const file_contents = self.manifest_file.?.reader().readAllAlloc(gpa, manifest_file_size_max) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                error.StreamTooLong => return error.OutOfMemory,
+                else => |e| {
+                    self.diagnostic = .{ .manifest_read = e };
+                    return error.CacheCheckFailed;
+                },
+            };
             defer gpa.free(file_contents);
 
             var any_file_changed = false;
@@ -475,8 +595,11 @@ pub const Manifest = struct {
                 while (idx < input_file_count) : (idx += 1) {
                     const ch_file = &self.files.keys()[idx];
                     self.populateFileHash(ch_file) catch |err| {
-                        self.failed_file_index = idx;
-                        return err;
+                        self.diagnostic = .{ .file_hash = .{
+                            .file_index = idx,
+                            .err = err,
+                        } };
+                        return error.CacheCheckFailed;
                     };
                 }
                 return false;
@@ -535,6 +658,7 @@ pub const Manifest = struct {
                             },
                             .contents = null,
                             .max_file_size = null,
+                            .handle = null,
                             .stat = .{
                                 .size = stat_size,
                                 .inode = stat_inode,
@@ -553,13 +677,22 @@ pub const Manifest = struct {
                         if (try self.upgradeToExclusiveLock()) continue;
                         return false;
                     },
-                    else => return error.CacheUnavailable,
+                    else => |e| {
+                        self.diagnostic = .{ .file_open = .{
+                            .file_index = idx,
+                            .err = e,
+                        } };
+                        return error.CacheCheckFailed;
+                    },
                 };
                 defer this_file.close();
 
                 const actual_stat = this_file.stat() catch |err| {
-                    self.failed_file_index = idx;
-                    return err;
+                    self.diagnostic = .{ .file_stat = .{
+                        .file_index = idx,
+                        .err = err,
+                    } };
+                    return error.CacheCheckFailed;
                 };
                 const size_match = actual_stat.size == cache_hash_file.stat.size;
                 const mtime_match = actual_stat.mtime == cache_hash_file.stat.mtime;
@@ -582,8 +715,11 @@ pub const Manifest = struct {
 
                     var actual_digest: BinDigest = undefined;
                     hashFile(this_file, &actual_digest) catch |err| {
-                        self.failed_file_index = idx;
-                        return err;
+                        self.diagnostic = .{ .file_read = .{
+                            .file_index = idx,
+                            .err = err,
+                        } };
+                        return error.CacheCheckFailed;
                     };
 
                     if (!mem.eql(u8, &cache_hash_file.bin_digest, &actual_digest)) {
@@ -610,17 +746,22 @@ pub const Manifest = struct {
                 if (try self.upgradeToExclusiveLock()) continue;
                 self.manifest_dirty = true;
                 while (idx < input_file_count) : (idx += 1) {
-                    const ch_file = &self.files.keys()[idx];
-                    self.populateFileHash(ch_file) catch |err| {
-                        self.failed_file_index = idx;
-                        return err;
+                    self.populateFileHash(&self.files.keys()[idx]) catch |err| {
+                        self.diagnostic = .{ .file_hash = .{
+                            .file_index = idx,
+                            .err = err,
+                        } };
+                        return error.CacheCheckFailed;
                     };
                 }
                 return false;
             }
 
             if (self.want_shared_lock) {
-                try self.downgradeToSharedLock();
+                self.downgradeToSharedLock() catch |err| {
+                    self.diagnostic = .{ .manifest_lock = err };
+                    return error.CacheCheckFailed;
+                };
             }
 
             return true;
@@ -678,12 +819,19 @@ pub const Manifest = struct {
     }
 
     fn populateFileHash(self: *Manifest, ch_file: *File) !void {
-        const pp = ch_file.prefixed_path;
-        const dir = self.cache.prefixes()[pp.prefix].handle;
-        const file = try dir.openFile(pp.sub_path, .{});
-        defer file.close();
+        if (ch_file.handle) |handle| {
+            return populateFileHashHandle(self, ch_file, handle);
+        } else {
+            const pp = ch_file.prefixed_path;
+            const dir = self.cache.prefixes()[pp.prefix].handle;
+            const handle = try dir.openFile(pp.sub_path, .{});
+            defer handle.close();
+            return populateFileHashHandle(self, ch_file, handle);
+        }
+    }
 
-        const actual_stat = try file.stat();
+    fn populateFileHashHandle(self: *Manifest, ch_file: *File, handle: fs.File) !void {
+        const actual_stat = try handle.stat();
         ch_file.stat = .{
             .size = actual_stat.size,
             .mtime = actual_stat.mtime,
@@ -709,8 +857,7 @@ pub const Manifest = struct {
             var hasher = hasher_init;
             var off: usize = 0;
             while (true) {
-                // give me everything you've got, captain
-                const bytes_read = try file.read(contents[off..]);
+                const bytes_read = try handle.pread(contents[off..], off);
                 if (bytes_read == 0) break;
                 hasher.update(contents[off..][0..bytes_read]);
                 off += bytes_read;
@@ -719,7 +866,7 @@ pub const Manifest = struct {
 
             ch_file.contents = contents;
         } else {
-            try hashFile(file, &ch_file.bin_digest);
+            try hashFile(handle, &ch_file.bin_digest);
         }
 
         self.hash.hasher.update(&ch_file.bin_digest);
@@ -783,6 +930,7 @@ pub const Manifest = struct {
         gop.key_ptr.* = .{
             .prefixed_path = prefixed_path,
             .max_file_size = null,
+            .handle = null,
             .stat = undefined,
             .bin_digest = undefined,
             .contents = null,
@@ -821,6 +969,7 @@ pub const Manifest = struct {
         new_file.* = .{
             .prefixed_path = prefixed_path,
             .max_file_size = null,
+            .handle = null,
             .stat = stat,
             .bin_digest = undefined,
             .contents = null,
@@ -843,7 +992,10 @@ pub const Manifest = struct {
 
     pub fn addDepFilePost(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
         assert(self.manifest_file != null);
+        return self.addDepFileMaybePost(dir, dep_file_basename);
+    }
 
+    fn addDepFileMaybePost(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
         const dep_file_contents = try dir.readFileAlloc(self.cache.gpa, dep_file_basename, manifest_file_size_max);
         defer self.cache.gpa.free(dep_file_contents);
 
@@ -852,12 +1004,23 @@ pub const Manifest = struct {
 
         var it: DepTokenizer = .{ .bytes = dep_file_contents };
 
-        while (true) {
-            switch (it.next() orelse return) {
+        while (it.next()) |token| {
+            switch (token) {
                 // We don't care about targets, we only want the prereqs
                 // Clang is invoked in single-source mode but other programs may not
                 .target, .target_must_resolve => {},
-                .prereq => |file_path| try self.addFilePost(file_path),
+                .prereq => |file_path| if (self.manifest_file == null) {
+                    _ = try self.addFile(file_path, null);
+                } else try self.addFilePost(file_path),
+                .prereq_must_resolve => {
+                    var resolve_buf = std.ArrayList(u8).init(self.cache.gpa);
+                    defer resolve_buf.deinit();
+
+                    try token.resolve(resolve_buf.writer());
+                    if (self.manifest_file == null) {
+                        _ = try self.addFile(resolve_buf.items, null);
+                    } else try self.addFilePost(resolve_buf.items);
+                },
                 else => |err| {
                     try err.printError(error_buf.writer());
                     log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_buf.items });
@@ -867,8 +1030,8 @@ pub const Manifest = struct {
         }
     }
 
-    /// Returns a hex encoded hash of the inputs.
-    pub fn final(self: *Manifest) HexDigest {
+    /// Returns a binary hash of the inputs.
+    pub fn finalBin(self: *Manifest) BinDigest {
         assert(self.manifest_file != null);
 
         // We don't close the manifest file yet, because we want to
@@ -879,15 +1042,13 @@ pub const Manifest = struct {
 
         var bin_digest: BinDigest = undefined;
         self.hash.hasher.final(&bin_digest);
+        return bin_digest;
+    }
 
-        var out_digest: HexDigest = undefined;
-        _ = fmt.bufPrint(
-            &out_digest,
-            "{s}",
-            .{fmt.fmtSliceHexLower(&bin_digest)},
-        ) catch unreachable;
-
-        return out_digest;
+    /// Returns a hex encoded hash of the inputs.
+    pub fn final(self: *Manifest) HexDigest {
+        const bin_digest = self.finalBin();
+        return binToHex(bin_digest);
     }
 
     /// If `want_shared_lock` is true, this function automatically downgrades the
@@ -938,7 +1099,7 @@ pub const Manifest = struct {
         self.have_exclusive_lock = false;
     }
 
-    fn upgradeToExclusiveLock(self: *Manifest) !bool {
+    fn upgradeToExclusiveLock(self: *Manifest) error{CacheCheckFailed}!bool {
         if (self.have_exclusive_lock) return false;
         assert(self.manifest_file != null);
 
@@ -950,7 +1111,10 @@ pub const Manifest = struct {
             // Here we intentionally have a period where the lock is released, in case there are
             // other processes holding a shared lock.
             manifest_file.unlock();
-            try manifest_file.lock(.exclusive);
+            manifest_file.lock(.exclusive) catch |err| {
+                self.diagnostic = .{ .manifest_lock = err };
+                return error.CacheCheckFailed;
+            };
         }
         self.have_exclusive_lock = true;
         return true;
@@ -985,6 +1149,55 @@ pub const Manifest = struct {
         }
         self.files.deinit(self.cache.gpa);
     }
+
+    pub fn populateFileSystemInputs(man: *Manifest, buf: *std.ArrayListUnmanaged(u8)) Allocator.Error!void {
+        assert(@typeInfo(std.zig.Server.Message.PathPrefix).@"enum".fields.len == man.cache.prefixes_len);
+        buf.clearRetainingCapacity();
+        const gpa = man.cache.gpa;
+        const files = man.files.keys();
+        if (files.len > 0) {
+            for (files) |file| {
+                try buf.ensureUnusedCapacity(gpa, file.prefixed_path.sub_path.len + 2);
+                buf.appendAssumeCapacity(file.prefixed_path.prefix + 1);
+                buf.appendSliceAssumeCapacity(file.prefixed_path.sub_path);
+                buf.appendAssumeCapacity(0);
+            }
+            // The null byte is a separator, not a terminator.
+            buf.items.len -= 1;
+        }
+    }
+
+    pub fn populateOtherManifest(man: *Manifest, other: *Manifest, prefix_map: [4]u8) Allocator.Error!void {
+        const gpa = other.cache.gpa;
+        assert(@typeInfo(std.zig.Server.Message.PathPrefix).@"enum".fields.len == man.cache.prefixes_len);
+        assert(man.cache.prefixes_len == 4);
+        for (man.files.keys()) |file| {
+            const prefixed_path: PrefixedPath = .{
+                .prefix = prefix_map[file.prefixed_path.prefix],
+                .sub_path = try gpa.dupe(u8, file.prefixed_path.sub_path),
+            };
+            errdefer gpa.free(prefixed_path.sub_path);
+
+            const gop = try other.files.getOrPutAdapted(gpa, prefixed_path, FilesAdapter{});
+            errdefer _ = other.files.pop();
+
+            if (gop.found_existing) {
+                gpa.free(prefixed_path.sub_path);
+                continue;
+            }
+
+            gop.key_ptr.* = .{
+                .prefixed_path = prefixed_path,
+                .max_file_size = file.max_file_size,
+                .handle = file.handle,
+                .stat = file.stat,
+                .bin_digest = file.bin_digest,
+                .contents = null,
+            };
+
+            other.hash.hasher.update(&gop.key_ptr.bin_digest);
+        }
+    }
 };
 
 /// On operating systems that support symlinks, does a readlink. On other operating systems,
@@ -1005,22 +1218,22 @@ pub fn readSmallFile(dir: fs.Dir, sub_path: []const u8, buffer: []u8) ![]u8 {
 pub fn writeSmallFile(dir: fs.Dir, sub_path: []const u8, data: []const u8) !void {
     assert(data.len <= 255);
     if (builtin.os.tag == .windows) {
-        return dir.writeFile(sub_path, data);
+        return dir.writeFile(.{ .sub_path = sub_path, .data = data });
     } else {
         return dir.symLink(data, sub_path, .{});
     }
 }
 
-fn hashFile(file: fs.File, bin_digest: *[Hasher.mac_length]u8) !void {
+fn hashFile(file: fs.File, bin_digest: *[Hasher.mac_length]u8) fs.File.PReadError!void {
     var buf: [1024]u8 = undefined;
-
     var hasher = hasher_init;
+    var off: u64 = 0;
     while (true) {
-        const bytes_read = try file.read(&buf);
+        const bytes_read = try file.pread(&buf, off);
         if (bytes_read == 0) break;
         hasher.update(buf[0..bytes_read]);
+        off += bytes_read;
     }
-
     hasher.final(bin_digest);
 }
 
@@ -1052,7 +1265,7 @@ test "cache file and then recall it" {
     const temp_file = "test.txt";
     const temp_manifest_dir = "temp_manifest_dir";
 
-    try tmp.dir.writeFile(temp_file, "Hello, world!\n");
+    try tmp.dir.writeFile(.{ .sub_path = temp_file, .data = "Hello, world!\n" });
 
     // Wait for file timestamps to tick
     const initial_time = try testGetCurrentFileTimestamp(tmp.dir);
@@ -1120,7 +1333,7 @@ test "check that changing a file makes cache fail" {
     const original_temp_file_contents = "Hello, world!\n";
     const updated_temp_file_contents = "Hello, world; but updated!\n";
 
-    try tmp.dir.writeFile(temp_file, original_temp_file_contents);
+    try tmp.dir.writeFile(.{ .sub_path = temp_file, .data = original_temp_file_contents });
 
     // Wait for file timestamps to tick
     const initial_time = try testGetCurrentFileTimestamp(tmp.dir);
@@ -1156,7 +1369,7 @@ test "check that changing a file makes cache fail" {
             try ch.writeManifest();
         }
 
-        try tmp.dir.writeFile(temp_file, updated_temp_file_contents);
+        try tmp.dir.writeFile(.{ .sub_path = temp_file, .data = updated_temp_file_contents });
 
         {
             var ch = cache.obtain();
@@ -1241,8 +1454,8 @@ test "Manifest with files added after initial hash work" {
     const temp_file2 = "cache_hash_post_file_test2.txt";
     const temp_manifest_dir = "cache_hash_post_file_manifest_dir";
 
-    try tmp.dir.writeFile(temp_file1, "Hello, world!\n");
-    try tmp.dir.writeFile(temp_file2, "Hello world the second!\n");
+    try tmp.dir.writeFile(.{ .sub_path = temp_file1, .data = "Hello, world!\n" });
+    try tmp.dir.writeFile(.{ .sub_path = temp_file2, .data = "Hello world the second!\n" });
 
     // Wait for file timestamps to tick
     const initial_time = try testGetCurrentFileTimestamp(tmp.dir);
@@ -1292,7 +1505,7 @@ test "Manifest with files added after initial hash work" {
         try testing.expect(mem.eql(u8, &digest1, &digest2));
 
         // Modify the file added after initial hash
-        try tmp.dir.writeFile(temp_file2, "Hello world the second, updated\n");
+        try tmp.dir.writeFile(.{ .sub_path = temp_file2, .data = "Hello world the second, updated\n" });
 
         // Wait for file timestamps to tick
         const initial_time2 = try testGetCurrentFileTimestamp(tmp.dir);

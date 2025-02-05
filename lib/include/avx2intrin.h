@@ -15,8 +15,12 @@
 #define __AVX2INTRIN_H
 
 /* Define the default attributes for the functions in this file. */
-#define __DEFAULT_FN_ATTRS256 __attribute__((__always_inline__, __nodebug__, __target__("avx2"), __min_vector_width__(256)))
-#define __DEFAULT_FN_ATTRS128 __attribute__((__always_inline__, __nodebug__, __target__("avx2"), __min_vector_width__(128)))
+#define __DEFAULT_FN_ATTRS256                                                  \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx2,no-evex512"), __min_vector_width__(256)))
+#define __DEFAULT_FN_ATTRS128                                                  \
+  __attribute__((__always_inline__, __nodebug__,                               \
+                 __target__("avx2,no-evex512"), __min_vector_width__(128)))
 
 /* SSE4 Multiple Packed Sums of Absolute Difference.  */
 /// Computes sixteen sum of absolute difference (SAD) operations on sets of
@@ -1307,6 +1311,23 @@ _mm256_min_epu32(__m256i __a, __m256i __b)
   return (__m256i)__builtin_elementwise_min((__v8su)__a, (__v8su)__b);
 }
 
+/// Creates a 32-bit integer mask from the most significant bit of each byte
+///    in the 256-bit integer vector in \a __a and returns the result.
+///
+/// \code{.operation}
+/// FOR i := 0 TO 31
+///   j := i*8
+///   result[i] := __a[j+7]
+/// ENDFOR
+/// \endcode
+///
+/// \headerfile <immintrin.h>
+///
+/// This intrinsic corresponds to the \c VPMOVMSKB instruction.
+///
+/// \param __a
+///    A 256-bit integer vector containing the source bytes.
+/// \returns The 32-bit integer mask.
 static __inline__ int __DEFAULT_FN_ATTRS256
 _mm256_movemask_epi8(__m256i __a)
 {
@@ -2962,7 +2983,7 @@ _mm256_xor_si256(__m256i __a, __m256i __b)
 ///    A pointer to the 32-byte aligned memory containing the vector to load.
 /// \returns A 256-bit integer vector loaded from memory.
 static __inline__ __m256i __DEFAULT_FN_ATTRS256
-_mm256_stream_load_si256(__m256i const *__V)
+_mm256_stream_load_si256(const void *__V)
 {
   typedef __v4di __v4di_aligned __attribute__((aligned(32)));
   return (__m256i)__builtin_nontemporal_load((const __v4di_aligned *)__V);

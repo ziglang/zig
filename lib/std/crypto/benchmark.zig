@@ -72,6 +72,10 @@ const macs = [_]Crypto{
     Crypto{ .ty = crypto.auth.siphash.SipHash64(1, 3), .name = "siphash-1-3" },
     Crypto{ .ty = crypto.auth.siphash.SipHash128(2, 4), .name = "siphash128-2-4" },
     Crypto{ .ty = crypto.auth.siphash.SipHash128(1, 3), .name = "siphash128-1-3" },
+    Crypto{ .ty = crypto.auth.aegis.Aegis128X4Mac, .name = "aegis-128x4 mac" },
+    Crypto{ .ty = crypto.auth.aegis.Aegis256X4Mac, .name = "aegis-256x4 mac" },
+    Crypto{ .ty = crypto.auth.aegis.Aegis128X2Mac, .name = "aegis-128x2 mac" },
+    Crypto{ .ty = crypto.auth.aegis.Aegis256X2Mac, .name = "aegis-256x2 mac" },
     Crypto{ .ty = crypto.auth.aegis.Aegis128LMac, .name = "aegis-128l mac" },
     Crypto{ .ty = crypto.auth.aegis.Aegis256Mac, .name = "aegis-256 mac" },
     Crypto{ .ty = crypto.auth.cmac.CmacAes128, .name = "aes-cmac" },
@@ -140,7 +144,7 @@ const signatures = [_]Crypto{
 
 pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
     const msg = [_]u8{0} ** 64;
-    const key_pair = try Signature.KeyPair.create(null);
+    const key_pair = Signature.KeyPair.generate();
 
     var timer = try Timer.start();
     const start = timer.lap();
@@ -163,7 +167,7 @@ const signature_verifications = [_]Crypto{Crypto{ .ty = crypto.sign.Ed25519, .na
 
 pub fn benchmarkSignatureVerification(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
     const msg = [_]u8{0} ** 64;
-    const key_pair = try Signature.KeyPair.create(null);
+    const key_pair = Signature.KeyPair.generate();
     const sig = try key_pair.sign(&msg, null);
 
     var timer = try Timer.start();
@@ -187,7 +191,7 @@ const batch_signature_verifications = [_]Crypto{Crypto{ .ty = crypto.sign.Ed2551
 
 pub fn benchmarkBatchSignatureVerification(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
     const msg = [_]u8{0} ** 64;
-    const key_pair = try Signature.KeyPair.create(null);
+    const key_pair = Signature.KeyPair.generate();
     const sig = try key_pair.sign(&msg, null);
 
     var batch: [64]Signature.BatchElement = undefined;
@@ -219,7 +223,7 @@ const kems = [_]Crypto{
 };
 
 pub fn benchmarkKem(comptime Kem: anytype, comptime kems_count: comptime_int) !u64 {
-    const key_pair = try Kem.KeyPair.create(null);
+    const key_pair = Kem.KeyPair.generate();
 
     var timer = try Timer.start();
     const start = timer.lap();
@@ -239,7 +243,7 @@ pub fn benchmarkKem(comptime Kem: anytype, comptime kems_count: comptime_int) !u
 }
 
 pub fn benchmarkKemDecaps(comptime Kem: anytype, comptime kems_count: comptime_int) !u64 {
-    const key_pair = try Kem.KeyPair.create(null);
+    const key_pair = Kem.KeyPair.generate();
 
     const e = key_pair.public_key.encaps(null);
 
@@ -266,7 +270,7 @@ pub fn benchmarkKemKeyGen(comptime Kem: anytype, comptime kems_count: comptime_i
     {
         var i: usize = 0;
         while (i < kems_count) : (i += 1) {
-            const key_pair = try Kem.KeyPair.create(null);
+            const key_pair = Kem.KeyPair.generate();
             mem.doNotOptimizeAway(&key_pair);
         }
     }
@@ -283,7 +287,11 @@ const aeads = [_]Crypto{
     Crypto{ .ty = crypto.aead.chacha_poly.XChaCha20Poly1305, .name = "xchacha20Poly1305" },
     Crypto{ .ty = crypto.aead.chacha_poly.XChaCha8Poly1305, .name = "xchacha8Poly1305" },
     Crypto{ .ty = crypto.aead.salsa_poly.XSalsa20Poly1305, .name = "xsalsa20Poly1305" },
+    Crypto{ .ty = crypto.aead.aegis.Aegis128X4, .name = "aegis-128x4" },
+    Crypto{ .ty = crypto.aead.aegis.Aegis128X2, .name = "aegis-128x2" },
     Crypto{ .ty = crypto.aead.aegis.Aegis128L, .name = "aegis-128l" },
+    Crypto{ .ty = crypto.aead.aegis.Aegis256X4, .name = "aegis-256x4" },
+    Crypto{ .ty = crypto.aead.aegis.Aegis256X2, .name = "aegis-256x2" },
     Crypto{ .ty = crypto.aead.aegis.Aegis256, .name = "aegis-256" },
     Crypto{ .ty = crypto.aead.aes_gcm.Aes128Gcm, .name = "aes128-gcm" },
     Crypto{ .ty = crypto.aead.aes_gcm.Aes256Gcm, .name = "aes256-gcm" },
@@ -409,7 +417,7 @@ fn benchmarkPwhash(
     comptime count: comptime_int,
 ) !f64 {
     const password = "testpass" ** 2;
-    const opts = .{
+    const opts = ty.HashOptions{
         .allocator = allocator,
         .params = @as(*const ty.Params, @ptrCast(@alignCast(params))).*,
         .encoding = .phc,

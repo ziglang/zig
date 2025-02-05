@@ -21,7 +21,6 @@
 #include "Utility.h"
 #include <__cxxabi_config.h>
 #include <algorithm>
-#include <cassert>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -40,13 +39,12 @@
 DEMANGLE_NAMESPACE_BEGIN
 
 template <class T, size_t N> class PODSmallVector {
-  static_assert(std::is_pod<T>::value,
-                "T is required to be a plain old data type");
-
+  static_assert(std::is_trivial<T>::value,
+                "T is required to be a trivial type");
   T *First = nullptr;
   T *Last = nullptr;
   T *Cap = nullptr;
-  T Inline[N] = {0};
+  T Inline[N] = {};
 
   bool isInline() const { return First == Inline; }
 
@@ -61,13 +59,13 @@ template <class T, size_t N> class PODSmallVector {
     if (isInline()) {
       auto *Tmp = static_cast<T *>(std::malloc(NewCap * sizeof(T)));
       if (Tmp == nullptr)
-        std::terminate();
+        std::abort();
       std::copy(First, Last, Tmp);
       First = Tmp;
     } else {
       First = static_cast<T *>(std::realloc(First, NewCap * sizeof(T)));
       if (First == nullptr)
-        std::terminate();
+        std::abort();
     }
     Last = First + S;
     Cap = First + NewCap;
@@ -129,12 +127,12 @@ public:
 
   // NOLINTNEXTLINE(readability-identifier-naming)
   void pop_back() {
-    assert(Last != First && "Popping empty vector!");
+    DEMANGLE_ASSERT(Last != First, "Popping empty vector!");
     --Last;
   }
 
-  void dropBack(size_t Index) {
-    assert(Index <= size() && "dropBack() can't expand!");
+  void shrinkToSize(size_t Index) {
+    DEMANGLE_ASSERT(Index <= size(), "shrinkToSize() can't expand!");
     Last = First + Index;
   }
 
@@ -144,11 +142,11 @@ public:
   bool empty() const { return First == Last; }
   size_t size() const { return static_cast<size_t>(Last - First); }
   T &back() {
-    assert(Last != First && "Calling back() on empty vector!");
+    DEMANGLE_ASSERT(Last != First, "Calling back() on empty vector!");
     return *(Last - 1);
   }
   T &operator[](size_t Index) {
-    assert(Index < size() && "Invalid access!");
+    DEMANGLE_ASSERT(Index < size(), "Invalid access!");
     return *(begin() + Index);
   }
   void clear() { Last = First; }
@@ -534,6 +532,23 @@ public:
   }
 };
 
+class TransformedType : public Node {
+  std::string_view Transform;
+  Node *BaseType;
+public:
+  TransformedType(std::string_view Transform_, Node *BaseType_)
+      : Node(KTransformedType), Transform(Transform_), BaseType(BaseType_) {}
+
+  template<typename Fn> void match(Fn F) const { F(Transform, BaseType); }
+
+  void printLeft(OutputBuffer &OB) const override {
+    OB += Transform;
+    OB += '(';
+    BaseType->print(OB);
+    OB += ')';
+  }
+};
+
 struct AbiTagAttr : Node {
   Node *Base;
   std::string_view Tag;
@@ -873,26 +888,53 @@ public:
   }
 };
 
+/// Represents the explicitly named object parameter.
+/// E.g.,
+/// \code{.cpp}
+///   struct Foo {
+///     void bar(this Foo && self);
+///   };
+/// \endcode
+class ExplicitObjectParameter final : public Node {
+  Node *Base;
+
+public:
+  ExplicitObjectParameter(Node *Base_)
+      : Node(KExplicitObjectParameter), Base(Base_) {
+    DEMANGLE_ASSERT(
+        Base != nullptr,
+        "Creating an ExplicitObjectParameter without a valid Base Node.");
+  }
+
+  template <typename Fn> void match(Fn F) const { F(Base); }
+
+  void printLeft(OutputBuffer &OB) const override {
+    OB += "this ";
+    Base->print(OB);
+  }
+};
+
 class FunctionEncoding final : public Node {
   const Node *Ret;
   const Node *Name;
   NodeArray Params;
   const Node *Attrs;
+  const Node *Requires;
   Qualifiers CVQuals;
   FunctionRefQual RefQual;
 
 public:
   FunctionEncoding(const Node *Ret_, const Node *Name_, NodeArray Params_,
-                   const Node *Attrs_, Qualifiers CVQuals_,
-                   FunctionRefQual RefQual_)
+                   const Node *Attrs_, const Node *Requires_,
+                   Qualifiers CVQuals_, FunctionRefQual RefQual_)
       : Node(KFunctionEncoding,
              /*RHSComponentCache=*/Cache::Yes, /*ArrayCache=*/Cache::No,
              /*FunctionCache=*/Cache::Yes),
         Ret(Ret_), Name(Name_), Params(Params_), Attrs(Attrs_),
-        CVQuals(CVQuals_), RefQual(RefQual_) {}
+        Requires(Requires_), CVQuals(CVQuals_), RefQual(RefQual_) {}
 
   template<typename Fn> void match(Fn F) const {
-    F(Ret, Name, Params, Attrs, CVQuals, RefQual);
+    F(Ret, Name, Params, Attrs, Requires, CVQuals, RefQual);
   }
 
   Qualifiers getCVQuals() const { return CVQuals; }
@@ -935,6 +977,11 @@ public:
 
     if (Attrs != nullptr)
       Attrs->print(OB);
+
+    if (Requires != nullptr) {
+      OB += " requires ";
+      Requires->print(OB);
+    }
   }
 };
 
@@ -1002,6 +1049,24 @@ struct NestedName : Node {
   void printLeft(OutputBuffer &OB) const override {
     Qual->print(OB);
     OB += "::";
+    Name->print(OB);
+  }
+};
+
+struct MemberLikeFriendName : Node {
+  Node *Qual;
+  Node *Name;
+
+  MemberLikeFriendName(Node *Qual_, Node *Name_)
+      : Node(KMemberLikeFriendName), Qual(Qual_), Name(Name_) {}
+
+  template<typename Fn> void match(Fn F) const { F(Qual, Name); }
+
+  std::string_view getBaseName() const override { return Name->getBaseName(); }
+
+  void printLeft(OutputBuffer &OB) const override {
+    Qual->print(OB);
+    OB += "::friend ";
     Name->print(OB);
   }
 };
@@ -1171,6 +1236,24 @@ public:
   }
 };
 
+class TemplateParamQualifiedArg final : public Node {
+  Node *Param;
+  Node *Arg;
+
+public:
+  TemplateParamQualifiedArg(Node *Param_, Node *Arg_)
+      : Node(KTemplateParamQualifiedArg), Param(Param_), Arg(Arg_) {}
+
+  template <typename Fn> void match(Fn F) const { F(Param, Arg); }
+
+  Node *getArg() { return Arg; }
+
+  void printLeft(OutputBuffer &OB) const override {
+    // Don't print Param to keep the output consistent.
+    Arg->print(OB);
+  }
+};
+
 /// A template type parameter declaration, 'typename T'.
 class TypeTemplateParamDecl final : public Node {
   Node *Name;
@@ -1182,6 +1265,26 @@ public:
   template<typename Fn> void match(Fn F) const { F(Name); }
 
   void printLeft(OutputBuffer &OB) const override { OB += "typename "; }
+
+  void printRight(OutputBuffer &OB) const override { Name->print(OB); }
+};
+
+/// A constrained template type parameter declaration, 'C<U> T'.
+class ConstrainedTypeTemplateParamDecl final : public Node {
+  Node *Constraint;
+  Node *Name;
+
+public:
+  ConstrainedTypeTemplateParamDecl(Node *Constraint_, Node *Name_)
+      : Node(KConstrainedTypeTemplateParamDecl, Cache::Yes),
+        Constraint(Constraint_), Name(Name_) {}
+
+  template<typename Fn> void match(Fn F) const { F(Constraint, Name); }
+
+  void printLeft(OutputBuffer &OB) const override {
+    Constraint->print(OB);
+    OB += " ";
+  }
 
   void printRight(OutputBuffer &OB) const override { Name->print(OB); }
 };
@@ -1214,13 +1317,14 @@ public:
 class TemplateTemplateParamDecl final : public Node {
   Node *Name;
   NodeArray Params;
+  Node *Requires;
 
 public:
-  TemplateTemplateParamDecl(Node *Name_, NodeArray Params_)
+  TemplateTemplateParamDecl(Node *Name_, NodeArray Params_, Node *Requires_)
       : Node(KTemplateTemplateParamDecl, Cache::Yes), Name(Name_),
-        Params(Params_) {}
+        Params(Params_), Requires(Requires_) {}
 
-  template<typename Fn> void match(Fn F) const { F(Name, Params); }
+  template <typename Fn> void match(Fn F) const { F(Name, Params, Requires); }
 
   void printLeft(OutputBuffer &OB) const override {
     ScopedOverride<unsigned> LT(OB.GtIsGt, 0);
@@ -1229,7 +1333,13 @@ public:
     OB += "> typename ";
   }
 
-  void printRight(OutputBuffer &OB) const override { Name->print(OB); }
+  void printRight(OutputBuffer &OB) const override {
+    Name->print(OB);
+    if (Requires != nullptr) {
+      OB += " requires ";
+      Requires->print(OB);
+    }
+  }
 };
 
 /// A template parameter pack declaration, 'typename ...T'.
@@ -1326,7 +1436,7 @@ public:
 
 /// A variadic template argument. This node represents an occurrence of
 /// J<something>E in some <template-args>. It isn't itself unexpanded, unless
-/// one of it's Elements is. The parser inserts a ParameterPack into the
+/// one of its Elements is. The parser inserts a ParameterPack into the
 /// TemplateParams table if the <template-args> this pack belongs to apply to an
 /// <encoding>.
 class TemplateArgumentPack final : public Node {
@@ -1392,11 +1502,13 @@ public:
 
 class TemplateArgs final : public Node {
   NodeArray Params;
+  Node *Requires;
 
 public:
-  TemplateArgs(NodeArray Params_) : Node(KTemplateArgs), Params(Params_) {}
+  TemplateArgs(NodeArray Params_, Node *Requires_)
+      : Node(KTemplateArgs), Params(Params_), Requires(Requires_) {}
 
-  template<typename Fn> void match(Fn F) const { F(Params); }
+  template<typename Fn> void match(Fn F) const { F(Params, Requires); }
 
   NodeArray getParams() { return Params; }
 
@@ -1405,6 +1517,7 @@ public:
     OB += "<";
     Params.printWithComma(OB);
     OB += ">";
+    // Don't print the requires clause to keep the output simple.
   }
 };
 
@@ -1589,7 +1702,7 @@ public:
     std::string_view SV = ExpandedSpecialSubstitution::getBaseName();
     if (isInstantiation()) {
       // The instantiations are typedefs that drop the "basic_" prefix.
-      assert(starts_with(SV, "basic_"));
+      DEMANGLE_ASSERT(starts_with(SV, "basic_"), "");
       SV.remove_prefix(sizeof("basic_") - 1);
     }
     return SV;
@@ -1655,17 +1768,21 @@ public:
 
 class ClosureTypeName : public Node {
   NodeArray TemplateParams;
+  const Node *Requires1;
   NodeArray Params;
+  const Node *Requires2;
   std::string_view Count;
 
 public:
-  ClosureTypeName(NodeArray TemplateParams_, NodeArray Params_,
+  ClosureTypeName(NodeArray TemplateParams_, const Node *Requires1_,
+                  NodeArray Params_, const Node *Requires2_,
                   std::string_view Count_)
       : Node(KClosureTypeName), TemplateParams(TemplateParams_),
-        Params(Params_), Count(Count_) {}
+        Requires1(Requires1_), Params(Params_), Requires2(Requires2_),
+        Count(Count_) {}
 
   template<typename Fn> void match(Fn F) const {
-    F(TemplateParams, Params, Count);
+    F(TemplateParams, Requires1, Params, Requires2, Count);
   }
 
   void printDeclarator(OutputBuffer &OB) const {
@@ -1675,12 +1792,22 @@ public:
       TemplateParams.printWithComma(OB);
       OB += ">";
     }
+    if (Requires1 != nullptr) {
+      OB += " requires ";
+      Requires1->print(OB);
+      OB += " ";
+    }
     OB.printOpen();
     Params.printWithComma(OB);
     OB.printClose();
+    if (Requires2 != nullptr) {
+      OB += " requires ";
+      Requires2->print(OB);
+    }
   }
 
   void printLeft(OutputBuffer &OB) const override {
+    // FIXME: This demangling is not particularly readable.
     OB += "\'lambda";
     OB += Count;
     OB += "\'";
@@ -2309,6 +2436,95 @@ public:
   }
 };
 
+class RequiresExpr : public Node {
+  NodeArray Parameters;
+  NodeArray Requirements;
+public:
+  RequiresExpr(NodeArray Parameters_, NodeArray Requirements_)
+      : Node(KRequiresExpr), Parameters(Parameters_),
+        Requirements(Requirements_) {}
+
+  template<typename Fn> void match(Fn F) const { F(Parameters, Requirements); }
+
+  void printLeft(OutputBuffer &OB) const override {
+    OB += "requires";
+    if (!Parameters.empty()) {
+      OB += ' ';
+      OB.printOpen();
+      Parameters.printWithComma(OB);
+      OB.printClose();
+    }
+    OB += ' ';
+    OB.printOpen('{');
+    for (const Node *Req : Requirements) {
+      Req->print(OB);
+    }
+    OB += ' ';
+    OB.printClose('}');
+  }
+};
+
+class ExprRequirement : public Node {
+  const Node *Expr;
+  bool IsNoexcept;
+  const Node *TypeConstraint;
+public:
+  ExprRequirement(const Node *Expr_, bool IsNoexcept_,
+                  const Node *TypeConstraint_)
+      : Node(KExprRequirement), Expr(Expr_), IsNoexcept(IsNoexcept_),
+        TypeConstraint(TypeConstraint_) {}
+
+  template <typename Fn> void match(Fn F) const {
+    F(Expr, IsNoexcept, TypeConstraint);
+  }
+
+  void printLeft(OutputBuffer &OB) const override {
+    OB += " ";
+    if (IsNoexcept || TypeConstraint)
+      OB.printOpen('{');
+    Expr->print(OB);
+    if (IsNoexcept || TypeConstraint)
+      OB.printClose('}');
+    if (IsNoexcept)
+      OB += " noexcept";
+    if (TypeConstraint) {
+      OB += " -> ";
+      TypeConstraint->print(OB);
+    }
+    OB += ';';
+  }
+};
+
+class TypeRequirement : public Node {
+  const Node *Type;
+public:
+  TypeRequirement(const Node *Type_)
+      : Node(KTypeRequirement), Type(Type_) {}
+
+  template <typename Fn> void match(Fn F) const { F(Type); }
+
+  void printLeft(OutputBuffer &OB) const override {
+    OB += " typename ";
+    Type->print(OB);
+    OB += ';';
+  }
+};
+
+class NestedRequirement : public Node {
+  const Node *Constraint;
+public:
+  NestedRequirement(const Node *Constraint_)
+      : Node(KNestedRequirement), Constraint(Constraint_) {}
+
+  template <typename Fn> void match(Fn F) const { F(Constraint); }
+
+  void printLeft(OutputBuffer &OB) const override {
+    OB += " requires ";
+    Constraint->print(OB);
+    OB += ';';
+  }
+};
+
 template <class Float> struct FloatData;
 
 namespace float_literal_impl {
@@ -2377,7 +2593,7 @@ void Node::visit(Fn F) const {
     return F(static_cast<const X *>(this));
 #include "ItaniumNodes.def"
   }
-  assert(0 && "unknown mangling node kind");
+  DEMANGLE_ASSERT(0, "unknown mangling node kind");
 }
 
 /// Determine the kind of a node from its type.
@@ -2403,6 +2619,8 @@ template <typename Derived, typename Alloc> struct AbstractManglingParser {
   // table.
   PODSmallVector<Node *, 32> Subs;
 
+  // A list of template argument values corresponding to a template parameter
+  // list.
   using TemplateParamList = PODSmallVector<Node *, 8>;
 
   class ScopedTemplateParamList {
@@ -2417,9 +2635,11 @@ template <typename Derived, typename Alloc> struct AbstractManglingParser {
       Parser->TemplateParams.push_back(&Params);
     }
     ~ScopedTemplateParamList() {
-      assert(Parser->TemplateParams.size() >= OldNumTemplateParamLists);
-      Parser->TemplateParams.dropBack(OldNumTemplateParamLists);
+      DEMANGLE_ASSERT(Parser->TemplateParams.size() >= OldNumTemplateParamLists,
+                      "");
+      Parser->TemplateParams.shrinkToSize(OldNumTemplateParamLists);
     }
+    TemplateParamList *params() { return &Params; }
   };
 
   // Template parameter table. Like the above, but referenced like "T42_".
@@ -2434,12 +2654,31 @@ template <typename Derived, typename Alloc> struct AbstractManglingParser {
   // parameter list, the corresponding parameter list pointer will be null.
   PODSmallVector<TemplateParamList *, 4> TemplateParams;
 
+  class SaveTemplateParams {
+    AbstractManglingParser *Parser;
+    decltype(TemplateParams) OldParams;
+    decltype(OuterTemplateParams) OldOuterParams;
+
+  public:
+    SaveTemplateParams(AbstractManglingParser *TheParser) : Parser(TheParser) {
+      OldParams = std::move(Parser->TemplateParams);
+      OldOuterParams = std::move(Parser->OuterTemplateParams);
+      Parser->TemplateParams.clear();
+      Parser->OuterTemplateParams.clear();
+    }
+    ~SaveTemplateParams() {
+      Parser->TemplateParams = std::move(OldParams);
+      Parser->OuterTemplateParams = std::move(OldOuterParams);
+    }
+  };
+
   // Set of unresolved forward <template-param> references. These can occur in a
   // conversion operator's type, and are resolved in the enclosing <encoding>.
   PODSmallVector<ForwardTemplateReference *, 4> ForwardTemplateRefs;
 
   bool TryToParseTemplateArgs = true;
   bool PermitForwardTemplateReferences = false;
+  bool InConstraintExpr = false;
   size_t ParsingLambdaParamsAtLevel = (size_t)-1;
 
   unsigned NumSyntheticTemplateParameters[3] = {};
@@ -2478,10 +2717,10 @@ template <typename Derived, typename Alloc> struct AbstractManglingParser {
   }
 
   NodeArray popTrailingNodeArray(size_t FromPosition) {
-    assert(FromPosition <= Names.size());
+    DEMANGLE_ASSERT(FromPosition <= Names.size(), "");
     NodeArray res =
         makeNodeArray(Names.begin() + (long)FromPosition, Names.end());
-    Names.dropBack(FromPosition);
+    Names.shrinkToSize(FromPosition);
     return res;
   }
 
@@ -2519,11 +2758,16 @@ template <typename Derived, typename Alloc> struct AbstractManglingParser {
   bool parseSeqId(size_t *Out);
   Node *parseSubstitution();
   Node *parseTemplateParam();
-  Node *parseTemplateParamDecl();
+  Node *parseTemplateParamDecl(TemplateParamList *Params);
   Node *parseTemplateArgs(bool TagTemplates = false);
   Node *parseTemplateArg();
 
-  /// Parse the <expr> production.
+  bool isTemplateParamDecl() {
+    return look() == 'T' &&
+           std::string_view("yptnk").find(look(1)) != std::string_view::npos;
+  }
+
+  /// Parse the <expression> production.
   Node *parseExpr();
   Node *parsePrefixExpr(std::string_view Kind, Node::Prec Prec);
   Node *parseBinaryExpr(std::string_view Kind, Node::Prec Prec);
@@ -2536,6 +2780,8 @@ template <typename Derived, typename Alloc> struct AbstractManglingParser {
   Node *parseFoldExpr();
   Node *parsePointerToMemberConversionExpr(Node::Prec Prec);
   Node *parseSubobjectExpr();
+  Node *parseConstraintExpr();
+  Node *parseRequiresExpr();
 
   /// Parse the <type> production.
   Node *parseType();
@@ -2547,7 +2793,7 @@ template <typename Derived, typename Alloc> struct AbstractManglingParser {
   Node *parseClassEnumType();
   Node *parseQualifiedType();
 
-  Node *parseEncoding();
+  Node *parseEncoding(bool ParseParams = true);
   bool parseCallOffset();
   Node *parseSpecialName();
 
@@ -2559,6 +2805,7 @@ template <typename Derived, typename Alloc> struct AbstractManglingParser {
     Qualifiers CVQualifiers = QualNone;
     FunctionRefQual ReferenceQualifier = FrefQualNone;
     size_t ForwardTemplateRefsBegin;
+    bool HasExplicitObjectParameter = false;
 
     NameState(AbstractManglingParser *Enclosing)
         : ForwardTemplateRefsBegin(Enclosing->ForwardTemplateRefs.size()) {}
@@ -2574,7 +2821,7 @@ template <typename Derived, typename Alloc> struct AbstractManglingParser {
         return true;
       ForwardTemplateRefs[I]->Ref = (*TemplateParams[0])[Idx];
     }
-    ForwardTemplateRefs.dropBack(State.ForwardTemplateRefsBegin);
+    ForwardTemplateRefs.shrinkToSize(State.ForwardTemplateRefsBegin);
     return false;
   }
 
@@ -2638,8 +2885,8 @@ template <typename Derived, typename Alloc> struct AbstractManglingParser {
     std::string_view getSymbol() const {
       std::string_view Res = Name;
       if (Kind < Unnameable) {
-        assert(starts_with(Res, "operator") &&
-               "operator name does not start with 'operator'");
+        DEMANGLE_ASSERT(starts_with(Res, "operator"),
+                        "operator name does not start with 'operator'");
         Res.remove_prefix(sizeof("operator") - 1);
         if (starts_with(Res, ' '))
           Res.remove_prefix(1);
@@ -2663,7 +2910,7 @@ template <typename Derived, typename Alloc> struct AbstractManglingParser {
   Node *parseDestructorName();
 
   /// Top-level entry point into the parser.
-  Node *parse();
+  Node *parse(bool ParseParams = true);
 };
 
 const char* parse_discriminator(const char* first, const char* last);
@@ -2727,6 +2974,10 @@ Node *AbstractManglingParser<Derived, Alloc>::parseLocalName(NameState *State) {
     return make<LocalName>(Encoding, StringLitName);
   }
 
+  // The template parameters of the inner name are unrelated to those of the
+  // enclosing context.
+  SaveTemplateParams SaveTemplateParamsScope(this);
+
   if (consumeIf('d')) {
     parseNumber(true);
     if (!consumeIf('_'))
@@ -2782,9 +3033,9 @@ AbstractManglingParser<Derived, Alloc>::parseUnscopedName(NameState *State,
   return Res;
 }
 
-// <unqualified-name> ::= [<module-name>] L? <operator-name> [<abi-tags>]
+// <unqualified-name> ::= [<module-name>] F? L? <operator-name> [<abi-tags>]
 //                    ::= [<module-name>] <ctor-dtor-name> [<abi-tags>]
-//                    ::= [<module-name>] L? <source-name> [<abi-tags>]
+//                    ::= [<module-name>] F? L? <source-name> [<abi-tags>]
 //                    ::= [<module-name>] L? <unnamed-type-name> [<abi-tags>]
 //			# structured binding declaration
 //                    ::= [<module-name>] L? DC <source-name>+ E
@@ -2793,6 +3044,8 @@ Node *AbstractManglingParser<Derived, Alloc>::parseUnqualifiedName(
     NameState *State, Node *Scope, ModuleName *Module) {
   if (getDerived().parseModuleNameOpt(Module))
     return nullptr;
+
+  bool IsMemberLikeFriend = Scope && consumeIf('F');
 
   consumeIf('L');
 
@@ -2824,7 +3077,9 @@ Node *AbstractManglingParser<Derived, Alloc>::parseUnqualifiedName(
     Result = make<ModuleEntity>(Module, Result);
   if (Result != nullptr)
     Result = getDerived().parseAbiTags(Result);
-  if (Result != nullptr && Scope != nullptr)
+  if (Result != nullptr && IsMemberLikeFriend)
+    Result = make<MemberLikeFriendName>(Scope, Result);
+  else if (Result != nullptr && Scope != nullptr)
     Result = make<NestedName>(Scope, Result);
 
   return Result;
@@ -2856,7 +3111,8 @@ bool AbstractManglingParser<Derived, Alloc>::parseModuleNameOpt(
 //
 // <closure-type-name> ::= Ul <lambda-sig> E [ <nonnegative number> ] _
 //
-// <lambda-sig> ::= <parameter type>+  # Parameter types or "v" if the lambda has no parameters
+// <lambda-sig> ::= <template-param-decl>* [Q <requires-clause expression>]
+//                  <parameter type>+  # or "v" if the lambda has no parameters
 template <typename Derived, typename Alloc>
 Node *
 AbstractManglingParser<Derived, Alloc>::parseUnnamedTypeName(NameState *State) {
@@ -2877,10 +3133,10 @@ AbstractManglingParser<Derived, Alloc>::parseUnnamedTypeName(NameState *State) {
     ScopedTemplateParamList LambdaTemplateParams(this);
 
     size_t ParamsBegin = Names.size();
-    while (look() == 'T' &&
-           std::string_view("yptn").find(look(1)) != std::string_view::npos) {
-      Node *T = parseTemplateParamDecl();
-      if (!T)
+    while (getDerived().isTemplateParamDecl()) {
+      Node *T =
+          getDerived().parseTemplateParamDecl(LambdaTemplateParams.params());
+      if (T == nullptr)
         return nullptr;
       Names.push_back(T);
     }
@@ -2911,20 +3167,38 @@ AbstractManglingParser<Derived, Alloc>::parseUnnamedTypeName(NameState *State) {
     if (TempParams.empty())
       TemplateParams.pop_back();
 
-    if (!consumeIf("vE")) {
+    Node *Requires1 = nullptr;
+    if (consumeIf('Q')) {
+      Requires1 = getDerived().parseConstraintExpr();
+      if (Requires1 == nullptr)
+        return nullptr;
+    }
+
+    if (!consumeIf("v")) {
       do {
         Node *P = getDerived().parseType();
         if (P == nullptr)
           return nullptr;
         Names.push_back(P);
-      } while (!consumeIf('E'));
+      } while (look() != 'E' && look() != 'Q');
     }
     NodeArray Params = popTrailingNodeArray(ParamsBegin);
+
+    Node *Requires2 = nullptr;
+    if (consumeIf('Q')) {
+      Requires2 = getDerived().parseConstraintExpr();
+      if (Requires2 == nullptr)
+        return nullptr;
+    }
+
+    if (!consumeIf('E'))
+      return nullptr;
 
     std::string_view Count = parseNumber();
     if (!consumeIf('_'))
       return nullptr;
-    return make<ClosureTypeName>(TempParams, Params, Count);
+    return make<ClosureTypeName>(TempParams, Requires1, Params, Requires2,
+                                 Count);
   }
   if (consumeIf("Ub")) {
     (void)parseNumber();
@@ -3190,15 +3464,25 @@ AbstractManglingParser<Derived, Alloc>::parseNestedName(NameState *State) {
   if (!consumeIf('N'))
     return nullptr;
 
-  Qualifiers CVTmp = parseCVQualifiers();
-  if (State) State->CVQualifiers = CVTmp;
+  // 'H' specifies that the encoding that follows
+  // has an explicit object parameter.
+  if (!consumeIf('H')) {
+    Qualifiers CVTmp = parseCVQualifiers();
+    if (State)
+      State->CVQualifiers = CVTmp;
 
-  if (consumeIf('O')) {
-    if (State) State->ReferenceQualifier = FrefQualRValue;
-  } else if (consumeIf('R')) {
-    if (State) State->ReferenceQualifier = FrefQualLValue;
-  } else {
-    if (State) State->ReferenceQualifier = FrefQualNone;
+    if (consumeIf('O')) {
+      if (State)
+        State->ReferenceQualifier = FrefQualRValue;
+    } else if (consumeIf('R')) {
+      if (State)
+        State->ReferenceQualifier = FrefQualLValue;
+    } else {
+      if (State)
+        State->ReferenceQualifier = FrefQualNone;
+    }
+  } else if (State) {
+    State->HasExplicitObjectParameter = true;
   }
 
   Node *SoFar = nullptr;
@@ -3446,7 +3730,7 @@ Node *AbstractManglingParser<Derived, Alloc>::parseUnresolvedName(bool Global) {
     }
   }
 
-  assert(SoFar != nullptr);
+  DEMANGLE_ASSERT(SoFar != nullptr, "");
 
   Node *Base = getDerived().parseBaseUnresolvedName();
   if (Base == nullptr)
@@ -3894,7 +4178,15 @@ Node *AbstractManglingParser<Derived, Alloc>::parseType() {
     // Typically, <builtin-type>s are not considered substitution candidates,
     // but the exception to that exception is vendor extended types (Itanium C++
     // ABI 5.9.1).
-    Result = make<NameType>(Res);
+    if (consumeIf('I')) {
+      Node *BaseType = parseType();
+      if (BaseType == nullptr)
+        return nullptr;
+      if (!consumeIf('E'))
+        return nullptr;
+      Result = make<TransformedType>(Res, BaseType);
+    } else
+      Result = make<NameType>(Res);
     break;
   }
   case 'D':
@@ -3961,6 +4253,17 @@ Node *AbstractManglingParser<Derived, Alloc>::parseType() {
     case 'c':
       First += 2;
       return make<NameType>("decltype(auto)");
+    //                ::= Dk <type-constraint> # constrained auto
+    //                ::= DK <type-constraint> # constrained decltype(auto)
+    case 'k':
+    case 'K': {
+      std::string_view Kind = look(1) == 'k' ? " auto" : " decltype(auto)";
+      First += 2;
+      Node *Constraint = getDerived().parseName();
+      if (!Constraint)
+        return nullptr;
+      return make<PostfixQualifiedType>(Constraint, Kind);
+    }
     //                ::= Dn   # std::nullptr_t (i.e., decltype(nullptr))
     case 'n':
       First += 2;
@@ -4512,6 +4815,75 @@ Node *AbstractManglingParser<Derived, Alloc>::parseSubobjectExpr() {
       Ty, Expr, Offset, popTrailingNodeArray(SelectorsBegin), OnePastTheEnd);
 }
 
+template <typename Derived, typename Alloc>
+Node *AbstractManglingParser<Derived, Alloc>::parseConstraintExpr() {
+  // Within this expression, all enclosing template parameter lists are in
+  // scope.
+  ScopedOverride<bool> SaveInConstraintExpr(InConstraintExpr, true);
+  return getDerived().parseExpr();
+}
+
+template <typename Derived, typename Alloc>
+Node *AbstractManglingParser<Derived, Alloc>::parseRequiresExpr() {
+  NodeArray Params;
+  if (consumeIf("rQ")) {
+    // <expression> ::= rQ <bare-function-type> _ <requirement>+ E
+    size_t ParamsBegin = Names.size();
+    while (!consumeIf('_')) {
+      Node *Type = getDerived().parseType();
+      if (Type == nullptr)
+        return nullptr;
+      Names.push_back(Type);
+    }
+    Params = popTrailingNodeArray(ParamsBegin);
+  } else if (!consumeIf("rq")) {
+    // <expression> ::= rq <requirement>+ E
+    return nullptr;
+  }
+
+  size_t ReqsBegin = Names.size();
+  do {
+    Node *Constraint = nullptr;
+    if (consumeIf('X')) {
+      // <requirement> ::= X <expression> [N] [R <type-constraint>]
+      Node *Expr = getDerived().parseExpr();
+      if (Expr == nullptr)
+        return nullptr;
+      bool Noexcept = consumeIf('N');
+      Node *TypeReq = nullptr;
+      if (consumeIf('R')) {
+        TypeReq = getDerived().parseName();
+        if (TypeReq == nullptr)
+          return nullptr;
+      }
+      Constraint = make<ExprRequirement>(Expr, Noexcept, TypeReq);
+    } else if (consumeIf('T')) {
+      // <requirement> ::= T <type>
+      Node *Type = getDerived().parseType();
+      if (Type == nullptr)
+        return nullptr;
+      Constraint = make<TypeRequirement>(Type);
+    } else if (consumeIf('Q')) {
+      // <requirement> ::= Q <constraint-expression>
+      //
+      // FIXME: We use <expression> instead of <constraint-expression>. Either
+      // the requires expression is already inside a constraint expression, in
+      // which case it makes no difference, or we're in a requires-expression
+      // that might be partially-substituted, where the language behavior is
+      // not yet settled and clang mangles after substitution.
+      Node *NestedReq = getDerived().parseExpr();
+      if (NestedReq == nullptr)
+        return nullptr;
+      Constraint = make<NestedRequirement>(NestedReq);
+    }
+    if (Constraint == nullptr)
+      return nullptr;
+    Names.push_back(Constraint);
+  } while (!consumeIf('E'));
+
+  return make<RequiresExpr>(Params, popTrailingNodeArray(ReqsBegin));
+}
+
 // <expression> ::= <unary operator-name> <expression>
 //              ::= <binary operator-name> <expression> <expression>
 //              ::= <ternary operator-name> <expression> <expression> <expression>
@@ -4748,6 +5120,8 @@ Node *AbstractManglingParser<Derived, Alloc>::parseExpr() {
       return Ex;
     return make<EnclosingExpr>("noexcept ", Ex, Node::Prec::Unary);
   }
+  if (look() == 'r' && (look(1) == 'q' || look(1) == 'Q'))
+    return parseRequiresExpr();
   if (consumeIf("so"))
     return parseSubobjectExpr();
   if (consumeIf("sp")) {
@@ -5026,29 +5400,14 @@ Node *AbstractManglingParser<Derived, Alloc>::parseSpecialName() {
 }
 
 // <encoding> ::= <function name> <bare-function-type>
+//                    [`Q` <requires-clause expr>]
 //            ::= <data name>
 //            ::= <special-name>
 template <typename Derived, typename Alloc>
-Node *AbstractManglingParser<Derived, Alloc>::parseEncoding() {
+Node *AbstractManglingParser<Derived, Alloc>::parseEncoding(bool ParseParams) {
   // The template parameters of an encoding are unrelated to those of the
   // enclosing context.
-  class SaveTemplateParams {
-    AbstractManglingParser *Parser;
-    decltype(TemplateParams) OldParams;
-    decltype(OuterTemplateParams) OldOuterParams;
-
-  public:
-    SaveTemplateParams(AbstractManglingParser *TheParser) : Parser(TheParser) {
-      OldParams = std::move(Parser->TemplateParams);
-      OldOuterParams = std::move(Parser->OuterTemplateParams);
-      Parser->TemplateParams.clear();
-      Parser->OuterTemplateParams.clear();
-    }
-    ~SaveTemplateParams() {
-      Parser->TemplateParams = std::move(OldParams);
-      Parser->OuterTemplateParams = std::move(OldOuterParams);
-    }
-  } SaveTemplateParams(this);
+  SaveTemplateParams SaveTemplateParamsScope(this);
 
   if (look() == 'G' || look() == 'T')
     return getDerived().parseSpecialName();
@@ -5071,6 +5430,16 @@ Node *AbstractManglingParser<Derived, Alloc>::parseEncoding() {
   if (IsEndOfEncoding())
     return Name;
 
+  // ParseParams may be false at the top level only, when called from parse().
+  // For example in the mangled name _Z3fooILZ3BarEET_f, ParseParams may be
+  // false when demangling 3fooILZ3BarEET_f but is always true when demangling
+  // 3Bar.
+  if (!ParseParams) {
+    while (consume())
+      ;
+    return Name;
+  }
+
   Node *Attrs = nullptr;
   if (consumeIf("Ua9enable_ifI")) {
     size_t BeforeArgs = Names.size();
@@ -5092,22 +5461,35 @@ Node *AbstractManglingParser<Derived, Alloc>::parseEncoding() {
       return nullptr;
   }
 
-  if (consumeIf('v'))
-    return make<FunctionEncoding>(ReturnType, Name, NodeArray(),
-                                  Attrs, NameInfo.CVQualifiers,
-                                  NameInfo.ReferenceQualifier);
+  NodeArray Params;
+  if (!consumeIf('v')) {
+    size_t ParamsBegin = Names.size();
+    do {
+      Node *Ty = getDerived().parseType();
+      if (Ty == nullptr)
+        return nullptr;
 
-  size_t ParamsBegin = Names.size();
-  do {
-    Node *Ty = getDerived().parseType();
-    if (Ty == nullptr)
+      const bool IsFirstParam = ParamsBegin == Names.size();
+      if (NameInfo.HasExplicitObjectParameter && IsFirstParam)
+        Ty = make<ExplicitObjectParameter>(Ty);
+
+      if (Ty == nullptr)
+        return nullptr;
+
+      Names.push_back(Ty);
+    } while (!IsEndOfEncoding() && look() != 'Q');
+    Params = popTrailingNodeArray(ParamsBegin);
+  }
+
+  Node *Requires = nullptr;
+  if (consumeIf('Q')) {
+    Requires = getDerived().parseConstraintExpr();
+    if (!Requires)
       return nullptr;
-    Names.push_back(Ty);
-  } while (!IsEndOfEncoding());
+  }
 
-  return make<FunctionEncoding>(ReturnType, Name,
-                                popTrailingNodeArray(ParamsBegin),
-                                Attrs, NameInfo.CVQualifiers,
+  return make<FunctionEncoding>(ReturnType, Name, Params, Attrs, Requires,
+                                NameInfo.CVQualifiers,
                                 NameInfo.ReferenceQualifier);
 }
 
@@ -5134,7 +5516,8 @@ template <>
 struct FloatData<long double>
 {
 #if defined(__mips__) && defined(__mips_n64) || defined(__aarch64__) || \
-    defined(__wasm__) || defined(__riscv) || defined(__loongarch__)
+    defined(__wasm__) || defined(__riscv) || defined(__loongarch__) || \
+    defined(__ve__)
     static const size_t mangled_size = 32;
 #elif defined(__arm__) || defined(__mips__) || defined(__hexagon__)
     static const size_t mangled_size = 16;
@@ -5158,7 +5541,7 @@ Node *AbstractManglingParser<Alloc, Derived>::parseFloatingLiteral() {
     return nullptr;
   std::string_view Data(First, N);
   for (char C : Data)
-    if (!std::isxdigit(C))
+    if (!(C >= '0' && C <= '9') && !(C >= 'a' && C <= 'f'))
       return nullptr;
   First += N;
   if (!consumeIf('E'))
@@ -5268,6 +5651,7 @@ Node *AbstractManglingParser<Derived, Alloc>::parseSubstitution() {
 //                  ::= TL <level-1> _ <parameter-2 non-negative number> _
 template <typename Derived, typename Alloc>
 Node *AbstractManglingParser<Derived, Alloc>::parseTemplateParam() {
+  const char *Begin = First;
   if (!consumeIf('T'))
     return nullptr;
 
@@ -5289,6 +5673,14 @@ Node *AbstractManglingParser<Derived, Alloc>::parseTemplateParam() {
       return nullptr;
   }
 
+  // We don't track enclosing template parameter levels well enough to reliably
+  // substitute them all within a <constraint-expression>, so print the
+  // parameter numbering instead for now.
+  // TODO: Track all enclosing template parameters and substitute them here.
+  if (InConstraintExpr) {
+    return make<NameType>(std::string_view(Begin, First - 1 - Begin));
+  }
+
   // If we're in a context where this <template-param> refers to a
   // <template-arg> further ahead in the mangled name (currently just conversion
   // operator types), then we should only look it up in the right context.
@@ -5297,7 +5689,8 @@ Node *AbstractManglingParser<Derived, Alloc>::parseTemplateParam() {
     Node *ForwardRef = make<ForwardTemplateReference>(Index);
     if (!ForwardRef)
       return nullptr;
-    assert(ForwardRef->getKind() == Node::KForwardTemplateReference);
+    DEMANGLE_ASSERT(ForwardRef->getKind() == Node::KForwardTemplateReference,
+                    "");
     ForwardTemplateRefs.push_back(
         static_cast<ForwardTemplateReference *>(ForwardRef));
     return ForwardRef;
@@ -5322,15 +5715,18 @@ Node *AbstractManglingParser<Derived, Alloc>::parseTemplateParam() {
 }
 
 // <template-param-decl> ::= Ty                          # type parameter
+//                       ::= Tk <concept name> [<template-args>] # constrained type parameter
 //                       ::= Tn <type>                   # non-type parameter
 //                       ::= Tt <template-param-decl>* E # template parameter
 //                       ::= Tp <template-param-decl>    # parameter pack
 template <typename Derived, typename Alloc>
-Node *AbstractManglingParser<Derived, Alloc>::parseTemplateParamDecl() {
+Node *AbstractManglingParser<Derived, Alloc>::parseTemplateParamDecl(
+    TemplateParamList *Params) {
   auto InventTemplateParamName = [&](TemplateParamKind Kind) {
     unsigned Index = NumSyntheticTemplateParameters[(int)Kind]++;
     Node *N = make<SyntheticTemplateParamName>(Kind, Index);
-    if (N) TemplateParams.back()->push_back(N);
+    if (N && Params)
+      Params->push_back(N);
     return N;
   };
 
@@ -5339,6 +5735,16 @@ Node *AbstractManglingParser<Derived, Alloc>::parseTemplateParamDecl() {
     if (!Name)
       return nullptr;
     return make<TypeTemplateParamDecl>(Name);
+  }
+
+  if (consumeIf("Tk")) {
+    Node *Constraint = getDerived().parseName();
+    if (!Constraint)
+      return nullptr;
+    Node *Name = InventTemplateParamName(TemplateParamKind::Type);
+    if (!Name)
+      return nullptr;
+    return make<ConstrainedTypeTemplateParamDecl>(Constraint, Name);
   }
 
   if (consumeIf("Tn")) {
@@ -5357,18 +5763,25 @@ Node *AbstractManglingParser<Derived, Alloc>::parseTemplateParamDecl() {
       return nullptr;
     size_t ParamsBegin = Names.size();
     ScopedTemplateParamList TemplateTemplateParamParams(this);
-    while (!consumeIf("E")) {
-      Node *P = parseTemplateParamDecl();
+    Node *Requires = nullptr;
+    while (!consumeIf('E')) {
+      Node *P = parseTemplateParamDecl(TemplateTemplateParamParams.params());
       if (!P)
         return nullptr;
       Names.push_back(P);
+      if (consumeIf('Q')) {
+        Requires = getDerived().parseConstraintExpr();
+        if (Requires == nullptr || !consumeIf('E'))
+          return nullptr;
+        break;
+      }
     }
-    NodeArray Params = popTrailingNodeArray(ParamsBegin);
-    return make<TemplateTemplateParamDecl>(Name, Params);
+    NodeArray InnerParams = popTrailingNodeArray(ParamsBegin);
+    return make<TemplateTemplateParamDecl>(Name, InnerParams, Requires);
   }
 
   if (consumeIf("Tp")) {
-    Node *P = parseTemplateParamDecl();
+    Node *P = parseTemplateParamDecl(Params);
     if (!P)
       return nullptr;
     return make<TemplateParamPackDecl>(P);
@@ -5382,6 +5795,7 @@ Node *AbstractManglingParser<Derived, Alloc>::parseTemplateParamDecl() {
 //                ::= <expr-primary>            # simple expressions
 //                ::= J <template-arg>* E       # argument pack
 //                ::= LZ <encoding> E           # extension
+//                ::= <template-param-decl> <template-arg>
 template <typename Derived, typename Alloc>
 Node *AbstractManglingParser<Derived, Alloc>::parseTemplateArg() {
   switch (look()) {
@@ -5416,12 +5830,24 @@ Node *AbstractManglingParser<Derived, Alloc>::parseTemplateArg() {
     //                ::= <expr-primary>            # simple expressions
     return getDerived().parseExprPrimary();
   }
+  case 'T': {
+    // Either <template-param> or a <template-param-decl> <template-arg>.
+    if (!getDerived().isTemplateParamDecl())
+      return getDerived().parseType();
+    Node *Param = getDerived().parseTemplateParamDecl(nullptr);
+    if (!Param)
+      return nullptr;
+    Node *Arg = getDerived().parseTemplateArg();
+    if (!Arg)
+      return nullptr;
+    return make<TemplateParamQualifiedArg>(Param, Arg);
+  }
   default:
     return getDerived().parseType();
   }
 }
 
-// <template-args> ::= I <template-arg>* E
+// <template-args> ::= I <template-arg>* [Q <requires-clause expr>] E
 //     extension, the abi says <template-arg>+
 template <typename Derived, typename Alloc>
 Node *
@@ -5438,30 +5864,39 @@ AbstractManglingParser<Derived, Alloc>::parseTemplateArgs(bool TagTemplates) {
   }
 
   size_t ArgsBegin = Names.size();
+  Node *Requires = nullptr;
   while (!consumeIf('E')) {
     if (TagTemplates) {
-      auto OldParams = std::move(TemplateParams);
       Node *Arg = getDerived().parseTemplateArg();
-      TemplateParams = std::move(OldParams);
       if (Arg == nullptr)
         return nullptr;
       Names.push_back(Arg);
       Node *TableEntry = Arg;
+      if (Arg->getKind() == Node::KTemplateParamQualifiedArg) {
+        TableEntry =
+            static_cast<TemplateParamQualifiedArg *>(TableEntry)->getArg();
+      }
       if (Arg->getKind() == Node::KTemplateArgumentPack) {
         TableEntry = make<ParameterPack>(
             static_cast<TemplateArgumentPack*>(TableEntry)->getElements());
         if (!TableEntry)
           return nullptr;
       }
-      TemplateParams.back()->push_back(TableEntry);
+      OuterTemplateParams.push_back(TableEntry);
     } else {
       Node *Arg = getDerived().parseTemplateArg();
       if (Arg == nullptr)
         return nullptr;
       Names.push_back(Arg);
     }
+    if (consumeIf('Q')) {
+      Requires = getDerived().parseConstraintExpr();
+      if (!Requires || !consumeIf('E'))
+        return nullptr;
+      break;
+    }
   }
-  return make<TemplateArgs>(popTrailingNodeArray(ArgsBegin));
+  return make<TemplateArgs>(popTrailingNodeArray(ArgsBegin), Requires);
 }
 
 // <mangled-name> ::= _Z <encoding>
@@ -5470,9 +5905,9 @@ AbstractManglingParser<Derived, Alloc>::parseTemplateArgs(bool TagTemplates) {
 // extension      ::= ___Z <encoding> _block_invoke<decimal-digit>+
 // extension      ::= ___Z <encoding> _block_invoke_<decimal-digit>+
 template <typename Derived, typename Alloc>
-Node *AbstractManglingParser<Derived, Alloc>::parse() {
+Node *AbstractManglingParser<Derived, Alloc>::parse(bool ParseParams) {
   if (consumeIf("_Z") || consumeIf("__Z")) {
-    Node *Encoding = getDerived().parseEncoding();
+    Node *Encoding = getDerived().parseEncoding(ParseParams);
     if (Encoding == nullptr)
       return nullptr;
     if (look() == '.') {
@@ -5486,7 +5921,7 @@ Node *AbstractManglingParser<Derived, Alloc>::parse() {
   }
 
   if (consumeIf("___Z") || consumeIf("____Z")) {
-    Node *Encoding = getDerived().parseEncoding();
+    Node *Encoding = getDerived().parseEncoding(ParseParams);
     if (Encoding == nullptr || !consumeIf("_block_invoke"))
       return nullptr;
     bool RequireNumber = consumeIf('_');
