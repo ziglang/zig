@@ -15630,10 +15630,12 @@ fn divFoldZeroOrOne(
     const type_tag = scalar_type.zigTypeTag(zcu);
     const is_int = type_tag == .int or type_tag == .comptime_int;
 
-    // For integers:
+    // For integers and comptime_float:
     // If any rhs component is zero, compile error for division by zero.
     // If the rhs is undefined, compile error because there is a possible
     // value (zero) for which the division would be illegal behavior.
+    //
+    // For integers:
     // If the rhs is 1, return the lhs.
     // Otherwise, if the lhs is zero, then zero is returned regardless of rhs.
     // If the lhs is undefined:
@@ -15651,7 +15653,7 @@ fn divFoldZeroOrOne(
     //   * otherwise, the result is undefined.
 
     if (rhs_val) |rhs| {
-        if (is_int) {
+        if (is_int or type_tag == .comptime_float) {
             if (rhs.isUndef(zcu)) {
                 return sema.failWithUseOfUndef(block, rhs_src);
             }

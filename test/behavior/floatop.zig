@@ -1568,10 +1568,6 @@ test "comptime fixed-width float non-zero divided by zero produces signed Inf" {
     }
 }
 
-test "comptime_float zero divided by zero produces nan" {
-    try expect(math.isNan(0.0 / 0.0));
-}
-
 test "comptime float compared with runtime int" {
     const f = 10.0;
     var i: usize = 0;
