@@ -584,7 +584,121 @@ fn testFloatDivision() !void {
     try expect(divTrunc(f64, -5.0, 3.0) == -1.0);
     try expect(divTrunc(f64, 9.0, -10.0) == 0.0);
     try expect(divTrunc(f64, -9.0, 10.0) == 0.0);
+
+    const nan = math.nan;
+    const Vec = @Vector(1, f32);
+    var rt_nanf: f32 = nan(f32);
+    var rt_nan: Vec = .{nan(f32)};
+    var rt_zerof: f32 = 0;
+    var rt_zero: Vec = .{0};
+    var rt_one: Vec = .{1};
+    _ = &rt_nanf;
+    _ = &rt_nan;
+    _ = &rt_zerof;
+    _ = &rt_zero;
+    _ = &rt_one;
+    const ct_nanf: f32 = nan(f32);
+    const ct_nan: Vec = .{nan(f32)};
+    const ct_zerof: f32 = 0;
+    const ct_zero: Vec = .{0};
+    const ct_one: Vec = .{1};
+    const cmp = struct {
+        inline fn expectNan(a: anytype) !void {
+            const x = if (@TypeOf(a) == f32) a else a[0];
+            try expect(math.isNan(x));
+            if (builtin.mode == .Debug) {
+                // The release backends may exploit the fact that the
+                // representation of the NaN is undefined, but we would
+                // still like to check that comptime matches observable
+                // runtime behavior where possible.
+                try expect(!math.signbit(x));
+            }
+        }
+        inline fn expectInf(a: anytype) !void {
+            const x = if (@TypeOf(a) == f32) a else a[0];
+            try expect(math.isInf(x));
+        }
+    };
+
+    // Hitting TODO: Implement binary operation for type: @Vector(1, f32)
+    if (builtin.cpu.arch == .wasm32) {
+        return;
+    }
+
+    const expectNan = cmp.expectNan;
+    const expectInf = cmp.expectInf;
+
+    try expectNan(ct_one / ct_nan);
+    try expectNan(ct_one / rt_nan);
+    try expectNan(rt_one / rt_nan);
+    try expectNan(rt_one / ct_nan);
+
+    try expectNan(ct_zerof / ct_nanf);
+    try expectNan(ct_zerof / rt_nanf);
+    try expectNan(rt_zerof / rt_nanf);
+    try expectNan(rt_zerof / ct_nanf);
+
+    try expectNan(ct_zero / ct_nan);
+    try expectNan(ct_zero / rt_nan);
+    try expectNan(rt_zero / rt_nan);
+    try expectNan(rt_zero / ct_nan);
+
+    try expectInf(ct_one / ct_zero);
+    try expectInf(ct_one / rt_zero);
+    try expectInf(rt_one / rt_zero);
+    try expectInf(rt_one / ct_zero);
+
+    try expectNan(-(ct_zerof / ct_zerof));
+    try expectNan(-(ct_zerof / rt_zerof));
+    try expectNan(-(rt_zerof / rt_zerof));
+    try expectNan(-(rt_zerof / ct_zerof));
+
+    try expectNan(-(ct_zero / ct_zero));
+    try expectNan(-(rt_zero / rt_zero));
+
+    if (builtin.zig_backend != .stage2_llvm) {
+        // LLVM is randomly swallowing the NaN sign even in debug mode
+        // just for these two operations.
+        try expectNan(-(ct_zero / rt_zero));
+        try expectNan(-(rt_zero / ct_zero));
+    }
+
+    // selfhosted-no-lld is currently hitting "error: TODO implement
+    // genRound for type: @Vector(1, f32)", and I don't know how to
+    // precisely detect the no-lld target.
+    if (builtin.zig_backend != .stage2_x86_64) {
+        try expectNan(@divTrunc(ct_one, ct_nan));
+        try expectNan(@divTrunc(ct_one, rt_nan));
+        try expectNan(@divTrunc(rt_one, rt_nan));
+        try expectNan(@divTrunc(rt_one, ct_nan));
+
+        try expectNan(@divTrunc(ct_zerof, ct_nanf));
+        try expectNan(@divTrunc(ct_zerof, rt_nanf));
+        try expectNan(@divTrunc(rt_zerof, rt_nanf));
+        try expectNan(@divTrunc(rt_zerof, ct_nanf));
+
+        try expectNan(@divTrunc(ct_zero, ct_nan));
+        try expectNan(@divTrunc(ct_zero, rt_nan));
+        try expectNan(@divTrunc(rt_zero, rt_nan));
+        try expectNan(@divTrunc(rt_zero, ct_nan));
+
+        try expectInf(@divTrunc(ct_one, ct_zero));
+        try expectInf(@divTrunc(ct_one, rt_zero));
+        try expectInf(@divTrunc(rt_one, rt_zero));
+        try expectInf(@divTrunc(rt_one, ct_zero));
+
+        try expectNan(-@divTrunc(ct_zerof, ct_zerof));
+        try expectNan(-@divTrunc(ct_zerof, rt_zerof));
+        try expectNan(-@divTrunc(rt_zerof, rt_zerof));
+        try expectNan(-@divTrunc(rt_zerof, ct_zerof));
+
+        try expectNan(-@divTrunc(ct_zero, ct_zero));
+        try expectNan(-@divTrunc(ct_zero, rt_zero));
+        try expectNan(-@divTrunc(rt_zero, rt_zero));
+        try expectNan(-@divTrunc(rt_zero, ct_zero));
+    }
 }
+
 
 test "large integer division" {
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
