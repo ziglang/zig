@@ -104,12 +104,13 @@ const StackTrace = std.builtin.StackTrace;
 const page_size: usize = @max(std.heap.page_size_max, switch (builtin.os.tag) {
     .windows => 64 * 1024, // Makes `std.heap.PageAllocator` take the happy path.
     .wasi => 64 * 1024, // Max alignment supported by `std.heap.WasmAllocator`.
-    else => 2 * 1024 * 1024, // Avoids too many active mappings when `page_size_max` is low.
+    else => 512 * 1024, // Avoids too many active mappings when `page_size_max` is low.
 });
 const page_align: mem.Alignment = .fromByteUnits(page_size);
 
 /// Integer type for pointing to slots in a small allocation
 const SlotIndex = std.meta.Int(.unsigned, math.log2(page_size) + 1);
+const Log2USize = std.math.Log2Int(usize);
 
 const default_test_stack_trace_frames: usize = if (builtin.is_test) 10 else 6;
 const default_sys_stack_trace_frames: usize = if (std.debug.sys_can_stack_trace) default_test_stack_trace_frames else 0;
@@ -383,7 +384,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
         /// This is executed only at compile-time to prepopulate a lookup table.
         fn calculateSlotCount(size_class_index: usize) SlotIndex {
-            const size_class = @as(usize, 1) << @as(u6, @intCast(size_class_index));
+            const size_class = @as(usize, 1) << @as(Log2USize, @intCast(size_class_index));
             var lower: usize = 8;
             var upper: usize = (page_size - bucketSize(lower)) / size_class;
             while (upper > lower) {
@@ -408,7 +409,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
         }
 
         fn detectLeaksInBucket(bucket: *BucketHeader, size_class_index: usize, used_bits_count: usize) bool {
-            const size_class = @as(usize, 1) << @as(u6, @intCast(size_class_index));
+            const size_class = @as(usize, 1) << @as(Log2USize, @intCast(size_class_index));
             const slot_count = slot_counts[size_class_index];
             var leaks = false;
             var used_bits_byte: usize = 0;
@@ -745,7 +746,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                     const used_bits_byte = bucket.usedBits(slot_index / 8);
                     const used_bit_index: u3 = @intCast(slot_index % 8);
                     used_bits_byte.* |= (@as(u8, 1) << used_bit_index);
-                    const size_class = @as(usize, 1) << @as(u6, @intCast(size_class_index));
+                    const size_class = @as(usize, 1) << @as(Log2USize, @intCast(size_class_index));
                     if (config.stack_trace_frames > 0) {
                         bucket.captureStackTrace(ret_addr, slot_count, slot_index, .alloc);
                     }
@@ -858,7 +859,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             const bucket: *BucketHeader = .fromPage(page_addr, slot_count);
             if (bucket.canary != config.canary) @panic("Invalid free");
             const page_offset = freed_addr - page_addr;
-            const size_class = @as(usize, 1) << @as(u6, @intCast(size_class_index));
+            const size_class = @as(usize, 1) << @as(Log2USize, @intCast(size_class_index));
             const slot_index: SlotIndex = @intCast(page_offset / size_class);
             const used_byte_index = slot_index / 8;
             const used_bit_index: u3 = @intCast(slot_index % 8);
@@ -953,7 +954,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             const bucket: *BucketHeader = .fromPage(page_addr, slot_count);
             if (bucket.canary != config.canary) @panic("Invalid free");
             const page_offset = memory_addr - page_addr;
-            const size_class = @as(usize, 1) << @as(u6, @intCast(size_class_index));
+            const size_class = @as(usize, 1) << @as(Log2USize, @intCast(size_class_index));
             const slot_index: SlotIndex = @intCast(page_offset / size_class);
             const used_byte_index = slot_index / 8;
             const used_bit_index: u3 = @intCast(slot_index % 8);
