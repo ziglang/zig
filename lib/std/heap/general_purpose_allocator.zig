@@ -162,6 +162,10 @@ pub const Config = struct {
 
     /// Tell whether the backing allocator returns already-zeroed memory.
     backing_allocator_zeroes: bool = true,
+
+    /// Magic value that distinguishes allocations owned by this allocator from
+    /// other regions of memory.
+    canary: usize = @truncate(0x9232a6ff85dff10f),
 };
 
 pub const Check = enum { ok, leak };
@@ -266,6 +270,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             allocated_count: SlotIndex,
             freed_count: SlotIndex,
             prev: ?*BucketHeader,
+            canary: usize = config.canary,
 
             fn fromPage(page_addr: usize, slot_count: usize) *BucketHeader {
                 const unaligned = page_addr + page_size - bucketSize(slot_count);
@@ -832,6 +837,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             const freed_addr = @intFromPtr(old_memory.ptr);
             const page_addr = freed_addr & ~(page_size - 1);
             const bucket: *BucketHeader = .fromPage(page_addr, slot_count);
+            if (bucket.canary != config.canary) @panic("Invalid free");
             const page_offset = freed_addr - page_addr;
             const size_class = @as(usize, 1) << @as(u6, @intCast(size_class_index));
             const slot_index: SlotIndex = @intCast(page_offset / size_class);
