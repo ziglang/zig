@@ -163,6 +163,10 @@ pub const Config = struct {
     /// Tell whether the backing allocator returns already-zeroed memory.
     backing_allocator_zeroes: bool = true,
 
+    /// When resizing an allocation, refresh the stack trace with the resize
+    /// callsite. Comes with a performance penalty.
+    resize_stack_traces: bool = false,
+
     /// Magic value that distinguishes allocations owned by this allocator from
     /// other regions of memory.
     canary: usize = @truncate(0x9232a6ff85dff10f),
@@ -554,6 +558,12 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 });
             }
 
+            // If this would move the allocation into a small size class,
+            // refuse the request, because it would require creating small
+            // allocation metadata.
+            const new_size_class_index: usize = @max(@bitSizeOf(usize) - @clz(new_size - 1), @intFromEnum(alignment));
+            if (new_size_class_index < self.buckets.len) return null;
+
             // Do memory limit accounting with requested sizes rather than what
             // backing_allocator returns because if we want to return
             // error.OutOfMemory, we have to leave allocation untouched, and
@@ -598,7 +608,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 });
             }
             entry.value_ptr.bytes = resized_ptr[0..new_size];
-            entry.value_ptr.captureStackTrace(ret_addr, .alloc);
+            if (config.resize_stack_traces)
+                entry.value_ptr.captureStackTrace(ret_addr, .alloc);
 
             // Update the key of the hash map if the memory was relocated.
             if (resized_ptr != old_mem.ptr) {
@@ -791,12 +802,16 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             new_len: usize,
             return_address: usize,
         ) bool {
-            _ = context;
-            _ = memory;
-            _ = alignment;
-            _ = new_len;
-            _ = return_address;
-            return false;
+            const self: *Self = @ptrCast(@alignCast(context));
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            const size_class_index: usize = @max(@bitSizeOf(usize) - @clz(memory.len - 1), @intFromEnum(alignment));
+            if (size_class_index >= self.buckets.len) {
+                return self.resizeLarge(memory, alignment, new_len, return_address, false) != null;
+            } else {
+                return resizeSmall(self, memory, alignment, new_len, return_address, size_class_index);
+            }
         }
 
         fn remap(
@@ -806,12 +821,16 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             new_len: usize,
             return_address: usize,
         ) ?[*]u8 {
-            _ = context;
-            _ = memory;
-            _ = alignment;
-            _ = new_len;
-            _ = return_address;
-            return null;
+            const self: *Self = @ptrCast(@alignCast(context));
+            self.mutex.lock();
+            defer self.mutex.unlock();
+
+            const size_class_index: usize = @max(@bitSizeOf(usize) - @clz(memory.len - 1), @intFromEnum(alignment));
+            if (size_class_index >= self.buckets.len) {
+                return self.resizeLarge(memory, alignment, new_len, return_address, true);
+            } else {
+                return if (resizeSmall(self, memory, alignment, new_len, return_address, size_class_index)) memory.ptr else null;
+            }
         }
 
         fn free(
@@ -894,8 +913,10 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 self.total_requested_bytes -= old_memory.len;
             }
 
-            // Capture stack trace to be the "first free", in case a double free happens.
-            bucket.captureStackTrace(return_address, slot_count, slot_index, .free);
+            if (config.stack_trace_frames > 0) {
+                // Capture stack trace to be the "first free", in case a double free happens.
+                bucket.captureStackTrace(return_address, slot_count, slot_index, .free);
+            }
 
             used_byte.* &= ~(@as(u8, 1) << used_bit_index);
             if (config.safety) {
@@ -914,6 +935,91 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             if (config.verbose_log) {
                 log.info("small free {d} bytes at {*}", .{ old_memory.len, old_memory.ptr });
             }
+        }
+
+        fn resizeSmall(
+            self: *Self,
+            memory: []u8,
+            alignment: mem.Alignment,
+            new_len: usize,
+            return_address: usize,
+            size_class_index: usize,
+        ) bool {
+            const new_size_class_index: usize = @max(@bitSizeOf(usize) - @clz(new_len - 1), @intFromEnum(alignment));
+            if (!config.safety) return new_size_class_index == size_class_index;
+            const slot_count = slot_counts[size_class_index];
+            const memory_addr = @intFromPtr(memory.ptr);
+            const page_addr = memory_addr & ~(page_size - 1);
+            const bucket: *BucketHeader = .fromPage(page_addr, slot_count);
+            if (bucket.canary != config.canary) @panic("Invalid free");
+            const page_offset = memory_addr - page_addr;
+            const size_class = @as(usize, 1) << @as(u6, @intCast(size_class_index));
+            const slot_index: SlotIndex = @intCast(page_offset / size_class);
+            const used_byte_index = slot_index / 8;
+            const used_bit_index: u3 = @intCast(slot_index % 8);
+            const used_byte = bucket.usedBits(used_byte_index);
+            const is_used = @as(u1, @truncate(used_byte.* >> used_bit_index)) != 0;
+            if (!is_used) {
+                reportDoubleFree(
+                    return_address,
+                    bucketStackTrace(bucket, slot_count, slot_index, .alloc),
+                    bucketStackTrace(bucket, slot_count, slot_index, .free),
+                );
+                // Recoverable since this is a free.
+                return false;
+            }
+
+            // Definitely an in-use small alloc now.
+            const requested_size = bucket.requestedSizes(slot_count)[slot_index];
+            if (requested_size == 0) @panic("Invalid free");
+            const slot_alignment = bucket.log2PtrAligns(slot_count)[slot_index];
+            if (memory.len != requested_size or alignment != slot_alignment) {
+                var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
+                var free_stack_trace: StackTrace = .{
+                    .instruction_addresses = &addresses,
+                    .index = 0,
+                };
+                std.debug.captureStackTrace(return_address, &free_stack_trace);
+                if (memory.len != requested_size) {
+                    log.err("Allocation size {d} bytes does not match free size {d}. Allocation: {} Free: {}", .{
+                        requested_size,
+                        memory.len,
+                        bucketStackTrace(bucket, slot_count, slot_index, .alloc),
+                        free_stack_trace,
+                    });
+                }
+                if (alignment != slot_alignment) {
+                    log.err("Allocation alignment {d} does not match free alignment {d}. Allocation: {} Free: {}", .{
+                        slot_alignment.toByteUnits(),
+                        alignment.toByteUnits(),
+                        bucketStackTrace(bucket, slot_count, slot_index, .alloc),
+                        free_stack_trace,
+                    });
+                }
+            }
+
+            if (new_size_class_index != size_class_index) return false;
+
+            const prev_req_bytes = self.total_requested_bytes;
+            if (config.enable_memory_limit) {
+                const new_req_bytes = prev_req_bytes - memory.len + new_len;
+                if (new_req_bytes > prev_req_bytes and new_req_bytes > self.requested_memory_limit) {
+                    return false;
+                }
+                self.total_requested_bytes = new_req_bytes;
+            }
+
+            if (memory.len > new_len) @memset(memory[new_len..], undefined);
+            if (config.verbose_log)
+                log.info("small resize {d} bytes at {*} to {d}", .{ memory.len, memory.ptr, new_len });
+
+            if (config.safety)
+                bucket.requestedSizes(slot_count)[slot_index] = @intCast(new_len);
+
+            if (config.resize_stack_traces)
+                bucket.captureStackTrace(return_address, slot_count, slot_index, .alloc);
+
+            return true;
         }
     };
 }
@@ -1023,12 +1129,8 @@ test "shrink" {
         try std.testing.expect(b == 0x11);
     }
 
-    try std.testing.expect(allocator.resize(slice, 16));
-    slice = slice[0..16];
-
-    for (slice) |b| {
-        try std.testing.expect(b == 0x11);
-    }
+    // Does not cross size class boundaries when shrinking.
+    try std.testing.expect(!allocator.resize(slice, 16));
 }
 
 test "large object - grow" {
@@ -1212,14 +1314,14 @@ test "realloc large object to larger alignment" {
     try std.testing.expect(slice[16] == 0x34);
 }
 
-test "large object shrinks to small but allocation fails during shrink" {
+test "large object rejects shrinking to small" {
     if (builtin.target.isWasm()) {
         // Not expected to pass on targets that do not have memory mapping.
         return error.SkipZigTest;
     }
 
     var failing_allocator = std.testing.FailingAllocator.init(std.heap.page_allocator, .{ .fail_index = 3 });
-    var gpa = GeneralPurposeAllocator(.{}){ .backing_allocator = failing_allocator.allocator() };
+    var gpa: GeneralPurposeAllocator(.{}) = .{ .backing_allocator = failing_allocator.allocator() };
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1228,10 +1330,7 @@ test "large object shrinks to small but allocation fails during shrink" {
     slice[0] = 0x12;
     slice[3] = 0x34;
 
-    // Next allocation will fail in the backing allocator of the GeneralPurposeAllocator
-
-    try std.testing.expect(allocator.resize(slice, 4));
-    slice = slice[0..4];
+    try std.testing.expect(!allocator.resize(slice, 4));
     try std.testing.expect(slice[0] == 0x12);
     try std.testing.expect(slice[3] == 0x34);
 }
@@ -1274,17 +1373,16 @@ test "setting a memory cap" {
     allocator.free(exact);
 }
 
-test "bug 9995 fix, large allocs count requested size not backing size" {
-    // with AtLeast, buffer likely to be larger than requested, especially when shrinking
-    var gpa = GeneralPurposeAllocator(.{ .enable_memory_limit = true }){};
+test "large allocations count requested size not backing size" {
+    var gpa: GeneralPurposeAllocator(.{ .enable_memory_limit = true }) = .{};
     const allocator = gpa.allocator();
 
     var buf = try allocator.alignedAlloc(u8, 1, page_size + 1);
-    try std.testing.expect(gpa.total_requested_bytes == page_size + 1);
+    try std.testing.expectEqual(page_size + 1, gpa.total_requested_bytes);
     buf = try allocator.realloc(buf, 1);
-    try std.testing.expect(gpa.total_requested_bytes == 1);
+    try std.testing.expectEqual(1, gpa.total_requested_bytes);
     buf = try allocator.realloc(buf, 2);
-    try std.testing.expect(gpa.total_requested_bytes == 2);
+    try std.testing.expectEqual(2, gpa.total_requested_bytes);
 }
 
 test "retain metadata and never unmap" {
