@@ -33930,6 +33930,17 @@ fn resolvePeerTypes(
         else => {},
     }
 
+    // Fast path: check if everything has the same type to bypass the main PTR logic.
+    same_type: {
+        const ty = sema.typeOf(instructions[0]);
+        for (instructions[1..]) |inst| {
+            if (sema.typeOf(inst).toIntern() != ty.toIntern()) {
+                break :same_type;
+            }
+        }
+        return ty;
+    }
+
     const peer_tys = try sema.arena.alloc(?Type, instructions.len);
     const peer_vals = try sema.arena.alloc(?Value, instructions.len);
 
