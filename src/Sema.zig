@@ -1197,6 +1197,7 @@ fn analyzeBodyInner(
             .slice_sentinel               => try sema.zirSliceSentinel(block, inst),
             .slice_start                  => try sema.zirSliceStart(block, inst),
             .slice_length                 => try sema.zirSliceLength(block, inst),
+            .slice_sentinel_ty            => try sema.zirSliceSentinelTy(block, inst),
             .str                          => try sema.zirStr(inst),
             .switch_block                 => try sema.zirSwitchBlock(block, inst, false),
             .switch_block_ref             => try sema.zirSwitchBlock(block, inst, true),
@@ -10751,6 +10752,46 @@ fn zirSliceLength(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
         block.src(.{ .node_offset_slice_sentinel = inst_data.src_node });
 
     return sema.analyzeSlice(block, src, array_ptr, start, len, sentinel, sentinel_src, ptr_src, start_src, end_src, true);
+}
+
+fn zirSliceSentinelTy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+
+    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
+
+    const src = block.nodeOffset(inst_data.src_node);
+    const ptr_src = block.src(.{ .node_offset_slice_ptr = inst_data.src_node });
+    const sentinel_src = block.src(.{ .node_offset_slice_sentinel = inst_data.src_node });
+
+    // This is like the logic in `analyzeSlice`; since we've evaluated the LHS as an lvalue, we will
+    // have a double pointer if it was already a pointer.
+
+    const lhs_ptr_ty = sema.typeOf(try sema.resolveInst(inst_data.operand));
+    const lhs_ty = switch (lhs_ptr_ty.zigTypeTag(zcu)) {
+        .pointer => lhs_ptr_ty.childType(zcu),
+        else => return sema.fail(block, ptr_src, "expected pointer, found '{}'", .{lhs_ptr_ty.fmt(pt)}),
+    };
+
+    const sentinel_ty: Type = switch (lhs_ty.zigTypeTag(zcu)) {
+        .array => lhs_ty.childType(zcu),
+        .pointer => switch (lhs_ty.ptrSize(zcu)) {
+            .many, .c, .slice => lhs_ty.childType(zcu),
+            .one => s: {
+                const lhs_elem_ty = lhs_ty.childType(zcu);
+                break :s switch (lhs_elem_ty.zigTypeTag(zcu)) {
+                    .array => lhs_elem_ty.childType(zcu), // array element type
+                    else => return sema.fail(block, sentinel_src, "slice of single-item pointer cannot have sentinel", .{}),
+                };
+            },
+        },
+        else => return sema.fail(block, src, "slice of non-array type '{}'", .{lhs_ty.fmt(pt)}),
+    };
+
+    return Air.internedToRef(sentinel_ty.toIntern());
 }
 
 /// Holds common data used when analyzing or resolving switch prong bodies,
