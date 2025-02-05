@@ -12,4 +12,5 @@ pub fn main() void {
 
 // compile
 // target=x86_64-linux
+// backend=llvm
 //
