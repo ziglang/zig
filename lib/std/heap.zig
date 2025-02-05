@@ -1061,6 +1061,7 @@ test {
     _ = ArenaAllocator;
     _ = GeneralPurposeAllocator;
     _ = FixedBufferAllocator;
+    _ = ThreadSafeAllocator;
     if (builtin.target.isWasm()) {
         _ = WasmAllocator;
     }
