@@ -59,7 +59,7 @@ pub fn SbrkAllocator(comptime sbrk: *const fn (n: usize) usize) type {
                     }
 
                     const next_addr = next_addrs[class];
-                    if (next_addr % heap.pageSize == 0) {
+                    if (next_addr % heap.pageSize() == 0) {
                         const addr = allocBigPages(1);
                         if (addr == 0) return null;
                         //std.debug.print("allocated fresh slot_size={d} class={d} addr=0x{x}\n", .{
