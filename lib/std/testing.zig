@@ -928,7 +928,7 @@ test "expectEqualDeep composite type" {
     }
 
     // inferred union
-    const TestStruct2 = struct{
+    const TestStruct2 = struct {
         const A = union(enum) { b: B, c: C };
         const B = struct {};
         const C = struct { a: *const A };
