@@ -181,6 +181,8 @@ analysis_roots: std.BoundedArray(*Package.Module, 3) = .{},
 /// Allocated into `gpa`.
 resolved_references: ?std.AutoHashMapUnmanaged(AnalUnit, ?ResolvedReference) = null,
 
+skip_analysis_errors: bool = false,
+
 stage1_flags: packed struct {
     have_winmain: bool = false,
     have_wwinmain: bool = false,

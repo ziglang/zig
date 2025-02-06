@@ -2196,6 +2196,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
         zcu.compile_log_text.shrinkAndFree(gpa, 0);
 
+        zcu.skip_analysis_errors = false;
+
         // Make sure std.zig is inside the import_table. We unconditionally need
         // it for start.zig.
         const std_mod = zcu.std_mod;
@@ -3208,7 +3210,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         });
     }
 
-    if (comp.zcu) |zcu| {
+    if (comp.zcu) |zcu| zcu_errors: {
         for (zcu.failed_files.keys(), zcu.failed_files.values()) |file, error_msg| {
             if (error_msg) |msg| {
                 try addModuleErrorMsg(zcu, &bundle, msg.*);
@@ -3225,6 +3227,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 }
             }
         }
+        if (zcu.skip_analysis_errors) break :zcu_errors;
         var sorted_failed_analysis: std.AutoArrayHashMapUnmanaged(InternPool.AnalUnit, *Zcu.ErrorMsg).DataList.Slice = s: {
             const SortOrder = struct {
                 zcu: *Zcu,
@@ -3360,7 +3363,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
     try comp.link_diags.addMessagesToBundle(&bundle, comp.bin_file);
 
     if (comp.zcu) |zcu| {
-        if (bundle.root_list.items.len == 0 and zcu.compile_log_sources.count() != 0) {
+        if (!zcu.skip_analysis_errors and bundle.root_list.items.len == 0 and zcu.compile_log_sources.count() != 0) {
             const values = zcu.compile_log_sources.values();
             // First one will be the error; subsequent ones will be notes.
             const src_loc = values[0].src();
@@ -3861,10 +3864,9 @@ fn performAllTheWorkInner(
             // We give up right now! No updating of ZIR refs, no nothing. The idea is that this prevents
             // us from invalidating lots of incremental dependencies due to files with e.g. parse errors.
             // However, this means our analysis data is invalid, so we want to omit all analysis errors.
-            // To do that, let's just clear the analysis roots!
 
             assert(zcu.failed_files.count() > 0); // we will get an error
-            zcu.analysis_roots.clear(); // no analysis happened
+            zcu.skip_analysis_errors = true;
             return;
         }
 

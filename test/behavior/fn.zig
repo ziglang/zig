@@ -711,3 +711,20 @@ test "inline call propagates comptime-known argument to generic parameter and re
     try expect(a1 == 12340);
     try expect(b1 == 12340);
 }
+
+test "inline function return type is evaluated at comptime" {
+    const S = struct {
+        inline fn assertComptimeAndRet(x: anytype) @TypeOf(x) {
+            if (!@inComptime()) comptime unreachable;
+            return x;
+        }
+
+        inline fn foo(val: anytype) assertComptimeAndRet(u16) {
+            return val;
+        }
+    };
+
+    const result = S.foo(123);
+    comptime assert(@TypeOf(result) == u16);
+    try expect(result == 123);
+}
