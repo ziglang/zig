@@ -89,13 +89,13 @@ pub fn FloatDecimal(comptime T: type) type {
 }
 
 fn copySpecialStr(buf: []u8, f: anytype) []const u8 {
-    if (f.sign) {
-        buf[0] = '-';
+    if (f.mantissa != 0) {
+        @memcpy(buf[0..3], "nan");
+        return buf[0..3];
     }
     const offset: usize = @intFromBool(f.sign);
-    if (f.mantissa != 0) {
-        @memcpy(buf[offset..][0..3], "nan");
-        return buf[0 .. 3 + offset];
+    if (f.sign) {
+        buf[0] = '-';
     }
     @memcpy(buf[offset..][0..3], "inf");
     return buf[0 .. 3 + offset];
