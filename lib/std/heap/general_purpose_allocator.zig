@@ -532,6 +532,13 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             ret_addr: usize,
             may_move: bool,
         ) ?[*]u8 {
+            if (config.retain_metadata and may_move) {
+                // Before looking up the entry (since this could invalidate
+                // it), we must reserve space for the new entry in case the
+                // allocation is relocated.
+                self.large_allocations.ensureUnusedCapacity(self.backing_allocator, 1) catch return null;
+            }
+
             const entry = self.large_allocations.getEntry(@intFromPtr(old_mem.ptr)) orelse {
                 if (config.safety) {
                     @panic("Invalid free");
@@ -584,15 +591,9 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 self.total_requested_bytes = new_req_bytes;
             }
 
-            const opt_resized_ptr = if (may_move) b: {
-                // So that if the allocation moves, we can memcpy the
-                // `LargeAlloc` value directly from old to new location.
-                // It's also not clear to me whether removing one item from std
-                // lib hash map guarantees that unused capacity increases by
-                // one.
-                self.large_allocations.ensureUnusedCapacity(self.backing_allocator, 1) catch return null;
-                break :b self.backing_allocator.rawRemap(old_mem, alignment, new_size, ret_addr);
-            } else if (self.backing_allocator.rawResize(old_mem, alignment, new_size, ret_addr))
+            const opt_resized_ptr = if (may_move)
+                self.backing_allocator.rawRemap(old_mem, alignment, new_size, ret_addr)
+            else if (self.backing_allocator.rawResize(old_mem, alignment, new_size, ret_addr))
                 old_mem.ptr
             else
                 null;
@@ -619,6 +620,14 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
 
             // Update the key of the hash map if the memory was relocated.
             if (resized_ptr != old_mem.ptr) {
+                const large_alloc = entry.value_ptr.*;
+                if (config.retain_metadata) {
+                    entry.value_ptr.freed = true;
+                    entry.value_ptr.captureStackTrace(ret_addr, .free);
+                } else {
+                    self.large_allocations.removeByPtr(entry.key_ptr);
+                }
+
                 const gop = self.large_allocations.getOrPutAssumeCapacity(@intFromPtr(resized_ptr));
                 if (config.retain_metadata and !config.never_unmap) {
                     // Backing allocator may be reusing memory that we're retaining metadata for
@@ -626,13 +635,7 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
                 } else {
                     assert(!gop.found_existing); // This would mean the kernel double-mapped pages.
                 }
-                gop.value_ptr.* = entry.value_ptr.*;
-                if (!config.retain_metadata) {
-                    self.large_allocations.removeByPtr(entry.key_ptr);
-                } else {
-                    entry.value_ptr.freed = true;
-                    entry.value_ptr.captureStackTrace(ret_addr, .free);
-                }
+                gop.value_ptr.* = large_alloc;
             }
 
             return resized_ptr;
