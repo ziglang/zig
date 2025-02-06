@@ -26,15 +26,14 @@ cd $ZIGDIR
 git fetch --unshallow || true
 git fetch --tags
 
-rm -rf build-release
-mkdir build-release
-cd build-release
-
 # Override the cache directories because they won't actually help other CI runs
 # which will be testing alternate versions of zig, and ultimately would just
 # fill up space on the hard drive for no reason.
 export ZIG_GLOBAL_CACHE_DIR="$PWD/zig-global-cache"
 export ZIG_LOCAL_CACHE_DIR="$PWD/zig-local-cache"
+
+mkdir build-release
+cd build-release
 
 PATH="$HOME/local/bin:$PATH" cmake .. \
   -DCMAKE_INSTALL_PREFIX="stage3-release" \

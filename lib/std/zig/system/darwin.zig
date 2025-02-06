@@ -15,7 +15,7 @@ pub const macos = @import("darwin/macos.zig");
 pub fn isSdkInstalled(allocator: Allocator) bool {
     const result = std.process.Child.run(.{
         .allocator = allocator,
-        .argv = &.{ "/usr/bin/xcode-select", "--print-path" },
+        .argv = &.{ "xcode-select", "--print-path" },
     }) catch return false;
 
     defer {
@@ -37,18 +37,19 @@ pub fn isSdkInstalled(allocator: Allocator) bool {
 pub fn getSdk(allocator: Allocator, target: Target) ?[]const u8 {
     const is_simulator_abi = target.abi == .simulator;
     const sdk = switch (target.os.tag) {
-        .macos => "macosx",
         .ios => switch (target.abi) {
-            .simulator => "iphonesimulator",
             .macabi => "macosx",
+            .simulator => "iphonesimulator",
             else => "iphoneos",
         },
-        .watchos => if (is_simulator_abi) "watchsimulator" else "watchos",
+        .driverkit => "driverkit",
+        .macos => "macosx",
         .tvos => if (is_simulator_abi) "appletvsimulator" else "appletvos",
         .visionos => if (is_simulator_abi) "xrsimulator" else "xros",
+        .watchos => if (is_simulator_abi) "watchsimulator" else "watchos",
         else => return null,
     };
-    const argv = &[_][]const u8{ "/usr/bin/xcrun", "--sdk", sdk, "--show-sdk-path" };
+    const argv = &[_][]const u8{ "xcrun", "--sdk", sdk, "--show-sdk-path" };
     const result = std.process.Child.run(.{ .allocator = allocator, .argv = argv }) catch return null;
     defer {
         allocator.free(result.stderr);

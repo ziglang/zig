@@ -195,11 +195,7 @@ pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
             return true;
         if (eqlIgnoreCase(ignore_case, name, "ksguid"))
             return true;
-        if (eqlIgnoreCase(ignore_case, name, "ksuser"))
-            return true;
         if (eqlIgnoreCase(ignore_case, name, "largeint"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "locationapi"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "m"))
             return true;
@@ -213,13 +209,7 @@ pub fn isLibCLibName(target: std.Target, name: []const u8) bool {
             return true;
         if (eqlIgnoreCase(ignore_case, name, "moldname"))
             return true;
-        if (eqlIgnoreCase(ignore_case, name, "msxml2"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "msxml6"))
-            return true;
         if (eqlIgnoreCase(ignore_case, name, "msvcrt-os"))
-            return true;
-        if (eqlIgnoreCase(ignore_case, name, "ntoskrnl"))
             return true;
         if (eqlIgnoreCase(ignore_case, name, "portabledeviceguids"))
             return true;

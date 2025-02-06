@@ -5,4 +5,4 @@ b";
 // backend=stage2
 // target=native
 //
-// :1:13: error: expected expression, found 'invalid token'
+// :1:15: error: string literal contains invalid byte: '\n'

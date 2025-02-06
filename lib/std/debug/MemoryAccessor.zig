@@ -25,6 +25,17 @@ pub const init: MemoryAccessor = .{
     },
 };
 
+pub fn deinit(ma: *MemoryAccessor) void {
+    switch (native_os) {
+        .linux => switch (ma.mem.handle) {
+            -2, -1 => {},
+            else => ma.mem.close(),
+        },
+        else => {},
+    }
+    ma.* = undefined;
+}
+
 fn read(ma: *MemoryAccessor, address: usize, buf: []u8) bool {
     switch (native_os) {
         .linux => while (true) switch (ma.mem.handle) {

@@ -39,7 +39,7 @@ comptime {
     std.debug.assert(@TypeOf(@intFromEnum(Foo.e)) == Tag);
 }
 const std = @import("std");
-#expect_error=ignored
+#expect_error=main.zig:7:5: error: enumeration value '4' too large for type 'u2'
 #update=increase tag size
 #file=main.zig
 const Tag = u3;

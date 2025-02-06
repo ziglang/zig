@@ -29,6 +29,9 @@ pub const RomuTrio = @import("Random/RomuTrio.zig");
 pub const SplitMix64 = @import("Random/SplitMix64.zig");
 pub const ziggurat = @import("Random/ziggurat.zig");
 
+/// Any comparison of this field may result in illegal behavior, since it may be set to
+/// `undefined` in cases where the random implementation does not have any associated
+/// state.
 ptr: *anyopaque,
 fillFn: *const fn (ptr: *anyopaque, buf: []u8) void,
 

@@ -679,6 +679,9 @@ pub fn formatType(
             try writer.writeAll(" }");
         },
         .vector => |info| {
+            if (max_depth == 0) {
+                return writer.writeAll("{ ... }");
+            }
             try writer.writeAll("{ ");
             var i: usize = 0;
             while (i < info.len) : (i += 1) {
@@ -2577,6 +2580,15 @@ test "formatType max_depth" {
     fbs.reset();
     try formatType(inst, "", FormatOptions{}, fbs.writer(), 3);
     try std.testing.expectEqualStrings("fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }", fbs.getWritten());
+
+    const vec: @Vector(4, i32) = .{ 1, 2, 3, 4 };
+    fbs.reset();
+    try formatType(vec, "", FormatOptions{}, fbs.writer(), 0);
+    try std.testing.expectEqualStrings("{ ... }", fbs.getWritten());
+
+    fbs.reset();
+    try formatType(vec, "", FormatOptions{}, fbs.writer(), 1);
+    try std.testing.expectEqualStrings("{ 1, 2, 3, 4 }", fbs.getWritten());
 }
 
 test "positional" {

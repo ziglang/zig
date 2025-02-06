@@ -467,7 +467,7 @@ pub const Inst = struct {
         /// Mask ___ Quadword
         k_q,
 
-        pub fn fromCondition(cc: bits.Condition) Fixes {
+        pub fn fromCond(cc: bits.Condition) Fixes {
             return switch (cc) {
                 inline else => |cc_tag| @field(Fixes, "_" ++ @tagName(cc_tag)),
                 .z_and_np, .nz_or_p => unreachable,

@@ -217,7 +217,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
         const case = ctx.obj("invalid byte in string", b.graph.host);
 
         case.addError("_ = \"\x01Q\";", &[_][]const u8{
-            ":1:5: error: expected expression, found 'invalid token'",
+            ":1:6: error: string literal contains invalid byte: '\\x01'",
         });
     }
 
@@ -225,7 +225,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
         const case = ctx.obj("invalid byte in comment", b.graph.host);
 
         case.addError("//\x01Q", &[_][]const u8{
-            ":1:1: error: expected type expression, found 'invalid token'",
+            ":1:3: error: comment contains invalid byte: '\\x01'",
         });
     }
 
@@ -233,7 +233,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
         const case = ctx.obj("control character in character literal", b.graph.host);
 
         case.addError("const c = '\x01';", &[_][]const u8{
-            ":1:11: error: expected expression, found 'invalid token'",
+            ":1:12: error: character literal contains invalid byte: '\\x01'",
         });
     }
 

@@ -78,11 +78,9 @@ int stat(const char *__restrict, struct stat *__restrict);
 int fstat(int, struct stat *);
 int lstat(const char *__restrict, struct stat *__restrict);
 int fstatat(int, const char *__restrict, struct stat *__restrict, int);
-#ifdef __wasilibc_unmodified_upstream /* WASI has no chmod */
 int chmod(const char *, mode_t);
 int fchmod(int, mode_t);
 int fchmodat(int, const char *, mode_t, int);
-#endif
 #ifdef __wasilibc_unmodified_upstream /* WASI has no umask */
 mode_t umask(mode_t);
 #endif

@@ -932,7 +932,7 @@ set(ZIG_BUILD_ARGS
   -Dno-langref
 )
 
-option(ZIG_EXTRA_BUILD_ARGS "Extra zig build args")
+set(ZIG_EXTRA_BUILD_ARGS "" CACHE STRING "Extra zig build args")
 if(ZIG_EXTRA_BUILD_ARGS)
   list(APPEND ZIG_BUILD_ARGS ${ZIG_EXTRA_BUILD_ARGS})
 endif()
@@ -983,11 +983,7 @@ add_custom_command(
   WORKING_DIRECTORY "${ZIG2_WORKING_DIR}"
 )
 
-if(WIN32)
-  set(ZIG_EXECUTABLE "${PROJECT_BINARY_DIR}/zig2.exe")
-else()
-  set(ZIG_EXECUTABLE "${PROJECT_BINARY_DIR}/zig2")
-endif()
+set(ZIG_EXECUTABLE "$<TARGET_FILE:zig2>")
 
 install(CODE "set(ZIG_EXECUTABLE \"${ZIG_EXECUTABLE}\")")
 install(CODE "set(ZIG_BUILD_ARGS \"${ZIG_BUILD_ARGS}\")")

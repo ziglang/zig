@@ -452,6 +452,13 @@ pub fn hasRuntimeBitsIgnoreComptime(ty: Type, zcu: *const Zcu) bool {
     return hasRuntimeBitsInner(ty, true, .eager, zcu, {}) catch unreachable;
 }
 
+pub fn hasRuntimeBitsIgnoreComptimeSema(ty: Type, pt: Zcu.PerThread) SemaError!bool {
+    return hasRuntimeBitsInner(ty, true, .sema, pt.zcu, pt.tid) catch |err| switch (err) {
+        error.NeedLazy => unreachable, // this would require a resolve strat of lazy
+        else => |e| return e,
+    };
+}
+
 /// true if and only if the type takes up space in memory at runtime.
 /// There are two reasons a type will return false:
 /// * the type is a comptime-only type. For example, the type `type` itself.
@@ -2057,6 +2064,22 @@ pub fn elemType2(ty: Type, zcu: *const Zcu) Type {
     };
 }
 
+/// Given that `ty` is an indexable pointer, returns its element type. Specifically:
+/// * for `*[n]T`, returns `T`
+/// * for `[]T`, returns `T`
+/// * for `[*]T`, returns `T`
+/// * for `[*c]T`, returns `T`
+pub fn indexablePtrElem(ty: Type, zcu: *const Zcu) Type {
+    const ip = &zcu.intern_pool;
+    const ptr_type = ip.indexToKey(ty.toIntern()).ptr_type;
+    switch (ptr_type.flags.size) {
+        .many, .slice, .c => return .fromInterned(ptr_type.child),
+        .one => {},
+    }
+    const array_type = ip.indexToKey(ptr_type.child).array_type;
+    return .fromInterned(array_type.child);
+}
+
 fn shallowElemType(child_ty: Type, zcu: *const Zcu) Type {
     return switch (child_ty.zigTypeTag(zcu)) {
         .array, .vector => child_ty.childType(zcu),
@@ -3564,8 +3587,7 @@ pub fn typeDeclSrcLine(ty: Type, zcu: *Zcu) ?u32 {
     };
     const info = tracked.resolveFull(&zcu.intern_pool) orelse return null;
     const file = zcu.fileByIndex(info.file);
-    assert(file.zir_loaded);
-    const zir = file.zir;
+    const zir = file.zir.?;
     const inst = zir.instructions.get(@intFromEnum(info.inst));
     return switch (inst.tag) {
         .struct_init, .struct_init_ref => zir.extraData(Zir.Inst.StructInit, inst.data.pl_node.payload_index).data.abs_line,
@@ -3882,7 +3904,7 @@ fn resolveStructInner(
     var comptime_err_ret_trace = std.ArrayList(Zcu.LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
-    const zir = zcu.namespacePtr(struct_obj.namespace).fileScope(zcu).zir;
+    const zir = zcu.namespacePtr(struct_obj.namespace).fileScope(zcu).zir.?;
     var sema: Sema = .{
         .pt = pt,
         .gpa = gpa,
@@ -3936,7 +3958,7 @@ fn resolveUnionInner(
     var comptime_err_ret_trace = std.ArrayList(Zcu.LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
-    const zir = zcu.namespacePtr(union_obj.namespace).fileScope(zcu).zir;
+    const zir = zcu.namespacePtr(union_obj.namespace).fileScope(zcu).zir.?;
     var sema: Sema = .{
         .pt = pt,
         .gpa = gpa,
@@ -4193,6 +4215,7 @@ pub const vector_2_u64: Type = .{ .ip_index = .vector_2_u64_type };
 pub const vector_4_u64: Type = .{ .ip_index = .vector_4_u64_type };
 pub const vector_4_f16: Type = .{ .ip_index = .vector_4_f16_type };
 pub const vector_8_f16: Type = .{ .ip_index = .vector_8_f16_type };
+pub const vector_2_f32: Type = .{ .ip_index = .vector_2_f32_type };
 pub const vector_4_f32: Type = .{ .ip_index = .vector_4_f32_type };
 pub const vector_8_f32: Type = .{ .ip_index = .vector_8_f32_type };
 pub const vector_2_f64: Type = .{ .ip_index = .vector_2_f64_type };

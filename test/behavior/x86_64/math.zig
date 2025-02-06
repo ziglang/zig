@@ -17,29 +17,41 @@ const Sse = if (std.Target.x86.featureSetHas(builtin.cpu.features, .avx))
 else
     @Vector(16, u8);
 
-inline fn sign(rhs: anytype) switch (@typeInfo(@TypeOf(rhs))) {
+inline fn runtime(comptime Type: type, comptime value: Type) Type {
+    if (@inComptime()) return value;
+    return struct {
+        var variable: Type = value;
+    }.variable;
+}
+
+fn Scalar(comptime Type: type) type {
+    return switch (@typeInfo(Type)) {
+        else => Type,
+        .vector => |info| info.child,
+    };
+}
+// inline to avoid a runtime `@splat`
+inline fn splat(comptime Type: type, scalar: Scalar(Type)) Type {
+    return switch (@typeInfo(Type)) {
+        else => scalar,
+        .vector => @splat(scalar),
+    };
+}
+fn sign(rhs: anytype) switch (@typeInfo(@TypeOf(rhs))) {
     else => bool,
     .vector => |vector| @Vector(vector.len, bool),
 } {
-    switch (@typeInfo(@TypeOf(rhs))) {
-        else => {
-            const I = @Type(.{ .int = .{
-                .signedness = .unsigned,
-                .bits = @bitSizeOf(@TypeOf(rhs)),
-            } });
-            return @as(I, @bitCast(rhs)) & @as(I, 1) << (@bitSizeOf(I) - 1) != 0;
-        },
-        .vector => |vector| {
-            const I = @Type(.{ .int = .{
-                .signedness = .unsigned,
-                .bits = @bitSizeOf(vector.child),
-            } });
-            const V = @Vector(vector.len, I);
-            return @as(V, @bitCast(rhs)) & @as(V, @splat(@as(I, 1) << (@bitSizeOf(I) - 1))) != @as(V, @splat(0));
-        },
-    }
+    const ScalarInt = @Type(.{ .int = .{
+        .signedness = .unsigned,
+        .bits = @bitSizeOf(Scalar(@TypeOf(rhs))),
+    } });
+    const VectorInt = switch (@typeInfo(@TypeOf(rhs))) {
+        else => ScalarInt,
+        .vector => |vector| @Vector(vector.len, ScalarInt),
+    };
+    return @as(VectorInt, @bitCast(rhs)) & splat(VectorInt, @as(ScalarInt, 1) << @bitSizeOf(ScalarInt) - 1) != splat(VectorInt, 0);
 }
-inline fn boolAnd(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
+fn boolAnd(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
     switch (@typeInfo(@TypeOf(lhs))) {
         .bool => return lhs and rhs,
         .vector => |vector| switch (vector.child) {
@@ -55,7 +67,7 @@ inline fn boolAnd(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
     }
     @compileError("unsupported boolAnd type: " ++ @typeName(@TypeOf(lhs)));
 }
-inline fn boolOr(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
+fn boolOr(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
     switch (@typeInfo(@TypeOf(lhs))) {
         .bool => return lhs or rhs,
         .vector => |vector| switch (vector.child) {
@@ -73,14 +85,20 @@ inline fn boolOr(lhs: anytype, rhs: @TypeOf(lhs)) @TypeOf(lhs) {
 }
 
 // noinline for a more helpful stack trace
-noinline fn checkExpected(expected: anytype, actual: @TypeOf(expected)) !void {
+noinline fn checkExpected(expected: anytype, actual: @TypeOf(expected), comptime strict: bool) !void {
     const info = @typeInfo(@TypeOf(expected));
-    const unexpected = switch (switch (info) {
+    const unexpected = unexpected: switch (switch (info) {
         else => info,
         .vector => |vector| @typeInfo(vector.child),
     }) {
         else => expected != actual,
-        .float => boolOr(boolAnd(expected != actual, boolOr(expected == expected, actual == actual)), sign(expected) != sign(actual)),
+        .float => {
+            const unequal = boolAnd(expected != actual, boolOr(expected == expected, actual == actual));
+            break :unexpected switch (strict) {
+                false => unequal,
+                true => boolOr(unequal, sign(expected) != sign(actual)),
+            };
+        },
     };
     if (switch (info) {
         else => unexpected,
@@ -88,43 +106,43 @@ noinline fn checkExpected(expected: anytype, actual: @TypeOf(expected)) !void {
     }) return error.Unexpected;
 }
 test checkExpected {
-    if (checkExpected(nan(f16), nan(f16)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(nan(f16), -nan(f16)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f16, 0.0), @as(f16, 0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f16, -0.0), @as(f16, -0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f16, -0.0), @as(f16, 0.0)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f16, 0.0), @as(f16, -0.0)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f16), nan(f16), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f16), -nan(f16), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, 0.0), @as(f16, 0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, -0.0), @as(f16, -0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, -0.0), @as(f16, 0.0), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f16, 0.0), @as(f16, -0.0), true) != error.Unexpected) return error.Unexpected;
 
-    if (checkExpected(nan(f32), nan(f32)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(nan(f32), -nan(f32)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f32, 0.0), @as(f32, 0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f32, -0.0), @as(f32, -0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f32, -0.0), @as(f32, 0.0)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f32, 0.0), @as(f32, -0.0)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f32), nan(f32), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f32), -nan(f32), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f32, 0.0), @as(f32, 0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f32, -0.0), @as(f32, -0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f32, -0.0), @as(f32, 0.0), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f32, 0.0), @as(f32, -0.0), true) != error.Unexpected) return error.Unexpected;
 
-    if (checkExpected(nan(f64), nan(f64)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(nan(f64), -nan(f64)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f64, 0.0), @as(f64, 0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f64, -0.0), @as(f64, -0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f64, -0.0), @as(f64, 0.0)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f64, 0.0), @as(f64, -0.0)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f64), nan(f64), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f64), -nan(f64), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, 0.0), @as(f64, 0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, -0.0), @as(f64, -0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, -0.0), @as(f64, 0.0), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f64, 0.0), @as(f64, -0.0), true) != error.Unexpected) return error.Unexpected;
 
-    if (checkExpected(nan(f80), nan(f80)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(nan(f80), -nan(f80)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f80, 0.0), @as(f80, 0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f80, -0.0), @as(f80, -0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f80, -0.0), @as(f80, 0.0)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f80, 0.0), @as(f80, -0.0)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f80), nan(f80), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f80), -nan(f80), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, 0.0), @as(f80, 0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, -0.0), @as(f80, -0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, -0.0), @as(f80, 0.0), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f80, 0.0), @as(f80, -0.0), true) != error.Unexpected) return error.Unexpected;
 
-    if (checkExpected(nan(f128), nan(f128)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(nan(f128), -nan(f128)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f128, 0.0), @as(f128, 0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f128, -0.0), @as(f128, -0.0)) == error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f128, -0.0), @as(f128, 0.0)) != error.Unexpected) return error.Unexpected;
-    if (checkExpected(@as(f128, 0.0), @as(f128, -0.0)) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f128), nan(f128), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(nan(f128), -nan(f128), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, 0.0), @as(f128, 0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, -0.0), @as(f128, -0.0), true) == error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, -0.0), @as(f128, 0.0), true) != error.Unexpected) return error.Unexpected;
+    if (checkExpected(@as(f128, 0.0), @as(f128, -0.0), true) != error.Unexpected) return error.Unexpected;
 }
 
-fn Unary(comptime op: anytype) type {
+fn unary(comptime op: anytype, comptime opts: struct { strict: bool = false }) type {
     return struct {
         // noinline so that `mem_arg` is on the stack
         noinline fn testArgKinds(
@@ -151,9 +169,9 @@ fn Unary(comptime op: anytype) type {
             const expected = comptime op(Type, imm_arg);
             var reg_arg = mem_arg;
             _ = .{&reg_arg};
-            try checkExpected(expected, op(Type, reg_arg));
-            try checkExpected(expected, op(Type, mem_arg));
-            try checkExpected(expected, op(Type, imm_arg));
+            try checkExpected(expected, op(Type, reg_arg), opts.strict);
+            try checkExpected(expected, op(Type, mem_arg), opts.strict);
+            try checkExpected(expected, op(Type, imm_arg), opts.strict);
         }
         // noinline for a more helpful stack trace
         noinline fn testArgs(comptime Type: type, comptime imm_arg: Type) !void {
@@ -180,6 +198,90 @@ fn Unary(comptime op: anytype) type {
             );
         }
         fn testIntTypes() !void {
+            try testArgs(i1, undefined);
+            try testArgs(u1, undefined);
+            try testArgs(i2, undefined);
+            try testArgs(u2, undefined);
+            try testArgs(i3, undefined);
+            try testArgs(u3, undefined);
+            try testArgs(i4, undefined);
+            try testArgs(u4, undefined);
+            try testArgs(i5, undefined);
+            try testArgs(u5, undefined);
+            try testArgs(i7, undefined);
+            try testArgs(u7, undefined);
+            try testArgs(i8, undefined);
+            try testArgs(u8, undefined);
+            try testArgs(i9, undefined);
+            try testArgs(u9, undefined);
+            try testArgs(i15, undefined);
+            try testArgs(u15, undefined);
+            try testArgs(i16, undefined);
+            try testArgs(u16, undefined);
+            try testArgs(i17, undefined);
+            try testArgs(u17, undefined);
+            try testArgs(i31, undefined);
+            try testArgs(u31, undefined);
+            try testArgs(i32, undefined);
+            try testArgs(u32, undefined);
+            try testArgs(i33, undefined);
+            try testArgs(u33, undefined);
+            try testArgs(i63, undefined);
+            try testArgs(u63, undefined);
+            try testArgs(i64, undefined);
+            try testArgs(u64, undefined);
+            try testArgs(i65, undefined);
+            try testArgs(u65, undefined);
+            try testArgs(i95, undefined);
+            try testArgs(u95, undefined);
+            try testArgs(i96, undefined);
+            try testArgs(u96, undefined);
+            try testArgs(i97, undefined);
+            try testArgs(u97, undefined);
+            try testArgs(i127, undefined);
+            try testArgs(u127, undefined);
+            try testArgs(i128, undefined);
+            try testArgs(u128, undefined);
+            try testArgs(i129, undefined);
+            try testArgs(u129, undefined);
+            try testArgs(i159, undefined);
+            try testArgs(u159, undefined);
+            try testArgs(i160, undefined);
+            try testArgs(u160, undefined);
+            try testArgs(i161, undefined);
+            try testArgs(u161, undefined);
+            try testArgs(i191, undefined);
+            try testArgs(u191, undefined);
+            try testArgs(i192, undefined);
+            try testArgs(u192, undefined);
+            try testArgs(i193, undefined);
+            try testArgs(u193, undefined);
+            try testArgs(i223, undefined);
+            try testArgs(u223, undefined);
+            try testArgs(i224, undefined);
+            try testArgs(u224, undefined);
+            try testArgs(i225, undefined);
+            try testArgs(u225, undefined);
+            try testArgs(i255, undefined);
+            try testArgs(u255, undefined);
+            try testArgs(i256, undefined);
+            try testArgs(u256, undefined);
+            try testArgs(i257, undefined);
+            try testArgs(u257, undefined);
+            try testArgs(i511, undefined);
+            try testArgs(u511, undefined);
+            try testArgs(i512, undefined);
+            try testArgs(u512, undefined);
+            try testArgs(i513, undefined);
+            try testArgs(u513, undefined);
+            try testArgs(i1023, undefined);
+            try testArgs(u1023, undefined);
+            try testArgs(i1024, undefined);
+            try testArgs(u1024, undefined);
+            try testArgs(i1025, undefined);
+            try testArgs(u1025, undefined);
+        }
+        fn testInts() !void {
             try testArgs(i1, -1);
             try testArgs(i1, 0);
             try testArgs(u1, 0);
@@ -543,21 +645,28 @@ fn Unary(comptime op: anytype) type {
             try testArgs(u1025, 1 << 1024);
         }
         fn testFloatTypes() !void {
+            try testArgs(f16, undefined);
+            try testArgs(f32, undefined);
+            try testArgs(f64, undefined);
+            try testArgs(f80, undefined);
+            try testArgs(f128, undefined);
+        }
+        fn testFloats() !void {
             try testArgs(f16, -nan(f16));
             try testArgs(f16, -inf(f16));
             try testArgs(f16, -fmax(f16));
-            try testArgs(f16, -10.0);
-            try testArgs(f16, -1.0);
-            try testArgs(f16, -0.1);
+            try testArgs(f16, -1e1);
+            try testArgs(f16, -1e0);
+            try testArgs(f16, -1e-1);
             try testArgs(f16, -fmin(f16));
             try testArgs(f16, -tmin(f16));
             try testArgs(f16, -0.0);
             try testArgs(f16, 0.0);
             try testArgs(f16, tmin(f16));
             try testArgs(f16, fmin(f16));
-            try testArgs(f16, 0.1);
-            try testArgs(f16, 1.0);
-            try testArgs(f16, 10.0);
+            try testArgs(f16, 1e-1);
+            try testArgs(f16, 1e0);
+            try testArgs(f16, 1e1);
             try testArgs(f16, fmax(f16));
             try testArgs(f16, inf(f16));
             try testArgs(f16, nan(f16));
@@ -565,18 +674,18 @@ fn Unary(comptime op: anytype) type {
             try testArgs(f32, -nan(f32));
             try testArgs(f32, -inf(f32));
             try testArgs(f32, -fmax(f32));
-            try testArgs(f32, -10.0);
-            try testArgs(f32, -1.0);
-            try testArgs(f32, -0.1);
+            try testArgs(f32, -1e1);
+            try testArgs(f32, -1e0);
+            try testArgs(f32, -1e-1);
             try testArgs(f32, -fmin(f32));
             try testArgs(f32, -tmin(f32));
             try testArgs(f32, -0.0);
             try testArgs(f32, 0.0);
             try testArgs(f32, tmin(f32));
             try testArgs(f32, fmin(f32));
-            try testArgs(f32, 0.1);
-            try testArgs(f32, 1.0);
-            try testArgs(f32, 10.0);
+            try testArgs(f32, 1e-1);
+            try testArgs(f32, 1e0);
+            try testArgs(f32, 1e1);
             try testArgs(f32, fmax(f32));
             try testArgs(f32, inf(f32));
             try testArgs(f32, nan(f32));
@@ -584,18 +693,18 @@ fn Unary(comptime op: anytype) type {
             try testArgs(f64, -nan(f64));
             try testArgs(f64, -inf(f64));
             try testArgs(f64, -fmax(f64));
-            try testArgs(f64, -10.0);
-            try testArgs(f64, -1.0);
-            try testArgs(f64, -0.1);
+            try testArgs(f64, -1e1);
+            try testArgs(f64, -1e0);
+            try testArgs(f64, -1e-1);
             try testArgs(f64, -fmin(f64));
             try testArgs(f64, -tmin(f64));
             try testArgs(f64, -0.0);
             try testArgs(f64, 0.0);
             try testArgs(f64, tmin(f64));
             try testArgs(f64, fmin(f64));
-            try testArgs(f64, 0.1);
-            try testArgs(f64, 1.0);
-            try testArgs(f64, 10.0);
+            try testArgs(f64, 1e-1);
+            try testArgs(f64, 1e0);
+            try testArgs(f64, 1e1);
             try testArgs(f64, fmax(f64));
             try testArgs(f64, inf(f64));
             try testArgs(f64, nan(f64));
@@ -603,18 +712,18 @@ fn Unary(comptime op: anytype) type {
             try testArgs(f80, -nan(f80));
             try testArgs(f80, -inf(f80));
             try testArgs(f80, -fmax(f80));
-            try testArgs(f80, -10.0);
-            try testArgs(f80, -1.0);
-            try testArgs(f80, -0.1);
+            try testArgs(f80, -1e1);
+            try testArgs(f80, -1e0);
+            try testArgs(f80, -1e-1);
             try testArgs(f80, -fmin(f80));
             try testArgs(f80, -tmin(f80));
             try testArgs(f80, -0.0);
             try testArgs(f80, 0.0);
             try testArgs(f80, tmin(f80));
             try testArgs(f80, fmin(f80));
-            try testArgs(f80, 0.1);
-            try testArgs(f80, 1.0);
-            try testArgs(f80, 10.0);
+            try testArgs(f80, 1e-1);
+            try testArgs(f80, 1e0);
+            try testArgs(f80, 1e1);
             try testArgs(f80, fmax(f80));
             try testArgs(f80, inf(f80));
             try testArgs(f80, nan(f80));
@@ -622,23 +731,185 @@ fn Unary(comptime op: anytype) type {
             try testArgs(f128, -nan(f128));
             try testArgs(f128, -inf(f128));
             try testArgs(f128, -fmax(f128));
-            try testArgs(f128, -10.0);
-            try testArgs(f128, -1.0);
-            try testArgs(f128, -0.1);
+            try testArgs(f128, -1e1);
+            try testArgs(f128, -1e0);
+            try testArgs(f128, -1e-1);
             try testArgs(f128, -fmin(f128));
             try testArgs(f128, -tmin(f128));
             try testArgs(f128, -0.0);
             try testArgs(f128, 0.0);
             try testArgs(f128, tmin(f128));
             try testArgs(f128, fmin(f128));
-            try testArgs(f128, 0.1);
-            try testArgs(f128, 1.0);
-            try testArgs(f128, 10.0);
+            try testArgs(f128, 1e-1);
+            try testArgs(f128, 1e0);
+            try testArgs(f128, 1e1);
             try testArgs(f128, fmax(f128));
             try testArgs(f128, inf(f128));
             try testArgs(f128, nan(f128));
         }
         fn testIntVectorTypes() !void {
+            try testArgs(@Vector(3, i1), undefined);
+            try testArgs(@Vector(3, u1), undefined);
+            try testArgs(@Vector(3, i2), undefined);
+            try testArgs(@Vector(3, u2), undefined);
+            try testArgs(@Vector(3, i3), undefined);
+            try testArgs(@Vector(3, u3), undefined);
+            try testArgs(@Vector(3, i4), undefined);
+            try testArgs(@Vector(1, i4), undefined);
+            try testArgs(@Vector(2, i4), undefined);
+            try testArgs(@Vector(4, i4), undefined);
+            try testArgs(@Vector(8, i4), undefined);
+            try testArgs(@Vector(16, i4), undefined);
+            try testArgs(@Vector(32, i4), undefined);
+            try testArgs(@Vector(64, i4), undefined);
+            try testArgs(@Vector(128, i4), undefined);
+            try testArgs(@Vector(256, i4), undefined);
+            try testArgs(@Vector(3, u4), undefined);
+            try testArgs(@Vector(1, u4), undefined);
+            try testArgs(@Vector(2, u4), undefined);
+            try testArgs(@Vector(4, u4), undefined);
+            try testArgs(@Vector(8, u4), undefined);
+            try testArgs(@Vector(16, u4), undefined);
+            try testArgs(@Vector(32, u4), undefined);
+            try testArgs(@Vector(64, u4), undefined);
+            try testArgs(@Vector(128, u4), undefined);
+            try testArgs(@Vector(256, u4), undefined);
+            try testArgs(@Vector(3, i5), undefined);
+            try testArgs(@Vector(3, u5), undefined);
+            try testArgs(@Vector(3, i7), undefined);
+            try testArgs(@Vector(3, u7), undefined);
+            try testArgs(@Vector(3, i8), undefined);
+            try testArgs(@Vector(1, i8), undefined);
+            try testArgs(@Vector(2, i8), undefined);
+            try testArgs(@Vector(4, i8), undefined);
+            try testArgs(@Vector(8, i8), undefined);
+            try testArgs(@Vector(16, i8), undefined);
+            try testArgs(@Vector(32, i8), undefined);
+            try testArgs(@Vector(64, i8), undefined);
+            try testArgs(@Vector(128, i8), undefined);
+            try testArgs(@Vector(3, u8), undefined);
+            try testArgs(@Vector(1, u8), undefined);
+            try testArgs(@Vector(2, u8), undefined);
+            try testArgs(@Vector(4, u8), undefined);
+            try testArgs(@Vector(8, u8), undefined);
+            try testArgs(@Vector(16, u8), undefined);
+            try testArgs(@Vector(32, u8), undefined);
+            try testArgs(@Vector(64, u8), undefined);
+            try testArgs(@Vector(128, u8), undefined);
+            try testArgs(@Vector(3, i9), undefined);
+            try testArgs(@Vector(3, u9), undefined);
+            try testArgs(@Vector(3, i15), undefined);
+            try testArgs(@Vector(3, u15), undefined);
+            try testArgs(@Vector(3, i16), undefined);
+            try testArgs(@Vector(1, i16), undefined);
+            try testArgs(@Vector(2, i16), undefined);
+            try testArgs(@Vector(4, i16), undefined);
+            try testArgs(@Vector(8, i16), undefined);
+            try testArgs(@Vector(16, i16), undefined);
+            try testArgs(@Vector(32, i16), undefined);
+            try testArgs(@Vector(64, i16), undefined);
+            try testArgs(@Vector(3, u16), undefined);
+            try testArgs(@Vector(1, u16), undefined);
+            try testArgs(@Vector(2, u16), undefined);
+            try testArgs(@Vector(4, u16), undefined);
+            try testArgs(@Vector(8, u16), undefined);
+            try testArgs(@Vector(16, u16), undefined);
+            try testArgs(@Vector(32, u16), undefined);
+            try testArgs(@Vector(64, u16), undefined);
+            try testArgs(@Vector(3, i17), undefined);
+            try testArgs(@Vector(3, u17), undefined);
+            try testArgs(@Vector(3, i31), undefined);
+            try testArgs(@Vector(3, u31), undefined);
+            try testArgs(@Vector(3, i32), undefined);
+            try testArgs(@Vector(1, i32), undefined);
+            try testArgs(@Vector(2, i32), undefined);
+            try testArgs(@Vector(4, i32), undefined);
+            try testArgs(@Vector(8, i32), undefined);
+            try testArgs(@Vector(16, i32), undefined);
+            try testArgs(@Vector(32, i32), undefined);
+            try testArgs(@Vector(3, u32), undefined);
+            try testArgs(@Vector(1, u32), undefined);
+            try testArgs(@Vector(2, u32), undefined);
+            try testArgs(@Vector(4, u32), undefined);
+            try testArgs(@Vector(8, u32), undefined);
+            try testArgs(@Vector(16, u32), undefined);
+            try testArgs(@Vector(32, u32), undefined);
+            try testArgs(@Vector(3, i33), undefined);
+            try testArgs(@Vector(3, u33), undefined);
+            try testArgs(@Vector(3, i63), undefined);
+            try testArgs(@Vector(3, u63), undefined);
+            try testArgs(@Vector(3, i64), undefined);
+            try testArgs(@Vector(1, i64), undefined);
+            try testArgs(@Vector(2, i64), undefined);
+            try testArgs(@Vector(4, i64), undefined);
+            try testArgs(@Vector(8, i64), undefined);
+            try testArgs(@Vector(16, i64), undefined);
+            try testArgs(@Vector(3, u64), undefined);
+            try testArgs(@Vector(1, u64), undefined);
+            try testArgs(@Vector(2, u64), undefined);
+            try testArgs(@Vector(4, u64), undefined);
+            try testArgs(@Vector(8, u64), undefined);
+            try testArgs(@Vector(16, u64), undefined);
+            try testArgs(@Vector(3, i65), undefined);
+            try testArgs(@Vector(3, u65), undefined);
+            try testArgs(@Vector(3, i127), undefined);
+            try testArgs(@Vector(3, u127), undefined);
+            try testArgs(@Vector(3, i128), undefined);
+            try testArgs(@Vector(1, i128), undefined);
+            try testArgs(@Vector(2, i128), undefined);
+            try testArgs(@Vector(4, i128), undefined);
+            try testArgs(@Vector(8, i128), undefined);
+            try testArgs(@Vector(3, u128), undefined);
+            try testArgs(@Vector(1, u128), undefined);
+            try testArgs(@Vector(2, u128), undefined);
+            try testArgs(@Vector(4, u128), undefined);
+            try testArgs(@Vector(8, u128), undefined);
+            try testArgs(@Vector(3, i129), undefined);
+            try testArgs(@Vector(3, u129), undefined);
+            try testArgs(@Vector(3, i191), undefined);
+            try testArgs(@Vector(3, u191), undefined);
+            try testArgs(@Vector(3, i192), undefined);
+            try testArgs(@Vector(1, i192), undefined);
+            try testArgs(@Vector(2, i192), undefined);
+            try testArgs(@Vector(4, i192), undefined);
+            try testArgs(@Vector(3, u192), undefined);
+            try testArgs(@Vector(1, u192), undefined);
+            try testArgs(@Vector(2, u192), undefined);
+            try testArgs(@Vector(4, u192), undefined);
+            try testArgs(@Vector(3, i193), undefined);
+            try testArgs(@Vector(3, u193), undefined);
+            try testArgs(@Vector(3, i255), undefined);
+            try testArgs(@Vector(3, u255), undefined);
+            try testArgs(@Vector(3, i256), undefined);
+            try testArgs(@Vector(1, i256), undefined);
+            try testArgs(@Vector(2, i256), undefined);
+            try testArgs(@Vector(4, i256), undefined);
+            try testArgs(@Vector(3, u256), undefined);
+            try testArgs(@Vector(1, u256), undefined);
+            try testArgs(@Vector(2, u256), undefined);
+            try testArgs(@Vector(4, u256), undefined);
+            try testArgs(@Vector(3, i257), undefined);
+            try testArgs(@Vector(3, u257), undefined);
+            try testArgs(@Vector(3, i511), undefined);
+            try testArgs(@Vector(3, u511), undefined);
+            try testArgs(@Vector(3, i512), undefined);
+            try testArgs(@Vector(1, i512), undefined);
+            try testArgs(@Vector(2, i512), undefined);
+            try testArgs(@Vector(3, u512), undefined);
+            try testArgs(@Vector(1, u512), undefined);
+            try testArgs(@Vector(2, u512), undefined);
+            try testArgs(@Vector(3, i513), undefined);
+            try testArgs(@Vector(3, u513), undefined);
+            try testArgs(@Vector(3, i1023), undefined);
+            try testArgs(@Vector(3, u1023), undefined);
+            try testArgs(@Vector(3, i1024), undefined);
+            try testArgs(@Vector(1, i1024), undefined);
+            try testArgs(@Vector(3, u1024), undefined);
+            try testArgs(@Vector(1, u1024), undefined);
+            try testArgs(@Vector(3, i1025), undefined);
+            try testArgs(@Vector(3, u1025), undefined);
+        }
+        fn testIntVectors() !void {
             try testArgs(@Vector(3, i1), .{ -1 << 0, -1, 0 });
             try testArgs(@Vector(3, u1), .{ 0, 1, 1 << 0 });
 
@@ -1184,6 +1455,38 @@ fn Unary(comptime op: anytype) type {
             try testArgs(@Vector(3, u1025), .{ 0, 1, 1 << 1024 });
         }
         fn testFloatVectorTypes() !void {
+            try testArgs(@Vector(1, f16), undefined);
+            try testArgs(@Vector(2, f16), undefined);
+            try testArgs(@Vector(4, f16), undefined);
+            try testArgs(@Vector(8, f16), undefined);
+            try testArgs(@Vector(16, f16), undefined);
+            try testArgs(@Vector(32, f16), undefined);
+            try testArgs(@Vector(64, f16), undefined);
+
+            try testArgs(@Vector(1, f32), undefined);
+            try testArgs(@Vector(2, f32), undefined);
+            try testArgs(@Vector(4, f32), undefined);
+            try testArgs(@Vector(8, f32), undefined);
+            try testArgs(@Vector(16, f32), undefined);
+            try testArgs(@Vector(32, f32), undefined);
+
+            try testArgs(@Vector(1, f64), undefined);
+            try testArgs(@Vector(2, f64), undefined);
+            try testArgs(@Vector(4, f64), undefined);
+            try testArgs(@Vector(8, f64), undefined);
+            try testArgs(@Vector(16, f64), undefined);
+
+            try testArgs(@Vector(1, f80), undefined);
+            try testArgs(@Vector(2, f80), undefined);
+            try testArgs(@Vector(4, f80), undefined);
+            try testArgs(@Vector(8, f80), undefined);
+
+            try testArgs(@Vector(1, f128), undefined);
+            try testArgs(@Vector(2, f128), undefined);
+            try testArgs(@Vector(4, f128), undefined);
+            try testArgs(@Vector(8, f128), undefined);
+        }
+        fn testFloatVectors() !void {
             try testArgs(@Vector(1, f16), .{
                 -0x1.17cp-12,
             });
@@ -1325,7 +1628,5494 @@ fn Unary(comptime op: anytype) type {
     };
 }
 
-fn Binary(comptime op: anytype) type {
+fn cast(comptime op: anytype, comptime opts: struct { strict: bool = false }) type {
+    return struct {
+        // noinline so that `mem_arg` is on the stack
+        noinline fn testArgKinds(
+            _: Gpr,
+            _: Gpr,
+            _: Gpr,
+            _: Gpr,
+            _: Gpr,
+            _: Gpr,
+            _: Gpr,
+            _: Gpr,
+            _: Sse,
+            _: Sse,
+            _: Sse,
+            _: Sse,
+            _: Sse,
+            _: Sse,
+            _: Sse,
+            _: Sse,
+            comptime Result: type,
+            comptime Type: type,
+            comptime imm_arg: Type,
+            mem_arg: Type,
+        ) !void {
+            const expected = comptime op(Result, Type, imm_arg, imm_arg);
+            var reg_arg = mem_arg;
+            _ = .{&reg_arg};
+            try checkExpected(expected, op(Result, Type, reg_arg, imm_arg), opts.strict);
+            try checkExpected(expected, op(Result, Type, mem_arg, imm_arg), opts.strict);
+            try checkExpected(expected, op(Result, Type, imm_arg, imm_arg), opts.strict);
+        }
+        // noinline for a more helpful stack trace
+        noinline fn testArgs(comptime Result: type, comptime Type: type, comptime imm_arg: Type) !void {
+            try testArgKinds(
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                Result,
+                Type,
+                imm_arg,
+                imm_arg,
+            );
+        }
+        fn testSameSignednessInts() !void {
+            try testArgs(i8, i1, -1);
+            try testArgs(i8, i1, 0);
+            try testArgs(i16, i1, -1);
+            try testArgs(i16, i1, 0);
+            try testArgs(i32, i1, -1);
+            try testArgs(i32, i1, 0);
+            try testArgs(i64, i1, -1);
+            try testArgs(i64, i1, 0);
+            try testArgs(i128, i1, -1);
+            try testArgs(i128, i1, 0);
+            try testArgs(i256, i1, -1);
+            try testArgs(i256, i1, 0);
+            try testArgs(i512, i1, -1);
+            try testArgs(i512, i1, 0);
+            try testArgs(i1024, i1, -1);
+            try testArgs(i1024, i1, 0);
+            try testArgs(u8, u1, 0);
+            try testArgs(u8, u1, 1 << 0);
+            try testArgs(u16, u1, 0);
+            try testArgs(u16, u1, 1 << 0);
+            try testArgs(u32, u1, 0);
+            try testArgs(u32, u1, 1 << 0);
+            try testArgs(u64, u1, 0);
+            try testArgs(u64, u1, 1 << 0);
+            try testArgs(u128, u1, 0);
+            try testArgs(u128, u1, 1 << 0);
+            try testArgs(u256, u1, 0);
+            try testArgs(u256, u1, 1 << 0);
+            try testArgs(u512, u1, 0);
+            try testArgs(u512, u1, 1 << 0);
+            try testArgs(u1024, u1, 0);
+            try testArgs(u1024, u1, 1 << 0);
+
+            try testArgs(i8, i2, -1 << 1);
+            try testArgs(i8, i2, -1);
+            try testArgs(i8, i2, 0);
+            try testArgs(i16, i2, -1 << 1);
+            try testArgs(i16, i2, -1);
+            try testArgs(i16, i2, 0);
+            try testArgs(i32, i2, -1 << 1);
+            try testArgs(i32, i2, -1);
+            try testArgs(i32, i2, 0);
+            try testArgs(i64, i2, -1 << 1);
+            try testArgs(i64, i2, -1);
+            try testArgs(i64, i2, 0);
+            try testArgs(i128, i2, -1 << 1);
+            try testArgs(i128, i2, -1);
+            try testArgs(i128, i2, 0);
+            try testArgs(i256, i2, -1 << 1);
+            try testArgs(i256, i2, -1);
+            try testArgs(i256, i2, 0);
+            try testArgs(i512, i2, -1 << 1);
+            try testArgs(i512, i2, -1);
+            try testArgs(i512, i2, 0);
+            try testArgs(i1024, i2, -1 << 1);
+            try testArgs(i1024, i2, -1);
+            try testArgs(i1024, i2, 0);
+            try testArgs(u8, u2, 0);
+            try testArgs(u8, u2, 1 << 0);
+            try testArgs(u8, u2, 1 << 1);
+            try testArgs(u16, u2, 0);
+            try testArgs(u16, u2, 1 << 0);
+            try testArgs(u16, u2, 1 << 1);
+            try testArgs(u32, u2, 0);
+            try testArgs(u32, u2, 1 << 0);
+            try testArgs(u32, u2, 1 << 1);
+            try testArgs(u64, u2, 0);
+            try testArgs(u64, u2, 1 << 0);
+            try testArgs(u64, u2, 1 << 1);
+            try testArgs(u128, u2, 0);
+            try testArgs(u128, u2, 1 << 0);
+            try testArgs(u128, u2, 1 << 1);
+            try testArgs(u256, u2, 0);
+            try testArgs(u256, u2, 1 << 0);
+            try testArgs(u256, u2, 1 << 1);
+            try testArgs(u512, u2, 0);
+            try testArgs(u512, u2, 1 << 0);
+            try testArgs(u512, u2, 1 << 1);
+            try testArgs(u1024, u2, 0);
+            try testArgs(u1024, u2, 1 << 0);
+            try testArgs(u1024, u2, 1 << 1);
+
+            try testArgs(i8, i3, -1 << 2);
+            try testArgs(i8, i3, -1);
+            try testArgs(i8, i3, 0);
+            try testArgs(i16, i3, -1 << 2);
+            try testArgs(i16, i3, -1);
+            try testArgs(i16, i3, 0);
+            try testArgs(i32, i3, -1 << 2);
+            try testArgs(i32, i3, -1);
+            try testArgs(i32, i3, 0);
+            try testArgs(i64, i3, -1 << 2);
+            try testArgs(i64, i3, -1);
+            try testArgs(i64, i3, 0);
+            try testArgs(i128, i3, -1 << 2);
+            try testArgs(i128, i3, -1);
+            try testArgs(i128, i3, 0);
+            try testArgs(i256, i3, -1 << 2);
+            try testArgs(i256, i3, -1);
+            try testArgs(i256, i3, 0);
+            try testArgs(i512, i3, -1 << 2);
+            try testArgs(i512, i3, -1);
+            try testArgs(i512, i3, 0);
+            try testArgs(i1024, i3, -1 << 2);
+            try testArgs(i1024, i3, -1);
+            try testArgs(i1024, i3, 0);
+            try testArgs(u8, u3, 0);
+            try testArgs(u8, u3, 1 << 0);
+            try testArgs(u8, u3, 1 << 2);
+            try testArgs(u16, u3, 0);
+            try testArgs(u16, u3, 1 << 0);
+            try testArgs(u16, u3, 1 << 2);
+            try testArgs(u32, u3, 0);
+            try testArgs(u32, u3, 1 << 0);
+            try testArgs(u32, u3, 1 << 2);
+            try testArgs(u64, u3, 0);
+            try testArgs(u64, u3, 1 << 0);
+            try testArgs(u64, u3, 1 << 2);
+            try testArgs(u128, u3, 0);
+            try testArgs(u128, u3, 1 << 0);
+            try testArgs(u128, u3, 1 << 2);
+            try testArgs(u256, u3, 0);
+            try testArgs(u256, u3, 1 << 0);
+            try testArgs(u256, u3, 1 << 2);
+            try testArgs(u512, u3, 0);
+            try testArgs(u512, u3, 1 << 0);
+            try testArgs(u512, u3, 1 << 2);
+            try testArgs(u1024, u3, 0);
+            try testArgs(u1024, u3, 1 << 0);
+            try testArgs(u1024, u3, 1 << 2);
+
+            try testArgs(i8, i4, -1 << 3);
+            try testArgs(i8, i4, -1);
+            try testArgs(i8, i4, 0);
+            try testArgs(i16, i4, -1 << 3);
+            try testArgs(i16, i4, -1);
+            try testArgs(i16, i4, 0);
+            try testArgs(i32, i4, -1 << 3);
+            try testArgs(i32, i4, -1);
+            try testArgs(i32, i4, 0);
+            try testArgs(i64, i4, -1 << 3);
+            try testArgs(i64, i4, -1);
+            try testArgs(i64, i4, 0);
+            try testArgs(i128, i4, -1 << 3);
+            try testArgs(i128, i4, -1);
+            try testArgs(i128, i4, 0);
+            try testArgs(i256, i4, -1 << 3);
+            try testArgs(i256, i4, -1);
+            try testArgs(i256, i4, 0);
+            try testArgs(i512, i4, -1 << 3);
+            try testArgs(i512, i4, -1);
+            try testArgs(i512, i4, 0);
+            try testArgs(i1024, i4, -1 << 3);
+            try testArgs(i1024, i4, -1);
+            try testArgs(i1024, i4, 0);
+            try testArgs(u8, u4, 0);
+            try testArgs(u8, u4, 1 << 0);
+            try testArgs(u8, u4, 1 << 3);
+            try testArgs(u16, u4, 0);
+            try testArgs(u16, u4, 1 << 0);
+            try testArgs(u16, u4, 1 << 3);
+            try testArgs(u32, u4, 0);
+            try testArgs(u32, u4, 1 << 0);
+            try testArgs(u32, u4, 1 << 3);
+            try testArgs(u64, u4, 0);
+            try testArgs(u64, u4, 1 << 0);
+            try testArgs(u64, u4, 1 << 3);
+            try testArgs(u128, u4, 0);
+            try testArgs(u128, u4, 1 << 0);
+            try testArgs(u128, u4, 1 << 3);
+            try testArgs(u256, u4, 0);
+            try testArgs(u256, u4, 1 << 0);
+            try testArgs(u256, u4, 1 << 3);
+            try testArgs(u512, u4, 0);
+            try testArgs(u512, u4, 1 << 0);
+            try testArgs(u512, u4, 1 << 3);
+            try testArgs(u1024, u4, 0);
+            try testArgs(u1024, u4, 1 << 0);
+            try testArgs(u1024, u4, 1 << 3);
+
+            try testArgs(i8, i5, -1 << 4);
+            try testArgs(i8, i5, -1);
+            try testArgs(i8, i5, 0);
+            try testArgs(i16, i5, -1 << 4);
+            try testArgs(i16, i5, -1);
+            try testArgs(i16, i5, 0);
+            try testArgs(i32, i5, -1 << 4);
+            try testArgs(i32, i5, -1);
+            try testArgs(i32, i5, 0);
+            try testArgs(i64, i5, -1 << 4);
+            try testArgs(i64, i5, -1);
+            try testArgs(i64, i5, 0);
+            try testArgs(i128, i5, -1 << 4);
+            try testArgs(i128, i5, -1);
+            try testArgs(i128, i5, 0);
+            try testArgs(i256, i5, -1 << 4);
+            try testArgs(i256, i5, -1);
+            try testArgs(i256, i5, 0);
+            try testArgs(i512, i5, -1 << 4);
+            try testArgs(i512, i5, -1);
+            try testArgs(i512, i5, 0);
+            try testArgs(i1024, i5, -1 << 4);
+            try testArgs(i1024, i5, -1);
+            try testArgs(i1024, i5, 0);
+            try testArgs(u8, u5, 0);
+            try testArgs(u8, u5, 1 << 0);
+            try testArgs(u8, u5, 1 << 4);
+            try testArgs(u16, u5, 0);
+            try testArgs(u16, u5, 1 << 0);
+            try testArgs(u16, u5, 1 << 4);
+            try testArgs(u32, u5, 0);
+            try testArgs(u32, u5, 1 << 0);
+            try testArgs(u32, u5, 1 << 4);
+            try testArgs(u64, u5, 0);
+            try testArgs(u64, u5, 1 << 0);
+            try testArgs(u64, u5, 1 << 4);
+            try testArgs(u128, u5, 0);
+            try testArgs(u128, u5, 1 << 0);
+            try testArgs(u128, u5, 1 << 4);
+            try testArgs(u256, u5, 0);
+            try testArgs(u256, u5, 1 << 0);
+            try testArgs(u256, u5, 1 << 4);
+            try testArgs(u512, u5, 0);
+            try testArgs(u512, u5, 1 << 0);
+            try testArgs(u512, u5, 1 << 4);
+            try testArgs(u1024, u5, 0);
+            try testArgs(u1024, u5, 1 << 0);
+            try testArgs(u1024, u5, 1 << 4);
+
+            try testArgs(i8, i7, -1 << 6);
+            try testArgs(i8, i7, -1);
+            try testArgs(i8, i7, 0);
+            try testArgs(i16, i7, -1 << 6);
+            try testArgs(i16, i7, -1);
+            try testArgs(i16, i7, 0);
+            try testArgs(i32, i7, -1 << 6);
+            try testArgs(i32, i7, -1);
+            try testArgs(i32, i7, 0);
+            try testArgs(i64, i7, -1 << 6);
+            try testArgs(i64, i7, -1);
+            try testArgs(i64, i7, 0);
+            try testArgs(i128, i7, -1 << 6);
+            try testArgs(i128, i7, -1);
+            try testArgs(i128, i7, 0);
+            try testArgs(i256, i7, -1 << 6);
+            try testArgs(i256, i7, -1);
+            try testArgs(i256, i7, 0);
+            try testArgs(i512, i7, -1 << 6);
+            try testArgs(i512, i7, -1);
+            try testArgs(i512, i7, 0);
+            try testArgs(i1024, i7, -1 << 6);
+            try testArgs(i1024, i7, -1);
+            try testArgs(i1024, i7, 0);
+            try testArgs(u8, u7, 0);
+            try testArgs(u8, u7, 1 << 0);
+            try testArgs(u8, u7, 1 << 6);
+            try testArgs(u16, u7, 0);
+            try testArgs(u16, u7, 1 << 0);
+            try testArgs(u16, u7, 1 << 6);
+            try testArgs(u32, u7, 0);
+            try testArgs(u32, u7, 1 << 0);
+            try testArgs(u32, u7, 1 << 6);
+            try testArgs(u64, u7, 0);
+            try testArgs(u64, u7, 1 << 0);
+            try testArgs(u64, u7, 1 << 6);
+            try testArgs(u128, u7, 0);
+            try testArgs(u128, u7, 1 << 0);
+            try testArgs(u128, u7, 1 << 6);
+            try testArgs(u256, u7, 0);
+            try testArgs(u256, u7, 1 << 0);
+            try testArgs(u256, u7, 1 << 6);
+            try testArgs(u512, u7, 0);
+            try testArgs(u512, u7, 1 << 0);
+            try testArgs(u512, u7, 1 << 6);
+            try testArgs(u1024, u7, 0);
+            try testArgs(u1024, u7, 1 << 0);
+            try testArgs(u1024, u7, 1 << 6);
+
+            try testArgs(i8, i8, -1 << 7);
+            try testArgs(i8, i8, -1);
+            try testArgs(i8, i8, 0);
+            try testArgs(i16, i8, -1 << 7);
+            try testArgs(i16, i8, -1);
+            try testArgs(i16, i8, 0);
+            try testArgs(i32, i8, -1 << 7);
+            try testArgs(i32, i8, -1);
+            try testArgs(i32, i8, 0);
+            try testArgs(i64, i8, -1 << 7);
+            try testArgs(i64, i8, -1);
+            try testArgs(i64, i8, 0);
+            try testArgs(i128, i8, -1 << 7);
+            try testArgs(i128, i8, -1);
+            try testArgs(i128, i8, 0);
+            try testArgs(i256, i8, -1 << 7);
+            try testArgs(i256, i8, -1);
+            try testArgs(i256, i8, 0);
+            try testArgs(i512, i8, -1 << 7);
+            try testArgs(i512, i8, -1);
+            try testArgs(i512, i8, 0);
+            try testArgs(i1024, i8, -1 << 7);
+            try testArgs(i1024, i8, -1);
+            try testArgs(i1024, i8, 0);
+            try testArgs(u8, u8, 0);
+            try testArgs(u8, u8, 1 << 0);
+            try testArgs(u8, u8, 1 << 7);
+            try testArgs(u16, u8, 0);
+            try testArgs(u16, u8, 1 << 0);
+            try testArgs(u16, u8, 1 << 7);
+            try testArgs(u32, u8, 0);
+            try testArgs(u32, u8, 1 << 0);
+            try testArgs(u32, u8, 1 << 7);
+            try testArgs(u64, u8, 0);
+            try testArgs(u64, u8, 1 << 0);
+            try testArgs(u64, u8, 1 << 7);
+            try testArgs(u128, u8, 0);
+            try testArgs(u128, u8, 1 << 0);
+            try testArgs(u128, u8, 1 << 7);
+            try testArgs(u256, u8, 0);
+            try testArgs(u256, u8, 1 << 0);
+            try testArgs(u256, u8, 1 << 7);
+            try testArgs(u512, u8, 0);
+            try testArgs(u512, u8, 1 << 0);
+            try testArgs(u512, u8, 1 << 7);
+            try testArgs(u1024, u8, 0);
+            try testArgs(u1024, u8, 1 << 0);
+            try testArgs(u1024, u8, 1 << 7);
+
+            try testArgs(i8, i9, -1 << 8);
+            try testArgs(i8, i9, -1);
+            try testArgs(i8, i9, 0);
+            try testArgs(i16, i9, -1 << 8);
+            try testArgs(i16, i9, -1);
+            try testArgs(i16, i9, 0);
+            try testArgs(i32, i9, -1 << 8);
+            try testArgs(i32, i9, -1);
+            try testArgs(i32, i9, 0);
+            try testArgs(i64, i9, -1 << 8);
+            try testArgs(i64, i9, -1);
+            try testArgs(i64, i9, 0);
+            try testArgs(i128, i9, -1 << 8);
+            try testArgs(i128, i9, -1);
+            try testArgs(i128, i9, 0);
+            try testArgs(i256, i9, -1 << 8);
+            try testArgs(i256, i9, -1);
+            try testArgs(i256, i9, 0);
+            try testArgs(i512, i9, -1 << 8);
+            try testArgs(i512, i9, -1);
+            try testArgs(i512, i9, 0);
+            try testArgs(i1024, i9, -1 << 8);
+            try testArgs(i1024, i9, -1);
+            try testArgs(i1024, i9, 0);
+            try testArgs(u8, u9, 0);
+            try testArgs(u8, u9, 1 << 0);
+            try testArgs(u8, u9, 1 << 8);
+            try testArgs(u16, u9, 0);
+            try testArgs(u16, u9, 1 << 0);
+            try testArgs(u16, u9, 1 << 8);
+            try testArgs(u32, u9, 0);
+            try testArgs(u32, u9, 1 << 0);
+            try testArgs(u32, u9, 1 << 8);
+            try testArgs(u64, u9, 0);
+            try testArgs(u64, u9, 1 << 0);
+            try testArgs(u64, u9, 1 << 8);
+            try testArgs(u128, u9, 0);
+            try testArgs(u128, u9, 1 << 0);
+            try testArgs(u128, u9, 1 << 8);
+            try testArgs(u256, u9, 0);
+            try testArgs(u256, u9, 1 << 0);
+            try testArgs(u256, u9, 1 << 8);
+            try testArgs(u512, u9, 0);
+            try testArgs(u512, u9, 1 << 0);
+            try testArgs(u512, u9, 1 << 8);
+            try testArgs(u1024, u9, 0);
+            try testArgs(u1024, u9, 1 << 0);
+            try testArgs(u1024, u9, 1 << 8);
+
+            try testArgs(i8, i15, -1 << 14);
+            try testArgs(i8, i15, -1);
+            try testArgs(i8, i15, 0);
+            try testArgs(i16, i15, -1 << 14);
+            try testArgs(i16, i15, -1);
+            try testArgs(i16, i15, 0);
+            try testArgs(i32, i15, -1 << 14);
+            try testArgs(i32, i15, -1);
+            try testArgs(i32, i15, 0);
+            try testArgs(i64, i15, -1 << 14);
+            try testArgs(i64, i15, -1);
+            try testArgs(i64, i15, 0);
+            try testArgs(i128, i15, -1 << 14);
+            try testArgs(i128, i15, -1);
+            try testArgs(i128, i15, 0);
+            try testArgs(i256, i15, -1 << 14);
+            try testArgs(i256, i15, -1);
+            try testArgs(i256, i15, 0);
+            try testArgs(i512, i15, -1 << 14);
+            try testArgs(i512, i15, -1);
+            try testArgs(i512, i15, 0);
+            try testArgs(i1024, i15, -1 << 14);
+            try testArgs(i1024, i15, -1);
+            try testArgs(i1024, i15, 0);
+            try testArgs(u8, u15, 0);
+            try testArgs(u8, u15, 1 << 0);
+            try testArgs(u8, u15, 1 << 14);
+            try testArgs(u16, u15, 0);
+            try testArgs(u16, u15, 1 << 0);
+            try testArgs(u16, u15, 1 << 14);
+            try testArgs(u32, u15, 0);
+            try testArgs(u32, u15, 1 << 0);
+            try testArgs(u32, u15, 1 << 14);
+            try testArgs(u64, u15, 0);
+            try testArgs(u64, u15, 1 << 0);
+            try testArgs(u64, u15, 1 << 14);
+            try testArgs(u128, u15, 0);
+            try testArgs(u128, u15, 1 << 0);
+            try testArgs(u128, u15, 1 << 14);
+            try testArgs(u256, u15, 0);
+            try testArgs(u256, u15, 1 << 0);
+            try testArgs(u256, u15, 1 << 14);
+            try testArgs(u512, u15, 0);
+            try testArgs(u512, u15, 1 << 0);
+            try testArgs(u512, u15, 1 << 14);
+            try testArgs(u1024, u15, 0);
+            try testArgs(u1024, u15, 1 << 0);
+            try testArgs(u1024, u15, 1 << 14);
+
+            try testArgs(i8, i16, -1 << 15);
+            try testArgs(i8, i16, -1);
+            try testArgs(i8, i16, 0);
+            try testArgs(i16, i16, -1 << 15);
+            try testArgs(i16, i16, -1);
+            try testArgs(i16, i16, 0);
+            try testArgs(i32, i16, -1 << 15);
+            try testArgs(i32, i16, -1);
+            try testArgs(i32, i16, 0);
+            try testArgs(i64, i16, -1 << 15);
+            try testArgs(i64, i16, -1);
+            try testArgs(i64, i16, 0);
+            try testArgs(i128, i16, -1 << 15);
+            try testArgs(i128, i16, -1);
+            try testArgs(i128, i16, 0);
+            try testArgs(i256, i16, -1 << 15);
+            try testArgs(i256, i16, -1);
+            try testArgs(i256, i16, 0);
+            try testArgs(i512, i16, -1 << 15);
+            try testArgs(i512, i16, -1);
+            try testArgs(i512, i16, 0);
+            try testArgs(i1024, i16, -1 << 15);
+            try testArgs(i1024, i16, -1);
+            try testArgs(i1024, i16, 0);
+            try testArgs(u8, u16, 0);
+            try testArgs(u8, u16, 1 << 0);
+            try testArgs(u8, u16, 1 << 15);
+            try testArgs(u16, u16, 0);
+            try testArgs(u16, u16, 1 << 0);
+            try testArgs(u16, u16, 1 << 15);
+            try testArgs(u32, u16, 0);
+            try testArgs(u32, u16, 1 << 0);
+            try testArgs(u32, u16, 1 << 15);
+            try testArgs(u64, u16, 0);
+            try testArgs(u64, u16, 1 << 0);
+            try testArgs(u64, u16, 1 << 15);
+            try testArgs(u128, u16, 0);
+            try testArgs(u128, u16, 1 << 0);
+            try testArgs(u128, u16, 1 << 15);
+            try testArgs(u256, u16, 0);
+            try testArgs(u256, u16, 1 << 0);
+            try testArgs(u256, u16, 1 << 15);
+            try testArgs(u512, u16, 0);
+            try testArgs(u512, u16, 1 << 0);
+            try testArgs(u512, u16, 1 << 15);
+            try testArgs(u1024, u16, 0);
+            try testArgs(u1024, u16, 1 << 0);
+            try testArgs(u1024, u16, 1 << 15);
+
+            try testArgs(i8, i17, -1 << 16);
+            try testArgs(i8, i17, -1);
+            try testArgs(i8, i17, 0);
+            try testArgs(i16, i17, -1 << 16);
+            try testArgs(i16, i17, -1);
+            try testArgs(i16, i17, 0);
+            try testArgs(i32, i17, -1 << 16);
+            try testArgs(i32, i17, -1);
+            try testArgs(i32, i17, 0);
+            try testArgs(i64, i17, -1 << 16);
+            try testArgs(i64, i17, -1);
+            try testArgs(i64, i17, 0);
+            try testArgs(i128, i17, -1 << 16);
+            try testArgs(i128, i17, -1);
+            try testArgs(i128, i17, 0);
+            try testArgs(i256, i17, -1 << 16);
+            try testArgs(i256, i17, -1);
+            try testArgs(i256, i17, 0);
+            try testArgs(i512, i17, -1 << 16);
+            try testArgs(i512, i17, -1);
+            try testArgs(i512, i17, 0);
+            try testArgs(i1024, i17, -1 << 16);
+            try testArgs(i1024, i17, -1);
+            try testArgs(i1024, i17, 0);
+            try testArgs(u8, u17, 0);
+            try testArgs(u8, u17, 1 << 0);
+            try testArgs(u8, u17, 1 << 16);
+            try testArgs(u16, u17, 0);
+            try testArgs(u16, u17, 1 << 0);
+            try testArgs(u16, u17, 1 << 16);
+            try testArgs(u32, u17, 0);
+            try testArgs(u32, u17, 1 << 0);
+            try testArgs(u32, u17, 1 << 16);
+            try testArgs(u64, u17, 0);
+            try testArgs(u64, u17, 1 << 0);
+            try testArgs(u64, u17, 1 << 16);
+            try testArgs(u128, u17, 0);
+            try testArgs(u128, u17, 1 << 0);
+            try testArgs(u128, u17, 1 << 16);
+            try testArgs(u256, u17, 0);
+            try testArgs(u256, u17, 1 << 0);
+            try testArgs(u256, u17, 1 << 16);
+            try testArgs(u512, u17, 0);
+            try testArgs(u512, u17, 1 << 0);
+            try testArgs(u512, u17, 1 << 16);
+            try testArgs(u1024, u17, 0);
+            try testArgs(u1024, u17, 1 << 0);
+            try testArgs(u1024, u17, 1 << 16);
+
+            try testArgs(i8, i31, -1 << 30);
+            try testArgs(i8, i31, -1);
+            try testArgs(i8, i31, 0);
+            try testArgs(i16, i31, -1 << 30);
+            try testArgs(i16, i31, -1);
+            try testArgs(i16, i31, 0);
+            try testArgs(i32, i31, -1 << 30);
+            try testArgs(i32, i31, -1);
+            try testArgs(i32, i31, 0);
+            try testArgs(i64, i31, -1 << 30);
+            try testArgs(i64, i31, -1);
+            try testArgs(i64, i31, 0);
+            try testArgs(i128, i31, -1 << 30);
+            try testArgs(i128, i31, -1);
+            try testArgs(i128, i31, 0);
+            try testArgs(i256, i31, -1 << 30);
+            try testArgs(i256, i31, -1);
+            try testArgs(i256, i31, 0);
+            try testArgs(i512, i31, -1 << 30);
+            try testArgs(i512, i31, -1);
+            try testArgs(i512, i31, 0);
+            try testArgs(i1024, i31, -1 << 30);
+            try testArgs(i1024, i31, -1);
+            try testArgs(i1024, i31, 0);
+            try testArgs(u8, u31, 0);
+            try testArgs(u8, u31, 1 << 0);
+            try testArgs(u8, u31, 1 << 30);
+            try testArgs(u16, u31, 0);
+            try testArgs(u16, u31, 1 << 0);
+            try testArgs(u16, u31, 1 << 30);
+            try testArgs(u32, u31, 0);
+            try testArgs(u32, u31, 1 << 0);
+            try testArgs(u32, u31, 1 << 30);
+            try testArgs(u64, u31, 0);
+            try testArgs(u64, u31, 1 << 0);
+            try testArgs(u64, u31, 1 << 30);
+            try testArgs(u128, u31, 0);
+            try testArgs(u128, u31, 1 << 0);
+            try testArgs(u128, u31, 1 << 30);
+            try testArgs(u256, u31, 0);
+            try testArgs(u256, u31, 1 << 0);
+            try testArgs(u256, u31, 1 << 30);
+            try testArgs(u512, u31, 0);
+            try testArgs(u512, u31, 1 << 0);
+            try testArgs(u512, u31, 1 << 30);
+            try testArgs(u1024, u31, 0);
+            try testArgs(u1024, u31, 1 << 0);
+            try testArgs(u1024, u31, 1 << 30);
+
+            try testArgs(i8, i32, -1 << 31);
+            try testArgs(i8, i32, -1);
+            try testArgs(i8, i32, 0);
+            try testArgs(i16, i32, -1 << 31);
+            try testArgs(i16, i32, -1);
+            try testArgs(i16, i32, 0);
+            try testArgs(i32, i32, -1 << 31);
+            try testArgs(i32, i32, -1);
+            try testArgs(i32, i32, 0);
+            try testArgs(i64, i32, -1 << 31);
+            try testArgs(i64, i32, -1);
+            try testArgs(i64, i32, 0);
+            try testArgs(i128, i32, -1 << 31);
+            try testArgs(i128, i32, -1);
+            try testArgs(i128, i32, 0);
+            try testArgs(i256, i32, -1 << 31);
+            try testArgs(i256, i32, -1);
+            try testArgs(i256, i32, 0);
+            try testArgs(i512, i32, -1 << 31);
+            try testArgs(i512, i32, -1);
+            try testArgs(i512, i32, 0);
+            try testArgs(i1024, i32, -1 << 31);
+            try testArgs(i1024, i32, -1);
+            try testArgs(i1024, i32, 0);
+            try testArgs(u8, u32, 0);
+            try testArgs(u8, u32, 1 << 0);
+            try testArgs(u8, u32, 1 << 31);
+            try testArgs(u16, u32, 0);
+            try testArgs(u16, u32, 1 << 0);
+            try testArgs(u16, u32, 1 << 31);
+            try testArgs(u32, u32, 0);
+            try testArgs(u32, u32, 1 << 0);
+            try testArgs(u32, u32, 1 << 31);
+            try testArgs(u64, u32, 0);
+            try testArgs(u64, u32, 1 << 0);
+            try testArgs(u64, u32, 1 << 31);
+            try testArgs(u128, u32, 0);
+            try testArgs(u128, u32, 1 << 0);
+            try testArgs(u128, u32, 1 << 31);
+            try testArgs(u256, u32, 0);
+            try testArgs(u256, u32, 1 << 0);
+            try testArgs(u256, u32, 1 << 31);
+            try testArgs(u512, u32, 0);
+            try testArgs(u512, u32, 1 << 0);
+            try testArgs(u512, u32, 1 << 31);
+            try testArgs(u1024, u32, 0);
+            try testArgs(u1024, u32, 1 << 0);
+            try testArgs(u1024, u32, 1 << 31);
+
+            try testArgs(i8, i33, -1 << 32);
+            try testArgs(i8, i33, -1);
+            try testArgs(i8, i33, 0);
+            try testArgs(i16, i33, -1 << 32);
+            try testArgs(i16, i33, -1);
+            try testArgs(i16, i33, 0);
+            try testArgs(i32, i33, -1 << 32);
+            try testArgs(i32, i33, -1);
+            try testArgs(i32, i33, 0);
+            try testArgs(i64, i33, -1 << 32);
+            try testArgs(i64, i33, -1);
+            try testArgs(i64, i33, 0);
+            try testArgs(i128, i33, -1 << 32);
+            try testArgs(i128, i33, -1);
+            try testArgs(i128, i33, 0);
+            try testArgs(i256, i33, -1 << 32);
+            try testArgs(i256, i33, -1);
+            try testArgs(i256, i33, 0);
+            try testArgs(i512, i33, -1 << 32);
+            try testArgs(i512, i33, -1);
+            try testArgs(i512, i33, 0);
+            try testArgs(i1024, i33, -1 << 32);
+            try testArgs(i1024, i33, -1);
+            try testArgs(i1024, i33, 0);
+            try testArgs(u8, u33, 0);
+            try testArgs(u8, u33, 1 << 0);
+            try testArgs(u8, u33, 1 << 32);
+            try testArgs(u16, u33, 0);
+            try testArgs(u16, u33, 1 << 0);
+            try testArgs(u16, u33, 1 << 32);
+            try testArgs(u32, u33, 0);
+            try testArgs(u32, u33, 1 << 0);
+            try testArgs(u32, u33, 1 << 32);
+            try testArgs(u64, u33, 0);
+            try testArgs(u64, u33, 1 << 0);
+            try testArgs(u64, u33, 1 << 32);
+            try testArgs(u128, u33, 0);
+            try testArgs(u128, u33, 1 << 0);
+            try testArgs(u128, u33, 1 << 32);
+            try testArgs(u256, u33, 0);
+            try testArgs(u256, u33, 1 << 0);
+            try testArgs(u256, u33, 1 << 32);
+            try testArgs(u512, u33, 0);
+            try testArgs(u512, u33, 1 << 0);
+            try testArgs(u512, u33, 1 << 32);
+            try testArgs(u1024, u33, 0);
+            try testArgs(u1024, u33, 1 << 0);
+            try testArgs(u1024, u33, 1 << 32);
+
+            try testArgs(i8, i63, -1 << 62);
+            try testArgs(i8, i63, -1);
+            try testArgs(i8, i63, 0);
+            try testArgs(i16, i63, -1 << 62);
+            try testArgs(i16, i63, -1);
+            try testArgs(i16, i63, 0);
+            try testArgs(i32, i63, -1 << 62);
+            try testArgs(i32, i63, -1);
+            try testArgs(i32, i63, 0);
+            try testArgs(i64, i63, -1 << 62);
+            try testArgs(i64, i63, -1);
+            try testArgs(i64, i63, 0);
+            try testArgs(i128, i63, -1 << 62);
+            try testArgs(i128, i63, -1);
+            try testArgs(i128, i63, 0);
+            try testArgs(i256, i63, -1 << 62);
+            try testArgs(i256, i63, -1);
+            try testArgs(i256, i63, 0);
+            try testArgs(i512, i63, -1 << 62);
+            try testArgs(i512, i63, -1);
+            try testArgs(i512, i63, 0);
+            try testArgs(i1024, i63, -1 << 62);
+            try testArgs(i1024, i63, -1);
+            try testArgs(i1024, i63, 0);
+            try testArgs(u8, u63, 0);
+            try testArgs(u8, u63, 1 << 0);
+            try testArgs(u8, u63, 1 << 62);
+            try testArgs(u16, u63, 0);
+            try testArgs(u16, u63, 1 << 0);
+            try testArgs(u16, u63, 1 << 62);
+            try testArgs(u32, u63, 0);
+            try testArgs(u32, u63, 1 << 0);
+            try testArgs(u32, u63, 1 << 62);
+            try testArgs(u64, u63, 0);
+            try testArgs(u64, u63, 1 << 0);
+            try testArgs(u64, u63, 1 << 62);
+            try testArgs(u128, u63, 0);
+            try testArgs(u128, u63, 1 << 0);
+            try testArgs(u128, u63, 1 << 62);
+            try testArgs(u256, u63, 0);
+            try testArgs(u256, u63, 1 << 0);
+            try testArgs(u256, u63, 1 << 62);
+            try testArgs(u512, u63, 0);
+            try testArgs(u512, u63, 1 << 0);
+            try testArgs(u512, u63, 1 << 62);
+            try testArgs(u1024, u63, 0);
+            try testArgs(u1024, u63, 1 << 0);
+            try testArgs(u1024, u63, 1 << 62);
+
+            try testArgs(i8, i64, -1 << 63);
+            try testArgs(i8, i64, -1);
+            try testArgs(i8, i64, 0);
+            try testArgs(i16, i64, -1 << 63);
+            try testArgs(i16, i64, -1);
+            try testArgs(i16, i64, 0);
+            try testArgs(i32, i64, -1 << 63);
+            try testArgs(i32, i64, -1);
+            try testArgs(i32, i64, 0);
+            try testArgs(i64, i64, -1 << 63);
+            try testArgs(i64, i64, -1);
+            try testArgs(i64, i64, 0);
+            try testArgs(i128, i64, -1 << 63);
+            try testArgs(i128, i64, -1);
+            try testArgs(i128, i64, 0);
+            try testArgs(i256, i64, -1 << 63);
+            try testArgs(i256, i64, -1);
+            try testArgs(i256, i64, 0);
+            try testArgs(i512, i64, -1 << 63);
+            try testArgs(i512, i64, -1);
+            try testArgs(i512, i64, 0);
+            try testArgs(i1024, i64, -1 << 63);
+            try testArgs(i1024, i64, -1);
+            try testArgs(i1024, i64, 0);
+            try testArgs(u8, u64, 0);
+            try testArgs(u8, u64, 1 << 0);
+            try testArgs(u8, u64, 1 << 63);
+            try testArgs(u16, u64, 0);
+            try testArgs(u16, u64, 1 << 0);
+            try testArgs(u16, u64, 1 << 63);
+            try testArgs(u32, u64, 0);
+            try testArgs(u32, u64, 1 << 0);
+            try testArgs(u32, u64, 1 << 63);
+            try testArgs(u64, u64, 0);
+            try testArgs(u64, u64, 1 << 0);
+            try testArgs(u64, u64, 1 << 63);
+            try testArgs(u128, u64, 0);
+            try testArgs(u128, u64, 1 << 0);
+            try testArgs(u128, u64, 1 << 63);
+            try testArgs(u256, u64, 0);
+            try testArgs(u256, u64, 1 << 0);
+            try testArgs(u256, u64, 1 << 63);
+            try testArgs(u512, u64, 0);
+            try testArgs(u512, u64, 1 << 0);
+            try testArgs(u512, u64, 1 << 63);
+            try testArgs(u1024, u64, 0);
+            try testArgs(u1024, u64, 1 << 0);
+            try testArgs(u1024, u64, 1 << 63);
+
+            try testArgs(i8, i65, -1 << 64);
+            try testArgs(i8, i65, -1);
+            try testArgs(i8, i65, 0);
+            try testArgs(i16, i65, -1 << 64);
+            try testArgs(i16, i65, -1);
+            try testArgs(i16, i65, 0);
+            try testArgs(i32, i65, -1 << 64);
+            try testArgs(i32, i65, -1);
+            try testArgs(i32, i65, 0);
+            try testArgs(i64, i65, -1 << 64);
+            try testArgs(i64, i65, -1);
+            try testArgs(i64, i65, 0);
+            try testArgs(i128, i65, -1 << 64);
+            try testArgs(i128, i65, -1);
+            try testArgs(i128, i65, 0);
+            try testArgs(i256, i65, -1 << 64);
+            try testArgs(i256, i65, -1);
+            try testArgs(i256, i65, 0);
+            try testArgs(i512, i65, -1 << 64);
+            try testArgs(i512, i65, -1);
+            try testArgs(i512, i65, 0);
+            try testArgs(i1024, i65, -1 << 64);
+            try testArgs(i1024, i65, -1);
+            try testArgs(i1024, i65, 0);
+            try testArgs(u8, u65, 0);
+            try testArgs(u8, u65, 1 << 0);
+            try testArgs(u8, u65, 1 << 64);
+            try testArgs(u16, u65, 0);
+            try testArgs(u16, u65, 1 << 0);
+            try testArgs(u16, u65, 1 << 64);
+            try testArgs(u32, u65, 0);
+            try testArgs(u32, u65, 1 << 0);
+            try testArgs(u32, u65, 1 << 64);
+            try testArgs(u64, u65, 0);
+            try testArgs(u64, u65, 1 << 0);
+            try testArgs(u64, u65, 1 << 64);
+            try testArgs(u128, u65, 0);
+            try testArgs(u128, u65, 1 << 0);
+            try testArgs(u128, u65, 1 << 64);
+            try testArgs(u256, u65, 0);
+            try testArgs(u256, u65, 1 << 0);
+            try testArgs(u256, u65, 1 << 64);
+            try testArgs(u512, u65, 0);
+            try testArgs(u512, u65, 1 << 0);
+            try testArgs(u512, u65, 1 << 64);
+            try testArgs(u1024, u65, 0);
+            try testArgs(u1024, u65, 1 << 0);
+            try testArgs(u1024, u65, 1 << 64);
+
+            try testArgs(i8, i95, -1 << 94);
+            try testArgs(i8, i95, -1);
+            try testArgs(i8, i95, 0);
+            try testArgs(i16, i95, -1 << 94);
+            try testArgs(i16, i95, -1);
+            try testArgs(i16, i95, 0);
+            try testArgs(i32, i95, -1 << 94);
+            try testArgs(i32, i95, -1);
+            try testArgs(i32, i95, 0);
+            try testArgs(i64, i95, -1 << 94);
+            try testArgs(i64, i95, -1);
+            try testArgs(i64, i95, 0);
+            try testArgs(i128, i95, -1 << 94);
+            try testArgs(i128, i95, -1);
+            try testArgs(i128, i95, 0);
+            try testArgs(i256, i95, -1 << 94);
+            try testArgs(i256, i95, -1);
+            try testArgs(i256, i95, 0);
+            try testArgs(i512, i95, -1 << 94);
+            try testArgs(i512, i95, -1);
+            try testArgs(i512, i95, 0);
+            try testArgs(i1024, i95, -1 << 94);
+            try testArgs(i1024, i95, -1);
+            try testArgs(i1024, i95, 0);
+            try testArgs(u8, u95, 0);
+            try testArgs(u8, u95, 1 << 0);
+            try testArgs(u8, u95, 1 << 94);
+            try testArgs(u16, u95, 0);
+            try testArgs(u16, u95, 1 << 0);
+            try testArgs(u16, u95, 1 << 94);
+            try testArgs(u32, u95, 0);
+            try testArgs(u32, u95, 1 << 0);
+            try testArgs(u32, u95, 1 << 94);
+            try testArgs(u64, u95, 0);
+            try testArgs(u64, u95, 1 << 0);
+            try testArgs(u64, u95, 1 << 94);
+            try testArgs(u128, u95, 0);
+            try testArgs(u128, u95, 1 << 0);
+            try testArgs(u128, u95, 1 << 94);
+            try testArgs(u256, u95, 0);
+            try testArgs(u256, u95, 1 << 0);
+            try testArgs(u256, u95, 1 << 94);
+            try testArgs(u512, u95, 0);
+            try testArgs(u512, u95, 1 << 0);
+            try testArgs(u512, u95, 1 << 94);
+            try testArgs(u1024, u95, 0);
+            try testArgs(u1024, u95, 1 << 0);
+            try testArgs(u1024, u95, 1 << 94);
+
+            try testArgs(i8, i97, -1 << 96);
+            try testArgs(i8, i97, -1);
+            try testArgs(i8, i97, 0);
+            try testArgs(i16, i97, -1 << 96);
+            try testArgs(i16, i97, -1);
+            try testArgs(i16, i97, 0);
+            try testArgs(i32, i97, -1 << 96);
+            try testArgs(i32, i97, -1);
+            try testArgs(i32, i97, 0);
+            try testArgs(i64, i97, -1 << 96);
+            try testArgs(i64, i97, -1);
+            try testArgs(i64, i97, 0);
+            try testArgs(i128, i97, -1 << 96);
+            try testArgs(i128, i97, -1);
+            try testArgs(i128, i97, 0);
+            try testArgs(i256, i97, -1 << 96);
+            try testArgs(i256, i97, -1);
+            try testArgs(i256, i97, 0);
+            try testArgs(i512, i97, -1 << 96);
+            try testArgs(i512, i97, -1);
+            try testArgs(i512, i97, 0);
+            try testArgs(i1024, i97, -1 << 96);
+            try testArgs(i1024, i97, -1);
+            try testArgs(i1024, i97, 0);
+            try testArgs(u8, u97, 0);
+            try testArgs(u8, u97, 1 << 0);
+            try testArgs(u8, u97, 1 << 96);
+            try testArgs(u16, u97, 0);
+            try testArgs(u16, u97, 1 << 0);
+            try testArgs(u16, u97, 1 << 96);
+            try testArgs(u32, u97, 0);
+            try testArgs(u32, u97, 1 << 0);
+            try testArgs(u32, u97, 1 << 96);
+            try testArgs(u64, u97, 0);
+            try testArgs(u64, u97, 1 << 0);
+            try testArgs(u64, u97, 1 << 96);
+            try testArgs(u128, u97, 0);
+            try testArgs(u128, u97, 1 << 0);
+            try testArgs(u128, u97, 1 << 96);
+            try testArgs(u256, u97, 0);
+            try testArgs(u256, u97, 1 << 0);
+            try testArgs(u256, u97, 1 << 96);
+            try testArgs(u512, u97, 0);
+            try testArgs(u512, u97, 1 << 0);
+            try testArgs(u512, u97, 1 << 96);
+            try testArgs(u1024, u97, 0);
+            try testArgs(u1024, u97, 1 << 0);
+            try testArgs(u1024, u97, 1 << 96);
+
+            try testArgs(i8, i127, -1 << 126);
+            try testArgs(i8, i127, -1);
+            try testArgs(i8, i127, 0);
+            try testArgs(i16, i127, -1 << 126);
+            try testArgs(i16, i127, -1);
+            try testArgs(i16, i127, 0);
+            try testArgs(i32, i127, -1 << 126);
+            try testArgs(i32, i127, -1);
+            try testArgs(i32, i127, 0);
+            try testArgs(i64, i127, -1 << 126);
+            try testArgs(i64, i127, -1);
+            try testArgs(i64, i127, 0);
+            try testArgs(i128, i127, -1 << 126);
+            try testArgs(i128, i127, -1);
+            try testArgs(i128, i127, 0);
+            try testArgs(i256, i127, -1 << 126);
+            try testArgs(i256, i127, -1);
+            try testArgs(i256, i127, 0);
+            try testArgs(i512, i127, -1 << 126);
+            try testArgs(i512, i127, -1);
+            try testArgs(i512, i127, 0);
+            try testArgs(i1024, i127, -1 << 126);
+            try testArgs(i1024, i127, -1);
+            try testArgs(i1024, i127, 0);
+            try testArgs(u8, u127, 0);
+            try testArgs(u8, u127, 1 << 0);
+            try testArgs(u8, u127, 1 << 126);
+            try testArgs(u16, u127, 0);
+            try testArgs(u16, u127, 1 << 0);
+            try testArgs(u16, u127, 1 << 126);
+            try testArgs(u32, u127, 0);
+            try testArgs(u32, u127, 1 << 0);
+            try testArgs(u32, u127, 1 << 126);
+            try testArgs(u64, u127, 0);
+            try testArgs(u64, u127, 1 << 0);
+            try testArgs(u64, u127, 1 << 126);
+            try testArgs(u128, u127, 0);
+            try testArgs(u128, u127, 1 << 0);
+            try testArgs(u128, u127, 1 << 126);
+            try testArgs(u256, u127, 0);
+            try testArgs(u256, u127, 1 << 0);
+            try testArgs(u256, u127, 1 << 126);
+            try testArgs(u512, u127, 0);
+            try testArgs(u512, u127, 1 << 0);
+            try testArgs(u512, u127, 1 << 126);
+            try testArgs(u1024, u127, 0);
+            try testArgs(u1024, u127, 1 << 0);
+            try testArgs(u1024, u127, 1 << 126);
+
+            try testArgs(i8, i128, -1 << 127);
+            try testArgs(i8, i128, -1);
+            try testArgs(i8, i128, 0);
+            try testArgs(i16, i128, -1 << 127);
+            try testArgs(i16, i128, -1);
+            try testArgs(i16, i128, 0);
+            try testArgs(i32, i128, -1 << 127);
+            try testArgs(i32, i128, -1);
+            try testArgs(i32, i128, 0);
+            try testArgs(i64, i128, -1 << 127);
+            try testArgs(i64, i128, -1);
+            try testArgs(i64, i128, 0);
+            try testArgs(i128, i128, -1 << 127);
+            try testArgs(i128, i128, -1);
+            try testArgs(i128, i128, 0);
+            try testArgs(i256, i128, -1 << 127);
+            try testArgs(i256, i128, -1);
+            try testArgs(i256, i128, 0);
+            try testArgs(i512, i128, -1 << 127);
+            try testArgs(i512, i128, -1);
+            try testArgs(i512, i128, 0);
+            try testArgs(i1024, i128, -1 << 127);
+            try testArgs(i1024, i128, -1);
+            try testArgs(i1024, i128, 0);
+            try testArgs(u8, u128, 0);
+            try testArgs(u8, u128, 1 << 0);
+            try testArgs(u8, u128, 1 << 127);
+            try testArgs(u16, u128, 0);
+            try testArgs(u16, u128, 1 << 0);
+            try testArgs(u16, u128, 1 << 127);
+            try testArgs(u32, u128, 0);
+            try testArgs(u32, u128, 1 << 0);
+            try testArgs(u32, u128, 1 << 127);
+            try testArgs(u64, u128, 0);
+            try testArgs(u64, u128, 1 << 0);
+            try testArgs(u64, u128, 1 << 127);
+            try testArgs(u128, u128, 0);
+            try testArgs(u128, u128, 1 << 0);
+            try testArgs(u128, u128, 1 << 127);
+            try testArgs(u256, u128, 0);
+            try testArgs(u256, u128, 1 << 0);
+            try testArgs(u256, u128, 1 << 127);
+            try testArgs(u512, u128, 0);
+            try testArgs(u512, u128, 1 << 0);
+            try testArgs(u512, u128, 1 << 127);
+            try testArgs(u1024, u128, 0);
+            try testArgs(u1024, u128, 1 << 0);
+            try testArgs(u1024, u128, 1 << 127);
+
+            try testArgs(i8, i129, -1 << 128);
+            try testArgs(i8, i129, -1);
+            try testArgs(i8, i129, 0);
+            try testArgs(i16, i129, -1 << 128);
+            try testArgs(i16, i129, -1);
+            try testArgs(i16, i129, 0);
+            try testArgs(i32, i129, -1 << 128);
+            try testArgs(i32, i129, -1);
+            try testArgs(i32, i129, 0);
+            try testArgs(i64, i129, -1 << 128);
+            try testArgs(i64, i129, -1);
+            try testArgs(i64, i129, 0);
+            try testArgs(i128, i129, -1 << 128);
+            try testArgs(i128, i129, -1);
+            try testArgs(i128, i129, 0);
+            try testArgs(i256, i129, -1 << 128);
+            try testArgs(i256, i129, -1);
+            try testArgs(i256, i129, 0);
+            try testArgs(i512, i129, -1 << 128);
+            try testArgs(i512, i129, -1);
+            try testArgs(i512, i129, 0);
+            try testArgs(i1024, i129, -1 << 128);
+            try testArgs(i1024, i129, -1);
+            try testArgs(i1024, i129, 0);
+            try testArgs(u8, u129, 0);
+            try testArgs(u8, u129, 1 << 0);
+            try testArgs(u8, u129, 1 << 128);
+            try testArgs(u16, u129, 0);
+            try testArgs(u16, u129, 1 << 0);
+            try testArgs(u16, u129, 1 << 128);
+            try testArgs(u32, u129, 0);
+            try testArgs(u32, u129, 1 << 0);
+            try testArgs(u32, u129, 1 << 128);
+            try testArgs(u64, u129, 0);
+            try testArgs(u64, u129, 1 << 0);
+            try testArgs(u64, u129, 1 << 128);
+            try testArgs(u128, u129, 0);
+            try testArgs(u128, u129, 1 << 0);
+            try testArgs(u128, u129, 1 << 128);
+            try testArgs(u256, u129, 0);
+            try testArgs(u256, u129, 1 << 0);
+            try testArgs(u256, u129, 1 << 128);
+            try testArgs(u512, u129, 0);
+            try testArgs(u512, u129, 1 << 0);
+            try testArgs(u512, u129, 1 << 128);
+            try testArgs(u1024, u129, 0);
+            try testArgs(u1024, u129, 1 << 0);
+            try testArgs(u1024, u129, 1 << 128);
+
+            try testArgs(i8, i255, -1 << 254);
+            try testArgs(i8, i255, -1);
+            try testArgs(i8, i255, 0);
+            try testArgs(i16, i255, -1 << 254);
+            try testArgs(i16, i255, -1);
+            try testArgs(i16, i255, 0);
+            try testArgs(i32, i255, -1 << 254);
+            try testArgs(i32, i255, -1);
+            try testArgs(i32, i255, 0);
+            try testArgs(i64, i255, -1 << 254);
+            try testArgs(i64, i255, -1);
+            try testArgs(i64, i255, 0);
+            try testArgs(i128, i255, -1 << 254);
+            try testArgs(i128, i255, -1);
+            try testArgs(i128, i255, 0);
+            try testArgs(i256, i255, -1 << 254);
+            try testArgs(i256, i255, -1);
+            try testArgs(i256, i255, 0);
+            try testArgs(i512, i255, -1 << 254);
+            try testArgs(i512, i255, -1);
+            try testArgs(i512, i255, 0);
+            try testArgs(i1024, i255, -1 << 254);
+            try testArgs(i1024, i255, -1);
+            try testArgs(i1024, i255, 0);
+            try testArgs(u8, u255, 0);
+            try testArgs(u8, u255, 1 << 0);
+            try testArgs(u8, u255, 1 << 254);
+            try testArgs(u16, u255, 0);
+            try testArgs(u16, u255, 1 << 0);
+            try testArgs(u16, u255, 1 << 254);
+            try testArgs(u32, u255, 0);
+            try testArgs(u32, u255, 1 << 0);
+            try testArgs(u32, u255, 1 << 254);
+            try testArgs(u64, u255, 0);
+            try testArgs(u64, u255, 1 << 0);
+            try testArgs(u64, u255, 1 << 254);
+            try testArgs(u128, u255, 0);
+            try testArgs(u128, u255, 1 << 0);
+            try testArgs(u128, u255, 1 << 254);
+            try testArgs(u256, u255, 0);
+            try testArgs(u256, u255, 1 << 0);
+            try testArgs(u256, u255, 1 << 254);
+            try testArgs(u512, u255, 0);
+            try testArgs(u512, u255, 1 << 0);
+            try testArgs(u512, u255, 1 << 254);
+            try testArgs(u1024, u255, 0);
+            try testArgs(u1024, u255, 1 << 0);
+            try testArgs(u1024, u255, 1 << 254);
+
+            try testArgs(i8, i256, -1 << 255);
+            try testArgs(i8, i256, -1);
+            try testArgs(i8, i256, 0);
+            try testArgs(i16, i256, -1 << 255);
+            try testArgs(i16, i256, -1);
+            try testArgs(i16, i256, 0);
+            try testArgs(i32, i256, -1 << 255);
+            try testArgs(i32, i256, -1);
+            try testArgs(i32, i256, 0);
+            try testArgs(i64, i256, -1 << 255);
+            try testArgs(i64, i256, -1);
+            try testArgs(i64, i256, 0);
+            try testArgs(i128, i256, -1 << 255);
+            try testArgs(i128, i256, -1);
+            try testArgs(i128, i256, 0);
+            try testArgs(i256, i256, -1 << 255);
+            try testArgs(i256, i256, -1);
+            try testArgs(i256, i256, 0);
+            try testArgs(i512, i256, -1 << 255);
+            try testArgs(i512, i256, -1);
+            try testArgs(i512, i256, 0);
+            try testArgs(i1024, i256, -1 << 255);
+            try testArgs(i1024, i256, -1);
+            try testArgs(i1024, i256, 0);
+            try testArgs(u8, u256, 0);
+            try testArgs(u8, u256, 1 << 0);
+            try testArgs(u8, u256, 1 << 255);
+            try testArgs(u16, u256, 0);
+            try testArgs(u16, u256, 1 << 0);
+            try testArgs(u16, u256, 1 << 255);
+            try testArgs(u32, u256, 0);
+            try testArgs(u32, u256, 1 << 0);
+            try testArgs(u32, u256, 1 << 255);
+            try testArgs(u64, u256, 0);
+            try testArgs(u64, u256, 1 << 0);
+            try testArgs(u64, u256, 1 << 255);
+            try testArgs(u128, u256, 0);
+            try testArgs(u128, u256, 1 << 0);
+            try testArgs(u128, u256, 1 << 255);
+            try testArgs(u256, u256, 0);
+            try testArgs(u256, u256, 1 << 0);
+            try testArgs(u256, u256, 1 << 255);
+            try testArgs(u512, u256, 0);
+            try testArgs(u512, u256, 1 << 0);
+            try testArgs(u512, u256, 1 << 255);
+            try testArgs(u1024, u256, 0);
+            try testArgs(u1024, u256, 1 << 0);
+            try testArgs(u1024, u256, 1 << 255);
+
+            try testArgs(i8, i257, -1 << 256);
+            try testArgs(i8, i257, -1);
+            try testArgs(i8, i257, 0);
+            try testArgs(i16, i257, -1 << 256);
+            try testArgs(i16, i257, -1);
+            try testArgs(i16, i257, 0);
+            try testArgs(i32, i257, -1 << 256);
+            try testArgs(i32, i257, -1);
+            try testArgs(i32, i257, 0);
+            try testArgs(i64, i257, -1 << 256);
+            try testArgs(i64, i257, -1);
+            try testArgs(i64, i257, 0);
+            try testArgs(i128, i257, -1 << 256);
+            try testArgs(i128, i257, -1);
+            try testArgs(i128, i257, 0);
+            try testArgs(i256, i257, -1 << 256);
+            try testArgs(i256, i257, -1);
+            try testArgs(i256, i257, 0);
+            try testArgs(i512, i257, -1 << 256);
+            try testArgs(i512, i257, -1);
+            try testArgs(i512, i257, 0);
+            try testArgs(i1024, i257, -1 << 256);
+            try testArgs(i1024, i257, -1);
+            try testArgs(i1024, i257, 0);
+            try testArgs(u8, u257, 0);
+            try testArgs(u8, u257, 1 << 0);
+            try testArgs(u8, u257, 1 << 256);
+            try testArgs(u16, u257, 0);
+            try testArgs(u16, u257, 1 << 0);
+            try testArgs(u16, u257, 1 << 256);
+            try testArgs(u32, u257, 0);
+            try testArgs(u32, u257, 1 << 0);
+            try testArgs(u32, u257, 1 << 256);
+            try testArgs(u64, u257, 0);
+            try testArgs(u64, u257, 1 << 0);
+            try testArgs(u64, u257, 1 << 256);
+            try testArgs(u128, u257, 0);
+            try testArgs(u128, u257, 1 << 0);
+            try testArgs(u128, u257, 1 << 256);
+            try testArgs(u256, u257, 0);
+            try testArgs(u256, u257, 1 << 0);
+            try testArgs(u256, u257, 1 << 256);
+            try testArgs(u512, u257, 0);
+            try testArgs(u512, u257, 1 << 0);
+            try testArgs(u512, u257, 1 << 256);
+            try testArgs(u1024, u257, 0);
+            try testArgs(u1024, u257, 1 << 0);
+            try testArgs(u1024, u257, 1 << 256);
+
+            try testArgs(i8, i511, -1 << 510);
+            try testArgs(i8, i511, -1);
+            try testArgs(i8, i511, 0);
+            try testArgs(i16, i511, -1 << 510);
+            try testArgs(i16, i511, -1);
+            try testArgs(i16, i511, 0);
+            try testArgs(i32, i511, -1 << 510);
+            try testArgs(i32, i511, -1);
+            try testArgs(i32, i511, 0);
+            try testArgs(i64, i511, -1 << 510);
+            try testArgs(i64, i511, -1);
+            try testArgs(i64, i511, 0);
+            try testArgs(i128, i511, -1 << 510);
+            try testArgs(i128, i511, -1);
+            try testArgs(i128, i511, 0);
+            try testArgs(i256, i511, -1 << 510);
+            try testArgs(i256, i511, -1);
+            try testArgs(i256, i511, 0);
+            try testArgs(i512, i511, -1 << 510);
+            try testArgs(i512, i511, -1);
+            try testArgs(i512, i511, 0);
+            try testArgs(i1024, i511, -1 << 510);
+            try testArgs(i1024, i511, -1);
+            try testArgs(i1024, i511, 0);
+            try testArgs(u8, u511, 0);
+            try testArgs(u8, u511, 1 << 0);
+            try testArgs(u8, u511, 1 << 510);
+            try testArgs(u16, u511, 0);
+            try testArgs(u16, u511, 1 << 0);
+            try testArgs(u16, u511, 1 << 510);
+            try testArgs(u32, u511, 0);
+            try testArgs(u32, u511, 1 << 0);
+            try testArgs(u32, u511, 1 << 510);
+            try testArgs(u64, u511, 0);
+            try testArgs(u64, u511, 1 << 0);
+            try testArgs(u64, u511, 1 << 510);
+            try testArgs(u128, u511, 0);
+            try testArgs(u128, u511, 1 << 0);
+            try testArgs(u128, u511, 1 << 510);
+            try testArgs(u256, u511, 0);
+            try testArgs(u256, u511, 1 << 0);
+            try testArgs(u256, u511, 1 << 510);
+            try testArgs(u512, u511, 0);
+            try testArgs(u512, u511, 1 << 0);
+            try testArgs(u512, u511, 1 << 510);
+            try testArgs(u1024, u511, 0);
+            try testArgs(u1024, u511, 1 << 0);
+            try testArgs(u1024, u511, 1 << 510);
+
+            try testArgs(i8, i512, -1 << 511);
+            try testArgs(i8, i512, -1);
+            try testArgs(i8, i512, 0);
+            try testArgs(i16, i512, -1 << 511);
+            try testArgs(i16, i512, -1);
+            try testArgs(i16, i512, 0);
+            try testArgs(i32, i512, -1 << 511);
+            try testArgs(i32, i512, -1);
+            try testArgs(i32, i512, 0);
+            try testArgs(i64, i512, -1 << 511);
+            try testArgs(i64, i512, -1);
+            try testArgs(i64, i512, 0);
+            try testArgs(i128, i512, -1 << 511);
+            try testArgs(i128, i512, -1);
+            try testArgs(i128, i512, 0);
+            try testArgs(i256, i512, -1 << 511);
+            try testArgs(i256, i512, -1);
+            try testArgs(i256, i512, 0);
+            try testArgs(i512, i512, -1 << 511);
+            try testArgs(i512, i512, -1);
+            try testArgs(i512, i512, 0);
+            try testArgs(i1024, i512, -1 << 511);
+            try testArgs(i1024, i512, -1);
+            try testArgs(i1024, i512, 0);
+            try testArgs(u8, u512, 0);
+            try testArgs(u8, u512, 1 << 0);
+            try testArgs(u8, u512, 1 << 511);
+            try testArgs(u16, u512, 0);
+            try testArgs(u16, u512, 1 << 0);
+            try testArgs(u16, u512, 1 << 511);
+            try testArgs(u32, u512, 0);
+            try testArgs(u32, u512, 1 << 0);
+            try testArgs(u32, u512, 1 << 511);
+            try testArgs(u64, u512, 0);
+            try testArgs(u64, u512, 1 << 0);
+            try testArgs(u64, u512, 1 << 511);
+            try testArgs(u128, u512, 0);
+            try testArgs(u128, u512, 1 << 0);
+            try testArgs(u128, u512, 1 << 511);
+            try testArgs(u256, u512, 0);
+            try testArgs(u256, u512, 1 << 0);
+            try testArgs(u256, u512, 1 << 511);
+            try testArgs(u512, u512, 0);
+            try testArgs(u512, u512, 1 << 0);
+            try testArgs(u512, u512, 1 << 511);
+            try testArgs(u1024, u512, 0);
+            try testArgs(u1024, u512, 1 << 0);
+            try testArgs(u1024, u512, 1 << 511);
+
+            try testArgs(i8, i513, -1 << 512);
+            try testArgs(i8, i513, -1);
+            try testArgs(i8, i513, 0);
+            try testArgs(i16, i513, -1 << 512);
+            try testArgs(i16, i513, -1);
+            try testArgs(i16, i513, 0);
+            try testArgs(i32, i513, -1 << 512);
+            try testArgs(i32, i513, -1);
+            try testArgs(i32, i513, 0);
+            try testArgs(i64, i513, -1 << 512);
+            try testArgs(i64, i513, -1);
+            try testArgs(i64, i513, 0);
+            try testArgs(i128, i513, -1 << 512);
+            try testArgs(i128, i513, -1);
+            try testArgs(i128, i513, 0);
+            try testArgs(i256, i513, -1 << 512);
+            try testArgs(i256, i513, -1);
+            try testArgs(i256, i513, 0);
+            try testArgs(i512, i513, -1 << 512);
+            try testArgs(i512, i513, -1);
+            try testArgs(i512, i513, 0);
+            try testArgs(i1024, i513, -1 << 512);
+            try testArgs(i1024, i513, -1);
+            try testArgs(i1024, i513, 0);
+            try testArgs(u8, u513, 0);
+            try testArgs(u8, u513, 1 << 0);
+            try testArgs(u8, u513, 1 << 512);
+            try testArgs(u16, u513, 0);
+            try testArgs(u16, u513, 1 << 0);
+            try testArgs(u16, u513, 1 << 512);
+            try testArgs(u32, u513, 0);
+            try testArgs(u32, u513, 1 << 0);
+            try testArgs(u32, u513, 1 << 512);
+            try testArgs(u64, u513, 0);
+            try testArgs(u64, u513, 1 << 0);
+            try testArgs(u64, u513, 1 << 512);
+            try testArgs(u128, u513, 0);
+            try testArgs(u128, u513, 1 << 0);
+            try testArgs(u128, u513, 1 << 512);
+            try testArgs(u256, u513, 0);
+            try testArgs(u256, u513, 1 << 0);
+            try testArgs(u256, u513, 1 << 512);
+            try testArgs(u512, u513, 0);
+            try testArgs(u512, u513, 1 << 0);
+            try testArgs(u512, u513, 1 << 512);
+            try testArgs(u1024, u513, 0);
+            try testArgs(u1024, u513, 1 << 0);
+            try testArgs(u1024, u513, 1 << 512);
+
+            try testArgs(i8, i1023, -1 << 1022);
+            try testArgs(i8, i1023, -1);
+            try testArgs(i8, i1023, 0);
+            try testArgs(i16, i1023, -1 << 1022);
+            try testArgs(i16, i1023, -1);
+            try testArgs(i16, i1023, 0);
+            try testArgs(i32, i1023, -1 << 1022);
+            try testArgs(i32, i1023, -1);
+            try testArgs(i32, i1023, 0);
+            try testArgs(i64, i1023, -1 << 1022);
+            try testArgs(i64, i1023, -1);
+            try testArgs(i64, i1023, 0);
+            try testArgs(i128, i1023, -1 << 1022);
+            try testArgs(i128, i1023, -1);
+            try testArgs(i128, i1023, 0);
+            try testArgs(i256, i1023, -1 << 1022);
+            try testArgs(i256, i1023, -1);
+            try testArgs(i256, i1023, 0);
+            try testArgs(i512, i1023, -1 << 1022);
+            try testArgs(i512, i1023, -1);
+            try testArgs(i512, i1023, 0);
+            try testArgs(i1024, i1023, -1 << 1022);
+            try testArgs(i1024, i1023, -1);
+            try testArgs(i1024, i1023, 0);
+            try testArgs(u8, u1023, 0);
+            try testArgs(u8, u1023, 1 << 0);
+            try testArgs(u8, u1023, 1 << 1022);
+            try testArgs(u16, u1023, 0);
+            try testArgs(u16, u1023, 1 << 0);
+            try testArgs(u16, u1023, 1 << 1022);
+            try testArgs(u32, u1023, 0);
+            try testArgs(u32, u1023, 1 << 0);
+            try testArgs(u32, u1023, 1 << 1022);
+            try testArgs(u64, u1023, 0);
+            try testArgs(u64, u1023, 1 << 0);
+            try testArgs(u64, u1023, 1 << 1022);
+            try testArgs(u128, u1023, 0);
+            try testArgs(u128, u1023, 1 << 0);
+            try testArgs(u128, u1023, 1 << 1022);
+            try testArgs(u256, u1023, 0);
+            try testArgs(u256, u1023, 1 << 0);
+            try testArgs(u256, u1023, 1 << 1022);
+            try testArgs(u512, u1023, 0);
+            try testArgs(u512, u1023, 1 << 0);
+            try testArgs(u512, u1023, 1 << 1022);
+            try testArgs(u1024, u1023, 0);
+            try testArgs(u1024, u1023, 1 << 0);
+            try testArgs(u1024, u1023, 1 << 1022);
+
+            try testArgs(i8, i1024, -1 << 1023);
+            try testArgs(i8, i1024, -1);
+            try testArgs(i8, i1024, 0);
+            try testArgs(i16, i1024, -1 << 1023);
+            try testArgs(i16, i1024, -1);
+            try testArgs(i16, i1024, 0);
+            try testArgs(i32, i1024, -1 << 1023);
+            try testArgs(i32, i1024, -1);
+            try testArgs(i32, i1024, 0);
+            try testArgs(i64, i1024, -1 << 1023);
+            try testArgs(i64, i1024, -1);
+            try testArgs(i64, i1024, 0);
+            try testArgs(i128, i1024, -1 << 1023);
+            try testArgs(i128, i1024, -1);
+            try testArgs(i128, i1024, 0);
+            try testArgs(i256, i1024, -1 << 1023);
+            try testArgs(i256, i1024, -1);
+            try testArgs(i256, i1024, 0);
+            try testArgs(i512, i1024, -1 << 1023);
+            try testArgs(i512, i1024, -1);
+            try testArgs(i512, i1024, 0);
+            try testArgs(i1024, i1024, -1 << 1023);
+            try testArgs(i1024, i1024, -1);
+            try testArgs(i1024, i1024, 0);
+            try testArgs(u8, u1024, 0);
+            try testArgs(u8, u1024, 1 << 0);
+            try testArgs(u8, u1024, 1 << 1023);
+            try testArgs(u16, u1024, 0);
+            try testArgs(u16, u1024, 1 << 0);
+            try testArgs(u16, u1024, 1 << 1023);
+            try testArgs(u32, u1024, 0);
+            try testArgs(u32, u1024, 1 << 0);
+            try testArgs(u32, u1024, 1 << 1023);
+            try testArgs(u64, u1024, 0);
+            try testArgs(u64, u1024, 1 << 0);
+            try testArgs(u64, u1024, 1 << 1023);
+            try testArgs(u128, u1024, 0);
+            try testArgs(u128, u1024, 1 << 0);
+            try testArgs(u128, u1024, 1 << 1023);
+            try testArgs(u256, u1024, 0);
+            try testArgs(u256, u1024, 1 << 0);
+            try testArgs(u256, u1024, 1 << 1023);
+            try testArgs(u512, u1024, 0);
+            try testArgs(u512, u1024, 1 << 0);
+            try testArgs(u512, u1024, 1 << 1023);
+            try testArgs(u1024, u1024, 0);
+            try testArgs(u1024, u1024, 1 << 0);
+            try testArgs(u1024, u1024, 1 << 1023);
+
+            try testArgs(i8, i1025, -1 << 1024);
+            try testArgs(i8, i1025, -1);
+            try testArgs(i8, i1025, 0);
+            try testArgs(i16, i1025, -1 << 1024);
+            try testArgs(i16, i1025, -1);
+            try testArgs(i16, i1025, 0);
+            try testArgs(i32, i1025, -1 << 1024);
+            try testArgs(i32, i1025, -1);
+            try testArgs(i32, i1025, 0);
+            try testArgs(i64, i1025, -1 << 1024);
+            try testArgs(i64, i1025, -1);
+            try testArgs(i64, i1025, 0);
+            try testArgs(i128, i1025, -1 << 1024);
+            try testArgs(i128, i1025, -1);
+            try testArgs(i128, i1025, 0);
+            try testArgs(i256, i1025, -1 << 1024);
+            try testArgs(i256, i1025, -1);
+            try testArgs(i256, i1025, 0);
+            try testArgs(i512, i1025, -1 << 1024);
+            try testArgs(i512, i1025, -1);
+            try testArgs(i512, i1025, 0);
+            try testArgs(i1024, i1025, -1 << 1024);
+            try testArgs(i1024, i1025, -1);
+            try testArgs(i1024, i1025, 0);
+            try testArgs(u8, u1025, 0);
+            try testArgs(u8, u1025, 1 << 0);
+            try testArgs(u8, u1025, 1 << 1024);
+            try testArgs(u16, u1025, 0);
+            try testArgs(u16, u1025, 1 << 0);
+            try testArgs(u16, u1025, 1 << 1024);
+            try testArgs(u32, u1025, 0);
+            try testArgs(u32, u1025, 1 << 0);
+            try testArgs(u32, u1025, 1 << 1024);
+            try testArgs(u64, u1025, 0);
+            try testArgs(u64, u1025, 1 << 0);
+            try testArgs(u64, u1025, 1 << 1024);
+            try testArgs(u128, u1025, 0);
+            try testArgs(u128, u1025, 1 << 0);
+            try testArgs(u128, u1025, 1 << 1024);
+            try testArgs(u256, u1025, 0);
+            try testArgs(u256, u1025, 1 << 0);
+            try testArgs(u256, u1025, 1 << 1024);
+            try testArgs(u512, u1025, 0);
+            try testArgs(u512, u1025, 1 << 0);
+            try testArgs(u512, u1025, 1 << 1024);
+            try testArgs(u1024, u1025, 0);
+            try testArgs(u1024, u1025, 1 << 0);
+            try testArgs(u1024, u1025, 1 << 1024);
+        }
+        fn testInts() !void {
+            try testSameSignednessInts();
+
+            try testArgs(u8, i1, -1);
+            try testArgs(u8, i1, 0);
+            try testArgs(u16, i1, -1);
+            try testArgs(u16, i1, 0);
+            try testArgs(u32, i1, -1);
+            try testArgs(u32, i1, 0);
+            try testArgs(u64, i1, -1);
+            try testArgs(u64, i1, 0);
+            try testArgs(u128, i1, -1);
+            try testArgs(u128, i1, 0);
+            try testArgs(u256, i1, -1);
+            try testArgs(u256, i1, 0);
+            try testArgs(u512, i1, -1);
+            try testArgs(u512, i1, 0);
+            try testArgs(u1024, i1, -1);
+            try testArgs(u1024, i1, 0);
+            try testArgs(i8, u1, 0);
+            try testArgs(i8, u1, 1 << 0);
+            try testArgs(i16, u1, 0);
+            try testArgs(i16, u1, 1 << 0);
+            try testArgs(i32, u1, 0);
+            try testArgs(i32, u1, 1 << 0);
+            try testArgs(i64, u1, 0);
+            try testArgs(i64, u1, 1 << 0);
+            try testArgs(i128, u1, 0);
+            try testArgs(i128, u1, 1 << 0);
+            try testArgs(i256, u1, 0);
+            try testArgs(i256, u1, 1 << 0);
+            try testArgs(i512, u1, 0);
+            try testArgs(i512, u1, 1 << 0);
+            try testArgs(i1024, u1, 0);
+            try testArgs(i1024, u1, 1 << 0);
+
+            try testArgs(u8, i2, -1 << 1);
+            try testArgs(u8, i2, -1);
+            try testArgs(u8, i2, 0);
+            try testArgs(u16, i2, -1 << 1);
+            try testArgs(u16, i2, -1);
+            try testArgs(u16, i2, 0);
+            try testArgs(u32, i2, -1 << 1);
+            try testArgs(u32, i2, -1);
+            try testArgs(u32, i2, 0);
+            try testArgs(u64, i2, -1 << 1);
+            try testArgs(u64, i2, -1);
+            try testArgs(u64, i2, 0);
+            try testArgs(u128, i2, -1 << 1);
+            try testArgs(u128, i2, -1);
+            try testArgs(u128, i2, 0);
+            try testArgs(u256, i2, -1 << 1);
+            try testArgs(u256, i2, -1);
+            try testArgs(u256, i2, 0);
+            try testArgs(u512, i2, -1 << 1);
+            try testArgs(u512, i2, -1);
+            try testArgs(u512, i2, 0);
+            try testArgs(u1024, i2, -1 << 1);
+            try testArgs(u1024, i2, -1);
+            try testArgs(u1024, i2, 0);
+            try testArgs(i8, u2, 0);
+            try testArgs(i8, u2, 1 << 0);
+            try testArgs(i8, u2, 1 << 1);
+            try testArgs(i16, u2, 0);
+            try testArgs(i16, u2, 1 << 0);
+            try testArgs(i16, u2, 1 << 1);
+            try testArgs(i32, u2, 0);
+            try testArgs(i32, u2, 1 << 0);
+            try testArgs(i32, u2, 1 << 1);
+            try testArgs(i64, u2, 0);
+            try testArgs(i64, u2, 1 << 0);
+            try testArgs(i64, u2, 1 << 1);
+            try testArgs(i128, u2, 0);
+            try testArgs(i128, u2, 1 << 0);
+            try testArgs(i128, u2, 1 << 1);
+            try testArgs(i256, u2, 0);
+            try testArgs(i256, u2, 1 << 0);
+            try testArgs(i256, u2, 1 << 1);
+            try testArgs(i512, u2, 0);
+            try testArgs(i512, u2, 1 << 0);
+            try testArgs(i512, u2, 1 << 1);
+            try testArgs(i1024, u2, 0);
+            try testArgs(i1024, u2, 1 << 0);
+            try testArgs(i1024, u2, 1 << 1);
+
+            try testArgs(u8, i3, -1 << 2);
+            try testArgs(u8, i3, -1);
+            try testArgs(u8, i3, 0);
+            try testArgs(u16, i3, -1 << 2);
+            try testArgs(u16, i3, -1);
+            try testArgs(u16, i3, 0);
+            try testArgs(u32, i3, -1 << 2);
+            try testArgs(u32, i3, -1);
+            try testArgs(u32, i3, 0);
+            try testArgs(u64, i3, -1 << 2);
+            try testArgs(u64, i3, -1);
+            try testArgs(u64, i3, 0);
+            try testArgs(u128, i3, -1 << 2);
+            try testArgs(u128, i3, -1);
+            try testArgs(u128, i3, 0);
+            try testArgs(u256, i3, -1 << 2);
+            try testArgs(u256, i3, -1);
+            try testArgs(u256, i3, 0);
+            try testArgs(u512, i3, -1 << 2);
+            try testArgs(u512, i3, -1);
+            try testArgs(u512, i3, 0);
+            try testArgs(u1024, i3, -1 << 2);
+            try testArgs(u1024, i3, -1);
+            try testArgs(u1024, i3, 0);
+            try testArgs(i8, u3, 0);
+            try testArgs(i8, u3, 1 << 0);
+            try testArgs(i8, u3, 1 << 2);
+            try testArgs(i16, u3, 0);
+            try testArgs(i16, u3, 1 << 0);
+            try testArgs(i16, u3, 1 << 2);
+            try testArgs(i32, u3, 0);
+            try testArgs(i32, u3, 1 << 0);
+            try testArgs(i32, u3, 1 << 2);
+            try testArgs(i64, u3, 0);
+            try testArgs(i64, u3, 1 << 0);
+            try testArgs(i64, u3, 1 << 2);
+            try testArgs(i128, u3, 0);
+            try testArgs(i128, u3, 1 << 0);
+            try testArgs(i128, u3, 1 << 2);
+            try testArgs(i256, u3, 0);
+            try testArgs(i256, u3, 1 << 0);
+            try testArgs(i256, u3, 1 << 2);
+            try testArgs(i512, u3, 0);
+            try testArgs(i512, u3, 1 << 0);
+            try testArgs(i512, u3, 1 << 2);
+            try testArgs(i1024, u3, 0);
+            try testArgs(i1024, u3, 1 << 0);
+            try testArgs(i1024, u3, 1 << 2);
+
+            try testArgs(u8, i4, -1 << 3);
+            try testArgs(u8, i4, -1);
+            try testArgs(u8, i4, 0);
+            try testArgs(u16, i4, -1 << 3);
+            try testArgs(u16, i4, -1);
+            try testArgs(u16, i4, 0);
+            try testArgs(u32, i4, -1 << 3);
+            try testArgs(u32, i4, -1);
+            try testArgs(u32, i4, 0);
+            try testArgs(u64, i4, -1 << 3);
+            try testArgs(u64, i4, -1);
+            try testArgs(u64, i4, 0);
+            try testArgs(u128, i4, -1 << 3);
+            try testArgs(u128, i4, -1);
+            try testArgs(u128, i4, 0);
+            try testArgs(u256, i4, -1 << 3);
+            try testArgs(u256, i4, -1);
+            try testArgs(u256, i4, 0);
+            try testArgs(u512, i4, -1 << 3);
+            try testArgs(u512, i4, -1);
+            try testArgs(u512, i4, 0);
+            try testArgs(u1024, i4, -1 << 3);
+            try testArgs(u1024, i4, -1);
+            try testArgs(u1024, i4, 0);
+            try testArgs(i8, u4, 0);
+            try testArgs(i8, u4, 1 << 0);
+            try testArgs(i8, u4, 1 << 3);
+            try testArgs(i16, u4, 0);
+            try testArgs(i16, u4, 1 << 0);
+            try testArgs(i16, u4, 1 << 3);
+            try testArgs(i32, u4, 0);
+            try testArgs(i32, u4, 1 << 0);
+            try testArgs(i32, u4, 1 << 3);
+            try testArgs(i64, u4, 0);
+            try testArgs(i64, u4, 1 << 0);
+            try testArgs(i64, u4, 1 << 3);
+            try testArgs(i128, u4, 0);
+            try testArgs(i128, u4, 1 << 0);
+            try testArgs(i128, u4, 1 << 3);
+            try testArgs(i256, u4, 0);
+            try testArgs(i256, u4, 1 << 0);
+            try testArgs(i256, u4, 1 << 3);
+            try testArgs(i512, u4, 0);
+            try testArgs(i512, u4, 1 << 0);
+            try testArgs(i512, u4, 1 << 3);
+            try testArgs(i1024, u4, 0);
+            try testArgs(i1024, u4, 1 << 0);
+            try testArgs(i1024, u4, 1 << 3);
+
+            try testArgs(u8, i5, -1 << 4);
+            try testArgs(u8, i5, -1);
+            try testArgs(u8, i5, 0);
+            try testArgs(u16, i5, -1 << 4);
+            try testArgs(u16, i5, -1);
+            try testArgs(u16, i5, 0);
+            try testArgs(u32, i5, -1 << 4);
+            try testArgs(u32, i5, -1);
+            try testArgs(u32, i5, 0);
+            try testArgs(u64, i5, -1 << 4);
+            try testArgs(u64, i5, -1);
+            try testArgs(u64, i5, 0);
+            try testArgs(u128, i5, -1 << 4);
+            try testArgs(u128, i5, -1);
+            try testArgs(u128, i5, 0);
+            try testArgs(u256, i5, -1 << 4);
+            try testArgs(u256, i5, -1);
+            try testArgs(u256, i5, 0);
+            try testArgs(u512, i5, -1 << 4);
+            try testArgs(u512, i5, -1);
+            try testArgs(u512, i5, 0);
+            try testArgs(u1024, i5, -1 << 4);
+            try testArgs(u1024, i5, -1);
+            try testArgs(u1024, i5, 0);
+            try testArgs(i8, u5, 0);
+            try testArgs(i8, u5, 1 << 0);
+            try testArgs(i8, u5, 1 << 4);
+            try testArgs(i16, u5, 0);
+            try testArgs(i16, u5, 1 << 0);
+            try testArgs(i16, u5, 1 << 4);
+            try testArgs(i32, u5, 0);
+            try testArgs(i32, u5, 1 << 0);
+            try testArgs(i32, u5, 1 << 4);
+            try testArgs(i64, u5, 0);
+            try testArgs(i64, u5, 1 << 0);
+            try testArgs(i64, u5, 1 << 4);
+            try testArgs(i128, u5, 0);
+            try testArgs(i128, u5, 1 << 0);
+            try testArgs(i128, u5, 1 << 4);
+            try testArgs(i256, u5, 0);
+            try testArgs(i256, u5, 1 << 0);
+            try testArgs(i256, u5, 1 << 4);
+            try testArgs(i512, u5, 0);
+            try testArgs(i512, u5, 1 << 0);
+            try testArgs(i512, u5, 1 << 4);
+            try testArgs(i1024, u5, 0);
+            try testArgs(i1024, u5, 1 << 0);
+            try testArgs(i1024, u5, 1 << 4);
+
+            try testArgs(u8, i7, -1 << 6);
+            try testArgs(u8, i7, -1);
+            try testArgs(u8, i7, 0);
+            try testArgs(u16, i7, -1 << 6);
+            try testArgs(u16, i7, -1);
+            try testArgs(u16, i7, 0);
+            try testArgs(u32, i7, -1 << 6);
+            try testArgs(u32, i7, -1);
+            try testArgs(u32, i7, 0);
+            try testArgs(u64, i7, -1 << 6);
+            try testArgs(u64, i7, -1);
+            try testArgs(u64, i7, 0);
+            try testArgs(u128, i7, -1 << 6);
+            try testArgs(u128, i7, -1);
+            try testArgs(u128, i7, 0);
+            try testArgs(u256, i7, -1 << 6);
+            try testArgs(u256, i7, -1);
+            try testArgs(u256, i7, 0);
+            try testArgs(u512, i7, -1 << 6);
+            try testArgs(u512, i7, -1);
+            try testArgs(u512, i7, 0);
+            try testArgs(u1024, i7, -1 << 6);
+            try testArgs(u1024, i7, -1);
+            try testArgs(u1024, i7, 0);
+            try testArgs(i8, u7, 0);
+            try testArgs(i8, u7, 1 << 0);
+            try testArgs(i8, u7, 1 << 6);
+            try testArgs(i16, u7, 0);
+            try testArgs(i16, u7, 1 << 0);
+            try testArgs(i16, u7, 1 << 6);
+            try testArgs(i32, u7, 0);
+            try testArgs(i32, u7, 1 << 0);
+            try testArgs(i32, u7, 1 << 6);
+            try testArgs(i64, u7, 0);
+            try testArgs(i64, u7, 1 << 0);
+            try testArgs(i64, u7, 1 << 6);
+            try testArgs(i128, u7, 0);
+            try testArgs(i128, u7, 1 << 0);
+            try testArgs(i128, u7, 1 << 6);
+            try testArgs(i256, u7, 0);
+            try testArgs(i256, u7, 1 << 0);
+            try testArgs(i256, u7, 1 << 6);
+            try testArgs(i512, u7, 0);
+            try testArgs(i512, u7, 1 << 0);
+            try testArgs(i512, u7, 1 << 6);
+            try testArgs(i1024, u7, 0);
+            try testArgs(i1024, u7, 1 << 0);
+            try testArgs(i1024, u7, 1 << 6);
+
+            try testArgs(u8, i8, -1 << 7);
+            try testArgs(u8, i8, -1);
+            try testArgs(u8, i8, 0);
+            try testArgs(u16, i8, -1 << 7);
+            try testArgs(u16, i8, -1);
+            try testArgs(u16, i8, 0);
+            try testArgs(u32, i8, -1 << 7);
+            try testArgs(u32, i8, -1);
+            try testArgs(u32, i8, 0);
+            try testArgs(u64, i8, -1 << 7);
+            try testArgs(u64, i8, -1);
+            try testArgs(u64, i8, 0);
+            try testArgs(u128, i8, -1 << 7);
+            try testArgs(u128, i8, -1);
+            try testArgs(u128, i8, 0);
+            try testArgs(u256, i8, -1 << 7);
+            try testArgs(u256, i8, -1);
+            try testArgs(u256, i8, 0);
+            try testArgs(u512, i8, -1 << 7);
+            try testArgs(u512, i8, -1);
+            try testArgs(u512, i8, 0);
+            try testArgs(u1024, i8, -1 << 7);
+            try testArgs(u1024, i8, -1);
+            try testArgs(u1024, i8, 0);
+            try testArgs(i8, u8, 0);
+            try testArgs(i8, u8, 1 << 0);
+            try testArgs(i8, u8, 1 << 7);
+            try testArgs(i16, u8, 0);
+            try testArgs(i16, u8, 1 << 0);
+            try testArgs(i16, u8, 1 << 7);
+            try testArgs(i32, u8, 0);
+            try testArgs(i32, u8, 1 << 0);
+            try testArgs(i32, u8, 1 << 7);
+            try testArgs(i64, u8, 0);
+            try testArgs(i64, u8, 1 << 0);
+            try testArgs(i64, u8, 1 << 7);
+            try testArgs(i128, u8, 0);
+            try testArgs(i128, u8, 1 << 0);
+            try testArgs(i128, u8, 1 << 7);
+            try testArgs(i256, u8, 0);
+            try testArgs(i256, u8, 1 << 0);
+            try testArgs(i256, u8, 1 << 7);
+            try testArgs(i512, u8, 0);
+            try testArgs(i512, u8, 1 << 0);
+            try testArgs(i512, u8, 1 << 7);
+            try testArgs(i1024, u8, 0);
+            try testArgs(i1024, u8, 1 << 0);
+            try testArgs(i1024, u8, 1 << 7);
+
+            try testArgs(u8, i9, -1 << 8);
+            try testArgs(u8, i9, -1);
+            try testArgs(u8, i9, 0);
+            try testArgs(u16, i9, -1 << 8);
+            try testArgs(u16, i9, -1);
+            try testArgs(u16, i9, 0);
+            try testArgs(u32, i9, -1 << 8);
+            try testArgs(u32, i9, -1);
+            try testArgs(u32, i9, 0);
+            try testArgs(u64, i9, -1 << 8);
+            try testArgs(u64, i9, -1);
+            try testArgs(u64, i9, 0);
+            try testArgs(u128, i9, -1 << 8);
+            try testArgs(u128, i9, -1);
+            try testArgs(u128, i9, 0);
+            try testArgs(u256, i9, -1 << 8);
+            try testArgs(u256, i9, -1);
+            try testArgs(u256, i9, 0);
+            try testArgs(u512, i9, -1 << 8);
+            try testArgs(u512, i9, -1);
+            try testArgs(u512, i9, 0);
+            try testArgs(u1024, i9, -1 << 8);
+            try testArgs(u1024, i9, -1);
+            try testArgs(u1024, i9, 0);
+            try testArgs(i8, u9, 0);
+            try testArgs(i8, u9, 1 << 0);
+            try testArgs(i8, u9, 1 << 8);
+            try testArgs(i16, u9, 0);
+            try testArgs(i16, u9, 1 << 0);
+            try testArgs(i16, u9, 1 << 8);
+            try testArgs(i32, u9, 0);
+            try testArgs(i32, u9, 1 << 0);
+            try testArgs(i32, u9, 1 << 8);
+            try testArgs(i64, u9, 0);
+            try testArgs(i64, u9, 1 << 0);
+            try testArgs(i64, u9, 1 << 8);
+            try testArgs(i128, u9, 0);
+            try testArgs(i128, u9, 1 << 0);
+            try testArgs(i128, u9, 1 << 8);
+            try testArgs(i256, u9, 0);
+            try testArgs(i256, u9, 1 << 0);
+            try testArgs(i256, u9, 1 << 8);
+            try testArgs(i512, u9, 0);
+            try testArgs(i512, u9, 1 << 0);
+            try testArgs(i512, u9, 1 << 8);
+            try testArgs(i1024, u9, 0);
+            try testArgs(i1024, u9, 1 << 0);
+            try testArgs(i1024, u9, 1 << 8);
+
+            try testArgs(u8, i15, -1 << 14);
+            try testArgs(u8, i15, -1);
+            try testArgs(u8, i15, 0);
+            try testArgs(u16, i15, -1 << 14);
+            try testArgs(u16, i15, -1);
+            try testArgs(u16, i15, 0);
+            try testArgs(u32, i15, -1 << 14);
+            try testArgs(u32, i15, -1);
+            try testArgs(u32, i15, 0);
+            try testArgs(u64, i15, -1 << 14);
+            try testArgs(u64, i15, -1);
+            try testArgs(u64, i15, 0);
+            try testArgs(u128, i15, -1 << 14);
+            try testArgs(u128, i15, -1);
+            try testArgs(u128, i15, 0);
+            try testArgs(u256, i15, -1 << 14);
+            try testArgs(u256, i15, -1);
+            try testArgs(u256, i15, 0);
+            try testArgs(u512, i15, -1 << 14);
+            try testArgs(u512, i15, -1);
+            try testArgs(u512, i15, 0);
+            try testArgs(u1024, i15, -1 << 14);
+            try testArgs(u1024, i15, -1);
+            try testArgs(u1024, i15, 0);
+            try testArgs(i8, u15, 0);
+            try testArgs(i8, u15, 1 << 0);
+            try testArgs(i8, u15, 1 << 14);
+            try testArgs(i16, u15, 0);
+            try testArgs(i16, u15, 1 << 0);
+            try testArgs(i16, u15, 1 << 14);
+            try testArgs(i32, u15, 0);
+            try testArgs(i32, u15, 1 << 0);
+            try testArgs(i32, u15, 1 << 14);
+            try testArgs(i64, u15, 0);
+            try testArgs(i64, u15, 1 << 0);
+            try testArgs(i64, u15, 1 << 14);
+            try testArgs(i128, u15, 0);
+            try testArgs(i128, u15, 1 << 0);
+            try testArgs(i128, u15, 1 << 14);
+            try testArgs(i256, u15, 0);
+            try testArgs(i256, u15, 1 << 0);
+            try testArgs(i256, u15, 1 << 14);
+            try testArgs(i512, u15, 0);
+            try testArgs(i512, u15, 1 << 0);
+            try testArgs(i512, u15, 1 << 14);
+            try testArgs(i1024, u15, 0);
+            try testArgs(i1024, u15, 1 << 0);
+            try testArgs(i1024, u15, 1 << 14);
+
+            try testArgs(u8, i16, -1 << 15);
+            try testArgs(u8, i16, -1);
+            try testArgs(u8, i16, 0);
+            try testArgs(u16, i16, -1 << 15);
+            try testArgs(u16, i16, -1);
+            try testArgs(u16, i16, 0);
+            try testArgs(u32, i16, -1 << 15);
+            try testArgs(u32, i16, -1);
+            try testArgs(u32, i16, 0);
+            try testArgs(u64, i16, -1 << 15);
+            try testArgs(u64, i16, -1);
+            try testArgs(u64, i16, 0);
+            try testArgs(u128, i16, -1 << 15);
+            try testArgs(u128, i16, -1);
+            try testArgs(u128, i16, 0);
+            try testArgs(u256, i16, -1 << 15);
+            try testArgs(u256, i16, -1);
+            try testArgs(u256, i16, 0);
+            try testArgs(u512, i16, -1 << 15);
+            try testArgs(u512, i16, -1);
+            try testArgs(u512, i16, 0);
+            try testArgs(u1024, i16, -1 << 15);
+            try testArgs(u1024, i16, -1);
+            try testArgs(u1024, i16, 0);
+            try testArgs(i8, u16, 0);
+            try testArgs(i8, u16, 1 << 0);
+            try testArgs(i8, u16, 1 << 15);
+            try testArgs(i16, u16, 0);
+            try testArgs(i16, u16, 1 << 0);
+            try testArgs(i16, u16, 1 << 15);
+            try testArgs(i32, u16, 0);
+            try testArgs(i32, u16, 1 << 0);
+            try testArgs(i32, u16, 1 << 15);
+            try testArgs(i64, u16, 0);
+            try testArgs(i64, u16, 1 << 0);
+            try testArgs(i64, u16, 1 << 15);
+            try testArgs(i128, u16, 0);
+            try testArgs(i128, u16, 1 << 0);
+            try testArgs(i128, u16, 1 << 15);
+            try testArgs(i256, u16, 0);
+            try testArgs(i256, u16, 1 << 0);
+            try testArgs(i256, u16, 1 << 15);
+            try testArgs(i512, u16, 0);
+            try testArgs(i512, u16, 1 << 0);
+            try testArgs(i512, u16, 1 << 15);
+            try testArgs(i1024, u16, 0);
+            try testArgs(i1024, u16, 1 << 0);
+            try testArgs(i1024, u16, 1 << 15);
+
+            try testArgs(u8, i17, -1 << 16);
+            try testArgs(u8, i17, -1);
+            try testArgs(u8, i17, 0);
+            try testArgs(u16, i17, -1 << 16);
+            try testArgs(u16, i17, -1);
+            try testArgs(u16, i17, 0);
+            try testArgs(u32, i17, -1 << 16);
+            try testArgs(u32, i17, -1);
+            try testArgs(u32, i17, 0);
+            try testArgs(u64, i17, -1 << 16);
+            try testArgs(u64, i17, -1);
+            try testArgs(u64, i17, 0);
+            try testArgs(u128, i17, -1 << 16);
+            try testArgs(u128, i17, -1);
+            try testArgs(u128, i17, 0);
+            try testArgs(u256, i17, -1 << 16);
+            try testArgs(u256, i17, -1);
+            try testArgs(u256, i17, 0);
+            try testArgs(u512, i17, -1 << 16);
+            try testArgs(u512, i17, -1);
+            try testArgs(u512, i17, 0);
+            try testArgs(u1024, i17, -1 << 16);
+            try testArgs(u1024, i17, -1);
+            try testArgs(u1024, i17, 0);
+            try testArgs(i8, u17, 0);
+            try testArgs(i8, u17, 1 << 0);
+            try testArgs(i8, u17, 1 << 16);
+            try testArgs(i16, u17, 0);
+            try testArgs(i16, u17, 1 << 0);
+            try testArgs(i16, u17, 1 << 16);
+            try testArgs(i32, u17, 0);
+            try testArgs(i32, u17, 1 << 0);
+            try testArgs(i32, u17, 1 << 16);
+            try testArgs(i64, u17, 0);
+            try testArgs(i64, u17, 1 << 0);
+            try testArgs(i64, u17, 1 << 16);
+            try testArgs(i128, u17, 0);
+            try testArgs(i128, u17, 1 << 0);
+            try testArgs(i128, u17, 1 << 16);
+            try testArgs(i256, u17, 0);
+            try testArgs(i256, u17, 1 << 0);
+            try testArgs(i256, u17, 1 << 16);
+            try testArgs(i512, u17, 0);
+            try testArgs(i512, u17, 1 << 0);
+            try testArgs(i512, u17, 1 << 16);
+            try testArgs(i1024, u17, 0);
+            try testArgs(i1024, u17, 1 << 0);
+            try testArgs(i1024, u17, 1 << 16);
+
+            try testArgs(u8, i31, -1 << 30);
+            try testArgs(u8, i31, -1);
+            try testArgs(u8, i31, 0);
+            try testArgs(u16, i31, -1 << 30);
+            try testArgs(u16, i31, -1);
+            try testArgs(u16, i31, 0);
+            try testArgs(u32, i31, -1 << 30);
+            try testArgs(u32, i31, -1);
+            try testArgs(u32, i31, 0);
+            try testArgs(u64, i31, -1 << 30);
+            try testArgs(u64, i31, -1);
+            try testArgs(u64, i31, 0);
+            try testArgs(u128, i31, -1 << 30);
+            try testArgs(u128, i31, -1);
+            try testArgs(u128, i31, 0);
+            try testArgs(u256, i31, -1 << 30);
+            try testArgs(u256, i31, -1);
+            try testArgs(u256, i31, 0);
+            try testArgs(u512, i31, -1 << 30);
+            try testArgs(u512, i31, -1);
+            try testArgs(u512, i31, 0);
+            try testArgs(u1024, i31, -1 << 30);
+            try testArgs(u1024, i31, -1);
+            try testArgs(u1024, i31, 0);
+            try testArgs(i8, u31, 0);
+            try testArgs(i8, u31, 1 << 0);
+            try testArgs(i8, u31, 1 << 30);
+            try testArgs(i16, u31, 0);
+            try testArgs(i16, u31, 1 << 0);
+            try testArgs(i16, u31, 1 << 30);
+            try testArgs(i32, u31, 0);
+            try testArgs(i32, u31, 1 << 0);
+            try testArgs(i32, u31, 1 << 30);
+            try testArgs(i64, u31, 0);
+            try testArgs(i64, u31, 1 << 0);
+            try testArgs(i64, u31, 1 << 30);
+            try testArgs(i128, u31, 0);
+            try testArgs(i128, u31, 1 << 0);
+            try testArgs(i128, u31, 1 << 30);
+            try testArgs(i256, u31, 0);
+            try testArgs(i256, u31, 1 << 0);
+            try testArgs(i256, u31, 1 << 30);
+            try testArgs(i512, u31, 0);
+            try testArgs(i512, u31, 1 << 0);
+            try testArgs(i512, u31, 1 << 30);
+            try testArgs(i1024, u31, 0);
+            try testArgs(i1024, u31, 1 << 0);
+            try testArgs(i1024, u31, 1 << 30);
+
+            try testArgs(u8, i32, -1 << 31);
+            try testArgs(u8, i32, -1);
+            try testArgs(u8, i32, 0);
+            try testArgs(u16, i32, -1 << 31);
+            try testArgs(u16, i32, -1);
+            try testArgs(u16, i32, 0);
+            try testArgs(u32, i32, -1 << 31);
+            try testArgs(u32, i32, -1);
+            try testArgs(u32, i32, 0);
+            try testArgs(u64, i32, -1 << 31);
+            try testArgs(u64, i32, -1);
+            try testArgs(u64, i32, 0);
+            try testArgs(u128, i32, -1 << 31);
+            try testArgs(u128, i32, -1);
+            try testArgs(u128, i32, 0);
+            try testArgs(u256, i32, -1 << 31);
+            try testArgs(u256, i32, -1);
+            try testArgs(u256, i32, 0);
+            try testArgs(u512, i32, -1 << 31);
+            try testArgs(u512, i32, -1);
+            try testArgs(u512, i32, 0);
+            try testArgs(u1024, i32, -1 << 31);
+            try testArgs(u1024, i32, -1);
+            try testArgs(u1024, i32, 0);
+            try testArgs(i8, u32, 0);
+            try testArgs(i8, u32, 1 << 0);
+            try testArgs(i8, u32, 1 << 31);
+            try testArgs(i16, u32, 0);
+            try testArgs(i16, u32, 1 << 0);
+            try testArgs(i16, u32, 1 << 31);
+            try testArgs(i32, u32, 0);
+            try testArgs(i32, u32, 1 << 0);
+            try testArgs(i32, u32, 1 << 31);
+            try testArgs(i64, u32, 0);
+            try testArgs(i64, u32, 1 << 0);
+            try testArgs(i64, u32, 1 << 31);
+            try testArgs(i128, u32, 0);
+            try testArgs(i128, u32, 1 << 0);
+            try testArgs(i128, u32, 1 << 31);
+            try testArgs(i256, u32, 0);
+            try testArgs(i256, u32, 1 << 0);
+            try testArgs(i256, u32, 1 << 31);
+            try testArgs(i512, u32, 0);
+            try testArgs(i512, u32, 1 << 0);
+            try testArgs(i512, u32, 1 << 31);
+            try testArgs(i1024, u32, 0);
+            try testArgs(i1024, u32, 1 << 0);
+            try testArgs(i1024, u32, 1 << 31);
+
+            try testArgs(u8, i33, -1 << 32);
+            try testArgs(u8, i33, -1);
+            try testArgs(u8, i33, 0);
+            try testArgs(u16, i33, -1 << 32);
+            try testArgs(u16, i33, -1);
+            try testArgs(u16, i33, 0);
+            try testArgs(u32, i33, -1 << 32);
+            try testArgs(u32, i33, -1);
+            try testArgs(u32, i33, 0);
+            try testArgs(u64, i33, -1 << 32);
+            try testArgs(u64, i33, -1);
+            try testArgs(u64, i33, 0);
+            try testArgs(u128, i33, -1 << 32);
+            try testArgs(u128, i33, -1);
+            try testArgs(u128, i33, 0);
+            try testArgs(u256, i33, -1 << 32);
+            try testArgs(u256, i33, -1);
+            try testArgs(u256, i33, 0);
+            try testArgs(u512, i33, -1 << 32);
+            try testArgs(u512, i33, -1);
+            try testArgs(u512, i33, 0);
+            try testArgs(u1024, i33, -1 << 32);
+            try testArgs(u1024, i33, -1);
+            try testArgs(u1024, i33, 0);
+            try testArgs(i8, u33, 0);
+            try testArgs(i8, u33, 1 << 0);
+            try testArgs(i8, u33, 1 << 32);
+            try testArgs(i16, u33, 0);
+            try testArgs(i16, u33, 1 << 0);
+            try testArgs(i16, u33, 1 << 32);
+            try testArgs(i32, u33, 0);
+            try testArgs(i32, u33, 1 << 0);
+            try testArgs(i32, u33, 1 << 32);
+            try testArgs(i64, u33, 0);
+            try testArgs(i64, u33, 1 << 0);
+            try testArgs(i64, u33, 1 << 32);
+            try testArgs(i128, u33, 0);
+            try testArgs(i128, u33, 1 << 0);
+            try testArgs(i128, u33, 1 << 32);
+            try testArgs(i256, u33, 0);
+            try testArgs(i256, u33, 1 << 0);
+            try testArgs(i256, u33, 1 << 32);
+            try testArgs(i512, u33, 0);
+            try testArgs(i512, u33, 1 << 0);
+            try testArgs(i512, u33, 1 << 32);
+            try testArgs(i1024, u33, 0);
+            try testArgs(i1024, u33, 1 << 0);
+            try testArgs(i1024, u33, 1 << 32);
+
+            try testArgs(u8, i63, -1 << 62);
+            try testArgs(u8, i63, -1);
+            try testArgs(u8, i63, 0);
+            try testArgs(u16, i63, -1 << 62);
+            try testArgs(u16, i63, -1);
+            try testArgs(u16, i63, 0);
+            try testArgs(u32, i63, -1 << 62);
+            try testArgs(u32, i63, -1);
+            try testArgs(u32, i63, 0);
+            try testArgs(u64, i63, -1 << 62);
+            try testArgs(u64, i63, -1);
+            try testArgs(u64, i63, 0);
+            try testArgs(u128, i63, -1 << 62);
+            try testArgs(u128, i63, -1);
+            try testArgs(u128, i63, 0);
+            try testArgs(u256, i63, -1 << 62);
+            try testArgs(u256, i63, -1);
+            try testArgs(u256, i63, 0);
+            try testArgs(u512, i63, -1 << 62);
+            try testArgs(u512, i63, -1);
+            try testArgs(u512, i63, 0);
+            try testArgs(u1024, i63, -1 << 62);
+            try testArgs(u1024, i63, -1);
+            try testArgs(u1024, i63, 0);
+            try testArgs(i8, u63, 0);
+            try testArgs(i8, u63, 1 << 0);
+            try testArgs(i8, u63, 1 << 62);
+            try testArgs(i16, u63, 0);
+            try testArgs(i16, u63, 1 << 0);
+            try testArgs(i16, u63, 1 << 62);
+            try testArgs(i32, u63, 0);
+            try testArgs(i32, u63, 1 << 0);
+            try testArgs(i32, u63, 1 << 62);
+            try testArgs(i64, u63, 0);
+            try testArgs(i64, u63, 1 << 0);
+            try testArgs(i64, u63, 1 << 62);
+            try testArgs(i128, u63, 0);
+            try testArgs(i128, u63, 1 << 0);
+            try testArgs(i128, u63, 1 << 62);
+            try testArgs(i256, u63, 0);
+            try testArgs(i256, u63, 1 << 0);
+            try testArgs(i256, u63, 1 << 62);
+            try testArgs(i512, u63, 0);
+            try testArgs(i512, u63, 1 << 0);
+            try testArgs(i512, u63, 1 << 62);
+            try testArgs(i1024, u63, 0);
+            try testArgs(i1024, u63, 1 << 0);
+            try testArgs(i1024, u63, 1 << 62);
+
+            try testArgs(u8, i64, -1 << 63);
+            try testArgs(u8, i64, -1);
+            try testArgs(u8, i64, 0);
+            try testArgs(u16, i64, -1 << 63);
+            try testArgs(u16, i64, -1);
+            try testArgs(u16, i64, 0);
+            try testArgs(u32, i64, -1 << 63);
+            try testArgs(u32, i64, -1);
+            try testArgs(u32, i64, 0);
+            try testArgs(u64, i64, -1 << 63);
+            try testArgs(u64, i64, -1);
+            try testArgs(u64, i64, 0);
+            try testArgs(u128, i64, -1 << 63);
+            try testArgs(u128, i64, -1);
+            try testArgs(u128, i64, 0);
+            try testArgs(u256, i64, -1 << 63);
+            try testArgs(u256, i64, -1);
+            try testArgs(u256, i64, 0);
+            try testArgs(u512, i64, -1 << 63);
+            try testArgs(u512, i64, -1);
+            try testArgs(u512, i64, 0);
+            try testArgs(u1024, i64, -1 << 63);
+            try testArgs(u1024, i64, -1);
+            try testArgs(u1024, i64, 0);
+            try testArgs(i8, u64, 0);
+            try testArgs(i8, u64, 1 << 0);
+            try testArgs(i8, u64, 1 << 63);
+            try testArgs(i16, u64, 0);
+            try testArgs(i16, u64, 1 << 0);
+            try testArgs(i16, u64, 1 << 63);
+            try testArgs(i32, u64, 0);
+            try testArgs(i32, u64, 1 << 0);
+            try testArgs(i32, u64, 1 << 63);
+            try testArgs(i64, u64, 0);
+            try testArgs(i64, u64, 1 << 0);
+            try testArgs(i64, u64, 1 << 63);
+            try testArgs(i128, u64, 0);
+            try testArgs(i128, u64, 1 << 0);
+            try testArgs(i128, u64, 1 << 63);
+            try testArgs(i256, u64, 0);
+            try testArgs(i256, u64, 1 << 0);
+            try testArgs(i256, u64, 1 << 63);
+            try testArgs(i512, u64, 0);
+            try testArgs(i512, u64, 1 << 0);
+            try testArgs(i512, u64, 1 << 63);
+            try testArgs(i1024, u64, 0);
+            try testArgs(i1024, u64, 1 << 0);
+            try testArgs(i1024, u64, 1 << 63);
+
+            try testArgs(u8, i65, -1 << 64);
+            try testArgs(u8, i65, -1);
+            try testArgs(u8, i65, 0);
+            try testArgs(u16, i65, -1 << 64);
+            try testArgs(u16, i65, -1);
+            try testArgs(u16, i65, 0);
+            try testArgs(u32, i65, -1 << 64);
+            try testArgs(u32, i65, -1);
+            try testArgs(u32, i65, 0);
+            try testArgs(u64, i65, -1 << 64);
+            try testArgs(u64, i65, -1);
+            try testArgs(u64, i65, 0);
+            try testArgs(u128, i65, -1 << 64);
+            try testArgs(u128, i65, -1);
+            try testArgs(u128, i65, 0);
+            try testArgs(u256, i65, -1 << 64);
+            try testArgs(u256, i65, -1);
+            try testArgs(u256, i65, 0);
+            try testArgs(u512, i65, -1 << 64);
+            try testArgs(u512, i65, -1);
+            try testArgs(u512, i65, 0);
+            try testArgs(u1024, i65, -1 << 64);
+            try testArgs(u1024, i65, -1);
+            try testArgs(u1024, i65, 0);
+            try testArgs(i8, u65, 0);
+            try testArgs(i8, u65, 1 << 0);
+            try testArgs(i8, u65, 1 << 64);
+            try testArgs(i16, u65, 0);
+            try testArgs(i16, u65, 1 << 0);
+            try testArgs(i16, u65, 1 << 64);
+            try testArgs(i32, u65, 0);
+            try testArgs(i32, u65, 1 << 0);
+            try testArgs(i32, u65, 1 << 64);
+            try testArgs(i64, u65, 0);
+            try testArgs(i64, u65, 1 << 0);
+            try testArgs(i64, u65, 1 << 64);
+            try testArgs(i128, u65, 0);
+            try testArgs(i128, u65, 1 << 0);
+            try testArgs(i128, u65, 1 << 64);
+            try testArgs(i256, u65, 0);
+            try testArgs(i256, u65, 1 << 0);
+            try testArgs(i256, u65, 1 << 64);
+            try testArgs(i512, u65, 0);
+            try testArgs(i512, u65, 1 << 0);
+            try testArgs(i512, u65, 1 << 64);
+            try testArgs(i1024, u65, 0);
+            try testArgs(i1024, u65, 1 << 0);
+            try testArgs(i1024, u65, 1 << 64);
+
+            try testArgs(u8, i95, -1 << 94);
+            try testArgs(u8, i95, -1);
+            try testArgs(u8, i95, 0);
+            try testArgs(u16, i95, -1 << 94);
+            try testArgs(u16, i95, -1);
+            try testArgs(u16, i95, 0);
+            try testArgs(u32, i95, -1 << 94);
+            try testArgs(u32, i95, -1);
+            try testArgs(u32, i95, 0);
+            try testArgs(u64, i95, -1 << 94);
+            try testArgs(u64, i95, -1);
+            try testArgs(u64, i95, 0);
+            try testArgs(u128, i95, -1 << 94);
+            try testArgs(u128, i95, -1);
+            try testArgs(u128, i95, 0);
+            try testArgs(u256, i95, -1 << 94);
+            try testArgs(u256, i95, -1);
+            try testArgs(u256, i95, 0);
+            try testArgs(u512, i95, -1 << 94);
+            try testArgs(u512, i95, -1);
+            try testArgs(u512, i95, 0);
+            try testArgs(u1024, i95, -1 << 94);
+            try testArgs(u1024, i95, -1);
+            try testArgs(u1024, i95, 0);
+            try testArgs(i8, u95, 0);
+            try testArgs(i8, u95, 1 << 0);
+            try testArgs(i8, u95, 1 << 94);
+            try testArgs(i16, u95, 0);
+            try testArgs(i16, u95, 1 << 0);
+            try testArgs(i16, u95, 1 << 94);
+            try testArgs(i32, u95, 0);
+            try testArgs(i32, u95, 1 << 0);
+            try testArgs(i32, u95, 1 << 94);
+            try testArgs(i64, u95, 0);
+            try testArgs(i64, u95, 1 << 0);
+            try testArgs(i64, u95, 1 << 94);
+            try testArgs(i128, u95, 0);
+            try testArgs(i128, u95, 1 << 0);
+            try testArgs(i128, u95, 1 << 94);
+            try testArgs(i256, u95, 0);
+            try testArgs(i256, u95, 1 << 0);
+            try testArgs(i256, u95, 1 << 94);
+            try testArgs(i512, u95, 0);
+            try testArgs(i512, u95, 1 << 0);
+            try testArgs(i512, u95, 1 << 94);
+            try testArgs(i1024, u95, 0);
+            try testArgs(i1024, u95, 1 << 0);
+            try testArgs(i1024, u95, 1 << 94);
+
+            try testArgs(u8, i96, -1 << 95);
+            try testArgs(u8, i96, -1);
+            try testArgs(u8, i96, 0);
+            try testArgs(u16, i96, -1 << 95);
+            try testArgs(u16, i96, -1);
+            try testArgs(u16, i96, 0);
+            try testArgs(u32, i96, -1 << 95);
+            try testArgs(u32, i96, -1);
+            try testArgs(u32, i96, 0);
+            try testArgs(u64, i96, -1 << 95);
+            try testArgs(u64, i96, -1);
+            try testArgs(u64, i96, 0);
+            try testArgs(u128, i96, -1 << 95);
+            try testArgs(u128, i96, -1);
+            try testArgs(u128, i96, 0);
+            try testArgs(u256, i96, -1 << 95);
+            try testArgs(u256, i96, -1);
+            try testArgs(u256, i96, 0);
+            try testArgs(u512, i96, -1 << 95);
+            try testArgs(u512, i96, -1);
+            try testArgs(u512, i96, 0);
+            try testArgs(u1024, i96, -1 << 95);
+            try testArgs(u1024, i96, -1);
+            try testArgs(u1024, i96, 0);
+            try testArgs(i8, u96, 0);
+            try testArgs(i8, u96, 1 << 0);
+            try testArgs(i8, u96, 1 << 95);
+            try testArgs(i16, u96, 0);
+            try testArgs(i16, u96, 1 << 0);
+            try testArgs(i16, u96, 1 << 95);
+            try testArgs(i32, u96, 0);
+            try testArgs(i32, u96, 1 << 0);
+            try testArgs(i32, u96, 1 << 95);
+            try testArgs(i64, u96, 0);
+            try testArgs(i64, u96, 1 << 0);
+            try testArgs(i64, u96, 1 << 95);
+            try testArgs(i128, u96, 0);
+            try testArgs(i128, u96, 1 << 0);
+            try testArgs(i128, u96, 1 << 95);
+            try testArgs(i256, u96, 0);
+            try testArgs(i256, u96, 1 << 0);
+            try testArgs(i256, u96, 1 << 95);
+            try testArgs(i512, u96, 0);
+            try testArgs(i512, u96, 1 << 0);
+            try testArgs(i512, u96, 1 << 95);
+            try testArgs(i1024, u96, 0);
+            try testArgs(i1024, u96, 1 << 0);
+            try testArgs(i1024, u96, 1 << 95);
+
+            try testArgs(u8, i97, -1 << 96);
+            try testArgs(u8, i97, -1);
+            try testArgs(u8, i97, 0);
+            try testArgs(u16, i97, -1 << 96);
+            try testArgs(u16, i97, -1);
+            try testArgs(u16, i97, 0);
+            try testArgs(u32, i97, -1 << 96);
+            try testArgs(u32, i97, -1);
+            try testArgs(u32, i97, 0);
+            try testArgs(u64, i97, -1 << 96);
+            try testArgs(u64, i97, -1);
+            try testArgs(u64, i97, 0);
+            try testArgs(u128, i97, -1 << 96);
+            try testArgs(u128, i97, -1);
+            try testArgs(u128, i97, 0);
+            try testArgs(u256, i97, -1 << 96);
+            try testArgs(u256, i97, -1);
+            try testArgs(u256, i97, 0);
+            try testArgs(u512, i97, -1 << 96);
+            try testArgs(u512, i97, -1);
+            try testArgs(u512, i97, 0);
+            try testArgs(u1024, i97, -1 << 96);
+            try testArgs(u1024, i97, -1);
+            try testArgs(u1024, i97, 0);
+            try testArgs(i8, u97, 0);
+            try testArgs(i8, u97, 1 << 0);
+            try testArgs(i8, u97, 1 << 96);
+            try testArgs(i16, u97, 0);
+            try testArgs(i16, u97, 1 << 0);
+            try testArgs(i16, u97, 1 << 96);
+            try testArgs(i32, u97, 0);
+            try testArgs(i32, u97, 1 << 0);
+            try testArgs(i32, u97, 1 << 96);
+            try testArgs(i64, u97, 0);
+            try testArgs(i64, u97, 1 << 0);
+            try testArgs(i64, u97, 1 << 96);
+            try testArgs(i128, u97, 0);
+            try testArgs(i128, u97, 1 << 0);
+            try testArgs(i128, u97, 1 << 96);
+            try testArgs(i256, u97, 0);
+            try testArgs(i256, u97, 1 << 0);
+            try testArgs(i256, u97, 1 << 96);
+            try testArgs(i512, u97, 0);
+            try testArgs(i512, u97, 1 << 0);
+            try testArgs(i512, u97, 1 << 96);
+            try testArgs(i1024, u97, 0);
+            try testArgs(i1024, u97, 1 << 0);
+            try testArgs(i1024, u97, 1 << 96);
+
+            try testArgs(u8, i127, -1 << 126);
+            try testArgs(u8, i127, -1);
+            try testArgs(u8, i127, 0);
+            try testArgs(u16, i127, -1 << 126);
+            try testArgs(u16, i127, -1);
+            try testArgs(u16, i127, 0);
+            try testArgs(u32, i127, -1 << 126);
+            try testArgs(u32, i127, -1);
+            try testArgs(u32, i127, 0);
+            try testArgs(u64, i127, -1 << 126);
+            try testArgs(u64, i127, -1);
+            try testArgs(u64, i127, 0);
+            try testArgs(u128, i127, -1 << 126);
+            try testArgs(u128, i127, -1);
+            try testArgs(u128, i127, 0);
+            try testArgs(u256, i127, -1 << 126);
+            try testArgs(u256, i127, -1);
+            try testArgs(u256, i127, 0);
+            try testArgs(u512, i127, -1 << 126);
+            try testArgs(u512, i127, -1);
+            try testArgs(u512, i127, 0);
+            try testArgs(u1024, i127, -1 << 126);
+            try testArgs(u1024, i127, -1);
+            try testArgs(u1024, i127, 0);
+            try testArgs(i8, u127, 0);
+            try testArgs(i8, u127, 1 << 0);
+            try testArgs(i8, u127, 1 << 126);
+            try testArgs(i16, u127, 0);
+            try testArgs(i16, u127, 1 << 0);
+            try testArgs(i16, u127, 1 << 126);
+            try testArgs(i32, u127, 0);
+            try testArgs(i32, u127, 1 << 0);
+            try testArgs(i32, u127, 1 << 126);
+            try testArgs(i64, u127, 0);
+            try testArgs(i64, u127, 1 << 0);
+            try testArgs(i64, u127, 1 << 126);
+            try testArgs(i128, u127, 0);
+            try testArgs(i128, u127, 1 << 0);
+            try testArgs(i128, u127, 1 << 126);
+            try testArgs(i256, u127, 0);
+            try testArgs(i256, u127, 1 << 0);
+            try testArgs(i256, u127, 1 << 126);
+            try testArgs(i512, u127, 0);
+            try testArgs(i512, u127, 1 << 0);
+            try testArgs(i512, u127, 1 << 126);
+            try testArgs(i1024, u127, 0);
+            try testArgs(i1024, u127, 1 << 0);
+            try testArgs(i1024, u127, 1 << 126);
+
+            try testArgs(u8, i128, -1 << 127);
+            try testArgs(u8, i128, -1);
+            try testArgs(u8, i128, 0);
+            try testArgs(u16, i128, -1 << 127);
+            try testArgs(u16, i128, -1);
+            try testArgs(u16, i128, 0);
+            try testArgs(u32, i128, -1 << 127);
+            try testArgs(u32, i128, -1);
+            try testArgs(u32, i128, 0);
+            try testArgs(u64, i128, -1 << 127);
+            try testArgs(u64, i128, -1);
+            try testArgs(u64, i128, 0);
+            try testArgs(u128, i128, -1 << 127);
+            try testArgs(u128, i128, -1);
+            try testArgs(u128, i128, 0);
+            try testArgs(u256, i128, -1 << 127);
+            try testArgs(u256, i128, -1);
+            try testArgs(u256, i128, 0);
+            try testArgs(u512, i128, -1 << 127);
+            try testArgs(u512, i128, -1);
+            try testArgs(u512, i128, 0);
+            try testArgs(u1024, i128, -1 << 127);
+            try testArgs(u1024, i128, -1);
+            try testArgs(u1024, i128, 0);
+            try testArgs(i8, u128, 0);
+            try testArgs(i8, u128, 1 << 0);
+            try testArgs(i8, u128, 1 << 127);
+            try testArgs(i16, u128, 0);
+            try testArgs(i16, u128, 1 << 0);
+            try testArgs(i16, u128, 1 << 127);
+            try testArgs(i32, u128, 0);
+            try testArgs(i32, u128, 1 << 0);
+            try testArgs(i32, u128, 1 << 127);
+            try testArgs(i64, u128, 0);
+            try testArgs(i64, u128, 1 << 0);
+            try testArgs(i64, u128, 1 << 127);
+            try testArgs(i128, u128, 0);
+            try testArgs(i128, u128, 1 << 0);
+            try testArgs(i128, u128, 1 << 127);
+            try testArgs(i256, u128, 0);
+            try testArgs(i256, u128, 1 << 0);
+            try testArgs(i256, u128, 1 << 127);
+            try testArgs(i512, u128, 0);
+            try testArgs(i512, u128, 1 << 0);
+            try testArgs(i512, u128, 1 << 127);
+            try testArgs(i1024, u128, 0);
+            try testArgs(i1024, u128, 1 << 0);
+            try testArgs(i1024, u128, 1 << 127);
+
+            try testArgs(u8, i129, -1 << 128);
+            try testArgs(u8, i129, -1);
+            try testArgs(u8, i129, 0);
+            try testArgs(u16, i129, -1 << 128);
+            try testArgs(u16, i129, -1);
+            try testArgs(u16, i129, 0);
+            try testArgs(u32, i129, -1 << 128);
+            try testArgs(u32, i129, -1);
+            try testArgs(u32, i129, 0);
+            try testArgs(u64, i129, -1 << 128);
+            try testArgs(u64, i129, -1);
+            try testArgs(u64, i129, 0);
+            try testArgs(u128, i129, -1 << 128);
+            try testArgs(u128, i129, -1);
+            try testArgs(u128, i129, 0);
+            try testArgs(u256, i129, -1 << 128);
+            try testArgs(u256, i129, -1);
+            try testArgs(u256, i129, 0);
+            try testArgs(u512, i129, -1 << 128);
+            try testArgs(u512, i129, -1);
+            try testArgs(u512, i129, 0);
+            try testArgs(u1024, i129, -1 << 128);
+            try testArgs(u1024, i129, -1);
+            try testArgs(u1024, i129, 0);
+            try testArgs(i8, u129, 0);
+            try testArgs(i8, u129, 1 << 0);
+            try testArgs(i8, u129, 1 << 128);
+            try testArgs(i16, u129, 0);
+            try testArgs(i16, u129, 1 << 0);
+            try testArgs(i16, u129, 1 << 128);
+            try testArgs(i32, u129, 0);
+            try testArgs(i32, u129, 1 << 0);
+            try testArgs(i32, u129, 1 << 128);
+            try testArgs(i64, u129, 0);
+            try testArgs(i64, u129, 1 << 0);
+            try testArgs(i64, u129, 1 << 128);
+            try testArgs(i128, u129, 0);
+            try testArgs(i128, u129, 1 << 0);
+            try testArgs(i128, u129, 1 << 128);
+            try testArgs(i256, u129, 0);
+            try testArgs(i256, u129, 1 << 0);
+            try testArgs(i256, u129, 1 << 128);
+            try testArgs(i512, u129, 0);
+            try testArgs(i512, u129, 1 << 0);
+            try testArgs(i512, u129, 1 << 128);
+            try testArgs(i1024, u129, 0);
+            try testArgs(i1024, u129, 1 << 0);
+            try testArgs(i1024, u129, 1 << 128);
+
+            try testArgs(u8, i255, -1 << 254);
+            try testArgs(u8, i255, -1);
+            try testArgs(u8, i255, 0);
+            try testArgs(u16, i255, -1 << 254);
+            try testArgs(u16, i255, -1);
+            try testArgs(u16, i255, 0);
+            try testArgs(u32, i255, -1 << 254);
+            try testArgs(u32, i255, -1);
+            try testArgs(u32, i255, 0);
+            try testArgs(u64, i255, -1 << 254);
+            try testArgs(u64, i255, -1);
+            try testArgs(u64, i255, 0);
+            try testArgs(u128, i255, -1 << 254);
+            try testArgs(u128, i255, -1);
+            try testArgs(u128, i255, 0);
+            try testArgs(u256, i255, -1 << 254);
+            try testArgs(u256, i255, -1);
+            try testArgs(u256, i255, 0);
+            try testArgs(u512, i255, -1 << 254);
+            try testArgs(u512, i255, -1);
+            try testArgs(u512, i255, 0);
+            try testArgs(u1024, i255, -1 << 254);
+            try testArgs(u1024, i255, -1);
+            try testArgs(u1024, i255, 0);
+            try testArgs(i8, u255, 0);
+            try testArgs(i8, u255, 1 << 0);
+            try testArgs(i8, u255, 1 << 254);
+            try testArgs(i16, u255, 0);
+            try testArgs(i16, u255, 1 << 0);
+            try testArgs(i16, u255, 1 << 254);
+            try testArgs(i32, u255, 0);
+            try testArgs(i32, u255, 1 << 0);
+            try testArgs(i32, u255, 1 << 254);
+            try testArgs(i64, u255, 0);
+            try testArgs(i64, u255, 1 << 0);
+            try testArgs(i64, u255, 1 << 254);
+            try testArgs(i128, u255, 0);
+            try testArgs(i128, u255, 1 << 0);
+            try testArgs(i128, u255, 1 << 254);
+            try testArgs(i256, u255, 0);
+            try testArgs(i256, u255, 1 << 0);
+            try testArgs(i256, u255, 1 << 254);
+            try testArgs(i512, u255, 0);
+            try testArgs(i512, u255, 1 << 0);
+            try testArgs(i512, u255, 1 << 254);
+            try testArgs(i1024, u255, 0);
+            try testArgs(i1024, u255, 1 << 0);
+            try testArgs(i1024, u255, 1 << 254);
+
+            try testArgs(u8, i256, -1 << 255);
+            try testArgs(u8, i256, -1);
+            try testArgs(u8, i256, 0);
+            try testArgs(u16, i256, -1 << 255);
+            try testArgs(u16, i256, -1);
+            try testArgs(u16, i256, 0);
+            try testArgs(u32, i256, -1 << 255);
+            try testArgs(u32, i256, -1);
+            try testArgs(u32, i256, 0);
+            try testArgs(u64, i256, -1 << 255);
+            try testArgs(u64, i256, -1);
+            try testArgs(u64, i256, 0);
+            try testArgs(u128, i256, -1 << 255);
+            try testArgs(u128, i256, -1);
+            try testArgs(u128, i256, 0);
+            try testArgs(u256, i256, -1 << 255);
+            try testArgs(u256, i256, -1);
+            try testArgs(u256, i256, 0);
+            try testArgs(u512, i256, -1 << 255);
+            try testArgs(u512, i256, -1);
+            try testArgs(u512, i256, 0);
+            try testArgs(u1024, i256, -1 << 255);
+            try testArgs(u1024, i256, -1);
+            try testArgs(u1024, i256, 0);
+            try testArgs(i8, u256, 0);
+            try testArgs(i8, u256, 1 << 0);
+            try testArgs(i8, u256, 1 << 255);
+            try testArgs(i16, u256, 0);
+            try testArgs(i16, u256, 1 << 0);
+            try testArgs(i16, u256, 1 << 255);
+            try testArgs(i32, u256, 0);
+            try testArgs(i32, u256, 1 << 0);
+            try testArgs(i32, u256, 1 << 255);
+            try testArgs(i64, u256, 0);
+            try testArgs(i64, u256, 1 << 0);
+            try testArgs(i64, u256, 1 << 255);
+            try testArgs(i128, u256, 0);
+            try testArgs(i128, u256, 1 << 0);
+            try testArgs(i128, u256, 1 << 255);
+            try testArgs(i256, u256, 0);
+            try testArgs(i256, u256, 1 << 0);
+            try testArgs(i256, u256, 1 << 255);
+            try testArgs(i512, u256, 0);
+            try testArgs(i512, u256, 1 << 0);
+            try testArgs(i512, u256, 1 << 255);
+            try testArgs(i1024, u256, 0);
+            try testArgs(i1024, u256, 1 << 0);
+            try testArgs(i1024, u256, 1 << 255);
+
+            try testArgs(u8, i257, -1 << 256);
+            try testArgs(u8, i257, -1);
+            try testArgs(u8, i257, 0);
+            try testArgs(u16, i257, -1 << 256);
+            try testArgs(u16, i257, -1);
+            try testArgs(u16, i257, 0);
+            try testArgs(u32, i257, -1 << 256);
+            try testArgs(u32, i257, -1);
+            try testArgs(u32, i257, 0);
+            try testArgs(u64, i257, -1 << 256);
+            try testArgs(u64, i257, -1);
+            try testArgs(u64, i257, 0);
+            try testArgs(u128, i257, -1 << 256);
+            try testArgs(u128, i257, -1);
+            try testArgs(u128, i257, 0);
+            try testArgs(u256, i257, -1 << 256);
+            try testArgs(u256, i257, -1);
+            try testArgs(u256, i257, 0);
+            try testArgs(u512, i257, -1 << 256);
+            try testArgs(u512, i257, -1);
+            try testArgs(u512, i257, 0);
+            try testArgs(u1024, i257, -1 << 256);
+            try testArgs(u1024, i257, -1);
+            try testArgs(u1024, i257, 0);
+            try testArgs(i8, u257, 0);
+            try testArgs(i8, u257, 1 << 0);
+            try testArgs(i8, u257, 1 << 256);
+            try testArgs(i16, u257, 0);
+            try testArgs(i16, u257, 1 << 0);
+            try testArgs(i16, u257, 1 << 256);
+            try testArgs(i32, u257, 0);
+            try testArgs(i32, u257, 1 << 0);
+            try testArgs(i32, u257, 1 << 256);
+            try testArgs(i64, u257, 0);
+            try testArgs(i64, u257, 1 << 0);
+            try testArgs(i64, u257, 1 << 256);
+            try testArgs(i128, u257, 0);
+            try testArgs(i128, u257, 1 << 0);
+            try testArgs(i128, u257, 1 << 256);
+            try testArgs(i256, u257, 0);
+            try testArgs(i256, u257, 1 << 0);
+            try testArgs(i256, u257, 1 << 256);
+            try testArgs(i512, u257, 0);
+            try testArgs(i512, u257, 1 << 0);
+            try testArgs(i512, u257, 1 << 256);
+            try testArgs(i1024, u257, 0);
+            try testArgs(i1024, u257, 1 << 0);
+            try testArgs(i1024, u257, 1 << 256);
+
+            try testArgs(u8, i511, -1 << 510);
+            try testArgs(u8, i511, -1);
+            try testArgs(u8, i511, 0);
+            try testArgs(u16, i511, -1 << 510);
+            try testArgs(u16, i511, -1);
+            try testArgs(u16, i511, 0);
+            try testArgs(u32, i511, -1 << 510);
+            try testArgs(u32, i511, -1);
+            try testArgs(u32, i511, 0);
+            try testArgs(u64, i511, -1 << 510);
+            try testArgs(u64, i511, -1);
+            try testArgs(u64, i511, 0);
+            try testArgs(u128, i511, -1 << 510);
+            try testArgs(u128, i511, -1);
+            try testArgs(u128, i511, 0);
+            try testArgs(u256, i511, -1 << 510);
+            try testArgs(u256, i511, -1);
+            try testArgs(u256, i511, 0);
+            try testArgs(u512, i511, -1 << 510);
+            try testArgs(u512, i511, -1);
+            try testArgs(u512, i511, 0);
+            try testArgs(u1024, i511, -1 << 510);
+            try testArgs(u1024, i511, -1);
+            try testArgs(u1024, i511, 0);
+            try testArgs(i8, u511, 0);
+            try testArgs(i8, u511, 1 << 0);
+            try testArgs(i8, u511, 1 << 510);
+            try testArgs(i16, u511, 0);
+            try testArgs(i16, u511, 1 << 0);
+            try testArgs(i16, u511, 1 << 510);
+            try testArgs(i32, u511, 0);
+            try testArgs(i32, u511, 1 << 0);
+            try testArgs(i32, u511, 1 << 510);
+            try testArgs(i64, u511, 0);
+            try testArgs(i64, u511, 1 << 0);
+            try testArgs(i64, u511, 1 << 510);
+            try testArgs(i128, u511, 0);
+            try testArgs(i128, u511, 1 << 0);
+            try testArgs(i128, u511, 1 << 510);
+            try testArgs(i256, u511, 0);
+            try testArgs(i256, u511, 1 << 0);
+            try testArgs(i256, u511, 1 << 510);
+            try testArgs(i512, u511, 0);
+            try testArgs(i512, u511, 1 << 0);
+            try testArgs(i512, u511, 1 << 510);
+            try testArgs(i1024, u511, 0);
+            try testArgs(i1024, u511, 1 << 0);
+            try testArgs(i1024, u511, 1 << 510);
+
+            try testArgs(u8, i512, -1 << 511);
+            try testArgs(u8, i512, -1);
+            try testArgs(u8, i512, 0);
+            try testArgs(u16, i512, -1 << 511);
+            try testArgs(u16, i512, -1);
+            try testArgs(u16, i512, 0);
+            try testArgs(u32, i512, -1 << 511);
+            try testArgs(u32, i512, -1);
+            try testArgs(u32, i512, 0);
+            try testArgs(u64, i512, -1 << 511);
+            try testArgs(u64, i512, -1);
+            try testArgs(u64, i512, 0);
+            try testArgs(u128, i512, -1 << 511);
+            try testArgs(u128, i512, -1);
+            try testArgs(u128, i512, 0);
+            try testArgs(u256, i512, -1 << 511);
+            try testArgs(u256, i512, -1);
+            try testArgs(u256, i512, 0);
+            try testArgs(u512, i512, -1 << 511);
+            try testArgs(u512, i512, -1);
+            try testArgs(u512, i512, 0);
+            try testArgs(u1024, i512, -1 << 511);
+            try testArgs(u1024, i512, -1);
+            try testArgs(u1024, i512, 0);
+            try testArgs(i8, u512, 0);
+            try testArgs(i8, u512, 1 << 0);
+            try testArgs(i8, u512, 1 << 511);
+            try testArgs(i16, u512, 0);
+            try testArgs(i16, u512, 1 << 0);
+            try testArgs(i16, u512, 1 << 511);
+            try testArgs(i32, u512, 0);
+            try testArgs(i32, u512, 1 << 0);
+            try testArgs(i32, u512, 1 << 511);
+            try testArgs(i64, u512, 0);
+            try testArgs(i64, u512, 1 << 0);
+            try testArgs(i64, u512, 1 << 511);
+            try testArgs(i128, u512, 0);
+            try testArgs(i128, u512, 1 << 0);
+            try testArgs(i128, u512, 1 << 511);
+            try testArgs(i256, u512, 0);
+            try testArgs(i256, u512, 1 << 0);
+            try testArgs(i256, u512, 1 << 511);
+            try testArgs(i512, u512, 0);
+            try testArgs(i512, u512, 1 << 0);
+            try testArgs(i512, u512, 1 << 511);
+            try testArgs(i1024, u512, 0);
+            try testArgs(i1024, u512, 1 << 0);
+            try testArgs(i1024, u512, 1 << 511);
+
+            try testArgs(u8, i513, -1 << 512);
+            try testArgs(u8, i513, -1);
+            try testArgs(u8, i513, 0);
+            try testArgs(u16, i513, -1 << 512);
+            try testArgs(u16, i513, -1);
+            try testArgs(u16, i513, 0);
+            try testArgs(u32, i513, -1 << 512);
+            try testArgs(u32, i513, -1);
+            try testArgs(u32, i513, 0);
+            try testArgs(u64, i513, -1 << 512);
+            try testArgs(u64, i513, -1);
+            try testArgs(u64, i513, 0);
+            try testArgs(u128, i513, -1 << 512);
+            try testArgs(u128, i513, -1);
+            try testArgs(u128, i513, 0);
+            try testArgs(u256, i513, -1 << 512);
+            try testArgs(u256, i513, -1);
+            try testArgs(u256, i513, 0);
+            try testArgs(u512, i513, -1 << 512);
+            try testArgs(u512, i513, -1);
+            try testArgs(u512, i513, 0);
+            try testArgs(u1024, i513, -1 << 512);
+            try testArgs(u1024, i513, -1);
+            try testArgs(u1024, i513, 0);
+            try testArgs(i8, u513, 0);
+            try testArgs(i8, u513, 1 << 0);
+            try testArgs(i8, u513, 1 << 512);
+            try testArgs(i16, u513, 0);
+            try testArgs(i16, u513, 1 << 0);
+            try testArgs(i16, u513, 1 << 512);
+            try testArgs(i32, u513, 0);
+            try testArgs(i32, u513, 1 << 0);
+            try testArgs(i32, u513, 1 << 512);
+            try testArgs(i64, u513, 0);
+            try testArgs(i64, u513, 1 << 0);
+            try testArgs(i64, u513, 1 << 512);
+            try testArgs(i128, u513, 0);
+            try testArgs(i128, u513, 1 << 0);
+            try testArgs(i128, u513, 1 << 512);
+            try testArgs(i256, u513, 0);
+            try testArgs(i256, u513, 1 << 0);
+            try testArgs(i256, u513, 1 << 512);
+            try testArgs(i512, u513, 0);
+            try testArgs(i512, u513, 1 << 0);
+            try testArgs(i512, u513, 1 << 512);
+            try testArgs(i1024, u513, 0);
+            try testArgs(i1024, u513, 1 << 0);
+            try testArgs(i1024, u513, 1 << 512);
+
+            try testArgs(u8, i1023, -1 << 1022);
+            try testArgs(u8, i1023, -1);
+            try testArgs(u8, i1023, 0);
+            try testArgs(u16, i1023, -1 << 1022);
+            try testArgs(u16, i1023, -1);
+            try testArgs(u16, i1023, 0);
+            try testArgs(u32, i1023, -1 << 1022);
+            try testArgs(u32, i1023, -1);
+            try testArgs(u32, i1023, 0);
+            try testArgs(u64, i1023, -1 << 1022);
+            try testArgs(u64, i1023, -1);
+            try testArgs(u64, i1023, 0);
+            try testArgs(u128, i1023, -1 << 1022);
+            try testArgs(u128, i1023, -1);
+            try testArgs(u128, i1023, 0);
+            try testArgs(u256, i1023, -1 << 1022);
+            try testArgs(u256, i1023, -1);
+            try testArgs(u256, i1023, 0);
+            try testArgs(u512, i1023, -1 << 1022);
+            try testArgs(u512, i1023, -1);
+            try testArgs(u512, i1023, 0);
+            try testArgs(u1024, i1023, -1 << 1022);
+            try testArgs(u1024, i1023, -1);
+            try testArgs(u1024, i1023, 0);
+            try testArgs(i8, u1023, 0);
+            try testArgs(i8, u1023, 1 << 0);
+            try testArgs(i8, u1023, 1 << 1022);
+            try testArgs(i16, u1023, 0);
+            try testArgs(i16, u1023, 1 << 0);
+            try testArgs(i16, u1023, 1 << 1022);
+            try testArgs(i32, u1023, 0);
+            try testArgs(i32, u1023, 1 << 0);
+            try testArgs(i32, u1023, 1 << 1022);
+            try testArgs(i64, u1023, 0);
+            try testArgs(i64, u1023, 1 << 0);
+            try testArgs(i64, u1023, 1 << 1022);
+            try testArgs(i128, u1023, 0);
+            try testArgs(i128, u1023, 1 << 0);
+            try testArgs(i128, u1023, 1 << 1022);
+            try testArgs(i256, u1023, 0);
+            try testArgs(i256, u1023, 1 << 0);
+            try testArgs(i256, u1023, 1 << 1022);
+            try testArgs(i512, u1023, 0);
+            try testArgs(i512, u1023, 1 << 0);
+            try testArgs(i512, u1023, 1 << 1022);
+            try testArgs(i1024, u1023, 0);
+            try testArgs(i1024, u1023, 1 << 0);
+            try testArgs(i1024, u1023, 1 << 1022);
+
+            try testArgs(u8, i1024, -1 << 1023);
+            try testArgs(u8, i1024, -1);
+            try testArgs(u8, i1024, 0);
+            try testArgs(u16, i1024, -1 << 1023);
+            try testArgs(u16, i1024, -1);
+            try testArgs(u16, i1024, 0);
+            try testArgs(u32, i1024, -1 << 1023);
+            try testArgs(u32, i1024, -1);
+            try testArgs(u32, i1024, 0);
+            try testArgs(u64, i1024, -1 << 1023);
+            try testArgs(u64, i1024, -1);
+            try testArgs(u64, i1024, 0);
+            try testArgs(u128, i1024, -1 << 1023);
+            try testArgs(u128, i1024, -1);
+            try testArgs(u128, i1024, 0);
+            try testArgs(u256, i1024, -1 << 1023);
+            try testArgs(u256, i1024, -1);
+            try testArgs(u256, i1024, 0);
+            try testArgs(u512, i1024, -1 << 1023);
+            try testArgs(u512, i1024, -1);
+            try testArgs(u512, i1024, 0);
+            try testArgs(u1024, i1024, -1 << 1023);
+            try testArgs(u1024, i1024, -1);
+            try testArgs(u1024, i1024, 0);
+            try testArgs(i8, u1024, 0);
+            try testArgs(i8, u1024, 1 << 0);
+            try testArgs(i8, u1024, 1 << 1023);
+            try testArgs(i16, u1024, 0);
+            try testArgs(i16, u1024, 1 << 0);
+            try testArgs(i16, u1024, 1 << 1023);
+            try testArgs(i32, u1024, 0);
+            try testArgs(i32, u1024, 1 << 0);
+            try testArgs(i32, u1024, 1 << 1023);
+            try testArgs(i64, u1024, 0);
+            try testArgs(i64, u1024, 1 << 0);
+            try testArgs(i64, u1024, 1 << 1023);
+            try testArgs(i128, u1024, 0);
+            try testArgs(i128, u1024, 1 << 0);
+            try testArgs(i128, u1024, 1 << 1023);
+            try testArgs(i256, u1024, 0);
+            try testArgs(i256, u1024, 1 << 0);
+            try testArgs(i256, u1024, 1 << 1023);
+            try testArgs(i512, u1024, 0);
+            try testArgs(i512, u1024, 1 << 0);
+            try testArgs(i512, u1024, 1 << 1023);
+            try testArgs(i1024, u1024, 0);
+            try testArgs(i1024, u1024, 1 << 0);
+            try testArgs(i1024, u1024, 1 << 1023);
+
+            try testArgs(u8, i1025, -1 << 1024);
+            try testArgs(u8, i1025, -1);
+            try testArgs(u8, i1025, 0);
+            try testArgs(u16, i1025, -1 << 1024);
+            try testArgs(u16, i1025, -1);
+            try testArgs(u16, i1025, 0);
+            try testArgs(u32, i1025, -1 << 1024);
+            try testArgs(u32, i1025, -1);
+            try testArgs(u32, i1025, 0);
+            try testArgs(u64, i1025, -1 << 1024);
+            try testArgs(u64, i1025, -1);
+            try testArgs(u64, i1025, 0);
+            try testArgs(u128, i1025, -1 << 1024);
+            try testArgs(u128, i1025, -1);
+            try testArgs(u128, i1025, 0);
+            try testArgs(u256, i1025, -1 << 1024);
+            try testArgs(u256, i1025, -1);
+            try testArgs(u256, i1025, 0);
+            try testArgs(u512, i1025, -1 << 1024);
+            try testArgs(u512, i1025, -1);
+            try testArgs(u512, i1025, 0);
+            try testArgs(u1024, i1025, -1 << 1024);
+            try testArgs(u1024, i1025, -1);
+            try testArgs(u1024, i1025, 0);
+            try testArgs(i8, u1025, 0);
+            try testArgs(i8, u1025, 1 << 0);
+            try testArgs(i8, u1025, 1 << 1024);
+            try testArgs(i16, u1025, 0);
+            try testArgs(i16, u1025, 1 << 0);
+            try testArgs(i16, u1025, 1 << 1024);
+            try testArgs(i32, u1025, 0);
+            try testArgs(i32, u1025, 1 << 0);
+            try testArgs(i32, u1025, 1 << 1024);
+            try testArgs(i64, u1025, 0);
+            try testArgs(i64, u1025, 1 << 0);
+            try testArgs(i64, u1025, 1 << 1024);
+            try testArgs(i128, u1025, 0);
+            try testArgs(i128, u1025, 1 << 0);
+            try testArgs(i128, u1025, 1 << 1024);
+            try testArgs(i256, u1025, 0);
+            try testArgs(i256, u1025, 1 << 0);
+            try testArgs(i256, u1025, 1 << 1024);
+            try testArgs(i512, u1025, 0);
+            try testArgs(i512, u1025, 1 << 0);
+            try testArgs(i512, u1025, 1 << 1024);
+            try testArgs(i1024, u1025, 0);
+            try testArgs(i1024, u1025, 1 << 0);
+            try testArgs(i1024, u1025, 1 << 1024);
+        }
+        fn testFloats() !void {
+            @setEvalBranchQuota(3_100);
+
+            try testArgs(f16, f16, -nan(f16));
+            try testArgs(f16, f16, -inf(f16));
+            try testArgs(f16, f16, -fmax(f16));
+            try testArgs(f16, f16, -1e1);
+            try testArgs(f16, f16, -1e0);
+            try testArgs(f16, f16, -1e-1);
+            try testArgs(f16, f16, -fmin(f16));
+            try testArgs(f16, f16, -tmin(f16));
+            try testArgs(f16, f16, -0.0);
+            try testArgs(f16, f16, 0.0);
+            try testArgs(f16, f16, tmin(f16));
+            try testArgs(f16, f16, fmin(f16));
+            try testArgs(f16, f16, 1e-1);
+            try testArgs(f16, f16, 1e0);
+            try testArgs(f16, f16, 1e1);
+            try testArgs(f16, f16, fmax(f16));
+            try testArgs(f16, f16, inf(f16));
+            try testArgs(f16, f16, nan(f16));
+
+            try testArgs(f32, f16, -nan(f16));
+            try testArgs(f32, f16, -inf(f16));
+            try testArgs(f32, f16, -fmax(f16));
+            try testArgs(f32, f16, -1e1);
+            try testArgs(f32, f16, -1e0);
+            try testArgs(f32, f16, -1e-1);
+            try testArgs(f32, f16, -fmin(f16));
+            try testArgs(f32, f16, -tmin(f16));
+            try testArgs(f32, f16, -0.0);
+            try testArgs(f32, f16, 0.0);
+            try testArgs(f32, f16, tmin(f16));
+            try testArgs(f32, f16, fmin(f16));
+            try testArgs(f32, f16, 1e-1);
+            try testArgs(f32, f16, 1e0);
+            try testArgs(f32, f16, 1e1);
+            try testArgs(f32, f16, fmax(f16));
+            try testArgs(f32, f16, inf(f16));
+            try testArgs(f32, f16, nan(f16));
+
+            try testArgs(f64, f16, -nan(f16));
+            try testArgs(f64, f16, -inf(f16));
+            try testArgs(f64, f16, -fmax(f16));
+            try testArgs(f64, f16, -1e1);
+            try testArgs(f64, f16, -1e0);
+            try testArgs(f64, f16, -1e-1);
+            try testArgs(f64, f16, -fmin(f16));
+            try testArgs(f64, f16, -tmin(f16));
+            try testArgs(f64, f16, -0.0);
+            try testArgs(f64, f16, 0.0);
+            try testArgs(f64, f16, tmin(f16));
+            try testArgs(f64, f16, fmin(f16));
+            try testArgs(f64, f16, 1e-1);
+            try testArgs(f64, f16, 1e0);
+            try testArgs(f64, f16, 1e1);
+            try testArgs(f64, f16, fmax(f16));
+            try testArgs(f64, f16, inf(f16));
+            try testArgs(f64, f16, nan(f16));
+
+            try testArgs(f80, f16, -nan(f16));
+            try testArgs(f80, f16, -inf(f16));
+            try testArgs(f80, f16, -fmax(f16));
+            try testArgs(f80, f16, -1e1);
+            try testArgs(f80, f16, -1e0);
+            try testArgs(f80, f16, -1e-1);
+            try testArgs(f80, f16, -fmin(f16));
+            try testArgs(f80, f16, -tmin(f16));
+            try testArgs(f80, f16, -0.0);
+            try testArgs(f80, f16, 0.0);
+            try testArgs(f80, f16, tmin(f16));
+            try testArgs(f80, f16, fmin(f16));
+            try testArgs(f80, f16, 1e-1);
+            try testArgs(f80, f16, 1e0);
+            try testArgs(f80, f16, 1e1);
+            try testArgs(f80, f16, fmax(f16));
+            try testArgs(f80, f16, inf(f16));
+            try testArgs(f80, f16, nan(f16));
+
+            try testArgs(f128, f16, -nan(f16));
+            try testArgs(f128, f16, -inf(f16));
+            try testArgs(f128, f16, -fmax(f16));
+            try testArgs(f128, f16, -1e1);
+            try testArgs(f128, f16, -1e0);
+            try testArgs(f128, f16, -1e-1);
+            try testArgs(f128, f16, -fmin(f16));
+            try testArgs(f128, f16, -tmin(f16));
+            try testArgs(f128, f16, -0.0);
+            try testArgs(f128, f16, 0.0);
+            try testArgs(f128, f16, tmin(f16));
+            try testArgs(f128, f16, fmin(f16));
+            try testArgs(f128, f16, 1e-1);
+            try testArgs(f128, f16, 1e0);
+            try testArgs(f128, f16, 1e1);
+            try testArgs(f128, f16, fmax(f16));
+            try testArgs(f128, f16, inf(f16));
+            try testArgs(f128, f16, nan(f16));
+
+            try testArgs(f16, f32, -nan(f32));
+            try testArgs(f16, f32, -inf(f32));
+            try testArgs(f16, f32, -fmax(f32));
+            try testArgs(f16, f32, -1e1);
+            try testArgs(f16, f32, -1e0);
+            try testArgs(f16, f32, -1e-1);
+            try testArgs(f16, f32, -fmin(f32));
+            try testArgs(f16, f32, -tmin(f32));
+            try testArgs(f16, f32, -0.0);
+            try testArgs(f16, f32, 0.0);
+            try testArgs(f16, f32, tmin(f32));
+            try testArgs(f16, f32, fmin(f32));
+            try testArgs(f16, f32, 1e-1);
+            try testArgs(f16, f32, 1e0);
+            try testArgs(f16, f32, 1e1);
+            try testArgs(f16, f32, fmax(f32));
+            try testArgs(f16, f32, inf(f32));
+            try testArgs(f16, f32, nan(f32));
+
+            try testArgs(f32, f32, -nan(f32));
+            try testArgs(f32, f32, -inf(f32));
+            try testArgs(f32, f32, -fmax(f32));
+            try testArgs(f32, f32, -1e1);
+            try testArgs(f32, f32, -1e0);
+            try testArgs(f32, f32, -1e-1);
+            try testArgs(f32, f32, -fmin(f32));
+            try testArgs(f32, f32, -tmin(f32));
+            try testArgs(f32, f32, -0.0);
+            try testArgs(f32, f32, 0.0);
+            try testArgs(f32, f32, tmin(f32));
+            try testArgs(f32, f32, fmin(f32));
+            try testArgs(f32, f32, 1e-1);
+            try testArgs(f32, f32, 1e0);
+            try testArgs(f32, f32, 1e1);
+            try testArgs(f32, f32, fmax(f32));
+            try testArgs(f32, f32, inf(f32));
+            try testArgs(f32, f32, nan(f32));
+
+            try testArgs(f64, f32, -nan(f32));
+            try testArgs(f64, f32, -inf(f32));
+            try testArgs(f64, f32, -fmax(f32));
+            try testArgs(f64, f32, -1e1);
+            try testArgs(f64, f32, -1e0);
+            try testArgs(f64, f32, -1e-1);
+            try testArgs(f64, f32, -fmin(f32));
+            try testArgs(f64, f32, -tmin(f32));
+            try testArgs(f64, f32, -0.0);
+            try testArgs(f64, f32, 0.0);
+            try testArgs(f64, f32, tmin(f32));
+            try testArgs(f64, f32, fmin(f32));
+            try testArgs(f64, f32, 1e-1);
+            try testArgs(f64, f32, 1e0);
+            try testArgs(f64, f32, 1e1);
+            try testArgs(f64, f32, fmax(f32));
+            try testArgs(f64, f32, inf(f32));
+            try testArgs(f64, f32, nan(f32));
+
+            try testArgs(f80, f32, -nan(f32));
+            try testArgs(f80, f32, -inf(f32));
+            try testArgs(f80, f32, -fmax(f32));
+            try testArgs(f80, f32, -1e1);
+            try testArgs(f80, f32, -1e0);
+            try testArgs(f80, f32, -1e-1);
+            try testArgs(f80, f32, -fmin(f32));
+            try testArgs(f80, f32, -tmin(f32));
+            try testArgs(f80, f32, -0.0);
+            try testArgs(f80, f32, 0.0);
+            try testArgs(f80, f32, tmin(f32));
+            try testArgs(f80, f32, fmin(f32));
+            try testArgs(f80, f32, 1e-1);
+            try testArgs(f80, f32, 1e0);
+            try testArgs(f80, f32, 1e1);
+            try testArgs(f80, f32, fmax(f32));
+            try testArgs(f80, f32, inf(f32));
+            try testArgs(f80, f32, nan(f32));
+
+            try testArgs(f128, f32, -nan(f32));
+            try testArgs(f128, f32, -inf(f32));
+            try testArgs(f128, f32, -fmax(f32));
+            try testArgs(f128, f32, -1e1);
+            try testArgs(f128, f32, -1e0);
+            try testArgs(f128, f32, -1e-1);
+            try testArgs(f128, f32, -fmin(f32));
+            try testArgs(f128, f32, -tmin(f32));
+            try testArgs(f128, f32, -0.0);
+            try testArgs(f128, f32, 0.0);
+            try testArgs(f128, f32, tmin(f32));
+            try testArgs(f128, f32, fmin(f32));
+            try testArgs(f128, f32, 1e-1);
+            try testArgs(f128, f32, 1e0);
+            try testArgs(f128, f32, 1e1);
+            try testArgs(f128, f32, fmax(f32));
+            try testArgs(f128, f32, inf(f32));
+            try testArgs(f128, f32, nan(f32));
+
+            try testArgs(f16, f64, -nan(f64));
+            try testArgs(f16, f64, -inf(f64));
+            try testArgs(f16, f64, -fmax(f64));
+            try testArgs(f16, f64, -1e1);
+            try testArgs(f16, f64, -1e0);
+            try testArgs(f16, f64, -1e-1);
+            try testArgs(f16, f64, -fmin(f64));
+            try testArgs(f16, f64, -tmin(f64));
+            try testArgs(f16, f64, -0.0);
+            try testArgs(f16, f64, 0.0);
+            try testArgs(f16, f64, tmin(f64));
+            try testArgs(f16, f64, fmin(f64));
+            try testArgs(f16, f64, 1e-1);
+            try testArgs(f16, f64, 1e0);
+            try testArgs(f16, f64, 1e1);
+            try testArgs(f16, f64, fmax(f64));
+            try testArgs(f16, f64, inf(f64));
+            try testArgs(f16, f64, nan(f64));
+
+            try testArgs(f32, f64, -nan(f64));
+            try testArgs(f32, f64, -inf(f64));
+            try testArgs(f32, f64, -fmax(f64));
+            try testArgs(f32, f64, -1e1);
+            try testArgs(f32, f64, -1e0);
+            try testArgs(f32, f64, -1e-1);
+            try testArgs(f32, f64, -fmin(f64));
+            try testArgs(f32, f64, -tmin(f64));
+            try testArgs(f32, f64, -0.0);
+            try testArgs(f32, f64, 0.0);
+            try testArgs(f32, f64, tmin(f64));
+            try testArgs(f32, f64, fmin(f64));
+            try testArgs(f32, f64, 1e-1);
+            try testArgs(f32, f64, 1e0);
+            try testArgs(f32, f64, 1e1);
+            try testArgs(f32, f64, fmax(f64));
+            try testArgs(f32, f64, inf(f64));
+            try testArgs(f32, f64, nan(f64));
+
+            try testArgs(f64, f64, -nan(f64));
+            try testArgs(f64, f64, -inf(f64));
+            try testArgs(f64, f64, -fmax(f64));
+            try testArgs(f64, f64, -1e1);
+            try testArgs(f64, f64, -1e0);
+            try testArgs(f64, f64, -1e-1);
+            try testArgs(f64, f64, -fmin(f64));
+            try testArgs(f64, f64, -tmin(f64));
+            try testArgs(f64, f64, -0.0);
+            try testArgs(f64, f64, 0.0);
+            try testArgs(f64, f64, tmin(f64));
+            try testArgs(f64, f64, fmin(f64));
+            try testArgs(f64, f64, 1e-1);
+            try testArgs(f64, f64, 1e0);
+            try testArgs(f64, f64, 1e1);
+            try testArgs(f64, f64, fmax(f64));
+            try testArgs(f64, f64, inf(f64));
+            try testArgs(f64, f64, nan(f64));
+
+            try testArgs(f80, f64, -nan(f64));
+            try testArgs(f80, f64, -inf(f64));
+            try testArgs(f80, f64, -fmax(f64));
+            try testArgs(f80, f64, -1e1);
+            try testArgs(f80, f64, -1e0);
+            try testArgs(f80, f64, -1e-1);
+            try testArgs(f80, f64, -fmin(f64));
+            try testArgs(f80, f64, -tmin(f64));
+            try testArgs(f80, f64, -0.0);
+            try testArgs(f80, f64, 0.0);
+            try testArgs(f80, f64, tmin(f64));
+            try testArgs(f80, f64, fmin(f64));
+            try testArgs(f80, f64, 1e-1);
+            try testArgs(f80, f64, 1e0);
+            try testArgs(f80, f64, 1e1);
+            try testArgs(f80, f64, fmax(f64));
+            try testArgs(f80, f64, inf(f64));
+            try testArgs(f80, f64, nan(f64));
+
+            try testArgs(f128, f64, -nan(f64));
+            try testArgs(f128, f64, -inf(f64));
+            try testArgs(f128, f64, -fmax(f64));
+            try testArgs(f128, f64, -1e1);
+            try testArgs(f128, f64, -1e0);
+            try testArgs(f128, f64, -1e-1);
+            try testArgs(f128, f64, -fmin(f64));
+            try testArgs(f128, f64, -tmin(f64));
+            try testArgs(f128, f64, -0.0);
+            try testArgs(f128, f64, 0.0);
+            try testArgs(f128, f64, tmin(f64));
+            try testArgs(f128, f64, fmin(f64));
+            try testArgs(f128, f64, 1e-1);
+            try testArgs(f128, f64, 1e0);
+            try testArgs(f128, f64, 1e1);
+            try testArgs(f128, f64, fmax(f64));
+            try testArgs(f128, f64, inf(f64));
+            try testArgs(f128, f64, nan(f64));
+
+            try testArgs(f16, f80, -nan(f80));
+            try testArgs(f16, f80, -inf(f80));
+            try testArgs(f16, f80, -fmax(f80));
+            try testArgs(f16, f80, -1e1);
+            try testArgs(f16, f80, -1e0);
+            try testArgs(f16, f80, -1e-1);
+            try testArgs(f16, f80, -fmin(f80));
+            try testArgs(f16, f80, -tmin(f80));
+            try testArgs(f16, f80, -0.0);
+            try testArgs(f16, f80, 0.0);
+            try testArgs(f16, f80, tmin(f80));
+            try testArgs(f16, f80, fmin(f80));
+            try testArgs(f16, f80, 1e-1);
+            try testArgs(f16, f80, 1e0);
+            try testArgs(f16, f80, 1e1);
+            try testArgs(f16, f80, fmax(f80));
+            try testArgs(f16, f80, inf(f80));
+            try testArgs(f16, f80, nan(f80));
+
+            try testArgs(f32, f80, -nan(f80));
+            try testArgs(f32, f80, -inf(f80));
+            try testArgs(f32, f80, -fmax(f80));
+            try testArgs(f32, f80, -1e1);
+            try testArgs(f32, f80, -1e0);
+            try testArgs(f32, f80, -1e-1);
+            try testArgs(f32, f80, -fmin(f80));
+            try testArgs(f32, f80, -tmin(f80));
+            try testArgs(f32, f80, -0.0);
+            try testArgs(f32, f80, 0.0);
+            try testArgs(f32, f80, tmin(f80));
+            try testArgs(f32, f80, fmin(f80));
+            try testArgs(f32, f80, 1e-1);
+            try testArgs(f32, f80, 1e0);
+            try testArgs(f32, f80, 1e1);
+            try testArgs(f32, f80, fmax(f80));
+            try testArgs(f32, f80, inf(f80));
+            try testArgs(f32, f80, nan(f80));
+
+            try testArgs(f64, f80, -nan(f80));
+            try testArgs(f64, f80, -inf(f80));
+            try testArgs(f64, f80, -fmax(f80));
+            try testArgs(f64, f80, -1e1);
+            try testArgs(f64, f80, -1e0);
+            try testArgs(f64, f80, -1e-1);
+            try testArgs(f64, f80, -fmin(f80));
+            try testArgs(f64, f80, -tmin(f80));
+            try testArgs(f64, f80, -0.0);
+            try testArgs(f64, f80, 0.0);
+            try testArgs(f64, f80, tmin(f80));
+            try testArgs(f64, f80, fmin(f80));
+            try testArgs(f64, f80, 1e-1);
+            try testArgs(f64, f80, 1e0);
+            try testArgs(f64, f80, 1e1);
+            try testArgs(f64, f80, fmax(f80));
+            try testArgs(f64, f80, inf(f80));
+            try testArgs(f64, f80, nan(f80));
+
+            try testArgs(f80, f80, -nan(f80));
+            try testArgs(f80, f80, -inf(f80));
+            try testArgs(f80, f80, -fmax(f80));
+            try testArgs(f80, f80, -1e1);
+            try testArgs(f80, f80, -1e0);
+            try testArgs(f80, f80, -1e-1);
+            try testArgs(f80, f80, -fmin(f80));
+            try testArgs(f80, f80, -tmin(f80));
+            try testArgs(f80, f80, -0.0);
+            try testArgs(f80, f80, 0.0);
+            try testArgs(f80, f80, tmin(f80));
+            try testArgs(f80, f80, fmin(f80));
+            try testArgs(f80, f80, 1e-1);
+            try testArgs(f80, f80, 1e0);
+            try testArgs(f80, f80, 1e1);
+            try testArgs(f80, f80, fmax(f80));
+            try testArgs(f80, f80, inf(f80));
+            try testArgs(f80, f80, nan(f80));
+
+            try testArgs(f128, f80, -nan(f80));
+            try testArgs(f128, f80, -inf(f80));
+            try testArgs(f128, f80, -fmax(f80));
+            try testArgs(f128, f80, -1e1);
+            try testArgs(f128, f80, -1e0);
+            try testArgs(f128, f80, -1e-1);
+            try testArgs(f128, f80, -fmin(f80));
+            try testArgs(f128, f80, -tmin(f80));
+            try testArgs(f128, f80, -0.0);
+            try testArgs(f128, f80, 0.0);
+            try testArgs(f128, f80, tmin(f80));
+            try testArgs(f128, f80, fmin(f80));
+            try testArgs(f128, f80, 1e-1);
+            try testArgs(f128, f80, 1e0);
+            try testArgs(f128, f80, 1e1);
+            try testArgs(f128, f80, fmax(f80));
+            try testArgs(f128, f80, inf(f80));
+            try testArgs(f128, f80, nan(f80));
+
+            try testArgs(f16, f128, -nan(f128));
+            try testArgs(f16, f128, -inf(f128));
+            try testArgs(f16, f128, -fmax(f128));
+            try testArgs(f16, f128, -1e1);
+            try testArgs(f16, f128, -1e0);
+            try testArgs(f16, f128, -1e-1);
+            try testArgs(f16, f128, -fmin(f128));
+            try testArgs(f16, f128, -tmin(f128));
+            try testArgs(f16, f128, -0.0);
+            try testArgs(f16, f128, 0.0);
+            try testArgs(f16, f128, tmin(f128));
+            try testArgs(f16, f128, fmin(f128));
+            try testArgs(f16, f128, 1e-1);
+            try testArgs(f16, f128, 1e0);
+            try testArgs(f16, f128, 1e1);
+            try testArgs(f16, f128, fmax(f128));
+            try testArgs(f16, f128, inf(f128));
+            try testArgs(f16, f128, nan(f128));
+
+            try testArgs(f32, f128, -nan(f128));
+            try testArgs(f32, f128, -inf(f128));
+            try testArgs(f32, f128, -fmax(f128));
+            try testArgs(f32, f128, -1e1);
+            try testArgs(f32, f128, -1e0);
+            try testArgs(f32, f128, -1e-1);
+            try testArgs(f32, f128, -fmin(f128));
+            try testArgs(f32, f128, -tmin(f128));
+            try testArgs(f32, f128, -0.0);
+            try testArgs(f32, f128, 0.0);
+            try testArgs(f32, f128, tmin(f128));
+            try testArgs(f32, f128, fmin(f128));
+            try testArgs(f32, f128, 1e-1);
+            try testArgs(f32, f128, 1e0);
+            try testArgs(f32, f128, 1e1);
+            try testArgs(f32, f128, fmax(f128));
+            try testArgs(f32, f128, inf(f128));
+            try testArgs(f32, f128, nan(f128));
+
+            try testArgs(f64, f128, -nan(f128));
+            try testArgs(f64, f128, -inf(f128));
+            try testArgs(f64, f128, -fmax(f128));
+            try testArgs(f64, f128, -1e1);
+            try testArgs(f64, f128, -1e0);
+            try testArgs(f64, f128, -1e-1);
+            try testArgs(f64, f128, -fmin(f128));
+            try testArgs(f64, f128, -tmin(f128));
+            try testArgs(f64, f128, -0.0);
+            try testArgs(f64, f128, 0.0);
+            try testArgs(f64, f128, tmin(f128));
+            try testArgs(f64, f128, fmin(f128));
+            try testArgs(f64, f128, 1e-1);
+            try testArgs(f64, f128, 1e0);
+            try testArgs(f64, f128, 1e1);
+            try testArgs(f64, f128, fmax(f128));
+            try testArgs(f64, f128, inf(f128));
+            try testArgs(f64, f128, nan(f128));
+
+            try testArgs(f80, f128, -nan(f128));
+            try testArgs(f80, f128, -inf(f128));
+            try testArgs(f80, f128, -fmax(f128));
+            try testArgs(f80, f128, -1e1);
+            try testArgs(f80, f128, -1e0);
+            try testArgs(f80, f128, -1e-1);
+            try testArgs(f80, f128, -fmin(f128));
+            try testArgs(f80, f128, -tmin(f128));
+            try testArgs(f80, f128, -0.0);
+            try testArgs(f80, f128, 0.0);
+            try testArgs(f80, f128, tmin(f128));
+            try testArgs(f80, f128, fmin(f128));
+            try testArgs(f80, f128, 1e-1);
+            try testArgs(f80, f128, 1e0);
+            try testArgs(f80, f128, 1e1);
+            try testArgs(f80, f128, fmax(f128));
+            try testArgs(f80, f128, inf(f128));
+            try testArgs(f80, f128, nan(f128));
+
+            try testArgs(f128, f128, -nan(f128));
+            try testArgs(f128, f128, -inf(f128));
+            try testArgs(f128, f128, -fmax(f128));
+            try testArgs(f128, f128, -1e1);
+            try testArgs(f128, f128, -1e0);
+            try testArgs(f128, f128, -1e-1);
+            try testArgs(f128, f128, -fmin(f128));
+            try testArgs(f128, f128, -tmin(f128));
+            try testArgs(f128, f128, -0.0);
+            try testArgs(f128, f128, 0.0);
+            try testArgs(f128, f128, tmin(f128));
+            try testArgs(f128, f128, fmin(f128));
+            try testArgs(f128, f128, 1e-1);
+            try testArgs(f128, f128, 1e0);
+            try testArgs(f128, f128, 1e1);
+            try testArgs(f128, f128, fmax(f128));
+            try testArgs(f128, f128, inf(f128));
+            try testArgs(f128, f128, nan(f128));
+        }
+        fn testIntVectors() !void {
+            try testArgs(@Vector(1, i8), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, u8), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, i16), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, u16), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, i32), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, u32), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, i64), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, u64), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, i128), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, u128), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, i256), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, u256), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, i512), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, u512), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, i1024), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, u1024), @Vector(1, i1), .{-1});
+            try testArgs(@Vector(1, i8), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, u8), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, i16), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, u16), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, i32), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, u32), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, i64), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, u64), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, i128), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, u128), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, i256), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, u256), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, i512), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, u512), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, i1024), @Vector(1, u1), .{1});
+            try testArgs(@Vector(1, u1024), @Vector(1, u1), .{1});
+
+            try testArgs(@Vector(2, i8), @Vector(2, i1), .{ -1, 0 });
+            try testArgs(@Vector(2, u8), @Vector(2, i1), .{ -1, 0 });
+            try testArgs(@Vector(2, i16), @Vector(2, i1), .{ -1, 0 });
+            try testArgs(@Vector(2, u16), @Vector(2, i1), .{ -1, 0 });
+            try testArgs(@Vector(2, i32), @Vector(2, i1), .{ -1, 0 });
+            try testArgs(@Vector(2, u32), @Vector(2, i1), .{ -1, 0 });
+            try testArgs(@Vector(2, i64), @Vector(2, i1), .{ -1, 0 });
+            try testArgs(@Vector(2, u64), @Vector(2, i1), .{ -1, 0 });
+            try testArgs(@Vector(2, i128), @Vector(2, i1), .{ -1, 0 });
+            try testArgs(@Vector(2, u128), @Vector(2, i1), .{ -1, 0 });
+            try testArgs(@Vector(2, i256), @Vector(2, i1), .{ -1, 0 });
+            try testArgs(@Vector(2, u256), @Vector(2, i1), .{ -1, 0 });
+            try testArgs(@Vector(2, i512), @Vector(2, i1), .{ -1, 0 });
+            try testArgs(@Vector(2, u512), @Vector(2, i1), .{ -1, 0 });
+            try testArgs(@Vector(2, i1024), @Vector(2, i1), .{ -1, 0 });
+            try testArgs(@Vector(2, u1024), @Vector(2, i1), .{ -1, 0 });
+            try testArgs(@Vector(2, i8), @Vector(2, u1), .{ 0, 1 });
+            try testArgs(@Vector(2, u8), @Vector(2, u1), .{ 0, 1 });
+            try testArgs(@Vector(2, i16), @Vector(2, u1), .{ 0, 1 });
+            try testArgs(@Vector(2, u16), @Vector(2, u1), .{ 0, 1 });
+            try testArgs(@Vector(2, i32), @Vector(2, u1), .{ 0, 1 });
+            try testArgs(@Vector(2, u32), @Vector(2, u1), .{ 0, 1 });
+            try testArgs(@Vector(2, i64), @Vector(2, u1), .{ 0, 1 });
+            try testArgs(@Vector(2, u64), @Vector(2, u1), .{ 0, 1 });
+            try testArgs(@Vector(2, i128), @Vector(2, u1), .{ 0, 1 });
+            try testArgs(@Vector(2, u128), @Vector(2, u1), .{ 0, 1 });
+            try testArgs(@Vector(2, i256), @Vector(2, u1), .{ 0, 1 });
+            try testArgs(@Vector(2, u256), @Vector(2, u1), .{ 0, 1 });
+            try testArgs(@Vector(2, i512), @Vector(2, u1), .{ 0, 1 });
+            try testArgs(@Vector(2, u512), @Vector(2, u1), .{ 0, 1 });
+            try testArgs(@Vector(2, i1024), @Vector(2, u1), .{ 0, 1 });
+            try testArgs(@Vector(2, u1024), @Vector(2, u1), .{ 0, 1 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i2), .{ -1 << 1, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i2), .{ -1 << 1, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i2), .{ -1 << 1, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i2), .{ -1 << 1, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i2), .{ -1 << 1, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i2), .{ -1 << 1, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i2), .{ -1 << 1, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i2), .{ -1 << 1, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i2), .{ -1 << 1, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i2), .{ -1 << 1, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i2), .{ -1 << 1, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i2), .{ -1 << 1, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i2), .{ -1 << 1, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i2), .{ -1 << 1, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i2), .{ -1 << 1, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i2), .{ -1 << 1, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u2), .{ 0, 1, 1 << 1 });
+            try testArgs(@Vector(3, u8), @Vector(3, u2), .{ 0, 1, 1 << 1 });
+            try testArgs(@Vector(3, i16), @Vector(3, u2), .{ 0, 1, 1 << 1 });
+            try testArgs(@Vector(3, u16), @Vector(3, u2), .{ 0, 1, 1 << 1 });
+            try testArgs(@Vector(3, i32), @Vector(3, u2), .{ 0, 1, 1 << 1 });
+            try testArgs(@Vector(3, u32), @Vector(3, u2), .{ 0, 1, 1 << 1 });
+            try testArgs(@Vector(3, i64), @Vector(3, u2), .{ 0, 1, 1 << 1 });
+            try testArgs(@Vector(3, u64), @Vector(3, u2), .{ 0, 1, 1 << 1 });
+            try testArgs(@Vector(3, i128), @Vector(3, u2), .{ 0, 1, 1 << 1 });
+            try testArgs(@Vector(3, u128), @Vector(3, u2), .{ 0, 1, 1 << 1 });
+            try testArgs(@Vector(3, i256), @Vector(3, u2), .{ 0, 1, 1 << 1 });
+            try testArgs(@Vector(3, u256), @Vector(3, u2), .{ 0, 1, 1 << 1 });
+            try testArgs(@Vector(3, i512), @Vector(3, u2), .{ 0, 1, 1 << 1 });
+            try testArgs(@Vector(3, u512), @Vector(3, u2), .{ 0, 1, 1 << 1 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u2), .{ 0, 1, 1 << 1 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u2), .{ 0, 1, 1 << 1 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i3), .{ -1 << 2, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i3), .{ -1 << 2, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i3), .{ -1 << 2, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i3), .{ -1 << 2, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i3), .{ -1 << 2, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i3), .{ -1 << 2, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i3), .{ -1 << 2, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i3), .{ -1 << 2, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i3), .{ -1 << 2, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i3), .{ -1 << 2, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i3), .{ -1 << 2, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i3), .{ -1 << 2, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i3), .{ -1 << 2, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i3), .{ -1 << 2, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i3), .{ -1 << 2, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i3), .{ -1 << 2, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u3), .{ 0, 1, 1 << 2 });
+            try testArgs(@Vector(3, u8), @Vector(3, u3), .{ 0, 1, 1 << 2 });
+            try testArgs(@Vector(3, i16), @Vector(3, u3), .{ 0, 1, 1 << 2 });
+            try testArgs(@Vector(3, u16), @Vector(3, u3), .{ 0, 1, 1 << 2 });
+            try testArgs(@Vector(3, i32), @Vector(3, u3), .{ 0, 1, 1 << 2 });
+            try testArgs(@Vector(3, u32), @Vector(3, u3), .{ 0, 1, 1 << 2 });
+            try testArgs(@Vector(3, i64), @Vector(3, u3), .{ 0, 1, 1 << 2 });
+            try testArgs(@Vector(3, u64), @Vector(3, u3), .{ 0, 1, 1 << 2 });
+            try testArgs(@Vector(3, i128), @Vector(3, u3), .{ 0, 1, 1 << 2 });
+            try testArgs(@Vector(3, u128), @Vector(3, u3), .{ 0, 1, 1 << 2 });
+            try testArgs(@Vector(3, i256), @Vector(3, u3), .{ 0, 1, 1 << 2 });
+            try testArgs(@Vector(3, u256), @Vector(3, u3), .{ 0, 1, 1 << 2 });
+            try testArgs(@Vector(3, i512), @Vector(3, u3), .{ 0, 1, 1 << 2 });
+            try testArgs(@Vector(3, u512), @Vector(3, u3), .{ 0, 1, 1 << 2 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u3), .{ 0, 1, 1 << 2 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u3), .{ 0, 1, 1 << 2 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i4), .{ -1 << 3, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i4), .{ -1 << 3, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i4), .{ -1 << 3, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i4), .{ -1 << 3, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i4), .{ -1 << 3, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i4), .{ -1 << 3, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i4), .{ -1 << 3, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i4), .{ -1 << 3, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i4), .{ -1 << 3, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i4), .{ -1 << 3, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i4), .{ -1 << 3, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i4), .{ -1 << 3, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i4), .{ -1 << 3, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i4), .{ -1 << 3, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i4), .{ -1 << 3, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i4), .{ -1 << 3, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u4), .{ 0, 1, 1 << 3 });
+            try testArgs(@Vector(3, u8), @Vector(3, u4), .{ 0, 1, 1 << 3 });
+            try testArgs(@Vector(3, i16), @Vector(3, u4), .{ 0, 1, 1 << 3 });
+            try testArgs(@Vector(3, u16), @Vector(3, u4), .{ 0, 1, 1 << 3 });
+            try testArgs(@Vector(3, i32), @Vector(3, u4), .{ 0, 1, 1 << 3 });
+            try testArgs(@Vector(3, u32), @Vector(3, u4), .{ 0, 1, 1 << 3 });
+            try testArgs(@Vector(3, i64), @Vector(3, u4), .{ 0, 1, 1 << 3 });
+            try testArgs(@Vector(3, u64), @Vector(3, u4), .{ 0, 1, 1 << 3 });
+            try testArgs(@Vector(3, i128), @Vector(3, u4), .{ 0, 1, 1 << 3 });
+            try testArgs(@Vector(3, u128), @Vector(3, u4), .{ 0, 1, 1 << 3 });
+            try testArgs(@Vector(3, i256), @Vector(3, u4), .{ 0, 1, 1 << 3 });
+            try testArgs(@Vector(3, u256), @Vector(3, u4), .{ 0, 1, 1 << 3 });
+            try testArgs(@Vector(3, i512), @Vector(3, u4), .{ 0, 1, 1 << 3 });
+            try testArgs(@Vector(3, u512), @Vector(3, u4), .{ 0, 1, 1 << 3 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u4), .{ 0, 1, 1 << 3 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u4), .{ 0, 1, 1 << 3 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i5), .{ -1 << 4, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i5), .{ -1 << 4, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i5), .{ -1 << 4, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i5), .{ -1 << 4, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i5), .{ -1 << 4, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i5), .{ -1 << 4, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i5), .{ -1 << 4, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i5), .{ -1 << 4, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i5), .{ -1 << 4, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i5), .{ -1 << 4, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i5), .{ -1 << 4, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i5), .{ -1 << 4, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i5), .{ -1 << 4, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i5), .{ -1 << 4, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i5), .{ -1 << 4, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i5), .{ -1 << 4, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u5), .{ 0, 1, 1 << 4 });
+            try testArgs(@Vector(3, u8), @Vector(3, u5), .{ 0, 1, 1 << 4 });
+            try testArgs(@Vector(3, i16), @Vector(3, u5), .{ 0, 1, 1 << 4 });
+            try testArgs(@Vector(3, u16), @Vector(3, u5), .{ 0, 1, 1 << 4 });
+            try testArgs(@Vector(3, i32), @Vector(3, u5), .{ 0, 1, 1 << 4 });
+            try testArgs(@Vector(3, u32), @Vector(3, u5), .{ 0, 1, 1 << 4 });
+            try testArgs(@Vector(3, i64), @Vector(3, u5), .{ 0, 1, 1 << 4 });
+            try testArgs(@Vector(3, u64), @Vector(3, u5), .{ 0, 1, 1 << 4 });
+            try testArgs(@Vector(3, i128), @Vector(3, u5), .{ 0, 1, 1 << 4 });
+            try testArgs(@Vector(3, u128), @Vector(3, u5), .{ 0, 1, 1 << 4 });
+            try testArgs(@Vector(3, i256), @Vector(3, u5), .{ 0, 1, 1 << 4 });
+            try testArgs(@Vector(3, u256), @Vector(3, u5), .{ 0, 1, 1 << 4 });
+            try testArgs(@Vector(3, i512), @Vector(3, u5), .{ 0, 1, 1 << 4 });
+            try testArgs(@Vector(3, u512), @Vector(3, u5), .{ 0, 1, 1 << 4 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u5), .{ 0, 1, 1 << 4 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u5), .{ 0, 1, 1 << 4 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i7), .{ -1 << 6, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i7), .{ -1 << 6, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i7), .{ -1 << 6, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i7), .{ -1 << 6, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i7), .{ -1 << 6, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i7), .{ -1 << 6, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i7), .{ -1 << 6, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i7), .{ -1 << 6, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i7), .{ -1 << 6, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i7), .{ -1 << 6, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i7), .{ -1 << 6, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i7), .{ -1 << 6, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i7), .{ -1 << 6, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i7), .{ -1 << 6, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i7), .{ -1 << 6, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i7), .{ -1 << 6, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u7), .{ 0, 1, 1 << 6 });
+            try testArgs(@Vector(3, u8), @Vector(3, u7), .{ 0, 1, 1 << 6 });
+            try testArgs(@Vector(3, i16), @Vector(3, u7), .{ 0, 1, 1 << 6 });
+            try testArgs(@Vector(3, u16), @Vector(3, u7), .{ 0, 1, 1 << 6 });
+            try testArgs(@Vector(3, i32), @Vector(3, u7), .{ 0, 1, 1 << 6 });
+            try testArgs(@Vector(3, u32), @Vector(3, u7), .{ 0, 1, 1 << 6 });
+            try testArgs(@Vector(3, i64), @Vector(3, u7), .{ 0, 1, 1 << 6 });
+            try testArgs(@Vector(3, u64), @Vector(3, u7), .{ 0, 1, 1 << 6 });
+            try testArgs(@Vector(3, i128), @Vector(3, u7), .{ 0, 1, 1 << 6 });
+            try testArgs(@Vector(3, u128), @Vector(3, u7), .{ 0, 1, 1 << 6 });
+            try testArgs(@Vector(3, i256), @Vector(3, u7), .{ 0, 1, 1 << 6 });
+            try testArgs(@Vector(3, u256), @Vector(3, u7), .{ 0, 1, 1 << 6 });
+            try testArgs(@Vector(3, i512), @Vector(3, u7), .{ 0, 1, 1 << 6 });
+            try testArgs(@Vector(3, u512), @Vector(3, u7), .{ 0, 1, 1 << 6 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u7), .{ 0, 1, 1 << 6 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u7), .{ 0, 1, 1 << 6 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i8), .{ -1 << 7, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i8), .{ -1 << 7, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i8), .{ -1 << 7, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i8), .{ -1 << 7, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i8), .{ -1 << 7, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i8), .{ -1 << 7, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i8), .{ -1 << 7, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i8), .{ -1 << 7, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i8), .{ -1 << 7, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i8), .{ -1 << 7, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i8), .{ -1 << 7, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i8), .{ -1 << 7, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i8), .{ -1 << 7, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i8), .{ -1 << 7, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i8), .{ -1 << 7, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i8), .{ -1 << 7, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u8), .{ 0, 1, 1 << 7 });
+            try testArgs(@Vector(3, u8), @Vector(3, u8), .{ 0, 1, 1 << 7 });
+            try testArgs(@Vector(3, i16), @Vector(3, u8), .{ 0, 1, 1 << 7 });
+            try testArgs(@Vector(3, u16), @Vector(3, u8), .{ 0, 1, 1 << 7 });
+            try testArgs(@Vector(3, i32), @Vector(3, u8), .{ 0, 1, 1 << 7 });
+            try testArgs(@Vector(3, u32), @Vector(3, u8), .{ 0, 1, 1 << 7 });
+            try testArgs(@Vector(3, i64), @Vector(3, u8), .{ 0, 1, 1 << 7 });
+            try testArgs(@Vector(3, u64), @Vector(3, u8), .{ 0, 1, 1 << 7 });
+            try testArgs(@Vector(3, i128), @Vector(3, u8), .{ 0, 1, 1 << 7 });
+            try testArgs(@Vector(3, u128), @Vector(3, u8), .{ 0, 1, 1 << 7 });
+            try testArgs(@Vector(3, i256), @Vector(3, u8), .{ 0, 1, 1 << 7 });
+            try testArgs(@Vector(3, u256), @Vector(3, u8), .{ 0, 1, 1 << 7 });
+            try testArgs(@Vector(3, i512), @Vector(3, u8), .{ 0, 1, 1 << 7 });
+            try testArgs(@Vector(3, u512), @Vector(3, u8), .{ 0, 1, 1 << 7 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u8), .{ 0, 1, 1 << 7 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u8), .{ 0, 1, 1 << 7 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i9), .{ -1 << 8, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i9), .{ -1 << 8, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i9), .{ -1 << 8, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i9), .{ -1 << 8, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i9), .{ -1 << 8, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i9), .{ -1 << 8, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i9), .{ -1 << 8, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i9), .{ -1 << 8, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i9), .{ -1 << 8, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i9), .{ -1 << 8, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i9), .{ -1 << 8, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i9), .{ -1 << 8, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i9), .{ -1 << 8, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i9), .{ -1 << 8, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i9), .{ -1 << 8, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i9), .{ -1 << 8, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u9), .{ 0, 1, 1 << 8 });
+            try testArgs(@Vector(3, u8), @Vector(3, u9), .{ 0, 1, 1 << 8 });
+            try testArgs(@Vector(3, i16), @Vector(3, u9), .{ 0, 1, 1 << 8 });
+            try testArgs(@Vector(3, u16), @Vector(3, u9), .{ 0, 1, 1 << 8 });
+            try testArgs(@Vector(3, i32), @Vector(3, u9), .{ 0, 1, 1 << 8 });
+            try testArgs(@Vector(3, u32), @Vector(3, u9), .{ 0, 1, 1 << 8 });
+            try testArgs(@Vector(3, i64), @Vector(3, u9), .{ 0, 1, 1 << 8 });
+            try testArgs(@Vector(3, u64), @Vector(3, u9), .{ 0, 1, 1 << 8 });
+            try testArgs(@Vector(3, i128), @Vector(3, u9), .{ 0, 1, 1 << 8 });
+            try testArgs(@Vector(3, u128), @Vector(3, u9), .{ 0, 1, 1 << 8 });
+            try testArgs(@Vector(3, i256), @Vector(3, u9), .{ 0, 1, 1 << 8 });
+            try testArgs(@Vector(3, u256), @Vector(3, u9), .{ 0, 1, 1 << 8 });
+            try testArgs(@Vector(3, i512), @Vector(3, u9), .{ 0, 1, 1 << 8 });
+            try testArgs(@Vector(3, u512), @Vector(3, u9), .{ 0, 1, 1 << 8 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u9), .{ 0, 1, 1 << 8 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u9), .{ 0, 1, 1 << 8 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i15), .{ -1 << 14, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i15), .{ -1 << 14, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i15), .{ -1 << 14, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i15), .{ -1 << 14, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i15), .{ -1 << 14, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i15), .{ -1 << 14, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i15), .{ -1 << 14, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i15), .{ -1 << 14, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i15), .{ -1 << 14, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i15), .{ -1 << 14, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i15), .{ -1 << 14, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i15), .{ -1 << 14, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i15), .{ -1 << 14, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i15), .{ -1 << 14, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i15), .{ -1 << 14, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i15), .{ -1 << 14, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u15), .{ 0, 1, 1 << 14 });
+            try testArgs(@Vector(3, u8), @Vector(3, u15), .{ 0, 1, 1 << 14 });
+            try testArgs(@Vector(3, i16), @Vector(3, u15), .{ 0, 1, 1 << 14 });
+            try testArgs(@Vector(3, u16), @Vector(3, u15), .{ 0, 1, 1 << 14 });
+            try testArgs(@Vector(3, i32), @Vector(3, u15), .{ 0, 1, 1 << 14 });
+            try testArgs(@Vector(3, u32), @Vector(3, u15), .{ 0, 1, 1 << 14 });
+            try testArgs(@Vector(3, i64), @Vector(3, u15), .{ 0, 1, 1 << 14 });
+            try testArgs(@Vector(3, u64), @Vector(3, u15), .{ 0, 1, 1 << 14 });
+            try testArgs(@Vector(3, i128), @Vector(3, u15), .{ 0, 1, 1 << 14 });
+            try testArgs(@Vector(3, u128), @Vector(3, u15), .{ 0, 1, 1 << 14 });
+            try testArgs(@Vector(3, i256), @Vector(3, u15), .{ 0, 1, 1 << 14 });
+            try testArgs(@Vector(3, u256), @Vector(3, u15), .{ 0, 1, 1 << 14 });
+            try testArgs(@Vector(3, i512), @Vector(3, u15), .{ 0, 1, 1 << 14 });
+            try testArgs(@Vector(3, u512), @Vector(3, u15), .{ 0, 1, 1 << 14 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u15), .{ 0, 1, 1 << 14 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u15), .{ 0, 1, 1 << 14 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i16), .{ -1 << 15, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i16), .{ -1 << 15, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i16), .{ -1 << 15, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i16), .{ -1 << 15, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i16), .{ -1 << 15, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i16), .{ -1 << 15, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i16), .{ -1 << 15, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i16), .{ -1 << 15, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i16), .{ -1 << 15, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i16), .{ -1 << 15, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i16), .{ -1 << 15, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i16), .{ -1 << 15, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i16), .{ -1 << 15, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i16), .{ -1 << 15, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i16), .{ -1 << 15, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i16), .{ -1 << 15, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u16), .{ 0, 1, 1 << 15 });
+            try testArgs(@Vector(3, u8), @Vector(3, u16), .{ 0, 1, 1 << 15 });
+            try testArgs(@Vector(3, i16), @Vector(3, u16), .{ 0, 1, 1 << 15 });
+            try testArgs(@Vector(3, u16), @Vector(3, u16), .{ 0, 1, 1 << 15 });
+            try testArgs(@Vector(3, i32), @Vector(3, u16), .{ 0, 1, 1 << 15 });
+            try testArgs(@Vector(3, u32), @Vector(3, u16), .{ 0, 1, 1 << 15 });
+            try testArgs(@Vector(3, i64), @Vector(3, u16), .{ 0, 1, 1 << 15 });
+            try testArgs(@Vector(3, u64), @Vector(3, u16), .{ 0, 1, 1 << 15 });
+            try testArgs(@Vector(3, i128), @Vector(3, u16), .{ 0, 1, 1 << 15 });
+            try testArgs(@Vector(3, u128), @Vector(3, u16), .{ 0, 1, 1 << 15 });
+            try testArgs(@Vector(3, i256), @Vector(3, u16), .{ 0, 1, 1 << 15 });
+            try testArgs(@Vector(3, u256), @Vector(3, u16), .{ 0, 1, 1 << 15 });
+            try testArgs(@Vector(3, i512), @Vector(3, u16), .{ 0, 1, 1 << 15 });
+            try testArgs(@Vector(3, u512), @Vector(3, u16), .{ 0, 1, 1 << 15 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u16), .{ 0, 1, 1 << 15 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u16), .{ 0, 1, 1 << 15 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i17), .{ -1 << 16, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i17), .{ -1 << 16, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i17), .{ -1 << 16, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i17), .{ -1 << 16, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i17), .{ -1 << 16, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i17), .{ -1 << 16, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i17), .{ -1 << 16, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i17), .{ -1 << 16, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i17), .{ -1 << 16, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i17), .{ -1 << 16, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i17), .{ -1 << 16, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i17), .{ -1 << 16, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i17), .{ -1 << 16, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i17), .{ -1 << 16, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i17), .{ -1 << 16, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i17), .{ -1 << 16, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u17), .{ 0, 1, 1 << 16 });
+            try testArgs(@Vector(3, u8), @Vector(3, u17), .{ 0, 1, 1 << 16 });
+            try testArgs(@Vector(3, i16), @Vector(3, u17), .{ 0, 1, 1 << 16 });
+            try testArgs(@Vector(3, u16), @Vector(3, u17), .{ 0, 1, 1 << 16 });
+            try testArgs(@Vector(3, i32), @Vector(3, u17), .{ 0, 1, 1 << 16 });
+            try testArgs(@Vector(3, u32), @Vector(3, u17), .{ 0, 1, 1 << 16 });
+            try testArgs(@Vector(3, i64), @Vector(3, u17), .{ 0, 1, 1 << 16 });
+            try testArgs(@Vector(3, u64), @Vector(3, u17), .{ 0, 1, 1 << 16 });
+            try testArgs(@Vector(3, i128), @Vector(3, u17), .{ 0, 1, 1 << 16 });
+            try testArgs(@Vector(3, u128), @Vector(3, u17), .{ 0, 1, 1 << 16 });
+            try testArgs(@Vector(3, i256), @Vector(3, u17), .{ 0, 1, 1 << 16 });
+            try testArgs(@Vector(3, u256), @Vector(3, u17), .{ 0, 1, 1 << 16 });
+            try testArgs(@Vector(3, i512), @Vector(3, u17), .{ 0, 1, 1 << 16 });
+            try testArgs(@Vector(3, u512), @Vector(3, u17), .{ 0, 1, 1 << 16 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u17), .{ 0, 1, 1 << 16 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u17), .{ 0, 1, 1 << 16 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i31), .{ -1 << 30, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i31), .{ -1 << 30, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i31), .{ -1 << 30, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i31), .{ -1 << 30, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i31), .{ -1 << 30, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i31), .{ -1 << 30, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i31), .{ -1 << 30, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i31), .{ -1 << 30, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i31), .{ -1 << 30, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i31), .{ -1 << 30, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i31), .{ -1 << 30, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i31), .{ -1 << 30, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i31), .{ -1 << 30, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i31), .{ -1 << 30, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i31), .{ -1 << 30, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i31), .{ -1 << 30, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u31), .{ 0, 1, 1 << 30 });
+            try testArgs(@Vector(3, u8), @Vector(3, u31), .{ 0, 1, 1 << 30 });
+            try testArgs(@Vector(3, i16), @Vector(3, u31), .{ 0, 1, 1 << 30 });
+            try testArgs(@Vector(3, u16), @Vector(3, u31), .{ 0, 1, 1 << 30 });
+            try testArgs(@Vector(3, i32), @Vector(3, u31), .{ 0, 1, 1 << 30 });
+            try testArgs(@Vector(3, u32), @Vector(3, u31), .{ 0, 1, 1 << 30 });
+            try testArgs(@Vector(3, i64), @Vector(3, u31), .{ 0, 1, 1 << 30 });
+            try testArgs(@Vector(3, u64), @Vector(3, u31), .{ 0, 1, 1 << 30 });
+            try testArgs(@Vector(3, i128), @Vector(3, u31), .{ 0, 1, 1 << 30 });
+            try testArgs(@Vector(3, u128), @Vector(3, u31), .{ 0, 1, 1 << 30 });
+            try testArgs(@Vector(3, i256), @Vector(3, u31), .{ 0, 1, 1 << 30 });
+            try testArgs(@Vector(3, u256), @Vector(3, u31), .{ 0, 1, 1 << 30 });
+            try testArgs(@Vector(3, i512), @Vector(3, u31), .{ 0, 1, 1 << 30 });
+            try testArgs(@Vector(3, u512), @Vector(3, u31), .{ 0, 1, 1 << 30 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u31), .{ 0, 1, 1 << 30 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u31), .{ 0, 1, 1 << 30 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i32), .{ -1 << 31, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i32), .{ -1 << 31, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i32), .{ -1 << 31, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i32), .{ -1 << 31, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i32), .{ -1 << 31, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i32), .{ -1 << 31, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i32), .{ -1 << 31, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i32), .{ -1 << 31, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i32), .{ -1 << 31, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i32), .{ -1 << 31, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i32), .{ -1 << 31, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i32), .{ -1 << 31, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i32), .{ -1 << 31, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i32), .{ -1 << 31, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i32), .{ -1 << 31, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i32), .{ -1 << 31, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u32), .{ 0, 1, 1 << 31 });
+            try testArgs(@Vector(3, u8), @Vector(3, u32), .{ 0, 1, 1 << 31 });
+            try testArgs(@Vector(3, i16), @Vector(3, u32), .{ 0, 1, 1 << 31 });
+            try testArgs(@Vector(3, u16), @Vector(3, u32), .{ 0, 1, 1 << 31 });
+            try testArgs(@Vector(3, i32), @Vector(3, u32), .{ 0, 1, 1 << 31 });
+            try testArgs(@Vector(3, u32), @Vector(3, u32), .{ 0, 1, 1 << 31 });
+            try testArgs(@Vector(3, i64), @Vector(3, u32), .{ 0, 1, 1 << 31 });
+            try testArgs(@Vector(3, u64), @Vector(3, u32), .{ 0, 1, 1 << 31 });
+            try testArgs(@Vector(3, i128), @Vector(3, u32), .{ 0, 1, 1 << 31 });
+            try testArgs(@Vector(3, u128), @Vector(3, u32), .{ 0, 1, 1 << 31 });
+            try testArgs(@Vector(3, i256), @Vector(3, u32), .{ 0, 1, 1 << 31 });
+            try testArgs(@Vector(3, u256), @Vector(3, u32), .{ 0, 1, 1 << 31 });
+            try testArgs(@Vector(3, i512), @Vector(3, u32), .{ 0, 1, 1 << 31 });
+            try testArgs(@Vector(3, u512), @Vector(3, u32), .{ 0, 1, 1 << 31 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u32), .{ 0, 1, 1 << 31 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u32), .{ 0, 1, 1 << 31 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i33), .{ -1 << 32, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i33), .{ -1 << 32, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i33), .{ -1 << 32, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i33), .{ -1 << 32, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i33), .{ -1 << 32, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i33), .{ -1 << 32, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i33), .{ -1 << 32, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i33), .{ -1 << 32, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i33), .{ -1 << 32, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i33), .{ -1 << 32, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i33), .{ -1 << 32, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i33), .{ -1 << 32, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i33), .{ -1 << 32, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i33), .{ -1 << 32, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i33), .{ -1 << 32, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i33), .{ -1 << 32, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u33), .{ 0, 1, 1 << 32 });
+            try testArgs(@Vector(3, u8), @Vector(3, u33), .{ 0, 1, 1 << 32 });
+            try testArgs(@Vector(3, i16), @Vector(3, u33), .{ 0, 1, 1 << 32 });
+            try testArgs(@Vector(3, u16), @Vector(3, u33), .{ 0, 1, 1 << 32 });
+            try testArgs(@Vector(3, i32), @Vector(3, u33), .{ 0, 1, 1 << 32 });
+            try testArgs(@Vector(3, u32), @Vector(3, u33), .{ 0, 1, 1 << 32 });
+            try testArgs(@Vector(3, i64), @Vector(3, u33), .{ 0, 1, 1 << 32 });
+            try testArgs(@Vector(3, u64), @Vector(3, u33), .{ 0, 1, 1 << 32 });
+            try testArgs(@Vector(3, i128), @Vector(3, u33), .{ 0, 1, 1 << 32 });
+            try testArgs(@Vector(3, u128), @Vector(3, u33), .{ 0, 1, 1 << 32 });
+            try testArgs(@Vector(3, i256), @Vector(3, u33), .{ 0, 1, 1 << 32 });
+            try testArgs(@Vector(3, u256), @Vector(3, u33), .{ 0, 1, 1 << 32 });
+            try testArgs(@Vector(3, i512), @Vector(3, u33), .{ 0, 1, 1 << 32 });
+            try testArgs(@Vector(3, u512), @Vector(3, u33), .{ 0, 1, 1 << 32 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u33), .{ 0, 1, 1 << 32 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u33), .{ 0, 1, 1 << 32 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i63), .{ -1 << 62, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i63), .{ -1 << 62, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i63), .{ -1 << 62, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i63), .{ -1 << 62, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i63), .{ -1 << 62, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i63), .{ -1 << 62, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i63), .{ -1 << 62, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i63), .{ -1 << 62, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i63), .{ -1 << 62, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i63), .{ -1 << 62, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i63), .{ -1 << 62, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i63), .{ -1 << 62, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i63), .{ -1 << 62, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i63), .{ -1 << 62, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i63), .{ -1 << 62, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i63), .{ -1 << 62, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u63), .{ 0, 1, 1 << 62 });
+            try testArgs(@Vector(3, u8), @Vector(3, u63), .{ 0, 1, 1 << 62 });
+            try testArgs(@Vector(3, i16), @Vector(3, u63), .{ 0, 1, 1 << 62 });
+            try testArgs(@Vector(3, u16), @Vector(3, u63), .{ 0, 1, 1 << 62 });
+            try testArgs(@Vector(3, i32), @Vector(3, u63), .{ 0, 1, 1 << 62 });
+            try testArgs(@Vector(3, u32), @Vector(3, u63), .{ 0, 1, 1 << 62 });
+            try testArgs(@Vector(3, i64), @Vector(3, u63), .{ 0, 1, 1 << 62 });
+            try testArgs(@Vector(3, u64), @Vector(3, u63), .{ 0, 1, 1 << 62 });
+            try testArgs(@Vector(3, i128), @Vector(3, u63), .{ 0, 1, 1 << 62 });
+            try testArgs(@Vector(3, u128), @Vector(3, u63), .{ 0, 1, 1 << 62 });
+            try testArgs(@Vector(3, i256), @Vector(3, u63), .{ 0, 1, 1 << 62 });
+            try testArgs(@Vector(3, u256), @Vector(3, u63), .{ 0, 1, 1 << 62 });
+            try testArgs(@Vector(3, i512), @Vector(3, u63), .{ 0, 1, 1 << 62 });
+            try testArgs(@Vector(3, u512), @Vector(3, u63), .{ 0, 1, 1 << 62 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u63), .{ 0, 1, 1 << 62 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u63), .{ 0, 1, 1 << 62 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i64), .{ -1 << 63, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i64), .{ -1 << 63, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i64), .{ -1 << 63, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i64), .{ -1 << 63, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i64), .{ -1 << 63, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i64), .{ -1 << 63, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i64), .{ -1 << 63, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i64), .{ -1 << 63, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i64), .{ -1 << 63, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i64), .{ -1 << 63, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i64), .{ -1 << 63, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i64), .{ -1 << 63, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i64), .{ -1 << 63, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i64), .{ -1 << 63, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i64), .{ -1 << 63, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i64), .{ -1 << 63, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u64), .{ 0, 1, 1 << 63 });
+            try testArgs(@Vector(3, u8), @Vector(3, u64), .{ 0, 1, 1 << 63 });
+            try testArgs(@Vector(3, i16), @Vector(3, u64), .{ 0, 1, 1 << 63 });
+            try testArgs(@Vector(3, u16), @Vector(3, u64), .{ 0, 1, 1 << 63 });
+            try testArgs(@Vector(3, i32), @Vector(3, u64), .{ 0, 1, 1 << 63 });
+            try testArgs(@Vector(3, u32), @Vector(3, u64), .{ 0, 1, 1 << 63 });
+            try testArgs(@Vector(3, i64), @Vector(3, u64), .{ 0, 1, 1 << 63 });
+            try testArgs(@Vector(3, u64), @Vector(3, u64), .{ 0, 1, 1 << 63 });
+            try testArgs(@Vector(3, i128), @Vector(3, u64), .{ 0, 1, 1 << 63 });
+            try testArgs(@Vector(3, u128), @Vector(3, u64), .{ 0, 1, 1 << 63 });
+            try testArgs(@Vector(3, i256), @Vector(3, u64), .{ 0, 1, 1 << 63 });
+            try testArgs(@Vector(3, u256), @Vector(3, u64), .{ 0, 1, 1 << 63 });
+            try testArgs(@Vector(3, i512), @Vector(3, u64), .{ 0, 1, 1 << 63 });
+            try testArgs(@Vector(3, u512), @Vector(3, u64), .{ 0, 1, 1 << 63 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u64), .{ 0, 1, 1 << 63 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u64), .{ 0, 1, 1 << 63 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i65), .{ -1 << 64, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i65), .{ -1 << 64, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i65), .{ -1 << 64, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i65), .{ -1 << 64, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i65), .{ -1 << 64, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i65), .{ -1 << 64, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i65), .{ -1 << 64, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i65), .{ -1 << 64, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i65), .{ -1 << 64, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i65), .{ -1 << 64, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i65), .{ -1 << 64, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i65), .{ -1 << 64, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i65), .{ -1 << 64, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i65), .{ -1 << 64, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i65), .{ -1 << 64, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i65), .{ -1 << 64, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u65), .{ 0, 1, 1 << 64 });
+            try testArgs(@Vector(3, u8), @Vector(3, u65), .{ 0, 1, 1 << 64 });
+            try testArgs(@Vector(3, i16), @Vector(3, u65), .{ 0, 1, 1 << 64 });
+            try testArgs(@Vector(3, u16), @Vector(3, u65), .{ 0, 1, 1 << 64 });
+            try testArgs(@Vector(3, i32), @Vector(3, u65), .{ 0, 1, 1 << 64 });
+            try testArgs(@Vector(3, u32), @Vector(3, u65), .{ 0, 1, 1 << 64 });
+            try testArgs(@Vector(3, i64), @Vector(3, u65), .{ 0, 1, 1 << 64 });
+            try testArgs(@Vector(3, u64), @Vector(3, u65), .{ 0, 1, 1 << 64 });
+            try testArgs(@Vector(3, i128), @Vector(3, u65), .{ 0, 1, 1 << 64 });
+            try testArgs(@Vector(3, u128), @Vector(3, u65), .{ 0, 1, 1 << 64 });
+            try testArgs(@Vector(3, i256), @Vector(3, u65), .{ 0, 1, 1 << 64 });
+            try testArgs(@Vector(3, u256), @Vector(3, u65), .{ 0, 1, 1 << 64 });
+            try testArgs(@Vector(3, i512), @Vector(3, u65), .{ 0, 1, 1 << 64 });
+            try testArgs(@Vector(3, u512), @Vector(3, u65), .{ 0, 1, 1 << 64 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u65), .{ 0, 1, 1 << 64 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u65), .{ 0, 1, 1 << 64 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i95), .{ -1 << 94, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i95), .{ -1 << 94, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i95), .{ -1 << 94, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i95), .{ -1 << 94, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i95), .{ -1 << 94, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i95), .{ -1 << 94, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i95), .{ -1 << 94, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i95), .{ -1 << 94, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i95), .{ -1 << 94, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i95), .{ -1 << 94, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i95), .{ -1 << 94, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i95), .{ -1 << 94, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i95), .{ -1 << 94, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i95), .{ -1 << 94, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i95), .{ -1 << 94, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i95), .{ -1 << 94, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u95), .{ 0, 1, 1 << 94 });
+            try testArgs(@Vector(3, u8), @Vector(3, u95), .{ 0, 1, 1 << 94 });
+            try testArgs(@Vector(3, i16), @Vector(3, u95), .{ 0, 1, 1 << 94 });
+            try testArgs(@Vector(3, u16), @Vector(3, u95), .{ 0, 1, 1 << 94 });
+            try testArgs(@Vector(3, i32), @Vector(3, u95), .{ 0, 1, 1 << 94 });
+            try testArgs(@Vector(3, u32), @Vector(3, u95), .{ 0, 1, 1 << 94 });
+            try testArgs(@Vector(3, i64), @Vector(3, u95), .{ 0, 1, 1 << 94 });
+            try testArgs(@Vector(3, u64), @Vector(3, u95), .{ 0, 1, 1 << 94 });
+            try testArgs(@Vector(3, i128), @Vector(3, u95), .{ 0, 1, 1 << 94 });
+            try testArgs(@Vector(3, u128), @Vector(3, u95), .{ 0, 1, 1 << 94 });
+            try testArgs(@Vector(3, i256), @Vector(3, u95), .{ 0, 1, 1 << 94 });
+            try testArgs(@Vector(3, u256), @Vector(3, u95), .{ 0, 1, 1 << 94 });
+            try testArgs(@Vector(3, i512), @Vector(3, u95), .{ 0, 1, 1 << 94 });
+            try testArgs(@Vector(3, u512), @Vector(3, u95), .{ 0, 1, 1 << 94 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u95), .{ 0, 1, 1 << 94 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u95), .{ 0, 1, 1 << 94 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i96), .{ -1 << 95, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i96), .{ -1 << 95, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i96), .{ -1 << 95, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i96), .{ -1 << 95, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i96), .{ -1 << 95, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i96), .{ -1 << 95, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i96), .{ -1 << 95, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i96), .{ -1 << 95, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i96), .{ -1 << 95, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i96), .{ -1 << 95, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i96), .{ -1 << 95, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i96), .{ -1 << 95, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i96), .{ -1 << 95, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i96), .{ -1 << 95, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i96), .{ -1 << 95, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i96), .{ -1 << 95, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u96), .{ 0, 1, 1 << 95 });
+            try testArgs(@Vector(3, u8), @Vector(3, u96), .{ 0, 1, 1 << 95 });
+            try testArgs(@Vector(3, i16), @Vector(3, u96), .{ 0, 1, 1 << 95 });
+            try testArgs(@Vector(3, u16), @Vector(3, u96), .{ 0, 1, 1 << 95 });
+            try testArgs(@Vector(3, i32), @Vector(3, u96), .{ 0, 1, 1 << 95 });
+            try testArgs(@Vector(3, u32), @Vector(3, u96), .{ 0, 1, 1 << 95 });
+            try testArgs(@Vector(3, i64), @Vector(3, u96), .{ 0, 1, 1 << 95 });
+            try testArgs(@Vector(3, u64), @Vector(3, u96), .{ 0, 1, 1 << 95 });
+            try testArgs(@Vector(3, i128), @Vector(3, u96), .{ 0, 1, 1 << 95 });
+            try testArgs(@Vector(3, u128), @Vector(3, u96), .{ 0, 1, 1 << 95 });
+            try testArgs(@Vector(3, i256), @Vector(3, u96), .{ 0, 1, 1 << 95 });
+            try testArgs(@Vector(3, u256), @Vector(3, u96), .{ 0, 1, 1 << 95 });
+            try testArgs(@Vector(3, i512), @Vector(3, u96), .{ 0, 1, 1 << 95 });
+            try testArgs(@Vector(3, u512), @Vector(3, u96), .{ 0, 1, 1 << 95 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u96), .{ 0, 1, 1 << 95 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u96), .{ 0, 1, 1 << 95 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i97), .{ -1 << 96, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i97), .{ -1 << 96, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i97), .{ -1 << 96, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i97), .{ -1 << 96, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i97), .{ -1 << 96, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i97), .{ -1 << 96, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i97), .{ -1 << 96, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i97), .{ -1 << 96, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i97), .{ -1 << 96, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i97), .{ -1 << 96, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i97), .{ -1 << 96, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i97), .{ -1 << 96, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i97), .{ -1 << 96, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i97), .{ -1 << 96, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i97), .{ -1 << 96, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i97), .{ -1 << 96, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u97), .{ 0, 1, 1 << 96 });
+            try testArgs(@Vector(3, u8), @Vector(3, u97), .{ 0, 1, 1 << 96 });
+            try testArgs(@Vector(3, i16), @Vector(3, u97), .{ 0, 1, 1 << 96 });
+            try testArgs(@Vector(3, u16), @Vector(3, u97), .{ 0, 1, 1 << 96 });
+            try testArgs(@Vector(3, i32), @Vector(3, u97), .{ 0, 1, 1 << 96 });
+            try testArgs(@Vector(3, u32), @Vector(3, u97), .{ 0, 1, 1 << 96 });
+            try testArgs(@Vector(3, i64), @Vector(3, u97), .{ 0, 1, 1 << 96 });
+            try testArgs(@Vector(3, u64), @Vector(3, u97), .{ 0, 1, 1 << 96 });
+            try testArgs(@Vector(3, i128), @Vector(3, u97), .{ 0, 1, 1 << 96 });
+            try testArgs(@Vector(3, u128), @Vector(3, u97), .{ 0, 1, 1 << 96 });
+            try testArgs(@Vector(3, i256), @Vector(3, u97), .{ 0, 1, 1 << 96 });
+            try testArgs(@Vector(3, u256), @Vector(3, u97), .{ 0, 1, 1 << 96 });
+            try testArgs(@Vector(3, i512), @Vector(3, u97), .{ 0, 1, 1 << 96 });
+            try testArgs(@Vector(3, u512), @Vector(3, u97), .{ 0, 1, 1 << 96 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u97), .{ 0, 1, 1 << 96 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u97), .{ 0, 1, 1 << 96 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i127), .{ -1 << 126, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i127), .{ -1 << 126, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i127), .{ -1 << 126, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i127), .{ -1 << 126, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i127), .{ -1 << 126, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i127), .{ -1 << 126, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i127), .{ -1 << 126, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i127), .{ -1 << 126, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i127), .{ -1 << 126, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i127), .{ -1 << 126, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i127), .{ -1 << 126, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i127), .{ -1 << 126, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i127), .{ -1 << 126, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i127), .{ -1 << 126, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i127), .{ -1 << 126, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i127), .{ -1 << 126, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u127), .{ 0, 1, 1 << 126 });
+            try testArgs(@Vector(3, u8), @Vector(3, u127), .{ 0, 1, 1 << 126 });
+            try testArgs(@Vector(3, i16), @Vector(3, u127), .{ 0, 1, 1 << 126 });
+            try testArgs(@Vector(3, u16), @Vector(3, u127), .{ 0, 1, 1 << 126 });
+            try testArgs(@Vector(3, i32), @Vector(3, u127), .{ 0, 1, 1 << 126 });
+            try testArgs(@Vector(3, u32), @Vector(3, u127), .{ 0, 1, 1 << 126 });
+            try testArgs(@Vector(3, i64), @Vector(3, u127), .{ 0, 1, 1 << 126 });
+            try testArgs(@Vector(3, u64), @Vector(3, u127), .{ 0, 1, 1 << 126 });
+            try testArgs(@Vector(3, i128), @Vector(3, u127), .{ 0, 1, 1 << 126 });
+            try testArgs(@Vector(3, u128), @Vector(3, u127), .{ 0, 1, 1 << 126 });
+            try testArgs(@Vector(3, i256), @Vector(3, u127), .{ 0, 1, 1 << 126 });
+            try testArgs(@Vector(3, u256), @Vector(3, u127), .{ 0, 1, 1 << 126 });
+            try testArgs(@Vector(3, i512), @Vector(3, u127), .{ 0, 1, 1 << 126 });
+            try testArgs(@Vector(3, u512), @Vector(3, u127), .{ 0, 1, 1 << 126 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u127), .{ 0, 1, 1 << 126 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u127), .{ 0, 1, 1 << 126 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i128), .{ -1 << 127, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i128), .{ -1 << 127, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i128), .{ -1 << 127, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i128), .{ -1 << 127, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i128), .{ -1 << 127, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i128), .{ -1 << 127, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i128), .{ -1 << 127, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i128), .{ -1 << 127, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i128), .{ -1 << 127, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i128), .{ -1 << 127, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i128), .{ -1 << 127, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i128), .{ -1 << 127, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i128), .{ -1 << 127, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i128), .{ -1 << 127, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i128), .{ -1 << 127, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i128), .{ -1 << 127, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u128), .{ 0, 1, 1 << 127 });
+            try testArgs(@Vector(3, u8), @Vector(3, u128), .{ 0, 1, 1 << 127 });
+            try testArgs(@Vector(3, i16), @Vector(3, u128), .{ 0, 1, 1 << 127 });
+            try testArgs(@Vector(3, u16), @Vector(3, u128), .{ 0, 1, 1 << 127 });
+            try testArgs(@Vector(3, i32), @Vector(3, u128), .{ 0, 1, 1 << 127 });
+            try testArgs(@Vector(3, u32), @Vector(3, u128), .{ 0, 1, 1 << 127 });
+            try testArgs(@Vector(3, i64), @Vector(3, u128), .{ 0, 1, 1 << 127 });
+            try testArgs(@Vector(3, u64), @Vector(3, u128), .{ 0, 1, 1 << 127 });
+            try testArgs(@Vector(3, i128), @Vector(3, u128), .{ 0, 1, 1 << 127 });
+            try testArgs(@Vector(3, u128), @Vector(3, u128), .{ 0, 1, 1 << 127 });
+            try testArgs(@Vector(3, i256), @Vector(3, u128), .{ 0, 1, 1 << 127 });
+            try testArgs(@Vector(3, u256), @Vector(3, u128), .{ 0, 1, 1 << 127 });
+            try testArgs(@Vector(3, i512), @Vector(3, u128), .{ 0, 1, 1 << 127 });
+            try testArgs(@Vector(3, u512), @Vector(3, u128), .{ 0, 1, 1 << 127 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u128), .{ 0, 1, 1 << 127 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u128), .{ 0, 1, 1 << 127 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i129), .{ -1 << 128, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i129), .{ -1 << 128, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i129), .{ -1 << 128, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i129), .{ -1 << 128, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i129), .{ -1 << 128, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i129), .{ -1 << 128, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i129), .{ -1 << 128, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i129), .{ -1 << 128, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i129), .{ -1 << 128, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i129), .{ -1 << 128, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i129), .{ -1 << 128, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i129), .{ -1 << 128, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i129), .{ -1 << 128, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i129), .{ -1 << 128, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i129), .{ -1 << 128, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i129), .{ -1 << 128, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u129), .{ 0, 1, 1 << 128 });
+            try testArgs(@Vector(3, u8), @Vector(3, u129), .{ 0, 1, 1 << 128 });
+            try testArgs(@Vector(3, i16), @Vector(3, u129), .{ 0, 1, 1 << 128 });
+            try testArgs(@Vector(3, u16), @Vector(3, u129), .{ 0, 1, 1 << 128 });
+            try testArgs(@Vector(3, i32), @Vector(3, u129), .{ 0, 1, 1 << 128 });
+            try testArgs(@Vector(3, u32), @Vector(3, u129), .{ 0, 1, 1 << 128 });
+            try testArgs(@Vector(3, i64), @Vector(3, u129), .{ 0, 1, 1 << 128 });
+            try testArgs(@Vector(3, u64), @Vector(3, u129), .{ 0, 1, 1 << 128 });
+            try testArgs(@Vector(3, i128), @Vector(3, u129), .{ 0, 1, 1 << 128 });
+            try testArgs(@Vector(3, u128), @Vector(3, u129), .{ 0, 1, 1 << 128 });
+            try testArgs(@Vector(3, i256), @Vector(3, u129), .{ 0, 1, 1 << 128 });
+            try testArgs(@Vector(3, u256), @Vector(3, u129), .{ 0, 1, 1 << 128 });
+            try testArgs(@Vector(3, i512), @Vector(3, u129), .{ 0, 1, 1 << 128 });
+            try testArgs(@Vector(3, u512), @Vector(3, u129), .{ 0, 1, 1 << 128 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u129), .{ 0, 1, 1 << 128 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u129), .{ 0, 1, 1 << 128 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i159), .{ -1 << 158, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i159), .{ -1 << 158, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i159), .{ -1 << 158, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i159), .{ -1 << 158, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i159), .{ -1 << 158, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i159), .{ -1 << 158, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i159), .{ -1 << 158, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i159), .{ -1 << 158, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i159), .{ -1 << 158, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i159), .{ -1 << 158, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i159), .{ -1 << 158, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i159), .{ -1 << 158, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i159), .{ -1 << 158, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i159), .{ -1 << 158, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i159), .{ -1 << 158, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i159), .{ -1 << 158, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u159), .{ 0, 1, 1 << 158 });
+            try testArgs(@Vector(3, u8), @Vector(3, u159), .{ 0, 1, 1 << 158 });
+            try testArgs(@Vector(3, i16), @Vector(3, u159), .{ 0, 1, 1 << 158 });
+            try testArgs(@Vector(3, u16), @Vector(3, u159), .{ 0, 1, 1 << 158 });
+            try testArgs(@Vector(3, i32), @Vector(3, u159), .{ 0, 1, 1 << 158 });
+            try testArgs(@Vector(3, u32), @Vector(3, u159), .{ 0, 1, 1 << 158 });
+            try testArgs(@Vector(3, i64), @Vector(3, u159), .{ 0, 1, 1 << 158 });
+            try testArgs(@Vector(3, u64), @Vector(3, u159), .{ 0, 1, 1 << 158 });
+            try testArgs(@Vector(3, i128), @Vector(3, u159), .{ 0, 1, 1 << 158 });
+            try testArgs(@Vector(3, u128), @Vector(3, u159), .{ 0, 1, 1 << 158 });
+            try testArgs(@Vector(3, i256), @Vector(3, u159), .{ 0, 1, 1 << 158 });
+            try testArgs(@Vector(3, u256), @Vector(3, u159), .{ 0, 1, 1 << 158 });
+            try testArgs(@Vector(3, i512), @Vector(3, u159), .{ 0, 1, 1 << 158 });
+            try testArgs(@Vector(3, u512), @Vector(3, u159), .{ 0, 1, 1 << 158 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u159), .{ 0, 1, 1 << 158 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u159), .{ 0, 1, 1 << 158 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i160), .{ -1 << 159, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i160), .{ -1 << 159, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i160), .{ -1 << 159, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i160), .{ -1 << 159, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i160), .{ -1 << 159, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i160), .{ -1 << 159, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i160), .{ -1 << 159, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i160), .{ -1 << 159, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i160), .{ -1 << 159, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i160), .{ -1 << 159, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i160), .{ -1 << 159, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i160), .{ -1 << 159, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i160), .{ -1 << 159, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i160), .{ -1 << 159, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i160), .{ -1 << 159, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i160), .{ -1 << 159, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u160), .{ 0, 1, 1 << 159 });
+            try testArgs(@Vector(3, u8), @Vector(3, u160), .{ 0, 1, 1 << 159 });
+            try testArgs(@Vector(3, i16), @Vector(3, u160), .{ 0, 1, 1 << 159 });
+            try testArgs(@Vector(3, u16), @Vector(3, u160), .{ 0, 1, 1 << 159 });
+            try testArgs(@Vector(3, i32), @Vector(3, u160), .{ 0, 1, 1 << 159 });
+            try testArgs(@Vector(3, u32), @Vector(3, u160), .{ 0, 1, 1 << 159 });
+            try testArgs(@Vector(3, i64), @Vector(3, u160), .{ 0, 1, 1 << 159 });
+            try testArgs(@Vector(3, u64), @Vector(3, u160), .{ 0, 1, 1 << 159 });
+            try testArgs(@Vector(3, i128), @Vector(3, u160), .{ 0, 1, 1 << 159 });
+            try testArgs(@Vector(3, u128), @Vector(3, u160), .{ 0, 1, 1 << 159 });
+            try testArgs(@Vector(3, i256), @Vector(3, u160), .{ 0, 1, 1 << 159 });
+            try testArgs(@Vector(3, u256), @Vector(3, u160), .{ 0, 1, 1 << 159 });
+            try testArgs(@Vector(3, i512), @Vector(3, u160), .{ 0, 1, 1 << 159 });
+            try testArgs(@Vector(3, u512), @Vector(3, u160), .{ 0, 1, 1 << 159 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u160), .{ 0, 1, 1 << 159 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u160), .{ 0, 1, 1 << 159 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i161), .{ -1 << 160, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i161), .{ -1 << 160, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i161), .{ -1 << 160, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i161), .{ -1 << 160, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i161), .{ -1 << 160, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i161), .{ -1 << 160, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i161), .{ -1 << 160, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i161), .{ -1 << 160, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i161), .{ -1 << 160, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i161), .{ -1 << 160, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i161), .{ -1 << 160, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i161), .{ -1 << 160, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i161), .{ -1 << 160, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i161), .{ -1 << 160, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i161), .{ -1 << 160, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i161), .{ -1 << 160, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u161), .{ 0, 1, 1 << 160 });
+            try testArgs(@Vector(3, u8), @Vector(3, u161), .{ 0, 1, 1 << 160 });
+            try testArgs(@Vector(3, i16), @Vector(3, u161), .{ 0, 1, 1 << 160 });
+            try testArgs(@Vector(3, u16), @Vector(3, u161), .{ 0, 1, 1 << 160 });
+            try testArgs(@Vector(3, i32), @Vector(3, u161), .{ 0, 1, 1 << 160 });
+            try testArgs(@Vector(3, u32), @Vector(3, u161), .{ 0, 1, 1 << 160 });
+            try testArgs(@Vector(3, i64), @Vector(3, u161), .{ 0, 1, 1 << 160 });
+            try testArgs(@Vector(3, u64), @Vector(3, u161), .{ 0, 1, 1 << 160 });
+            try testArgs(@Vector(3, i128), @Vector(3, u161), .{ 0, 1, 1 << 160 });
+            try testArgs(@Vector(3, u128), @Vector(3, u161), .{ 0, 1, 1 << 160 });
+            try testArgs(@Vector(3, i256), @Vector(3, u161), .{ 0, 1, 1 << 160 });
+            try testArgs(@Vector(3, u256), @Vector(3, u161), .{ 0, 1, 1 << 160 });
+            try testArgs(@Vector(3, i512), @Vector(3, u161), .{ 0, 1, 1 << 160 });
+            try testArgs(@Vector(3, u512), @Vector(3, u161), .{ 0, 1, 1 << 160 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u161), .{ 0, 1, 1 << 160 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u161), .{ 0, 1, 1 << 160 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i191), .{ -1 << 190, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i191), .{ -1 << 190, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i191), .{ -1 << 190, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i191), .{ -1 << 190, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i191), .{ -1 << 190, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i191), .{ -1 << 190, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i191), .{ -1 << 190, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i191), .{ -1 << 190, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i191), .{ -1 << 190, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i191), .{ -1 << 190, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i191), .{ -1 << 190, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i191), .{ -1 << 190, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i191), .{ -1 << 190, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i191), .{ -1 << 190, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i191), .{ -1 << 190, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i191), .{ -1 << 190, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u191), .{ 0, 1, 1 << 190 });
+            try testArgs(@Vector(3, u8), @Vector(3, u191), .{ 0, 1, 1 << 190 });
+            try testArgs(@Vector(3, i16), @Vector(3, u191), .{ 0, 1, 1 << 190 });
+            try testArgs(@Vector(3, u16), @Vector(3, u191), .{ 0, 1, 1 << 190 });
+            try testArgs(@Vector(3, i32), @Vector(3, u191), .{ 0, 1, 1 << 190 });
+            try testArgs(@Vector(3, u32), @Vector(3, u191), .{ 0, 1, 1 << 190 });
+            try testArgs(@Vector(3, i64), @Vector(3, u191), .{ 0, 1, 1 << 190 });
+            try testArgs(@Vector(3, u64), @Vector(3, u191), .{ 0, 1, 1 << 190 });
+            try testArgs(@Vector(3, i128), @Vector(3, u191), .{ 0, 1, 1 << 190 });
+            try testArgs(@Vector(3, u128), @Vector(3, u191), .{ 0, 1, 1 << 190 });
+            try testArgs(@Vector(3, i256), @Vector(3, u191), .{ 0, 1, 1 << 190 });
+            try testArgs(@Vector(3, u256), @Vector(3, u191), .{ 0, 1, 1 << 190 });
+            try testArgs(@Vector(3, i512), @Vector(3, u191), .{ 0, 1, 1 << 190 });
+            try testArgs(@Vector(3, u512), @Vector(3, u191), .{ 0, 1, 1 << 190 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u191), .{ 0, 1, 1 << 190 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u191), .{ 0, 1, 1 << 190 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i192), .{ -1 << 191, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i192), .{ -1 << 191, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i192), .{ -1 << 191, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i192), .{ -1 << 191, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i192), .{ -1 << 191, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i192), .{ -1 << 191, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i192), .{ -1 << 191, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i192), .{ -1 << 191, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i192), .{ -1 << 191, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i192), .{ -1 << 191, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i192), .{ -1 << 191, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i192), .{ -1 << 191, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i192), .{ -1 << 191, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i192), .{ -1 << 191, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i192), .{ -1 << 191, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i192), .{ -1 << 191, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u192), .{ 0, 1, 1 << 191 });
+            try testArgs(@Vector(3, u8), @Vector(3, u192), .{ 0, 1, 1 << 191 });
+            try testArgs(@Vector(3, i16), @Vector(3, u192), .{ 0, 1, 1 << 191 });
+            try testArgs(@Vector(3, u16), @Vector(3, u192), .{ 0, 1, 1 << 191 });
+            try testArgs(@Vector(3, i32), @Vector(3, u192), .{ 0, 1, 1 << 191 });
+            try testArgs(@Vector(3, u32), @Vector(3, u192), .{ 0, 1, 1 << 191 });
+            try testArgs(@Vector(3, i64), @Vector(3, u192), .{ 0, 1, 1 << 191 });
+            try testArgs(@Vector(3, u64), @Vector(3, u192), .{ 0, 1, 1 << 191 });
+            try testArgs(@Vector(3, i128), @Vector(3, u192), .{ 0, 1, 1 << 191 });
+            try testArgs(@Vector(3, u128), @Vector(3, u192), .{ 0, 1, 1 << 191 });
+            try testArgs(@Vector(3, i256), @Vector(3, u192), .{ 0, 1, 1 << 191 });
+            try testArgs(@Vector(3, u256), @Vector(3, u192), .{ 0, 1, 1 << 191 });
+            try testArgs(@Vector(3, i512), @Vector(3, u192), .{ 0, 1, 1 << 191 });
+            try testArgs(@Vector(3, u512), @Vector(3, u192), .{ 0, 1, 1 << 191 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u192), .{ 0, 1, 1 << 191 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u192), .{ 0, 1, 1 << 191 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i193), .{ -1 << 192, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i193), .{ -1 << 192, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i193), .{ -1 << 192, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i193), .{ -1 << 192, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i193), .{ -1 << 192, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i193), .{ -1 << 192, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i193), .{ -1 << 192, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i193), .{ -1 << 192, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i193), .{ -1 << 192, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i193), .{ -1 << 192, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i193), .{ -1 << 192, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i193), .{ -1 << 192, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i193), .{ -1 << 192, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i193), .{ -1 << 192, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i193), .{ -1 << 192, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i193), .{ -1 << 192, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u193), .{ 0, 1, 1 << 192 });
+            try testArgs(@Vector(3, u8), @Vector(3, u193), .{ 0, 1, 1 << 192 });
+            try testArgs(@Vector(3, i16), @Vector(3, u193), .{ 0, 1, 1 << 192 });
+            try testArgs(@Vector(3, u16), @Vector(3, u193), .{ 0, 1, 1 << 192 });
+            try testArgs(@Vector(3, i32), @Vector(3, u193), .{ 0, 1, 1 << 192 });
+            try testArgs(@Vector(3, u32), @Vector(3, u193), .{ 0, 1, 1 << 192 });
+            try testArgs(@Vector(3, i64), @Vector(3, u193), .{ 0, 1, 1 << 192 });
+            try testArgs(@Vector(3, u64), @Vector(3, u193), .{ 0, 1, 1 << 192 });
+            try testArgs(@Vector(3, i128), @Vector(3, u193), .{ 0, 1, 1 << 192 });
+            try testArgs(@Vector(3, u128), @Vector(3, u193), .{ 0, 1, 1 << 192 });
+            try testArgs(@Vector(3, i256), @Vector(3, u193), .{ 0, 1, 1 << 192 });
+            try testArgs(@Vector(3, u256), @Vector(3, u193), .{ 0, 1, 1 << 192 });
+            try testArgs(@Vector(3, i512), @Vector(3, u193), .{ 0, 1, 1 << 192 });
+            try testArgs(@Vector(3, u512), @Vector(3, u193), .{ 0, 1, 1 << 192 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u193), .{ 0, 1, 1 << 192 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u193), .{ 0, 1, 1 << 192 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i223), .{ -1 << 222, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i223), .{ -1 << 222, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i223), .{ -1 << 222, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i223), .{ -1 << 222, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i223), .{ -1 << 222, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i223), .{ -1 << 222, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i223), .{ -1 << 222, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i223), .{ -1 << 222, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i223), .{ -1 << 222, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i223), .{ -1 << 222, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i223), .{ -1 << 222, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i223), .{ -1 << 222, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i223), .{ -1 << 222, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i223), .{ -1 << 222, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i223), .{ -1 << 222, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i223), .{ -1 << 222, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u223), .{ 0, 1, 1 << 222 });
+            try testArgs(@Vector(3, u8), @Vector(3, u223), .{ 0, 1, 1 << 222 });
+            try testArgs(@Vector(3, i16), @Vector(3, u223), .{ 0, 1, 1 << 222 });
+            try testArgs(@Vector(3, u16), @Vector(3, u223), .{ 0, 1, 1 << 222 });
+            try testArgs(@Vector(3, i32), @Vector(3, u223), .{ 0, 1, 1 << 222 });
+            try testArgs(@Vector(3, u32), @Vector(3, u223), .{ 0, 1, 1 << 222 });
+            try testArgs(@Vector(3, i64), @Vector(3, u223), .{ 0, 1, 1 << 222 });
+            try testArgs(@Vector(3, u64), @Vector(3, u223), .{ 0, 1, 1 << 222 });
+            try testArgs(@Vector(3, i128), @Vector(3, u223), .{ 0, 1, 1 << 222 });
+            try testArgs(@Vector(3, u128), @Vector(3, u223), .{ 0, 1, 1 << 222 });
+            try testArgs(@Vector(3, i256), @Vector(3, u223), .{ 0, 1, 1 << 222 });
+            try testArgs(@Vector(3, u256), @Vector(3, u223), .{ 0, 1, 1 << 222 });
+            try testArgs(@Vector(3, i512), @Vector(3, u223), .{ 0, 1, 1 << 222 });
+            try testArgs(@Vector(3, u512), @Vector(3, u223), .{ 0, 1, 1 << 222 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u223), .{ 0, 1, 1 << 222 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u223), .{ 0, 1, 1 << 222 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i224), .{ -1 << 223, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i224), .{ -1 << 223, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i224), .{ -1 << 223, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i224), .{ -1 << 223, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i224), .{ -1 << 223, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i224), .{ -1 << 223, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i224), .{ -1 << 223, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i224), .{ -1 << 223, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i224), .{ -1 << 223, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i224), .{ -1 << 223, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i224), .{ -1 << 223, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i224), .{ -1 << 223, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i224), .{ -1 << 223, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i224), .{ -1 << 223, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i224), .{ -1 << 223, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i224), .{ -1 << 223, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u224), .{ 0, 1, 1 << 223 });
+            try testArgs(@Vector(3, u8), @Vector(3, u224), .{ 0, 1, 1 << 223 });
+            try testArgs(@Vector(3, i16), @Vector(3, u224), .{ 0, 1, 1 << 223 });
+            try testArgs(@Vector(3, u16), @Vector(3, u224), .{ 0, 1, 1 << 223 });
+            try testArgs(@Vector(3, i32), @Vector(3, u224), .{ 0, 1, 1 << 223 });
+            try testArgs(@Vector(3, u32), @Vector(3, u224), .{ 0, 1, 1 << 223 });
+            try testArgs(@Vector(3, i64), @Vector(3, u224), .{ 0, 1, 1 << 223 });
+            try testArgs(@Vector(3, u64), @Vector(3, u224), .{ 0, 1, 1 << 223 });
+            try testArgs(@Vector(3, i128), @Vector(3, u224), .{ 0, 1, 1 << 223 });
+            try testArgs(@Vector(3, u128), @Vector(3, u224), .{ 0, 1, 1 << 223 });
+            try testArgs(@Vector(3, i256), @Vector(3, u224), .{ 0, 1, 1 << 223 });
+            try testArgs(@Vector(3, u256), @Vector(3, u224), .{ 0, 1, 1 << 223 });
+            try testArgs(@Vector(3, i512), @Vector(3, u224), .{ 0, 1, 1 << 223 });
+            try testArgs(@Vector(3, u512), @Vector(3, u224), .{ 0, 1, 1 << 223 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u224), .{ 0, 1, 1 << 223 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u224), .{ 0, 1, 1 << 223 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i225), .{ -1 << 224, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i225), .{ -1 << 224, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i225), .{ -1 << 224, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i225), .{ -1 << 224, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i225), .{ -1 << 224, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i225), .{ -1 << 224, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i225), .{ -1 << 224, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i225), .{ -1 << 224, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i225), .{ -1 << 224, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i225), .{ -1 << 224, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i225), .{ -1 << 224, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i225), .{ -1 << 224, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i225), .{ -1 << 224, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i225), .{ -1 << 224, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i225), .{ -1 << 224, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i225), .{ -1 << 224, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u225), .{ 0, 1, 1 << 224 });
+            try testArgs(@Vector(3, u8), @Vector(3, u225), .{ 0, 1, 1 << 224 });
+            try testArgs(@Vector(3, i16), @Vector(3, u225), .{ 0, 1, 1 << 224 });
+            try testArgs(@Vector(3, u16), @Vector(3, u225), .{ 0, 1, 1 << 224 });
+            try testArgs(@Vector(3, i32), @Vector(3, u225), .{ 0, 1, 1 << 224 });
+            try testArgs(@Vector(3, u32), @Vector(3, u225), .{ 0, 1, 1 << 224 });
+            try testArgs(@Vector(3, i64), @Vector(3, u225), .{ 0, 1, 1 << 224 });
+            try testArgs(@Vector(3, u64), @Vector(3, u225), .{ 0, 1, 1 << 224 });
+            try testArgs(@Vector(3, i128), @Vector(3, u225), .{ 0, 1, 1 << 224 });
+            try testArgs(@Vector(3, u128), @Vector(3, u225), .{ 0, 1, 1 << 224 });
+            try testArgs(@Vector(3, i256), @Vector(3, u225), .{ 0, 1, 1 << 224 });
+            try testArgs(@Vector(3, u256), @Vector(3, u225), .{ 0, 1, 1 << 224 });
+            try testArgs(@Vector(3, i512), @Vector(3, u225), .{ 0, 1, 1 << 224 });
+            try testArgs(@Vector(3, u512), @Vector(3, u225), .{ 0, 1, 1 << 224 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u225), .{ 0, 1, 1 << 224 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u225), .{ 0, 1, 1 << 224 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i255), .{ -1 << 254, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i255), .{ -1 << 254, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i255), .{ -1 << 254, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i255), .{ -1 << 254, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i255), .{ -1 << 254, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i255), .{ -1 << 254, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i255), .{ -1 << 254, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i255), .{ -1 << 254, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i255), .{ -1 << 254, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i255), .{ -1 << 254, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i255), .{ -1 << 254, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i255), .{ -1 << 254, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i255), .{ -1 << 254, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i255), .{ -1 << 254, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i255), .{ -1 << 254, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i255), .{ -1 << 254, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u255), .{ 0, 1, 1 << 254 });
+            try testArgs(@Vector(3, u8), @Vector(3, u255), .{ 0, 1, 1 << 254 });
+            try testArgs(@Vector(3, i16), @Vector(3, u255), .{ 0, 1, 1 << 254 });
+            try testArgs(@Vector(3, u16), @Vector(3, u255), .{ 0, 1, 1 << 254 });
+            try testArgs(@Vector(3, i32), @Vector(3, u255), .{ 0, 1, 1 << 254 });
+            try testArgs(@Vector(3, u32), @Vector(3, u255), .{ 0, 1, 1 << 254 });
+            try testArgs(@Vector(3, i64), @Vector(3, u255), .{ 0, 1, 1 << 254 });
+            try testArgs(@Vector(3, u64), @Vector(3, u255), .{ 0, 1, 1 << 254 });
+            try testArgs(@Vector(3, i128), @Vector(3, u255), .{ 0, 1, 1 << 254 });
+            try testArgs(@Vector(3, u128), @Vector(3, u255), .{ 0, 1, 1 << 254 });
+            try testArgs(@Vector(3, i256), @Vector(3, u255), .{ 0, 1, 1 << 254 });
+            try testArgs(@Vector(3, u256), @Vector(3, u255), .{ 0, 1, 1 << 254 });
+            try testArgs(@Vector(3, i512), @Vector(3, u255), .{ 0, 1, 1 << 254 });
+            try testArgs(@Vector(3, u512), @Vector(3, u255), .{ 0, 1, 1 << 254 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u255), .{ 0, 1, 1 << 254 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u255), .{ 0, 1, 1 << 254 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i256), .{ -1 << 255, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i256), .{ -1 << 255, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i256), .{ -1 << 255, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i256), .{ -1 << 255, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i256), .{ -1 << 255, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i256), .{ -1 << 255, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i256), .{ -1 << 255, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i256), .{ -1 << 255, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i256), .{ -1 << 255, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i256), .{ -1 << 255, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i256), .{ -1 << 255, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i256), .{ -1 << 255, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i256), .{ -1 << 255, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i256), .{ -1 << 255, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i256), .{ -1 << 255, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i256), .{ -1 << 255, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u256), .{ 0, 1, 1 << 255 });
+            try testArgs(@Vector(3, u8), @Vector(3, u256), .{ 0, 1, 1 << 255 });
+            try testArgs(@Vector(3, i16), @Vector(3, u256), .{ 0, 1, 1 << 255 });
+            try testArgs(@Vector(3, u16), @Vector(3, u256), .{ 0, 1, 1 << 255 });
+            try testArgs(@Vector(3, i32), @Vector(3, u256), .{ 0, 1, 1 << 255 });
+            try testArgs(@Vector(3, u32), @Vector(3, u256), .{ 0, 1, 1 << 255 });
+            try testArgs(@Vector(3, i64), @Vector(3, u256), .{ 0, 1, 1 << 255 });
+            try testArgs(@Vector(3, u64), @Vector(3, u256), .{ 0, 1, 1 << 255 });
+            try testArgs(@Vector(3, i128), @Vector(3, u256), .{ 0, 1, 1 << 255 });
+            try testArgs(@Vector(3, u128), @Vector(3, u256), .{ 0, 1, 1 << 255 });
+            try testArgs(@Vector(3, i256), @Vector(3, u256), .{ 0, 1, 1 << 255 });
+            try testArgs(@Vector(3, u256), @Vector(3, u256), .{ 0, 1, 1 << 255 });
+            try testArgs(@Vector(3, i512), @Vector(3, u256), .{ 0, 1, 1 << 255 });
+            try testArgs(@Vector(3, u512), @Vector(3, u256), .{ 0, 1, 1 << 255 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u256), .{ 0, 1, 1 << 255 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u256), .{ 0, 1, 1 << 255 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i257), .{ -1 << 256, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i257), .{ -1 << 256, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i257), .{ -1 << 256, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i257), .{ -1 << 256, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i257), .{ -1 << 256, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i257), .{ -1 << 256, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i257), .{ -1 << 256, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i257), .{ -1 << 256, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i257), .{ -1 << 256, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i257), .{ -1 << 256, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i257), .{ -1 << 256, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i257), .{ -1 << 256, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i257), .{ -1 << 256, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i257), .{ -1 << 256, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i257), .{ -1 << 256, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i257), .{ -1 << 256, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u257), .{ 0, 1, 1 << 256 });
+            try testArgs(@Vector(3, u8), @Vector(3, u257), .{ 0, 1, 1 << 256 });
+            try testArgs(@Vector(3, i16), @Vector(3, u257), .{ 0, 1, 1 << 256 });
+            try testArgs(@Vector(3, u16), @Vector(3, u257), .{ 0, 1, 1 << 256 });
+            try testArgs(@Vector(3, i32), @Vector(3, u257), .{ 0, 1, 1 << 256 });
+            try testArgs(@Vector(3, u32), @Vector(3, u257), .{ 0, 1, 1 << 256 });
+            try testArgs(@Vector(3, i64), @Vector(3, u257), .{ 0, 1, 1 << 256 });
+            try testArgs(@Vector(3, u64), @Vector(3, u257), .{ 0, 1, 1 << 256 });
+            try testArgs(@Vector(3, i128), @Vector(3, u257), .{ 0, 1, 1 << 256 });
+            try testArgs(@Vector(3, u128), @Vector(3, u257), .{ 0, 1, 1 << 256 });
+            try testArgs(@Vector(3, i256), @Vector(3, u257), .{ 0, 1, 1 << 256 });
+            try testArgs(@Vector(3, u256), @Vector(3, u257), .{ 0, 1, 1 << 256 });
+            try testArgs(@Vector(3, i512), @Vector(3, u257), .{ 0, 1, 1 << 256 });
+            try testArgs(@Vector(3, u512), @Vector(3, u257), .{ 0, 1, 1 << 256 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u257), .{ 0, 1, 1 << 256 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u257), .{ 0, 1, 1 << 256 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i511), .{ -1 << 510, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i511), .{ -1 << 510, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i511), .{ -1 << 510, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i511), .{ -1 << 510, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i511), .{ -1 << 510, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i511), .{ -1 << 510, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i511), .{ -1 << 510, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i511), .{ -1 << 510, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i511), .{ -1 << 510, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i511), .{ -1 << 510, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i511), .{ -1 << 510, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i511), .{ -1 << 510, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i511), .{ -1 << 510, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i511), .{ -1 << 510, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i511), .{ -1 << 510, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i511), .{ -1 << 510, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u511), .{ 0, 1, 1 << 510 });
+            try testArgs(@Vector(3, u8), @Vector(3, u511), .{ 0, 1, 1 << 510 });
+            try testArgs(@Vector(3, i16), @Vector(3, u511), .{ 0, 1, 1 << 510 });
+            try testArgs(@Vector(3, u16), @Vector(3, u511), .{ 0, 1, 1 << 510 });
+            try testArgs(@Vector(3, i32), @Vector(3, u511), .{ 0, 1, 1 << 510 });
+            try testArgs(@Vector(3, u32), @Vector(3, u511), .{ 0, 1, 1 << 510 });
+            try testArgs(@Vector(3, i64), @Vector(3, u511), .{ 0, 1, 1 << 510 });
+            try testArgs(@Vector(3, u64), @Vector(3, u511), .{ 0, 1, 1 << 510 });
+            try testArgs(@Vector(3, i128), @Vector(3, u511), .{ 0, 1, 1 << 510 });
+            try testArgs(@Vector(3, u128), @Vector(3, u511), .{ 0, 1, 1 << 510 });
+            try testArgs(@Vector(3, i256), @Vector(3, u511), .{ 0, 1, 1 << 510 });
+            try testArgs(@Vector(3, u256), @Vector(3, u511), .{ 0, 1, 1 << 510 });
+            try testArgs(@Vector(3, i512), @Vector(3, u511), .{ 0, 1, 1 << 510 });
+            try testArgs(@Vector(3, u512), @Vector(3, u511), .{ 0, 1, 1 << 510 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u511), .{ 0, 1, 1 << 510 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u511), .{ 0, 1, 1 << 510 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i512), .{ -1 << 511, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i512), .{ -1 << 511, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i512), .{ -1 << 511, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i512), .{ -1 << 511, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i512), .{ -1 << 511, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i512), .{ -1 << 511, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i512), .{ -1 << 511, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i512), .{ -1 << 511, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i512), .{ -1 << 511, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i512), .{ -1 << 511, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i512), .{ -1 << 511, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i512), .{ -1 << 511, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i512), .{ -1 << 511, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i512), .{ -1 << 511, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i512), .{ -1 << 511, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i512), .{ -1 << 511, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u512), .{ 0, 1, 1 << 511 });
+            try testArgs(@Vector(3, u8), @Vector(3, u512), .{ 0, 1, 1 << 511 });
+            try testArgs(@Vector(3, i16), @Vector(3, u512), .{ 0, 1, 1 << 511 });
+            try testArgs(@Vector(3, u16), @Vector(3, u512), .{ 0, 1, 1 << 511 });
+            try testArgs(@Vector(3, i32), @Vector(3, u512), .{ 0, 1, 1 << 511 });
+            try testArgs(@Vector(3, u32), @Vector(3, u512), .{ 0, 1, 1 << 511 });
+            try testArgs(@Vector(3, i64), @Vector(3, u512), .{ 0, 1, 1 << 511 });
+            try testArgs(@Vector(3, u64), @Vector(3, u512), .{ 0, 1, 1 << 511 });
+            try testArgs(@Vector(3, i128), @Vector(3, u512), .{ 0, 1, 1 << 511 });
+            try testArgs(@Vector(3, u128), @Vector(3, u512), .{ 0, 1, 1 << 511 });
+            try testArgs(@Vector(3, i256), @Vector(3, u512), .{ 0, 1, 1 << 511 });
+            try testArgs(@Vector(3, u256), @Vector(3, u512), .{ 0, 1, 1 << 511 });
+            try testArgs(@Vector(3, i512), @Vector(3, u512), .{ 0, 1, 1 << 511 });
+            try testArgs(@Vector(3, u512), @Vector(3, u512), .{ 0, 1, 1 << 511 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u512), .{ 0, 1, 1 << 511 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u512), .{ 0, 1, 1 << 511 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i513), .{ -1 << 512, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i513), .{ -1 << 512, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i513), .{ -1 << 512, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i513), .{ -1 << 512, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i513), .{ -1 << 512, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i513), .{ -1 << 512, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i513), .{ -1 << 512, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i513), .{ -1 << 512, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i513), .{ -1 << 512, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i513), .{ -1 << 512, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i513), .{ -1 << 512, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i513), .{ -1 << 512, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i513), .{ -1 << 512, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i513), .{ -1 << 512, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i513), .{ -1 << 512, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i513), .{ -1 << 512, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u513), .{ 0, 1, 1 << 512 });
+            try testArgs(@Vector(3, u8), @Vector(3, u513), .{ 0, 1, 1 << 512 });
+            try testArgs(@Vector(3, i16), @Vector(3, u513), .{ 0, 1, 1 << 512 });
+            try testArgs(@Vector(3, u16), @Vector(3, u513), .{ 0, 1, 1 << 512 });
+            try testArgs(@Vector(3, i32), @Vector(3, u513), .{ 0, 1, 1 << 512 });
+            try testArgs(@Vector(3, u32), @Vector(3, u513), .{ 0, 1, 1 << 512 });
+            try testArgs(@Vector(3, i64), @Vector(3, u513), .{ 0, 1, 1 << 512 });
+            try testArgs(@Vector(3, u64), @Vector(3, u513), .{ 0, 1, 1 << 512 });
+            try testArgs(@Vector(3, i128), @Vector(3, u513), .{ 0, 1, 1 << 512 });
+            try testArgs(@Vector(3, u128), @Vector(3, u513), .{ 0, 1, 1 << 512 });
+            try testArgs(@Vector(3, i256), @Vector(3, u513), .{ 0, 1, 1 << 512 });
+            try testArgs(@Vector(3, u256), @Vector(3, u513), .{ 0, 1, 1 << 512 });
+            try testArgs(@Vector(3, i512), @Vector(3, u513), .{ 0, 1, 1 << 512 });
+            try testArgs(@Vector(3, u512), @Vector(3, u513), .{ 0, 1, 1 << 512 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u513), .{ 0, 1, 1 << 512 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u513), .{ 0, 1, 1 << 512 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i1023), .{ -1 << 1022, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i1023), .{ -1 << 1022, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i1023), .{ -1 << 1022, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i1023), .{ -1 << 1022, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i1023), .{ -1 << 1022, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i1023), .{ -1 << 1022, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i1023), .{ -1 << 1022, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i1023), .{ -1 << 1022, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i1023), .{ -1 << 1022, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i1023), .{ -1 << 1022, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i1023), .{ -1 << 1022, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i1023), .{ -1 << 1022, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i1023), .{ -1 << 1022, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i1023), .{ -1 << 1022, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i1023), .{ -1 << 1022, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i1023), .{ -1 << 1022, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u1023), .{ 0, 1, 1 << 1022 });
+            try testArgs(@Vector(3, u8), @Vector(3, u1023), .{ 0, 1, 1 << 1022 });
+            try testArgs(@Vector(3, i16), @Vector(3, u1023), .{ 0, 1, 1 << 1022 });
+            try testArgs(@Vector(3, u16), @Vector(3, u1023), .{ 0, 1, 1 << 1022 });
+            try testArgs(@Vector(3, i32), @Vector(3, u1023), .{ 0, 1, 1 << 1022 });
+            try testArgs(@Vector(3, u32), @Vector(3, u1023), .{ 0, 1, 1 << 1022 });
+            try testArgs(@Vector(3, i64), @Vector(3, u1023), .{ 0, 1, 1 << 1022 });
+            try testArgs(@Vector(3, u64), @Vector(3, u1023), .{ 0, 1, 1 << 1022 });
+            try testArgs(@Vector(3, i128), @Vector(3, u1023), .{ 0, 1, 1 << 1022 });
+            try testArgs(@Vector(3, u128), @Vector(3, u1023), .{ 0, 1, 1 << 1022 });
+            try testArgs(@Vector(3, i256), @Vector(3, u1023), .{ 0, 1, 1 << 1022 });
+            try testArgs(@Vector(3, u256), @Vector(3, u1023), .{ 0, 1, 1 << 1022 });
+            try testArgs(@Vector(3, i512), @Vector(3, u1023), .{ 0, 1, 1 << 1022 });
+            try testArgs(@Vector(3, u512), @Vector(3, u1023), .{ 0, 1, 1 << 1022 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u1023), .{ 0, 1, 1 << 1022 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u1023), .{ 0, 1, 1 << 1022 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i1024), .{ -1 << 1023, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i1024), .{ -1 << 1023, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i1024), .{ -1 << 1023, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i1024), .{ -1 << 1023, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i1024), .{ -1 << 1023, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i1024), .{ -1 << 1023, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i1024), .{ -1 << 1023, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i1024), .{ -1 << 1023, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i1024), .{ -1 << 1023, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i1024), .{ -1 << 1023, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i1024), .{ -1 << 1023, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i1024), .{ -1 << 1023, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i1024), .{ -1 << 1023, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i1024), .{ -1 << 1023, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i1024), .{ -1 << 1023, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i1024), .{ -1 << 1023, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u1024), .{ 0, 1, 1 << 1023 });
+            try testArgs(@Vector(3, u8), @Vector(3, u1024), .{ 0, 1, 1 << 1023 });
+            try testArgs(@Vector(3, i16), @Vector(3, u1024), .{ 0, 1, 1 << 1023 });
+            try testArgs(@Vector(3, u16), @Vector(3, u1024), .{ 0, 1, 1 << 1023 });
+            try testArgs(@Vector(3, i32), @Vector(3, u1024), .{ 0, 1, 1 << 1023 });
+            try testArgs(@Vector(3, u32), @Vector(3, u1024), .{ 0, 1, 1 << 1023 });
+            try testArgs(@Vector(3, i64), @Vector(3, u1024), .{ 0, 1, 1 << 1023 });
+            try testArgs(@Vector(3, u64), @Vector(3, u1024), .{ 0, 1, 1 << 1023 });
+            try testArgs(@Vector(3, i128), @Vector(3, u1024), .{ 0, 1, 1 << 1023 });
+            try testArgs(@Vector(3, u128), @Vector(3, u1024), .{ 0, 1, 1 << 1023 });
+            try testArgs(@Vector(3, i256), @Vector(3, u1024), .{ 0, 1, 1 << 1023 });
+            try testArgs(@Vector(3, u256), @Vector(3, u1024), .{ 0, 1, 1 << 1023 });
+            try testArgs(@Vector(3, i512), @Vector(3, u1024), .{ 0, 1, 1 << 1023 });
+            try testArgs(@Vector(3, u512), @Vector(3, u1024), .{ 0, 1, 1 << 1023 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u1024), .{ 0, 1, 1 << 1023 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u1024), .{ 0, 1, 1 << 1023 });
+
+            try testArgs(@Vector(3, i8), @Vector(3, i1025), .{ -1 << 1024, -1, 0 });
+            try testArgs(@Vector(3, u8), @Vector(3, i1025), .{ -1 << 1024, -1, 0 });
+            try testArgs(@Vector(3, i16), @Vector(3, i1025), .{ -1 << 1024, -1, 0 });
+            try testArgs(@Vector(3, u16), @Vector(3, i1025), .{ -1 << 1024, -1, 0 });
+            try testArgs(@Vector(3, i32), @Vector(3, i1025), .{ -1 << 1024, -1, 0 });
+            try testArgs(@Vector(3, u32), @Vector(3, i1025), .{ -1 << 1024, -1, 0 });
+            try testArgs(@Vector(3, i64), @Vector(3, i1025), .{ -1 << 1024, -1, 0 });
+            try testArgs(@Vector(3, u64), @Vector(3, i1025), .{ -1 << 1024, -1, 0 });
+            try testArgs(@Vector(3, i128), @Vector(3, i1025), .{ -1 << 1024, -1, 0 });
+            try testArgs(@Vector(3, u128), @Vector(3, i1025), .{ -1 << 1024, -1, 0 });
+            try testArgs(@Vector(3, i256), @Vector(3, i1025), .{ -1 << 1024, -1, 0 });
+            try testArgs(@Vector(3, u256), @Vector(3, i1025), .{ -1 << 1024, -1, 0 });
+            try testArgs(@Vector(3, i512), @Vector(3, i1025), .{ -1 << 1024, -1, 0 });
+            try testArgs(@Vector(3, u512), @Vector(3, i1025), .{ -1 << 1024, -1, 0 });
+            try testArgs(@Vector(3, i1024), @Vector(3, i1025), .{ -1 << 1024, -1, 0 });
+            try testArgs(@Vector(3, u1024), @Vector(3, i1025), .{ -1 << 1024, -1, 0 });
+            try testArgs(@Vector(3, i8), @Vector(3, u1025), .{ 0, 1, 1 << 1024 });
+            try testArgs(@Vector(3, u8), @Vector(3, u1025), .{ 0, 1, 1 << 1024 });
+            try testArgs(@Vector(3, i16), @Vector(3, u1025), .{ 0, 1, 1 << 1024 });
+            try testArgs(@Vector(3, u16), @Vector(3, u1025), .{ 0, 1, 1 << 1024 });
+            try testArgs(@Vector(3, i32), @Vector(3, u1025), .{ 0, 1, 1 << 1024 });
+            try testArgs(@Vector(3, u32), @Vector(3, u1025), .{ 0, 1, 1 << 1024 });
+            try testArgs(@Vector(3, i64), @Vector(3, u1025), .{ 0, 1, 1 << 1024 });
+            try testArgs(@Vector(3, u64), @Vector(3, u1025), .{ 0, 1, 1 << 1024 });
+            try testArgs(@Vector(3, i128), @Vector(3, u1025), .{ 0, 1, 1 << 1024 });
+            try testArgs(@Vector(3, u128), @Vector(3, u1025), .{ 0, 1, 1 << 1024 });
+            try testArgs(@Vector(3, i256), @Vector(3, u1025), .{ 0, 1, 1 << 1024 });
+            try testArgs(@Vector(3, u256), @Vector(3, u1025), .{ 0, 1, 1 << 1024 });
+            try testArgs(@Vector(3, i512), @Vector(3, u1025), .{ 0, 1, 1 << 1024 });
+            try testArgs(@Vector(3, u512), @Vector(3, u1025), .{ 0, 1, 1 << 1024 });
+            try testArgs(@Vector(3, i1024), @Vector(3, u1025), .{ 0, 1, 1 << 1024 });
+            try testArgs(@Vector(3, u1024), @Vector(3, u1025), .{ 0, 1, 1 << 1024 });
+        }
+        fn testFloatVectors() !void {
+            @setEvalBranchQuota(6_700);
+
+            try testArgs(@Vector(1, f16), @Vector(1, f16), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f16), @Vector(2, f16), .{
+                -inf(f16), -1e-2,
+            });
+            try testArgs(@Vector(4, f16), @Vector(4, f16), .{
+                -1e2, 1e-1, fmax(f16), 1e-2,
+            });
+            try testArgs(@Vector(8, f16), @Vector(8, f16), .{
+                -1e-1, tmin(f16), -1e3, fmin(f16), nan(f16), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f16), @Vector(16, f16), .{
+                -fmax(f16), -1e0, 1e-4, 1e2, -fmin(f16), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f16), -tmin(f16), -1e-4, inf(f16), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f16), @Vector(32, f16), .{
+                -1e3, -tmin(f16), inf(f16),   -1e4,      -0.0, fmax(f16), 1e2,       1e4, -nan(f16), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f16), -1e0,
+                1e3,  -1e-3,      -fmin(f16), -inf(f16), 1e-3, tmin(f16), fmin(f16), 1e1, 1e-4,      -fmax(f16), -1e2,  1e-2, -1e-2, 1e3,  inf(f16), -fmin(f16),
+            });
+
+            try testArgs(@Vector(1, f32), @Vector(1, f16), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f32), @Vector(2, f16), .{
+                -inf(f16), -1e-2,
+            });
+            try testArgs(@Vector(4, f32), @Vector(4, f16), .{
+                -1e2, 1e-1, fmax(f16), 1e-2,
+            });
+            try testArgs(@Vector(8, f32), @Vector(8, f16), .{
+                -1e-1, tmin(f16), -1e3, fmin(f16), nan(f16), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f32), @Vector(16, f16), .{
+                -fmax(f16), -1e0, 1e-4, 1e2, -fmin(f16), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f16), -tmin(f16), -1e-4, inf(f16), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f32), @Vector(32, f16), .{
+                -1e3, -tmin(f16), inf(f16),   -1e4,      -0.0, fmax(f16), 1e2,       1e4, -nan(f16), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f16), -1e0,
+                1e3,  -1e-3,      -fmin(f16), -inf(f16), 1e-3, tmin(f16), fmin(f16), 1e1, 1e-4,      -fmax(f16), -1e2,  1e-2, -1e-2, 1e3,  inf(f16), -fmin(f16),
+            });
+
+            try testArgs(@Vector(1, f64), @Vector(1, f16), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f64), @Vector(2, f16), .{
+                -inf(f16), -1e-2,
+            });
+            try testArgs(@Vector(4, f64), @Vector(4, f16), .{
+                -1e2, 1e-1, fmax(f16), 1e-2,
+            });
+            try testArgs(@Vector(8, f64), @Vector(8, f16), .{
+                -1e-1, tmin(f16), -1e3, fmin(f16), nan(f16), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f64), @Vector(16, f16), .{
+                -fmax(f16), -1e0, 1e-4, 1e2, -fmin(f16), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f16), -tmin(f16), -1e-4, inf(f16), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f64), @Vector(32, f16), .{
+                -1e3, -tmin(f16), inf(f16),   -1e4,      -0.0, fmax(f16), 1e2,       1e4, -nan(f16), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f16), -1e0,
+                1e3,  -1e-3,      -fmin(f16), -inf(f16), 1e-3, tmin(f16), fmin(f16), 1e1, 1e-4,      -fmax(f16), -1e2,  1e-2, -1e-2, 1e3,  inf(f16), -fmin(f16),
+            });
+
+            try testArgs(@Vector(1, f80), @Vector(1, f16), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f80), @Vector(2, f16), .{
+                -inf(f16), -1e-2,
+            });
+            try testArgs(@Vector(4, f80), @Vector(4, f16), .{
+                -1e2, 1e-1, fmax(f16), 1e-2,
+            });
+            try testArgs(@Vector(8, f80), @Vector(8, f16), .{
+                -1e-1, tmin(f16), -1e3, fmin(f16), nan(f16), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f80), @Vector(16, f16), .{
+                -fmax(f16), -1e0, 1e-4, 1e2, -fmin(f16), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f16), -tmin(f16), -1e-4, inf(f16), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f80), @Vector(32, f16), .{
+                -1e3, -tmin(f16), inf(f16),   -1e4,      -0.0, fmax(f16), 1e2,       1e4, -nan(f16), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f16), -1e0,
+                1e3,  -1e-3,      -fmin(f16), -inf(f16), 1e-3, tmin(f16), fmin(f16), 1e1, 1e-4,      -fmax(f16), -1e2,  1e-2, -1e-2, 1e3,  inf(f16), -fmin(f16),
+            });
+
+            try testArgs(@Vector(1, f128), @Vector(1, f16), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f128), @Vector(2, f16), .{
+                -inf(f16), -1e-2,
+            });
+            try testArgs(@Vector(4, f128), @Vector(4, f16), .{
+                -1e2, 1e-1, fmax(f16), 1e-2,
+            });
+            try testArgs(@Vector(8, f128), @Vector(8, f16), .{
+                -1e-1, tmin(f16), -1e3, fmin(f16), nan(f16), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f128), @Vector(16, f16), .{
+                -fmax(f16), -1e0, 1e-4, 1e2, -fmin(f16), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f16), -tmin(f16), -1e-4, inf(f16), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f128), @Vector(32, f16), .{
+                -1e3, -tmin(f16), inf(f16),   -1e4,      -0.0, fmax(f16), 1e2,       1e4, -nan(f16), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f16), -1e0,
+                1e3,  -1e-3,      -fmin(f16), -inf(f16), 1e-3, tmin(f16), fmin(f16), 1e1, 1e-4,      -fmax(f16), -1e2,  1e-2, -1e-2, 1e3,  inf(f16), -fmin(f16),
+            });
+
+            try testArgs(@Vector(1, f16), @Vector(1, f32), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f16), @Vector(2, f32), .{
+                -inf(f32), -1e-2,
+            });
+            try testArgs(@Vector(4, f16), @Vector(4, f32), .{
+                -1e2, 1e-1, fmax(f32), 1e-2,
+            });
+            try testArgs(@Vector(8, f16), @Vector(8, f32), .{
+                -1e-1, tmin(f32), -1e3, fmin(f32), nan(f32), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f16), @Vector(16, f32), .{
+                -fmax(f32), -1e0, 1e-4, 1e2, -fmin(f32), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f32), -tmin(f32), -1e-4, inf(f32), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f16), @Vector(32, f32), .{
+                -1e3, -tmin(f32), inf(f32),   -1e4,      -0.0, fmax(f32), 1e2,       1e4, -nan(f32), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f32), -1e0,
+                1e3,  -1e-3,      -fmin(f32), -inf(f32), 1e-3, tmin(f32), fmin(f32), 1e1, 1e-4,      -fmax(f32), -1e2,  1e-2, -1e-2, 1e3,  inf(f32), -fmin(f32),
+            });
+
+            try testArgs(@Vector(1, f32), @Vector(1, f32), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f32), @Vector(2, f32), .{
+                -inf(f32), -1e-2,
+            });
+            try testArgs(@Vector(4, f32), @Vector(4, f32), .{
+                -1e2, 1e-1, fmax(f32), 1e-2,
+            });
+            try testArgs(@Vector(8, f32), @Vector(8, f32), .{
+                -1e-1, tmin(f32), -1e3, fmin(f32), nan(f32), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f32), @Vector(16, f32), .{
+                -fmax(f32), -1e0, 1e-4, 1e2, -fmin(f32), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f32), -tmin(f32), -1e-4, inf(f32), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f32), @Vector(32, f32), .{
+                -1e3, -tmin(f32), inf(f32),   -1e4,      -0.0, fmax(f32), 1e2,       1e4, -nan(f32), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f32), -1e0,
+                1e3,  -1e-3,      -fmin(f32), -inf(f32), 1e-3, tmin(f32), fmin(f32), 1e1, 1e-4,      -fmax(f32), -1e2,  1e-2, -1e-2, 1e3,  inf(f32), -fmin(f32),
+            });
+
+            try testArgs(@Vector(1, f64), @Vector(1, f32), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f64), @Vector(2, f32), .{
+                -inf(f32), -1e-2,
+            });
+            try testArgs(@Vector(4, f64), @Vector(4, f32), .{
+                -1e2, 1e-1, fmax(f32), 1e-2,
+            });
+            try testArgs(@Vector(8, f64), @Vector(8, f32), .{
+                -1e-1, tmin(f32), -1e3, fmin(f32), nan(f32), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f64), @Vector(16, f32), .{
+                -fmax(f32), -1e0, 1e-4, 1e2, -fmin(f32), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f32), -tmin(f32), -1e-4, inf(f32), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f64), @Vector(32, f32), .{
+                -1e3, -tmin(f32), inf(f32),   -1e4,      -0.0, fmax(f32), 1e2,       1e4, -nan(f32), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f32), -1e0,
+                1e3,  -1e-3,      -fmin(f32), -inf(f32), 1e-3, tmin(f32), fmin(f32), 1e1, 1e-4,      -fmax(f32), -1e2,  1e-2, -1e-2, 1e3,  inf(f32), -fmin(f32),
+            });
+
+            try testArgs(@Vector(1, f80), @Vector(1, f32), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f80), @Vector(2, f32), .{
+                -inf(f32), -1e-2,
+            });
+            try testArgs(@Vector(4, f80), @Vector(4, f32), .{
+                -1e2, 1e-1, fmax(f32), 1e-2,
+            });
+            try testArgs(@Vector(8, f80), @Vector(8, f32), .{
+                -1e-1, tmin(f32), -1e3, fmin(f32), nan(f32), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f80), @Vector(16, f32), .{
+                -fmax(f32), -1e0, 1e-4, 1e2, -fmin(f32), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f32), -tmin(f32), -1e-4, inf(f32), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f80), @Vector(32, f32), .{
+                -1e3, -tmin(f32), inf(f32),   -1e4,      -0.0, fmax(f32), 1e2,       1e4, -nan(f32), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f32), -1e0,
+                1e3,  -1e-3,      -fmin(f32), -inf(f32), 1e-3, tmin(f32), fmin(f32), 1e1, 1e-4,      -fmax(f32), -1e2,  1e-2, -1e-2, 1e3,  inf(f32), -fmin(f32),
+            });
+
+            try testArgs(@Vector(1, f128), @Vector(1, f32), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f128), @Vector(2, f32), .{
+                -inf(f32), -1e-2,
+            });
+            try testArgs(@Vector(4, f128), @Vector(4, f32), .{
+                -1e2, 1e-1, fmax(f32), 1e-2,
+            });
+            try testArgs(@Vector(8, f128), @Vector(8, f32), .{
+                -1e-1, tmin(f32), -1e3, fmin(f32), nan(f32), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f128), @Vector(16, f32), .{
+                -fmax(f32), -1e0, 1e-4, 1e2, -fmin(f32), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f32), -tmin(f32), -1e-4, inf(f32), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f128), @Vector(32, f32), .{
+                -1e3, -tmin(f32), inf(f32),   -1e4,      -0.0, fmax(f32), 1e2,       1e4, -nan(f32), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f32), -1e0,
+                1e3,  -1e-3,      -fmin(f32), -inf(f32), 1e-3, tmin(f32), fmin(f32), 1e1, 1e-4,      -fmax(f32), -1e2,  1e-2, -1e-2, 1e3,  inf(f32), -fmin(f32),
+            });
+
+            try testArgs(@Vector(1, f16), @Vector(1, f64), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f16), @Vector(2, f64), .{
+                -inf(f64), -1e-2,
+            });
+            try testArgs(@Vector(4, f16), @Vector(4, f64), .{
+                -1e2, 1e-1, fmax(f64), 1e-2,
+            });
+            try testArgs(@Vector(8, f16), @Vector(8, f64), .{
+                -1e-1, tmin(f64), -1e3, fmin(f64), nan(f64), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f16), @Vector(16, f64), .{
+                -fmax(f64), -1e0, 1e-4, 1e2, -fmin(f64), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f64), -tmin(f64), -1e-4, inf(f64), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f16), @Vector(32, f64), .{
+                -1e3, -tmin(f64), inf(f64),   -1e4,      -0.0, fmax(f64), 1e2,       1e4, -nan(f64), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f64), -1e0,
+                1e3,  -1e-3,      -fmin(f64), -inf(f64), 1e-3, tmin(f64), fmin(f64), 1e1, 1e-4,      -fmax(f64), -1e2,  1e-2, -1e-2, 1e3,  inf(f64), -fmin(f64),
+            });
+
+            try testArgs(@Vector(1, f32), @Vector(1, f64), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f32), @Vector(2, f64), .{
+                -inf(f64), -1e-2,
+            });
+            try testArgs(@Vector(4, f32), @Vector(4, f64), .{
+                -1e2, 1e-1, fmax(f64), 1e-2,
+            });
+            try testArgs(@Vector(8, f32), @Vector(8, f64), .{
+                -1e-1, tmin(f64), -1e3, fmin(f64), nan(f64), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f32), @Vector(16, f64), .{
+                -fmax(f64), -1e0, 1e-4, 1e2, -fmin(f64), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f64), -tmin(f64), -1e-4, inf(f64), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f32), @Vector(32, f64), .{
+                -1e3, -tmin(f64), inf(f64),   -1e4,      -0.0, fmax(f64), 1e2,       1e4, -nan(f64), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f64), -1e0,
+                1e3,  -1e-3,      -fmin(f64), -inf(f64), 1e-3, tmin(f64), fmin(f64), 1e1, 1e-4,      -fmax(f64), -1e2,  1e-2, -1e-2, 1e3,  inf(f64), -fmin(f64),
+            });
+
+            try testArgs(@Vector(1, f64), @Vector(1, f64), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f64), @Vector(2, f64), .{
+                -inf(f64), -1e-2,
+            });
+            try testArgs(@Vector(4, f64), @Vector(4, f64), .{
+                -1e2, 1e-1, fmax(f64), 1e-2,
+            });
+            try testArgs(@Vector(8, f64), @Vector(8, f64), .{
+                -1e-1, tmin(f64), -1e3, fmin(f64), nan(f64), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f64), @Vector(16, f64), .{
+                -fmax(f64), -1e0, 1e-4, 1e2, -fmin(f64), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f64), -tmin(f64), -1e-4, inf(f64), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f64), @Vector(32, f64), .{
+                -1e3, -tmin(f64), inf(f64),   -1e4,      -0.0, fmax(f64), 1e2,       1e4, -nan(f64), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f64), -1e0,
+                1e3,  -1e-3,      -fmin(f64), -inf(f64), 1e-3, tmin(f64), fmin(f64), 1e1, 1e-4,      -fmax(f64), -1e2,  1e-2, -1e-2, 1e3,  inf(f64), -fmin(f64),
+            });
+
+            try testArgs(@Vector(1, f80), @Vector(1, f64), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f80), @Vector(2, f64), .{
+                -inf(f64), -1e-2,
+            });
+            try testArgs(@Vector(4, f80), @Vector(4, f64), .{
+                -1e2, 1e-1, fmax(f64), 1e-2,
+            });
+            try testArgs(@Vector(8, f80), @Vector(8, f64), .{
+                -1e-1, tmin(f64), -1e3, fmin(f64), nan(f64), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f80), @Vector(16, f64), .{
+                -fmax(f64), -1e0, 1e-4, 1e2, -fmin(f64), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f64), -tmin(f64), -1e-4, inf(f64), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f80), @Vector(32, f64), .{
+                -1e3, -tmin(f64), inf(f64),   -1e4,      -0.0, fmax(f64), 1e2,       1e4, -nan(f64), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f64), -1e0,
+                1e3,  -1e-3,      -fmin(f64), -inf(f64), 1e-3, tmin(f64), fmin(f64), 1e1, 1e-4,      -fmax(f64), -1e2,  1e-2, -1e-2, 1e3,  inf(f64), -fmin(f64),
+            });
+
+            try testArgs(@Vector(1, f128), @Vector(1, f64), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f128), @Vector(2, f64), .{
+                -inf(f64), -1e-2,
+            });
+            try testArgs(@Vector(4, f128), @Vector(4, f64), .{
+                -1e2, 1e-1, fmax(f64), 1e-2,
+            });
+            try testArgs(@Vector(8, f128), @Vector(8, f64), .{
+                -1e-1, tmin(f64), -1e3, fmin(f64), nan(f64), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f128), @Vector(16, f64), .{
+                -fmax(f64), -1e0, 1e-4, 1e2, -fmin(f64), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f64), -tmin(f64), -1e-4, inf(f64), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f128), @Vector(32, f64), .{
+                -1e3, -tmin(f64), inf(f64),   -1e4,      -0.0, fmax(f64), 1e2,       1e4, -nan(f64), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f64), -1e0,
+                1e3,  -1e-3,      -fmin(f64), -inf(f64), 1e-3, tmin(f64), fmin(f64), 1e1, 1e-4,      -fmax(f64), -1e2,  1e-2, -1e-2, 1e3,  inf(f64), -fmin(f64),
+            });
+
+            try testArgs(@Vector(1, f16), @Vector(1, f80), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f16), @Vector(2, f80), .{
+                -inf(f80), -1e-2,
+            });
+            try testArgs(@Vector(4, f16), @Vector(4, f80), .{
+                -1e2, 1e-1, fmax(f80), 1e-2,
+            });
+            try testArgs(@Vector(8, f16), @Vector(8, f80), .{
+                -1e-1, tmin(f80), -1e3, fmin(f80), nan(f80), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f16), @Vector(16, f80), .{
+                -fmax(f80), -1e0, 1e-4, 1e2, -fmin(f80), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f80), -tmin(f80), -1e-4, inf(f80), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f16), @Vector(32, f80), .{
+                -1e3, -tmin(f80), inf(f80),   -1e4,      -0.0, fmax(f80), 1e2,       1e4, -nan(f80), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f80), -1e0,
+                1e3,  -1e-3,      -fmin(f80), -inf(f80), 1e-3, tmin(f80), fmin(f80), 1e1, 1e-4,      -fmax(f80), -1e2,  1e-2, -1e-2, 1e3,  inf(f80), -fmin(f80),
+            });
+
+            try testArgs(@Vector(1, f32), @Vector(1, f80), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f32), @Vector(2, f80), .{
+                -inf(f80), -1e-2,
+            });
+            try testArgs(@Vector(4, f32), @Vector(4, f80), .{
+                -1e2, 1e-1, fmax(f80), 1e-2,
+            });
+            try testArgs(@Vector(8, f32), @Vector(8, f80), .{
+                -1e-1, tmin(f80), -1e3, fmin(f80), nan(f80), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f32), @Vector(16, f80), .{
+                -fmax(f80), -1e0, 1e-4, 1e2, -fmin(f80), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f80), -tmin(f80), -1e-4, inf(f80), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f32), @Vector(32, f80), .{
+                -1e3, -tmin(f80), inf(f80),   -1e4,      -0.0, fmax(f80), 1e2,       1e4, -nan(f80), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f80), -1e0,
+                1e3,  -1e-3,      -fmin(f80), -inf(f80), 1e-3, tmin(f80), fmin(f80), 1e1, 1e-4,      -fmax(f80), -1e2,  1e-2, -1e-2, 1e3,  inf(f80), -fmin(f80),
+            });
+
+            try testArgs(@Vector(1, f64), @Vector(1, f80), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f64), @Vector(2, f80), .{
+                -inf(f80), -1e-2,
+            });
+            try testArgs(@Vector(4, f64), @Vector(4, f80), .{
+                -1e2, 1e-1, fmax(f80), 1e-2,
+            });
+            try testArgs(@Vector(8, f64), @Vector(8, f80), .{
+                -1e-1, tmin(f80), -1e3, fmin(f80), nan(f80), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f64), @Vector(16, f80), .{
+                -fmax(f80), -1e0, 1e-4, 1e2, -fmin(f80), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f80), -tmin(f80), -1e-4, inf(f80), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f64), @Vector(32, f80), .{
+                -1e3, -tmin(f80), inf(f80),   -1e4,      -0.0, fmax(f80), 1e2,       1e4, -nan(f80), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f80), -1e0,
+                1e3,  -1e-3,      -fmin(f80), -inf(f80), 1e-3, tmin(f80), fmin(f80), 1e1, 1e-4,      -fmax(f80), -1e2,  1e-2, -1e-2, 1e3,  inf(f80), -fmin(f80),
+            });
+
+            try testArgs(@Vector(1, f80), @Vector(1, f80), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f80), @Vector(2, f80), .{
+                -inf(f80), -1e-2,
+            });
+            try testArgs(@Vector(4, f80), @Vector(4, f80), .{
+                -1e2, 1e-1, fmax(f80), 1e-2,
+            });
+            try testArgs(@Vector(8, f80), @Vector(8, f80), .{
+                -1e-1, tmin(f80), -1e3, fmin(f80), nan(f80), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f80), @Vector(16, f80), .{
+                -fmax(f80), -1e0, 1e-4, 1e2, -fmin(f80), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f80), -tmin(f80), -1e-4, inf(f80), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f80), @Vector(32, f80), .{
+                -1e3, -tmin(f80), inf(f80),   -1e4,      -0.0, fmax(f80), 1e2,       1e4, -nan(f80), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f80), -1e0,
+                1e3,  -1e-3,      -fmin(f80), -inf(f80), 1e-3, tmin(f80), fmin(f80), 1e1, 1e-4,      -fmax(f80), -1e2,  1e-2, -1e-2, 1e3,  inf(f80), -fmin(f80),
+            });
+
+            try testArgs(@Vector(1, f128), @Vector(1, f80), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f128), @Vector(2, f80), .{
+                -inf(f80), -1e-2,
+            });
+            try testArgs(@Vector(4, f128), @Vector(4, f80), .{
+                -1e2, 1e-1, fmax(f80), 1e-2,
+            });
+            try testArgs(@Vector(8, f128), @Vector(8, f80), .{
+                -1e-1, tmin(f80), -1e3, fmin(f80), nan(f80), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f128), @Vector(16, f80), .{
+                -fmax(f80), -1e0, 1e-4, 1e2, -fmin(f80), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f80), -tmin(f80), -1e-4, inf(f80), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f128), @Vector(32, f80), .{
+                -1e3, -tmin(f80), inf(f80),   -1e4,      -0.0, fmax(f80), 1e2,       1e4, -nan(f80), 0.0,        -1e-4, -1e1, 1e0,   1e-1, nan(f80), -1e0,
+                1e3,  -1e-3,      -fmin(f80), -inf(f80), 1e-3, tmin(f80), fmin(f80), 1e1, 1e-4,      -fmax(f80), -1e2,  1e-2, -1e-2, 1e3,  inf(f80), -fmin(f80),
+            });
+
+            try testArgs(@Vector(1, f16), @Vector(1, f128), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f16), @Vector(2, f128), .{
+                -inf(f128), -1e-2,
+            });
+            try testArgs(@Vector(4, f16), @Vector(4, f128), .{
+                -1e2, 1e-1, fmax(f128), 1e-2,
+            });
+            try testArgs(@Vector(8, f16), @Vector(8, f128), .{
+                -1e-1, tmin(f128), -1e3, fmin(f128), nan(f128), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f16), @Vector(16, f128), .{
+                -fmax(f128), -1e0, 1e-4, 1e2, -fmin(f128), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f128), -tmin(f128), -1e-4, inf(f128), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f16), @Vector(32, f128), .{
+                -1e3, -tmin(f128), inf(f128),   -1e4,       -0.0, fmax(f128), 1e2,        1e4, -nan(f128), 0.0,         -1e-4, -1e1, 1e0,   1e-1, nan(f128), -1e0,
+                1e3,  -1e-3,       -fmin(f128), -inf(f128), 1e-3, tmin(f128), fmin(f128), 1e1, 1e-4,       -fmax(f128), -1e2,  1e-2, -1e-2, 1e3,  inf(f128), -fmin(f128),
+            });
+
+            try testArgs(@Vector(1, f32), @Vector(1, f128), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f32), @Vector(2, f128), .{
+                -inf(f128), -1e-2,
+            });
+            try testArgs(@Vector(4, f32), @Vector(4, f128), .{
+                -1e2, 1e-1, fmax(f128), 1e-2,
+            });
+            try testArgs(@Vector(8, f32), @Vector(8, f128), .{
+                -1e-1, tmin(f128), -1e3, fmin(f128), nan(f128), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f32), @Vector(16, f128), .{
+                -fmax(f128), -1e0, 1e-4, 1e2, -fmin(f128), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f128), -tmin(f128), -1e-4, inf(f128), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f32), @Vector(32, f128), .{
+                -1e3, -tmin(f128), inf(f128),   -1e4,       -0.0, fmax(f128), 1e2,        1e4, -nan(f128), 0.0,         -1e-4, -1e1, 1e0,   1e-1, nan(f128), -1e0,
+                1e3,  -1e-3,       -fmin(f128), -inf(f128), 1e-3, tmin(f128), fmin(f128), 1e1, 1e-4,       -fmax(f128), -1e2,  1e-2, -1e-2, 1e3,  inf(f128), -fmin(f128),
+            });
+
+            try testArgs(@Vector(1, f64), @Vector(1, f128), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f64), @Vector(2, f128), .{
+                -inf(f128), -1e-2,
+            });
+            try testArgs(@Vector(4, f64), @Vector(4, f128), .{
+                -1e2, 1e-1, fmax(f128), 1e-2,
+            });
+            try testArgs(@Vector(8, f64), @Vector(8, f128), .{
+                -1e-1, tmin(f128), -1e3, fmin(f128), nan(f128), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f64), @Vector(16, f128), .{
+                -fmax(f128), -1e0, 1e-4, 1e2, -fmin(f128), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f128), -tmin(f128), -1e-4, inf(f128), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f64), @Vector(32, f128), .{
+                -1e3, -tmin(f128), inf(f128),   -1e4,       -0.0, fmax(f128), 1e2,        1e4, -nan(f128), 0.0,         -1e-4, -1e1, 1e0,   1e-1, nan(f128), -1e0,
+                1e3,  -1e-3,       -fmin(f128), -inf(f128), 1e-3, tmin(f128), fmin(f128), 1e1, 1e-4,       -fmax(f128), -1e2,  1e-2, -1e-2, 1e3,  inf(f128), -fmin(f128),
+            });
+
+            try testArgs(@Vector(1, f80), @Vector(1, f128), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f80), @Vector(2, f128), .{
+                -inf(f128), -1e-2,
+            });
+            try testArgs(@Vector(4, f80), @Vector(4, f128), .{
+                -1e2, 1e-1, fmax(f128), 1e-2,
+            });
+            try testArgs(@Vector(8, f80), @Vector(8, f128), .{
+                -1e-1, tmin(f128), -1e3, fmin(f128), nan(f128), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f80), @Vector(16, f128), .{
+                -fmax(f128), -1e0, 1e-4, 1e2, -fmin(f128), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f128), -tmin(f128), -1e-4, inf(f128), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f80), @Vector(32, f128), .{
+                -1e3, -tmin(f128), inf(f128),   -1e4,       -0.0, fmax(f128), 1e2,        1e4, -nan(f128), 0.0,         -1e-4, -1e1, 1e0,   1e-1, nan(f128), -1e0,
+                1e3,  -1e-3,       -fmin(f128), -inf(f128), 1e-3, tmin(f128), fmin(f128), 1e1, 1e-4,       -fmax(f128), -1e2,  1e-2, -1e-2, 1e3,  inf(f128), -fmin(f128),
+            });
+
+            try testArgs(@Vector(1, f128), @Vector(1, f128), .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f128), @Vector(2, f128), .{
+                -inf(f128), -1e-2,
+            });
+            try testArgs(@Vector(4, f128), @Vector(4, f128), .{
+                -1e2, 1e-1, fmax(f128), 1e-2,
+            });
+            try testArgs(@Vector(8, f128), @Vector(8, f128), .{
+                -1e-1, tmin(f128), -1e3, fmin(f128), nan(f128), -1e-3, 1e1, 1e4,
+            });
+            try testArgs(@Vector(16, f128), @Vector(16, f128), .{
+                -fmax(f128), -1e0, 1e-4, 1e2, -fmin(f128), -1e1, 0.0, -1e4, -0.0, 1e3, -nan(f128), -tmin(f128), -1e-4, inf(f128), 1e-3, -1e-1,
+            });
+            try testArgs(@Vector(32, f128), @Vector(32, f128), .{
+                -1e3, -tmin(f128), inf(f128),   -1e4,       -0.0, fmax(f128), 1e2,        1e4, -nan(f128), 0.0,         -1e-4, -1e1, 1e0,   1e-1, nan(f128), -1e0,
+                1e3,  -1e-3,       -fmin(f128), -inf(f128), 1e-3, tmin(f128), fmin(f128), 1e1, 1e-4,       -fmax(f128), -1e2,  1e-2, -1e-2, 1e3,  inf(f128), -fmin(f128),
+            });
+        }
+    };
+}
+
+fn binary(comptime op: anytype, comptime opts: struct { strict: bool = false }) type {
     return struct {
         // noinline so that `mem_lhs` and `mem_rhs` are on the stack
         noinline fn testArgKinds(
@@ -1355,14 +7145,14 @@ fn Binary(comptime op: anytype) type {
             var reg_lhs = mem_lhs;
             var reg_rhs = mem_rhs;
             _ = .{ &reg_lhs, &reg_rhs };
-            try checkExpected(expected, op(Type, reg_lhs, reg_rhs));
-            try checkExpected(expected, op(Type, reg_lhs, mem_rhs));
-            try checkExpected(expected, op(Type, reg_lhs, imm_rhs));
-            try checkExpected(expected, op(Type, mem_lhs, reg_rhs));
-            try checkExpected(expected, op(Type, mem_lhs, mem_rhs));
-            try checkExpected(expected, op(Type, mem_lhs, imm_rhs));
-            try checkExpected(expected, op(Type, imm_lhs, reg_rhs));
-            try checkExpected(expected, op(Type, imm_lhs, mem_rhs));
+            try checkExpected(expected, op(Type, reg_lhs, reg_rhs), opts.strict);
+            try checkExpected(expected, op(Type, reg_lhs, mem_rhs), opts.strict);
+            try checkExpected(expected, op(Type, reg_lhs, imm_rhs), opts.strict);
+            try checkExpected(expected, op(Type, mem_lhs, reg_rhs), opts.strict);
+            try checkExpected(expected, op(Type, mem_lhs, mem_rhs), opts.strict);
+            try checkExpected(expected, op(Type, mem_lhs, imm_rhs), opts.strict);
+            try checkExpected(expected, op(Type, imm_lhs, reg_rhs), opts.strict);
+            try checkExpected(expected, op(Type, imm_lhs, mem_rhs), opts.strict);
         }
         // noinline for a more helpful stack trace
         noinline fn testArgs(comptime Type: type, comptime imm_lhs: Type, comptime imm_rhs: Type) !void {
@@ -1390,7 +7180,7 @@ fn Binary(comptime op: anytype) type {
                 imm_rhs,
             );
         }
-        fn testIntTypes() !void {
+        fn testInts() !void {
             try testArgs(i8, 0x48, 0x6c);
             try testArgs(u8, 0xbb, 0x43);
             try testArgs(i16, -0x0fdf, 0x302e);
@@ -1401,48 +7191,1729 @@ fn Binary(comptime op: anytype) type {
             try testArgs(u64, 0x71138bc6b4a38898, 0x1bc4043de9438c7b);
             try testArgs(i128, 0x76d428c46cdeaa2ac43de8abffb22f6d, 0x427f7545abe434a12544fdbe2a012889);
             try testArgs(u128, 0xe05fc132ef2cd8affee00a907f0a851f, 0x29f912a72cfc6a7c6973426a9636da9a);
-            try testArgs(
-                i256,
-                -0x53d4148cee74ea43477a65b3daa7b8fdadcbf4508e793f4af113b8d8da5a7eb6,
-                -0x30dcbaf7b9b7a3df033694e6795444d842fb0b8f79bc18b3ea8a6b7ccad3ea91,
-            );
-            try testArgs(
-                u256,
-                0xb7935f5c2f3b1ae7a422c0a7c446884294b7d5370bada307d2fe5a4c4284a999,
-                0x310e6e196ba4f143b8d285ca6addf7f3bb3344224aff221b27607a31e148be08,
-            );
-            try testArgs(
-                i258,
-                -0x0eee283365108dbeea0bec82f5147418d8ffe86f9eed00e414b4eccd65c21239a,
-                -0x122c730073fc29a24cd6e3e6263566879bc5325d8566b8db31fcb4a76f7ab95eb,
-            );
-            try testArgs(
-                u258,
-                0x186d5ddaab8cb8cb04e5b41e36f812e039d008baf49f12894c39e29a07796d800,
-                0x2072daba6ffad168826163eb136f6d28ca4360c8e7e5e41e29755e19e4753a4f5,
-            );
-            try testArgs(
-                i495,
-                0x2fe6bc5448c55ce18252e2c9d44777505dfe63ff249a8027a6626c7d8dd9893fd5731e51474727be556f757facb586a4e04bbc0148c6c7ad692302f46fbd,
-                -0x016a358821ef8240172f3a08e8830c06e6bcf2225f5f4d41ed42b44d249385f55cc594e1278ecac31c73faed890e5054af1a561483bb1bb6fb1f753514cf,
-            );
-            try testArgs(
-                u495,
-                0x6eaf4e252b3bf74b75bac59e0b43ca5326bad2a25b3fdb74a67ef132ac5e47d72eebc3316fb2351ee66c50dc5afb92a75cea9b0e35160652c7db39eeb158,
-                0x49fbed744a92b549d8c05bb3512c617d24dd824f3f69bdf3923bc326a75674b85f5b828d2566fab9c86f571d12c2a63c9164feb0d191d27905533d09622a,
-            );
-            try testArgs(
-                i512,
-                -0x3a6876ca92775286c6e1504a64a9b8d56985bebf4a1b66539d404e0e96f24b226f70c4bcff295fdc2043b82513b2052dc45fd78f7e9e80e5b3e101757289f054,
-                0x5080c516a819bd32a0a5f0976441bbfbcf89e77684f1f10eb326aeb28e1f8d593278cff60fc99b8ffc87d8696882c64728dd3c322b7142803f4341f85a03bc10,
-            );
-            try testArgs(
-                u512,
-                0xe5b1fedca3c77db765e517aabd05ffc524a3a8aff1784bbf67c45b894447ede32b65b9940e78173c591e56e078932d465f235aece7ad47b7f229df7ba8f12295,
-                0x8b4bb7c2969e3b121cc1082c442f8b4330f0a50058438fed56447175bb10178607ecfe425cb54dacc25ef26810f3e04681de1844f1aa8d029aca75d658634806,
-            );
+            try testArgs(i256, -0x53d4148cee74ea43477a65b3daa7b8fdadcbf4508e793f4af113b8d8da5a7eb6, -0x30dcbaf7b9b7a3df033694e6795444d842fb0b8f79bc18b3ea8a6b7ccad3ea91);
+            try testArgs(u256, 0xb7935f5c2f3b1ae7a422c0a7c446884294b7d5370bada307d2fe5a4c4284a999, 0x310e6e196ba4f143b8d285ca6addf7f3bb3344224aff221b27607a31e148be08);
+            try testArgs(i258, -0x0eee283365108dbeea0bec82f5147418d8ffe86f9eed00e414b4eccd65c21239a, -0x122c730073fc29a24cd6e3e6263566879bc5325d8566b8db31fcb4a76f7ab95eb);
+            try testArgs(u258, 0x186d5ddaab8cb8cb04e5b41e36f812e039d008baf49f12894c39e29a07796d800, 0x2072daba6ffad168826163eb136f6d28ca4360c8e7e5e41e29755e19e4753a4f5);
+            try testArgs(i495, 0x2fe6bc5448c55ce18252e2c9d44777505dfe63ff249a8027a6626c7d8dd9893fd5731e51474727be556f757facb586a4e04bbc0148c6c7ad692302f46fbd, -0x016a358821ef8240172f3a08e8830c06e6bcf2225f5f4d41ed42b44d249385f55cc594e1278ecac31c73faed890e5054af1a561483bb1bb6fb1f753514cf);
+            try testArgs(u495, 0x6eaf4e252b3bf74b75bac59e0b43ca5326bad2a25b3fdb74a67ef132ac5e47d72eebc3316fb2351ee66c50dc5afb92a75cea9b0e35160652c7db39eeb158, 0x49fbed744a92b549d8c05bb3512c617d24dd824f3f69bdf3923bc326a75674b85f5b828d2566fab9c86f571d12c2a63c9164feb0d191d27905533d09622a);
+            try testArgs(i512, -0x3a6876ca92775286c6e1504a64a9b8d56985bebf4a1b66539d404e0e96f24b226f70c4bcff295fdc2043b82513b2052dc45fd78f7e9e80e5b3e101757289f054, 0x5080c516a819bd32a0a5f0976441bbfbcf89e77684f1f10eb326aeb28e1f8d593278cff60fc99b8ffc87d8696882c64728dd3c322b7142803f4341f85a03bc10);
+            try testArgs(u512, 0xe5b1fedca3c77db765e517aabd05ffc524a3a8aff1784bbf67c45b894447ede32b65b9940e78173c591e56e078932d465f235aece7ad47b7f229df7ba8f12295, 0x8b4bb7c2969e3b121cc1082c442f8b4330f0a50058438fed56447175bb10178607ecfe425cb54dacc25ef26810f3e04681de1844f1aa8d029aca75d658634806);
         }
-        fn testIntVectorTypes() !void {
+        fn testFloats() !void {
+            @setEvalBranchQuota(21_700);
+
+            try testArgs(f16, -nan(f16), -nan(f16));
+            try testArgs(f16, -nan(f16), -inf(f16));
+            try testArgs(f16, -nan(f16), -fmax(f16));
+            try testArgs(f16, -nan(f16), -1e1);
+            try testArgs(f16, -nan(f16), -1e0);
+            try testArgs(f16, -nan(f16), -1e-1);
+            try testArgs(f16, -nan(f16), -fmin(f16));
+            try testArgs(f16, -nan(f16), -tmin(f16));
+            try testArgs(f16, -nan(f16), -0.0);
+            try testArgs(f16, -nan(f16), 0.0);
+            try testArgs(f16, -nan(f16), tmin(f16));
+            try testArgs(f16, -nan(f16), fmin(f16));
+            try testArgs(f16, -nan(f16), 1e-1);
+            try testArgs(f16, -nan(f16), 1e0);
+            try testArgs(f16, -nan(f16), 1e1);
+            try testArgs(f16, -nan(f16), fmax(f16));
+            try testArgs(f16, -nan(f16), inf(f16));
+            try testArgs(f16, -nan(f16), nan(f16));
+
+            try testArgs(f16, -inf(f16), -nan(f16));
+            try testArgs(f16, -inf(f16), -inf(f16));
+            try testArgs(f16, -inf(f16), -fmax(f16));
+            try testArgs(f16, -inf(f16), -1e1);
+            try testArgs(f16, -inf(f16), -1e0);
+            try testArgs(f16, -inf(f16), -1e-1);
+            try testArgs(f16, -inf(f16), -fmin(f16));
+            try testArgs(f16, -inf(f16), -tmin(f16));
+            try testArgs(f16, -inf(f16), -0.0);
+            try testArgs(f16, -inf(f16), 0.0);
+            try testArgs(f16, -inf(f16), tmin(f16));
+            try testArgs(f16, -inf(f16), fmin(f16));
+            try testArgs(f16, -inf(f16), 1e-1);
+            try testArgs(f16, -inf(f16), 1e0);
+            try testArgs(f16, -inf(f16), 1e1);
+            try testArgs(f16, -inf(f16), fmax(f16));
+            try testArgs(f16, -inf(f16), inf(f16));
+            try testArgs(f16, -inf(f16), nan(f16));
+
+            try testArgs(f16, -fmax(f16), -nan(f16));
+            try testArgs(f16, -fmax(f16), -inf(f16));
+            try testArgs(f16, -fmax(f16), -fmax(f16));
+            try testArgs(f16, -fmax(f16), -1e1);
+            try testArgs(f16, -fmax(f16), -1e0);
+            try testArgs(f16, -fmax(f16), -1e-1);
+            try testArgs(f16, -fmax(f16), -fmin(f16));
+            try testArgs(f16, -fmax(f16), -tmin(f16));
+            try testArgs(f16, -fmax(f16), -0.0);
+            try testArgs(f16, -fmax(f16), 0.0);
+            try testArgs(f16, -fmax(f16), tmin(f16));
+            try testArgs(f16, -fmax(f16), fmin(f16));
+            try testArgs(f16, -fmax(f16), 1e-1);
+            try testArgs(f16, -fmax(f16), 1e0);
+            try testArgs(f16, -fmax(f16), 1e1);
+            try testArgs(f16, -fmax(f16), fmax(f16));
+            try testArgs(f16, -fmax(f16), inf(f16));
+            try testArgs(f16, -fmax(f16), nan(f16));
+
+            try testArgs(f16, -1e1, -nan(f16));
+            try testArgs(f16, -1e1, -inf(f16));
+            try testArgs(f16, -1e1, -fmax(f16));
+            try testArgs(f16, -1e1, -1e1);
+            try testArgs(f16, -1e1, -1e0);
+            try testArgs(f16, -1e1, -1e-1);
+            try testArgs(f16, -1e1, -fmin(f16));
+            try testArgs(f16, -1e1, -tmin(f16));
+            try testArgs(f16, -1e1, -0.0);
+            try testArgs(f16, -1e1, 0.0);
+            try testArgs(f16, -1e1, tmin(f16));
+            try testArgs(f16, -1e1, fmin(f16));
+            try testArgs(f16, -1e1, 1e-1);
+            try testArgs(f16, -1e1, 1e0);
+            try testArgs(f16, -1e1, 1e1);
+            try testArgs(f16, -1e1, fmax(f16));
+            try testArgs(f16, -1e1, inf(f16));
+            try testArgs(f16, -1e1, nan(f16));
+
+            try testArgs(f16, -1e0, -nan(f16));
+            try testArgs(f16, -1e0, -inf(f16));
+            try testArgs(f16, -1e0, -fmax(f16));
+            try testArgs(f16, -1e0, -1e1);
+            try testArgs(f16, -1e0, -1e0);
+            try testArgs(f16, -1e0, -1e-1);
+            try testArgs(f16, -1e0, -fmin(f16));
+            try testArgs(f16, -1e0, -tmin(f16));
+            try testArgs(f16, -1e0, -0.0);
+            try testArgs(f16, -1e0, 0.0);
+            try testArgs(f16, -1e0, tmin(f16));
+            try testArgs(f16, -1e0, fmin(f16));
+            try testArgs(f16, -1e0, 1e-1);
+            try testArgs(f16, -1e0, 1e0);
+            try testArgs(f16, -1e0, 1e1);
+            try testArgs(f16, -1e0, fmax(f16));
+            try testArgs(f16, -1e0, inf(f16));
+            try testArgs(f16, -1e0, nan(f16));
+
+            try testArgs(f16, -1e-1, -nan(f16));
+            try testArgs(f16, -1e-1, -inf(f16));
+            try testArgs(f16, -1e-1, -fmax(f16));
+            try testArgs(f16, -1e-1, -1e1);
+            try testArgs(f16, -1e-1, -1e0);
+            try testArgs(f16, -1e-1, -1e-1);
+            try testArgs(f16, -1e-1, -fmin(f16));
+            try testArgs(f16, -1e-1, -tmin(f16));
+            try testArgs(f16, -1e-1, -0.0);
+            try testArgs(f16, -1e-1, 0.0);
+            try testArgs(f16, -1e-1, tmin(f16));
+            try testArgs(f16, -1e-1, fmin(f16));
+            try testArgs(f16, -1e-1, 1e-1);
+            try testArgs(f16, -1e-1, 1e0);
+            try testArgs(f16, -1e-1, 1e1);
+            try testArgs(f16, -1e-1, fmax(f16));
+            try testArgs(f16, -1e-1, inf(f16));
+            try testArgs(f16, -1e-1, nan(f16));
+
+            try testArgs(f16, -fmin(f16), -nan(f16));
+            try testArgs(f16, -fmin(f16), -inf(f16));
+            try testArgs(f16, -fmin(f16), -fmax(f16));
+            try testArgs(f16, -fmin(f16), -1e1);
+            try testArgs(f16, -fmin(f16), -1e0);
+            try testArgs(f16, -fmin(f16), -1e-1);
+            try testArgs(f16, -fmin(f16), -fmin(f16));
+            try testArgs(f16, -fmin(f16), -tmin(f16));
+            try testArgs(f16, -fmin(f16), -0.0);
+            try testArgs(f16, -fmin(f16), 0.0);
+            try testArgs(f16, -fmin(f16), tmin(f16));
+            try testArgs(f16, -fmin(f16), fmin(f16));
+            try testArgs(f16, -fmin(f16), 1e-1);
+            try testArgs(f16, -fmin(f16), 1e0);
+            try testArgs(f16, -fmin(f16), 1e1);
+            try testArgs(f16, -fmin(f16), fmax(f16));
+            try testArgs(f16, -fmin(f16), inf(f16));
+            try testArgs(f16, -fmin(f16), nan(f16));
+
+            try testArgs(f16, -tmin(f16), -nan(f16));
+            try testArgs(f16, -tmin(f16), -inf(f16));
+            try testArgs(f16, -tmin(f16), -fmax(f16));
+            try testArgs(f16, -tmin(f16), -1e1);
+            try testArgs(f16, -tmin(f16), -1e0);
+            try testArgs(f16, -tmin(f16), -1e-1);
+            try testArgs(f16, -tmin(f16), -fmin(f16));
+            try testArgs(f16, -tmin(f16), -tmin(f16));
+            try testArgs(f16, -tmin(f16), -0.0);
+            try testArgs(f16, -tmin(f16), 0.0);
+            try testArgs(f16, -tmin(f16), tmin(f16));
+            try testArgs(f16, -tmin(f16), fmin(f16));
+            try testArgs(f16, -tmin(f16), 1e-1);
+            try testArgs(f16, -tmin(f16), 1e0);
+            try testArgs(f16, -tmin(f16), 1e1);
+            try testArgs(f16, -tmin(f16), fmax(f16));
+            try testArgs(f16, -tmin(f16), inf(f16));
+            try testArgs(f16, -tmin(f16), nan(f16));
+
+            try testArgs(f16, -0.0, -nan(f16));
+            try testArgs(f16, -0.0, -inf(f16));
+            try testArgs(f16, -0.0, -fmax(f16));
+            try testArgs(f16, -0.0, -1e1);
+            try testArgs(f16, -0.0, -1e0);
+            try testArgs(f16, -0.0, -1e-1);
+            try testArgs(f16, -0.0, -fmin(f16));
+            try testArgs(f16, -0.0, -tmin(f16));
+            try testArgs(f16, -0.0, -0.0);
+            try testArgs(f16, -0.0, 0.0);
+            try testArgs(f16, -0.0, tmin(f16));
+            try testArgs(f16, -0.0, fmin(f16));
+            try testArgs(f16, -0.0, 1e-1);
+            try testArgs(f16, -0.0, 1e0);
+            try testArgs(f16, -0.0, 1e1);
+            try testArgs(f16, -0.0, fmax(f16));
+            try testArgs(f16, -0.0, inf(f16));
+            try testArgs(f16, -0.0, nan(f16));
+
+            try testArgs(f16, 0.0, -nan(f16));
+            try testArgs(f16, 0.0, -inf(f16));
+            try testArgs(f16, 0.0, -fmax(f16));
+            try testArgs(f16, 0.0, -1e1);
+            try testArgs(f16, 0.0, -1e0);
+            try testArgs(f16, 0.0, -1e-1);
+            try testArgs(f16, 0.0, -fmin(f16));
+            try testArgs(f16, 0.0, -tmin(f16));
+            try testArgs(f16, 0.0, -0.0);
+            try testArgs(f16, 0.0, 0.0);
+            try testArgs(f16, 0.0, tmin(f16));
+            try testArgs(f16, 0.0, fmin(f16));
+            try testArgs(f16, 0.0, 1e-1);
+            try testArgs(f16, 0.0, 1e0);
+            try testArgs(f16, 0.0, 1e1);
+            try testArgs(f16, 0.0, fmax(f16));
+            try testArgs(f16, 0.0, inf(f16));
+            try testArgs(f16, 0.0, nan(f16));
+
+            try testArgs(f16, tmin(f16), -nan(f16));
+            try testArgs(f16, tmin(f16), -inf(f16));
+            try testArgs(f16, tmin(f16), -fmax(f16));
+            try testArgs(f16, tmin(f16), -1e1);
+            try testArgs(f16, tmin(f16), -1e0);
+            try testArgs(f16, tmin(f16), -1e-1);
+            try testArgs(f16, tmin(f16), -fmin(f16));
+            try testArgs(f16, tmin(f16), -tmin(f16));
+            try testArgs(f16, tmin(f16), -0.0);
+            try testArgs(f16, tmin(f16), 0.0);
+            try testArgs(f16, tmin(f16), tmin(f16));
+            try testArgs(f16, tmin(f16), fmin(f16));
+            try testArgs(f16, tmin(f16), 1e-1);
+            try testArgs(f16, tmin(f16), 1e0);
+            try testArgs(f16, tmin(f16), 1e1);
+            try testArgs(f16, tmin(f16), fmax(f16));
+            try testArgs(f16, tmin(f16), inf(f16));
+            try testArgs(f16, tmin(f16), nan(f16));
+
+            try testArgs(f16, fmin(f16), -nan(f16));
+            try testArgs(f16, fmin(f16), -inf(f16));
+            try testArgs(f16, fmin(f16), -fmax(f16));
+            try testArgs(f16, fmin(f16), -1e1);
+            try testArgs(f16, fmin(f16), -1e0);
+            try testArgs(f16, fmin(f16), -1e-1);
+            try testArgs(f16, fmin(f16), -fmin(f16));
+            try testArgs(f16, fmin(f16), -tmin(f16));
+            try testArgs(f16, fmin(f16), -0.0);
+            try testArgs(f16, fmin(f16), 0.0);
+            try testArgs(f16, fmin(f16), tmin(f16));
+            try testArgs(f16, fmin(f16), fmin(f16));
+            try testArgs(f16, fmin(f16), 1e-1);
+            try testArgs(f16, fmin(f16), 1e0);
+            try testArgs(f16, fmin(f16), 1e1);
+            try testArgs(f16, fmin(f16), fmax(f16));
+            try testArgs(f16, fmin(f16), inf(f16));
+            try testArgs(f16, fmin(f16), nan(f16));
+
+            try testArgs(f16, 1e-1, -nan(f16));
+            try testArgs(f16, 1e-1, -inf(f16));
+            try testArgs(f16, 1e-1, -fmax(f16));
+            try testArgs(f16, 1e-1, -1e1);
+            try testArgs(f16, 1e-1, -1e0);
+            try testArgs(f16, 1e-1, -1e-1);
+            try testArgs(f16, 1e-1, -fmin(f16));
+            try testArgs(f16, 1e-1, -tmin(f16));
+            try testArgs(f16, 1e-1, -0.0);
+            try testArgs(f16, 1e-1, 0.0);
+            try testArgs(f16, 1e-1, tmin(f16));
+            try testArgs(f16, 1e-1, fmin(f16));
+            try testArgs(f16, 1e-1, 1e-1);
+            try testArgs(f16, 1e-1, 1e0);
+            try testArgs(f16, 1e-1, 1e1);
+            try testArgs(f16, 1e-1, fmax(f16));
+            try testArgs(f16, 1e-1, inf(f16));
+            try testArgs(f16, 1e-1, nan(f16));
+
+            try testArgs(f16, 1e0, -nan(f16));
+            try testArgs(f16, 1e0, -inf(f16));
+            try testArgs(f16, 1e0, -fmax(f16));
+            try testArgs(f16, 1e0, -1e1);
+            try testArgs(f16, 1e0, -1e0);
+            try testArgs(f16, 1e0, -1e-1);
+            try testArgs(f16, 1e0, -fmin(f16));
+            try testArgs(f16, 1e0, -tmin(f16));
+            try testArgs(f16, 1e0, -0.0);
+            try testArgs(f16, 1e0, 0.0);
+            try testArgs(f16, 1e0, tmin(f16));
+            try testArgs(f16, 1e0, fmin(f16));
+            try testArgs(f16, 1e0, 1e-1);
+            try testArgs(f16, 1e0, 1e0);
+            try testArgs(f16, 1e0, 1e1);
+            try testArgs(f16, 1e0, fmax(f16));
+            try testArgs(f16, 1e0, inf(f16));
+            try testArgs(f16, 1e0, nan(f16));
+
+            try testArgs(f16, 1e1, -nan(f16));
+            try testArgs(f16, 1e1, -inf(f16));
+            try testArgs(f16, 1e1, -fmax(f16));
+            try testArgs(f16, 1e1, -1e1);
+            try testArgs(f16, 1e1, -1e0);
+            try testArgs(f16, 1e1, -1e-1);
+            try testArgs(f16, 1e1, -fmin(f16));
+            try testArgs(f16, 1e1, -tmin(f16));
+            try testArgs(f16, 1e1, -0.0);
+            try testArgs(f16, 1e1, 0.0);
+            try testArgs(f16, 1e1, tmin(f16));
+            try testArgs(f16, 1e1, fmin(f16));
+            try testArgs(f16, 1e1, 1e-1);
+            try testArgs(f16, 1e1, 1e0);
+            try testArgs(f16, 1e1, 1e1);
+            try testArgs(f16, 1e1, fmax(f16));
+            try testArgs(f16, 1e1, inf(f16));
+            try testArgs(f16, 1e1, nan(f16));
+
+            try testArgs(f16, fmax(f16), -nan(f16));
+            try testArgs(f16, fmax(f16), -inf(f16));
+            try testArgs(f16, fmax(f16), -fmax(f16));
+            try testArgs(f16, fmax(f16), -1e1);
+            try testArgs(f16, fmax(f16), -1e0);
+            try testArgs(f16, fmax(f16), -1e-1);
+            try testArgs(f16, fmax(f16), -fmin(f16));
+            try testArgs(f16, fmax(f16), -tmin(f16));
+            try testArgs(f16, fmax(f16), -0.0);
+            try testArgs(f16, fmax(f16), 0.0);
+            try testArgs(f16, fmax(f16), tmin(f16));
+            try testArgs(f16, fmax(f16), fmin(f16));
+            try testArgs(f16, fmax(f16), 1e-1);
+            try testArgs(f16, fmax(f16), 1e0);
+            try testArgs(f16, fmax(f16), 1e1);
+            try testArgs(f16, fmax(f16), fmax(f16));
+            try testArgs(f16, fmax(f16), inf(f16));
+            try testArgs(f16, fmax(f16), nan(f16));
+
+            try testArgs(f16, inf(f16), -nan(f16));
+            try testArgs(f16, inf(f16), -inf(f16));
+            try testArgs(f16, inf(f16), -fmax(f16));
+            try testArgs(f16, inf(f16), -1e1);
+            try testArgs(f16, inf(f16), -1e0);
+            try testArgs(f16, inf(f16), -1e-1);
+            try testArgs(f16, inf(f16), -fmin(f16));
+            try testArgs(f16, inf(f16), -tmin(f16));
+            try testArgs(f16, inf(f16), -0.0);
+            try testArgs(f16, inf(f16), 0.0);
+            try testArgs(f16, inf(f16), tmin(f16));
+            try testArgs(f16, inf(f16), fmin(f16));
+            try testArgs(f16, inf(f16), 1e-1);
+            try testArgs(f16, inf(f16), 1e0);
+            try testArgs(f16, inf(f16), 1e1);
+            try testArgs(f16, inf(f16), fmax(f16));
+            try testArgs(f16, inf(f16), inf(f16));
+            try testArgs(f16, inf(f16), nan(f16));
+
+            try testArgs(f16, nan(f16), -nan(f16));
+            try testArgs(f16, nan(f16), -inf(f16));
+            try testArgs(f16, nan(f16), -fmax(f16));
+            try testArgs(f16, nan(f16), -1e1);
+            try testArgs(f16, nan(f16), -1e0);
+            try testArgs(f16, nan(f16), -1e-1);
+            try testArgs(f16, nan(f16), -fmin(f16));
+            try testArgs(f16, nan(f16), -tmin(f16));
+            try testArgs(f16, nan(f16), -0.0);
+            try testArgs(f16, nan(f16), 0.0);
+            try testArgs(f16, nan(f16), tmin(f16));
+            try testArgs(f16, nan(f16), fmin(f16));
+            try testArgs(f16, nan(f16), 1e-1);
+            try testArgs(f16, nan(f16), 1e0);
+            try testArgs(f16, nan(f16), 1e1);
+            try testArgs(f16, nan(f16), fmax(f16));
+            try testArgs(f16, nan(f16), inf(f16));
+            try testArgs(f16, nan(f16), nan(f16));
+
+            try testArgs(f32, -nan(f32), -nan(f32));
+            try testArgs(f32, -nan(f32), -inf(f32));
+            try testArgs(f32, -nan(f32), -fmax(f32));
+            try testArgs(f32, -nan(f32), -1e1);
+            try testArgs(f32, -nan(f32), -1e0);
+            try testArgs(f32, -nan(f32), -1e-1);
+            try testArgs(f32, -nan(f32), -fmin(f32));
+            try testArgs(f32, -nan(f32), -tmin(f32));
+            try testArgs(f32, -nan(f32), -0.0);
+            try testArgs(f32, -nan(f32), 0.0);
+            try testArgs(f32, -nan(f32), tmin(f32));
+            try testArgs(f32, -nan(f32), fmin(f32));
+            try testArgs(f32, -nan(f32), 1e-1);
+            try testArgs(f32, -nan(f32), 1e0);
+            try testArgs(f32, -nan(f32), 1e1);
+            try testArgs(f32, -nan(f32), fmax(f32));
+            try testArgs(f32, -nan(f32), inf(f32));
+            try testArgs(f32, -nan(f32), nan(f32));
+
+            try testArgs(f32, -inf(f32), -nan(f32));
+            try testArgs(f32, -inf(f32), -inf(f32));
+            try testArgs(f32, -inf(f32), -fmax(f32));
+            try testArgs(f32, -inf(f32), -1e1);
+            try testArgs(f32, -inf(f32), -1e0);
+            try testArgs(f32, -inf(f32), -1e-1);
+            try testArgs(f32, -inf(f32), -fmin(f32));
+            try testArgs(f32, -inf(f32), -tmin(f32));
+            try testArgs(f32, -inf(f32), -0.0);
+            try testArgs(f32, -inf(f32), 0.0);
+            try testArgs(f32, -inf(f32), tmin(f32));
+            try testArgs(f32, -inf(f32), fmin(f32));
+            try testArgs(f32, -inf(f32), 1e-1);
+            try testArgs(f32, -inf(f32), 1e0);
+            try testArgs(f32, -inf(f32), 1e1);
+            try testArgs(f32, -inf(f32), fmax(f32));
+            try testArgs(f32, -inf(f32), inf(f32));
+            try testArgs(f32, -inf(f32), nan(f32));
+
+            try testArgs(f32, -fmax(f32), -nan(f32));
+            try testArgs(f32, -fmax(f32), -inf(f32));
+            try testArgs(f32, -fmax(f32), -fmax(f32));
+            try testArgs(f32, -fmax(f32), -1e1);
+            try testArgs(f32, -fmax(f32), -1e0);
+            try testArgs(f32, -fmax(f32), -1e-1);
+            try testArgs(f32, -fmax(f32), -fmin(f32));
+            try testArgs(f32, -fmax(f32), -tmin(f32));
+            try testArgs(f32, -fmax(f32), -0.0);
+            try testArgs(f32, -fmax(f32), 0.0);
+            try testArgs(f32, -fmax(f32), tmin(f32));
+            try testArgs(f32, -fmax(f32), fmin(f32));
+            try testArgs(f32, -fmax(f32), 1e-1);
+            try testArgs(f32, -fmax(f32), 1e0);
+            try testArgs(f32, -fmax(f32), 1e1);
+            try testArgs(f32, -fmax(f32), fmax(f32));
+            try testArgs(f32, -fmax(f32), inf(f32));
+            try testArgs(f32, -fmax(f32), nan(f32));
+
+            try testArgs(f32, -1e1, -nan(f32));
+            try testArgs(f32, -1e1, -inf(f32));
+            try testArgs(f32, -1e1, -fmax(f32));
+            try testArgs(f32, -1e1, -1e1);
+            try testArgs(f32, -1e1, -1e0);
+            try testArgs(f32, -1e1, -1e-1);
+            try testArgs(f32, -1e1, -fmin(f32));
+            try testArgs(f32, -1e1, -tmin(f32));
+            try testArgs(f32, -1e1, -0.0);
+            try testArgs(f32, -1e1, 0.0);
+            try testArgs(f32, -1e1, tmin(f32));
+            try testArgs(f32, -1e1, fmin(f32));
+            try testArgs(f32, -1e1, 1e-1);
+            try testArgs(f32, -1e1, 1e0);
+            try testArgs(f32, -1e1, 1e1);
+            try testArgs(f32, -1e1, fmax(f32));
+            try testArgs(f32, -1e1, inf(f32));
+            try testArgs(f32, -1e1, nan(f32));
+
+            try testArgs(f32, -1e0, -nan(f32));
+            try testArgs(f32, -1e0, -inf(f32));
+            try testArgs(f32, -1e0, -fmax(f32));
+            try testArgs(f32, -1e0, -1e1);
+            try testArgs(f32, -1e0, -1e0);
+            try testArgs(f32, -1e0, -1e-1);
+            try testArgs(f32, -1e0, -fmin(f32));
+            try testArgs(f32, -1e0, -tmin(f32));
+            try testArgs(f32, -1e0, -0.0);
+            try testArgs(f32, -1e0, 0.0);
+            try testArgs(f32, -1e0, tmin(f32));
+            try testArgs(f32, -1e0, fmin(f32));
+            try testArgs(f32, -1e0, 1e-1);
+            try testArgs(f32, -1e0, 1e0);
+            try testArgs(f32, -1e0, 1e1);
+            try testArgs(f32, -1e0, fmax(f32));
+            try testArgs(f32, -1e0, inf(f32));
+            try testArgs(f32, -1e0, nan(f32));
+
+            try testArgs(f32, -1e-1, -nan(f32));
+            try testArgs(f32, -1e-1, -inf(f32));
+            try testArgs(f32, -1e-1, -fmax(f32));
+            try testArgs(f32, -1e-1, -1e1);
+            try testArgs(f32, -1e-1, -1e0);
+            try testArgs(f32, -1e-1, -1e-1);
+            try testArgs(f32, -1e-1, -fmin(f32));
+            try testArgs(f32, -1e-1, -tmin(f32));
+            try testArgs(f32, -1e-1, -0.0);
+            try testArgs(f32, -1e-1, 0.0);
+            try testArgs(f32, -1e-1, tmin(f32));
+            try testArgs(f32, -1e-1, fmin(f32));
+            try testArgs(f32, -1e-1, 1e-1);
+            try testArgs(f32, -1e-1, 1e0);
+            try testArgs(f32, -1e-1, 1e1);
+            try testArgs(f32, -1e-1, fmax(f32));
+            try testArgs(f32, -1e-1, inf(f32));
+            try testArgs(f32, -1e-1, nan(f32));
+
+            try testArgs(f32, -fmin(f32), -nan(f32));
+            try testArgs(f32, -fmin(f32), -inf(f32));
+            try testArgs(f32, -fmin(f32), -fmax(f32));
+            try testArgs(f32, -fmin(f32), -1e1);
+            try testArgs(f32, -fmin(f32), -1e0);
+            try testArgs(f32, -fmin(f32), -1e-1);
+            try testArgs(f32, -fmin(f32), -fmin(f32));
+            try testArgs(f32, -fmin(f32), -tmin(f32));
+            try testArgs(f32, -fmin(f32), -0.0);
+            try testArgs(f32, -fmin(f32), 0.0);
+            try testArgs(f32, -fmin(f32), tmin(f32));
+            try testArgs(f32, -fmin(f32), fmin(f32));
+            try testArgs(f32, -fmin(f32), 1e-1);
+            try testArgs(f32, -fmin(f32), 1e0);
+            try testArgs(f32, -fmin(f32), 1e1);
+            try testArgs(f32, -fmin(f32), fmax(f32));
+            try testArgs(f32, -fmin(f32), inf(f32));
+            try testArgs(f32, -fmin(f32), nan(f32));
+
+            try testArgs(f32, -tmin(f32), -nan(f32));
+            try testArgs(f32, -tmin(f32), -inf(f32));
+            try testArgs(f32, -tmin(f32), -fmax(f32));
+            try testArgs(f32, -tmin(f32), -1e1);
+            try testArgs(f32, -tmin(f32), -1e0);
+            try testArgs(f32, -tmin(f32), -1e-1);
+            try testArgs(f32, -tmin(f32), -fmin(f32));
+            try testArgs(f32, -tmin(f32), -tmin(f32));
+            try testArgs(f32, -tmin(f32), -0.0);
+            try testArgs(f32, -tmin(f32), 0.0);
+            try testArgs(f32, -tmin(f32), tmin(f32));
+            try testArgs(f32, -tmin(f32), fmin(f32));
+            try testArgs(f32, -tmin(f32), 1e-1);
+            try testArgs(f32, -tmin(f32), 1e0);
+            try testArgs(f32, -tmin(f32), 1e1);
+            try testArgs(f32, -tmin(f32), fmax(f32));
+            try testArgs(f32, -tmin(f32), inf(f32));
+            try testArgs(f32, -tmin(f32), nan(f32));
+
+            try testArgs(f32, -0.0, -nan(f32));
+            try testArgs(f32, -0.0, -inf(f32));
+            try testArgs(f32, -0.0, -fmax(f32));
+            try testArgs(f32, -0.0, -1e1);
+            try testArgs(f32, -0.0, -1e0);
+            try testArgs(f32, -0.0, -1e-1);
+            try testArgs(f32, -0.0, -fmin(f32));
+            try testArgs(f32, -0.0, -tmin(f32));
+            try testArgs(f32, -0.0, -0.0);
+            try testArgs(f32, -0.0, 0.0);
+            try testArgs(f32, -0.0, tmin(f32));
+            try testArgs(f32, -0.0, fmin(f32));
+            try testArgs(f32, -0.0, 1e-1);
+            try testArgs(f32, -0.0, 1e0);
+            try testArgs(f32, -0.0, 1e1);
+            try testArgs(f32, -0.0, fmax(f32));
+            try testArgs(f32, -0.0, inf(f32));
+            try testArgs(f32, -0.0, nan(f32));
+
+            try testArgs(f32, 0.0, -nan(f32));
+            try testArgs(f32, 0.0, -inf(f32));
+            try testArgs(f32, 0.0, -fmax(f32));
+            try testArgs(f32, 0.0, -1e1);
+            try testArgs(f32, 0.0, -1e0);
+            try testArgs(f32, 0.0, -1e-1);
+            try testArgs(f32, 0.0, -fmin(f32));
+            try testArgs(f32, 0.0, -tmin(f32));
+            try testArgs(f32, 0.0, -0.0);
+            try testArgs(f32, 0.0, 0.0);
+            try testArgs(f32, 0.0, tmin(f32));
+            try testArgs(f32, 0.0, fmin(f32));
+            try testArgs(f32, 0.0, 1e-1);
+            try testArgs(f32, 0.0, 1e0);
+            try testArgs(f32, 0.0, 1e1);
+            try testArgs(f32, 0.0, fmax(f32));
+            try testArgs(f32, 0.0, inf(f32));
+            try testArgs(f32, 0.0, nan(f32));
+
+            try testArgs(f32, tmin(f32), -nan(f32));
+            try testArgs(f32, tmin(f32), -inf(f32));
+            try testArgs(f32, tmin(f32), -fmax(f32));
+            try testArgs(f32, tmin(f32), -1e1);
+            try testArgs(f32, tmin(f32), -1e0);
+            try testArgs(f32, tmin(f32), -1e-1);
+            try testArgs(f32, tmin(f32), -fmin(f32));
+            try testArgs(f32, tmin(f32), -tmin(f32));
+            try testArgs(f32, tmin(f32), -0.0);
+            try testArgs(f32, tmin(f32), 0.0);
+            try testArgs(f32, tmin(f32), tmin(f32));
+            try testArgs(f32, tmin(f32), fmin(f32));
+            try testArgs(f32, tmin(f32), 1e-1);
+            try testArgs(f32, tmin(f32), 1e0);
+            try testArgs(f32, tmin(f32), 1e1);
+            try testArgs(f32, tmin(f32), fmax(f32));
+            try testArgs(f32, tmin(f32), inf(f32));
+            try testArgs(f32, tmin(f32), nan(f32));
+
+            try testArgs(f32, fmin(f32), -nan(f32));
+            try testArgs(f32, fmin(f32), -inf(f32));
+            try testArgs(f32, fmin(f32), -fmax(f32));
+            try testArgs(f32, fmin(f32), -1e1);
+            try testArgs(f32, fmin(f32), -1e0);
+            try testArgs(f32, fmin(f32), -1e-1);
+            try testArgs(f32, fmin(f32), -fmin(f32));
+            try testArgs(f32, fmin(f32), -tmin(f32));
+            try testArgs(f32, fmin(f32), -0.0);
+            try testArgs(f32, fmin(f32), 0.0);
+            try testArgs(f32, fmin(f32), tmin(f32));
+            try testArgs(f32, fmin(f32), fmin(f32));
+            try testArgs(f32, fmin(f32), 1e-1);
+            try testArgs(f32, fmin(f32), 1e0);
+            try testArgs(f32, fmin(f32), 1e1);
+            try testArgs(f32, fmin(f32), fmax(f32));
+            try testArgs(f32, fmin(f32), inf(f32));
+            try testArgs(f32, fmin(f32), nan(f32));
+
+            try testArgs(f32, 1e-1, -nan(f32));
+            try testArgs(f32, 1e-1, -inf(f32));
+            try testArgs(f32, 1e-1, -fmax(f32));
+            try testArgs(f32, 1e-1, -1e1);
+            try testArgs(f32, 1e-1, -1e0);
+            try testArgs(f32, 1e-1, -1e-1);
+            try testArgs(f32, 1e-1, -fmin(f32));
+            try testArgs(f32, 1e-1, -tmin(f32));
+            try testArgs(f32, 1e-1, -0.0);
+            try testArgs(f32, 1e-1, 0.0);
+            try testArgs(f32, 1e-1, tmin(f32));
+            try testArgs(f32, 1e-1, fmin(f32));
+            try testArgs(f32, 1e-1, 1e-1);
+            try testArgs(f32, 1e-1, 1e0);
+            try testArgs(f32, 1e-1, 1e1);
+            try testArgs(f32, 1e-1, fmax(f32));
+            try testArgs(f32, 1e-1, inf(f32));
+            try testArgs(f32, 1e-1, nan(f32));
+
+            try testArgs(f32, 1e0, -nan(f32));
+            try testArgs(f32, 1e0, -inf(f32));
+            try testArgs(f32, 1e0, -fmax(f32));
+            try testArgs(f32, 1e0, -1e1);
+            try testArgs(f32, 1e0, -1e0);
+            try testArgs(f32, 1e0, -1e-1);
+            try testArgs(f32, 1e0, -fmin(f32));
+            try testArgs(f32, 1e0, -tmin(f32));
+            try testArgs(f32, 1e0, -0.0);
+            try testArgs(f32, 1e0, 0.0);
+            try testArgs(f32, 1e0, tmin(f32));
+            try testArgs(f32, 1e0, fmin(f32));
+            try testArgs(f32, 1e0, 1e-1);
+            try testArgs(f32, 1e0, 1e0);
+            try testArgs(f32, 1e0, 1e1);
+            try testArgs(f32, 1e0, fmax(f32));
+            try testArgs(f32, 1e0, inf(f32));
+            try testArgs(f32, 1e0, nan(f32));
+
+            try testArgs(f32, 1e1, -nan(f32));
+            try testArgs(f32, 1e1, -inf(f32));
+            try testArgs(f32, 1e1, -fmax(f32));
+            try testArgs(f32, 1e1, -1e1);
+            try testArgs(f32, 1e1, -1e0);
+            try testArgs(f32, 1e1, -1e-1);
+            try testArgs(f32, 1e1, -fmin(f32));
+            try testArgs(f32, 1e1, -tmin(f32));
+            try testArgs(f32, 1e1, -0.0);
+            try testArgs(f32, 1e1, 0.0);
+            try testArgs(f32, 1e1, tmin(f32));
+            try testArgs(f32, 1e1, fmin(f32));
+            try testArgs(f32, 1e1, 1e-1);
+            try testArgs(f32, 1e1, 1e0);
+            try testArgs(f32, 1e1, 1e1);
+            try testArgs(f32, 1e1, fmax(f32));
+            try testArgs(f32, 1e1, inf(f32));
+            try testArgs(f32, 1e1, nan(f32));
+
+            try testArgs(f32, fmax(f32), -nan(f32));
+            try testArgs(f32, fmax(f32), -inf(f32));
+            try testArgs(f32, fmax(f32), -fmax(f32));
+            try testArgs(f32, fmax(f32), -1e1);
+            try testArgs(f32, fmax(f32), -1e0);
+            try testArgs(f32, fmax(f32), -1e-1);
+            try testArgs(f32, fmax(f32), -fmin(f32));
+            try testArgs(f32, fmax(f32), -tmin(f32));
+            try testArgs(f32, fmax(f32), -0.0);
+            try testArgs(f32, fmax(f32), 0.0);
+            try testArgs(f32, fmax(f32), tmin(f32));
+            try testArgs(f32, fmax(f32), fmin(f32));
+            try testArgs(f32, fmax(f32), 1e-1);
+            try testArgs(f32, fmax(f32), 1e0);
+            try testArgs(f32, fmax(f32), 1e1);
+            try testArgs(f32, fmax(f32), fmax(f32));
+            try testArgs(f32, fmax(f32), inf(f32));
+            try testArgs(f32, fmax(f32), nan(f32));
+
+            try testArgs(f32, inf(f32), -nan(f32));
+            try testArgs(f32, inf(f32), -inf(f32));
+            try testArgs(f32, inf(f32), -fmax(f32));
+            try testArgs(f32, inf(f32), -1e1);
+            try testArgs(f32, inf(f32), -1e0);
+            try testArgs(f32, inf(f32), -1e-1);
+            try testArgs(f32, inf(f32), -fmin(f32));
+            try testArgs(f32, inf(f32), -tmin(f32));
+            try testArgs(f32, inf(f32), -0.0);
+            try testArgs(f32, inf(f32), 0.0);
+            try testArgs(f32, inf(f32), tmin(f32));
+            try testArgs(f32, inf(f32), fmin(f32));
+            try testArgs(f32, inf(f32), 1e-1);
+            try testArgs(f32, inf(f32), 1e0);
+            try testArgs(f32, inf(f32), 1e1);
+            try testArgs(f32, inf(f32), fmax(f32));
+            try testArgs(f32, inf(f32), inf(f32));
+            try testArgs(f32, inf(f32), nan(f32));
+
+            try testArgs(f32, nan(f32), -nan(f32));
+            try testArgs(f32, nan(f32), -inf(f32));
+            try testArgs(f32, nan(f32), -fmax(f32));
+            try testArgs(f32, nan(f32), -1e1);
+            try testArgs(f32, nan(f32), -1e0);
+            try testArgs(f32, nan(f32), -1e-1);
+            try testArgs(f32, nan(f32), -fmin(f32));
+            try testArgs(f32, nan(f32), -tmin(f32));
+            try testArgs(f32, nan(f32), -0.0);
+            try testArgs(f32, nan(f32), 0.0);
+            try testArgs(f32, nan(f32), tmin(f32));
+            try testArgs(f32, nan(f32), fmin(f32));
+            try testArgs(f32, nan(f32), 1e-1);
+            try testArgs(f32, nan(f32), 1e0);
+            try testArgs(f32, nan(f32), 1e1);
+            try testArgs(f32, nan(f32), fmax(f32));
+            try testArgs(f32, nan(f32), inf(f32));
+            try testArgs(f32, nan(f32), nan(f32));
+
+            try testArgs(f64, -nan(f64), -nan(f64));
+            try testArgs(f64, -nan(f64), -inf(f64));
+            try testArgs(f64, -nan(f64), -fmax(f64));
+            try testArgs(f64, -nan(f64), -1e1);
+            try testArgs(f64, -nan(f64), -1e0);
+            try testArgs(f64, -nan(f64), -1e-1);
+            try testArgs(f64, -nan(f64), -fmin(f64));
+            try testArgs(f64, -nan(f64), -tmin(f64));
+            try testArgs(f64, -nan(f64), -0.0);
+            try testArgs(f64, -nan(f64), 0.0);
+            try testArgs(f64, -nan(f64), tmin(f64));
+            try testArgs(f64, -nan(f64), fmin(f64));
+            try testArgs(f64, -nan(f64), 1e-1);
+            try testArgs(f64, -nan(f64), 1e0);
+            try testArgs(f64, -nan(f64), 1e1);
+            try testArgs(f64, -nan(f64), fmax(f64));
+            try testArgs(f64, -nan(f64), inf(f64));
+            try testArgs(f64, -nan(f64), nan(f64));
+
+            try testArgs(f64, -inf(f64), -nan(f64));
+            try testArgs(f64, -inf(f64), -inf(f64));
+            try testArgs(f64, -inf(f64), -fmax(f64));
+            try testArgs(f64, -inf(f64), -1e1);
+            try testArgs(f64, -inf(f64), -1e0);
+            try testArgs(f64, -inf(f64), -1e-1);
+            try testArgs(f64, -inf(f64), -fmin(f64));
+            try testArgs(f64, -inf(f64), -tmin(f64));
+            try testArgs(f64, -inf(f64), -0.0);
+            try testArgs(f64, -inf(f64), 0.0);
+            try testArgs(f64, -inf(f64), tmin(f64));
+            try testArgs(f64, -inf(f64), fmin(f64));
+            try testArgs(f64, -inf(f64), 1e-1);
+            try testArgs(f64, -inf(f64), 1e0);
+            try testArgs(f64, -inf(f64), 1e1);
+            try testArgs(f64, -inf(f64), fmax(f64));
+            try testArgs(f64, -inf(f64), inf(f64));
+            try testArgs(f64, -inf(f64), nan(f64));
+
+            try testArgs(f64, -fmax(f64), -nan(f64));
+            try testArgs(f64, -fmax(f64), -inf(f64));
+            try testArgs(f64, -fmax(f64), -fmax(f64));
+            try testArgs(f64, -fmax(f64), -1e1);
+            try testArgs(f64, -fmax(f64), -1e0);
+            try testArgs(f64, -fmax(f64), -1e-1);
+            try testArgs(f64, -fmax(f64), -fmin(f64));
+            try testArgs(f64, -fmax(f64), -tmin(f64));
+            try testArgs(f64, -fmax(f64), -0.0);
+            try testArgs(f64, -fmax(f64), 0.0);
+            try testArgs(f64, -fmax(f64), tmin(f64));
+            try testArgs(f64, -fmax(f64), fmin(f64));
+            try testArgs(f64, -fmax(f64), 1e-1);
+            try testArgs(f64, -fmax(f64), 1e0);
+            try testArgs(f64, -fmax(f64), 1e1);
+            try testArgs(f64, -fmax(f64), fmax(f64));
+            try testArgs(f64, -fmax(f64), inf(f64));
+            try testArgs(f64, -fmax(f64), nan(f64));
+
+            try testArgs(f64, -1e1, -nan(f64));
+            try testArgs(f64, -1e1, -inf(f64));
+            try testArgs(f64, -1e1, -fmax(f64));
+            try testArgs(f64, -1e1, -1e1);
+            try testArgs(f64, -1e1, -1e0);
+            try testArgs(f64, -1e1, -1e-1);
+            try testArgs(f64, -1e1, -fmin(f64));
+            try testArgs(f64, -1e1, -tmin(f64));
+            try testArgs(f64, -1e1, -0.0);
+            try testArgs(f64, -1e1, 0.0);
+            try testArgs(f64, -1e1, tmin(f64));
+            try testArgs(f64, -1e1, fmin(f64));
+            try testArgs(f64, -1e1, 1e-1);
+            try testArgs(f64, -1e1, 1e0);
+            try testArgs(f64, -1e1, 1e1);
+            try testArgs(f64, -1e1, fmax(f64));
+            try testArgs(f64, -1e1, inf(f64));
+            try testArgs(f64, -1e1, nan(f64));
+
+            try testArgs(f64, -1e0, -nan(f64));
+            try testArgs(f64, -1e0, -inf(f64));
+            try testArgs(f64, -1e0, -fmax(f64));
+            try testArgs(f64, -1e0, -1e1);
+            try testArgs(f64, -1e0, -1e0);
+            try testArgs(f64, -1e0, -1e-1);
+            try testArgs(f64, -1e0, -fmin(f64));
+            try testArgs(f64, -1e0, -tmin(f64));
+            try testArgs(f64, -1e0, -0.0);
+            try testArgs(f64, -1e0, 0.0);
+            try testArgs(f64, -1e0, tmin(f64));
+            try testArgs(f64, -1e0, fmin(f64));
+            try testArgs(f64, -1e0, 1e-1);
+            try testArgs(f64, -1e0, 1e0);
+            try testArgs(f64, -1e0, 1e1);
+            try testArgs(f64, -1e0, fmax(f64));
+            try testArgs(f64, -1e0, inf(f64));
+            try testArgs(f64, -1e0, nan(f64));
+
+            try testArgs(f64, -1e-1, -nan(f64));
+            try testArgs(f64, -1e-1, -inf(f64));
+            try testArgs(f64, -1e-1, -fmax(f64));
+            try testArgs(f64, -1e-1, -1e1);
+            try testArgs(f64, -1e-1, -1e0);
+            try testArgs(f64, -1e-1, -1e-1);
+            try testArgs(f64, -1e-1, -fmin(f64));
+            try testArgs(f64, -1e-1, -tmin(f64));
+            try testArgs(f64, -1e-1, -0.0);
+            try testArgs(f64, -1e-1, 0.0);
+            try testArgs(f64, -1e-1, tmin(f64));
+            try testArgs(f64, -1e-1, fmin(f64));
+            try testArgs(f64, -1e-1, 1e-1);
+            try testArgs(f64, -1e-1, 1e0);
+            try testArgs(f64, -1e-1, 1e1);
+            try testArgs(f64, -1e-1, fmax(f64));
+            try testArgs(f64, -1e-1, inf(f64));
+            try testArgs(f64, -1e-1, nan(f64));
+
+            try testArgs(f64, -fmin(f64), -nan(f64));
+            try testArgs(f64, -fmin(f64), -inf(f64));
+            try testArgs(f64, -fmin(f64), -fmax(f64));
+            try testArgs(f64, -fmin(f64), -1e1);
+            try testArgs(f64, -fmin(f64), -1e0);
+            try testArgs(f64, -fmin(f64), -1e-1);
+            try testArgs(f64, -fmin(f64), -fmin(f64));
+            try testArgs(f64, -fmin(f64), -tmin(f64));
+            try testArgs(f64, -fmin(f64), -0.0);
+            try testArgs(f64, -fmin(f64), 0.0);
+            try testArgs(f64, -fmin(f64), tmin(f64));
+            try testArgs(f64, -fmin(f64), fmin(f64));
+            try testArgs(f64, -fmin(f64), 1e-1);
+            try testArgs(f64, -fmin(f64), 1e0);
+            try testArgs(f64, -fmin(f64), 1e1);
+            try testArgs(f64, -fmin(f64), fmax(f64));
+            try testArgs(f64, -fmin(f64), inf(f64));
+            try testArgs(f64, -fmin(f64), nan(f64));
+
+            try testArgs(f64, -tmin(f64), -nan(f64));
+            try testArgs(f64, -tmin(f64), -inf(f64));
+            try testArgs(f64, -tmin(f64), -fmax(f64));
+            try testArgs(f64, -tmin(f64), -1e1);
+            try testArgs(f64, -tmin(f64), -1e0);
+            try testArgs(f64, -tmin(f64), -1e-1);
+            try testArgs(f64, -tmin(f64), -fmin(f64));
+            try testArgs(f64, -tmin(f64), -tmin(f64));
+            try testArgs(f64, -tmin(f64), -0.0);
+            try testArgs(f64, -tmin(f64), 0.0);
+            try testArgs(f64, -tmin(f64), tmin(f64));
+            try testArgs(f64, -tmin(f64), fmin(f64));
+            try testArgs(f64, -tmin(f64), 1e-1);
+            try testArgs(f64, -tmin(f64), 1e0);
+            try testArgs(f64, -tmin(f64), 1e1);
+            try testArgs(f64, -tmin(f64), fmax(f64));
+            try testArgs(f64, -tmin(f64), inf(f64));
+            try testArgs(f64, -tmin(f64), nan(f64));
+
+            try testArgs(f64, -0.0, -nan(f64));
+            try testArgs(f64, -0.0, -inf(f64));
+            try testArgs(f64, -0.0, -fmax(f64));
+            try testArgs(f64, -0.0, -1e1);
+            try testArgs(f64, -0.0, -1e0);
+            try testArgs(f64, -0.0, -1e-1);
+            try testArgs(f64, -0.0, -fmin(f64));
+            try testArgs(f64, -0.0, -tmin(f64));
+            try testArgs(f64, -0.0, -0.0);
+            try testArgs(f64, -0.0, 0.0);
+            try testArgs(f64, -0.0, tmin(f64));
+            try testArgs(f64, -0.0, fmin(f64));
+            try testArgs(f64, -0.0, 1e-1);
+            try testArgs(f64, -0.0, 1e0);
+            try testArgs(f64, -0.0, 1e1);
+            try testArgs(f64, -0.0, fmax(f64));
+            try testArgs(f64, -0.0, inf(f64));
+            try testArgs(f64, -0.0, nan(f64));
+
+            try testArgs(f64, 0.0, -nan(f64));
+            try testArgs(f64, 0.0, -inf(f64));
+            try testArgs(f64, 0.0, -fmax(f64));
+            try testArgs(f64, 0.0, -1e1);
+            try testArgs(f64, 0.0, -1e0);
+            try testArgs(f64, 0.0, -1e-1);
+            try testArgs(f64, 0.0, -fmin(f64));
+            try testArgs(f64, 0.0, -tmin(f64));
+            try testArgs(f64, 0.0, -0.0);
+            try testArgs(f64, 0.0, 0.0);
+            try testArgs(f64, 0.0, tmin(f64));
+            try testArgs(f64, 0.0, fmin(f64));
+            try testArgs(f64, 0.0, 1e-1);
+            try testArgs(f64, 0.0, 1e0);
+            try testArgs(f64, 0.0, 1e1);
+            try testArgs(f64, 0.0, fmax(f64));
+            try testArgs(f64, 0.0, inf(f64));
+            try testArgs(f64, 0.0, nan(f64));
+
+            try testArgs(f64, tmin(f64), -nan(f64));
+            try testArgs(f64, tmin(f64), -inf(f64));
+            try testArgs(f64, tmin(f64), -fmax(f64));
+            try testArgs(f64, tmin(f64), -1e1);
+            try testArgs(f64, tmin(f64), -1e0);
+            try testArgs(f64, tmin(f64), -1e-1);
+            try testArgs(f64, tmin(f64), -fmin(f64));
+            try testArgs(f64, tmin(f64), -tmin(f64));
+            try testArgs(f64, tmin(f64), -0.0);
+            try testArgs(f64, tmin(f64), 0.0);
+            try testArgs(f64, tmin(f64), tmin(f64));
+            try testArgs(f64, tmin(f64), fmin(f64));
+            try testArgs(f64, tmin(f64), 1e-1);
+            try testArgs(f64, tmin(f64), 1e0);
+            try testArgs(f64, tmin(f64), 1e1);
+            try testArgs(f64, tmin(f64), fmax(f64));
+            try testArgs(f64, tmin(f64), inf(f64));
+            try testArgs(f64, tmin(f64), nan(f64));
+
+            try testArgs(f64, fmin(f64), -nan(f64));
+            try testArgs(f64, fmin(f64), -inf(f64));
+            try testArgs(f64, fmin(f64), -fmax(f64));
+            try testArgs(f64, fmin(f64), -1e1);
+            try testArgs(f64, fmin(f64), -1e0);
+            try testArgs(f64, fmin(f64), -1e-1);
+            try testArgs(f64, fmin(f64), -fmin(f64));
+            try testArgs(f64, fmin(f64), -tmin(f64));
+            try testArgs(f64, fmin(f64), -0.0);
+            try testArgs(f64, fmin(f64), 0.0);
+            try testArgs(f64, fmin(f64), tmin(f64));
+            try testArgs(f64, fmin(f64), fmin(f64));
+            try testArgs(f64, fmin(f64), 1e-1);
+            try testArgs(f64, fmin(f64), 1e0);
+            try testArgs(f64, fmin(f64), 1e1);
+            try testArgs(f64, fmin(f64), fmax(f64));
+            try testArgs(f64, fmin(f64), inf(f64));
+            try testArgs(f64, fmin(f64), nan(f64));
+
+            try testArgs(f64, 1e-1, -nan(f64));
+            try testArgs(f64, 1e-1, -inf(f64));
+            try testArgs(f64, 1e-1, -fmax(f64));
+            try testArgs(f64, 1e-1, -1e1);
+            try testArgs(f64, 1e-1, -1e0);
+            try testArgs(f64, 1e-1, -1e-1);
+            try testArgs(f64, 1e-1, -fmin(f64));
+            try testArgs(f64, 1e-1, -tmin(f64));
+            try testArgs(f64, 1e-1, -0.0);
+            try testArgs(f64, 1e-1, 0.0);
+            try testArgs(f64, 1e-1, tmin(f64));
+            try testArgs(f64, 1e-1, fmin(f64));
+            try testArgs(f64, 1e-1, 1e-1);
+            try testArgs(f64, 1e-1, 1e0);
+            try testArgs(f64, 1e-1, 1e1);
+            try testArgs(f64, 1e-1, fmax(f64));
+            try testArgs(f64, 1e-1, inf(f64));
+            try testArgs(f64, 1e-1, nan(f64));
+
+            try testArgs(f64, 1e0, -nan(f64));
+            try testArgs(f64, 1e0, -inf(f64));
+            try testArgs(f64, 1e0, -fmax(f64));
+            try testArgs(f64, 1e0, -1e1);
+            try testArgs(f64, 1e0, -1e0);
+            try testArgs(f64, 1e0, -1e-1);
+            try testArgs(f64, 1e0, -fmin(f64));
+            try testArgs(f64, 1e0, -tmin(f64));
+            try testArgs(f64, 1e0, -0.0);
+            try testArgs(f64, 1e0, 0.0);
+            try testArgs(f64, 1e0, tmin(f64));
+            try testArgs(f64, 1e0, fmin(f64));
+            try testArgs(f64, 1e0, 1e-1);
+            try testArgs(f64, 1e0, 1e0);
+            try testArgs(f64, 1e0, 1e1);
+            try testArgs(f64, 1e0, fmax(f64));
+            try testArgs(f64, 1e0, inf(f64));
+            try testArgs(f64, 1e0, nan(f64));
+
+            try testArgs(f64, 1e1, -nan(f64));
+            try testArgs(f64, 1e1, -inf(f64));
+            try testArgs(f64, 1e1, -fmax(f64));
+            try testArgs(f64, 1e1, -1e1);
+            try testArgs(f64, 1e1, -1e0);
+            try testArgs(f64, 1e1, -1e-1);
+            try testArgs(f64, 1e1, -fmin(f64));
+            try testArgs(f64, 1e1, -tmin(f64));
+            try testArgs(f64, 1e1, -0.0);
+            try testArgs(f64, 1e1, 0.0);
+            try testArgs(f64, 1e1, tmin(f64));
+            try testArgs(f64, 1e1, fmin(f64));
+            try testArgs(f64, 1e1, 1e-1);
+            try testArgs(f64, 1e1, 1e0);
+            try testArgs(f64, 1e1, 1e1);
+            try testArgs(f64, 1e1, fmax(f64));
+            try testArgs(f64, 1e1, inf(f64));
+            try testArgs(f64, 1e1, nan(f64));
+
+            try testArgs(f64, fmax(f64), -nan(f64));
+            try testArgs(f64, fmax(f64), -inf(f64));
+            try testArgs(f64, fmax(f64), -fmax(f64));
+            try testArgs(f64, fmax(f64), -1e1);
+            try testArgs(f64, fmax(f64), -1e0);
+            try testArgs(f64, fmax(f64), -1e-1);
+            try testArgs(f64, fmax(f64), -fmin(f64));
+            try testArgs(f64, fmax(f64), -tmin(f64));
+            try testArgs(f64, fmax(f64), -0.0);
+            try testArgs(f64, fmax(f64), 0.0);
+            try testArgs(f64, fmax(f64), tmin(f64));
+            try testArgs(f64, fmax(f64), fmin(f64));
+            try testArgs(f64, fmax(f64), 1e-1);
+            try testArgs(f64, fmax(f64), 1e0);
+            try testArgs(f64, fmax(f64), 1e1);
+            try testArgs(f64, fmax(f64), fmax(f64));
+            try testArgs(f64, fmax(f64), inf(f64));
+            try testArgs(f64, fmax(f64), nan(f64));
+
+            try testArgs(f64, inf(f64), -nan(f64));
+            try testArgs(f64, inf(f64), -inf(f64));
+            try testArgs(f64, inf(f64), -fmax(f64));
+            try testArgs(f64, inf(f64), -1e1);
+            try testArgs(f64, inf(f64), -1e0);
+            try testArgs(f64, inf(f64), -1e-1);
+            try testArgs(f64, inf(f64), -fmin(f64));
+            try testArgs(f64, inf(f64), -tmin(f64));
+            try testArgs(f64, inf(f64), -0.0);
+            try testArgs(f64, inf(f64), 0.0);
+            try testArgs(f64, inf(f64), tmin(f64));
+            try testArgs(f64, inf(f64), fmin(f64));
+            try testArgs(f64, inf(f64), 1e-1);
+            try testArgs(f64, inf(f64), 1e0);
+            try testArgs(f64, inf(f64), 1e1);
+            try testArgs(f64, inf(f64), fmax(f64));
+            try testArgs(f64, inf(f64), inf(f64));
+            try testArgs(f64, inf(f64), nan(f64));
+
+            try testArgs(f64, nan(f64), -nan(f64));
+            try testArgs(f64, nan(f64), -inf(f64));
+            try testArgs(f64, nan(f64), -fmax(f64));
+            try testArgs(f64, nan(f64), -1e1);
+            try testArgs(f64, nan(f64), -1e0);
+            try testArgs(f64, nan(f64), -1e-1);
+            try testArgs(f64, nan(f64), -fmin(f64));
+            try testArgs(f64, nan(f64), -tmin(f64));
+            try testArgs(f64, nan(f64), -0.0);
+            try testArgs(f64, nan(f64), 0.0);
+            try testArgs(f64, nan(f64), tmin(f64));
+            try testArgs(f64, nan(f64), fmin(f64));
+            try testArgs(f64, nan(f64), 1e-1);
+            try testArgs(f64, nan(f64), 1e0);
+            try testArgs(f64, nan(f64), 1e1);
+            try testArgs(f64, nan(f64), fmax(f64));
+            try testArgs(f64, nan(f64), inf(f64));
+            try testArgs(f64, nan(f64), nan(f64));
+
+            try testArgs(f80, -nan(f80), -nan(f80));
+            try testArgs(f80, -nan(f80), -inf(f80));
+            try testArgs(f80, -nan(f80), -fmax(f80));
+            try testArgs(f80, -nan(f80), -1e1);
+            try testArgs(f80, -nan(f80), -1e0);
+            try testArgs(f80, -nan(f80), -1e-1);
+            try testArgs(f80, -nan(f80), -fmin(f80));
+            try testArgs(f80, -nan(f80), -tmin(f80));
+            try testArgs(f80, -nan(f80), -0.0);
+            try testArgs(f80, -nan(f80), 0.0);
+            try testArgs(f80, -nan(f80), tmin(f80));
+            try testArgs(f80, -nan(f80), fmin(f80));
+            try testArgs(f80, -nan(f80), 1e-1);
+            try testArgs(f80, -nan(f80), 1e0);
+            try testArgs(f80, -nan(f80), 1e1);
+            try testArgs(f80, -nan(f80), fmax(f80));
+            try testArgs(f80, -nan(f80), inf(f80));
+            try testArgs(f80, -nan(f80), nan(f80));
+
+            try testArgs(f80, -inf(f80), -nan(f80));
+            try testArgs(f80, -inf(f80), -inf(f80));
+            try testArgs(f80, -inf(f80), -fmax(f80));
+            try testArgs(f80, -inf(f80), -1e1);
+            try testArgs(f80, -inf(f80), -1e0);
+            try testArgs(f80, -inf(f80), -1e-1);
+            try testArgs(f80, -inf(f80), -fmin(f80));
+            try testArgs(f80, -inf(f80), -tmin(f80));
+            try testArgs(f80, -inf(f80), -0.0);
+            try testArgs(f80, -inf(f80), 0.0);
+            try testArgs(f80, -inf(f80), tmin(f80));
+            try testArgs(f80, -inf(f80), fmin(f80));
+            try testArgs(f80, -inf(f80), 1e-1);
+            try testArgs(f80, -inf(f80), 1e0);
+            try testArgs(f80, -inf(f80), 1e1);
+            try testArgs(f80, -inf(f80), fmax(f80));
+            try testArgs(f80, -inf(f80), inf(f80));
+            try testArgs(f80, -inf(f80), nan(f80));
+
+            try testArgs(f80, -fmax(f80), -nan(f80));
+            try testArgs(f80, -fmax(f80), -inf(f80));
+            try testArgs(f80, -fmax(f80), -fmax(f80));
+            try testArgs(f80, -fmax(f80), -1e1);
+            try testArgs(f80, -fmax(f80), -1e0);
+            try testArgs(f80, -fmax(f80), -1e-1);
+            try testArgs(f80, -fmax(f80), -fmin(f80));
+            try testArgs(f80, -fmax(f80), -tmin(f80));
+            try testArgs(f80, -fmax(f80), -0.0);
+            try testArgs(f80, -fmax(f80), 0.0);
+            try testArgs(f80, -fmax(f80), tmin(f80));
+            try testArgs(f80, -fmax(f80), fmin(f80));
+            try testArgs(f80, -fmax(f80), 1e-1);
+            try testArgs(f80, -fmax(f80), 1e0);
+            try testArgs(f80, -fmax(f80), 1e1);
+            try testArgs(f80, -fmax(f80), fmax(f80));
+            try testArgs(f80, -fmax(f80), inf(f80));
+            try testArgs(f80, -fmax(f80), nan(f80));
+
+            try testArgs(f80, -1e1, -nan(f80));
+            try testArgs(f80, -1e1, -inf(f80));
+            try testArgs(f80, -1e1, -fmax(f80));
+            try testArgs(f80, -1e1, -1e1);
+            try testArgs(f80, -1e1, -1e0);
+            try testArgs(f80, -1e1, -1e-1);
+            try testArgs(f80, -1e1, -fmin(f80));
+            try testArgs(f80, -1e1, -tmin(f80));
+            try testArgs(f80, -1e1, -0.0);
+            try testArgs(f80, -1e1, 0.0);
+            try testArgs(f80, -1e1, tmin(f80));
+            try testArgs(f80, -1e1, fmin(f80));
+            try testArgs(f80, -1e1, 1e-1);
+            try testArgs(f80, -1e1, 1e0);
+            try testArgs(f80, -1e1, 1e1);
+            try testArgs(f80, -1e1, fmax(f80));
+            try testArgs(f80, -1e1, inf(f80));
+            try testArgs(f80, -1e1, nan(f80));
+
+            try testArgs(f80, -1e0, -nan(f80));
+            try testArgs(f80, -1e0, -inf(f80));
+            try testArgs(f80, -1e0, -fmax(f80));
+            try testArgs(f80, -1e0, -1e1);
+            try testArgs(f80, -1e0, -1e0);
+            try testArgs(f80, -1e0, -1e-1);
+            try testArgs(f80, -1e0, -fmin(f80));
+            try testArgs(f80, -1e0, -tmin(f80));
+            try testArgs(f80, -1e0, -0.0);
+            try testArgs(f80, -1e0, 0.0);
+            try testArgs(f80, -1e0, tmin(f80));
+            try testArgs(f80, -1e0, fmin(f80));
+            try testArgs(f80, -1e0, 1e-1);
+            try testArgs(f80, -1e0, 1e0);
+            try testArgs(f80, -1e0, 1e1);
+            try testArgs(f80, -1e0, fmax(f80));
+            try testArgs(f80, -1e0, inf(f80));
+            try testArgs(f80, -1e0, nan(f80));
+
+            try testArgs(f80, -1e-1, -nan(f80));
+            try testArgs(f80, -1e-1, -inf(f80));
+            try testArgs(f80, -1e-1, -fmax(f80));
+            try testArgs(f80, -1e-1, -1e1);
+            try testArgs(f80, -1e-1, -1e0);
+            try testArgs(f80, -1e-1, -1e-1);
+            try testArgs(f80, -1e-1, -fmin(f80));
+            try testArgs(f80, -1e-1, -tmin(f80));
+            try testArgs(f80, -1e-1, -0.0);
+            try testArgs(f80, -1e-1, 0.0);
+            try testArgs(f80, -1e-1, tmin(f80));
+            try testArgs(f80, -1e-1, fmin(f80));
+            try testArgs(f80, -1e-1, 1e-1);
+            try testArgs(f80, -1e-1, 1e0);
+            try testArgs(f80, -1e-1, 1e1);
+            try testArgs(f80, -1e-1, fmax(f80));
+            try testArgs(f80, -1e-1, inf(f80));
+            try testArgs(f80, -1e-1, nan(f80));
+
+            try testArgs(f80, -fmin(f80), -nan(f80));
+            try testArgs(f80, -fmin(f80), -inf(f80));
+            try testArgs(f80, -fmin(f80), -fmax(f80));
+            try testArgs(f80, -fmin(f80), -1e1);
+            try testArgs(f80, -fmin(f80), -1e0);
+            try testArgs(f80, -fmin(f80), -1e-1);
+            try testArgs(f80, -fmin(f80), -fmin(f80));
+            try testArgs(f80, -fmin(f80), -tmin(f80));
+            try testArgs(f80, -fmin(f80), -0.0);
+            try testArgs(f80, -fmin(f80), 0.0);
+            try testArgs(f80, -fmin(f80), tmin(f80));
+            try testArgs(f80, -fmin(f80), fmin(f80));
+            try testArgs(f80, -fmin(f80), 1e-1);
+            try testArgs(f80, -fmin(f80), 1e0);
+            try testArgs(f80, -fmin(f80), 1e1);
+            try testArgs(f80, -fmin(f80), fmax(f80));
+            try testArgs(f80, -fmin(f80), inf(f80));
+            try testArgs(f80, -fmin(f80), nan(f80));
+
+            try testArgs(f80, -tmin(f80), -nan(f80));
+            try testArgs(f80, -tmin(f80), -inf(f80));
+            try testArgs(f80, -tmin(f80), -fmax(f80));
+            try testArgs(f80, -tmin(f80), -1e1);
+            try testArgs(f80, -tmin(f80), -1e0);
+            try testArgs(f80, -tmin(f80), -1e-1);
+            try testArgs(f80, -tmin(f80), -fmin(f80));
+            try testArgs(f80, -tmin(f80), -tmin(f80));
+            try testArgs(f80, -tmin(f80), -0.0);
+            try testArgs(f80, -tmin(f80), 0.0);
+            try testArgs(f80, -tmin(f80), tmin(f80));
+            try testArgs(f80, -tmin(f80), fmin(f80));
+            try testArgs(f80, -tmin(f80), 1e-1);
+            try testArgs(f80, -tmin(f80), 1e0);
+            try testArgs(f80, -tmin(f80), 1e1);
+            try testArgs(f80, -tmin(f80), fmax(f80));
+            try testArgs(f80, -tmin(f80), inf(f80));
+            try testArgs(f80, -tmin(f80), nan(f80));
+
+            try testArgs(f80, -0.0, -nan(f80));
+            try testArgs(f80, -0.0, -inf(f80));
+            try testArgs(f80, -0.0, -fmax(f80));
+            try testArgs(f80, -0.0, -1e1);
+            try testArgs(f80, -0.0, -1e0);
+            try testArgs(f80, -0.0, -1e-1);
+            try testArgs(f80, -0.0, -fmin(f80));
+            try testArgs(f80, -0.0, -tmin(f80));
+            try testArgs(f80, -0.0, -0.0);
+            try testArgs(f80, -0.0, 0.0);
+            try testArgs(f80, -0.0, tmin(f80));
+            try testArgs(f80, -0.0, fmin(f80));
+            try testArgs(f80, -0.0, 1e-1);
+            try testArgs(f80, -0.0, 1e0);
+            try testArgs(f80, -0.0, 1e1);
+            try testArgs(f80, -0.0, fmax(f80));
+            try testArgs(f80, -0.0, inf(f80));
+            try testArgs(f80, -0.0, nan(f80));
+
+            try testArgs(f80, 0.0, -nan(f80));
+            try testArgs(f80, 0.0, -inf(f80));
+            try testArgs(f80, 0.0, -fmax(f80));
+            try testArgs(f80, 0.0, -1e1);
+            try testArgs(f80, 0.0, -1e0);
+            try testArgs(f80, 0.0, -1e-1);
+            try testArgs(f80, 0.0, -fmin(f80));
+            try testArgs(f80, 0.0, -tmin(f80));
+            try testArgs(f80, 0.0, -0.0);
+            try testArgs(f80, 0.0, 0.0);
+            try testArgs(f80, 0.0, tmin(f80));
+            try testArgs(f80, 0.0, fmin(f80));
+            try testArgs(f80, 0.0, 1e-1);
+            try testArgs(f80, 0.0, 1e0);
+            try testArgs(f80, 0.0, 1e1);
+            try testArgs(f80, 0.0, fmax(f80));
+            try testArgs(f80, 0.0, inf(f80));
+            try testArgs(f80, 0.0, nan(f80));
+
+            try testArgs(f80, tmin(f80), -nan(f80));
+            try testArgs(f80, tmin(f80), -inf(f80));
+            try testArgs(f80, tmin(f80), -fmax(f80));
+            try testArgs(f80, tmin(f80), -1e1);
+            try testArgs(f80, tmin(f80), -1e0);
+            try testArgs(f80, tmin(f80), -1e-1);
+            try testArgs(f80, tmin(f80), -fmin(f80));
+            try testArgs(f80, tmin(f80), -tmin(f80));
+            try testArgs(f80, tmin(f80), -0.0);
+            try testArgs(f80, tmin(f80), 0.0);
+            try testArgs(f80, tmin(f80), tmin(f80));
+            try testArgs(f80, tmin(f80), fmin(f80));
+            try testArgs(f80, tmin(f80), 1e-1);
+            try testArgs(f80, tmin(f80), 1e0);
+            try testArgs(f80, tmin(f80), 1e1);
+            try testArgs(f80, tmin(f80), fmax(f80));
+            try testArgs(f80, tmin(f80), inf(f80));
+            try testArgs(f80, tmin(f80), nan(f80));
+
+            try testArgs(f80, fmin(f80), -nan(f80));
+            try testArgs(f80, fmin(f80), -inf(f80));
+            try testArgs(f80, fmin(f80), -fmax(f80));
+            try testArgs(f80, fmin(f80), -1e1);
+            try testArgs(f80, fmin(f80), -1e0);
+            try testArgs(f80, fmin(f80), -1e-1);
+            try testArgs(f80, fmin(f80), -fmin(f80));
+            try testArgs(f80, fmin(f80), -tmin(f80));
+            try testArgs(f80, fmin(f80), -0.0);
+            try testArgs(f80, fmin(f80), 0.0);
+            try testArgs(f80, fmin(f80), tmin(f80));
+            try testArgs(f80, fmin(f80), fmin(f80));
+            try testArgs(f80, fmin(f80), 1e-1);
+            try testArgs(f80, fmin(f80), 1e0);
+            try testArgs(f80, fmin(f80), 1e1);
+            try testArgs(f80, fmin(f80), fmax(f80));
+            try testArgs(f80, fmin(f80), inf(f80));
+            try testArgs(f80, fmin(f80), nan(f80));
+
+            try testArgs(f80, 1e-1, -nan(f80));
+            try testArgs(f80, 1e-1, -inf(f80));
+            try testArgs(f80, 1e-1, -fmax(f80));
+            try testArgs(f80, 1e-1, -1e1);
+            try testArgs(f80, 1e-1, -1e0);
+            try testArgs(f80, 1e-1, -1e-1);
+            try testArgs(f80, 1e-1, -fmin(f80));
+            try testArgs(f80, 1e-1, -tmin(f80));
+            try testArgs(f80, 1e-1, -0.0);
+            try testArgs(f80, 1e-1, 0.0);
+            try testArgs(f80, 1e-1, tmin(f80));
+            try testArgs(f80, 1e-1, fmin(f80));
+            try testArgs(f80, 1e-1, 1e-1);
+            try testArgs(f80, 1e-1, 1e0);
+            try testArgs(f80, 1e-1, 1e1);
+            try testArgs(f80, 1e-1, fmax(f80));
+            try testArgs(f80, 1e-1, inf(f80));
+            try testArgs(f80, 1e-1, nan(f80));
+
+            try testArgs(f80, 1e0, -nan(f80));
+            try testArgs(f80, 1e0, -inf(f80));
+            try testArgs(f80, 1e0, -fmax(f80));
+            try testArgs(f80, 1e0, -1e1);
+            try testArgs(f80, 1e0, -1e0);
+            try testArgs(f80, 1e0, -1e-1);
+            try testArgs(f80, 1e0, -fmin(f80));
+            try testArgs(f80, 1e0, -tmin(f80));
+            try testArgs(f80, 1e0, -0.0);
+            try testArgs(f80, 1e0, 0.0);
+            try testArgs(f80, 1e0, tmin(f80));
+            try testArgs(f80, 1e0, fmin(f80));
+            try testArgs(f80, 1e0, 1e-1);
+            try testArgs(f80, 1e0, 1e0);
+            try testArgs(f80, 1e0, 1e1);
+            try testArgs(f80, 1e0, fmax(f80));
+            try testArgs(f80, 1e0, inf(f80));
+            try testArgs(f80, 1e0, nan(f80));
+
+            try testArgs(f80, 1e1, -nan(f80));
+            try testArgs(f80, 1e1, -inf(f80));
+            try testArgs(f80, 1e1, -fmax(f80));
+            try testArgs(f80, 1e1, -1e1);
+            try testArgs(f80, 1e1, -1e0);
+            try testArgs(f80, 1e1, -1e-1);
+            try testArgs(f80, 1e1, -fmin(f80));
+            try testArgs(f80, 1e1, -tmin(f80));
+            try testArgs(f80, 1e1, -0.0);
+            try testArgs(f80, 1e1, 0.0);
+            try testArgs(f80, 1e1, tmin(f80));
+            try testArgs(f80, 1e1, fmin(f80));
+            try testArgs(f80, 1e1, 1e-1);
+            try testArgs(f80, 1e1, 1e0);
+            try testArgs(f80, 1e1, 1e1);
+            try testArgs(f80, 1e1, fmax(f80));
+            try testArgs(f80, 1e1, inf(f80));
+            try testArgs(f80, 1e1, nan(f80));
+
+            try testArgs(f80, fmax(f80), -nan(f80));
+            try testArgs(f80, fmax(f80), -inf(f80));
+            try testArgs(f80, fmax(f80), -fmax(f80));
+            try testArgs(f80, fmax(f80), -1e1);
+            try testArgs(f80, fmax(f80), -1e0);
+            try testArgs(f80, fmax(f80), -1e-1);
+            try testArgs(f80, fmax(f80), -fmin(f80));
+            try testArgs(f80, fmax(f80), -tmin(f80));
+            try testArgs(f80, fmax(f80), -0.0);
+            try testArgs(f80, fmax(f80), 0.0);
+            try testArgs(f80, fmax(f80), tmin(f80));
+            try testArgs(f80, fmax(f80), fmin(f80));
+            try testArgs(f80, fmax(f80), 1e-1);
+            try testArgs(f80, fmax(f80), 1e0);
+            try testArgs(f80, fmax(f80), 1e1);
+            try testArgs(f80, fmax(f80), fmax(f80));
+            try testArgs(f80, fmax(f80), inf(f80));
+            try testArgs(f80, fmax(f80), nan(f80));
+
+            try testArgs(f80, inf(f80), -nan(f80));
+            try testArgs(f80, inf(f80), -inf(f80));
+            try testArgs(f80, inf(f80), -fmax(f80));
+            try testArgs(f80, inf(f80), -1e1);
+            try testArgs(f80, inf(f80), -1e0);
+            try testArgs(f80, inf(f80), -1e-1);
+            try testArgs(f80, inf(f80), -fmin(f80));
+            try testArgs(f80, inf(f80), -tmin(f80));
+            try testArgs(f80, inf(f80), -0.0);
+            try testArgs(f80, inf(f80), 0.0);
+            try testArgs(f80, inf(f80), tmin(f80));
+            try testArgs(f80, inf(f80), fmin(f80));
+            try testArgs(f80, inf(f80), 1e-1);
+            try testArgs(f80, inf(f80), 1e0);
+            try testArgs(f80, inf(f80), 1e1);
+            try testArgs(f80, inf(f80), fmax(f80));
+            try testArgs(f80, inf(f80), inf(f80));
+            try testArgs(f80, inf(f80), nan(f80));
+
+            try testArgs(f80, nan(f80), -nan(f80));
+            try testArgs(f80, nan(f80), -inf(f80));
+            try testArgs(f80, nan(f80), -fmax(f80));
+            try testArgs(f80, nan(f80), -1e1);
+            try testArgs(f80, nan(f80), -1e0);
+            try testArgs(f80, nan(f80), -1e-1);
+            try testArgs(f80, nan(f80), -fmin(f80));
+            try testArgs(f80, nan(f80), -tmin(f80));
+            try testArgs(f80, nan(f80), -0.0);
+            try testArgs(f80, nan(f80), 0.0);
+            try testArgs(f80, nan(f80), tmin(f80));
+            try testArgs(f80, nan(f80), fmin(f80));
+            try testArgs(f80, nan(f80), 1e-1);
+            try testArgs(f80, nan(f80), 1e0);
+            try testArgs(f80, nan(f80), 1e1);
+            try testArgs(f80, nan(f80), fmax(f80));
+            try testArgs(f80, nan(f80), inf(f80));
+            try testArgs(f80, nan(f80), nan(f80));
+
+            try testArgs(f128, -nan(f128), -nan(f128));
+            try testArgs(f128, -nan(f128), -inf(f128));
+            try testArgs(f128, -nan(f128), -fmax(f128));
+            try testArgs(f128, -nan(f128), -1e1);
+            try testArgs(f128, -nan(f128), -1e0);
+            try testArgs(f128, -nan(f128), -1e-1);
+            try testArgs(f128, -nan(f128), -fmin(f128));
+            try testArgs(f128, -nan(f128), -tmin(f128));
+            try testArgs(f128, -nan(f128), -0.0);
+            try testArgs(f128, -nan(f128), 0.0);
+            try testArgs(f128, -nan(f128), tmin(f128));
+            try testArgs(f128, -nan(f128), fmin(f128));
+            try testArgs(f128, -nan(f128), 1e-1);
+            try testArgs(f128, -nan(f128), 1e0);
+            try testArgs(f128, -nan(f128), 1e1);
+            try testArgs(f128, -nan(f128), fmax(f128));
+            try testArgs(f128, -nan(f128), inf(f128));
+            try testArgs(f128, -nan(f128), nan(f128));
+
+            try testArgs(f128, -inf(f128), -nan(f128));
+            try testArgs(f128, -inf(f128), -inf(f128));
+            try testArgs(f128, -inf(f128), -fmax(f128));
+            try testArgs(f128, -inf(f128), -1e1);
+            try testArgs(f128, -inf(f128), -1e0);
+            try testArgs(f128, -inf(f128), -1e-1);
+            try testArgs(f128, -inf(f128), -fmin(f128));
+            try testArgs(f128, -inf(f128), -tmin(f128));
+            try testArgs(f128, -inf(f128), -0.0);
+            try testArgs(f128, -inf(f128), 0.0);
+            try testArgs(f128, -inf(f128), tmin(f128));
+            try testArgs(f128, -inf(f128), fmin(f128));
+            try testArgs(f128, -inf(f128), 1e-1);
+            try testArgs(f128, -inf(f128), 1e0);
+            try testArgs(f128, -inf(f128), 1e1);
+            try testArgs(f128, -inf(f128), fmax(f128));
+            try testArgs(f128, -inf(f128), inf(f128));
+            try testArgs(f128, -inf(f128), nan(f128));
+
+            try testArgs(f128, -fmax(f128), -nan(f128));
+            try testArgs(f128, -fmax(f128), -inf(f128));
+            try testArgs(f128, -fmax(f128), -fmax(f128));
+            try testArgs(f128, -fmax(f128), -1e1);
+            try testArgs(f128, -fmax(f128), -1e0);
+            try testArgs(f128, -fmax(f128), -1e-1);
+            try testArgs(f128, -fmax(f128), -fmin(f128));
+            try testArgs(f128, -fmax(f128), -tmin(f128));
+            try testArgs(f128, -fmax(f128), -0.0);
+            try testArgs(f128, -fmax(f128), 0.0);
+            try testArgs(f128, -fmax(f128), tmin(f128));
+            try testArgs(f128, -fmax(f128), fmin(f128));
+            try testArgs(f128, -fmax(f128), 1e-1);
+            try testArgs(f128, -fmax(f128), 1e0);
+            try testArgs(f128, -fmax(f128), 1e1);
+            try testArgs(f128, -fmax(f128), fmax(f128));
+            try testArgs(f128, -fmax(f128), inf(f128));
+            try testArgs(f128, -fmax(f128), nan(f128));
+
+            try testArgs(f128, -1e1, -nan(f128));
+            try testArgs(f128, -1e1, -inf(f128));
+            try testArgs(f128, -1e1, -fmax(f128));
+            try testArgs(f128, -1e1, -1e1);
+            try testArgs(f128, -1e1, -1e0);
+            try testArgs(f128, -1e1, -1e-1);
+            try testArgs(f128, -1e1, -fmin(f128));
+            try testArgs(f128, -1e1, -tmin(f128));
+            try testArgs(f128, -1e1, -0.0);
+            try testArgs(f128, -1e1, 0.0);
+            try testArgs(f128, -1e1, tmin(f128));
+            try testArgs(f128, -1e1, fmin(f128));
+            try testArgs(f128, -1e1, 1e-1);
+            try testArgs(f128, -1e1, 1e0);
+            try testArgs(f128, -1e1, 1e1);
+            try testArgs(f128, -1e1, fmax(f128));
+            try testArgs(f128, -1e1, inf(f128));
+            try testArgs(f128, -1e1, nan(f128));
+
+            try testArgs(f128, -1e0, -nan(f128));
+            try testArgs(f128, -1e0, -inf(f128));
+            try testArgs(f128, -1e0, -fmax(f128));
+            try testArgs(f128, -1e0, -1e1);
+            try testArgs(f128, -1e0, -1e0);
+            try testArgs(f128, -1e0, -1e-1);
+            try testArgs(f128, -1e0, -fmin(f128));
+            try testArgs(f128, -1e0, -tmin(f128));
+            try testArgs(f128, -1e0, -0.0);
+            try testArgs(f128, -1e0, 0.0);
+            try testArgs(f128, -1e0, tmin(f128));
+            try testArgs(f128, -1e0, fmin(f128));
+            try testArgs(f128, -1e0, 1e-1);
+            try testArgs(f128, -1e0, 1e0);
+            try testArgs(f128, -1e0, 1e1);
+            try testArgs(f128, -1e0, fmax(f128));
+            try testArgs(f128, -1e0, inf(f128));
+            try testArgs(f128, -1e0, nan(f128));
+
+            try testArgs(f128, -1e-1, -nan(f128));
+            try testArgs(f128, -1e-1, -inf(f128));
+            try testArgs(f128, -1e-1, -fmax(f128));
+            try testArgs(f128, -1e-1, -1e1);
+            try testArgs(f128, -1e-1, -1e0);
+            try testArgs(f128, -1e-1, -1e-1);
+            try testArgs(f128, -1e-1, -fmin(f128));
+            try testArgs(f128, -1e-1, -tmin(f128));
+            try testArgs(f128, -1e-1, -0.0);
+            try testArgs(f128, -1e-1, 0.0);
+            try testArgs(f128, -1e-1, tmin(f128));
+            try testArgs(f128, -1e-1, fmin(f128));
+            try testArgs(f128, -1e-1, 1e-1);
+            try testArgs(f128, -1e-1, 1e0);
+            try testArgs(f128, -1e-1, 1e1);
+            try testArgs(f128, -1e-1, fmax(f128));
+            try testArgs(f128, -1e-1, inf(f128));
+            try testArgs(f128, -1e-1, nan(f128));
+
+            try testArgs(f128, -fmin(f128), -nan(f128));
+            try testArgs(f128, -fmin(f128), -inf(f128));
+            try testArgs(f128, -fmin(f128), -fmax(f128));
+            try testArgs(f128, -fmin(f128), -1e1);
+            try testArgs(f128, -fmin(f128), -1e0);
+            try testArgs(f128, -fmin(f128), -1e-1);
+            try testArgs(f128, -fmin(f128), -fmin(f128));
+            try testArgs(f128, -fmin(f128), -tmin(f128));
+            try testArgs(f128, -fmin(f128), -0.0);
+            try testArgs(f128, -fmin(f128), 0.0);
+            try testArgs(f128, -fmin(f128), tmin(f128));
+            try testArgs(f128, -fmin(f128), fmin(f128));
+            try testArgs(f128, -fmin(f128), 1e-1);
+            try testArgs(f128, -fmin(f128), 1e0);
+            try testArgs(f128, -fmin(f128), 1e1);
+            try testArgs(f128, -fmin(f128), fmax(f128));
+            try testArgs(f128, -fmin(f128), inf(f128));
+            try testArgs(f128, -fmin(f128), nan(f128));
+
+            try testArgs(f128, -tmin(f128), -nan(f128));
+            try testArgs(f128, -tmin(f128), -inf(f128));
+            try testArgs(f128, -tmin(f128), -fmax(f128));
+            try testArgs(f128, -tmin(f128), -1e1);
+            try testArgs(f128, -tmin(f128), -1e0);
+            try testArgs(f128, -tmin(f128), -1e-1);
+            try testArgs(f128, -tmin(f128), -fmin(f128));
+            try testArgs(f128, -tmin(f128), -tmin(f128));
+            try testArgs(f128, -tmin(f128), -0.0);
+            try testArgs(f128, -tmin(f128), 0.0);
+            try testArgs(f128, -tmin(f128), tmin(f128));
+            try testArgs(f128, -tmin(f128), fmin(f128));
+            try testArgs(f128, -tmin(f128), 1e-1);
+            try testArgs(f128, -tmin(f128), 1e0);
+            try testArgs(f128, -tmin(f128), 1e1);
+            try testArgs(f128, -tmin(f128), fmax(f128));
+            try testArgs(f128, -tmin(f128), inf(f128));
+            try testArgs(f128, -tmin(f128), nan(f128));
+
+            try testArgs(f128, -0.0, -nan(f128));
+            try testArgs(f128, -0.0, -inf(f128));
+            try testArgs(f128, -0.0, -fmax(f128));
+            try testArgs(f128, -0.0, -1e1);
+            try testArgs(f128, -0.0, -1e0);
+            try testArgs(f128, -0.0, -1e-1);
+            try testArgs(f128, -0.0, -fmin(f128));
+            try testArgs(f128, -0.0, -tmin(f128));
+            try testArgs(f128, -0.0, -0.0);
+            try testArgs(f128, -0.0, 0.0);
+            try testArgs(f128, -0.0, tmin(f128));
+            try testArgs(f128, -0.0, fmin(f128));
+            try testArgs(f128, -0.0, 1e-1);
+            try testArgs(f128, -0.0, 1e0);
+            try testArgs(f128, -0.0, 1e1);
+            try testArgs(f128, -0.0, fmax(f128));
+            try testArgs(f128, -0.0, inf(f128));
+            try testArgs(f128, -0.0, nan(f128));
+
+            try testArgs(f128, 0.0, -nan(f128));
+            try testArgs(f128, 0.0, -inf(f128));
+            try testArgs(f128, 0.0, -fmax(f128));
+            try testArgs(f128, 0.0, -1e1);
+            try testArgs(f128, 0.0, -1e0);
+            try testArgs(f128, 0.0, -1e-1);
+            try testArgs(f128, 0.0, -fmin(f128));
+            try testArgs(f128, 0.0, -tmin(f128));
+            try testArgs(f128, 0.0, -0.0);
+            try testArgs(f128, 0.0, 0.0);
+            try testArgs(f128, 0.0, tmin(f128));
+            try testArgs(f128, 0.0, fmin(f128));
+            try testArgs(f128, 0.0, 1e-1);
+            try testArgs(f128, 0.0, 1e0);
+            try testArgs(f128, 0.0, 1e1);
+            try testArgs(f128, 0.0, fmax(f128));
+            try testArgs(f128, 0.0, inf(f128));
+            try testArgs(f128, 0.0, nan(f128));
+
+            try testArgs(f128, tmin(f128), -nan(f128));
+            try testArgs(f128, tmin(f128), -inf(f128));
+            try testArgs(f128, tmin(f128), -fmax(f128));
+            try testArgs(f128, tmin(f128), -1e1);
+            try testArgs(f128, tmin(f128), -1e0);
+            try testArgs(f128, tmin(f128), -1e-1);
+            try testArgs(f128, tmin(f128), -fmin(f128));
+            try testArgs(f128, tmin(f128), -tmin(f128));
+            try testArgs(f128, tmin(f128), -0.0);
+            try testArgs(f128, tmin(f128), 0.0);
+            try testArgs(f128, tmin(f128), tmin(f128));
+            try testArgs(f128, tmin(f128), fmin(f128));
+            try testArgs(f128, tmin(f128), 1e-1);
+            try testArgs(f128, tmin(f128), 1e0);
+            try testArgs(f128, tmin(f128), 1e1);
+            try testArgs(f128, tmin(f128), fmax(f128));
+            try testArgs(f128, tmin(f128), inf(f128));
+            try testArgs(f128, tmin(f128), nan(f128));
+
+            try testArgs(f128, fmin(f128), -nan(f128));
+            try testArgs(f128, fmin(f128), -inf(f128));
+            try testArgs(f128, fmin(f128), -fmax(f128));
+            try testArgs(f128, fmin(f128), -1e1);
+            try testArgs(f128, fmin(f128), -1e0);
+            try testArgs(f128, fmin(f128), -1e-1);
+            try testArgs(f128, fmin(f128), -fmin(f128));
+            try testArgs(f128, fmin(f128), -tmin(f128));
+            try testArgs(f128, fmin(f128), -0.0);
+            try testArgs(f128, fmin(f128), 0.0);
+            try testArgs(f128, fmin(f128), tmin(f128));
+            try testArgs(f128, fmin(f128), fmin(f128));
+            try testArgs(f128, fmin(f128), 1e-1);
+            try testArgs(f128, fmin(f128), 1e0);
+            try testArgs(f128, fmin(f128), 1e1);
+            try testArgs(f128, fmin(f128), fmax(f128));
+            try testArgs(f128, fmin(f128), inf(f128));
+            try testArgs(f128, fmin(f128), nan(f128));
+
+            try testArgs(f128, 1e-1, -nan(f128));
+            try testArgs(f128, 1e-1, -inf(f128));
+            try testArgs(f128, 1e-1, -fmax(f128));
+            try testArgs(f128, 1e-1, -1e1);
+            try testArgs(f128, 1e-1, -1e0);
+            try testArgs(f128, 1e-1, -1e-1);
+            try testArgs(f128, 1e-1, -fmin(f128));
+            try testArgs(f128, 1e-1, -tmin(f128));
+            try testArgs(f128, 1e-1, -0.0);
+            try testArgs(f128, 1e-1, 0.0);
+            try testArgs(f128, 1e-1, tmin(f128));
+            try testArgs(f128, 1e-1, fmin(f128));
+            try testArgs(f128, 1e-1, 1e-1);
+            try testArgs(f128, 1e-1, 1e0);
+            try testArgs(f128, 1e-1, 1e1);
+            try testArgs(f128, 1e-1, fmax(f128));
+            try testArgs(f128, 1e-1, inf(f128));
+            try testArgs(f128, 1e-1, nan(f128));
+
+            try testArgs(f128, 1e0, -nan(f128));
+            try testArgs(f128, 1e0, -inf(f128));
+            try testArgs(f128, 1e0, -fmax(f128));
+            try testArgs(f128, 1e0, -1e1);
+            try testArgs(f128, 1e0, -1e0);
+            try testArgs(f128, 1e0, -1e-1);
+            try testArgs(f128, 1e0, -fmin(f128));
+            try testArgs(f128, 1e0, -tmin(f128));
+            try testArgs(f128, 1e0, -0.0);
+            try testArgs(f128, 1e0, 0.0);
+            try testArgs(f128, 1e0, tmin(f128));
+            try testArgs(f128, 1e0, fmin(f128));
+            try testArgs(f128, 1e0, 1e-1);
+            try testArgs(f128, 1e0, 1e0);
+            try testArgs(f128, 1e0, 1e1);
+            try testArgs(f128, 1e0, fmax(f128));
+            try testArgs(f128, 1e0, inf(f128));
+            try testArgs(f128, 1e0, nan(f128));
+
+            try testArgs(f128, 1e1, -nan(f128));
+            try testArgs(f128, 1e1, -inf(f128));
+            try testArgs(f128, 1e1, -fmax(f128));
+            try testArgs(f128, 1e1, -1e1);
+            try testArgs(f128, 1e1, -1e0);
+            try testArgs(f128, 1e1, -1e-1);
+            try testArgs(f128, 1e1, -fmin(f128));
+            try testArgs(f128, 1e1, -tmin(f128));
+            try testArgs(f128, 1e1, -0.0);
+            try testArgs(f128, 1e1, 0.0);
+            try testArgs(f128, 1e1, tmin(f128));
+            try testArgs(f128, 1e1, fmin(f128));
+            try testArgs(f128, 1e1, 1e-1);
+            try testArgs(f128, 1e1, 1e0);
+            try testArgs(f128, 1e1, 1e1);
+            try testArgs(f128, 1e1, fmax(f128));
+            try testArgs(f128, 1e1, inf(f128));
+            try testArgs(f128, 1e1, nan(f128));
+
+            try testArgs(f128, fmax(f128), -nan(f128));
+            try testArgs(f128, fmax(f128), -inf(f128));
+            try testArgs(f128, fmax(f128), -fmax(f128));
+            try testArgs(f128, fmax(f128), -1e1);
+            try testArgs(f128, fmax(f128), -1e0);
+            try testArgs(f128, fmax(f128), -1e-1);
+            try testArgs(f128, fmax(f128), -fmin(f128));
+            try testArgs(f128, fmax(f128), -tmin(f128));
+            try testArgs(f128, fmax(f128), -0.0);
+            try testArgs(f128, fmax(f128), 0.0);
+            try testArgs(f128, fmax(f128), tmin(f128));
+            try testArgs(f128, fmax(f128), fmin(f128));
+            try testArgs(f128, fmax(f128), 1e-1);
+            try testArgs(f128, fmax(f128), 1e0);
+            try testArgs(f128, fmax(f128), 1e1);
+            try testArgs(f128, fmax(f128), fmax(f128));
+            try testArgs(f128, fmax(f128), inf(f128));
+            try testArgs(f128, fmax(f128), nan(f128));
+
+            try testArgs(f128, inf(f128), -nan(f128));
+            try testArgs(f128, inf(f128), -inf(f128));
+            try testArgs(f128, inf(f128), -fmax(f128));
+            try testArgs(f128, inf(f128), -1e1);
+            try testArgs(f128, inf(f128), -1e0);
+            try testArgs(f128, inf(f128), -1e-1);
+            try testArgs(f128, inf(f128), -fmin(f128));
+            try testArgs(f128, inf(f128), -tmin(f128));
+            try testArgs(f128, inf(f128), -0.0);
+            try testArgs(f128, inf(f128), 0.0);
+            try testArgs(f128, inf(f128), tmin(f128));
+            try testArgs(f128, inf(f128), fmin(f128));
+            try testArgs(f128, inf(f128), 1e-1);
+            try testArgs(f128, inf(f128), 1e0);
+            try testArgs(f128, inf(f128), 1e1);
+            try testArgs(f128, inf(f128), fmax(f128));
+            try testArgs(f128, inf(f128), inf(f128));
+            try testArgs(f128, inf(f128), nan(f128));
+
+            try testArgs(f128, nan(f128), -nan(f128));
+            try testArgs(f128, nan(f128), -inf(f128));
+            try testArgs(f128, nan(f128), -fmax(f128));
+            try testArgs(f128, nan(f128), -1e1);
+            try testArgs(f128, nan(f128), -1e0);
+            try testArgs(f128, nan(f128), -1e-1);
+            try testArgs(f128, nan(f128), -fmin(f128));
+            try testArgs(f128, nan(f128), -tmin(f128));
+            try testArgs(f128, nan(f128), -0.0);
+            try testArgs(f128, nan(f128), 0.0);
+            try testArgs(f128, nan(f128), tmin(f128));
+            try testArgs(f128, nan(f128), fmin(f128));
+            try testArgs(f128, nan(f128), 1e-1);
+            try testArgs(f128, nan(f128), 1e0);
+            try testArgs(f128, nan(f128), 1e1);
+            try testArgs(f128, nan(f128), fmax(f128));
+            try testArgs(f128, nan(f128), inf(f128));
+            try testArgs(f128, nan(f128), nan(f128));
+        }
+        fn testIntVectors() !void {
             try testArgs(@Vector(1, i8), .{
                 -0x54,
             }, .{
@@ -2062,6 +9533,396 @@ fn Binary(comptime op: anytype) type {
                 0xf1e3bbe031d59351770a7a501b6e969b2c00d144f17648db3f944b69dfeb7be72e5ff933a061eba4eaa422f8ca09e5a97d0b0dd740fd4076eba8c72d7a278523f399202dc2d043c4e0eb58a2bcd4066e2146e321810b1ee4d3afdddb4f026bcc7905ce17e033a7727b4e08f33b53c63d8c9f763fc6c31d0523eb38c30d5e40bc,
             });
         }
+        fn testFloatVectors() !void {
+            @setEvalBranchQuota(21_700);
+
+            try testArgs(@Vector(1, f16), .{
+                -tmin(f16),
+            }, .{
+                fmax(f16),
+            });
+            try testArgs(@Vector(2, f16), .{
+                1e-1, 1e0,
+            }, .{
+                -nan(f16), -fmin(f16),
+            });
+            try testArgs(@Vector(4, f16), .{
+                1e-1, -fmax(f16), 0.0, 1e-1,
+            }, .{
+                -fmin(f16), -1e1, 1e0, -tmin(f16),
+            });
+            try testArgs(@Vector(8, f16), .{
+                -fmax(f16), -fmin(f16), -nan(f16), -0.0, tmin(f16), -0.0, 0.0, 1e-1,
+            }, .{
+                -1e0, tmin(f16), nan(f16), nan(f16), -fmax(f16), -1e1, -nan(f16), 1e1,
+            });
+            try testArgs(@Vector(16, f16), .{
+                1e-1, fmax(f16), -1e1, fmax(f16), -1e1, 1e-1, -tmin(f16), -inf(f16), -tmin(f16), -1e0, -fmin(f16), tmin(f16), 1e1, -fmax(f16), 0.0, -fmin(f16),
+            }, .{
+                inf(f16), -1e1, -fmax(f16), fmax(f16), -tmin(f16), 0.0, -1e0, -1e0, 1e-1, -nan(f16), -tmin(f16), 1e0, 1e-1, fmax(f16), -0.0, inf(f16),
+            });
+            try testArgs(@Vector(32, f16), .{
+                -inf(f16), tmin(f16), fmin(f16), -nan(f16),  nan(f16),  1e-1,     0.0,        1e1,  -tmin(f16), inf(f16), 1e0,       -1e1, fmin(f16),  -0.0, 1e0,      -fmax(f16),
+                1e1,       -0.0,      -1e1,      -tmin(f16), fmax(f16), nan(f16), -fmin(f16), -1e0, 0.0,        -1e1,     -nan(f16), 1e0,  -tmin(f16), -0.0, nan(f16), 1e1,
+            }, .{
+                0.0,      1e1,  -nan(f16), -0.0, tmin(f16),  fmax(f16), nan(f16),  tmin(f16), -1e1,       1e-1,      1e1, fmin(f16), -fmax(f16), inf(f16),   inf(f16),   -tmin(f16),
+                inf(f16), -0.0, 1e-1,      0.0,  -fmin(f16), -0.0,      -nan(f16), -inf(f16), -fmin(f16), fmax(f16), 1e0, fmin(f16), -0.0,       -tmin(f16), -fmax(f16), -1e1,
+            });
+            try testArgs(@Vector(64, f16), .{
+                -nan(f16), fmin(f16),  -inf(f16),  inf(f16),  -tmin(f16), inf(f16),   1e-1,      -1e0,      -inf(f16), nan(f16),  -fmin(f16), 1e-1,     -tmin(f16), -fmax(f16), -1e1,     inf(f16),
+                0.0,       -fmin(f16), -fmax(f16), 1e1,       -fmax(f16), fmax(f16),  1e1,       fmin(f16), -inf(f16), -nan(f16), -tmin(f16), nan(f16), -0.0,       0.0,        1e-1,     -fmin(f16),
+                0.0,       nan(f16),   inf(f16),   fmax(f16), nan(f16),   tmin(f16),  1e0,       tmin(f16), fmin(f16), -1e1,      0.0,        1e-1,     inf(f16),   -1e1,       inf(f16), 1e0,
+                1e-1,      -inf(f16),  1e1,        -0.0,      -1e0,       -tmin(f16), -nan(f16), 1e-1,      1e-1,      -nan(f16), -0.0,       -1e1,     -0.0,       -nan(f16),  1e-1,     fmin(f16),
+            }, .{
+                1e1,        0.0,       fmax(f16), -inf(f16),  -fmax(f16), -fmax(f16), tmin(f16), -1e0,       -tmin(f16), -1e1, nan(f16), -nan(f16), tmin(f16),  -fmin(f16), nan(f16), -1e1,
+                1e1,        fmax(f16), 1e-1,      0.0,        1e-1,       -fmax(f16), -0.0,      -fmin(f16), inf(f16),   -1e0, inf(f16), fmin(f16), -inf(f16),  -tmin(f16), 1e1,      1e1,
+                1e-1,       1e-1,      1e-1,      1e1,        -fmin(f16), inf(f16),   1e-1,      fmax(f16),  inf(f16),   -0.0, -1e1,     tmin(f16), -fmin(f16), 0.0,        1e1,      0.0,
+                -tmin(f16), -inf(f16), 1e0,       -fmax(f16), inf(f16),   1e1,        fmax(f16), -1e0,       0.0,        1e-1, -1e0,     -inf(f16), 1e-1,       0.0,        -1e1,     fmax(f16),
+            });
+            try testArgs(@Vector(128, f16), .{
+                -fmin(f16), 1e0,        0.0,       1e-1,      nan(f16),   1e-1,       1e-1,      -inf(f16),  -tmin(f16), 1e0,        -fmin(f16), -fmax(f16), -1e0,      -fmin(f16), 1e1,        -nan(f16),
+                inf(f16),   -inf(f16),  tmin(f16), -1e1,      -1e0,       -0.0,       -0.0,      1e0,        nan(f16),   -1e1,       fmin(f16),  -tmin(f16), tmin(f16), 1e-1,       -fmax(f16), fmax(f16),
+                tmin(f16),  -fmin(f16), nan(f16),  1e1,       1e0,        -fmin(f16), 1e-1,      1e1,        fmax(f16),  fmax(f16),  fmax(f16),  -1e0,       -nan(f16), 1e1,        tmin(f16),  -nan(f16),
+                -nan(f16),  -inf(f16),  -0.0,      -inf(f16), nan(f16),   -1e0,       1e-1,      -fmax(f16), -1e1,       nan(f16),   1e0,        -1e1,       tmin(f16), 1e0,        1e-1,       1e0,
+                1e1,        1e-1,       tmin(f16), nan(f16),  -inf(f16),  -1e0,       -1e0,      -fmax(f16), -inf(f16),  1e-1,       1e-1,       -0.0,       1e1,       fmin(f16),  -1e0,       inf(f16),
+                1e-1,       -1e1,       inf(f16),  -0.0,      1e-1,       0.0,        inf(f16),  1e0,        tmin(f16),  -tmin(f16), 1e-1,       inf(f16),   tmin(f16), -inf(f16),  1e1,        1e0,
+                -inf(f16),  1e-1,       1e0,       fmax(f16), -fmin(f16), nan(f16),   -nan(f16), fmin(f16),  -1e0,       -fmax(f16), inf(f16),   -fmax(f16), 0.0,       -1e1,       fmin(f16),  -fmax(f16),
+                -0.0,       -1e0,       1e-1,      1e1,       inf(f16),   fmax(f16),  inf(f16),  1e1,        fmax(f16),  -0.0,       -tmin(f16), fmin(f16),  inf(f16),  nan(f16),   -fmin(f16), -1e0,
+            }, .{
+                -fmax(f16), fmax(f16),  inf(f16),  1e0,        nan(f16),  1e-1,      -fmax(f16), 1e1,        -fmin(f16), 1e-1,       fmin(f16),  -0.0,      1e-1,       -0.0,      -nan(f16),  -nan(f16),
+                inf(f16),   1e0,        -1e0,      1e-1,       1e-1,      1e-1,      0.0,        -tmin(f16), -1e0,       -1e1,       -tmin(f16), 1e0,       -1e1,       fmin(f16), -fmax(f16), -nan(f16),
+                -tmin(f16), -inf(f16),  inf(f16),  -fmin(f16), -nan(f16), 0.0,       -inf(f16),  -fmax(f16), 1e-1,       -inf(f16),  tmin(f16),  nan(f16),  tmin(f16),  fmin(f16), -0.0,       1e-1,
+                fmin(f16),  fmin(f16),  1e0,       tmin(f16),  0.0,       1e1,       1e-1,       inf(f16),   1e1,        -tmin(f16), tmin(f16),  -1e0,      -fmin(f16), 1e0,       nan(f16),   -fmax(f16),
+                nan(f16),   -fmin(f16), 1e-1,      1e1,        -1e1,      1e0,       -0.0,       tmin(f16),  nan(f16),   inf(f16),   -fmax(f16), tmin(f16), -tmin(f16), 1e1,       fmin(f16),  -tmin(f16),
+                -0.0,       1e0,        tmin(f16), fmax(f16),  1e0,       -inf(f16), -nan(f16),  -0.0,       1e-1,       -inf(f16),  1e-1,       fmax(f16), -inf(f16),  -nan(f16), -1e0,       -inf(f16),
+                1e-1,       fmin(f16),  -1e1,      -tmin(f16), 1e0,       -nan(f16), -fmax(f16), -1e1,       -tmin(f16), 1e1,        nan(f16),   fmin(f16), fmax(f16),  tmin(f16), -inf(f16),  1e0,
+                -fmin(f16), tmin(f16),  -1e0,      1e-1,       0.0,       nan(f16),  1e0,        fmax(f16),  -1e0,       1e1,        nan(f16),   1e0,       fmin(f16),  1e0,       -1e1,       -1e1,
+            });
+            try testArgs(@Vector(69, f16), .{
+                -nan(f16), -1e0,      -fmin(f16), fmin(f16), inf(f16),  1e-1,      0.0,       fmax(f16),  tmin(f16), 1e-1,      0.0,        -tmin(f16), 0.0,        0.0,        1e0,        -inf(f16),
+                tmin(f16), -inf(f16), -tmin(f16), fmin(f16), -inf(f16), -nan(f16), tmin(f16), -tmin(f16), 1e-1,      -1e0,      -tmin(f16), fmax(f16),  nan(f16),   -fmin(f16), fmin(f16),  1e1,
+                fmin(f16), -1e1,      0.0,        fmin(f16), fmax(f16), -nan(f16), fmax(f16), -fmax(f16), nan(f16),  -nan(f16), fmin(f16),  -1e1,       -fmin(f16), fmin(f16),  -fmin(f16), -nan(f16),
+                0.0,       -1e0,      fmax(f16),  1e-1,      inf(f16),  1e0,       -1e0,      -0.0,       1e1,       1e-1,      -fmax(f16), tmin(f16),  -inf(f16),  tmin(f16),  -fmax(f16), 1e-1,
+                -1e1,      -0.0,      -fmax(f16), nan(f16),  fmax(f16),
+            }, .{
+                inf(f16),   -fmin(f16), 1e-1,      1e-1,      -0.0,       fmax(f16),  1e-1,      -0.0,      0.0,       -0.0,       0.0,       -tmin(f16), tmin(f16), -1e0,     nan(f16),   -fmin(f16),
+                fmin(f16),  1e-1,       1e-1,      nan(f16),  -fmax(f16), -inf(f16),  -nan(f16), -nan(f16), 1e-1,      -fmax(f16), fmin(f16), 1e-1,       1e-1,      1e-1,     -0.0,       1e1,
+                tmin(f16),  -nan(f16),  fmin(f16), -1e0,      1e0,        -tmin(f16), 0.0,       nan(f16),  fmax(f16), -1e1,       fmin(f16), -fmin(f16), -1e0,      1e-1,     -fmin(f16), -fmin(f16),
+                -fmax(f16), 0.0,        fmin(f16), -1e1,      -1e0,       -1e0,       fmax(f16), -nan(f16), -inf(f16), -inf(f16),  0.0,       tmin(f16),  -0.0,      nan(f16), -inf(f16),  nan(f16),
+                inf(f16),   fmin(f16),  -nan(f16), -inf(f16), inf(f16),
+            });
+
+            try testArgs(@Vector(1, f32), .{
+                fmin(f32),
+            }, .{
+                -tmin(f32),
+            });
+            try testArgs(@Vector(2, f32), .{
+                nan(f32), -1e1,
+            }, .{
+                -tmin(f32), fmin(f32),
+            });
+            try testArgs(@Vector(4, f32), .{
+                fmax(f32), -fmax(f32), -1e1, 0.0,
+            }, .{
+                inf(f32), inf(f32), -1e1, inf(f32),
+            });
+            try testArgs(@Vector(8, f32), .{
+                -1e1, fmax(f32), inf(f32), -0.0, -tmin(f32), -tmin(f32), 1e1, 1e-1,
+            }, .{
+                1e1, -1e0, -1e0, inf(f32), 1e0, -tmin(f32), nan(f32), 1e1,
+            });
+            try testArgs(@Vector(16, f32), .{
+                1e-1, 1e-1, -nan(f32), -1e1, -nan(f32), 0.0, fmin(f32), fmin(f32), -1e1, 1e0, -fmax(f32), -0.0, inf(f32), -0.0, fmax(f32), -fmin(f32),
+            }, .{
+                nan(f32), 0.0, tmin(f32), -1e0, -1e1, -tmin(f32), fmin(f32), -fmax(f32), 1e-1, 1e-1, -inf(f32), tmin(f32), -0.0, 1e1, -0.0, -inf(f32),
+            });
+            try testArgs(@Vector(32, f32), .{
+                1e-1,       tmin(f32), -1e0,       1e0,       tmin(f32), -1e1,      fmax(f32), 0.0,       tmin(f32),  1e-1,      -1e0,     fmax(f32),  -nan(f32), -0.0,      fmin(f32), 0.0,
+                -fmax(f32), fmax(f32), -fmin(f32), -inf(f32), tmin(f32), -nan(f32), -1e0,      tmin(f32), -fmin(f32), -inf(f32), nan(f32), -tmin(f32), inf(f32),  -inf(f32), -nan(f32), 1e-1,
+            }, .{
+                -fmin(f32), -1e0,      fmax(f32), inf(f32),   -fmin(f32), fmax(f32),  0.0,       -1e1, 0.0,  1e-1,      fmin(f32), -inf(f32),  1e0, -nan(f32), -nan(f32),
+                -inf(f32),  -0.0,      nan(f32),  -fmax(f32), 1e1,        -tmin(f32), fmax(f32), -1e1, 1e-1, tmin(f32), 1e-1,      -fmax(f32), 0.0, 1e-1,      -nan(f32),
+                -fmin(f32), fmax(f32),
+            });
+            try testArgs(@Vector(64, f32), .{
+                fmin(f32),  0.0,  -inf(f32), 1e-1,      -1e1,      -fmin(f32), 1e1,        nan(f32),  1e-1,       1e0,       -1e0,      1e1,        1e1,       1e-1,       -fmax(f32), -1e0,
+                -fmin(f32), 1e-1, -inf(f32), -inf(f32), 1e-1,      1e-1,       0.0,        -1e0,      nan(f32),   -0.0,      -0.0,      -fmin(f32), -inf(f32), inf(f32),   tmin(f32),  -nan(f32),
+                1e-1,       0.0,  1e0,       tmin(f32), 1e1,       fmin(f32),  -fmin(f32), fmax(f32), nan(f32),   1e0,       -nan(f32), -nan(f32),  1e0,       nan(f32),   1e0,        fmax(f32),
+                -0.0,       0.0,  inf(f32),  nan(f32),  tmin(f32), 0.0,        fmin(f32),  -0.0,      -fmin(f32), tmin(f32), -1e0,      -1e1,       1e-1,      -tmin(f32), -inf(f32),  -1e0,
+            }, .{
+                nan(f32),   -nan(f32),  -tmin(f32), inf(f32),   -inf(f32), 1e-1,      1e-1,       1e-1,       -1e0,       -inf(f32),  -0.0,     fmax(f32), tmin(f32), -nan(f32),  -fmax(f32), -1e0,
+                -fmin(f32), -0.0,       fmax(f32),  -fmax(f32), 1e0,       -0.0,      0.0,        1e1,        -1e0,       -fmin(f32), 0.0,      fmax(f32), 1e-1,      1e0,        1e1,        1e-1,
+                1e-1,       fmin(f32),  -nan(f32),  -inf(f32),  -0.0,      -inf(f32), 1e-1,       -fmax(f32), -1e1,       -1e1,       nan(f32), 1e1,       -1e0,      -fmin(f32), 1e1,        fmin(f32),
+                1e0,        -fmax(f32), nan(f32),   inf(f32),   fmax(f32), fmax(f32), -fmin(f32), -inf(f32),  -tmin(f32), -nan(f32),  nan(f32), nan(f32),  1e-1,      1e-1,       -1e0,       inf(f32),
+            });
+            try testArgs(@Vector(128, f32), .{
+                -1e1,       -nan(f32),  inf(f32),   inf(f32),  -tmin(f32), -0.0,       0.0,        1e-1,       -0.0,       fmin(f32),  nan(f32),   -1e0,       nan(f32),   -fmax(f32), nan(f32),   0.0,
+                1e0,        -tmin(f32), 0.0,        -nan(f32), 1e-1,       1e-1,       -1e0,       1e1,        -fmax(f32), -fmin(f32), 1e-1,       nan(f32),   1e-1,       -fmax(f32), -tmin(f32), -inf(f32),
+                inf(f32),   tmin(f32),  -tmin(f32), nan(f32),  -inf(f32),  -1e1,       1e0,        -nan(f32),  1e-1,       nan(f32),   -1e0,       tmin(f32),  -fmin(f32), -0.0,       -0.0,       1e0,
+                fmin(f32),  -fmin(f32), 1e-1,       1e-1,      1e-1,       -1e1,       -1e1,       -tmin(f32), 1e0,        -0.0,       1e1,        -fmax(f32), 1e1,        -fmax(f32), inf(f32),   -1e0,
+                -fmax(f32), fmin(f32),  fmin(f32),  fmin(f32), -1e0,       -nan(f32),  fmax(f32),  -nan(f32),  1e-1,       -1e0,       -fmax(f32), -tmin(f32), -0.0,       fmax(f32),  -1e1,       inf(f32),
+                1e1,        -inf(f32),  1e-1,       fmin(f32), nan(f32),   -fmax(f32), -tmin(f32), inf(f32),   tmin(f32),  -fmin(f32), fmax(f32),  1e0,        fmin(f32),  -0.0,       1e-1,       fmin(f32),
+                1e-1,       inf(f32),   -1e1,       inf(f32),  1e1,        tmin(f32),  0.0,        1e0,        inf(f32),   -1e1,       -fmin(f32), tmin(f32),  1e0,        1e-1,       1e-1,       -fmin(f32),
+                1e1,        1e-1,       fmax(f32),  fmin(f32), 1e0,        -1e1,       -inf(f32),  -1e1,       0.0,        -fmax(f32), -inf(f32),  -1e0,       fmax(f32),  -tmin(f32), inf(f32),   nan(f32),
+            }, .{
+                -tmin(f32), -fmax(f32), -fmax(f32), 1e1,        inf(f32),  1e-1,     1e0,        fmin(f32),  1e-1,       1e1,        fmin(f32),  -fmax(f32), 1e0,        fmax(f32),  1e-1,       -fmin(f32),
+                0.0,        -0.0,       -0.0,       -1e0,       -nan(f32), nan(f32), -tmin(f32), 1e1,        -tmin(f32), -1e1,       inf(f32),   0.0,        tmin(f32),  0.0,        -fmax(f32), inf(f32),
+                fmin(f32),  1e-1,       -1e1,       tmin(f32),  tmin(f32), 1e-1,     fmin(f32),  -tmin(f32), fmin(f32),  nan(f32),   1e-1,       -fmax(f32), -1e0,       -0.0,       fmin(f32),  -0.0,
+                -1e0,       -0.0,       -inf(f32),  fmax(f32),  -1e1,      1e0,      inf(f32),   -1e0,       -tmin(f32), -tmin(f32), 1e-1,       -1e1,       -fmin(f32), 1e1,        -1e1,       -inf(f32),
+                -1e0,       inf(f32),   1e-1,       1e0,        -nan(f32), 1e-1,     -1e1,       -nan(f32),  -tmin(f32), 0.0,        fmin(f32),  -nan(f32),  fmax(f32),  -tmin(f32), 0.0,        0.0,
+                -fmax(f32), -inf(f32),  -1e0,       -0.0,       1e1,       nan(f32), 1e-1,       tmin(f32),  -1e1,       1e1,        tmin(f32),  -fmax(f32), 1e-1,       -1e1,       -tmin(f32), fmax(f32),
+                -fmax(f32), 1e-1,       -nan(f32),  -fmin(f32), inf(f32),  inf(f32), tmin(f32),  tmin(f32),  -tmin(f32), tmin(f32),  0.0,        -0.0,       1e0,        1e1,        -1e1,       inf(f32),
+                0.0,        -fmin(f32), fmax(f32),  -1e1,       fmax(f32), -0.0,     0.0,        -fmin(f32), 1e1,        -fmin(f32), -fmin(f32), -fmin(f32), 1e1,        fmin(f32),  -inf(f32),  fmax(f32),
+            });
+            try testArgs(@Vector(69, f32), .{
+                nan(f32),   1e-1,      -tmin(f32), fmax(f32),  nan(f32),  -fmax(f32), 1e-1,       fmax(f32), 1e1,        inf(f32), -fmin(f32), -fmax(f32), inf(f32),   -nan(f32),  1e-1,       1e0,
+                fmax(f32),  1e-1,      1e1,        0.0,        -1e1,      fmax(f32),  1e1,        0.0,       1e0,        1e1,      -fmax(f32), 0.0,        -tmin(f32), -fmin(f32), 1e-1,       1e0,
+                fmin(f32),  tmin(f32), -fmin(f32), -tmin(f32), tmin(f32), -inf(f32),  -fmax(f32), -0.0,      -1e0,       -0.0,     -fmax(f32), fmax(f32),  fmin(f32),  -0.0,       0.0,        -inf(f32),
+                -tmin(f32), inf(f32),  -nan(f32),  tmin(f32),  -1e0,      -tmin(f32), 1e1,        -inf(f32), -fmin(f32), 1e-1,     -inf(f32),  -1e0,       nan(f32),   -inf(f32),  -tmin(f32), 1e1,
+                1e1,        -nan(f32), -nan(f32),  tmin(f32),  -nan(f32),
+            }, .{
+                -nan(f32), 1e0,       fmax(f32), 1e-1,       -0.0,       1e0,       -inf(f32), -fmin(f32), -nan(f32), inf(f32),   1e0,       -nan(f32), -nan(f32), -inf(f32), tmin(f32), -fmin(f32),
+                -nan(f32), 1e-1,      fmin(f32), -1e0,       -fmax(f32), 1e-1,      -1e0,      1e-1,       1e-1,      -tmin(f32), 1e-1,      1e-1,      1e1,       fmin(f32), 0.0,       nan(f32),
+                tmin(f32), 1e0,       nan(f32),  -fmin(f32), tmin(f32),  nan(f32),  1e-1,      nan(f32),   1e0,       -fmax(f32), tmin(f32), 1e0,       0.0,       -1e0,      nan(f32),  fmin(f32),
+                -inf(f32), fmax(f32), -0.0,      nan(f32),   tmin(f32),  tmin(f32), -inf(f32), -1e1,       -nan(f32), -fmax(f32), -0.0,      1e-1,      -inf(f32), 1e0,       nan(f32),  1e0,
+                -1e1,      fmin(f32), inf(f32),  fmin(f32),  0.0,
+            });
+
+            try testArgs(@Vector(1, f64), .{
+                -0.0,
+            }, .{
+                1e0,
+            });
+            try testArgs(@Vector(2, f64), .{
+                -1e0, 0.0,
+            }, .{
+                -inf(f64), -fmax(f64),
+            });
+            try testArgs(@Vector(4, f64), .{
+                -inf(f64), inf(f64), 1e1, 0.0,
+            }, .{
+                -tmin(f64), 1e0, nan(f64), 0.0,
+            });
+            try testArgs(@Vector(8, f64), .{
+                1e-1, -tmin(f64), -fmax(f64), 1e0, inf(f64), -1e1, -tmin(f64), -1e1,
+            }, .{
+                tmin(f64), fmin(f64), 1e-1, 1e1, -0.0, -0.0, fmax(f64), -1e0,
+            });
+            try testArgs(@Vector(16, f64), .{
+                1e-1, -nan(f64), 1e0, tmin(f64), fmax(f64), -fmax(f64), -tmin(f64), -0.0, -fmin(f64), -1e0, -fmax(f64), -nan(f64), -fmax(f64), nan(f64), -0.0, 1e-1,
+            }, .{
+                -1e0, -tmin(f64), -fmin(f64), 1e-1, 1e-1, -0.0, -nan(f64), -inf(f64), -inf(f64), -0.0, nan(f64), tmin(f64), 1e0, 1e-1, tmin(f64), fmin(f64),
+            });
+            try testArgs(@Vector(32, f64), .{
+                -fmax(f64), fmin(f64), 1e-1, 1e-1,      0.0,       1e0,  -0.0, -tmin(f64), tmin(f64), inf(f64),  -tmin(f64), -tmin(f64), -tmin(f64), -fmax(f64), fmin(f64), 1e0,
+                -fmin(f64), -nan(f64), 1e0,  -inf(f64), -nan(f64), -1e0, 0.0,  0.0,        nan(f64),  -nan(f64), -fmin(f64), fmin(f64),  1e-1,       nan(f64),   tmin(f64), -fmax(f64),
+            }, .{
+                -tmin(f64), -fmax(f64), -inf(f64),  -nan(f64), fmin(f64), -inf(f64), 1e-1,     -fmax(f64), -inf(f64), fmin(f64), inf(f64), -1e0, -tmin(f64), inf(f64), 1e-1, nan(f64),
+                fmin(f64),  1e1,        -tmin(f64), -nan(f64), -inf(f64), 1e0,       nan(f64), -fmin(f64), -1e0,      nan(f64),  -1e0,     0.0,  1e0,        nan(f64), -1e0, -fmin(f64),
+            });
+            try testArgs(@Vector(64, f64), .{
+                -1e1,      fmax(f64),  -nan(f64),  tmin(f64),  1e-1,      -1e0,       1e0,      -0.0,      -fmin(f64), 1e-1,      -fmin(f64), -0.0,      -0.0,      tmin(f64), -1e1,      1e-1,
+                -1e1,      -fmax(f64), -1e1,       -fmin(f64), 0.0,       -1e1,       nan(f64), 1e0,       inf(f64),   inf(f64),  -inf(f64),  tmin(f64), tmin(f64), 1e-1,      -0.0,      1e-1,
+                -0.0,      1e-1,       -1e1,       1e1,        fmax(f64), -fmin(f64), 1e0,      fmax(f64), 1e0,        -1e1,      fmin(f64),  fmax(f64), -1e0,      -0.0,      -0.0,      fmax(f64),
+                -inf(f64), -inf(f64),  -tmin(f64), -fmax(f64), -nan(f64), tmin(f64),  -1e0,     0.0,       -inf(f64),  fmax(f64), nan(f64),   -inf(f64), fmin(f64), -nan(f64), -nan(f64), -1e1,
+            }, .{
+                nan(f64),  -1e0, 0.0,       -1e1,       -fmax(f64), -fmin(f64), -nan(f64),  -tmin(f64), 1e-1,       -1e0,      -nan(f64),  -fmax(f64), 0.0,       0.0,      1e1,       inf(f64),
+                fmin(f64), 0.0,  -1e1,      1e0,        -tmin(f64), -inf(f64),  -fmax(f64), 0.0,        -fmin(f64), -1e0,      -fmin(f64), tmin(f64),  1e0,       -1e1,     fmin(f64), 1e-1,
+                inf(f64),  -0.0, tmin(f64), -fmax(f64), -tmin(f64), -fmax(f64), fmin(f64),  -fmax(f64), 1e-1,       1e0,       1e0,        0.0,        fmin(f64), nan(f64), -1e1,      tmin(f64),
+                inf(f64),  1e-1, 1e0,       -nan(f64),  1e0,        -fmin(f64), fmax(f64),  inf(f64),   fmin(f64),  -inf(f64), -0.0,       0.0,        -1e0,      -0.0,     1e-1,      1e-1,
+            });
+            try testArgs(@Vector(128, f64), .{
+                nan(f64),   -fmin(f64), fmax(f64),  fmin(f64), -1e1,       nan(f64),  tmin(f64), fmax(f64),  inf(f64),   -nan(f64),  tmin(f64),  -nan(f64), -0.0,       fmin(f64),  fmax(f64),
+                -inf(f64),  inf(f64),   -1e0,       0.0,       1e-1,       fmin(f64), 0.0,       1e-1,       -1e0,       -inf(f64),  1e-1,       fmax(f64), fmin(f64),  fmax(f64),  -fmax(f64),
+                fmin(f64),  inf(f64),   -fmin(f64), -1e1,      -0.0,       1e-1,      nan(f64),  -fmax(f64), -fmax(f64), -1e0,       1e1,        1e1,       -1e0,       -inf(f64),  inf(f64),
+                -fmin(f64), 1e0,        -inf(f64),  -1e1,      1e-1,       1e0,       1e1,       1e1,        tmin(f64),  nan(f64),   inf(f64),   0.0,       -1e0,       -1e1,       1e0,
+                -tmin(f64), -fmax(f64), -nan(f64),  1e1,       1e-1,       tmin(f64), 0.0,       1e1,        1e-1,       -tmin(f64), -tmin(f64), 1e0,       -fmax(f64), nan(f64),   -fmin(f64),
+                nan(f64),   1e1,        -1e0,       -0.0,      -tmin(f64), nan(f64),  1e1,       1e1,        -inf(f64),  1e-1,       -nan(f64),  -1e1,      -tmin(f64), -fmax(f64), -fmax(f64),
+                inf(f64),   -inf(f64),  tmin(f64),  1e0,       -inf(f64),  -1e1,      inf(f64),  1e-1,       -nan(f64),  -inf(f64),  fmax(f64),  1e-1,      -inf(f64),  1e-1,       1e0,
+                1e-1,       1e-1,       1e-1,       inf(f64),  -inf(f64),  1e0,       1e1,       1e1,        nan(f64),   1e1,        -tmin(f64), 1e0,       -fmin(f64), -1e0,       -fmax(f64),
+                -fmin(f64), -fmin(f64), -1e0,       inf(f64),  nan(f64),   tmin(f64), 1e-1,      -1e0,
+            }, .{
+                0.0,       0.0,        inf(f64),  -0.0,       1e-1,       -nan(f64),  1e1,        -nan(f64), tmin(f64),  -1e1,       -0.0,      inf(f64),   -fmin(f64), 1e-1,       fmax(f64),
+                nan(f64),  -tmin(f64), tmin(f64), 1e0,        1e-1,       -1e1,       -nan(f64),  1e0,       inf(f64),   -1e1,       fmin(f64), 1e-1,       1e1,        -1e1,       1e1,
+                -nan(f64), -nan(f64),  1e-1,      0.0,        1e1,        -fmax(f64), -tmin(f64), tmin(f64), -1e0,       -tmin(f64), -1e1,      1e-1,       -fmax(f64), 1e1,        nan(f64),
+                fmax(f64), -1e0,       -1e0,      -tmin(f64), fmax(f64),  -1e1,       1e-1,       1e0,       fmin(f64),  inf(f64),   1e-1,      tmin(f64),  1e-1,       -fmax(f64), fmax(f64),
+                -1e1,      -fmax(f64), fmax(f64), tmin(f64),  -fmin(f64), inf(f64),   1e-1,       -0.0,      fmax(f64),  tmin(f64),  1e-1,      1e0,        -inf(f64),  1e0,        1e1,
+                1e-1,      0.0,        -1e1,      -nan(f64),  1e1,        -fmin(f64), -tmin(f64), 1e1,       1e0,        -tmin(f64), -1e0,      -fmin(f64), -0.0,       -1e1,       1e-1,
+                inf(f64),  -fmax(f64), 1e-1,      tmin(f64),  -0.0,       fmax(f64),  0.0,        -nan(f64), -fmin(f64), fmax(f64),  -0.0,      nan(f64),   -inf(f64),  tmin(f64),  1e-1,
+                inf(f64),  0.0,        1e1,       -fmax(f64), tmin(f64),  -0.0,       fmin(f64),  -nan(f64), -1e1,       -inf(f64),  nan(f64),  inf(f64),   -0.0,       1e1,        fmax(f64),
+                tmin(f64), -1e1,       -nan(f64), 1e1,        -inf(f64),  -fmax(f64), -inf(f64),  -1e0,
+            });
+            try testArgs(@Vector(69, f64), .{
+                inf(f64),   -0.0,      -fmax(f64), fmax(f64),  fmax(f64), 0.0,      fmin(f64), -nan(f64), 1e-1,      1e-1,      1e-1,       -fmin(f64), inf(f64),   1e-1,      fmax(f64),  nan(f64),
+                tmin(f64),  -1e1,      1e1,        -tmin(f64), -0.0,      nan(f64), -1e1,      fmin(f64), 0.0,       -0.0,      1e-1,       inf(f64),   -tmin(f64), -nan(f64), inf(f64),   -nan(f64),
+                -inf(f64),  fmax(f64), 1e-1,       -fmin(f64), 1e-1,      -1e0,     fmin(f64), fmin(f64), fmin(f64), 1e1,       -fmin(f64), nan(f64),   0.0,        0.0,       1e1,        nan(f64),
+                -tmin(f64), tmin(f64), tmin(f64),  fmin(f64),  -0.0,      -1e0,     1e-1,      1e0,       fmax(f64), tmin(f64), fmin(f64),  0.0,        -fmin(f64), fmin(f64), -tmin(f64), 0.0,
+                -nan(f64),  1e1,       -1e0,       1e-1,       0.0,
+            }, .{
+                -1e1,       -0.0,       fmin(f64), -fmin(f64), nan(f64),  1e1,      -tmin(f64), -fmax(f64), 1e1,       1e-1,     -fmin(f64), inf(f64),  -inf(f64),  -tmin(f64), 1e0,        tmin(f64),
+                -tmin(f64), -nan(f64),  fmax(f64), 0.0,        -1e0,      1e1,      inf(f64),   fmin(f64),  fmax(f64), 1e-1,     1e-1,       fmax(f64), -inf(f64),  1e-1,       1e-1,       fmin(f64),
+                1e-1,       fmin(f64),  -1e1,      nan(f64),   0.0,       0.0,      fmax(f64),  -inf(f64),  tmin(f64), inf(f64), -tmin(f64), fmax(f64), -inf(f64),  -1e1,       -1e0,       fmin(f64),
+                1e-1,       -nan(f64),  fmax(f64), -fmin(f64), fmax(f64), nan(f64), -0.0,       -fmax(f64), 1e1,       nan(f64), inf(f64),   -1e0,      -fmin(f64), nan(f64),   -fmin(f64), -0.0,
+                -nan(f64),  -fmin(f64), 1e-1,      nan(f64),   1e-1,
+            });
+
+            try testArgs(@Vector(1, f80), .{
+                -nan(f80),
+            }, .{
+                -1e0,
+            });
+            try testArgs(@Vector(2, f80), .{
+                -fmax(f80), -inf(f80),
+            }, .{
+                1e-1, 1e1,
+            });
+            try testArgs(@Vector(4, f80), .{
+                -0.0, -inf(f80), 1e-1, 1e1,
+            }, .{
+                -1e0, 0.0, 1e-1, -1e1,
+            });
+            try testArgs(@Vector(8, f80), .{
+                1e0, -0.0, -inf(f80), 1e-1, -inf(f80), fmin(f80), 0.0, 1e1,
+            }, .{
+                -0.0, -fmin(f80), fmin(f80), -nan(f80), nan(f80), inf(f80), fmin(f80), 1e1,
+            });
+            try testArgs(@Vector(16, f80), .{
+                1e1, inf(f80), -fmin(f80), 1e-1, -tmin(f80), -0.0, -inf(f80), -1e0, -fmax(f80), -nan(f80), -tmin(f80), 1e1, 1e1, -inf(f80), -fmax(f80), fmax(f80),
+            }, .{
+                -inf(f80), nan(f80), -fmax(f80), fmin(f80), 1e0, 1e-1, -inf(f80), nan(f80), 1e-1, nan(f80), -inf(f80), nan(f80), tmin(f80), 1e-1, -tmin(f80), -1e1,
+            });
+            try testArgs(@Vector(32, f80), .{
+                inf(f80),  -0.0, 1e-1,     -0.0, 1e-1,     -fmin(f80), -0.0,       fmax(f80), nan(f80),  -tmin(f80), nan(f80), -1e1,       0.0,       1e0,        1e1, -fmin(f80),
+                fmin(f80), 1e-1, inf(f80), -0.0, nan(f80), tmin(f80),  -tmin(f80), fmin(f80), tmin(f80), -0.0,       nan(f80), -fmax(f80), tmin(f80), -fmin(f80), 1e0, tmin(f80),
+            }, .{
+                0.0,  -1e1,     fmax(f80), -inf(f80),  1e-1,      -inf(f80), inf(f80),   1e1,  -1e0, -1e1,      -fmin(f80), 0.0,  inf(f80),   1e0,        -nan(f80), 0.0,
+                1e-1, nan(f80), 1e0,       -fmax(f80), fmin(f80), -inf(f80), -fmax(f80), 1e-1, -1e1, tmin(f80), fmax(f80),  -0.0, -fmin(f80), -fmin(f80), fmin(f80), -tmin(f80),
+            });
+            try testArgs(@Vector(64, f80), .{
+                -fmax(f80), 1e-1,      -1e0,       1e0,        inf(f80),   1e-1,      -1e1,      1e-1,      fmin(f80), -fmin(f80), -1e1,      -fmax(f80), 0.0,        -1e1,      -1e0,       -nan(f80),
+                0.0,        1e-1,      -1e0,       -tmin(f80), 1e0,        tmin(f80), fmax(f80), 0.0,       -1e1,      -tmin(f80), fmax(f80), -0.0,       1e-1,       -inf(f80), -fmax(f80), -1e0,
+                -nan(f80),  tmin(f80), -tmin(f80), -0.0,       -0.0,       -1e0,      -0.0,      fmax(f80), inf(f80),  -nan(f80),  1e-1,      -inf(f80),  -tmin(f80), nan(f80),  1e-1,       1e1,
+                nan(f80),   -inf(f80), 1e-1,       tmin(f80),  -fmin(f80), 1e1,       -1e1,      tmin(f80), fmin(f80), nan(f80),   1e-1,      -nan(f80),  tmin(f80),  nan(f80),  fmax(f80),  -fmax(f80),
+            }, .{
+                -nan(f80), -fmax(f80), tmin(f80), -inf(f80),  -tmin(f80), fmin(f80), -nan(f80), -fmin(f80), fmax(f80), inf(f80), -0.0,      -1e0, 1e-1,       -fmax(f80), 1e0,       -inf(f80),
+                0.0,       -nan(f80),  -1e1,      -1e0,       -nan(f80),  inf(f80),  1e0,       -nan(f80),  1e1,       inf(f80), tmin(f80), 1e-1, tmin(f80),  -tmin(f80), -inf(f80), -fmin(f80),
+                fmax(f80), fmax(f80),  1e-1,      -tmin(f80), -nan(f80),  -1e0,      fmin(f80), -nan(f80),  -nan(f80), inf(f80), -1e0,      1e-1, -fmin(f80), -tmin(f80), 0.0,       -0.0,
+                1e-1,      -fmin(f80), -inf(f80), -1e0,       -tmin(f80), 1e0,       -inf(f80), -0.0,       0.0,       1e0,      tmin(f80), 0.0,  1e-1,       -nan(f80),  fmax(f80), 1e0,
+            });
+            try testArgs(@Vector(128, f80), .{
+                1e-1,      -0.0,       1e-1,       0.0,        fmin(f80),  -1e0,      1e0,       -inf(f80),  fmax(f80),  -fmin(f80), nan(f80),   1e1,        1e-1,       1e-1,       -fmin(f80), -inf(f80),
+                -1e0,      -inf(f80),  1e0,        -fmin(f80), inf(f80),   -nan(f80), 1e1,       inf(f80),   tmin(f80),  nan(f80),   -1e1,       inf(f80),   1e1,        inf(f80),   -1e1,       0.0,
+                -1e1,      fmin(f80),  -tmin(f80), 1e0,        -fmax(f80), nan(f80),  0.0,       fmax(f80),  1e-1,       -1e0,       -fmin(f80), inf(f80),   -tmin(f80), nan(f80),   -tmin(f80), 1e1,
+                -1e1,      -tmin(f80), -1e0,       -tmin(f80), -fmax(f80), 1e1,       -1e0,      -inf(f80),  -nan(f80),  0.0,        1e0,        fmax(f80),  -tmin(f80), -fmin(f80), fmin(f80),  fmin(f80),
+                -1e1,      -fmax(f80), -tmin(f80), inf(f80),   1e0,        0.0,       tmin(f80), -nan(f80),  -fmin(f80), 1e-1,       -nan(f80),  0.0,        1e-1,       -1e1,       -0.0,       -nan(f80),
+                1e0,       1e1,        -1e1,       fmin(f80),  -nan(f80),  fmax(f80), -0.0,      1e0,        inf(f80),   1e0,        -fmin(f80), -fmin(f80), 0.0,        1e-1,       inf(f80),   1e1,
+                tmin(f80), -1e0,       fmax(f80),  -0.0,       fmax(f80),  fmax(f80), 1e-1,      -fmin(f80), -1e1,       1e0,        -fmin(f80), -fmax(f80), fmin(f80),  -fmax(f80), -0.0,       -1e0,
+                -nan(f80), -inf(f80),  nan(f80),   -fmax(f80), inf(f80),   -inf(f80), -nan(f80), fmin(f80),  nan(f80),   -1e0,       tmin(f80),  tmin(f80),  1e-1,       1e1,        -tmin(f80), -nan(f80),
+            }, .{
+                -1e0,       -0.0,      0.0,        fmax(f80),  -1e0,       -0.0,       1e-1,       tmin(f80),  -inf(f80),  1e1,        -0.0,       1e-1,      -tmin(f80), -fmax(f80), tmin(f80), inf(f80),
+                1e-1,       1e0,       tmin(f80),  nan(f80),   -fmax(f80), 1e1,        fmin(f80),  -1e0,       -fmax(f80), nan(f80),   -fmin(f80), 1e1,       -1e0,       tmin(f80),  inf(f80),  -0.0,
+                tmin(f80),  1e0,       0.0,        -fmin(f80), 0.0,        1e1,        -fmax(f80), -0.0,       -inf(f80),  fmin(f80),  -0.0,       -0.0,      -0.0,       -fmax(f80), 1e-1,      fmax(f80),
+                -tmin(f80), tmin(f80), -fmax(f80), 1e1,        -fmax(f80), 1e-1,       fmax(f80),  -1e1,       1e-1,       1e0,        -1e0,       -1e0,      nan(f80),   -nan(f80),  1e1,       -nan(f80),
+                nan(f80),   -1e1,      -tmin(f80), fmin(f80),  -tmin(f80), -fmin(f80), tmin(f80),  -0.0,       1e-1,       fmax(f80),  tmin(f80),  tmin(f80), nan(f80),   1e-1,       1e1,       1e-1,
+                inf(f80),   inf(f80),  1e0,        -inf(f80),  -fmax(f80), 0.0,        1e0,        -fmax(f80), fmax(f80),  nan(f80),   fmin(f80),  1e-1,      -1e0,       1e0,        1e-1,      -tmin(f80),
+                1e1,        1e-1,      -fmax(f80), 0.0,        nan(f80),   -tmin(f80), 1e-1,       fmax(f80),  fmax(f80),  1e-1,       -1e0,       inf(f80),  nan(f80),   1e1,        fmax(f80), -nan(f80),
+                -1e1,       -1e0,      tmin(f80),  fmin(f80),  inf(f80),   fmax(f80),  -fmin(f80), fmin(f80),  -inf(f80),  -tmin(f80), 1e0,        nan(f80),  -fmin(f80), -fmin(f80), fmax(f80), 1e0,
+            });
+            try testArgs(@Vector(69, f80), .{
+                -1e1,       tmin(f80), 1e-1,       -nan(f80), -inf(f80), -nan(f80), fmin(f80), -0.0,       1e1,  fmax(f80), -fmin(f80), 1e-1,       -nan(f80),  inf(f80), 1e0,       -1e0,
+                inf(f80),   fmin(f80), -fmax(f80), 1e-1,      nan(f80),  0.0,       0.0,       nan(f80),   -1e1, fmax(f80), fmin(f80),  -fmax(f80), 1e0,        1e-1,     0.0,       -fmin(f80),
+                -tmin(f80), 0.0,       -1e1,       fmin(f80), 1e0,       1e1,       1e-1,      nan(f80),   -1e1, fmax(f80), 1e-1,       fmin(f80),  -inf(f80),  0.0,      tmin(f80), inf(f80),
+                fmax(f80),  1e0,       1e-1,       nan(f80),  inf(f80),  tmin(f80), tmin(f80), -fmax(f80), 0.0,  fmin(f80), -inf(f80),  1e-1,       -tmin(f80), 1e-1,     -1e0,      1e-1,
+                -fmax(f80), -1e0,      1e-1,       -1e0,      fmax(f80),
+            }, .{
+                -1e0,      fmin(f80),  inf(f80),   -nan(f80), -0.0,       fmin(f80),  -0.0, nan(f80),  -fmax(f80), 1e-1,       1e0,        -1e1,       -tmin(f80), -fmin(f80), 1e1,       inf(f80),
+                -1e1,      -tmin(f80), -fmin(f80), 1e1,       0.0,        -tmin(f80), 1e1,  -1e1,      1e-1,       1e-1,       tmin(f80),  fmax(f80),  0.0,        1e-1,       1e-1,      -1e1,
+                fmin(f80), nan(f80),   -1e1,       -1e1,      -1e1,       0.0,        -0.0, 1e-1,      fmin(f80),  fmin(f80),  -0.0,       -fmin(f80), -nan(f80),  -inf(f80),  0.0,       -inf(f80),
+                inf(f80),  fmax(f80),  -tmin(f80), inf(f80),  1e-1,       -nan(f80),  1e-1, tmin(f80), -1e1,       -fmax(f80), -fmax(f80), inf(f80),   -nan(f80),  1e0,        -inf(f80), 1e1,
+                nan(f80),  1e1,        -1e1,       0.0,       -fmin(f80),
+            });
+
+            try testArgs(@Vector(1, f128), .{
+                -nan(f128),
+            }, .{
+                -0.0,
+            });
+            try testArgs(@Vector(2, f128), .{
+                0.0, -inf(f128),
+            }, .{
+                1e-1, -fmin(f128),
+            });
+            try testArgs(@Vector(4, f128), .{
+                1e-1, fmax(f128), 1e1, -fmax(f128),
+            }, .{
+                -tmin(f128), fmax(f128), -0.0, -0.0,
+            });
+            try testArgs(@Vector(8, f128), .{
+                1e1, -fmin(f128), 0.0, -inf(f128), 1e1, -0.0, -1e0, -fmin(f128),
+            }, .{
+                fmin(f128), tmin(f128), -1e0, -1e1, 0.0, -tmin(f128), 0.0, 1e-1,
+            });
+            try testArgs(@Vector(16, f128), .{
+                -fmin(f128), -1e1, -fmin(f128), 1e-1, -1e1, 1e0, -fmax(f128), tmin(f128), -nan(f128), -tmin(f128), 1e1, -inf(f128), -1e0, tmin(f128), -0.0, nan(f128),
+            }, .{
+                -fmax(f128), fmin(f128), inf(f128), tmin(f128), -1e1, 1e1, fmax(f128), 1e0, -inf(f128), -inf(f128), -fmax(f128), -nan(f128), 1e0, -inf(f128), tmin(f128), tmin(f128),
+            });
+            try testArgs(@Vector(32, f128), .{
+                -0.0,       -1e0, 1e0,        -fmax(f128), -fmax(f128), 1e-1,        -fmin(f128), -fmin(f128), -1e0,       -tmin(f128), -0.0,       -fmax(f128), tmin(f128), inf(f128), 0.0,  fmax(f128),
+                -nan(f128), -0.0, -inf(f128), -1e0,        1e-1,        -fmin(f128), tmin(f128),  -1e1,        fmax(f128), -nan(f128),  -nan(f128), -fmax(f128), 1e-1,       inf(f128), -0.0, tmin(f128),
+            }, .{
+                -1e0,       -1e1,       -fmin(f128), -fmin(f128), inf(f128),  tmin(f128), nan(f128), 0.0,        -fmin(f128), 1e-1, -nan(f128), 1e-1, -0.0, tmin(f128), 1e0,         0.0,
+                fmin(f128), fmax(f128), -fmax(f128), -tmin(f128), fmin(f128), -0.0,       -1e0,      -nan(f128), -inf(f128),  1e0,  nan(f128),  1e0,  1e-1, -0.0,       -fmax(f128), -1e1,
+            });
+            try testArgs(@Vector(64, f128), .{
+                -1e0,       -0.0,       nan(f128),   1e-1,        -1e1,        0.0,         1e0,         1e0,       -inf(f128), fmin(f128),  fmax(f128), nan(f128),  -nan(f128), inf(f128),   -0.0,
+                1e-1,       -inf(f128), -fmax(f128), 1e1,         -tmin(f128), -tmin(f128), -fmax(f128), 1e0,       1e-1,       1e-1,        nan(f128),  1e1,        1e0,        -tmin(f128), 1e1,
+                -nan(f128), fmax(f128), fmax(f128),  0.0,         fmax(f128),  inf(f128),   1e0,         -0.0,      1e-1,       -tmin(f128), fmin(f128), fmax(f128), tmin(f128), inf(f128),   -1e1,
+                -1e0,       -1e0,       -1e0,        -inf(f128),  1e1,         -tmin(f128), nan(f128),   nan(f128), 1e-1,       fmin(f128),  1e-1,       tmin(f128), -1e1,       1e-1,        1e1,
+                fmax(f128), fmax(f128), 1e-1,        -fmax(f128),
+            }, .{
+                -0.0,      1e-1,       -0.0,      -fmin(f128), 1e1,  0.0,        1e0,         -inf(f128), tmin(f128),  -1e0,      fmin(f128),  -nan(f128), -1e1,       1e-1,       -1e1,       1e-1,
+                1e-1,      tmin(f128), nan(f128), -1e0,        0.0,  -1e1,       -1e1,        fmax(f128), -fmax(f128), inf(f128), -nan(f128),  1e-1,       -nan(f128), 1e0,        fmax(f128), inf(f128),
+                nan(f128), fmin(f128), 1e1,       inf(f128),   0.0,  -inf(f128), 1e-1,        1e-1,       1e-1,        -1e0,      1e-1,        -1e1,       inf(f128),  -nan(f128), 1e-1,       inf(f128),
+                inf(f128), inf(f128),  -1e1,      -tmin(f128), 1e-1, -inf(f128), -fmin(f128), 1e0,        -tmin(f128), 1e0,       -tmin(f128), -inf(f128), -0.0,       -nan(f128), -1e0,       -fmax(f128),
+            });
+            try testArgs(@Vector(128, f128), .{
+                -inf(f128),  tmin(f128),  -fmax(f128), 1e0,         fmin(f128),  -fmax(f128), -1e0,        1e-1,        -fmax(f128), -fmin(f128), -1e1,        nan(f128),   1e-1,       nan(f128),
+                inf(f128),   -1e0,        tmin(f128),  -inf(f128),  0.0,         fmax(f128),  tmin(f128),  -fmin(f128), fmin(f128),  -1e1,        -fmin(f128), -1e1,        1e0,        -nan(f128),
+                -inf(f128),  fmin(f128),  inf(f128),   -tmin(f128), 1e-1,        0.0,         1e1,         1e0,         -tmin(f128), -tmin(f128), tmin(f128),  1e0,         fmin(f128), 1e-1,
+                1e-1,        1e-1,        fmax(f128),  1e-1,        inf(f128),   0.0,         fmin(f128),  -fmin(f128), 1e1,         1e1,         -1e1,        tmin(f128),  inf(f128),  inf(f128),
+                -fmin(f128), 0.0,         1e-1,        -nan(f128),  1e-1,        -inf(f128),  -nan(f128),  -1e0,        fmin(f128),  -0.0,        1e1,         -tmin(f128), 1e1,        1e0,
+                1e-1,        -0.0,        -tmin(f128), 1e-1,        -1e0,        -tmin(f128), -fmin(f128), tmin(f128),  1e-1,        -tmin(f128), -nan(f128),  -1e1,        -inf(f128), 0.0,
+                1e-1,        0.0,         -fmin(f128), 0.0,         1e1,         1e1,         tmin(f128),  inf(f128),   -nan(f128),  -inf(f128),  -1e0,        -fmin(f128), -1e1,       -fmin(f128),
+                -inf(f128),  -fmax(f128), tmin(f128),  tmin(f128),  -fmin(f128), 1e-1,        fmin(f128),  fmin(f128),  -fmin(f128), nan(f128),   -1e0,        -0.0,        -0.0,       1e-1,
+                fmax(f128),  0.0,         -fmax(f128), nan(f128),   nan(f128),   nan(f128),   nan(f128),   -nan(f128),  fmin(f128),  -inf(f128),  inf(f128),   -fmax(f128), -1e1,       fmin(f128),
+                1e-1,        fmax(f128),
+            }, .{
+                0.0,         1e1,         1e-1,        inf(f128),   -0.0,        -1e0,        nan(f128),  -1e1,        -inf(f128),  1e-1,        -tmin(f128), 1e0,         inf(f128),   1e-1,        -1e0,
+                1e1,         0.0,         1e0,         nan(f128),   tmin(f128),  fmax(f128),  1e1,        1e-1,        1e-1,        -fmin(f128), -inf(f128),  -nan(f128),  -fmin(f128), -0.0,        -inf(f128),
+                -nan(f128),  fmax(f128),  -fmin(f128), -tmin(f128), -fmin(f128), -fmax(f128), nan(f128),  fmin(f128),  -fmax(f128), fmax(f128),  1e0,         1e1,         -fmax(f128), nan(f128),   -fmax(f128),
+                -inf(f128),  nan(f128),   -nan(f128),  tmin(f128),  -1e0,        1e-1,        1e-1,       -1e0,        -nan(f128),  fmax(f128),  1e1,         -inf(f128),  1e1,         -0.0,        -1e0,
+                -0.0,        -tmin(f128), 1e1,         -1e0,        -fmax(f128), fmin(f128),  fmax(f128), tmin(f128),  1e1,         fmin(f128),  -nan(f128),  1e0,         -tmin(f128), -1e0,        fmax(f128),
+                1e0,         -tmin(f128), 1e-1,        -nan(f128),  inf(f128),   1e-1,        1e-1,       fmax(f128),  -fmin(f128), fmin(f128),  -0.0,        fmax(f128),  -fmax(f128), -tmin(f128), tmin(f128),
+                nan(f128),   1e-1,        tmin(f128),  -1e0,        fmin(f128),  -nan(f128),  fmax(f128), 1e0,         nan(f128),   -nan(f128),  inf(f128),   -fmin(f128), fmin(f128),  1e-1,        1e1,
+                -tmin(f128), -1e1,        0.0,         1e-1,        -fmin(f128), -0.0,        0.0,        -1e1,        fmax(f128),  nan(f128),   nan(f128),   -fmin(f128), -fmax(f128), 1e1,         0.0,
+                fmin(f128),  1e1,         -tmin(f128), -tmin(f128), 0.0,         -1e1,        1e0,        -fmin(f128),
+            });
+            try testArgs(@Vector(69, f128), .{
+                -1e0,       nan(f128),  1e-1,       1e-1,       1e-1,       -1e0, -1e1,       inf(f128), -0.0,       inf(f128),  tmin(f128),  0.0,         -fmax(f128), -tmin(f128), -1e1,        -fmax(f128),
+                -0.0,       0.0,        nan(f128),  inf(f128),  1e0,        -1e0, 1e-1,       -0.0,      1e0,        fmax(f128), -fmax(f128), 0.0,         inf(f128),   -inf(f128),  -tmin(f128), -inf(f128),
+                1e1,        fmin(f128), 1e1,        -1e1,       1e-1,       1e0,  -0.0,       nan(f128), tmin(f128), inf(f128),  inf(f128),   -nan(f128),  -nan(f128),  1e0,         -tmin(f128), 0.0,
+                fmin(f128), fmax(f128), fmin(f128), -1e1,       nan(f128),  0.0,  -nan(f128), -0.0,      -nan(f128), 1e-1,       -1e1,        -tmin(f128), fmax(f128),  1e0,         fmin(f128),  fmax(f128),
+                nan(f128),  -inf(f128), 1e0,        fmin(f128), -nan(f128),
+            }, .{
+                -inf(f128), fmax(f128), 0.0,        nan(f128),   -1e1,        tmin(f128),  nan(f128),  1e0,       1e1,         -fmin(f128), fmin(f128),  tmin(f128),  0.0,         -fmin(f128), -0.0,        fmin(f128),
+                inf(f128),  inf(f128),  fmin(f128), fmin(f128),  -tmin(f128), -fmax(f128), 1e1,        nan(f128), -0.0,        1e0,         1e1,         -1e1,        -inf(f128),  fmin(f128),  -fmax(f128), 1e-1,
+                -1e0,       -nan(f128), -1e1,       tmin(f128),  inf(f128),   nan(f128),   0.0,        -1e1,      tmin(f128),  0.0,         -fmax(f128), -tmin(f128), 1e-1,        1e-1,        1e1,         1e-1,
+                fmax(f128), 1e-1,       0.0,        -fmin(f128), -inf(f128),  -inf(f128),  -nan(f128), 1e-1,      -fmax(f128), fmax(f128),  -fmax(f128), -0.0,        -tmin(f128), -1e0,        nan(f128),   1e-1,
+                -1e0,       -inf(f128), tmin(f128), inf(f128),   inf(f128),
+            });
+        }
     };
 }
 
@@ -2069,64 +9930,285 @@ inline fn bitNot(comptime Type: type, rhs: Type) @TypeOf(~rhs) {
     return ~rhs;
 }
 test bitNot {
-    try Unary(bitNot).testIntTypes();
-    try Unary(bitNot).testIntVectorTypes();
+    const test_bit_not = unary(bitNot, .{});
+    try test_bit_not.testInts();
+    try test_bit_not.testIntVectors();
 }
 
 inline fn abs(comptime Type: type, rhs: Type) @TypeOf(@abs(rhs)) {
     return @abs(rhs);
 }
 test abs {
-    try Unary(abs).testIntTypes();
-    try Unary(abs).testIntVectorTypes();
-    try Unary(abs).testFloatTypes();
-    try Unary(abs).testFloatVectorTypes();
+    const test_abs = unary(abs, .{ .strict = true });
+    try test_abs.testInts();
+    try test_abs.testIntVectors();
+    try test_abs.testFloats();
+    try test_abs.testFloatVectors();
 }
 
 inline fn clz(comptime Type: type, rhs: Type) @TypeOf(@clz(rhs)) {
     return @clz(rhs);
 }
 test clz {
-    try Unary(clz).testIntTypes();
-    try Unary(clz).testIntVectorTypes();
+    const test_clz = unary(clz, .{});
+    try test_clz.testInts();
+    try test_clz.testIntVectors();
+}
+
+inline fn intCast(comptime Result: type, comptime Type: type, rhs: Type, comptime ct_rhs: Type) Result {
+    @setRuntimeSafety(false); // TODO
+    const res_info = switch (@typeInfo(Result)) {
+        .int => |info| info,
+        .vector => |info| @typeInfo(info.child).int,
+        else => @compileError(@typeName(Result)),
+    };
+    const rhs_info = @typeInfo(Scalar(Type)).int;
+    const min_bits = @min(res_info.bits, rhs_info.bits);
+    return @intCast(switch (@as(union(enum) {
+        shift: std.math.Log2Int(Scalar(Type)),
+        mask: std.math.Log2IntCeil(Scalar(Type)),
+    }, switch (res_info.signedness) {
+        .signed => switch (rhs_info.signedness) {
+            .signed => .{ .shift = rhs_info.bits - min_bits },
+            .unsigned => .{ .mask = min_bits - @intFromBool(res_info.bits <= rhs_info.bits) },
+        },
+        .unsigned => switch (rhs_info.signedness) {
+            .signed => .{ .mask = min_bits - @intFromBool(res_info.bits >= rhs_info.bits) },
+            .unsigned => .{ .mask = min_bits },
+        },
+    })) {
+        // TODO: if (bits == 0) rhs else rhs >> bits,
+        .shift => |bits| if (bits == 0) rhs else switch (@typeInfo(Type)) {
+            .int => if (ct_rhs < 0)
+                rhs | std.math.minInt(Type) >> bits
+            else
+                rhs & std.math.maxInt(Type) >> bits,
+            .vector => rhs | @select(
+                Scalar(Type),
+                ct_rhs < splat(Type, 0),
+                splat(Type, std.math.minInt(Scalar(Type)) >> bits),
+                splat(Type, 0),
+            ) & ~@select(
+                Scalar(Type),
+                ct_rhs >= splat(Type, 0),
+                splat(Type, std.math.minInt(Scalar(Type)) >> bits),
+                splat(Type, 0),
+            ),
+            else => comptime unreachable,
+        },
+        .mask => |bits| if (bits == rhs_info.bits) rhs else rhs & splat(Type, (1 << bits) - 1),
+    });
+}
+test intCast {
+    const test_int_cast = cast(intCast, .{});
+    try test_int_cast.testInts();
+    try test_int_cast.testIntVectors();
+}
+
+inline fn floatCast(comptime Result: type, comptime Type: type, rhs: Type, comptime _: Type) Result {
+    return @floatCast(rhs);
+}
+test floatCast {
+    const test_float_cast = cast(floatCast, .{ .strict = true });
+    try test_float_cast.testFloats();
+    try test_float_cast.testFloatVectors();
+}
+
+inline fn equal(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs == rhs) {
+    return lhs == rhs;
+}
+test equal {
+    const test_equal = binary(equal, .{});
+    try test_equal.testInts();
+    try test_equal.testFloats();
+}
+
+inline fn notEqual(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs != rhs) {
+    return lhs != rhs;
+}
+test notEqual {
+    const test_not_equal = binary(notEqual, .{});
+    try test_not_equal.testInts();
+    try test_not_equal.testFloats();
+}
+
+inline fn lessThan(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs < rhs) {
+    return lhs < rhs;
+}
+test lessThan {
+    const test_less_than = binary(lessThan, .{});
+    try test_less_than.testInts();
+    try test_less_than.testFloats();
+}
+
+inline fn lessThanOrEqual(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs <= rhs) {
+    return lhs <= rhs;
+}
+test lessThanOrEqual {
+    const test_less_than_or_equal = binary(lessThanOrEqual, .{});
+    try test_less_than_or_equal.testInts();
+    try test_less_than_or_equal.testFloats();
+}
+
+inline fn greaterThan(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs > rhs) {
+    return lhs > rhs;
+}
+test greaterThan {
+    const test_greater_than = binary(greaterThan, .{});
+    try test_greater_than.testInts();
+    try test_greater_than.testFloats();
+}
+
+inline fn greaterThanOrEqual(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs >= rhs) {
+    return lhs >= rhs;
+}
+test greaterThanOrEqual {
+    const test_greater_than_or_equal = binary(greaterThanOrEqual, .{});
+    try test_greater_than_or_equal.testInts();
+    try test_greater_than_or_equal.testFloats();
 }
 
 inline fn bitAnd(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs & rhs) {
     return lhs & rhs;
 }
 test bitAnd {
-    try Binary(bitAnd).testIntTypes();
-    try Binary(bitAnd).testIntVectorTypes();
+    const test_bit_and = binary(bitAnd, .{});
+    try test_bit_and.testInts();
+    try test_bit_and.testIntVectors();
 }
 
 inline fn bitOr(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs | rhs) {
     return lhs | rhs;
 }
 test bitOr {
-    try Binary(bitOr).testIntTypes();
-    try Binary(bitOr).testIntVectorTypes();
+    const test_bit_or = binary(bitOr, .{});
+    try test_bit_or.testInts();
+    try test_bit_or.testIntVectors();
 }
 
 inline fn bitXor(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs ^ rhs) {
     return lhs ^ rhs;
 }
 test bitXor {
-    try Binary(bitXor).testIntTypes();
-    try Binary(bitXor).testIntVectorTypes();
+    const test_bit_xor = binary(bitXor, .{});
+    try test_bit_xor.testInts();
+    try test_bit_xor.testIntVectors();
 }
 
 inline fn min(comptime Type: type, lhs: Type, rhs: Type) Type {
     return @min(lhs, rhs);
 }
 test min {
-    try Binary(min).testIntTypes();
-    try Binary(min).testIntVectorTypes();
+    const test_min = binary(min, .{});
+    try test_min.testInts();
+    try test_min.testIntVectors();
+    try test_min.testFloats();
+    try test_min.testFloatVectors();
 }
 
 inline fn max(comptime Type: type, lhs: Type, rhs: Type) Type {
     return @max(lhs, rhs);
 }
 test max {
-    try Binary(max).testIntTypes();
-    try Binary(max).testIntVectorTypes();
+    const test_max = binary(max, .{});
+    try test_max.testInts();
+    try test_max.testIntVectors();
+    try test_max.testFloats();
+    try test_max.testFloatVectors();
+}
+
+inline fn nullIsNull(comptime Type: type, _: Type) bool {
+    return runtime(?Type, null) == null;
+}
+test nullIsNull {
+    const test_null_is_null = unary(nullIsNull, .{});
+    try test_null_is_null.testIntTypes();
+    try test_null_is_null.testIntVectorTypes();
+    try test_null_is_null.testFloatTypes();
+    try test_null_is_null.testFloatVectorTypes();
+}
+
+inline fn nullIsNotNull(comptime Type: type, _: Type) bool {
+    return runtime(?Type, null) != null;
+}
+test nullIsNotNull {
+    const test_null_is_not_null = unary(nullIsNotNull, .{});
+    try test_null_is_not_null.testIntTypes();
+    try test_null_is_not_null.testIntVectorTypes();
+    try test_null_is_not_null.testFloatTypes();
+    try test_null_is_not_null.testFloatVectorTypes();
+}
+
+inline fn optionalIsNull(comptime Type: type, lhs: Type) bool {
+    return @as(?Type, lhs) == null;
+}
+test optionalIsNull {
+    const test_optional_is_null = unary(optionalIsNull, .{});
+    try test_optional_is_null.testInts();
+    try test_optional_is_null.testFloats();
+}
+
+inline fn optionalIsNotNull(comptime Type: type, lhs: Type) bool {
+    return @as(?Type, lhs) != null;
+}
+test optionalIsNotNull {
+    const test_optional_is_not_null = unary(optionalIsNotNull, .{});
+    try test_optional_is_not_null.testInts();
+    try test_optional_is_not_null.testFloats();
+}
+
+inline fn nullEqualNull(comptime Type: type, _: Type) bool {
+    return runtime(?Type, null) == runtime(?Type, null);
+}
+test nullEqualNull {
+    const test_null_equal_null = unary(nullEqualNull, .{});
+    try test_null_equal_null.testIntTypes();
+    try test_null_equal_null.testFloatTypes();
+}
+
+inline fn nullNotEqualNull(comptime Type: type, _: Type) bool {
+    return runtime(?Type, null) != runtime(?Type, null);
+}
+test nullNotEqualNull {
+    const test_null_not_equal_null = unary(nullNotEqualNull, .{});
+    try test_null_not_equal_null.testIntTypes();
+    try test_null_not_equal_null.testFloatTypes();
+}
+
+inline fn optionalEqualNull(comptime Type: type, lhs: Type) bool {
+    return lhs == runtime(?Type, null);
+}
+test optionalEqualNull {
+    const test_optional_equal_null = unary(optionalEqualNull, .{});
+    try test_optional_equal_null.testInts();
+    try test_optional_equal_null.testFloats();
+}
+
+inline fn optionalNotEqualNull(comptime Type: type, lhs: Type) bool {
+    return lhs != runtime(?Type, null);
+}
+test optionalNotEqualNull {
+    const test_optional_not_equal_null = unary(optionalIsNotNull, .{});
+    try test_optional_not_equal_null.testInts();
+    try test_optional_not_equal_null.testFloats();
+}
+
+inline fn optionalsEqual(comptime Type: type, lhs: Type, rhs: Type) bool {
+    if (@inComptime()) return lhs == rhs; // workaround https://github.com/ziglang/zig/issues/22636
+    return @as(?Type, lhs) == rhs;
+}
+test optionalsEqual {
+    const test_optionals_equal = binary(optionalsEqual, .{});
+    try test_optionals_equal.testInts();
+    try test_optionals_equal.testFloats();
+}
+
+inline fn optionalsNotEqual(comptime Type: type, lhs: Type, rhs: Type) bool {
+    if (@inComptime()) return lhs != rhs; // workaround https://github.com/ziglang/zig/issues/22636
+    return lhs != @as(?Type, rhs);
+}
+test optionalsNotEqual {
+    const test_optionals_not_equal = binary(optionalsNotEqual, .{});
+    try test_optionals_not_equal.testInts();
+    try test_optionals_not_equal.testFloats();
 }

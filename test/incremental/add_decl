@@ -39,7 +39,7 @@ pub fn main() !void {
 }
 const foo = "good morning\n";
 const bar = "good evening\n";
-#expect_error=ignored
+#expect_error=main.zig:3:37: error: use of undeclared identifier 'qux'
 
 #update=add missing declaration
 #file=main.zig

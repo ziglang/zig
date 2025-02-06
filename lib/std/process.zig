@@ -431,6 +431,20 @@ pub fn hasEnvVarConstant(comptime key: []const u8) bool {
     }
 }
 
+/// On Windows, `key` must be valid UTF-8.
+pub fn hasNonEmptyEnvVarConstant(comptime key: []const u8) bool {
+    if (native_os == .windows) {
+        const key_w = comptime unicode.utf8ToUtf16LeStringLiteral(key);
+        const value = getenvW(key_w) orelse return false;
+        return value.len != 0;
+    } else if (native_os == .wasi and !builtin.link_libc) {
+        @compileError("hasNonEmptyEnvVarConstant is not supported for WASI without libc");
+    } else {
+        const value = posix.getenv(key) orelse return false;
+        return value.len != 0;
+    }
+}
+
 pub const ParseEnvVarIntError = std.fmt.ParseIntError || error{EnvironmentVariableNotFound};
 
 /// Parses an environment variable as an integer.
@@ -474,6 +488,27 @@ pub fn hasEnvVar(allocator: Allocator, key: []const u8) HasEnvVarError!bool {
         return envmap.getPtr(key) != null;
     } else {
         return posix.getenv(key) != null;
+    }
+}
+
+/// On Windows, if `key` is not valid [WTF-8](https://simonsapin.github.io/wtf-8/),
+/// then `error.InvalidWtf8` is returned.
+pub fn hasNonEmptyEnvVar(allocator: Allocator, key: []const u8) HasEnvVarError!bool {
+    if (native_os == .windows) {
+        var stack_alloc = std.heap.stackFallback(256 * @sizeOf(u16), allocator);
+        const stack_allocator = stack_alloc.get();
+        const key_w = try unicode.wtf8ToWtf16LeAllocZ(stack_allocator, key);
+        defer stack_allocator.free(key_w);
+        const value = getenvW(key_w) orelse return false;
+        return value.len != 0;
+    } else if (native_os == .wasi and !builtin.link_libc) {
+        var envmap = getEnvMap(allocator) catch return error.OutOfMemory;
+        defer envmap.deinit();
+        const value = envmap.getPtr(key) orelse return false;
+        return value.len != 0;
+    } else {
+        const value = posix.getenv(key) orelse return false;
+        return value.len != 0;
     }
 }
 

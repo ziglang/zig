@@ -775,6 +775,7 @@ pub const StackIterator = struct {
     }
 
     pub fn deinit(it: *StackIterator) void {
+        it.ma.deinit();
         if (have_ucontext and it.unwind_state != null) it.unwind_state.?.dwarf_context.deinit();
     }
 

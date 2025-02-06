@@ -458,6 +458,19 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
             return stream.writeAll("for input is not captured");
         },
 
+        .invalid_byte => {
+            const tok_slice = tree.source[tree.tokens.items(.start)[parse_error.token]..];
+            return stream.print("{s} contains invalid byte: '{'}'", .{
+                switch (tok_slice[0]) {
+                    '\'' => "character literal",
+                    '"', '\\' => "string literal",
+                    '/' => "comment",
+                    else => unreachable,
+                },
+                std.zig.fmtEscapes(tok_slice[parse_error.extra.offset..][0..1]),
+            });
+        },
+
         .expected_token => {
             const found_tag = token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)];
             const expected_symbol = parse_error.extra.expected_tag.symbol();
@@ -2926,6 +2939,7 @@ pub const Error = struct {
     extra: union {
         none: void,
         expected_tag: Token.Tag,
+        offset: usize,
     } = .{ .none = {} },
 
     pub const Tag = enum {
@@ -2996,6 +3010,9 @@ pub const Error = struct {
 
         /// `expected_tag` is populated.
         expected_token,
+
+        /// `offset` is populated
+        invalid_byte,
     };
 };
 

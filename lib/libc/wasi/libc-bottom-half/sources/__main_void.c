@@ -5,6 +5,11 @@
 int __wasilibc_main(int argc, char *argv[]) asm("main");
 
 // The user's `main` function, expecting arguments.
+//
+// Note that we make this a weak symbol so that it will have a
+// `WASM_SYM_BINDING_WEAK` flag in libc.so, which tells the dynamic linker that
+// it need not be defined (e.g. in reactor-style apps with no main function).
+// See also the TODO comment on `__main_void` below.
 __attribute__((__weak__, nodebug))
 int __main_argc_argv(int argc, char *argv[]) {
     return __wasilibc_main(argc, argv);
@@ -13,6 +18,11 @@ int __main_argc_argv(int argc, char *argv[]) {
 // If the user's `main` function expects arguments, the compiler will rename
 // it to `__main_argc_argv`, and this version will get linked in, which
 // initializes the argument data and calls `__main_argc_argv`.
+//
+// TODO: Ideally this function would be defined in a crt*.o file and linked in
+// as necessary by the Clang driver.  However, moving it to crt1-command.c
+// breaks `--no-gc-sections`, so we'll probably need to create a new file
+// (e.g. crt0.o or crtend.o) and teach Clang to use it when needed.
 __attribute__((__weak__, nodebug))
 int __main_void(void) {
     __wasi_errno_t err;

@@ -17,13 +17,6 @@ tid_shift_31: if (single_threaded) u0 else std.math.Log2Int(u32),
 /// Cached shift amount to put a `tid` in the top bits of a 32-bit value.
 tid_shift_32: if (single_threaded) u0 else std.math.Log2Int(u32),
 
-/// Dependencies on whether an entire file gets past AstGen.
-/// These are triggered by `@import`, so that:
-/// * if a file initially fails AstGen, triggering a transitive failure, when a future update
-///   causes it to succeed AstGen, the `@import` is re-analyzed, allowing analysis to proceed
-/// * if a file initially succeds AstGen, but a future update causes the file to fail it,
-///   the `@import` is re-analyzed, registering a transitive failure
-file_deps: std.AutoArrayHashMapUnmanaged(FileIndex, DepEntry.Index),
 /// Dependencies on the source code hash associated with a ZIR instruction.
 /// * For a `declaration`, this is the entire declaration body.
 /// * For a `struct_decl`, `union_decl`, etc, this is the source of the fields (but not declarations).
@@ -42,6 +35,13 @@ nav_ty_deps: std.AutoArrayHashMapUnmanaged(Nav.Index, DepEntry.Index),
 /// * a container type requiring resolution (invalidated when the type must be recreated at a new index)
 /// Value is index into `dep_entries` of the first dependency on this interned value.
 interned_deps: std.AutoArrayHashMapUnmanaged(Index, DepEntry.Index),
+/// Dependencies on a ZON file. Triggered by `@import` of ZON.
+/// Value is index into `dep_entries` of the first dependency on this ZON file.
+zon_file_deps: std.AutoArrayHashMapUnmanaged(FileIndex, DepEntry.Index),
+/// Dependencies on an embedded file.
+/// Introduced by `@embedFile`; invalidated when the file changes.
+/// Value is index into `dep_entries` of the first dependency on this `Zcu.EmbedFile`.
+embed_file_deps: std.AutoArrayHashMapUnmanaged(Zcu.EmbedFile.Index, DepEntry.Index),
 /// Dependencies on the full set of names in a ZIR namespace.
 /// Key refers to a `struct_decl`, `union_decl`, etc.
 /// Value is index into `dep_entries` of the first dependency on this namespace.
@@ -85,11 +85,12 @@ pub const empty: InternPool = .{
     .tid_shift_30 = if (single_threaded) 0 else 31,
     .tid_shift_31 = if (single_threaded) 0 else 31,
     .tid_shift_32 = if (single_threaded) 0 else 31,
-    .file_deps = .empty,
     .src_hash_deps = .empty,
     .nav_val_deps = .empty,
     .nav_ty_deps = .empty,
     .interned_deps = .empty,
+    .zon_file_deps = .empty,
+    .embed_file_deps = .empty,
     .namespace_deps = .empty,
     .namespace_name_deps = .empty,
     .memoized_state_main_deps = .none,
@@ -819,11 +820,12 @@ pub const Nav = struct {
 };
 
 pub const Dependee = union(enum) {
-    file: FileIndex,
     src_hash: TrackedInst.Index,
     nav_val: Nav.Index,
     nav_ty: Nav.Index,
     interned: Index,
+    zon_file: FileIndex,
+    embed_file: Zcu.EmbedFile.Index,
     namespace: TrackedInst.Index,
     namespace_name: NamespaceNameKey,
     memoized_state: MemoizedStateStage,
@@ -870,11 +872,12 @@ pub const DependencyIterator = struct {
 
 pub fn dependencyIterator(ip: *const InternPool, dependee: Dependee) DependencyIterator {
     const first_entry = switch (dependee) {
-        .file => |x| ip.file_deps.get(x),
         .src_hash => |x| ip.src_hash_deps.get(x),
         .nav_val => |x| ip.nav_val_deps.get(x),
         .nav_ty => |x| ip.nav_ty_deps.get(x),
         .interned => |x| ip.interned_deps.get(x),
+        .zon_file => |x| ip.zon_file_deps.get(x),
+        .embed_file => |x| ip.embed_file_deps.get(x),
         .namespace => |x| ip.namespace_deps.get(x),
         .namespace_name => |x| ip.namespace_name_deps.get(x),
         .memoized_state => |stage| switch (stage) {
@@ -940,11 +943,12 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: AnalUnit, depend
         },
         inline else => |dependee_payload, tag| new_index: {
             const gop = try switch (tag) {
-                .file => ip.file_deps,
                 .src_hash => ip.src_hash_deps,
                 .nav_val => ip.nav_val_deps,
                 .nav_ty => ip.nav_ty_deps,
                 .interned => ip.interned_deps,
+                .zon_file => ip.zon_file_deps,
+                .embed_file => ip.embed_file_deps,
                 .namespace => ip.namespace_deps,
                 .namespace_name => ip.namespace_name_deps,
                 .memoized_state => comptime unreachable,
@@ -4381,7 +4385,7 @@ pub const LoadedEnumType = struct {
         // Auto-numbered enum. Convert `int_tag_val` to field index.
         const field_index = switch (ip.indexToKey(int_tag_val).int.storage) {
             inline .u64, .i64 => |x| std.math.cast(u32, x) orelse return null,
-            .big_int => |x| x.to(u32) catch return null,
+            .big_int => |x| x.toInt(u32) catch return null,
             .lazy_align, .lazy_size => unreachable,
         };
         return if (field_index < self.names.len) field_index else null;
@@ -4585,6 +4589,7 @@ pub const Index = enum(u32) {
     vector_4_u64_type,
     vector_4_f16_type,
     vector_8_f16_type,
+    vector_2_f32_type,
     vector_4_f32_type,
     vector_8_f32_type,
     vector_2_f64_type,
@@ -5116,6 +5121,8 @@ pub const static_keys = [_]Key{
     .{ .vector_type = .{ .len = 4, .child = .f16_type } },
     // @Vector(8, f16)
     .{ .vector_type = .{ .len = 8, .child = .f16_type } },
+    // @Vector(2, f32)
+    .{ .vector_type = .{ .len = 2, .child = .f32_type } },
     // @Vector(4, f32)
     .{ .vector_type = .{ .len = 4, .child = .f32_type } },
     // @Vector(8, f32)
@@ -6677,11 +6684,12 @@ pub fn init(ip: *InternPool, gpa: Allocator, available_threads: usize) !void {
 pub fn deinit(ip: *InternPool, gpa: Allocator) void {
     if (debug_state.enable_checks) std.debug.assert(debug_state.intern_pool == null);
 
-    ip.file_deps.deinit(gpa);
     ip.src_hash_deps.deinit(gpa);
     ip.nav_val_deps.deinit(gpa);
     ip.nav_ty_deps.deinit(gpa);
     ip.interned_deps.deinit(gpa);
+    ip.zon_file_deps.deinit(gpa);
+    ip.embed_file_deps.deinit(gpa);
     ip.namespace_deps.deinit(gpa);
     ip.namespace_name_deps.deinit(gpa);
 
@@ -7945,7 +7953,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                     .big_int => |big_int| {
                         items.appendAssumeCapacity(.{
                             .tag = .int_u8,
-                            .data = big_int.to(u8) catch unreachable,
+                            .data = big_int.toInt(u8) catch unreachable,
                         });
                         break :b;
                     },
@@ -7962,7 +7970,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                     .big_int => |big_int| {
                         items.appendAssumeCapacity(.{
                             .tag = .int_u16,
-                            .data = big_int.to(u16) catch unreachable,
+                            .data = big_int.toInt(u16) catch unreachable,
                         });
                         break :b;
                     },
@@ -7979,7 +7987,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                     .big_int => |big_int| {
                         items.appendAssumeCapacity(.{
                             .tag = .int_u32,
-                            .data = big_int.to(u32) catch unreachable,
+                            .data = big_int.toInt(u32) catch unreachable,
                         });
                         break :b;
                     },
@@ -7994,7 +8002,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                 },
                 .i32_type => switch (int.storage) {
                     .big_int => |big_int| {
-                        const casted = big_int.to(i32) catch unreachable;
+                        const casted = big_int.toInt(i32) catch unreachable;
                         items.appendAssumeCapacity(.{
                             .tag = .int_i32,
                             .data = @as(u32, @bitCast(casted)),
@@ -8012,7 +8020,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                 },
                 .usize_type => switch (int.storage) {
                     .big_int => |big_int| {
-                        if (big_int.to(u32)) |casted| {
+                        if (big_int.toInt(u32)) |casted| {
                             items.appendAssumeCapacity(.{
                                 .tag = .int_usize,
                                 .data = casted,
@@ -8033,14 +8041,14 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                 },
                 .comptime_int_type => switch (int.storage) {
                     .big_int => |big_int| {
-                        if (big_int.to(u32)) |casted| {
+                        if (big_int.toInt(u32)) |casted| {
                             items.appendAssumeCapacity(.{
                                 .tag = .int_comptime_int_u32,
                                 .data = casted,
                             });
                             break :b;
                         } else |_| {}
-                        if (big_int.to(i32)) |casted| {
+                        if (big_int.toInt(i32)) |casted| {
                             items.appendAssumeCapacity(.{
                                 .tag = .int_comptime_int_i32,
                                 .data = @as(u32, @bitCast(casted)),
@@ -8070,7 +8078,7 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
             }
             switch (int.storage) {
                 .big_int => |big_int| {
-                    if (big_int.to(u32)) |casted| {
+                    if (big_int.toInt(u32)) |casted| {
                         items.appendAssumeCapacity(.{
                             .tag = .int_small,
                             .data = try addExtra(extra, IntSmall{
@@ -11769,6 +11777,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
         .vector_4_u64_type,
         .vector_4_f16_type,
         .vector_8_f16_type,
+        .vector_2_f32_type,
         .vector_4_f32_type,
         .vector_8_f32_type,
         .vector_2_f64_type,
@@ -12108,6 +12117,7 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
         .vector_4_u64_type,
         .vector_4_f16_type,
         .vector_8_f16_type,
+        .vector_2_f32_type,
         .vector_4_f32_type,
         .vector_8_f32_type,
         .vector_2_f64_type,

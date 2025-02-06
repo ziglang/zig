@@ -6,4 +6,4 @@ export fn entry() void {
 // error
 //
 // :3:14: error: unable to resolve comptime value
-// :3:14: note: function being called at comptime must be comptime-known
+// :3:5: note: 'comptime' keyword forces comptime evaluation

@@ -154,10 +154,6 @@ win32_resource_work_queue: if (dev.env.supports(.win32_resource)) std.fifo.Linea
 /// since the last compilation, as well as scan for `@import` and queue up
 /// additional jobs corresponding to those new files.
 astgen_work_queue: std.fifo.LinearFifo(Zcu.File.Index, .Dynamic),
-/// These jobs are to inspect the file system stat() and if the embedded file has changed
-/// on disk, mark the corresponding Decl outdated and queue up an `analyze_decl`
-/// task for it.
-embed_file_work_queue: std.fifo.LinearFifo(*Zcu.EmbedFile, .Dynamic),
 
 /// The ErrorMsg memory is owned by the `CObject`, using Compilation's general purpose allocator.
 /// This data is accessed by multiple threads and is protected by `mutex`.
@@ -810,6 +806,7 @@ pub const MiscTask = enum {
     @"wasi crt1-reactor.o",
     @"wasi crt1-command.o",
     @"wasi libc.a",
+    @"wasi libdl.a",
     @"libwasi-emulated-process-clocks.a",
     @"libwasi-emulated-getpid.a",
     @"libwasi-emulated-mman.a",
@@ -1465,7 +1462,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .c_object_work_queue = std.fifo.LinearFifo(*CObject, .Dynamic).init(gpa),
             .win32_resource_work_queue = if (dev.env.supports(.win32_resource)) std.fifo.LinearFifo(*Win32Resource, .Dynamic).init(gpa) else .{},
             .astgen_work_queue = std.fifo.LinearFifo(Zcu.File.Index, .Dynamic).init(gpa),
-            .embed_file_work_queue = std.fifo.LinearFifo(*Zcu.EmbedFile, .Dynamic).init(gpa),
             .c_source_files = options.c_source_files,
             .rc_source_files = options.rc_source_files,
             .cache_parent = cache,
@@ -1920,7 +1916,6 @@ pub fn destroy(comp: *Compilation) void {
     comp.c_object_work_queue.deinit();
     comp.win32_resource_work_queue.deinit();
     comp.astgen_work_queue.deinit();
-    comp.embed_file_work_queue.deinit();
 
     comp.windows_libs.deinit(gpa);
 
@@ -2235,11 +2230,6 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             }
         }
 
-        // Put a work item in for checking if any files used with `@embedFile` changed.
-        try comp.embed_file_work_queue.ensureUnusedCapacity(zcu.embed_table.count());
-        for (zcu.embed_table.values()) |embed_file| {
-            comp.embed_file_work_queue.writeItemAssumeCapacity(embed_file);
-        }
         if (comp.file_system_inputs) |fsi| {
             const ip = &zcu.intern_pool;
             for (zcu.embed_table.values()) |embed_file| {
@@ -2914,10 +2904,12 @@ pub fn makeBinFileWritable(comp: *Compilation) !void {
 const Header = extern struct {
     intern_pool: extern struct {
         thread_count: u32,
-        file_deps_len: u32,
         src_hash_deps_len: u32,
         nav_val_deps_len: u32,
         nav_ty_deps_len: u32,
+        interned_deps_len: u32,
+        zon_file_deps_len: u32,
+        embed_file_deps_len: u32,
         namespace_deps_len: u32,
         namespace_name_deps_len: u32,
         first_dependency_len: u32,
@@ -2958,10 +2950,12 @@ pub fn saveState(comp: *Compilation) !void {
         const header: Header = .{
             .intern_pool = .{
                 .thread_count = @intCast(ip.locals.len),
-                .file_deps_len = @intCast(ip.file_deps.count()),
                 .src_hash_deps_len = @intCast(ip.src_hash_deps.count()),
                 .nav_val_deps_len = @intCast(ip.nav_val_deps.count()),
                 .nav_ty_deps_len = @intCast(ip.nav_ty_deps.count()),
+                .interned_deps_len = @intCast(ip.interned_deps.count()),
+                .zon_file_deps_len = @intCast(ip.zon_file_deps.count()),
+                .embed_file_deps_len = @intCast(ip.embed_file_deps.count()),
                 .namespace_deps_len = @intCast(ip.namespace_deps.count()),
                 .namespace_name_deps_len = @intCast(ip.namespace_name_deps.count()),
                 .first_dependency_len = @intCast(ip.first_dependency.count()),
@@ -2986,14 +2980,18 @@ pub fn saveState(comp: *Compilation) !void {
         addBuf(&bufs, mem.asBytes(&header));
         addBuf(&bufs, mem.sliceAsBytes(pt_headers.items));
 
-        addBuf(&bufs, mem.sliceAsBytes(ip.file_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.file_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.src_hash_deps.keys()));
         addBuf(&bufs, mem.sliceAsBytes(ip.src_hash_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.nav_val_deps.keys()));
         addBuf(&bufs, mem.sliceAsBytes(ip.nav_val_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.nav_ty_deps.keys()));
         addBuf(&bufs, mem.sliceAsBytes(ip.nav_ty_deps.values()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.interned_deps.keys()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.interned_deps.values()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.zon_file_deps.keys()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.zon_file_deps.values()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.embed_file_deps.keys()));
+        addBuf(&bufs, mem.sliceAsBytes(ip.embed_file_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.namespace_deps.keys()));
         addBuf(&bufs, mem.sliceAsBytes(ip.namespace_deps.values()));
         addBuf(&bufs, mem.sliceAsBytes(ip.namespace_name_deps.keys()));
@@ -3211,20 +3209,21 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
     }
 
     if (comp.zcu) |zcu| {
-        const ip = &zcu.intern_pool;
-
         for (zcu.failed_files.keys(), zcu.failed_files.values()) |file, error_msg| {
             if (error_msg) |msg| {
                 try addModuleErrorMsg(zcu, &bundle, msg.*);
             } else {
-                // Must be ZIR errors. Note that this may include AST errors.
-                // addZirErrorMessages asserts that the tree is loaded.
-                _ = try file.getTree(gpa);
-                try addZirErrorMessages(&bundle, file);
+                // Must be ZIR or Zoir errors. Note that this may include AST errors.
+                _ = try file.getTree(gpa); // Tree must be loaded.
+                if (file.zir != null) {
+                    try addZirErrorMessages(&bundle, file);
+                } else if (file.zoir != null) {
+                    try addZoirErrorMessages(&bundle, file);
+                } else {
+                    // Either Zir or Zoir must have been loaded.
+                    unreachable;
+                }
             }
-        }
-        for (zcu.failed_embed_files.values()) |error_msg| {
-            try addModuleErrorMsg(zcu, &bundle, error_msg.*);
         }
         var sorted_failed_analysis: std.AutoArrayHashMapUnmanaged(InternPool.AnalUnit, *Zcu.ErrorMsg).DataList.Slice = s: {
             const SortOrder = struct {
@@ -3282,20 +3281,6 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 if (!refs.contains(anal_unit)) continue;
             }
 
-            report_ok: {
-                const file_index = switch (anal_unit.unwrap()) {
-                    .@"comptime" => |cu| ip.getComptimeUnit(cu).zir_index.resolveFile(ip),
-                    .nav_val, .nav_ty => |nav| ip.getNav(nav).analysis.?.zir_index.resolveFile(ip),
-                    .type => |ty| Type.fromInterned(ty).typeDeclInst(zcu).?.resolveFile(ip),
-                    .func => |ip_index| zcu.funcInfo(ip_index).zir_body_inst.resolveFile(ip),
-                    .memoized_state => break :report_ok, // always report std.builtin errors
-                };
-
-                // Skip errors for AnalUnits within files that had a parse failure.
-                // We'll try again once parsing succeeds.
-                if (!zcu.fileByIndex(file_index).okToReportErrors()) continue;
-            }
-
             std.log.scoped(.zcu).debug("analysis error '{s}' reported from unit '{}'", .{
                 error_msg.msg,
                 zcu.fmtAnalUnit(anal_unit),
@@ -3323,12 +3308,10 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
                 }
             }
         }
-        for (zcu.failed_codegen.keys(), zcu.failed_codegen.values()) |nav, error_msg| {
-            if (!zcu.navFileScope(nav).okToReportErrors()) continue;
+        for (zcu.failed_codegen.values()) |error_msg| {
             try addModuleErrorMsg(zcu, &bundle, error_msg.*);
         }
-        for (zcu.failed_types.keys(), zcu.failed_types.values()) |ty_index, error_msg| {
-            if (!zcu.typeFileScope(ty_index).okToReportErrors()) continue;
+        for (zcu.failed_types.values()) |error_msg| {
             try addModuleErrorMsg(zcu, &bundle, error_msg.*);
         }
         for (zcu.failed_exports.values()) |value| {
@@ -3628,13 +3611,17 @@ pub fn addModuleErrorMsg(
 }
 
 pub fn addZirErrorMessages(eb: *ErrorBundle.Wip, file: *Zcu.File) !void {
-    assert(file.zir_loaded);
-    assert(file.tree_loaded);
-    assert(file.source_loaded);
     const gpa = eb.gpa;
     const src_path = try file.fullPath(gpa);
     defer gpa.free(src_path);
-    return eb.addZirErrorMessages(file.zir, file.tree, file.source, src_path);
+    return eb.addZirErrorMessages(file.zir.?, file.tree.?, file.source.?, src_path);
+}
+
+pub fn addZoirErrorMessages(eb: *ErrorBundle.Wip, file: *Zcu.File) !void {
+    const gpa = eb.gpa;
+    const src_path = try file.fullPath(gpa);
+    defer gpa.free(src_path);
+    return eb.addZoirErrorMessages(file.zoir.?, file.tree.?, file.source.?, src_path);
 }
 
 pub fn performAllTheWork(
@@ -3798,15 +3785,16 @@ fn performAllTheWorkInner(
                     // will be needed by the worker threads.
                     const path_digest = zcu.filePathDigest(file_index);
                     const file = zcu.fileByIndex(file_index);
-                    comp.thread_pool.spawnWgId(&astgen_wait_group, workerAstGenFile, .{
+                    comp.thread_pool.spawnWgId(&astgen_wait_group, workerUpdateFile, .{
                         comp, file, file_index, path_digest, zir_prog_node, &astgen_wait_group, .root,
                     });
                 }
             }
 
-            while (comp.embed_file_work_queue.readItem()) |embed_file| {
-                comp.thread_pool.spawnWg(&astgen_wait_group, workerCheckEmbedFile, .{
-                    comp, embed_file,
+            for (0.., zcu.embed_table.values()) |ef_index_usize, ef| {
+                const ef_index: Zcu.EmbedFile.Index = @enumFromInt(ef_index_usize);
+                comp.thread_pool.spawnWgId(&astgen_wait_group, workerUpdateEmbedFile, .{
+                    comp, ef_index, ef,
                 });
             }
         }
@@ -3827,12 +3815,64 @@ fn performAllTheWorkInner(
     if (comp.zcu) |zcu| {
         const pt: Zcu.PerThread = .activate(zcu, .main);
         defer pt.deactivate();
+
+        // If the cache mode is `whole`, then add every source file to the cache manifest.
+        switch (comp.cache_use) {
+            .whole => |whole| if (whole.cache_manifest) |man| {
+                const gpa = zcu.gpa;
+                for (zcu.import_table.values()) |file_index| {
+                    const file = zcu.fileByIndex(file_index);
+                    const source = file.getSource(gpa) catch |err| {
+                        try pt.reportRetryableFileError(file_index, "unable to load source: {s}", .{@errorName(err)});
+                        continue;
+                    };
+                    const resolved_path = try std.fs.path.resolve(gpa, &.{
+                        file.mod.root.root_dir.path orelse ".",
+                        file.mod.root.sub_path,
+                        file.sub_file_path,
+                    });
+                    errdefer gpa.free(resolved_path);
+                    whole.cache_manifest_mutex.lock();
+                    defer whole.cache_manifest_mutex.unlock();
+                    man.addFilePostContents(resolved_path, source.bytes, source.stat) catch |err| switch (err) {
+                        error.OutOfMemory => |e| return e,
+                        else => {
+                            try pt.reportRetryableFileError(file_index, "unable to update cache: {s}", .{@errorName(err)});
+                            continue;
+                        },
+                    };
+                }
+            },
+            .incremental => {},
+        }
+
+        try reportMultiModuleErrors(pt);
+
+        const any_fatal_files = for (zcu.import_table.values()) |file_index| {
+            const file = zcu.fileByIndex(file_index);
+            switch (file.status) {
+                .never_loaded => unreachable, // everything is loaded by the workers
+                .retryable_failure, .astgen_failure => break true,
+                .success => {},
+            }
+        } else false;
+
+        if (any_fatal_files or comp.alloc_failure_occurred) {
+            // We give up right now! No updating of ZIR refs, no nothing. The idea is that this prevents
+            // us from invalidating lots of incremental dependencies due to files with e.g. parse errors.
+            // However, this means our analysis data is invalid, so we want to omit all analysis errors.
+            // To do that, let's just clear the analysis roots!
+
+            assert(zcu.failed_files.count() > 0); // we will get an error
+            zcu.analysis_roots.clear(); // no analysis happened
+            return;
+        }
+
         if (comp.incremental) {
             const update_zir_refs_node = main_progress_node.start("Update ZIR References", 0);
             defer update_zir_refs_node.end();
             try pt.updateZirRefs();
         }
-        try reportMultiModuleErrors(pt);
         try zcu.flushRetryableFailures();
 
         zcu.sema_prog_node = main_progress_node.start("Semantic Analysis", 0);
@@ -4275,7 +4315,7 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
     };
 }
 
-fn workerAstGenFile(
+fn workerUpdateFile(
     tid: usize,
     comp: *Compilation,
     file: *Zcu.File,
@@ -4290,34 +4330,39 @@ fn workerAstGenFile(
 
     const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
     defer pt.deactivate();
-    pt.astGenFile(file, path_digest) catch |err| switch (err) {
+    pt.updateFile(file, path_digest) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
-            file.status = .retryable_failure;
             pt.reportRetryableAstGenError(src, file_index, err) catch |oom| switch (oom) {
-                // Swallowing this error is OK because it's implied to be OOM when
-                // there is a missing `failed_files` error message.
-                error.OutOfMemory => {},
+                error.OutOfMemory => {
+                    comp.mutex.lock();
+                    defer comp.mutex.unlock();
+                    comp.setAllocFailure();
+                },
             };
             return;
         },
     };
 
+    switch (file.getMode()) {
+        .zig => {}, // continue to logic below
+        .zon => return, // ZON can't import anything so we're done
+    }
+
     // Pre-emptively look for `@import` paths and queue them up.
     // If we experience an error preemptively fetching the
     // file, just ignore it and let it happen again later during Sema.
-    assert(file.zir_loaded);
-    const imports_index = file.zir.extra[@intFromEnum(Zir.ExtraIndex.imports)];
+    const imports_index = file.zir.?.extra[@intFromEnum(Zir.ExtraIndex.imports)];
     if (imports_index != 0) {
-        const extra = file.zir.extraData(Zir.Inst.Imports, imports_index);
+        const extra = file.zir.?.extraData(Zir.Inst.Imports, imports_index);
         var import_i: u32 = 0;
         var extra_index = extra.end;
 
         while (import_i < extra.data.imports_len) : (import_i += 1) {
-            const item = file.zir.extraData(Zir.Inst.Imports.Item, extra_index);
+            const item = file.zir.?.extraData(Zir.Inst.Imports.Item, extra_index);
             extra_index = item.end;
 
-            const import_path = file.zir.nullTerminatedString(item.data.name);
+            const import_path = file.zir.?.nullTerminatedString(item.data.name);
             // `@import("builtin")` is handled specially.
             if (mem.eql(u8, import_path, "builtin")) continue;
 
@@ -4346,7 +4391,7 @@ fn workerAstGenFile(
                     .importing_file = file_index,
                     .import_tok = item.data.token,
                 } };
-                comp.thread_pool.spawnWgId(wg, workerAstGenFile, .{
+                comp.thread_pool.spawnWgId(wg, workerUpdateFile, .{
                     comp, import_result.file, import_result.file_index, imported_path_digest, prog_node, wg, sub_src,
                 });
             }
@@ -4369,33 +4414,33 @@ fn workerUpdateBuiltinZigFile(
     };
 }
 
-fn workerCheckEmbedFile(comp: *Compilation, embed_file: *Zcu.EmbedFile) void {
-    comp.detectEmbedFileUpdate(embed_file) catch |err| {
-        comp.reportRetryableEmbedFileError(embed_file, err) catch |oom| switch (oom) {
-            // Swallowing this error is OK because it's implied to be OOM when
-            // there is a missing `failed_embed_files` error message.
-            error.OutOfMemory => {},
-        };
-        return;
+fn workerUpdateEmbedFile(tid: usize, comp: *Compilation, ef_index: Zcu.EmbedFile.Index, ef: *Zcu.EmbedFile) void {
+    comp.detectEmbedFileUpdate(@enumFromInt(tid), ef_index, ef) catch |err| switch (err) {
+        error.OutOfMemory => {
+            comp.mutex.lock();
+            defer comp.mutex.unlock();
+            comp.setAllocFailure();
+        },
     };
 }
 
-fn detectEmbedFileUpdate(comp: *Compilation, embed_file: *Zcu.EmbedFile) !void {
+fn detectEmbedFileUpdate(comp: *Compilation, tid: Zcu.PerThread.Id, ef_index: Zcu.EmbedFile.Index, ef: *Zcu.EmbedFile) !void {
     const zcu = comp.zcu.?;
-    const ip = &zcu.intern_pool;
-    var file = try embed_file.owner.root.openFile(embed_file.sub_file_path.toSlice(ip), .{});
-    defer file.close();
+    const pt: Zcu.PerThread = .activate(zcu, tid);
+    defer pt.deactivate();
 
-    const stat = try file.stat();
+    const old_val = ef.val;
+    const old_err = ef.err;
 
-    const unchanged_metadata =
-        stat.size == embed_file.stat.size and
-        stat.mtime == embed_file.stat.mtime and
-        stat.inode == embed_file.stat.inode;
+    try pt.updateEmbedFile(ef, null);
 
-    if (unchanged_metadata) return;
+    if (ef.val != .none and ef.val == old_val) return; // success, value unchanged
+    if (ef.val == .none and old_val == .none and ef.err == old_err) return; // failure, error unchanged
 
-    @panic("TODO: handle embed file incremental update");
+    comp.mutex.lock();
+    defer comp.mutex.unlock();
+
+    try zcu.markDependeeOutdated(.not_marked_po, .{ .embed_file = ef_index });
 }
 
 pub fn obtainCObjectCacheManifest(
@@ -4794,30 +4839,6 @@ fn reportRetryableWin32ResourceError(
         comp.mutex.lock();
         defer comp.mutex.unlock();
         try comp.failed_win32_resources.putNoClobber(comp.gpa, win32_resource, finished_bundle);
-    }
-}
-
-fn reportRetryableEmbedFileError(
-    comp: *Compilation,
-    embed_file: *Zcu.EmbedFile,
-    err: anyerror,
-) error{OutOfMemory}!void {
-    const zcu = comp.zcu.?;
-    const gpa = zcu.gpa;
-    const src_loc = embed_file.src_loc;
-    const ip = &zcu.intern_pool;
-    const err_msg = try Zcu.ErrorMsg.create(gpa, src_loc, "unable to load '{}/{s}': {s}", .{
-        embed_file.owner.root,
-        embed_file.sub_file_path.toSlice(ip),
-        @errorName(err),
-    });
-
-    errdefer err_msg.destroy(gpa);
-
-    {
-        comp.mutex.lock();
-        defer comp.mutex.unlock();
-        try zcu.failed_embed_files.putNoClobber(gpa, embed_file, err_msg);
     }
 }
 
@@ -6648,6 +6669,7 @@ pub fn build_crt_file(
             .structured_cfg = comp.root_mod.structured_cfg,
             // Some libcs (e.g. musl) are opinionated about -fno-builtin.
             .no_builtin = options.no_builtin orelse comp.root_mod.no_builtin,
+            .code_model = comp.root_mod.code_model,
         },
         .global = config,
         .cc_argv = &.{},

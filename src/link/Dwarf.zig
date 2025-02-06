@@ -2358,8 +2358,7 @@ fn initWipNavInner(
     const nav = ip.getNav(nav_index);
     const inst_info = nav.srcInst(ip).resolveFull(ip).?;
     const file = zcu.fileByIndex(inst_info.file);
-    assert(file.zir_loaded);
-    const decl = file.zir.getDeclaration(inst_info.inst);
+    const decl = file.zir.?.getDeclaration(inst_info.inst);
     log.debug("initWipNav({s}:{d}:{d} %{d} = {})", .{
         file.sub_file_path,
         decl.src_line + 1,
@@ -2373,7 +2372,7 @@ fn initWipNavInner(
     switch (nav_key) {
         // Ignore @extern
         .@"extern" => |@"extern"| if (decl.linkage != .@"extern" or
-            !@"extern".name.eqlSlice(file.zir.nullTerminatedString(decl.name), ip)) return null,
+            !@"extern".name.eqlSlice(file.zir.?.nullTerminatedString(decl.name), ip)) return null,
         else => {},
     }
 
@@ -2696,8 +2695,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
     const nav = ip.getNav(nav_index);
     const inst_info = nav.srcInst(ip).resolveFull(ip).?;
     const file = zcu.fileByIndex(inst_info.file);
-    assert(file.zir_loaded);
-    const decl = file.zir.getDeclaration(inst_info.inst);
+    const decl = file.zir.?.getDeclaration(inst_info.inst);
     log.debug("updateComptimeNav({s}:{d}:{d} %{d} = {})", .{
         file.sub_file_path,
         decl.src_line + 1,
@@ -4097,7 +4095,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
             // if a newly-tracked instruction can be a type's owner `zir_index`.
             comptime assert(Zir.inst_tracking_version == 0);
 
-            const decl_inst = file.zir.instructions.get(@intFromEnum(inst_info.inst));
+            const decl_inst = file.zir.?.instructions.get(@intFromEnum(inst_info.inst));
             const name_strat: Zir.Inst.NameStrategy = switch (decl_inst.tag) {
                 .struct_init, .struct_init_ref, .struct_init_anon => .anon,
                 .extended => switch (decl_inst.data.extended.opcode) {
@@ -4301,14 +4299,13 @@ pub fn updateLineNumber(dwarf: *Dwarf, zcu: *Zcu, zir_index: InternPool.TrackedI
     const inst_info = zir_index.resolveFull(ip).?;
     assert(inst_info.inst != .main_struct_inst);
     const file = zcu.fileByIndex(inst_info.file);
-    assert(file.zir_loaded);
-    const decl = file.zir.getDeclaration(inst_info.inst);
+    const decl = file.zir.?.getDeclaration(inst_info.inst);
     log.debug("updateLineNumber({s}:{d}:{d} %{d} = {s})", .{
         file.sub_file_path,
         decl.src_line + 1,
         decl.src_column + 1,
         @intFromEnum(inst_info.inst),
-        file.zir.nullTerminatedString(decl.name),
+        file.zir.?.nullTerminatedString(decl.name),
     });
 
     var line_buf: [4]u8 = undefined;
@@ -4661,7 +4658,7 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
                     .target_unit = StringSection.unit,
                     .target_entry = (try dwarf.debug_line_str.addString(
                         dwarf,
-                        if (file.mod.builtin_file == file) file.source else "",
+                        if (file.mod.builtin_file == file) file.source.? else "",
                     )).toOptional(),
                 });
                 header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());

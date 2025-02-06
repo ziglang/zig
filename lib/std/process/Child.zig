@@ -344,15 +344,17 @@ pub const RunResult = struct {
     stderr: []u8,
 };
 
-fn fifoToOwnedArrayList(fifo: *std.io.PollFifo) std.ArrayList(u8) {
+fn writeFifoDataToArrayList(allocator: Allocator, list: *std.ArrayListUnmanaged(u8), fifo: *std.io.PollFifo) !void {
     if (fifo.head != 0) fifo.realign();
-    const result = std.ArrayList(u8){
-        .items = fifo.buf[0..fifo.count],
-        .capacity = fifo.buf.len,
-        .allocator = fifo.allocator,
-    };
-    fifo.* = std.io.PollFifo.init(fifo.allocator);
-    return result;
+    if (list.capacity == 0) {
+        list.* = .{
+            .items = fifo.buf[0..fifo.count],
+            .capacity = fifo.buf.len,
+        };
+        fifo.* = std.io.PollFifo.init(fifo.allocator);
+    } else {
+        try list.appendSlice(allocator, fifo.buf[0..fifo.count]);
+    }
 }
 
 /// Collect the output from the process's stdout and stderr. Will return once all output
@@ -362,21 +364,16 @@ fn fifoToOwnedArrayList(fifo: *std.io.PollFifo) std.ArrayList(u8) {
 /// The process must be started with stdout_behavior and stderr_behavior == .Pipe
 pub fn collectOutput(
     child: ChildProcess,
-    stdout: *std.ArrayList(u8),
-    stderr: *std.ArrayList(u8),
+    /// Used for `stdout` and `stderr`.
+    allocator: Allocator,
+    stdout: *std.ArrayListUnmanaged(u8),
+    stderr: *std.ArrayListUnmanaged(u8),
     max_output_bytes: usize,
 ) !void {
     assert(child.stdout_behavior == .Pipe);
     assert(child.stderr_behavior == .Pipe);
 
-    // we could make this work with multiple allocators but YAGNI
-    if (stdout.allocator.ptr != stderr.allocator.ptr or
-        stdout.allocator.vtable != stderr.allocator.vtable)
-    {
-        unreachable; // ChildProcess.collectOutput only supports 1 allocator
-    }
-
-    var poller = std.io.poll(stdout.allocator, enum { stdout, stderr }, .{
+    var poller = std.io.poll(allocator, enum { stdout, stderr }, .{
         .stdout = child.stdout.?,
         .stderr = child.stderr.?,
     });
@@ -389,8 +386,8 @@ pub fn collectOutput(
             return error.StderrStreamTooLong;
     }
 
-    stdout.* = fifoToOwnedArrayList(poller.fifo(.stdout));
-    stderr.* = fifoToOwnedArrayList(poller.fifo(.stderr));
+    try writeFifoDataToArrayList(allocator, stdout, poller.fifo(.stdout));
+    try writeFifoDataToArrayList(allocator, stderr, poller.fifo(.stderr));
 }
 
 pub const RunError = posix.GetCwdError || posix.ReadError || SpawnError || posix.PollError || error{
@@ -420,20 +417,21 @@ pub fn run(args: struct {
     child.expand_arg0 = args.expand_arg0;
     child.progress_node = args.progress_node;
 
-    var stdout = std.ArrayList(u8).init(args.allocator);
-    var stderr = std.ArrayList(u8).init(args.allocator);
-    errdefer {
-        stdout.deinit();
-        stderr.deinit();
-    }
+    var stdout: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer stdout.deinit(args.allocator);
+    var stderr: std.ArrayListUnmanaged(u8) = .empty;
+    errdefer stderr.deinit(args.allocator);
 
     try child.spawn();
-    try child.collectOutput(&stdout, &stderr, args.max_output_bytes);
+    errdefer {
+        _ = child.kill() catch {};
+    }
+    try child.collectOutput(args.allocator, &stdout, &stderr, args.max_output_bytes);
 
     return RunResult{
+        .stdout = try stdout.toOwnedSlice(args.allocator),
+        .stderr = try stderr.toOwnedSlice(args.allocator),
         .term = try child.wait(),
-        .stdout = try stdout.toOwnedSlice(),
-        .stderr = try stderr.toOwnedSlice(),
     };
 }
 

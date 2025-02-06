@@ -1926,7 +1926,6 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .br => cg.airBr(inst),
         .repeat => cg.airRepeat(inst),
         .switch_dispatch => return cg.fail("TODO implement `switch_dispatch`", .{}),
-        .int_from_bool => cg.airIntFromBool(inst),
         .cond_br => cg.airCondBr(inst),
         .intcast => cg.airIntcast(inst),
         .fptrunc => cg.airFptrunc(inst),
@@ -1972,7 +1971,6 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .ptr_sub => cg.airPtrBinOp(inst, .sub),
         .ptr_elem_ptr => cg.airPtrElemPtr(inst),
         .ptr_elem_val => cg.airPtrElemVal(inst),
-        .int_from_ptr => cg.airIntFromPtr(inst),
         .ret => cg.airRet(inst),
         .ret_safe => cg.airRet(inst), // TODO
         .ret_ptr => cg.airRetPtr(inst),
@@ -2084,6 +2082,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .add_safe,
         .sub_safe,
         .mul_safe,
+        .intcast_safe,
         => return cg.fail("TODO implement safety_checked_instructions", .{}),
 
         .work_item_id,
@@ -3776,7 +3775,11 @@ fn airBitcast(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             break :result try cg.wrapOperand(operand, wanted_ty);
         }
 
-        break :result cg.reuseOperand(ty_op.operand, operand);
+        break :result switch (operand) {
+            // for stack offset, return a pointer to this offset.
+            .stack_offset => try cg.buildPointerOffset(operand, 0, .new),
+            else => cg.reuseOperand(ty_op.operand, operand),
+        };
     };
     return cg.finishAir(inst, result, &.{ty_op.operand});
 }
@@ -4636,14 +4639,6 @@ fn trunc(cg: *CodeGen, operand: WValue, wanted_ty: Type, given_ty: Type) InnerEr
     return result;
 }
 
-fn airIntFromBool(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const un_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const operand = try cg.resolveInst(un_op);
-    const result = cg.reuseOperand(un_op, operand);
-
-    return cg.finishAir(inst, result, &.{un_op});
-}
-
 fn airArrayToSlice(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const zcu = cg.pt.zcu;
     const ty_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
@@ -4665,21 +4660,6 @@ fn airArrayToSlice(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     try cg.store(slice_local, .{ .imm32 = array_len }, Type.usize, cg.ptrSize());
 
     return cg.finishAir(inst, slice_local, &.{ty_op.operand});
-}
-
-fn airIntFromPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
-    const zcu = cg.pt.zcu;
-    const un_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const operand = try cg.resolveInst(un_op);
-    const ptr_ty = cg.typeOf(un_op);
-    const result = if (ptr_ty.isSlice(zcu))
-        try cg.slicePtr(operand)
-    else switch (operand) {
-        // for stack offset, return a pointer to this offset.
-        .stack_offset => try cg.buildPointerOffset(operand, 0, .new),
-        else => cg.reuseOperand(un_op, operand),
-    };
-    return cg.finishAir(inst, result, &.{un_op});
 }
 
 fn airPtrElemVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {

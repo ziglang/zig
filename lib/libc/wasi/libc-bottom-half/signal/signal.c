@@ -30,13 +30,13 @@ static void core_handler(int sig) {
 
 _Noreturn
 static void terminate_handler(int sig) {
-    fprintf(stderr, "Program recieved termination signal: %s\n", strsignal(sig));
+    fprintf(stderr, "Program received termination signal: %s\n", strsignal(sig));
     abort();
 }
 
 _Noreturn
 static void stop_handler(int sig) {
-    fprintf(stderr, "Program recieved stop signal: %s\n", strsignal(sig));
+    fprintf(stderr, "Program received stop signal: %s\n", strsignal(sig));
     abort();
 }
 

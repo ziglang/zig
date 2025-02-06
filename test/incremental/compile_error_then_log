@@ -4,19 +4,22 @@
 #target=wasm32-wasi-selfhosted
 #update=initial version with compile error
 #file=main.zig
+pub fn main() void {}
 comptime {
     @compileError("this is an error");
 }
 comptime {
     @compileLog("this is a log");
 }
-#expect_error=ignored
+#expect_error=main.zig:3:5: error: this is an error
+
 #update=remove the compile error
 #file=main.zig
+pub fn main() void {}
 comptime {
     //@compileError("this is an error");
 }
 comptime {
     @compileLog("this is a log");
 }
-#expect_error=ignored
+#expect_error=main.zig:6:5: error: found compile log statement

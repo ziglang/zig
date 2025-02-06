@@ -20,18 +20,18 @@ void _start(void) {
     static volatile _Atomic int started = 0;
     int expected = 0;
     if (!atomic_compare_exchange_strong(&started, &expected, 1)) {
-	__builtin_trap();
+        __builtin_trap();
     }
 #else
     static volatile int started = 0;
     if (started != 0) {
-	__builtin_trap();
+        __builtin_trap();
     }
     started = 1;
 #endif
 
 #ifdef _REENTRANT
-	__wasi_init_tp();
+    __wasi_init_tp();
 #endif
 
     // The linker synthesizes this to call constructors.

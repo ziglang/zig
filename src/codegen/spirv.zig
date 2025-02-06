@@ -3449,10 +3449,8 @@ const NavGen = struct {
 
             .bitcast         => try self.airBitCast(inst),
             .intcast, .trunc => try self.airIntCast(inst),
-            .int_from_ptr    => try self.airIntFromPtr(inst),
             .float_from_int  => try self.airFloatFromInt(inst),
             .int_from_float  => try self.airIntFromFloat(inst),
-            .int_from_bool   => try self.airIntFromBool(inst),
             .fpext, .fptrunc => try self.airFloatCast(inst),
             .not             => try self.airNot(inst),
 
@@ -4706,9 +4704,14 @@ const NavGen = struct {
 
     fn airBitCast(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-        const operand_id = try self.resolve(ty_op.operand);
         const operand_ty = self.typeOf(ty_op.operand);
         const result_ty = self.typeOfIndex(inst);
+        if (operand_ty.toIntern() == .bool_type) {
+            const operand = try self.temporary(ty_op.operand);
+            const result = try self.intFromBool(operand);
+            return try result.materialize(self);
+        }
+        const operand_id = try self.resolve(ty_op.operand);
         return try self.bitCast(result_ty, operand_ty, operand_id);
     }
 
@@ -4747,12 +4750,6 @@ const NavGen = struct {
             .pointer = operand_id,
         });
         return result_id;
-    }
-
-    fn airIntFromPtr(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
-        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-        const operand_id = try self.resolve(un_op);
-        return try self.intFromPtr(operand_id);
     }
 
     fn airFloatFromInt(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
@@ -4806,13 +4803,6 @@ const NavGen = struct {
             }),
         }
         return result_id;
-    }
-
-    fn airIntFromBool(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
-        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-        const operand = try self.temporary(un_op);
-        const result = try self.intFromBool(operand);
-        return try result.materialize(self);
     }
 
     fn airFloatCast(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
