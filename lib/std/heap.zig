@@ -481,7 +481,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
     };
 }
 
-test "c_allocator" {
+test c_allocator {
     if (builtin.link_libc) {
         try testAllocator(c_allocator);
         try testAllocatorAligned(c_allocator);
@@ -490,10 +490,17 @@ test "c_allocator" {
     }
 }
 
-test "raw_c_allocator" {
+test raw_c_allocator {
     if (builtin.link_libc) {
         try testAllocator(raw_c_allocator);
     }
+}
+
+test smp_allocator {
+    try testAllocator(smp_allocator);
+    try testAllocatorAligned(smp_allocator);
+    try testAllocatorLargeAlignment(smp_allocator);
+    try testAllocatorAlignedShrink(smp_allocator);
 }
 
 test PageAllocator {
