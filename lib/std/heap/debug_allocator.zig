@@ -90,15 +90,12 @@ const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const StackTrace = std.builtin.StackTrace;
 
-const page_size: usize = @max(std.heap.page_size_max, switch (builtin.os.tag) {
+const default_page_size: usize = @max(std.heap.page_size_max, switch (builtin.os.tag) {
     .windows => 64 * 1024, // Makes `std.heap.PageAllocator` take the happy path.
     .wasi => 64 * 1024, // Max alignment supported by `std.heap.WasmAllocator`.
     else => 128 * 1024, // Avoids too many active mappings when `page_size_max` is low.
 });
-const page_align: mem.Alignment = .fromByteUnits(page_size);
 
-/// Integer type for pointing to slots in a small allocation
-const SlotIndex = std.meta.Int(.unsigned, math.log2(page_size) + 1);
 const Log2USize = std.math.Log2Int(usize);
 
 const default_sys_stack_trace_frames: usize = if (std.debug.sys_can_stack_trace) 6 else 0;
@@ -159,6 +156,12 @@ pub const Config = struct {
     /// Magic value that distinguishes allocations owned by this allocator from
     /// other regions of memory.
     canary: usize = @truncate(0x9232a6ff85dff10f),
+
+    /// The size of allocations requested from the backing allocator for
+    /// subdividing into slots for small allocations.
+    ///
+    /// Must be a power of two.
+    page_size: usize = default_page_size,
 };
 
 /// Default initialization of this struct is deprecated; use `.init` instead.
@@ -183,6 +186,15 @@ pub fn DebugAllocator(comptime config: Config) type {
             for (&result, 0..) |*elem, i| elem.* = calculateSlotCount(i);
             break :init result;
         };
+
+        comptime {
+            assert(math.isPowerOfTwo(page_size));
+        }
+
+        const page_size = config.page_size;
+        const page_align: mem.Alignment = .fromByteUnits(page_size);
+        /// Integer type for pointing to slots in a small allocation
+        const SlotIndex = std.meta.Int(.unsigned, math.log2(page_size) + 1);
 
         const total_requested_bytes_init = if (config.enable_memory_limit) @as(usize, 0) else {};
         const requested_memory_limit_init = if (config.enable_memory_limit) @as(usize, math.maxInt(usize)) else {};
@@ -1138,17 +1150,17 @@ test "large object - grow" {
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
-    var slice1 = try allocator.alloc(u8, page_size * 2 - 20);
+    var slice1 = try allocator.alloc(u8, default_page_size * 2 - 20);
     defer allocator.free(slice1);
 
     const old = slice1;
-    slice1 = try allocator.realloc(slice1, page_size * 2 - 10);
+    slice1 = try allocator.realloc(slice1, default_page_size * 2 - 10);
     try std.testing.expect(slice1.ptr == old.ptr);
 
-    slice1 = try allocator.realloc(slice1, page_size * 2);
+    slice1 = try allocator.realloc(slice1, default_page_size * 2);
     try std.testing.expect(slice1.ptr == old.ptr);
 
-    slice1 = try allocator.realloc(slice1, page_size * 2 + 1);
+    slice1 = try allocator.realloc(slice1, default_page_size * 2 + 1);
 }
 
 test "realloc small object to large object" {
@@ -1162,7 +1174,7 @@ test "realloc small object to large object" {
     slice[60] = 0x34;
 
     // This requires upgrading to a large object
-    const large_object_size = page_size * 2 + 50;
+    const large_object_size = default_page_size * 2 + 50;
     slice = try allocator.realloc(slice, large_object_size);
     try std.testing.expect(slice[0] == 0x12);
     try std.testing.expect(slice[60] == 0x34);
@@ -1173,22 +1185,22 @@ test "shrink large object to large object" {
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
-    var slice = try allocator.alloc(u8, page_size * 2 + 50);
+    var slice = try allocator.alloc(u8, default_page_size * 2 + 50);
     defer allocator.free(slice);
     slice[0] = 0x12;
     slice[60] = 0x34;
 
-    if (!allocator.resize(slice, page_size * 2 + 1)) return;
-    slice = slice.ptr[0 .. page_size * 2 + 1];
+    if (!allocator.resize(slice, default_page_size * 2 + 1)) return;
+    slice = slice.ptr[0 .. default_page_size * 2 + 1];
     try std.testing.expect(slice[0] == 0x12);
     try std.testing.expect(slice[60] == 0x34);
 
-    try std.testing.expect(allocator.resize(slice, page_size * 2 + 1));
-    slice = slice[0 .. page_size * 2 + 1];
+    try std.testing.expect(allocator.resize(slice, default_page_size * 2 + 1));
+    slice = slice[0 .. default_page_size * 2 + 1];
     try std.testing.expect(slice[0] == 0x12);
     try std.testing.expect(slice[60] == 0x34);
 
-    slice = try allocator.realloc(slice, page_size * 2);
+    slice = try allocator.realloc(slice, default_page_size * 2);
     try std.testing.expect(slice[0] == 0x12);
     try std.testing.expect(slice[60] == 0x34);
 }
@@ -1204,13 +1216,13 @@ test "shrink large object to large object with larger alignment" {
     var fba = std.heap.FixedBufferAllocator.init(&debug_buffer);
     const debug_allocator = fba.allocator();
 
-    const alloc_size = page_size * 2 + 50;
+    const alloc_size = default_page_size * 2 + 50;
     var slice = try allocator.alignedAlloc(u8, 16, alloc_size);
     defer allocator.free(slice);
 
     const big_alignment: usize = switch (builtin.os.tag) {
-        .windows => page_size * 32, // Windows aligns to 64K.
-        else => page_size * 2,
+        .windows => default_page_size * 32, // Windows aligns to 64K.
+        else => default_page_size * 2,
     };
     // This loop allocates until we find a page that is not aligned to the big
     // alignment. Then we shrink the allocation after the loop, but increase the
@@ -1236,7 +1248,7 @@ test "realloc large object to small object" {
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
-    var slice = try allocator.alloc(u8, page_size * 2 + 50);
+    var slice = try allocator.alloc(u8, default_page_size * 2 + 50);
     defer allocator.free(slice);
     slice[0] = 0x12;
     slice[16] = 0x34;
@@ -1282,18 +1294,18 @@ test "realloc large object to larger alignment" {
     var fba = std.heap.FixedBufferAllocator.init(&debug_buffer);
     const debug_allocator = fba.allocator();
 
-    var slice = try allocator.alignedAlloc(u8, 16, page_size * 2 + 50);
+    var slice = try allocator.alignedAlloc(u8, 16, default_page_size * 2 + 50);
     defer allocator.free(slice);
 
     const big_alignment: usize = switch (builtin.os.tag) {
-        .windows => page_size * 32, // Windows aligns to 64K.
-        else => page_size * 2,
+        .windows => default_page_size * 32, // Windows aligns to 64K.
+        else => default_page_size * 2,
     };
     // This loop allocates until we find a page that is not aligned to the big alignment.
     var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
     while (mem.isAligned(@intFromPtr(slice.ptr), big_alignment)) {
         try stuff_to_free.append(slice);
-        slice = try allocator.alignedAlloc(u8, 16, page_size * 2 + 50);
+        slice = try allocator.alignedAlloc(u8, 16, default_page_size * 2 + 50);
     }
     while (stuff_to_free.popOrNull()) |item| {
         allocator.free(item);
@@ -1301,15 +1313,15 @@ test "realloc large object to larger alignment" {
     slice[0] = 0x12;
     slice[16] = 0x34;
 
-    slice = try allocator.reallocAdvanced(slice, 32, page_size * 2 + 100);
+    slice = try allocator.reallocAdvanced(slice, 32, default_page_size * 2 + 100);
     try std.testing.expect(slice[0] == 0x12);
     try std.testing.expect(slice[16] == 0x34);
 
-    slice = try allocator.reallocAdvanced(slice, 32, page_size * 2 + 25);
+    slice = try allocator.reallocAdvanced(slice, 32, default_page_size * 2 + 25);
     try std.testing.expect(slice[0] == 0x12);
     try std.testing.expect(slice[16] == 0x34);
 
-    slice = try allocator.reallocAdvanced(slice, big_alignment, page_size * 2 + 100);
+    slice = try allocator.reallocAdvanced(slice, big_alignment, default_page_size * 2 + 100);
     try std.testing.expect(slice[0] == 0x12);
     try std.testing.expect(slice[16] == 0x34);
 }
@@ -1327,7 +1339,7 @@ test "large object rejects shrinking to small" {
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
-    var slice = try allocator.alloc(u8, page_size * 2 + 50);
+    var slice = try allocator.alloc(u8, default_page_size * 2 + 50);
     defer allocator.free(slice);
     slice[0] = 0x12;
     slice[3] = 0x34;
@@ -1379,8 +1391,8 @@ test "large allocations count requested size not backing size" {
     var gpa: DebugAllocator(.{ .enable_memory_limit = true }) = .{};
     const allocator = gpa.allocator();
 
-    var buf = try allocator.alignedAlloc(u8, 1, page_size + 1);
-    try std.testing.expectEqual(page_size + 1, gpa.total_requested_bytes);
+    var buf = try allocator.alignedAlloc(u8, 1, default_page_size + 1);
+    try std.testing.expectEqual(default_page_size + 1, gpa.total_requested_bytes);
     buf = try allocator.realloc(buf, 1);
     try std.testing.expectEqual(1, gpa.total_requested_bytes);
     buf = try allocator.realloc(buf, 2);
