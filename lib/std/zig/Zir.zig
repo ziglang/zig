@@ -483,7 +483,7 @@ pub const Inst = struct {
         /// Uses the `pl_node` union field. `payload_index` points to a `FuncFancy`.
         func_fancy,
         /// Implements the `@import` builtin.
-        /// Uses the `str_tok` field.
+        /// Uses the `pl_tok` field.
         import,
         /// Integer literal that fits in a u64. Uses the `int` union field.
         int,
@@ -1673,7 +1673,7 @@ pub const Inst = struct {
                 .func = .pl_node,
                 .func_inferred = .pl_node,
                 .func_fancy = .pl_node,
-                .import = .str_tok,
+                .import = .pl_tok,
                 .int = .int,
                 .int_big = .str,
                 .float = .float,
@@ -3840,6 +3840,13 @@ pub const Inst = struct {
         block: Ref,
         /// If `.none`, restore unconditionally.
         operand: Ref,
+    };
+
+    pub const Import = struct {
+        /// The result type of the import, or `.none` if none was available.
+        res_ty: Ref,
+        /// The import path.
+        path: NullTerminatedString,
     };
 };
 

@@ -222,11 +222,12 @@ pub const ARCH = switch (native_os) {
 // that actually work.
 pub const TIMERFD_CLOCK = timerfd_clockid_t;
 pub const timerfd_clockid_t = switch (native_os) {
-    .linux, .freebsd => enum(u32) {
+    .freebsd => enum(u32) {
         REALTIME = 0,
-        MONOTONIC = 1,
+        MONOTONIC = 4,
         _,
     },
+    .linux => linux.timerfd_clockid_t,
     else => clockid_t,
 };
 
