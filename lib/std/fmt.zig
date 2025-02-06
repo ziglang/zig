@@ -1067,11 +1067,11 @@ pub fn formatFloatHexadecimal(
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    if (math.signbit(value)) {
-        try writer.writeByte('-');
-    }
     if (math.isNan(value)) {
         return writer.writeAll("nan");
+    }
+    if (math.signbit(value)) {
+        try writer.writeByte('-');
     }
     if (math.isInf(value)) {
         return writer.writeAll("inf");
