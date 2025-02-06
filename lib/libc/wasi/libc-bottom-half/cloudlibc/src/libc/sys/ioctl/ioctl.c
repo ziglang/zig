@@ -4,11 +4,66 @@
 
 #include <sys/ioctl.h>
 
-#include <wasi/api.h>
 #include <errno.h>
 #include <stdarg.h>
 
+#include <wasi/api.h>
+#ifdef __wasilibc_use_wasip2
+#include <wasi/descriptor_table.h>
+#endif
+
 int ioctl(int fildes, int request, ...) {
+#ifdef __wasilibc_use_wasip2
+	descriptor_table_entry_t *entry;
+	if (descriptor_table_get_ref(fildes, &entry)) {
+		switch (entry->tag) {
+		case DESCRIPTOR_TABLE_ENTRY_TCP_SOCKET: {
+			tcp_socket_t *socket = &entry->tcp_socket;
+			switch (request) {
+			case FIONBIO: {
+				va_list ap;
+				va_start(ap, request);
+				socket->blocking = *va_arg(ap, const int *) ==
+						   0;
+				va_end(ap);
+
+				return 0;
+			}
+
+			default:
+				// TODO wasi-sockets: anything else we should support?
+				errno = EINVAL;
+				return -1;
+			}
+		}
+
+		case DESCRIPTOR_TABLE_ENTRY_UDP_SOCKET: {
+			udp_socket_t *socket = &entry->udp_socket;
+			switch (request) {
+			case FIONBIO: {
+				va_list ap;
+				va_start(ap, request);
+				socket->blocking = *va_arg(ap, const int *) ==
+						   0;
+				va_end(ap);
+
+				return 0;
+			}
+
+			default:
+				// TODO wasi-sockets: anything else we should support?
+				errno = EINVAL;
+				return -1;
+			}
+		}
+
+		default:
+			errno = ENOPROTOOPT;
+			return -1;
+		}
+	}
+#endif // __wasilibc_use_wasip2
+
   switch (request) {
     case FIONREAD: {
       // Poll the file descriptor to determine how many bytes can be read.
