@@ -100,58 +100,58 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
     return config_header;
 }
 
+pub fn addValue(config_header: *ConfigHeader, name: []const u8, comptime T: type, value: T) void {
+    return addValueInner(config_header, name, T, value) catch @panic("OOM");
+}
+
 pub fn addValues(config_header: *ConfigHeader, values: anytype) void {
-    return addValuesInner(config_header, values) catch @panic("OOM");
+    inline for (@typeInfo(@TypeOf(values)).@"struct".fields) |field| {
+        addValue(config_header, field.name, field.type, @field(values, field.name));
+    }
 }
 
 pub fn getOutput(config_header: *ConfigHeader) std.Build.LazyPath {
     return .{ .generated = .{ .file = &config_header.output_file } };
 }
 
-fn addValuesInner(config_header: *ConfigHeader, values: anytype) !void {
-    inline for (@typeInfo(@TypeOf(values)).@"struct".fields) |field| {
-        try putValue(config_header, field.name, field.type, @field(values, field.name));
-    }
-}
-
-fn putValue(config_header: *ConfigHeader, field_name: []const u8, comptime T: type, v: T) !void {
+fn addValueInner(config_header: *ConfigHeader, name: []const u8, comptime T: type, value: T) !void {
     switch (@typeInfo(T)) {
         .null => {
-            try config_header.values.put(field_name, .undef);
+            try config_header.values.put(name, .undef);
         },
         .void => {
-            try config_header.values.put(field_name, .defined);
+            try config_header.values.put(name, .defined);
         },
         .bool => {
-            try config_header.values.put(field_name, .{ .boolean = v });
+            try config_header.values.put(name, .{ .boolean = value });
         },
         .int => {
-            try config_header.values.put(field_name, .{ .int = v });
+            try config_header.values.put(name, .{ .int = value });
         },
         .comptime_int => {
-            try config_header.values.put(field_name, .{ .int = v });
+            try config_header.values.put(name, .{ .int = value });
         },
         .@"enum", .enum_literal => {
-            try config_header.values.put(field_name, .{ .ident = @tagName(v) });
+            try config_header.values.put(name, .{ .ident = @tagName(value) });
         },
         .optional => {
-            if (v) |x| {
-                return putValue(config_header, field_name, @TypeOf(x), x);
+            if (value) |x| {
+                return addValueInner(config_header, name, @TypeOf(x), x);
             } else {
-                try config_header.values.put(field_name, .undef);
+                try config_header.values.put(name, .undef);
             }
         },
         .pointer => |ptr| {
             switch (@typeInfo(ptr.child)) {
                 .array => |array| {
                     if (ptr.size == .one and array.child == u8) {
-                        try config_header.values.put(field_name, .{ .string = v });
+                        try config_header.values.put(name, .{ .string = value });
                         return;
                     }
                 },
                 .int => {
                     if (ptr.size == .slice and ptr.child == u8) {
-                        try config_header.values.put(field_name, .{ .string = v });
+                        try config_header.values.put(name, .{ .string = value });
                         return;
                     }
                 },
