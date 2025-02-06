@@ -129,14 +129,10 @@ pub fn StaticArrayMapWithEql(
 
         /// Returns the value for the key if any, else null.
         pub fn get(comptime self: Self, key: []const T) ?V {
-            return switch (self.kvs.len) {
-                0 => null,
-                1 => blk: {
-                    const equal = std.mem.eql(T, self.kvs[0].key, key);
-                    break :blk if (equal) self.kvs[0].value else null;
-                },
-                else => self.filterLength(key),
-            };
+            switch (comptime self.kvs.len) {
+                0 => return null,
+                else => return self.filterLength(key),
+            }
         }
 
         /// The list of all the keys in the map.
@@ -166,13 +162,30 @@ pub fn StaticArrayMapWithEql(
         /// Filters the input key by length, then compares it to the possible matches.
         /// Because we know the length at comptime, we can compare the strings faster.
         fn filterLength(comptime self: Self, key: []const T) ?V {
-            // Provide 2000 branches per key/value pair to compile.
+            // separateLength is hungry - provide 2000 branches per key/value pair
             @setEvalBranchQuota(2000 * self.kvs.len);
             const kvs_by_lengths = comptime self.separateLength();
+
             inline for (kvs_by_lengths) |kvs_by_len| {
                 const len = kvs_by_len.length;
                 if (key.len == len) {
-                    inline for (kvs_by_len.kvs) |kv| {
+                    inline for (kvs_by_len.kvs, 0..) |kv, idx| {
+
+                        // Out of keys with the same length, check for duplicates
+                        @setEvalBranchQuota(10 * len * idx);
+                        comptime for (kvs_by_len.kvs[0..idx]) |prev_kv| {
+                            if (eql(kv.key[0..len].*, prev_kv.key[0..len].*)) {
+                                if (T == u8 and std.unicode.utf8ValidateSlice(kv.key)) {
+                                    @compileError("duplicate key \"" ++ kv.key ++ "\"");
+                                } else {
+                                    @compileError(std.fmt.comptimePrint(
+                                        "duplicate key: {any}",
+                                        .{kv.key},
+                                    ));
+                                }
+                            }
+                        };
+
                         if (eql(kv.key[0..len].*, key[0..len].*)) {
                             return kv.value;
                         }
@@ -200,6 +213,7 @@ pub fn StaticArrayMapWithEql(
                     }
                 }
 
+                // Add keys with the same length to the set.
                 var added_kvs: []const Kv = &.{};
                 for (self.kvs[index..]) |add_kv| {
                     if (add_kv.key.len == length) {
@@ -361,42 +375,6 @@ test "empty" {
     try testing.expect(null == m2.get("anything"));
 }
 
-test "redundant entries" {
-    const slice = [_]TestKV{
-        .{ "redundant", .D },
-        .{ "theNeedle", .A },
-        .{ "redundant", .B },
-        .{ "re" ++ "dundant", .C },
-        .{ "redun" ++ "dant", .E },
-    };
-    const map = TestMap.initComptime(slice);
-
-    // No promises about which one you get:
-    try testing.expect(null != map.get("redundant"));
-
-    // Default map is not case sensitive:
-    try testing.expect(null == map.get("REDUNDANT"));
-
-    try testing.expectEqual(TestEnum.A, map.get("theNeedle").?);
-}
-
-test "redundant insensitive" {
-    const slice = [_]TestKV{
-        .{ "redundant", .D },
-        .{ "theNeedle", .A },
-        .{ "redundanT", .B },
-        .{ "RE" ++ "dundant", .C },
-        .{ "redun" ++ "DANT", .E },
-    };
-
-    const map = TestMapIgnoreCase.initComptime(slice);
-
-    // No promises about which result you'll get ...
-    try testing.expect(null != map.get("REDUNDANT"));
-    try testing.expect(null != map.get("ReDuNdAnT"));
-    try testing.expectEqual(TestEnum.A, map.get("theNeedle").?);
-}
-
 test "comptime-only value" {
     const map = StaticStringMap(type).initComptime(.{
         .{ "a", struct {
@@ -481,4 +459,19 @@ test "array elements that are padded" {
     try testing.expectEqual(0, map.get(&.{ 0, 1, 2, 3, 4, 5 }));
     try testing.expectEqual(1, map.get(&.{ 0, 1, 127, 3, 4, 5 }));
     try testing.expectEqual(2, map.get(&.{ 0, 1, 2, 126, 4, 5 }));
+}
+
+test "single string StaticStringMap" {
+    const map = StaticStringMap(void).initComptime(.{.{"o kama pona"}});
+
+    try testing.expectEqual(true, map.has("o kama pona"));
+    try testing.expectEqual(false, map.has("o kama ike"));
+    try testing.expectEqual(false, map.has("o kama pona ala"));
+}
+
+test "empty StaticStringMap" {
+    const map = StaticStringMap(void).initComptime(.{});
+    try testing.expectEqual(false, map.has(&.{}));
+    try testing.expectEqual(null, map.get(&.{}));
+    try testing.expectEqual(false, map.has("anything really"));
 }
