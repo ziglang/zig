@@ -7788,7 +7788,7 @@ pub const MAP = switch (native_os) {
         _7: u2 = 0,
         HASSEMAPHORE: bool = false,
         NOCACHE: bool = false,
-        _11: u1 = 0,
+        JIT: bool = false,
         ANONYMOUS: bool = false,
         _: u19 = 0,
     },
