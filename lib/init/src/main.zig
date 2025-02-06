@@ -41,4 +41,3 @@ test "fuzz example" {
     };
     try std.testing.fuzz(global.testOne, .{});
 }
-
