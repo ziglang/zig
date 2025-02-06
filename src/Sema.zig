@@ -29043,6 +29043,7 @@ fn elemValArray(
     }
 
     try sema.validateRuntimeElemAccess(block, elem_index_src, elem_ty, array_ty, array_src);
+    try sema.validateRuntimeValue(block, array_src, array);
 
     if (oob_safety and block.wantSafety()) {
         // Runtime check is only needed if unable to comptime check.
@@ -29107,6 +29108,7 @@ fn elemPtrArray(
 
     if (!init) {
         try sema.validateRuntimeElemAccess(block, elem_index_src, array_ty.elemType2(zcu), array_ty, array_ptr_src);
+        try sema.validateRuntimeValue(block, array_ptr_src, array_ptr);
     }
 
     // Runtime check is only needed if unable to comptime check.
@@ -29164,6 +29166,7 @@ fn elemValSlice(
     }
 
     try sema.validateRuntimeElemAccess(block, elem_index_src, elem_ty, slice_ty, slice_src);
+    try sema.validateRuntimeValue(block, slice_src, slice);
 
     if (oob_safety and block.wantSafety()) {
         const len_inst = if (maybe_slice_val) |slice_val|
@@ -29220,6 +29223,7 @@ fn elemPtrSlice(
     }
 
     try sema.validateRuntimeElemAccess(block, elem_index_src, elem_ptr_ty, slice_ty, slice_src);
+    try sema.validateRuntimeValue(block, slice_src, slice);
 
     if (oob_safety and block.wantSafety()) {
         const len_inst = len: {
