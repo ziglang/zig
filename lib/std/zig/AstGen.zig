@@ -14039,15 +14039,29 @@ fn lowerAstErrors(astgen: *AstGen) !void {
             }
             break :blk idx - tok_start;
         };
-
-        const err: Ast.Error = .{
-            .tag = Ast.Error.Tag.invalid_byte,
-            .token = tok,
-            .extra = .{ .offset = bad_off },
-        };
+        const err: Ast.Error =
+            if ((start_char == '\"' or start_char == '\'') and // If `tok` is a string or character literal and...
+            (tok_start + bad_off == tree.source.len or // it's directly followed by EOF, or...
+            tree.source[tok_start + bad_off] == '\n')) // it's terminated by a newline.
+            .{
+                .tag = Ast.Error.Tag.unterminated_literal,
+                .token = tok,
+            }
+        else
+            .{
+                .tag = Ast.Error.Tag.invalid_byte,
+                .token = tok,
+                .extra = .{ .offset = bad_off },
+            };
         msg.clearRetainingCapacity();
         try tree.renderError(err, msg.writer(gpa));
-        return try astgen.appendErrorTokNotesOff(tok, bad_off, "{s}", .{msg.items}, notes.items);
+        return try astgen.appendErrorTokNotesOff(
+            tok,
+            if (err.tag == .invalid_byte) bad_off else 0,
+            "{s}",
+            .{msg.items},
+            notes.items,
+        );
     }
 
     var cur_err = tree.errors[0];
