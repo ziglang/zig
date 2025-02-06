@@ -1220,10 +1220,7 @@ test "shrink large object to large object with larger alignment" {
     var slice = try allocator.alignedAlloc(u8, 16, alloc_size);
     defer allocator.free(slice);
 
-    const big_alignment: usize = switch (builtin.os.tag) {
-        .windows => default_page_size * 32, // Windows aligns to 64K.
-        else => default_page_size * 2,
-    };
+    const big_alignment: usize = default_page_size * 2;
     // This loop allocates until we find a page that is not aligned to the big
     // alignment. Then we shrink the allocation after the loop, but increase the
     // alignment to the higher one, that we know will force it to realloc.
@@ -1297,10 +1294,7 @@ test "realloc large object to larger alignment" {
     var slice = try allocator.alignedAlloc(u8, 16, default_page_size * 2 + 50);
     defer allocator.free(slice);
 
-    const big_alignment: usize = switch (builtin.os.tag) {
-        .windows => default_page_size * 32, // Windows aligns to 64K.
-        else => default_page_size * 2,
-    };
+    const big_alignment: usize = default_page_size * 2;
     // This loop allocates until we find a page that is not aligned to the big alignment.
     var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
     while (mem.isAligned(@intFromPtr(slice.ptr), big_alignment)) {
