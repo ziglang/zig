@@ -4576,7 +4576,7 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
         );
         for (dwarf.mods.values(), dwarf.debug_line.section.units.items) |mod_info, *unit| {
             unit.clear();
-            try unit.cross_section_relocs.ensureTotalCapacity(dwarf.gpa, 2 * (1 + mod_info.files.count()));
+            try unit.cross_section_relocs.ensureTotalCapacity(dwarf.gpa, mod_info.dirs.count() + 2 * (mod_info.files.count()));
             header.clearRetainingCapacity();
             try header.ensureTotalCapacity(unit.header_len);
             const unit_len = (if (unit.next.unwrap()) |next_unit|
