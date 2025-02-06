@@ -18,6 +18,11 @@ var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 pub const allocator = allocator_instance.allocator();
 pub var allocator_instance: std.heap.GeneralPurposeAllocator(.{
     .stack_trace_frames = 10,
+    .resize_stack_traces = true,
+    // A unique value so that when a default-constructed
+    // GeneralPurposeAllocator is incorrectly passed to testing allocator, or
+    // vice versa, panic occurs.
+    .canary = @truncate(0x2731e675c3a701ba),
 }) = b: {
     if (!builtin.is_test) @compileError("testing allocator used when not testing");
     break :b .init;
