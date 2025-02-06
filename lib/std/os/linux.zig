@@ -916,7 +916,7 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, of
                 prot,
                 @as(u32, @bitCast(flags)),
                 @bitCast(@as(isize, fd)),
-                @as(u64, @bitCast(offset)),
+                @truncate(@as(u64, @bitCast(offset))),
             }),
         ) else syscall6(
             .mmap,
@@ -925,7 +925,7 @@ pub fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: MAP, fd: i32, of
             prot,
             @as(u32, @bitCast(flags)),
             @bitCast(@as(isize, fd)),
-            @as(u64, @bitCast(offset)),
+            @truncate(@as(u64, @bitCast(offset))),
         );
     }
 }
