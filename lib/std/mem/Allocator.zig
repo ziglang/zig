@@ -20,23 +20,20 @@ ptr: *anyopaque,
 vtable: *const VTable,
 
 pub const VTable = struct {
-    /// Allocate exactly `len` bytes aligned to `alignment`, or return `null`
-    /// indicating the allocation failed.
+    /// Return a pointer to `len` bytes with specified `alignment`, or return
+    /// `null` indicating the allocation failed.
     ///
     /// `ret_addr` is optionally provided as the first return address of the
     /// allocation call stack. If the value is `0` it means no return address
     /// has been provided.
-    ///
-    /// The returned slice of memory must have been `@memset` to `undefined`
-    /// by the allocator implementation.
     alloc: *const fn (*anyopaque, len: usize, alignment: Alignment, ret_addr: usize) ?[*]u8,
 
     /// Attempt to expand or shrink memory in place.
     ///
     /// `memory.len` must equal the length requested from the most recent
-    /// successful call to `alloc` or `resize`. `alignment` must equal the same
-    /// value that was passed as the `alignment` parameter to the original
-    /// `alloc` call.
+    /// successful call to `alloc`, `resize`, or `remap`. `alignment` must
+    /// equal the same value that was passed as the `alignment` parameter to
+    /// the original `alloc` call.
     ///
     /// A result of `true` indicates the resize was successful and the
     /// allocation now has the same address but a size of `new_len`. `false`
@@ -53,9 +50,9 @@ pub const VTable = struct {
     /// Attempt to expand or shrink memory, allowing relocation.
     ///
     /// `memory.len` must equal the length requested from the most recent
-    /// successful call to `alloc` or `resize`. `alignment` must equal the same
-    /// value that was passed as the `alignment` parameter to the original
-    /// `alloc` call.
+    /// successful call to `alloc`, `resize`, or `remap`. `alignment` must
+    /// equal the same value that was passed as the `alignment` parameter to
+    /// the original `alloc` call.
     ///
     /// A non-`null` return value indicates the resize was successful. The
     /// allocation may have same address, or may have been relocated. In either
@@ -73,11 +70,10 @@ pub const VTable = struct {
 
     /// Free and invalidate a region of memory.
     ///
-    /// `memory.len` must equal the most recent length returned by `alloc` or
-    /// given to a successful `resize` call.
-    ///
-    /// `alignment` must equal the same value that was passed as the
-    /// `alignment` parameter to the original `alloc` call.
+    /// `memory.len` must equal the length requested from the most recent
+    /// successful call to `alloc`, `resize`, or `remap`. `alignment` must
+    /// equal the same value that was passed as the `alignment` parameter to
+    /// the original `alloc` call.
     ///
     /// `ret_addr` is optionally provided as the first return address of the
     /// allocation call stack. If the value is `0` it means no return address
