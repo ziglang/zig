@@ -43099,7 +43099,7 @@ fn genExternSymbolRef(
 ) InnerError!void {
     if (self.bin_file.cast(.coff)) |coff_file| {
         const global_index = try coff_file.getGlobalSymbol(callee, lib);
-        const scratch_reg = abi.getCAbiLinkerScratchReg(self.fn_type.fnCallingConvention(self.pt.zcu));
+        const scratch_reg = abi.getCAbiLinkerScratchReg(self.target.cCallingConvention().?);
         _ = try self.addInst(.{
             .tag = .mov,
             .ops = .import_reloc,
@@ -44247,7 +44247,7 @@ fn airTagName(self: *CodeGen, inst: Air.Inst.Index) !void {
     try self.genSetReg(param_regs[1], enum_ty, operand, .{});
 
     const enum_lazy_sym: link.File.LazySymbol = .{ .kind = .code, .ty = enum_ty.toIntern() };
-    try self.genLazySymbolRef(.call, abi.getCAbiLinkerScratchReg(self.fn_type.fnCallingConvention(zcu)), enum_lazy_sym);
+    try self.genLazySymbolRef(.call, abi.getCAbiLinkerScratchReg(.auto), enum_lazy_sym);
 
     return self.finishAir(inst, dst_mcv, .{ un_op, .none, .none });
 }
