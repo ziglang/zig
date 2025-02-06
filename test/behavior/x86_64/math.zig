@@ -11479,6 +11479,45 @@ test rem {
     try test_rem.testFloatVectors();
 }
 
+inline fn mod(comptime Type: type, lhs: Type, rhs: Type) Type {
+    if (@inComptime()) {
+        const scalarMod = struct {
+            fn scalarMod(scalar_lhs: Scalar(Type), scalar_rhs: Scalar(Type)) Scalar(Type) {
+                // workaround https://github.com/ziglang/zig/issues/22748
+                if (scalar_rhs == 0) return nan(Scalar(Type));
+                const scalar_rem = @rem(scalar_lhs, scalar_rhs);
+                return if (scalar_rem == 0 or math.signbit(scalar_rem) == math.signbit(scalar_rhs)) scalar_rem else scalar_rem + scalar_rhs;
+            }
+        }.scalarMod;
+        // workaround https://github.com/ziglang/zig/issues/22748
+        switch (@typeInfo(Type)) {
+            // workaround llvm backend bugs
+            // TODO: else => return if (rhs != 0) @mod(lhs, rhs) else nan(Type),
+            // TODO: .vector => |info| {
+            // TODO:     var res: Type = undefined;
+            // TODO:     inline for (0..info.len) |i| res[i] = if (rhs[i] != 0) @mod(lhs[i], rhs[i]) else nan(Scalar(Type));
+            // TODO:     return res;
+            // TODO: },
+            else => return scalarMod(lhs, rhs),
+            .vector => |info| {
+                var res: Type = undefined;
+                inline for (0..info.len) |i| res[i] = scalarMod(lhs[i], rhs[i]);
+                return res;
+            },
+        }
+    }
+    // workaround https://github.com/ziglang/zig/issues/22748
+    // TODO: return @mod(lhs, rhs);
+    var rt_rhs = rhs;
+    _ = &rt_rhs;
+    return @mod(lhs, rt_rhs);
+}
+test mod {
+    const test_mod = binary(mod, .{});
+    try test_mod.testFloats();
+    try test_mod.testFloatVectors();
+}
+
 inline fn bitNot(comptime Type: type, rhs: Type) @TypeOf(~rhs) {
     return ~rhs;
 }
