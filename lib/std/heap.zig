@@ -146,7 +146,7 @@ const CAllocator = struct {
     };
 
     fn getHeader(ptr: [*]u8) *[*]u8 {
-        return @ptrCast(ptr - @sizeOf(usize));
+        return @alignCast(@ptrCast(ptr - @sizeOf(usize)));
     }
 
     fn alignedAlloc(len: usize, alignment: mem.Alignment) ?[*]u8 {
@@ -381,6 +381,7 @@ pub const HeapAllocator = switch (builtin.os.tag) {
                 .vtable = &.{
                     .alloc = alloc,
                     .resize = resize,
+                    .remap = remap,
                     .free = free,
                 },
             };
@@ -446,6 +447,26 @@ pub const HeapAllocator = switch (builtin.os.tag) {
             assert(new_ptr == @as(*anyopaque, @ptrFromInt(root_addr)));
             getRecordPtr(buf.ptr[0..new_size]).* = root_addr;
             return true;
+        }
+
+        fn remap(
+            ctx: *anyopaque,
+            buf: []u8,
+            alignment: mem.Alignment,
+            new_size: usize,
+            return_address: usize,
+        ) ?[*]u8 {
+            _ = alignment;
+            _ = return_address;
+            const self: *HeapAllocator = @ptrCast(@alignCast(ctx));
+
+            const root_addr = getRecordPtr(buf).*;
+            const align_offset = @intFromPtr(buf.ptr) - root_addr;
+            const amt = align_offset + new_size + @sizeOf(usize);
+            const new_ptr = windows.kernel32.HeapReAlloc(self.heap_handle.?, 0, @ptrFromInt(root_addr), amt) orelse return null;
+            assert(new_ptr == @as(*anyopaque, @ptrFromInt(root_addr)));
+            getRecordPtr(buf.ptr[0..new_size]).* = root_addr;
+            return @ptrCast(new_ptr);
         }
 
         fn free(
