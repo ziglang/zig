@@ -12,9 +12,9 @@ const native_os = builtin.os.tag;
 pub fn detectConfig(file: File) Config {
     const force_color: ?bool = if (builtin.os.tag == .wasi)
         null // wasi does not support environment variables
-    else if (process.hasEnvVarConstant("NO_COLOR"))
+    else if (process.hasNonEmptyEnvVarConstant("NO_COLOR"))
         false
-    else if (process.hasEnvVarConstant("CLICOLOR_FORCE"))
+    else if (process.hasNonEmptyEnvVarConstant("CLICOLOR_FORCE"))
         true
     else
         null;
