@@ -528,11 +528,6 @@ pub extern "kernel32" fn HeapCreate(
     dwMaximumSize: SIZE_T,
 ) callconv(.winapi) ?HANDLE;
 
-// TODO: Wrapper around RtlDestroyHeap (BOOLEAN -> BOOL).
-pub extern "kernel32" fn HeapDestroy(
-    hHeap: HANDLE,
-) callconv(.winapi) BOOL;
-
 // TODO: Forwarder to RtlReAllocateHeap.
 pub extern "kernel32" fn HeapReAlloc(
     hHeap: HANDLE,
@@ -584,10 +579,6 @@ pub extern "kernel32" fn VirtualQuery(
     lpBuffer: PMEMORY_BASIC_INFORMATION,
     dwLength: SIZE_T,
 ) callconv(.winapi) SIZE_T;
-
-pub extern "kernel32" fn LocalFree(
-    hMem: HLOCAL,
-) callconv(.winapi) ?HLOCAL;
 
 // TODO: Getter for peb.ProcessHeap
 pub extern "kernel32" fn GetProcessHeap() callconv(.winapi) ?HANDLE;
