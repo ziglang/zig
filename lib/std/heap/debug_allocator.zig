@@ -851,8 +851,6 @@ pub fn DebugAllocator(comptime config: Config) type {
             self.mutex.lock();
             defer self.mutex.unlock();
 
-            assert(old_memory.len != 0);
-
             const size_class_index: usize = @max(@bitSizeOf(usize) - @clz(old_memory.len - 1), @intFromEnum(alignment));
             if (size_class_index >= self.buckets.len) {
                 @branchHint(.unlikely);

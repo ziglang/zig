@@ -9,11 +9,12 @@ const Allocator = std.mem.Allocator;
 const windows = std.os.windows;
 
 pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
-pub const WasmAllocator = @import("heap/WasmAllocator.zig");
-pub const PageAllocator = @import("heap/PageAllocator.zig");
-pub const ThreadSafeAllocator = @import("heap/ThreadSafeAllocator.zig");
-pub const SbrkAllocator = @import("heap/sbrk_allocator.zig").SbrkAllocator;
+pub const SmpAllocator = @import("heap/SmpAllocator.zig");
 pub const FixedBufferAllocator = @import("heap/FixedBufferAllocator.zig");
+pub const PageAllocator = @import("heap/PageAllocator.zig");
+pub const SbrkAllocator = @import("heap/sbrk_allocator.zig").SbrkAllocator;
+pub const ThreadSafeAllocator = @import("heap/ThreadSafeAllocator.zig");
+pub const WasmAllocator = @import("heap/WasmAllocator.zig");
 
 pub const DebugAllocatorConfig = @import("heap/debug_allocator.zig").Config;
 pub const DebugAllocator = @import("heap/debug_allocator.zig").DebugAllocator;
@@ -356,6 +357,11 @@ else if (builtin.target.isWasm()) .{
 } else .{
     .ptr = undefined,
     .vtable = &PageAllocator.vtable,
+};
+
+pub const smp_allocator: Allocator = .{
+    .ptr = undefined,
+    .vtable = &SmpAllocator.vtable,
 };
 
 /// This allocator is fast, small, and specific to WebAssembly. In the future,
@@ -978,4 +984,5 @@ test {
     if (builtin.target.isWasm()) {
         _ = WasmAllocator;
     }
+    if (!builtin.single_threaded) _ = smp_allocator;
 }
