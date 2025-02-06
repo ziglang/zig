@@ -9,14 +9,19 @@ const Allocator = std.mem.Allocator;
 const windows = std.os.windows;
 
 pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
-pub const GeneralPurposeAllocatorConfig = @import("heap/general_purpose_allocator.zig").Config;
-pub const GeneralPurposeAllocator = @import("heap/general_purpose_allocator.zig").GeneralPurposeAllocator;
-pub const Check = @import("heap/general_purpose_allocator.zig").Check;
 pub const WasmAllocator = @import("heap/WasmAllocator.zig");
 pub const PageAllocator = @import("heap/PageAllocator.zig");
 pub const ThreadSafeAllocator = @import("heap/ThreadSafeAllocator.zig");
 pub const SbrkAllocator = @import("heap/sbrk_allocator.zig").SbrkAllocator;
 pub const FixedBufferAllocator = @import("heap/FixedBufferAllocator.zig");
+
+pub const DebugAllocatorConfig = @import("heap/debug_allocator.zig").Config;
+pub const DebugAllocator = @import("heap/debug_allocator.zig").DebugAllocator;
+pub const Check = enum { ok, leak };
+/// Deprecated; to be removed after 0.15.0 is tagged.
+pub const GeneralPurposeAllocatorConfig = DebugAllocatorConfig;
+/// Deprecated; to be removed after 0.15.0 is tagged.
+pub const GeneralPurposeAllocator = DebugAllocator;
 
 const memory_pool = @import("heap/memory_pool.zig");
 pub const MemoryPool = memory_pool.MemoryPool;

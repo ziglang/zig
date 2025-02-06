@@ -1,54 +1,32 @@
-//! # General Purpose Allocator
+//! An allocator that is intended to be used in Debug mode.
 //!
-//! ## Design Priorities
+//! ## Features
 //!
-//! ### `OptimizationMode.debug` and `OptimizationMode.release_safe`:
+//! * Captures stack traces on allocation, free, and optionally resize.
+//! * Double free detection, which prints all three traces (first alloc, first
+//!   free, second free).
+//! * Leak detection, with stack traces.
+//! * Never reuses memory addresses, making it easier for Zig to detect branch
+//!   on undefined values in case of dangling pointers. This relies on
+//!   the backing allocator to also not reuse addresses.
+//! * Uses a minimum backing allocation size to avoid operating system errors
+//!   from having too many active memory mappings.
+//! * When a page of memory is no longer needed, give it back to resident
+//!   memory as soon as possible, so that it causes page faults when used.
+//! * Cross platform. Operates based on a backing allocator which makes it work
+//!   everywhere, even freestanding.
+//! * Compile-time configuration.
 //!
-//!  * Detect double free, and emit stack trace of:
-//!    - Where it was first allocated
-//!    - Where it was freed the first time
-//!    - Where it was freed the second time
+//! These features require the allocator to be quite slow and wasteful. For
+//! example, when allocating a single byte, the efficiency is less than 1%;
+//! it requires more than 100 bytes of overhead to manage the allocation for
+//! one byte. The efficiency gets better with larger allocations.
 //!
-//!  * Detect leaks and emit stack trace of:
-//!    - Where it was allocated
+//! ## Basic Design
 //!
-//!  * When a page of memory is no longer needed, give it back to resident memory
-//!    as soon as possible, so that it causes page faults when used.
+//! Allocations are divided into two categories, small and large.
 //!
-//!  * Do not re-use memory slots, so that memory safety is upheld. For small
-//!    allocations, this is handled here; for larger ones it is handled in the
-//!    backing allocator (by default `std.heap.page_allocator`).
-//!
-//!  * Make pointer math errors unlikely to harm memory from
-//!    unrelated allocations.
-//!
-//!  * It's OK for these mechanisms to cost some extra overhead bytes.
-//!
-//!  * It's OK for performance cost for these mechanisms.
-//!
-//!  * Rogue memory writes should not harm the allocator's state.
-//!
-//!  * Cross platform. Operates based on a backing allocator which makes it work
-//!    everywhere, even freestanding.
-//!
-//!  * Compile-time configuration.
-//!
-//! ### `OptimizationMode.release_fast` (note: not much work has gone into this use case yet):
-//!
-//!  * Low fragmentation is primary concern
-//!  * Performance of worst-case latency is secondary concern
-//!  * Performance of average-case latency is next
-//!  * Finally, having freed memory unmapped, and pointer math errors unlikely to
-//!    harm memory from unrelated allocations are nice-to-haves.
-//!
-//! ### `OptimizationMode.release_small` (note: not much work has gone into this use case yet):
-//!
-//!  * Small binary code size of the executable is the primary concern.
-//!  * Next, defer to the `.release_fast` priority list.
-//!
-//! ## Basic Design:
-//!
-//! Small allocations are divided into buckets:
+//! Small allocations are divided into buckets based on `page_size`:
 //!
 //! ```
 //! index obj_size
@@ -64,33 +42,44 @@
 //! 9     512
 //! 10    1024
 //! 11    2048
+//! ...
 //! ```
+//!
+//! This goes on for `small_bucket_count` indexes.
+//!
+//! Allocations are grouped into an object size based on max(len, alignment),
+//! rounded up to the next power of two.
 //!
 //! The main allocator state has an array of all the "current" buckets for each
 //! size class. Each slot in the array can be null, meaning the bucket for that
 //! size class is not allocated. When the first object is allocated for a given
-//! size class, it allocates 1 page of memory from the OS. This page is
-//! divided into "slots" - one per allocated object. Along with the page of memory
-//! for object slots, as many pages as necessary are allocated to store the
-//! BucketHeader, followed by "used bits", and two stack traces for each slot
-//! (allocation trace and free trace).
+//! size class, it makes one `page_size` allocation from the backing allocator.
+//! This allocation is divided into "slots" - one per allocated object, leaving
+//! room for the allocation metadata (starting with `BucketHeader`), which is
+//! located at the very end of the "page".
 //!
-//! The "used bits" are 1 bit per slot representing whether the slot is used.
-//! Allocations use the data to iterate to find a free slot. Frees assert that the
-//! corresponding bit is 1 and set it to 0.
+//! The allocation metadata includes "used bits" - 1 bit per slot representing
+//! whether the slot is used. Allocations always take the next available slot
+//! from the current bucket, setting the corresponding used bit, as well as
+//! incrementing `allocated_count`.
 //!
-//! Buckets have prev and next pointers. When there is only one bucket for a given
-//! size class, both prev and next point to itself. When all slots of a bucket are
-//! used, a new bucket is allocated, and enters the doubly linked list. The main
-//! allocator state tracks the "current" bucket for each size class. Leak detection
-//! currently only checks the current bucket.
+//! Frees recover the allocation metadata based on the address, length, and
+//! alignment, relying on the backing allocation's large alignment, combined
+//! with the fact that allocations are never moved from small to large, or vice
+//! versa.
 //!
-//! Resizing detects if the size class is unchanged or smaller, in which case the same
-//! pointer is returned unmodified. If a larger size class is required,
-//! `error.OutOfMemory` is returned.
+//! When a bucket is full, a new one is allocated, containing a pointer to the
+//! previous one. This singly-linked list is iterated during leak detection.
 //!
-//! Large objects are allocated directly using the backing allocator and their metadata is stored
-//! in a `std.HashMap` using the backing allocator.
+//! Resizing and remapping work the same on small allocations: if the size
+//! class would not change, then the operation succeeds, and the address is
+//! unchanged. Otherwise, the request is rejected.
+//!
+//! Large objects are allocated directly using the backing allocator. Metadata
+//! is stored separately in a `std.HashMap` using the backing allocator.
+//!
+//! Resizing and remapping are forwarded directly to the backing allocator,
+//! except where such operations would change the category from large to small.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -172,10 +161,8 @@ pub const Config = struct {
     canary: usize = @truncate(0x9232a6ff85dff10f),
 };
 
-pub const Check = enum { ok, leak };
-
 /// Default initialization of this struct is deprecated; use `.init` instead.
-pub fn GeneralPurposeAllocator(comptime config: Config) type {
+pub fn DebugAllocator(comptime config: Config) type {
     return struct {
         backing_allocator: Allocator = std.heap.page_allocator,
         /// Tracks the active bucket, which is the one that has free slots in it.
@@ -491,8 +478,8 @@ pub fn GeneralPurposeAllocator(comptime config: Config) type {
             }
         }
 
-        /// Returns `Check.leak` if there were leaks; `Check.ok` otherwise.
-        pub fn deinit(self: *Self) Check {
+        /// Returns `std.heap.Check.leak` if there were leaks; `std.heap.Check.ok` otherwise.
+        pub fn deinit(self: *Self) std.heap.Check {
             const leaks = if (config.safety) self.detectLeaks() else false;
             if (config.retain_metadata) self.freeRetainedMetadata();
             self.large_allocations.deinit(self.backing_allocator);
@@ -1041,7 +1028,7 @@ const TraceKind = enum {
 const test_config = Config{};
 
 test "small allocations - free in same order" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = DebugAllocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1060,7 +1047,7 @@ test "small allocations - free in same order" {
 }
 
 test "small allocations - free in reverse order" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = DebugAllocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1079,7 +1066,7 @@ test "small allocations - free in reverse order" {
 }
 
 test "large allocations" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = DebugAllocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1092,7 +1079,7 @@ test "large allocations" {
 }
 
 test "very large allocation" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = DebugAllocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1100,7 +1087,7 @@ test "very large allocation" {
 }
 
 test "realloc" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = DebugAllocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1122,7 +1109,7 @@ test "realloc" {
 }
 
 test "shrink" {
-    var gpa: GeneralPurposeAllocator(test_config) = .{};
+    var gpa: DebugAllocator(test_config) = .{};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1147,7 +1134,7 @@ test "large object - grow" {
         // Not expected to pass on targets that do not have memory mapping.
         return error.SkipZigTest;
     }
-    var gpa: GeneralPurposeAllocator(test_config) = .{};
+    var gpa: DebugAllocator(test_config) = .{};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1165,7 +1152,7 @@ test "large object - grow" {
 }
 
 test "realloc small object to large object" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = DebugAllocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1182,7 +1169,7 @@ test "realloc small object to large object" {
 }
 
 test "shrink large object to large object" {
-    var gpa: GeneralPurposeAllocator(test_config) = .{};
+    var gpa: DebugAllocator(test_config) = .{};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1209,7 +1196,7 @@ test "shrink large object to large object" {
 test "shrink large object to large object with larger alignment" {
     if (!builtin.link_libc and builtin.os.tag == .wasi) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22731
 
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = DebugAllocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1245,7 +1232,7 @@ test "shrink large object to large object with larger alignment" {
 }
 
 test "realloc large object to small object" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = DebugAllocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1260,7 +1247,7 @@ test "realloc large object to small object" {
 }
 
 test "overridable mutexes" {
-    var gpa = GeneralPurposeAllocator(.{ .MutexType = std.Thread.Mutex }){
+    var gpa = DebugAllocator(.{ .MutexType = std.Thread.Mutex }){
         .backing_allocator = std.testing.allocator,
         .mutex = std.Thread.Mutex{},
     };
@@ -1272,7 +1259,11 @@ test "overridable mutexes" {
 }
 
 test "non-page-allocator backing allocator" {
-    var gpa = GeneralPurposeAllocator(.{}){ .backing_allocator = std.testing.allocator };
+    var gpa: DebugAllocator(.{
+        .backing_allocator_zeroes = false,
+    }) = .{
+        .backing_allocator = std.testing.allocator,
+    };
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1283,7 +1274,7 @@ test "non-page-allocator backing allocator" {
 test "realloc large object to larger alignment" {
     if (!builtin.link_libc and builtin.os.tag == .wasi) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22731
 
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = DebugAllocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1330,7 +1321,9 @@ test "large object rejects shrinking to small" {
     }
 
     var failing_allocator = std.testing.FailingAllocator.init(std.heap.page_allocator, .{ .fail_index = 3 });
-    var gpa: GeneralPurposeAllocator(.{}) = .{ .backing_allocator = failing_allocator.allocator() };
+    var gpa: DebugAllocator(.{}) = .{
+        .backing_allocator = failing_allocator.allocator(),
+    };
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1345,7 +1338,7 @@ test "large object rejects shrinking to small" {
 }
 
 test "objects of size 1024 and 2048" {
-    var gpa = GeneralPurposeAllocator(test_config){};
+    var gpa = DebugAllocator(test_config){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1357,7 +1350,7 @@ test "objects of size 1024 and 2048" {
 }
 
 test "setting a memory cap" {
-    var gpa = GeneralPurposeAllocator(.{ .enable_memory_limit = true }){};
+    var gpa = DebugAllocator(.{ .enable_memory_limit = true }){};
     defer std.testing.expect(gpa.deinit() == .ok) catch @panic("leak");
     const allocator = gpa.allocator();
 
@@ -1383,7 +1376,7 @@ test "setting a memory cap" {
 }
 
 test "large allocations count requested size not backing size" {
-    var gpa: GeneralPurposeAllocator(.{ .enable_memory_limit = true }) = .{};
+    var gpa: DebugAllocator(.{ .enable_memory_limit = true }) = .{};
     const allocator = gpa.allocator();
 
     var buf = try allocator.alignedAlloc(u8, 1, page_size + 1);
@@ -1395,7 +1388,7 @@ test "large allocations count requested size not backing size" {
 }
 
 test "retain metadata and never unmap" {
-    var gpa = std.heap.GeneralPurposeAllocator(.{
+    var gpa = std.heap.DebugAllocator(.{
         .safety = true,
         .never_unmap = true,
         .retain_metadata = true,
