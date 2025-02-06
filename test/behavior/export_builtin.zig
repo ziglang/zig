@@ -77,3 +77,11 @@ test "exporting comptime-known value" {
     };
     try expect(S.exporting_comptime_known_value_foo == 10);
 }
+
+test "@export packed structs" {
+    const P = packed struct { x: u32 };
+    const p = P{ .x = 234 };
+    comptime {
+        @export(&p, .{ .name = "@export packed structs" });
+    }
+}

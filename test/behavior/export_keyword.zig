@@ -54,3 +54,45 @@ test "export function alias" {
     };
     try expect(Import.foo_exported() == 123);
 }
+
+test "exported extern struct optional pointer" {
+    // unable to export data symbol 'extern_struct_optional_ptr'; not emitting a relocatable
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    _ = struct {
+        export const extern_struct_optional_ptr = blk: {
+            var ret: extern struct {
+                field: ?*u8 = null,
+            } = undefined;
+            @as(*usize, @ptrCast(&ret)).* = 0;
+            break :blk ret;
+        };
+    };
+}
+
+test "exported zero length concatenated arrays" {
+    // unable to export data symbol 'concatenated_empty_arrays'; not emitting a relocatable
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    // error(link): NAV export_keyword.test.exported zero length concatenated arrays__struct_1687.concatenated_empty_arrays(InternPool.Nav.Index(1001)) assigned symbol 2589 but not allocated!
+    // thread 1757 panic: reached unreachable code
+    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
+
+    _ = struct {
+        export const concatenated_empty_arrays: [0]u8 = theHeck() ++ [0]u8{};
+        fn theHeck() [0]u8 {
+            return [0]u8 // newline on purpose
+            {};
+        }
+    };
+}
+
+test "exported u8 from array of error unions" {
+    // unable to export data symbol 'val_from_error_unions'; not emitting a relocatable
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+
+    _ = struct {
+        const aminoacids: [1]error{I}!u8 = [_]error{I}!u8{error.I};
+        export const val_from_error_unions: u8 = aminoacids[0] catch 1;
+    };
+}
