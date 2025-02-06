@@ -18,9 +18,9 @@ pub const FixedBufferAllocator = @import("heap/FixedBufferAllocator.zig");
 pub const DebugAllocatorConfig = @import("heap/debug_allocator.zig").Config;
 pub const DebugAllocator = @import("heap/debug_allocator.zig").DebugAllocator;
 pub const Check = enum { ok, leak };
-/// Deprecated; to be removed after 0.15.0 is tagged.
+/// Deprecated; to be removed after 0.14.0 is tagged.
 pub const GeneralPurposeAllocatorConfig = DebugAllocatorConfig;
-/// Deprecated; to be removed after 0.15.0 is tagged.
+/// Deprecated; to be removed after 0.14.0 is tagged.
 pub const GeneralPurposeAllocator = DebugAllocator;
 
 const memory_pool = @import("heap/memory_pool.zig");
