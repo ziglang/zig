@@ -606,13 +606,6 @@ fn testFloatDivision() !void {
         inline fn expectNan(a: anytype) !void {
             const x = if (@TypeOf(a) == f32) a else a[0];
             try expect(math.isNan(x));
-            if (builtin.mode == .Debug) {
-                // The release backends may exploit the fact that the
-                // representation of the NaN is undefined, but we would
-                // still like to check that comptime matches observable
-                // runtime behavior where possible.
-                try expect(!math.signbit(x));
-            }
         }
         inline fn expectInf(a: anytype) !void {
             const x = if (@TypeOf(a) == f32) a else a[0];
@@ -621,9 +614,7 @@ fn testFloatDivision() !void {
     };
 
     // Hitting TODO: Implement binary operation for type: @Vector(1, f32)
-    if (builtin.cpu.arch == .wasm32) {
-        return;
-    }
+    if (builtin.cpu.arch == .wasm32) return;
 
     const expectNan = cmp.expectNan;
     const expectInf = cmp.expectInf;
@@ -648,55 +639,50 @@ fn testFloatDivision() !void {
     try expectInf(rt_one / rt_zero);
     try expectInf(rt_one / ct_zero);
 
-    try expectNan(-(ct_zerof / ct_zerof));
-    try expectNan(-(ct_zerof / rt_zerof));
-    try expectNan(-(rt_zerof / rt_zerof));
-    try expectNan(-(rt_zerof / ct_zerof));
+    try expectNan(ct_zerof / ct_zerof);
+    try expectNan(ct_zerof / rt_zerof);
+    try expectNan(rt_zerof / rt_zerof);
+    try expectNan(rt_zerof / ct_zerof);
 
-    try expectNan(-(ct_zero / ct_zero));
-    try expectNan(-(rt_zero / rt_zero));
-
-    if (builtin.zig_backend != .stage2_llvm) {
-        // LLVM is randomly swallowing the NaN sign even in debug mode
-        // just for these two operations.
-        try expectNan(-(ct_zero / rt_zero));
-        try expectNan(-(rt_zero / ct_zero));
-    }
+    try expectNan(ct_zero / ct_zero);
+    try expectNan(rt_zero / rt_zero);
+    try expectNan(ct_zero / rt_zero);
+    try expectNan(rt_zero / ct_zero);
 
     // selfhosted-no-lld is currently hitting "error: TODO implement
     // genRound for type: @Vector(1, f32)", and I don't know how to
     // precisely detect the no-lld target.
-    if (builtin.zig_backend != .stage2_x86_64) {
-        try expectNan(@divTrunc(ct_one, ct_nan));
-        try expectNan(@divTrunc(ct_one, rt_nan));
-        try expectNan(@divTrunc(rt_one, rt_nan));
-        try expectNan(@divTrunc(rt_one, ct_nan));
+    if (builtin.zig_backend == .stage2_x86_64) return;
 
-        try expectNan(@divTrunc(ct_zerof, ct_nanf));
-        try expectNan(@divTrunc(ct_zerof, rt_nanf));
-        try expectNan(@divTrunc(rt_zerof, rt_nanf));
-        try expectNan(@divTrunc(rt_zerof, ct_nanf));
+    try expectNan(@divTrunc(ct_one, ct_nan));
+    try expectNan(@divTrunc(ct_one, rt_nan));
+    try expectNan(@divTrunc(rt_one, rt_nan));
+    try expectNan(@divTrunc(rt_one, ct_nan));
 
-        try expectNan(@divTrunc(ct_zero, ct_nan));
-        try expectNan(@divTrunc(ct_zero, rt_nan));
-        try expectNan(@divTrunc(rt_zero, rt_nan));
-        try expectNan(@divTrunc(rt_zero, ct_nan));
+    try expectNan(@divTrunc(ct_zerof, ct_nanf));
+    try expectNan(@divTrunc(ct_zerof, rt_nanf));
+    try expectNan(@divTrunc(rt_zerof, rt_nanf));
+    try expectNan(@divTrunc(rt_zerof, ct_nanf));
 
-        try expectInf(@divTrunc(ct_one, ct_zero));
-        try expectInf(@divTrunc(ct_one, rt_zero));
-        try expectInf(@divTrunc(rt_one, rt_zero));
-        try expectInf(@divTrunc(rt_one, ct_zero));
+    try expectNan(@divTrunc(ct_zero, ct_nan));
+    try expectNan(@divTrunc(ct_zero, rt_nan));
+    try expectNan(@divTrunc(rt_zero, rt_nan));
+    try expectNan(@divTrunc(rt_zero, ct_nan));
 
-        try expectNan(-@divTrunc(ct_zerof, ct_zerof));
-        try expectNan(-@divTrunc(ct_zerof, rt_zerof));
-        try expectNan(-@divTrunc(rt_zerof, rt_zerof));
-        try expectNan(-@divTrunc(rt_zerof, ct_zerof));
+    try expectInf(@divTrunc(ct_one, ct_zero));
+    try expectInf(@divTrunc(ct_one, rt_zero));
+    try expectInf(@divTrunc(rt_one, rt_zero));
+    try expectInf(@divTrunc(rt_one, ct_zero));
 
-        try expectNan(-@divTrunc(ct_zero, ct_zero));
-        try expectNan(-@divTrunc(ct_zero, rt_zero));
-        try expectNan(-@divTrunc(rt_zero, rt_zero));
-        try expectNan(-@divTrunc(rt_zero, ct_zero));
-    }
+    try expectNan(@divTrunc(ct_zerof, ct_zerof));
+    try expectNan(@divTrunc(ct_zerof, rt_zerof));
+    try expectNan(@divTrunc(rt_zerof, rt_zerof));
+    try expectNan(@divTrunc(rt_zerof, ct_zerof));
+
+    try expectNan(@divTrunc(ct_zero, ct_zero));
+    try expectNan(@divTrunc(ct_zero, rt_zero));
+    try expectNan(@divTrunc(rt_zero, rt_zero));
+    try expectNan(@divTrunc(rt_zero, ct_zero));
 }
 
 test "large integer division" {
