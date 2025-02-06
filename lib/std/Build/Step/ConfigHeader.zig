@@ -4,9 +4,11 @@ const Step = std.Build.Step;
 const Allocator = std.mem.Allocator;
 
 pub const Style = union(enum) {
-    /// The configure format supported by autotools. It uses `#undef foo` to
+    /// A configure format supported by autotools that uses `#undef foo` to
     /// mark lines that can be substituted with different values.
-    autoconf: std.Build.LazyPath,
+    autoconf_undef: std.Build.LazyPath,
+    /// A configure format supported by autotools that uses `@FOO@` output variables.
+    autoconf_at: std.Build.LazyPath,
     /// The configure format supported by CMake. It uses `@FOO@`, `${}` and
     /// `#cmakedefine` for template substitution.
     cmake: std.Build.LazyPath,
@@ -17,7 +19,7 @@ pub const Style = union(enum) {
 
     pub fn getPath(style: Style) ?std.Build.LazyPath {
         switch (style) {
-            .autoconf, .cmake => |s| return s,
+            .autoconf_undef, .autoconf_at, .cmake => |s| return s,
             .blank, .nasm => return null,
         }
     }
@@ -191,7 +193,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const asm_generated_line = "; " ++ header_text ++ "\n";
 
     switch (config_header.style) {
-        .autoconf => |file_source| {
+        .autoconf_undef, .autoconf_at => |file_source| {
             try output.appendSlice(c_generated_line);
             const src_path = file_source.getPath2(b, step);
             const contents = std.fs.cwd().readFileAlloc(arena, src_path, config_header.max_bytes) catch |err| {
@@ -199,7 +201,11 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                     src_path, @errorName(err),
                 });
             };
-            try render_autoconf(step, contents, &output, config_header.values, src_path);
+            switch (config_header.style) {
+                .autoconf_undef => try render_autoconf_undef(step, contents, &output, config_header.values, src_path),
+                .autoconf_at => try render_autoconf_at(step, contents, &output, config_header.values, src_path),
+                else => unreachable,
+            }
         },
         .cmake => |file_source| {
             try output.appendSlice(c_generated_line);
@@ -257,7 +263,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     try man.writeManifest();
 }
 
-fn render_autoconf(
+fn render_autoconf_undef(
     step: *Step,
     contents: []const u8,
     output: *std.ArrayList(u8),
@@ -297,6 +303,62 @@ fn render_autoconf(
     for (values_copy.keys()) |name| {
         try step.addError("{s}: error: config header value unused: '{s}'", .{ src_path, name });
         any_errors = true;
+    }
+
+    if (any_errors) {
+        return error.MakeFailed;
+    }
+}
+
+fn render_autoconf_at(
+    step: *Step,
+    contents: []const u8,
+    output: *std.ArrayList(u8),
+    values: std.StringArrayHashMap(Value),
+    src_path: []const u8,
+) !void {
+    const build = step.owner;
+    const allocator = build.allocator;
+
+    const used = allocator.alloc(bool, values.count()) catch @panic("OOM");
+    for (used) |*u| u.* = false;
+    defer allocator.free(used);
+
+    var any_errors = false;
+    var line_index: u32 = 0;
+    var line_it = std.mem.splitScalar(u8, contents, '\n');
+    while (line_it.next()) |line| : (line_index += 1) {
+        const last_line = line_it.index == line_it.buffer.len;
+
+        const old_len = output.items.len;
+        expand_variables_autoconf_at(output, line, values, used) catch |err| switch (err) {
+            error.MissingValue => {
+                const name = output.items[old_len..];
+                defer output.shrinkRetainingCapacity(old_len);
+                try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
+                    src_path, line_index + 1, name,
+                });
+                any_errors = true;
+                continue;
+            },
+            else => {
+                try step.addError("{s}:{d}: unable to substitute variable: error: {s}", .{
+                    src_path, line_index + 1, @errorName(err),
+                });
+                any_errors = true;
+                continue;
+            },
+        };
+        if (!last_line) {
+            try output.append('\n');
+        }
+    }
+
+    for (values.unmanaged.entries.slice().items(.key), used) |name, u| {
+        if (!u) {
+            try step.addError("{s}: error: config header value unused: '{s}'", .{ src_path, name });
+            any_errors = true;
+        }
     }
 
     if (any_errors) {
@@ -534,6 +596,59 @@ fn renderValueNasm(output: *std.ArrayList(u8), name: []const u8, value: Value) !
             try output.writer().print("%define {s} \"{}\"\n", .{ name, std.zig.fmtEscapes(string) });
         },
     }
+}
+
+fn expand_variables_autoconf_at(
+    output: *std.ArrayList(u8),
+    contents: []const u8,
+    values: std.StringArrayHashMap(Value),
+    used: []bool,
+) !void {
+    const valid_varname_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_";
+
+    var curr: usize = 0;
+    var source_offset: usize = 0;
+    while (curr < contents.len) : (curr += 1) {
+        if (contents[curr] != '@') continue;
+        if (std.mem.indexOfScalarPos(u8, contents, curr + 1, '@')) |close_pos| {
+            if (close_pos == curr + 1) {
+                // closed immediately, preserve as a literal
+                continue;
+            }
+            const valid_varname_end = std.mem.indexOfNonePos(u8, contents, curr + 1, valid_varname_chars) orelse 0;
+            if (valid_varname_end != close_pos) {
+                // contains invalid characters, preserve as a literal
+                continue;
+            }
+
+            const key = contents[curr + 1 .. close_pos];
+            const index = values.getIndex(key) orelse {
+                // Report the missing key to the caller.
+                try output.appendSlice(key);
+                return error.MissingValue;
+            };
+            const value = values.unmanaged.entries.slice().items(.value)[index];
+            used[index] = true;
+            try output.appendSlice(contents[source_offset..curr]);
+            switch (value) {
+                .undef, .defined => {},
+                .boolean => |b| {
+                    try output.append(if (b) '1' else '0');
+                },
+                .int => |i| {
+                    try output.writer().print("{d}", .{i});
+                },
+                .ident, .string => |s| {
+                    try output.appendSlice(s);
+                },
+            }
+
+            curr = close_pos;
+            source_offset = close_pos + 1;
+        }
+    }
+
+    try output.appendSlice(contents[source_offset..]);
 }
 
 fn expand_variables_cmake(
