@@ -497,6 +497,7 @@ test raw_c_allocator {
 }
 
 test smp_allocator {
+    if (builtin.single_threaded) return;
     try testAllocator(smp_allocator);
     try testAllocatorAligned(smp_allocator);
     try testAllocatorLargeAlignment(smp_allocator);
