@@ -215,13 +215,11 @@ fn free(context: *anyopaque, memory: []u8, alignment: mem.Alignment, ra: usize) 
 
 fn sizeClassIndex(len: usize, alignment: mem.Alignment) usize {
     return @max(
-        @bitSizeOf(usize) - @clz(len - 1),
-        @intFromEnum(alignment),
-        min_class,
-    );
+        @bitSizeOf(usize) - @clz(len + (@sizeOf(usize) - 1)),
+        @intFromEnum(alignment) + 1,
+    ) - min_class;
 }
 
 fn slotSize(class: usize) usize {
-    const Log2USize = std.math.Log2Int(usize);
-    return @as(usize, 1) << @as(Log2USize, @intCast(class));
+    return @as(usize, 1) << @intCast(class + min_class);
 }
