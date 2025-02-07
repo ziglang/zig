@@ -14,7 +14,7 @@ pub fn StaticStringMapIgnoreCase(comptime V: type) type {
 /// Same as StaticStringMap, but allows you to provide the `eql` function yourself.
 pub fn StaticStringMapWithEql(
     comptime V: type,
-    comptime eql: fn (comptime usize, comptime anytype, anytype) bool,
+    comptime eql: fn (comptime anytype, anytype) bool,
 ) type {
     return StaticArrayMapWithEql(V, u8, eql);
 }
@@ -34,7 +34,11 @@ pub fn defaultEql(comptime expected: anytype, actual: anytype) bool {
     // which exceed 65535 bits (there are no integer types that large).
     const unique = std.meta.hasUniqueRepresentation(Array);
     const too_many_bits = child_bits > 65535;
-    if (comptime !unique or too_many_bits) {
+
+    // TODO: riscv64 backend can't airBitCast [7]u8 to u56
+    const limited_backend = @import("builtin").zig_backend == .stage2_riscv64;
+
+    if (!unique or too_many_bits or limited_backend) {
         var match: bool = true;
         for (expected, actual) |a, b| {
             match = match and a == b;
@@ -49,7 +53,7 @@ pub fn defaultEql(comptime expected: anytype, actual: anytype) bool {
 }
 
 fn ignoreCaseEql(comptime expected: anytype, actual: anytype) bool {
-    const lower_expected = comptime toLowerSimd(expected);
+    const lower_expected = toLowerSimd(expected);
 
     // TODO: x86_64 self hosted backend hasn't implemented genBinOp for cmp_gte
     const lower_actual = blk: {
@@ -129,7 +133,7 @@ pub fn StaticArrayMapWithEql(
 
         /// Returns the value for the key if any, else null.
         pub fn get(comptime self: Self, key: []const T) ?V {
-            switch (comptime self.kvs.len) {
+            switch (self.kvs.len) {
                 0 => return null,
                 else => return self.filterLength(key),
             }
@@ -459,6 +463,31 @@ test "array elements that are padded" {
     try testing.expectEqual(0, map.get(&.{ 0, 1, 2, 3, 4, 5 }));
     try testing.expectEqual(1, map.get(&.{ 0, 1, 127, 3, 4, 5 }));
     try testing.expectEqual(2, map.get(&.{ 0, 1, 2, 126, 4, 5 }));
+}
+
+fn lastElementEql(comptime expected: anytype, actual: anytype) bool {
+    if (expected.len == 0) {
+        return false;
+    } else {
+        const last_idx = expected.len - 1;
+        return expected[last_idx] == actual[last_idx];
+    }
+}
+
+test "custom equal function" {
+    const map = StaticStringMapWithEql(u2, lastElementEql).initComptime(.{
+        .{ "last byte is a t", 0 },
+        .{ "last byte is a b", 1 },
+        .{ "last byte is a s", 2 },
+        .{ "last byte is a c", 3 },
+    });
+
+    // limitation: eql functions only are called on same-length inputs
+    try testing.expectEqual(false, map.has("t"));
+
+    try testing.expectEqual(1, map.get("my magic byte: b"));
+    try testing.expectEqual(0, map.get("my magic byte: t"));
+    try testing.expectEqual(2, map.get("my magic byte: s"));
 }
 
 test "single string StaticStringMap" {
