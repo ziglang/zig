@@ -68,6 +68,48 @@ test "json.parser.dynamic" {
 
     const large_int = image.object.get("LargeInt").?;
     try testing.expect(mem.eql(u8, large_int.number_string, "18446744073709551615"));
+
+    const get_i64 = try root.get(i64, &.{"Image", "Width"});
+    try testing.expect(get_i64.? == 800);
+
+    const get_int_as_f64 = try root.get(f64, &.{"Image", "Height"});
+    try testing.expect(get_int_as_f64.? == 600.0);
+
+    const get_f64 = try root.get(f64, &.{"Image", "double"});
+    try testing.expect(get_f64.? == 1.3412);
+
+    const get_float_as_i64 = try root.get(i64, &.{"Image", "double"});
+    try testing.expect(get_float_as_i64.? == 1);
+
+    const get_bool = try root.get(bool, &.{"Image", "Animated"});
+    try testing.expect(get_bool.? == false);
+
+    const get_string = try root.get([]const u8, &.{"Image", "Title"});
+    try testing.expect(mem.eql(u8, get_string.?, "View from 15th Floor"));
+
+    const get_large_int = try root.get([]const u8, &.{"Image", "LargeInt"});
+    try testing.expect(mem.eql(u8, get_large_int.?, "18446744073709551615"));
+
+    const get_large_int_as_f64 = try root.get(f64, &.{"Image", "LargeInt"});
+    try testing.expect(get_large_int_as_f64.? == 18446744073709551615.0);
+
+    const get_path_item = try root.get([]const u8, &.{"Image", "ArrayOfObject", "0", "n"});
+    try testing.expect(mem.eql(u8, get_path_item.? , "m"));
+
+    const get_nonexistent = try root.get([]const u8, &.{"Nonexistent"});
+    try testing.expect(get_nonexistent == null);
+
+    const get_nonexistent2 = try root.get([]const u8, &.{"Image", "ArrayOfObject", "16"});
+    try testing.expect(get_nonexistent2 == null);
+
+    const get_wrong_type = root.get(i64, &.{"Image", "Thumbnail"});
+    try testing.expect(get_wrong_type == error.WrongType);
+
+    const get_wrong_type2 = root.get([]const u8, &.{"Image", "Width"});
+    try testing.expect(get_wrong_type2 == error.WrongType);
+
+    const get_invalid_index = root.get(i64, &.{"Image", "IDs", "bad_index"});
+    try testing.expect(get_invalid_index == error.InvalidIndex);
 }
 
 const writeStream = @import("./stringify.zig").writeStream;

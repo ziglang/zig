@@ -136,6 +136,103 @@ pub const Value = union(enum) {
         _ = options;
         return source;
     }
+
+    pub const GetError = std.fmt.ParseIntError || std.fmt.ParseFloatError || error{
+        /// The type of the value does not match the requested type
+        WrongType,
+
+        /// The index into an array value is not an integer
+        InvalidIndex,
+    };
+
+    /// Get a value from a `std.json.Value` based on a type and a key path.  For
+    /// example, given the following JSON:
+    ///
+    /// ```
+    /// {
+    ///     "a": [1, {"x": 2, "y": 3}, 4],
+    ///     "b": "something else"
+    /// }
+    /// ```
+    ///
+    /// Calling `get(i64, &.{"a", "1", "y"})` will return 3, and `get([]const u8, &.{"b"})` will return "something else".
+    ///
+    /// Valid types are `i64`, `f64`, `[]const u8`, `bool`, std.json.Value, std.json.Array, and std.json.ObjectMap.
+    ///
+    /// Returns `null` if the key path cannot be found and `error.WrongType` if the data in the value
+    /// is incompatible with the requested type.
+    pub fn get(self: Value, comptime T: type, key: []const []const u8) GetError!?T {
+        if (T != i64 and T != f64 and T != []const u8 and T != bool and T != std.json.Value and T != std.json.Array and T != std.json.ObjectMap) {
+            @compileError("Unsupported type: " ++ @typeName(T));
+        }
+
+        if (T == std.json.Value) return self;
+
+        switch (self) {
+            .null => return null,
+
+            .bool => |b| {
+                if (key.len == 0 and T == bool) return b;
+                return error.WrongType;
+            },
+
+            .integer => |i| {
+                if (key.len == 0) {
+                    if (T == i64) return i;
+                    if (T == f64) return @floatFromInt(i);
+                }
+                return error.WrongType;
+            },
+
+            .float => |f| {
+                if (key.len == 0) {
+                    if (T == f64) return f;
+                    if (T == i64) return @intFromFloat(f);
+                }
+                return error.WrongType;
+            },
+
+            .string => |s| {
+                if (key.len == 0 and T == []const u8) return s;
+                return error.WrongType;
+            },
+
+            .number_string => |s| {
+                if (key.len == 0) {
+                    if (T == []const u8) return s;
+                    if (T == f64) return try std.fmt.parseFloat(f64, s) ;
+                    if (T == i64) return try std.fmt.parseInt(i64, s, 10);
+                }
+                return error.WrongType;
+            },
+
+            .array => |arr| {
+                if (key.len == 0) {
+                    if (T == std.json.Array) return arr;
+                    return error.WrongType;
+                }
+
+                const index = std.fmt.parseInt(usize, key[0], 10) catch return error.InvalidIndex;
+
+                if (index >= arr.items.len) return null;
+
+                const child = arr.items[index];
+
+                return child.get(T, key[1..]);
+            },
+
+            .object => |obj| {
+                if (key.len == 0) {
+                    if (T == std.json.ObjectMap) return obj;
+                    return error.WrongType;
+                }
+
+                const child = obj.get(key[0]) orelse return null;
+
+                return child.get(T, key[1..]);
+            },
+        }
+    }
 };
 
 fn handleCompleteValue(stack: *Array, allocator: Allocator, source: anytype, value_: Value, options: ParseOptions) !?Value {
