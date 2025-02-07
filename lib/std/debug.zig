@@ -1684,6 +1684,7 @@ test SafetyLock {
 /// When Valgrind integrations are disabled, this returns comptime-known false.
 /// Otherwise, the result is runtime-known.
 pub inline fn inValgrind() bool {
+    if (@hasDecl(builtin, "sanitize_address") and builtin.sanitize_address) return true;
     if (@inComptime()) return false;
     if (!builtin.valgrind_support) return false;
     return std.valgrind.runningOnValgrind() > 0;
