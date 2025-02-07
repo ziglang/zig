@@ -51,7 +51,7 @@ threadlocal var thread_index: u32 = 0;
 const max_thread_count = 128;
 const slab_len: usize = @max(std.heap.page_size_max, 256 * 1024);
 /// Because of storing free list pointers, the minimum size class is 3.
-const min_class = math.log2(math.ceilPowerOfTwoAssert(usize, 1 + @sizeOf(usize)));
+const min_class = math.log2(@sizeOf(usize));
 const size_class_count = math.log2(slab_len) - min_class;
 
 const Thread = struct {
@@ -132,7 +132,7 @@ fn alloc(context: *anyopaque, len: usize, alignment: mem.Alignment, ra: usize) ?
         if (top_free_ptr != 0) {
             @branchHint(.likely);
             defer t.unlock();
-            const node: *usize = @ptrFromInt(top_free_ptr + (slot_size - @sizeOf(usize)));
+            const node: *usize = @ptrFromInt(top_free_ptr);
             t.frees[class] = node.*;
             return @ptrFromInt(top_free_ptr);
         }
@@ -202,22 +202,17 @@ fn free(context: *anyopaque, memory: []u8, alignment: mem.Alignment, ra: usize) 
         return PageAllocator.unmap(@alignCast(memory));
     }
 
-    const slot_size = slotSize(class);
-    const addr = @intFromPtr(memory.ptr);
-    const node: *usize = @ptrFromInt(addr + (slot_size - @sizeOf(usize)));
+    const node: *usize = @alignCast(@ptrCast(memory.ptr));
 
     const t = Thread.lock();
     defer t.unlock();
 
     node.* = t.frees[class];
-    t.frees[class] = addr;
+    t.frees[class] = @intFromPtr(node);
 }
 
 fn sizeClassIndex(len: usize, alignment: mem.Alignment) usize {
-    return @max(
-        @bitSizeOf(usize) - @clz(len + (@sizeOf(usize) - 1)),
-        @intFromEnum(alignment) + 1,
-    ) - min_class;
+    return @max(@bitSizeOf(usize) - @clz(len - 1), @intFromEnum(alignment), min_class) - min_class;
 }
 
 fn slotSize(class: usize) usize {
