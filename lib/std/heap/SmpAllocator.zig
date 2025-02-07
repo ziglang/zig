@@ -6,8 +6,6 @@
 //!
 //! ## Basic Design
 //!
-//! Avoid locking the global mutex as much as possible.
-//!
 //! Each thread gets a separate freelist, however, the data must be recoverable
 //! when the thread exits. We do not directly learn when a thread exits, so
 //! occasionally, one thread must attempt to reclaim another thread's
@@ -122,6 +120,7 @@ fn alloc(context: *anyopaque, len: usize, alignment: mem.Alignment, ra: usize) ?
     }
 
     const slot_size = slotSize(class);
+    assert(slab_len % slot_size == 0);
     const max_search = 1;
     var search_count: u8 = 0;
 
@@ -148,7 +147,8 @@ fn alloc(context: *anyopaque, len: usize, alignment: mem.Alignment, ra: usize) ?
         if (search_count >= max_search) {
             @branchHint(.likely);
             defer t.unlock();
-            const slab = PageAllocator.map(slab_len, .fromByteUnits(std.heap.pageSize())) orelse return null;
+            // slab alignment here ensures the % slab len earlier catches the end of slots.
+            const slab = PageAllocator.map(slab_len, .fromByteUnits(slab_len)) orelse return null;
             t.next_addrs[class] = @intFromPtr(slab) + slot_size;
             return slab;
         }
