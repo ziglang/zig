@@ -50,6 +50,7 @@ pub fn ScopedLoggingAllocator(
                 .warn => log.warn(format, args),
                 .info => log.info(format, args),
                 .debug => log.debug(format, args),
+                .trace => log.trace(format, args),
             }
         }
 

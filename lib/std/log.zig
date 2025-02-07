@@ -86,6 +86,8 @@ pub const Level = enum {
     info,
     /// Debug: messages only useful for debugging.
     debug,
+    /// Trace: detailed messages showing flow of execution through the program.
+    trace,
 
     /// Returns a string literal of the given level in full text form.
     pub fn asText(comptime self: Level) []const u8 {
@@ -94,6 +96,7 @@ pub const Level = enum {
             .warn => "warning",
             .info => "info",
             .debug => "debug",
+            .trace => "trace",
         };
     }
 };
@@ -202,6 +205,15 @@ pub fn scoped(comptime scope: @Type(.enum_literal)) type {
         ) void {
             log(.debug, scope, format, args);
         }
+
+        /// Log a trace message. This log level is intended to be used for
+        /// detailed messages showing the flow of execution through a program.
+        pub fn trace(
+            comptime format: []const u8,
+            args: anytype,
+        ) void {
+            log(.trace, scope, format, args);
+        }
     };
 }
 
@@ -227,3 +239,7 @@ pub const info = default.info;
 /// Log a debug message using the default scope. This log level is intended to
 /// be used for messages which are only useful for debugging.
 pub const debug = default.debug;
+
+/// Log a trace message using the default scope. This log level is intended to
+/// be used for detailed messages showing flow of execution through a program.
+pub const trace = default.trace;
