@@ -158,27 +158,53 @@ fn alloc(context: *anyopaque, len: usize, alignment: mem.Alignment, ra: usize) ?
         return PageAllocator.map(len, alignment);
     }
 
-    const t = Thread.lock();
-    defer t.unlock();
-
     const slot_size = slotSize(class);
+    const max_search = 2;
+    var search_count: u32 = 0;
 
-    const top_free_ptr = t.frees[class];
-    if (top_free_ptr != 0) {
-        const node: *usize = @ptrFromInt(top_free_ptr + (slot_size - @sizeOf(usize)));
-        t.frees[class] = node.*;
-        return @ptrFromInt(top_free_ptr);
+    var t = Thread.lock();
+
+    outer: while (true) {
+        const top_free_ptr = t.frees[class];
+        if (top_free_ptr != 0) {
+            @branchHint(.likely);
+            defer t.unlock();
+            const node: *usize = @ptrFromInt(top_free_ptr + (slot_size - @sizeOf(usize)));
+            t.frees[class] = node.*;
+            return @ptrFromInt(top_free_ptr);
+        }
+
+        const next_addr = t.next_addrs[class];
+        if ((next_addr % slab_len) != 0) {
+            @branchHint(.likely);
+            defer t.unlock();
+            t.next_addrs[class] = next_addr + slot_size;
+            return @ptrFromInt(next_addr);
+        }
+
+        if (search_count >= max_search) {
+            @branchHint(.likely);
+            defer t.unlock();
+            const slab = PageAllocator.map(slab_len, .fromByteUnits(std.heap.pageSize())) orelse return null;
+            t.next_addrs[class] = @intFromPtr(slab) + slot_size;
+            return slab;
+        }
+
+        t.unlock();
+        t = undefined;
+        const cpu_count = global.cpu_count;
+        assert(cpu_count != 0);
+        var index = thread_id.toIndex();
+        while (true) {
+            index = (index + 1) % cpu_count;
+            t = &global.threads[index];
+            if (t.mutex.tryLock()) {
+                thread_id = .fromIndex(index);
+                search_count += 1;
+                continue :outer;
+            }
+        }
     }
-
-    const next_addr = t.next_addrs[class];
-    if (next_addr % slab_len == 0) {
-        const slab = PageAllocator.map(slab_len, .fromByteUnits(std.heap.pageSize())) orelse return null;
-        t.next_addrs[class] = @intFromPtr(slab) + slot_size;
-        return slab;
-    }
-
-    t.next_addrs[class] = next_addr + slot_size;
-    return @ptrFromInt(next_addr);
 }
 
 fn resize(context: *anyopaque, memory: []u8, alignment: mem.Alignment, new_len: usize, ra: usize) bool {
@@ -214,12 +240,13 @@ fn free(context: *anyopaque, memory: []u8, alignment: mem.Alignment, ra: usize) 
         return PageAllocator.unmap(@alignCast(memory));
     }
 
-    const t = Thread.lock();
-    defer t.unlock();
-
     const slot_size = slotSize(class);
     const addr = @intFromPtr(memory.ptr);
     const node: *usize = @ptrFromInt(addr + (slot_size - @sizeOf(usize)));
+
+    const t = Thread.lock();
+    defer t.unlock();
+
     node.* = t.frees[class];
     t.frees[class] = addr;
 }
