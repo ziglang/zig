@@ -97,7 +97,7 @@ const Thread = struct {
 fn getCpuCount() u32 {
     const cpu_count = @atomicLoad(u32, &global.cpu_count, .unordered);
     if (cpu_count != 0) return cpu_count;
-    const n: u32 = @intCast(@max(std.Thread.getCpuCount() catch max_thread_count, max_thread_count));
+    const n: u32 = @min(std.Thread.getCpuCount() catch max_thread_count, max_thread_count);
     return if (@cmpxchgStrong(u32, &global.cpu_count, 0, n, .monotonic, .monotonic)) |other| other else n;
 }
 
