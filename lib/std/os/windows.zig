@@ -2016,18 +2016,6 @@ pub fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter
     assert(kernel32.InitOnceExecuteOnce(InitOnce, InitFn, Parameter, Context) != 0);
 }
 
-pub fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: *anyopaque) void {
-    assert(kernel32.HeapFree(hHeap, dwFlags, lpMem) != 0);
-}
-
-pub fn HeapDestroy(hHeap: HANDLE) void {
-    assert(kernel32.HeapDestroy(hHeap) != 0);
-}
-
-pub fn LocalFree(hMem: HLOCAL) void {
-    assert(kernel32.LocalFree(hMem) == null);
-}
-
 pub const SetFileTimeError = error{Unexpected};
 
 pub fn SetFileTime(

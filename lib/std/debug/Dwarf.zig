@@ -2120,8 +2120,8 @@ fn pcRelBase(field_ptr: usize, pc_rel_offset: i64) !usize {
 pub const ElfModule = struct {
     base_address: usize,
     dwarf: Dwarf,
-    mapped_memory: []align(std.mem.page_size) const u8,
-    external_mapped_memory: ?[]align(std.mem.page_size) const u8,
+    mapped_memory: []align(std.heap.page_size_min) const u8,
+    external_mapped_memory: ?[]align(std.heap.page_size_min) const u8,
 
     pub fn deinit(self: *@This(), allocator: Allocator) void {
         self.dwarf.deinit(allocator);
@@ -2167,11 +2167,11 @@ pub const ElfModule = struct {
     /// sections from an external file.
     pub fn load(
         gpa: Allocator,
-        mapped_mem: []align(std.mem.page_size) const u8,
+        mapped_mem: []align(std.heap.page_size_min) const u8,
         build_id: ?[]const u8,
         expected_crc: ?u32,
         parent_sections: *Dwarf.SectionArray,
-        parent_mapped_mem: ?[]align(std.mem.page_size) const u8,
+        parent_mapped_mem: ?[]align(std.heap.page_size_min) const u8,
         elf_filename: ?[]const u8,
     ) LoadError!Dwarf.ElfModule {
         if (expected_crc) |crc| if (crc != std.hash.crc.Crc32.hash(mapped_mem)) return error.InvalidDebugInfo;
@@ -2423,7 +2423,7 @@ pub const ElfModule = struct {
         build_id: ?[]const u8,
         expected_crc: ?u32,
         parent_sections: *Dwarf.SectionArray,
-        parent_mapped_mem: ?[]align(std.mem.page_size) const u8,
+        parent_mapped_mem: ?[]align(std.heap.page_size_min) const u8,
     ) LoadError!Dwarf.ElfModule {
         const elf_file = elf_file_path.root_dir.handle.openFile(elf_file_path.sub_path, .{}) catch |err| switch (err) {
             error.FileNotFound => return missing(),
