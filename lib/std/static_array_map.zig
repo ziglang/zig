@@ -53,7 +53,7 @@ pub fn defaultEql(comptime expected: anytype, actual: anytype) bool {
 }
 
 fn ignoreCaseEql(comptime expected: anytype, actual: anytype) bool {
-    const lower_expected = toLowerSimd(expected);
+    const lower_expected = comptime toLowerSimd(expected);
 
     // TODO: x86_64 self hosted backend hasn't implemented genBinOp for cmp_gte
     const lower_actual = blk: {
