@@ -30,7 +30,6 @@
 //! through the full set of freelists.
 
 const builtin = @import("builtin");
-const native_os = builtin.os.tag;
 
 const std = @import("../std.zig");
 const assert = std.debug.assert;
@@ -56,11 +55,7 @@ var global: SmpAllocator = .{
 threadlocal var thread_id: Thread.Id = .none;
 
 const max_thread_count = 128;
-const slab_len: usize = @max(std.heap.page_size_max, switch (builtin.os.tag) {
-    .windows => 64 * 1024, // Makes `std.heap.PageAllocator` take the happy path.
-    .wasi => 64 * 1024, // Max alignment supported by `std.heap.WasmAllocator`.
-    else => 256 * 1024, // Avoids too many active mappings when `page_size_max` is low.
-});
+const slab_len: usize = @max(std.heap.page_size_max, 256 * 1024);
 /// Because of storing free list pointers, the minimum size class is 3.
 const min_class = math.log2(math.ceilPowerOfTwoAssert(usize, 1 + @sizeOf(usize)));
 const size_class_count = math.log2(slab_len) - min_class;
