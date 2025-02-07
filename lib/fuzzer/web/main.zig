@@ -127,6 +127,7 @@ export fn coveredSourceLocations() usize {
 }
 
 fn getCoverageUpdateHeader() *abi.CoverageUpdateHeader {
+    std.log.info("{p} {}", .{ recent_coverage_update.items.ptr, recent_coverage_update.items.len });
     return @alignCast(@ptrCast(recent_coverage_update.items[0..@sizeOf(abi.CoverageUpdateHeader)]));
 }
 
