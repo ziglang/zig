@@ -63262,17 +63262,27 @@ fn genSetReg(
             });
         },
         .lea_symbol => |sym_off| switch (self.bin_file.tag) {
-            .elf, .macho => try self.asmRegisterMemory(
-                .{ ._, .lea },
-                dst_reg.to64(),
-                .{
-                    .base = .{ .reloc = sym_off.sym_index },
-                    .mod = .{ .rm = .{
-                        .size = .qword,
-                        .disp = sym_off.off,
-                    } },
-                },
-            ),
+            .elf, .macho => {
+                try self.asmRegisterMemory(
+                    .{ ._, .lea },
+                    dst_reg.to64(),
+                    .{
+                        .base = .{ .reloc = sym_off.sym_index },
+                        .mod = .{ .rm = .{ .size = .qword } },
+                    },
+                );
+                if (sym_off.off != 0) try self.asmRegisterMemory(
+                    .{ ._, .lea },
+                    dst_reg.to64(),
+                    .{
+                        .base = .{ .reg = dst_reg.to64() },
+                        .mod = .{ .rm = .{
+                            .size = .qword,
+                            .disp = sym_off.off,
+                        } },
+                    },
+                );
+            },
             else => return self.fail("TODO emit symbol sequence on {s}", .{
                 @tagName(self.bin_file.tag),
             }),
