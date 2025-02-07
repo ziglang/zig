@@ -200,7 +200,7 @@ pub const Value = union(enum) {
             .number_string => |s| {
                 if (key.len == 0) {
                     if (T == []const u8) return s;
-                    if (T == f64) return try std.fmt.parseFloat(f64, s) ;
+                    if (T == f64) return try std.fmt.parseFloat(f64, s);
                     if (T == i64) return try std.fmt.parseInt(i64, s, 10);
                 }
                 return error.WrongType;
