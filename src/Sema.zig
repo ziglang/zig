@@ -23842,23 +23842,27 @@ fn zirTruncate(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                 @tagName(dest_info.signedness), operand_ty.fmt(pt),
             });
         }
-        if (operand_info.bits < dest_info.bits) {
-            const msg = msg: {
-                const msg = try sema.errMsg(
-                    src,
-                    "destination type '{}' has more bits than source type '{}'",
-                    .{ dest_ty.fmt(pt), operand_ty.fmt(pt) },
-                );
-                errdefer msg.destroy(sema.gpa);
-                try sema.errNote(src, msg, "destination type has {d} bits", .{
-                    dest_info.bits,
-                });
-                try sema.errNote(operand_src, msg, "operand type has {d} bits", .{
-                    operand_info.bits,
-                });
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(block, msg);
+        switch (std.math.order(dest_info.bits, operand_info.bits)) {
+            .gt => {
+                const msg = msg: {
+                    const msg = try sema.errMsg(
+                        src,
+                        "destination type '{}' has more bits than source type '{}'",
+                        .{ dest_ty.fmt(pt), operand_ty.fmt(pt) },
+                    );
+                    errdefer msg.destroy(sema.gpa);
+                    try sema.errNote(src, msg, "destination type has {d} bits", .{
+                        dest_info.bits,
+                    });
+                    try sema.errNote(operand_src, msg, "operand type has {d} bits", .{
+                        operand_info.bits,
+                    });
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(block, msg);
+            },
+            .eq => return operand,
+            .lt => {},
         }
     }
 

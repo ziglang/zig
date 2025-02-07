@@ -450,7 +450,7 @@ pub fn build(b: *std.Build) !void {
         .skip_non_native = skip_non_native,
         .skip_libc = skip_libc,
         .use_llvm = use_llvm,
-        .max_rss = 1.25 * 1024 * 1024 * 1024,
+        .max_rss = 2 * 1024 * 1024 * 1024,
     }));
 
     test_modules_step.dependOn(tests.addModuleTests(b, .{
