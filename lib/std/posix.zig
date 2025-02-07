@@ -24,6 +24,7 @@ const maxInt = std.math.maxInt;
 const cast = std.math.cast;
 const assert = std.debug.assert;
 const native_os = builtin.os.tag;
+const page_size_min = std.heap.page_size_min;
 
 test {
     _ = @import("posix/test.zig");
@@ -82,6 +83,7 @@ pub const MAP = system.MAP;
 pub const MAX_ADDR_LEN = system.MAX_ADDR_LEN;
 pub const MFD = system.MFD;
 pub const MMAP2_UNIT = system.MMAP2_UNIT;
+pub const MREMAP = system.MREMAP;
 pub const MSF = system.MSF;
 pub const MSG = system.MSG;
 pub const NAME_MAX = system.NAME_MAX;
@@ -4694,7 +4696,7 @@ pub const MProtectError = error{
     OutOfMemory,
 } || UnexpectedError;
 
-pub fn mprotect(memory: []align(mem.page_size) u8, protection: u32) MProtectError!void {
+pub fn mprotect(memory: []align(page_size_min) u8, protection: u32) MProtectError!void {
     if (native_os == .windows) {
         const win_prot: windows.DWORD = switch (@as(u3, @truncate(protection))) {
             0b000 => windows.PAGE_NOACCESS,
@@ -4759,21 +4761,21 @@ pub const MMapError = error{
 /// * SIGSEGV - Attempted write into a region mapped as read-only.
 /// * SIGBUS - Attempted  access to a portion of the buffer that does not correspond to the file
 pub fn mmap(
-    ptr: ?[*]align(mem.page_size) u8,
+    ptr: ?[*]align(page_size_min) u8,
     length: usize,
     prot: u32,
     flags: system.MAP,
     fd: fd_t,
     offset: u64,
-) MMapError![]align(mem.page_size) u8 {
+) MMapError![]align(page_size_min) u8 {
     const mmap_sym = if (lfs64_abi) system.mmap64 else system.mmap;
     const rc = mmap_sym(ptr, length, prot, @bitCast(flags), fd, @bitCast(offset));
     const err: E = if (builtin.link_libc) blk: {
-        if (rc != std.c.MAP_FAILED) return @as([*]align(mem.page_size) u8, @ptrCast(@alignCast(rc)))[0..length];
+        if (rc != std.c.MAP_FAILED) return @as([*]align(page_size_min) u8, @ptrCast(@alignCast(rc)))[0..length];
         break :blk @enumFromInt(system._errno().*);
     } else blk: {
         const err = errno(rc);
-        if (err == .SUCCESS) return @as([*]align(mem.page_size) u8, @ptrFromInt(rc))[0..length];
+        if (err == .SUCCESS) return @as([*]align(page_size_min) u8, @ptrFromInt(rc))[0..length];
         break :blk err;
     };
     switch (err) {
@@ -4799,7 +4801,7 @@ pub fn mmap(
 /// Zig's munmap function does not, for two reasons:
 /// * It violates the Zig principle that resource deallocation must succeed.
 /// * The Windows function, VirtualFree, has this restriction.
-pub fn munmap(memory: []align(mem.page_size) const u8) void {
+pub fn munmap(memory: []align(page_size_min) const u8) void {
     switch (errno(system.munmap(memory.ptr, memory.len))) {
         .SUCCESS => return,
         .INVAL => unreachable, // Invalid parameters.
@@ -4808,12 +4810,46 @@ pub fn munmap(memory: []align(mem.page_size) const u8) void {
     }
 }
 
+pub const MRemapError = error{
+    LockedMemoryLimitExceeded,
+    /// Either a bug in the calling code, or the operating system abused the
+    /// EINVAL error code.
+    InvalidSyscallParameters,
+    OutOfMemory,
+} || UnexpectedError;
+
+pub fn mremap(
+    old_address: ?[*]align(page_size_min) u8,
+    old_len: usize,
+    new_len: usize,
+    flags: system.MREMAP,
+    new_address: ?[*]align(page_size_min) u8,
+) MRemapError![]align(page_size_min) u8 {
+    const rc = system.mremap(old_address, old_len, new_len, flags, new_address);
+    const err: E = if (builtin.link_libc) blk: {
+        if (rc != std.c.MAP_FAILED) return @as([*]align(page_size_min) u8, @ptrCast(@alignCast(rc)))[0..new_len];
+        break :blk @enumFromInt(system._errno().*);
+    } else blk: {
+        const err = errno(rc);
+        if (err == .SUCCESS) return @as([*]align(page_size_min) u8, @ptrFromInt(rc))[0..new_len];
+        break :blk err;
+    };
+    switch (err) {
+        .SUCCESS => unreachable,
+        .AGAIN => return error.LockedMemoryLimitExceeded,
+        .INVAL => return error.InvalidSyscallParameters,
+        .NOMEM => return error.OutOfMemory,
+        .FAULT => unreachable,
+        else => return unexpectedErrno(err),
+    }
+}
+
 pub const MSyncError = error{
     UnmappedMemory,
     PermissionDenied,
 } || UnexpectedError;
 
-pub fn msync(memory: []align(mem.page_size) u8, flags: i32) MSyncError!void {
+pub fn msync(memory: []align(page_size_min) u8, flags: i32) MSyncError!void {
     switch (errno(system.msync(memory.ptr, memory.len, flags))) {
         .SUCCESS => return,
         .PERM => return error.PermissionDenied,
@@ -7135,7 +7171,7 @@ pub const MincoreError = error{
 } || UnexpectedError;
 
 /// Determine whether pages are resident in memory.
-pub fn mincore(ptr: [*]align(mem.page_size) u8, length: usize, vec: [*]u8) MincoreError!void {
+pub fn mincore(ptr: [*]align(page_size_min) u8, length: usize, vec: [*]u8) MincoreError!void {
     return switch (errno(system.mincore(ptr, length, vec))) {
         .SUCCESS => {},
         .AGAIN => error.SystemResources,
@@ -7181,7 +7217,7 @@ pub const MadviseError = error{
 
 /// Give advice about use of memory.
 /// This syscall is optional and is sometimes configured to be disabled.
-pub fn madvise(ptr: [*]align(mem.page_size) u8, length: usize, advice: u32) MadviseError!void {
+pub fn madvise(ptr: [*]align(page_size_min) u8, length: usize, advice: u32) MadviseError!void {
     switch (errno(system.madvise(ptr, length, advice))) {
         .SUCCESS => return,
         .PERM => return error.PermissionDenied,

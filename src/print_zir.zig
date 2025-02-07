@@ -208,6 +208,7 @@ const Writer = struct {
             .anyframe_type,
             .bit_not,
             .bool_not,
+            .slice_sentinel_ty,
             .negate,
             .negate_wrap,
             .load,

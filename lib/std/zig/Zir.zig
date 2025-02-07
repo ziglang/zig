@@ -599,6 +599,10 @@ pub const Inst = struct {
         /// Returns a pointer to the subslice.
         /// Uses the `pl_node` field. AST node is the slice syntax. Payload is `SliceLength`.
         slice_length,
+        /// Given a value which is a pointer to the LHS of a slice operation, return the sentinel
+        /// type, used as the result type of the slice sentinel (i.e. `s` in `lhs[a..b :s]`).
+        /// Uses the `un_node` field. AST node is the slice syntax. Operand is `lhs`.
+        slice_sentinel_ty,
         /// Same as `store` except provides a source location.
         /// Uses the `pl_node` union field. Payload is `Bin`.
         store_node,
@@ -1185,6 +1189,7 @@ pub const Inst = struct {
                 .slice_end,
                 .slice_sentinel,
                 .slice_length,
+                .slice_sentinel_ty,
                 .import,
                 .typeof_log2_int_type,
                 .resolve_inferred_alloc,
@@ -1472,6 +1477,7 @@ pub const Inst = struct {
                 .slice_end,
                 .slice_sentinel,
                 .slice_length,
+                .slice_sentinel_ty,
                 .import,
                 .typeof_log2_int_type,
                 .switch_block,
@@ -1702,6 +1708,7 @@ pub const Inst = struct {
                 .slice_end = .pl_node,
                 .slice_sentinel = .pl_node,
                 .slice_length = .pl_node,
+                .slice_sentinel_ty = .un_node,
                 .store_node = .pl_node,
                 .store_to_inferred_ptr = .pl_node,
                 .str = .str,
@@ -4162,6 +4169,7 @@ fn findTrackableInner(
         .slice_end,
         .slice_sentinel,
         .slice_length,
+        .slice_sentinel_ty,
         .store_node,
         .store_to_inferred_ptr,
         .str,

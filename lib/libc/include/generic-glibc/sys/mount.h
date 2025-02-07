@@ -235,6 +235,8 @@ struct mount_attr
 #define FSPICK_NO_AUTOMOUNT     0x00000004
 #define FSPICK_EMPTY_PATH       0x00000008
 
+// zig patch: check target glibc version
+#if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 36) || __GLIBC__ > 2
 
 #ifndef FSOPEN_CLOEXEC
 /* The type of fsconfig call made.   */
@@ -268,6 +270,7 @@ enum fsconfig_command
 #define OPEN_TREE_CLONE    1         /* Clone the target tree and attach the clone */
 #define OPEN_TREE_CLOEXEC  O_CLOEXEC /* Close the file on execve() */
 
+#endif
 
 __BEGIN_DECLS
 
@@ -281,6 +284,9 @@ extern int umount (const char *__special_file) __THROW;
 
 /* Unmount a filesystem.  Force unmounting if FLAGS is set to MNT_FORCE.  */
 extern int umount2 (const char *__special_file, int __flags) __THROW;
+
+// zig patch: check target glibc version
+#if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 36) || __GLIBC__ > 2
 
 /* Open the filesystem referenced by FS_NAME so it can be configured for
    mouting.  */
@@ -319,6 +325,8 @@ extern int open_tree (int __dfd, const char *__filename, unsigned int __flags)
 extern int mount_setattr (int __dfd, const char *__path, unsigned int __flags,
 			  struct mount_attr *__uattr, size_t __usize)
   __THROW;
+
+#endif /* (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 36) || __GLIBC__ > 2 */
 
 __END_DECLS
 

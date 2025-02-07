@@ -480,7 +480,7 @@ pub const MemoryMappedList = struct {
     /// of this ArrayList in accordance with the respective documentation. In
     /// all cases, "invalidated" means that the memory has been passed to this
     /// allocator's resize or free function.
-    items: []align(std.mem.page_size) volatile u8,
+    items: []align(std.heap.page_size_min) volatile u8,
     /// How many bytes this list can hold without allocating additional memory.
     capacity: usize,
 

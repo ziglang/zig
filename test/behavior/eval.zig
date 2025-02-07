@@ -1751,3 +1751,14 @@ test "comptime labeled block implicit exit" {
     };
     comptime assert(result == {});
 }
+
+test "comptime block has intermediate runtime-known values" {
+    const arr: [2]u8 = .{ 1, 2 };
+
+    var idx: usize = undefined;
+    idx = 0;
+
+    comptime {
+        _ = arr[idx];
+    }
+}

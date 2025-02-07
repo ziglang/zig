@@ -675,3 +675,12 @@ test "@typeInfo only contains pub decls" {
     try std.testing.expectEqualStrings("Enum", decls[0].name);
     try std.testing.expectEqualStrings("Struct", decls[1].name);
 }
+
+test "@typeInfo function with generic return type and inferred error set" {
+    const S = struct {
+        fn testFn(comptime T: type) !T {}
+    };
+
+    const ret_ty = @typeInfo(@TypeOf(S.testFn)).@"fn".return_type;
+    comptime assert(ret_ty == null);
+}

@@ -42,6 +42,7 @@ const WCHAR = windows.WCHAR;
 const WIN32_FIND_DATAW = windows.WIN32_FIND_DATAW;
 const Win32Error = windows.Win32Error;
 const WORD = windows.WORD;
+const SYSTEM_INFO = windows.SYSTEM_INFO;
 
 // I/O - Filesystem
 
@@ -527,11 +528,6 @@ pub extern "kernel32" fn HeapCreate(
     dwMaximumSize: SIZE_T,
 ) callconv(.winapi) ?HANDLE;
 
-// TODO: Wrapper around RtlDestroyHeap (BOOLEAN -> BOOL).
-pub extern "kernel32" fn HeapDestroy(
-    hHeap: HANDLE,
-) callconv(.winapi) BOOL;
-
 // TODO: Forwarder to RtlReAllocateHeap.
 pub extern "kernel32" fn HeapReAlloc(
     hHeap: HANDLE,
@@ -583,10 +579,6 @@ pub extern "kernel32" fn VirtualQuery(
     lpBuffer: PMEMORY_BASIC_INFORMATION,
     dwLength: SIZE_T,
 ) callconv(.winapi) SIZE_T;
-
-pub extern "kernel32" fn LocalFree(
-    hMem: HLOCAL,
-) callconv(.winapi) ?HLOCAL;
 
 // TODO: Getter for peb.ProcessHeap
 pub extern "kernel32" fn GetProcessHeap() callconv(.winapi) ?HANDLE;
@@ -667,6 +659,6 @@ pub extern "kernel32" fn SetLastError(
 // TODO:
 //  Wrapper around KUSER_SHARED_DATA.SystemTime.
 //  Much better to use NtQuerySystemTime or NtQuerySystemTimePrecise for guaranteed 0.1ns precision.
-pub extern "kernel32" fn GetSystemTimeAsFileTime(
-    lpSystemTimeAsFileTime: *FILETIME,
-) callconv(.winapi) void;
+pub extern "kernel32" fn GetSystemTimeAsFileTime(lpSystemTimeAsFileTime: *FILETIME) callconv(.winapi) void;
+
+pub extern "kernel32" fn GetSystemInfo(lpSystemInfo: *SYSTEM_INFO) callconv(.winapi) void;

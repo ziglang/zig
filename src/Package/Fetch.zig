@@ -1249,7 +1249,7 @@ fn unzip(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackResult {
             .{@errorName(err)},
         ));
         defer zip_file.close();
-        var buf: [std.mem.page_size]u8 = undefined;
+        var buf: [4096]u8 = undefined;
         while (true) {
             const len = reader.readAll(&buf) catch |err| return f.fail(f.location_tok, try eb.printString(
                 "read zip stream failed: {s}",

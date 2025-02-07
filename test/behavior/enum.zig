@@ -1070,6 +1070,23 @@ test "tag name with signed enum values" {
     try expect(mem.eql(u8, @tagName(b), "bravo"));
 }
 
+test "@tagName in callconv(.c) function" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    try expect(mem.orderZ(u8, testEnumTagNameCallconvC(), "Two") == .eq);
+    comptime assert(mem.orderZ(u8, testEnumTagNameCallconvC(), "Two") == .eq);
+}
+
+fn testEnumTagNameCallconvC() callconv(.c) [*:0]const u8 {
+    var e: BareNumber = .Two;
+    _ = &e;
+    return @tagName(e);
+}
+
 test "enum literal casting to optional" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;

@@ -9,35 +9,45 @@ pub fn allocator(self: *ThreadSafeAllocator) Allocator {
         .vtable = &.{
             .alloc = alloc,
             .resize = resize,
+            .remap = remap,
             .free = free,
         },
     };
 }
 
-fn alloc(ctx: *anyopaque, n: usize, log2_ptr_align: u8, ra: usize) ?[*]u8 {
+fn alloc(ctx: *anyopaque, n: usize, alignment: std.mem.Alignment, ra: usize) ?[*]u8 {
     const self: *ThreadSafeAllocator = @ptrCast(@alignCast(ctx));
     self.mutex.lock();
     defer self.mutex.unlock();
 
-    return self.child_allocator.rawAlloc(n, log2_ptr_align, ra);
+    return self.child_allocator.rawAlloc(n, alignment, ra);
 }
 
-fn resize(ctx: *anyopaque, buf: []u8, log2_buf_align: u8, new_len: usize, ret_addr: usize) bool {
+fn resize(ctx: *anyopaque, buf: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
     const self: *ThreadSafeAllocator = @ptrCast(@alignCast(ctx));
 
     self.mutex.lock();
     defer self.mutex.unlock();
 
-    return self.child_allocator.rawResize(buf, log2_buf_align, new_len, ret_addr);
+    return self.child_allocator.rawResize(buf, alignment, new_len, ret_addr);
 }
 
-fn free(ctx: *anyopaque, buf: []u8, log2_buf_align: u8, ret_addr: usize) void {
+fn remap(context: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, return_address: usize) ?[*]u8 {
+    const self: *ThreadSafeAllocator = @ptrCast(@alignCast(context));
+
+    self.mutex.lock();
+    defer self.mutex.unlock();
+
+    return self.child_allocator.rawRemap(memory, alignment, new_len, return_address);
+}
+
+fn free(ctx: *anyopaque, buf: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
     const self: *ThreadSafeAllocator = @ptrCast(@alignCast(ctx));
 
     self.mutex.lock();
     defer self.mutex.unlock();
 
-    return self.child_allocator.rawFree(buf, log2_buf_align, ret_addr);
+    return self.child_allocator.rawFree(buf, alignment, ret_addr);
 }
 
 const std = @import("../std.zig");

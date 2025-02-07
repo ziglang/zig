@@ -589,3 +589,19 @@ comptime {
     // should override the result of the previous analysis.
     for (0..2) |_| _ = fn (void) void;
 }
+
+test "generic parameter resolves to comptime-only type but is not marked comptime" {
+    const S = struct {
+        fn foo(comptime T: type, rt_false: bool, func: fn (T) void) T {
+            if (rt_false) _ = foo(T, rt_false, func);
+            return 123;
+        }
+        fn bar(_: u8) void {}
+    };
+
+    const rt_result = S.foo(u8, false, S.bar);
+    try expect(rt_result == 123);
+
+    const ct_result = comptime S.foo(u8, false, S.bar);
+    comptime std.debug.assert(ct_result == 123);
+}

@@ -2322,3 +2322,19 @@ test "assign global tagged union" {
     try expect(U.global == .b);
     try expect(U.global.b == 123456);
 }
+
+test "set mutable union by switching on same union" {
+    const U = union(enum) {
+        foo,
+        bar: usize,
+    };
+
+    var val: U = .foo;
+    val = switch (val) {
+        .foo => .{ .bar = 2 },
+        .bar => .foo,
+    };
+
+    try expect(val == .bar);
+    try expect(val.bar == 2);
+}

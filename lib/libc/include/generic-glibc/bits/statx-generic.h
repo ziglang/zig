@@ -25,6 +25,9 @@
 #include <bits/types/struct_statx_timestamp.h>
 #include <bits/types/struct_statx.h>
 
+// zig patch: check target glibc version
+#if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 28) || __GLIBC__ > 2
+
 #ifndef STATX_TYPE
 # define STATX_TYPE 0x0001U
 # define STATX_MODE 0x0002U
@@ -64,3 +67,5 @@ int statx (int __dirfd, const char *__restrict __path, int __flags,
   __THROW __nonnull ((2, 5));
 
 __END_DECLS
+
+#endif /* (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 28) || __GLIBC__ > 2 */
