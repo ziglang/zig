@@ -53,7 +53,7 @@ const min_class = math.log2(@sizeOf(usize));
 const size_class_count = math.log2(slab_len) - min_class;
 /// When a freelist length exceeds this number, a `free` will rotate up to
 /// `max_free_search` times before pushing.
-const max_freelist_len: u8 = 16;
+const max_freelist_len: u8 = 255;
 const max_free_search = 1;
 /// Before mapping a fresh page, `alloc` will rotate this many times.
 const max_alloc_search = 1;
@@ -223,6 +223,7 @@ fn free(context: *anyopaque, memory: []u8, alignment: mem.Alignment, ra: usize) 
         if (freelist_len < max_freelist_len) {
             @branchHint(.likely);
             defer t.unlock();
+            t.freelist_lens[class] = freelist_len +| 1;
             node.* = t.frees[class];
             t.frees[class] = @intFromPtr(node);
             return;
