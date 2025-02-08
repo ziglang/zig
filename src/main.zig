@@ -35,6 +35,8 @@ const Zcu = @import("Zcu.zig");
 const mingw = @import("mingw.zig");
 const dev = @import("dev.zig");
 
+const gccjit = @import("codegen/gccjit.zig");
+
 test {
     _ = Package;
 }
@@ -462,6 +464,8 @@ const usage_build_generic =
     \\  -fno-libllvm              Prevent using the LLVM API in the codegen backend
     \\  -fclang                   Force using Clang as the C/C++ compilation backend
     \\  -fno-clang                Prevent using Clang as the C/C++ compilation backend
+    \\  -fgccjit                  Use libgccjit as the codegen backend
+    \\  -fno-gccjit               Do not use libgccjit as the codegen backend
     \\  -fPIE                     Force-enable Position Independent Executable
     \\  -fno-PIE                  Force-disable Position Independent Executable
     \\  -flto                     Force-enable Link Time Optimization (requires LLVM extensions)
@@ -1462,6 +1466,10 @@ fn buildOutputType(
                         create_module.opts.use_clang = true;
                     } else if (mem.eql(u8, arg, "-fno-clang")) {
                         create_module.opts.use_clang = false;
+                    } else if (mem.eql(u8, arg, "-fgccjit")) {
+                        create_module.opts.use_gccjit = true;
+                    } else if (mem.eql(u8, arg, "-fno-gccjit")) {
+                        create_module.opts.use_gccjit = false;
                     } else if (mem.eql(u8, arg, "-fsanitize-coverage-trace-pc-guard")) {
                         create_module.opts.san_cov_trace_pc_guard = true;
                     } else if (mem.eql(u8, arg, "-fno-sanitize-coverage-trace-pc-guard")) {

@@ -103,6 +103,7 @@ pub const Options = struct {
     use_lib_llvm: ?bool = null,
     use_lld: ?bool = null,
     use_clang: ?bool = null,
+    use_gccjit: ?bool = null,
     lto: ?LtoMode = null,
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
     wasi_exec_model: ?std.builtin.WasiExecModel = null,

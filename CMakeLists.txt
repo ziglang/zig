@@ -577,6 +577,8 @@ set(ZIG_STAGE2_SOURCES
     src/codegen/spirv/Module.zig
     src/codegen/spirv/Section.zig
     src/codegen/spirv/spec.zig
+    src/codegen/gccjit.zig
+    src/codegen/gccjit/bindings.zig
     src/crash_report.zig
     src/dev.zig
     src/glibc.zig

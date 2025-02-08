@@ -1,0 +1,354 @@
+// Update this every GCC update by translate-c with <libgccjit.h> and copy it here
+
+// C File struct
+//pub const __off_t = c_long;
+//pub const __off64_t = c_long;
+//pub const struct__IO_marker = opaque {};
+//pub const _IO_lock_t = anyopaque;
+//pub const struct__IO_codecvt = opaque {};
+//pub const struct__IO_wide_data = opaque {};
+//pub const struct__IO_FILE = extern struct {
+//    _flags: c_int = @import("std").mem.zeroes(c_int),
+//    _IO_read_ptr: [*c]u8 = @import("std").mem.zeroes([*c]u8),
+//    _IO_read_end: [*c]u8 = @import("std").mem.zeroes([*c]u8),
+//    _IO_read_base: [*c]u8 = @import("std").mem.zeroes([*c]u8),
+//    _IO_write_base: [*c]u8 = @import("std").mem.zeroes([*c]u8),
+//    _IO_write_ptr: [*c]u8 = @import("std").mem.zeroes([*c]u8),
+//    _IO_write_end: [*c]u8 = @import("std").mem.zeroes([*c]u8),
+//    _IO_buf_base: [*c]u8 = @import("std").mem.zeroes([*c]u8),
+//    _IO_buf_end: [*c]u8 = @import("std").mem.zeroes([*c]u8),
+//    _IO_save_base: [*c]u8 = @import("std").mem.zeroes([*c]u8),
+//    _IO_backup_base: [*c]u8 = @import("std").mem.zeroes([*c]u8),
+//    _IO_save_end: [*c]u8 = @import("std").mem.zeroes([*c]u8),
+//    _markers: ?*struct__IO_marker = @import("std").mem.zeroes(?*struct__IO_marker),
+//    _chain: [*c]struct__IO_FILE = @import("std").mem.zeroes([*c]struct__IO_FILE),
+//    _fileno: c_int = @import("std").mem.zeroes(c_int),
+//    _flags2: c_int = @import("std").mem.zeroes(c_int),
+//    _old_offset: __off_t = @import("std").mem.zeroes(__off_t),
+//    _cur_column: c_ushort = @import("std").mem.zeroes(c_ushort),
+//    _vtable_offset: i8 = @import("std").mem.zeroes(i8),
+//    _shortbuf: [1]u8 = @import("std").mem.zeroes([1]u8),
+//    _lock: ?*_IO_lock_t = @import("std").mem.zeroes(?*_IO_lock_t),
+//    _offset: __off64_t = @import("std").mem.zeroes(__off64_t),
+//    _codecvt: ?*struct__IO_codecvt = @import("std").mem.zeroes(?*struct__IO_codecvt),
+//    _wide_data: ?*struct__IO_wide_data = @import("std").mem.zeroes(?*struct__IO_wide_data),
+//    _freeres_list: [*c]struct__IO_FILE = @import("std").mem.zeroes([*c]struct__IO_FILE),
+//    _freeres_buf: ?*anyopaque = @import("std").mem.zeroes(?*anyopaque),
+//    _prevchain: [*c][*c]struct__IO_FILE = @import("std").mem.zeroes([*c][*c]struct__IO_FILE),
+//     _mode: c_int = @import("std").mem.zeroes(c_int),
+//    _unused2: [20]u8 = @import("std").mem.zeroes([20]u8),
+//};
+//pub const __FILE = struct__IO_FILE;
+//pub const FILE = struct__IO_FILE;
+pub const FILE = opaque {};
+
+pub const struct_gcc_jit_context = opaque {};
+pub const gcc_jit_context = struct_gcc_jit_context;
+pub const struct_gcc_jit_result = opaque {};
+pub const gcc_jit_result = struct_gcc_jit_result;
+pub const struct_gcc_jit_object = opaque {};
+pub const gcc_jit_object = struct_gcc_jit_object;
+pub const struct_gcc_jit_location = opaque {};
+pub const gcc_jit_location = struct_gcc_jit_location;
+pub const struct_gcc_jit_type = opaque {};
+pub const gcc_jit_type = struct_gcc_jit_type;
+pub const struct_gcc_jit_field = opaque {};
+pub const gcc_jit_field = struct_gcc_jit_field;
+pub const struct_gcc_jit_struct = opaque {};
+pub const gcc_jit_struct = struct_gcc_jit_struct;
+pub const struct_gcc_jit_function_type = opaque {};
+pub const gcc_jit_function_type = struct_gcc_jit_function_type;
+pub const struct_gcc_jit_vector_type = opaque {};
+pub const gcc_jit_vector_type = struct_gcc_jit_vector_type;
+pub const struct_gcc_jit_function = opaque {};
+pub const gcc_jit_function = struct_gcc_jit_function;
+pub const struct_gcc_jit_block = opaque {};
+pub const gcc_jit_block = struct_gcc_jit_block;
+pub const struct_gcc_jit_rvalue = opaque {};
+pub const gcc_jit_rvalue = struct_gcc_jit_rvalue;
+pub const struct_gcc_jit_lvalue = opaque {};
+pub const gcc_jit_lvalue = struct_gcc_jit_lvalue;
+pub const struct_gcc_jit_param = opaque {};
+pub const gcc_jit_param = struct_gcc_jit_param;
+pub const struct_gcc_jit_case = opaque {};
+pub const gcc_jit_case = struct_gcc_jit_case;
+pub const struct_gcc_jit_extended_asm = opaque {};
+pub const gcc_jit_extended_asm = struct_gcc_jit_extended_asm;
+pub extern fn gcc_jit_context_acquire() ?*gcc_jit_context;
+pub extern fn gcc_jit_context_release(ctxt: ?*gcc_jit_context) void;
+pub const GCC_JIT_STR_OPTION_PROGNAME: c_int = 0;
+pub const GCC_JIT_NUM_STR_OPTIONS: c_int = 1;
+pub const enum_gcc_jit_str_option = c_uint;
+pub const GCC_JIT_INT_OPTION_OPTIMIZATION_LEVEL: c_int = 0;
+pub const GCC_JIT_NUM_INT_OPTIONS: c_int = 1;
+pub const enum_gcc_jit_int_option = c_uint;
+pub const GCC_JIT_BOOL_OPTION_DEBUGINFO: c_int = 0;
+pub const GCC_JIT_BOOL_OPTION_DUMP_INITIAL_TREE: c_int = 1;
+pub const GCC_JIT_BOOL_OPTION_DUMP_INITIAL_GIMPLE: c_int = 2;
+pub const GCC_JIT_BOOL_OPTION_DUMP_GENERATED_CODE: c_int = 3;
+pub const GCC_JIT_BOOL_OPTION_DUMP_SUMMARY: c_int = 4;
+pub const GCC_JIT_BOOL_OPTION_DUMP_EVERYTHING: c_int = 5;
+pub const GCC_JIT_BOOL_OPTION_SELFCHECK_GC: c_int = 6;
+pub const GCC_JIT_BOOL_OPTION_KEEP_INTERMEDIATES: c_int = 7;
+pub const GCC_JIT_NUM_BOOL_OPTIONS: c_int = 8;
+pub const enum_gcc_jit_bool_option = c_uint;
+pub extern fn gcc_jit_context_set_str_option(ctxt: ?*gcc_jit_context, opt: enum_gcc_jit_str_option, value: [*c]const u8) void;
+pub extern fn gcc_jit_context_set_int_option(ctxt: ?*gcc_jit_context, opt: enum_gcc_jit_int_option, value: c_int) void;
+pub extern fn gcc_jit_context_set_bool_option(ctxt: ?*gcc_jit_context, opt: enum_gcc_jit_bool_option, value: c_int) void;
+pub extern fn gcc_jit_context_set_bool_allow_unreachable_blocks(ctxt: ?*gcc_jit_context, bool_value: c_int) void;
+pub extern fn gcc_jit_context_set_bool_print_errors_to_stderr(ctxt: ?*gcc_jit_context, enabled: c_int) void;
+pub extern fn gcc_jit_context_set_bool_use_external_driver(ctxt: ?*gcc_jit_context, bool_value: c_int) void;
+pub extern fn gcc_jit_context_add_command_line_option(ctxt: ?*gcc_jit_context, optname: [*c]const u8) void;
+pub extern fn gcc_jit_context_add_driver_option(ctxt: ?*gcc_jit_context, optname: [*c]const u8) void;
+pub extern fn gcc_jit_context_compile(ctxt: ?*gcc_jit_context) ?*gcc_jit_result;
+pub const GCC_JIT_OUTPUT_KIND_ASSEMBLER: c_int = 0;
+pub const GCC_JIT_OUTPUT_KIND_OBJECT_FILE: c_int = 1;
+pub const GCC_JIT_OUTPUT_KIND_DYNAMIC_LIBRARY: c_int = 2;
+pub const GCC_JIT_OUTPUT_KIND_EXECUTABLE: c_int = 3;
+pub const enum_gcc_jit_output_kind = c_uint;
+pub extern fn gcc_jit_context_compile_to_file(ctxt: ?*gcc_jit_context, output_kind: enum_gcc_jit_output_kind, output_path: [*c]const u8) void;
+pub extern fn gcc_jit_context_dump_to_file(ctxt: ?*gcc_jit_context, path: [*c]const u8, update_locations: c_int) void;
+pub extern fn gcc_jit_context_set_logfile(ctxt: ?*gcc_jit_context, logfile: [*c]FILE, flags: c_int, verbosity: c_int) void;
+pub extern fn gcc_jit_context_get_first_error(ctxt: ?*gcc_jit_context) [*c]const u8;
+pub extern fn gcc_jit_context_get_last_error(ctxt: ?*gcc_jit_context) [*c]const u8;
+pub extern fn gcc_jit_result_get_code(result: ?*gcc_jit_result, funcname: [*c]const u8) ?*anyopaque;
+pub extern fn gcc_jit_result_get_global(result: ?*gcc_jit_result, name: [*c]const u8) ?*anyopaque;
+pub extern fn gcc_jit_result_release(result: ?*gcc_jit_result) void;
+pub extern fn gcc_jit_object_get_context(obj: ?*gcc_jit_object) ?*gcc_jit_context;
+pub extern fn gcc_jit_object_get_debug_string(obj: ?*gcc_jit_object) [*c]const u8;
+pub extern fn gcc_jit_context_new_location(ctxt: ?*gcc_jit_context, filename: [*c]const u8, line: c_int, column: c_int) ?*gcc_jit_location;
+pub extern fn gcc_jit_location_as_object(loc: ?*gcc_jit_location) ?*gcc_jit_object;
+pub extern fn gcc_jit_type_as_object(@"type": ?*gcc_jit_type) ?*gcc_jit_object;
+pub const GCC_JIT_TYPE_VOID: c_int = 0;
+pub const GCC_JIT_TYPE_VOID_PTR: c_int = 1;
+pub const GCC_JIT_TYPE_BOOL: c_int = 2;
+pub const GCC_JIT_TYPE_CHAR: c_int = 3;
+pub const GCC_JIT_TYPE_SIGNED_CHAR: c_int = 4;
+pub const GCC_JIT_TYPE_UNSIGNED_CHAR: c_int = 5;
+pub const GCC_JIT_TYPE_SHORT: c_int = 6;
+pub const GCC_JIT_TYPE_UNSIGNED_SHORT: c_int = 7;
+pub const GCC_JIT_TYPE_INT: c_int = 8;
+pub const GCC_JIT_TYPE_UNSIGNED_INT: c_int = 9;
+pub const GCC_JIT_TYPE_LONG: c_int = 10;
+pub const GCC_JIT_TYPE_UNSIGNED_LONG: c_int = 11;
+pub const GCC_JIT_TYPE_LONG_LONG: c_int = 12;
+pub const GCC_JIT_TYPE_UNSIGNED_LONG_LONG: c_int = 13;
+pub const GCC_JIT_TYPE_FLOAT: c_int = 14;
+pub const GCC_JIT_TYPE_DOUBLE: c_int = 15;
+pub const GCC_JIT_TYPE_LONG_DOUBLE: c_int = 16;
+pub const GCC_JIT_TYPE_CONST_CHAR_PTR: c_int = 17;
+pub const GCC_JIT_TYPE_SIZE_T: c_int = 18;
+pub const GCC_JIT_TYPE_FILE_PTR: c_int = 19;
+pub const GCC_JIT_TYPE_COMPLEX_FLOAT: c_int = 20;
+pub const GCC_JIT_TYPE_COMPLEX_DOUBLE: c_int = 21;
+pub const GCC_JIT_TYPE_COMPLEX_LONG_DOUBLE: c_int = 22;
+pub const GCC_JIT_TYPE_UINT8_T: c_int = 23;
+pub const GCC_JIT_TYPE_UINT16_T: c_int = 24;
+pub const GCC_JIT_TYPE_UINT32_T: c_int = 25;
+pub const GCC_JIT_TYPE_UINT64_T: c_int = 26;
+pub const GCC_JIT_TYPE_UINT128_T: c_int = 27;
+pub const GCC_JIT_TYPE_INT8_T: c_int = 28;
+pub const GCC_JIT_TYPE_INT16_T: c_int = 29;
+pub const GCC_JIT_TYPE_INT32_T: c_int = 30;
+pub const GCC_JIT_TYPE_INT64_T: c_int = 31;
+pub const GCC_JIT_TYPE_INT128_T: c_int = 32;
+pub const enum_gcc_jit_types = c_uint;
+pub extern fn gcc_jit_context_get_type(ctxt: ?*gcc_jit_context, type_: enum_gcc_jit_types) ?*gcc_jit_type;
+pub extern fn gcc_jit_context_get_int_type(ctxt: ?*gcc_jit_context, num_bytes: c_int, is_signed: c_int) ?*gcc_jit_type;
+pub extern fn gcc_jit_type_get_pointer(@"type": ?*gcc_jit_type) ?*gcc_jit_type;
+pub extern fn gcc_jit_type_get_const(@"type": ?*gcc_jit_type) ?*gcc_jit_type;
+pub extern fn gcc_jit_type_get_volatile(@"type": ?*gcc_jit_type) ?*gcc_jit_type;
+pub extern fn gcc_jit_type_get_restrict(@"type": ?*gcc_jit_type) ?*gcc_jit_type;
+pub extern fn gcc_jit_compatible_types(ltype: ?*gcc_jit_type, rtype: ?*gcc_jit_type) c_int;
+pub extern fn gcc_jit_type_get_size(@"type": ?*gcc_jit_type) isize;
+pub extern fn gcc_jit_context_new_array_type(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, element_type: ?*gcc_jit_type, num_elements: c_int) ?*gcc_jit_type;
+pub extern fn gcc_jit_context_new_field(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, @"type": ?*gcc_jit_type, name: [*c]const u8) ?*gcc_jit_field;
+pub extern fn gcc_jit_context_new_bitfield(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, @"type": ?*gcc_jit_type, width: c_int, name: [*c]const u8) ?*gcc_jit_field;
+pub extern fn gcc_jit_field_as_object(field: ?*gcc_jit_field) ?*gcc_jit_object;
+pub extern fn gcc_jit_context_new_struct_type(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, name: [*c]const u8, num_fields: c_int, fields: [*c]?*gcc_jit_field) ?*gcc_jit_struct;
+pub extern fn gcc_jit_context_new_opaque_struct(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, name: [*c]const u8) ?*gcc_jit_struct;
+pub extern fn gcc_jit_struct_as_type(struct_type: ?*gcc_jit_struct) ?*gcc_jit_type;
+pub extern fn gcc_jit_struct_set_fields(struct_type: ?*gcc_jit_struct, loc: ?*gcc_jit_location, num_fields: c_int, fields: [*c]?*gcc_jit_field) void;
+pub extern fn gcc_jit_struct_get_field(struct_type: ?*gcc_jit_struct, index: usize) ?*gcc_jit_field;
+pub extern fn gcc_jit_struct_get_field_count(struct_type: ?*gcc_jit_struct) usize;
+pub extern fn gcc_jit_context_new_union_type(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, name: [*c]const u8, num_fields: c_int, fields: [*c]?*gcc_jit_field) ?*gcc_jit_type;
+pub extern fn gcc_jit_context_new_function_ptr_type(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, return_type: ?*gcc_jit_type, num_params: c_int, param_types: [*c]?*gcc_jit_type, is_variadic: c_int) ?*gcc_jit_type;
+pub extern fn gcc_jit_context_new_param(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, @"type": ?*gcc_jit_type, name: [*c]const u8) ?*gcc_jit_param;
+pub extern fn gcc_jit_param_as_object(param: ?*gcc_jit_param) ?*gcc_jit_object;
+pub extern fn gcc_jit_param_as_lvalue(param: ?*gcc_jit_param) ?*gcc_jit_lvalue;
+pub extern fn gcc_jit_param_as_rvalue(param: ?*gcc_jit_param) ?*gcc_jit_rvalue;
+pub const GCC_JIT_FUNCTION_EXPORTED: c_int = 0;
+pub const GCC_JIT_FUNCTION_INTERNAL: c_int = 1;
+pub const GCC_JIT_FUNCTION_IMPORTED: c_int = 2;
+pub const GCC_JIT_FUNCTION_ALWAYS_INLINE: c_int = 3;
+pub const enum_gcc_jit_function_kind = c_uint;
+pub const GCC_JIT_TLS_MODEL_NONE: c_int = 0;
+pub const GCC_JIT_TLS_MODEL_GLOBAL_DYNAMIC: c_int = 1;
+pub const GCC_JIT_TLS_MODEL_LOCAL_DYNAMIC: c_int = 2;
+pub const GCC_JIT_TLS_MODEL_INITIAL_EXEC: c_int = 3;
+pub const GCC_JIT_TLS_MODEL_LOCAL_EXEC: c_int = 4;
+pub const enum_gcc_jit_tls_model = c_uint;
+pub extern fn gcc_jit_context_new_function(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, kind: enum_gcc_jit_function_kind, return_type: ?*gcc_jit_type, name: [*c]const u8, num_params: c_int, params: [*c]?*gcc_jit_param, is_variadic: c_int) ?*gcc_jit_function;
+pub extern fn gcc_jit_context_get_builtin_function(ctxt: ?*gcc_jit_context, name: [*c]const u8) ?*gcc_jit_function;
+pub extern fn gcc_jit_function_as_object(func: ?*gcc_jit_function) ?*gcc_jit_object;
+pub extern fn gcc_jit_function_get_param(func: ?*gcc_jit_function, index: c_int) ?*gcc_jit_param;
+pub extern fn gcc_jit_function_dump_to_dot(func: ?*gcc_jit_function, path: [*c]const u8) void;
+pub extern fn gcc_jit_function_new_block(func: ?*gcc_jit_function, name: [*c]const u8) ?*gcc_jit_block;
+pub extern fn gcc_jit_block_as_object(block: ?*gcc_jit_block) ?*gcc_jit_object;
+pub extern fn gcc_jit_block_get_function(block: ?*gcc_jit_block) ?*gcc_jit_function;
+pub const GCC_JIT_GLOBAL_EXPORTED: c_int = 0;
+pub const GCC_JIT_GLOBAL_INTERNAL: c_int = 1;
+pub const GCC_JIT_GLOBAL_IMPORTED: c_int = 2;
+pub const enum_gcc_jit_global_kind = c_uint;
+pub extern fn gcc_jit_context_new_global(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, kind: enum_gcc_jit_global_kind, @"type": ?*gcc_jit_type, name: [*c]const u8) ?*gcc_jit_lvalue;
+pub extern fn gcc_jit_context_new_struct_constructor(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, @"type": ?*gcc_jit_type, num_values: usize, fields: [*c]?*gcc_jit_field, values: [*c]?*gcc_jit_rvalue) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_context_new_union_constructor(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, @"type": ?*gcc_jit_type, field: ?*gcc_jit_field, value: ?*gcc_jit_rvalue) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_context_new_array_constructor(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, @"type": ?*gcc_jit_type, num_values: usize, values: [*c]?*gcc_jit_rvalue) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_global_set_initializer_rvalue(global: ?*gcc_jit_lvalue, init_value: ?*gcc_jit_rvalue) ?*gcc_jit_lvalue;
+pub extern fn gcc_jit_global_set_initializer(global: ?*gcc_jit_lvalue, blob: ?*const anyopaque, num_bytes: usize) ?*gcc_jit_lvalue;
+pub extern fn gcc_jit_lvalue_as_object(lvalue: ?*gcc_jit_lvalue) ?*gcc_jit_object;
+pub extern fn gcc_jit_lvalue_as_rvalue(lvalue: ?*gcc_jit_lvalue) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_rvalue_as_object(rvalue: ?*gcc_jit_rvalue) ?*gcc_jit_object;
+pub extern fn gcc_jit_rvalue_get_type(rvalue: ?*gcc_jit_rvalue) ?*gcc_jit_type;
+pub extern fn gcc_jit_context_new_rvalue_from_int(ctxt: ?*gcc_jit_context, numeric_type: ?*gcc_jit_type, value: c_int) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_context_new_rvalue_from_long(ctxt: ?*gcc_jit_context, numeric_type: ?*gcc_jit_type, value: c_long) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_context_zero(ctxt: ?*gcc_jit_context, numeric_type: ?*gcc_jit_type) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_context_one(ctxt: ?*gcc_jit_context, numeric_type: ?*gcc_jit_type) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_context_new_rvalue_from_double(ctxt: ?*gcc_jit_context, numeric_type: ?*gcc_jit_type, value: f64) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_context_new_rvalue_from_ptr(ctxt: ?*gcc_jit_context, pointer_type: ?*gcc_jit_type, value: ?*anyopaque) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_context_null(ctxt: ?*gcc_jit_context, pointer_type: ?*gcc_jit_type) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_context_new_sizeof(ctxt: ?*gcc_jit_context, @"type": ?*gcc_jit_type) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_context_new_string_literal(ctxt: ?*gcc_jit_context, value: [*c]const u8) ?*gcc_jit_rvalue;
+pub const GCC_JIT_UNARY_OP_MINUS: c_int = 0;
+pub const GCC_JIT_UNARY_OP_BITWISE_NEGATE: c_int = 1;
+pub const GCC_JIT_UNARY_OP_LOGICAL_NEGATE: c_int = 2;
+pub const GCC_JIT_UNARY_OP_ABS: c_int = 3;
+pub const enum_gcc_jit_unary_op = c_uint;
+pub extern fn gcc_jit_context_new_unary_op(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, op: enum_gcc_jit_unary_op, result_type: ?*gcc_jit_type, rvalue: ?*gcc_jit_rvalue) ?*gcc_jit_rvalue;
+pub const GCC_JIT_BINARY_OP_PLUS: c_int = 0;
+pub const GCC_JIT_BINARY_OP_MINUS: c_int = 1;
+pub const GCC_JIT_BINARY_OP_MULT: c_int = 2;
+pub const GCC_JIT_BINARY_OP_DIVIDE: c_int = 3;
+pub const GCC_JIT_BINARY_OP_MODULO: c_int = 4;
+pub const GCC_JIT_BINARY_OP_BITWISE_AND: c_int = 5;
+pub const GCC_JIT_BINARY_OP_BITWISE_XOR: c_int = 6;
+pub const GCC_JIT_BINARY_OP_BITWISE_OR: c_int = 7;
+pub const GCC_JIT_BINARY_OP_LOGICAL_AND: c_int = 8;
+pub const GCC_JIT_BINARY_OP_LOGICAL_OR: c_int = 9;
+pub const GCC_JIT_BINARY_OP_LSHIFT: c_int = 10;
+pub const GCC_JIT_BINARY_OP_RSHIFT: c_int = 11;
+pub const enum_gcc_jit_binary_op = c_uint;
+pub extern fn gcc_jit_context_new_binary_op(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, op: enum_gcc_jit_binary_op, result_type: ?*gcc_jit_type, a: ?*gcc_jit_rvalue, b: ?*gcc_jit_rvalue) ?*gcc_jit_rvalue;
+pub const GCC_JIT_COMPARISON_EQ: c_int = 0;
+pub const GCC_JIT_COMPARISON_NE: c_int = 1;
+pub const GCC_JIT_COMPARISON_LT: c_int = 2;
+pub const GCC_JIT_COMPARISON_LE: c_int = 3;
+pub const GCC_JIT_COMPARISON_GT: c_int = 4;
+pub const GCC_JIT_COMPARISON_GE: c_int = 5;
+pub const enum_gcc_jit_comparison = c_uint;
+pub extern fn gcc_jit_context_new_comparison(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, op: enum_gcc_jit_comparison, a: ?*gcc_jit_rvalue, b: ?*gcc_jit_rvalue) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_context_new_call(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, func: ?*gcc_jit_function, numargs: c_int, args: [*c]?*gcc_jit_rvalue) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_context_new_call_through_ptr(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, fn_ptr: ?*gcc_jit_rvalue, numargs: c_int, args: [*c]?*gcc_jit_rvalue) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_context_new_cast(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, rvalue: ?*gcc_jit_rvalue, @"type": ?*gcc_jit_type) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_context_new_bitcast(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, rvalue: ?*gcc_jit_rvalue, @"type": ?*gcc_jit_type) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_lvalue_set_alignment(lvalue: ?*gcc_jit_lvalue, bytes: c_uint) void;
+pub extern fn gcc_jit_lvalue_get_alignment(lvalue: ?*gcc_jit_lvalue) c_uint;
+pub extern fn gcc_jit_context_new_array_access(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, ptr: ?*gcc_jit_rvalue, index: ?*gcc_jit_rvalue) ?*gcc_jit_lvalue;
+pub extern fn gcc_jit_lvalue_access_field(struct_or_union: ?*gcc_jit_lvalue, loc: ?*gcc_jit_location, field: ?*gcc_jit_field) ?*gcc_jit_lvalue;
+pub extern fn gcc_jit_rvalue_access_field(struct_or_union: ?*gcc_jit_rvalue, loc: ?*gcc_jit_location, field: ?*gcc_jit_field) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_rvalue_dereference_field(ptr: ?*gcc_jit_rvalue, loc: ?*gcc_jit_location, field: ?*gcc_jit_field) ?*gcc_jit_lvalue;
+pub extern fn gcc_jit_rvalue_dereference(rvalue: ?*gcc_jit_rvalue, loc: ?*gcc_jit_location) ?*gcc_jit_lvalue;
+pub extern fn gcc_jit_lvalue_get_address(lvalue: ?*gcc_jit_lvalue, loc: ?*gcc_jit_location) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_lvalue_set_tls_model(lvalue: ?*gcc_jit_lvalue, model: enum_gcc_jit_tls_model) void;
+pub extern fn gcc_jit_lvalue_set_link_section(lvalue: ?*gcc_jit_lvalue, section_name: [*c]const u8) void;
+pub extern fn gcc_jit_lvalue_set_register_name(lvalue: ?*gcc_jit_lvalue, reg_name: [*c]const u8) void;
+pub extern fn gcc_jit_function_new_local(func: ?*gcc_jit_function, loc: ?*gcc_jit_location, @"type": ?*gcc_jit_type, name: [*c]const u8) ?*gcc_jit_lvalue;
+pub extern fn gcc_jit_block_add_eval(block: ?*gcc_jit_block, loc: ?*gcc_jit_location, rvalue: ?*gcc_jit_rvalue) void;
+pub extern fn gcc_jit_block_add_assignment(block: ?*gcc_jit_block, loc: ?*gcc_jit_location, lvalue: ?*gcc_jit_lvalue, rvalue: ?*gcc_jit_rvalue) void;
+pub extern fn gcc_jit_block_add_assignment_op(block: ?*gcc_jit_block, loc: ?*gcc_jit_location, lvalue: ?*gcc_jit_lvalue, op: enum_gcc_jit_binary_op, rvalue: ?*gcc_jit_rvalue) void;
+pub extern fn gcc_jit_block_add_comment(block: ?*gcc_jit_block, loc: ?*gcc_jit_location, text: [*c]const u8) void;
+pub extern fn gcc_jit_block_end_with_conditional(block: ?*gcc_jit_block, loc: ?*gcc_jit_location, boolval: ?*gcc_jit_rvalue, on_true: ?*gcc_jit_block, on_false: ?*gcc_jit_block) void;
+pub extern fn gcc_jit_block_end_with_jump(block: ?*gcc_jit_block, loc: ?*gcc_jit_location, target: ?*gcc_jit_block) void;
+pub extern fn gcc_jit_block_end_with_return(block: ?*gcc_jit_block, loc: ?*gcc_jit_location, rvalue: ?*gcc_jit_rvalue) void;
+pub extern fn gcc_jit_block_end_with_void_return(block: ?*gcc_jit_block, loc: ?*gcc_jit_location) void;
+pub extern fn gcc_jit_context_new_case(ctxt: ?*gcc_jit_context, min_value: ?*gcc_jit_rvalue, max_value: ?*gcc_jit_rvalue, dest_block: ?*gcc_jit_block) ?*gcc_jit_case;
+pub extern fn gcc_jit_case_as_object(case_: ?*gcc_jit_case) ?*gcc_jit_object;
+pub extern fn gcc_jit_block_end_with_switch(block: ?*gcc_jit_block, loc: ?*gcc_jit_location, expr: ?*gcc_jit_rvalue, default_block: ?*gcc_jit_block, num_cases: c_int, cases: [*c]?*gcc_jit_case) void;
+pub extern fn gcc_jit_context_new_child_context(parent_ctxt: ?*gcc_jit_context) ?*gcc_jit_context;
+pub extern fn gcc_jit_context_dump_reproducer_to_file(ctxt: ?*gcc_jit_context, path: [*c]const u8) void;
+pub extern fn gcc_jit_context_enable_dump(ctxt: ?*gcc_jit_context, dumpname: [*c]const u8, out_ptr: [*c][*c]u8) void;
+pub const struct_gcc_jit_timer = opaque {};
+pub const gcc_jit_timer = struct_gcc_jit_timer;
+pub extern fn gcc_jit_timer_new() ?*gcc_jit_timer;
+pub extern fn gcc_jit_timer_release(timer: ?*gcc_jit_timer) void;
+pub extern fn gcc_jit_context_set_timer(ctxt: ?*gcc_jit_context, timer: ?*gcc_jit_timer) void;
+pub extern fn gcc_jit_context_get_timer(ctxt: ?*gcc_jit_context) ?*gcc_jit_timer;
+pub extern fn gcc_jit_timer_push(timer: ?*gcc_jit_timer, item_name: [*c]const u8) void;
+pub extern fn gcc_jit_timer_pop(timer: ?*gcc_jit_timer, item_name: [*c]const u8) void;
+pub extern fn gcc_jit_timer_print(timer: ?*gcc_jit_timer, f_out: [*c]FILE) void;
+pub extern fn gcc_jit_rvalue_set_bool_require_tail_call(call: ?*gcc_jit_rvalue, require_tail_call: c_int) void;
+pub extern fn gcc_jit_type_get_aligned(@"type": ?*gcc_jit_type, alignment_in_bytes: usize) ?*gcc_jit_type;
+pub extern fn gcc_jit_type_get_vector(@"type": ?*gcc_jit_type, num_units: usize) ?*gcc_jit_type;
+pub extern fn gcc_jit_function_get_address(@"fn": ?*gcc_jit_function, loc: ?*gcc_jit_location) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_context_new_rvalue_from_vector(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, vec_type: ?*gcc_jit_type, num_elements: usize, elements: [*c]?*gcc_jit_rvalue) ?*gcc_jit_rvalue;
+pub extern fn gcc_jit_version_major() c_int;
+pub extern fn gcc_jit_version_minor() c_int;
+pub extern fn gcc_jit_version_patchlevel() c_int;
+pub extern fn gcc_jit_block_add_extended_asm(block: ?*gcc_jit_block, loc: ?*gcc_jit_location, asm_template: [*c]const u8) ?*gcc_jit_extended_asm;
+pub extern fn gcc_jit_block_end_with_extended_asm_goto(block: ?*gcc_jit_block, loc: ?*gcc_jit_location, asm_template: [*c]const u8, num_goto_blocks: c_int, goto_blocks: [*c]?*gcc_jit_block, fallthrough_block: ?*gcc_jit_block) ?*gcc_jit_extended_asm;
+pub extern fn gcc_jit_extended_asm_as_object(ext_asm: ?*gcc_jit_extended_asm) ?*gcc_jit_object;
+pub extern fn gcc_jit_extended_asm_set_volatile_flag(ext_asm: ?*gcc_jit_extended_asm, flag: c_int) void;
+pub extern fn gcc_jit_extended_asm_set_inline_flag(ext_asm: ?*gcc_jit_extended_asm, flag: c_int) void;
+pub extern fn gcc_jit_extended_asm_add_output_operand(ext_asm: ?*gcc_jit_extended_asm, asm_symbolic_name: [*c]const u8, constraint: [*c]const u8, dest: ?*gcc_jit_lvalue) void;
+pub extern fn gcc_jit_extended_asm_add_input_operand(ext_asm: ?*gcc_jit_extended_asm, asm_symbolic_name: [*c]const u8, constraint: [*c]const u8, src: ?*gcc_jit_rvalue) void;
+pub extern fn gcc_jit_extended_asm_add_clobber(ext_asm: ?*gcc_jit_extended_asm, victim: [*c]const u8) void;
+pub extern fn gcc_jit_context_add_top_level_asm(ctxt: ?*gcc_jit_context, loc: ?*gcc_jit_location, asm_stmts: [*c]const u8) void;
+pub extern fn gcc_jit_function_get_return_type(func: ?*gcc_jit_function) ?*gcc_jit_type;
+pub extern fn gcc_jit_function_get_param_count(func: ?*gcc_jit_function) usize;
+pub extern fn gcc_jit_type_dyncast_array(@"type": ?*gcc_jit_type) ?*gcc_jit_type;
+pub extern fn gcc_jit_type_is_bool(@"type": ?*gcc_jit_type) c_int;
+pub extern fn gcc_jit_type_dyncast_function_ptr_type(@"type": ?*gcc_jit_type) ?*gcc_jit_function_type;
+pub extern fn gcc_jit_function_type_get_return_type(function_type: ?*gcc_jit_function_type) ?*gcc_jit_type;
+pub extern fn gcc_jit_function_type_get_param_count(function_type: ?*gcc_jit_function_type) usize;
+pub extern fn gcc_jit_function_type_get_param_type(function_type: ?*gcc_jit_function_type, index: usize) ?*gcc_jit_type;
+pub extern fn gcc_jit_type_is_integral(@"type": ?*gcc_jit_type) c_int;
+pub extern fn gcc_jit_type_is_pointer(@"type": ?*gcc_jit_type) ?*gcc_jit_type;
+pub extern fn gcc_jit_type_dyncast_vector(@"type": ?*gcc_jit_type) ?*gcc_jit_vector_type;
+pub extern fn gcc_jit_type_is_struct(@"type": ?*gcc_jit_type) ?*gcc_jit_struct;
+pub extern fn gcc_jit_vector_type_get_num_units(vector_type: ?*gcc_jit_vector_type) usize;
+pub extern fn gcc_jit_vector_type_get_element_type(vector_type: ?*gcc_jit_vector_type) ?*gcc_jit_type;
+pub extern fn gcc_jit_type_unqualified(@"type": ?*gcc_jit_type) ?*gcc_jit_type;
+pub const GCC_JIT_FN_ATTRIBUTE_ALIAS: c_int = 0;
+pub const GCC_JIT_FN_ATTRIBUTE_ALWAYS_INLINE: c_int = 1;
+pub const GCC_JIT_FN_ATTRIBUTE_INLINE: c_int = 2;
+pub const GCC_JIT_FN_ATTRIBUTE_NOINLINE: c_int = 3;
+pub const GCC_JIT_FN_ATTRIBUTE_TARGET: c_int = 4;
+pub const GCC_JIT_FN_ATTRIBUTE_USED: c_int = 5;
+pub const GCC_JIT_FN_ATTRIBUTE_VISIBILITY: c_int = 6;
+pub const GCC_JIT_FN_ATTRIBUTE_COLD: c_int = 7;
+pub const GCC_JIT_FN_ATTRIBUTE_RETURNS_TWICE: c_int = 8;
+pub const GCC_JIT_FN_ATTRIBUTE_PURE: c_int = 9;
+pub const GCC_JIT_FN_ATTRIBUTE_CONST: c_int = 10;
+pub const GCC_JIT_FN_ATTRIBUTE_WEAK: c_int = 11;
+pub const GCC_JIT_FN_ATTRIBUTE_NONNULL: c_int = 12;
+pub const GCC_JIT_FN_ATTRIBUTE_MAX: c_int = 13;
+pub const enum_gcc_jit_fn_attribute = c_uint;
+pub extern fn gcc_jit_function_add_attribute(func: ?*gcc_jit_function, attribute: enum_gcc_jit_fn_attribute) void;
+pub extern fn gcc_jit_function_add_string_attribute(func: ?*gcc_jit_function, attribute: enum_gcc_jit_fn_attribute, value: [*c]const u8) void;
+pub extern fn gcc_jit_function_add_integer_array_attribute(func: ?*gcc_jit_function, attribute: enum_gcc_jit_fn_attribute, value: [*c]const c_int, length: usize) void;
+pub const GCC_JIT_VARIABLE_ATTRIBUTE_VISIBILITY: c_int = 0;
+pub const GCC_JIT_VARIABLE_ATTRIBUTE_MAX: c_int = 1;
+pub const enum_gcc_jit_variable_attribute = c_uint;
+pub const gcc_jit_str_option = enum_gcc_jit_str_option;
+pub const gcc_jit_int_option = enum_gcc_jit_int_option;
+pub const gcc_jit_bool_option = enum_gcc_jit_bool_option;
+pub const gcc_jit_output_kind = enum_gcc_jit_output_kind;
+pub const gcc_jit_types = enum_gcc_jit_types;
+pub const gcc_jit_function_kind = enum_gcc_jit_function_kind;
+pub const gcc_jit_tls_model = enum_gcc_jit_tls_model;
+pub const gcc_jit_global_kind = enum_gcc_jit_global_kind;
+pub const gcc_jit_unary_op = enum_gcc_jit_unary_op;
+pub const gcc_jit_binary_op = enum_gcc_jit_binary_op;
+pub const gcc_jit_comparison = enum_gcc_jit_comparison;
+pub const gcc_jit_fn_attribute = enum_gcc_jit_fn_attribute;
+pub const gcc_jit_variable_attribute = enum_gcc_jit_variable_attribute;
