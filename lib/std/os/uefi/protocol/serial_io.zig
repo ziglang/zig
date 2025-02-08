@@ -55,19 +55,19 @@ pub const SerialIo = extern struct {
     };
 
     pub const ParityType = enum(u32) {
-        DefaultParity,
-        NoParity,
-        EvenParity,
-        OddParity,
-        MarkParity,
-        SpaceParity,
+        default_parity,
+        no_parity,
+        even_parity,
+        odd_parity,
+        mark_parity,
+        space_parity,
     };
 
     pub const StopBitsType = enum(u32) {
-        DefaultStopBits,
-        OneStopBit,
-        OneFiveStopBits,
-        TwoStopBits,
+        default_stop_bits,
+        one_stop_bit,
+        one_five_stop_bits,
+        two_stop_bits,
     };
 
     pub const Mode = extern struct {
