@@ -353,10 +353,13 @@ else if (builtin.target.cpu.arch.isWasm()) .{
 } else if (builtin.target.os.tag == .plan9) .{
     .ptr = undefined,
     .vtable = &SbrkAllocator(std.os.plan9.sbrk).vtable,
-} else .{
-    .ptr = undefined,
-    .vtable = &PageAllocator.vtable,
-};
+} else if (builtin.target.os.tag == .uefi)
+    std.os.uefi.global_page_allocator.allocator()
+else
+    .{
+        .ptr = undefined,
+        .vtable = &PageAllocator.vtable,
+    };
 
 pub const smp_allocator: Allocator = .{
     .ptr = undefined,
