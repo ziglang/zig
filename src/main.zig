@@ -5174,6 +5174,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .hash_tok = 0,
                     .name_tok = 0,
                     .lazy_status = .eager,
+                    .unpack = true,
                     .parent_package_root = build_mod.root,
                     .parent_manifest_ast = null,
                     .prog_node = fetch_prog_node,
@@ -6965,6 +6966,7 @@ const usage_fetch =
     \\  --save=[name]                 Add the fetched package to build.zig.zon as name
     \\  --save-exact                  Add the fetched package to build.zig.zon, storing the URL verbatim
     \\  --save-exact=[name]           Add the fetched package to build.zig.zon as name, storing the URL verbatim
+    \\  --no-unpack                   Don't unpack the package
     \\
 ;
 
@@ -6986,6 +6988,7 @@ fn cmdFetch(
         yes: ?[]const u8,
         exact: ?[]const u8,
     } = .no;
+    var unpack = true;
 
     {
         var i: usize = 0;
@@ -7010,6 +7013,8 @@ fn cmdFetch(
                     save = .{ .exact = null };
                 } else if (mem.startsWith(u8, arg, "--save-exact=")) {
                     save = .{ .exact = arg["--save-exact=".len..] };
+                } else if (mem.eql(u8, arg, "--no-unpack")) {
+                    unpack = false;
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
@@ -7064,6 +7069,7 @@ fn cmdFetch(
         .hash_tok = 0,
         .name_tok = 0,
         .lazy_status = .eager,
+        .unpack = unpack,
         .parent_package_root = undefined,
         .parent_manifest_ast = null,
         .prog_node = root_prog_node,
