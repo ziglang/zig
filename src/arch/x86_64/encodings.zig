@@ -1392,6 +1392,10 @@ pub const table = [_]Entry{
 
     .{ .ucomiss, .rm, &.{ .xmm, .xmm_m32 }, &.{ 0x0f, 0x2e }, 0, .none, .sse },
 
+    .{ .unpckhps, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x0f, 0x15 }, 0, .none, .sse },
+
+    .{ .unpcklps, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x0f, 0x14 }, 0, .none, .sse },
+
     .{ .xorps, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x0f, 0x57 }, 0, .none, .sse },
 
     // SSE2
@@ -1610,6 +1614,10 @@ pub const table = [_]Entry{
     .{ .subsd, .rm, &.{ .xmm, .xmm_m64 }, &.{ 0xf2, 0x0f, 0x5c }, 0, .none, .sse2 },
 
     .{ .ucomisd, .rm, &.{ .xmm, .xmm_m64 }, &.{ 0x66, 0x0f, 0x2e }, 0, .none, .sse2 },
+
+    .{ .unpckhpd, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x15 }, 0, .none, .sse2 },
+
+    .{ .unpcklpd, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x14 }, 0, .none, .sse2 },
 
     .{ .xorpd, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x57 }, 0, .none, .sse2 },
 
@@ -2280,6 +2288,18 @@ pub const table = [_]Entry{
     .{ .vucomisd, .rm, &.{ .xmm, .xmm_m64 }, &.{ 0x66, 0x0f, 0x2e }, 0, .vex_lig_wig, .avx },
 
     .{ .vucomiss, .rm, &.{ .xmm, .xmm_m32 }, &.{ 0x0f, 0x2e }, 0, .vex_lig_wig, .avx },
+
+    .{ .vunpckhpd, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x15 }, 0, .vex_128_wig, .avx },
+    .{ .vunpckhpd, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x15 }, 0, .vex_256_wig, .avx },
+
+    .{ .vunpckhps, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x0f, 0x15 }, 0, .vex_128_wig, .avx },
+    .{ .vunpckhps, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x0f, 0x15 }, 0, .vex_256_wig, .avx },
+
+    .{ .vunpcklpd, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x14 }, 0, .vex_128_wig, .avx },
+    .{ .vunpcklpd, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x14 }, 0, .vex_256_wig, .avx },
+
+    .{ .vunpcklps, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x0f, 0x14 }, 0, .vex_128_wig, .avx },
+    .{ .vunpcklps, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x0f, 0x14 }, 0, .vex_256_wig, .avx },
 
     .{ .vxorpd, .rvm, &.{ .xmm, .xmm, .xmm_m128 }, &.{ 0x66, 0x0f, 0x57 }, 0, .vex_128_wig, .avx },
     .{ .vxorpd, .rvm, &.{ .ymm, .ymm, .ymm_m256 }, &.{ 0x66, 0x0f, 0x57 }, 0, .vex_256_wig, .avx },
