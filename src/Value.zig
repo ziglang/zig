@@ -270,7 +270,7 @@ pub fn getUnsignedIntInner(
         else => switch (zcu.intern_pool.indexToKey(val.toIntern())) {
             .undef => unreachable,
             .int => |int| switch (int.storage) {
-                .big_int => |big_int| big_int.to(u64) catch null,
+                .big_int => |big_int| big_int.toInt(u64) catch null,
                 .u64 => |x| x,
                 .i64 => |x| std.math.cast(u64, x),
                 .lazy_align => |ty| (try Type.fromInterned(ty).abiAlignmentInner(strat.toLazy(), zcu, tid)).scalar.toByteUnits() orelse 0,
@@ -311,7 +311,7 @@ pub fn toSignedInt(val: Value, zcu: *const Zcu) i64 {
         .bool_true => 1,
         else => switch (zcu.intern_pool.indexToKey(val.toIntern())) {
             .int => |int| switch (int.storage) {
-                .big_int => |big_int| big_int.to(i64) catch unreachable,
+                .big_int => |big_int| big_int.toInt(i64) catch unreachable,
                 .i64 => |x| x,
                 .u64 => |x| @intCast(x),
                 .lazy_align => |ty| @intCast(Type.fromInterned(ty).abiAlignment(zcu).toByteUnits() orelse 0),
@@ -898,7 +898,7 @@ pub fn readFromPackedMemory(
 pub fn toFloat(val: Value, comptime T: type, zcu: *Zcu) T {
     return switch (zcu.intern_pool.indexToKey(val.toIntern())) {
         .int => |int| switch (int.storage) {
-            .big_int => |big_int| @floatCast(bigIntToFloat(big_int.limbs, big_int.positive)),
+            .big_int => |big_int| big_int.toFloat(T),
             inline .u64, .i64 => |x| {
                 if (T == f80) {
                     @panic("TODO we can't lower this properly on non-x86 llvm backend yet");
@@ -913,25 +913,6 @@ pub fn toFloat(val: Value, comptime T: type, zcu: *Zcu) T {
         },
         else => unreachable,
     };
-}
-
-/// TODO move this to std lib big int code
-fn bigIntToFloat(limbs: []const std.math.big.Limb, positive: bool) f128 {
-    if (limbs.len == 0) return 0;
-
-    const base = std.math.maxInt(std.math.big.Limb) + 1;
-    var result: f128 = 0;
-    var i: usize = limbs.len;
-    while (i != 0) {
-        i -= 1;
-        const limb: f128 = @floatFromInt(limbs[i]);
-        result = @mulAdd(f128, base, result, limb);
-    }
-    if (positive) {
-        return result;
-    } else {
-        return -result;
-    }
 }
 
 pub fn clz(val: Value, ty: Type, zcu: *Zcu) u64 {
@@ -1548,7 +1529,7 @@ pub fn floatFromIntScalar(val: Value, float_ty: Type, pt: Zcu.PerThread, comptim
         .undef => try pt.undefValue(float_ty),
         .int => |int| switch (int.storage) {
             .big_int => |big_int| {
-                const float = bigIntToFloat(big_int.limbs, big_int.positive);
+                const float = big_int.toFloat(f128);
                 return pt.floatValue(float_ty, float);
             },
             inline .u64, .i64 => |x| floatFromIntInner(x, float_ty, pt),
@@ -4583,7 +4564,7 @@ pub fn interpret(val: Value, comptime T: type, pt: Zcu.PerThread) error{ OutOfMe
         .int => switch (ip.indexToKey(val.toIntern()).int.storage) {
             .lazy_align, .lazy_size => unreachable, // `val` is fully resolved
             inline .u64, .i64 => |x| std.math.cast(T, x) orelse return error.TypeMismatch,
-            .big_int => |big| big.to(T) catch return error.TypeMismatch,
+            .big_int => |big| big.toInt(T) catch return error.TypeMismatch,
         },
 
         .float => val.toFloat(T, zcu),

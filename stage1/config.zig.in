@@ -11,6 +11,6 @@ pub const enable_link_snapshots = false;
 pub const enable_tracy = false;
 pub const value_tracing = false;
 pub const skip_non_native = false;
-pub const force_gpa = false;
+pub const debug_gpa = false;
 pub const dev = .core;
 pub const value_interpret_mode = .direct;

@@ -750,8 +750,7 @@ pub const File = struct {
         {
             const ti = ti_id.resolveFull(&pt.zcu.intern_pool).?;
             const file = pt.zcu.fileByIndex(ti.file);
-            assert(file.zir_loaded);
-            const inst = file.zir.instructions.get(@intFromEnum(ti.inst));
+            const inst = file.zir.?.instructions.get(@intFromEnum(ti.inst));
             assert(inst.tag == .declaration);
         }
 

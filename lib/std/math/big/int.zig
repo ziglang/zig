@@ -1793,9 +1793,13 @@ pub const Mutable = struct {
     /// The upper bound is `calcTwosCompLimbCount(a.len)`.
     pub fn truncate(r: *Mutable, a: Const, signedness: Signedness, bit_count: usize) void {
         const req_limbs = calcTwosCompLimbCount(bit_count);
+        const abs_trunc_a: Const = .{
+            .positive = true,
+            .limbs = a.limbs[0..@min(a.limbs.len, req_limbs)],
+        };
 
         // Handle 0-bit integers.
-        if (req_limbs == 0 or a.eqlZero()) {
+        if (req_limbs == 0 or abs_trunc_a.eqlZero()) {
             r.set(0);
             return;
         }
@@ -1810,15 +1814,10 @@ pub const Mutable = struct {
             // Note, we simply take req_limbs * @bitSizeOf(Limb) as the
             // target bit count.
 
-            r.addScalar(a.abs(), -1);
+            r.addScalar(abs_trunc_a, -1);
 
             // Zero-extend the result
-            if (req_limbs > r.len) {
-                @memset(r.limbs[r.len..req_limbs], 0);
-            }
-
-            // Truncate to required number of limbs.
-            assert(r.limbs.len >= req_limbs);
+            @memset(r.limbs[r.len..req_limbs], 0);
             r.len = req_limbs;
 
             // Without truncating, we can already peek at the sign bit of the result here.
@@ -1846,16 +1845,10 @@ pub const Mutable = struct {
                 r.normalize(r.len);
             }
         } else {
-            if (a.limbs.len < req_limbs) {
-                // Integer fits within target bits, no wrapping required.
-                r.copy(a);
-                return;
-            }
+            r.copy(abs_trunc_a);
+            // If the integer fits within target bits, no wrapping is required.
+            if (r.len < req_limbs) return;
 
-            r.copy(.{
-                .positive = a.positive,
-                .limbs = a.limbs[0..req_limbs],
-            });
             r.limbs[r.len - 1] &= mask;
             r.normalize(r.len);
 
@@ -2175,10 +2168,13 @@ pub const Const = struct {
         TargetTooSmall,
     };
 
-    /// Convert self to type T.
+    /// Deprecated; use `toInt`.
+    pub const to = toInt;
+
+    /// Convert self to integer type T.
     ///
     /// Returns an error if self cannot be narrowed into the requested type without truncation.
-    pub fn to(self: Const, comptime T: type) ConvertError!T {
+    pub fn toInt(self: Const, comptime T: type) ConvertError!T {
         switch (@typeInfo(T)) {
             .int => |info| {
                 // Make sure -0 is handled correctly.
@@ -2216,7 +2212,26 @@ pub const Const = struct {
                     }
                 }
             },
-            else => @compileError("cannot convert Const to type " ++ @typeName(T)),
+            else => @compileError("expected int type, found '" ++ @typeName(T) ++ "'"),
+        }
+    }
+
+    /// Convert self to float type T.
+    pub fn toFloat(self: Const, comptime T: type) T {
+        if (self.limbs.len == 0) return 0;
+
+        const base = std.math.maxInt(std.math.big.Limb) + 1;
+        var result: f128 = 0;
+        var i: usize = self.limbs.len;
+        while (i != 0) {
+            i -= 1;
+            const limb: f128 = @floatFromInt(self.limbs[i]);
+            result = @mulAdd(f128, base, result, limb);
+        }
+        if (self.positive) {
+            return @floatCast(result);
+        } else {
+            return @floatCast(-result);
         }
     }
 
@@ -2775,11 +2790,19 @@ pub const Managed = struct {
 
     pub const ConvertError = Const.ConvertError;
 
-    /// Convert self to type T.
+    /// Deprecated; use `toInt`.
+    pub const to = toInt;
+
+    /// Convert self to integer type T.
     ///
     /// Returns an error if self cannot be narrowed into the requested type without truncation.
-    pub fn to(self: Managed, comptime T: type) ConvertError!T {
-        return self.toConst().to(T);
+    pub fn toInt(self: Managed, comptime T: type) ConvertError!T {
+        return self.toConst().toInt(T);
+    }
+
+    /// Convert self to float type T.
+    pub fn toFloat(self: Managed, comptime T: type) T {
+        return self.toConst().toFloat(T);
     }
 
     /// Set self from the string representation `value`.

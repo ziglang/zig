@@ -105,21 +105,19 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return result;
         }
 
-        /// The caller owns the returned memory. Empties this ArrayList,
-        /// Its capacity is cleared, making deinit() safe but unnecessary to call.
+        /// The caller owns the returned memory. Empties this ArrayList.
+        /// Its capacity is cleared, making `deinit` safe but unnecessary to call.
         pub fn toOwnedSlice(self: *Self) Allocator.Error!Slice {
             const allocator = self.allocator;
 
             const old_memory = self.allocatedSlice();
-            if (allocator.resize(old_memory, self.items.len)) {
-                const result = self.items;
+            if (allocator.remap(old_memory, self.items.len)) |new_items| {
                 self.* = init(allocator);
-                return result;
+                return new_items;
             }
 
             const new_memory = try allocator.alignedAlloc(T, alignment, self.items.len);
             @memcpy(new_memory, self.items);
-            @memset(self.items, undefined);
             self.clearAndFree();
             return new_memory;
         }
@@ -185,8 +183,9 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             // extra capacity.
             const new_capacity = growCapacity(self.capacity, new_len);
             const old_memory = self.allocatedSlice();
-            if (self.allocator.resize(old_memory, new_capacity)) {
-                self.capacity = new_capacity;
+            if (self.allocator.remap(old_memory, new_capacity)) |new_memory| {
+                self.items.ptr = new_memory.ptr;
+                self.capacity = new_memory.len;
                 return addManyAtAssumeCapacity(self, index, count);
             }
 
@@ -468,8 +467,9 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             // the allocator implementation would pointlessly copy our
             // extra capacity.
             const old_memory = self.allocatedSlice();
-            if (self.allocator.resize(old_memory, new_capacity)) {
-                self.capacity = new_capacity;
+            if (self.allocator.remap(old_memory, new_capacity)) |new_memory| {
+                self.items.ptr = new_memory.ptr;
+                self.capacity = new_memory.len;
             } else {
                 const new_memory = try self.allocator.alignedAlloc(T, alignment, new_capacity);
                 @memcpy(new_memory[0..self.items.len], self.items);
@@ -699,15 +699,13 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Its capacity is cleared, making deinit() safe but unnecessary to call.
         pub fn toOwnedSlice(self: *Self, allocator: Allocator) Allocator.Error!Slice {
             const old_memory = self.allocatedSlice();
-            if (allocator.resize(old_memory, self.items.len)) {
-                const result = self.items;
+            if (allocator.remap(old_memory, self.items.len)) |new_items| {
                 self.* = .empty;
-                return result;
+                return new_items;
             }
 
             const new_memory = try allocator.alignedAlloc(T, alignment, self.items.len);
             @memcpy(new_memory, self.items);
-            @memset(self.items, undefined);
             self.clearAndFree(allocator);
             return new_memory;
         }
@@ -1023,9 +1021,9 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             }
 
             const old_memory = self.allocatedSlice();
-            if (allocator.resize(old_memory, new_len)) {
-                self.capacity = new_len;
-                self.items.len = new_len;
+            if (allocator.remap(old_memory, new_len)) |new_items| {
+                self.capacity = new_items.len;
+                self.items = new_items;
                 return;
             }
 
@@ -1091,8 +1089,9 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             // the allocator implementation would pointlessly copy our
             // extra capacity.
             const old_memory = self.allocatedSlice();
-            if (allocator.resize(old_memory, new_capacity)) {
-                self.capacity = new_capacity;
+            if (allocator.remap(old_memory, new_capacity)) |new_memory| {
+                self.items.ptr = new_memory.ptr;
+                self.capacity = new_memory.len;
             } else {
                 const new_memory = try allocator.alignedAlloc(T, alignment, new_capacity);
                 @memcpy(new_memory[0..self.items.len], self.items);

@@ -19,7 +19,7 @@ pub const table = [_]Entry{
     .{ .aad, .zi, &.{ .imm8 }, &.{ 0xd5       }, 0, .none, .@"32bit" },
 
     .{ .aam, .z,  &.{       }, &.{ 0xd4, 0x0a }, 0, .none, .@"32bit" },
-    .{ .aam, .z,  &.{ .imm8 }, &.{ 0xd4       }, 0, .none, .@"32bit" },
+    .{ .aam, .zi, &.{ .imm8 }, &.{ 0xd4       }, 0, .none, .@"32bit" },
 
     .{ .aas, .z,  &.{}, &.{ 0x3f }, 0, .none, .@"32bit" },
 

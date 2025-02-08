@@ -697,6 +697,10 @@ pub const EnvVar = enum {
     XDG_CACHE_HOME,
     HOME,
 
+    pub fn isSet(comptime ev: EnvVar) bool {
+        return std.process.hasNonEmptyEnvVarConstant(@tagName(ev));
+    }
+
     pub fn get(ev: EnvVar, arena: std.mem.Allocator) !?[]u8 {
         if (std.process.getEnvVarOwned(arena, @tagName(ev))) |value| {
             return value;
@@ -708,11 +712,6 @@ pub const EnvVar = enum {
 
     pub fn getPosix(comptime ev: EnvVar) ?[:0]const u8 {
         return std.posix.getenvZ(@tagName(ev));
-    }
-
-    pub fn isSet(ev: EnvVar, arena: std.mem.Allocator) !bool {
-        const value = try ev.get(arena) orelse return false;
-        return value.len != 0;
     }
 };
 
