@@ -15,6 +15,8 @@ const LocateSearchType = uefi.tables.LocateSearchType;
 const OpenProtocolAttributes = uefi.tables.OpenProtocolAttributes;
 const ProtocolInformationEntry = uefi.tables.ProtocolInformationEntry;
 const EventNotify = uefi.tables.EventNotify;
+const EfiEventNotify = uefi.tables.EfiEventNotify;
+const EfiPhysicalAddress = uefi.tables.EfiPhysicalAddress;
 const cc = uefi.cc;
 
 /// Boot services are services provided by the system's firmware until the operating system takes
@@ -38,19 +40,19 @@ pub const BootServices = extern struct {
     restoreTpl: *const fn (old_tpl: usize) callconv(cc) void,
 
     /// Allocates memory pages from the system.
-    allocatePages: *const fn (alloc_type: AllocateType, mem_type: MemoryType, pages: usize, memory: *[*]align(4096) u8) callconv(cc) Status,
+    _allocatePages: *const fn (alloc_type: AllocateType.Enum, mem_type: MemoryType, pages: usize, memory: EfiPhysicalAddress) callconv(cc) Status,
 
     /// Frees memory pages.
-    freePages: *const fn (memory: [*]align(4096) u8, pages: usize) callconv(cc) Status,
+    _freePages: *const fn (memory: [*]align(4096) u8, pages: usize) callconv(cc) Status,
 
     /// Returns the current memory map.
     getMemoryMap: *const fn (mmap_size: *usize, mmap: ?[*]MemoryDescriptor, map_key: *usize, descriptor_size: *usize, descriptor_version: *u32) callconv(cc) Status,
 
     /// Allocates pool memory.
-    allocatePool: *const fn (pool_type: MemoryType, size: usize, buffer: *[*]align(8) u8) callconv(cc) Status,
+    _allocatePool: *const fn (pool_type: MemoryType, size: usize, buffer: *[*]align(8) u8) callconv(cc) Status,
 
     /// Returns pool memory to the system.
-    freePool: *const fn (buffer: [*]align(8) u8) callconv(cc) Status,
+    _freePool: *const fn (buffer: [*]align(8) u8) callconv(cc) Status,
 
     /// Creates an event.
     createEvent: *const fn (type: u32, notify_tpl: usize, notify_func: ?*const fn (Event, ?*anyopaque) callconv(cc) void, notify_ctx: ?*const anyopaque, event: *Event) callconv(cc) Status,
@@ -186,6 +188,74 @@ pub const BootServices = extern struct {
         ).err();
 
         return ptr.?;
+    }
+
+    /// Allocates memory pages from the system.
+    ///
+    /// The memory returned is physical memory, apply the virtual address map to get the correct virtual address.
+    pub fn allocatePages(
+        self: *const BootServices,
+        /// The type of allocation to perform.
+        alloc_type: AllocateType,
+        /// The type of memory to allocate.
+        mem_type: MemoryType,
+        /// The number of contiguous 4 KiB pages to allocate.
+        pages: usize,
+    ) ![]align(4096) u8 {
+        var buffer_addr: usize = switch (alloc_type) {
+            .any => 0,
+            .max_address => |addr| addr,
+            .at_address => |addr| addr,
+        };
+
+        // EFI memory addresses are always 64-bit, even on 32-bit systems
+        const pointer: EfiPhysicalAddress = @intFromPtr(&buffer_addr);
+
+        try self._allocatePages(alloc_type, mem_type, pages, pointer).err();
+        const addr: [*]align(4096) u8 = @ptrFromInt(buffer_addr);
+
+        return addr[0 .. pages * 4096];
+    }
+
+    /// Frees memory pages.
+    ///
+    /// The slice must point to the physical address of the pages.
+    pub fn freePages(
+        self: *const BootServices,
+        /// The slice of the pages to be freed.
+        memory: []align(4096) u8,
+    ) void {
+        // any error here arises from user error (ie. freeing a page not allocated by allocatePages) or a firmware bug
+        _ = self._freePages(memory.ptr, @divExact(memory.len, 4096));
+    }
+
+    /// Allocates pool memory.
+    ///
+    /// All allocations are 8-byte aligned.
+    pub fn allocatePool(
+        self: *const BootServices,
+        /// The type of pool to allocate.
+        pool_type: MemoryType,
+        /// The number of bytes to allocate.
+        size: usize,
+    ) ![]align(8) u8 {
+        var buffer: [*]align(8) u8 = undefined;
+        try self._allocatePool(pool_type, size, &buffer).err();
+
+        const aligned_size = std.mem.alignForward(usize, size, 8);
+        return buffer[0..aligned_size];
+    }
+
+    /// Returns pool memory to the system.
+    ///
+    /// Does *not* allow partial frees, the entire allocation will be freed, even if the slice is a segment.
+    pub fn freePool(
+        self: *const BootServices,
+        /// The slice of the pool to be freed.
+        buffer: []align(8) u8,
+    ) void {
+        // any error here arises from user error (ie. freeing a page not allocated by allocatePool) or a firmware bug
+        _ = self._freePool(buffer.ptr);
     }
 
     pub const signature: u64 = 0x56524553544f4f42;
