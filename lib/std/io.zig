@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const root = @import("root");
 const c = std.c;
 const is_windows = builtin.os.tag == .windows;
+const is_uefi = builtin.os.tag == .uefi;
 const windows = std.os.windows;
 const posix = std.posix;
 
@@ -17,6 +18,10 @@ const Allocator = std.mem.Allocator;
 fn getStdOutHandle() posix.fd_t {
     if (is_windows) {
         return windows.peb().ProcessParameters.hStdOutput;
+    }
+
+    if (is_uefi) {
+        return .{ .simple_output = std.os.uefi.system_table.con_out.? };
     }
 
     if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdOutHandle")) {
@@ -35,6 +40,10 @@ fn getStdErrHandle() posix.fd_t {
         return windows.peb().ProcessParameters.hStdError;
     }
 
+    if (is_uefi) {
+        return .{ .simple_output = std.os.uefi.system_table.std_err.? };
+    }
+
     if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdErrHandle")) {
         return root.os.io.getStdErrHandle();
     }
@@ -49,6 +58,10 @@ pub fn getStdErr() File {
 fn getStdInHandle() posix.fd_t {
     if (is_windows) {
         return windows.peb().ProcessParameters.hStdInput;
+    }
+
+    if (is_uefi) {
+        return .{ .simple_output = std.os.uefi.system_table.con_in.? };
     }
 
     if (@hasDecl(root, "os") and @hasDecl(root.os, "io") and @hasDecl(root.os.io, "getStdInHandle")) {
