@@ -129,6 +129,8 @@ pub fn getModuleForAddress(self: *SelfInfo, address: usize) !*Module {
         return self.lookupModuleHaiku(address);
     } else if (builtin.target.cpu.arch.isWasm()) {
         return self.lookupModuleWasm(address);
+    } else if (native_os == .uefi) {
+        return self.lookupModuleUefi(address);
     } else {
         return self.lookupModuleDl(address);
     }
@@ -492,6 +494,12 @@ fn lookupModuleHaiku(self: *SelfInfo, address: usize) !*Module {
     _ = self;
     _ = address;
     @panic("TODO implement lookup module for Haiku");
+}
+
+fn lookupModuleUefi(self: *SelfInfo, address: usize) !*Module {
+    _ = self;
+    _ = address;
+    @panic("TODO implement lookup module for UEFI");
 }
 
 fn lookupModuleWasm(self: *SelfInfo, address: usize) !*Module {
