@@ -43,6 +43,19 @@ pub const DynLib = struct {
     }
 
     pub fn lookup(self: *DynLib, comptime T: type, name: [:0]const u8) ?T {
+        switch (@typeInfo(T)) {
+            .Pointer => |pointer| {
+                switch (@typeInfo(pointer.child)) {
+                    .Fn => |function| {
+                        if (function.calling_convention == .Unspecified) {
+                            @compileError("callconv cannot be .Unspecified for: " ++ @typeName(T));
+                        }
+                    },
+                    else => {},
+                }
+            },
+            else => @compileError("expected a pointer type"),
+        }
         return self.inner.lookup(T, name);
     }
 };
