@@ -95,17 +95,17 @@ pub const AllocateType = enum(u32) {
 pub const EfiPhysicalAddress = u64;
 
 pub const CapsuleHeader = extern struct {
-    capsuleGuid: Guid align(8),
-    headerSize: u32,
+    capsule_guid: Guid align(8),
+    header_size: u32,
     flags: u32,
-    capsuleImageSize: u32,
+    capsule_image_size: u32,
 };
 
 pub const UefiCapsuleBlockDescriptor = extern struct {
     length: u64,
     address: extern union {
-        dataBlock: EfiPhysicalAddress,
-        continuationPointer: EfiPhysicalAddress,
+        data_block: EfiPhysicalAddress,
+        continuation_pointer: EfiPhysicalAddress,
     },
 };
 

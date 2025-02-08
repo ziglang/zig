@@ -63,7 +63,7 @@ pub const RuntimeServices = extern struct {
     updateCapsule: *const fn (capsule_header_array: **CapsuleHeader, capsule_count: usize, scatter_gather_list: EfiPhysicalAddress) callconv(cc) Status,
 
     /// Returns if the capsule can be supported via `updateCapsule`
-    queryCapsuleCapabilities: *const fn (capsule_header_array: **CapsuleHeader, capsule_count: usize, maximum_capsule_size: *usize, resetType: ResetType) callconv(cc) Status,
+    queryCapsuleCapabilities: *const fn (capsule_header_array: **CapsuleHeader, capsule_count: usize, maximum_capsule_size: *usize, reset_type: ResetType) callconv(cc) Status,
 
     /// Returns information about the EFI variables
     queryVariableInfo: *const fn (attributes: *u32, maximum_variable_storage_size: *u64, remaining_variable_storage_size: *u64, maximum_variable_size: *u64) callconv(cc) Status,

@@ -44,7 +44,7 @@ pub const BootServices = extern struct {
     freePages: *const fn (memory: [*]align(4096) u8, pages: usize) callconv(cc) Status,
 
     /// Returns the current memory map.
-    getMemoryMap: *const fn (mmap_size: *usize, mmap: ?[*]MemoryDescriptor, mapKey: *usize, descriptor_size: *usize, descriptor_version: *u32) callconv(cc) Status,
+    getMemoryMap: *const fn (mmap_size: *usize, mmap: ?[*]MemoryDescriptor, map_key: *usize, descriptor_size: *usize, descriptor_version: *u32) callconv(cc) Status,
 
     /// Allocates pool memory.
     allocatePool: *const fn (pool_type: MemoryType, size: usize, buffer: *[*]align(8) u8) callconv(cc) Status,
@@ -53,10 +53,10 @@ pub const BootServices = extern struct {
     freePool: *const fn (buffer: [*]align(8) u8) callconv(cc) Status,
 
     /// Creates an event.
-    createEvent: *const fn (type: u32, notify_tpl: usize, notify_func: ?*const fn (Event, ?*anyopaque) callconv(cc) void, notifyCtx: ?*const anyopaque, event: *Event) callconv(cc) Status,
+    createEvent: *const fn (type: u32, notify_tpl: usize, notify_func: ?*const fn (Event, ?*anyopaque) callconv(cc) void, notify_ctx: ?*const anyopaque, event: *Event) callconv(cc) Status,
 
     /// Sets the type of timer and the trigger time for a timer event.
-    setTimer: *const fn (event: Event, type: TimerDelay, triggerTime: u64) callconv(cc) Status,
+    setTimer: *const fn (event: Event, type: TimerDelay, trigger_time: u64) callconv(cc) Status,
 
     /// Stops execution until an event is signaled.
     waitForEvent: *const fn (event_len: usize, events: [*]const Event, index: *usize) callconv(cc) Status,
@@ -91,7 +91,7 @@ pub const BootServices = extern struct {
     registerProtocolNotify: *const fn (protocol: *align(8) const Guid, event: Event, registration: **anyopaque) callconv(cc) Status,
 
     /// Returns an array of handles that support a specified protocol.
-    locateHandle: *const fn (search_type: LocateSearchType, protocol: ?*align(8) const Guid, search_key: ?*const anyopaque, bufferSize: *usize, buffer: [*]Handle) callconv(cc) Status,
+    locateHandle: *const fn (search_type: LocateSearchType, protocol: ?*align(8) const Guid, search_key: ?*const anyopaque, buffer_size: *usize, buffer: [*]Handle) callconv(cc) Status,
 
     /// Locates the handle to a device on the device path that supports the specified protocol
     locateDevicePath: *const fn (protocols: *align(8) const Guid, device_path: **const DevicePathProtocol, device: *?Handle) callconv(cc) Status,
@@ -100,7 +100,7 @@ pub const BootServices = extern struct {
     installConfigurationTable: *const fn (guid: *align(8) const Guid, table: ?*anyopaque) callconv(cc) Status,
 
     /// Loads an EFI image into memory.
-    loadImage: *const fn (boot_policy: bool, parent_image_handle: Handle, device_path: ?*const DevicePathProtocol, source_buffer: ?[*]const u8, source_size: usize, imageHandle: *?Handle) callconv(cc) Status,
+    loadImage: *const fn (boot_policy: bool, parent_image_handle: Handle, device_path: ?*const DevicePathProtocol, source_buffer: ?[*]const u8, source_size: usize, image_handle: *?Handle) callconv(cc) Status,
 
     /// Transfers control to a loaded image's entry point.
     startImage: *const fn (image_handle: Handle, exit_data_size: ?*usize, exit_data: ?*[*]u16) callconv(cc) Status,
@@ -121,7 +121,7 @@ pub const BootServices = extern struct {
     stall: *const fn (microseconds: usize) callconv(cc) Status,
 
     /// Sets the system's watchdog timer.
-    setWatchdogTimer: *const fn (timeout: usize, watchdogCode: u64, data_size: usize, watchdog_data: ?[*]const u16) callconv(cc) Status,
+    setWatchdogTimer: *const fn (timeout: usize, watchdog_code: u64, data_size: usize, watchdog_data: ?[*]const u16) callconv(cc) Status,
 
     /// Connects one or more drives to a controller.
     connectController: *const fn (controller_handle: Handle, driver_image_handle: ?Handle, remaining_device_path: ?*DevicePathProtocol, recursive: bool) callconv(cc) Status,
@@ -133,7 +133,7 @@ pub const BootServices = extern struct {
     openProtocol: *const fn (handle: Handle, protocol: *align(8) const Guid, interface: *?*anyopaque, agent_handle: ?Handle, controller_handle: ?Handle, attributes: OpenProtocolAttributes) callconv(cc) Status,
 
     /// Closes a protocol on a handle that was opened using openProtocol().
-    closeProtocol: *const fn (handle: Handle, protocol: *align(8) const Guid, agentHandle: Handle, controller_handle: ?Handle) callconv(cc) Status,
+    closeProtocol: *const fn (handle: Handle, protocol: *align(8) const Guid, agent_handle: Handle, controller_handle: ?Handle) callconv(cc) Status,
 
     /// Retrieves the list of agents that currently have a protocol interface opened.
     openProtocolInformation: *const fn (handle: Handle, protocol: *align(8) const Guid, entry_buffer: *[*]ProtocolInformationEntry, entry_count: *usize) callconv(cc) Status,
