@@ -223,6 +223,7 @@ fn free(context: *anyopaque, memory: []u8, alignment: mem.Alignment, ra: usize) 
         if (freelist_len < max_freelist_len) {
             @branchHint(.likely);
             defer t.unlock();
+            t.freelist_lens[class] = freelist_len +| 1;
             node.* = t.frees[class];
             t.frees[class] = @intFromPtr(node);
             return;
