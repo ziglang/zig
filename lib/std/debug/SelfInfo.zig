@@ -148,6 +148,8 @@ pub fn getModuleNameForAddress(self: *SelfInfo, address: usize) ?[]const u8 {
         return null;
     } else if (builtin.target.cpu.arch.isWasm()) {
         return null;
+    } else if (native_os == .uefi) {
+        return null;
     } else {
         return self.lookupModuleNameDl(address);
     }
