@@ -1,5 +1,3 @@
-//! This is intended to be merged into GeneralPurposeAllocator at some point.
-
 const std = @import("../std.zig");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;

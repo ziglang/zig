@@ -16,11 +16,7 @@ pub const vtable: Allocator.VTable = .{
     .free = free,
 };
 
-fn alloc(context: *anyopaque, n: usize, alignment: mem.Alignment, ra: usize) ?[*]u8 {
-    _ = context;
-    _ = ra;
-    assert(n > 0);
-
+pub fn map(n: usize, alignment: mem.Alignment) ?[*]u8 {
     const page_size = std.heap.pageSize();
     if (n >= maxInt(usize) - page_size) return null;
     const alignment_bytes = alignment.toByteUnits();
@@ -101,6 +97,13 @@ fn alloc(context: *anyopaque, n: usize, alignment: mem.Alignment, ra: usize) ?[*
     return result_ptr;
 }
 
+fn alloc(context: *anyopaque, n: usize, alignment: mem.Alignment, ra: usize) ?[*]u8 {
+    _ = context;
+    _ = ra;
+    assert(n > 0);
+    return map(n, alignment);
+}
+
 fn resize(
     context: *anyopaque,
     memory: []u8,
@@ -114,7 +117,7 @@ fn resize(
     return realloc(memory, new_len, false) != null;
 }
 
-pub fn remap(
+fn remap(
     context: *anyopaque,
     memory: []u8,
     alignment: mem.Alignment,
@@ -127,21 +130,24 @@ pub fn remap(
     return realloc(memory, new_len, true);
 }
 
-fn free(context: *anyopaque, slice: []u8, alignment: mem.Alignment, return_address: usize) void {
+fn free(context: *anyopaque, memory: []u8, alignment: mem.Alignment, return_address: usize) void {
     _ = context;
     _ = alignment;
     _ = return_address;
+    return unmap(@alignCast(memory));
+}
 
+pub fn unmap(memory: []align(page_size_min) u8) void {
     if (native_os == .windows) {
-        windows.VirtualFree(slice.ptr, 0, windows.MEM_RELEASE);
+        windows.VirtualFree(memory.ptr, 0, windows.MEM_RELEASE);
     } else {
-        const buf_aligned_len = mem.alignForward(usize, slice.len, std.heap.pageSize());
-        posix.munmap(@alignCast(slice.ptr[0..buf_aligned_len]));
+        const page_aligned_len = mem.alignForward(usize, memory.len, std.heap.pageSize());
+        posix.munmap(memory.ptr[0..page_aligned_len]);
     }
 }
 
-fn realloc(uncasted_memory: []u8, new_len: usize, may_move: bool) ?[*]u8 {
-    const memory: []align(std.heap.page_size_min) u8 = @alignCast(uncasted_memory);
+pub fn realloc(uncasted_memory: []u8, new_len: usize, may_move: bool) ?[*]u8 {
+    const memory: []align(page_size_min) u8 = @alignCast(uncasted_memory);
     const page_size = std.heap.pageSize();
     const new_size_aligned = mem.alignForward(usize, new_len, page_size);
 

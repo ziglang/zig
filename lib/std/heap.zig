@@ -9,11 +9,12 @@ const Allocator = std.mem.Allocator;
 const windows = std.os.windows;
 
 pub const ArenaAllocator = @import("heap/arena_allocator.zig").ArenaAllocator;
-pub const WasmAllocator = @import("heap/WasmAllocator.zig");
-pub const PageAllocator = @import("heap/PageAllocator.zig");
-pub const ThreadSafeAllocator = @import("heap/ThreadSafeAllocator.zig");
-pub const SbrkAllocator = @import("heap/sbrk_allocator.zig").SbrkAllocator;
+pub const SmpAllocator = @import("heap/SmpAllocator.zig");
 pub const FixedBufferAllocator = @import("heap/FixedBufferAllocator.zig");
+pub const PageAllocator = @import("heap/PageAllocator.zig");
+pub const SbrkAllocator = @import("heap/sbrk_allocator.zig").SbrkAllocator;
+pub const ThreadSafeAllocator = @import("heap/ThreadSafeAllocator.zig");
+pub const WasmAllocator = @import("heap/WasmAllocator.zig");
 
 pub const DebugAllocatorConfig = @import("heap/debug_allocator.zig").Config;
 pub const DebugAllocator = @import("heap/debug_allocator.zig").DebugAllocator;
@@ -358,6 +359,11 @@ else if (builtin.target.isWasm()) .{
     .vtable = &PageAllocator.vtable,
 };
 
+pub const smp_allocator: Allocator = .{
+    .ptr = undefined,
+    .vtable = &SmpAllocator.vtable,
+};
+
 /// This allocator is fast, small, and specific to WebAssembly. In the future,
 /// this will be the implementation automatically selected by
 /// `GeneralPurposeAllocator` when compiling in `ReleaseSmall` mode for wasm32
@@ -475,7 +481,7 @@ pub fn StackFallbackAllocator(comptime size: usize) type {
     };
 }
 
-test "c_allocator" {
+test c_allocator {
     if (builtin.link_libc) {
         try testAllocator(c_allocator);
         try testAllocatorAligned(c_allocator);
@@ -484,10 +490,18 @@ test "c_allocator" {
     }
 }
 
-test "raw_c_allocator" {
+test raw_c_allocator {
     if (builtin.link_libc) {
         try testAllocator(raw_c_allocator);
     }
+}
+
+test smp_allocator {
+    if (builtin.single_threaded) return;
+    try testAllocator(smp_allocator);
+    try testAllocatorAligned(smp_allocator);
+    try testAllocatorLargeAlignment(smp_allocator);
+    try testAllocatorAlignedShrink(smp_allocator);
 }
 
 test PageAllocator {
@@ -978,4 +992,5 @@ test {
     if (builtin.target.isWasm()) {
         _ = WasmAllocator;
     }
+    if (!builtin.single_threaded) _ = smp_allocator;
 }
