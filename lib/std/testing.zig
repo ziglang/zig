@@ -932,6 +932,19 @@ test "expectEqualDeep composite type" {
         try expectEqualDeep(a, b);
         try expectEqualDeep(&a, &b);
     }
+
+    // inferred union
+    const TestStruct2 = struct {
+        const A = union(enum) { b: B, c: C };
+        const B = struct {};
+        const C = struct { a: *const A };
+    };
+
+    const union1 = TestStruct2.A{ .b = .{} };
+    try expectEqualDeep(
+        TestStruct2.A{ .c = .{ .a = &union1 } },
+        TestStruct2.A{ .c = .{ .a = &union1 } },
+    );
 }
 
 fn printIndicatorLine(source: []const u8, indicator_index: usize) void {
