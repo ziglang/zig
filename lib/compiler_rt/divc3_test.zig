@@ -9,7 +9,7 @@ const __divdc3 = @import("./divdc3.zig").__divdc3;
 const __divxc3 = @import("./divxc3.zig").__divxc3;
 const __divtc3 = @import("./divtc3.zig").__divtc3;
 
-test {
+test "divc3" {
     try testDiv(f16, __divhc3);
     try testDiv(f32, __divsc3);
     try testDiv(f64, __divdc3);

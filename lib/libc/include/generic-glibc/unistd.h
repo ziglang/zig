@@ -1203,6 +1203,8 @@ int getentropy (void *__buffer, size_t __length) __wur
 #endif
 
 #ifdef __USE_GNU
+// zig patch: check target glibc version
+# if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 34) || __GLIBC__ > 2
 /* Close all file descriptors in the range FD up to MAX_FD.  The flag FLAGS
    are define by the CLOSE_RANGE prefix.  This function behaves like close
    on the range and gaps where the file descriptor is invalid or errors
@@ -1210,6 +1212,7 @@ int getentropy (void *__buffer, size_t __length) __wur
    successor or -1 for failure (and sets errno accordingly).  */
 extern int close_range (unsigned int __fd, unsigned int __max_fd,
 			int __flags) __THROW;
+# endif
 #endif
 
 /* Define some macros helping to catch buffer overflows.  */

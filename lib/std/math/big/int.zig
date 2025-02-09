@@ -1793,9 +1793,13 @@ pub const Mutable = struct {
     /// The upper bound is `calcTwosCompLimbCount(a.len)`.
     pub fn truncate(r: *Mutable, a: Const, signedness: Signedness, bit_count: usize) void {
         const req_limbs = calcTwosCompLimbCount(bit_count);
+        const abs_trunc_a: Const = .{
+            .positive = true,
+            .limbs = a.limbs[0..@min(a.limbs.len, req_limbs)],
+        };
 
         // Handle 0-bit integers.
-        if (req_limbs == 0 or a.eqlZero()) {
+        if (req_limbs == 0 or abs_trunc_a.eqlZero()) {
             r.set(0);
             return;
         }
@@ -1810,15 +1814,10 @@ pub const Mutable = struct {
             // Note, we simply take req_limbs * @bitSizeOf(Limb) as the
             // target bit count.
 
-            r.addScalar(a.abs(), -1);
+            r.addScalar(abs_trunc_a, -1);
 
             // Zero-extend the result
-            if (req_limbs > r.len) {
-                @memset(r.limbs[r.len..req_limbs], 0);
-            }
-
-            // Truncate to required number of limbs.
-            assert(r.limbs.len >= req_limbs);
+            @memset(r.limbs[r.len..req_limbs], 0);
             r.len = req_limbs;
 
             // Without truncating, we can already peek at the sign bit of the result here.
@@ -1846,16 +1845,10 @@ pub const Mutable = struct {
                 r.normalize(r.len);
             }
         } else {
-            if (a.limbs.len < req_limbs) {
-                // Integer fits within target bits, no wrapping required.
-                r.copy(a);
-                return;
-            }
+            r.copy(abs_trunc_a);
+            // If the integer fits within target bits, no wrapping is required.
+            if (r.len < req_limbs) return;
 
-            r.copy(.{
-                .positive = a.positive,
-                .limbs = a.limbs[0..req_limbs],
-            });
             r.limbs[r.len - 1] &= mask;
             r.normalize(r.len);
 
