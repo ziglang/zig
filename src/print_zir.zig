@@ -22,7 +22,7 @@ pub fn renderAsTextToFile(
         .gpa = gpa,
         .arena = arena.allocator(),
         .file = scope_file,
-        .code = scope_file.zir,
+        .code = scope_file.zir.?,
         .indent = 0,
         .parent_decl_node = 0,
         .recurse_decls = true,
@@ -36,18 +36,18 @@ pub fn renderAsTextToFile(
     try stream.print("%{d} ", .{@intFromEnum(main_struct_inst)});
     try writer.writeInstToStream(stream, main_struct_inst);
     try stream.writeAll("\n");
-    const imports_index = scope_file.zir.extra[@intFromEnum(Zir.ExtraIndex.imports)];
+    const imports_index = scope_file.zir.?.extra[@intFromEnum(Zir.ExtraIndex.imports)];
     if (imports_index != 0) {
         try stream.writeAll("Imports:\n");
 
-        const extra = scope_file.zir.extraData(Zir.Inst.Imports, imports_index);
+        const extra = scope_file.zir.?.extraData(Zir.Inst.Imports, imports_index);
         var extra_index = extra.end;
 
         for (0..extra.data.imports_len) |_| {
-            const item = scope_file.zir.extraData(Zir.Inst.Imports.Item, extra_index);
+            const item = scope_file.zir.?.extraData(Zir.Inst.Imports.Item, extra_index);
             extra_index = item.end;
 
-            const import_path = scope_file.zir.nullTerminatedString(item.data.name);
+            const import_path = scope_file.zir.?.nullTerminatedString(item.data.name);
             try stream.print("  @import(\"{}\") ", .{
                 std.zig.fmtEscapes(import_path),
             });
@@ -75,7 +75,7 @@ pub fn renderInstructionContext(
         .gpa = gpa,
         .arena = arena.allocator(),
         .file = scope_file,
-        .code = scope_file.zir,
+        .code = scope_file.zir.?,
         .indent = if (indent < 2) 2 else indent,
         .parent_decl_node = parent_decl_node,
         .recurse_decls = false,
@@ -107,7 +107,7 @@ pub fn renderSingleInstruction(
         .gpa = gpa,
         .arena = arena.allocator(),
         .file = scope_file,
-        .code = scope_file.zir,
+        .code = scope_file.zir.?,
         .indent = indent,
         .parent_decl_node = parent_decl_node,
         .recurse_decls = false,
@@ -208,6 +208,7 @@ const Writer = struct {
             .anyframe_type,
             .bit_not,
             .bool_not,
+            .slice_sentinel_ty,
             .negate,
             .negate_wrap,
             .load,
@@ -488,7 +489,6 @@ const Writer = struct {
             .enum_literal,
             .decl_ref,
             .decl_val,
-            .import,
             .ret_err_value,
             .ret_err_value_code,
             .param_anytype,
@@ -515,6 +515,8 @@ const Writer = struct {
             .declaration => try self.writeDeclaration(stream, inst),
 
             .extended => try self.writeExtended(stream, inst),
+
+            .import => try self.writeImport(stream, inst),
         }
     }
 
@@ -2758,8 +2760,7 @@ const Writer = struct {
     }
 
     fn writeSrcNode(self: *Writer, stream: anytype, src_node: i32) !void {
-        if (!self.file.tree_loaded) return;
-        const tree = self.file.tree;
+        const tree = self.file.tree orelse return;
         const abs_node = self.relativeToNodeIndex(src_node);
         const src_span = tree.nodeToSpan(abs_node);
         const start = self.line_col_cursor.find(tree.source, src_span.start);
@@ -2771,8 +2772,7 @@ const Writer = struct {
     }
 
     fn writeSrcTok(self: *Writer, stream: anytype, src_tok: u32) !void {
-        if (!self.file.tree_loaded) return;
-        const tree = self.file.tree;
+        const tree = self.file.tree orelse return;
         const abs_tok = tree.firstToken(self.parent_decl_node) + src_tok;
         const span_start = tree.tokens.items(.start)[abs_tok];
         const span_end = span_start + @as(u32, @intCast(tree.tokenSlice(abs_tok).len));
@@ -2785,8 +2785,7 @@ const Writer = struct {
     }
 
     fn writeSrcTokAbs(self: *Writer, stream: anytype, src_tok: u32) !void {
-        if (!self.file.tree_loaded) return;
-        const tree = self.file.tree;
+        const tree = self.file.tree orelse return;
         const span_start = tree.tokens.items(.start)[src_tok];
         const span_end = span_start + @as(u32, @intCast(tree.tokenSlice(src_tok).len));
         const start = self.line_col_cursor.find(tree.source, span_start);
@@ -2841,5 +2840,14 @@ const Writer = struct {
             try self.writeInstToStream(stream, inst);
             try stream.writeByte('\n');
         }
+    }
+
+    fn writeImport(self: *Writer, stream: anytype, inst: Zir.Inst.Index) !void {
+        const inst_data = self.code.instructions.items(.data)[@intFromEnum(inst)].pl_tok;
+        const extra = self.code.extraData(Zir.Inst.Import, inst_data.payload_index).data;
+        try self.writeInstRef(stream, extra.res_ty);
+        const import_path = self.code.nullTerminatedString(extra.path);
+        try stream.print(", \"{}\") ", .{std.zig.fmtEscapes(import_path)});
+        try self.writeSrcTok(stream, inst_data.src_tok);
     }
 };

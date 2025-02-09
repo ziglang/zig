@@ -735,7 +735,7 @@ const Unit = struct {
             try dwarf.resolveReloc(
                 unit_off + reloc.source_off,
                 target_unit.off + (if (reloc.target_entry.unwrap()) |target_entry|
-                    target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sec, dwarf).off
+                    target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(target_unit, sec, dwarf).off
                 else
                     0) + reloc.target_off,
                 dwarf.sectionOffsetBytes(),
@@ -749,7 +749,7 @@ const Unit = struct {
             try dwarf.resolveReloc(
                 unit_off + reloc.source_off,
                 target_unit.off + (if (reloc.target_entry.unwrap()) |target_entry|
-                    target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sec, dwarf).off
+                    target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(target_unit, sec, dwarf).off
                 else
                     0) + reloc.target_off,
                 dwarf.sectionOffsetBytes(),
@@ -1000,7 +1000,7 @@ const Entry = struct {
             try dwarf.resolveReloc(
                 entry_off + reloc.source_off,
                 target_unit.off + (if (reloc.target_entry.unwrap()) |target_entry|
-                    target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sec, dwarf).off
+                    target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(target_unit, sec, dwarf).off
                 else
                     0) + reloc.target_off,
                 dwarf.sectionOffsetBytes(),
@@ -1014,7 +1014,7 @@ const Entry = struct {
             try dwarf.resolveReloc(
                 entry_off + reloc.source_off,
                 target_unit.off + (if (reloc.target_entry.unwrap()) |target_entry|
-                    target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(unit, sec, dwarf).off
+                    target_unit.header_len + target_unit.getEntry(target_entry).assertNonEmpty(target_unit, sec, dwarf).off
                 else
                     0) + reloc.target_off,
                 dwarf.sectionOffsetBytes(),
@@ -1850,7 +1850,7 @@ pub const WipNav = struct {
         const ty = value.typeOf(zcu);
         if (std.debug.runtime_safety) assert(ty.comptimeOnly(zcu) and try ty.onePossibleValue(wip_nav.pt) == null);
         if (ty.toIntern() == .type_type) return wip_nav.getTypeEntry(value.toType());
-        if (ip.isFunctionType(ty.toIntern())) return wip_nav.getNavEntry(zcu.funcInfo(value.toIntern()).owner_nav);
+        if (ip.isFunctionType(ty.toIntern()) and !value.isUndef(zcu)) return wip_nav.getNavEntry(zcu.funcInfo(value.toIntern()).owner_nav);
         const gop = try wip_nav.dwarf.values.getOrPut(wip_nav.dwarf.gpa, value.toIntern());
         const unit: Unit.Index = .main;
         if (gop.found_existing) return .{ unit, gop.value_ptr.* };
@@ -2358,8 +2358,7 @@ fn initWipNavInner(
     const nav = ip.getNav(nav_index);
     const inst_info = nav.srcInst(ip).resolveFull(ip).?;
     const file = zcu.fileByIndex(inst_info.file);
-    assert(file.zir_loaded);
-    const decl = file.zir.getDeclaration(inst_info.inst);
+    const decl = file.zir.?.getDeclaration(inst_info.inst);
     log.debug("initWipNav({s}:{d}:{d} %{d} = {})", .{
         file.sub_file_path,
         decl.src_line + 1,
@@ -2373,7 +2372,7 @@ fn initWipNavInner(
     switch (nav_key) {
         // Ignore @extern
         .@"extern" => |@"extern"| if (decl.linkage != .@"extern" or
-            !@"extern".name.eqlSlice(file.zir.nullTerminatedString(decl.name), ip)) return null,
+            !@"extern".name.eqlSlice(file.zir.?.nullTerminatedString(decl.name), ip)) return null,
         else => {},
     }
 
@@ -2696,8 +2695,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
     const nav = ip.getNav(nav_index);
     const inst_info = nav.srcInst(ip).resolveFull(ip).?;
     const file = zcu.fileByIndex(inst_info.file);
-    assert(file.zir_loaded);
-    const decl = file.zir.getDeclaration(inst_info.inst);
+    const decl = file.zir.?.getDeclaration(inst_info.inst);
     log.debug("updateComptimeNav({s}:{d}:{d} %{d} = {})", .{
         file.sub_file_path,
         decl.src_line + 1,
@@ -4097,7 +4095,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
             // if a newly-tracked instruction can be a type's owner `zir_index`.
             comptime assert(Zir.inst_tracking_version == 0);
 
-            const decl_inst = file.zir.instructions.get(@intFromEnum(inst_info.inst));
+            const decl_inst = file.zir.?.instructions.get(@intFromEnum(inst_info.inst));
             const name_strat: Zir.Inst.NameStrategy = switch (decl_inst.tag) {
                 .struct_init, .struct_init_ref, .struct_init_anon => .anon,
                 .extended => switch (decl_inst.data.extended.opcode) {
@@ -4301,14 +4299,13 @@ pub fn updateLineNumber(dwarf: *Dwarf, zcu: *Zcu, zir_index: InternPool.TrackedI
     const inst_info = zir_index.resolveFull(ip).?;
     assert(inst_info.inst != .main_struct_inst);
     const file = zcu.fileByIndex(inst_info.file);
-    assert(file.zir_loaded);
-    const decl = file.zir.getDeclaration(inst_info.inst);
+    const decl = file.zir.?.getDeclaration(inst_info.inst);
     log.debug("updateLineNumber({s}:{d}:{d} %{d} = {s})", .{
         file.sub_file_path,
         decl.src_line + 1,
         decl.src_column + 1,
         @intFromEnum(inst_info.inst),
-        file.zir.nullTerminatedString(decl.name),
+        file.zir.?.nullTerminatedString(decl.name),
     });
 
     var line_buf: [4]u8 = undefined;
@@ -4579,7 +4576,7 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
         );
         for (dwarf.mods.values(), dwarf.debug_line.section.units.items) |mod_info, *unit| {
             unit.clear();
-            try unit.cross_section_relocs.ensureTotalCapacity(dwarf.gpa, 2 * (1 + mod_info.files.count()));
+            try unit.cross_section_relocs.ensureTotalCapacity(dwarf.gpa, mod_info.dirs.count() + 2 * (mod_info.files.count()));
             header.clearRetainingCapacity();
             try header.ensureTotalCapacity(unit.header_len);
             const unit_len = (if (unit.next.unwrap()) |next_unit|
@@ -4661,7 +4658,7 @@ pub fn flushModule(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
                     .target_unit = StringSection.unit,
                     .target_entry = (try dwarf.debug_line_str.addString(
                         dwarf,
-                        if (file.mod.builtin_file == file) file.source else "",
+                        if (file.mod.builtin_file == file) file.source.? else "",
                     )).toOptional(),
                 });
                 header.appendNTimesAssumeCapacity(0, dwarf.sectionOffsetBytes());

@@ -171,30 +171,31 @@ pub fn log(
     std.debug.print(prefix1 ++ prefix2 ++ format ++ "\n", args);
 }
 
-var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{
+var debug_allocator: std.heap.DebugAllocator(.{
     .stack_trace_frames = build_options.mem_leak_frames,
-}){};
+}) = .init;
 
 pub fn main() anyerror!void {
     crash_report.initialize();
 
-    const use_gpa = (build_options.force_gpa or !builtin.link_libc) and native_os != .wasi;
-    const gpa = gpa: {
-        if (native_os == .wasi) {
-            break :gpa std.heap.wasm_allocator;
+    const gpa, const is_debug = gpa: {
+        if (build_options.debug_gpa) break :gpa .{ debug_allocator.allocator(), true };
+        if (native_os == .wasi) break :gpa .{ std.heap.wasm_allocator, false };
+        if (builtin.link_libc) {
+            // We would prefer to use raw libc allocator here, but cannot use
+            // it if it won't support the alignment we need.
+            if (@alignOf(std.c.max_align_t) < @max(@alignOf(i128), std.atomic.cache_line)) {
+                break :gpa .{ std.heap.c_allocator, false };
+            }
+            break :gpa .{ std.heap.raw_c_allocator, false };
         }
-        if (use_gpa) {
-            break :gpa general_purpose_allocator.allocator();
-        }
-        // We would prefer to use raw libc allocator here, but cannot
-        // use it if it won't support the alignment we need.
-        if (@alignOf(std.c.max_align_t) < @max(@alignOf(i128), std.atomic.cache_line)) {
-            break :gpa std.heap.c_allocator;
-        }
-        break :gpa std.heap.raw_c_allocator;
+        break :gpa switch (builtin.mode) {
+            .Debug, .ReleaseSafe => .{ debug_allocator.allocator(), true },
+            .ReleaseFast, .ReleaseSmall => .{ std.heap.smp_allocator, false },
+        };
     };
-    defer if (use_gpa) {
-        _ = general_purpose_allocator.deinit();
+    defer if (is_debug) {
+        _ = debug_allocator.deinit();
     };
     var arena_instance = std.heap.ArenaAllocator.init(gpa);
     defer arena_instance.deinit();
@@ -826,9 +827,9 @@ fn buildOutputType(
     var listen: Listen = .none;
     var debug_compile_errors = false;
     var verbose_link = (native_os != .wasi or builtin.link_libc) and
-        try EnvVar.ZIG_VERBOSE_LINK.isSet(arena);
+        EnvVar.ZIG_VERBOSE_LINK.isSet();
     var verbose_cc = (native_os != .wasi or builtin.link_libc) and
-        try EnvVar.ZIG_VERBOSE_CC.isSet(arena);
+        EnvVar.ZIG_VERBOSE_CC.isSet();
     var verbose_air = false;
     var verbose_intern_pool = false;
     var verbose_generic_instances = false;
@@ -1006,9 +1007,9 @@ fn buildOutputType(
     // if set, default the color setting to .off or .on, respectively
     // explicit --color arguments will still override this setting.
     // Disable color on WASI per https://github.com/WebAssembly/WASI/issues/162
-    var color: Color = if (native_os == .wasi or try EnvVar.NO_COLOR.isSet(arena))
+    var color: Color = if (native_os == .wasi or EnvVar.NO_COLOR.isSet())
         .off
-    else if (try EnvVar.CLICOLOR_FORCE.isSet(arena))
+    else if (EnvVar.CLICOLOR_FORCE.isSet())
         .on
     else
         .auto;
@@ -3636,7 +3637,7 @@ fn buildOutputType(
 
     if (show_builtin) {
         const builtin_mod = comp.root_mod.getBuiltinDependency();
-        const source = builtin_mod.builtin_file.?.source;
+        const source = builtin_mod.builtin_file.?.source.?;
         return std.io.getStdOut().writeAll(source);
     }
     switch (listen) {
@@ -4769,9 +4770,9 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var reference_trace: ?u32 = null;
     var debug_compile_errors = false;
     var verbose_link = (native_os != .wasi or builtin.link_libc) and
-        try EnvVar.ZIG_VERBOSE_LINK.isSet(arena);
+        EnvVar.ZIG_VERBOSE_LINK.isSet();
     var verbose_cc = (native_os != .wasi or builtin.link_libc) and
-        try EnvVar.ZIG_VERBOSE_CC.isSet(arena);
+        EnvVar.ZIG_VERBOSE_CC.isSet();
     var verbose_air = false;
     var verbose_intern_pool = false;
     var verbose_generic_instances = false;
@@ -4954,7 +4955,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     }
 
     const work_around_btrfs_bug = native_os == .linux and
-        try EnvVar.ZIG_BTRFS_WORKAROUND.isSet(arena);
+        EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
     const root_prog_node = std.Progress.start(.{
         .disable_printing = (color == .off),
         .root_name = "Compile Build Script",
@@ -5461,7 +5462,7 @@ fn jitCmd(
         fatal("unable to find self exe path: {s}", .{@errorName(err)});
     };
 
-    const optimize_mode: std.builtin.OptimizeMode = if (try EnvVar.ZIG_DEBUG_CMD.isSet(arena))
+    const optimize_mode: std.builtin.OptimizeMode = if (EnvVar.ZIG_DEBUG_CMD.isSet())
         .Debug
     else
         .ReleaseFast;
@@ -6134,15 +6135,12 @@ fn cmdAstCheck(
 
     var file: Zcu.File = .{
         .status = .never_loaded,
-        .prev_status = .never_loaded,
-        .source_loaded = false,
-        .tree_loaded = false,
-        .zir_loaded = false,
         .sub_file_path = undefined,
-        .source = undefined,
         .stat = undefined,
-        .tree = undefined,
-        .zir = undefined,
+        .source = null,
+        .tree = null,
+        .zir = null,
+        .zoir = null,
         .mod = undefined,
     };
     if (zig_source_file) |file_name| {
@@ -6163,7 +6161,6 @@ fn cmdAstCheck(
 
         file.sub_file_path = file_name;
         file.source = source;
-        file.source_loaded = true;
         file.stat = .{
             .size = stat.size,
             .inode = stat.inode,
@@ -6176,7 +6173,6 @@ fn cmdAstCheck(
         };
         file.sub_file_path = "<stdin>";
         file.source = source;
-        file.source_loaded = true;
         file.stat.size = source.len;
     }
 
@@ -6196,17 +6192,15 @@ fn cmdAstCheck(
         .fully_qualified_name = "root",
     });
 
-    file.tree = try Ast.parse(gpa, file.source, mode);
-    file.tree_loaded = true;
-    defer file.tree.deinit(gpa);
+    file.tree = try Ast.parse(gpa, file.source.?, mode);
+    defer file.tree.?.deinit(gpa);
 
     switch (mode) {
         .zig => {
-            file.zir = try AstGen.generate(gpa, file.tree);
-            file.zir_loaded = true;
-            defer file.zir.deinit(gpa);
+            file.zir = try AstGen.generate(gpa, file.tree.?);
+            defer file.zir.?.deinit(gpa);
 
-            if (file.zir.hasCompileErrors()) {
+            if (file.zir.?.hasCompileErrors()) {
                 var wip_errors: std.zig.ErrorBundle.Wip = undefined;
                 try wip_errors.init(gpa);
                 defer wip_errors.deinit();
@@ -6215,13 +6209,13 @@ fn cmdAstCheck(
                 defer error_bundle.deinit(gpa);
                 error_bundle.renderToStdErr(color.renderOptions());
 
-                if (file.zir.loweringFailed()) {
+                if (file.zir.?.loweringFailed()) {
                     process.exit(1);
                 }
             }
 
             if (!want_output_text) {
-                if (file.zir.hasCompileErrors()) {
+                if (file.zir.?.hasCompileErrors()) {
                     process.exit(1);
                 } else {
                     return cleanExit();
@@ -6233,18 +6227,18 @@ fn cmdAstCheck(
 
             {
                 const token_bytes = @sizeOf(Ast.TokenList) +
-                    file.tree.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(Ast.ByteOffset));
-                const tree_bytes = @sizeOf(Ast) + file.tree.nodes.len *
+                    file.tree.?.tokens.len * (@sizeOf(std.zig.Token.Tag) + @sizeOf(Ast.ByteOffset));
+                const tree_bytes = @sizeOf(Ast) + file.tree.?.nodes.len *
                     (@sizeOf(Ast.Node.Tag) +
                     @sizeOf(Ast.Node.Data) +
                     @sizeOf(Ast.TokenIndex));
-                const instruction_bytes = file.zir.instructions.len *
+                const instruction_bytes = file.zir.?.instructions.len *
                     // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
                     // the debug safety tag but we want to measure release size.
                     (@sizeOf(Zir.Inst.Tag) + 8);
-                const extra_bytes = file.zir.extra.len * @sizeOf(u32);
+                const extra_bytes = file.zir.?.extra.len * @sizeOf(u32);
                 const total_bytes = @sizeOf(Zir) + instruction_bytes + extra_bytes +
-                    file.zir.string_bytes.len * @sizeOf(u8);
+                    file.zir.?.string_bytes.len * @sizeOf(u8);
                 const stdout = io.getStdOut();
                 const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
                 // zig fmt: off
@@ -6258,27 +6252,27 @@ fn cmdAstCheck(
                     \\# Extra Data Items:   {d} ({})
                     \\
                 , .{
-                    fmtIntSizeBin(file.source.len),
-                    file.tree.tokens.len, fmtIntSizeBin(token_bytes),
-                    file.tree.nodes.len, fmtIntSizeBin(tree_bytes),
+                    fmtIntSizeBin(file.source.?.len),
+                    file.tree.?.tokens.len, fmtIntSizeBin(token_bytes),
+                    file.tree.?.nodes.len, fmtIntSizeBin(tree_bytes),
                     fmtIntSizeBin(total_bytes),
-                    file.zir.instructions.len, fmtIntSizeBin(instruction_bytes),
-                    fmtIntSizeBin(file.zir.string_bytes.len),
-                    file.zir.extra.len, fmtIntSizeBin(extra_bytes),
+                    file.zir.?.instructions.len, fmtIntSizeBin(instruction_bytes),
+                    fmtIntSizeBin(file.zir.?.string_bytes.len),
+                    file.zir.?.extra.len, fmtIntSizeBin(extra_bytes),
                 });
                 // zig fmt: on
             }
 
             try @import("print_zir.zig").renderAsTextToFile(gpa, &file, io.getStdOut());
 
-            if (file.zir.hasCompileErrors()) {
+            if (file.zir.?.hasCompileErrors()) {
                 process.exit(1);
             } else {
                 return cleanExit();
             }
         },
         .zon => {
-            const zoir = try ZonGen.generate(gpa, file.tree);
+            const zoir = try ZonGen.generate(gpa, file.tree.?, .{});
             defer zoir.deinit(gpa);
 
             if (zoir.hasCompileErrors()) {
@@ -6289,7 +6283,7 @@ fn cmdAstCheck(
                 {
                     const src_path = try file.fullPath(gpa);
                     defer gpa.free(src_path);
-                    try wip_errors.addZoirErrorMessages(zoir, file.tree, file.source, src_path);
+                    try wip_errors.addZoirErrorMessages(zoir, file.tree.?, file.source.?, src_path);
                 }
 
                 var error_bundle = try wip_errors.toOwnedBundle("");
@@ -6518,27 +6512,24 @@ fn cmdDumpZir(
 
     var file: Zcu.File = .{
         .status = .never_loaded,
-        .prev_status = .never_loaded,
-        .source_loaded = false,
-        .tree_loaded = false,
-        .zir_loaded = true,
         .sub_file_path = undefined,
-        .source = undefined,
         .stat = undefined,
-        .tree = undefined,
+        .source = null,
+        .tree = null,
         .zir = try Zcu.loadZirCache(gpa, f),
+        .zoir = null,
         .mod = undefined,
     };
-    defer file.zir.deinit(gpa);
+    defer file.zir.?.deinit(gpa);
 
     {
-        const instruction_bytes = file.zir.instructions.len *
+        const instruction_bytes = file.zir.?.instructions.len *
             // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
             // the debug safety tag but we want to measure release size.
             (@sizeOf(Zir.Inst.Tag) + 8);
-        const extra_bytes = file.zir.extra.len * @sizeOf(u32);
+        const extra_bytes = file.zir.?.extra.len * @sizeOf(u32);
         const total_bytes = @sizeOf(Zir) + instruction_bytes + extra_bytes +
-            file.zir.string_bytes.len * @sizeOf(u8);
+            file.zir.?.string_bytes.len * @sizeOf(u8);
         const stdout = io.getStdOut();
         const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
         // zig fmt: off
@@ -6550,9 +6541,9 @@ fn cmdDumpZir(
             \\
         , .{
             fmtIntSizeBin(total_bytes),
-            file.zir.instructions.len, fmtIntSizeBin(instruction_bytes),
-            fmtIntSizeBin(file.zir.string_bytes.len),
-            file.zir.extra.len, fmtIntSizeBin(extra_bytes),
+            file.zir.?.instructions.len, fmtIntSizeBin(instruction_bytes),
+            fmtIntSizeBin(file.zir.?.string_bytes.len),
+            file.zir.?.extra.len, fmtIntSizeBin(extra_bytes),
         });
         // zig fmt: on
     }
@@ -6586,19 +6577,16 @@ fn cmdChangelist(
 
     var file: Zcu.File = .{
         .status = .never_loaded,
-        .prev_status = .never_loaded,
-        .source_loaded = false,
-        .tree_loaded = false,
-        .zir_loaded = false,
         .sub_file_path = old_source_file,
-        .source = undefined,
         .stat = .{
             .size = stat.size,
             .inode = stat.inode,
             .mtime = stat.mtime,
         },
-        .tree = undefined,
-        .zir = undefined,
+        .source = null,
+        .tree = null,
+        .zir = null,
+        .zoir = null,
         .mod = undefined,
     };
 
@@ -6613,17 +6601,14 @@ fn cmdChangelist(
     if (amt != stat.size)
         return error.UnexpectedEndOfFile;
     file.source = source;
-    file.source_loaded = true;
 
-    file.tree = try Ast.parse(gpa, file.source, .zig);
-    file.tree_loaded = true;
-    defer file.tree.deinit(gpa);
+    file.tree = try Ast.parse(gpa, file.source.?, .zig);
+    defer file.tree.?.deinit(gpa);
 
-    file.zir = try AstGen.generate(gpa, file.tree);
-    file.zir_loaded = true;
-    defer file.zir.deinit(gpa);
+    file.zir = try AstGen.generate(gpa, file.tree.?);
+    defer file.zir.?.deinit(gpa);
 
-    if (file.zir.loweringFailed()) {
+    if (file.zir.?.loweringFailed()) {
         var wip_errors: std.zig.ErrorBundle.Wip = undefined;
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
@@ -6652,13 +6637,12 @@ fn cmdChangelist(
     var new_tree = try Ast.parse(gpa, new_source, .zig);
     defer new_tree.deinit(gpa);
 
-    var old_zir = file.zir;
+    var old_zir = file.zir.?;
     defer old_zir.deinit(gpa);
-    file.zir_loaded = false;
+    file.zir = null;
     file.zir = try AstGen.generate(gpa, new_tree);
-    file.zir_loaded = true;
 
-    if (file.zir.loweringFailed()) {
+    if (file.zir.?.loweringFailed()) {
         var wip_errors: std.zig.ErrorBundle.Wip = undefined;
         try wip_errors.init(gpa);
         defer wip_errors.deinit();
@@ -6672,7 +6656,7 @@ fn cmdChangelist(
     var inst_map: std.AutoHashMapUnmanaged(Zir.Inst.Index, Zir.Inst.Index) = .empty;
     defer inst_map.deinit(gpa);
 
-    try Zcu.mapOldZirToNew(gpa, old_zir, file.zir, &inst_map);
+    try Zcu.mapOldZirToNew(gpa, old_zir, file.zir.?, &inst_map);
 
     var bw = io.bufferedWriter(io.getStdOut().writer());
     const stdout = bw.writer();
@@ -6993,7 +6977,7 @@ fn cmdFetch(
 
     const color: Color = .auto;
     const work_around_btrfs_bug = native_os == .linux and
-        try EnvVar.ZIG_BTRFS_WORKAROUND.isSet(arena);
+        EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
     var opt_path_or_url: ?[]const u8 = null;
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
     var debug_hash: bool = false;

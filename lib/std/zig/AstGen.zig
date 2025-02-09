@@ -920,7 +920,10 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
             const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
             const start = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, full.ast.start);
             const end = if (full.ast.end != 0) try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, full.ast.end) else .none;
-            const sentinel = if (full.ast.sentinel != 0) try expr(gz, scope, .{ .rl = .none }, full.ast.sentinel) else .none;
+            const sentinel = if (full.ast.sentinel != 0) s: {
+                const sentinel_ty = try gz.addUnNode(.slice_sentinel_ty, lhs, node);
+                break :s try expr(gz, scope, .{ .rl = .{ .coerced_ty = sentinel_ty } }, full.ast.sentinel);
+            } else .none;
             try emitDbgStmt(gz, cursor);
             if (sentinel != .none) {
                 const result = try gz.addPlNode(.slice_sentinel, node, Zir.Inst.SliceSentinel{
@@ -2855,6 +2858,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .slice_end,
             .slice_sentinel,
             .slice_length,
+            .slice_sentinel_ty,
             .import,
             .switch_block,
             .switch_block_ref,
@@ -9448,7 +9452,18 @@ fn builtinCall(
             } else if (str.len == 0) {
                 return astgen.failTok(str_lit_token, "import path cannot be empty", .{});
             }
-            const result = try gz.addStrTok(.import, str.index, str_lit_token);
+            const res_ty = try ri.rl.resultType(gz, node) orelse .none;
+            const payload_index = try addExtra(gz.astgen, Zir.Inst.Import{
+                .res_ty = res_ty,
+                .path = str.index,
+            });
+            const result = try gz.add(.{
+                .tag = .import,
+                .data = .{ .pl_tok = .{
+                    .src_tok = gz.tokenIndexToRelative(str_lit_token),
+                    .payload_index = payload_index,
+                } },
+            });
             const gop = try astgen.imports.getOrPut(astgen.gpa, str.index);
             if (!gop.found_existing) {
                 gop.value_ptr.* = str_lit_token;
@@ -11551,9 +11566,21 @@ fn parseStrLit(
     }
 }
 
-fn failWithStrLitError(astgen: *AstGen, err: std.zig.string_literal.Error, token: Ast.TokenIndex, bytes: []const u8, offset: u32) InnerError {
+fn failWithStrLitError(
+    astgen: *AstGen,
+    err: std.zig.string_literal.Error,
+    token: Ast.TokenIndex,
+    bytes: []const u8,
+    offset: u32,
+) InnerError {
     const raw_string = bytes[offset..];
-    return err.lower(raw_string, offset, AstGen.failOff, .{ astgen, token });
+    return failOff(
+        astgen,
+        token,
+        @intCast(offset + err.offset()),
+        "{}",
+        .{err.fmt(raw_string)},
+    );
 }
 
 fn failNode(
@@ -13993,6 +14020,39 @@ fn lowerAstErrors(astgen: *AstGen) !void {
 
     var notes: std.ArrayListUnmanaged(u32) = .empty;
     defer notes.deinit(gpa);
+
+    const token_starts = tree.tokens.items(.start);
+    const token_tags = tree.tokens.items(.tag);
+    const parse_err = tree.errors[0];
+    const tok = parse_err.token + @intFromBool(parse_err.token_is_prev);
+    const tok_start = token_starts[tok];
+    const start_char = tree.source[tok_start];
+
+    if (token_tags[tok] == .invalid and
+        (start_char == '\"' or start_char == '\'' or start_char == '/' or mem.startsWith(u8, tree.source[tok_start..], "\\\\")))
+    {
+        const tok_len: u32 = @intCast(tree.tokenSlice(tok).len);
+        const tok_end = tok_start + tok_len;
+        const bad_off = blk: {
+            var idx = tok_start;
+            while (idx < tok_end) : (idx += 1) {
+                switch (tree.source[idx]) {
+                    0x00...0x09, 0x0b...0x1f, 0x7f => break,
+                    else => {},
+                }
+            }
+            break :blk idx - tok_start;
+        };
+
+        const err: Ast.Error = .{
+            .tag = Ast.Error.Tag.invalid_byte,
+            .token = tok,
+            .extra = .{ .offset = bad_off },
+        };
+        msg.clearRetainingCapacity();
+        try tree.renderError(err, msg.writer(gpa));
+        return try astgen.appendErrorTokNotesOff(tok, bad_off, "{s}", .{msg.items}, notes.items);
+    }
 
     var cur_err = tree.errors[0];
     for (tree.errors[1..]) |err| {

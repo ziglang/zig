@@ -573,7 +573,7 @@ pub const Inst = struct {
         ///   and the operand is not a valid value of this type; i.e. equivalent to
         ///   a safety check based on `.is_named_enum_value`
         intcast_safe,
-        /// Truncate higher bits from an integer, resulting in an integer with the same
+        /// Truncate higher bits from an integer, resulting in an integer type with the same
         /// sign but an equal or smaller number of bits.
         /// Uses the `ty_op` field.
         trunc,

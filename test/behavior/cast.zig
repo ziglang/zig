@@ -2649,3 +2649,19 @@ test "bitcast vector" {
     const bigsum: u32x8 = @bitCast(zerox32);
     try std.testing.expectEqual(0, @reduce(.Add, bigsum));
 }
+
+test "peer type resolution: slice of sentinel-terminated array" {
+    var f: bool = undefined;
+    f = false;
+
+    const a: [][2:0]u8 = &.{};
+    const b: []const [2:0]u8 = &.{.{ 10, 20 }};
+
+    const result = if (f) a else b;
+
+    comptime assert(@TypeOf(result) == []const [2:0]u8);
+    try expect(result.len == 1);
+    try expect(result[0].len == 2);
+    try expect(result[0][0] == 10);
+    try expect(result[0][1] == 20);
+}
