@@ -4407,7 +4407,7 @@ pub fn alignForwardLog2(addr: usize, log2_alignment: u8) usize {
 
 /// Force an evaluation of the expression; this tries to prevent
 /// the compiler from optimizing the computation away even if the
-/// result eventually ges discarded.
+/// result eventually gets discarded.
 // TODO: use @declareSideEffect() when it is available - https://github.com/ziglang/zig/issues/6168
 pub fn doNotOptimizeAway(val: anytype) void {
     if (@inComptime()) return;
