@@ -9770,9 +9770,9 @@ pub extern "c" fn freeaddrinfo(res: *addrinfo) void;
 pub extern "c" fn getnameinfo(
     noalias addr: *const sockaddr,
     addrlen: socklen_t,
-    noalias host: [*]u8,
+    noalias host: ?[*]u8,
     hostlen: socklen_t,
-    noalias serv: [*]u8,
+    noalias serv: ?[*]u8,
     servlen: socklen_t,
     flags: u32,
 ) EAI;
