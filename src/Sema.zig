@@ -9669,7 +9669,13 @@ fn funcCommon(
         if (is_generic) {
             return sema.fail(block, func_src, "generic function cannot be variadic", .{});
         }
-        try sema.checkCallConvSupportsVarArgs(block, cc_src, cc);
+        const va_args_src = block.src(.{
+            .fn_proto_param = .{
+                .fn_proto_node_offset = src_node_offset,
+                .param_index = @intCast(block.params.len), // va_arg must be the last parameter
+            },
+        });
+        try sema.checkCallConvSupportsVarArgs(block, va_args_src, cc);
     }
 
     const ret_poison = bare_return_type.isGenericPoison();
