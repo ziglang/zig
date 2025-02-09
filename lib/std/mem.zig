@@ -1610,6 +1610,8 @@ test count {
 /// Returns true if the haystack contains expected_count or more needles
 /// needle.len must be > 0
 /// does not count overlapping needles
+//
+/// See also: `containsAtLeastScalar`
 pub fn containsAtLeast(comptime T: type, haystack: []const T, expected_count: usize, needle: []const T) bool {
     assert(needle.len > 0);
     if (expected_count == 0) return true;
@@ -1639,6 +1641,32 @@ test containsAtLeast {
 
     try testing.expect(containsAtLeast(u8, "   radar      radar   ", 2, "radar"));
     try testing.expect(!containsAtLeast(u8, "   radar      radar   ", 3, "radar"));
+}
+
+/// Returns true if the haystack contains expected_count or more needles
+//
+/// See also: `containsAtLeast`
+pub fn containsAtLeastScalar(comptime T: type, haystack: []const T, expected_count: usize, needle: T) bool {
+    if (expected_count == 0) return true;
+
+    var found: usize = 0;
+
+    for (0..haystack.len) |i| {
+      if (haystack[i] == needle) found += 1;
+      if (found == expected_count) return true;
+    }
+
+    return false;
+}
+
+test containsAtLeastScalar {
+    try testing.expect(containsAtLeastScalar(u8, "aa", 0, 'a'));
+    try testing.expect(containsAtLeastScalar(u8, "aa", 1, 'a'));
+    try testing.expect(containsAtLeastScalar(u8, "aa", 2, 'a'));
+    try testing.expect(!containsAtLeastScalar(u8, "aa", 3, 'a'));
+
+    try testing.expect(containsAtLeastScalar(u8, "adadda", 3, 'd'));
+    try testing.expect(!containsAtLeastScalar(u8, "adadda", 4, 'd'));
 }
 
 /// Reads an integer from memory with size equal to bytes.len.
@@ -4379,7 +4407,7 @@ pub fn alignForwardLog2(addr: usize, log2_alignment: u8) usize {
 
 /// Force an evaluation of the expression; this tries to prevent
 /// the compiler from optimizing the computation away even if the
-/// result eventually gets discarded.
+/// result eventually ges discarded.
 // TODO: use @declareSideEffect() when it is available - https://github.com/ziglang/zig/issues/6168
 pub fn doNotOptimizeAway(val: anytype) void {
     if (@inComptime()) return;
