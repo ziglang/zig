@@ -775,7 +775,7 @@ pub fn exit(status: u8) noreturn {
             _ = bs.exit(uefi.handle, @enumFromInt(status), 0, null);
         }
         // If we can't exit, reboot the system instead.
-        uefi.system_table.runtime_services.resetSystem(.ResetCold, @enumFromInt(status), 0, null);
+        uefi.system_table.runtime_services.resetSystem(.reset_cold, @enumFromInt(status), 0, null);
     }
     system.exit(status);
 }
