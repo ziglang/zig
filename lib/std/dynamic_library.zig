@@ -297,7 +297,7 @@ pub const ElfDynLib = struct {
                                 prot,
                                 .{ .TYPE = .PRIVATE, .FIXED = true },
                                 fd,
-                                ph.p_offset - extra_bytes,
+                                @intCast(ph.p_offset - extra_bytes),
                             );
                         } else {
                             const sect_mem = try posix.mmap(
