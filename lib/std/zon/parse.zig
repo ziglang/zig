@@ -397,7 +397,7 @@ pub fn free(gpa: Allocator, value: anytype) void {
     }
 }
 
-fn requiresAllocator(T: type) bool {
+pub fn requiresAllocator(T: type) bool {
     _ = valid_types;
     return switch (@typeInfo(T)) {
         .pointer => true,
