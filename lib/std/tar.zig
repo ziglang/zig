@@ -51,12 +51,12 @@ pub const Diagnostics = struct {
         },
     };
 
-    fn findRoot(d: *Diagnostics, path: []const u8) !void {
+    fn findRoot(d: *Diagnostics, kind: FileKind, path: []const u8) !void {
         if (path.len == 0) return;
 
         d.entries += 1;
         const root_dir = rootDir(path);
-        if (d.entries == 1) {
+        if (kind == .directory and d.entries == 1) {
             d.root_dir = try d.allocator.dupe(u8, root_dir);
             return;
         }
@@ -637,7 +637,7 @@ pub fn pipeToFileSystem(dir: std.fs.Dir, reader: anytype, options: PipeOptions) 
             continue;
         }
         if (options.diagnostics) |d| {
-            try d.findRoot(file_name);
+            try d.findRoot(file.kind, file_name);
         }
 
         switch (file.kind) {
