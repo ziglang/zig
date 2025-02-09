@@ -16,7 +16,7 @@ const OpenProtocolAttributes = uefi.tables.OpenProtocolAttributes;
 const ProtocolInformationEntry = uefi.tables.ProtocolInformationEntry;
 const EventNotify = uefi.tables.EventNotify;
 const EfiEventNotify = uefi.tables.EfiEventNotify;
-const EfiPhysicalAddress = uefi.tables.EfiPhysicalAddress;
+const PhysicalAddress = uefi.tables.PhysicalAddress;
 const cc = uefi.cc;
 
 /// Boot services are services provided by the system's firmware until the operating system takes
@@ -40,7 +40,7 @@ pub const BootServices = extern struct {
     restoreTpl: *const fn (old_tpl: usize) callconv(cc) void,
 
     /// Allocates memory pages from the system.
-    _allocatePages: *const fn (alloc_type: AllocateType.Enum, mem_type: MemoryType, pages: usize, memory: EfiPhysicalAddress) callconv(cc) Status,
+    _allocatePages: *const fn (alloc_type: AllocateType.Enum, mem_type: MemoryType, pages: usize, memory: PhysicalAddress) callconv(cc) Status,
 
     /// Frees memory pages.
     _freePages: *const fn (memory: [*]align(4096) u8, pages: usize) callconv(cc) Status,
@@ -209,7 +209,7 @@ pub const BootServices = extern struct {
         };
 
         // EFI memory addresses are always 64-bit, even on 32-bit systems
-        const pointer: EfiPhysicalAddress = @intFromPtr(&buffer_addr);
+        const pointer: PhysicalAddress = @intFromPtr(&buffer_addr);
 
         try self._allocatePages(alloc_type, mem_type, pages, pointer).err();
         const addr: [*]align(4096) u8 = @ptrFromInt(buffer_addr);
