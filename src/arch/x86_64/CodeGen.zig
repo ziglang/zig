@@ -56630,10 +56630,112 @@ fn airShlShrBinOp(self: *CodeGen, inst: Air.Inst.Index) !void {
 }
 
 fn airShlSat(self: *CodeGen, inst: Air.Inst.Index) !void {
+    const zcu = self.pt.zcu;
     const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    _ = bin_op;
-    return self.fail("TODO implement shl_sat for {}", .{self.target.cpu.arch});
-    //return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
+    const lhs_ty = self.typeOf(bin_op.lhs);
+    const rhs_ty = self.typeOf(bin_op.rhs);
+
+    const result: MCValue = result: {
+        switch (lhs_ty.zigTypeTag(zcu)) {
+            .int => {
+                try self.spillRegisters(&.{.rcx});
+                try self.register_manager.getKnownReg(.rcx, null);
+                const lhs_mcv = try self.resolveInst(bin_op.lhs);
+                const rhs_mcv = try self.resolveInst(bin_op.rhs);
+
+                const lhs_lock = switch (lhs_mcv) {
+                    .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+                    else => null,
+                };
+                defer if (lhs_lock) |lock| self.register_manager.unlockReg(lock);
+
+                // shift left
+                const dst_mcv = try self.genShiftBinOp(.shl, null, lhs_mcv, rhs_mcv, lhs_ty, rhs_ty);
+                switch (dst_mcv) {
+                    .register => |dst_reg| try self.truncateRegister(lhs_ty, dst_reg),
+                    .register_pair => |dst_regs| try self.truncateRegister(lhs_ty, dst_regs[1]),
+                    .load_frame => |frame_addr| {
+                        const tmp_reg =
+                            try self.register_manager.allocReg(null, abi.RegisterClass.gp);
+                        const tmp_lock = self.register_manager.lockRegAssumeUnused(tmp_reg);
+                        defer self.register_manager.unlockReg(tmp_lock);
+
+                        const lhs_bits: u31 = @intCast(lhs_ty.bitSize(zcu));
+                        const tmp_ty: Type = if (lhs_bits > 64) .usize else lhs_ty;
+                        const off = frame_addr.off + (lhs_bits - 1) / 64 * 8;
+                        try self.genSetReg(
+                            tmp_reg,
+                            tmp_ty,
+                            .{ .load_frame = .{ .index = frame_addr.index, .off = off } },
+                            .{},
+                        );
+                        try self.truncateRegister(lhs_ty, tmp_reg);
+                        try self.genSetMem(
+                            .{ .frame = frame_addr.index },
+                            off,
+                            tmp_ty,
+                            .{ .register = tmp_reg },
+                            .{},
+                        );
+                    },
+                    else => {},
+                }
+                const dst_lock = switch (dst_mcv) {
+                    .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+                    else => null,
+                };
+                defer if (dst_lock) |lock| self.register_manager.unlockReg(lock);
+
+                // shift right
+                const tmp_mcv = try self.genShiftBinOp(.shr, null, dst_mcv, rhs_mcv, lhs_ty, rhs_ty);
+                const tmp_lock = switch (tmp_mcv) {
+                    .register => |reg| self.register_manager.lockRegAssumeUnused(reg),
+                    else => null,
+                };
+                defer if (tmp_lock) |lock| self.register_manager.unlockReg(lock);
+
+                // check if overflow happens
+                try self.genBinOpMir(.{ ._, .cmp }, lhs_ty, tmp_mcv, lhs_mcv);
+                const overflow_reloc = try self.genCondBrMir(lhs_ty, .{ .eflags = .ne });
+
+                // if overflow,
+                // for unsigned integers, the saturating result is just its max
+                // for signed integers,
+                //   if lhs is positive, the result is its max
+                //   if lhs is negative, it is min
+                switch (lhs_ty.intInfo(zcu).signedness) {
+                    .unsigned => {
+                        const bound_mcv = try self.genTypedValue(try lhs_ty.maxIntScalar(self.pt, lhs_ty));
+                        try self.genCopy(lhs_ty, dst_mcv, bound_mcv, .{});
+                    },
+                    .signed => {
+                        // check the sign of lhs
+                        const sign_shift = lhs_ty.intInfo(zcu).bits - 1;
+                        const sign_mcv = try self.genShiftBinOp(.shr, null, lhs_mcv, try self.genTypedValue(try self.pt.intValue(Type.u8, @as(u8, @intCast(sign_shift)))), lhs_ty, Type.u8);
+                        const sign_reloc_condbr = try self.genCondBrMir(lhs_ty, sign_mcv);
+
+                        // if it is negative
+                        const min_mcv = try self.genTypedValue(try lhs_ty.minIntScalar(self.pt, lhs_ty));
+                        try self.genCopy(lhs_ty, dst_mcv, min_mcv, .{});
+                        const sign_reloc_br = try self.asmJmpReloc(undefined);
+                        self.performReloc(sign_reloc_condbr);
+
+                        // if it is positive
+                        const max_mcv = try self.genTypedValue(try lhs_ty.maxIntScalar(self.pt, lhs_ty));
+                        try self.genCopy(lhs_ty, dst_mcv, max_mcv, .{});
+                        self.performReloc(sign_reloc_br);
+                    },
+                }
+
+                self.performReloc(overflow_reloc);
+                break :result dst_mcv;
+            },
+            else => {
+                return self.fail("TODO implement shl_sat for {} op type {}", .{ self.target.cpu.arch, lhs_ty.zigTypeTag(zcu) });
+            },
+        }
+    };
+    return self.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
 fn airOptionalPayload(self: *CodeGen, inst: Air.Inst.Index) !void {
