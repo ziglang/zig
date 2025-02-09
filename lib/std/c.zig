@@ -692,6 +692,7 @@ pub const F = switch (native_os) {
     .linux => linux.F,
     .emscripten => emscripten.F,
     .wasi => struct {
+        // Match `F_*` constants from lib/libc/include/wasm-wasi-musl/__header_fcntl.h
         pub const GETFD = 1;
         pub const SETFD = 2;
         pub const GETFL = 3;
@@ -1723,17 +1724,43 @@ pub const S = switch (native_os) {
     .linux => linux.S,
     .emscripten => emscripten.S,
     .wasi => struct {
-        pub const IEXEC = @compileError("TODO audit this");
+        // Match `S_*` constants from lib/libc/include/wasm-wasi-musl/__mode_t.h
         pub const IFBLK = 0x6000;
         pub const IFCHR = 0x2000;
         pub const IFDIR = 0x4000;
-        pub const IFIFO = 0xc000;
+        pub const IFIFO = 0x1000;
         pub const IFLNK = 0xa000;
         pub const IFMT = IFBLK | IFCHR | IFDIR | IFIFO | IFLNK | IFREG | IFSOCK;
         pub const IFREG = 0x8000;
-        /// There's no concept of UNIX domain socket but we define this value here
-        /// in order to line with other OSes.
-        pub const IFSOCK = 0x1;
+        pub const IFSOCK = 0xc000;
+
+        pub fn ISBLK(m: u32) bool {
+            return m & IFMT == IFBLK;
+        }
+
+        pub fn ISCHR(m: u32) bool {
+            return m & IFMT == IFCHR;
+        }
+
+        pub fn ISDIR(m: u32) bool {
+            return m & IFMT == IFDIR;
+        }
+
+        pub fn ISFIFO(m: u32) bool {
+            return m & IFMT == IFIFO;
+        }
+
+        pub fn ISLNK(m: u32) bool {
+            return m & IFMT == IFLNK;
+        }
+
+        pub fn ISREG(m: u32) bool {
+            return m & IFMT == IFREG;
+        }
+
+        pub fn ISSOCK(m: u32) bool {
+            return m & IFMT == IFSOCK;
+        }
     },
     .macos, .ios, .tvos, .watchos, .visionos => struct {
         pub const IFMT = 0o170000;
@@ -6802,6 +6829,7 @@ pub const Stat = switch (native_os) {
     },
     .emscripten => emscripten.Stat,
     .wasi => extern struct {
+        // Match wasi-libc's `struct stat` in lib/libc/include/wasm-wasi-musl/__struct_stat.h
         dev: dev_t,
         ino: ino_t,
         nlink: nlink_t,
@@ -7502,9 +7530,11 @@ pub const AT = switch (native_os) {
         pub const RECURSIVE = 0x8000;
     },
     .wasi => struct {
-        pub const SYMLINK_NOFOLLOW = 0x100;
-        pub const SYMLINK_FOLLOW = 0x400;
-        pub const REMOVEDIR: u32 = 0x4;
+        // Match `AT_*` constants in lib/libc/include/wasm-wasi-musl/__header_fcntl.h
+        pub const EACCESS = 0x0;
+        pub const SYMLINK_NOFOLLOW = 0x1;
+        pub const SYMLINK_FOLLOW = 0x2;
+        pub const REMOVEDIR = 0x4;
         /// When linking libc, we follow their convention and use -2 for current working directory.
         /// However, without libc, Zig does a different convention: it assumes the
         /// current working directory is the first preopen. This behavior can be
@@ -7512,7 +7542,6 @@ pub const AT = switch (native_os) {
         /// file.
         pub const FDCWD: fd_t = if (builtin.link_libc) -2 else 3;
     },
-
     else => void,
 };
 
@@ -7541,6 +7570,7 @@ pub const O = switch (native_os) {
         _: u9 = 0,
     },
     .wasi => packed struct(u32) {
+        // Match `O_*` bits from lib/libc/include/wasm-wasi-musl/__header_fcntl.h
         APPEND: bool = false,
         DSYNC: bool = false,
         NONBLOCK: bool = false,
@@ -7557,6 +7587,8 @@ pub const O = switch (native_os) {
         read: bool = false,
         SEARCH: bool = false,
         write: bool = false,
+        // O_CLOEXEC, O_TTY_ININT, O_NOCTTY are 0 in wasi-musl, so they're silently
+        // ignored in C code.  Thus no mapping in Zig.
         _: u3 = 0,
     },
     .solaris, .illumos => packed struct(u32) {
