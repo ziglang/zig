@@ -9774,7 +9774,7 @@ pub extern "c" fn getnameinfo(
     hostlen: socklen_t,
     noalias serv: ?[*]u8,
     servlen: socklen_t,
-    flags: u32,
+    flags: NI,
 ) EAI;
 
 pub extern "c" fn gai_strerror(errcode: EAI) [*:0]const u8;
