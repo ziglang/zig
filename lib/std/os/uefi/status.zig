@@ -142,7 +142,7 @@ pub const Status = enum(usize) {
 
     _,
 
-    pub const EfiError = error{
+    pub const Error = error{
         LoadError,
         InvalidParameter,
         Unsupported,
@@ -185,7 +185,7 @@ pub const Status = enum(usize) {
         ConnectionRefused,
     };
 
-    pub fn err(self: Status) EfiError!void {
+    pub fn err(self: Status) Error!void {
         switch (self) {
             .load_error => return error.LoadError,
             .invalid_parameter => return error.InvalidParameter,

@@ -4,7 +4,7 @@ pub const ConfigurationTable = @import("tables/configuration_table.zig").Configu
 pub const SystemTable = @import("tables/system_table.zig").SystemTable;
 pub const TableHeader = @import("tables/table_header.zig").TableHeader;
 
-pub const EfiEventNotify = *const fn (event: Event, ctx: *anyopaque) callconv(cc) void;
+pub const EventNotify = *const fn (event: Event, ctx: *anyopaque) callconv(cc) void;
 
 pub const TimerDelay = enum(u32) {
     timer_cancel,
@@ -82,7 +82,7 @@ pub const ProtocolInformationEntry = extern struct {
     open_count: u32,
 };
 
-pub const EfiInterfaceType = enum(u32) {
+pub const InterfaceType = enum(u32) {
     efi_native_interface,
 };
 
@@ -92,7 +92,7 @@ pub const AllocateType = enum(u32) {
     allocate_address,
 };
 
-pub const EfiPhysicalAddress = u64;
+pub const PhysicalAddress = u64;
 
 pub const CapsuleHeader = extern struct {
     capsule_guid: Guid align(8),
@@ -104,8 +104,8 @@ pub const CapsuleHeader = extern struct {
 pub const UefiCapsuleBlockDescriptor = extern struct {
     length: u64,
     address: extern union {
-        data_block: EfiPhysicalAddress,
-        continuation_pointer: EfiPhysicalAddress,
+        data_block: PhysicalAddress,
+        continuation_pointer: PhysicalAddress,
     },
 };
 

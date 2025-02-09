@@ -10,11 +10,11 @@ const AllocateType = uefi.tables.AllocateType;
 const MemoryType = uefi.tables.MemoryType;
 const MemoryDescriptor = uefi.tables.MemoryDescriptor;
 const TimerDelay = uefi.tables.TimerDelay;
-const EfiInterfaceType = uefi.tables.EfiInterfaceType;
+const InterfaceType = uefi.tables.InterfaceType;
 const LocateSearchType = uefi.tables.LocateSearchType;
 const OpenProtocolAttributes = uefi.tables.OpenProtocolAttributes;
 const ProtocolInformationEntry = uefi.tables.ProtocolInformationEntry;
-const EfiEventNotify = uefi.tables.EfiEventNotify;
+const EventNotify = uefi.tables.EventNotify;
 const cc = uefi.cc;
 
 /// Boot services are services provided by the system's firmware until the operating system takes
@@ -73,7 +73,7 @@ pub const BootServices = extern struct {
     /// Installs a protocol interface on a device handle. If the handle does not exist, it is created
     /// and added to the list of handles in the system. installMultipleProtocolInterfaces()
     /// performs more error checking than installProtocolInterface(), so its use is recommended over this.
-    installProtocolInterface: *const fn (handle: Handle, protocol: *align(8) const Guid, interface_type: EfiInterfaceType, interface: *anyopaque) callconv(cc) Status,
+    installProtocolInterface: *const fn (handle: Handle, protocol: *align(8) const Guid, interface_type: InterfaceType, interface: *anyopaque) callconv(cc) Status,
 
     /// Reinstalls a protocol interface on a device handle
     reinstallProtocolInterface: *const fn (handle: Handle, protocol: *align(8) const Guid, old_interface: *anyopaque, new_interface: *anyopaque) callconv(cc) Status,
@@ -165,7 +165,7 @@ pub const BootServices = extern struct {
     setMem: *const fn (buffer: [*]u8, size: usize, value: u8) callconv(cc) void,
 
     /// Creates an event in a group.
-    createEventEx: *const fn (type: u32, notify_tpl: usize, notify_func: EfiEventNotify, notify_ctx: *const anyopaque, event_group: *align(8) const Guid, event: *Event) callconv(cc) Status,
+    createEventEx: *const fn (type: u32, notify_tpl: usize, notify_func: EventNotify, notify_ctx: *const anyopaque, event_group: *align(8) const Guid, event: *Event) callconv(cc) Status,
 
     /// Opens a protocol with a structure as the loaded image for a UEFI application
     pub fn openProtocolSt(self: *BootServices, comptime protocol: type, handle: Handle) !*protocol {
