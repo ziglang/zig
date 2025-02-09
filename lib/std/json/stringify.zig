@@ -670,6 +670,9 @@ pub fn WriteStream(
                     const array: [info.len]info.child = value;
                     return self.write(&array);
                 },
+                .type => {
+                    return self.stringValue(@typeName(value));
+                },
                 else => @compileError("Unable to stringify type '" ++ @typeName(T) ++ "'"),
             }
             unreachable;
