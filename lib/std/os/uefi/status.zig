@@ -4,145 +4,145 @@ const high_bit = 1 << @typeInfo(usize).int.bits - 1;
 
 pub const Status = enum(usize) {
     /// The operation completed successfully.
-    Success = 0,
+    success = 0,
 
     /// The image failed to load.
-    LoadError = high_bit | 1,
+    load_error = high_bit | 1,
 
     /// A parameter was incorrect.
-    InvalidParameter = high_bit | 2,
+    invalid_parameter = high_bit | 2,
 
     /// The operation is not supported.
-    Unsupported = high_bit | 3,
+    unsupported = high_bit | 3,
 
     /// The buffer was not the proper size for the request.
-    BadBufferSize = high_bit | 4,
+    bad_buffer_size = high_bit | 4,
 
     /// The buffer is not large enough to hold the requested data. The required buffer size is returned in the appropriate parameter when this error occurs.
-    BufferTooSmall = high_bit | 5,
+    buffer_too_small = high_bit | 5,
 
     /// There is no data pending upon return.
-    NotReady = high_bit | 6,
+    not_ready = high_bit | 6,
 
     /// The physical device reported an error while attempting the operation.
-    DeviceError = high_bit | 7,
+    device_error = high_bit | 7,
 
     /// The device cannot be written to.
-    WriteProtected = high_bit | 8,
+    write_protected = high_bit | 8,
 
     /// A resource has run out.
-    OutOfResources = high_bit | 9,
+    out_of_resources = high_bit | 9,
 
     /// An inconstancy was detected on the file system causing the operating to fail.
-    VolumeCorrupted = high_bit | 10,
+    volume_corrupted = high_bit | 10,
 
     /// There is no more space on the file system.
-    VolumeFull = high_bit | 11,
+    volume_full = high_bit | 11,
 
     /// The device does not contain any medium to perform the operation.
-    NoMedia = high_bit | 12,
+    no_media = high_bit | 12,
 
     /// The medium in the device has changed since the last access.
-    MediaChanged = high_bit | 13,
+    media_changed = high_bit | 13,
 
     /// The item was not found.
-    NotFound = high_bit | 14,
+    not_found = high_bit | 14,
 
     /// Access was denied.
-    AccessDenied = high_bit | 15,
+    access_denied = high_bit | 15,
 
     /// The server was not found or did not respond to the request.
-    NoResponse = high_bit | 16,
+    no_response = high_bit | 16,
 
     /// A mapping to a device does not exist.
-    NoMapping = high_bit | 17,
+    no_mapping = high_bit | 17,
 
     /// The timeout time expired.
-    Timeout = high_bit | 18,
+    timeout = high_bit | 18,
 
     /// The protocol has not been started.
-    NotStarted = high_bit | 19,
+    not_started = high_bit | 19,
 
     /// The protocol has already been started.
-    AlreadyStarted = high_bit | 20,
+    already_started = high_bit | 20,
 
     /// The operation was aborted.
-    Aborted = high_bit | 21,
+    aborted = high_bit | 21,
 
     /// An ICMP error occurred during the network operation.
-    IcmpError = high_bit | 22,
+    icmp_error = high_bit | 22,
 
     /// A TFTP error occurred during the network operation.
-    TftpError = high_bit | 23,
+    tftp_error = high_bit | 23,
 
     /// A protocol error occurred during the network operation.
-    ProtocolError = high_bit | 24,
+    protocol_error = high_bit | 24,
 
     /// The function encountered an internal version that was incompatible with a version requested by the caller.
-    IncompatibleVersion = high_bit | 25,
+    incompatible_version = high_bit | 25,
 
     /// The function was not performed due to a security violation.
-    SecurityViolation = high_bit | 26,
+    security_violation = high_bit | 26,
 
     /// A CRC error was detected.
-    CrcError = high_bit | 27,
+    crc_error = high_bit | 27,
 
     /// Beginning or end of media was reached
-    EndOfMedia = high_bit | 28,
+    end_of_media = high_bit | 28,
 
     /// The end of the file was reached.
-    EndOfFile = high_bit | 31,
+    end_of_file = high_bit | 31,
 
     /// The language specified was invalid.
-    InvalidLanguage = high_bit | 32,
+    invalid_language = high_bit | 32,
 
     /// The security status of the data is unknown or compromised and the data must be updated or replaced to restore a valid security status.
-    CompromisedData = high_bit | 33,
+    compromised_data = high_bit | 33,
 
     /// There is an address conflict address allocation
-    IpAddressConflict = high_bit | 34,
+    ip_address_conflict = high_bit | 34,
 
     /// A HTTP error occurred during the network operation.
-    HttpError = high_bit | 35,
+    http_error = high_bit | 35,
 
-    NetworkUnreachable = high_bit | 100,
+    network_unreachable = high_bit | 100,
 
-    HostUnreachable = high_bit | 101,
+    host_unreachable = high_bit | 101,
 
-    ProtocolUnreachable = high_bit | 102,
+    protocol_unreachable = high_bit | 102,
 
-    PortUnreachable = high_bit | 103,
+    port_unreachable = high_bit | 103,
 
-    ConnectionFin = high_bit | 104,
+    connection_fin = high_bit | 104,
 
-    ConnectionReset = high_bit | 105,
+    connection_reset = high_bit | 105,
 
-    ConnectionRefused = high_bit | 106,
+    connection_refused = high_bit | 106,
 
     /// The string contained one or more characters that the device could not render and were skipped.
-    WarnUnknownGlyph = 1,
+    warn_unknown_glyph = 1,
 
     /// The handle was closed, but the file was not deleted.
-    WarnDeleteFailure = 2,
+    warn_delete_failure = 2,
 
     /// The handle was closed, but the data to the file was not flushed properly.
-    WarnWriteFailure = 3,
+    warn_write_failure = 3,
 
     /// The resulting buffer was too small, and the data was truncated to the buffer size.
-    WarnBufferTooSmall = 4,
+    warn_buffer_too_small = 4,
 
     /// The data has not been updated within the timeframe set by localpolicy for this type of data.
-    WarnStaleData = 5,
+    warn_stale_data = 5,
 
     /// The resulting buffer contains UEFI-compliant file system.
-    WarnFileSystem = 6,
+    warn_file_system = 6,
 
     /// The operation will be processed across a system reset.
-    WarnResetRequired = 7,
+    warn_reset_required = 7,
 
     _,
 
-    pub const EfiError = error{
+    pub const Error = error{
         LoadError,
         InvalidParameter,
         Unsupported,
@@ -185,20 +185,61 @@ pub const Status = enum(usize) {
         ConnectionRefused,
     };
 
-    pub fn err(self: Status) EfiError!void {
-        inline for (@typeInfo(EfiError).error_set.?) |efi_err| {
-            if (self == @field(Status, efi_err.name)) {
-                return @field(EfiError, efi_err.name);
-            }
+    pub fn err(self: Status) Error!void {
+        switch (self) {
+            .load_error => return error.LoadError,
+            .invalid_parameter => return error.InvalidParameter,
+            .unsupported => return error.Unsupported,
+            .bad_buffer_size => return error.BadBufferSize,
+            .buffer_too_small => return error.BufferTooSmall,
+            .not_ready => return error.NotReady,
+            .device_error => return error.DeviceError,
+            .write_protected => return error.WriteProtected,
+            .out_of_resources => return error.OutOfResources,
+            .volume_corrupted => return error.VolumeCorrupted,
+            .volume_full => return error.VolumeFull,
+            .no_media => return error.NoMedia,
+            .media_changed => return error.MediaChanged,
+            .not_found => return error.NotFound,
+            .access_denied => return error.AccessDenied,
+            .no_response => return error.NoResponse,
+            .no_mapping => return error.NoMapping,
+            .timeout => return error.Timeout,
+            .not_started => return error.NotStarted,
+            .already_started => return error.AlreadyStarted,
+            .aborted => return error.Aborted,
+            .icmp_error => return error.IcmpError,
+            .tftp_error => return error.TftpError,
+            .protocol_error => return error.ProtocolError,
+            .incompatible_version => return error.IncompatibleVersion,
+            .security_violation => return error.SecurityViolation,
+            .crc_error => return error.CrcError,
+            .end_of_media => return error.EndOfMedia,
+            .end_of_file => return error.EndOfFile,
+            .invalid_language => return error.InvalidLanguage,
+            .compromised_data => return error.CompromisedData,
+            .ip_address_conflict => return error.IpAddressConflict,
+            .http_error => return error.HttpError,
+            .network_unreachable => return error.NetworkUnreachable,
+            .host_unreachable => return error.HostUnreachable,
+            .protocol_unreachable => return error.ProtocolUnreachable,
+            .port_unreachable => return error.PortUnreachable,
+            .connection_fin => return error.ConnectionFin,
+            .connection_reset => return error.ConnectionReset,
+            .connection_refused => return error.ConnectionRefused,
+            // success, warn_*, _
+            else => {},
         }
-        // self is .Success or Warning
     }
 };
 
 test "status" {
-    var st: Status = .DeviceError;
+    var st: Status = .device_error;
     try testing.expectError(error.DeviceError, st.err());
 
-    st = .Success;
+    st = .success;
+    try st.err();
+
+    st = .warn_unknown_glyph;
     try st.err();
 }

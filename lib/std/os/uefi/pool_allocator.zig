@@ -29,7 +29,7 @@ const UefiPoolAllocator = struct {
         const full_len = metadata_len + len;
 
         var unaligned_ptr: [*]align(8) u8 = undefined;
-        if (uefi.system_table.boot_services.?.allocatePool(uefi.efi_pool_memory_type, full_len, &unaligned_ptr) != .Success) return null;
+        if (uefi.system_table.boot_services.?.allocatePool(uefi.efi_pool_memory_type, full_len, &unaligned_ptr) != .success) return null;
 
         const unaligned_addr = @intFromPtr(unaligned_ptr);
         const aligned_addr = mem.alignForward(usize, unaligned_addr + @sizeOf(usize), ptr_align);
@@ -118,7 +118,7 @@ fn uefi_alloc(
     std.debug.assert(@intFromEnum(alignment) <= 3);
 
     var ptr: [*]align(8) u8 = undefined;
-    if (uefi.system_table.boot_services.?.allocatePool(uefi.efi_pool_memory_type, len, &ptr) != .Success) return null;
+    if (uefi.system_table.boot_services.?.allocatePool(uefi.efi_pool_memory_type, len, &ptr) != .success) return null;
 
     return ptr;
 }

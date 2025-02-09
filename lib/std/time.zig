@@ -64,7 +64,7 @@ pub fn nanoTimestamp() i128 {
         .uefi => {
             var value: std.os.uefi.Time = undefined;
             const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
-            assert(status == .Success);
+            assert(status == .success);
             return value.toEpoch();
         },
         else => {
@@ -153,7 +153,7 @@ pub const Instant = struct {
             .uefi => {
                 var value: std.os.uefi.Time = undefined;
                 const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
-                if (status != .Success) return error.Unsupported;
+                if (status != .success) return error.Unsupported;
                 return Instant{ .timestamp = value.toEpoch() };
             },
             // On darwin, use UPTIME_RAW instead of MONOTONIC as it ticks while

@@ -775,7 +775,7 @@ pub fn exit(status: u8) noreturn {
             _ = bs.exit(uefi.handle, @enumFromInt(status), 0, null);
         }
         // If we can't exit, reboot the system instead.
-        uefi.system_table.runtime_services.resetSystem(.ResetCold, @enumFromInt(status), 0, null);
+        uefi.system_table.runtime_services.resetSystem(.reset_cold, @enumFromInt(status), 0, null);
     }
     system.exit(status);
 }
@@ -5143,10 +5143,10 @@ pub fn sysctl(
     newlen: usize,
 ) SysCtlError!void {
     if (native_os == .wasi) {
-        @panic("unsupported"); // TODO should be compile error, not panic
+        @compileError("sysctl not supported on WASI");
     }
     if (native_os == .haiku) {
-        @panic("unsupported"); // TODO should be compile error, not panic
+        @compileError("sysctl not supported on Haiku");
     }
 
     const name_len = cast(c_uint, name.len) orelse return error.NameTooLong;
@@ -5168,10 +5168,10 @@ pub fn sysctlbynameZ(
     newlen: usize,
 ) SysCtlError!void {
     if (native_os == .wasi) {
-        @panic("unsupported"); // TODO should be compile error, not panic
+        @compileError("sysctl not supported on WASI");
     }
     if (native_os == .haiku) {
-        @panic("unsupported"); // TODO should be compile error, not panic
+        @compileError("sysctl not supported on Haiku");
     }
 
     switch (errno(system.sysctlbyname(name, oldp, oldlenp, newp, newlen))) {
