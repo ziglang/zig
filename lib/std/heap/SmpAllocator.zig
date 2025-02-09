@@ -51,9 +51,9 @@ const slab_len: usize = @max(std.heap.page_size_max, 64 * 1024);
 /// Because of storing free list pointers, the minimum size class is 3.
 const min_class = math.log2(@sizeOf(usize));
 const size_class_count = math.log2(slab_len) - min_class;
-/// When a freelist length exceeds this number, a `free` will rotate up to
-/// `max_free_search` times before pushing.
-const max_freelist_len: u8 = 255;
+/// When a freelist length exceeds this number of slabs, a `free` will rotate
+/// up to `max_free_search` times before pushing.
+const max_freelist_len = 255;
 const max_free_search = 1;
 /// Before mapping a fresh page, `alloc` will rotate this many times.
 const max_alloc_search = 1;
@@ -142,7 +142,6 @@ fn alloc(context: *anyopaque, len: usize, alignment: mem.Alignment, ra: usize) ?
             defer t.unlock();
             const node: *usize = @ptrFromInt(top_free_ptr);
             t.frees[class] = node.*;
-            t.freelist_lens[class] -|= 1;
             return @ptrFromInt(top_free_ptr);
         }
 
@@ -223,7 +222,7 @@ fn free(context: *anyopaque, memory: []u8, alignment: mem.Alignment, ra: usize) 
         if (freelist_len < max_freelist_len) {
             @branchHint(.likely);
             defer t.unlock();
-            t.freelist_lens[class] = freelist_len +| 1;
+            t.freelist_lens[class] = freelist_len +| @intFromBool((@intFromPtr(node) % slab_len) == 0);
             node.* = t.frees[class];
             t.frees[class] = @intFromPtr(node);
             return;
@@ -231,7 +230,7 @@ fn free(context: *anyopaque, memory: []u8, alignment: mem.Alignment, ra: usize) 
 
         if (search_count >= max_free_search) {
             defer t.unlock();
-            t.freelist_lens[class] = freelist_len +| 1;
+            t.freelist_lens[class] = freelist_len +| @intFromBool((@intFromPtr(node) % slab_len) == 0);
             node.* = t.frees[class];
             t.frees[class] = @intFromPtr(node);
             return;
