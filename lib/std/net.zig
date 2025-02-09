@@ -1446,9 +1446,7 @@ fn linuxLookupNameFromDns(
         AfRr{ .af = posix.AF.INET, .rr = posix.RR.AAAA },
     };
     var qbuf: [2][280]u8 = undefined;
-    var abuf: [2][512]u8 = undefined;
     var qp: [2][]const u8 = undefined;
-    const apbuf = [2][]u8{ &abuf[0], &abuf[1] };
     var nq: usize = 0;
 
     for (afrrs) |afrr| {
@@ -1459,11 +1457,12 @@ fn linuxLookupNameFromDns(
         }
     }
 
-    var ap = [2][]u8{ apbuf[0], apbuf[1] };
+    var abuf: [2][512]u8 = undefined;
+    var ap = [2][]u8{ &abuf[0], &abuf[1] };
     ap[0].len = 0;
     ap[1].len = 0;
 
-    try resMSendRc(qp[0..nq], ap[0..nq], apbuf[0..nq], rc);
+    try resMSendRc(qp[0..nq], ap[0..nq], rc);
 
     var i: usize = 0;
     while (i < nq) : (i += 1) {
@@ -1575,7 +1574,6 @@ fn linuxLookupNameFromNumericUnspec(
 fn resMSendRc(
     queries: []const []const u8,
     answers: [][]u8,
-    answer_bufs: []const []u8,
     rc: ResolvConf,
 ) !void {
     const timeout = 1000 * rc.timeout;
@@ -1647,10 +1645,24 @@ fn resMSendRc(
         .revents = undefined,
     }};
     const retry_interval = timeout / attempts;
-    var next: u32 = 0;
     var t2: u64 = @bitCast(std.time.milliTimestamp());
     const t0 = t2;
     var t1 = t2 - retry_interval;
+    // buffer to store answer received from recvfrom
+    var abuf: [512]u8 = undefined;
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+
+    var posBitSet = try std.DynamicBitSet.initEmpty(allocator, queries.len);
+    defer posBitSet.deinit();
+
+    // bit set for keeping track of the responses from from name servers(in ns) to the queries
+    // indexes will be computed as i*ns.len + j where i is the index for query i, and j index for ns[j]
+    // if responseBitSet.isSet(i*ns.len + j) == true that means the nameserver j answered query i.
+    // Valid answers are POSITVE and UNKNOWN HOST answers from the nameservers.
+    var responseBitSet = try std.DynamicBitSet.initEmpty(allocator, queries.len*ns.len);
+    defer responseBitSet.deinit();
 
     var servfail_retry: usize = undefined;
 
@@ -1659,9 +1671,10 @@ fn resMSendRc(
             // Query all configured nameservers in parallel
             var i: usize = 0;
             while (i < queries.len) : (i += 1) {
-                if (answers[i].len == 0) {
-                    var j: usize = 0;
-                    while (j < ns.len) : (j += 1) {
+                // in case we haven't received a response from the name server send another request
+                var j: usize = 0;
+                while (j < ns.len) : (j += 1) {
+                    if (!responseBitSet.isSet(i*ns.len + j)) {
                         _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &ns[j].any, sl) catch undefined;
                     }
                 }
@@ -1677,7 +1690,7 @@ fn resMSendRc(
 
         while (true) {
             var sl_copy = sl;
-            const rlen = posix.recvfrom(fd, answer_bufs[next], 0, &sa.any, &sl_copy) catch break;
+            const rlen = posix.recvfrom(fd, &abuf, 0, &sa.any, &sl_copy) catch break;
 
             // Ignore non-identifiable packets
             if (rlen < 4) continue;
@@ -1688,19 +1701,27 @@ fn resMSendRc(
             if (j == ns.len) continue;
 
             // Find which query this answer goes with, if any
-            var i: usize = next;
-            while (i < queries.len and (answer_bufs[next][0] != queries[i][0] or
-                answer_bufs[next][1] != queries[i][1])) : (i += 1)
+            var i: usize = 0;
+            while (i < queries.len and (abuf[0] != queries[i][0] or
+                abuf[1] != queries[i][1])) : (i += 1)
             {}
 
             if (i == queries.len) continue;
-            if (answers[i].len != 0) continue;
+            // in case we already have a POSITIVE answer for that query continue
+            if (posBitSet.isSet(i)) continue;
 
             // Only accept positive or negative responses;
             // retry immediately on server failure, and ignore
             // all other codes such as refusal.
-            switch (answer_bufs[next][3] & 15) {
-                0, 3 => {},
+
+            switch (abuf[3] & 15) {
+                0 => {
+                    posBitSet.set(i);
+                    responseBitSet.set(i*ns.len + j);
+                }, 
+                3 => {
+                    responseBitSet.set(i*ns.len + j);
+                },
                 2 => if (servfail_retry != 0) {
                     servfail_retry -= 1;
                     _ = posix.sendto(fd, queries[i], posix.MSG.NOSIGNAL, &ns[j].any, sl) catch undefined;
@@ -1708,16 +1729,14 @@ fn resMSendRc(
                 else => continue,
             }
 
-            // Store answer in the right slot, or update next
-            // available temp slot if it's already in place.
             answers[i].len = rlen;
-            if (i == next) {
-                while (next < queries.len and answers[next].len != 0) : (next += 1) {}
-            } else {
-                @memcpy(answer_bufs[i][0..rlen], answer_bufs[next][0..rlen]);
-            }
+            @memcpy(answers[i][0..rlen], abuf[0..rlen]);
 
-            if (next == queries.len) break :outer;
+            // in case all the queries received a POSITIVE response
+            // or all the name servers responded with a POSITIVE or an UNKNOWN HOST
+            if (posBitSet.count() == queries.len or responseBitSet.count() == queries.len*ns.len) {
+                break :outer;
+            }
         }
     }
 }
