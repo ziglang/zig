@@ -25,6 +25,8 @@ pub const GeneralPurposeAllocatorConfig = DebugAllocatorConfig;
 /// Deprecated; to be removed after 0.14.0 is tagged.
 pub const GeneralPurposeAllocator = DebugAllocator;
 
+pub const uefi = @import("heap/uefi_allocators.zig");
+
 const memory_pool = @import("heap/memory_pool.zig");
 pub const MemoryPool = memory_pool.MemoryPool;
 pub const MemoryPoolAligned = memory_pool.MemoryPoolAligned;
@@ -354,7 +356,7 @@ else if (builtin.target.cpu.arch.isWasm()) .{
     .ptr = undefined,
     .vtable = &SbrkAllocator(std.os.plan9.sbrk).vtable,
 } else if (builtin.target.os.tag == .uefi)
-    std.os.uefi.global_page_allocator.allocator()
+    uefi.global_page_allocator.allocator()
 else
     .{
         .ptr = undefined,

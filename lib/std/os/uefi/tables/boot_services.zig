@@ -25,7 +25,7 @@ const OpenProtocolAttributes = uefi.tables.OpenProtocolAttributes;
 const ProtocolInformationEntry = uefi.tables.ProtocolInformationEntry;
 const EventNotify = uefi.tables.EventNotify;
 const EfiEventNotify = uefi.tables.EfiEventNotify;
-const EfiPhysicalAddress = uefi.tables.EfiPhysicalAddress;
+const PhysicalAddress = uefi.tables.PhysicalAddress;
 const cc = uefi.cc;
 const Error = Status.Error;
 
@@ -50,7 +50,7 @@ pub const BootServices = extern struct {
     restoreTpl: *const fn (old_tpl: TaskPriorityLevel) callconv(cc) void,
 
     /// Allocates memory pages from the system.
-    _allocatePages: *const fn (alloc_type: AllocateType, mem_type: MemoryType, pages: usize, memory: EfiPhysicalAddress) callconv(cc) Status,
+    _allocatePages: *const fn (alloc_type: AllocateType, mem_type: MemoryType, pages: usize, memory: PhysicalAddress) callconv(cc) Status,
 
     /// Frees memory pages.
     _freePages: *const fn (memory: [*]align(4096) Page, pages: usize) callconv(cc) Status,
@@ -379,7 +379,7 @@ pub const BootServices = extern struct {
         mem_type: MemoryType,
         pages: usize,
     ) AllocatePagesError![]align(4096) Page {
-        var ptr: EfiPhysicalAddress = switch (location) {
+        var ptr: PhysicalAddress = switch (location) {
             .any => undefined,
             .address, .max_address => |ptr| ptr,
         };

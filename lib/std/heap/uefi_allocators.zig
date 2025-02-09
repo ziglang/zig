@@ -1,4 +1,4 @@
-const std = @import("../../std.zig");
+const std = @import("../std.zig");
 
 const mem = std.mem;
 const uefi = std.os.uefi;
@@ -7,13 +7,16 @@ const Allocator = mem.Allocator;
 
 const assert = std.debug.assert;
 
+pub var global_page_allocator = PageAllocator{};
+pub var global_pool_allocator = PoolAllocator{};
+
 /// Allocates memory in pages.
 ///
 /// This allocator is backed by `allocatePages` and is therefore only suitable for usage when Boot Services are available.
-pub const Page = struct {
-    memory_type: uefi.tables.MemoryType = .LoaderData,
+pub const PageAllocator = struct {
+    memory_type: uefi.tables.MemoryType = .loader_data,
 
-    pub fn allocator(self: *Page) Allocator {
+    pub fn allocator(self: *PageAllocator) Allocator {
         return Allocator{
             .ptr = self,
             .vtable = &vtable,
@@ -36,7 +39,7 @@ pub const Page = struct {
         _ = alignment;
         _ = ret_addr;
 
-        const self: *Page = @ptrCast(@alignCast(ctx));
+        const self: *PageAllocator = @ptrCast(@alignCast(ctx));
 
         assert(len > 0);
         const pages = mem.alignForward(usize, len, 4096) / 4096;
@@ -55,7 +58,7 @@ pub const Page = struct {
         _ = alignment;
         _ = ret_addr;
 
-        const self: *Page = @ptrCast(@alignCast(ctx));
+        const self: *PageAllocator = @ptrCast(@alignCast(ctx));
 
         // If the buffer was originally larger than the new length, we can grow or shrink it in place.
         const original_len = mem.alignForward(usize, buf.len, 4096);
@@ -109,10 +112,10 @@ pub const Page = struct {
 /// Supports the full std.mem.Allocator interface, including up to page alignment.
 ///
 /// This allocator is backed by `allocatePool` and is therefore only suitable for usage when Boot Services are available.
-pub const Pool = struct {
-    memory_type: uefi.tables.MemoryType = .LoaderData,
+pub const PoolAllocator = struct {
+    memory_type: uefi.tables.MemoryType = .loader_data,
 
-    pub fn allocator(self: *Pool) Allocator {
+    pub fn allocator(self: *PoolAllocator) Allocator {
         return Allocator{
             .ptr = self,
             .vtable = &vtable,
@@ -142,7 +145,7 @@ pub const Pool = struct {
         ret_addr: usize,
     ) ?[*]u8 {
         _ = ret_addr;
-        const self: *Pool = @ptrCast(@alignCast(ctx));
+        const self: *PoolAllocator = @ptrCast(@alignCast(ctx));
 
         assert(len > 0);
 
@@ -218,10 +221,10 @@ pub const Pool = struct {
 /// Asserts all allocations are at most 8 byte aligned. This is the highest alignment UEFI will give us directly.
 ///
 /// This allocator is backed by `allocatePool` and is therefore only suitable for usage when Boot Services are available.
-pub const RawPool = struct {
-    memory_type: uefi.tables.MemoryType = .LoaderData,
+pub const RawPoolAllocator = struct {
+    memory_type: uefi.tables.MemoryType = .loader_data,
 
-    pub fn allocator(self: *RawPool) Allocator {
+    pub fn allocator(self: *RawPoolAllocator) Allocator {
         return Allocator{
             .ptr = self,
             .vtable = &vtable,
@@ -242,7 +245,7 @@ pub const RawPool = struct {
         ret_addr: usize,
     ) ?[*]u8 {
         _ = ret_addr;
-        const self: *RawPool = @ptrCast(@alignCast(ctx));
+        const self: *RawPoolAllocator = @ptrCast(@alignCast(ctx));
 
         // UEFI pool allocations are 8 byte aligned, so we can't do better than that.
         std.debug.assert(@intFromEnum(alignment) <= 3);
