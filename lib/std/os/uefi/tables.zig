@@ -103,10 +103,10 @@ pub const AllocateType = union(Enum) {
     any: void,
 
     /// Allocate any available range of pages whose uppermost address is less than or equal to a specified address.
-    max_address: EfiPhysicalAddress,
+    max_address: PhysicalAddress,
 
     /// Allocate pages at a specified address.
-    at_address: EfiPhysicalAddress,
+    at_address: PhysicalAddress,
 };
 
 pub const PhysicalAddress = u64;
