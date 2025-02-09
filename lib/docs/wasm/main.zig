@@ -772,6 +772,7 @@ fn unpackInner(tar_bytes: []u8) !void {
                         const gop = try Walk.modules.getOrPut(gpa, pkg_name);
                         const file: Walk.File.Index = @enumFromInt(Walk.files.entries.len);
                         if (!gop.found_existing or
+                            std.mem.eql(u8, file_name[pkg_name_end..], "/lib.zig") or
                             std.mem.eql(u8, file_name[pkg_name_end..], "/root.zig") or
                             std.mem.eql(u8, file_name[pkg_name_end + 1 .. file_name.len - ".zig".len], pkg_name))
                         {
