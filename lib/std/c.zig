@@ -5998,7 +5998,7 @@ pub const IFNAMESIZE = switch (native_os) {
 pub const stack_t = switch (native_os) {
     .linux => linux.stack_t,
     .emscripten => emscripten.stack_t,
-    .freebsd => extern struct {
+    .freebsd, .openbsd => extern struct {
         /// Signal stack base.
         sp: *anyopaque,
         /// Signal stack length.
