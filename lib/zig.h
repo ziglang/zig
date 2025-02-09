@@ -650,7 +650,7 @@ typedef ptrdiff_t intptr_t;
     zig_operator(Type,    Type, operation, operator)
 #define zig_shift_operator(Type, operation, operator) \
     zig_operator(Type, uint8_t, operation, operator)
-#define zig_int_helpers(w) \
+#define zig_int_helpers(w, PromotedUnsigned) \
     zig_basic_operator(uint##w##_t, and_u##w,  &) \
     zig_basic_operator( int##w##_t, and_i##w,  &) \
     zig_basic_operator(uint##w##_t,  or_u##w,  |) \
@@ -726,16 +726,48 @@ typedef ptrdiff_t intptr_t;
     } \
 \
     static inline uint##w##_t zig_mulw_u##w(uint##w##_t lhs, uint##w##_t rhs, uint8_t bits) { \
-        return zig_wrap_u##w(lhs * rhs, bits); \
+        return zig_wrap_u##w((PromotedUnsigned)lhs * rhs, bits); \
     } \
 \
     static inline int##w##_t zig_mulw_i##w(int##w##_t lhs, int##w##_t rhs, uint8_t bits) { \
         return zig_wrap_i##w((int##w##_t)((uint##w##_t)lhs * (uint##w##_t)rhs), bits); \
     }
-zig_int_helpers(8)
-zig_int_helpers(16)
-zig_int_helpers(32)
-zig_int_helpers(64)
+#if UINT8_MAX <= UINT_MAX
+zig_int_helpers(8, unsigned int)
+#elif UINT8_MAX <= ULONG_MAX
+zig_int_helpers(8, unsigned long)
+#elif UINT8_MAX <= ULLONG_MAX
+zig_int_helpers(8, unsigned long long)
+#else
+zig_int_helpers(8, uint8_t)
+#endif
+#if UINT16_MAX <= UINT_MAX
+zig_int_helpers(16, unsigned int)
+#elif UINT16_MAX <= ULONG_MAX
+zig_int_helpers(16, unsigned long)
+#elif UINT16_MAX <= ULLONG_MAX
+zig_int_helpers(16, unsigned long long)
+#else
+zig_int_helpers(16, uint16_t)
+#endif
+#if UINT32_MAX <= UINT_MAX
+zig_int_helpers(32, unsigned int)
+#elif UINT32_MAX <= ULONG_MAX
+zig_int_helpers(32, unsigned long)
+#elif UINT32_MAX <= ULLONG_MAX
+zig_int_helpers(32, unsigned long long)
+#else
+zig_int_helpers(32, uint32_t)
+#endif
+#if UINT64_MAX <= UINT_MAX
+zig_int_helpers(64, unsigned int)
+#elif UINT64_MAX <= ULONG_MAX
+zig_int_helpers(64, unsigned long)
+#elif UINT64_MAX <= ULLONG_MAX
+zig_int_helpers(64, unsigned long long)
+#else
+zig_int_helpers(64, uint64_t)
+#endif
 
 static inline bool zig_addo_u32(uint32_t *res, uint32_t lhs, uint32_t rhs, uint8_t bits) {
 #if zig_has_builtin(add_overflow) || defined(zig_gnuc)
