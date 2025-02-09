@@ -1,6 +1,8 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
 const math = std.math;
+const endian = builtin.cpu.arch.endian();
 
 const __floatunsihf = @import("floatunsihf.zig").__floatunsihf;
 
@@ -11,6 +13,8 @@ const __floatdisf = @import("floatdisf.zig").__floatdisf;
 const __floatundisf = @import("floatundisf.zig").__floatundisf;
 const __floattisf = @import("floattisf.zig").__floattisf;
 const __floatuntisf = @import("floatuntisf.zig").__floatuntisf;
+const __floateisf = @import("floateisf.zig").__floateisf;
+const __floatuneisf = @import("floatuneisf.zig").__floatuneisf;
 
 // Conversion to f64
 const __floatsidf = @import("floatsidf.zig").__floatsidf;
@@ -229,6 +233,54 @@ test "floatuntisf" {
 
     // Test overflow to infinity
     try test__floatuntisf(math.maxInt(u128), @bitCast(math.inf(f32)));
+}
+
+fn test_floateisf(expected: u32, comptime T: type, a: T) !void {
+    const int = @typeInfo(T).int;
+    var a_buf: [@divExact(int.bits, 32)]u32 = undefined;
+    std.mem.writeInt(T, std.mem.asBytes(&a_buf), a, endian);
+    const r = switch (int.signedness) {
+        .signed => __floateisf,
+        .unsigned => __floatuneisf,
+    }(&a_buf, int.bits);
+    try testing.expect(expected == @as(u32, @bitCast(r)));
+}
+
+test "floateisf" {
+    try test_floateisf(0xFF000000, i256, -1 << 127);
+    try test_floateisf(0xFF000000, i256, -math.maxInt(u127));
+    try test_floateisf(0xDF012347, i256, -0x8123468100000000);
+    try test_floateisf(0xDF012347, i256, -0x8123468000000001);
+    try test_floateisf(0xDF012346, i256, -0x8123468000000000);
+    try test_floateisf(0xDF012346, i256, -0x8123458100000000);
+    try test_floateisf(0xDF012346, i256, -0x8123458000000001);
+    try test_floateisf(0xDF012346, i256, -0x8123458000000000);
+    try test_floateisf(0xDF012345, i256, -0x8123456789ABCDEF);
+    try test_floateisf(0xBF800000, i256, -1);
+    try test_floateisf(0x00000000, i256, 0);
+    try test_floateisf(0x5F012345, i256, 0x8123456789ABCDEF);
+    try test_floateisf(0x5F012346, i256, 0x8123458000000000);
+    try test_floateisf(0x5F012346, i256, 0x8123458000000001);
+    try test_floateisf(0x5F012346, i256, 0x8123458100000000);
+    try test_floateisf(0x5F012346, i256, 0x8123468000000000);
+    try test_floateisf(0x5F012347, i256, 0x8123468000000001);
+    try test_floateisf(0x5F012347, i256, 0x8123468100000000);
+    try test_floateisf(0x7F000000, i256, math.maxInt(u127));
+    try test_floateisf(0x7F000000, i256, 1 << 127);
+}
+
+test "floatuneisf" {
+    try test_floateisf(0x00000000, u256, 0);
+    try test_floateisf(0x5F012345, u256, 0x8123456789ABCDEF);
+    try test_floateisf(0x5F012346, u256, 0x8123458000000000);
+    try test_floateisf(0x5F012346, u256, 0x8123458000000001);
+    try test_floateisf(0x5F012346, u256, 0x8123458080000000);
+    try test_floateisf(0x5F012346, u256, 0x8123468000000000);
+    try test_floateisf(0x5F012347, u256, 0x8123468000000001);
+    try test_floateisf(0x5F012347, u256, 0x8123468080000000);
+    try test_floateisf(0x7F000000, u256, math.maxInt(u127));
+    try test_floateisf(0x7F000000, u256, 1 << 127);
+    try test_floateisf(0x7F800000, u256, math.maxInt(u256));
 }
 
 fn test_one_floatsidf(a: i32, expected: u64) !void {
@@ -810,8 +862,6 @@ test "conversion to f32" {
 }
 
 test "conversion to f80" {
-    if (std.debug.runtime_safety) return error.SkipZigTest;
-
     const floatFromInt = @import("./float_from_int.zig").floatFromInt;
 
     try testing.expect(floatFromInt(f80, @as(i80, -12)) == -12);

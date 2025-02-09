@@ -11,6 +11,11 @@ string_bytes: []const u8,
 /// The first thing in this array is an `ErrorMessageList`.
 extra: []const u32,
 
+/// Index into `string_bytes`.
+pub const String = u32;
+/// Index into `string_bytes`, or null.
+pub const OptionalString = u32;
+
 /// Special encoding when there are no errors.
 pub const empty: ErrorBundle = .{
     .string_bytes = &.{},
@@ -33,14 +38,13 @@ pub const ErrorMessageList = struct {
     len: u32,
     start: u32,
     /// null-terminated string index. 0 means no compile log text.
-    compile_log_text: u32,
+    compile_log_text: OptionalString,
 };
 
 /// Trailing:
 /// * ReferenceTrace for each reference_trace_len
 pub const SourceLocation = struct {
-    /// null terminated string index
-    src_path: u32,
+    src_path: String,
     line: u32,
     column: u32,
     /// byte offset of starting token
@@ -49,17 +53,15 @@ pub const SourceLocation = struct {
     span_main: u32,
     /// byte offset of end of last token
     span_end: u32,
-    /// null terminated string index, possibly null.
     /// Does not include the trailing newline.
-    source_line: u32 = 0,
+    source_line: OptionalString = 0,
     reference_trace_len: u32 = 0,
 };
 
 /// Trailing:
 /// * MessageIndex for each notes_len.
 pub const ErrorMessage = struct {
-    /// null terminated string index
-    msg: u32,
+    msg: String,
     /// Usually one, but incremented for redundant messages.
     count: u32 = 1,
     src_loc: SourceLocationIndex = .none,
@@ -71,7 +73,7 @@ pub const ReferenceTrace = struct {
     /// Except for the sentinel ReferenceTrace element, in which case:
     /// * 0 means remaining references hidden
     /// * >0 means N references hidden
-    decl_name: u32,
+    decl_name: String,
     /// Index into extra of a SourceLocation
     /// If this is 0, this is the sentinel ReferenceTrace element.
     src_loc: SourceLocationIndex,
@@ -138,7 +140,7 @@ fn extraData(eb: ErrorBundle, comptime T: type, index: usize) struct { data: T, 
 }
 
 /// Given an index into `string_bytes` returns the null-terminated string found there.
-pub fn nullTerminatedString(eb: ErrorBundle, index: usize) [:0]const u8 {
+pub fn nullTerminatedString(eb: ErrorBundle, index: String) [:0]const u8 {
     const string_bytes = eb.string_bytes;
     var end: usize = index;
     while (string_bytes[end] != 0) {
@@ -384,18 +386,18 @@ pub const Wip = struct {
         };
     }
 
-    pub fn addString(wip: *Wip, s: []const u8) Allocator.Error!u32 {
+    pub fn addString(wip: *Wip, s: []const u8) Allocator.Error!String {
         const gpa = wip.gpa;
-        const index: u32 = @intCast(wip.string_bytes.items.len);
+        const index: String = @intCast(wip.string_bytes.items.len);
         try wip.string_bytes.ensureUnusedCapacity(gpa, s.len + 1);
         wip.string_bytes.appendSliceAssumeCapacity(s);
         wip.string_bytes.appendAssumeCapacity(0);
         return index;
     }
 
-    pub fn printString(wip: *Wip, comptime fmt: []const u8, args: anytype) Allocator.Error!u32 {
+    pub fn printString(wip: *Wip, comptime fmt: []const u8, args: anytype) Allocator.Error!String {
         const gpa = wip.gpa;
-        const index: u32 = @intCast(wip.string_bytes.items.len);
+        const index: String = @intCast(wip.string_bytes.items.len);
         try wip.string_bytes.writer(gpa).print(fmt, args);
         try wip.string_bytes.append(gpa, 0);
         return index;

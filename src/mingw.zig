@@ -17,7 +17,9 @@ pub const CrtFile = enum {
     mingw32_lib,
 };
 
-pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) !void {
+/// TODO replace anyerror with explicit error set, recording user-friendly errors with
+/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) anyerror!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
     }
@@ -173,6 +175,8 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
             return comp.build_crt_file("mingw32", .Lib, .@"mingw-w64 mingw32.lib", prog_node, c_source_files.items, .{
                 .unwind_tables = unwind_tables,
+                // https://github.com/llvm/llvm-project/issues/43698#issuecomment-2542660611
+                .allow_lto = false,
             });
         },
     }
@@ -264,12 +268,16 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
     if (try man.hit()) {
         const digest = man.final();
+        const sub_path = try std.fs.path.join(gpa, &.{ "o", &digest, final_lib_basename });
+        errdefer gpa.free(sub_path);
 
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
         try comp.crt_files.ensureUnusedCapacity(gpa, 1);
         comp.crt_files.putAssumeCapacityNoClobber(final_lib_basename, .{
             .full_object_path = .{
                 .root_dir = comp.global_cache_directory,
-                .sub_path = try std.fs.path.join(gpa, &.{ "o", &digest, final_lib_basename }),
+                .sub_path = sub_path,
             },
             .lock = man.toOwnedLock(),
         });
@@ -358,6 +366,8 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         log.warn("failed to write cache manifest for DLL import {s}.lib: {s}", .{ lib_name, @errorName(err) });
     };
 
+    comp.mutex.lock();
+    defer comp.mutex.unlock();
     try comp.crt_files.putNoClobber(gpa, final_lib_basename, .{
         .full_object_path = .{
             .root_dir = comp.global_cache_directory,
@@ -487,6 +497,7 @@ const mingw32_generic_src = [_][]const u8{
     "crt" ++ path.sep_str ++ "cxa_atexit.c",
     "crt" ++ path.sep_str ++ "cxa_thread_atexit.c",
     "crt" ++ path.sep_str ++ "tls_atexit.c",
+    "crt" ++ path.sep_str ++ "intrincs" ++ path.sep_str ++ "RtlSecureZeroMemory.c",
     // mingwex
     "cfguard" ++ path.sep_str ++ "mingw_cfguard_support.c",
     "complex" ++ path.sep_str ++ "_cabs.c",

@@ -8,7 +8,8 @@ const ico = @import("ico.zig");
 const bmp = @import("bmp.zig");
 const parse = @import("parse.zig");
 const lang = @import("lang.zig");
-const CodePage = @import("code_pages.zig").CodePage;
+const code_pages = @import("code_pages.zig");
+const SupportedCodePage = code_pages.SupportedCodePage;
 const builtin = @import("builtin");
 const native_endian = builtin.cpu.arch.endian();
 
@@ -64,7 +65,7 @@ pub const Diagnostics = struct {
         defer std.debug.unlockStdErr();
         const stderr = std.io.getStdErr().writer();
         for (self.errors.items) |err_details| {
-            renderErrorMessage(self.allocator, stderr, tty_config, cwd, err_details, source, self.strings.items, source_mappings) catch return;
+            renderErrorMessage(stderr, tty_config, cwd, err_details, source, self.strings.items, source_mappings) catch return;
         }
     }
 
@@ -94,32 +95,22 @@ pub const Diagnostics = struct {
 pub const DiagnosticsContext = struct {
     diagnostics: *Diagnostics,
     token: Token,
+    /// Code page of the source file at the token location
+    code_page: SupportedCodePage,
 };
 
 pub const ErrorDetails = struct {
     err: Error,
     token: Token,
+    /// Code page of the source file at the token location
+    code_page: SupportedCodePage,
     /// If non-null, should be before `token`. If null, `token` is assumed to be the start.
     token_span_start: ?Token = null,
     /// If non-null, should be after `token`. If null, `token` is assumed to be the end.
     token_span_end: ?Token = null,
     type: Type = .err,
     print_source_line: bool = true,
-    extra: union {
-        none: void,
-        expected: Token.Id,
-        number: u32,
-        expected_types: ExpectedTypes,
-        resource: rc.Resource,
-        string_and_language: StringAndLanguage,
-        file_open_error: FileOpenError,
-        icon_read_error: IconReadError,
-        icon_dir: IconDirContext,
-        bmp_read_error: BitmapReadError,
-        accelerator_error: AcceleratorError,
-        statement_with_u16_param: StatementWithU16Param,
-        menu_or_class: enum { class, menu },
-    } = .{ .none = {} },
+    extra: Extra = .{ .none = {} },
 
     pub const Type = enum {
         /// Fatal error, stops compilation
@@ -137,9 +128,25 @@ pub const ErrorDetails = struct {
         hint,
     };
 
+    pub const Extra = union {
+        none: void,
+        expected: Token.Id,
+        number: u32,
+        expected_types: ExpectedTypes,
+        resource: rc.ResourceType,
+        string_and_language: StringAndLanguage,
+        file_open_error: FileOpenError,
+        icon_read_error: IconReadError,
+        icon_dir: IconDirContext,
+        bmp_read_error: BitmapReadError,
+        accelerator_error: AcceleratorError,
+        statement_with_u16_param: StatementWithU16Param,
+        menu_or_class: enum { class, menu },
+    };
+
     comptime {
         // all fields in the extra union should be 32 bits or less
-        for (std.meta.fields(std.meta.fieldInfo(ErrorDetails, .extra).type)) |field| {
+        for (std.meta.fields(Extra)) |field| {
             std.debug.assert(@bitSizeOf(field.type) <= 32);
         }
     }
@@ -321,6 +328,8 @@ pub const ErrorDetails = struct {
         close_paren_expression,
         unary_plus_expression,
         rc_could_miscompile_control_params,
+        dangling_literal_at_eof,
+        disjoint_code_page,
 
         // Compiler
         /// `string_and_language` is populated
@@ -331,6 +340,7 @@ pub const ErrorDetails = struct {
         /// `accelerator_error` is populated
         invalid_accelerator_key,
         accelerator_type_required,
+        accelerator_shift_or_control_without_virtkey,
         rc_would_miscompile_control_padding,
         rc_would_miscompile_control_class_ordinal,
         /// `icon_dir` is populated
@@ -356,11 +366,6 @@ pub const ErrorDetails = struct {
         /// `number` is populated and contains a string index for which the string contains
         /// the bytes of a `u64` (native endian). The `u64` contains the number of miscompiled bytes.
         rc_would_miscompile_bmp_palette_padding,
-        /// `number` is populated and contains a string index for which the string contains
-        /// the bytes of two `u64`s (native endian). The first contains the number of missing
-        /// palette bytes and the second contains the max number of missing palette bytes.
-        /// If type is `.note`, then `extra` is `none`.
-        bmp_too_many_missing_palette_bytes,
         resource_header_size_exceeds_max,
         resource_data_size_exceeds_max,
         control_extra_data_size_exceeds_max,
@@ -383,15 +388,16 @@ pub const ErrorDetails = struct {
         rc_would_miscompile_dialog_menu_or_class_id_forced_ordinal,
         rc_would_miscompile_dialog_menu_id_starts_with_digit,
         dialog_menu_id_was_uppercased,
-        /// `menu_or_class` is populated and contains the type of the parameter statement
-        duplicate_menu_or_class_skipped,
+        duplicate_optional_statement_skipped,
         invalid_digit_character_in_ordinal,
 
         // Literals
         /// `number` is populated
-        rc_would_miscompile_codepoint_byte_swap,
+        rc_would_miscompile_codepoint_whitespace,
         /// `number` is populated
         rc_would_miscompile_codepoint_skip,
+        /// `number` is populated
+        rc_would_miscompile_codepoint_bom,
         tab_converted_to_spaces,
 
         // General (used in various places)
@@ -403,10 +409,50 @@ pub const ErrorDetails = struct {
         failed_to_open_cwd,
     };
 
+    fn formatToken(
+        ctx: TokenFormatContext,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        switch (ctx.token.id) {
+            .eof => return writer.writeAll(ctx.token.id.nameForErrorDisplay()),
+            else => {},
+        }
+
+        const slice = ctx.token.slice(ctx.source);
+        var src_i: usize = 0;
+        while (src_i < slice.len) {
+            const codepoint = ctx.code_page.codepointAt(src_i, slice) orelse break;
+            defer src_i += codepoint.byte_len;
+            const display_codepoint = codepointForDisplay(codepoint) orelse continue;
+            var buf: [4]u8 = undefined;
+            const utf8_len = std.unicode.utf8Encode(display_codepoint, &buf) catch unreachable;
+            try writer.writeAll(buf[0..utf8_len]);
+        }
+    }
+
+    const TokenFormatContext = struct {
+        token: Token,
+        source: []const u8,
+        code_page: SupportedCodePage,
+    };
+
+    fn fmtToken(self: ErrorDetails, source: []const u8) std.fmt.Formatter(formatToken) {
+        return .{ .data = .{
+            .token = self.token,
+            .code_page = self.code_page,
+            .source = source,
+        } };
+    }
+
     pub fn render(self: ErrorDetails, writer: anytype, source: []const u8, strings: []const []const u8) !void {
         switch (self.err) {
             .unfinished_string_literal => {
-                return writer.print("unfinished string literal at '{s}', expected closing '\"'", .{self.token.nameForErrorDisplay(source)});
+                return writer.print("unfinished string literal at '{s}', expected closing '\"'", .{self.fmtToken(source)});
             },
             .string_literal_too_long => {
                 return writer.print("string literal too long (max is currently {} characters)", .{self.extra.number});
@@ -474,33 +520,33 @@ pub const ErrorDetails = struct {
                     number_slice.len += 1;
                 }
                 const number = std.fmt.parseUnsigned(u16, number_slice, 10) catch unreachable;
-                const code_page = CodePage.getByIdentifier(number) catch unreachable;
+                const code_page = code_pages.getByIdentifier(number) catch unreachable;
                 // TODO: Improve or maybe add a note making it more clear that the code page
                 //       is valid and that the code page is unsupported purely due to a limitation
                 //       in this compiler.
                 return writer.print("unsupported code page '{s} (id={})' in #pragma code_page", .{ @tagName(code_page), number });
             },
             .unfinished_raw_data_block => {
-                return writer.print("unfinished raw data block at '{s}', expected closing '}}' or 'END'", .{self.token.nameForErrorDisplay(source)});
+                return writer.print("unfinished raw data block at '{s}', expected closing '}}' or 'END'", .{self.fmtToken(source)});
             },
             .unfinished_string_table_block => {
-                return writer.print("unfinished STRINGTABLE block at '{s}', expected closing '}}' or 'END'", .{self.token.nameForErrorDisplay(source)});
+                return writer.print("unfinished STRINGTABLE block at '{s}', expected closing '}}' or 'END'", .{self.fmtToken(source)});
             },
             .expected_token => {
-                return writer.print("expected '{s}', got '{s}'", .{ self.extra.expected.nameForErrorDisplay(), self.token.nameForErrorDisplay(source) });
+                return writer.print("expected '{s}', got '{s}'", .{ self.extra.expected.nameForErrorDisplay(), self.fmtToken(source) });
             },
             .expected_something_else => {
                 try writer.writeAll("expected ");
                 try self.extra.expected_types.writeCommaSeparated(writer);
-                return writer.print("; got '{s}'", .{self.token.nameForErrorDisplay(source)});
+                return writer.print("; got '{s}'", .{self.fmtToken(source)});
             },
             .resource_type_cant_use_raw_data => switch (self.type) {
-                .err, .warning => try writer.print("expected '<filename>', found '{s}' (resource type '{s}' can't use raw data)", .{ self.token.nameForErrorDisplay(source), self.extra.resource.nameForErrorDisplay() }),
-                .note => try writer.print("if '{s}' is intended to be a filename, it must be specified as a quoted string literal", .{self.token.nameForErrorDisplay(source)}),
+                .err, .warning => try writer.print("expected '<filename>', found '{s}' (resource type '{s}' can't use raw data)", .{ self.fmtToken(source), self.extra.resource.nameForErrorDisplay() }),
+                .note => try writer.print("if '{s}' is intended to be a filename, it must be specified as a quoted string literal", .{self.fmtToken(source)}),
                 .hint => return,
             },
             .id_must_be_ordinal => {
-                try writer.print("id of resource type '{s}' must be an ordinal (u16), got '{s}'", .{ self.extra.resource.nameForErrorDisplay(), self.token.nameForErrorDisplay(source) });
+                try writer.print("id of resource type '{s}' must be an ordinal (u16), got '{s}'", .{ self.extra.resource.nameForErrorDisplay(), self.fmtToken(source) });
             },
             .name_or_id_not_allowed => {
                 try writer.print("name or id is not allowed for resource type '{s}'", .{self.extra.resource.nameForErrorDisplay()});
@@ -516,7 +562,7 @@ pub const ErrorDetails = struct {
                 try writer.writeAll("ASCII character not equivalent to virtual key code");
             },
             .empty_menu_not_allowed => {
-                try writer.print("empty menu of type '{s}' not allowed", .{self.token.nameForErrorDisplay(source)});
+                try writer.print("empty menu of type '{s}' not allowed", .{self.fmtToken(source)});
             },
             .rc_would_miscompile_version_value_padding => switch (self.type) {
                 .err, .warning => return writer.print("the padding before this quoted string value would be miscompiled by the Win32 RC compiler", .{}),
@@ -570,19 +616,18 @@ pub const ErrorDetails = struct {
                 .note => return writer.print("to avoid the potential miscompilation, consider adding a comma after the style parameter", .{}),
                 .hint => return,
             },
+            .dangling_literal_at_eof => {
+                try writer.writeAll("dangling literal at end-of-file; this is not a problem, but it is likely a mistake");
+            },
+            .disjoint_code_page => switch (self.type) {
+                .err, .warning => return writer.print("#pragma code_page as the first thing in the .rc script can cause the input and output code pages to become out-of-sync", .{}),
+                .note => return writer.print("to avoid unexpected behavior, add a comment (or anything else) above the #pragma code_page line", .{}),
+                .hint => return,
+            },
             .string_already_defined => switch (self.type) {
                 .err, .warning => {
-                    const language_id = self.extra.string_and_language.language.asInt();
-                    const language_name = language_name: {
-                        if (std.meta.intToEnum(lang.LanguageId, language_id)) |lang_enum_val| {
-                            break :language_name @tagName(lang_enum_val);
-                        } else |_| {}
-                        if (language_id == lang.LOCALE_CUSTOM_UNSPECIFIED) {
-                            break :language_name "LOCALE_CUSTOM_UNSPECIFIED";
-                        }
-                        break :language_name "<UNKNOWN>";
-                    };
-                    return writer.print("string with id {d} (0x{X}) already defined for language {s} (0x{X})", .{ self.extra.string_and_language.id, self.extra.string_and_language.id, language_name, language_id });
+                    const language = self.extra.string_and_language.language;
+                    return writer.print("string with id {d} (0x{X}) already defined for language {}", .{ self.extra.string_and_language.id, self.extra.string_and_language.id, language });
                 },
                 .note => return writer.print("previous definition of string with id {d} (0x{X}) here", .{ self.extra.string_and_language.id, self.extra.string_and_language.id }),
                 .hint => return,
@@ -597,14 +642,17 @@ pub const ErrorDetails = struct {
                 try writer.print("unable to open file '{s}': {s}", .{ strings[self.extra.file_open_error.filename_string_index], @tagName(self.extra.file_open_error.err) });
             },
             .invalid_accelerator_key => {
-                try writer.print("invalid accelerator key '{s}': {s}", .{ self.token.nameForErrorDisplay(source), @tagName(self.extra.accelerator_error.err) });
+                try writer.print("invalid accelerator key '{s}': {s}", .{ self.fmtToken(source), @tagName(self.extra.accelerator_error.err) });
             },
             .accelerator_type_required => {
-                try writer.print("accelerator type [ASCII or VIRTKEY] required when key is an integer", .{});
+                try writer.writeAll("accelerator type [ASCII or VIRTKEY] required when key is an integer");
+            },
+            .accelerator_shift_or_control_without_virtkey => {
+                try writer.writeAll("SHIFT or CONTROL used without VIRTKEY");
             },
             .rc_would_miscompile_control_padding => switch (self.type) {
                 .err, .warning => return writer.print("the padding before this control would be miscompiled by the Win32 RC compiler (it would insert 2 extra bytes of padding)", .{}),
-                .note => return writer.print("to avoid the potential miscompilation, consider removing any 'control data' blocks from the controls in this dialog", .{}),
+                .note => return writer.print("to avoid the potential miscompilation, consider adding one more byte to the control data of the control preceding this one", .{}),
                 .hint => return,
             },
             .rc_would_miscompile_control_class_ordinal => switch (self.type) {
@@ -625,7 +673,7 @@ pub const ErrorDetails = struct {
                 try writer.print("resource with format '{s}' (at index {}) is not allowed in {s} resource groups", .{ @tagName(self.extra.icon_dir.icon_format), self.extra.icon_dir.index, @tagName(self.extra.icon_dir.icon_type) });
             },
             .icon_dir_and_resource_type_mismatch => {
-                const unexpected_type: rc.Resource = if (self.extra.resource == .icon) .cursor else .icon;
+                const unexpected_type: rc.ResourceType = if (self.extra.resource == .icon) .cursor else .icon;
                 // TODO: Better wording
                 try writer.print("resource type '{s}' does not match type '{s}' specified in the file", .{ self.extra.resource.nameForErrorDisplay(), unexpected_type.nameForErrorDisplay() });
             },
@@ -663,23 +711,15 @@ pub const ErrorDetails = struct {
             .bmp_missing_palette_bytes => {
                 const bytes = strings[self.extra.number];
                 const missing_bytes = std.mem.readInt(u64, bytes[0..8], native_endian);
-                try writer.print("bitmap has {d} missing color palette bytes which will be padded with zeroes", .{missing_bytes});
+                try writer.print("bitmap has {d} missing color palette bytes", .{missing_bytes});
             },
             .rc_would_miscompile_bmp_palette_padding => {
-                const bytes = strings[self.extra.number];
-                const miscompiled_bytes = std.mem.readInt(u64, bytes[0..8], native_endian);
-                try writer.print("the missing color palette bytes would be miscompiled by the Win32 RC compiler (the added padding bytes would include {d} bytes of the pixel data)", .{miscompiled_bytes});
-            },
-            .bmp_too_many_missing_palette_bytes => switch (self.type) {
-                .err, .warning => {
+                try writer.writeAll("the Win32 RC compiler would erroneously pad out the missing bytes");
+                if (self.extra.number != 0) {
                     const bytes = strings[self.extra.number];
-                    const missing_bytes = std.mem.readInt(u64, bytes[0..8], native_endian);
-                    const max_missing_bytes = std.mem.readInt(u64, bytes[8..16], native_endian);
-                    try writer.print("bitmap has {} missing color palette bytes which exceeds the maximum of {}", .{ missing_bytes, max_missing_bytes });
-                },
-                // TODO: command line option
-                .note => try writer.writeAll("the maximum number of missing color palette bytes is configurable via <<TODO command line option>>"),
-                .hint => return,
+                    const miscompiled_bytes = std.mem.readInt(u64, bytes[0..8], native_endian);
+                    try writer.print(" (and the added padding bytes would include {d} bytes of the pixel data)", .{miscompiled_bytes});
+                }
             },
             .resource_header_size_exceeds_max => {
                 try writer.print("resource's header length exceeds maximum of {} bytes", .{std.math.maxInt(u32)});
@@ -749,23 +789,22 @@ pub const ErrorDetails = struct {
                 .hint => return,
             },
             .dialog_menu_id_was_uppercased => return,
-            .duplicate_menu_or_class_skipped => {
-                return writer.print("this {s} was ignored; when multiple {s} statements are specified, only the last takes precedence", .{
-                    @tagName(self.extra.menu_or_class),
-                    @tagName(self.extra.menu_or_class),
-                });
+            .duplicate_optional_statement_skipped => {
+                return writer.writeAll("this statement was ignored; when multiple statements of the same type are specified, only the last takes precedence");
             },
             .invalid_digit_character_in_ordinal => {
                 return writer.writeAll("non-ASCII digit characters are not allowed in ordinal (number) values");
             },
-            .rc_would_miscompile_codepoint_byte_swap => switch (self.type) {
-                .err, .warning => return writer.print("codepoint U+{X} within a string literal would be miscompiled by the Win32 RC compiler (the bytes of the UTF-16 code unit would be swapped)", .{self.extra.number}),
-                .note => return writer.print("to avoid the potential miscompilation, an integer escape sequence in a wide string literal could be used instead: L\"\\x{X}\"", .{self.extra.number}),
-                .hint => return,
+            .rc_would_miscompile_codepoint_whitespace => {
+                const treated_as = self.extra.number >> 8;
+                return writer.print("codepoint U+{X:0>4} within a string literal would be miscompiled by the Win32 RC compiler (it would get treated as U+{X:0>4})", .{ self.extra.number, treated_as });
             },
-            .rc_would_miscompile_codepoint_skip => switch (self.type) {
-                .err, .warning => return writer.print("codepoint U+{X} within a string literal would be miscompiled by the Win32 RC compiler (the codepoint would be missing from the compiled resource)", .{self.extra.number}),
-                .note => return writer.print("to avoid the potential miscompilation, an integer escape sequence in a wide string literal could be used instead: L\"\\x{X}\"", .{self.extra.number}),
+            .rc_would_miscompile_codepoint_skip => {
+                return writer.print("codepoint U+{X:0>4} within a string literal would be miscompiled by the Win32 RC compiler (the codepoint would be missing from the compiled resource)", .{self.extra.number});
+            },
+            .rc_would_miscompile_codepoint_bom => switch (self.type) {
+                .err, .warning => return writer.print("codepoint U+{X:0>4} within a string literal would cause the entire file to be miscompiled by the Win32 RC compiler", .{self.extra.number}),
+                .note => return writer.writeAll("the presence of this codepoint causes all non-ASCII codepoints to be byteswapped by the Win32 RC preprocessor"),
                 .hint => return,
             },
             .tab_converted_to_spaces => switch (self.type) {
@@ -790,14 +829,7 @@ pub const ErrorDetails = struct {
         after_len: usize,
     };
 
-    pub fn visualTokenInfo(self: ErrorDetails, source_line_start: usize, source_line_end: usize) VisualTokenInfo {
-        // Note: A perfect solution here would involve full grapheme cluster
-        //       awareness, but oh well. This will give incorrect offsets
-        //       if there are any multibyte codepoints within the relevant span,
-        //       and even more inflated for grapheme clusters.
-        //
-        //       We mitigate this slightly when we know we'll be pointing at
-        //       something that displays as 1 character.
+    pub fn visualTokenInfo(self: ErrorDetails, source_line_start: usize, source_line_end: usize, source: []const u8) VisualTokenInfo {
         return switch (self.err) {
             // These can technically be more than 1 byte depending on encoding,
             // but they always refer to one visual character/grapheme.
@@ -808,27 +840,65 @@ pub const ErrorDetails = struct {
             .illegal_private_use_character,
             => .{
                 .before_len = 0,
-                .point_offset = self.token.start - source_line_start,
+                .point_offset = cellCount(self.code_page, source, source_line_start, self.token.start),
                 .after_len = 0,
             },
             else => .{
                 .before_len = before: {
                     const start = @max(source_line_start, if (self.token_span_start) |span_start| span_start.start else self.token.start);
-                    break :before self.token.start - start;
+                    break :before cellCount(self.code_page, source, start, self.token.start);
                 },
-                .point_offset = self.token.start - source_line_start,
+                .point_offset = cellCount(self.code_page, source, source_line_start, self.token.start),
                 .after_len = after: {
                     const end = @min(source_line_end, if (self.token_span_end) |span_end| span_end.end else self.token.end);
                     // end may be less than start when pointing to EOF
                     if (end <= self.token.start) break :after 0;
-                    break :after end - self.token.start - 1;
+                    break :after cellCount(self.code_page, source, self.token.start, end) - 1;
                 },
             },
         };
     }
 };
 
-pub fn renderErrorMessage(allocator: std.mem.Allocator, writer: anytype, tty_config: std.io.tty.Config, cwd: std.fs.Dir, err_details: ErrorDetails, source: []const u8, strings: []const []const u8, source_mappings: ?SourceMappings) !void {
+/// Convenience struct only useful when the code page can be inferred from the token
+pub const ErrorDetailsWithoutCodePage = blk: {
+    const details_info = @typeInfo(ErrorDetails);
+    const fields = details_info.@"struct".fields;
+    var fields_without_codepage: [fields.len - 1]std.builtin.Type.StructField = undefined;
+    var i: usize = 0;
+    for (fields) |field| {
+        if (std.mem.eql(u8, field.name, "code_page")) continue;
+        fields_without_codepage[i] = field;
+        i += 1;
+    }
+    std.debug.assert(i == fields_without_codepage.len);
+    break :blk @Type(.{ .@"struct" = .{
+        .layout = .auto,
+        .fields = &fields_without_codepage,
+        .decls = &.{},
+        .is_tuple = false,
+    } });
+};
+
+fn cellCount(code_page: SupportedCodePage, source: []const u8, start_index: usize, end_index: usize) usize {
+    // Note: This is an imperfect solution. A proper implementation here would
+    //       involve full grapheme cluster awareness + grapheme width data, but oh well.
+    var codepoint_count: usize = 0;
+    var index: usize = start_index;
+    while (index < end_index) {
+        const codepoint = code_page.codepointAt(index, source) orelse break;
+        defer index += codepoint.byte_len;
+        _ = codepointForDisplay(codepoint) orelse continue;
+        codepoint_count += 1;
+        // no need to count more than we will display
+        if (codepoint_count >= max_source_line_codepoints + truncated_str.len) break;
+    }
+    return codepoint_count;
+}
+
+const truncated_str = "<...truncated...>";
+
+pub fn renderErrorMessage(writer: anytype, tty_config: std.io.tty.Config, cwd: std.fs.Dir, err_details: ErrorDetails, source: []const u8, strings: []const []const u8, source_mappings: ?SourceMappings) !void {
     if (err_details.type == .hint) return;
 
     const source_line_start = err_details.token.getLineStartForErrorDisplay(source);
@@ -884,45 +954,61 @@ pub fn renderErrorMessage(allocator: std.mem.Allocator, writer: anytype, tty_con
     }
 
     const source_line = err_details.token.getLineForErrorDisplay(source, source_line_start);
-    const visual_info = err_details.visualTokenInfo(source_line_start, source_line_start + source_line.len);
+    const visual_info = err_details.visualTokenInfo(source_line_start, source_line_start + source_line.len, source);
+    const truncated_visual_info = ErrorDetails.VisualTokenInfo{
+        .before_len = if (visual_info.point_offset > max_source_line_codepoints and visual_info.before_len > 0)
+            (visual_info.before_len + 1) -| (visual_info.point_offset - max_source_line_codepoints)
+        else
+            visual_info.before_len,
+        .point_offset = @min(max_source_line_codepoints + 1, visual_info.point_offset),
+        .after_len = if (visual_info.point_offset > max_source_line_codepoints)
+            @min(truncated_str.len - 3, visual_info.after_len)
+        else
+            @min(max_source_line_codepoints - visual_info.point_offset + (truncated_str.len - 2), visual_info.after_len),
+    };
 
     // Need this to determine if the 'line originated from' note is worth printing
-    var source_line_for_display_buf = try std.ArrayList(u8).initCapacity(allocator, source_line.len);
-    defer source_line_for_display_buf.deinit();
-    try writeSourceSlice(source_line_for_display_buf.writer(), source_line);
+    var source_line_for_display_buf: [max_source_line_bytes]u8 = undefined;
+    const source_line_for_display = writeSourceSlice(&source_line_for_display_buf, source_line, err_details.code_page);
 
-    // TODO: General handling of long lines, not tied to this specific error
-    if (err_details.err == .string_literal_too_long) {
-        const before_slice = source_line[0..@min(source_line.len, visual_info.point_offset + 16)];
-        try writeSourceSlice(writer, before_slice);
+    try writer.writeAll(source_line_for_display.line);
+    if (source_line_for_display.truncated) {
         try tty_config.setColor(writer, .dim);
-        try writer.writeAll("<...truncated...>");
+        try writer.writeAll(truncated_str);
         try tty_config.setColor(writer, .reset);
-    } else {
-        try writer.writeAll(source_line_for_display_buf.items);
     }
     try writer.writeByte('\n');
 
     try tty_config.setColor(writer, .green);
-    const num_spaces = visual_info.point_offset - visual_info.before_len;
+    const num_spaces = truncated_visual_info.point_offset - truncated_visual_info.before_len;
     try writer.writeByteNTimes(' ', num_spaces);
-    try writer.writeByteNTimes('~', visual_info.before_len);
+    try writer.writeByteNTimes('~', truncated_visual_info.before_len);
     try writer.writeByte('^');
-    if (visual_info.after_len > 0) {
-        var num_squiggles = visual_info.after_len;
-        if (err_details.err == .string_literal_too_long) {
-            num_squiggles = @min(num_squiggles, 15);
-        }
-        try writer.writeByteNTimes('~', num_squiggles);
-    }
+    try writer.writeByteNTimes('~', truncated_visual_info.after_len);
     try writer.writeByte('\n');
     try tty_config.setColor(writer, .reset);
 
     if (corresponding_span != null and corresponding_file != null) {
-        var corresponding_lines = try CorrespondingLines.init(allocator, cwd, err_details, source_line_for_display_buf.items, corresponding_span.?, corresponding_file.?);
-        defer corresponding_lines.deinit(allocator);
-
-        if (!corresponding_lines.worth_printing_note) return;
+        var worth_printing_lines: bool = true;
+        var initial_lines_err: ?anyerror = null;
+        var corresponding_lines: ?CorrespondingLines = CorrespondingLines.init(
+            cwd,
+            err_details,
+            source_line_for_display.line,
+            corresponding_span.?,
+            corresponding_file.?,
+        ) catch |err| switch (err) {
+            error.NotWorthPrintingLines => blk: {
+                worth_printing_lines = false;
+                break :blk null;
+            },
+            error.NotWorthPrintingNote => return,
+            else => |e| blk: {
+                initial_lines_err = e;
+                break :blk null;
+            },
+        };
+        defer if (corresponding_lines) |*cl| cl.deinit();
 
         try tty_config.setColor(writer, .bold);
         if (corresponding_file) |file| {
@@ -947,85 +1033,222 @@ pub fn renderErrorMessage(allocator: std.mem.Allocator, writer: anytype, tty_con
         try writer.print(" of file '{s}'\n", .{corresponding_file.?});
         try tty_config.setColor(writer, .reset);
 
-        if (!corresponding_lines.worth_printing_lines) return;
+        if (!worth_printing_lines) return;
 
-        if (corresponding_lines.lines_is_error_message) {
+        const write_lines_err: ?anyerror = write_lines: {
+            if (initial_lines_err) |err| break :write_lines err;
+            while (corresponding_lines.?.next() catch |err| {
+                break :write_lines err;
+            }) |display_line| {
+                try writer.writeAll(display_line.line);
+                if (display_line.truncated) {
+                    try tty_config.setColor(writer, .dim);
+                    try writer.writeAll(truncated_str);
+                    try tty_config.setColor(writer, .reset);
+                }
+                try writer.writeByte('\n');
+            }
+            break :write_lines null;
+        };
+        if (write_lines_err) |err| {
             try tty_config.setColor(writer, .red);
             try writer.writeAll(" | ");
             try tty_config.setColor(writer, .reset);
             try tty_config.setColor(writer, .dim);
-            try writer.writeAll(corresponding_lines.lines.items);
+            try writer.print("unable to print line(s) from file: {s}\n", .{@errorName(err)});
             try tty_config.setColor(writer, .reset);
-            try writer.writeAll("\n\n");
-            return;
         }
-
-        try writer.writeAll(corresponding_lines.lines.items);
-        try writer.writeAll("\n\n");
+        try writer.writeByte('\n');
     }
 }
 
+const VisualLine = struct {
+    line: []u8,
+    truncated: bool,
+};
+
 const CorrespondingLines = struct {
-    worth_printing_note: bool = true,
-    worth_printing_lines: bool = true,
-    lines: std.ArrayListUnmanaged(u8) = .empty,
-    lines_is_error_message: bool = false,
+    // enough room for one more codepoint, just so that we don't have to keep
+    // track of this being truncated, since the extra codepoint will ensure
+    // the visual line will need to truncate in that case.
+    line_buf: [max_source_line_bytes + 4]u8 = undefined,
+    line_len: usize = 0,
+    visual_line_buf: [max_source_line_bytes]u8 = undefined,
+    visual_line_len: usize = 0,
+    truncated: bool = false,
+    line_num: usize = 1,
+    initial_line: bool = true,
+    last_byte: u8 = 0,
+    at_eof: bool = false,
+    span: SourceMappings.CorrespondingSpan,
+    file: std.fs.File,
+    buffered_reader: BufferedReaderType,
+    code_page: SupportedCodePage,
 
-    pub fn init(allocator: std.mem.Allocator, cwd: std.fs.Dir, err_details: ErrorDetails, lines_for_comparison: []const u8, corresponding_span: SourceMappings.CorrespondingSpan, corresponding_file: []const u8) !CorrespondingLines {
-        var corresponding_lines = CorrespondingLines{};
+    const BufferedReaderType = std.io.BufferedReader(512, std.fs.File.Reader);
 
+    pub fn init(cwd: std.fs.Dir, err_details: ErrorDetails, line_for_comparison: []const u8, corresponding_span: SourceMappings.CorrespondingSpan, corresponding_file: []const u8) !CorrespondingLines {
         // We don't do line comparison for this error, so don't print the note if the line
         // number is different
-        if (err_details.err == .string_literal_too_long and err_details.token.line_number == corresponding_span.start_line) {
-            corresponding_lines.worth_printing_note = false;
-            return corresponding_lines;
+        if (err_details.err == .string_literal_too_long and err_details.token.line_number != corresponding_span.start_line) {
+            return error.NotWorthPrintingNote;
         }
 
         // Don't print the originating line for this error, we know it's really long
         if (err_details.err == .string_literal_too_long) {
-            corresponding_lines.worth_printing_lines = false;
-            return corresponding_lines;
+            return error.NotWorthPrintingLines;
         }
 
-        var writer = corresponding_lines.lines.writer(allocator);
-        if (utils.openFileNotDir(cwd, corresponding_file, .{})) |file| {
-            defer file.close();
-            var buffered_reader = std.io.bufferedReader(file.reader());
-            writeLinesFromStream(writer, buffered_reader.reader(), corresponding_span.start_line, corresponding_span.end_line) catch |err| switch (err) {
-                error.LinesNotFound => {
-                    corresponding_lines.lines.clearRetainingCapacity();
-                    try writer.print("unable to print line(s) from file: {s}", .{@errorName(err)});
-                    corresponding_lines.lines_is_error_message = true;
-                    return corresponding_lines;
-                },
-                else => |e| return e,
-            };
-        } else |err| {
-            corresponding_lines.lines.clearRetainingCapacity();
-            try writer.print("unable to print line(s) from file: {s}", .{@errorName(err)});
-            corresponding_lines.lines_is_error_message = true;
-            return corresponding_lines;
-        }
+        var corresponding_lines = CorrespondingLines{
+            .span = corresponding_span,
+            .file = try utils.openFileNotDir(cwd, corresponding_file, .{}),
+            .buffered_reader = undefined,
+            .code_page = err_details.code_page,
+        };
+        corresponding_lines.buffered_reader = BufferedReaderType{
+            .unbuffered_reader = corresponding_lines.file.reader(),
+        };
+        errdefer corresponding_lines.deinit();
+
+        var fbs = std.io.fixedBufferStream(&corresponding_lines.line_buf);
+        const writer = fbs.writer();
+
+        try corresponding_lines.writeLineFromStreamVerbatim(
+            writer,
+            corresponding_lines.buffered_reader.reader(),
+            corresponding_span.start_line,
+        );
+
+        const visual_line = writeSourceSlice(
+            &corresponding_lines.visual_line_buf,
+            corresponding_lines.line_buf[0..corresponding_lines.line_len],
+            err_details.code_page,
+        );
+        corresponding_lines.visual_line_len = visual_line.line.len;
+        corresponding_lines.truncated = visual_line.truncated;
 
         // If the lines are the same as they were before preprocessing, skip printing the note entirely
-        if (std.mem.eql(u8, lines_for_comparison, corresponding_lines.lines.items)) {
-            corresponding_lines.worth_printing_note = false;
+        if (corresponding_span.start_line == corresponding_span.end_line and std.mem.eql(
+            u8,
+            line_for_comparison,
+            corresponding_lines.visual_line_buf[0..corresponding_lines.visual_line_len],
+        )) {
+            return error.NotWorthPrintingNote;
         }
+
         return corresponding_lines;
     }
 
-    pub fn deinit(self: *CorrespondingLines, allocator: std.mem.Allocator) void {
-        self.lines.deinit(allocator);
+    pub fn next(self: *CorrespondingLines) !?VisualLine {
+        if (self.initial_line) {
+            self.initial_line = false;
+            return .{
+                .line = self.visual_line_buf[0..self.visual_line_len],
+                .truncated = self.truncated,
+            };
+        }
+        if (self.line_num > self.span.end_line) return null;
+        if (self.at_eof) return error.LinesNotFound;
+
+        self.line_len = 0;
+        self.visual_line_len = 0;
+
+        var fbs = std.io.fixedBufferStream(&self.line_buf);
+        const writer = fbs.writer();
+
+        try self.writeLineFromStreamVerbatim(
+            writer,
+            self.buffered_reader.reader(),
+            self.line_num,
+        );
+
+        const visual_line = writeSourceSlice(
+            &self.visual_line_buf,
+            self.line_buf[0..self.line_len],
+            self.code_page,
+        );
+        self.visual_line_len = visual_line.line.len;
+
+        return visual_line;
+    }
+
+    fn writeLineFromStreamVerbatim(self: *CorrespondingLines, writer: anytype, input: anytype, line_num: usize) !void {
+        while (try readByteOrEof(input)) |byte| {
+            switch (byte) {
+                '\n', '\r' => {
+                    if (!utils.isLineEndingPair(self.last_byte, byte)) {
+                        const line_complete = self.line_num == line_num;
+                        self.line_num += 1;
+                        if (line_complete) {
+                            self.last_byte = byte;
+                            return;
+                        }
+                    } else {
+                        // reset last_byte to a non-line ending so that
+                        // consecutive CRLF pairs don't get treated as one
+                        // long line ending 'pair'
+                        self.last_byte = 0;
+                        continue;
+                    }
+                },
+                else => {
+                    if (self.line_num == line_num) {
+                        if (writer.writeByte(byte)) {
+                            self.line_len += 1;
+                        } else |err| switch (err) {
+                            error.NoSpaceLeft => {},
+                            else => |e| return e,
+                        }
+                    }
+                },
+            }
+            self.last_byte = byte;
+        }
+        self.at_eof = true;
+        // hacky way to get next to return null
+        self.line_num += 1;
+    }
+
+    fn readByteOrEof(reader: anytype) !?u8 {
+        return reader.readByte() catch |err| switch (err) {
+            error.EndOfStream => return null,
+            else => |e| return e,
+        };
+    }
+
+    pub fn deinit(self: *CorrespondingLines) void {
+        self.file.close();
     }
 };
 
-fn writeSourceSlice(writer: anytype, slice: []const u8) !void {
-    for (slice) |c| try writeSourceByte(writer, c);
+const max_source_line_codepoints = 120;
+const max_source_line_bytes = max_source_line_codepoints * 4;
+
+fn writeSourceSlice(buf: []u8, slice: []const u8, code_page: SupportedCodePage) VisualLine {
+    var src_i: usize = 0;
+    var dest_i: usize = 0;
+    var codepoint_count: usize = 0;
+    while (src_i < slice.len) {
+        const codepoint = code_page.codepointAt(src_i, slice) orelse break;
+        defer src_i += codepoint.byte_len;
+        const display_codepoint = codepointForDisplay(codepoint) orelse continue;
+        codepoint_count += 1;
+        if (codepoint_count > max_source_line_codepoints) {
+            return .{ .line = buf[0..dest_i], .truncated = true };
+        }
+        const utf8_len = std.unicode.utf8Encode(display_codepoint, buf[dest_i..]) catch unreachable;
+        dest_i += utf8_len;
+    }
+    return .{ .line = buf[0..dest_i], .truncated = false };
 }
 
-inline fn writeSourceByte(writer: anytype, byte: u8) !void {
-    switch (byte) {
-        '\x00'...'\x08', '\x0E'...'\x1F', '\x7F' => try writer.writeAll("�"),
+fn codepointForDisplay(codepoint: code_pages.Codepoint) ?u21 {
+    return switch (codepoint.value) {
+        '\x00'...'\x08',
+        '\x0E'...'\x1F',
+        '\x7F',
+        code_pages.Codepoint.invalid,
+        => '�',
         // \r is seemingly ignored by the RC compiler so skipping it when printing source lines
         // could help avoid confusing output (e.g. RC\rDATA if printed verbatim would show up
         // in the console as DATA but the compiler reads it as RCDATA)
@@ -1033,44 +1256,8 @@ inline fn writeSourceByte(writer: anytype, byte: u8) !void {
         // NOTE: This is irrelevant when using the clang preprocessor, because unpaired \r
         //       characters get converted to \n, but may become relevant if another
         //       preprocessor is used instead.
-        '\r' => {},
-        '\t', '\x0B', '\x0C' => try writer.writeByte(' '),
-        else => try writer.writeByte(byte),
-    }
-}
-
-pub fn writeLinesFromStream(writer: anytype, input: anytype, start_line: usize, end_line: usize) !void {
-    var line_num: usize = 1;
-    var last_byte: u8 = 0;
-    while (try readByteOrEof(input)) |byte| {
-        switch (byte) {
-            '\n', '\r' => {
-                if (!utils.isLineEndingPair(last_byte, byte)) {
-                    if (line_num == end_line) return;
-                    if (line_num >= start_line) try writeSourceByte(writer, byte);
-                    line_num += 1;
-                } else {
-                    // reset last_byte to a non-line ending so that
-                    // consecutive CRLF pairs don't get treated as one
-                    // long line ending 'pair'
-                    last_byte = 0;
-                    continue;
-                }
-            },
-            else => {
-                if (line_num >= start_line) try writeSourceByte(writer, byte);
-            },
-        }
-        last_byte = byte;
-    }
-    if (line_num != end_line) {
-        return error.LinesNotFound;
-    }
-}
-
-pub fn readByteOrEof(reader: anytype) !?u8 {
-    return reader.readByte() catch |err| switch (err) {
-        error.EndOfStream => return null,
-        else => |e| return e,
+        '\r' => null,
+        '\t', '\x0B', '\x0C' => ' ',
+        else => |v| v,
     };
 }

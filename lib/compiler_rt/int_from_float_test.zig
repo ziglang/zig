@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
 const math = std.math;
+const endian = builtin.cpu.arch.endian();
 
 const __fixunshfti = @import("fixunshfti.zig").__fixunshfti;
 const __fixunsxfti = @import("fixunsxfti.zig").__fixunsxfti;
@@ -13,6 +14,8 @@ const __fixsfdi = @import("fixsfdi.zig").__fixsfdi;
 const __fixunssfdi = @import("fixunssfdi.zig").__fixunssfdi;
 const __fixsfti = @import("fixsfti.zig").__fixsfti;
 const __fixunssfti = @import("fixunssfti.zig").__fixunssfti;
+const __fixsfei = @import("fixsfei.zig").__fixsfei;
+const __fixunssfei = @import("fixunssfei.zig").__fixunssfei;
 
 // Conversion from f64
 const __fixdfsi = @import("fixdfsi.zig").__fixdfsi;
@@ -341,6 +344,41 @@ test "fixunssfti" {
     try test__fixunssfti(-0x1.FFFFFCp+126, 0x0000000000000000);
     try test__fixunssfti(math.floatMax(f32), 0xffffff00000000000000000000000000);
     try test__fixunssfti(math.inf(f32), math.maxInt(u128));
+}
+
+fn test_fixsfei(comptime T: type, expected: T, a: f32) !void {
+    const int = @typeInfo(T).int;
+    var expected_buf: [@divExact(int.bits, 32)]u32 = undefined;
+    std.mem.writeInt(T, std.mem.asBytes(&expected_buf), expected, endian);
+    var actual_buf: [@divExact(int.bits, 32)]u32 = undefined;
+    _ = switch (int.signedness) {
+        .signed => __fixsfei,
+        .unsigned => __fixunssfei,
+    }(&actual_buf, int.bits, a);
+    try testing.expect(std.mem.eql(u32, &expected_buf, &actual_buf));
+}
+
+test "fixsfei" {
+    try test_fixsfei(i256, -1 << 127, -0x1p127);
+    try test_fixsfei(i256, -1 << 100, -0x1p100);
+    try test_fixsfei(i256, -1 << 50, -0x1p50);
+    try test_fixsfei(i256, -1 << 1, -0x1p1);
+    try test_fixsfei(i256, -1 << 0, -0x1p0);
+    try test_fixsfei(i256, 0, 0);
+    try test_fixsfei(i256, 1 << 0, 0x1p0);
+    try test_fixsfei(i256, 1 << 1, 0x1p1);
+    try test_fixsfei(i256, 1 << 50, 0x1p50);
+    try test_fixsfei(i256, 1 << 100, 0x1p100);
+    try test_fixsfei(i256, 1 << 127, 0x1p127);
+}
+
+test "fixunsfei" {
+    try test_fixsfei(u256, 0, 0);
+    try test_fixsfei(u256, 1 << 0, 0x1p0);
+    try test_fixsfei(u256, 1 << 1, 0x1p1);
+    try test_fixsfei(u256, 1 << 50, 0x1p50);
+    try test_fixsfei(u256, 1 << 100, 0x1p100);
+    try test_fixsfei(u256, 1 << 127, 0x1p127);
 }
 
 fn test__fixdfsi(a: f64, expected: i32) !void {

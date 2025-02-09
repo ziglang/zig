@@ -124,7 +124,7 @@ test "@floatFromInt(f80)" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -1118,7 +1118,7 @@ test "compile time int to ptr of function" {
 // On some architectures function pointers must be aligned.
 const hardcoded_fn_addr = maxInt(usize) & ~@as(usize, 0xf);
 pub const FUNCTION_CONSTANT = @as(PFN_void, @ptrFromInt(hardcoded_fn_addr));
-pub const PFN_void = *const fn (*anyopaque) callconv(.C) void;
+pub const PFN_void = *const fn (*anyopaque) callconv(.c) void;
 
 fn foobar(func: PFN_void) !void {
     try std.testing.expect(@intFromPtr(func) == hardcoded_fn_addr);
@@ -1281,11 +1281,11 @@ test "implicit cast *[0]T to E![]const u8" {
 
 var global_array: [4]u8 = undefined;
 test "cast from array reference to fn: comptime fn ptr" {
-    const f = @as(*align(1) const fn () callconv(.C) void, @ptrCast(&global_array));
+    const f = @as(*align(1) const fn () callconv(.c) void, @ptrCast(&global_array));
     try expect(@intFromPtr(f) == @intFromPtr(&global_array));
 }
 test "cast from array reference to fn: runtime fn ptr" {
-    var f = @as(*align(1) const fn () callconv(.C) void, @ptrCast(&global_array));
+    var f = @as(*align(1) const fn () callconv(.c) void, @ptrCast(&global_array));
     _ = &f;
     try expect(@intFromPtr(f) == @intFromPtr(&global_array));
 }
@@ -1309,12 +1309,12 @@ test "*const [N]null u8 to ?[]const u8" {
 
 test "cast between [*c]T and ?[*:0]T on fn parameter" {
     const S = struct {
-        const Handler = ?fn ([*c]const u8) callconv(.C) void;
+        const Handler = ?fn ([*c]const u8) callconv(.c) void;
         fn addCallback(comptime handler: Handler) void {
             _ = handler;
         }
 
-        fn myCallback(cstr: ?[*:0]const u8) callconv(.C) void {
+        fn myCallback(cstr: ?[*:0]const u8) callconv(.c) void {
             _ = cstr;
         }
 
@@ -1362,7 +1362,7 @@ test "cast f16 to wider types" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_c and comptime builtin.cpu.arch.isArm()) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c and builtin.cpu.arch.isArm()) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -2539,7 +2539,6 @@ test "@intFromBool on vector" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
@@ -2649,4 +2648,20 @@ test "bitcast vector" {
     const zerox32: u8x32 = [_]u8{0} ** 32;
     const bigsum: u32x8 = @bitCast(zerox32);
     try std.testing.expectEqual(0, @reduce(.Add, bigsum));
+}
+
+test "peer type resolution: slice of sentinel-terminated array" {
+    var f: bool = undefined;
+    f = false;
+
+    const a: [][2:0]u8 = &.{};
+    const b: []const [2:0]u8 = &.{.{ 10, 20 }};
+
+    const result = if (f) a else b;
+
+    comptime assert(@TypeOf(result) == []const [2:0]u8);
+    try expect(result.len == 1);
+    try expect(result[0].len == 2);
+    try expect(result[0][0] == 10);
+    try expect(result[0][1] == 20);
 }

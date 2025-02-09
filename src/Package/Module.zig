@@ -112,17 +112,14 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     if (options.inherited.sanitize_thread == true) assert(options.global.any_sanitize_thread);
     if (options.inherited.fuzz == true) assert(options.global.any_fuzz);
     if (options.inherited.single_threaded == false) assert(options.global.any_non_single_threaded);
-    if (options.inherited.unwind_tables) |uwt| if (uwt != .none) assert(options.global.any_unwind_tables != .none);
+    if (options.inherited.unwind_tables) |uwt| if (uwt != .none) assert(options.global.any_unwind_tables);
     if (options.inherited.error_tracing == true) assert(options.global.any_error_tracing);
 
     const resolved_target = options.inherited.resolved_target orelse options.parent.?.resolved_target;
     const target = resolved_target.result;
 
     const optimize_mode = options.inherited.optimize_mode orelse
-        if (options.parent) |p| p.optimize_mode else .Debug;
-
-    const unwind_tables = options.inherited.unwind_tables orelse
-        if (options.parent) |p| p.unwind_tables else options.global.any_unwind_tables;
+        if (options.parent) |p| p.optimize_mode else options.global.root_optimize_mode;
 
     const strip = b: {
         if (options.inherited.strip) |x| break :b x;
@@ -218,6 +215,17 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         if (options.inherited.sanitize_thread) |x| break :b x;
         if (options.parent) |p| break :b p.sanitize_thread;
         break :b false;
+    };
+
+    const unwind_tables = b: {
+        if (options.inherited.unwind_tables) |x| break :b x;
+        if (options.parent) |p| break :b p.unwind_tables;
+
+        break :b target_util.defaultUnwindTables(
+            target,
+            options.global.link_libunwind,
+            sanitize_thread or options.global.any_sanitize_thread,
+        );
     };
 
     const fuzz = b: {
@@ -387,7 +395,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .zig_backend = zig_backend,
             .output_mode = options.global.output_mode,
             .link_mode = options.global.link_mode,
-            .unwind_tables = options.global.any_unwind_tables,
+            .unwind_tables = unwind_tables,
             .is_test = options.global.is_test,
             .single_threaded = single_threaded,
             .link_libc = options.global.link_libc,
@@ -474,15 +482,12 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         };
         new_file.* = .{
             .sub_file_path = "builtin.zig",
-            .source = generated_builtin_source,
-            .source_loaded = true,
-            .tree_loaded = false,
-            .zir_loaded = false,
             .stat = undefined,
-            .tree = undefined,
-            .zir = undefined,
+            .source = generated_builtin_source,
+            .tree = null,
+            .zir = null,
+            .zoir = null,
             .status = .never_loaded,
-            .prev_status = .never_loaded,
             .mod = new,
         };
         break :b new;

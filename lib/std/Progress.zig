@@ -1366,7 +1366,7 @@ fn maybeUpdateSize(resize_flag: bool) void {
     }
 }
 
-fn handleSigWinch(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.C) void {
+fn handleSigWinch(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
     _ = info;
     _ = ctx_ptr;
     assert(sig == posix.SIG.WINCH);

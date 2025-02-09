@@ -64,12 +64,11 @@ pub fn nanoTimestamp() i128 {
         .uefi => {
             var value: std.os.uefi.Time = undefined;
             const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
-            assert(status == .Success);
+            assert(status == .success);
             return value.toEpoch();
         },
         else => {
-            var ts: posix.timespec = undefined;
-            posix.clock_gettime(.REALTIME, &ts) catch |err| switch (err) {
+            const ts = posix.clock_gettime(.REALTIME) catch |err| switch (err) {
                 error.UnsupportedClock, error.Unexpected => return 0, // "Precision of timing depends on hardware and OS".
             };
             return (@as(i128, ts.sec) * ns_per_s) + ts.nsec;
@@ -154,7 +153,7 @@ pub const Instant = struct {
             .uefi => {
                 var value: std.os.uefi.Time = undefined;
                 const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
-                if (status != .Success) return error.Unsupported;
+                if (status != .success) return error.Unsupported;
                 return Instant{ .timestamp = value.toEpoch() };
             },
             // On darwin, use UPTIME_RAW instead of MONOTONIC as it ticks while
@@ -171,8 +170,7 @@ pub const Instant = struct {
             else => posix.CLOCK.MONOTONIC,
         };
 
-        var ts: posix.timespec = undefined;
-        posix.clock_gettime(clock_id, &ts) catch return error.Unsupported;
+        const ts = posix.clock_gettime(clock_id) catch return error.Unsupported;
         return .{ .timestamp = ts };
     }
 

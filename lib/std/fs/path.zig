@@ -18,7 +18,6 @@ const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
 const mem = std.mem;
-const fmt = std.fmt;
 const ascii = std.ascii;
 const Allocator = mem.Allocator;
 const math = std.math;
@@ -145,6 +144,36 @@ pub fn join(allocator: Allocator, paths: []const []const u8) ![]u8 {
 pub fn joinZ(allocator: Allocator, paths: []const []const u8) ![:0]u8 {
     const out = try joinSepMaybeZ(allocator, sep, isSep, paths, true);
     return out[0 .. out.len - 1 :0];
+}
+
+pub fn fmtJoin(paths: []const []const u8) std.fmt.Formatter(formatJoin) {
+    return .{ .data = paths };
+}
+
+fn formatJoin(paths: []const []const u8, comptime fmt: []const u8, options: std.fmt.FormatOptions, w: anytype) !void {
+    _ = fmt;
+    _ = options;
+
+    const first_path_idx = for (paths, 0..) |p, idx| {
+        if (p.len != 0) break idx;
+    } else return;
+
+    try w.writeAll(paths[first_path_idx]); // first component
+    var prev_path = paths[first_path_idx];
+    for (paths[first_path_idx + 1 ..]) |this_path| {
+        if (this_path.len == 0) continue; // skip empty components
+        const prev_sep = isSep(prev_path[prev_path.len - 1]);
+        const this_sep = isSep(this_path[0]);
+        if (!prev_sep and !this_sep) {
+            try w.writeByte(sep);
+        }
+        if (prev_sep and this_sep) {
+            try w.writeAll(this_path[1..]); // skip redundant separator
+        } else {
+            try w.writeAll(this_path);
+        }
+        prev_path = this_path;
+    }
 }
 
 fn testJoinMaybeZUefi(paths: []const []const u8, expected: []const u8, zero: bool) !void {

@@ -24,6 +24,7 @@ const maxInt = std.math.maxInt;
 const cast = std.math.cast;
 const assert = std.debug.assert;
 const native_os = builtin.os.tag;
+const page_size_min = std.heap.page_size_min;
 
 test {
     _ = @import("posix/test.zig");
@@ -82,6 +83,7 @@ pub const MAP = system.MAP;
 pub const MAX_ADDR_LEN = system.MAX_ADDR_LEN;
 pub const MFD = system.MFD;
 pub const MMAP2_UNIT = system.MMAP2_UNIT;
+pub const MREMAP = system.MREMAP;
 pub const MSF = system.MSF;
 pub const MSG = system.MSG;
 pub const NAME_MAX = system.NAME_MAX;
@@ -121,6 +123,7 @@ pub const blkcnt_t = system.blkcnt_t;
 pub const blksize_t = system.blksize_t;
 pub const clock_t = system.clock_t;
 pub const clockid_t = system.clockid_t;
+pub const timerfd_clockid_t = system.timerfd_clockid_t;
 pub const cpu_set_t = system.cpu_set_t;
 pub const dev_t = system.dev_t;
 pub const dl_phdr_info = system.dl_phdr_info;
@@ -155,6 +158,7 @@ pub const socklen_t = system.socklen_t;
 pub const stack_t = system.stack_t;
 pub const time_t = system.time_t;
 pub const timespec = system.timespec;
+pub const timestamp_t = system.timestamp_t;
 pub const timeval = system.timeval;
 pub const timezone = system.timezone;
 pub const ucontext_t = system.ucontext_t;
@@ -771,7 +775,7 @@ pub fn exit(status: u8) noreturn {
             _ = bs.exit(uefi.handle, @enumFromInt(status), 0, null);
         }
         // If we can't exit, reboot the system instead.
-        uefi.system_table.runtime_services.resetSystem(.ResetCold, @enumFromInt(status), 0, null);
+        uefi.system_table.runtime_services.resetSystem(.reset_cold, @enumFromInt(status), 0, null);
     }
     system.exit(status);
 }
@@ -1169,8 +1173,7 @@ pub const WriteError = error{
     DeviceBusy,
     InvalidArgument,
 
-    /// In WASI, this error may occur when the file descriptor does
-    /// not hold the required rights to write to it.
+    /// File descriptor does not hold the required rights to write to it.
     AccessDenied,
     BrokenPipe,
     SystemResources,
@@ -1269,6 +1272,7 @@ pub fn write(fd: fd_t, bytes: []const u8) WriteError!usize {
             .FBIG => return error.FileTooBig,
             .IO => return error.InputOutput,
             .NOSPC => return error.NoSpaceLeft,
+            .ACCES => return error.AccessDenied,
             .PERM => return error.AccessDenied,
             .PIPE => return error.BrokenPipe,
             .CONNRESET => return error.ConnectionResetByPeer,
@@ -2875,7 +2879,7 @@ pub fn renameatW(
 /// On Windows, `sub_dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `sub_dir_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_dir_path` is an opaque sequence of bytes with no particular encoding.
-pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!void {
+pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: mode_t) MakeDirError!void {
     if (native_os == .windows) {
         const sub_dir_path_w = try windows.sliceToPrefixedFileW(dir_fd, sub_dir_path);
         return mkdiratW(dir_fd, sub_dir_path_w.span(), mode);
@@ -2887,7 +2891,7 @@ pub fn mkdirat(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!v
     }
 }
 
-pub fn mkdiratWasi(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirError!void {
+pub fn mkdiratWasi(dir_fd: fd_t, sub_dir_path: []const u8, mode: mode_t) MakeDirError!void {
     _ = mode;
     switch (wasi.path_create_directory(dir_fd, sub_dir_path.ptr, sub_dir_path.len)) {
         .SUCCESS => return,
@@ -2912,7 +2916,7 @@ pub fn mkdiratWasi(dir_fd: fd_t, sub_dir_path: []const u8, mode: u32) MakeDirErr
 }
 
 /// Same as `mkdirat` except the parameters are null-terminated.
-pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
+pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: mode_t) MakeDirError!void {
     if (native_os == .windows) {
         const sub_dir_path_w = try windows.cStrToPrefixedFileW(dir_fd, sub_dir_path);
         return mkdiratW(dir_fd, sub_dir_path_w.span(), mode);
@@ -2946,7 +2950,7 @@ pub fn mkdiratZ(dir_fd: fd_t, sub_dir_path: [*:0]const u8, mode: u32) MakeDirErr
 }
 
 /// Windows-only. Same as `mkdirat` except the parameter WTF16 LE encoded.
-pub fn mkdiratW(dir_fd: fd_t, sub_path_w: []const u16, mode: u32) MakeDirError!void {
+pub fn mkdiratW(dir_fd: fd_t, sub_path_w: []const u16, mode: mode_t) MakeDirError!void {
     _ = mode;
     const sub_dir_handle = windows.OpenFile(sub_path_w, .{
         .dir = dir_fd,
@@ -2994,7 +2998,7 @@ pub const MakeDirError = error{
 /// On Windows, `dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `dir_path` should be encoded as valid UTF-8.
 /// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
-pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
+pub fn mkdir(dir_path: []const u8, mode: mode_t) MakeDirError!void {
     if (native_os == .wasi and !builtin.link_libc) {
         return mkdirat(wasi.AT.FDCWD, dir_path, mode);
     } else if (native_os == .windows) {
@@ -3010,7 +3014,7 @@ pub fn mkdir(dir_path: []const u8, mode: u32) MakeDirError!void {
 /// On Windows, `dir_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `dir_path` should be encoded as valid UTF-8.
 /// On other platforms, `dir_path` is an opaque sequence of bytes with no particular encoding.
-pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
+pub fn mkdirZ(dir_path: [*:0]const u8, mode: mode_t) MakeDirError!void {
     if (native_os == .windows) {
         const dir_path_w = try windows.cStrToPrefixedFileW(null, dir_path);
         return mkdirW(dir_path_w.span(), mode);
@@ -3041,7 +3045,7 @@ pub fn mkdirZ(dir_path: [*:0]const u8, mode: u32) MakeDirError!void {
 }
 
 /// Windows-only. Same as `mkdir` but the parameters is WTF16LE encoded.
-pub fn mkdirW(dir_path_w: []const u16, mode: u32) MakeDirError!void {
+pub fn mkdirW(dir_path_w: []const u16, mode: mode_t) MakeDirError!void {
     _ = mode;
     const sub_dir_handle = windows.OpenFile(dir_path_w, .{
         .dir = fs.cwd().fd,
@@ -4276,6 +4280,35 @@ pub fn connect(sock: socket_t, sock_addr: *const sockaddr, len: socklen_t) Conne
     }
 }
 
+pub const GetSockOptError = error{
+    /// The calling process does not have the appropriate privileges.
+    AccessDenied,
+
+    /// The option is not supported by the protocol.
+    InvalidProtocolOption,
+
+    /// Insufficient resources are available in the system to complete the call.
+    SystemResources,
+} || UnexpectedError;
+
+pub fn getsockopt(fd: socket_t, level: i32, optname: u32, opt: []u8) GetSockOptError!void {
+    var len: socklen_t = undefined;
+    switch (errno(system.getsockopt(fd, level, optname, opt.ptr, &len))) {
+        .SUCCESS => {
+            std.debug.assert(len == opt.len);
+        },
+        .BADF => unreachable,
+        .NOTSOCK => unreachable,
+        .INVAL => unreachable,
+        .FAULT => unreachable,
+        .NOPROTOOPT => return error.InvalidProtocolOption,
+        .NOMEM => return error.SystemResources,
+        .NOBUFS => return error.SystemResources,
+        .ACCES => return error.AccessDenied,
+        else => |err| return unexpectedErrno(err),
+    }
+}
+
 pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
     var err_code: i32 = undefined;
     var size: u32 = @sizeOf(u32);
@@ -4663,7 +4696,7 @@ pub const MProtectError = error{
     OutOfMemory,
 } || UnexpectedError;
 
-pub fn mprotect(memory: []align(mem.page_size) u8, protection: u32) MProtectError!void {
+pub fn mprotect(memory: []align(page_size_min) u8, protection: u32) MProtectError!void {
     if (native_os == .windows) {
         const win_prot: windows.DWORD = switch (@as(u3, @truncate(protection))) {
             0b000 => windows.PAGE_NOACCESS,
@@ -4728,21 +4761,21 @@ pub const MMapError = error{
 /// * SIGSEGV - Attempted write into a region mapped as read-only.
 /// * SIGBUS - Attempted  access to a portion of the buffer that does not correspond to the file
 pub fn mmap(
-    ptr: ?[*]align(mem.page_size) u8,
+    ptr: ?[*]align(page_size_min) u8,
     length: usize,
     prot: u32,
     flags: system.MAP,
     fd: fd_t,
     offset: u64,
-) MMapError![]align(mem.page_size) u8 {
+) MMapError![]align(page_size_min) u8 {
     const mmap_sym = if (lfs64_abi) system.mmap64 else system.mmap;
     const rc = mmap_sym(ptr, length, prot, @bitCast(flags), fd, @bitCast(offset));
     const err: E = if (builtin.link_libc) blk: {
-        if (rc != std.c.MAP_FAILED) return @as([*]align(mem.page_size) u8, @ptrCast(@alignCast(rc)))[0..length];
+        if (rc != std.c.MAP_FAILED) return @as([*]align(page_size_min) u8, @ptrCast(@alignCast(rc)))[0..length];
         break :blk @enumFromInt(system._errno().*);
     } else blk: {
         const err = errno(rc);
-        if (err == .SUCCESS) return @as([*]align(mem.page_size) u8, @ptrFromInt(rc))[0..length];
+        if (err == .SUCCESS) return @as([*]align(page_size_min) u8, @ptrFromInt(rc))[0..length];
         break :blk err;
     };
     switch (err) {
@@ -4768,7 +4801,7 @@ pub fn mmap(
 /// Zig's munmap function does not, for two reasons:
 /// * It violates the Zig principle that resource deallocation must succeed.
 /// * The Windows function, VirtualFree, has this restriction.
-pub fn munmap(memory: []align(mem.page_size) const u8) void {
+pub fn munmap(memory: []align(page_size_min) const u8) void {
     switch (errno(system.munmap(memory.ptr, memory.len))) {
         .SUCCESS => return,
         .INVAL => unreachable, // Invalid parameters.
@@ -4777,12 +4810,46 @@ pub fn munmap(memory: []align(mem.page_size) const u8) void {
     }
 }
 
+pub const MRemapError = error{
+    LockedMemoryLimitExceeded,
+    /// Either a bug in the calling code, or the operating system abused the
+    /// EINVAL error code.
+    InvalidSyscallParameters,
+    OutOfMemory,
+} || UnexpectedError;
+
+pub fn mremap(
+    old_address: ?[*]align(page_size_min) u8,
+    old_len: usize,
+    new_len: usize,
+    flags: system.MREMAP,
+    new_address: ?[*]align(page_size_min) u8,
+) MRemapError![]align(page_size_min) u8 {
+    const rc = system.mremap(old_address, old_len, new_len, flags, new_address);
+    const err: E = if (builtin.link_libc) blk: {
+        if (rc != std.c.MAP_FAILED) return @as([*]align(page_size_min) u8, @ptrCast(@alignCast(rc)))[0..new_len];
+        break :blk @enumFromInt(system._errno().*);
+    } else blk: {
+        const err = errno(rc);
+        if (err == .SUCCESS) return @as([*]align(page_size_min) u8, @ptrFromInt(rc))[0..new_len];
+        break :blk err;
+    };
+    switch (err) {
+        .SUCCESS => unreachable,
+        .AGAIN => return error.LockedMemoryLimitExceeded,
+        .INVAL => return error.InvalidSyscallParameters,
+        .NOMEM => return error.OutOfMemory,
+        .FAULT => unreachable,
+        else => return unexpectedErrno(err),
+    }
+}
+
 pub const MSyncError = error{
     UnmappedMemory,
     PermissionDenied,
 } || UnexpectedError;
 
-pub fn msync(memory: []align(mem.page_size) u8, flags: i32) MSyncError!void {
+pub fn msync(memory: []align(page_size_min) u8, flags: i32) MSyncError!void {
     switch (errno(system.msync(memory.ptr, memory.len, flags))) {
         .SUCCESS => return,
         .PERM => return error.PermissionDenied,
@@ -5076,10 +5143,10 @@ pub fn sysctl(
     newlen: usize,
 ) SysCtlError!void {
     if (native_os == .wasi) {
-        @panic("unsupported"); // TODO should be compile error, not panic
+        @compileError("sysctl not supported on WASI");
     }
     if (native_os == .haiku) {
-        @panic("unsupported"); // TODO should be compile error, not panic
+        @compileError("sysctl not supported on Haiku");
     }
 
     const name_len = cast(c_uint, name.len) orelse return error.NameTooLong;
@@ -5101,10 +5168,10 @@ pub fn sysctlbynameZ(
     newlen: usize,
 ) SysCtlError!void {
     if (native_os == .wasi) {
-        @panic("unsupported"); // TODO should be compile error, not panic
+        @compileError("sysctl not supported on WASI");
     }
     if (native_os == .haiku) {
-        @panic("unsupported"); // TODO should be compile error, not panic
+        @compileError("sysctl not supported on Haiku");
     }
 
     switch (errno(system.sysctlbyname(name, oldp, oldlenp, newp, newlen))) {
@@ -5552,7 +5619,7 @@ pub fn dl_iterate_phdr(
 
     if (builtin.link_libc) {
         switch (system.dl_iterate_phdr(struct {
-            fn callbackC(info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.C) c_int {
+            fn callbackC(info: *dl_phdr_info, size: usize, data: ?*anyopaque) callconv(.c) c_int {
                 const context_ptr: *const Context = @ptrCast(@alignCast(data));
                 callback(info, size, context_ptr.*) catch |err| return @intFromError(err);
                 return 0;
@@ -5624,13 +5691,13 @@ pub fn dl_iterate_phdr(
 
 pub const ClockGetTimeError = error{UnsupportedClock} || UnexpectedError;
 
-/// TODO: change this to return the timespec as a return value
-pub fn clock_gettime(clock_id: clockid_t, tp: *timespec) ClockGetTimeError!void {
+pub fn clock_gettime(clock_id: clockid_t) ClockGetTimeError!timespec {
+    var tp: timespec = undefined;
     if (native_os == .wasi and !builtin.link_libc) {
-        var ts: wasi.timestamp_t = undefined;
+        var ts: timestamp_t = undefined;
         switch (system.clock_time_get(clock_id, 1, &ts)) {
             .SUCCESS => {
-                tp.* = .{
+                tp = .{
                     .sec = @intCast(ts / std.time.ns_per_s),
                     .nsec = @intCast(ts % std.time.ns_per_s),
                 };
@@ -5638,7 +5705,7 @@ pub fn clock_gettime(clock_id: clockid_t, tp: *timespec) ClockGetTimeError!void 
             .INVAL => return error.UnsupportedClock,
             else => |err| return unexpectedErrno(err),
         }
-        return;
+        return tp;
     }
     if (native_os == .windows) {
         if (clock_id == .REALTIME) {
@@ -5647,19 +5714,19 @@ pub fn clock_gettime(clock_id: clockid_t, tp: *timespec) ClockGetTimeError!void 
             // FileTime has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch.
             const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
             const ft_per_s = std.time.ns_per_s / 100;
-            tp.* = .{
+            tp = .{
                 .sec = @as(i64, @intCast(ft64 / ft_per_s)) + std.time.epoch.windows,
                 .nsec = @as(c_long, @intCast(ft64 % ft_per_s)) * 100,
             };
-            return;
+            return tp;
         } else {
             // TODO POSIX implementation of CLOCK.MONOTONIC on Windows.
             return error.UnsupportedClock;
         }
     }
 
-    switch (errno(system.clock_gettime(clock_id, tp))) {
-        .SUCCESS => return,
+    switch (errno(system.clock_gettime(clock_id, &tp))) {
+        .SUCCESS => return tp,
         .FAULT => unreachable,
         .INVAL => return error.UnsupportedClock,
         else => |err| return unexpectedErrno(err),
@@ -5668,7 +5735,7 @@ pub fn clock_gettime(clock_id: clockid_t, tp: *timespec) ClockGetTimeError!void 
 
 pub fn clock_getres(clock_id: clockid_t, res: *timespec) ClockGetTimeError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        var ts: wasi.timestamp_t = undefined;
+        var ts: timestamp_t = undefined;
         switch (system.clock_res_get(@bitCast(clock_id), &ts)) {
             .SUCCESS => res.* = .{
                 .sec = @intCast(ts / std.time.ns_per_s),
@@ -5767,17 +5834,27 @@ pub const FutimensError = error{
     ReadOnlyFileSystem,
 } || UnexpectedError;
 
-pub fn futimens(fd: fd_t, times: *const [2]timespec) FutimensError!void {
+pub fn futimens(fd: fd_t, times: ?*const [2]timespec) FutimensError!void {
     if (native_os == .wasi and !builtin.link_libc) {
         // TODO WASI encodes `wasi.fstflags` to signify magic values
         // similar to UTIME_NOW and UTIME_OMIT. Currently, we ignore
         // this here, but we should really handle it somehow.
-        const atim = times[0].toTimestamp();
-        const mtim = times[1].toTimestamp();
-        switch (wasi.fd_filestat_set_times(fd, atim, mtim, .{
-            .ATIM = true,
-            .MTIM = true,
-        })) {
+        const error_code = blk: {
+            if (times) |times_arr| {
+                const atim = times_arr[0].toTimestamp();
+                const mtim = times_arr[1].toTimestamp();
+                break :blk wasi.fd_filestat_set_times(fd, atim, mtim, .{
+                    .ATIM = true,
+                    .MTIM = true,
+                });
+            }
+
+            break :blk wasi.fd_filestat_set_times(fd, 0, 0, .{
+                .ATIM_NOW = true,
+                .MTIM_NOW = true,
+            });
+        };
+        switch (error_code) {
             .SUCCESS => return,
             .ACCES => return error.AccessDenied,
             .PERM => return error.PermissionDenied,
@@ -5871,8 +5948,7 @@ pub fn res_mkquery(
     q[i + 3] = class;
 
     // Make a reasonably unpredictable id
-    var ts: timespec = undefined;
-    clock_gettime(.REALTIME, &ts) catch {};
+    const ts = clock_gettime(.REALTIME) catch unreachable;
     const UInt = std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(ts.nsec)));
     const unsec: UInt = @bitCast(ts.nsec);
     const id: u32 = @truncate(unsec + unsec / 65536);
@@ -6752,6 +6828,7 @@ pub const SetSockOptError = error{
     // Setting the socket option requires more elevated permissions.
     PermissionDenied,
 
+    OperationNotSupported,
     NetworkSubsystemFailed,
     FileDescriptorNotASocket,
     SocketNotBound,
@@ -6787,6 +6864,7 @@ pub fn setsockopt(fd: socket_t, level: i32, optname: u32, opt: []const u8) SetSo
             .NOBUFS => return error.SystemResources,
             .PERM => return error.PermissionDenied,
             .NODEV => return error.NoDevice,
+            .OPNOTSUPP => return error.OperationNotSupported,
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -7093,7 +7171,7 @@ pub const MincoreError = error{
 } || UnexpectedError;
 
 /// Determine whether pages are resident in memory.
-pub fn mincore(ptr: [*]align(mem.page_size) u8, length: usize, vec: [*]u8) MincoreError!void {
+pub fn mincore(ptr: [*]align(page_size_min) u8, length: usize, vec: [*]u8) MincoreError!void {
     return switch (errno(system.mincore(ptr, length, vec))) {
         .SUCCESS => {},
         .AGAIN => error.SystemResources,
@@ -7139,7 +7217,7 @@ pub const MadviseError = error{
 
 /// Give advice about use of memory.
 /// This syscall is optional and is sometimes configured to be disabled.
-pub fn madvise(ptr: [*]align(mem.page_size) u8, length: usize, advice: u32) MadviseError!void {
+pub fn madvise(ptr: [*]align(page_size_min) u8, length: usize, advice: u32) MadviseError!void {
     switch (errno(system.madvise(ptr, length, advice))) {
         .SUCCESS => return,
         .PERM => return error.PermissionDenied,
@@ -7252,7 +7330,7 @@ pub const TimerFdCreateError = error{
 pub const TimerFdGetError = error{InvalidHandle} || UnexpectedError;
 pub const TimerFdSetError = TimerFdGetError || error{Canceled};
 
-pub fn timerfd_create(clock_id: clockid_t, flags: system.TFD) TimerFdCreateError!fd_t {
+pub fn timerfd_create(clock_id: system.timerfd_clockid_t, flags: system.TFD) TimerFdCreateError!fd_t {
     const rc = system.timerfd_create(clock_id, @bitCast(flags));
     return switch (errno(rc)) {
         .SUCCESS => @intCast(rc),

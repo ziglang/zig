@@ -1229,7 +1229,7 @@ test "return an extern union from C calling convention" {
             s: S,
         };
 
-        fn bar(arg_u: U) callconv(.C) U {
+        fn bar(arg_u: U) callconv(.c) U {
             var u = arg_u;
             _ = &u;
             return u;
@@ -2246,12 +2246,12 @@ test "matching captures causes union equivalence" {
 }
 
 test "signed enum tag with negative value" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
 
     const Enum = enum(i8) {
         a = -1,
@@ -2302,4 +2302,39 @@ test "extern union @FieldType" {
     comptime assert(@FieldType(U, "a") == u32);
     comptime assert(@FieldType(U, "b") == f64);
     comptime assert(@FieldType(U, "c") == *U);
+}
+
+test "assign global tagged union" {
+    const U = union(enum) {
+        a: u16,
+        b: u32,
+
+        var global: @This() = undefined;
+    };
+
+    U.global = .{ .a = 123 };
+    try expect(U.global == .a);
+    try expect(U.global != .b);
+    try expect(U.global.a == 123);
+
+    U.global = .{ .b = 123456 };
+    try expect(U.global != .a);
+    try expect(U.global == .b);
+    try expect(U.global.b == 123456);
+}
+
+test "set mutable union by switching on same union" {
+    const U = union(enum) {
+        foo,
+        bar: usize,
+    };
+
+    var val: U = .foo;
+    val = switch (val) {
+        .foo => .{ .bar = 2 },
+        .bar => .foo,
+    };
+
+    try expect(val == .bar);
+    try expect(val.bar == 2);
 }

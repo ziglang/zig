@@ -458,6 +458,19 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
             return stream.writeAll("for input is not captured");
         },
 
+        .invalid_byte => {
+            const tok_slice = tree.source[tree.tokens.items(.start)[parse_error.token]..];
+            return stream.print("{s} contains invalid byte: '{'}'", .{
+                switch (tok_slice[0]) {
+                    '\'' => "character literal",
+                    '"', '\\' => "string literal",
+                    '/' => "comment",
+                    else => unreachable,
+                },
+                std.zig.fmtEscapes(tok_slice[parse_error.extra.offset..][0..1]),
+            });
+        },
+
         .expected_token => {
             const found_tag = token_tags[parse_error.token + @intFromBool(parse_error.token_is_prev)];
             const expected_symbol = parse_error.extra.expected_tag.symbol();
@@ -2157,14 +2170,13 @@ fn fullFnProtoComponents(tree: Ast, info: full.FnProto.Components) full.FnProto 
 
 fn fullPtrTypeComponents(tree: Ast, info: full.PtrType.Components) full.PtrType {
     const token_tags = tree.tokens.items(.tag);
-    const Size = std.builtin.Type.Pointer.Size;
-    const size: Size = switch (token_tags[info.main_token]) {
+    const size: std.builtin.Type.Pointer.Size = switch (token_tags[info.main_token]) {
         .asterisk,
         .asterisk_asterisk,
-        => .One,
+        => .one,
         .l_bracket => switch (token_tags[info.main_token + 1]) {
-            .asterisk => if (token_tags[info.main_token + 2] == .identifier) Size.C else Size.Many,
-            else => Size.Slice,
+            .asterisk => if (token_tags[info.main_token + 2] == .identifier) .c else .many,
+            else => .slice,
         },
         else => unreachable,
     };
@@ -2180,7 +2192,7 @@ fn fullPtrTypeComponents(tree: Ast, info: full.PtrType.Components) full.PtrType 
     // positives. Therefore, start after a sentinel if there is one and
     // skip over any align node and bit range nodes.
     var i = if (info.sentinel != 0) tree.lastToken(info.sentinel) + 1 else switch (size) {
-        .Many, .C => info.main_token + 1,
+        .many, .c => info.main_token + 1,
         else => info.main_token,
     };
     const end = tree.firstToken(info.child_type);
@@ -2927,6 +2939,7 @@ pub const Error = struct {
     extra: union {
         none: void,
         expected_tag: Token.Tag,
+        offset: usize,
     } = .{ .none = {} },
 
     pub const Tag = enum {
@@ -2997,6 +3010,9 @@ pub const Error = struct {
 
         /// `expected_tag` is populated.
         expected_token,
+
+        /// `offset` is populated
+        invalid_byte,
     };
 };
 
