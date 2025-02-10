@@ -701,6 +701,9 @@ fn eqlBytes(a: []const u8, b: []const u8) bool {
 
     if (a.len != b.len) return false;
     if (a.len == 0 or a.ptr == b.ptr) return true;
+    if (@hasDecl(root, "eqlBytes")) {
+        return root.eqlBytes(a, b);
+    }
 
     if (a.len <= 16) {
         if (a.len < 4) {
