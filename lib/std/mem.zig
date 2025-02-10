@@ -1651,9 +1651,11 @@ pub fn containsAtLeastScalar(comptime T: type, haystack: []const T, expected_cou
 
     var found: usize = 0;
 
-    for (0..haystack.len) |i| {
-        if (haystack[i] == needle) found += 1;
-        if (found == expected_count) return true;
+    for (haystack) |item| {
+        if (item == needle) {
+            found += 1;
+            if (found == expected_count) return true;
+        }
     }
 
     return false;
