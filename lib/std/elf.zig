@@ -532,17 +532,23 @@ pub const Header = struct {
         };
         const need_bswap = endian != native_endian;
 
+        comptime assert(!@typeInfo(OSABI).@"enum".is_exhaustive);
         const os_abi: OSABI = @enumFromInt(hdr32.e_ident[EI_OSABI]);
 
         // The meaning of this value depends on `os_abi` so just make it available as `u8`.
         const abi_version = hdr32.e_ident[EI_ABIVERSION];
 
-        const @"type" = if (need_bswap) blk: {
+        const @"type": ET = if (need_bswap) blk: {
+            // Converting integers to exhaustive enums using `@enumFromInt` could cause a panic.
+            comptime assert(@typeInfo(ET).@"enum".is_exhaustive);
             const value = @intFromEnum(hdr32.e_type);
-            break :blk @as(ET, @enumFromInt(@byteSwap(value)));
+            break :blk std.meta.intToEnum(ET, @byteSwap(value)) catch |err| switch (err) {
+                error.InvalidEnumTag => return error.InvalidElfType,
+            };
         } else hdr32.e_type;
 
         const machine = if (need_bswap) blk: {
+            comptime assert(!@typeInfo(EM).@"enum".is_exhaustive);
             const value = @intFromEnum(hdr32.e_machine);
             break :blk @as(EM, @enumFromInt(@byteSwap(value)));
         } else hdr32.e_machine;
