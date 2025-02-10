@@ -2855,7 +2855,7 @@ pub fn genLazyFn(o: *Object, lazy_ctype_pool: *const CType.Pool, lazy_fn: LazyFn
             try w.writeByte('(');
             for (0..fn_info.param_ctypes.len) |arg| {
                 if (arg > 0) try w.writeAll(", ");
-                try o.dg.writeCValue(w, .{ .arg = arg });
+                try w.print("a{d}", .{arg});
             }
             try w.writeAll(");\n}\n");
         },
