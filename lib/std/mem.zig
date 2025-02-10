@@ -7,6 +7,7 @@ const mem = @This();
 const testing = std.testing;
 const Endian = std.builtin.Endian;
 const native_endian = builtin.cpu.arch.endian();
+const root = @import("root");
 
 /// Compile time known minimum page size.
 /// https://github.com/ziglang/zig/issues/4082
@@ -202,22 +203,30 @@ test "Allocator.resize" {
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be <= src.ptr.
 pub fn copyForwards(comptime T: type, dest: []T, source: []const T) void {
-    for (dest[0..source.len], source) |*d, s| d.* = s;
+    if (@hasDecl(root, "copyForwards")) {
+        root.copyForwards(T, dest, source);
+    } else {
+        for (dest[0..source.len], source) |*d, s| d.* = s;
+    }
 }
 
 /// Copy all of source into dest at position 0.
 /// dest.len must be >= source.len.
 /// If the slices overlap, dest.ptr must be >= src.ptr.
 pub fn copyBackwards(comptime T: type, dest: []T, source: []const T) void {
-    // TODO instead of manually doing this check for the whole array
-    // and turning off runtime safety, the compiler should detect loops like
-    // this and automatically omit safety checks for loops
-    @setRuntimeSafety(false);
-    assert(dest.len >= source.len);
-    var i = source.len;
-    while (i > 0) {
-        i -= 1;
-        dest[i] = source[i];
+    if (@hasDecl(root, "copyBackwards")) {
+        root.copyBackwards(T, dest, source);
+    } else {
+        // TODO instead of manually doing this check for the whole array
+        // and turning off runtime safety, the compiler should detect loops like
+        // this and automatically omit safety checks for loops
+        @setRuntimeSafety(false);
+        assert(dest.len >= source.len);
+        var i = source.len;
+        while (i > 0) {
+            i -= 1;
+            dest[i] = source[i];
+        }
     }
 }
 
