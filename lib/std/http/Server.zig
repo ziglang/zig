@@ -770,19 +770,19 @@ pub const Request = struct {
         switch (request.head.transfer_encoding) {
             .chunked => {
                 request.reader_state = .{ .chunk_parser = http.ChunkParser.init };
-                return .{
+                return .{ .context = .{
                     .readFn = read_chunked,
                     .context = request,
-                };
+                } };
             },
             .none => {
                 request.reader_state = .{
                     .remaining_content_length = request.head.content_length orelse 0,
                 };
-                return .{
+                return .{ .context = .{
                     .readFn = read_cl,
                     .context = request,
-                };
+                } };
             },
         }
     }
@@ -1116,13 +1116,13 @@ pub const Response = struct {
     }
 
     pub fn writer(r: *Response) std.io.AnyWriter {
-        return .{
+        return .{ .context = .{
             .writeFn = switch (r.transfer_encoding) {
                 .none, .content_length => write_cl,
                 .chunked => write_chunked,
             },
             .context = r,
-        };
+        } };
     }
 };
 
