@@ -9,6 +9,10 @@ pub const hii = @import("uefi/hii.zig");
 pub const Status = @import("uefi/status.zig").Status;
 pub const tables = @import("uefi/tables.zig");
 
+pub const posix = @import("uefi/posix.zig");
+
+pub var working_directory: posix.fd_t = .none;
+
 /// The memory type to allocate when using the pool.
 /// Defaults to `.loader_data`, the default data allocation type
 /// used by UEFI applications to allocate pool memory.
