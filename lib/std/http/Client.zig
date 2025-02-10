@@ -712,6 +712,10 @@ pub const Request = struct {
     /// Externally-owned; must outlive the Request.
     privileged_headers: []const http.Header,
 
+    /// Skip the TLS Certificate verfication
+    /// Warning: It is unsafe to use it, use in development only
+    skip_certificate_verification: bool = false,
+
     pub const Headers = struct {
         host: Value = .default,
         authorization: Value = .default,
@@ -806,7 +810,7 @@ pub const Request = struct {
         }
 
         req.uri = valid_uri;
-        req.connection = try req.client.connect(new_host, uriPort(valid_uri, protocol), protocol);
+        req.connection = try req.client.connect(new_host, uriPort(valid_uri, protocol), protocol, req.skip_certificate_verification);
         req.redirect_behavior.subtractOne();
         req.response.parser.reset();
 
@@ -1312,7 +1316,7 @@ pub const ConnectTcpError = Allocator.Error || error{ ConnectionRefused, Network
 /// Connect to `host:port` using the specified protocol. This will reuse a connection if one is already open.
 ///
 /// This function is threadsafe.
-pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connection.Protocol) ConnectTcpError!*Connection {
+pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connection.Protocol, skip_certificate_verification: bool) ConnectTcpError!*Connection {
     if (client.connection_pool.findConnection(.{
         .host = host,
         .port = port,
@@ -1372,8 +1376,14 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
         errdefer if (ssl_key_log_file) |key_log_file| key_log_file.close();
 
         conn.data.tls_client.* = std.crypto.tls.Client.init(stream, .{
-            .host = .{ .explicit = host },
-            .ca = .{ .bundle = client.ca_bundle },
+            .host = if (skip_certificate_verification)
+                .no_verification
+            else
+                .{ .explicit = host },
+            .ca = if (skip_certificate_verification)
+                .no_verification
+            else
+                .{ .bundle = client.ca_bundle },
             .ssl_key_log_file = ssl_key_log_file,
         }) catch return error.TlsInitializationFailed;
         // This is appropriate for HTTPS because the HTTP headers contain
@@ -1430,6 +1440,7 @@ pub fn connectTunnel(
     proxy: *Proxy,
     tunnel_host: []const u8,
     tunnel_port: u16,
+    skip_certificate_verification: bool,
 ) !*Connection {
     if (!proxy.supports_connect) return error.TunnelNotSupported;
 
@@ -1442,7 +1453,7 @@ pub fn connectTunnel(
 
     var maybe_valid = false;
     (tunnel: {
-        const conn = try client.connectTcp(proxy.host, proxy.port, proxy.protocol);
+        const conn = try client.connectTcp(proxy.host, proxy.port, proxy.protocol, skip_certificate_verification);
         errdefer {
             conn.closing = true;
             client.connection_pool.release(client.allocator, conn);
@@ -1506,28 +1517,29 @@ pub fn connect(
     host: []const u8,
     port: u16,
     protocol: Connection.Protocol,
+    skip_certificate_verification: bool,
 ) ConnectError!*Connection {
     const proxy = switch (protocol) {
         .plain => client.http_proxy,
         .tls => client.https_proxy,
-    } orelse return client.connectTcp(host, port, protocol);
+    } orelse return client.connectTcp(host, port, protocol, skip_certificate_verification);
 
     // Prevent proxying through itself.
     if (std.ascii.eqlIgnoreCase(proxy.host, host) and
         proxy.port == port and proxy.protocol == protocol)
     {
-        return client.connectTcp(host, port, protocol);
+        return client.connectTcp(host, port, protocol, skip_certificate_verification);
     }
 
     if (proxy.supports_connect) tunnel: {
-        return connectTunnel(client, proxy, host, port) catch |err| switch (err) {
+        return connectTunnel(client, proxy, host, port, skip_certificate_verification) catch |err| switch (err) {
             error.TunnelNotSupported => break :tunnel,
             else => |e| return e,
         };
     }
 
     // fall back to using the proxy as a normal http proxy
-    const conn = try client.connectTcp(proxy.host, proxy.port, proxy.protocol);
+    const conn = try client.connectTcp(proxy.host, proxy.port, proxy.protocol, skip_certificate_verification);
     errdefer {
         conn.closing = true;
         client.connection_pool.release(conn);
@@ -1588,6 +1600,9 @@ pub const RequestOptions = struct {
     /// domain.
     /// Externally-owned; must outlive the Request.
     privileged_headers: []const http.Header = &.{},
+    /// Skip the TLS Certificate verfication
+    /// Warning: It is unsafe to use it, use in development only
+    skip_certificate_verification: bool = false,
 };
 
 fn validateUri(uri: Uri, arena: Allocator) !struct { Connection.Protocol, Uri } {
@@ -1658,7 +1673,7 @@ pub fn open(
     }
 
     const conn = options.connection orelse
-        try client.connect(valid_uri.host.?.raw, uriPort(valid_uri, protocol), protocol);
+        try client.connect(valid_uri.host.?.raw, uriPort(valid_uri, protocol), protocol, options.skip_certificate_verification);
 
     var req: Request = .{
         .uri = valid_uri,
@@ -1680,6 +1695,7 @@ pub fn open(
         .headers = options.headers,
         .extra_headers = options.extra_headers,
         .privileged_headers = options.privileged_headers,
+        .skip_certificate_verification = options.skip_certificate_verification,
     };
     errdefer req.deinit();
 
@@ -1711,6 +1727,10 @@ pub const FetchOptions = struct {
     /// domain.
     /// Externally-owned; must outlive the Request.
     privileged_headers: []const http.Header = &.{},
+
+    /// Skip the TLS Certificate verfication
+    /// Warning: It is unsafe to use it, use in development only
+    skip_certificate_verification: bool = false,
 
     pub const Location = union(enum) {
         url: []const u8,
@@ -1750,6 +1770,7 @@ pub fn fetch(client: *Client, options: FetchOptions) !FetchResult {
         .extra_headers = options.extra_headers,
         .privileged_headers = options.privileged_headers,
         .keep_alive = options.keep_alive,
+        .skip_certificate_verification = options.skip_certificate_verification,
     });
     defer req.deinit();
 
