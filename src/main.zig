@@ -378,7 +378,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         return io.getStdOut().writeAll(usage);
     } else if (mem.eql(u8, cmd, "ast-check")) {
         return cmdAstCheck(gpa, arena, cmd_args);
-    } else if (mem.eql(u8, cmd, "detect-cpu")) {
+    } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "detect-cpu")) {
         return cmdDetectCpu(gpa, arena, cmd_args);
     } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "changelist")) {
         return cmdChangelist(gpa, arena, cmd_args);
