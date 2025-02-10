@@ -1,5 +1,5 @@
 /* O_*, F_*, FD_* bit values for Linux.
-   Copyright (C) 2001-2024 Free Software Foundation, Inc.
+   Copyright (C) 2001-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -200,6 +200,8 @@
 # define F_SETLEASE	1024	/* Set a lease.  */
 # define F_GETLEASE	1025	/* Enquire what lease is active.  */
 # define F_NOTIFY	1026	/* Request notifications on a directory.  */
+# define F_DUPFD_QUERY  1027    /* Compare two file descriptors for sameness.  */
+# define F_CREATED_QUERY 1028   /* Was the file just created?  */
 # define F_SETPIPE_SZ	1031	/* Set pipe page size array.  */
 # define F_GETPIPE_SZ	1032	/* Set pipe page size array.  */
 # define F_ADD_SEALS	1033	/* Add seals to file.  */

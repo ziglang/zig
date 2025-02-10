@@ -1,5 +1,5 @@
 /* Checking macros for wchar functions.
-   Copyright (C) 2005-2024 Free Software Foundation, Inc.
+   Copyright (C) 2005-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -74,9 +74,9 @@ __fortify_function __attribute_overloadable__ wchar_t *
 __NTH (wcscpy (__fortify_clang_overload_arg (wchar_t *, __restrict, __dest),
 	       const wchar_t *__restrict __src))
 {
-  size_t sz = __glibc_objsize (__dest);
-  if (sz != (size_t) -1)
-    return __wcscpy_chk (__dest, __src, sz / sizeof (wchar_t));
+  size_t __sz = __glibc_objsize (__dest);
+  if (__sz != (size_t) -1)
+    return __wcscpy_chk (__dest, __src, __sz / sizeof (wchar_t));
   return __wcscpy_alias (__dest, __src);
 }
 
@@ -84,9 +84,9 @@ __fortify_function __attribute_overloadable__ wchar_t *
 __NTH (wcpcpy (__fortify_clang_overload_arg (wchar_t *, __restrict, __dest),
 	       const wchar_t *__restrict __src))
 {
-  size_t sz = __glibc_objsize (__dest);
-  if (sz != (size_t) -1)
-    return __wcpcpy_chk (__dest, __src, sz / sizeof (wchar_t));
+  size_t __sz = __glibc_objsize (__dest);
+  if (__sz != (size_t) -1)
+    return __wcpcpy_chk (__dest, __src, __sz / sizeof (wchar_t));
   return __wcpcpy_alias (__dest, __src);
 }
 
@@ -118,9 +118,9 @@ __fortify_function __attribute_overloadable__ wchar_t *
 __NTH (wcscat (__fortify_clang_overload_arg (wchar_t *, __restrict, __dest),
 	       const wchar_t *__restrict __src))
 {
-  size_t sz = __glibc_objsize (__dest);
-  if (sz != (size_t) -1)
-    return __wcscat_chk (__dest, __src, sz / sizeof (wchar_t));
+  size_t __sz = __glibc_objsize (__dest);
+  if (__sz != (size_t) -1)
+    return __wcscat_chk (__dest, __src, __sz / sizeof (wchar_t));
   return __wcscat_alias (__dest, __src);
 }
 
@@ -128,9 +128,9 @@ __fortify_function __attribute_overloadable__ wchar_t *
 __NTH (wcsncat (__fortify_clang_overload_arg (wchar_t *, __restrict, __dest),
 	       const wchar_t *__restrict __src, size_t __n))
 {
-  size_t sz = __glibc_objsize (__dest);
-  if (sz != (size_t) -1)
-    return __wcsncat_chk (__dest, __src, __n, sz / sizeof (wchar_t));
+  size_t __sz = __glibc_objsize (__dest);
+  if (__sz != (size_t) -1)
+    return __wcsncat_chk (__dest, __src, __n, __sz / sizeof (wchar_t));
   return __wcsncat_alias (__dest, __src, __n);
 }
 
@@ -170,10 +170,10 @@ __fortify_function int
 __NTH (swprintf (wchar_t *__restrict __s, size_t __n,
 		 const wchar_t *__restrict __fmt, ...))
 {
-  size_t sz = __glibc_objsize (__s);
-  if (sz != (size_t) -1 || __USE_FORTIFY_LEVEL > 1)
+  size_t __sz = __glibc_objsize (__s);
+  if (__sz != (size_t) -1 || __USE_FORTIFY_LEVEL > 1)
     return __swprintf_chk (__s, __n, __USE_FORTIFY_LEVEL - 1,
-			   sz / sizeof (wchar_t), __fmt, __va_arg_pack ());
+			   __sz / sizeof (wchar_t), __fmt, __va_arg_pack ());
   return __swprintf_alias (__s, __n, __fmt, __va_arg_pack ());
 }
 #elif __fortify_use_clang
@@ -206,10 +206,10 @@ __fortify_function int
 __NTH (vswprintf (wchar_t *__restrict __s, size_t __n,
 		  const wchar_t *__restrict __fmt, __gnuc_va_list __ap))
 {
-  size_t sz = __glibc_objsize (__s);
-  if (sz != (size_t) -1 || __USE_FORTIFY_LEVEL > 1)
+  size_t __sz = __glibc_objsize (__s);
+  if (__sz != (size_t) -1 || __USE_FORTIFY_LEVEL > 1)
     return __vswprintf_chk (__s, __n,  __USE_FORTIFY_LEVEL - 1,
-			    sz / sizeof (wchar_t), __fmt, __ap);
+			    __sz / sizeof (wchar_t), __fmt, __ap);
   return __vswprintf_alias (__s, __n, __fmt, __ap);
 }
 
@@ -257,14 +257,14 @@ fgetws (__fortify_clang_overload_arg (wchar_t *, __restrict, __s), int __n,
 					      "fgetws called with length bigger "
 					      "than size of destination buffer")
 {
-  size_t sz = __glibc_objsize (__s);
-  if (__glibc_safe_or_unknown_len (__n, sizeof (wchar_t), sz))
+  size_t __sz = __glibc_objsize (__s);
+  if (__glibc_safe_or_unknown_len (__n, sizeof (wchar_t), __sz))
     return __fgetws_alias (__s, __n, __stream);
 #if !__fortify_use_clang
-  if (__glibc_unsafe_len (__n, sizeof (wchar_t), sz))
-    return __fgetws_chk_warn (__s, sz / sizeof (wchar_t), __n, __stream);
+  if (__glibc_unsafe_len (__n, sizeof (wchar_t), __sz))
+    return __fgetws_chk_warn (__s, __sz / sizeof (wchar_t), __n, __stream);
 #endif
-  return __fgetws_chk (__s, sz / sizeof (wchar_t), __n, __stream);
+  return __fgetws_chk (__s, __sz / sizeof (wchar_t), __n, __stream);
 }
 
 #ifdef __USE_GNU
@@ -275,15 +275,15 @@ fgetws_unlocked (__fortify_clang_overload_arg (wchar_t *, __restrict, __s),
 					      "fgetws_unlocked called with length bigger "
 					      "than size of destination buffer")
 {
-  size_t sz = __glibc_objsize (__s);
-  if (__glibc_safe_or_unknown_len (__n, sizeof (wchar_t), sz))
+  size_t __sz = __glibc_objsize (__s);
+  if (__glibc_safe_or_unknown_len (__n, sizeof (wchar_t), __sz))
     return __fgetws_unlocked_alias (__s, __n, __stream);
 # if !__fortify_use_clang
-  if (__glibc_unsafe_len (__n, sizeof (wchar_t), sz))
-    return __fgetws_unlocked_chk_warn (__s, sz / sizeof (wchar_t), __n,
+  if (__glibc_unsafe_len (__n, sizeof (wchar_t), __sz))
+    return __fgetws_unlocked_chk_warn (__s, __sz / sizeof (wchar_t), __n,
 				       __stream);
 # endif
-  return __fgetws_unlocked_chk (__s, sz / sizeof (wchar_t), __n, __stream);
+  return __fgetws_unlocked_chk (__s, __sz / sizeof (wchar_t), __n, __stream);
 }
 #endif
 

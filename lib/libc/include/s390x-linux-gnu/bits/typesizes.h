@@ -1,5 +1,5 @@
 /* bits/typesizes.h -- underlying types for *_t.  Linux/s390 version.
-   Copyright (C) 2003-2024 Free Software Foundation, Inc.
+   Copyright (C) 2003-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or

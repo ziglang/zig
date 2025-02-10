@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2024 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -26,6 +26,7 @@
    _ISOC11_SOURCE	Extensions to ISO C99 from ISO C11.
    _ISOC23_SOURCE	Extensions to ISO C99 from ISO C23.
    _ISOC2X_SOURCE	Old name for _ISOC23_SOURCE.
+   _ISOC2Y_SOURCE	Extensions to ISO C23 from ISO C2Y.
    __STDC_WANT_LIB_EXT2__
 			Extensions to ISO C99 from TR 27431-2:2010.
    __STDC_WANT_IEC_60559_BFP_EXT__
@@ -150,6 +151,7 @@
 #undef	__USE_FORTIFY_LEVEL
 #undef	__KERNEL_STRICT_NAMES
 #undef	__GLIBC_USE_ISOC23
+#undef	__GLIBC_USE_ISOC2Y
 #undef	__GLIBC_USE_DEPRECATED_GETS
 #undef	__GLIBC_USE_DEPRECATED_SCANF
 #undef	__GLIBC_USE_C23_STRTOL
@@ -224,6 +226,8 @@
 # define _ISOC11_SOURCE	1
 # undef  _ISOC23_SOURCE
 # define _ISOC23_SOURCE	1
+# undef  _ISOC2Y_SOURCE
+# define _ISOC2Y_SOURCE	1
 # undef  _POSIX_SOURCE
 # define _POSIX_SOURCE	1
 # undef  _POSIX_C_SOURCE
@@ -252,15 +256,23 @@
 #if (defined _DEFAULT_SOURCE					\
      || (!defined __STRICT_ANSI__				\
 	 && !defined _ISOC99_SOURCE && !defined _ISOC11_SOURCE	\
-	 && !defined _ISOC23_SOURCE				\
+	 && !defined _ISOC23_SOURCE && !defined _ISOC2Y_SOURCE	\
 	 && !defined _POSIX_SOURCE && !defined _POSIX_C_SOURCE	\
 	 && !defined _XOPEN_SOURCE))
 # undef  _DEFAULT_SOURCE
 # define _DEFAULT_SOURCE	1
 #endif
 
+/* This is to enable the ISO C2Y extension.  */
+#if (defined _ISOC2Y_SOURCE \
+     || (defined __STDC_VERSION__ && __STDC_VERSION__ > 202311L))
+# define __GLIBC_USE_ISOC2Y	1
+#else
+# define __GLIBC_USE_ISOC2Y	0
+#endif
+
 /* This is to enable the ISO C23 extension.  */
-#if (defined _ISOC23_SOURCE \
+#if (defined _ISOC23_SOURCE || defined _ISOC2Y_SOURCE \
      || (defined __STDC_VERSION__ && __STDC_VERSION__ > 201710L))
 # define __GLIBC_USE_ISOC23	1
 #else
@@ -268,21 +280,22 @@
 #endif
 
 /* This is to enable the ISO C11 extension.  */
-#if (defined _ISOC11_SOURCE || defined _ISOC23_SOURCE \
+#if (defined _ISOC11_SOURCE || defined _ISOC23_SOURCE	\
+     || defined _ISOC2Y_SOURCE				\
      || (defined __STDC_VERSION__ && __STDC_VERSION__ >= 201112L))
 # define __USE_ISOC11	1
 #endif
 
 /* This is to enable the ISO C99 extension.  */
 #if (defined _ISOC99_SOURCE || defined _ISOC11_SOURCE			\
-     || defined _ISOC23_SOURCE						\
+     || defined _ISOC23_SOURCE || defined _ISOC2Y_SOURCE		\
      || (defined __STDC_VERSION__ && __STDC_VERSION__ >= 199901L))
 # define __USE_ISOC99	1
 #endif
 
 /* This is to enable the ISO C90 Amendment 1:1995 extension.  */
 #if (defined _ISOC99_SOURCE || defined _ISOC11_SOURCE			\
-     || defined _ISOC23_SOURCE						\
+     || defined _ISOC23_SOURCE || defined _ISOC2Y_SOURCE		\
      || (defined __STDC_VERSION__ && __STDC_VERSION__ >= 199409L))
 # define __USE_ISOC95	1
 #endif

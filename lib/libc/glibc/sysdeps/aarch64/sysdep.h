@@ -1,4 +1,4 @@
-/* Copyright (C) 1997-2024 Free Software Foundation, Inc.
+/* Copyright (C) 1997-2025 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -74,10 +74,18 @@ strip_pac (void *p)
 #define PACIASP		hint	25
 #define AUTIASP		hint	29
 
+/* Guarded Control Stack support.  */
+#define CHKFEAT_X16	hint	40
+#define MRS_GCSPR(x)	mrs	x, s3_3_c2_c5_1
+#define GCSPOPM(x)	sysl	x, #3, c7, c7, #1
+#define GCSSS1(x)	sys	#3, c7, c7, #2, x
+#define GCSSS2(x)	sysl	x, #3, c7, c7, #3
+
 /* GNU_PROPERTY_AARCH64_* macros from elf.h for use in asm code.  */
 #define FEATURE_1_AND 0xc0000000
 #define FEATURE_1_BTI 1
 #define FEATURE_1_PAC 2
+#define FEATURE_1_GCS 4
 
 /* Add a NT_GNU_PROPERTY_TYPE_0 note.  */
 #define GNU_PROPERTY(type, value)	\
@@ -96,9 +104,9 @@ strip_pac (void *p)
 /* Add GNU property note with the supported features to all asm code
    where sysdep.h is included.  */
 #if HAVE_AARCH64_BTI && HAVE_AARCH64_PAC_RET
-GNU_PROPERTY (FEATURE_1_AND, FEATURE_1_BTI|FEATURE_1_PAC)
+GNU_PROPERTY (FEATURE_1_AND, FEATURE_1_BTI|FEATURE_1_PAC|FEATURE_1_GCS)
 #elif HAVE_AARCH64_BTI
-GNU_PROPERTY (FEATURE_1_AND, FEATURE_1_BTI)
+GNU_PROPERTY (FEATURE_1_AND, FEATURE_1_BTI|FEATURE_1_GCS)
 #endif
 
 /* Define an entry point visible from C.  */

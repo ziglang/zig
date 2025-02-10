@@ -1,5 +1,5 @@
 /* Restartable Sequences exported symbols.  Linux header.
-   Copyright (C) 2021-2024 Free Software Foundation, Inc.
+   Copyright (C) 2021-2025 Free Software Foundation, Inc.
 
    The GNU C Library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -152,6 +152,17 @@ struct rseq
            Inhibit instruction sequence block restart on migration for
            this thread.  */
     uint32_t flags;
+    /* Restartable sequences node_id field.  Updated by the kernel.  Read by
+       user-space with single-copy atomicity semantics.  This field should only
+       be read by the thread which registered this data structure.  Aligned on
+       32-bit.  Contains the current NUMA node ID. */
+    uint32_t node_id;
+    /* Restartable sequences mm_cid field.  Updated by the kernel.  Read by
+       user-space with single-copy atomicity semantics.  This field should only
+       be read by the thread which registered this data structure.  Aligned on
+       32-bit.  Contains the current thread's concurrency ID (allocated
+       uniquely within a memory map).  */
+    uint32_t mm_cid;
   } __attribute__ ((__aligned__ (32)));
 
 #endif /* __GLIBC_HAVE_KERNEL_RSEQ */
