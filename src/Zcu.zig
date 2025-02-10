@@ -3130,7 +3130,7 @@ pub fn mapOldZirToNew(
         }
     }
 
-    while (match_stack.popOrNull()) |match_item| {
+    while (match_stack.pop()) |match_item| {
         // First, a check: if the number of captures of this type has changed, we can't map it, because
         // we wouldn't know how to correlate type information with the last update.
         // Synchronizes with logic in `Zcu.PerThread.recreateStructType` etc.
@@ -3412,7 +3412,7 @@ pub fn addUnitReference(zcu: *Zcu, src_unit: AnalUnit, referenced_unit: AnalUnit
 
     try zcu.reference_table.ensureUnusedCapacity(gpa, 1);
 
-    const ref_idx = zcu.free_references.popOrNull() orelse idx: {
+    const ref_idx = zcu.free_references.pop() orelse idx: {
         _ = try zcu.all_references.addOne(gpa);
         break :idx zcu.all_references.items.len - 1;
     };
@@ -3437,7 +3437,7 @@ pub fn addTypeReference(zcu: *Zcu, src_unit: AnalUnit, referenced_type: InternPo
 
     try zcu.type_reference_table.ensureUnusedCapacity(gpa, 1);
 
-    const ref_idx = zcu.free_type_references.popOrNull() orelse idx: {
+    const ref_idx = zcu.free_type_references.pop() orelse idx: {
         _ = try zcu.all_type_references.addOne(gpa);
         break :idx zcu.all_type_references.items.len - 1;
     };

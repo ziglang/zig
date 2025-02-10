@@ -2446,7 +2446,7 @@ pub fn expandedSlice(pp: *const Preprocessor, tok: anytype) []const u8 {
 
 /// Concat two tokens and add the result to pp.generated
 fn pasteTokens(pp: *Preprocessor, lhs_toks: *ExpandBuf, rhs_toks: []const TokenWithExpansionLocs) Error!void {
-    const lhs = while (lhs_toks.popOrNull()) |lhs| {
+    const lhs = while (lhs_toks.pop()) |lhs| {
         if ((pp.comp.langopts.preserve_comments_in_macros and lhs.id == .comment) or
             (lhs.id != .macro_ws and lhs.id != .comment))
             break lhs;
@@ -2676,7 +2676,7 @@ fn defineFn(pp: *Preprocessor, tokenizer: *Tokenizer, define_tok: RawToken, macr
         tok = tokenizer.nextNoWS();
         if (tok.id == .ellipsis) {
             try pp.err(tok, .gnu_va_macro);
-            gnu_var_args = params.pop();
+            gnu_var_args = params.pop().?;
             const r_paren = tokenizer.nextNoWS();
             if (r_paren.id != .r_paren) {
                 try pp.err(r_paren, .missing_paren_param_list);

@@ -363,7 +363,7 @@ pub const Section = struct {
     fn popUnit(sec: *Section, gpa: std.mem.Allocator) void {
         const unit_index: Unit.Index = @enumFromInt(sec.units.items.len - 1);
         sec.unlinkUnit(unit_index);
-        var unit = sec.units.pop();
+        var unit = sec.units.pop().?;
         unit.deinit(gpa);
     }
 
@@ -1559,7 +1559,7 @@ pub const WipNav = struct {
 
     pub fn leaveBlock(wip_nav: *WipNav, code_off: u64) UpdateError!void {
         const block_bytes = comptime uleb128Bytes(@intFromEnum(AbbrevCode.block));
-        const block = wip_nav.blocks.pop();
+        const block = wip_nav.blocks.pop().?;
         if (wip_nav.any_children)
             try uleb128(wip_nav.debug_info.writer(wip_nav.dwarf.gpa), @intFromEnum(AbbrevCode.null))
         else
@@ -1599,7 +1599,7 @@ pub const WipNav = struct {
 
     pub fn leaveInlineFunc(wip_nav: *WipNav, func: InternPool.Index, code_off: u64) UpdateError!void {
         const inlined_func_bytes = comptime uleb128Bytes(@intFromEnum(AbbrevCode.inlined_func));
-        const block = wip_nav.blocks.pop();
+        const block = wip_nav.blocks.pop().?;
         if (wip_nav.any_children)
             try uleb128(wip_nav.debug_info.writer(wip_nav.dwarf.gpa), @intFromEnum(AbbrevCode.null))
         else
@@ -2054,7 +2054,7 @@ pub const WipNav = struct {
 
     fn updateLazy(wip_nav: *WipNav, src_loc: Zcu.LazySrcLoc) UpdateError!void {
         const ip = &wip_nav.pt.zcu.intern_pool;
-        while (wip_nav.pending_lazy.popOrNull()) |val| switch (ip.typeOf(val)) {
+        while (wip_nav.pending_lazy.pop()) |val| switch (ip.typeOf(val)) {
             .type_type => try wip_nav.dwarf.updateLazyType(wip_nav.pt, src_loc, val, &wip_nav.pending_lazy),
             else => try wip_nav.dwarf.updateLazyValue(wip_nav.pt, src_loc, val, &wip_nav.pending_lazy),
         };

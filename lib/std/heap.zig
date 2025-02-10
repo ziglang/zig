@@ -681,7 +681,7 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
         try stuff_to_free.append(slice);
         slice = try allocator.alignedAlloc(u8, 16, alloc_size);
     }
-    while (stuff_to_free.popOrNull()) |item| {
+    while (stuff_to_free.pop()) |item| {
         allocator.free(item);
     }
     slice[0] = 0x12;

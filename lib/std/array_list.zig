@@ -289,10 +289,10 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
         /// Asserts that the list is not empty.
         /// Asserts that the index is in bounds.
         pub fn swapRemove(self: *Self, i: usize) T {
-            if (self.items.len - 1 == i) return self.pop();
+            if (self.items.len - 1 == i) return self.pop().?;
 
             const old_item = self.items[i];
-            self.items[i] = self.pop();
+            self.items[i] = self.pop().?;
             return old_item;
         }
 
@@ -555,21 +555,13 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             return self.items[prev_len..][0..n];
         }
 
-        /// Remove and return the last element from the list.
-        /// Invalidates element pointers to the removed element.
-        /// Asserts that the list is not empty.
-        pub fn pop(self: *Self) T {
+        /// Remove and return the last element from the list, or return `null` if list is empty.
+        /// Invalidates element pointers to the removed element, if any.
+        pub fn pop(self: *Self) ?T {
+            if (self.items.len == 0) return null;
             const val = self.items[self.items.len - 1];
             self.items.len -= 1;
             return val;
-        }
-
-        /// Remove and return the last element from the list, or
-        /// return `null` if list is empty.
-        /// Invalidates element pointers to the removed element, if any.
-        pub fn popOrNull(self: *Self) ?T {
-            if (self.items.len == 0) return null;
-            return self.pop();
         }
 
         /// Returns a slice of all the items plus the extra capacity, whose memory
@@ -897,10 +889,10 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         /// Asserts that the list is not empty.
         /// Asserts that the index is in bounds.
         pub fn swapRemove(self: *Self, i: usize) T {
-            if (self.items.len - 1 == i) return self.pop();
+            if (self.items.len - 1 == i) return self.pop().?;
 
             const old_item = self.items[i];
-            self.items[i] = self.pop();
+            self.items[i] = self.pop().?;
             return old_item;
         }
 
@@ -1190,20 +1182,13 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
         }
 
         /// Remove and return the last element from the list.
+        /// If the list is empty, returns `null`.
         /// Invalidates pointers to last element.
-        /// Asserts that the list is not empty.
-        pub fn pop(self: *Self) T {
+        pub fn pop(self: *Self) ?T {
+            if (self.items.len == 0) return null;
             const val = self.items[self.items.len - 1];
             self.items.len -= 1;
             return val;
-        }
-
-        /// Remove and return the last element from the list.
-        /// If the list is empty, returns `null`.
-        /// Invalidates pointers to last element.
-        pub fn popOrNull(self: *Self) ?T {
-            if (self.items.len == 0) return null;
-            return self.pop();
         }
 
         /// Returns a slice of all the items plus the extra capacity, whose memory
@@ -2184,7 +2169,7 @@ test "ArrayList(u0)" {
     try testing.expectEqual(count, 3);
 }
 
-test "ArrayList(?u32).popOrNull()" {
+test "ArrayList(?u32).pop()" {
     const a = testing.allocator;
 
     var list = ArrayList(?u32).init(a);
@@ -2195,10 +2180,10 @@ test "ArrayList(?u32).popOrNull()" {
     try list.append(2);
     try testing.expectEqual(list.items.len, 3);
 
-    try testing.expect(list.popOrNull().? == @as(u32, 2));
-    try testing.expect(list.popOrNull().? == @as(u32, 1));
-    try testing.expect(list.popOrNull().? == null);
-    try testing.expect(list.popOrNull() == null);
+    try testing.expect(list.pop().? == @as(u32, 2));
+    try testing.expect(list.pop().? == @as(u32, 1));
+    try testing.expect(list.pop().? == null);
+    try testing.expect(list.pop() == null);
 }
 
 test "ArrayList(u32).getLast()" {
