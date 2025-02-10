@@ -410,9 +410,6 @@ const sanitizer_common_sources = [_][]const u8{
     "sanitizer_allocator.cpp",
     "sanitizer_chained_origin_depot.cpp",
     "sanitizer_common.cpp",
-    "sanitizer_coverage_win_dll_thunk.cpp",
-    "sanitizer_coverage_win_dynamic_runtime_thunk.cpp",
-    "sanitizer_coverage_win_weak_interception.cpp",
     "sanitizer_deadlock_detector1.cpp",
     "sanitizer_deadlock_detector2.cpp",
     "sanitizer_errno.cpp",
@@ -452,9 +449,7 @@ const sanitizer_common_sources = [_][]const u8{
     "sanitizer_tls_get_addr.cpp",
     "sanitizer_type_traits.cpp",
     "sanitizer_win.cpp",
-    "sanitizer_win_dll_thunk.cpp",
-    "sanitizer_win_dynamic_runtime_thunk.cpp",
-    "sanitizer_win_weak_interception.cpp",
+    "sanitizer_win_interception.cpp",
 };
 
 const sanitizer_nolibc_sources = [_][]const u8{
@@ -490,6 +485,7 @@ const sanitizer_symbolizer_sources = [_][]const u8{
     "sanitizer_symbolizer_report.cpp",
     "sanitizer_symbolizer_report_fuchsia.cpp",
     "sanitizer_symbolizer_win.cpp",
+    "sanitizer_thread_history.cpp",
     "sanitizer_unwind_linux_libcdep.cpp",
     "sanitizer_unwind_fuchsia.cpp",
     "sanitizer_unwind_win.cpp",

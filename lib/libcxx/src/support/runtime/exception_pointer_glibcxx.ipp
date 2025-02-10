@@ -31,7 +31,7 @@ struct exception_ptr {
 
 } // namespace __exception_ptr
 
-_LIBCPP_NORETURN void rethrow_exception(__exception_ptr::exception_ptr);
+[[noreturn]] void rethrow_exception(__exception_ptr::exception_ptr);
 
 exception_ptr::~exception_ptr() noexcept { reinterpret_cast<__exception_ptr::exception_ptr*>(this)->~exception_ptr(); }
 
@@ -55,13 +55,13 @@ exception_ptr exception_ptr::__from_native_exception_pointer(void* __e) noexcept
 
 nested_exception::nested_exception() noexcept : __ptr_(current_exception()) {}
 
-_LIBCPP_NORETURN void nested_exception::rethrow_nested() const {
+[[noreturn]] void nested_exception::rethrow_nested() const {
   if (__ptr_ == nullptr)
     terminate();
   rethrow_exception(__ptr_);
 }
 
-_LIBCPP_NORETURN void rethrow_exception(exception_ptr p) {
+[[noreturn]] void rethrow_exception(exception_ptr p) {
   rethrow_exception(reinterpret_cast<__exception_ptr::exception_ptr&>(p));
 }
 

@@ -42,11 +42,11 @@ struct __binary_function_keep_layout_base {
 _LIBCPP_DIAGNOSTIC_PUSH
 _LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wdeprecated-declarations")
 template <class _Arg1, class _Arg2, class _Result>
-using __binary_function = binary_function<_Arg1, _Arg2, _Result>;
+using __binary_function _LIBCPP_NODEBUG = binary_function<_Arg1, _Arg2, _Result>;
 _LIBCPP_DIAGNOSTIC_POP
 #else
 template <class _Arg1, class _Arg2, class _Result>
-using __binary_function = __binary_function_keep_layout_base<_Arg1, _Arg2, _Result>;
+using __binary_function _LIBCPP_NODEBUG = __binary_function_keep_layout_base<_Arg1, _Arg2, _Result>;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

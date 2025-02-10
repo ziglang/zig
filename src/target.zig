@@ -290,7 +290,13 @@ pub fn hasDebugInfo(target: std.Target) bool {
             std.Target.nvptx.featureSetHas(target.cpu.features, .ptx77) or
             std.Target.nvptx.featureSetHas(target.cpu.features, .ptx78) or
             std.Target.nvptx.featureSetHas(target.cpu.features, .ptx80) or
-            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx81),
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx81) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx82) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx83) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx84) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx85) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx86) or
+            std.Target.nvptx.featureSetHas(target.cpu.features, .ptx87),
         .bpfel, .bpfeb => false,
         else => true,
     };

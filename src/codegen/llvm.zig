@@ -143,6 +143,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
             .{ .v9_3a, "v9.3a" },
             .{ .v9_4a, "v9.4a" },
             .{ .v9_5a, "v9.5a" },
+            .{ .v9_6a, "v9.6a" },
         }),
         .powerpc => subArchName(features, std.Target.powerpc, .{
             .{ .spe, "spe" },
@@ -1336,7 +1337,11 @@ pub const Object = struct {
             .time_report = options.time_report,
             .tsan = options.sanitize_thread,
             .sancov = options.fuzz,
-            .lto = options.lto != .none,
+            .lto = switch (options.lto) {
+                .none => .None,
+                .thin => .ThinPreLink,
+                .full => .FullPreLink,
+            },
             // https://github.com/ziglang/zig/issues/21215
             .allow_fast_isel = !comp.root_mod.resolved_target.result.cpu.arch.isMIPS(),
             .asm_filename = null,

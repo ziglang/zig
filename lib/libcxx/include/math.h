@@ -291,93 +291,96 @@ long double    truncl(long double x);
 
 */
 
-#  include <__config>
+#  if defined(__cplusplus) && __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#    include <__cxx03/math.h>
+#  else
+#    include <__config>
 
-#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#    pragma GCC system_header
-#  endif
+#    if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#      pragma GCC system_header
+#    endif
 
-#  if __has_include_next(<math.h>)
-#    include_next <math.h>
-#  endif
+#    if __has_include_next(<math.h>)
+#      include_next <math.h>
+#    endif
 
-#  ifdef __cplusplus
+#    ifdef __cplusplus
 
 // We support including .h headers inside 'extern "C"' contexts, so switch
 // back to C++ linkage before including these C++ headers.
 extern "C++" {
 
-#    ifdef fpclassify
-#      undef fpclassify
-#    endif
+#      ifdef fpclassify
+#        undef fpclassify
+#      endif
 
-#    ifdef signbit
-#      undef signbit
-#    endif
+#      ifdef signbit
+#        undef signbit
+#      endif
 
-#    ifdef isfinite
-#      undef isfinite
-#    endif
+#      ifdef isfinite
+#        undef isfinite
+#      endif
 
-#    ifdef isinf
-#      undef isinf
-#    endif
+#      ifdef isinf
+#        undef isinf
+#      endif
 
-#    ifdef isnan
-#      undef isnan
-#    endif
+#      ifdef isnan
+#        undef isnan
+#      endif
 
-#    ifdef isnormal
-#      undef isnormal
-#    endif
+#      ifdef isnormal
+#        undef isnormal
+#      endif
 
-#    ifdef isgreater
-#      undef isgreater
-#    endif
+#      ifdef isgreater
+#        undef isgreater
+#      endif
 
-#    ifdef isgreaterequal
-#      undef isgreaterequal
-#    endif
+#      ifdef isgreaterequal
+#        undef isgreaterequal
+#      endif
 
-#    ifdef isless
-#      undef isless
-#    endif
+#      ifdef isless
+#        undef isless
+#      endif
 
-#    ifdef islessequal
-#      undef islessequal
-#    endif
+#      ifdef islessequal
+#        undef islessequal
+#      endif
 
-#    ifdef islessgreater
-#      undef islessgreater
-#    endif
+#      ifdef islessgreater
+#        undef islessgreater
+#      endif
 
-#    ifdef isunordered
-#      undef isunordered
-#    endif
+#      ifdef isunordered
+#        undef isunordered
+#      endif
 
-#    include <__math/abs.h>
-#    include <__math/copysign.h>
-#    include <__math/error_functions.h>
-#    include <__math/exponential_functions.h>
-#    include <__math/fdim.h>
-#    include <__math/fma.h>
-#    include <__math/gamma.h>
-#    include <__math/hyperbolic_functions.h>
-#    include <__math/hypot.h>
-#    include <__math/inverse_hyperbolic_functions.h>
-#    include <__math/inverse_trigonometric_functions.h>
-#    include <__math/logarithms.h>
-#    include <__math/min_max.h>
-#    include <__math/modulo.h>
-#    include <__math/remainder.h>
-#    include <__math/roots.h>
-#    include <__math/rounding_functions.h>
-#    include <__math/traits.h>
-#    include <__math/trigonometric_functions.h>
-#    include <__type_traits/enable_if.h>
-#    include <__type_traits/is_floating_point.h>
-#    include <__type_traits/is_integral.h>
-#    include <stdlib.h>
+#      include <__math/abs.h>
+#      include <__math/copysign.h>
+#      include <__math/error_functions.h>
+#      include <__math/exponential_functions.h>
+#      include <__math/fdim.h>
+#      include <__math/fma.h>
+#      include <__math/gamma.h>
+#      include <__math/hyperbolic_functions.h>
+#      include <__math/hypot.h>
+#      include <__math/inverse_hyperbolic_functions.h>
+#      include <__math/inverse_trigonometric_functions.h>
+#      include <__math/logarithms.h>
+#      include <__math/min_max.h>
+#      include <__math/modulo.h>
+#      include <__math/remainder.h>
+#      include <__math/roots.h>
+#      include <__math/rounding_functions.h>
+#      include <__math/traits.h>
+#      include <__math/trigonometric_functions.h>
+#      include <__type_traits/enable_if.h>
+#      include <__type_traits/is_floating_point.h>
+#      include <__type_traits/is_integral.h>
+#      include <stdlib.h>
 
 // fpclassify relies on implementation-defined constants, so we can't move it to a detail header
 _LIBCPP_BEGIN_NAMESPACE_STD
@@ -388,22 +391,22 @@ namespace __math {
 
 // template on non-double overloads to make them weaker than same overloads from MSVC runtime
 template <class = int>
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI int fpclassify(float __x) _NOEXCEPT {
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI int fpclassify(float __x) _NOEXCEPT {
   return __builtin_fpclassify(FP_NAN, FP_INFINITE, FP_NORMAL, FP_SUBNORMAL, FP_ZERO, __x);
 }
 
 template <class = int>
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI int fpclassify(double __x) _NOEXCEPT {
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI int fpclassify(double __x) _NOEXCEPT {
   return __builtin_fpclassify(FP_NAN, FP_INFINITE, FP_NORMAL, FP_SUBNORMAL, FP_ZERO, __x);
 }
 
 template <class = int>
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI int fpclassify(long double __x) _NOEXCEPT {
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI int fpclassify(long double __x) _NOEXCEPT {
   return __builtin_fpclassify(FP_NAN, FP_INFINITE, FP_NORMAL, FP_SUBNORMAL, FP_ZERO, __x);
 }
 
 template <class _A1, std::__enable_if_t<std::is_integral<_A1>::value, int> = 0>
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI int fpclassify(_A1 __x) _NOEXCEPT {
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI int fpclassify(_A1 __x) _NOEXCEPT {
   return __x == 0 ? FP_ZERO : FP_NORMAL;
 }
 
@@ -415,7 +418,7 @@ using std::__math::fpclassify;
 using std::__math::signbit;
 
 // The MSVC runtime already provides these functions as templates
-#    ifndef _LIBCPP_MSVCRT
+#      ifndef _LIBCPP_MSVCRT
 using std::__math::isfinite;
 using std::__math::isgreater;
 using std::__math::isgreaterequal;
@@ -426,7 +429,7 @@ using std::__math::islessgreater;
 using std::__math::isnan;
 using std::__math::isnormal;
 using std::__math::isunordered;
-#    endif // _LIBCPP_MSVCRT
+#      endif // _LIBCPP_MSVCRT
 
 // abs
 //
@@ -501,7 +504,8 @@ using std::__math::trunc;
 
 } // extern "C++"
 
-#  endif // __cplusplus
+#    endif // __cplusplus
+#  endif   // defined(__cplusplus) && __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #else // _LIBCPP_MATH_H
 

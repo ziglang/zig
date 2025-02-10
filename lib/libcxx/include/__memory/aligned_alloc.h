@@ -10,7 +10,6 @@
 #define _LIBCPP___MEMORY_ALIGNED_ALLOC_H
 
 #include <__config>
-#include <cstddef>
 #include <cstdlib>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -19,7 +18,7 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#ifndef _LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION
+#if _LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION
 
 // Low-level helpers to call the aligned allocation and deallocation functions
 // on the target platform. This is used to implement libc++'s own memory
@@ -30,7 +29,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 inline _LIBCPP_HIDE_FROM_ABI void* __libcpp_aligned_alloc(std::size_t __alignment, std::size_t __size) {
 #  if defined(_LIBCPP_MSVCRT_LIKE)
   return ::_aligned_malloc(__size, __alignment);
-#  elif _LIBCPP_STD_VER >= 17 && !defined(_LIBCPP_HAS_NO_C11_ALIGNED_ALLOC)
+#  elif _LIBCPP_STD_VER >= 17 && _LIBCPP_HAS_C11_ALIGNED_ALLOC
   // aligned_alloc() requires that __size is a multiple of __alignment,
   // but for C++ [new.delete.general], only states "if the value of an
   // alignment argument passed to any of these functions is not a valid
@@ -57,7 +56,7 @@ inline _LIBCPP_HIDE_FROM_ABI void __libcpp_aligned_free(void* __ptr) {
 #  endif
 }
 
-#endif // !_LIBCPP_HAS_NO_LIBRARY_ALIGNED_ALLOCATION
+#endif // _LIBCPP_HAS_LIBRARY_ALIGNED_ALLOCATION
 
 _LIBCPP_END_NAMESPACE_STD
 

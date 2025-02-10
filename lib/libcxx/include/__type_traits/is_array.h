@@ -10,8 +10,8 @@
 #define _LIBCPP___TYPE_TRAITS_IS_ARRAY_H
 
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__type_traits/integral_constant.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -23,11 +23,11 @@ _LIBCPP_BEGIN_NAMESPACE_STD
     (!defined(_LIBCPP_COMPILER_CLANG_BASED) || (defined(_LIBCPP_CLANG_VER) && _LIBCPP_CLANG_VER >= 1900))
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_array : _BoolConstant<__is_array(_Tp)> {};
+struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_array : _BoolConstant<__is_array(_Tp)> {};
 
 #  if _LIBCPP_STD_VER >= 17
 template <class _Tp>
-inline constexpr bool is_array_v = __is_array(_Tp);
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_array_v = __is_array(_Tp);
 #  endif
 
 #else

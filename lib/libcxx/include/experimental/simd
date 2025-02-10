@@ -75,14 +75,22 @@ inline namespace parallelism_v2 {
 #  pragma GCC system_header
 #endif
 
-#include <experimental/__config>
-#include <experimental/__simd/aligned_tag.h>
-#include <experimental/__simd/declaration.h>
-#include <experimental/__simd/reference.h>
-#include <experimental/__simd/scalar.h>
-#include <experimental/__simd/simd.h>
-#include <experimental/__simd/simd_mask.h>
-#include <experimental/__simd/traits.h>
-#include <experimental/__simd/vec_ext.h>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/experimental/simd>
+#else
+#  include <__config>
+#  include <experimental/__simd/aligned_tag.h>
+#  include <experimental/__simd/declaration.h>
+#  include <experimental/__simd/reference.h>
+#  include <experimental/__simd/scalar.h>
+#  include <experimental/__simd/simd.h>
+#  include <experimental/__simd/simd_mask.h>
+#  include <experimental/__simd/traits.h>
+#  include <experimental/__simd/vec_ext.h>
+
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <cstddef>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif /* _LIBCPP_EXPERIMENTAL_SIMD */

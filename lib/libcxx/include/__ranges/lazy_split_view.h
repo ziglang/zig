@@ -72,7 +72,8 @@ class lazy_split_view : public view_interface<lazy_split_view<_View, _Pattern>> 
   _LIBCPP_NO_UNIQUE_ADDRESS _View __base_       = _View();
   _LIBCPP_NO_UNIQUE_ADDRESS _Pattern __pattern_ = _Pattern();
 
-  using _MaybeCurrent = _If<!forward_range<_View>, __non_propagating_cache<iterator_t<_View>>, __empty_cache>;
+  using _MaybeCurrent _LIBCPP_NODEBUG =
+      _If<!forward_range<_View>, __non_propagating_cache<iterator_t<_View>>, __empty_cache>;
   _LIBCPP_NO_UNIQUE_ADDRESS _MaybeCurrent __current_ = _MaybeCurrent();
 
   template <bool>
@@ -146,11 +147,11 @@ private:
     friend struct __inner_iterator;
     friend __outer_iterator<true>;
 
-    using _Parent = __maybe_const<_Const, lazy_split_view>;
-    using _Base   = __maybe_const<_Const, _View>;
+    using _Parent _LIBCPP_NODEBUG = __maybe_const<_Const, lazy_split_view>;
+    using _Base _LIBCPP_NODEBUG   = __maybe_const<_Const, _View>;
 
     _Parent* __parent_                                 = nullptr;
-    using _MaybeCurrent                                = _If<forward_range<_View>, iterator_t<_Base>, __empty_cache>;
+    using _MaybeCurrent _LIBCPP_NODEBUG                = _If<forward_range<_View>, iterator_t<_Base>, __empty_cache>;
     _LIBCPP_NO_UNIQUE_ADDRESS _MaybeCurrent __current_ = _MaybeCurrent();
     bool __trailing_empty_                             = false;
 
@@ -283,7 +284,7 @@ private:
   template <bool _Const>
   struct __inner_iterator : __inner_iterator_category<__maybe_const<_Const, _View>> {
   private:
-    using _Base = __maybe_const<_Const, _View>;
+    using _Base _LIBCPP_NODEBUG = __maybe_const<_Const, _View>;
     // Workaround for a GCC issue.
     static constexpr bool _OuterConst = _Const;
     __outer_iterator<_Const> __i_     = __outer_iterator<_OuterConst>();
@@ -420,7 +421,7 @@ struct __fn {
     requires constructible_from<decay_t<_Pattern>, _Pattern>
   [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Pattern&& __pattern) const
       noexcept(is_nothrow_constructible_v<decay_t<_Pattern>, _Pattern>) {
-    return __range_adaptor_closure_t(std::__bind_back(*this, std::forward<_Pattern>(__pattern)));
+    return __pipeable(std::__bind_back(*this, std::forward<_Pattern>(__pattern)));
   }
 };
 } // namespace __lazy_split_view

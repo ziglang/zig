@@ -371,6 +371,7 @@ static_assert((clang::Type::TypeClass)ZigClangType_DependentVector == clang::Typ
 static_assert((clang::Type::TypeClass)ZigClangType_Elaborated == clang::Type::Elaborated, "");
 static_assert((clang::Type::TypeClass)ZigClangType_FunctionNoProto == clang::Type::FunctionNoProto, "");
 static_assert((clang::Type::TypeClass)ZigClangType_FunctionProto == clang::Type::FunctionProto, "");
+static_assert((clang::Type::TypeClass)ZigClangType_HLSLAttributedResource == clang::Type::HLSLAttributedResource, "");
 static_assert((clang::Type::TypeClass)ZigClangType_InjectedClassName == clang::Type::InjectedClassName, "");
 static_assert((clang::Type::TypeClass)ZigClangType_MacroQualified == clang::Type::MacroQualified, "");
 static_assert((clang::Type::TypeClass)ZigClangType_ConstantMatrix == clang::Type::ConstantMatrix, "");
@@ -676,6 +677,7 @@ static_assert((clang::Stmt::StmtClass)ZigClangStmt_PackIndexingExprClass == clan
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_PackExpansionExprClass == clang::Stmt::PackExpansionExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_UnresolvedMemberExprClass == clang::Stmt::UnresolvedMemberExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_UnresolvedLookupExprClass == clang::Stmt::UnresolvedLookupExprClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OpenACCAsteriskSizeExprClass == clang::Stmt::OpenACCAsteriskSizeExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OpaqueValueExprClass == clang::Stmt::OpaqueValueExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OffsetOfExprClass == clang::Stmt::OffsetOfExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCSubscriptRefExprClass == clang::Stmt::ObjCSubscriptRefExprClass, "");
@@ -706,6 +708,7 @@ static_assert((clang::Stmt::StmtClass)ZigClangStmt_IntegerLiteralClass == clang:
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_InitListExprClass == clang::Stmt::InitListExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_ImplicitValueInitExprClass == clang::Stmt::ImplicitValueInitExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_ImaginaryLiteralClass == clang::Stmt::ImaginaryLiteralClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_HLSLOutArgExprClass == clang::Stmt::HLSLOutArgExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_GenericSelectionExprClass == clang::Stmt::GenericSelectionExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_GNUNullExprClass == clang::Stmt::GNUNullExprClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_FunctionParmPackExprClass == clang::Stmt::FunctionParmPackExprClass, "");
@@ -783,13 +786,24 @@ static_assert((clang::Stmt::StmtClass)ZigClangStmt_AttributedStmtClass == clang:
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_SwitchStmtClass == clang::Stmt::SwitchStmtClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_DefaultStmtClass == clang::Stmt::DefaultStmtClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_CaseStmtClass == clang::Stmt::CaseStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_SYCLKernelCallStmtClass == clang::Stmt::SYCLKernelCallStmtClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_SEHTryStmtClass == clang::Stmt::SEHTryStmtClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_SEHLeaveStmtClass == clang::Stmt::SEHLeaveStmtClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_SEHFinallyStmtClass == clang::Stmt::SEHFinallyStmtClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_SEHExceptStmtClass == clang::Stmt::SEHExceptStmtClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_ReturnStmtClass == clang::Stmt::ReturnStmtClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OpenACCWaitConstructClass == clang::Stmt::OpenACCWaitConstructClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OpenACCUpdateConstructClass == clang::Stmt::OpenACCUpdateConstructClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OpenACCShutdownConstructClass == clang::Stmt::OpenACCShutdownConstructClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OpenACCSetConstructClass == clang::Stmt::OpenACCSetConstructClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OpenACCInitConstructClass == clang::Stmt::OpenACCInitConstructClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OpenACCExitDataConstructClass == clang::Stmt::OpenACCExitDataConstructClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OpenACCEnterDataConstructClass == clang::Stmt::OpenACCEnterDataConstructClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OpenACCLoopConstructClass == clang::Stmt::OpenACCLoopConstructClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OpenACCHostDataConstructClass == clang::Stmt::OpenACCHostDataConstructClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OpenACCDataConstructClass == clang::Stmt::OpenACCDataConstructClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OpenACCComputeConstructClass == clang::Stmt::OpenACCComputeConstructClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OpenACCCombinedConstructClass == clang::Stmt::OpenACCCombinedConstructClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCForCollectionStmtClass == clang::Stmt::ObjCForCollectionStmtClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCAutoreleasePoolStmtClass == clang::Stmt::ObjCAutoreleasePoolStmtClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_ObjCAtTryStmtClass == clang::Stmt::ObjCAtTryStmtClass, "");
@@ -871,6 +885,7 @@ static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPCancellationPointDirective
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPCancelDirectiveClass == clang::Stmt::OMPCancelDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPBarrierDirectiveClass == clang::Stmt::OMPBarrierDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPAtomicDirectiveClass == clang::Stmt::OMPAtomicDirectiveClass, "");
+static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPAssumeDirectiveClass == clang::Stmt::OMPAssumeDirectiveClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_OMPCanonicalLoopClass == clang::Stmt::OMPCanonicalLoopClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_NullStmtClass == clang::Stmt::NullStmtClass, "");
 static_assert((clang::Stmt::StmtClass)ZigClangStmt_MSDependentExistsStmtClass == clang::Stmt::MSDependentExistsStmtClass, "");
@@ -1023,6 +1038,7 @@ void ZigClang_detect_enum_DeclKind(clang::Decl::Kind x) {
 static_assert((clang::Decl::Kind)ZigClangDeclTranslationUnit == clang::Decl::TranslationUnit, "");
 static_assert((clang::Decl::Kind)ZigClangDeclTopLevelStmt == clang::Decl::TopLevelStmt, "");
 static_assert((clang::Decl::Kind)ZigClangDeclRequiresExprBody == clang::Decl::RequiresExprBody, "");
+static_assert((clang::Decl::Kind)ZigClangDeclOutlinedFunction == clang::Decl::OutlinedFunction, "");
 static_assert((clang::Decl::Kind)ZigClangDeclLinkageSpec == clang::Decl::LinkageSpec, "");
 static_assert((clang::Decl::Kind)ZigClangDeclExternCContext == clang::Decl::ExternCContext, "");
 static_assert((clang::Decl::Kind)ZigClangDeclExport == clang::Decl::Export, "");
@@ -1674,6 +1690,7 @@ static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveFloat16 == clang::
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveFloat32 == clang::BuiltinType::SveFloat32, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveFloat64 == clang::BuiltinType::SveFloat64, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveBFloat16 == clang::BuiltinType::SveBFloat16, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveMFloat8 == clang::BuiltinType::SveMFloat8, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveInt8x2 == clang::BuiltinType::SveInt8x2, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveInt16x2 == clang::BuiltinType::SveInt16x2, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveInt32x2 == clang::BuiltinType::SveInt32x2, "");
@@ -1686,6 +1703,7 @@ static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveFloat16x2 == clang
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveFloat32x2 == clang::BuiltinType::SveFloat32x2, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveFloat64x2 == clang::BuiltinType::SveFloat64x2, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveBFloat16x2 == clang::BuiltinType::SveBFloat16x2, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveMFloat8x2 == clang::BuiltinType::SveMFloat8x2, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveInt8x3 == clang::BuiltinType::SveInt8x3, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveInt16x3 == clang::BuiltinType::SveInt16x3, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveInt32x3 == clang::BuiltinType::SveInt32x3, "");
@@ -1698,6 +1716,7 @@ static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveFloat16x3 == clang
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveFloat32x3 == clang::BuiltinType::SveFloat32x3, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveFloat64x3 == clang::BuiltinType::SveFloat64x3, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveBFloat16x3 == clang::BuiltinType::SveBFloat16x3, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveMFloat8x3 == clang::BuiltinType::SveMFloat8x3, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveInt8x4 == clang::BuiltinType::SveInt8x4, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveInt16x4 == clang::BuiltinType::SveInt16x4, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveInt32x4 == clang::BuiltinType::SveInt32x4, "");
@@ -1710,10 +1729,12 @@ static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveFloat16x4 == clang
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveFloat32x4 == clang::BuiltinType::SveFloat32x4, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveFloat64x4 == clang::BuiltinType::SveFloat64x4, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveBFloat16x4 == clang::BuiltinType::SveBFloat16x4, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveMFloat8x4 == clang::BuiltinType::SveMFloat8x4, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveBool == clang::BuiltinType::SveBool, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveBoolx2 == clang::BuiltinType::SveBoolx2, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveBoolx4 == clang::BuiltinType::SveBoolx4, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeSveCount == clang::BuiltinType::SveCount, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeMFloat8 == clang::BuiltinType::MFloat8, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeVectorQuad == clang::BuiltinType::VectorQuad, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeVectorPair == clang::BuiltinType::VectorPair, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeRvvInt8mf8 == clang::BuiltinType::RvvInt8mf8, "");
@@ -2041,6 +2062,8 @@ static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeRvvBFloat16m2x4 == cl
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeRvvBFloat16m4x2 == clang::BuiltinType::RvvBFloat16m4x2, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeWasmExternRef == clang::BuiltinType::WasmExternRef, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeAMDGPUBufferRsrc == clang::BuiltinType::AMDGPUBufferRsrc, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeAMDGPUNamedWorkgroupBarrier == clang::BuiltinType::AMDGPUNamedWorkgroupBarrier, "");
+static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeHLSLResource == clang::BuiltinType::HLSLResource, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeVoid == clang::BuiltinType::Void, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeBool == clang::BuiltinType::Bool, "");
 static_assert((clang::BuiltinType::Kind)ZigClangBuiltinTypeChar_U == clang::BuiltinType::Char_U, "");
@@ -3074,7 +3097,8 @@ ZigClangAPValueLValueBase ZigClangAPValue_getLValueBase(const ZigClangAPValue *s
 ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char **args_end,
     struct Stage2ErrorMsg **errors_ptr, size_t *errors_len, const char *resources_path)
 {
-    clang::IntrusiveRefCntPtr<clang::DiagnosticsEngine> diags(clang::CompilerInstance::createDiagnostics(new clang::DiagnosticOptions));
+    llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS = llvm::vfs::getRealFileSystem();
+    clang::IntrusiveRefCntPtr<clang::DiagnosticsEngine> diags(clang::CompilerInstance::createDiagnostics(*VFS, new clang::DiagnosticOptions));
 
     std::shared_ptr<clang::PCHContainerOperations> pch_container_ops = std::make_shared<clang::PCHContainerOperations>();
 
@@ -3088,7 +3112,6 @@ ZigClangASTUnit *ZigClangLoadFromCommandLine(const char **args_begin, const char
     llvm::StringRef preamble_storage_path = llvm::StringRef();
     clang::ArrayRef<clang::ASTUnit::RemappedFile> remapped_files = std::nullopt;
     std::unique_ptr<clang::ASTUnit> err_unit;
-    llvm::IntrusiveRefCntPtr<llvm::vfs::FileSystem> VFS = nullptr;
     std::optional<llvm::StringRef> ModuleFormat = std::nullopt;
     std::unique_ptr<clang::ASTUnit> ast_unit_unique_ptr = clang::ASTUnit::LoadFromCommandLine(
         args_begin, args_end,
@@ -4112,13 +4135,16 @@ static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_IEEEsi
 static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_IEEEdouble == llvm::APFloatBase::S_IEEEdouble);
 static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_IEEEquad == llvm::APFloatBase::S_IEEEquad);
 static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_PPCDoubleDouble == llvm::APFloatBase::S_PPCDoubleDouble);
+static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_PPCDoubleDoubleLegacy == llvm::APFloatBase::S_PPCDoubleDoubleLegacy);
 static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_Float8E5M2 == llvm::APFloatBase::S_Float8E5M2);
 static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_Float8E5M2FNUZ == llvm::APFloatBase::S_Float8E5M2FNUZ);
 static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_Float8E4M3 == llvm::APFloatBase::S_Float8E4M3);
 static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_Float8E4M3FN == llvm::APFloatBase::S_Float8E4M3FN);
 static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_Float8E4M3FNUZ == llvm::APFloatBase::S_Float8E4M3FNUZ);
 static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_Float8E4M3B11FNUZ == llvm::APFloatBase::S_Float8E4M3B11FNUZ);
+static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_Float8E3M4 == llvm::APFloatBase::S_Float8E3M4);
 static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_FloatTF32 == llvm::APFloatBase::S_FloatTF32);
+static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_Float8E8M0FNU == llvm::APFloatBase::S_Float8E8M0FNU);
 static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_Float6E3M2FN == llvm::APFloatBase::S_Float6E3M2FN);
 static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_Float6E2M3FN == llvm::APFloatBase::S_Float6E2M3FN);
 static_assert((llvm::APFloatBase::Semantics)ZigClangAPFloatBase_Semantics_Float4E2M1FN == llvm::APFloatBase::S_Float4E2M1FN);
