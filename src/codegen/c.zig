@@ -3093,6 +3093,9 @@ pub fn genExports(dg: *DeclGen, exported: Zcu.Exported, export_indices: []const 
         const @"export" = export_index.ptr(zcu);
         try fwd.writeAll("zig_extern ");
         if (@"export".opts.linkage == .weak) try fwd.writeAll("zig_weak_linkage ");
+        if (@"export".opts.section.toSlice(ip)) |s| try fwd.print("zig_linksection({s}) ", .{
+            fmtStringLiteral(s, null),
+        });
         const extern_name = @"export".opts.name.toSlice(ip);
         const is_mangled = isMangledIdent(extern_name, true);
         const is_export = @"export".opts.name != main_name;
