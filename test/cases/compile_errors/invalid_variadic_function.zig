@@ -13,5 +13,5 @@ comptime {
 //
 // :1:1: error: variadic function does not support 'auto' calling convention
 // :1:1: note: supported calling conventions: 'x86_64_sysv', 'x86_64_win'
-// :1:1: error: variadic function does not support 'inline' calling convention
-// :1:1: note: supported calling conventions: 'x86_64_sysv', 'x86_64_win'
+// :2:8: error: variadic function does not support 'inline' calling convention
+// :2:8: note: supported calling conventions: 'x86_64_sysv', 'x86_64_win'
