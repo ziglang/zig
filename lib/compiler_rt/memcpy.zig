@@ -175,10 +175,11 @@ inline fn copyRange4(
     const last = len - copy_len;
     const pen = last - b;
 
-    dest[0..copy_len].* = src[0..copy_len].*;
-    dest[b..][0..copy_len].* = src[b..][0..copy_len].*;
-    dest[pen..][0..copy_len].* = src[pen..][0..copy_len].*;
-    dest[last..][0..copy_len].* = src[last..][0..copy_len].*;
+    const Int = @Type(.{ .int = .{ .signedness = .unsigned, .bits = copy_len * 8 } });
+    @as(*align(1) Int, @ptrCast(dest[0..copy_len])).* = @as(*align(1) const Int, @ptrCast(src[0..copy_len])).*;
+    @as(*align(1) Int, @ptrCast(dest[b..][0..copy_len])).* = @as(*align(1) const Int, @ptrCast(src[b..][0..copy_len])).*;
+    @as(*align(1) Int, @ptrCast(dest[pen..][0..copy_len])).* = @as(*align(1) const Int, @ptrCast(src[pen..][0..copy_len])).*;
+    @as(*align(1) Int, @ptrCast(dest[last..][0..copy_len])).* = @as(*align(1) const Int, @ptrCast(src[last..][0..copy_len])).*;
 }
 
 test "memcpy" {
