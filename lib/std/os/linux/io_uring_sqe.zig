@@ -436,6 +436,15 @@ pub const io_uring_sqe = extern struct {
         sqe.rw_flags = flags;
     }
 
+    pub fn prep_cancel_fd(
+        sqe: *linux.io_uring_sqe,
+        fd: linux.fd_t,
+        flags: u32,
+    ) void {
+        sqe.prep_rw(.ASYNC_CANCEL, fd, 0, 0, 0);
+        sqe.rw_flags = flags | linux.IORING_ASYNC_CANCEL_FD;
+    }
+
     pub fn prep_shutdown(
         sqe: *linux.io_uring_sqe,
         sockfd: linux.socket_t,
