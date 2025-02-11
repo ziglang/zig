@@ -525,6 +525,21 @@ pub const io_uring_sqe = extern struct {
         sqe.rw_flags = flags;
     }
 
+    pub fn prep_files_update(
+        sqe: *linux.io_uring_sqe,
+        fds: []const linux.fd_t,
+        offset: u32,
+    ) void {
+        sqe.prep_rw(.FILES_UPDATE, -1, @intFromPtr(fds.ptr), fds.len, @intCast(offset));
+    }
+
+    pub fn prep_files_update_alloc(
+        sqe: *linux.io_uring_sqe,
+        fds: []linux.fd_t,
+    ) void {
+        sqe.prep_rw(.FILES_UPDATE, -1, @intFromPtr(fds.ptr), fds.len, linux.IORING_FILE_INDEX_ALLOC);
+    }
+
     pub fn prep_provide_buffers(
         sqe: *linux.io_uring_sqe,
         buffers: [*]u8,
