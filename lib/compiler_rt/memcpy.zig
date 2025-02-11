@@ -181,7 +181,7 @@ inline fn copyRange4(
     dest[last..][0..copy_len].* = src[last..][0..copy_len].*;
 }
 
-test {
+test "memcpy" {
     const S = struct {
         fn testFunc(comptime copy_func: anytype) !void {
             const max_len = 1024;

@@ -682,7 +682,7 @@ pub const Walker = struct {
                 // walking if they want, which means that we need to pop the directory
                 // that errored from the stack. Otherwise, all future `next` calls would
                 // likely just fail with the same error.
-                var item = self.stack.pop();
+                var item = self.stack.pop().?;
                 if (self.stack.items.len != 0) {
                     item.iter.dir.close();
                 }
@@ -718,7 +718,7 @@ pub const Walker = struct {
                     .kind = base.kind,
                 };
             } else {
-                var item = self.stack.pop();
+                var item = self.stack.pop().?;
                 if (self.stack.items.len != 0) {
                     item.iter.dir.close();
                 }

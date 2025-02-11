@@ -816,7 +816,7 @@ fn isThematicBreak(line: []const u8) bool {
 }
 
 fn closeLastBlock(p: *Parser) !void {
-    const b = p.pending_blocks.pop();
+    const b = p.pending_blocks.pop().?;
     const node = switch (b.tag) {
         .list => list: {
             assert(b.string_start == p.scratch_string.items.len);
