@@ -34,7 +34,7 @@ comptime {
 }
 
 fn memcpySmall(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
-    @setRuntimeSafety(builtin.is_test);
+    @setRuntimeSafety(false);
 
     for (0..len) |i| {
         dest.?[i] = src.?[i];
@@ -44,7 +44,7 @@ fn memcpySmall(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) call
 }
 
 fn memcpyFast(noalias dest: ?[*]u8, noalias src: ?[*]const u8, len: usize) callconv(.C) ?[*]u8 {
-    @setRuntimeSafety(builtin.is_test);
+    @setRuntimeSafety(false);
 
     const small_limit = 2 * @sizeOf(Element);
 
@@ -78,7 +78,7 @@ inline fn copyLessThan16(
     src: [*]const u8,
     len: usize,
 ) void {
-    @setRuntimeSafety(builtin.is_test);
+    @setRuntimeSafety(false);
     if (len < 4) {
         if (len == 0) return;
         dest[0] = src[0];
@@ -95,7 +95,7 @@ inline fn copy16ToSmallLimit(
     src: [*]const u8,
     len: usize,
 ) bool {
-    @setRuntimeSafety(builtin.is_test);
+    @setRuntimeSafety(false);
     inline for (2..(std.math.log2(small_limit) + 1) / 2 + 1) |p| {
         const limit = 1 << (2 * p);
         if (len < limit) {
@@ -111,10 +111,9 @@ inline fn copyForwards(
     noalias src: [*]const u8,
     len: usize,
 ) void {
-    @setRuntimeSafety(builtin.is_test);
-    assert(len >= 2 * @sizeOf(Element));
+    @setRuntimeSafety(false);
 
-    dest[0..@sizeOf(Element)].* = src[0..@sizeOf(Element)].*;
+    copyFixedLength(dest, src, @sizeOf(Element));
     const alignment_offset = @alignOf(Element) - @intFromPtr(src) % @alignOf(Element);
     const n = len - alignment_offset;
     const d = dest + alignment_offset;
@@ -125,7 +124,7 @@ inline fn copyForwards(
     // copy last `@sizeOf(Element)` bytes unconditionally, since block copy
     // methods only copy a multiple of `@sizeOf(Element)` bytes.
     const offset = len - @sizeOf(Element);
-    dest[offset..][0..@sizeOf(Element)].* = src[offset..][0..@sizeOf(Element)].*;
+    copyFixedLength(dest + offset, src + offset, @sizeOf(Element));
 }
 
 inline fn copyBlocksAlignedSource(
@@ -144,7 +143,7 @@ inline fn copyBlocks(
     noalias src: anytype,
     max_bytes: usize,
 ) void {
-    @setRuntimeSafety(builtin.is_test);
+    @setRuntimeSafety(false);
 
     const T = @typeInfo(@TypeOf(dest)).pointer.child;
     comptime assert(T == @typeInfo(@TypeOf(src)).pointer.child);
@@ -156,6 +155,31 @@ inline fn copyBlocks(
     }
 }
 
+inline fn copyFixedLength(
+    noalias dest: [*]u8,
+    noalias src: [*]const u8,
+    comptime len: comptime_int,
+) void {
+    @setRuntimeSafety(false);
+    comptime assert(std.math.isPowerOfTwo(len));
+
+    const T = if (len >= @sizeOf(Element))
+        Element
+    else if (len > @sizeOf(usize))
+        @Vector(len, u8)
+    else
+        @Type(.{ .int = .{ .signedness = .unsigned, .bits = len * 8 } });
+
+    const loop_count = @divExact(len, @sizeOf(T));
+
+    const d: [*]align(1) T = @ptrCast(dest);
+    const s: [*]align(1) const T = @ptrCast(src);
+
+    inline for (0..loop_count) |i| {
+        d[i] = s[i];
+    }
+}
+
 /// copy `len` bytes from `src` to `dest`; `len` must be in the range
 /// `[copy_len, 4 * copy_len)`.
 inline fn copyRange4(
@@ -164,10 +188,8 @@ inline fn copyRange4(
     noalias src: [*]const u8,
     len: usize,
 ) void {
-    @setRuntimeSafety(builtin.is_test);
+    @setRuntimeSafety(false);
     comptime assert(std.math.isPowerOfTwo(copy_len));
-    assert(len >= copy_len);
-    assert(len < 4 * copy_len);
 
     const a = len & (copy_len * 2);
     const b = a / 2;
@@ -175,11 +197,10 @@ inline fn copyRange4(
     const last = len - copy_len;
     const pen = last - b;
 
-    const Int = @Type(.{ .int = .{ .signedness = .unsigned, .bits = copy_len * 8 } });
-    @as(*align(1) Int, @ptrCast(dest[0..copy_len])).* = @as(*align(1) const Int, @ptrCast(src[0..copy_len])).*;
-    @as(*align(1) Int, @ptrCast(dest[b..][0..copy_len])).* = @as(*align(1) const Int, @ptrCast(src[b..][0..copy_len])).*;
-    @as(*align(1) Int, @ptrCast(dest[pen..][0..copy_len])).* = @as(*align(1) const Int, @ptrCast(src[pen..][0..copy_len])).*;
-    @as(*align(1) Int, @ptrCast(dest[last..][0..copy_len])).* = @as(*align(1) const Int, @ptrCast(src[last..][0..copy_len])).*;
+    copyFixedLength(dest, src, copy_len);
+    copyFixedLength(dest + b, src + b, copy_len);
+    copyFixedLength(dest + pen, src + pen, copy_len);
+    copyFixedLength(dest + last, src + last, copy_len);
 }
 
 test "memcpy" {
