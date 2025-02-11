@@ -6956,6 +6956,16 @@ const usage_fetch =
     \\Usage: zig fetch [options] <path>
     \\
     \\    Copy a package into the global cache and print its hash.
+    \\    URL must point to one of the following:
+    \\      - A git+http / git+https server for the package
+    \\      - A tarball file (with or without compression) containing
+    \\        package source
+    \\      - A gitpack file containing package source
+    \\
+    \\Examples:
+    \\
+    \\  zig fetch --save git+https://example.com/andrewrk/fun-example-tool.git
+    \\  zig fetch --save https://example.com/andrewrk/fun-example-tool/archive/refs/heads/master.tar.gz
     \\
     \\Options:
     \\  -h, --help                    Print this help and exit
