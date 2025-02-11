@@ -1335,16 +1335,33 @@ pub fn ArrayHashMapUnmanaged(
                     hash.* = h;
                 }
             }
-            // Rebuild the index.
-            if (self.entries.capacity > linear_scan_max) {
-                // We're going to rebuild the index header and replace the existing one (if any). The
-                // indexes should sized such that they will be at most 60% full.
-                const bit_index = try IndexHeader.findBitIndex(self.entries.capacity);
-                const new_header = try IndexHeader.alloc(gpa, bit_index);
-                if (self.index_header) |header| header.free(gpa);
-                self.insertAllEntriesIntoNewHeader(if (store_hash) {} else ctx, new_header);
-                self.index_header = new_header;
-            }
+            try rebuildIndex(self, gpa, ctx);
+        }
+
+        /// Modify an entry's key without reordering any entries.
+        pub fn setKey(self: *Self, gpa: Allocator, index: usize, new_key: K) Oom!void {
+            if (@sizeOf(ByIndexContext) != 0)
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call setKeyContext instead.");
+            return setKeyContext(self, gpa, index, new_key, undefined);
+        }
+
+        pub fn setKeyContext(self: *Self, gpa: Allocator, index: usize, new_key: K, ctx: Context) Oom!void {
+            const key_ptr = &self.entries.items(.key)[index];
+            key_ptr.* = new_key;
+            if (store_hash) self.entries.items(.hash)[index].* = checkedHash(ctx, key_ptr.*);
+            try rebuildIndex(self, gpa, undefined);
+        }
+
+        fn rebuildIndex(self: *Self, gpa: Allocator, ctx: Context) Oom!void {
+            if (self.entries.capacity <= linear_scan_max) return;
+
+            // We're going to rebuild the index header and replace the existing one (if any). The
+            // indexes should sized such that they will be at most 60% full.
+            const bit_index = try IndexHeader.findBitIndex(self.entries.capacity);
+            const new_header = try IndexHeader.alloc(gpa, bit_index);
+            if (self.index_header) |header| header.free(gpa);
+            self.insertAllEntriesIntoNewHeader(if (store_hash) {} else ctx, new_header);
+            self.index_header = new_header;
         }
 
         /// Sorts the entries and then rebuilds the index.
@@ -2528,6 +2545,22 @@ test "0 sized key and 0 sized value" {
 
     try testing.expectEqual(map.swapRemove(0), true);
     try testing.expectEqual(map.get(0), null);
+}
+
+test "setKey" {
+    const gpa = std.testing.allocator;
+
+    var map: AutoArrayHashMapUnmanaged(i32, i32) = .empty;
+    defer map.deinit(gpa);
+
+    try map.put(gpa, 12, 34);
+    try map.put(gpa, 56, 78);
+
+    try map.setKey(gpa, 0, 42);
+    try testing.expectEqual(2, map.count());
+    try testing.expectEqual(false, map.contains(12));
+    try testing.expectEqual(34, map.get(42));
+    try testing.expectEqual(78, map.get(56));
 }
 
 pub fn getHashPtrAddrFn(comptime K: type, comptime Context: type) (fn (Context, K) u32) {
