@@ -9657,6 +9657,7 @@ pub extern "c" fn setresgid(rgid: gid_t, egid: gid_t, sgid: gid_t) c_int;
 pub extern "c" fn setpgid(pid: pid_t, pgid: pid_t) c_int;
 
 pub extern "c" fn malloc(usize) ?*anyopaque;
+pub extern "c" fn calloc(usize, usize) ?*anyopaque;
 pub extern "c" fn realloc(?*anyopaque, usize) ?*anyopaque;
 pub extern "c" fn free(?*anyopaque) void;
 
