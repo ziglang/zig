@@ -605,7 +605,10 @@ pub fn ArrayHashMapUnmanaged(
 
         const Self = @This();
 
-        const linear_scan_max = 8;
+        const linear_scan_max = @as(comptime_int, @max(1, @as(comptime_int, @min(
+            std.atomic.cache_line / @as(comptime_int, @max(1, @sizeOf(Hash))),
+            std.atomic.cache_line / @as(comptime_int, @max(1, @sizeOf(K))),
+        ))));
 
         const RemovalType = enum {
             swap,
@@ -2376,7 +2379,7 @@ test "shrink" {
     defer map.deinit();
 
     // This test is more interesting if we insert enough entries to allocate the index header.
-    const num_entries = 20;
+    const num_entries = 200;
     var i: i32 = 0;
     while (i < num_entries) : (i += 1)
         try testing.expect((try map.fetchPut(i, i * 10)) == null);
@@ -2387,7 +2390,7 @@ test "shrink" {
     // Test `shrinkRetainingCapacity`.
     map.shrinkRetainingCapacity(17);
     try testing.expect(map.count() == 17);
-    try testing.expect(map.capacity() == 20);
+    try testing.expect(map.capacity() >= num_entries);
     i = 0;
     while (i < num_entries) : (i += 1) {
         const gop = try map.getOrPut(i);
@@ -2436,7 +2439,7 @@ test "reIndex" {
     defer map.deinit();
 
     // Populate via the API.
-    const num_indexed_entries = 20;
+    const num_indexed_entries = 200;
     var i: i32 = 0;
     while (i < num_indexed_entries) : (i += 1)
         try testing.expect((try map.fetchPut(i, i * 10)) == null);
