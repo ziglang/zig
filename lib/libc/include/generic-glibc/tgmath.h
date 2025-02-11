@@ -1,4 +1,4 @@
-/* Copyright (C) 1997-2024 Free Software Foundation, Inc.
+/* Copyright (C) 1997-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -817,6 +817,23 @@
 /* Tangent of X.  */
 #define tan(Val) __TGMATH_UNARY_REAL_IMAG (Val, tan, ctan)
 
+#if __GLIBC_USE (IEC_60559_FUNCS_EXT_C23)
+/* Arc cosine of X, divided by pi..  */
+# define acospi(Val) __TGMATH_UNARY_REAL_ONLY (Val, acospi)
+/* Arc sine of X, divided by pi..  */
+# define asinpi(Val) __TGMATH_UNARY_REAL_ONLY (Val, asinpi)
+/* Arc tangent of X, divided by pi.  */
+# define atanpi(Val) __TGMATH_UNARY_REAL_ONLY (Val, atanpi)
+/* Arc tangent of Y/X, divided by pi.  */
+#define atan2pi(Val1, Val2) __TGMATH_BINARY_REAL_ONLY (Val1, Val2, atan2pi)
+
+/* Cosine of pi * X.  */
+# define cospi(Val) __TGMATH_UNARY_REAL_ONLY (Val, cospi)
+/* Sine of pi * X.  */
+# define sinpi(Val) __TGMATH_UNARY_REAL_ONLY (Val, sinpi)
+/* Tangent of pi * X.  */
+# define tanpi(Val) __TGMATH_UNARY_REAL_ONLY (Val, tanpi)
+#endif
 
 /* Hyperbolic functions.  */
 
