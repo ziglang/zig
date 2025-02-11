@@ -6500,6 +6500,8 @@ fn buildOutputFromZig(
         .root_strip = strip,
         .link_libc = comp.config.link_libc,
         .any_unwind_tables = comp.root_mod.unwind_tables != .none,
+        .any_error_tracing = false,
+        .root_error_tracing = false,
         .lto = if (allow_lto) comp.config.lto else .none,
     });
 
@@ -6523,6 +6525,7 @@ fn buildOutputFromZig(
             .structured_cfg = comp.root_mod.structured_cfg,
             .no_builtin = true,
             .code_model = comp.root_mod.code_model,
+            .error_tracing = false,
         },
         .global = config,
         .cc_argv = &.{},
