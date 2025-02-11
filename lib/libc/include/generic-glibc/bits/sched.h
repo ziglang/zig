@@ -1,6 +1,6 @@
 /* Definitions of constants and data structure for POSIX 1003.1b-1993
    scheduling interface.
-   Copyright (C) 1996-2024 Free Software Foundation, Inc.
+   Copyright (C) 1996-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -29,15 +29,61 @@
 #define SCHED_FIFO		1
 #define SCHED_RR		2
 #ifdef __USE_GNU
+# define SCHED_NORMAL		0
 # define SCHED_BATCH		3
 # define SCHED_ISO		4
 # define SCHED_IDLE		5
 # define SCHED_DEADLINE		6
+# define SCHED_EXT		7
 
+/* Flags that can be used in policy values.  */
 # define SCHED_RESET_ON_FORK	0x40000000
-#endif
 
-#ifdef __USE_GNU
+/* Flags for the sched_flags field in struct sched_attr.   */
+#define SCHED_FLAG_RESET_ON_FORK	0x01
+#define SCHED_FLAG_RECLAIM		0x02
+#define SCHED_FLAG_DL_OVERRUN		0x04
+#define SCHED_FLAG_KEEP_POLICY		0x08
+#define SCHED_FLAG_KEEP_PARAMS		0x10
+#define SCHED_FLAG_UTIL_CLAMP_MIN	0x20
+#define SCHED_FLAG_UTIL_CLAMP_MAX	0x40
+
+/* Combinations of sched_flags fields.  */
+#define SCHED_FLAG_KEEP_ALL \
+  (SCHED_FLAG_KEEP_POLICY | SCHED_FLAG_KEEP_PARAMS)
+#define SCHED_FLAG_UTIL_CLAMP \
+  (SCHED_FLAG_UTIL_CLAMP_MIN | SCHED_FLAG_UTIL_CLAMP_MAX)
+
+/* Use "" to work around incorrect macro expansion of the
+   __has_include argument (GCC PR 80005).  */
+# ifdef __has_include
+#  if __has_include ("linux/sched/types.h")
+/* Some older Linux versions defined sched_param in <linux/sched/types.h>.  */
+#   define sched_param __glibc_mask_sched_param
+#   include <linux/sched/types.h>
+#   undef sched_param
+#  endif
+# endif
+# ifndef SCHED_ATTR_SIZE_VER0
+#  include <linux/types.h>
+#  define SCHED_ATTR_SIZE_VER0 48
+#  define SCHED_ATTR_SIZE_VER1 56
+struct sched_attr
+{
+  __u32 size;
+  __u32 sched_policy;
+  __u64 sched_flags;
+  __s32 sched_nice;
+  __u32 sched_priority;
+  __u64 sched_runtime;
+  __u64 sched_deadline;
+  __u64 sched_period;
+  __u32 sched_util_min;
+  __u32 sched_util_max;
+  /* Additional fields may be added at the end.  */
+};
+# endif /* !SCHED_ATTR_SIZE_VER0 */
+
 /* Cloning flags.  */
 # define CSIGNAL       0x000000ff /* Signal mask to be sent at exit.  */
 # define CLONE_VM      0x00000100 /* Set if VM shared between processes.  */
@@ -97,6 +143,17 @@ extern int getcpu (unsigned int *, unsigned int *) __THROW;
 
 /* Switch process to namespace of type NSTYPE indicated by FD.  */
 extern int setns (int __fd, int __nstype) __THROW;
+
+/* Apply the scheduling attributes from *ATTR to the process or thread TID.  */
+int sched_setattr (pid_t tid, struct sched_attr *attr, unsigned int flags)
+  __THROW __nonnull ((2));
+
+/* Obtain the scheduling attributes of the process or thread TID and
+   store it in *ATTR.  */
+int sched_getattr (pid_t tid, struct sched_attr *attr, unsigned int size,
+		   unsigned int flags)
+  __THROW __nonnull ((2)) __attr_access ((__write_only__, 2, 3));
+
 #endif
 
 __END_DECLS
