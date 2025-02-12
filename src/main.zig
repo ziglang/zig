@@ -6960,7 +6960,7 @@ const usage_fetch =
     \\      - A git+http / git+https server for the package
     \\      - A tarball file (with or without compression) containing
     \\        package source
-    \\      - A gitpack file containing package source
+    \\      - A git bundle file containing package source
     \\
     \\Examples:
     \\
