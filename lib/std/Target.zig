@@ -1240,13 +1240,10 @@ pub const Cpu = struct {
 
             /// Adds the specified feature set but not its dependencies.
             pub fn addFeatureSet(set: *Set, other_set: Set) void {
-                switch (builtin.zig_backend) {
-                    .stage2_x86_64 => {
-                        for (&set.ints, other_set.ints) |*set_int, other_set_int| set_int.* |= other_set_int;
-                    },
-                    else => {
-                        set.ints = @as(@Vector(usize_count, usize), set.ints) | @as(@Vector(usize_count, usize), other_set.ints);
-                    },
+                if (builtin.zig_backend == .stage2_x86_64 and builtin.object_format == .coff) {
+                    for (&set.ints, other_set.ints) |*set_int, other_set_int| set_int.* |= other_set_int;
+                } else {
+                    set.ints = @as(@Vector(usize_count, usize), set.ints) | @as(@Vector(usize_count, usize), other_set.ints);
                 }
             }
 
@@ -1259,13 +1256,10 @@ pub const Cpu = struct {
 
             /// Removes the specified feature but not its dependents.
             pub fn removeFeatureSet(set: *Set, other_set: Set) void {
-                switch (builtin.zig_backend) {
-                    .stage2_x86_64 => {
-                        for (&set.ints, other_set.ints) |*set_int, other_set_int| set_int.* &= ~other_set_int;
-                    },
-                    else => {
-                        set.ints = @as(@Vector(usize_count, usize), set.ints) & ~@as(@Vector(usize_count, usize), other_set.ints);
-                    },
+                if (builtin.zig_backend == .stage2_x86_64 and builtin.object_format == .coff) {
+                    for (&set.ints, other_set.ints) |*set_int, other_set_int| set_int.* &= ~other_set_int;
+                } else {
+                    set.ints = @as(@Vector(usize_count, usize), set.ints) & ~@as(@Vector(usize_count, usize), other_set.ints);
                 }
             }
 
@@ -1295,19 +1289,16 @@ pub const Cpu = struct {
             }
 
             pub fn isSuperSetOf(set: Set, other_set: Set) bool {
-                switch (builtin.zig_backend) {
-                    .stage2_x86_64 => {
-                        var result = true;
-                        for (&set.ints, other_set.ints) |*set_int, other_set_int|
-                            result = result and (set_int.* & other_set_int) == other_set_int;
-                        return result;
-                    },
-                    else => {
-                        const V = @Vector(usize_count, usize);
-                        const set_v: V = set.ints;
-                        const other_v: V = other_set.ints;
-                        return @reduce(.And, (set_v & other_v) == other_v);
-                    },
+                if (builtin.zig_backend == .stage2_x86_64 and builtin.object_format == .coff) {
+                    var result = true;
+                    for (&set.ints, other_set.ints) |*set_int, other_set_int|
+                        result = result and (set_int.* & other_set_int) == other_set_int;
+                    return result;
+                } else {
+                    const V = @Vector(usize_count, usize);
+                    const set_v: V = set.ints;
+                    const other_v: V = other_set.ints;
+                    return @reduce(.And, (set_v & other_v) == other_v);
                 }
             }
         };
