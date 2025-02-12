@@ -3912,7 +3912,7 @@ fn resolveComptimeKnownAllocPtr(sema: *Sema, block: *Block, alloc: Air.Inst.Ref,
 
     const tmp_air = sema.getTmpAir();
 
-    while (to_map.popOrNull()) |air_ptr| {
+    while (to_map.pop()) |air_ptr| {
         if (ptr_mapping.contains(air_ptr)) continue;
         const PointerMethod = union(enum) {
             same_addr,
@@ -38422,7 +38422,7 @@ pub fn flushExports(sema: *Sema) !void {
     // `sema.exports` is completed; store the data into the `Zcu`.
     if (sema.exports.items.len == 1) {
         try zcu.single_exports.ensureUnusedCapacity(gpa, 1);
-        const export_idx: Zcu.Export.Index = zcu.free_exports.popOrNull() orelse idx: {
+        const export_idx: Zcu.Export.Index = zcu.free_exports.pop() orelse idx: {
             _ = try zcu.all_exports.addOne(gpa);
             break :idx @enumFromInt(zcu.all_exports.items.len - 1);
         };

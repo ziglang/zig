@@ -68,8 +68,7 @@ export fn __sanitizer_cov_trace_switch(val: u64, cases_ptr: [*]u64) void {
     const len = cases_ptr[0];
     const val_size_in_bits = cases_ptr[1];
     const cases = cases_ptr[2..][0..len];
-    _ = val;
-    fuzzer.visitPc(pc);
+    fuzzer.traceValue(pc ^ val);
     _ = val_size_in_bits;
     _ = cases;
     //std.log.debug("0x{x}: switch on value {d} ({d} bits) with {d} cases", .{
@@ -78,28 +77,24 @@ export fn __sanitizer_cov_trace_switch(val: u64, cases_ptr: [*]u64) void {
 }
 
 export fn __sanitizer_cov_trace_pc_indir(callee: usize) void {
-    const pc = @returnAddress();
+    // Not valuable because we already have pc tracing via 8bit counters.
     _ = callee;
-    fuzzer.visitPc(pc);
+    //const pc = @returnAddress();
+    //fuzzer.traceValue(pc ^ callee);
     //std.log.debug("0x{x}: indirect call to 0x{x}", .{ pc, callee });
 }
 
 fn handleCmp(pc: usize, arg1: u64, arg2: u64) void {
-    fuzzer.visitPc(pc ^ arg1 ^ arg2);
+    fuzzer.traceValue(pc ^ arg1 ^ arg2);
     //std.log.debug("0x{x}: comparison of {d} and {d}", .{ pc, arg1, arg2 });
 }
 
 const Fuzzer = struct {
-    gpa: Allocator,
     rng: std.Random.DefaultPrng,
-    input: std.ArrayListUnmanaged(u8),
     pcs: []const usize,
     pc_counters: []u8,
     n_runs: usize,
-    recent_cases: RunMap,
-    /// Data collected from code coverage instrumentation from one execution of
-    /// the test function.
-    coverage: Coverage,
+    traced_comparisons: std.AutoArrayHashMapUnmanaged(usize, void),
     /// Tracks which PCs have been seen across all runs that do not crash the fuzzer process.
     /// Stored in a memory-mapped file so that it can be shared with other
     /// processes and viewed while the fuzzer is running.
@@ -108,42 +103,25 @@ const Fuzzer = struct {
     /// Identifies the file name that will be used to store coverage
     /// information, available to other processes.
     coverage_id: u64,
+    unit_test_name: []const u8,
 
-    const RunMap = std.ArrayHashMapUnmanaged(Run, void, Run.HashContext, false);
+    /// The index corresponds to the file name within the f/ subdirectory.
+    /// The string is the input.
+    /// This data is read-only; it caches what is on the filesystem.
+    corpus: std.ArrayListUnmanaged(Input),
+    corpus_directory: std.Build.Cache.Directory,
 
-    const Coverage = struct {
-        pc_table: std.AutoArrayHashMapUnmanaged(usize, void),
-        run_id_hasher: std.hash.Wyhash,
+    /// The next input that will be given to the testOne function. When the
+    /// current process crashes, this memory-mapped file is used to recover the
+    /// input.
+    ///
+    /// The file size corresponds to the capacity. The length is not stored
+    /// and that is the next thing to work on!
+    input: MemoryMappedList,
 
-        fn reset(cov: *Coverage) void {
-            cov.pc_table.clearRetainingCapacity();
-            cov.run_id_hasher = std.hash.Wyhash.init(0);
-        }
-    };
-
-    const Run = struct {
-        id: Id,
-        input: []const u8,
-        score: usize,
-
-        const Id = u64;
-
-        const HashContext = struct {
-            pub fn eql(ctx: HashContext, a: Run, b: Run, b_index: usize) bool {
-                _ = b_index;
-                _ = ctx;
-                return a.id == b.id;
-            }
-            pub fn hash(ctx: HashContext, a: Run) u32 {
-                _ = ctx;
-                return @truncate(a.id);
-            }
-        };
-
-        fn deinit(run: *Run, gpa: Allocator) void {
-            gpa.free(run.input);
-            run.* = undefined;
-        }
+    const Input = struct {
+        bytes: []u8,
+        last_traced_comparison: usize,
     };
 
     const Slice = extern struct {
@@ -160,11 +138,6 @@ const Fuzzer = struct {
                 .len = s.len,
             };
         }
-    };
-
-    const Analysis = struct {
-        score: usize,
-        id: Run.Id,
     };
 
     fn init(f: *Fuzzer, cache_dir: std.fs.Dir, pc_counters: []u8, pcs: []const usize) !void {
@@ -186,7 +159,6 @@ const Fuzzer = struct {
             .read = true,
             .truncate = false,
         });
-        defer coverage_file.close();
         const n_bitset_elems = (pcs.len + @bitSizeOf(usize) - 1) / @bitSizeOf(usize);
         comptime assert(SeenPcsHeader.trailing[0] == .pc_bits_usize);
         comptime assert(SeenPcsHeader.trailing[1] == .pc_addr);
@@ -228,156 +200,196 @@ const Fuzzer = struct {
         }
     }
 
-    fn analyzeLastRun(f: *Fuzzer) Analysis {
-        return .{
-            .id = f.coverage.run_id_hasher.final(),
-            .score = f.coverage.pc_table.count(),
-        };
+    fn initNextInput(f: *Fuzzer) void {
+        while (true) {
+            const i = f.corpus.items.len;
+            var buf: [30]u8 = undefined;
+            const input_sub_path = std.fmt.bufPrint(&buf, "{d}", .{i}) catch unreachable;
+            const input = f.corpus_directory.handle.readFileAlloc(gpa, input_sub_path, 1 << 31) catch |err| switch (err) {
+                error.FileNotFound => {
+                    // Make this one the next input.
+                    const input_file = f.corpus_directory.handle.createFile(input_sub_path, .{
+                        .exclusive = true,
+                        .truncate = false,
+                        .read = true,
+                    }) catch |e| switch (e) {
+                        error.PathAlreadyExists => continue,
+                        else => fatal("unable to create '{}{d}: {s}", .{ f.corpus_directory, i, @errorName(err) }),
+                    };
+                    errdefer input_file.close();
+                    // Initialize the mmap for the current input.
+                    f.input = MemoryMappedList.create(input_file, 0, std.heap.page_size_max) catch |e| {
+                        fatal("unable to init memory map for input at '{}{d}': {s}", .{
+                            f.corpus_directory, i, @errorName(e),
+                        });
+                    };
+                    break;
+                },
+                else => fatal("unable to read '{}{d}': {s}", .{ f.corpus_directory, i, @errorName(err) }),
+            };
+            errdefer gpa.free(input);
+            f.corpus.append(gpa, .{
+                .bytes = input,
+                .last_traced_comparison = 0,
+            }) catch |err| oom(err);
+        }
+    }
+
+    fn addCorpusElem(f: *Fuzzer, input: []const u8) !void {
+        try f.corpus.append(gpa, .{
+            .bytes = try gpa.dupe(u8, input),
+            .last_traced_comparison = 0,
+        });
     }
 
     fn start(f: *Fuzzer) !void {
-        const gpa = f.gpa;
         const rng = fuzzer.rng.random();
 
-        // Prepare initial input.
-        assert(f.recent_cases.entries.len == 0);
-        assert(f.n_runs == 0);
-        try f.recent_cases.ensureUnusedCapacity(gpa, 100);
-        const len = rng.uintLessThanBiased(usize, 80);
-        try f.input.resize(gpa, len);
-        rng.bytes(f.input.items);
-        f.recent_cases.putAssumeCapacity(.{
-            .id = 0,
-            .input = try gpa.dupe(u8, f.input.items),
-            .score = 0,
-        }, {});
+        // Grab the corpus which is namespaced based on `unit_test_name`.
+        {
+            if (f.unit_test_name.len == 0) fatal("test runner never set unit test name", .{});
+            const sub_path = try std.fmt.allocPrint(gpa, "f/{s}", .{f.unit_test_name});
+            f.corpus_directory = .{
+                .handle = f.cache_dir.makeOpenPath(sub_path, .{}) catch |err|
+                    fatal("unable to open corpus directory 'f/{s}': {s}", .{ sub_path, @errorName(err) }),
+                .path = sub_path,
+            };
+            initNextInput(f);
+        }
 
-        const header: *volatile SeenPcsHeader = @ptrCast(f.seen_pcs.items[0..@sizeOf(SeenPcsHeader)]);
+        assert(f.n_runs == 0);
+
+        // If the corpus is empty, synthesize one input.
+        if (f.corpus.items.len == 0) {
+            const len = rng.uintLessThanBiased(usize, 200);
+            const slice = try gpa.alloc(u8, len);
+            rng.bytes(slice);
+            f.input.appendSliceAssumeCapacity(slice);
+            try f.corpus.append(gpa, .{
+                .bytes = slice,
+                .last_traced_comparison = 0,
+            });
+            runOne(f, 0);
+        }
 
         while (true) {
-            const chosen_index = rng.uintLessThanBiased(usize, f.recent_cases.entries.len);
-            const run = &f.recent_cases.keys()[chosen_index];
-            f.input.clearRetainingCapacity();
-            f.input.appendSliceAssumeCapacity(run.input);
-            try f.mutate();
-
-            @memset(f.pc_counters, 0);
-            __sancov_lowest_stack = std.math.maxInt(usize);
-            f.coverage.reset();
-
-            fuzzer_one(f.input.items.ptr, f.input.items.len);
-
-            f.n_runs += 1;
-            _ = @atomicRmw(usize, &header.n_runs, .Add, 1, .monotonic);
-
-            if (f.n_runs % 10000 == 0) f.dumpStats();
-
-            const analysis = f.analyzeLastRun();
-            const gop = f.recent_cases.getOrPutAssumeCapacity(.{
-                .id = analysis.id,
-                .input = undefined,
-                .score = undefined,
-            });
-            if (gop.found_existing) {
-                //std.log.info("duplicate analysis: score={d} id={d}", .{ analysis.score, analysis.id });
-                if (f.input.items.len < gop.key_ptr.input.len or gop.key_ptr.score == 0) {
-                    gpa.free(gop.key_ptr.input);
-                    gop.key_ptr.input = try gpa.dupe(u8, f.input.items);
-                    gop.key_ptr.score = analysis.score;
-                }
-            } else {
-                std.log.info("unique analysis: score={d} id={d}", .{ analysis.score, analysis.id });
-                gop.key_ptr.* = .{
-                    .id = analysis.id,
-                    .input = try gpa.dupe(u8, f.input.items),
-                    .score = analysis.score,
-                };
-
-                {
-                    // Track code coverage from all runs.
-                    comptime assert(SeenPcsHeader.trailing[0] == .pc_bits_usize);
-                    const header_end_ptr: [*]volatile usize = @ptrCast(f.seen_pcs.items[@sizeOf(SeenPcsHeader)..]);
-                    const remainder = f.pcs.len % @bitSizeOf(usize);
-                    const aligned_len = f.pcs.len - remainder;
-                    const seen_pcs = header_end_ptr[0..aligned_len];
-                    const pc_counters = std.mem.bytesAsSlice([@bitSizeOf(usize)]u8, f.pc_counters[0..aligned_len]);
-                    const V = @Vector(@bitSizeOf(usize), u8);
-                    const zero_v: V = @splat(0);
-
-                    for (header_end_ptr[0..pc_counters.len], pc_counters) |*elem, *array| {
-                        const v: V = array.*;
-                        const mask: usize = @bitCast(v != zero_v);
-                        _ = @atomicRmw(usize, elem, .Or, mask, .monotonic);
-                    }
-                    if (remainder > 0) {
-                        const i = pc_counters.len;
-                        const elem = &seen_pcs[i];
-                        var mask: usize = 0;
-                        for (f.pc_counters[i * @bitSizeOf(usize) ..][0..remainder], 0..) |byte, bit_index| {
-                            mask |= @as(usize, @intFromBool(byte != 0)) << @intCast(bit_index);
-                        }
-                        _ = @atomicRmw(usize, elem, .Or, mask, .monotonic);
-                    }
-                }
-
-                _ = @atomicRmw(usize, &header.unique_runs, .Add, 1, .monotonic);
-            }
-
-            if (f.recent_cases.entries.len >= 100) {
-                const Context = struct {
-                    values: []const Run,
-                    pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
-                        return ctx.values[b_index].score < ctx.values[a_index].score;
-                    }
-                };
-                f.recent_cases.sortUnstable(Context{ .values = f.recent_cases.keys() });
-                const cap = 50;
-                // This has to be done before deinitializing the deleted items.
-                const doomed_runs = f.recent_cases.keys()[cap..];
-                f.recent_cases.shrinkRetainingCapacity(cap);
-                for (doomed_runs) |*doomed_run| {
-                    std.log.info("culling score={d} id={d}", .{ doomed_run.score, doomed_run.id });
-                    doomed_run.deinit(gpa);
-                }
-            }
+            const chosen_index = rng.uintLessThanBiased(usize, f.corpus.items.len);
+            const modification = rng.enumValue(Mutation);
+            f.mutateAndRunOne(chosen_index, modification);
         }
     }
 
-    fn visitPc(f: *Fuzzer, pc: usize) void {
+    /// `x` represents a possible branch. It is the PC address of the possible
+    /// branch site, hashed together with the value(s) used that determine to
+    /// where it branches.
+    fn traceValue(f: *Fuzzer, x: usize) void {
         errdefer |err| oom(err);
-        try f.coverage.pc_table.put(f.gpa, pc, {});
-        f.coverage.run_id_hasher.update(std.mem.asBytes(&pc));
+        try f.traced_comparisons.put(gpa, x, {});
     }
 
-    fn dumpStats(f: *Fuzzer) void {
-        for (f.recent_cases.keys()[0..@min(f.recent_cases.entries.len, 5)], 0..) |run, i| {
-            std.log.info("best[{d}] id={x} score={d} input: '{}'", .{
-                i, run.id, run.score, std.zig.fmtEscapes(run.input),
-            });
-        }
-    }
+    const Mutation = enum {
+        remove_byte,
+        modify_byte,
+        add_byte,
+    };
 
-    fn mutate(f: *Fuzzer) !void {
-        const gpa = f.gpa;
+    fn mutateAndRunOne(f: *Fuzzer, corpus_index: usize, mutation: Mutation) void {
         const rng = fuzzer.rng.random();
+        f.input.clearRetainingCapacity();
+        const old_input = f.corpus.items[corpus_index].bytes;
+        f.input.ensureTotalCapacity(old_input.len + 1) catch @panic("mmap file resize failed");
+        switch (mutation) {
+            .remove_byte => {
+                const omitted_index = rng.uintLessThanBiased(usize, old_input.len);
+                f.input.appendSliceAssumeCapacity(old_input[0..omitted_index]);
+                f.input.appendSliceAssumeCapacity(old_input[omitted_index + 1 ..]);
+            },
+            .modify_byte => {
+                const modified_index = rng.uintLessThanBiased(usize, old_input.len);
+                f.input.appendSliceAssumeCapacity(old_input);
+                f.input.items[modified_index] = rng.int(u8);
+            },
+            .add_byte => {
+                const modified_index = rng.uintLessThanBiased(usize, old_input.len);
+                f.input.appendSliceAssumeCapacity(old_input[0..modified_index]);
+                f.input.appendAssumeCapacity(rng.int(u8));
+                f.input.appendSliceAssumeCapacity(old_input[modified_index..]);
+            },
+        }
+        runOne(f, corpus_index);
+    }
 
-        if (f.input.items.len == 0) {
-            const len = rng.uintLessThanBiased(usize, 80);
-            try f.input.resize(gpa, len);
-            rng.bytes(f.input.items);
+    fn runOne(f: *Fuzzer, corpus_index: usize) void {
+        const header: *volatile SeenPcsHeader = @ptrCast(f.seen_pcs.items[0..@sizeOf(SeenPcsHeader)]);
+
+        f.traced_comparisons.clearRetainingCapacity();
+        @memset(f.pc_counters, 0);
+        __sancov_lowest_stack = std.math.maxInt(usize);
+
+        fuzzer_one(@volatileCast(f.input.items.ptr), f.input.items.len);
+
+        f.n_runs += 1;
+        _ = @atomicRmw(usize, &header.n_runs, .Add, 1, .monotonic);
+
+        // Track code coverage from all runs.
+        comptime assert(SeenPcsHeader.trailing[0] == .pc_bits_usize);
+        const header_end_ptr: [*]volatile usize = @ptrCast(f.seen_pcs.items[@sizeOf(SeenPcsHeader)..]);
+        const remainder = f.pcs.len % @bitSizeOf(usize);
+        const aligned_len = f.pcs.len - remainder;
+        const seen_pcs = header_end_ptr[0..aligned_len];
+        const pc_counters = std.mem.bytesAsSlice([@bitSizeOf(usize)]u8, f.pc_counters[0..aligned_len]);
+        const V = @Vector(@bitSizeOf(usize), u8);
+        const zero_v: V = @splat(0);
+        var fresh = false;
+        var superset = true;
+
+        for (header_end_ptr[0..pc_counters.len], pc_counters) |*elem, *array| {
+            const v: V = array.*;
+            const mask: usize = @bitCast(v != zero_v);
+            const prev = @atomicRmw(usize, elem, .Or, mask, .monotonic);
+            fresh = fresh or (prev | mask) != prev;
+            superset = superset and (prev | mask) != mask;
+        }
+        if (remainder > 0) {
+            const i = pc_counters.len;
+            const elem = &seen_pcs[i];
+            var mask: usize = 0;
+            for (f.pc_counters[i * @bitSizeOf(usize) ..][0..remainder], 0..) |byte, bit_index| {
+                mask |= @as(usize, @intFromBool(byte != 0)) << @intCast(bit_index);
+            }
+            const prev = @atomicRmw(usize, elem, .Or, mask, .monotonic);
+            fresh = fresh or (prev | mask) != prev;
+            superset = superset and (prev | mask) != mask;
+        }
+
+        // First check if this is a better version of an already existing
+        // input, replacing that input.
+        if (superset or f.traced_comparisons.entries.len >= f.corpus.items[corpus_index].last_traced_comparison) {
+            const new_input = gpa.realloc(f.corpus.items[corpus_index].bytes, f.input.items.len) catch |err| oom(err);
+            f.corpus.items[corpus_index] = .{
+                .bytes = new_input,
+                .last_traced_comparison = f.traced_comparisons.count(),
+            };
+            @memcpy(new_input, @volatileCast(f.input.items));
+            _ = @atomicRmw(usize, &header.unique_runs, .Add, 1, .monotonic);
             return;
         }
 
-        const index = rng.uintLessThanBiased(usize, f.input.items.len * 3);
-        if (index < f.input.items.len) {
-            f.input.items[index] = rng.int(u8);
-        } else if (index < f.input.items.len * 2) {
-            _ = f.input.orderedRemove(index - f.input.items.len);
-        } else if (index < f.input.items.len * 3) {
-            try f.input.insert(gpa, index - f.input.items.len * 2, rng.int(u8));
-        } else {
-            unreachable;
-        }
+        if (!fresh) return;
+
+        // Input is already committed to the file system, we just need to open a new file
+        // for the next input.
+        // Pre-add it to the corpus list so that it does not get redundantly picked up.
+        f.corpus.append(gpa, .{
+            .bytes = gpa.dupe(u8, @volatileCast(f.input.items)) catch |err| oom(err),
+            .last_traced_comparison = f.traced_comparisons.entries.len,
+        }) catch |err| oom(err);
+        f.input.deinit();
+        initNextInput(f);
+
+        // TODO: also mark input as "hot" so it gets prioritized for checking mutations above others.
+
+        _ = @atomicRmw(usize, &header.unique_runs, .Add, 1, .monotonic);
     }
 };
 
@@ -402,20 +414,26 @@ fn oom(err: anytype) noreturn {
     }
 }
 
-var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
+var debug_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
+
+const gpa = switch (builtin.mode) {
+    .Debug => debug_allocator.allocator(),
+    .ReleaseFast, .ReleaseSmall, .ReleaseSafe => std.heap.smp_allocator,
+};
 
 var fuzzer: Fuzzer = .{
-    .gpa = general_purpose_allocator.allocator(),
     .rng = std.Random.DefaultPrng.init(0),
-    .input = .{},
+    .input = undefined,
     .pcs = undefined,
     .pc_counters = undefined,
     .n_runs = 0,
-    .recent_cases = .{},
-    .coverage = undefined,
     .cache_dir = undefined,
     .seen_pcs = undefined,
     .coverage_id = undefined,
+    .unit_test_name = &.{},
+    .corpus = .empty,
+    .corpus_directory = undefined,
+    .traced_comparisons = .empty,
 };
 
 /// Invalid until `fuzzer_init` is called.
@@ -427,9 +445,11 @@ var fuzzer_one: *const fn (input_ptr: [*]const u8, input_len: usize) callconv(.C
 
 export fn fuzzer_start(testOne: @TypeOf(fuzzer_one)) void {
     fuzzer_one = testOne;
-    fuzzer.start() catch |err| switch (err) {
-        error.OutOfMemory => fatal("out of memory", .{}),
-    };
+    fuzzer.start() catch |err| oom(err);
+}
+
+export fn fuzzer_set_name(name_ptr: [*]const u8, name_len: usize) void {
+    fuzzer.unit_test_name = name_ptr[0..name_len];
 }
 
 export fn fuzzer_init(cache_dir_struct: Fuzzer.Slice) void {
@@ -472,6 +492,11 @@ export fn fuzzer_init(cache_dir_struct: Fuzzer.Slice) void {
         fatal("unable to init fuzzer: {s}", .{@errorName(err)});
 }
 
+export fn fuzzer_init_corpus_elem(input_ptr: [*]const u8, input_len: usize) void {
+    fuzzer.addCorpusElem(input_ptr[0..input_len]) catch |err|
+        fatal("failed to add corpus element: {s}", .{@errorName(err)});
+}
+
 /// Like `std.ArrayListUnmanaged(u8)` but backed by memory mapping.
 pub const MemoryMappedList = struct {
     /// Contents of the list.
@@ -483,6 +508,8 @@ pub const MemoryMappedList = struct {
     items: []align(std.heap.page_size_min) volatile u8,
     /// How many bytes this list can hold without allocating additional memory.
     capacity: usize,
+    /// The file is kept open so that it can be resized.
+    file: std.fs.File,
 
     pub fn init(file: std.fs.File, length: usize, capacity: usize) !MemoryMappedList {
         const ptr = try std.posix.mmap(
@@ -494,9 +521,50 @@ pub const MemoryMappedList = struct {
             0,
         );
         return .{
+            .file = file,
             .items = ptr[0..length],
             .capacity = capacity,
         };
+    }
+
+    pub fn create(file: std.fs.File, length: usize, capacity: usize) !MemoryMappedList {
+        try file.setEndPos(capacity);
+        return init(file, length, capacity);
+    }
+
+    pub fn deinit(l: *MemoryMappedList) void {
+        l.file.close();
+        std.posix.munmap(@volatileCast(l.items.ptr[0..l.capacity]));
+        l.* = undefined;
+    }
+
+    /// Modify the array so that it can hold at least `additional_count` **more** items.
+    /// Invalidates element pointers if additional memory is needed.
+    pub fn ensureUnusedCapacity(l: *MemoryMappedList, additional_count: usize) !void {
+        return l.ensureTotalCapacity(l.items.len + additional_count);
+    }
+
+    /// If the current capacity is less than `new_capacity`, this function will
+    /// modify the array so that it can hold at least `new_capacity` items.
+    /// Invalidates element pointers if additional memory is needed.
+    pub fn ensureTotalCapacity(l: *MemoryMappedList, new_capacity: usize) !void {
+        if (l.capacity >= new_capacity) return;
+
+        const better_capacity = growCapacity(l.capacity, new_capacity);
+        return l.ensureTotalCapacityPrecise(better_capacity);
+    }
+
+    pub fn ensureTotalCapacityPrecise(l: *MemoryMappedList, new_capacity: usize) !void {
+        if (l.capacity >= new_capacity) return;
+
+        std.posix.munmap(@volatileCast(l.items.ptr[0..l.capacity]));
+        try l.file.setEndPos(new_capacity);
+        l.* = try init(l.file, l.items.len, new_capacity);
+    }
+
+    /// Invalidates all element pointers.
+    pub fn clearRetainingCapacity(l: *MemoryMappedList) void {
+        l.items.len = 0;
     }
 
     /// Append the slice of items to the list.
@@ -509,6 +577,24 @@ pub const MemoryMappedList = struct {
         @memcpy(l.items[old_len..][0..items.len], items);
     }
 
+    /// Extends the list by 1 element.
+    /// Never invalidates element pointers.
+    /// Asserts that the list can hold one additional item.
+    pub fn appendAssumeCapacity(l: *MemoryMappedList, item: u8) void {
+        const new_item_ptr = l.addOneAssumeCapacity();
+        new_item_ptr.* = item;
+    }
+
+    /// Increase length by 1, returning pointer to the new item.
+    /// The returned pointer becomes invalid when the list is resized.
+    /// Never invalidates element pointers.
+    /// Asserts that the list can hold one additional item.
+    pub fn addOneAssumeCapacity(l: *MemoryMappedList) *volatile u8 {
+        assert(l.items.len < l.capacity);
+        l.items.len += 1;
+        return &l.items[l.items.len - 1];
+    }
+
     /// Append a value to the list `n` times.
     /// Never invalidates element pointers.
     /// The function is inline so that a comptime-known `value` parameter will
@@ -519,5 +605,27 @@ pub const MemoryMappedList = struct {
         assert(new_len <= l.capacity);
         @memset(l.items.ptr[l.items.len..new_len], value);
         l.items.len = new_len;
+    }
+
+    /// Resize the array, adding `n` new elements, which have `undefined` values.
+    /// The return value is a slice pointing to the newly allocated elements.
+    /// Never invalidates element pointers.
+    /// The returned pointer becomes invalid when the list is resized.
+    /// Asserts that the list can hold the additional items.
+    pub fn addManyAsSliceAssumeCapacity(l: *MemoryMappedList, n: usize) []volatile u8 {
+        assert(l.items.len + n <= l.capacity);
+        const prev_len = l.items.len;
+        l.items.len += n;
+        return l.items[prev_len..][0..n];
+    }
+
+    /// Called when memory growth is necessary. Returns a capacity larger than
+    /// minimum that grows super-linearly.
+    fn growCapacity(current: usize, minimum: usize) usize {
+        var new = current;
+        while (true) {
+            new = std.mem.alignForward(usize, new + new / 2, std.heap.page_size_max);
+            if (new >= minimum) return new;
+        }
     }
 };

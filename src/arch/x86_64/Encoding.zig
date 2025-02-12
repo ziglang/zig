@@ -379,7 +379,7 @@ pub const Mnemonic = enum {
     sqrtps, sqrtss,
     stmxcsr,
     subps, subss,
-    ucomiss,
+    ucomiss, unpckhps, unpcklps,
     xorps,
     // SSE2
     addpd, addsd,
@@ -409,7 +409,7 @@ pub const Mnemonic = enum {
     shufpd,
     sqrtpd, sqrtsd,
     subpd, subsd,
-    ucomisd,
+    ucomisd, unpckhpd, unpcklpd,
     xorpd,
     // SSE3
     addsubpd, addsubps, haddpd, haddps, lddqu, movddup, movshdup, movsldup,
@@ -504,7 +504,7 @@ pub const Mnemonic = enum {
     vstmxcsr,
     vsubpd, vsubps, vsubsd, vsubss,
     vtestpd, vtestps,
-    vucomisd, vucomiss,
+    vucomisd, vucomiss, vunpckhpd, vunpckhps, vunpcklpd, vunpcklps,
     vxorpd, vxorps,
     // F16C
     vcvtph2ps, vcvtps2ph,

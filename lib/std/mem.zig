@@ -1396,6 +1396,7 @@ pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize 
 /// Consider using `lastIndexOf` instead of this, which will automatically use a
 /// more sophisticated algorithm on larger inputs.
 pub fn lastIndexOfLinear(comptime T: type, haystack: []const T, needle: []const T) ?usize {
+    if (needle.len > haystack.len) return null;
     var i: usize = haystack.len - needle.len;
     while (true) : (i -= 1) {
         if (mem.eql(T, haystack[i..][0..needle.len], needle)) return i;

@@ -25,22 +25,22 @@ pub const HiiPopup = extern struct {
     };
 
     pub const PopupStyle = enum(u32) {
-        Info,
-        Warning,
-        Error,
+        info,
+        warning,
+        @"error",
     };
 
     pub const PopupType = enum(u32) {
-        Ok,
-        Cancel,
-        YesNo,
-        YesNoCancel,
+        ok,
+        cancel,
+        yes_no,
+        yes_no_cancel,
     };
 
     pub const PopupSelection = enum(u32) {
-        Ok,
-        Cancel,
-        Yes,
-        No,
+        ok,
+        cancel,
+        yes,
+        no,
     };
 };

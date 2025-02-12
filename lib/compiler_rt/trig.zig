@@ -222,7 +222,7 @@ pub fn __tan(x_: f64, y_: f64, odd: bool) f64 {
     r = y + z * (s * (r + v) + y) + s * T[0];
     w = x + r;
     if (big) {
-        s = 1 - 2 * @as(f64, @floatFromInt(@intFromBool(odd)));
+        s = @floatFromInt(1 - 2 * @as(i3, @intFromBool(odd)));
         v = s - 2.0 * (x + (r - w * w / (w + s)));
         return if (sign) -v else v;
     }

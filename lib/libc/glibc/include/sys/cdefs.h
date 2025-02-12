@@ -56,4 +56,11 @@ rtld_hidden_proto (__chk_fail)
 
 #endif /* !defined _ISOMAC */
 
+/*  Prevents a function from being considered for inlining and cloning.  */
+#ifdef __clang__
+# define __attribute_optimization_barrier__ __attribute__ ((optnone))
+#else
+# define __attribute_optimization_barrier__ __attribute__ ((noinline, noclone))
+#endif
+
 #endif

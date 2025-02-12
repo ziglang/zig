@@ -1888,7 +1888,7 @@ pub fn resolveInputs(
     // that this library search logic can be applied to them.
     mem.reverse(UnresolvedInput, unresolved_inputs.items);
 
-    syslib: while (unresolved_inputs.popOrNull()) |unresolved_input| {
+    syslib: while (unresolved_inputs.pop()) |unresolved_input| {
         const name_query: UnresolvedInput.NameQuery = switch (unresolved_input) {
             .name_query => |nq| nq,
             .ambiguous_name => |an| an: {

@@ -37,12 +37,12 @@ pub const Ip6Config = extern struct {
     };
 
     pub const DataType = enum(u32) {
-        InterfaceInfo,
-        AltInterfaceId,
-        Policy,
-        DupAddrDetectTransmits,
-        ManualAddress,
-        Gateway,
-        DnsServer,
+        interface_info,
+        alt_interface_id,
+        policy,
+        dup_addr_detect_transmits,
+        manual_address,
+        gateway,
+        dns_server,
     };
 };

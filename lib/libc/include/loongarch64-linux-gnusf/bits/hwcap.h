@@ -1,5 +1,5 @@
 /* Defines for bits in AT_HWCAP.  LoongArch64 Linux version.
-   Copyright (C) 2022-2024 Free Software Foundation, Inc.
+   Copyright (C) 2022-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -36,3 +36,4 @@
 #define HWCAP_LOONGARCH_LBT_ARM         (1 << 11)
 #define HWCAP_LOONGARCH_LBT_MIPS        (1 << 12)
 #define HWCAP_LOONGARCH_PTW             (1 << 13)
+#define HWCAP_LOONGARCH_LSPW            (1 << 14)

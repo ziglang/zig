@@ -1186,6 +1186,28 @@ pub fn register_files_update(self: *IoUring, offset: u32, fds: []const posix.fd_
     try handle_registration_result(res);
 }
 
+/// Registers an empty (-1) file table of `nr_files` number of file descriptors.
+pub fn register_files_sparse(self: *IoUring, nr_files: u32) !void {
+    assert(self.fd >= 0);
+
+    const reg = &linux.io_uring_rsrc_register{
+        .nr = nr_files,
+        .flags = linux.IORING_RSRC_REGISTER_SPARSE,
+        .resv2 = 0,
+        .data = 0,
+        .tags = 0,
+    };
+
+    const res = linux.io_uring_register(
+        self.fd,
+        .REGISTER_FILES2,
+        @ptrCast(reg),
+        @as(u32, @sizeOf(linux.io_uring_rsrc_register)),
+    );
+
+    return handle_registration_result(res);
+}
+
 /// Registers the file descriptor for an eventfd that will be notified of completion events on
 ///  an io_uring instance.
 /// Only a single a eventfd can be registered at any given point in time.

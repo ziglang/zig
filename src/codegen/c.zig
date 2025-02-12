@@ -438,7 +438,7 @@ pub const Function = struct {
     fn allocAlignedLocal(f: *Function, inst: ?Air.Inst.Index, local_type: LocalType) !CValue {
         const result: CValue = result: {
             if (f.free_locals_map.getPtr(local_type)) |locals_list| {
-                if (locals_list.popOrNull()) |local_entry| {
+                if (locals_list.pop()) |local_entry| {
                     break :result .{ .new_local = local_entry.key };
                 }
             }
@@ -2855,7 +2855,7 @@ pub fn genLazyFn(o: *Object, lazy_ctype_pool: *const CType.Pool, lazy_fn: LazyFn
             try w.writeByte('(');
             for (0..fn_info.param_ctypes.len) |arg| {
                 if (arg > 0) try w.writeAll(", ");
-                try o.dg.writeCValue(w, .{ .arg = arg });
+                try w.print("a{d}", .{arg});
             }
             try w.writeAll(");\n}\n");
         },
@@ -3093,6 +3093,9 @@ pub fn genExports(dg: *DeclGen, exported: Zcu.Exported, export_indices: []const 
         const @"export" = export_index.ptr(zcu);
         try fwd.writeAll("zig_extern ");
         if (@"export".opts.linkage == .weak) try fwd.writeAll("zig_weak_linkage ");
+        if (@"export".opts.section.toSlice(ip)) |s| try fwd.print("zig_linksection({s}) ", .{
+            fmtStringLiteral(s, null),
+        });
         const extern_name = @"export".opts.name.toSlice(ip);
         const is_mangled = isMangledIdent(extern_name, true);
         const is_export = @"export".opts.name != main_name;

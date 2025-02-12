@@ -7,7 +7,7 @@ pub const BlockIo = extern struct {
     const Self = @This();
 
     revision: u64,
-    media: *EfiBlockMedia,
+    media: *BlockMedia,
 
     _reset: *const fn (*BlockIo, extended_verification: bool) callconv(cc) Status,
     _read_blocks: *const fn (*BlockIo, media_id: u32, lba: u64, buffer_size: usize, buf: [*]u8) callconv(cc) Status,
@@ -43,7 +43,7 @@ pub const BlockIo = extern struct {
         .node = [_]u8{ 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b },
     };
 
-    pub const EfiBlockMedia = extern struct {
+    pub const BlockMedia = extern struct {
         /// The current media ID. If the media changes, this value is changed.
         media_id: u32,
 

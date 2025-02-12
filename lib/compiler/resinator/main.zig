@@ -183,17 +183,17 @@ pub fn main() !void {
     var mapping_results = parseAndRemoveLineCommands(allocator, full_input, full_input, .{ .initial_filename = options.input_filename }) catch |err| switch (err) {
         error.InvalidLineCommand => {
             // TODO: Maybe output the invalid line command
-            try renderErrorMessage(stderr.writer(), stderr_config, .err, "invalid line command in the preprocessed source", .{});
+            try error_handler.emitMessage(allocator, .err, "invalid line command in the preprocessed source", .{});
             if (options.preprocess == .no) {
-                try renderErrorMessage(stderr.writer(), stderr_config, .note, "line commands must be of the format: #line <num> \"<path>\"", .{});
+                try error_handler.emitMessage(allocator, .note, "line commands must be of the format: #line <num> \"<path>\"", .{});
             } else {
-                try renderErrorMessage(stderr.writer(), stderr_config, .note, "this is likely to be a bug, please report it", .{});
+                try error_handler.emitMessage(allocator, .note, "this is likely to be a bug, please report it", .{});
             }
             std.process.exit(1);
         },
         error.LineNumberOverflow => {
             // TODO: Better error message
-            try renderErrorMessage(stderr.writer(), stderr_config, .err, "line number count exceeded maximum of {}", .{std.math.maxInt(usize)});
+            try error_handler.emitMessage(allocator, .err, "line number count exceeded maximum of {}", .{std.math.maxInt(usize)});
             std.process.exit(1);
         },
         error.OutOfMemory => |e| return e,

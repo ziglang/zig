@@ -1,5 +1,5 @@
 /* Definitions for POSIX memory map interface.  Linux/AArch64 version.
-   Copyright (C) 2020-2024 Free Software Foundation, Inc.
+   Copyright (C) 2020-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -25,6 +25,14 @@
 
 #define PROT_BTI	0x10
 #define PROT_MTE	0x20
+
+#ifdef __USE_GNU
+# define PKEY_UNRESTRICTED 0x0
+# define PKEY_DISABLE_ACCESS 0x1
+# define PKEY_DISABLE_WRITE 0x2
+# define PKEY_DISABLE_EXECUTE 0x4
+# define PKEY_DISABLE_READ 0x8
+#endif
 
 #include <bits/mman-map-flags-generic.h>
 

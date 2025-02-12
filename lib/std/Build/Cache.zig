@@ -775,7 +775,7 @@ pub const Manifest = struct {
 
         // Remove files not in the initial hash.
         while (self.files.count() != input_file_count) {
-            var file = self.files.pop();
+            var file = self.files.pop().?;
             file.key.deinit(self.cache.gpa);
         }
 

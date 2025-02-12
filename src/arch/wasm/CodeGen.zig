@@ -1121,11 +1121,11 @@ fn allocLocal(cg: *CodeGen, ty: Type) InnerError!WValue {
     const zcu = cg.pt.zcu;
     const valtype = typeToValtype(ty, zcu, cg.target);
     const index_or_null = switch (valtype) {
-        .i32 => cg.free_locals_i32.popOrNull(),
-        .i64 => cg.free_locals_i64.popOrNull(),
-        .f32 => cg.free_locals_f32.popOrNull(),
-        .f64 => cg.free_locals_f64.popOrNull(),
-        .v128 => cg.free_locals_v128.popOrNull(),
+        .i32 => cg.free_locals_i32.pop(),
+        .i64 => cg.free_locals_i64.pop(),
+        .f32 => cg.free_locals_f32.pop(),
+        .f64 => cg.free_locals_f64.pop(),
+        .v128 => cg.free_locals_v128.pop(),
     };
     if (index_or_null) |index| {
         log.debug("reusing local ({d}) of type {}", .{ index, valtype });
@@ -1309,7 +1309,7 @@ fn functionInner(cg: *CodeGen, any_returns: bool) InnerError!Function {
     try cg.branches.append(cg.gpa, .{});
     // clean up outer branch
     defer {
-        var outer_branch = cg.branches.pop();
+        var outer_branch = cg.branches.pop().?;
         outer_branch.deinit(cg.gpa);
         assert(cg.branches.items.len == 0); // missing branch merge
     }
@@ -3482,7 +3482,7 @@ fn airCondBr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         cg.branches.appendAssumeCapacity(.{});
         try cg.currentBranch().values.ensureUnusedCapacity(cg.gpa, @as(u32, @intCast(liveness_condbr.else_deaths.len)));
         defer {
-            var else_stack = cg.branches.pop();
+            var else_stack = cg.branches.pop().?;
             else_stack.deinit(cg.gpa);
         }
         try cg.genBody(else_body);
@@ -3494,7 +3494,7 @@ fn airCondBr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         cg.branches.appendAssumeCapacity(.{});
         try cg.currentBranch().values.ensureUnusedCapacity(cg.gpa, @as(u32, @intCast(liveness_condbr.then_deaths.len)));
         defer {
-            var then_stack = cg.branches.pop();
+            var then_stack = cg.branches.pop().?;
             then_stack.deinit(cg.gpa);
         }
         try cg.genBody(then_body);
@@ -4132,7 +4132,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         cg.branches.appendAssumeCapacity(.{});
         try cg.currentBranch().values.ensureUnusedCapacity(cg.gpa, liveness.deaths[index].len);
         defer {
-            var case_branch = cg.branches.pop();
+            var case_branch = cg.branches.pop().?;
             case_branch.deinit(cg.gpa);
         }
         try cg.genBody(case.body);
@@ -4144,7 +4144,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         const else_deaths = liveness.deaths.len - 1;
         try cg.currentBranch().values.ensureUnusedCapacity(cg.gpa, liveness.deaths[else_deaths].len);
         defer {
-            var else_branch = cg.branches.pop();
+            var else_branch = cg.branches.pop().?;
             else_branch.deinit(cg.gpa);
         }
         try cg.genBody(else_body);
@@ -6459,7 +6459,7 @@ fn lowerTry(
         try cg.branches.append(cg.gpa, .{});
         try cg.currentBranch().values.ensureUnusedCapacity(cg.gpa, liveness.else_deaths.len + liveness.then_deaths.len);
         defer {
-            var branch = cg.branches.pop();
+            var branch = cg.branches.pop().?;
             branch.deinit(cg.gpa);
         }
         try cg.genBody(body);

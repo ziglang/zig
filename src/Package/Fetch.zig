@@ -127,7 +127,7 @@ pub const JobQueue = struct {
         // `Fetch` instances are allocated in prior ones' arenas.
         // Sorry, I know it's a bit weird, but it slightly simplifies the
         // critical section.
-        while (jq.all_fetches.popOrNull()) |f| f.deinit();
+        while (jq.all_fetches.pop()) |f| f.deinit();
         jq.all_fetches.deinit(gpa);
         jq.* = undefined;
     }

@@ -2138,7 +2138,7 @@ pub const VirtualMachine = struct {
                 self.current_row.copy_on_write = true;
             },
             .restore_state => {
-                const restored_columns = self.stack.popOrNull() orelse return error.InvalidOperation;
+                const restored_columns = self.stack.pop() orelse return error.InvalidOperation;
                 self.columns.shrinkRetainingCapacity(self.columns.items.len - self.current_row.columns.len);
                 try self.columns.ensureUnusedCapacity(allocator, restored_columns.len);
 

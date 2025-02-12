@@ -8,7 +8,7 @@ const Status = uefi.Status;
 const MemoryDescriptor = uefi.tables.MemoryDescriptor;
 const ResetType = uefi.tables.ResetType;
 const CapsuleHeader = uefi.tables.CapsuleHeader;
-const EfiPhysicalAddress = uefi.tables.EfiPhysicalAddress;
+const PhysicalAddress = uefi.tables.PhysicalAddress;
 const cc = uefi.cc;
 
 /// Runtime services are provided by the firmware before and after exitBootServices has been called.
@@ -60,10 +60,10 @@ pub const RuntimeServices = extern struct {
     /// If the payload should persist across a system reset, the reset value returned from
     /// `queryCapsuleCapabilities` must be passed into resetSystem and will cause the capsule
     /// to be processed by the firmware as part of the reset process.
-    updateCapsule: *const fn (capsule_header_array: **CapsuleHeader, capsule_count: usize, scatter_gather_list: EfiPhysicalAddress) callconv(cc) Status,
+    updateCapsule: *const fn (capsule_header_array: **CapsuleHeader, capsule_count: usize, scatter_gather_list: PhysicalAddress) callconv(cc) Status,
 
     /// Returns if the capsule can be supported via `updateCapsule`
-    queryCapsuleCapabilities: *const fn (capsule_header_array: **CapsuleHeader, capsule_count: usize, maximum_capsule_size: *usize, resetType: ResetType) callconv(cc) Status,
+    queryCapsuleCapabilities: *const fn (capsule_header_array: **CapsuleHeader, capsule_count: usize, maximum_capsule_size: *usize, reset_type: ResetType) callconv(cc) Status,
 
     /// Returns information about the EFI variables
     queryVariableInfo: *const fn (attributes: *u32, maximum_variable_storage_size: *u64, remaining_variable_storage_size: *u64, maximum_variable_size: *u64) callconv(cc) Status,

@@ -8,7 +8,10 @@ comptime {
     if (common.want_windows_v2u64_abi) {
         @export(&__fixsfti_windows_x86_64, .{ .name = "__fixsfti", .linkage = common.linkage, .visibility = common.visibility });
     } else {
-        @export(&__fixsfti, .{ .name = "__fixsfti", .linkage = common.linkage, .visibility = common.visibility });
+        @export(&__fixsfti, .{ .name = switch (builtin.cpu.arch) {
+            .hexagon => "__hexagon",
+            else => "_",
+        } ++ "_fixsfti", .linkage = common.linkage, .visibility = common.visibility });
     }
 }
 

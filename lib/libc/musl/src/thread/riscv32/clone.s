@@ -7,6 +7,8 @@
 .global __clone
 .type  __clone, %function
 __clone:
+	andi a1, a1, -16
+
 	# Save func and arg to stack
 	addi a1, a1, -16
 	sw a0, 0(a1)

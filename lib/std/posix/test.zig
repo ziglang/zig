@@ -31,6 +31,19 @@ test "WTF-8 to WTF-16 conversion buffer overflows" {
     try expectError(error.NameTooLong, posix.chdirZ(input_wtf8));
 }
 
+test "check WASI CWD" {
+    if (native_os == .wasi) {
+        if (std.options.wasiCwd() != 3) {
+            @panic("WASI code that uses cwd (like this test) needs a preopen for cwd (add '--dir=.' to wasmtime)");
+        }
+
+        if (!builtin.link_libc) {
+            // WASI without-libc hardcodes fd 3 as the FDCWD token so it can be passed directly to WASI calls
+            try expectEqual(3, posix.AT.FDCWD);
+        }
+    }
+}
+
 test "chdir smoke test" {
     if (native_os == .wasi) return error.SkipZigTest;
 
@@ -151,7 +164,6 @@ test "open smoke test" {
 }
 
 test "openat smoke test" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
     if (native_os == .windows) return error.SkipZigTest;
 
     // TODO verify file attributes using `fstatat`
@@ -200,10 +212,13 @@ test "openat smoke test" {
     }), mode);
     posix.close(fd);
 
-    // Try opening as file which should fail.
-    try expectError(error.IsDir, posix.openat(tmp.dir.fd, "some_dir", CommonOpenFlags.lower(.{
-        .ACCMODE = .RDWR,
-    }), mode));
+    // Try opening as file which should fail (skip on wasi+libc due to
+    // https://github.com/bytecodealliance/wasmtime/issues/9054)
+    if (native_os != .wasi or !builtin.link_libc) {
+        try expectError(error.IsDir, posix.openat(tmp.dir.fd, "some_dir", CommonOpenFlags.lower(.{
+            .ACCMODE = .RDWR,
+        }), mode));
+    }
 }
 
 test "symlink with relative paths" {
@@ -366,8 +381,7 @@ test "fstatat" {
     defer file.close();
 
     // now repeat but using `fstatat` instead
-    const flags = if (native_os == .wasi) 0x0 else posix.AT.SYMLINK_NOFOLLOW;
-    const statat = try posix.fstatat(tmp.dir.fd, "file.txt", flags);
+    const statat = try posix.fstatat(tmp.dir.fd, "file.txt", posix.AT.SYMLINK_NOFOLLOW);
 
     // s390x-linux does not have nanosecond precision for fstat(), but it does for fstatat(). As a
     // result, comparing the two structures is doomed to fail.
@@ -1308,22 +1322,17 @@ const CommonOpenFlags = packed struct {
     NONBLOCK: bool = false,
 
     pub fn lower(cof: CommonOpenFlags) posix.O {
-        if (native_os == .wasi) return .{
+        var result: posix.O = if (native_os == .wasi) .{
             .read = cof.ACCMODE != .WRONLY,
             .write = cof.ACCMODE != .RDONLY,
-            .CREAT = cof.CREAT,
-            .EXCL = cof.EXCL,
-            .DIRECTORY = cof.DIRECTORY,
-            .NONBLOCK = cof.NONBLOCK,
-        };
-        var result: posix.O = .{
+        } else .{
             .ACCMODE = cof.ACCMODE,
-            .CREAT = cof.CREAT,
-            .EXCL = cof.EXCL,
-            .DIRECTORY = cof.DIRECTORY,
-            .NONBLOCK = cof.NONBLOCK,
-            .CLOEXEC = cof.CLOEXEC,
         };
+        result.CREAT = cof.CREAT;
+        result.EXCL = cof.EXCL;
+        result.DIRECTORY = cof.DIRECTORY;
+        result.NONBLOCK = cof.NONBLOCK;
+        if (@hasField(posix.O, "CLOEXEC")) result.CLOEXEC = cof.CLOEXEC;
         if (@hasField(posix.O, "LARGEFILE")) result.LARGEFILE = cof.LARGEFILE;
         return result;
     }

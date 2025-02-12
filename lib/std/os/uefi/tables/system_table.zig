@@ -45,4 +45,7 @@ pub const SystemTable = extern struct {
     pub const revision_2_60: u32 = (2 << 16) | 60;
     pub const revision_2_70: u32 = (2 << 16) | 70;
     pub const revision_2_80: u32 = (2 << 16) | 80;
+    pub const revision_2_90: u32 = (2 << 16) | 90;
+    pub const revision_2_100: u32 = (2 << 16) | 100;
+    pub const revision_2_110: u32 = (2 << 16) | 110;
 };

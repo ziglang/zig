@@ -597,7 +597,7 @@ pub const Os = struct {
                 .uefi => .{
                     .semver = .{
                         .min = .{ .major = 2, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 2, .minor = 9, .patch = 0 },
+                        .max = .{ .major = 2, .minor = 11, .patch = 0 },
                     },
                 },
 

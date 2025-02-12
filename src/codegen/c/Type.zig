@@ -728,6 +728,14 @@ pub const Kind = enum {
             .global => .global,
         };
     }
+
+    pub fn asComplete(kind: Kind) Kind {
+        return switch (kind) {
+            .forward, .complete => .complete,
+            .forward_parameter, .parameter => .parameter,
+            .global => .global,
+        };
+    }
 };
 
 pub const Info = union(enum) {
@@ -1887,7 +1895,7 @@ pub const Pool = struct {
                         elem_type,
                         pt,
                         mod,
-                        kind.noParameter(),
+                        kind.noParameter().asComplete(),
                     );
                     if (elem_ctype.index == .void) return .void;
                     const array_ctype = try pool.getArray(allocator, .{
@@ -1913,7 +1921,7 @@ pub const Pool = struct {
                         elem_type,
                         pt,
                         mod,
-                        kind.noParameter(),
+                        kind.noParameter().asComplete(),
                     );
                     if (elem_ctype.index == .void) return .void;
                     const vector_ctype = try pool.getVector(allocator, .{

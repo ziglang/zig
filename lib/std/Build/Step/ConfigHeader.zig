@@ -616,7 +616,7 @@ fn expand_variables_cmake(
                     // no open bracket, preserve as a literal
                     break :blk;
                 }
-                const open_pos = var_stack.pop();
+                const open_pos = var_stack.pop().?;
                 if (source_offset == open_pos.source) {
                     source_offset += open_var.len;
                 }

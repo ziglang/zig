@@ -1,5 +1,5 @@
 /* Private libc-internal interface for mutex locks.
-   Copyright (C) 2015-2024 Free Software Foundation, Inc.
+   Copyright (C) 2015-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -77,6 +77,7 @@ extern int __pthread_mutex_init (pthread_mutex_t *__mutex,
 				 const pthread_mutexattr_t *__mutex_attr);
 
 extern int __pthread_mutex_destroy (pthread_mutex_t *__mutex);
+libc_hidden_proto (__pthread_mutex_destroy)
 
 extern int __pthread_mutex_trylock (pthread_mutex_t *__mutex);
 
@@ -85,8 +86,10 @@ extern int __pthread_mutex_lock (pthread_mutex_t *__mutex);
 extern int __pthread_mutex_unlock (pthread_mutex_t *__mutex);
 
 extern int __pthread_mutexattr_init (pthread_mutexattr_t *__attr);
+libc_hidden_proto (__pthread_mutexattr_init)
 
 extern int __pthread_mutexattr_destroy (pthread_mutexattr_t *__attr);
+libc_hidden_proto (__pthread_mutexattr_destroy)
 
 extern int __pthread_mutexattr_settype (pthread_mutexattr_t *__attr,
 					int __kind);
@@ -113,8 +116,6 @@ extern int __pthread_atfork (void (*__prepare) (void),
 			     void (*__parent) (void),
 			     void (*__child) (void));
 
-
-
 /* Make the pthread functions weak so that we can elide them from
    single-threaded processes.  */
 #if !defined(__NO_WEAK_PTHREAD_ALIASES) && !IS_IN (libpthread)
@@ -124,8 +125,6 @@ weak_extern (__pthread_mutex_destroy)
 weak_extern (__pthread_mutex_lock)
 weak_extern (__pthread_mutex_trylock)
 weak_extern (__pthread_mutex_unlock)
-weak_extern (__pthread_mutexattr_init)
-weak_extern (__pthread_mutexattr_destroy)
 weak_extern (__pthread_mutexattr_settype)
 weak_extern (__pthread_rwlock_init)
 weak_extern (__pthread_rwlock_destroy)
@@ -147,8 +146,6 @@ weak_extern (__pthread_setcancelstate)
 #  pragma weak __pthread_mutex_lock
 #  pragma weak __pthread_mutex_trylock
 #  pragma weak __pthread_mutex_unlock
-#  pragma weak __pthread_mutexattr_init
-#  pragma weak __pthread_mutexattr_destroy
 #  pragma weak __pthread_mutexattr_settype
 #  pragma weak __pthread_rwlock_destroy
 #  pragma weak __pthread_rwlock_rdlock

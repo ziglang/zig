@@ -311,19 +311,35 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
         }
     });
 
-    //pass_builder.registerOptimizerEarlyEPCallback([&](ModulePassManager &module_pm, OptimizationLevel OL) {
-    //});
+    const bool early_san = options->is_debug;
+
+    pass_builder.registerOptimizerEarlyEPCallback([&](ModulePassManager &module_pm, OptimizationLevel OL) {
+        if (early_san) {
+            // Code coverage instrumentation.
+            if (options->sancov) {
+                module_pm.addPass(SanitizerCoveragePass(getSanCovOptions(options->coverage)));
+            }
+
+            // Thread sanitizer
+            if (options->tsan) {
+                module_pm.addPass(ModuleThreadSanitizerPass());
+                module_pm.addPass(createModuleToFunctionPassAdaptor(ThreadSanitizerPass()));
+            }
+        }
+    });
 
     pass_builder.registerOptimizerLastEPCallback([&](ModulePassManager &module_pm, OptimizationLevel level) {
-        // Code coverage instrumentation.
-        if (options->sancov) {
-            module_pm.addPass(SanitizerCoveragePass(getSanCovOptions(options->coverage)));
-        }
+        if (!early_san) {
+            // Code coverage instrumentation.
+            if (options->sancov) {
+                module_pm.addPass(SanitizerCoveragePass(getSanCovOptions(options->coverage)));
+            }
 
-        // Thread sanitizer
-        if (options->tsan) {
-            module_pm.addPass(ModuleThreadSanitizerPass());
-            module_pm.addPass(createModuleToFunctionPassAdaptor(ThreadSanitizerPass()));
+            // Thread sanitizer
+            if (options->tsan) {
+                module_pm.addPass(ModuleThreadSanitizerPass());
+                module_pm.addPass(createModuleToFunctionPassAdaptor(ThreadSanitizerPass()));
+            }
         }
 
         // Verify the output

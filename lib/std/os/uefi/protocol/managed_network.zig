@@ -110,8 +110,8 @@ pub const ManagedNetwork = extern struct {
         event: Event,
         status: Status,
         packet: extern union {
-            RxData: *ReceiveData,
-            TxData: *TransmitData,
+            rx_data: *ReceiveData,
+            tx_data: *TransmitData,
         },
     };
 

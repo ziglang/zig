@@ -1156,8 +1156,9 @@ pub const FuzzInputOptions = struct {
 
 /// Inline to avoid coverage instrumentation.
 pub inline fn fuzz(
-    comptime testOne: fn (input: []const u8) anyerror!void,
+    context: anytype,
+    comptime testOne: fn (context: @TypeOf(context), input: []const u8) anyerror!void,
     options: FuzzInputOptions,
 ) anyerror!void {
-    return @import("root").fuzz(testOne, options);
+    return @import("root").fuzz(context, testOne, options);
 }

@@ -515,7 +515,7 @@ fn updateFinish(self: *Plan9, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
 
 fn allocateSymbolIndex(self: *Plan9) !usize {
     const gpa = self.base.comp.gpa;
-    if (self.syms_index_free_list.popOrNull()) |i| {
+    if (self.syms_index_free_list.pop()) |i| {
         return i;
     } else {
         _ = try self.syms.addOne(gpa);
@@ -524,7 +524,7 @@ fn allocateSymbolIndex(self: *Plan9) !usize {
 }
 
 fn allocateGotIndex(self: *Plan9) usize {
-    if (self.got_index_free_list.popOrNull()) |i| {
+    if (self.got_index_free_list.pop()) |i| {
         return i;
     } else {
         self.got_len += 1;

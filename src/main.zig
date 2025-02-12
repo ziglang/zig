@@ -171,30 +171,31 @@ pub fn log(
     std.debug.print(prefix1 ++ prefix2 ++ format ++ "\n", args);
 }
 
-var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{
+var debug_allocator: std.heap.DebugAllocator(.{
     .stack_trace_frames = build_options.mem_leak_frames,
-}){};
+}) = .init;
 
 pub fn main() anyerror!void {
     crash_report.initialize();
 
-    const use_gpa = (build_options.force_gpa or !builtin.link_libc) and native_os != .wasi;
-    const gpa = gpa: {
-        if (native_os == .wasi) {
-            break :gpa std.heap.wasm_allocator;
+    const gpa, const is_debug = gpa: {
+        if (build_options.debug_gpa) break :gpa .{ debug_allocator.allocator(), true };
+        if (native_os == .wasi) break :gpa .{ std.heap.wasm_allocator, false };
+        if (builtin.link_libc) {
+            // We would prefer to use raw libc allocator here, but cannot use
+            // it if it won't support the alignment we need.
+            if (@alignOf(std.c.max_align_t) < @max(@alignOf(i128), std.atomic.cache_line)) {
+                break :gpa .{ std.heap.c_allocator, false };
+            }
+            break :gpa .{ std.heap.raw_c_allocator, false };
         }
-        if (use_gpa) {
-            break :gpa general_purpose_allocator.allocator();
-        }
-        // We would prefer to use raw libc allocator here, but cannot
-        // use it if it won't support the alignment we need.
-        if (@alignOf(std.c.max_align_t) < @max(@alignOf(i128), std.atomic.cache_line)) {
-            break :gpa std.heap.c_allocator;
-        }
-        break :gpa std.heap.raw_c_allocator;
+        break :gpa switch (builtin.mode) {
+            .Debug, .ReleaseSafe => .{ debug_allocator.allocator(), true },
+            .ReleaseFast, .ReleaseSmall => .{ std.heap.smp_allocator, false },
+        };
     };
-    defer if (use_gpa) {
-        _ = general_purpose_allocator.deinit();
+    defer if (is_debug) {
+        _ = debug_allocator.deinit();
     };
     var arena_instance = std.heap.ArenaAllocator.init(gpa);
     defer arena_instance.deinit();

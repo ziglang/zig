@@ -929,7 +929,7 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: AnalUnit, depend
             }
 
             // Prepend a new dependency.
-            const new_index: DepEntry.Index, const ptr = if (ip.free_dep_entries.popOrNull()) |new_index| new: {
+            const new_index: DepEntry.Index, const ptr = if (ip.free_dep_entries.pop()) |new_index| new: {
                 break :new .{ new_index, &ip.dep_entries.items[@intFromEnum(new_index)] };
             } else .{ @enumFromInt(ip.dep_entries.items.len), ip.dep_entries.addOneAssumeCapacity() };
             if (deps.unwrap()) |old_first| {
@@ -960,7 +960,7 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: AnalUnit, depend
             }
 
             // Prepend a new dependency.
-            const new_index: DepEntry.Index, const ptr = if (ip.free_dep_entries.popOrNull()) |new_index| new: {
+            const new_index: DepEntry.Index, const ptr = if (ip.free_dep_entries.pop()) |new_index| new: {
                 break :new .{ new_index, &ip.dep_entries.items[@intFromEnum(new_index)] };
             } else .{ @enumFromInt(ip.dep_entries.items.len), ip.dep_entries.addOneAssumeCapacity() };
             if (gop.found_existing) {

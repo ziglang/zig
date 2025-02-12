@@ -1,5 +1,5 @@
 /* Checking macros for socket functions.
-   Copyright (C) 2005-2024 Free Software Foundation, Inc.
+   Copyright (C) 2005-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -37,14 +37,14 @@ recv (int __fd, __fortify_clang_overload_arg0 (void *, ,__buf), size_t __n,
 					      "recv called with bigger length than "
 					      "size of destination buffer")
 {
-  size_t sz = __glibc_objsize0 (__buf);
-  if (__glibc_safe_or_unknown_len (__n, sizeof (char), sz))
+  size_t __sz = __glibc_objsize0 (__buf);
+  if (__glibc_safe_or_unknown_len (__n, sizeof (char), __sz))
     return __recv_alias (__fd, __buf, __n, __flags);
 #if !__fortify_use_clang
-  if (__glibc_unsafe_len (__n, sizeof (char), sz))
-    return __recv_chk_warn (__fd, __buf, __n, sz, __flags);
+  if (__glibc_unsafe_len (__n, sizeof (char), __sz))
+    return __recv_chk_warn (__fd, __buf, __n, __sz, __flags);
 #endif
-  return __recv_chk (__fd, __buf, __n, sz, __flags);
+  return __recv_chk (__fd, __buf, __n, __sz, __flags);
 }
 
 extern ssize_t __recvfrom_chk (int __fd, void *__restrict __buf, size_t __n,
@@ -71,13 +71,13 @@ recvfrom (int __fd, __fortify_clang_overload_arg0 (void *, __restrict, __buf),
 					      "recvfrom called with bigger length "
 					      "than size of destination buffer")
 {
-  size_t sz = __glibc_objsize0 (__buf);
-  if (__glibc_safe_or_unknown_len (__n, sizeof (char), sz))
+  size_t __sz = __glibc_objsize0 (__buf);
+  if (__glibc_safe_or_unknown_len (__n, sizeof (char), __sz))
     return __recvfrom_alias (__fd, __buf, __n, __flags, __addr, __addr_len);
 #if !__fortify_use_clang
-  if (__glibc_unsafe_len (__n, sizeof (char), sz))
-    return __recvfrom_chk_warn (__fd, __buf, __n, sz, __flags, __addr,
+  if (__glibc_unsafe_len (__n, sizeof (char), __sz))
+    return __recvfrom_chk_warn (__fd, __buf, __n, __sz, __flags, __addr,
 				__addr_len);
 #endif
-  return __recvfrom_chk (__fd, __buf, __n, sz, __flags, __addr, __addr_len);
+  return __recvfrom_chk (__fd, __buf, __n, __sz, __flags, __addr, __addr_len);
 }
