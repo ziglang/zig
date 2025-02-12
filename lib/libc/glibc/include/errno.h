@@ -20,7 +20,7 @@
 #  define errno rtld_errno
 extern int rtld_errno attribute_hidden;
 
-# elif IS_IN_LIB && !IS_IN (rtld)
+# elif IS_IN_LIB && !IS_IN (rtld) && !defined LIBC_NONSHARED
 
 #  undef  errno
 #  if IS_IN (libc)

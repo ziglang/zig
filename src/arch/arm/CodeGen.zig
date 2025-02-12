@@ -568,7 +568,7 @@ fn gen(self: *Self) !void {
             // dbg_epilogue_begin) is the last exitlude jump
             // relocation (which would just jump one instruction
             // further), it can be safely removed
-            self.mir_instructions.orderedRemove(self.exitlude_jump_relocs.pop());
+            self.mir_instructions.orderedRemove(self.exitlude_jump_relocs.pop().?);
         }
 
         for (self.exitlude_jump_relocs.items) |jmp_reloc| {
@@ -4669,7 +4669,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 
     try self.branch_stack.append(.{});
     errdefer {
-        _ = self.branch_stack.pop();
+        _ = self.branch_stack.pop().?;
     }
 
     try self.ensureProcessDeathCapacity(liveness_condbr.then_deaths.len);
@@ -4680,7 +4680,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
 
     // Revert to the previous register and stack allocation state.
 
-    var saved_then_branch = self.branch_stack.pop();
+    var saved_then_branch = self.branch_stack.pop().?;
     defer saved_then_branch.deinit(self.gpa);
 
     self.register_manager.registers = parent_registers;
@@ -4775,7 +4775,7 @@ fn airCondBr(self: *Self, inst: Air.Inst.Index) !void {
     }
 
     {
-        var item = self.branch_stack.pop();
+        var item = self.branch_stack.pop().?;
         item.deinit(self.gpa);
     }
 
@@ -5009,7 +5009,7 @@ fn lowerBlock(self: *Self, inst: Air.Inst.Index, body: []const Air.Inst.Index) !
         // If the last Mir instruction is the last relocation (which
         // would just jump one instruction further), it can be safely
         // removed
-        self.mir_instructions.orderedRemove(relocs.pop());
+        self.mir_instructions.orderedRemove(relocs.pop().?);
     }
     for (relocs.items) |reloc| {
         try self.performReloc(reloc);
@@ -5074,7 +5074,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
 
         try self.branch_stack.append(.{});
         errdefer {
-            _ = self.branch_stack.pop();
+            _ = self.branch_stack.pop().?;
         }
 
         try self.ensureProcessDeathCapacity(liveness.deaths[case.idx].len);
@@ -5084,7 +5084,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         try self.genBody(case.body);
 
         // Revert to the previous register and stack allocation state.
-        var saved_case_branch = self.branch_stack.pop();
+        var saved_case_branch = self.branch_stack.pop().?;
         defer saved_case_branch.deinit(self.gpa);
 
         self.register_manager.registers = parent_registers;
@@ -5112,7 +5112,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
 
         try self.branch_stack.append(.{});
         errdefer {
-            _ = self.branch_stack.pop();
+            _ = self.branch_stack.pop().?;
         }
 
         const else_deaths = liveness.deaths.len - 1;
@@ -5123,7 +5123,7 @@ fn airSwitch(self: *Self, inst: Air.Inst.Index) !void {
         try self.genBody(else_body);
 
         // Revert to the previous register and stack allocation state.
-        var saved_case_branch = self.branch_stack.pop();
+        var saved_case_branch = self.branch_stack.pop().?;
         defer saved_case_branch.deinit(self.gpa);
 
         self.register_manager.registers = parent_registers;

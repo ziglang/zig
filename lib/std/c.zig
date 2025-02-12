@@ -9657,6 +9657,7 @@ pub extern "c" fn setresgid(rgid: gid_t, egid: gid_t, sgid: gid_t) c_int;
 pub extern "c" fn setpgid(pid: pid_t, pgid: pid_t) c_int;
 
 pub extern "c" fn malloc(usize) ?*anyopaque;
+pub extern "c" fn calloc(usize, usize) ?*anyopaque;
 pub extern "c" fn realloc(?*anyopaque, usize) ?*anyopaque;
 pub extern "c" fn free(?*anyopaque) void;
 
@@ -9770,11 +9771,11 @@ pub extern "c" fn freeaddrinfo(res: *addrinfo) void;
 pub extern "c" fn getnameinfo(
     noalias addr: *const sockaddr,
     addrlen: socklen_t,
-    noalias host: [*]u8,
+    noalias host: ?[*]u8,
     hostlen: socklen_t,
-    noalias serv: [*]u8,
+    noalias serv: ?[*]u8,
     servlen: socklen_t,
-    flags: u32,
+    flags: NI,
 ) EAI;
 
 pub extern "c" fn gai_strerror(errcode: EAI) [*:0]const u8;

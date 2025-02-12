@@ -1,4 +1,4 @@
-/* Copyright (C) 2000-2024 Free Software Foundation, Inc.
+/* Copyright (C) 2000-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -50,97 +50,109 @@
 
 #undef INTERNAL_SYSCALL_NCS
 #define INTERNAL_SYSCALL_NCS(name, nr, args...) \
-  internal_syscall##nr(__SYSCALL_STRING, name, args)
+  _internal_syscall##nr(__SYSCALL_STRING, "p", name, args)
 
-#define internal_syscall0(string,name,dummy...)			\
+#define _internal_syscall0(string,nc,name,dummy...)	\
 ({									\
-	register long int __g1 __asm__ ("g1") = (name);			\
 	register long __o0 __asm__ ("o0");				\
+	long int _name = (long int) (name);				\
 	__asm __volatile (string : "=r" (__o0) :			\
-			  "r" (__g1) :					\
+			  [scn] nc (_name) :				\
 			  __SYSCALL_CLOBBERS);				\
 	__o0;								\
 })
+#define internal_syscall0(string,name,args...)				\
+  _internal_syscall0(string, "i", name, args)
 
-#define internal_syscall1(string,name,arg1)				\
+#define _internal_syscall1(string,nc,name,arg1)				\
 ({									\
 	long int _arg1 = (long int) (arg1);				\
-	register long int __g1 __asm__("g1") = (name);			\
+	long int _name = (long int) (name);				\
 	register long int  __o0 __asm__ ("o0") = _arg1;			\
-	__asm __volatile (string : "=r" (__o0) :			\
-			  "r" (__g1), "0" (__o0) :			\
+	__asm __volatile (string : "+r" (__o0) :			\
+			  [scn] nc (_name) :				\
 			  __SYSCALL_CLOBBERS);				\
 	__o0;								\
 })
+#define internal_syscall1(string,name,args...)				\
+  _internal_syscall1(string, "i", name, args)
 
-#define internal_syscall2(string,name,arg1,arg2)			\
+#define _internal_syscall2(string,nc,name,arg1,arg2)			\
 ({									\
 	long int _arg1 = (long int) (arg1);				\
 	long int _arg2 = (long int) (arg2);				\
-	register long int __g1 __asm__("g1") = (name);			\
+	long int _name = (long int) (name);				\
 	register long int __o0 __asm__ ("o0") = _arg1;			\
 	register long int __o1 __asm__ ("o1") = _arg2;			\
-	__asm __volatile (string : "=r" (__o0) :			\
-			  "r" (__g1), "0" (__o0), "r" (__o1) :		\
+	__asm __volatile (string : "+r" (__o0) :			\
+			  [scn] nc (_name), "r" (__o1) :		\
 			  __SYSCALL_CLOBBERS);				\
 	__o0;								\
 })
+#define internal_syscall2(string,name,args...)				\
+  _internal_syscall2(string, "i", name, args)
 
-#define internal_syscall3(string,name,arg1,arg2,arg3)			\
+#define _internal_syscall3(string,nc,name,arg1,arg2,arg3)		\
 ({									\
 	long int _arg1 = (long int) (arg1);				\
 	long int _arg2 = (long int) (arg2);				\
 	long int _arg3 = (long int) (arg3);				\
-	register long int __g1 __asm__("g1") = (name);			\
+	long int _name = (long int) (name);				\
 	register long int __o0 __asm__ ("o0") = _arg1;			\
 	register long int __o1 __asm__ ("o1") = _arg2;			\
 	register long int __o2 __asm__ ("o2") = _arg3;			\
-	__asm __volatile (string : "=r" (__o0) :			\
-			  "r" (__g1), "0" (__o0), "r" (__o1),		\
+	__asm __volatile (string : "+r" (__o0) :			\
+			  [scn] nc (_name), "r" (__o1),			\
 			  "r" (__o2) :					\
 			  __SYSCALL_CLOBBERS);				\
 	__o0;								\
 })
+#define internal_syscall3(string,name,args...)				\
+  _internal_syscall3(string, "i", name, args)
 
-#define internal_syscall4(string,name,arg1,arg2,arg3,arg4)		\
+#define _internal_syscall4(string,nc,name,arg1,arg2,arg3,arg4)		\
 ({									\
 	long int _arg1 = (long int) (arg1);				\
 	long int _arg2 = (long int) (arg2);				\
 	long int _arg3 = (long int) (arg3);				\
 	long int _arg4 = (long int) (arg4);				\
-	register long int __g1 __asm__("g1") = (name);			\
+	long int _name = (long int) (name);				\
 	register long int __o0 __asm__ ("o0") = _arg1;			\
 	register long int __o1 __asm__ ("o1") = _arg2;			\
 	register long int __o2 __asm__ ("o2") = _arg3;			\
 	register long int __o3 __asm__ ("o3") = _arg4;			\
-	__asm __volatile (string : "=r" (__o0) :			\
-			  "r" (__g1), "0" (__o0), "r" (__o1),		\
+	__asm __volatile (string : "+r" (__o0) :			\
+			  [scn] nc (_name), "r" (__o1),			\
 			  "r" (__o2), "r" (__o3) :			\
 			  __SYSCALL_CLOBBERS);				\
 	__o0;								\
 })
+#define internal_syscall4(string,name,args...)				\
+  _internal_syscall4(string, "i", name, args)
 
-#define internal_syscall5(string,name,arg1,arg2,arg3,arg4,arg5)		\
+#define _internal_syscall5(string,nc,name,arg1,arg2,arg3,arg4,arg5)	\
 ({									\
 	long int _arg1 = (long int) (arg1);				\
 	long int _arg2 = (long int) (arg2);				\
 	long int _arg3 = (long int) (arg3);				\
 	long int _arg4 = (long int) (arg4);				\
 	long int _arg5 = (long int) (arg5);				\
-	register long int __g1 __asm__("g1") = (name);			\
+	long int _name = (long int) (name);				\
 	register long int __o0 __asm__ ("o0") = _arg1;			\
 	register long int __o1 __asm__ ("o1") = _arg2;			\
 	register long int __o2 __asm__ ("o2") = _arg3;			\
 	register long int __o3 __asm__ ("o3") = _arg4;			\
 	register long int __o4 __asm__ ("o4") = _arg5;			\
-	__asm __volatile (string : "=r" (__o0) :			\
-			  "r" (__g1), "0" (__o0), "r" (__o1),		\
+	__asm __volatile (string : "+r" (__o0) :			\
+			  [scn] nc (_name), "r" (__o1),			\
 			  "r" (__o2), "r" (__o3), "r" (__o4) :		\
 			  __SYSCALL_CLOBBERS);				\
 	__o0;								\
 })
+#define internal_syscall5(string,name,args...)				\
+  _internal_syscall5(string, "i", name, args)
 
-#define internal_syscall6(string,name,arg1,arg2,arg3,arg4,arg5,arg6)	\
+#define _internal_syscall6(string,nc,name,arg1,arg2,arg3,arg4,arg5,arg6)\
 ({									\
 	long int _arg1 = (long int) (arg1);				\
 	long int _arg2 = (long int) (arg2);				\
@@ -148,20 +160,22 @@
 	long int _arg4 = (long int) (arg4);				\
 	long int _arg5 = (long int) (arg5);				\
 	long int _arg6 = (long int) (arg6);				\
-	register long int __g1 __asm__("g1") = (name);			\
+	long int _name = (long int) (name);				\
 	register long int __o0 __asm__ ("o0") = _arg1;			\
 	register long int __o1 __asm__ ("o1") = _arg2;			\
 	register long int __o2 __asm__ ("o2") = _arg3;			\
 	register long int __o3 __asm__ ("o3") = _arg4;			\
 	register long int __o4 __asm__ ("o4") = _arg5;			\
 	register long int __o5 __asm__ ("o5") = _arg6;			\
-	__asm __volatile (string : "=r" (__o0) :			\
-			  "r" (__g1), "0" (__o0), "r" (__o1),		\
+	__asm __volatile (string : "+r" (__o0) :			\
+			  [scn] nc (_name), "r" (__o1),			\
 			  "r" (__o2), "r" (__o3), "r" (__o4),		\
 			  "r" (__o5) :					\
 			  __SYSCALL_CLOBBERS);				\
 	__o0;								\
 })
+#define internal_syscall6(string,name,args...)				\
+  _internal_syscall6(string, "i", name, args)
 
 #define INLINE_CLONE_SYSCALL(arg1,arg2,arg3,arg4,arg5)			\
 ({									\
@@ -170,15 +184,15 @@
 	long int _arg3 = (long int) (arg3);				\
 	long int _arg4 = (long int) (arg4);				\
 	long int _arg5 = (long int) (arg5);				\
+	long int _name = __NR_clone;					\
 	register long int __o0 __asm__ ("o0") = _arg1;			\
 	register long int __o1 __asm__ ("o1") = _arg2;			\
 	register long int __o2 __asm__ ("o2") = _arg3;			\
 	register long int __o3 __asm__ ("o3") = _arg4;			\
 	register long int __o4 __asm__ ("o4") = _arg5;			\
-	register long int __g1 __asm__ ("g1") = __NR_clone;		\
 	__asm __volatile (__SYSCALL_STRING :				\
 			  "=r" (__o0), "=r" (__o1) :			\
-			  "r" (__g1), "0" (__o0), "1" (__o1),		\
+			  [scn] "i" (_name), "0" (__o0), "1" (__o1),	\
 			  "r" (__o2), "r" (__o3), "r" (__o4) :		\
 			  __SYSCALL_CLOBBERS);				\
 	if (__glibc_unlikely ((unsigned long int) (__o0) > -4096UL))	\
