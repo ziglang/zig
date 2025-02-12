@@ -1252,9 +1252,13 @@ pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, case: Case, options
     return fbs.pos;
 }
 
-// Converts values in the range [0, 100) to a string.
-pub fn digits2(value: usize) [2]u8 {
-    return "00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899"[value * 2 ..][0..2].*;
+/// Converts values in the range [0, 100) to a base 10 string.
+pub fn digits2(value: u8) [2]u8 {
+    if (builtin.mode == .ReleaseSmall) {
+        return .{ @intCast('0' + value / 10), @intCast('0' + value % 10) };
+    } else {
+        return "00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899"[value * 2 ..][0..2].*;
+    }
 }
 
 const FormatDurationData = struct {
