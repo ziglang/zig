@@ -377,7 +377,7 @@ test parseAlloc {
     const expectError = std.testing.expectError;
     const eql = std.mem.eql;
 
-    var fixed_buf_mem: [64]u8 = undefined;
+    var fixed_buf_mem: [512]u8 = undefined;
     var fixed_buf_alloc = std.heap.FixedBufferAllocator.init(&fixed_buf_mem);
     const alloc = fixed_buf_alloc.allocator();
 
