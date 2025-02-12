@@ -47,13 +47,10 @@ pub fn microTimestamp() i64 {
 pub fn nanoTimestamp() i128 {
     switch (builtin.os.tag) {
         .windows => {
-            // FileTime has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch,
+            // RtlGetSystemTimePrecise() has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch,
             // which is 1601-01-01.
             const epoch_adj = epoch.windows * (ns_per_s / 100);
-            var ft: windows.FILETIME = undefined;
-            windows.kernel32.GetSystemTimeAsFileTime(&ft);
-            const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
-            return @as(i128, @as(i64, @bitCast(ft64)) + epoch_adj) * 100;
+            return @as(i128, windows.ntdll.RtlGetSystemTimePrecise() + epoch_adj) * 100;
         },
         .wasi => {
             var ns: std.os.wasi.timestamp_t = undefined;
