@@ -27,6 +27,7 @@ red_zone: bool,
 sanitize_c: bool,
 sanitize_thread: bool,
 fuzz: bool,
+allow_deprecated: bool,
 unwind_tables: std.builtin.UnwindTables,
 cc_argv: []const []const u8,
 /// (SPIR-V) whether to generate a structured control flow graph or not
@@ -95,6 +96,7 @@ pub const CreateOptions = struct {
         sanitize_c: ?bool = null,
         sanitize_thread: ?bool = null,
         fuzz: ?bool = null,
+        allow_deprecated: ?bool = null,
         structured_cfg: ?bool = null,
         no_builtin: ?bool = null,
     };
@@ -231,6 +233,12 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     const fuzz = b: {
         if (options.inherited.fuzz) |x| break :b x;
         if (options.parent) |p| break :b p.fuzz;
+        break :b false;
+    };
+
+    const allow_deprecated = b: {
+        if (options.inherited.allow_deprecated) |x| break :b x;
+        if (options.parent) |p| break :b p.allow_deprecated;
         break :b false;
     };
 
@@ -380,6 +388,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         .sanitize_c = sanitize_c,
         .sanitize_thread = sanitize_thread,
         .fuzz = fuzz,
+        .allow_deprecated = allow_deprecated,
         .unwind_tables = unwind_tables,
         .cc_argv = options.cc_argv,
         .structured_cfg = structured_cfg,
@@ -474,6 +483,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             .sanitize_c = sanitize_c,
             .sanitize_thread = sanitize_thread,
             .fuzz = fuzz,
+            .allow_deprecated = allow_deprecated,
             .unwind_tables = unwind_tables,
             .cc_argv = &.{},
             .structured_cfg = structured_cfg,
@@ -532,6 +542,7 @@ pub fn createLimited(gpa: Allocator, options: LimitedOptions) Allocator.Error!*P
         .sanitize_c = undefined,
         .sanitize_thread = undefined,
         .fuzz = undefined,
+        .allow_deprecated = undefined,
         .unwind_tables = undefined,
         .cc_argv = undefined,
         .structured_cfg = undefined,

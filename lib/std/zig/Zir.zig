@@ -2112,6 +2112,9 @@ pub const Inst = struct {
         /// any code may have gone here, avoiding false-positive "unreachable code" errors.
         astgen_error,
 
+        /// `operand` is `src_node: i32`.
+        deprecated,
+
         pub const InstData = struct {
             opcode: Extended,
             small: u16,
@@ -4310,6 +4313,7 @@ fn findTrackableInner(
                 .value_placeholder => unreachable,
 
                 // Once again, we start with the boring tags.
+                .deprecated,
                 .this,
                 .ret_addr,
                 .builtin_src,
