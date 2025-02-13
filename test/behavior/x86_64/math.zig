@@ -17978,8 +17978,8 @@ fn binary(comptime op: anytype, comptime opts: struct { compare: Compare = .rela
                 -0x12, -0x1e, 0x18, 0x6e, 0x31,  0x53,  -0x6a, -0x34, 0x13,  0x4d, 0x30, -0x7d, -0x31, 0x1e,  -0x24, 0x32,
                 -0x1e, -0x01, 0x55, 0x33, -0x75, -0x44, -0x57, 0x2b,  -0x66, 0x19, 0x7f, -0x28, -0x3f, -0x7e, -0x5d, -0x06,
             }, .{
-                0x05, -0x23, 0x43,  -0x54, -0x41, 0x7f,  -0x6a, -0x31, 0x04,  0x15, -0x7a, -0x37, 0x6d, 0x16,  0x00,  0x4a,
-                0x15, 0x55,  -0x4a, 0x16,  -0x73, -0x0c, 0x1c,  -0x26, -0x14, 0x00, 0x55,  0x7b,  0x16, -0x2e, -0x5f, -0x67,
+                0x05, -0x23, 0x43,  -0x54, -0x41, 0x7f,  -0x6a, -0x31, 0x04,  0x15,  -0x7a, -0x37, 0x6d, 0x16,  0x01,  0x4a,
+                0x15, 0x55,  -0x4a, 0x16,  -0x73, -0x0c, 0x1c,  -0x26, -0x14, -0x01, 0x55,  0x7b,  0x16, -0x2e, -0x5f, -0x67,
             });
             try testArgs(@Vector(64, i8), .{
                 -0x05, 0x76,  0x4e,  -0x5c, 0x7b,  -0x1a, -0x38, -0x2e, 0x3d,  0x36,  0x01,  0x30,  -0x02, -0x71, -0x24, 0x24,
@@ -18008,7 +18008,7 @@ fn binary(comptime op: anytype, comptime opts: struct { compare: Compare = .rela
                 0x23,  0x3b,  0x0a,  0x7a,  0x19,  0x14,  0x65,  -0x1d, 0x2b,  0x65,  0x33,  0x2a,  0x52,  -0x63, 0x57,  0x10,
                 -0x1b, 0x26,  -0x46, -0x7e, -0x25, 0x79,  -0x01, -0x0d, -0x49, -0x4d, 0x74,  0x03,  0x77,  0x16,  0x03,  -0x3d,
                 0x1c,  0x25,  0x5a,  -0x2f, -0x16, -0x5f, -0x36, -0x55, -0x44, -0x0c, -0x0f, 0x7b,  -0x15, -0x1d, 0x32,  0x31,
-                0x6e,  -0x44, -0x4a, -0x64, 0x67,  0x04,  0x47,  0x00,  0x3c,  -0x0a, -0x79, 0x3d,  0x48,  0x5a,  0x61,  -0x2c,
+                0x6e,  -0x44, -0x4a, -0x64, 0x67,  0x04,  0x47,  -0x02, 0x3c,  -0x0a, -0x79, 0x3d,  0x48,  0x5a,  0x61,  -0x2c,
                 0x6d,  -0x68, -0x71, -0x6b, -0x11, 0x44,  -0x75, -0x55, -0x67, -0x52, 0x64,  -0x3d, -0x05, -0x76, -0x6d, -0x44,
             });
 
@@ -18035,7 +18035,7 @@ fn binary(comptime op: anytype, comptime opts: struct { compare: Compare = .rela
             try testArgs(@Vector(16, u8), .{
                 0xea, 0x80, 0xbb, 0xe8, 0x74, 0x81, 0xc8, 0x66, 0x7b, 0x41, 0x90, 0xcb, 0x30, 0x70, 0x4b, 0x0f,
             }, .{
-                0x61, 0x26, 0xbe, 0x47, 0x00, 0x9c, 0x55, 0xa5, 0x59, 0xf0, 0xb2, 0x20, 0x30, 0xaf, 0x82, 0x3e,
+                0x61, 0x26, 0xbe, 0x47, 0x02, 0x9c, 0x55, 0xa5, 0x59, 0xf0, 0xb2, 0x20, 0x30, 0xaf, 0x82, 0x3e,
             });
             try testArgs(@Vector(32, u8), .{
                 0xa1, 0x88, 0xc4, 0xf4, 0x77, 0x0b, 0xf5, 0xbb, 0x09, 0x03, 0xbf, 0xf5, 0xcc, 0x7f, 0x6b, 0x2a,
@@ -18976,12 +18976,12 @@ test addUnsafe {
 inline fn subUnsafe(comptime Type: type, lhs: Type, rhs: Type) AddOneBit(Type) {
     @setRuntimeSafety(false);
     switch (@typeInfo(Scalar(Type))) {
+        else => @compileError(@typeName(Type)),
         .int => |int| switch (int.signedness) {
             .signed => {},
             .unsigned => return @as(AddOneBit(Type), @max(lhs, rhs)) - @min(lhs, rhs),
         },
         .float => {},
-        else => @compileError(@typeName(Type)),
     }
     return @as(AddOneBit(Type), lhs) - rhs;
 }
@@ -19024,42 +19024,51 @@ test divide {
     try test_divide.testFloatVectors();
 }
 
-// workaround https://github.com/ziglang/zig/issues/22748
-// TODO: @TypeOf(@divTrunc(lhs, rhs))
-inline fn divTrunc(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs / rhs) {
-    if (@inComptime()) {
-        // workaround https://github.com/ziglang/zig/issues/22748
-        return @trunc(lhs / rhs);
+inline fn divTrunc(comptime Type: type, lhs: Type, rhs: Type) Type {
+    switch (@typeInfo(Scalar(Type))) {
+        else => @compileError(@typeName(Type)),
+        .int => return @divTrunc(lhs, rhs),
+        .float => {
+            if (@inComptime()) {
+                // workaround https://github.com/ziglang/zig/issues/22748
+                return @trunc(lhs / rhs);
+            }
+            // workaround https://github.com/ziglang/zig/issues/22748
+            // workaround https://github.com/ziglang/zig/issues/22749
+            // TODO: return @divTrunc(lhs, rhs);
+            var rt_lhs = lhs;
+            var rt_rhs = rhs;
+            _ = .{ &rt_lhs, &rt_rhs };
+            return @divTrunc(rt_lhs, rt_rhs);
+        },
     }
-    // workaround https://github.com/ziglang/zig/issues/22748
-    // workaround https://github.com/ziglang/zig/issues/22749
-    // TODO: return @divTrunc(lhs, rhs);
-    var rt_lhs = lhs;
-    var rt_rhs = rhs;
-    _ = .{ &rt_lhs, &rt_rhs };
-    return @divTrunc(rt_lhs, rt_rhs);
 }
 test divTrunc {
     const test_div_trunc = binary(divTrunc, .{ .compare = .approx_int });
+    try test_div_trunc.testInts();
+    try test_div_trunc.testIntVectors();
     try test_div_trunc.testFloats();
     try test_div_trunc.testFloatVectors();
 }
 
-// workaround https://github.com/ziglang/zig/issues/22748
-// TODO: @TypeOf(@divFloor(lhs, rhs))
-inline fn divFloor(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs / rhs) {
-    if (@inComptime()) {
-        // workaround https://github.com/ziglang/zig/issues/22748
-        return @floor(lhs / rhs);
+inline fn divFloor(comptime Type: type, lhs: Type, rhs: Type) Type {
+    switch (@typeInfo(Scalar(Type))) {
+        else => @compileError(@typeName(Type)),
+        .int => return @divFloor(lhs, rhs),
+        .float => {
+            if (@inComptime()) {
+                // workaround https://github.com/ziglang/zig/issues/22748
+                return @floor(lhs / rhs);
+            }
+            // workaround https://github.com/ziglang/zig/issues/22748
+            // workaround https://github.com/ziglang/zig/issues/22749
+            // TODO: return @divFloor(lhs, rhs);
+            var rt_lhs = lhs;
+            var rt_rhs = rhs;
+            _ = .{ &rt_lhs, &rt_rhs };
+            return @divFloor(rt_lhs, rt_rhs);
+        },
     }
-    // workaround https://github.com/ziglang/zig/issues/22748
-    // workaround https://github.com/ziglang/zig/issues/22749
-    // TODO: return @divFloor(lhs, rhs);
-    var rt_lhs = lhs;
-    var rt_rhs = rhs;
-    _ = &rt_lhs;
-    _ = &rt_rhs;
-    return @divFloor(rt_lhs, rt_rhs);
 }
 test divFloor {
     const test_div_floor = binary(divFloor, .{ .compare = .approx_int });
