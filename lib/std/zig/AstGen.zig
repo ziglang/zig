@@ -5913,6 +5913,10 @@ fn containerDecl(
             var wip_members = try WipMembers.init(gpa, &astgen.scratch, decl_count, 0, 0, 0);
             defer wip_members.deinit();
 
+            if (container_decl.layout_token) |layout_token| {
+                return astgen.failTok(layout_token, "opaque types do not support 'packed' or 'extern'", .{});
+            }
+
             for (container_decl.ast.members) |member_node| {
                 const res = try containerMember(&block_scope, &namespace.base, &wip_members, member_node);
                 if (res == .field) {
