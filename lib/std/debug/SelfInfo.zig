@@ -2027,12 +2027,9 @@ pub const VirtualMachine = struct {
 
         var prev_row: Row = self.current_row;
 
-        var cie_stream = std.io.fixedBufferStream(cie.initial_instructions);
-        var fde_stream = std.io.fixedBufferStream(fde.instructions);
-        var streams = [_]*std.io.FixedBufferStream([]const u8){
-            &cie_stream,
-            &fde_stream,
-        };
+        var cie_stream: std.io.FixedBufferStream = .{ .buffer = cie.initial_instructions };
+        var fde_stream: std.io.FixedBufferStream = .{ .buffer = fde.instructions };
+        const streams: [2]*std.io.FixedBufferStream = .{ &cie_stream, &fde_stream };
 
         for (&streams, 0..) |stream, i| {
             while (stream.pos < stream.buffer.len) {

@@ -963,7 +963,7 @@ const MachODumper = struct {
                 .UUID => {
                     const uuid = lc.cast(macho.uuid_command).?;
                     try writer.writeByte('\n');
-                    try writer.print("uuid {x}", .{std.fmt.fmtSliceHexLower(&uuid.uuid)});
+                    try writer.print("uuid {x}", .{&uuid.uuid});
                 },
 
                 .DATA_IN_CODE,

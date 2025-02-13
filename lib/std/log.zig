@@ -148,14 +148,15 @@ pub fn defaultLog(
 ) void {
     const level_txt = comptime message_level.asText();
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
-    const stderr = std.io.getStdErr().writer();
-    var bw = std.io.bufferedWriter(stderr);
-    const writer = bw.writer();
-
+    var buffer: [1024]u8 = undefined;
+    var bw: std.io.BufferedWriter = .{
+        .unbuffered_writer = std.io.getStdErr().writer(),
+        .buffer = &buffer,
+    };
     std.debug.lockStdErr();
     defer std.debug.unlockStdErr();
     nosuspend {
-        writer.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
+        bw.print(level_txt ++ prefix2 ++ format ++ "\n", args) catch return;
         bw.flush() catch return;
     }
 }

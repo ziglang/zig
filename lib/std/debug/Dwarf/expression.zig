@@ -178,7 +178,7 @@ pub fn StackMachine(comptime options: Options) type {
             }
         }
 
-        pub fn readOperand(stream: *std.io.FixedBufferStream([]const u8), opcode: u8, context: Context) !?Operand {
+        pub fn readOperand(stream: *std.io.FixedBufferStream, opcode: u8, context: Context) !?Operand {
             const reader = stream.reader();
             return switch (opcode) {
                 OP.addr => generic(try reader.readInt(addr_type, options.endian)),
@@ -293,7 +293,7 @@ pub fn StackMachine(comptime options: Options) type {
             initial_value: ?usize,
         ) Error!?Value {
             if (initial_value) |i| try self.stack.append(allocator, .{ .generic = i });
-            var stream = std.io.fixedBufferStream(expression);
+            var stream: std.io.FixedBufferStream = .{ .buffer = expression };
             while (try self.step(&stream, allocator, context)) {}
             if (self.stack.items.len == 0) return null;
             return self.stack.items[self.stack.items.len - 1];
@@ -302,7 +302,7 @@ pub fn StackMachine(comptime options: Options) type {
         /// Reads an opcode and its operands from `stream`, then executes it
         pub fn step(
             self: *Self,
-            stream: *std.io.FixedBufferStream([]const u8),
+            stream: *std.io.FixedBufferStream,
             allocator: std.mem.Allocator,
             context: Context,
         ) Error!bool {
@@ -756,7 +756,7 @@ pub fn StackMachine(comptime options: Options) type {
                     if (isOpcodeRegisterLocation(block[0])) {
                         if (context.thread_context == null) return error.IncompleteExpressionContext;
 
-                        var block_stream = std.io.fixedBufferStream(block);
+                        var block_stream: std.io.FixedBufferStream = .{ .buffer = block };
                         const register = (try readOperand(&block_stream, block[0], context)).?.register;
                         const value = mem.readInt(usize, (try abi.regBytes(context.thread_context.?, register, context.reg_context))[0..@sizeOf(usize)], native_endian);
                         try self.stack.append(allocator, .{ .generic = value });

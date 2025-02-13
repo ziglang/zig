@@ -51,7 +51,7 @@ const Opcode = enum(u8) {
     pub const hi_user = 0x3f;
 };
 
-fn readBlock(stream: *std.io.FixedBufferStream([]const u8)) ![]const u8 {
+fn readBlock(stream: *std.io.FixedBufferStream) ![]const u8 {
     const reader = stream.reader();
     const block_len = try leb.readUleb128(usize, reader);
     if (stream.pos + block_len > stream.buffer.len) return error.InvalidOperand;
@@ -147,7 +147,7 @@ pub const Instruction = union(Opcode) {
     },
 
     pub fn read(
-        stream: *std.io.FixedBufferStream([]const u8),
+        stream: *std.io.FixedBufferStream,
         addr_size_bytes: u8,
         endian: std.builtin.Endian,
     ) !Instruction {
