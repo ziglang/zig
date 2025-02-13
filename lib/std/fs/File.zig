@@ -1586,11 +1586,103 @@ pub fn reader(file: File) Reader {
     return .{ .context = file };
 }
 
-pub const Writer = io.Writer(File, WriteError, write);
-
-pub fn writer(file: File) Writer {
-    return .{ .context = file };
+pub fn writer(file: File) std.io.Writer {
+    return .{
+        .context = interface.handleToOpaque(file.handle),
+        .vtable = &.{
+            .writev = interface.writev,
+            .writeFile = interface.writeFile,
+        },
+    };
 }
+
+pub fn unbufferedWriter(file: File) std.io.BufferedWriter {
+    return .{
+        .buffer = &.{},
+        .unbuffered_writer = writer(file),
+    };
+}
+
+const interface = struct {
+    /// Number of slices to store on the stack, when trying to send as many byte
+    /// vectors through the underlying write calls as possible.
+    const max_buffers_len = 16;
+
+    fn writev(context: *anyopaque, data: []const []const u8) anyerror!usize {
+        const file = opaqueToHandle(context);
+
+        if (is_windows) {
+            // TODO improve this to use WriteFileScatter
+            if (data.len == 0) return 0;
+            const first = data[0];
+            return windows.WriteFile(file, first.base[0..first.len], null);
+        }
+
+        var iovecs_buffer: [max_buffers_len]std.posix.iovec = undefined;
+        const iovecs = iovecs_buffer[0..@min(iovecs_buffer.len, data.len)];
+        for (iovecs, data[0..iovecs.len]) |*v, d| v.* = .{ .base = d.ptr, .len = d.len };
+        return std.posix.writev(file, iovecs);
+    }
+
+    fn writeFile(
+        context: *anyopaque,
+        in_file: std.fs.File,
+        in_offset: u64,
+        in_len: std.io.Writer.VTable.FileLen,
+        headers_and_trailers: []const []const u8,
+        headers_len: usize,
+    ) anyerror!usize {
+        const out_fd = opaqueToHandle(context);
+        const in_fd = in_file.handle;
+        const headers = headers_and_trailers[0..headers_len];
+        const trailers = headers_and_trailers[headers_len..];
+        const flags = 0;
+        return posix.sendfile(out_fd, in_fd, in_offset, in_len, headers, trailers, flags) catch |err| switch (err) {
+            error.Unseekable,
+            error.FastOpenAlreadyInProgress,
+            error.MessageTooBig,
+            error.FileDescriptorNotASocket,
+            error.NetworkUnreachable,
+            error.NetworkSubsystemFailed,
+            => return writeFileUnseekable(out_fd, in_fd, in_offset, in_len, headers, trailers),
+
+            else => |e| return e,
+        };
+    }
+
+    fn writeFileUnseekable(
+        out_fd: Handle,
+        in_fd: Handle,
+        in_offset: u64,
+        in_len: std.io.Writer.VTable.FileLen,
+        headers: []const []const u8,
+        trailers: []const []const u8,
+    ) anyerror!usize {
+        _ = out_fd;
+        _ = in_fd;
+        _ = in_offset;
+        _ = in_len;
+        _ = headers;
+        _ = trailers;
+        @panic("TODO writeFileUnseekable");
+    }
+
+    fn handleToOpaque(handle: File.Handle) *anyopaque {
+        return switch (@typeInfo(Handle)) {
+            .pointer => @ptrCast(handle),
+            .int => @ptrFromInt(@as(u32, @bitCast(handle))),
+            else => @compileError("unhandled"),
+        };
+    }
+
+    fn opaqueToHandle(userdata: *anyopaque) Handle {
+        return switch (@typeInfo(Handle)) {
+            .pointer => @ptrCast(userdata),
+            .int => @intCast(@intFromPtr(userdata)),
+            else => @compileError("unhandled"),
+        };
+    }
+};
 
 pub const SeekableStream = io.SeekableStream(
     File,

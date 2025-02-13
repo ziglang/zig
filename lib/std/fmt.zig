@@ -24,11 +24,14 @@ pub const Alignment = enum {
 const default_alignment = .right;
 const default_fill_char = ' ';
 
-pub const FormatOptions = struct {
+/// Deprecated; to be removed after 0.14.0 is tagged.
+pub const FormatOptions = Options;
+
+pub const Options = struct {
     precision: ?usize = null,
     width: ?usize = null,
     alignment: Alignment = default_alignment,
-    fill: u21 = default_fill_char,
+    fill: u8 = default_fill_char,
 };
 
 /// Renders fmt string with args, calling `writer` with slices of bytes.
@@ -45,9 +48,10 @@ pub const FormatOptions = struct {
 ///   - when using a field name, you are required to enclose the field name (an identifier) in square
 ///     brackets, e.g. {[score]...} as opposed to the numeric index form which can be written e.g. {2...}
 /// - *specifier* is a type-dependent formatting option that determines how a type should formatted (see below)
-/// - *fill* is a single unicode codepoint which is used to pad the formatted text
+/// - *fill* is a single byte which is used to pad the formatted text
 /// - *alignment* is one of the three bytes '<', '^', or '>' to make the text left-, center-, or right-aligned, respectively
-/// - *width* is the total width of the field in unicode codepoints
+/// - *width* is the total width of the field in bytes. This is generally only
+///   useful for ASCII text, such as numbers.
 /// - *precision* specifies how many decimals a formatted number should have
 ///
 /// Note that most of the parameters are optional and may be omitted. Also you can leave out separators like `:` and `.` when
@@ -73,7 +77,7 @@ pub const FormatOptions = struct {
 ///
 /// If a formatted user type contains a function of the type
 /// ```
-/// pub fn format(value: ?, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void
+/// pub fn format(value: ?, comptime fmt: []const u8, options: std.fmt.Options, writer: anytype) !void
 /// ```
 /// with `?` being the type formatted, this function will be called instead of the default implementation.
 /// This allows user types to be formatted in a logical manner instead of dumping all fields of the type.
@@ -85,7 +89,7 @@ pub fn format(
     writer: anytype,
     comptime fmt: []const u8,
     args: anytype,
-) !void {
+) @typeInfo(@TypeOf(writer).writeAll).@"fn".return_type.? {
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
     if (args_type_info != .@"struct") {
@@ -193,7 +197,7 @@ pub fn format(
         try formatType(
             @field(args, fields_info[arg_to_print].name),
             placeholder.specifier_arg,
-            FormatOptions{
+            Options{
                 .fill = placeholder.fill,
                 .alignment = placeholder.alignment,
                 .width = width,
@@ -298,7 +302,7 @@ pub const Placeholder = struct {
             @compileError("extraneous trailing character '" ++ unicode.utf8EncodeComptime(ch) ++ "'");
         }
 
-        return Placeholder{
+        return .{
             .specifier_arg = cacheString(specifier_arg[0..specifier_arg.len].*),
             .fill = fill orelse default_fill_char,
             .alignment = alignment orelse default_alignment,
@@ -434,31 +438,6 @@ pub const ArgState = struct {
     }
 };
 
-pub fn formatAddress(value: anytype, options: FormatOptions, writer: anytype) @TypeOf(writer).Error!void {
-    _ = options;
-    const T = @TypeOf(value);
-
-    switch (@typeInfo(T)) {
-        .pointer => |info| {
-            try writer.writeAll(@typeName(info.child) ++ "@");
-            if (info.size == .slice)
-                try formatInt(@intFromPtr(value.ptr), 16, .lower, FormatOptions{}, writer)
-            else
-                try formatInt(@intFromPtr(value), 16, .lower, FormatOptions{}, writer);
-            return;
-        },
-        .optional => |info| {
-            if (@typeInfo(info.child) == .pointer) {
-                try writer.writeAll(@typeName(info.child) ++ "@");
-                try formatInt(@intFromPtr(value), 16, .lower, FormatOptions{}, writer);
-                return;
-            }
-        },
-        else => {},
-    }
-
-    @compileError("cannot format non-pointer type " ++ @typeName(T) ++ " with * specifier");
-}
 
 // This ANY const is a workaround for: https://github.com/ziglang/zig/issues/7948
 const ANY = "any";
@@ -492,13 +471,17 @@ pub fn invalidFmtError(comptime fmt: []const u8, value: anytype) void {
     @compileError("invalid format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
 }
 
-pub fn formatType(
+fn WriterError(W: type) type {
+    return if (@typeInfo(W) == .pointer) anyerror else W.Error;
+}
+
+fn formatType(
     value: anytype,
     comptime fmt: []const u8,
-    options: FormatOptions,
-    writer: anytype,
+    options: Options,
+    writer: *std.io.BufferedWriter,
     max_depth: usize,
-) @TypeOf(writer).Error!void {
+) anyerror!void {
     const T = @TypeOf(value);
     const actual_fmt = comptime if (std.mem.eql(u8, fmt, ANY))
         defaultSpec(T)
@@ -508,7 +491,7 @@ pub fn formatType(
     } else fmt;
 
     if (comptime std.mem.eql(u8, actual_fmt, "*")) {
-        return formatAddress(value, options, writer);
+        return formatAddress(value, writer);
     }
 
     if (std.meta.hasMethod(T, "format")) {
@@ -720,7 +703,7 @@ pub fn formatType(
 fn formatValue(
     value: anytype,
     comptime fmt: []const u8,
-    options: FormatOptions,
+    options: Options,
     writer: anytype,
 ) !void {
     const T = @TypeOf(value);
@@ -735,7 +718,7 @@ fn formatValue(
 pub fn formatIntValue(
     value: anytype,
     comptime fmt: []const u8,
-    options: FormatOptions,
+    options: Options,
     writer: anytype,
 ) !void {
     comptime var base = 10;
@@ -787,7 +770,7 @@ pub const FormatFloatError = format_float.FormatError;
 fn formatFloatValue(
     value: anytype,
     comptime fmt: []const u8,
-    options: FormatOptions,
+    options: Options,
     writer: anytype,
 ) !void {
     var buf: [format_float.bufferSize(.decimal, f64)]u8 = undefined;
@@ -826,7 +809,7 @@ fn SliceHex(comptime case: Case) type {
         pub fn format(
             bytes: []const u8,
             comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
+            options: std.fmt.Options,
             writer: anytype,
         ) !void {
             _ = fmt;
@@ -864,7 +847,7 @@ fn SliceEscape(comptime case: Case) type {
         pub fn format(
             bytes: []const u8,
             comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
+            options: std.fmt.Options,
             writer: anytype,
         ) !void {
             _ = fmt;
@@ -909,7 +892,7 @@ fn Size(comptime base: comptime_int) type {
         fn format(
             value: u64,
             comptime fmt: []const u8,
-            options: FormatOptions,
+            options: Options,
             writer: anytype,
         ) !void {
             _ = fmt;
@@ -996,7 +979,7 @@ fn checkTextFmt(comptime fmt: []const u8) void {
 pub fn formatText(
     bytes: []const u8,
     comptime fmt: []const u8,
-    options: FormatOptions,
+    options: Options,
     writer: anytype,
 ) !void {
     comptime checkTextFmt(fmt);
@@ -1005,7 +988,7 @@ pub fn formatText(
 
 pub fn formatAsciiChar(
     c: u8,
-    options: FormatOptions,
+    options: Options,
     writer: anytype,
 ) !void {
     return formatBuf(@as(*const [1]u8, &c), options, writer);
@@ -1013,7 +996,7 @@ pub fn formatAsciiChar(
 
 pub fn formatUnicodeCodepoint(
     c: u21,
-    options: FormatOptions,
+    options: Options,
     writer: anytype,
 ) !void {
     var buf: [4]u8 = undefined;
@@ -1025,53 +1008,9 @@ pub fn formatUnicodeCodepoint(
     return formatBuf(buf[0..len], options, writer);
 }
 
-pub fn formatBuf(
-    buf: []const u8,
-    options: FormatOptions,
-    writer: anytype,
-) !void {
-    if (options.width) |min_width| {
-        // In case of error assume the buffer content is ASCII-encoded
-        const width = unicode.utf8CountCodepoints(buf) catch buf.len;
-        const padding = if (width < min_width) min_width - width else 0;
-
-        if (padding == 0)
-            return writer.writeAll(buf);
-
-        var fill_buffer: [4]u8 = undefined;
-        const fill_utf8 = if (unicode.utf8Encode(options.fill, &fill_buffer)) |len|
-            fill_buffer[0..len]
-        else |err| switch (err) {
-            error.Utf8CannotEncodeSurrogateHalf,
-            error.CodepointTooLarge,
-            => &unicode.utf8EncodeComptime(unicode.replacement_character),
-        };
-        switch (options.alignment) {
-            .left => {
-                try writer.writeAll(buf);
-                try writer.writeBytesNTimes(fill_utf8, padding);
-            },
-            .center => {
-                const left_padding = padding / 2;
-                const right_padding = (padding + 1) / 2;
-                try writer.writeBytesNTimes(fill_utf8, left_padding);
-                try writer.writeAll(buf);
-                try writer.writeBytesNTimes(fill_utf8, right_padding);
-            },
-            .right => {
-                try writer.writeBytesNTimes(fill_utf8, padding);
-                try writer.writeAll(buf);
-            },
-        }
-    } else {
-        // Fast path, avoid counting the number of codepoints
-        try writer.writeAll(buf);
-    }
-}
-
 pub fn formatFloatHexadecimal(
     value: anytype,
-    options: FormatOptions,
+    options: Options,
     writer: anytype,
 ) !void {
     if (math.signbit(value)) {
@@ -1182,7 +1121,7 @@ pub fn formatInt(
     value: anytype,
     base: u8,
     case: Case,
-    options: FormatOptions,
+    options: Options,
     writer: anytype,
 ) !void {
     assert(base >= 2);
@@ -1246,7 +1185,7 @@ pub fn formatInt(
     return formatBuf(buf[index..], options, writer);
 }
 
-pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, case: Case, options: FormatOptions) usize {
+pub fn formatIntBuf(out_buf: []u8, value: anytype, base: u8, case: Case, options: Options) usize {
     var fbs = std.io.fixedBufferStream(out_buf);
     formatInt(value, base, case, options, fbs.writer()) catch unreachable;
     return fbs.pos;
@@ -1266,7 +1205,7 @@ const FormatDurationData = struct {
     negative: bool = false,
 };
 
-fn formatDuration(data: FormatDurationData, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+fn formatDuration(data: FormatDurationData, comptime fmt: []const u8, options: std.fmt.Options, writer: anytype) !void {
     _ = fmt;
 
     // worst case: "-XXXyXXwXXdXXhXXmXX.XXXs".len = 24
@@ -1379,7 +1318,7 @@ test fmtDuration {
     }
 }
 
-fn formatDurationSigned(ns: i64, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+fn formatDurationSigned(ns: i64, comptime fmt: []const u8, options: std.fmt.Options, writer: anytype) !void {
     if (ns < 0) {
         const data = FormatDurationData{ .ns = @as(u64, @intCast(-ns)), .negative = true };
         try formatDuration(data, fmt, options, writer);
@@ -1488,7 +1427,7 @@ pub const ParseIntError = error{
 ///     fn formatExample(
 ///         data: T,
 ///         comptime fmt: []const u8,
-///         options: std.fmt.FormatOptions,
+///         options: std.fmt.Options,
 ///         writer: anytype,
 ///     ) !void;
 ///
@@ -1499,9 +1438,9 @@ pub fn Formatter(comptime formatFn: anytype) type {
         pub fn format(
             self: @This(),
             comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
+            options: std.fmt.Options,
             writer: anytype,
-        ) @TypeOf(writer).Error!void {
+        ) WriterError(@TypeOf(writer))!void {
             try formatFn(self.data, fmt, options, writer);
         }
     };
@@ -1839,24 +1778,24 @@ test bufPrintIntToSlice {
     var buffer: [100]u8 = undefined;
     const buf = buffer[0..];
 
-    try std.testing.expectEqualSlices(u8, "-1", bufPrintIntToSlice(buf, @as(i1, -1), 10, .lower, FormatOptions{}));
+    try std.testing.expectEqualSlices(u8, "-1", bufPrintIntToSlice(buf, @as(i1, -1), 10, .lower, Options{}));
 
-    try std.testing.expectEqualSlices(u8, "-101111000110000101001110", bufPrintIntToSlice(buf, @as(i32, -12345678), 2, .lower, FormatOptions{}));
-    try std.testing.expectEqualSlices(u8, "-12345678", bufPrintIntToSlice(buf, @as(i32, -12345678), 10, .lower, FormatOptions{}));
-    try std.testing.expectEqualSlices(u8, "-bc614e", bufPrintIntToSlice(buf, @as(i32, -12345678), 16, .lower, FormatOptions{}));
-    try std.testing.expectEqualSlices(u8, "-BC614E", bufPrintIntToSlice(buf, @as(i32, -12345678), 16, .upper, FormatOptions{}));
+    try std.testing.expectEqualSlices(u8, "-101111000110000101001110", bufPrintIntToSlice(buf, @as(i32, -12345678), 2, .lower, Options{}));
+    try std.testing.expectEqualSlices(u8, "-12345678", bufPrintIntToSlice(buf, @as(i32, -12345678), 10, .lower, Options{}));
+    try std.testing.expectEqualSlices(u8, "-bc614e", bufPrintIntToSlice(buf, @as(i32, -12345678), 16, .lower, Options{}));
+    try std.testing.expectEqualSlices(u8, "-BC614E", bufPrintIntToSlice(buf, @as(i32, -12345678), 16, .upper, Options{}));
 
-    try std.testing.expectEqualSlices(u8, "12345678", bufPrintIntToSlice(buf, @as(u32, 12345678), 10, .upper, FormatOptions{}));
+    try std.testing.expectEqualSlices(u8, "12345678", bufPrintIntToSlice(buf, @as(u32, 12345678), 10, .upper, Options{}));
 
-    try std.testing.expectEqualSlices(u8, "   666", bufPrintIntToSlice(buf, @as(u32, 666), 10, .lower, FormatOptions{ .width = 6 }));
-    try std.testing.expectEqualSlices(u8, "  1234", bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, .lower, FormatOptions{ .width = 6 }));
-    try std.testing.expectEqualSlices(u8, "1234", bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, .lower, FormatOptions{ .width = 1 }));
+    try std.testing.expectEqualSlices(u8, "   666", bufPrintIntToSlice(buf, @as(u32, 666), 10, .lower, Options{ .width = 6 }));
+    try std.testing.expectEqualSlices(u8, "  1234", bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, .lower, Options{ .width = 6 }));
+    try std.testing.expectEqualSlices(u8, "1234", bufPrintIntToSlice(buf, @as(u32, 0x1234), 16, .lower, Options{ .width = 1 }));
 
-    try std.testing.expectEqualSlices(u8, "+42", bufPrintIntToSlice(buf, @as(i32, 42), 10, .lower, FormatOptions{ .width = 3 }));
-    try std.testing.expectEqualSlices(u8, "-42", bufPrintIntToSlice(buf, @as(i32, -42), 10, .lower, FormatOptions{ .width = 3 }));
+    try std.testing.expectEqualSlices(u8, "+42", bufPrintIntToSlice(buf, @as(i32, 42), 10, .lower, Options{ .width = 3 }));
+    try std.testing.expectEqualSlices(u8, "-42", bufPrintIntToSlice(buf, @as(i32, -42), 10, .lower, Options{ .width = 3 }));
 }
 
-pub fn bufPrintIntToSlice(buf: []u8, value: anytype, base: u8, case: Case, options: FormatOptions) []u8 {
+pub fn bufPrintIntToSlice(buf: []u8, value: anytype, base: u8, case: Case, options: Options) []u8 {
     return buf[0..formatIntBuf(buf, value, base, case, options)];
 }
 
@@ -1998,15 +1937,15 @@ test "buffer" {
     {
         var buf1: [32]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buf1);
-        try formatType(1234, "", FormatOptions{}, fbs.writer(), std.options.fmt_max_depth);
+        try formatType(1234, "", Options{}, fbs.writer(), std.options.fmt_max_depth);
         try std.testing.expectEqualStrings("1234", fbs.getWritten());
 
         fbs.reset();
-        try formatType('a', "c", FormatOptions{}, fbs.writer(), std.options.fmt_max_depth);
+        try formatType('a', "c", Options{}, fbs.writer(), std.options.fmt_max_depth);
         try std.testing.expectEqualStrings("a", fbs.getWritten());
 
         fbs.reset();
-        try formatType(0b1100, "b", FormatOptions{}, fbs.writer(), std.options.fmt_max_depth);
+        try formatType(0b1100, "b", Options{}, fbs.writer(), std.options.fmt_max_depth);
         try std.testing.expectEqualStrings("1100", fbs.getWritten());
     }
 }
@@ -2087,7 +2026,7 @@ test "slice" {
         const S2 = struct {
             x: u8,
 
-            pub fn format(s: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+            pub fn format(s: @This(), comptime _: []const u8, _: std.fmt.Options, writer: anytype) !void {
                 try writer.print("S2({})", .{s.x});
             }
         };
@@ -2358,7 +2297,7 @@ test "custom" {
         pub fn format(
             self: SelfType,
             comptime fmt: []const u8,
-            options: FormatOptions,
+            options: Options,
             writer: anytype,
         ) !void {
             _ = options;
@@ -2511,7 +2450,7 @@ test "formatIntValue with comptime_int" {
 
     var buf: [20]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
-    try formatIntValue(value, "", FormatOptions{}, fbs.writer());
+    try formatIntValue(value, "", Options{}, fbs.writer());
     try std.testing.expectEqualStrings("123456789123456789", fbs.getWritten());
 }
 
@@ -2520,7 +2459,7 @@ test "formatFloatValue with comptime_float" {
 
     var buf: [20]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
-    try formatFloatValue(value, "", FormatOptions{}, fbs.writer());
+    try formatFloatValue(value, "", Options{}, fbs.writer());
     try std.testing.expectEqualStrings(fbs.getWritten(), "1e0");
 
     try expectFmt("1e0", "{}", .{value});
@@ -2536,7 +2475,7 @@ test "formatType max_depth" {
         pub fn format(
             self: SelfType,
             comptime fmt: []const u8,
-            options: FormatOptions,
+            options: Options,
             writer: anytype,
         ) !void {
             _ = options;
@@ -2577,28 +2516,28 @@ test "formatType max_depth" {
 
     var buf: [1000]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
-    try formatType(inst, "", FormatOptions{}, fbs.writer(), 0);
+    try formatType(inst, "", Options{}, fbs.writer(), 0);
     try std.testing.expectEqualStrings("fmt.test.formatType max_depth.S{ ... }", fbs.getWritten());
 
     fbs.reset();
-    try formatType(inst, "", FormatOptions{}, fbs.writer(), 1);
+    try formatType(inst, "", Options{}, fbs.writer(), 1);
     try std.testing.expectEqualStrings("fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }", fbs.getWritten());
 
     fbs.reset();
-    try formatType(inst, "", FormatOptions{}, fbs.writer(), 2);
+    try formatType(inst, "", Options{}, fbs.writer(), 2);
     try std.testing.expectEqualStrings("fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }", fbs.getWritten());
 
     fbs.reset();
-    try formatType(inst, "", FormatOptions{}, fbs.writer(), 3);
+    try formatType(inst, "", Options{}, fbs.writer(), 3);
     try std.testing.expectEqualStrings("fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ .a = fmt.test.formatType max_depth.S{ ... }, .tu = fmt.test.formatType max_depth.TU{ ... }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }, .tu = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ .ptr = fmt.test.formatType max_depth.TU{ ... } } }, .e = fmt.test.formatType max_depth.E.Two, .vec = (10.200,2.220) }", fbs.getWritten());
 
     const vec: @Vector(4, i32) = .{ 1, 2, 3, 4 };
     fbs.reset();
-    try formatType(vec, "", FormatOptions{}, fbs.writer(), 0);
+    try formatType(vec, "", Options{}, fbs.writer(), 0);
     try std.testing.expectEqualStrings("{ ... }", fbs.getWritten());
 
     fbs.reset();
-    try formatType(vec, "", FormatOptions{}, fbs.writer(), 1);
+    try formatType(vec, "", Options{}, fbs.writer(), 1);
     try std.testing.expectEqualStrings("{ 1, 2, 3, 4 }", fbs.getWritten());
 }
 
@@ -2746,7 +2685,7 @@ test "recursive format function" {
         Leaf: i32,
         Branch: struct { left: *const R, right: *const R },
 
-        pub fn format(self: R, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+        pub fn format(self: R, comptime _: []const u8, _: std.fmt.Options, writer: anytype) !void {
             return switch (self) {
                 .Leaf => |n| std.fmt.format(writer, "Leaf({})", .{n}),
                 .Branch => |b| std.fmt.format(writer, "Branch({}, {})", .{ b.left, b.right }),

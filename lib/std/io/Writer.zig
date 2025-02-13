@@ -1,83 +1,89 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
-const mem = std.mem;
-const native_endian = @import("builtin").target.cpu.arch.endian();
+const Writer = @This();
 
-context: *const anyopaque,
-writeFn: *const fn (context: *const anyopaque, bytes: []const u8) anyerror!usize,
+context: *anyopaque,
+vtable: *const VTable,
 
-const Self = @This();
-pub const Error = anyerror;
+pub const VTable = struct {
+    /// Each slice in `data` is written in order.
+    ///
+    /// Number of bytes actually written is returned.
+    ///
+    /// Number of bytes returned may be zero, which does not mean
+    /// end-of-stream. A subsequent call may return nonzero, or may signal end
+    /// of stream via an error.
+    writev: *const fn (context: *anyopaque, data: []const []const u8) anyerror!usize,
 
-pub fn write(self: Self, bytes: []const u8) anyerror!usize {
-    return self.writeFn(self.context, bytes);
+    /// Writes contents from an open file. `headers` are written first, then `len`
+    /// bytes of `file` starting from `offset`, then `trailers`.
+    ///
+    /// Number of bytes actually written is returned, which may lie within
+    /// headers, the file, trailers, or anywhere in between.
+    ///
+    /// Number of bytes returned may be zero, which does not mean
+    /// end-of-stream. A subsequent call may return nonzero, or may signal end
+    /// of stream via an error.
+    writeFile: *const fn (
+        context: *anyopaque,
+        file: std.fs.File,
+        offset: u64,
+        /// When zero, it means copy until the end of the file is reached.
+        len: FileLen,
+        /// Headers and trailers must be passed together so that in case `len` is
+        /// zero, they can be forwarded directly to `VTable.writev`.
+        headers_and_trailers: []const []const u8,
+        headers_len: usize,
+    ) anyerror!usize,
+
+    pub const FileLen = enum(u64) {
+        zero = 0,
+        entire_file = std.math.maxInt(u64),
+        _,
+
+        pub fn init(integer: u64) FileLen {
+            const result: FileLen = @enumFromInt(integer);
+            assert(result != .none);
+            return result;
+        }
+
+        pub fn int(len: FileLen) u64 {
+            return @intFromEnum(len);
+        }
+    };
+};
+
+pub fn write(w: Writer, bytes: []const u8) anyerror!usize {
+    const single: [1][]const u8 = .{bytes};
+    return w.vtable.writev(w.context, &single);
 }
 
-pub fn writeAll(self: Self, bytes: []const u8) anyerror!void {
+pub fn writev(w: Writer, data: []const []const u8) anyerror!usize {
+    return w.vtable.writev(w.context, data);
+}
+
+pub fn writeAll(w: Writer, bytes: []const u8) anyerror!void {
     var index: usize = 0;
-    while (index != bytes.len) {
-        index += try self.write(bytes[index..]);
-    }
+    while (index < bytes.len) index += try write(w, bytes[index..]);
 }
 
-pub fn print(self: Self, comptime format: []const u8, args: anytype) anyerror!void {
-    return std.fmt.format(self, format, args);
-}
+///// Directly calls `writeAll` many times to render the formatted text. To
+///// enable buffering, call `std.io.BufferedWriter.print` instead.
+//pub fn unbufferedPrint(w: Writer, comptime format: []const u8, args: anytype) anyerror!void {
+//    return std.fmt.format(w, format, args);
+//}
 
-pub fn writeByte(self: Self, byte: u8) anyerror!void {
-    const array = [1]u8{byte};
-    return self.writeAll(&array);
-}
-
-pub fn writeByteNTimes(self: Self, byte: u8, n: usize) anyerror!void {
-    var bytes: [256]u8 = undefined;
-    @memset(bytes[0..], byte);
-
-    var remaining: usize = n;
-    while (remaining > 0) {
-        const to_write = @min(remaining, bytes.len);
-        try self.writeAll(bytes[0..to_write]);
-        remaining -= to_write;
-    }
-}
-
-pub fn writeBytesNTimes(self: Self, bytes: []const u8, n: usize) anyerror!void {
+/// The `data` parameter is mutable because this function needs to mutate the
+/// fields in order to handle partial writes from `VTable.writev`.
+pub fn writevAll(w: Writer, data: [][]const u8) anyerror!void {
     var i: usize = 0;
-    while (i < n) : (i += 1) {
-        try self.writeAll(bytes);
-    }
-}
-
-pub inline fn writeInt(self: Self, comptime T: type, value: T, endian: std.builtin.Endian) anyerror!void {
-    var bytes: [@divExact(@typeInfo(T).int.bits, 8)]u8 = undefined;
-    mem.writeInt(std.math.ByteAlignedInt(@TypeOf(value)), &bytes, value, endian);
-    return self.writeAll(&bytes);
-}
-
-pub fn writeStruct(self: Self, value: anytype) anyerror!void {
-    // Only extern and packed structs have defined in-memory layout.
-    comptime assert(@typeInfo(@TypeOf(value)).@"struct".layout != .auto);
-    return self.writeAll(mem.asBytes(&value));
-}
-
-pub fn writeStructEndian(self: Self, value: anytype, endian: std.builtin.Endian) anyerror!void {
-    // TODO: make sure this value is not a reference type
-    if (native_endian == endian) {
-        return self.writeStruct(value);
-    } else {
-        var copy = value;
-        mem.byteSwapAllFields(@TypeOf(value), &copy);
-        return self.writeStruct(copy);
-    }
-}
-
-pub fn writeFile(self: Self, file: std.fs.File) anyerror!void {
-    // TODO: figure out how to adjust std lib abstractions so that this ends up
-    // doing sendfile or maybe even copy_file_range under the right conditions.
-    var buf: [4000]u8 = undefined;
     while (true) {
-        const n = try file.readAll(&buf);
-        try self.writeAll(buf[0..n]);
-        if (n < buf.len) return;
+        var n = try w.vtable.writev(w.context, data[i..]);
+        while (n >= data[i].len) {
+            n -= data[i].len;
+            i += 1;
+            if (i >= data.len) return;
+        }
+        data[i] = data[i][n..];
     }
 }
