@@ -726,11 +726,11 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
             else => false,
         },
         .is_named_enum_value => switch (backend) {
-            .stage2_llvm => true,
+            .stage2_llvm, .stage2_x86_64 => true,
             else => false,
         },
         .error_set_has_value => switch (backend) {
-            .stage2_llvm, .stage2_wasm => true,
+            .stage2_llvm, .stage2_wasm, .stage2_x86_64 => true,
             else => false,
         },
         .field_reordering => switch (backend) {

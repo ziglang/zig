@@ -16,7 +16,7 @@ pub export fn entry() void {
 }
 
 // error
-// backend=llvm
+// backend=stage2
 // target=native
 //
 // :15:28: error: expected type '*const fn (type, u8, u8) u32', found '*const fn (void, u8, u8) u32'

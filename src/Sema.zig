@@ -8850,7 +8850,7 @@ fn zirEnumFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
             // Use `intCast`, since it'll set up the Sema-emitted safety checks for us!
             const int_val = try sema.intCast(block, src, int_tag_ty, src, operand, src, true, true);
             const result = try block.addBitCast(dest_ty, int_val);
-            if (zcu.backendSupportsFeature(.is_named_enum_value)) {
+            if (!dest_ty.isNonexhaustiveEnum(zcu) and zcu.backendSupportsFeature(.is_named_enum_value)) {
                 const ok = try block.addUnOp(.is_named_enum_value, result);
                 try sema.addSafetyCheck(block, src, ok, .invalid_enum_value);
             }
