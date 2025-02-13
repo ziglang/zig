@@ -336,7 +336,7 @@ pub fn GenericWriter(
             return @errorCast(self.any().writeStructEndian(value, endian));
         }
 
-        pub inline fn any(self: *const Self) AnyWriter {
+        pub inline fn any(self: *const Self) Writer {
             return .{
                 .context = @ptrCast(&self.context),
                 .writeFn = typeErasedWriteFn,
@@ -351,26 +351,23 @@ pub fn GenericWriter(
 }
 
 /// Deprecated; consider switching to `AnyReader` or use `GenericReader`
-/// to use previous API.
+/// to use previous API. To be removed after 0.14.0 is tagged.
 pub const Reader = GenericReader;
-/// Deprecated; consider switching to `AnyWriter` or use `GenericWriter`
-/// to use previous API.
-pub const Writer = GenericWriter;
+pub const Writer = @import("io/Writer.zig");
 
 pub const AnyReader = @import("io/Reader.zig");
-pub const AnyWriter = @import("io/Writer.zig");
+/// Deprecated; to be removed after 0.14.0 is tagged.
+pub const AnyWriter = Writer;
 
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
 
-pub const BufferedWriter = @import("io/buffered_writer.zig").BufferedWriter;
-pub const bufferedWriter = @import("io/buffered_writer.zig").bufferedWriter;
+pub const BufferedWriter = @import("io/BufferedWriter.zig");
 
 pub const BufferedReader = @import("io/buffered_reader.zig").BufferedReader;
 pub const bufferedReader = @import("io/buffered_reader.zig").bufferedReader;
 pub const bufferedReaderSize = @import("io/buffered_reader.zig").bufferedReaderSize;
 
-pub const FixedBufferStream = @import("io/fixed_buffer_stream.zig").FixedBufferStream;
-pub const fixedBufferStream = @import("io/fixed_buffer_stream.zig").fixedBufferStream;
+pub const FixedBufferStream = @import("io/FixedBufferStream.zig");
 
 pub const CWriter = @import("io/c_writer.zig").CWriter;
 pub const cWriter = @import("io/c_writer.zig").cWriter;
@@ -378,8 +375,7 @@ pub const cWriter = @import("io/c_writer.zig").cWriter;
 pub const LimitedReader = @import("io/limited_reader.zig").LimitedReader;
 pub const limitedReader = @import("io/limited_reader.zig").limitedReader;
 
-pub const CountingWriter = @import("io/counting_writer.zig").CountingWriter;
-pub const countingWriter = @import("io/counting_writer.zig").countingWriter;
+pub const CountingWriter = @import("io/CountingWriter.zig");
 pub const CountingReader = @import("io/counting_reader.zig").CountingReader;
 pub const countingReader = @import("io/counting_reader.zig").countingReader;
 
@@ -404,17 +400,42 @@ pub const StreamSource = @import("io/stream_source.zig").StreamSource;
 
 pub const tty = @import("io/tty.zig");
 
-/// A Writer that doesn't write to anything.
-pub const null_writer: NullWriter = .{ .context = {} };
+/// A `Writer` that discards all data.
+pub const null_writer: Writer = .{
+    .context = undefined,
+    .vtable = &.{
+        .writev = null_writev,
+        .writeFile = null_writeFile,
+    },
+};
 
-pub const NullWriter = Writer(void, error{}, dummyWrite);
-fn dummyWrite(context: void, data: []const u8) error{}!usize {
+fn null_writev(context: *anyopaque, data: []const []const u8) anyerror!usize {
     _ = context;
-    return data.len;
+    var n: usize = 0;
+    for (data) |bytes| n += bytes.len;
+    return n;
+}
+
+fn null_writeFile(
+    context: *anyopaque,
+    file: std.fs.File,
+    offset: u64,
+    len: Writer.VTable.FileLen,
+    headers_and_trailers: []const []const u8,
+    headers_len: usize,
+) anyerror!usize {
+    _ = context;
+    _ = offset;
+    _ = headers_len;
+    _ = file;
+    if (len == .entire_file) return error.Unimplemented;
+    var n: usize = 0;
+    for (headers_and_trailers) |bytes| n += bytes.len;
+    return len.int() + n;
 }
 
 test null_writer {
-    null_writer.writeAll("yay" ** 10) catch |err| switch (err) {};
+    try null_writer.writeAll("yay");
 }
 
 pub fn poll(
@@ -820,16 +841,15 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 
 test {
     _ = AnyReader;
-    _ = AnyWriter;
+    _ = Writer;
+    _ = CountingWriter;
+    _ = FixedBufferStream;
     _ = @import("io/bit_reader.zig");
     _ = @import("io/bit_writer.zig");
     _ = @import("io/buffered_atomic_file.zig");
     _ = @import("io/buffered_reader.zig");
-    _ = @import("io/buffered_writer.zig");
     _ = @import("io/c_writer.zig");
-    _ = @import("io/counting_writer.zig");
     _ = @import("io/counting_reader.zig");
-    _ = @import("io/fixed_buffer_stream.zig");
     _ = @import("io/seekable_stream.zig");
     _ = @import("io/stream_source.zig");
     _ = @import("io/test.zig");
