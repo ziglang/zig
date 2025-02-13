@@ -127,7 +127,7 @@ pub const JobQueue = struct {
         // `Fetch` instances are allocated in prior ones' arenas.
         // Sorry, I know it's a bit weird, but it slightly simplifies the
         // critical section.
-        while (jq.all_fetches.popOrNull()) |f| f.deinit();
+        while (jq.all_fetches.pop()) |f| f.deinit();
         jq.all_fetches.deinit(gpa);
         jq.* = undefined;
     }
@@ -609,7 +609,7 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
     ast.* = try std.zig.Ast.parse(arena, manifest_bytes, .zon);
 
     if (ast.errors.len > 0) {
-        const file_path = try std.fmt.allocPrint(arena, "{}" ++ Manifest.basename, .{pkg_root});
+        const file_path = try std.fmt.allocPrint(arena, "{}" ++ fs.path.sep_str ++ Manifest.basename, .{pkg_root});
         try std.zig.putAstErrorsIntoBundle(arena, ast.*, file_path, eb);
         return error.FetchFailed;
     }
@@ -662,6 +662,9 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
         // * path-based location is used without a hash.
         //   - Hash is added to the table based on the path alone before
         //     calling run(); no need to add it again.
+        //
+        // If we add a dep as lazy and then later try to add the same dep as eager,
+        // eagerness takes precedence and the existing entry is updated.
 
         for (dep_names, deps) |dep_name, dep| {
             const new_fetch = &new_fetches[new_fetch_index];
@@ -673,7 +676,12 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                         const digest_len = @typeInfo(Manifest.MultiHashHexDigest).array.len;
                         const multihash_digest = h[0..digest_len].*;
                         const gop = f.job_queue.table.getOrPutAssumeCapacity(multihash_digest);
-                        if (gop.found_existing) continue;
+                        if (gop.found_existing) {
+                            if (!dep.lazy) {
+                                gop.value_ptr.*.lazy_status = .eager;
+                            }
+                            continue;
+                        }
                         gop.value_ptr.* = new_fetch;
                         break :h multihash_digest;
                     },
@@ -684,7 +692,12 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                     const new_root = try f.package_root.resolvePosix(parent_arena, rel_path);
                     const multihash_digest = relativePathDigest(new_root, cache_root);
                     const gop = f.job_queue.table.getOrPutAssumeCapacity(multihash_digest);
-                    if (gop.found_existing) continue;
+                    if (gop.found_existing) {
+                        if (!dep.lazy) {
+                            gop.value_ptr.*.lazy_status = .eager;
+                        }
+                        continue;
+                    }
                     gop.value_ptr.* = new_fetch;
                     break :l .{ .relative_path = new_root };
                 },
@@ -770,7 +783,7 @@ fn srcLoc(
     const eb = &f.error_bundle;
     const token_starts = ast.tokens.items(.start);
     const start_loc = ast.tokenLocation(0, tok);
-    const src_path = try eb.printString("{}" ++ Manifest.basename, .{f.parent_package_root});
+    const src_path = try eb.printString("{}" ++ fs.path.sep_str ++ Manifest.basename, .{f.parent_package_root});
     const msg_off = 0;
     return eb.addSourceLocation(.{
         .src_path = src_path,
@@ -799,15 +812,19 @@ const Resource = union(enum) {
     dir: fs.Dir,
 
     const Git = struct {
+        session: git.Session,
         fetch_stream: git.Session.FetchStream,
-        want_oid: [git.oid_length]u8,
+        want_oid: git.Oid,
     };
 
     fn deinit(resource: *Resource) void {
         switch (resource.*) {
             .file => |*file| file.close(),
             .http_request => |*req| req.deinit(),
-            .git => |*git_resource| git_resource.fetch_stream.deinit(),
+            .git => |*git_resource| {
+                git_resource.fetch_stream.deinit();
+                git_resource.session.deinit();
+            },
             .dir => |*dir| dir.close(),
         }
         resource.* = undefined;
@@ -948,33 +965,23 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
     {
         var transport_uri = uri;
         transport_uri.scheme = uri.scheme["git+".len..];
-        var redirect_uri: []u8 = undefined;
-        var session: git.Session = .{ .transport = http_client, .uri = transport_uri };
-        session.discoverCapabilities(gpa, &redirect_uri, server_header_buffer) catch |err| switch (err) {
-            error.Redirected => {
-                defer gpa.free(redirect_uri);
-                return f.fail(f.location_tok, try eb.printString(
-                    "repository moved to {s}",
-                    .{redirect_uri},
-                ));
-            },
-            else => |e| {
-                return f.fail(f.location_tok, try eb.printString(
-                    "unable to discover remote git server capabilities: {s}",
-                    .{@errorName(e)},
-                ));
-            },
+        var session = git.Session.init(gpa, http_client, transport_uri, server_header_buffer) catch |err| {
+            return f.fail(f.location_tok, try eb.printString(
+                "unable to discover remote git server capabilities: {s}",
+                .{@errorName(err)},
+            ));
         };
+        errdefer session.deinit();
 
         const want_oid = want_oid: {
             const want_ref =
                 if (uri.fragment) |fragment| try fragment.toRawMaybeAlloc(arena) else "HEAD";
-            if (git.parseOid(want_ref)) |oid| break :want_oid oid else |_| {}
+            if (git.Oid.parseAny(want_ref)) |oid| break :want_oid oid else |_| {}
 
             const want_ref_head = try std.fmt.allocPrint(arena, "refs/heads/{s}", .{want_ref});
             const want_ref_tag = try std.fmt.allocPrint(arena, "refs/tags/{s}", .{want_ref});
 
-            var ref_iterator = session.listRefs(gpa, .{
+            var ref_iterator = session.listRefs(.{
                 .ref_prefixes = &.{ want_ref, want_ref_head, want_ref_tag },
                 .include_peeled = true,
                 .server_header_buffer = server_header_buffer,
@@ -1011,18 +1018,14 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
             });
             const notes_start = try eb.reserveNotes(notes_len);
             eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
-                .msg = try eb.printString("try .url = \"{;+/}#{}\",", .{
-                    uri, std.fmt.fmtSliceHexLower(&want_oid),
-                }),
+                .msg = try eb.printString("try .url = \"{;+/}#{}\",", .{ uri, want_oid }),
             }));
             return error.FetchFailed;
         }
 
-        var want_oid_buf: [git.fmt_oid_length]u8 = undefined;
-        _ = std.fmt.bufPrint(&want_oid_buf, "{}", .{
-            std.fmt.fmtSliceHexLower(&want_oid),
-        }) catch unreachable;
-        var fetch_stream = session.fetch(gpa, &.{&want_oid_buf}, server_header_buffer) catch |err| {
+        var want_oid_buf: [git.Oid.max_formatted_length]u8 = undefined;
+        _ = std.fmt.bufPrint(&want_oid_buf, "{}", .{want_oid}) catch unreachable;
+        var fetch_stream = session.fetch(&.{&want_oid_buf}, server_header_buffer) catch |err| {
             return f.fail(f.location_tok, try eb.printString(
                 "unable to create fetch stream: {s}",
                 .{@errorName(err)},
@@ -1031,6 +1034,7 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
         errdefer fetch_stream.deinit();
 
         return .{ .git = .{
+            .session = session,
             .fetch_stream = fetch_stream,
             .want_oid = want_oid,
         } };
@@ -1155,7 +1159,7 @@ fn unpackResource(
             });
             return try unpackTarball(f, tmp_directory.handle, dcp.reader());
         },
-        .git_pack => return unpackGitPack(f, tmp_directory.handle, resource) catch |err| switch (err) {
+        .git_pack => return unpackGitPack(f, tmp_directory.handle, &resource.git) catch |err| switch (err) {
             error.FetchFailed => return error.FetchFailed,
             error.OutOfMemory => return error.OutOfMemory,
             else => |e| return f.fail(f.location_tok, try eb.printString(
@@ -1245,7 +1249,7 @@ fn unzip(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackResult {
             .{@errorName(err)},
         ));
         defer zip_file.close();
-        var buf: [std.mem.page_size]u8 = undefined;
+        var buf: [4096]u8 = undefined;
         while (true) {
             const len = reader.readAll(&buf) catch |err| return f.fail(f.location_tok, try eb.printString(
                 "read zip stream failed: {s}",
@@ -1290,11 +1294,10 @@ fn unzip(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackResult {
     return res;
 }
 
-fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!UnpackResult {
+fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!UnpackResult {
     const arena = f.arena.allocator();
     const gpa = f.arena.child_allocator;
-    const want_oid = resource.git.want_oid;
-    const reader = resource.git.fetch_stream.reader();
+    const object_format: git.Oid.Format = resource.want_oid;
 
     var res: UnpackResult = .{};
     // The .git directory is used to store the packfile and associated index, but
@@ -1306,7 +1309,7 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!Unpac
         var pack_file = try pack_dir.createFile("pkg.pack", .{ .read = true });
         defer pack_file.close();
         var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
-        try fifo.pump(reader, pack_file.writer());
+        try fifo.pump(resource.fetch_stream.reader(), pack_file.writer());
         try pack_file.sync();
 
         var index_file = try pack_dir.createFile("pkg.idx", .{ .read = true });
@@ -1315,7 +1318,7 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!Unpac
             const index_prog_node = f.prog_node.start("Index pack", 0);
             defer index_prog_node.end();
             var index_buffered_writer = std.io.bufferedWriter(index_file.writer());
-            try git.indexPack(gpa, pack_file, index_buffered_writer.writer());
+            try git.indexPack(gpa, object_format, pack_file, index_buffered_writer.writer());
             try index_buffered_writer.flush();
             try index_file.sync();
         }
@@ -1323,10 +1326,10 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource) anyerror!Unpac
         {
             const checkout_prog_node = f.prog_node.start("Checkout", 0);
             defer checkout_prog_node.end();
-            var repository = try git.Repository.init(gpa, pack_file, index_file);
+            var repository = try git.Repository.init(gpa, object_format, pack_file, index_file);
             defer repository.deinit();
             var diagnostics: git.Diagnostics = .{ .allocator = arena };
-            try repository.checkout(out_dir, want_oid, &diagnostics);
+            try repository.checkout(out_dir, resource.want_oid, &diagnostics);
 
             if (diagnostics.errors.items.len > 0) {
                 try res.allocErrors(arena, diagnostics.errors.items.len, "unable to unpack packfile");
@@ -1687,7 +1690,7 @@ const HashedFile = struct {
 fn stripRoot(fs_path: []const u8, root_dir: []const u8) []const u8 {
     if (root_dir.len == 0 or fs_path.len <= root_dir.len) return fs_path;
 
-    if (std.mem.eql(u8, fs_path[0..root_dir.len], root_dir) and fs_path[root_dir.len] == fs.path.sep) {
+    if (std.mem.eql(u8, fs_path[0..root_dir.len], root_dir) and fs.path.isSep(fs_path[root_dir.len])) {
         return fs_path[root_dir.len + 1 ..];
     }
 
@@ -1786,12 +1789,9 @@ test {
     _ = UnpackResult;
 }
 
-// Detects executable header: ELF magic header or shebang line.
+// Detects executable header: ELF or Macho-O magic header or shebang line.
 const FileHeader = struct {
-    const elf_magic = std.elf.MAGIC;
-    const shebang = "#!";
-
-    header: [@max(elf_magic.len, shebang.len)]u8 = undefined,
+    header: [4]u8 = undefined,
     bytes_read: usize = 0,
 
     pub fn update(self: *FileHeader, buf: []const u8) void {
@@ -1801,9 +1801,27 @@ const FileHeader = struct {
         self.bytes_read += n;
     }
 
+    fn isScript(self: *FileHeader) bool {
+        const shebang = "#!";
+        return std.mem.eql(u8, self.header[0..@min(self.bytes_read, shebang.len)], shebang);
+    }
+
+    fn isElf(self: *FileHeader) bool {
+        const elf_magic = std.elf.MAGIC;
+        return std.mem.eql(u8, self.header[0..@min(self.bytes_read, elf_magic.len)], elf_magic);
+    }
+
+    fn isMachO(self: *FileHeader) bool {
+        if (self.bytes_read < 4) return false;
+        const magic_number = std.mem.readInt(u32, &self.header, builtin.cpu.arch.endian());
+        return magic_number == std.macho.MH_MAGIC or
+            magic_number == std.macho.MH_MAGIC_64 or
+            magic_number == std.macho.FAT_MAGIC or
+            magic_number == std.macho.FAT_MAGIC_64;
+    }
+
     pub fn isExecutable(self: *FileHeader) bool {
-        return std.mem.eql(u8, self.header[0..shebang.len], shebang) or
-            std.mem.eql(u8, self.header[0..elf_magic.len], elf_magic);
+        return self.isScript() or self.isElf() or self.isMachO();
     }
 };
 
@@ -1811,12 +1829,18 @@ test FileHeader {
     var h: FileHeader = .{};
     try std.testing.expect(!h.isExecutable());
 
-    h.update(FileHeader.elf_magic[0..2]);
+    const elf_magic = std.elf.MAGIC;
+    h.update(elf_magic[0..2]);
     try std.testing.expect(!h.isExecutable());
-    h.update(FileHeader.elf_magic[2..4]);
+    h.update(elf_magic[2..4]);
     try std.testing.expect(h.isExecutable());
 
-    h.update(FileHeader.elf_magic[2..4]);
+    h.update(elf_magic[2..4]);
+    try std.testing.expect(h.isExecutable());
+
+    const macho64_magic_bytes = [_]u8{ 0xCF, 0xFA, 0xED, 0xFE };
+    h.bytes_read = 0;
+    h.update(&macho64_magic_bytes);
     try std.testing.expect(h.isExecutable());
 }
 
@@ -2236,7 +2260,6 @@ const TestFetchBuilder = struct {
     thread_pool: ThreadPool,
     http_client: std.http.Client,
     global_cache_directory: Cache.Directory,
-    progress: std.Progress,
     job_queue: Fetch.JobQueue,
     fetch: Fetch,
 
@@ -2251,8 +2274,6 @@ const TestFetchBuilder = struct {
         try self.thread_pool.init(.{ .allocator = allocator });
         self.http_client = .{ .allocator = allocator };
         self.global_cache_directory = .{ .handle = cache_dir, .path = null };
-
-        self.progress = .{ .dont_print_on_dumb = true };
 
         self.job_queue = .{
             .http_client = &self.http_client,
@@ -2273,10 +2294,11 @@ const TestFetchBuilder = struct {
             .lazy_status = .eager,
             .parent_package_root = Cache.Path{ .root_dir = Cache.Directory{ .handle = cache_dir, .path = null } },
             .parent_manifest_ast = null,
-            .prog_node = self.progress.start("Fetch", 0),
+            .prog_node = std.Progress.Node.none,
             .job_queue = &self.job_queue,
             .omit_missing_hash_error = true,
             .allow_missing_paths_field = false,
+            .use_latest_commit = true,
 
             .package_root = undefined,
             .error_bundle = undefined,
@@ -2285,6 +2307,8 @@ const TestFetchBuilder = struct {
             .actual_hash = undefined,
             .has_build_zig = false,
             .oom_flag = false,
+            .latest_commit = null,
+
             .module = null,
         };
         return &self.fetch;

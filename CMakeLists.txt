@@ -89,12 +89,7 @@ set(ZIG_SHARED_LLVM off CACHE BOOL "Prefer linking against shared LLVM libraries
 set(ZIG_STATIC_LLVM ${ZIG_STATIC} CACHE BOOL "Prefer linking against static LLVM libraries")
 set(ZIG_STATIC_ZLIB ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zlib")
 set(ZIG_STATIC_ZSTD ${ZIG_STATIC} CACHE BOOL "Prefer linking against static zstd")
-if(APPLE AND ZIG_STATIC)
-  set(ZIG_STATIC_CURSES on)
-else()
-  set(ZIG_STATIC_CURSES off)
-endif()
-set(ZIG_STATIC_CURSES ${ZIG_STATIC_CURSES} CACHE BOOL "Prefer linking against static curses")
+set(ZIG_STATIC_CURSES OFF CACHE BOOL "Enable static linking against curses")
 
 if (ZIG_SHARED_LLVM AND ZIG_STATIC_LLVM)
     message(SEND_ERROR "-DZIG_SHARED_LLVM and -DZIG_STATIC_LLVM cannot both be enabled simultaneously")
@@ -616,6 +611,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/Atom.zig
     src/link/MachO/CodeSignature.zig
     src/link/MachO/DebugSymbols.zig
+    src/link/MachO/Dwarf.zig
     src/link/MachO/Dylib.zig
     src/link/MachO/InternalObject.zig
     src/link/MachO/Object.zig
@@ -627,7 +623,6 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/dyld_info/Rebase.zig
     src/link/MachO/dyld_info/Trie.zig
     src/link/MachO/dyld_info/bind.zig
-    src/link/MachO/dwarf.zig
     src/link/MachO/eh_frame.zig
     src/link/MachO/fat.zig
     src/link/MachO/file.zig
@@ -648,9 +643,8 @@ set(ZIG_STAGE2_SOURCES
     src/link/StringTable.zig
     src/link/Wasm.zig
     src/link/Wasm/Archive.zig
+    src/link/Wasm/Flush.zig
     src/link/Wasm/Object.zig
-    src/link/Wasm/Symbol.zig
-    src/link/Wasm/ZigObject.zig
     src/link/aarch64.zig
     src/link/riscv.zig
     src/link/table_section.zig
@@ -839,7 +833,7 @@ add_custom_command(
   OUTPUT "${ZIG1_C_SOURCE}"
   COMMAND zig-wasm2c "${ZIG1_WASM_MODULE}" "${ZIG1_C_SOURCE}"
   DEPENDS zig-wasm2c "${ZIG1_WASM_MODULE}"
-  COMMENT STATUS "Converting ${ZIG1_WASM_MODULE} to ${ZIG1_C_SOURCE}"
+  COMMENT "Converting ${ZIG1_WASM_MODULE} to ${ZIG1_C_SOURCE}"
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
 )
 
@@ -872,7 +866,7 @@ add_custom_command(
   OUTPUT "${ZIG2_C_SOURCE}"
   COMMAND zig1 ${BUILD_ZIG2_ARGS}
   DEPENDS zig1 "${ZIG_STAGE2_SOURCES}"
-  COMMENT STATUS "Running zig1.wasm to produce ${ZIG2_C_SOURCE}"
+  COMMENT "Running zig1.wasm to produce ${ZIG2_C_SOURCE}"
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
 )
 
@@ -889,7 +883,7 @@ add_custom_command(
   OUTPUT "${ZIG_COMPILER_RT_C_SOURCE}"
   COMMAND zig1 ${BUILD_COMPILER_RT_ARGS}
   DEPENDS zig1 "${ZIG_STAGE2_SOURCES}"
-  COMMENT STATUS "Running zig1.wasm to produce ${ZIG_COMPILER_RT_C_SOURCE}"
+  COMMENT "Running zig1.wasm to produce ${ZIG_COMPILER_RT_C_SOURCE}"
   WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
 )
 
@@ -938,7 +932,7 @@ set(ZIG_BUILD_ARGS
   -Dno-langref
 )
 
-option(ZIG_EXTRA_BUILD_ARGS "Extra zig build args")
+set(ZIG_EXTRA_BUILD_ARGS "" CACHE STRING "Extra zig build args")
 if(ZIG_EXTRA_BUILD_ARGS)
   list(APPEND ZIG_BUILD_ARGS ${ZIG_EXTRA_BUILD_ARGS})
 endif()
@@ -985,15 +979,11 @@ set(ZIG2_WORKING_DIR "${PROJECT_SOURCE_DIR}")
 add_custom_command(
   OUTPUT "${PROJECT_BINARY_DIR}/stage3/bin/zig"
   COMMAND zig2 build --prefix "${PROJECT_BINARY_DIR}/stage3" ${ZIG_BUILD_ARGS}
-  COMMENT STATUS "Building stage3"
+  COMMENT "Building stage3"
   WORKING_DIRECTORY "${ZIG2_WORKING_DIR}"
 )
 
-if(WIN32)
-  set(ZIG_EXECUTABLE "${PROJECT_BINARY_DIR}/zig2.exe")
-else()
-  set(ZIG_EXECUTABLE "${PROJECT_BINARY_DIR}/zig2")
-endif()
+set(ZIG_EXECUTABLE "$<TARGET_FILE:zig2>")
 
 install(CODE "set(ZIG_EXECUTABLE \"${ZIG_EXECUTABLE}\")")
 install(CODE "set(ZIG_BUILD_ARGS \"${ZIG_BUILD_ARGS}\")")

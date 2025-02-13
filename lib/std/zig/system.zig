@@ -83,8 +83,8 @@ pub fn getExternalExecutor(
         return switch (candidate.cpu.arch) {
             .aarch64 => Executor{ .qemu = "qemu-aarch64" },
             .aarch64_be => Executor{ .qemu = "qemu-aarch64_be" },
-            .arm => Executor{ .qemu = "qemu-arm" },
-            .armeb => Executor{ .qemu = "qemu-armeb" },
+            .arm, .thumb => Executor{ .qemu = "qemu-arm" },
+            .armeb, .thumbeb => Executor{ .qemu = "qemu-armeb" },
             .hexagon => Executor{ .qemu = "qemu-hexagon" },
             .loongarch64 => Executor{ .qemu = "qemu-loongarch64" },
             .m68k => Executor{ .qemu = "qemu-m68k" },
@@ -116,7 +116,10 @@ pub fn getExternalExecutor(
             },
             .sparc64 => Executor{ .qemu = "qemu-sparc64" },
             .x86 => Executor{ .qemu = "qemu-i386" },
-            .x86_64 => Executor{ .qemu = "qemu-x86_64" },
+            .x86_64 => switch (candidate.abi) {
+                .gnux32, .muslx32 => return bad_result,
+                else => Executor{ .qemu = "qemu-x86_64" },
+            },
             .xtensa => Executor{ .qemu = "qemu-xtensa" },
             else => return bad_result,
         };
@@ -127,7 +130,10 @@ pub fn getExternalExecutor(
             if (options.allow_wine) {
                 // x86_64 wine does not support emulating aarch64-windows and
                 // vice versa.
-                if (candidate.cpu.arch != builtin.cpu.arch) {
+                if (candidate.cpu.arch != builtin.cpu.arch and
+                    !(candidate.cpu.arch == .thumb and builtin.cpu.arch == .aarch64) and
+                    !(candidate.cpu.arch == .x86 and builtin.cpu.arch == .x86_64))
+                {
                     return bad_result;
                 }
                 switch (candidate.ptrBitWidth()) {
@@ -181,8 +187,12 @@ pub const DetectError = error{
 /// components by detecting the native system, and then resolves
 /// standard/default parts relative to that.
 pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
+    // Until https://github.com/ziglang/zig/issues/4592 is implemented (support detecting the
+    // native CPU architecture as being different than the current target), we use this:
+    const query_cpu_arch = query.cpu_arch orelse builtin.cpu.arch;
     const query_os_tag = query.os_tag orelse builtin.os.tag;
-    var os = query_os_tag.defaultVersionRange(query.cpu_arch orelse builtin.cpu.arch);
+    const query_abi = query.abi orelse builtin.abi;
+    var os = query_os_tag.defaultVersionRange(query_cpu_arch, query_abi);
     if (query.os_tag == null) {
         switch (builtin.target.os.tag) {
             .linux => {
@@ -311,8 +321,8 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
 
     if (query.os_version_min) |min| switch (min) {
         .none => {},
-        .semver => |semver| switch (os.tag) {
-            .linux => os.version_range.linux.range.min = semver,
+        .semver => |semver| switch (os.tag.versionRangeTag()) {
+            inline .hurd, .linux => |t| @field(os.version_range, @tagName(t)).range.min = semver,
             else => os.version_range.semver.min = semver,
         },
         .windows => |win_ver| os.version_range.windows.min = win_ver,
@@ -320,53 +330,52 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
 
     if (query.os_version_max) |max| switch (max) {
         .none => {},
-        .semver => |semver| switch (os.tag) {
-            .linux => os.version_range.linux.range.max = semver,
+        .semver => |semver| switch (os.tag.versionRangeTag()) {
+            inline .hurd, .linux => |t| @field(os.version_range, @tagName(t)).range.max = semver,
             else => os.version_range.semver.max = semver,
         },
         .windows => |win_ver| os.version_range.windows.max = win_ver,
     };
 
     if (query.glibc_version) |glibc| {
-        os.version_range.linux.glibc = glibc;
+        switch (os.tag.versionRangeTag()) {
+            inline .hurd, .linux => |t| @field(os.version_range, @tagName(t)).glibc = glibc,
+            else => {},
+        }
     }
 
     if (query.android_api_level) |android| {
         os.version_range.linux.android = android;
     }
 
-    // Until https://github.com/ziglang/zig/issues/4592 is implemented (support detecting the
-    // native CPU architecture as being different than the current target), we use this:
-    const cpu_arch = query.cpu_arch orelse builtin.cpu.arch;
-
-    const cpu = switch (query.cpu_model) {
-        .native => detectNativeCpuAndFeatures(cpu_arch, os, query),
-        .baseline => Target.Cpu.baseline(cpu_arch, os),
+    var cpu = switch (query.cpu_model) {
+        .native => detectNativeCpuAndFeatures(query_cpu_arch, os, query),
+        .baseline => Target.Cpu.baseline(query_cpu_arch, os),
         .determined_by_arch_os => if (query.cpu_arch == null)
-            detectNativeCpuAndFeatures(cpu_arch, os, query)
+            detectNativeCpuAndFeatures(query_cpu_arch, os, query)
         else
-            Target.Cpu.baseline(cpu_arch, os),
-        .explicit => |model| model.toCpu(cpu_arch),
+            Target.Cpu.baseline(query_cpu_arch, os),
+        .explicit => |model| model.toCpu(query_cpu_arch),
     } orelse backup_cpu_detection: {
-        break :backup_cpu_detection Target.Cpu.baseline(cpu_arch, os);
+        break :backup_cpu_detection Target.Cpu.baseline(query_cpu_arch, os);
     };
-    var result = try detectAbiAndDynamicLinker(cpu, os, query);
+
     // For x86, we need to populate some CPU feature flags depending on architecture
     // and mode:
     //  * 16bit_mode => if the abi is code16
     //  * 32bit_mode => if the arch is x86
     // However, the "mode" flags can be used as overrides, so if the user explicitly
     // sets one of them, that takes precedence.
-    switch (cpu_arch) {
+    switch (query_cpu_arch) {
         .x86 => {
             if (!Target.x86.featureSetHasAny(query.cpu_features_add, .{
                 .@"16bit_mode", .@"32bit_mode",
             })) {
-                switch (result.abi) {
-                    .code16 => result.cpu.features.addFeature(
+                switch (query_abi) {
+                    .code16 => cpu.features.addFeature(
                         @intFromEnum(Target.x86.Feature.@"16bit_mode"),
                     ),
-                    else => result.cpu.features.addFeature(
+                    else => cpu.features.addFeature(
                         @intFromEnum(Target.x86.Feature.@"32bit_mode"),
                     ),
                 }
@@ -377,32 +386,69 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
             //     What do we do if the user specifies +thumb_mode?
         },
         .thumb, .thumbeb => {
-            result.cpu.features.addFeature(
+            cpu.features.addFeature(
                 @intFromEnum(Target.arm.Feature.thumb_mode),
             );
         },
         else => {},
     }
     updateCpuFeatures(
-        &result.cpu.features,
-        cpu_arch.allFeaturesList(),
+        &cpu.features,
+        cpu.arch.allFeaturesList(),
         query.cpu_features_add,
         query.cpu_features_sub,
     );
 
-    if (cpu_arch == .hexagon) {
-        // Both LLVM and LLD have broken support for the small data area. Yet LLVM has the feature
-        // on by default for all Hexagon CPUs. Clang sort of solves this by defaulting the `-gpsize`
-        // command line parameter for the Hexagon backend to 0, so that no constants get placed in
-        // the SDA. (This of course breaks down if the user passes `-G <n>` to Clang...) We can't do
-        // the `-gpsize` hack because we can have multiple concurrent LLVM emit jobs, and command
-        // line options in LLVM are shared globally. So just force this feature off. Lovely stuff.
-        result.cpu.features.removeFeature(@intFromEnum(Target.hexagon.Feature.small_data));
+    var result = try detectAbiAndDynamicLinker(cpu, os, query);
+
+    // These CPU feature hacks have to come after ABI detection.
+    {
+        if (result.cpu.arch == .hexagon) {
+            // Both LLVM and LLD have broken support for the small data area. Yet LLVM has the
+            // feature on by default for all Hexagon CPUs. Clang sort of solves this by defaulting
+            // the `-gpsize` command line parameter for the Hexagon backend to 0, so that no
+            // constants get placed in the SDA. (This of course breaks down if the user passes
+            // `-G <n>` to Clang...) We can't do the `-gpsize` hack because we can have multiple
+            // concurrent LLVM emit jobs, and command line options in LLVM are shared globally. So
+            // just force this feature off. Lovely stuff.
+            result.cpu.features.removeFeature(@intFromEnum(Target.hexagon.Feature.small_data));
+        }
+
+        // https://github.com/llvm/llvm-project/issues/105978
+        if (result.cpu.arch.isArm() and result.abi.floatAbi() == .soft) {
+            result.cpu.features.removeFeature(@intFromEnum(Target.arm.Feature.vfp2));
+        }
     }
 
-    // https://github.com/llvm/llvm-project/issues/105978
-    if (result.cpu.arch.isArm() and result.floatAbi() == .soft) {
-        result.cpu.features.removeFeature(@intFromEnum(Target.arm.Feature.vfp2));
+    // It's possible that we detect the native ABI, but fail to detect the OS version or were told
+    // to use the default OS version range. In that case, while we can't determine the exact native
+    // OS version, we do at least know that some ABIs require a particular OS version (by way of
+    // `std.zig.target.available_libcs`). So in this case, adjust the OS version to the minimum that
+    // we know is required.
+    if (result.abi != query_abi and query.os_version_min == null) {
+        const result_ver_range = &result.os.version_range;
+        const abi_ver_range = result.os.tag.defaultVersionRange(result.cpu.arch, result.abi).version_range;
+
+        switch (result.os.tag.versionRangeTag()) {
+            .none => {},
+            .semver => if (result_ver_range.semver.min.order(abi_ver_range.semver.min) == .lt) {
+                result_ver_range.semver.min = abi_ver_range.semver.min;
+            },
+            inline .hurd, .linux => |t| {
+                if (@field(result_ver_range, @tagName(t)).range.min.order(@field(abi_ver_range, @tagName(t)).range.min) == .lt) {
+                    @field(result_ver_range, @tagName(t)).range.min = @field(abi_ver_range, @tagName(t)).range.min;
+                }
+
+                if (@field(result_ver_range, @tagName(t)).glibc.order(@field(abi_ver_range, @tagName(t)).glibc) == .lt and
+                    query.glibc_version == null)
+                {
+                    @field(result_ver_range, @tagName(t)).glibc = @field(abi_ver_range, @tagName(t)).glibc;
+                }
+            },
+            .windows => if (!result_ver_range.windows.min.isAtLeast(abi_ver_range.windows.min)) {
+                result_ver_range.windows.min = abi_ver_range.windows.min;
+            },
+        }
     }
 
     return result;

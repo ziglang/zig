@@ -15,11 +15,11 @@ comptime {
             @export(&__aeabi_unwind_cpp_pr1, .{ .name = "__aeabi_unwind_cpp_pr1", .linkage = common.linkage, .visibility = common.visibility });
             @export(&__aeabi_unwind_cpp_pr2, .{ .name = "__aeabi_unwind_cpp_pr2", .linkage = common.linkage, .visibility = common.visibility });
 
-            @export(&__aeabi_ldivmod, .{ .name = if (target.isMinGW()) "__rt_sdiv64" else "__aeabi_ldivmod", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_uldivmod, .{ .name = if (target.isMinGW()) "__rt_udiv64" else "__aeabi_uldivmod", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_ldivmod, .{ .name = if (common.want_windows_arm_abi) "__rt_sdiv64" else "__aeabi_ldivmod", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_uldivmod, .{ .name = if (common.want_windows_arm_abi) "__rt_udiv64" else "__aeabi_uldivmod", .linkage = common.linkage, .visibility = common.visibility });
 
-            @export(&__aeabi_idivmod, .{ .name = if (target.isMinGW()) "__rt_sdiv" else "__aeabi_idivmod", .linkage = common.linkage, .visibility = common.visibility });
-            @export(&__aeabi_uidivmod, .{ .name = if (target.isMinGW()) "__rt_udiv" else "__aeabi_uidivmod", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_idivmod, .{ .name = if (common.want_windows_arm_abi) "__rt_sdiv" else "__aeabi_idivmod", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__aeabi_uidivmod, .{ .name = if (common.want_windows_arm_abi) "__rt_udiv" else "__aeabi_uidivmod", .linkage = common.linkage, .visibility = common.visibility });
 
             @export(&__aeabi_memcpy, .{ .name = "__aeabi_memcpy", .linkage = common.linkage, .visibility = common.visibility });
             @export(&__aeabi_memcpy4, .{ .name = "__aeabi_memcpy4", .linkage = common.linkage, .visibility = common.visibility });
@@ -136,11 +136,14 @@ pub fn __aeabi_uidivmod() callconv(.Naked) void {
         \\ push {lr}
         \\ sub sp, #4
         \\ mov r2, sp
-        \\ bl  __udivmodsi4
+        \\ bl  %[__udivmodsi4]
         \\ ldr r1, [sp]
         \\ add sp, #4
         \\ pop {pc}
-        ::: "memory");
+        :
+        : [__udivmodsi4] "X" (&__udivmodsi4),
+        : "memory"
+    );
     unreachable;
 }
 
@@ -152,12 +155,15 @@ pub fn __aeabi_uldivmod() callconv(.Naked) void {
         \\ sub sp, #16
         \\ add r4, sp, #8
         \\ str r4, [sp]
-        \\ bl  __udivmoddi4
+        \\ bl  %[__udivmoddi4]
         \\ ldr r2, [sp, #8]
         \\ ldr r3, [sp, #12]
         \\ add sp, #16
         \\ pop {r4, pc}
-        ::: "memory");
+        :
+        : [__udivmoddi4] "X" (&__udivmoddi4),
+        : "memory"
+    );
     unreachable;
 }
 
@@ -168,11 +174,14 @@ pub fn __aeabi_idivmod() callconv(.Naked) void {
         \\ push {lr}
         \\ sub sp, #4
         \\ mov r2, sp
-        \\ bl  __divmodsi4
+        \\ bl  %[__divmodsi4]
         \\ ldr r1, [sp]
         \\ add sp, #4
         \\ pop {pc}
-        ::: "memory");
+        :
+        : [__divmodsi4] "X" (&__divmodsi4),
+        : "memory"
+    );
     unreachable;
 }
 
@@ -184,12 +193,15 @@ pub fn __aeabi_ldivmod() callconv(.Naked) void {
         \\ sub sp, #16
         \\ add r4, sp, #8
         \\ str r4, [sp]
-        \\ bl  __divmoddi4
+        \\ bl  %[__divmoddi4]
         \\ ldr r2, [sp, #8]
         \\ ldr r3, [sp, #12]
         \\ add sp, #16
         \\ pop {r4, pc}
-        ::: "memory");
+        :
+        : [__divmoddi4] "X" (&__divmoddi4),
+        : "memory"
+    );
     unreachable;
 }
 
@@ -233,6 +245,7 @@ test "__aeabi_frsub" {
 
 test "__aeabi_drsub" {
     if (!builtin.cpu.arch.isArm() or builtin.cpu.arch.isThumb()) return error.SkipZigTest;
+    if (builtin.cpu.arch == .armeb and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22061
     const inf64 = std.math.inf(f64);
     const maxf64 = std.math.floatMax(f64);
     const frsub_data = [_][3]f64{

@@ -104,6 +104,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .fptrunc,
             .fpext,
             .intcast,
+            .intcast_safe,
             .trunc,
             .optional_payload,
             .optional_payload_ptr,
@@ -207,8 +208,6 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .is_non_err,
             .is_err_ptr,
             .is_non_err_ptr,
-            .int_from_ptr,
-            .int_from_bool,
             .ret,
             .ret_safe,
             .ret_load,
@@ -417,6 +416,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .work_group_size,
             .work_group_id,
             .dbg_stmt,
+            .dbg_empty_stmt,
             .err_return_trace,
             .save_err_return_trace_index,
             .repeat,
@@ -454,9 +454,8 @@ pub fn checkVal(val: Value, zcu: *Zcu) bool {
 
 pub fn checkType(ty: Type, zcu: *Zcu) bool {
     const ip = &zcu.intern_pool;
-    return switch (ty.zigTypeTagOrPoison(zcu) catch |err| switch (err) {
-        error.GenericPoison => return true,
-    }) {
+    if (ty.isGenericPoison()) return true;
+    return switch (ty.zigTypeTag(zcu)) {
         .type,
         .void,
         .bool,

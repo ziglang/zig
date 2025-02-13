@@ -221,7 +221,23 @@ const test_targets = blk: {
             .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .linux,
+                .abi = .gnux32,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .linux,
                 .abi = .musl,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .x86_64,
+                .os_tag = .linux,
+                .abi = .muslx32,
             },
             .link_libc = true,
         },
@@ -293,6 +309,30 @@ const test_targets = blk: {
 
         .{
             .target = .{
+                .cpu_arch = .aarch64_be,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+        },
+        .{
+            .target = .{
+                .cpu_arch = .aarch64_be,
+                .os_tag = .linux,
+                .abi = .musl,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .aarch64_be,
+                .os_tag = .linux,
+                .abi = .gnu,
+            },
+            .link_libc = true,
+        },
+
+        .{
+            .target = .{
                 .cpu_arch = .arm,
                 .os_tag = .linux,
                 .abi = .eabi,
@@ -340,66 +380,114 @@ const test_targets = blk: {
 
         .{
             .target = .{
-                .cpu_arch = .thumb,
+                .cpu_arch = .armeb,
                 .os_tag = .linux,
                 .abi = .eabi,
             },
         },
         .{
             .target = .{
-                .cpu_arch = .thumb,
+                .cpu_arch = .armeb,
                 .os_tag = .linux,
                 .abi = .eabihf,
             },
         },
         .{
             .target = .{
-                .cpu_arch = .thumb,
+                .cpu_arch = .armeb,
                 .os_tag = .linux,
                 .abi = .musleabi,
             },
             .link_libc = true,
-            .skip_modules = &.{"std"},
         },
         .{
             .target = .{
-                .cpu_arch = .thumb,
+                .cpu_arch = .armeb,
                 .os_tag = .linux,
                 .abi = .musleabihf,
             },
             .link_libc = true,
-            .skip_modules = &.{"std"},
         },
+        .{
+            .target = .{
+                .cpu_arch = .armeb,
+                .os_tag = .linux,
+                .abi = .gnueabi,
+            },
+            .link_libc = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .armeb,
+                .os_tag = .linux,
+                .abi = .gnueabihf,
+            },
+            .link_libc = true,
+        },
+
         // Calls are normally lowered to branch instructions that only support +/- 16 MB range when
-        // targeting Thumb. This is not sufficient for the std test binary linked statically with
-        // musl, so use long calls to avoid out-of-range relocations.
+        // targeting Thumb. This easily becomes insufficient for our test binaries, so use long
+        // calls to avoid out-of-range relocations.
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "thumb-linux-eabi",
+                .cpu_features = "baseline+long_calls",
+            }) catch unreachable,
+            .pic = false, // Long calls don't work with PIC.
+        },
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "thumb-linux-eabihf",
+                .cpu_features = "baseline+long_calls",
+            }) catch unreachable,
+            .pic = false, // Long calls don't work with PIC.
+        },
         .{
             .target = std.Target.Query.parse(.{
                 .arch_os_abi = "thumb-linux-musleabi",
                 .cpu_features = "baseline+long_calls",
-            }) catch @panic("OOM"),
+            }) catch unreachable,
             .link_libc = true,
             .pic = false, // Long calls don't work with PIC.
-            .skip_modules = &.{
-                "behavior",
-                "c-import",
-                "compiler-rt",
-                "universal-libc",
-            },
         },
         .{
             .target = std.Target.Query.parse(.{
                 .arch_os_abi = "thumb-linux-musleabihf",
                 .cpu_features = "baseline+long_calls",
-            }) catch @panic("OOM"),
+            }) catch unreachable,
             .link_libc = true,
             .pic = false, // Long calls don't work with PIC.
-            .skip_modules = &.{
-                "behavior",
-                "c-import",
-                "compiler-rt",
-                "universal-libc",
-            },
+        },
+
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "thumbeb-linux-eabi",
+                .cpu_features = "baseline+long_calls",
+            }) catch unreachable,
+            .pic = false, // Long calls don't work with PIC.
+        },
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "thumbeb-linux-eabihf",
+                .cpu_features = "baseline+long_calls",
+            }) catch unreachable,
+            .pic = false, // Long calls don't work with PIC.
+        },
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "thumbeb-linux-musleabi",
+                .cpu_features = "baseline+long_calls",
+            }) catch unreachable,
+            .link_libc = true,
+            .pic = false, // Long calls don't work with PIC.
+        },
+        .{
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "thumbeb-linux-musleabihf",
+                .cpu_features = "baseline+long_calls",
+            }) catch unreachable,
+            .link_libc = true,
+            .pic = false, // Long calls don't work with PIC.
         },
 
         .{
@@ -955,9 +1043,11 @@ pub fn addStackTraceTests(
 ) *Step {
     const check_exe = b.addExecutable(.{
         .name = "check-stack-trace",
-        .root_source_file = b.path("test/src/check-stack-trace.zig"),
-        .target = b.graph.host,
-        .optimize = .Debug,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test/src/check-stack-trace.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
     });
 
     const cases = b.allocator.create(StackTracesContext) catch @panic("OOM");
@@ -1179,7 +1269,7 @@ pub fn addCliTests(b: *std.Build) *Step {
         run5.step.dependOn(&run4.step);
 
         const unformatted_code_utf16 = "\xff\xfe \x00 \x00 \x00 \x00/\x00/\x00 \x00n\x00o\x00 \x00r\x00e\x00a\x00s\x00o\x00n\x00";
-        const fmt6_path = std.fs.path.join(b.allocator, &.{ tmp_path, "fmt6.zig" }) catch @panic("OOM");
+        const fmt6_path = b.pathJoin(&.{ tmp_path, "fmt6.zig" });
         const write6 = b.addUpdateSourceFiles();
         write6.addBytesToSource(unformatted_code_utf16, fmt6_path);
         write6.step.dependOn(&run5.step);
@@ -1237,18 +1327,22 @@ pub fn addAssembleAndLinkTests(b: *std.Build, test_filters: []const []const u8, 
     return cases.step;
 }
 
-pub fn addTranslateCTests(b: *std.Build, parent_step: *std.Build.Step, test_filters: []const []const u8) void {
+pub fn addTranslateCTests(
+    b: *std.Build,
+    parent_step: *std.Build.Step,
+    test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
+) void {
     const cases = b.allocator.create(TranslateCContext) catch @panic("OOM");
     cases.* = TranslateCContext{
         .b = b,
         .step = parent_step,
         .test_index = 0,
         .test_filters = test_filters,
+        .test_target_filters = test_target_filters,
     };
 
     translate_c.addCases(cases);
-
-    return;
 }
 
 pub fn addRunTranslatedCTests(
@@ -1267,8 +1361,6 @@ pub fn addRunTranslatedCTests(
     };
 
     run_translated_c.addCases(cases);
-
-    return;
 }
 
 const ModuleTestOptions = struct {
@@ -1283,8 +1375,10 @@ const ModuleTestOptions = struct {
     skip_single_threaded: bool,
     skip_non_native: bool,
     skip_libc: bool,
+    use_llvm: ?bool = null,
     max_rss: usize = 0,
     no_builtin: bool = false,
+    build_options: ?*std.Build.Step.Options = null,
 };
 
 pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
@@ -1317,6 +1411,10 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
 
         if (options.skip_single_threaded and test_target.single_threaded == true)
             continue;
+
+        if (options.use_llvm) |use_llvm| {
+            if (test_target.use_llvm != use_llvm) continue;
+        }
 
         // TODO get compiler-rt tests passing for self-hosted backends.
         if ((target.cpu.arch != .x86_64 or target.ofmt != .elf) and
@@ -1360,20 +1458,25 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             options.max_rss;
 
         const these_tests = b.addTest(.{
-            .root_source_file = b.path(options.root_src),
-            .optimize = test_target.optimize_mode,
-            .target = resolved_target,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(options.root_src),
+                .optimize = test_target.optimize_mode,
+                .target = resolved_target,
+                .link_libc = test_target.link_libc,
+                .pic = test_target.pic,
+                .strip = test_target.strip,
+                .single_threaded = test_target.single_threaded,
+            }),
             .max_rss = max_rss,
             .filters = options.test_filters,
-            .link_libc = test_target.link_libc,
-            .single_threaded = test_target.single_threaded,
             .use_llvm = test_target.use_llvm,
             .use_lld = test_target.use_lld,
             .zig_lib_dir = b.path("lib"),
-            .pic = test_target.pic,
-            .strip = test_target.strip,
         });
         if (options.no_builtin) these_tests.no_builtin = true;
+        if (options.build_options) |build_options| {
+            these_tests.root_module.addOptions("build_options", build_options);
+        }
         const single_threaded_suffix = if (test_target.single_threaded == true) "-single" else "";
         const backend_suffix = if (test_target.use_llvm == true)
             "-llvm"
@@ -1404,12 +1507,17 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             var altered_query = test_target.target;
             altered_query.ofmt = null;
 
-            const compile_c = b.addExecutable(.{
-                .name = qualified_name,
+            const compile_c = b.createModule(.{
+                .root_source_file = null,
                 .link_libc = test_target.link_libc,
                 .target = b.resolveTargetQuery(altered_query),
+            });
+            const compile_c_exe = b.addExecutable(.{
+                .name = qualified_name,
+                .root_module = compile_c,
                 .zig_lib_dir = b.path("lib"),
             });
+
             compile_c.addCSourceFile(.{
                 .file = these_tests.getEmittedBin(),
                 .flags = &.{
@@ -1454,22 +1562,22 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
                     continue;
                 }
                 if (test_target.link_libc == false) {
-                    compile_c.subsystem = .Console;
-                    compile_c.linkSystemLibrary("kernel32");
-                    compile_c.linkSystemLibrary("ntdll");
+                    compile_c_exe.subsystem = .Console;
+                    compile_c.linkSystemLibrary("kernel32", .{});
+                    compile_c.linkSystemLibrary("ntdll", .{});
                 }
                 if (mem.eql(u8, options.name, "std")) {
                     if (test_target.link_libc == false) {
-                        compile_c.linkSystemLibrary("shell32");
-                        compile_c.linkSystemLibrary("advapi32");
+                        compile_c.linkSystemLibrary("shell32", .{});
+                        compile_c.linkSystemLibrary("advapi32", .{});
                     }
-                    compile_c.linkSystemLibrary("crypt32");
-                    compile_c.linkSystemLibrary("ws2_32");
-                    compile_c.linkSystemLibrary("ole32");
+                    compile_c.linkSystemLibrary("crypt32", .{});
+                    compile_c.linkSystemLibrary("ws2_32", .{});
+                    compile_c.linkSystemLibrary("ole32", .{});
                 }
             }
 
-            const run = b.addRunArtifact(compile_c);
+            const run = b.addRunArtifact(compile_c_exe);
             run.skip_foreign_checks = true;
             run.enableTestRunnerMode();
             run.setName(b.fmt("run test {s}", .{qualified_name}));
@@ -1486,28 +1594,55 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
     return step;
 }
 
-pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *Step {
+const CAbiTestOptions = struct {
+    test_target_filters: []const []const u8,
+    skip_non_native: bool,
+    skip_release: bool,
+};
+
+pub fn addCAbiTests(b: *std.Build, options: CAbiTestOptions) *Step {
     const step = b.step("test-c-abi", "Run the C ABI tests");
 
     const optimize_modes: [3]OptimizeMode = .{ .Debug, .ReleaseSafe, .ReleaseFast };
 
     for (optimize_modes) |optimize_mode| {
-        if (optimize_mode != .Debug and skip_release) continue;
+        if (optimize_mode != .Debug and options.skip_release) continue;
 
         for (c_abi_targets) |c_abi_target| {
-            if (skip_non_native and !c_abi_target.target.isNative()) continue;
+            if (options.skip_non_native and !c_abi_target.target.isNative()) continue;
 
             const resolved_target = b.resolveTargetQuery(c_abi_target.target);
             const target = resolved_target.result;
+            const triple_txt = target.zigTriple(b.allocator) catch @panic("OOM");
+
+            if (options.test_target_filters.len > 0) {
+                for (options.test_target_filters) |filter| {
+                    if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
+                } else continue;
+            }
 
             if (target.os.tag == .windows and target.cpu.arch == .aarch64) {
                 // https://github.com/ziglang/zig/issues/14908
                 continue;
             }
 
+            const test_mod = b.createModule(.{
+                .root_source_file = b.path("test/c_abi/main.zig"),
+                .target = resolved_target,
+                .optimize = optimize_mode,
+                .link_libc = true,
+                .pic = c_abi_target.pic,
+                .strip = c_abi_target.strip,
+            });
+            test_mod.addCSourceFile(.{
+                .file = b.path("test/c_abi/cfuncs.c"),
+                .flags = &.{"-std=c99"},
+            });
+            for (c_abi_target.c_defines) |define| test_mod.addCMacro(define, "1");
+
             const test_step = b.addTest(.{
                 .name = b.fmt("test-c-abi-{s}-{s}-{s}{s}{s}{s}", .{
-                    target.zigTriple(b.allocator) catch @panic("OOM"),
+                    triple_txt,
                     target.cpu.model.name,
                     @tagName(optimize_mode),
                     if (c_abi_target.use_llvm == true)
@@ -1521,20 +1656,10 @@ pub fn addCAbiTests(b: *std.Build, skip_non_native: bool, skip_release: bool) *S
                     if (c_abi_target.use_lld == false) "-no-lld" else "",
                     if (c_abi_target.pic == true) "-pic" else "",
                 }),
-                .root_source_file = b.path("test/c_abi/main.zig"),
-                .target = resolved_target,
-                .optimize = optimize_mode,
-                .link_libc = true,
+                .root_module = test_mod,
                 .use_llvm = c_abi_target.use_llvm,
                 .use_lld = c_abi_target.use_lld,
-                .pic = c_abi_target.pic,
-                .strip = c_abi_target.strip,
             });
-            test_step.addCSourceFile(.{
-                .file = b.path("test/c_abi/cfuncs.c"),
-                .flags = &.{"-std=c99"},
-            });
-            for (c_abi_target.c_defines) |define| test_step.defineCMacro(define, null);
 
             // This test is intentionally trying to check if the external ABI is
             // done properly. LTO would be a hindrance to this.
@@ -1552,6 +1677,7 @@ pub fn addCases(
     b: *std.Build,
     parent_step: *Step,
     test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
     target: std.Build.ResolvedTarget,
     translate_c_options: @import("src/Cases.zig").TranslateCOptions,
     build_options: @import("cases.zig").BuildOptions,
@@ -1567,12 +1693,13 @@ pub fn addCases(
     cases.addFromDir(dir, b);
     try @import("cases.zig").addCases(&cases, build_options, b);
 
-    cases.lowerToTranslateCSteps(b, parent_step, test_filters, target, translate_c_options);
+    cases.lowerToTranslateCSteps(b, parent_step, test_filters, test_target_filters, target, translate_c_options);
 
     cases.lowerToBuildSteps(
         b,
         parent_step,
         test_filters,
+        test_target_filters,
     );
 }
 
@@ -1612,9 +1739,11 @@ pub fn addDebuggerTests(b: *std.Build, options: DebuggerContext.Options) ?*Step 
 pub fn addIncrementalTests(b: *std.Build, test_step: *Step) !void {
     const incr_check = b.addExecutable(.{
         .name = "incr-check",
-        .root_source_file = b.path("tools/incr-check.zig"),
-        .target = b.graph.host,
-        .optimize = .Debug,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/incr-check.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
     });
 
     var dir = try b.build_root.handle.openDir("test/incremental", .{ .iterate = true });

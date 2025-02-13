@@ -465,7 +465,7 @@ const WasmImpl = struct {
             @compileError("WASI target missing cpu feature 'atomics'");
         }
         const to: i64 = if (timeout) |to| @intCast(to) else -1;
-        const result = asm (
+        const result = asm volatile (
             \\local.get %[ptr]
             \\local.get %[expected]
             \\local.get %[timeout]
@@ -489,7 +489,7 @@ const WasmImpl = struct {
             @compileError("WASI target missing cpu feature 'atomics'");
         }
         assert(max_waiters != 0);
-        const woken_count = asm (
+        const woken_count = asm volatile (
             \\local.get %[ptr]
             \\local.get %[waiters]
             \\memory.atomic.notify 0
@@ -543,7 +543,7 @@ const PosixImpl = struct {
             // This can be changed with pthread_condattr_setclock, but it's an extension and may not be available everywhere.
             var ts: c.timespec = undefined;
             if (timeout) |timeout_ns| {
-                std.posix.clock_gettime(c.CLOCK.REALTIME, &ts) catch unreachable;
+                ts = std.posix.clock_gettime(c.CLOCK.REALTIME) catch unreachable;
                 ts.sec +|= @as(@TypeOf(ts.sec), @intCast(timeout_ns / std.time.ns_per_s));
                 ts.nsec += @as(@TypeOf(ts.nsec), @intCast(timeout_ns % std.time.ns_per_s));
 

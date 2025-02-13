@@ -324,7 +324,7 @@ test "generic function instantiation non-duplicates" {
             for (source, 0..) |s, i| dest[i] = s;
         }
 
-        fn foo() callconv(.C) void {}
+        fn foo() callconv(.c) void {}
     };
     var buffer: [100]u8 = undefined;
     S.copy(u8, &buffer, "hello");
@@ -381,6 +381,11 @@ test "extern function used as generic parameter" {
             };
         }
     };
+    const E = struct {
+        export fn usedAsGenericParameterFoo() void {}
+        export fn usedAsGenericParameterBar() void {}
+    };
+    _ = E;
     try expect(S.usedAsGenericParameterBaz(S.usedAsGenericParameterFoo) !=
         S.usedAsGenericParameterBaz(S.usedAsGenericParameterBar));
 }
@@ -427,7 +432,7 @@ test "generic function passed as comptime argument" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const S = struct {
-        fn doMath(comptime f: fn (type, i32, i32) error{Overflow}!i32, a: i32, b: i32) !void {
+        fn doMath(comptime f: fn (comptime type, i32, i32) error{Overflow}!i32, a: i32, b: i32) !void {
             const result = try f(i32, a, b);
             try expect(result == 11);
         }
@@ -466,13 +471,13 @@ test "coerced function body has inequal value with its uncoerced body" {
     try expect(S.A.do() == 1234);
 }
 
-test "generic function returns value from callconv(.C) function" {
+test "generic function returns value from callconv(.c) function" {
     const S = struct {
-        fn getU8() callconv(.C) u8 {
+        fn getU8() callconv(.c) u8 {
             return 123;
         }
 
-        fn getGeneric(comptime T: type, supplier: fn () callconv(.C) T) T {
+        fn getGeneric(comptime T: type, supplier: fn () callconv(.c) T) T {
             return supplier();
         }
     };
@@ -516,11 +521,11 @@ test "function argument tuple used as struct field" {
     try expect(c.t[0] == null);
 }
 
-test "comptime callconv(.C) function ptr uses comptime type argument" {
+test "comptime callconv(.c) function ptr uses comptime type argument" {
     const S = struct {
         fn A(
             comptime T: type,
-            comptime destroycb: ?*const fn (?*T) callconv(.C) void,
+            comptime destroycb: ?*const fn (?*T) callconv(.c) void,
         ) !void {
             try expect(destroycb == null);
         }
@@ -583,4 +588,20 @@ comptime {
     // The same function parameter instruction being analyzed multiple times
     // should override the result of the previous analysis.
     for (0..2) |_| _ = fn (void) void;
+}
+
+test "generic parameter resolves to comptime-only type but is not marked comptime" {
+    const S = struct {
+        fn foo(comptime T: type, rt_false: bool, func: fn (T) void) T {
+            if (rt_false) _ = foo(T, rt_false, func);
+            return 123;
+        }
+        fn bar(_: u8) void {}
+    };
+
+    const rt_result = S.foo(u8, false, S.bar);
+    try expect(rt_result == 123);
+
+    const ct_result = comptime S.foo(u8, false, S.bar);
+    comptime std.debug.assert(ct_result == 123);
 }

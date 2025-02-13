@@ -79,8 +79,8 @@ pub const Context = struct {
 
 pub fn translate(
     gpa: mem.Allocator,
-    args_begin: [*]?[*]const u8,
-    args_end: [*]?[*]const u8,
+    args_begin: [*]?[*:0]const u8,
+    args_end: [*]?[*:0]const u8,
     errors: *std.zig.ErrorBundle,
     resources_path: [*:0]const u8,
 ) !std.zig.Ast {
@@ -160,6 +160,7 @@ pub fn translate(
         context.pattern_list.deinit(gpa);
     }
 
+    @setEvalBranchQuota(2000);
     inline for (@typeInfo(std.zig.c_builtins).@"struct".decls) |decl| {
         const builtin = try Tag.pub_var_simple.create(arena, .{
             .name = decl.name,
@@ -230,13 +231,13 @@ fn prepopulateGlobalNameTable(ast_unit: *clang.ASTUnit, c: *Context) !void {
     }
 }
 
-fn declVisitorNamesOnlyC(context: ?*anyopaque, decl: *const clang.Decl) callconv(.C) bool {
+fn declVisitorNamesOnlyC(context: ?*anyopaque, decl: *const clang.Decl) callconv(.c) bool {
     const c: *Context = @ptrCast(@alignCast(context));
     declVisitorNamesOnly(c, decl) catch return false;
     return true;
 }
 
-fn declVisitorC(context: ?*anyopaque, decl: *const clang.Decl) callconv(.C) bool {
+fn declVisitorC(context: ?*anyopaque, decl: *const clang.Decl) callconv(.c) bool {
     const c: *Context = @ptrCast(@alignCast(context));
     declVisitor(c, decl) catch return false;
     return true;

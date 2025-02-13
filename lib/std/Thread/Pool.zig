@@ -27,6 +27,7 @@ pub const Options = struct {
     allocator: std.mem.Allocator,
     n_jobs: ?usize = null,
     track_ids: bool = false,
+    stack_size: usize = std.Thread.SpawnConfig.default_stack_size,
 };
 
 pub fn init(pool: *Pool, options: Options) !void {
@@ -54,7 +55,10 @@ pub fn init(pool: *Pool, options: Options) !void {
     errdefer pool.join(spawned);
 
     for (pool.threads) |*thread| {
-        thread.* = try std.Thread.spawn(.{}, worker, .{pool});
+        thread.* = try std.Thread.spawn(.{
+            .stack_size = options.stack_size,
+            .allocator = allocator,
+        }, worker, .{pool});
         spawned += 1;
     }
 }

@@ -7,9 +7,38 @@
 import lldb
 import re
 
+# Helpers
+
 page_size = 1 << 12
 
 def log2_int(i): return i.bit_length() - 1
+
+def create_struct(parent, name, struct_type, inits):
+    struct_bytes, struct_data = bytearray(struct_type.size), lldb.SBData()
+    for field in struct_type.fields:
+        field_size = field.type.size
+        field_init = inits[field.name]
+        if isinstance(field_init, int):
+            match struct_data.byte_order:
+                case lldb.eByteOrderLittle:
+                    byte_order = 'little'
+                case lldb.eByteOrderBig:
+                    byte_order = 'big'
+            field_bytes = field_init.to_bytes(field_size, byte_order, signed=field.type.GetTypeFlags() & lldb.eTypeIsSigned != 0)
+        elif isinstance(field_init, lldb.SBValue):
+            field_bytes = field_init.data.uint8
+        else: return
+        match struct_data.byte_order:
+            case lldb.eByteOrderLittle:
+                field_bytes = field_bytes[:field_size]
+                field_start = field.byte_offset
+                struct_bytes[field_start:field_start + len(field_bytes)] = field_bytes
+            case lldb.eByteOrderBig:
+                field_bytes = field_bytes[-field_size:]
+                field_end = field.byte_offset + field_size
+                struct_bytes[field_end - len(field_bytes):field_end] = field_bytes
+    struct_data.SetData(lldb.SBError(), struct_bytes, struct_data.byte_order, struct_data.GetAddressByteSize())
+    return parent.CreateValueFromData(name, struct_data, struct_type)
 
 # Define Zig Language
 
@@ -274,6 +303,8 @@ class std_MultiArrayList_Slice_SynthProvider:
             return self.ptrs.CreateValueFromData('[%d]' % index, data, self.entry_type)
         except: return None
 
+def MultiArrayList_Entry(type): return '^multi_array_list\\.MultiArrayList\\(%s\\)\\.Entry__struct_[1-9][0-9]*$' % type
+
 class std_HashMapUnmanaged_SynthProvider:
     def __init__(self, value, _=None): self.value = value
     def update(self):
@@ -352,7 +383,7 @@ def InstRef_SummaryProvider(value, _=None):
         'InternPool.Index(%d)' % value.unsigned if value.unsigned < 0x80000000 else 'instructions[%d]' % (value.unsigned - 0x80000000))
 
 def InstIndex_SummaryProvider(value, _=None):
-    return 'instructions[%d]' % value.unsigned
+    return 'instructions[%d]' % value.unsigned if value.unsigned < 0x80000000 else 'temps[%d]' % (value.unsigned - 0x80000000)
 
 class zig_DeclIndex_SynthProvider:
     def __init__(self, value, _=None): self.value = value
@@ -678,14 +709,222 @@ value_tag_handlers = {
     'lazy_size': lambda payload: '@sizeOf(%s)' % type_Type_SummaryProvider(payload),
 }
 
+# Define Zig Stage2 Compiler (compiled with the self-hosted backend)
+
+class root_InternPool_Local_List_SynthProvider:
+    def __init__(self, value, _=None): self.value = value
+    def update(self):
+        capacity = self.value.EvaluateExpression('@as(*@This().Header, @alignCast(@ptrCast(@this().bytes - @This().bytes_offset))).capacity')
+        self.view = create_struct(self.value, '.view', self.value.type.FindDirectNestedType('View'), { 'bytes': self.value.GetChildMemberWithName('bytes'), 'len': capacity, 'capacity': capacity }).GetNonSyntheticValue()
+    def has_children(self): return True
+    def num_children(self): return 1
+    def get_child_index(self, name):
+        try: return ('view',).index(name)
+        except: pass
+    def get_child_at_index(self, index):
+        try: return (self.view,)[index]
+        except: pass
+
+expr_path_re = re.compile(r'\{([^}]+)%([^%#}]+)(?:#([^%#}]+))?\}')
+def root_InternPool_Index_SummaryProvider(value, _=None):
+    unwrapped = value.GetChildMemberWithName('unwrapped')
+    if not unwrapped: return '' # .none
+    tag = unwrapped.GetChildMemberWithName('tag')
+    tag_value = tag.value
+    summary = tag.CreateValueFromType(tag.type).GetChildMemberWithName('encodings').GetChildMemberWithName(tag_value.removeprefix('.').removeprefix('@"').removesuffix('"').replace(r'\"', '"')).GetChildMemberWithName('summary')
+    if not summary: return tag_value
+    return re.sub(
+        expr_path_re,
+        lambda matchobj: getattr(unwrapped.GetValueForExpressionPath(matchobj[1]), matchobj[2]).strip(matchobj[3] or ''),
+        summary.summary.removeprefix('.').removeprefix('@"').removesuffix('"').replace(r'\"', '"'),
+    )
+
+class root_InternPool_Index_SynthProvider:
+    def __init__(self, value, _=None): self.value = value
+    def update(self):
+        self.unwrapped = None
+        wrapped = self.value.unsigned
+        if wrapped == (1 << 32) - 1: return
+        unwrapped_type = self.value.type.FindDirectNestedType('Unwrapped')
+        ip = self.value.CreateValueFromType(unwrapped_type).GetChildMemberWithName('debug_state').GetChildMemberWithName('intern_pool').GetNonSyntheticValue().GetChildMemberWithName('?')
+        tid_shift_30 = ip.GetChildMemberWithName('tid_shift_30').unsigned
+        self.unwrapped = create_struct(self.value, '.unwrapped', unwrapped_type, { 'tid': wrapped >> tid_shift_30, 'index': wrapped & (1 << tid_shift_30) - 1 })
+    def has_children(self): return True
+    def num_children(self): return 0
+    def get_child_index(self, name):
+        try: return ('unwrapped',).index(name)
+        except: pass
+    def get_child_at_index(self, index):
+        try: return (self.unwrapped,)[index]
+        except: pass
+
+class root_InternPool_Index_Unwrapped_SynthProvider:
+    def __init__(self, value, _=None): self.value = value
+    def update(self):
+        self.tag, self.index, self.data, self.payload, self.trailing = None, None, None, None, None
+        index = self.value.GetChildMemberWithName('index')
+        ip = self.value.CreateValueFromType(self.value.type).GetChildMemberWithName('debug_state').GetChildMemberWithName('intern_pool').GetNonSyntheticValue().GetChildMemberWithName('?')
+        shared = ip.GetChildMemberWithName('locals').GetSyntheticValue().child[self.value.GetChildMemberWithName('tid').unsigned].GetChildMemberWithName('shared')
+        item = shared.GetChildMemberWithName('items').GetChildMemberWithName('view').child[index.unsigned]
+        self.tag, item_data = item.GetChildMemberWithName('tag'), item.GetChildMemberWithName('data')
+        encoding = self.tag.CreateValueFromType(self.tag.type).GetChildMemberWithName('encodings').GetChildMemberWithName(self.tag.value.removeprefix('.').removeprefix('@"').removesuffix('"').replace(r'\"', '"'))
+        encoding_index, encoding_data, encoding_payload, encoding_trailing, encoding_config = encoding.GetChildMemberWithName('index'), encoding.GetChildMemberWithName('data'), encoding.GetChildMemberWithName('payload'), encoding.GetChildMemberWithName('trailing'), encoding.GetChildMemberWithName('config')
+        if encoding_index:
+            index_type = encoding_index.GetValueAsType()
+            index_bytes, index_data = index.data.uint8, lldb.SBData()
+            match index_data.byte_order:
+                case lldb.eByteOrderLittle:
+                    index_bytes = bytes(index_bytes[:index_type.size])
+                case lldb.eByteOrderBig:
+                    index_bytes = bytes(index_bytes[-index_type.size:])
+            index_data.SetData(lldb.SBError(), index_bytes, index_data.byte_order, index_data.GetAddressByteSize())
+            self.index = self.value.CreateValueFromData('.index', index_data, index_type)
+        elif encoding_data:
+            data_type = encoding_data.GetValueAsType()
+            data_bytes, data_data = item_data.data.uint8, lldb.SBData()
+            match data_data.byte_order:
+                case lldb.eByteOrderLittle:
+                    data_bytes = bytes(data_bytes[:data_type.size])
+                case lldb.eByteOrderBig:
+                    data_bytes = bytes(data_bytes[-data_type.size:])
+            data_data.SetData(lldb.SBError(), data_bytes, data_data.byte_order, data_data.GetAddressByteSize())
+            self.data = self.value.CreateValueFromData('.data', data_data, data_type)
+        elif encoding_payload:
+            extra = shared.GetChildMemberWithName('extra').GetChildMemberWithName('view').GetChildMemberWithName('0')
+            extra_index = item_data.unsigned
+            payload_type = encoding_payload.GetValueAsType()
+            payload_fields = dict()
+            for payload_field in payload_type.fields:
+                payload_fields[payload_field.name] = extra.child[extra_index]
+                extra_index += 1
+            self.payload = create_struct(self.value, '.payload', payload_type, payload_fields)
+            if encoding_trailing and encoding_config:
+                trailing_type = encoding_trailing.GetValueAsType()
+                trailing_bytes, trailing_data = bytearray(trailing_type.size), lldb.SBData()
+                def eval_config(config_name):
+                    expr = encoding_config.GetChildMemberWithName(config_name).summary.removeprefix('.').removeprefix('@"').removesuffix('"').replace(r'\"', '"')
+                    if 'payload.' in expr:
+                        return self.payload.EvaluateExpression(expr.replace('payload.', '@this().'))
+                    elif expr.startswith('trailing.'):
+                        field_type, field_byte_offset = trailing_type, 0
+                        expr_parts = expr.split('.')
+                        for expr_part in expr_parts[1:]:
+                            field = next(filter(lambda field: field.name == expr_part, field_type.fields))
+                            field_type = field.type
+                            field_byte_offset += field.byte_offset
+                        field_data = lldb.SBData()
+                        field_bytes = trailing_bytes[field_byte_offset:field_byte_offset + field_type.size]
+                        field_data.SetData(lldb.SBError(), field_bytes, field_data.byte_order, field_data.GetAddressByteSize())
+                        return self.value.CreateValueFromData('.%s' % expr_parts[-1], field_data, field_type)
+                    else:
+                        return self.value.frame.EvaluateExpression(expr)
+                for trailing_field in trailing_type.fields:
+                    trailing_field_type = trailing_field.type
+                    trailing_field_name = 'trailing.%s' % trailing_field.name
+                    trailing_field_byte_offset = trailing_field.byte_offset
+                    while True:
+                        match [trailing_field_type_field.name for trailing_field_type_field in trailing_field_type.fields]:
+                            case ['has_value', '?']:
+                                has_value_field, child_field = trailing_field_type.fields
+                                trailing_field_name = '%s.%s' % (trailing_field_name, child_field.name)
+                                match eval_config(trailing_field_name).value:
+                                    case 'true':
+                                        if has_value_field.type.name == 'bool':
+                                            trailing_bytes[trailing_field_byte_offset + has_value_field.byte_offset] = True
+                                        trailing_field_type = child_field.type
+                                        trailing_field_byte_offset += child_field.byte_offset
+                                    case 'false':
+                                        break
+                            case ['ptr', 'len']:
+                                ptr_field, len_field = trailing_field_type.fields
+                                ptr_field_byte_offset, len_field_byte_offset = trailing_field_byte_offset + ptr_field.byte_offset, trailing_field_byte_offset + len_field.byte_offset
+                                trailing_bytes[ptr_field_byte_offset:ptr_field_byte_offset + ptr_field.type.size] = extra.child[extra_index].address_of.data.uint8
+                                len_field_value = eval_config('%s.len' % trailing_field_name)
+                                len_field_size = len_field.type.size
+                                match trailing_data.byte_order:
+                                    case lldb.eByteOrderLittle:
+                                        len_field_bytes = len_field_value.data.uint8[:len_field_size]
+                                        trailing_bytes[len_field_byte_offset:len_field_byte_offset + len(len_field_bytes)] = len_field_bytes
+                                    case lldb.eByteOrderBig:
+                                        len_field_bytes = len_field_value.data.uint8[-len_field_size:]
+                                        len_field_end = len_field_byte_offset + len_field_size
+                                        trailing_bytes[len_field_end - len(len_field_bytes):len_field_end] = len_field_bytes
+                                extra_index += (ptr_field.type.GetPointeeType().size * len_field_value.unsigned + 3) // 4
+                                break
+                            case _:
+                                for offset in range(0, trailing_field_type.size, 4):
+                                    trailing_bytes[trailing_field_byte_offset + offset:trailing_field_byte_offset + offset + 4] = extra.child[extra_index].data.uint8
+                                    extra_index += 1
+                                break
+                trailing_data.SetData(lldb.SBError(), trailing_bytes, trailing_data.byte_order, trailing_data.GetAddressByteSize())
+                self.trailing = self.value.CreateValueFromData('.trailing', trailing_data, trailing_type)
+    def has_children(self): return True
+    def num_children(self): return 1 + ((self.index or self.data or self.payload) is not None) + (self.trailing is not None)
+    def get_child_index(self, name):
+        try: return ('tag', 'index' if self.index is not None else 'data' if self.data is not None else 'payload', 'trailing').index(name)
+        except: pass
+    def get_child_at_index(self, index):
+        try: return (self.tag, self.index or self.data or self.payload, self.trailing)[index]
+        except: pass
+
+def root_InternPool_String_SummaryProvider(value, _=None):
+    wrapped = value.unsigned
+    if wrapped == (1 << 32) - 1: return ''
+    ip = value.CreateValueFromType(value.type).GetChildMemberWithName('debug_state').GetChildMemberWithName('intern_pool').GetNonSyntheticValue().GetChildMemberWithName('?')
+    tid_shift_32 = ip.GetChildMemberWithName('tid_shift_32').unsigned
+    locals_value = ip.GetChildMemberWithName('locals').GetSyntheticValue()
+    local_value = locals_value.child[wrapped >> tid_shift_32]
+    if local_value is None:
+        wrapped = 0
+        local_value = locals_value.child[0]
+    string = local_value.GetChildMemberWithName('shared').GetChildMemberWithName('strings').GetChildMemberWithName('view').GetChildMemberWithName('0').child[wrapped & (1 << tid_shift_32) - 1].address_of
+    string.format = lldb.eFormatCString
+    return string.value
+
+class root_InternPool_TrackedInst_Index_SynthProvider:
+    def __init__(self, value, _=None): self.value = value
+    def update(self):
+        self.tracked_inst = None
+        wrapped = self.value.unsigned
+        if wrapped == (1 << 32) - 1: return
+        ip = self.value.CreateValueFromType(self.value.type).GetChildMemberWithName('debug_state').GetChildMemberWithName('intern_pool').GetNonSyntheticValue().GetChildMemberWithName('?')
+        tid_shift_32 = ip.GetChildMemberWithName('tid_shift_32').unsigned
+        locals_value = ip.GetChildMemberWithName('locals').GetSyntheticValue()
+        local_value = locals_value.child[wrapped >> tid_shift_32]
+        if local_value is None:
+            wrapped = 0
+            local_value = locals_value.child[0]
+        self.tracked_inst = local_value.GetChildMemberWithName('shared').GetChildMemberWithName('tracked_insts').GetChildMemberWithName('view').GetChildMemberWithName('0').child[wrapped & (1 << tid_shift_32) - 1]
+    def has_children(self): return False if self.tracked_inst is None else self.tracked_inst.GetNumChildren(1) > 0
+    def num_children(self): return 0 if self.tracked_inst is None else self.tracked_inst.GetNumChildren()
+    def get_child_index(self, name): return -1 if self.tracked_inst is None else self.tracked_inst.GetIndexOfChildWithName(name)
+    def get_child_at_index(self, index): return None if self.tracked_inst is None else self.tracked_inst.GetChildAtIndex(index)
+
+class root_InternPool_Nav_Index_SynthProvider:
+    def __init__(self, value, _=None): self.value = value
+    def update(self):
+        self.nav = None
+        wrapped = self.value.unsigned
+        if wrapped == (1 << 32) - 1: return
+        ip = self.value.CreateValueFromType(self.value.type).GetChildMemberWithName('debug_state').GetChildMemberWithName('intern_pool').GetNonSyntheticValue().GetChildMemberWithName('?')
+        tid_shift_32 = ip.GetChildMemberWithName('tid_shift_32').unsigned
+        locals_value = ip.GetChildMemberWithName('locals').GetSyntheticValue()
+        local_value = locals_value.child[wrapped >> tid_shift_32]
+        if local_value is None:
+            wrapped = 0
+            local_value = locals_value.child[0]
+        self.nav = local_value.GetChildMemberWithName('shared').GetChildMemberWithName('navs').GetChildMemberWithName('view').child[wrapped & (1 << tid_shift_32) - 1]
+    def has_children(self): return False if self.nav is None else self.nav.GetNumChildren(1) > 0
+    def num_children(self): return 0 if self.nav is None else self.nav.GetNumChildren()
+    def get_child_index(self, name): return -1 if self.nav is None else self.nav.GetIndexOfChildWithName(name)
+    def get_child_at_index(self, index): return None if self.nav is None else self.nav.GetChildAtIndex(index)
+
 # Initialize
 
 def add(debugger, *, category, regex=False, type, identifier=None, synth=False, inline_children=False, expand=False, summary=False):
     prefix = '.'.join((__name__, (identifier or type).replace('.', '_').replace(':', '_')))
     if summary: debugger.HandleCommand('type summary add --category %s%s%s "%s"' % (category, ' --inline-children' if inline_children else ''.join((' --expand' if expand else '', ' --python-function %s_SummaryProvider' % prefix if summary == True else ' --summary-string "%s"' % summary)), ' --regex' if regex else '', type))
     if synth: debugger.HandleCommand('type synthetic add --category %s%s --python-class %s_SynthProvider "%s"' % (category, ' --regex' if regex else '', prefix, type))
-
-def MultiArrayList_Entry(type): return '^multi_array_list\\.MultiArrayList\\(%s\\)\\.Entry__struct_[1-9][0-9]*$' % type
 
 def __lldb_init_module(debugger, _=None):
     # Initialize Zig Categories
@@ -729,3 +968,11 @@ def __lldb_init_module(debugger, _=None):
     add(debugger, category='zig.stage2', type='InternPool.Key.Ptr.Addr', identifier='zig_TaggedUnion', synth=True)
     add(debugger, category='zig.stage2', type='InternPool.Key.Aggregate.Storage', identifier='zig_TaggedUnion', synth=True)
     add(debugger, category='zig.stage2', type='arch.x86_64.CodeGen.MCValue', identifier='zig_TaggedUnion', synth=True, inline_children=True, summary=True)
+
+    # Initialize Zig Stage2 Compiler (compiled with the self-hosted backend)
+    add(debugger, category='zig', regex=True, type=r'^root\.InternPool\.Local\.List\(.*\)$', identifier='root_InternPool_Local_List', synth=True, expand=True, summary='capacity=${var%#}')
+    add(debugger, category='zig', type='root.InternPool.Index', synth=True, summary=True)
+    add(debugger, category='zig', type='root.InternPool.Index.Unwrapped', synth=True)
+    add(debugger, category='zig', regex=True, type=r'^root\.InternPool\.(Optional)?(NullTerminated)?String$', identifier='root_InternPool_String', summary=True)
+    add(debugger, category='zig', regex=True, type=r'^root\.InternPool\.TrackedInst\.Index(\.Optional)?$', identifier='root_InternPool_TrackedInst_Index', synth=True)
+    add(debugger, category='zig', regex=True, type=r'^root\.InternPool\.Nav\.Index(\.Optional)?$', identifier='root_InternPool_Nav_Index', synth=True)

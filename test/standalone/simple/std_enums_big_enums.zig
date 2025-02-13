@@ -31,6 +31,7 @@ pub fn main() void {
     var bounded_multiset = std.enums.BoundedEnumMultiset(big.Big, u8).init(.{});
     _ = &bounded_multiset;
 
+    @setEvalBranchQuota(3000);
     var array = std.enums.EnumArray(big.Big, u8).init(undefined);
     array = std.enums.EnumArray(big.Big, u8).initDefault(123, .{});
 }

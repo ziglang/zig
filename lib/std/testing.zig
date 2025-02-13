@@ -7,20 +7,26 @@ const math = std.math;
 /// Initialized on startup. Read-only after that.
 pub var random_seed: u32 = 0;
 
-pub const FailingAllocator = @import("testing/failing_allocator.zig").FailingAllocator;
+pub const FailingAllocator = @import("testing/FailingAllocator.zig");
+pub const failing_allocator = failing_allocator_instance.allocator();
+var failing_allocator_instance = FailingAllocator.init(base_allocator_instance.allocator(), .{
+    .fail_index = 0,
+});
+var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 
 /// This should only be used in temporary test programs.
 pub const allocator = allocator_instance.allocator();
-pub var allocator_instance: std.heap.GeneralPurposeAllocator(.{}) = b: {
-    if (!builtin.is_test)
-        @compileError("Cannot use testing allocator outside of test block");
+pub var allocator_instance: std.heap.GeneralPurposeAllocator(.{
+    .stack_trace_frames = if (std.debug.sys_can_stack_trace) 10 else 0,
+    .resize_stack_traces = true,
+    // A unique value so that when a default-constructed
+    // GeneralPurposeAllocator is incorrectly passed to testing allocator, or
+    // vice versa, panic occurs.
+    .canary = @truncate(0x2731e675c3a701ba),
+}) = b: {
+    if (!builtin.is_test) @compileError("testing allocator used when not testing");
     break :b .init;
 };
-
-pub const failing_allocator = failing_allocator_instance.allocator();
-pub var failing_allocator_instance = FailingAllocator.init(base_allocator_instance.allocator(), .{ .fail_index = 0 });
-
-pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 
 /// TODO https://github.com/ziglang/zig/issues/5738
 pub var log_level = std.log.Level.warn;
@@ -41,14 +47,14 @@ fn print(comptime fmt: []const u8, args: anytype) void {
 pub fn expectError(expected_error: anyerror, actual_error_union: anytype) !void {
     if (actual_error_union) |actual_payload| {
         print("expected error.{s}, found {any}\n", .{ @errorName(expected_error), actual_payload });
-        return error.TestUnexpectedError;
+        return error.TestExpectedError;
     } else |actual_error| {
         if (expected_error != actual_error) {
             print("expected error.{s}, found error.{s}\n", .{
                 @errorName(expected_error),
                 @errorName(actual_error),
             });
-            return error.TestExpectedError;
+            return error.TestUnexpectedError;
         }
     }
 }
@@ -100,13 +106,13 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
 
         .pointer => |pointer| {
             switch (pointer.size) {
-                .One, .Many, .C => {
+                .one, .many, .c => {
                     if (actual != expected) {
                         print("expected {*}, found {*}\n", .{ expected, actual });
                         return error.TestExpectedEqual;
                     }
                 },
-                .Slice => {
+                .slice => {
                     if (actual.ptr != expected.ptr) {
                         print("expected slice ptr {*}, found {*}\n", .{ expected.ptr, actual.ptr });
                         return error.TestExpectedEqual;
@@ -125,7 +131,7 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
             var i: usize = 0;
             while (i < info.len) : (i += 1) {
                 if (!std.meta.eql(expected[i], actual[i])) {
-                    print("index {} incorrect. expected {}, found {}\n", .{
+                    print("index {d} incorrect. expected {any}, found {any}\n", .{
                         i, expected[i], actual[i],
                     });
                     return error.TestExpectedEqual;
@@ -212,6 +218,34 @@ test "expectEqual union with comptime-only field" {
     };
 
     try expectEqual(U{ .a = {} }, .a);
+}
+
+test "expectEqual nested array" {
+    const a = [2][2]f32{
+        [_]f32{ 1.0, 0.0 },
+        [_]f32{ 0.0, 1.0 },
+    };
+
+    const b = [2][2]f32{
+        [_]f32{ 1.0, 0.0 },
+        [_]f32{ 0.0, 1.0 },
+    };
+
+    try expectEqual(a, b);
+}
+
+test "expectEqual vector" {
+    const a: @Vector(4, u32) = @splat(4);
+    const b: @Vector(4, u32) = @splat(4);
+
+    try expectEqual(a, b);
+}
+
+test "expectEqual null" {
+    const a = .{null};
+    const b = @Vector(1, ?*u8){null};
+
+    try expectEqual(a, b);
 }
 
 /// This function is intended to be used only in tests. When the formatted result of the template
@@ -584,27 +618,6 @@ pub fn tmpDir(opts: std.fs.Dir.OpenOptions) TmpDir {
     };
 }
 
-test "expectEqual nested array" {
-    const a = [2][2]f32{
-        [_]f32{ 1.0, 0.0 },
-        [_]f32{ 0.0, 1.0 },
-    };
-
-    const b = [2][2]f32{
-        [_]f32{ 1.0, 0.0 },
-        [_]f32{ 0.0, 1.0 },
-    };
-
-    try expectEqual(a, b);
-}
-
-test "expectEqual vector" {
-    const a: @Vector(4, u32) = @splat(4);
-    const b: @Vector(4, u32) = @splat(4);
-
-    try expectEqual(a, b);
-}
-
 pub fn expectEqualStrings(expected: []const u8, actual: []const u8) !void {
     if (std.mem.indexOfDiff(u8, actual, expected)) |diff_index| {
         print("\n====== expected this output: =========\n", .{});
@@ -726,13 +739,13 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
         .pointer => |pointer| {
             switch (pointer.size) {
                 // We have no idea what is behind those pointers, so the best we can do is `==` check.
-                .C, .Many => {
+                .c, .many => {
                     if (actual != expected) {
                         print("expected {*}, found {*}\n", .{ expected, actual });
                         return error.TestExpectedEqual;
                     }
                 },
-                .One => {
+                .one => {
                     // Length of those pointers are runtime value, so the best we can do is `==` check.
                     switch (@typeInfo(pointer.child)) {
                         .@"fn", .@"opaque" => {
@@ -744,7 +757,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
                         else => try expectEqualDeep(expected.*, actual.*),
                     }
                 },
-                .Slice => {
+                .slice => {
                     if (expected.len != actual.len) {
                         print("Slice len not the same, expected {d}, found {d}\n", .{ expected.len, actual.len });
                         return error.TestExpectedEqual;
@@ -1143,8 +1156,9 @@ pub const FuzzInputOptions = struct {
 
 /// Inline to avoid coverage instrumentation.
 pub inline fn fuzz(
-    comptime testOne: fn (input: []const u8) anyerror!void,
+    context: anytype,
+    comptime testOne: fn (context: @TypeOf(context), input: []const u8) anyerror!void,
     options: FuzzInputOptions,
 ) anyerror!void {
-    return @import("root").fuzz(testOne, options);
+    return @import("root").fuzz(context, testOne, options);
 }

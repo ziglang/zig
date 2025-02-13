@@ -73,13 +73,13 @@ fn __clzsi2_thumb1() callconv(.Naked) void {
         \\ subs r1, #4
         \\ movs r0, r2
         \\ 1:
-        \\ ldr r3, =LUT
+        \\ adr r3, .lut
         \\ ldrb r0, [r3, r0]
         \\ subs r0, r1, r0
         \\ bx lr
         \\ .p2align 2
         \\ // Number of bits set in the 0-15 range
-        \\ LUT:
+        \\ .lut:
         \\ .byte 0,1,2,2,3,3,3,3,4,4,4,4,4,4,4,4
     );
 

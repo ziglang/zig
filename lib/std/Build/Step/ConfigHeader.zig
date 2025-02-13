@@ -144,13 +144,13 @@ fn putValue(config_header: *ConfigHeader, field_name: []const u8, comptime T: ty
         .pointer => |ptr| {
             switch (@typeInfo(ptr.child)) {
                 .array => |array| {
-                    if (ptr.size == .One and array.child == u8) {
+                    if (ptr.size == .one and array.child == u8) {
                         try config_header.values.put(field_name, .{ .string = v });
                         return;
                     }
                 },
                 .int => {
-                    if (ptr.size == .Slice and ptr.child == u8) {
+                    if (ptr.size == .slice and ptr.child == u8) {
                         try config_header.values.put(field_name, .{ .string = v });
                         return;
                     }
@@ -616,7 +616,7 @@ fn expand_variables_cmake(
                     // no open bracket, preserve as a literal
                     break :blk;
                 }
-                const open_pos = var_stack.pop();
+                const open_pos = var_stack.pop().?;
                 if (source_offset == open_pos.source) {
                     source_offset += open_var.len;
                 }

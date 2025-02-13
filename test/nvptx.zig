@@ -95,6 +95,7 @@ fn addPtx(ctx: *Cases, target: std.Build.ResolvedTarget, name: []const u8) *Case
         .output_mode = .Obj,
         .deps = std.ArrayList(Cases.DepModule).init(ctx.cases.allocator),
         .link_libc = false,
+        .emit_bin = false,
         .backend = .llvm,
         // Bug in Debug mode
         .optimize_mode = .ReleaseSafe,

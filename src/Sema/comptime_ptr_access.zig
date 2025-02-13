@@ -219,9 +219,8 @@ fn loadComptimePtrInner(
 
     const base_val: MutableValue = switch (ptr.base_addr) {
         .nav => |nav| val: {
-            try sema.declareDependency(.{ .nav_val = nav });
-            try sema.ensureNavResolved(src, nav);
-            const val = ip.getNav(nav).status.resolved.val;
+            try sema.ensureNavResolved(src, nav, .fully);
+            const val = ip.getNav(nav).status.fully_resolved.val;
             switch (ip.indexToKey(val)) {
                 .variable => return .runtime_load,
                 // We let `.@"extern"` through here if it's a function.

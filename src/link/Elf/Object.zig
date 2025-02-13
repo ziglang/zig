@@ -99,7 +99,6 @@ pub fn parseCommon(
     path: Path,
     handle: fs.File,
     target: std.Target,
-    first_eflags: *?elf.Word,
 ) !void {
     const offset = if (self.archive) |ar| ar.offset else 0;
     const file_size = (try handle.stat()).size;
@@ -114,7 +113,7 @@ pub fn parseCommon(
             @tagName(self.header.?.e_machine),
         });
     }
-    try validateEFlags(diags, path, target, self.header.?.e_flags, first_eflags);
+    try validateEFlags(diags, path, target, self.header.?.e_flags);
 
     if (self.header.?.e_shnum == 0) return;
 
@@ -180,39 +179,81 @@ pub fn parseCommon(
     }
 }
 
-fn validateEFlags(
+pub fn validateEFlags(
     diags: *Diags,
     path: Path,
     target: std.Target,
     e_flags: elf.Word,
-    first_eflags: *?elf.Word,
-) error{LinkFailure}!void {
-    if (first_eflags.*) |*self_eflags| {
-        switch (target.cpu.arch) {
-            .riscv64 => {
-                if (e_flags != self_eflags.*) {
-                    const riscv_eflags: riscv.RiscvEflags = @bitCast(e_flags);
-                    const self_riscv_eflags: *riscv.RiscvEflags = @ptrCast(self_eflags);
+) !void {
+    switch (target.cpu.arch) {
+        .riscv64 => {
+            const features = target.cpu.features;
+            const flags: riscv.Eflags = @bitCast(e_flags);
+            var any_errors: bool = false;
 
-                    self_riscv_eflags.rvc = self_riscv_eflags.rvc or riscv_eflags.rvc;
-                    self_riscv_eflags.tso = self_riscv_eflags.tso or riscv_eflags.tso;
+            // For an input object to target an ABI that the target CPU doesn't have enabled
+            // is invalid, and will throw an error.
 
-                    var any_errors: bool = false;
-                    if (self_riscv_eflags.fabi != riscv_eflags.fabi) {
-                        any_errors = true;
-                        diags.addParseError(path, "cannot link object files with different float-point ABIs", .{});
-                    }
-                    if (self_riscv_eflags.rve != riscv_eflags.rve) {
-                        any_errors = true;
-                        diags.addParseError(path, "cannot link object files with different RVEs", .{});
-                    }
-                    if (any_errors) return error.LinkFailure;
-                }
-            },
-            else => {},
-        }
-    } else {
-        first_eflags.* = e_flags;
+            // Invalid when
+            // 1. The input uses C and we do not.
+            if (flags.rvc and !std.Target.riscv.featureSetHas(features, .c)) {
+                any_errors = true;
+                diags.addParseError(
+                    path,
+                    "cannot link object file targeting the C feature without having the C feature enabled",
+                    .{},
+                );
+            }
+
+            // Invalid when
+            // 1. We use E and the input does not.
+            // 2. The input uses E and we do not.
+            if (std.Target.riscv.featureSetHas(features, .e) != flags.rve) {
+                any_errors = true;
+                diags.addParseError(
+                    path,
+                    "{s}",
+                    .{
+                        if (flags.rve)
+                            "cannot link object file targeting the E feature without having the E feature enabled"
+                        else
+                            "cannot link object file not targeting the E feature while having the E feature enabled",
+                    },
+                );
+            }
+
+            // Invalid when
+            // 1. We use total store order and the input does not.
+            // 2. The input uses total store order and we do not.
+            if (flags.tso != std.Target.riscv.featureSetHas(features, .ztso)) {
+                any_errors = true;
+                diags.addParseError(
+                    path,
+                    "cannot link object file targeting the TSO memory model without having the ztso feature enabled",
+                    .{},
+                );
+            }
+
+            const fabi: riscv.Eflags.FloatAbi =
+                if (std.Target.riscv.featureSetHas(features, .d))
+                .double
+            else if (std.Target.riscv.featureSetHas(features, .f))
+                .single
+            else
+                .soft;
+
+            if (flags.fabi != fabi) {
+                any_errors = true;
+                diags.addParseError(
+                    path,
+                    "cannot link object file targeting a different floating-point ABI. targeting {s}, found {s}",
+                    .{ @tagName(fabi), @tagName(flags.fabi) },
+                );
+            }
+
+            if (any_errors) return error.LinkFailure;
+        },
+        else => {},
     }
 }
 
@@ -756,7 +797,7 @@ pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
                 if (!isNull(data[end .. end + sh_entsize])) {
                     var err = try diags.addErrorWithNotes(1);
                     try err.addMsg("string not null terminated", .{});
-                    try err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
+                    err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                     return error.LinkFailure;
                 }
                 end += sh_entsize;
@@ -771,7 +812,7 @@ pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
             if (shdr.sh_size % sh_entsize != 0) {
                 var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("size not a multiple of sh_entsize", .{});
-                try err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
+                err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                 return error.LinkFailure;
             }
 
@@ -848,8 +889,8 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
         const res = imsec.findSubsection(@intCast(esym.st_value)) orelse {
             var err = try diags.addErrorWithNotes(2);
             try err.addMsg("invalid symbol value: {x}", .{esym.st_value});
-            try err.addNote("for symbol {s}", .{sym.name(elf_file)});
-            try err.addNote("in {}", .{self.fmtPath()});
+            err.addNote("for symbol {s}", .{sym.name(elf_file)});
+            err.addNote("in {}", .{self.fmtPath()});
             return error.LinkFailure;
         };
 
@@ -874,7 +915,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
             const res = imsec.findSubsection(@intCast(@as(i64, @intCast(esym.st_value)) + rel.r_addend)) orelse {
                 var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("invalid relocation at offset 0x{x}", .{rel.r_offset});
-                try err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
+                err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                 return error.LinkFailure;
             };
 

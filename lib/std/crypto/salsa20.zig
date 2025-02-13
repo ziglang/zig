@@ -535,7 +535,7 @@ pub const SealedBox = struct {
     /// `c` must be `seal_length` bytes larger than `m`, so that the required metadata can be added.
     pub fn seal(c: []u8, m: []const u8, public_key: [public_length]u8) (WeakPublicKeyError || IdentityElementError)!void {
         debug.assert(c.len == m.len + seal_length);
-        var ekp = try KeyPair.create(null);
+        var ekp = KeyPair.generate();
         const nonce = createNonce(ekp.public_key, public_key);
         c[0..public_length].* = ekp.public_key;
         try Box.seal(c[Box.public_length..], m, nonce, public_key, ekp.secret_key);
@@ -607,8 +607,8 @@ test "xsalsa20poly1305 box" {
     crypto.random.bytes(&msg);
     crypto.random.bytes(&nonce);
 
-    const kp1 = try Box.KeyPair.create(null);
-    const kp2 = try Box.KeyPair.create(null);
+    const kp1 = Box.KeyPair.generate();
+    const kp2 = Box.KeyPair.generate();
     try Box.seal(boxed[0..], msg[0..], nonce, kp1.public_key, kp2.secret_key);
     try Box.open(msg2[0..], boxed[0..], nonce, kp2.public_key, kp1.secret_key);
 }
@@ -619,7 +619,7 @@ test "xsalsa20poly1305 sealedbox" {
     var boxed: [msg.len + SealedBox.seal_length]u8 = undefined;
     crypto.random.bytes(&msg);
 
-    const kp = try Box.KeyPair.create(null);
+    const kp = Box.KeyPair.generate();
     try SealedBox.seal(boxed[0..], msg[0..], kp.public_key);
     try SealedBox.open(msg2[0..], boxed[0..], kp);
 }

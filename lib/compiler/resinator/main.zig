@@ -7,6 +7,7 @@ const Diagnostics = @import("errors.zig").Diagnostics;
 const cli = @import("cli.zig");
 const preprocess = @import("preprocess.zig");
 const renderErrorMessage = @import("utils.zig").renderErrorMessage;
+const hasDisjointCodePage = @import("disjoint_code_page.zig").hasDisjointCodePage;
 const aro = @import("aro");
 
 pub fn main() !void {
@@ -64,7 +65,7 @@ pub fn main() !void {
 
         if (!zig_integration) {
             // print any warnings/notes
-            cli_diagnostics.renderToStdErr(args, stderr_config);
+            cli_diagnostics.renderToStdErr(cli_args, stderr_config);
             // If there was something printed, then add an extra newline separator
             // so that there is a clear separation between the cli diagnostics and whatever
             // gets printed after
@@ -179,16 +180,30 @@ pub fn main() !void {
     // Note: We still want to run this when no-preprocess is set because:
     //   1. We want to print accurate line numbers after removing multiline comments
     //   2. We want to be able to handle an already-preprocessed input with #line commands in it
-    var mapping_results = try parseAndRemoveLineCommands(allocator, full_input, full_input, .{ .initial_filename = options.input_filename });
-    defer mapping_results.mappings.deinit(allocator);
-
-    const final_input = removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings) catch |err| switch (err) {
-        error.InvalidSourceMappingCollapse => {
-            try error_handler.emitMessage(allocator, .err, "failed during comment removal; this is a known bug", .{});
+    var mapping_results = parseAndRemoveLineCommands(allocator, full_input, full_input, .{ .initial_filename = options.input_filename }) catch |err| switch (err) {
+        error.InvalidLineCommand => {
+            // TODO: Maybe output the invalid line command
+            try error_handler.emitMessage(allocator, .err, "invalid line command in the preprocessed source", .{});
+            if (options.preprocess == .no) {
+                try error_handler.emitMessage(allocator, .note, "line commands must be of the format: #line <num> \"<path>\"", .{});
+            } else {
+                try error_handler.emitMessage(allocator, .note, "this is likely to be a bug, please report it", .{});
+            }
             std.process.exit(1);
         },
-        else => |e| return e,
+        error.LineNumberOverflow => {
+            // TODO: Better error message
+            try error_handler.emitMessage(allocator, .err, "line number count exceeded maximum of {}", .{std.math.maxInt(usize)});
+            std.process.exit(1);
+        },
+        error.OutOfMemory => |e| return e,
     };
+    defer mapping_results.mappings.deinit(allocator);
+
+    const default_code_page = options.default_code_page orelse .windows1252;
+    const has_disjoint_code_page = hasDisjointCodePage(mapping_results.result, &mapping_results.mappings, default_code_page);
+
+    const final_input = try removeComments(mapping_results.result, mapping_results.result, &mapping_results.mappings);
 
     var output_file = std.fs.cwd().createFile(options.output_filename, .{}) catch |err| {
         try error_handler.emitMessage(allocator, .err, "unable to create output file '{s}': {s}", .{ options.output_filename, @errorName(err) });
@@ -211,7 +226,8 @@ pub fn main() !void {
         .extra_include_paths = options.extra_include_paths.items,
         .system_include_paths = include_paths,
         .default_language_id = options.default_language_id,
-        .default_code_page = options.default_code_page orelse .windows1252,
+        .default_code_page = default_code_page,
+        .disjoint_code_page = has_disjoint_code_page,
         .verbose = options.verbose,
         .null_terminate_string_table_strings = options.null_terminate_string_table_strings,
         .max_string_literal_codepoints = options.max_string_literal_codepoints,
@@ -513,7 +529,7 @@ fn diagnosticsToErrorBundle(
             };
             if (err_details.print_source_line) {
                 const source_line = err_details.token.getLineForErrorDisplay(source, source_line_start);
-                const visual_info = err_details.visualTokenInfo(source_line_start, source_line_start + source_line.len);
+                const visual_info = err_details.visualTokenInfo(source_line_start, source_line_start + source_line.len, source);
                 src_loc.span_start = @intCast(visual_info.point_offset - visual_info.before_len);
                 src_loc.span_main = @intCast(visual_info.point_offset);
                 src_loc.span_end = @intCast(visual_info.point_offset + 1 + visual_info.after_len);

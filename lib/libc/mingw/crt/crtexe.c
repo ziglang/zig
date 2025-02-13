@@ -20,19 +20,10 @@
 #include <tchar.h>
 #include <sect_attribs.h>
 #include <locale.h>
+#include <corecrt_startup.h>
 
 #if defined(__SEH__) && (!defined(__clang__) || __clang_major__ >= 7)
 #define SEH_INLINE_ASM
-#endif
-
-#ifndef __winitenv
-extern wchar_t *** __MINGW_IMP_SYMBOL(__winitenv);
-#define __winitenv (* __MINGW_IMP_SYMBOL(__winitenv))
-#endif
-
-#if !defined(__initenv)
-extern char *** __MINGW_IMP_SYMBOL(__initenv);
-#define __initenv (* __MINGW_IMP_SYMBOL(__initenv))
 #endif
 
 extern IMAGE_DOS_HEADER __ImageBase;
@@ -43,6 +34,7 @@ int *__cdecl __p__commode(void);
 
 #undef _fmode
 extern int _fmode;
+#undef _commode
 extern int _commode;
 extern int _dowildcard;
 
@@ -334,7 +326,12 @@ static void duplicate_ppstrings (int ac, _TCHAR ***av)
 
 int __cdecl atexit (_PVFV func)
 {
-    return _onexit((_onexit_t)func) ? 0 : -1;
+    /*
+     * msvcrt def file renames the real atexit() function to _crt_atexit().
+     * UCRT provides atexit() function only under name _crt_atexit().
+     * So redirect call to _crt_atexit() function.
+     */
+    return _crt_atexit(func);
 }
 
 char __mingw_module_is_dll = 0;

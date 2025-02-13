@@ -1,5 +1,5 @@
 /* Defines for bits in AT_HWCAP.  ARM Linux version.
-   Copyright (C) 2012-2024 Free Software Foundation, Inc.
+   Copyright (C) 2012-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -49,3 +49,11 @@
 #define HWCAP_ASIMDFHM		33554432
 #define HWCAP_ASIMDBF16		67108864
 #define HWCAP_I8MM		134217728
+
+#define HWCAP2_AES		1
+#define HWCAP2_PMULL		2
+#define HWCAP2_SHA1		4
+#define HWCAP2_SHA2		8
+#define HWCAP2_CRC32		16
+#define HWCAP2_SB		32
+#define HWCAP2_SSBS		64

@@ -1,4 +1,4 @@
-export fn entry() align(0) void {}
+export fn entry() align(64) void {}
 
 // error
 // backend=stage2

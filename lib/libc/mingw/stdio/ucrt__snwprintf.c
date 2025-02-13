@@ -30,7 +30,7 @@ int __cdecl _snwprintf(wchar_t * restrict _Dest, size_t _Count, const wchar_t * 
   va_list ap;
   int ret;
   va_start(ap, _Format);
-  ret = vsnwprintf(_Dest, _Count, _Format, ap);
+  ret = __stdio_common_vswprintf(_CRT_INTERNAL_LOCAL_PRINTF_OPTIONS | _CRT_INTERNAL_PRINTF_LEGACY_VSPRINTF_NULL_TERMINATION, _Dest, _Count, _Format, NULL, ap);
   va_end(ap);
   return ret;
 }

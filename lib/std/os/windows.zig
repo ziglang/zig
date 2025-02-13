@@ -132,6 +132,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
             .SHARING_VIOLATION => return error.AccessDenied,
             .ACCESS_DENIED => return error.AccessDenied,
             .PIPE_BUSY => return error.PipeBusy,
+            .PIPE_NOT_AVAILABLE => return error.NoDevice,
             .OBJECT_PATH_SYNTAX_BAD => unreachable,
             .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
             .FILE_IS_A_DIRECTORY => return error.IsDir,
@@ -801,6 +802,7 @@ pub fn CreateSymbolicLink(
         error.NotDir => return error.Unexpected,
         error.WouldBlock => return error.Unexpected,
         error.PipeBusy => return error.Unexpected,
+        error.NoDevice => return error.Unexpected,
         error.AntivirusInterference => return error.Unexpected,
         else => |e| return e,
     };
@@ -1466,6 +1468,7 @@ fn mountmgrIsVolumeName(name: []const u16) bool {
 }
 
 test mountmgrIsVolumeName {
+    @setEvalBranchQuota(2000);
     const L = std.unicode.utf8ToUtf16LeStringLiteral;
     try std.testing.expect(mountmgrIsVolumeName(L("\\\\?\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}")));
     try std.testing.expect(mountmgrIsVolumeName(L("\\??\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}")));
@@ -2011,18 +2014,6 @@ pub fn QueryPerformanceCounter() u64 {
 
 pub fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter: ?*anyopaque, Context: ?*anyopaque) void {
     assert(kernel32.InitOnceExecuteOnce(InitOnce, InitFn, Parameter, Context) != 0);
-}
-
-pub fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: *anyopaque) void {
-    assert(kernel32.HeapFree(hHeap, dwFlags, lpMem) != 0);
-}
-
-pub fn HeapDestroy(hHeap: HANDLE) void {
-    assert(kernel32.HeapDestroy(hHeap) != 0);
-}
-
-pub fn LocalFree(hMem: HLOCAL) void {
-    assert(kernel32.LocalFree(hMem) == null);
 }
 
 pub const SetFileTimeError = error{Unexpected};
@@ -4800,14 +4791,14 @@ pub const PEB_LDR_DATA = extern struct {
 ///  - https://docs.microsoft.com/en-us/windows/win32/api/winternl/ns-winternl-peb_ldr_data
 ///  - https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntldr/ldr_data_table_entry.htm
 pub const LDR_DATA_TABLE_ENTRY = extern struct {
-    Reserved1: [2]PVOID,
+    InLoadOrderLinks: LIST_ENTRY,
     InMemoryOrderLinks: LIST_ENTRY,
-    Reserved2: [2]PVOID,
+    InInitializationOrderLinks: LIST_ENTRY,
     DllBase: PVOID,
     EntryPoint: PVOID,
     SizeOfImage: ULONG,
     FullDllName: UNICODE_STRING,
-    Reserved4: [8]BYTE,
+    BaseDllName: UNICODE_STRING,
     Reserved5: [3]PVOID,
     DUMMYUNIONNAME: extern union {
         CheckSum: ULONG,

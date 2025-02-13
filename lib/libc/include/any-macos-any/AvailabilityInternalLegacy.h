@@ -31,6 +31,8 @@
 #ifndef __AVAILABILITY_INTERNAL_LEGACY__
 #define __AVAILABILITY_INTERNAL_LEGACY__
 
+#include <AvailabilityInternal.h>
+
 #if defined(__has_builtin)
  #if __has_builtin(__is_target_arch)
   #if __has_builtin(__is_target_vendor)

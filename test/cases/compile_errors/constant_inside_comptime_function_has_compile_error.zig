@@ -19,3 +19,5 @@ export fn entry() void {
 //
 // :4:5: error: unreachable code
 // :4:25: note: control flow is diverted here
+// :4:25: error: aoeu
+// :1:36: note: called from here

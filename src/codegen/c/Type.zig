@@ -728,6 +728,14 @@ pub const Kind = enum {
             .global => .global,
         };
     }
+
+    pub fn asComplete(kind: Kind) Kind {
+        return switch (kind) {
+            .forward, .complete => .complete,
+            .forward_parameter, .parameter => .parameter,
+            .global => .global,
+        };
+    }
 };
 
 pub const Info = union(enum) {
@@ -1289,33 +1297,33 @@ pub const Pool = struct {
         kind: Kind,
     ) !CType {
         switch (int_info.bits) {
-            0 => return CType.void,
+            0 => return .void,
             1...8 => switch (int_info.signedness) {
-                .signed => return CType.i8,
-                .unsigned => return CType.u8,
+                .signed => return .i8,
+                .unsigned => return .u8,
             },
             9...16 => switch (int_info.signedness) {
-                .signed => return CType.i16,
-                .unsigned => return CType.u16,
+                .signed => return .i16,
+                .unsigned => return .u16,
             },
             17...32 => switch (int_info.signedness) {
-                .signed => return CType.i32,
-                .unsigned => return CType.u32,
+                .signed => return .i32,
+                .unsigned => return .u32,
             },
             33...64 => switch (int_info.signedness) {
-                .signed => return CType.i64,
-                .unsigned => return CType.u64,
+                .signed => return .i64,
+                .unsigned => return .u64,
             },
             65...128 => switch (int_info.signedness) {
-                .signed => return CType.i128,
-                .unsigned => return CType.u128,
+                .signed => return .i128,
+                .unsigned => return .u128,
             },
             else => {
                 const target = &mod.resolved_target.result;
-                const abi_align = Type.intAbiAlignment(int_info.bits, target.*, false);
+                const abi_align = Type.intAbiAlignment(int_info.bits, target.*);
                 const abi_align_bytes = abi_align.toByteUnits().?;
                 const array_ctype = try pool.getArray(allocator, .{
-                    .len = @divExact(Type.intAbiSize(int_info.bits, target.*, false), abi_align_bytes),
+                    .len = @divExact(Type.intAbiSize(int_info.bits, target.*), abi_align_bytes),
                     .elem_ctype = try pool.fromIntInfo(allocator, .{
                         .signedness = .unsigned,
                         .bits = @intCast(abi_align_bytes * 8),
@@ -1357,19 +1365,19 @@ pub const Pool = struct {
             .null_type,
             .undefined_type,
             .enum_literal_type,
-            => return CType.void,
-            .u1_type, .u8_type => return CType.u8,
-            .i8_type => return CType.i8,
-            .u16_type => return CType.u16,
-            .i16_type => return CType.i16,
-            .u29_type, .u32_type => return CType.u32,
-            .i32_type => return CType.i32,
-            .u64_type => return CType.u64,
-            .i64_type => return CType.i64,
-            .u80_type, .u128_type => return CType.u128,
-            .i128_type => return CType.i128,
-            .usize_type => return CType.usize,
-            .isize_type => return CType.isize,
+            => return .void,
+            .u1_type, .u8_type => return .u8,
+            .i8_type => return .i8,
+            .u16_type => return .u16,
+            .i16_type => return .i16,
+            .u29_type, .u32_type => return .u32,
+            .i32_type => return .i32,
+            .u64_type => return .u64,
+            .i64_type => return .i64,
+            .u80_type, .u128_type => return .u128,
+            .i128_type => return .i128,
+            .usize_type => return .usize,
+            .isize_type => return .isize,
             .c_char_type => return .{ .index = .char },
             .c_short_type => return .{ .index = .short },
             .c_ushort_type => return .{ .index = .@"unsigned short" },
@@ -1380,12 +1388,12 @@ pub const Pool = struct {
             .c_longlong_type => return .{ .index = .@"long long" },
             .c_ulonglong_type => return .{ .index = .@"unsigned long long" },
             .c_longdouble_type => return .{ .index = .@"long double" },
-            .f16_type => return CType.f16,
-            .f32_type => return CType.f32,
-            .f64_type => return CType.f64,
-            .f80_type => return CType.f80,
-            .f128_type => return CType.f128,
-            .bool_type, .optional_noreturn_type => return CType.bool,
+            .f16_type => return .f16,
+            .f32_type => return .f32,
+            .f64_type => return .f64,
+            .f80_type => return .f80,
+            .f128_type => return .f128,
+            .bool_type, .optional_noreturn_type => return .bool,
             .noreturn_type,
             .anyframe_type,
             .generic_poison_type,
@@ -1397,19 +1405,20 @@ pub const Pool = struct {
                 .signedness = .unsigned,
                 .bits = pt.zcu.errorSetBits(),
             }, mod, kind),
+
             .manyptr_u8_type,
             => return pool.getPointer(allocator, .{
-                .elem_ctype = CType.u8,
+                .elem_ctype = .u8,
             }),
             .manyptr_const_u8_type,
             .manyptr_const_u8_sentinel_0_type,
             => return pool.getPointer(allocator, .{
-                .elem_ctype = CType.u8,
+                .elem_ctype = .u8,
                 .@"const" = true,
             }),
             .single_const_pointer_to_comptime_int_type,
             => return pool.getPointer(allocator, .{
-                .elem_ctype = CType.void,
+                .elem_ctype = .void,
                 .@"const" = true,
             }),
             .slice_const_u8_type,
@@ -1420,17 +1429,363 @@ pub const Pool = struct {
                     .{
                         .name = .{ .index = .ptr },
                         .ctype = try pool.getPointer(allocator, .{
-                            .elem_ctype = CType.u8,
+                            .elem_ctype = .u8,
                             .@"const" = true,
                         }),
                         .alignas = AlignAs.fromAbiAlignment(Type.ptrAbiAlignment(target.*)),
                     },
                     .{
                         .name = .{ .index = .len },
-                        .ctype = CType.usize,
+                        .ctype = .usize,
                         .alignas = AlignAs.fromAbiAlignment(
-                            Type.intAbiAlignment(target.ptrBitWidth(), target.*, false),
+                            Type.intAbiAlignment(target.ptrBitWidth(), target.*),
                         ),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+
+            .vector_16_i8_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .i8,
+                    .len = 16,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.i8.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_32_i8_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .i8,
+                    .len = 32,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.i8.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_16_u8_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .u8,
+                    .len = 16,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.u8.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_32_u8_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .u8,
+                    .len = 32,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.u8.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_8_i16_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .i16,
+                    .len = 8,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.i16.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_16_i16_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .i16,
+                    .len = 16,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.i16.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_8_u16_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .u16,
+                    .len = 8,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.u16.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_16_u16_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .u16,
+                    .len = 16,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.u16.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_4_i32_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .i32,
+                    .len = 4,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.i32.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_8_i32_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .i32,
+                    .len = 8,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.i32.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_4_u32_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .u32,
+                    .len = 4,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.u32.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_8_u32_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .u32,
+                    .len = 8,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.u32.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_2_i64_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .i64,
+                    .len = 2,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.i64.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_4_i64_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .i64,
+                    .len = 4,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.i64.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_2_u64_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .u64,
+                    .len = 2,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.u64.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_4_u64_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .u64,
+                    .len = 4,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.u64.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_4_f16_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .f16,
+                    .len = 4,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.f16.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_8_f16_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .f16,
+                    .len = 8,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.f16.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_2_f32_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .f32,
+                    .len = 2,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.f32.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_4_f32_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .f32,
+                    .len = 4,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.f32.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_8_f32_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .f32,
+                    .len = 8,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.f32.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_2_f64_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .f64,
+                    .len = 2,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.f64.abiAlignment(zcu)),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .vector_4_f64_type => {
+                const vector_ctype = try pool.getVector(allocator, .{
+                    .elem_ctype = .f64,
+                    .len = 4,
+                });
+                if (!kind.isParameter()) return vector_ctype;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .array },
+                        .ctype = vector_ctype,
+                        .alignas = AlignAs.fromAbiAlignment(Type.f64.abiAlignment(zcu)),
                     },
                 };
                 return pool.fromFields(allocator, .@"struct", &fields, kind);
@@ -1451,14 +1806,13 @@ pub const Pool = struct {
             .bool_true,
             .bool_false,
             .empty_tuple,
-            .generic_poison,
             .none,
             => unreachable,
 
             _ => |ip_index| switch (ip.indexToKey(ip_index)) {
                 .int_type => |int_info| return pool.fromIntInfo(allocator, int_info, mod, kind),
                 .ptr_type => |ptr_info| switch (ptr_info.flags.size) {
-                    .One, .Many, .C => {
+                    .one, .many, .c => {
                         const elem_ctype = elem_ctype: {
                             if (ptr_info.packed_offset.host_size > 0 and
                                 ptr_info.flags.vector_index == .none)
@@ -1505,7 +1859,7 @@ pub const Pool = struct {
                             .@"volatile" = ptr_info.flags.is_volatile,
                         });
                     },
-                    .Slice => {
+                    .slice => {
                         const target = &mod.resolved_target.result;
                         var fields = [_]Info.Field{
                             .{
@@ -1522,9 +1876,9 @@ pub const Pool = struct {
                             },
                             .{
                                 .name = .{ .index = .len },
-                                .ctype = CType.usize,
+                                .ctype = .usize,
                                 .alignas = AlignAs.fromAbiAlignment(
-                                    Type.intAbiAlignment(target.ptrBitWidth(), target.*, false),
+                                    Type.intAbiAlignment(target.ptrBitWidth(), target.*),
                                 ),
                             },
                         };
@@ -1533,7 +1887,7 @@ pub const Pool = struct {
                 },
                 .array_type => |array_info| {
                     const len = array_info.lenIncludingSentinel();
-                    if (len == 0) return CType.void;
+                    if (len == 0) return .void;
                     const elem_type = Type.fromInterned(array_info.child);
                     const elem_ctype = try pool.fromType(
                         allocator,
@@ -1541,9 +1895,9 @@ pub const Pool = struct {
                         elem_type,
                         pt,
                         mod,
-                        kind.noParameter(),
+                        kind.noParameter().asComplete(),
                     );
-                    if (elem_ctype.index == .void) return CType.void;
+                    if (elem_ctype.index == .void) return .void;
                     const array_ctype = try pool.getArray(allocator, .{
                         .elem_ctype = elem_ctype,
                         .len = len,
@@ -1559,7 +1913,7 @@ pub const Pool = struct {
                     return pool.fromFields(allocator, .@"struct", &fields, kind);
                 },
                 .vector_type => |vector_info| {
-                    if (vector_info.len == 0) return CType.void;
+                    if (vector_info.len == 0) return .void;
                     const elem_type = Type.fromInterned(vector_info.child);
                     const elem_ctype = try pool.fromType(
                         allocator,
@@ -1567,9 +1921,9 @@ pub const Pool = struct {
                         elem_type,
                         pt,
                         mod,
-                        kind.noParameter(),
+                        kind.noParameter().asComplete(),
                     );
-                    if (elem_ctype.index == .void) return CType.void;
+                    if (elem_ctype.index == .void) return .void;
                     const vector_ctype = try pool.getVector(allocator, .{
                         .elem_ctype = elem_ctype,
                         .len = vector_info.len,
@@ -1585,7 +1939,7 @@ pub const Pool = struct {
                     return pool.fromFields(allocator, .@"struct", &fields, kind);
                 },
                 .opt_type => |payload_type| {
-                    if (ip.isNoReturn(payload_type)) return CType.void;
+                    if (ip.isNoReturn(payload_type)) return .void;
                     const payload_ctype = try pool.fromType(
                         allocator,
                         scratch,
@@ -1594,11 +1948,11 @@ pub const Pool = struct {
                         mod,
                         kind.noParameter(),
                     );
-                    if (payload_ctype.index == .void) return CType.bool;
+                    if (payload_ctype.index == .void) return .bool;
                     switch (payload_type) {
                         .anyerror_type => return payload_ctype,
                         else => switch (ip.indexToKey(payload_type)) {
-                            .ptr_type => |payload_ptr_info| if (payload_ptr_info.flags.size != .C and
+                            .ptr_type => |payload_ptr_info| if (payload_ptr_info.flags.size != .c and
                                 !payload_ptr_info.flags.is_allowzero) return payload_ctype,
                             .error_set_type, .inferred_error_set_type => return payload_ctype,
                             else => {},
@@ -1607,7 +1961,7 @@ pub const Pool = struct {
                     var fields = [_]Info.Field{
                         .{
                             .name = .{ .index = .is_null },
-                            .ctype = CType.bool,
+                            .ctype = .bool,
                             .alignas = AlignAs.fromAbiAlignment(.@"1"),
                         },
                         .{
@@ -1644,7 +1998,7 @@ pub const Pool = struct {
                             .name = .{ .index = .@"error" },
                             .ctype = error_set_ctype,
                             .alignas = AlignAs.fromAbiAlignment(
-                                Type.intAbiAlignment(error_set_bits, target.*, false),
+                                Type.intAbiAlignment(error_set_bits, target.*),
                             ),
                         },
                         .{
@@ -1667,7 +2021,7 @@ pub const Pool = struct {
                             if (kind.isForward()) return if (ty.hasRuntimeBitsIgnoreComptime(zcu))
                                 fwd_decl
                             else
-                                CType.void;
+                                .void;
                             const scratch_top = scratch.items.len;
                             defer scratch.shrinkRetainingCapacity(scratch_top);
                             try scratch.ensureUnusedCapacity(
@@ -1711,7 +2065,7 @@ pub const Pool = struct {
                                 scratch.items.len - scratch_top,
                                 @typeInfo(Field).@"struct".fields.len,
                             ));
-                            if (fields_len == 0) return CType.void;
+                            if (fields_len == 0) return .void;
                             try pool.ensureUnusedCapacity(allocator, 1);
                             const extra_index = try pool.addHashedExtra(allocator, &hasher, Aggregate, .{
                                 .fwd_decl = fwd_decl.index,
@@ -1763,7 +2117,7 @@ pub const Pool = struct {
                         scratch.items.len - scratch_top,
                         @typeInfo(Field).@"struct".fields.len,
                     ));
-                    if (fields_len == 0) return CType.void;
+                    if (fields_len == 0) return .void;
                     if (kind.isForward()) {
                         try pool.ensureUnusedCapacity(allocator, 1);
                         const extra_index = try pool.addHashedExtra(
@@ -1802,7 +2156,7 @@ pub const Pool = struct {
                             if (kind.isForward()) return if (ty.hasRuntimeBitsIgnoreComptime(zcu))
                                 fwd_decl
                             else
-                                CType.void;
+                                .void;
                             const loaded_tag = loaded_union.loadTagType(ip);
                             const scratch_top = scratch.items.len;
                             defer scratch.shrinkRetainingCapacity(scratch_top);
@@ -1849,7 +2203,7 @@ pub const Pool = struct {
                                 @typeInfo(Field).@"struct".fields.len,
                             ));
                             if (!has_tag) {
-                                if (fields_len == 0) return CType.void;
+                                if (fields_len == 0) return .void;
                                 try pool.ensureUnusedCapacity(allocator, 1);
                                 const extra_index = try pool.addHashedExtra(
                                     allocator,
@@ -1916,7 +2270,7 @@ pub const Pool = struct {
                                     struct_fields_len += 1;
                                 }
                             }
-                            if (struct_fields_len == 0) return CType.void;
+                            if (struct_fields_len == 0) return .void;
                             sortFields(struct_fields[0..struct_fields_len]);
                             return pool.getAggregate(allocator, .{
                                 .tag = .@"struct",
@@ -1930,7 +2284,7 @@ pub const Pool = struct {
                         }, mod, kind),
                     }
                 },
-                .opaque_type => return CType.void,
+                .opaque_type => return .void,
                 .enum_type => return pool.fromType(
                     allocator,
                     scratch,
@@ -1939,7 +2293,7 @@ pub const Pool = struct {
                     mod,
                     kind,
                 ),
-                .func_type => |func_info| if (func_info.is_generic) return CType.void else {
+                .func_type => |func_info| if (func_info.is_generic) return .void else {
                     const scratch_top = scratch.items.len;
                     defer scratch.shrinkRetainingCapacity(scratch_top);
                     try scratch.ensureUnusedCapacity(allocator, func_info.param_types.len);
@@ -1953,7 +2307,7 @@ pub const Pool = struct {
                         pt,
                         mod,
                         kind.asParameter(),
-                    ) else CType.void;
+                    ) else .void;
                     for (0..func_info.param_types.len) |param_index| {
                         const param_type = Type.fromInterned(
                             func_info.param_types.get(ip)[param_index],
@@ -2034,7 +2388,7 @@ pub const Pool = struct {
             pub fn eql(map_adapter: @This(), _: CType, _: void, pool_index: usize) bool {
                 return map_adapter.source_info.eqlAdapted(
                     map_adapter.source_pool,
-                    CType.fromPoolIndex(pool_index),
+                    .fromPoolIndex(pool_index),
                     map_adapter.pool,
                     map_adapter.pool_adapter,
                 );
@@ -2048,7 +2402,7 @@ pub const Pool = struct {
             .pool_adapter = pool_adapter,
         });
         errdefer _ = pool.map.pop();
-        const ctype = CType.fromPoolIndex(gop.index);
+        const ctype: CType = .fromPoolIndex(gop.index);
         if (!gop.found_existing) switch (source_info) {
             .basic => unreachable,
             .pointer => |pointer_info| pool.items.appendAssumeCapacity(.{
@@ -2233,7 +2587,7 @@ pub const Pool = struct {
             CTypeAdapter{ .pool = pool },
         );
         if (!gop.found_existing) pool.items.appendAssumeCapacity(.{ .tag = tag, .data = data });
-        return CType.fromPoolIndex(gop.index);
+        return .fromPoolIndex(gop.index);
     }
 
     fn tagExtra(
@@ -2291,7 +2645,7 @@ pub const Pool = struct {
             pool.extra.shrinkRetainingCapacity(extra_index)
         else
             pool.items.appendAssumeCapacity(.{ .tag = tag, .data = extra_index });
-        return CType.fromPoolIndex(gop.index);
+        return .fromPoolIndex(gop.index);
     }
 
     fn sortFields(fields: []Info.Field) void {

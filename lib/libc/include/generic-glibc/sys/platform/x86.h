@@ -1,6 +1,6 @@
 /* Data structure for x86 CPU features.
    This file is part of the GNU C Library.
-   Copyright (C) 2008-2024 Free Software Foundation, Inc.
+   Copyright (C) 2008-2025 Free Software Foundation, Inc.
 
    The GNU C Library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
@@ -30,7 +30,7 @@ __BEGIN_DECLS
 extern const struct cpuid_feature *__x86_get_cpuid_feature_leaf (unsigned int)
      __attribute__ ((pure));
 
-static __inline__ _Bool
+static __inline__ bool
 x86_cpu_present (unsigned int __index)
 {
   const struct cpuid_feature *__ptr = __x86_get_cpuid_feature_leaf
@@ -43,7 +43,7 @@ x86_cpu_present (unsigned int __index)
   return __ptr->cpuid_array[__reg] & (1 << __bit);
 }
 
-static __inline__ _Bool
+static __inline__ bool
 x86_cpu_active (unsigned int __index)
 {
   if (__index == x86_cpu_IBT || __index == x86_cpu_SHSTK)

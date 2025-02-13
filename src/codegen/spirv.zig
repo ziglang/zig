@@ -268,7 +268,7 @@ pub const Object = struct {
             // TODO: Extern fn?
             const kind: SpvModule.Decl.Kind = if (ip.isFunctionType(nav.typeOf(ip)))
                 .func
-            else switch (nav.status.resolved.@"addrspace") {
+            else switch (nav.getAddrspace()) {
                 .generic => .invocation_global,
                 else => .global,
             };
@@ -941,7 +941,6 @@ const NavGen = struct {
                     .null,
                     .empty_tuple,
                     .@"unreachable",
-                    .generic_poison,
                     => unreachable, // non-runtime values
 
                     .false, .true => break :cache try self.constBool(val.toBool(), repr),
@@ -1279,17 +1278,20 @@ const NavGen = struct {
         const ip = &zcu.intern_pool;
         const ty_id = try self.resolveType(ty, .direct);
         const nav = ip.getNav(nav_index);
-        const nav_val = zcu.navValue(nav_index);
-        const nav_ty = nav_val.typeOf(zcu);
+        const nav_ty: Type = .fromInterned(nav.typeOf(ip));
 
-        switch (ip.indexToKey(nav_val.toIntern())) {
-            .func => {
-                // TODO: Properly lower function pointers. For now we are going to hack around it and
-                // just generate an empty pointer. Function pointers are represented by a pointer to usize.
-                return try self.spv.constUndef(ty_id);
+        switch (nav.status) {
+            .unresolved => unreachable,
+            .type_resolved => {}, // this is not a function or extern
+            .fully_resolved => |r| switch (ip.indexToKey(r.val)) {
+                .func => {
+                    // TODO: Properly lower function pointers. For now we are going to hack around it and
+                    // just generate an empty pointer. Function pointers are represented by a pointer to usize.
+                    return try self.spv.constUndef(ty_id);
+                },
+                .@"extern" => if (ip.isFunctionType(nav_ty.toIntern())) @panic("TODO"),
+                else => {},
             },
-            .@"extern" => assert(!ip.isFunctionType(nav_ty.toIntern())), // TODO
-            else => {},
         }
 
         if (!nav_ty.isFnOrHasRuntimeBitsIgnoreComptime(zcu)) {
@@ -1305,7 +1307,7 @@ const NavGen = struct {
             .global, .invocation_global => spv_decl.result_id,
         };
 
-        const storage_class = self.spvStorageClass(nav.status.resolved.@"addrspace");
+        const storage_class = self.spvStorageClass(nav.getAddrspace());
         try self.addFunctionDep(spv_decl_index, storage_class);
 
         const decl_ptr_ty_id = try self.ptrType(nav_ty, storage_class);
@@ -1702,13 +1704,13 @@ const NavGen = struct {
                 const storage_class = self.spvStorageClass(ptr_info.flags.address_space);
                 const ptr_ty_id = try self.ptrType(child_ty, storage_class);
 
-                if (target.os.tag == .vulkan and ptr_info.flags.size == .Many) {
+                if (target.os.tag == .vulkan and ptr_info.flags.size == .many) {
                     try self.spv.decorate(ptr_ty_id, .{ .ArrayStride = .{
                         .array_stride = @intCast(child_ty.abiSize(zcu)),
                     } });
                 }
 
-                if (ptr_info.flags.size != .Slice) {
+                if (ptr_info.flags.size != .slice) {
                     return ptr_ty_id;
                 }
 
@@ -3182,7 +3184,7 @@ const NavGen = struct {
                 };
                 assert(maybe_init_val == null); // TODO
 
-                const storage_class = self.spvStorageClass(nav.status.resolved.@"addrspace");
+                const storage_class = self.spvStorageClass(nav.getAddrspace());
                 assert(storage_class != .Generic); // These should be instance globals
 
                 const ptr_ty_id = try self.ptrType(ty, storage_class);
@@ -3447,10 +3449,8 @@ const NavGen = struct {
 
             .bitcast         => try self.airBitCast(inst),
             .intcast, .trunc => try self.airIntCast(inst),
-            .int_from_ptr    => try self.airIntFromPtr(inst),
             .float_from_int  => try self.airFloatFromInt(inst),
             .int_from_float  => try self.airIntFromFloat(inst),
-            .int_from_bool   => try self.airIntFromBool(inst),
             .fpext, .fptrunc => try self.airFloatCast(inst),
             .not             => try self.airNot(inst),
 
@@ -4396,15 +4396,15 @@ const NavGen = struct {
         const result_ty_id = try self.resolveType(result_ty, .direct);
 
         switch (ptr_ty.ptrSize(zcu)) {
-            .One => {
+            .one => {
                 // Pointer to array
                 // TODO: Is this correct?
                 return try self.accessChainId(result_ty_id, ptr_id, &.{offset_id});
             },
-            .C, .Many => {
+            .c, .many => {
                 return try self.ptrAccessChain(result_ty_id, ptr_id, offset_id, &.{});
             },
-            .Slice => {
+            .slice => {
                 // TODO: This is probably incorrect. A slice should be returned here, though this is what llvm does.
                 const slice_ptr_id = try self.extractField(result_ty, ptr_id, 0);
                 return try self.ptrAccessChain(result_ty_id, slice_ptr_id, offset_id, &.{});
@@ -4704,9 +4704,14 @@ const NavGen = struct {
 
     fn airBitCast(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-        const operand_id = try self.resolve(ty_op.operand);
         const operand_ty = self.typeOf(ty_op.operand);
         const result_ty = self.typeOfIndex(inst);
+        if (operand_ty.toIntern() == .bool_type) {
+            const operand = try self.temporary(ty_op.operand);
+            const result = try self.intFromBool(operand);
+            return try result.materialize(self);
+        }
+        const operand_id = try self.resolve(ty_op.operand);
         return try self.bitCast(result_ty, operand_ty, operand_id);
     }
 
@@ -4745,12 +4750,6 @@ const NavGen = struct {
             .pointer = operand_id,
         });
         return result_id;
-    }
-
-    fn airIntFromPtr(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
-        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-        const operand_id = try self.resolve(un_op);
-        return try self.intFromPtr(operand_id);
     }
 
     fn airFloatFromInt(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
@@ -4804,13 +4803,6 @@ const NavGen = struct {
             }),
         }
         return result_id;
-    }
-
-    fn airIntFromBool(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
-        const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-        const operand = try self.temporary(un_op);
-        const result = try self.intFromBool(operand);
-        return try result.materialize(self);
     }
 
     fn airFloatCast(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
@@ -4986,15 +4978,15 @@ const NavGen = struct {
         const pt = self.pt;
         const zcu = pt.zcu;
         switch (ty.ptrSize(zcu)) {
-            .Slice => return self.extractField(Type.usize, operand_id, 1),
-            .One => {
+            .slice => return self.extractField(Type.usize, operand_id, 1),
+            .one => {
                 const array_ty = ty.childType(zcu);
                 const elem_ty = array_ty.childType(zcu);
                 const abi_size = elem_ty.abiSize(zcu);
                 const size = array_ty.arrayLenIncludingSentinel(zcu) * abi_size;
                 return try self.constInt(Type.usize, size, .direct);
             },
-            .Many, .C => unreachable,
+            .many, .c => unreachable,
         }
     }
 

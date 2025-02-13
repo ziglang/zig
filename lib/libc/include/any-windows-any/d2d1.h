@@ -120,6 +120,8 @@ typedef enum D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS {
   D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS_FORCE_DWORD      = 0xffffffff
 } D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS;
 
+DEFINE_ENUM_FLAG_OPERATORS(D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS);
+
 typedef enum D2D1_DASH_STYLE {
   D2D1_DASH_STYLE_SOLID          = 0,
   D2D1_DASH_STYLE_DASH           = 1,
@@ -152,6 +154,8 @@ typedef enum D2D1_DRAW_TEXT_OPTIONS {
   D2D1_DRAW_TEXT_OPTIONS_NONE                          = 0x00000000,
   D2D1_DRAW_TEXT_OPTIONS_FORCE_DWORD                   = 0xffffffff
 } D2D1_DRAW_TEXT_OPTIONS;
+
+DEFINE_ENUM_FLAG_OPERATORS(D2D1_DRAW_TEXT_OPTIONS);
 
 typedef enum D2D1_EXTEND_MODE {
   D2D1_EXTEND_MODE_CLAMP       = 0,
@@ -218,6 +222,8 @@ typedef enum D2D1_LAYER_OPTIONS {
   D2D1_LAYER_OPTIONS_FORCE_DWORD                = 0xffffffff
 } D2D1_LAYER_OPTIONS;
 
+DEFINE_ENUM_FLAG_OPERATORS(D2D1_LAYER_OPTIONS);
+
 typedef enum D2D1_LINE_JOIN {
   D2D1_LINE_JOIN_MITER            = 0,
   D2D1_LINE_JOIN_BEVEL            = 1,
@@ -240,12 +246,16 @@ typedef enum D2D1_PATH_SEGMENT {
   D2D1_PATH_SEGMENT_FORCE_DWORD             = 0xffffffff
 } D2D1_PATH_SEGMENT;
 
+DEFINE_ENUM_FLAG_OPERATORS(D2D1_PATH_SEGMENT);
+
 typedef enum D2D1_PRESENT_OPTIONS {
   D2D1_PRESENT_OPTIONS_NONE              = 0x00000000,
   D2D1_PRESENT_OPTIONS_RETAIN_CONTENTS   = 0x00000001,
   D2D1_PRESENT_OPTIONS_IMMEDIATELY       = 0x00000002,
   D2D1_PRESENT_OPTIONS_FORCE_DWORD       = 0xffffffff
 } D2D1_PRESENT_OPTIONS;
+
+DEFINE_ENUM_FLAG_OPERATORS(D2D1_PRESENT_OPTIONS);
 
 typedef enum D2D1_RENDER_TARGET_TYPE {
   D2D1_RENDER_TARGET_TYPE_DEFAULT     = 0,
@@ -260,6 +270,8 @@ typedef enum D2D1_RENDER_TARGET_USAGE {
   D2D1_RENDER_TARGET_USAGE_GDI_COMPATIBLE          = 0x00000002,
   D2D1_RENDER_TARGET_USAGE_FORCE_DWORD             = 0xffffffff
 } D2D1_RENDER_TARGET_USAGE;
+
+DEFINE_ENUM_FLAG_OPERATORS(D2D1_RENDER_TARGET_USAGE);
 
 typedef enum D2D1_SWEEP_DIRECTION {
   D2D1_SWEEP_DIRECTION_COUNTER_CLOCKWISE   = 0,
@@ -280,6 +292,8 @@ typedef enum D2D1_WINDOW_STATE {
   D2D1_WINDOW_STATE_OCCLUDED    = 0x00000001,
   D2D1_WINDOW_STATE_FORCE_DWORD = 0xffffffff
 } D2D1_WINDOW_STATE;
+
+DEFINE_ENUM_FLAG_OPERATORS(D2D1_WINDOW_STATE);
 
 /* this is a hack so we can use forward declares in C (easier than reordering interfaces) */
 #if !defined(__cplusplus)
@@ -1249,19 +1263,19 @@ interface ID2D1Geometry {
 #define ID2D1Geometry_AddRef(this) (this)->lpVtbl->Base.Base.AddRef((IUnknown*)(this))
 #define ID2D1Geometry_Release(this) (this)->lpVtbl->Base.Base.Release((IUnknown*)(this))
 #define ID2D1Geometry_GetFactory(this,A) (this)->lpVtbl->Base.GetFactory((ID2D1Resource*)(this),A)
-#define ID2D1Geometry_CombineWithGeometry(this,A,B,C,D) (this)->lpVtbl->CombineWithGeometry(this,A,B,C,D)
-#define ID2D1Geometry_CompareWithGeometry(this,A,B,C) (this)->lpVtbl->CompareWithGeometry(this,A,B,C)
-#define ID2D1Geometry_ComputeArea(this,A,B) (this)->lpVtbl->ComputeArea(this,A,B)
-#define ID2D1Geometry_ComputeLength(this,A,B) (this)->lpVtbl->ComputeLength(this,A,B)
-#define ID2D1Geometry_ComputePointAtLength(this,A,B,C,D) (this)->lpVtbl->ComputePointAtLength(this,A,B,C,D)
-#define ID2D1Geometry_FillContainsPoint(this,A,B,C) (this)->lpVtbl->FillContainsPoint(this,A,B,C)
 #define ID2D1Geometry_GetBounds(this,A,B) (this)->lpVtbl->GetBounds(this,A,B)
-#define ID2D1Geometry_GetWidenedBounds(this,A,B,C,D) (this)->lpVtbl->GetWidenedBounds(this,A,B,C,D)
-#define ID2D1Geometry_Outline(this,A,B) (this)->lpVtbl->Outline(this,A,B)
-#define ID2D1Geometry_StrokeContainsPoint(this,A,B,C,D,E) (this)->lpVtbl->StrokeContainsPoint(this,A,B,C,D,E)
-#define ID2D1Geometry_Simplify(this,A,B,C) (this)->lpVtbl->Simplify(this,A,B,C)
-#define ID2D1Geometry_Tessellate(this,A,B) (this)->lpVtbl->Tessellate(this,A,B)
-#define ID2D1Geometry_Widen(this,A,B,C,D) (this)->lpVtbl->Widen(this,A,B,C,D)
+#define ID2D1Geometry_GetWidenedBounds(this,A,B,C,D,E) (this)->lpVtbl->GetWidenedBounds(this,A,B,C,D,E)
+#define ID2D1Geometry_StrokeContainsPoint(this,A,B,C,D,E,F) (this)->lpVtbl->StrokeContainsPoint(this,A,B,C,D,E,F)
+#define ID2D1Geometry_FillContainsPoint(this,A,B,C,D) (this)->lpVtbl->FillContainsPoint(this,A,B,C,D)
+#define ID2D1Geometry_CompareWithGeometry(this,A,B,C,D) (this)->lpVtbl->CompareWithGeometry(this,A,B,C,D)
+#define ID2D1Geometry_Simplify(this,A,B,C,D) (this)->lpVtbl->Simplify(this,A,B,C,D)
+#define ID2D1Geometry_Tessellate(this,A,B,C) (this)->lpVtbl->Tessellate(this,A,B,C)
+#define ID2D1Geometry_CombineWithGeometry(this,A,B,C,D,E) (this)->lpVtbl->CombineWithGeometry(this,A,B,C,D,E)
+#define ID2D1Geometry_Outline(this,A,B,C) (this)->lpVtbl->Outline(this,A,B,C)
+#define ID2D1Geometry_ComputeArea(this,A,B,C) (this)->lpVtbl->ComputeArea(this,A,B,C)
+#define ID2D1Geometry_ComputeLength(this,A,B,C) (this)->lpVtbl->ComputeLength(this,A,B,C)
+#define ID2D1Geometry_ComputePointAtLength(this,A,B,C,D,E) (this)->lpVtbl->ComputePointAtLength(this,A,B,C,D,E)
+#define ID2D1Geometry_Widen(this,A,B,C,D,E) (this)->lpVtbl->Widen(this,A,B,C,D,E)
 
 #endif
 
@@ -1538,19 +1552,19 @@ interface ID2D1EllipseGeometry {
 #define ID2D1EllipseGeometry_AddRef(this) (this)->lpVtbl->Base.Base.Base.AddRef((IUnknown*)(this))
 #define ID2D1EllipseGeometry_Release(this) (this)->lpVtbl->Base.Base.Base.Release((IUnknown*)(this))
 #define ID2D1EllipseGeometry_GetFactory(this,A) (this)->lpVtbl->Base.Base.GetFactory((ID2D1Resource*)(this),A)
-#define ID2D1EllipseGeometry_CombineWithGeometry(this,A,B,C,D) (this)->lpVtbl->Base.CombineWithGeometry((ID2D1Geometry*)(this),A,B,C,D)
-#define ID2D1EllipseGeometry_CompareWithGeometry(this,A,B,C) (this)->lpVtbl->Base.CompareWithGeometry((ID2D1Geometry*)(this),A,B,C)
-#define ID2D1EllipseGeometry_ComputeArea(this,A,B) (this)->lpVtbl->Base.ComputeArea((ID2D1Geometry*)(this),A,B)
-#define ID2D1EllipseGeometry_ComputeLength(this,A,B) (this)->lpVtbl->Base.ComputeLength((ID2D1Geometry*)(this),A,B)
-#define ID2D1EllipseGeometry_ComputePointAtLength(this,A,B,C,D) (this)->lpVtbl->Base.ComputePointAtLength((ID2D1Geometry*)(this),A,B,C,D)
-#define ID2D1EllipseGeometry_FillContainsPoint(this,A,B,C) (this)->lpVtbl->Base.FillContainsPoint((ID2D1Geometry*)(this),A,B,C)
 #define ID2D1EllipseGeometry_GetBounds(this,A,B) (this)->lpVtbl->Base.GetBounds((ID2D1Geometry*)(this),A,B)
-#define ID2D1EllipseGeometry_GetWidenedBounds(this,A,B,C,D) (this)->lpVtbl->Base.GetWidenedBounds((ID2D1Geometry*)(this),A,B,C,D)
-#define ID2D1EllipseGeometry_Outline(this,A,B) (this)->lpVtbl->Base.Outline((ID2D1Geometry*)(this),A,B)
-#define ID2D1EllipseGeometry_StrokeContainsPoint(this,A,B,C,D,E) (this)->lpVtbl->Base.StrokeContainsPoint((ID2D1Geometry*)(this),A,B,C,D,E)
-#define ID2D1EllipseGeometry_Simplify(this,A,B,C) (this)->lpVtbl->Base.Simplify((ID2D1Geometry*)(this),A,B,C)
-#define ID2D1EllipseGeometry_Tessellate(this,A,B) (this)->lpVtbl->Base.Tessellate((ID2D1Geometry*)(this),A,B)
-#define ID2D1EllipseGeometry_Widen(this,A,B,C,D) (this)->lpVtbl->Base.Widen((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1EllipseGeometry_GetWidenedBounds(this,A,B,C,D,E) (this)->lpVtbl->Base.GetWidenedBounds((ID2D1Geometry*)(this),A,B,C,D,E)
+#define ID2D1EllipseGeometry_StrokeContainsPoint(this,A,B,C,D,E,F) (this)->lpVtbl->Base.StrokeContainsPoint((ID2D1Geometry*)(this),A,B,C,D,E,F)
+#define ID2D1EllipseGeometry_FillContainsPoint(this,A,B,C,D) (this)->lpVtbl->Base.FillContainsPoint((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1EllipseGeometry_CompareWithGeometry(this,A,B,C,D) (this)->lpVtbl->Base.CompareWithGeometry((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1EllipseGeometry_Simplify(this,A,B,C,D) (this)->lpVtbl->Base.Simplify((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1EllipseGeometry_Tessellate(this,A,B,C) (this)->lpVtbl->Base.Tessellate((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1EllipseGeometry_CombineWithGeometry(this,A,B,C,D,E) (this)->lpVtbl->Base.CombineWithGeometry((ID2D1Geometry*)(this),A,B,C,D,E)
+#define ID2D1EllipseGeometry_Outline(this,A,B,C) (this)->lpVtbl->Base.Outline((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1EllipseGeometry_ComputeArea(this,A,B,C) (this)->lpVtbl->Base.ComputeArea((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1EllipseGeometry_ComputeLength(this,A,B,C) (this)->lpVtbl->Base.ComputeLength((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1EllipseGeometry_ComputePointAtLength(this,A,B,C,D,E) (this)->lpVtbl->Base.ComputePointAtLength((ID2D1Geometry*)(this),A,B,C,D,E)
+#define ID2D1EllipseGeometry_Widen(this,A,B,C,D,E) (this)->lpVtbl->Base.Widen((ID2D1Geometry*)(this),A,B,C,D,E)
 #define ID2D1EllipseGeometry_GetEllipse(this,A) (this)->lpVtbl->GetEllipse(this,A)
 
 #endif
@@ -1719,19 +1733,19 @@ interface ID2D1GeometryGroup {
 #define ID2D1GeometryGroup_AddRef(this) (this)->lpVtbl->Base.Base.Base.AddRef((IUnknown*)(this))
 #define ID2D1GeometryGroup_Release(this) (this)->lpVtbl->Base.Base.Base.Release((IUnknown*)(this))
 #define ID2D1GeometryGroup_GetFactory(this,A) (this)->lpVtbl->Base.Base.GetFactory((ID2D1Resource*)(this),A)
-#define ID2D1GeometryGroup_CombineWithGeometry(this,A,B,C,D) (this)->lpVtbl->Base.CombineWithGeometry((ID2D1Geometry*)(this),A,B,C,D)
-#define ID2D1GeometryGroup_CompareWithGeometry(this,A,B,C) (this)->lpVtbl->Base.CompareWithGeometry((ID2D1Geometry*)(this),A,B,C)
-#define ID2D1GeometryGroup_ComputeArea(this,A,B) (this)->lpVtbl->Base.ComputeArea((ID2D1Geometry*)(this),A,B)
-#define ID2D1GeometryGroup_ComputeLength(this,A,B) (this)->lpVtbl->Base.ComputeLength((ID2D1Geometry*)(this),A,B)
-#define ID2D1GeometryGroup_ComputePointAtLength(this,A,B,C,D) (this)->lpVtbl->Base.ComputePointAtLength((ID2D1Geometry*)(this),A,B,C,D)
-#define ID2D1GeometryGroup_FillContainsPoint(this,A,B,C) (this)->lpVtbl->Base.FillContainsPoint((ID2D1Geometry*)(this),A,B,C)
 #define ID2D1GeometryGroup_GetBounds(this,A,B) (this)->lpVtbl->Base.GetBounds((ID2D1Geometry*)(this),A,B)
-#define ID2D1GeometryGroup_GetWidenedBounds(this,A,B,C,D) (this)->lpVtbl->Base.GetWidenedBounds((ID2D1Geometry*)(this),A,B,C,D)
-#define ID2D1GeometryGroup_Outline(this,A,B) (this)->lpVtbl->Base.Outline((ID2D1Geometry*)(this),A,B)
-#define ID2D1GeometryGroup_StrokeContainsPoint(this,A,B,C,D,E) (this)->lpVtbl->Base.StrokeContainsPoint((ID2D1Geometry*)(this),A,B,C,D,E)
-#define ID2D1GeometryGroup_Simplify(this,A,B,C) (this)->lpVtbl->Base.Simplify((ID2D1Geometry*)(this),A,B,C)
-#define ID2D1GeometryGroup_Tessellate(this,A,B) (this)->lpVtbl->Base.Tessellate((ID2D1Geometry*)(this),A,B)
-#define ID2D1GeometryGroup_Widen(this,A,B,C,D) (this)->lpVtbl->Base.Widen((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1GeometryGroup_GetWidenedBounds(this,A,B,C,D,E) (this)->lpVtbl->Base.GetWidenedBounds((ID2D1Geometry*)(this),A,B,C,D,E)
+#define ID2D1GeometryGroup_StrokeContainsPoint(this,A,B,C,D,E,F) (this)->lpVtbl->Base.StrokeContainsPoint((ID2D1Geometry*)(this),A,B,C,D,E,F)
+#define ID2D1GeometryGroup_FillContainsPoint(this,A,B,C,D) (this)->lpVtbl->Base.FillContainsPoint((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1GeometryGroup_CompareWithGeometry(this,A,B,C,D) (this)->lpVtbl->Base.CompareWithGeometry((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1GeometryGroup_Simplify(this,A,B,C,D) (this)->lpVtbl->Base.Simplify((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1GeometryGroup_Tessellate(this,A,B,C) (this)->lpVtbl->Base.Tessellate((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1GeometryGroup_CombineWithGeometry(this,A,B,C,D,E) (this)->lpVtbl->Base.CombineWithGeometry((ID2D1Geometry*)(this),A,B,C,D,E)
+#define ID2D1GeometryGroup_Outline(this,A,B,C) (this)->lpVtbl->Base.Outline((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1GeometryGroup_ComputeArea(this,A,B,C) (this)->lpVtbl->Base.ComputeArea((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1GeometryGroup_ComputeLength(this,A,B,C) (this)->lpVtbl->Base.ComputeLength((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1GeometryGroup_ComputePointAtLength(this,A,B,C,D,E) (this)->lpVtbl->Base.ComputePointAtLength((ID2D1Geometry*)(this),A,B,C,D,E)
+#define ID2D1GeometryGroup_Widen(this,A,B,C,D,E) (this)->lpVtbl->Base.Widen((ID2D1Geometry*)(this),A,B,C,D,E)
 #define ID2D1GeometryGroup_GetFillMode(this) (this)->lpVtbl->GetFillMode(this)
 #define ID2D1GeometryGroup_GetSourceGeometries(this,A,B) (this)->lpVtbl->GetSourceGeometries(this,A,B)
 #define ID2D1GeometryGroup_GetSourceGeometryCount(this) (this)->lpVtbl->GetSourceGeometryCount(this)
@@ -2084,19 +2098,19 @@ interface ID2D1PathGeometry {
 #define ID2D1PathGeometry_AddRef(this) (this)->lpVtbl->Base.Base.Base.AddRef((IUnknown*)(this))
 #define ID2D1PathGeometry_Release(this) (this)->lpVtbl->Base.Base.Base.Release((IUnknown*)(this))
 #define ID2D1PathGeometry_GetFactory(this,A) (this)->lpVtbl->Base.Base.GetFactory((ID2D1Resource*)(this),A)
-#define ID2D1PathGeometry_CombineWithGeometry(this,A,B,C,D) (this)->lpVtbl->Base.CombineWithGeometry((ID2D1Geometry*)(this),A,B,C,D)
-#define ID2D1PathGeometry_CompareWithGeometry(this,A,B,C) (this)->lpVtbl->Base.CompareWithGeometry((ID2D1Geometry*)(this),A,B,C)
-#define ID2D1PathGeometry_ComputeArea(this,A,B) (this)->lpVtbl->Base.ComputeArea((ID2D1Geometry*)(this),A,B)
-#define ID2D1PathGeometry_ComputeLength(this,A,B) (this)->lpVtbl->Base.ComputeLength((ID2D1Geometry*)(this),A,B)
-#define ID2D1PathGeometry_ComputePointAtLength(this,A,B,C,D) (this)->lpVtbl->Base.ComputePointAtLength((ID2D1Geometry*)(this),A,B,C,D)
-#define ID2D1PathGeometry_FillContainsPoint(this,A,B,C) (this)->lpVtbl->Base.FillContainsPoint((ID2D1Geometry*)(this),A,B,C)
 #define ID2D1PathGeometry_GetBounds(this,A,B) (this)->lpVtbl->Base.GetBounds((ID2D1Geometry*)(this),A,B)
-#define ID2D1PathGeometry_GetWidenedBounds(this,A,B,C,D) (this)->lpVtbl->Base.GetWidenedBounds((ID2D1Geometry*)(this),A,B,C,D)
-#define ID2D1PathGeometry_Outline(this,A,B) (this)->lpVtbl->Base.Outline((ID2D1Geometry*)(this),A,B)
-#define ID2D1PathGeometry_StrokeContainsPoint(this,A,B,C,D,E) (this)->lpVtbl->Base.StrokeContainsPoint((ID2D1Geometry*)(this),A,B,C,D,E)
-#define ID2D1PathGeometry_Simplify(this,A,B,C) (this)->lpVtbl->Base.Simplify((ID2D1Geometry*)(this),A,B,C)
-#define ID2D1PathGeometry_Tessellate(this,A,B) (this)->lpVtbl->Base.Tessellate((ID2D1Geometry*)(this),A,B)
-#define ID2D1PathGeometry_Widen(this,A,B,C,D) (this)->lpVtbl->Base.Widen((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1PathGeometry_GetWidenedBounds(this,A,B,C,D,E) (this)->lpVtbl->Base.GetWidenedBounds((ID2D1Geometry*)(this),A,B,C,D,E)
+#define ID2D1PathGeometry_StrokeContainsPoint(this,A,B,C,D,E,F) (this)->lpVtbl->Base.StrokeContainsPoint((ID2D1Geometry*)(this),A,B,C,D,E,F)
+#define ID2D1PathGeometry_FillContainsPoint(this,A,B,C,D) (this)->lpVtbl->Base.FillContainsPoint((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1PathGeometry_CompareWithGeometry(this,A,B,C,D) (this)->lpVtbl->Base.CompareWithGeometry((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1PathGeometry_Simplify(this,A,B,C,D) (this)->lpVtbl->Base.Simplify((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1PathGeometry_Tessellate(this,A,B,C) (this)->lpVtbl->Base.Tessellate((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1PathGeometry_CombineWithGeometry(this,A,B,C,D,E) (this)->lpVtbl->Base.CombineWithGeometry((ID2D1Geometry*)(this),A,B,C,D,E)
+#define ID2D1PathGeometry_Outline(this,A,B,C) (this)->lpVtbl->Base.Outline((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1PathGeometry_ComputeArea(this,A,B,C) (this)->lpVtbl->Base.ComputeArea((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1PathGeometry_ComputeLength(this,A,B,C) (this)->lpVtbl->Base.ComputeLength((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1PathGeometry_ComputePointAtLength(this,A,B,C,D,E) (this)->lpVtbl->Base.ComputePointAtLength((ID2D1Geometry*)(this),A,B,C,D,E)
+#define ID2D1PathGeometry_Widen(this,A,B,C,D,E) (this)->lpVtbl->Base.Widen((ID2D1Geometry*)(this),A,B,C,D,E)
 #define ID2D1PathGeometry_Open(this,A) (this)->lpVtbl->Open(this,A)
 #define ID2D1PathGeometry_Stream(this,A) (this)->lpVtbl->Stream(this,A)
 #define ID2D1PathGeometry_GetSegmentCount(this,A) (this)->lpVtbl->GetSegmentCount(this,A)
@@ -2207,19 +2221,19 @@ interface ID2D1RectangleGeometry {
 #define ID2D1RectangleGeometry_AddRef(this) (this)->lpVtbl->Base.Base.Base.AddRef((IUnknown*)(this))
 #define ID2D1RectangleGeometry_Release(this) (this)->lpVtbl->Base.Base.Base.Release((IUnknown*)(this))
 #define ID2D1RectangleGeometry_GetFactory(this,A) (this)->lpVtbl->Base.Base.GetFactory((ID2D1Resource*)(this),A)
-#define ID2D1RectangleGeometry_CombineWithGeometry(this,A,B,C,D) (this)->lpVtbl->Base.CombineWithGeometry((ID2D1Geometry*)(this),A,B,C,D)
-#define ID2D1RectangleGeometry_CompareWithGeometry(this,A,B,C) (this)->lpVtbl->Base.CompareWithGeometry((ID2D1Geometry*)(this),A,B,C)
-#define ID2D1RectangleGeometry_ComputeArea(this,A,B) (this)->lpVtbl->Base.ComputeArea((ID2D1Geometry*)(this),A,B)
-#define ID2D1RectangleGeometry_ComputeLength(this,A,B) (this)->lpVtbl->Base.ComputeLength((ID2D1Geometry*)(this),A,B)
-#define ID2D1RectangleGeometry_ComputePointAtLength(this,A,B,C,D) (this)->lpVtbl->Base.ComputePointAtLength((ID2D1Geometry*)(this),A,B,C,D)
-#define ID2D1RectangleGeometry_FillContainsPoint(this,A,B,C) (this)->lpVtbl->Base.FillContainsPoint((ID2D1Geometry*)(this),A,B,C)
 #define ID2D1RectangleGeometry_GetBounds(this,A,B) (this)->lpVtbl->Base.GetBounds((ID2D1Geometry*)(this),A,B)
-#define ID2D1RectangleGeometry_GetWidenedBounds(this,A,B,C,D) (this)->lpVtbl->Base.GetWidenedBounds((ID2D1Geometry*)(this),A,B,C,D)
-#define ID2D1RectangleGeometry_Outline(this,A,B) (this)->lpVtbl->Base.Outline((ID2D1Geometry*)(this),A,B)
-#define ID2D1RectangleGeometry_StrokeContainsPoint(this,A,B,C,D,E) (this)->lpVtbl->Base.StrokeContainsPoint((ID2D1Geometry*)(this),A,B,C,D,E)
-#define ID2D1RectangleGeometry_Simplify(this,A,B,C) (this)->lpVtbl->Base.Simplify((ID2D1Geometry*)(this),A,B,C)
-#define ID2D1RectangleGeometry_Tessellate(this,A,B) (this)->lpVtbl->Base.Tessellate((ID2D1Geometry*)(this),A,B)
-#define ID2D1RectangleGeometry_Widen(this,A,B,C,D) (this)->lpVtbl->Base.Widen((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1RectangleGeometry_GetWidenedBounds(this,A,B,C,D,E) (this)->lpVtbl->Base.GetWidenedBounds((ID2D1Geometry*)(this),A,B,C,D,E)
+#define ID2D1RectangleGeometry_StrokeContainsPoint(this,A,B,C,D,E,F) (this)->lpVtbl->Base.StrokeContainsPoint((ID2D1Geometry*)(this),A,B,C,D,E,F)
+#define ID2D1RectangleGeometry_FillContainsPoint(this,A,B,C,D) (this)->lpVtbl->Base.FillContainsPoint((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1RectangleGeometry_CompareWithGeometry(this,A,B,C,D) (this)->lpVtbl->Base.CompareWithGeometry((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1RectangleGeometry_Simplify(this,A,B,C,D) (this)->lpVtbl->Base.Simplify((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1RectangleGeometry_Tessellate(this,A,B,C) (this)->lpVtbl->Base.Tessellate((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1RectangleGeometry_CombineWithGeometry(this,A,B,C,D,E) (this)->lpVtbl->Base.CombineWithGeometry((ID2D1Geometry*)(this),A,B,C,D,E)
+#define ID2D1RectangleGeometry_Outline(this,A,B,C) (this)->lpVtbl->Base.Outline((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1RectangleGeometry_ComputeArea(this,A,B,C) (this)->lpVtbl->Base.ComputeArea((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1RectangleGeometry_ComputeLength(this,A,B,C) (this)->lpVtbl->Base.ComputeLength((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1RectangleGeometry_ComputePointAtLength(this,A,B,C,D,E) (this)->lpVtbl->Base.ComputePointAtLength((ID2D1Geometry*)(this),A,B,C,D,E)
+#define ID2D1RectangleGeometry_Widen(this,A,B,C,D,E) (this)->lpVtbl->Base.Widen((ID2D1Geometry*)(this),A,B,C,D,E)
 #define ID2D1RectangleGeometry_GetRect(this,A) (this)->lpVtbl->GetRect(this,A)
 
 #endif
@@ -2248,19 +2262,19 @@ interface ID2D1RoundedRectangleGeometry {
 #define ID2D1RoundedRectangleGeometry_AddRef(this) (this)->lpVtbl->Base.Base.Base.AddRef((IUnknown*)(this))
 #define ID2D1RoundedRectangleGeometry_Release(this) (this)->lpVtbl->Base.Base.Base.Release((IUnknown*)(this))
 #define ID2D1RoundedRectangleGeometry_GetFactory(this,A) (this)->lpVtbl->Base.Base.GetFactory((ID2D1Resource*)(this),A)
-#define ID2D1RoundedRectangleGeometry_CombineWithGeometry(this,A,B,C,D) (this)->lpVtbl->Base.CombineWithGeometry((ID2D1Geometry*)(this),A,B,C,D)
-#define ID2D1RoundedRectangleGeometry_CompareWithGeometry(this,A,B,C) (this)->lpVtbl->Base.CompareWithGeometry((ID2D1Geometry*)(this),A,B,C)
-#define ID2D1RoundedRectangleGeometry_ComputeArea(this,A,B) (this)->lpVtbl->Base.ComputeArea((ID2D1Geometry*)(this),A,B)
-#define ID2D1RoundedRectangleGeometry_ComputeLength(this,A,B) (this)->lpVtbl->Base.ComputeLength((ID2D1Geometry*)(this),A,B)
-#define ID2D1RoundedRectangleGeometry_ComputePointAtLength(this,A,B,C,D) (this)->lpVtbl->Base.ComputePointAtLength((ID2D1Geometry*)(this),A,B,C,D)
-#define ID2D1RoundedRectangleGeometry_FillContainsPoint(this,A,B,C) (this)->lpVtbl->Base.FillContainsPoint((ID2D1Geometry*)(this),A,B,C)
 #define ID2D1RoundedRectangleGeometry_GetBounds(this,A,B) (this)->lpVtbl->Base.GetBounds((ID2D1Geometry*)(this),A,B)
-#define ID2D1RoundedRectangleGeometry_GetWidenedBounds(this,A,B,C,D) (this)->lpVtbl->Base.GetWidenedBounds((ID2D1Geometry*)(this),A,B,C,D)
-#define ID2D1RoundedRectangleGeometry_Outline(this,A,B) (this)->lpVtbl->Base.Outline((ID2D1Geometry*)(this),A,B)
-#define ID2D1RoundedRectangleGeometry_StrokeContainsPoint(this,A,B,C,D,E) (this)->lpVtbl->Base.StrokeContainsPoint((ID2D1Geometry*)(this),A,B,C,D,E)
-#define ID2D1RoundedRectangleGeometry_Simplify(this,A,B,C) (this)->lpVtbl->Base.Simplify((ID2D1Geometry*)(this),A,B,C)
-#define ID2D1RoundedRectangleGeometry_Tessellate(this,A,B) (this)->lpVtbl->Base.Tessellate((ID2D1Geometry*)(this),A,B)
-#define ID2D1RoundedRectangleGeometry_Widen(this,A,B,C,D) (this)->lpVtbl->Base.Widen((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1RoundedRectangleGeometry_GetWidenedBounds(this,A,B,C,D,E) (this)->lpVtbl->Base.GetWidenedBounds((ID2D1Geometry*)(this),A,B,C,D,E)
+#define ID2D1RoundedRectangleGeometry_StrokeContainsPoint(this,A,B,C,D,E,F) (this)->lpVtbl->Base.StrokeContainsPoint((ID2D1Geometry*)(this),A,B,C,D,E,F)
+#define ID2D1RoundedRectangleGeometry_FillContainsPoint(this,A,B,C,D) (this)->lpVtbl->Base.FillContainsPoint((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1RoundedRectangleGeometry_CompareWithGeometry(this,A,B,C,D) (this)->lpVtbl->Base.CompareWithGeometry((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1RoundedRectangleGeometry_Simplify(this,A,B,C,D) (this)->lpVtbl->Base.Simplify((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1RoundedRectangleGeometry_Tessellate(this,A,B,C) (this)->lpVtbl->Base.Tessellate((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1RoundedRectangleGeometry_CombineWithGeometry(this,A,B,C,D,E) (this)->lpVtbl->Base.CombineWithGeometry((ID2D1Geometry*)(this),A,B,C,D,E)
+#define ID2D1RoundedRectangleGeometry_Outline(this,A,B,C) (this)->lpVtbl->Base.Outline((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1RoundedRectangleGeometry_ComputeArea(this,A,B,C) (this)->lpVtbl->Base.ComputeArea((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1RoundedRectangleGeometry_ComputeLength(this,A,B,C) (this)->lpVtbl->Base.ComputeLength((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1RoundedRectangleGeometry_ComputePointAtLength(this,A,B,C,D,E) (this)->lpVtbl->Base.ComputePointAtLength((ID2D1Geometry*)(this),A,B,C,D,E)
+#define ID2D1RoundedRectangleGeometry_Widen(this,A,B,C,D,E) (this)->lpVtbl->Base.Widen((ID2D1Geometry*)(this),A,B,C,D,E)
 #define ID2D1RoundedRectangleGeometry_GetRoundedRect(this,A) (this)->lpVtbl->GetRoundedRect(this,A)
 
 #endif
@@ -2422,19 +2436,19 @@ interface ID2D1TransformedGeometry {
 #define ID2D1TransformedGeometry_AddRef(this) (this)->lpVtbl->Base.Base.Base.AddRef((IUnknown*)(this))
 #define ID2D1TransformedGeometry_Release(this) (this)->lpVtbl->Base.Base.Base.Release((IUnknown*)(this))
 #define ID2D1TransformedGeometry_GetFactory(this,A) (this)->lpVtbl->Base.Base.GetFactory((ID2D1Resource*)(this),A)
-#define ID2D1TransformedGeometry_CombineWithGeometry(this,A,B,C,D) (this)->lpVtbl->Base.CombineWithGeometry((ID2D1Geometry*)(this),A,B,C,D)
-#define ID2D1TransformedGeometry_CompareWithGeometry(this,A,B,C) (this)->lpVtbl->Base.CompareWithGeometry((ID2D1Geometry*)(this),A,B,C)
-#define ID2D1TransformedGeometry_ComputeArea(this,A,B) (this)->lpVtbl->Base.ComputeArea((ID2D1Geometry*)(this),A,B)
-#define ID2D1TransformedGeometry_ComputeLength(this,A,B) (this)->lpVtbl->Base.ComputeLength((ID2D1Geometry*)(this),A,B)
-#define ID2D1TransformedGeometry_ComputePointAtLength(this,A,B,C,D) (this)->lpVtbl->Base.ComputePointAtLength((ID2D1Geometry*)(this),A,B,C,D)
-#define ID2D1TransformedGeometry_FillContainsPoint(this,A,B,C) (this)->lpVtbl->Base.FillContainsPoint((ID2D1Geometry*)(this),A,B,C)
 #define ID2D1TransformedGeometry_GetBounds(this,A,B) (this)->lpVtbl->Base.GetBounds((ID2D1Geometry*)(this),A,B)
-#define ID2D1TransformedGeometry_GetWidenedBounds(this,A,B,C,D) (this)->lpVtbl->Base.GetWidenedBounds((ID2D1Geometry*)(this),A,B,C,D)
-#define ID2D1TransformedGeometry_Outline(this,A,B) (this)->lpVtbl->Base.Outline((ID2D1Geometry*)(this),A,B)
-#define ID2D1TransformedGeometry_StrokeContainsPoint(this,A,B,C,D,E) (this)->lpVtbl->Base.StrokeContainsPoint((ID2D1Geometry*)(this),A,B,C,D,E)
-#define ID2D1TransformedGeometry_Simplify(this,A,B,C) (this)->lpVtbl->Base.Simplify((ID2D1Geometry*)(this),A,B,C)
-#define ID2D1TransformedGeometry_Tessellate(this,A,B) (this)->lpVtbl->Base.Tessellate((ID2D1Geometry*)(this),A,B)
-#define ID2D1TransformedGeometry_Widen(this,A,B,C,D) (this)->lpVtbl->Base.Widen((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1TransformedGeometry_GetWidenedBounds(this,A,B,C,D,E) (this)->lpVtbl->Base.GetWidenedBounds((ID2D1Geometry*)(this),A,B,C,D,E)
+#define ID2D1TransformedGeometry_StrokeContainsPoint(this,A,B,C,D,E,F) (this)->lpVtbl->Base.StrokeContainsPoint((ID2D1Geometry*)(this),A,B,C,D,E,F)
+#define ID2D1TransformedGeometry_FillContainsPoint(this,A,B,C,D) (this)->lpVtbl->Base.FillContainsPoint((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1TransformedGeometry_CompareWithGeometry(this,A,B,C,D) (this)->lpVtbl->Base.CompareWithGeometry((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1TransformedGeometry_Simplify(this,A,B,C,D) (this)->lpVtbl->Base.Simplify((ID2D1Geometry*)(this),A,B,C,D)
+#define ID2D1TransformedGeometry_Tessellate(this,A,B,C) (this)->lpVtbl->Base.Tessellate((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1TransformedGeometry_CombineWithGeometry(this,A,B,C,D,E) (this)->lpVtbl->Base.CombineWithGeometry((ID2D1Geometry*)(this),A,B,C,D,E)
+#define ID2D1TransformedGeometry_Outline(this,A,B,C) (this)->lpVtbl->Base.Outline((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1TransformedGeometry_ComputeArea(this,A,B,C) (this)->lpVtbl->Base.ComputeArea((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1TransformedGeometry_ComputeLength(this,A,B,C) (this)->lpVtbl->Base.ComputeLength((ID2D1Geometry*)(this),A,B,C)
+#define ID2D1TransformedGeometry_ComputePointAtLength(this,A,B,C,D,E) (this)->lpVtbl->Base.ComputePointAtLength((ID2D1Geometry*)(this),A,B,C,D,E)
+#define ID2D1TransformedGeometry_Widen(this,A,B,C,D,E) (this)->lpVtbl->Base.Widen((ID2D1Geometry*)(this),A,B,C,D,E)
 #define ID2D1TransformedGeometry_GetSourceGeometry(this,A) (this)->lpVtbl->GetSourceGeometry(this,A)
 #define ID2D1TransformedGeometry_GetTransform(this,A) (this)->lpVtbl->GetTransform(this,A)
 

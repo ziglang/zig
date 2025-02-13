@@ -83,7 +83,7 @@ pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
 
     // TODO: consider also adding homebrew paths
     // TODO: consider also adding macports paths
-    if (comptime builtin.target.isDarwin()) {
+    if (builtin.target.isDarwin()) {
         if (std.zig.system.darwin.isSdkInstalled(arena)) sdk: {
             const sdk = std.zig.system.darwin.getSdk(arena, native_target) orelse break :sdk;
             try self.addLibDir(try std.fs.path.join(arena, &.{ sdk, "usr/lib" }));
