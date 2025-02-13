@@ -527,7 +527,7 @@ fn testIntDivision() !void {
     try expect(mod(i64, -14, 12) == 10);
     try expect(mod(i16, -2, 12) == 10);
     try expect(mod(i16, -118, 12) == 2);
-    try expect(mod(i8, -2, 12) == 10); // TODO: fails in x86_64
+    try expect(mod(i8, -2, 12) == 10);
 
     try expect(rem(i64, -118, 12) == -10);
     try expect(rem(i32, 10, 12) == 10);

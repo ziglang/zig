@@ -19079,25 +19079,33 @@ test divFloor {
 // workaround https://github.com/ziglang/zig/issues/22748
 // TODO: @TypeOf(@rem(lhs, rhs))
 inline fn rem(comptime Type: type, lhs: Type, rhs: Type) Type {
-    if (@inComptime()) {
-        // workaround https://github.com/ziglang/zig/issues/22748
-        switch (@typeInfo(Type)) {
-            else => return if (rhs != 0) @rem(lhs, rhs) else nan(Type),
-            .vector => |info| {
-                var res: Type = undefined;
-                inline for (0..info.len) |i| res[i] = if (rhs[i] != 0) @rem(lhs[i], rhs[i]) else nan(Scalar(Type));
-                return res;
-            },
-        }
+    switch (@typeInfo(Scalar(Type))) {
+        else => @compileError(@typeName(Type)),
+        .int => return @rem(lhs, rhs),
+        .float => {
+            if (@inComptime()) {
+                // workaround https://github.com/ziglang/zig/issues/22748
+                switch (@typeInfo(Type)) {
+                    else => return if (rhs != 0) @rem(lhs, rhs) else nan(Type),
+                    .vector => |info| {
+                        var res: Type = undefined;
+                        inline for (0..info.len) |i| res[i] = if (rhs[i] != 0) @rem(lhs[i], rhs[i]) else nan(Scalar(Type));
+                        return res;
+                    },
+                }
+            }
+            // workaround https://github.com/ziglang/zig/issues/22748
+            // TODO: return @rem(lhs, rhs);
+            var rt_rhs = rhs;
+            _ = &rt_rhs;
+            return @rem(lhs, rt_rhs);
+        },
     }
-    // workaround https://github.com/ziglang/zig/issues/22748
-    // TODO: return @rem(lhs, rhs);
-    var rt_rhs = rhs;
-    _ = &rt_rhs;
-    return @rem(lhs, rt_rhs);
 }
 test rem {
     const test_rem = binary(rem, .{});
+    try test_rem.testInts();
+    try test_rem.testIntVectors();
     try test_rem.testFloats();
     try test_rem.testFloatVectors();
 }
