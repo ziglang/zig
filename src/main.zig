@@ -6952,10 +6952,10 @@ fn parseRcIncludes(arg: []const u8) Compilation.RcIncludes {
 }
 
 const usage_fetch =
-    \\Usage: zig fetch [options] <url>
-    \\Usage: zig fetch [options] <path>
+    \\Usage: zig fetch [options] <url> [hash]
+    \\Usage: zig fetch [options] <path> [hash]
     \\
-    \\    Copy a package into the global cache and print its hash.
+    \\    Copy a package into the global cache, print, and optionally verify its hash.
     \\
     \\Options:
     \\  -h, --help                    Print this help and exit
@@ -6979,6 +6979,7 @@ fn cmdFetch(
     const work_around_btrfs_bug = native_os == .linux and
         EnvVar.ZIG_BTRFS_WORKAROUND.isSet();
     var opt_path_or_url: ?[]const u8 = null;
+    var opt_hash: ?Package.Manifest.MultiHashHexDigest = null;
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
     var debug_hash: bool = false;
     var save: union(enum) {
@@ -7013,11 +7014,16 @@ fn cmdFetch(
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
-            } else if (opt_path_or_url != null) {
-                fatal("unexpected extra parameter: '{s}'", .{arg});
-            } else {
+            } else if (opt_path_or_url == null) {
                 opt_path_or_url = arg;
-            }
+            } else if (opt_hash == null) {
+                if (arg.len != Package.Manifest.multihash_hex_digest_len) {
+                    fatal("wrong hash size. expected: {d}, found: {d}", .{
+                        Package.Manifest.multihash_hex_digest_len, arg,
+                    });
+                }
+                opt_hash = arg[0..Package.Manifest.multihash_hex_digest_len].*;
+            } else fatal("unexpected extra parameter: '{s}'", .{arg});
         }
     }
 
@@ -7059,7 +7065,10 @@ fn cmdFetch(
 
     var fetch: Package.Fetch = .{
         .arena = std.heap.ArenaAllocator.init(gpa),
-        .location = .{ .path_or_url = path_or_url },
+        .location = .{ .local_or_remote = .{
+            .url = path_or_url,
+            .hash = opt_hash,
+        } },
         .location_tok = 0,
         .hash_tok = 0,
         .name_tok = 0,
@@ -7096,7 +7105,7 @@ fn cmdFetch(
         process.exit(1);
     }
 
-    const hex_digest = Package.Manifest.hexDigest(fetch.actual_hash);
+    const hex_digest = opt_hash orelse Package.Manifest.hexDigest(fetch.actual_hash);
 
     root_prog_node.end();
     root_prog_node = .{ .index = .none };
