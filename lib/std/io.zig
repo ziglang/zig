@@ -336,7 +336,7 @@ pub fn GenericWriter(
             return @errorCast(self.any().writeStructEndian(value, endian));
         }
 
-        pub inline fn any(self: *const Self) AnyWriter {
+        pub inline fn any(self: *const Self) Writer {
             return .{
                 .context = @ptrCast(&self.context),
                 .writeFn = typeErasedWriteFn,
@@ -351,19 +351,17 @@ pub fn GenericWriter(
 }
 
 /// Deprecated; consider switching to `AnyReader` or use `GenericReader`
-/// to use previous API.
+/// to use previous API. To be removed after 0.14.0 is tagged.
 pub const Reader = GenericReader;
-/// Deprecated; consider switching to `AnyWriter` or use `GenericWriter`
-/// to use previous API.
-pub const Writer = GenericWriter;
+pub const Writer = @import("io/Writer.zig");
 
 pub const AnyReader = @import("io/Reader.zig");
-pub const AnyWriter = @import("io/Writer.zig");
+/// Deprecated; to be removed after 0.14.0 is tagged.
+pub const AnyWriter = Writer;
 
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
 
-pub const BufferedWriter = @import("io/buffered_writer.zig").BufferedWriter;
-pub const bufferedWriter = @import("io/buffered_writer.zig").bufferedWriter;
+pub const BufferedWriter = @import("io/BufferedWriter.zig");
 
 pub const BufferedReader = @import("io/buffered_reader.zig").BufferedReader;
 pub const bufferedReader = @import("io/buffered_reader.zig").bufferedReader;
@@ -820,12 +818,11 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 
 test {
     _ = AnyReader;
-    _ = AnyWriter;
+    _ = Writer;
     _ = @import("io/bit_reader.zig");
     _ = @import("io/bit_writer.zig");
     _ = @import("io/buffered_atomic_file.zig");
     _ = @import("io/buffered_reader.zig");
-    _ = @import("io/buffered_writer.zig");
     _ = @import("io/c_writer.zig");
     _ = @import("io/counting_writer.zig");
     _ = @import("io/counting_reader.zig");
