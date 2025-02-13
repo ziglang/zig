@@ -33,6 +33,17 @@ fn Scalar(comptime Type: type) type {
         .vector => |info| info.child,
     };
 }
+fn AddOneBit(comptime Type: type) type {
+    const ResultScalar = switch (@typeInfo(Scalar(Type))) {
+        .int => |int| @Type(.{ .int = .{ .signedness = int.signedness, .bits = 1 + int.bits } }),
+        .float => Scalar(Type),
+        else => @compileError(@typeName(Type)),
+    };
+    return switch (@typeInfo(Type)) {
+        else => ResultScalar,
+        .vector => |vector| @Vector(vector.len, ResultScalar),
+    };
+}
 // inline to avoid a runtime `@splat`
 inline fn splat(comptime Type: type, scalar: Scalar(Type)) Type {
     return switch (@typeInfo(Type)) {
@@ -18950,22 +18961,36 @@ fn binary(comptime op: anytype, comptime opts: struct { compare: Compare = .rela
     };
 }
 
-inline fn add(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs + rhs) {
-    return lhs + rhs;
+inline fn addUnsafe(comptime Type: type, lhs: Type, rhs: Type) AddOneBit(Type) {
+    @setRuntimeSafety(false);
+    return @as(AddOneBit(Type), lhs) + rhs;
 }
-test add {
-    const test_add = binary(add, .{});
-    try test_add.testFloats();
-    try test_add.testFloatVectors();
+test addUnsafe {
+    const test_add_unsafe = binary(addUnsafe, .{});
+    try test_add_unsafe.testInts();
+    try test_add_unsafe.testIntVectors();
+    try test_add_unsafe.testFloats();
+    try test_add_unsafe.testFloatVectors();
 }
 
-inline fn subtract(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs - rhs) {
-    return lhs - rhs;
+inline fn subUnsafe(comptime Type: type, lhs: Type, rhs: Type) AddOneBit(Type) {
+    @setRuntimeSafety(false);
+    switch (@typeInfo(Scalar(Type))) {
+        .int => |int| switch (int.signedness) {
+            .signed => {},
+            .unsigned => return @as(AddOneBit(Type), @max(lhs, rhs)) - @min(lhs, rhs),
+        },
+        .float => {},
+        else => @compileError(@typeName(Type)),
+    }
+    return @as(AddOneBit(Type), lhs) - rhs;
 }
-test subtract {
-    const test_subtract = binary(subtract, .{});
-    try test_subtract.testFloats();
-    try test_subtract.testFloatVectors();
+test subUnsafe {
+    const test_sub_unsafe = binary(subUnsafe, .{});
+    try test_sub_unsafe.testInts();
+    try test_sub_unsafe.testIntVectors();
+    try test_sub_unsafe.testFloats();
+    try test_sub_unsafe.testFloatVectors();
 }
 
 inline fn multiply(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs * rhs) {
