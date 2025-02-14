@@ -41,20 +41,6 @@ test {
     _ = windows;
 }
 
-/// Deprecated in favor of accepting a `std.process.Init` argument to main.
-/// To be removed after 0.14.0 is tagged.
-/// See https://github.com/ziglang/zig/issues/4524 for more details.
-pub var environ: [][*:0]u8 = undefined;
-
-/// Deprecated in favor of accepting a `std.process.Init` argument to main.
-/// To be removed after 0.14.0 is tagged.
-/// See https://github.com/ziglang/zig/issues/4524 for more details.
-pub var argv: [][*:0]u8 = if (builtin.link_libc) undefined else switch (native_os) {
-    .windows => @compileError("argv isn't supported on Windows: use std.process.argsAlloc instead"),
-    .wasi => @compileError("argv isn't supported on WASI: use std.process.argsAlloc instead"),
-    else => undefined,
-};
-
 /// Call from Windows-specific code if you already have a WTF-16LE encoded, null terminated string.
 /// Otherwise use `access` or `accessZ`.
 pub fn accessW(path: [*:0]const u16) windows.GetFileAttributesError!void {
