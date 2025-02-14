@@ -118,6 +118,12 @@ gpa: Allocator,
 /// Arena for things that need to live for the length of this program.
 arena: std.heap.ArenaAllocator,
 
+/// Target info
+target: std.Target,
+
+/// The target SPIR-V version
+version: spec.Version,
+
 /// Module layout, according to SPIR-V Spec section 2.4, "Logical Layout of a Module".
 sections: struct {
     /// Capability instructions
@@ -196,10 +202,23 @@ entry_points: std.ArrayListUnmanaged(EntryPoint) = .empty,
 /// The list of extended instruction sets that should be imported.
 extended_instruction_set: std.AutoHashMapUnmanaged(spec.InstructionSet, IdRef) = .empty,
 
-pub fn init(gpa: Allocator) Module {
+pub fn init(gpa: Allocator, target: std.Target) Module {
+    const version_minor: u8 = blk: {
+        // Prefer higher versions
+        if (std.Target.spirv.featureSetHas(target.cpu.features, .v1_6)) break :blk 6;
+        if (std.Target.spirv.featureSetHas(target.cpu.features, .v1_5)) break :blk 5;
+        if (std.Target.spirv.featureSetHas(target.cpu.features, .v1_4)) break :blk 4;
+        if (std.Target.spirv.featureSetHas(target.cpu.features, .v1_3)) break :blk 3;
+        if (std.Target.spirv.featureSetHas(target.cpu.features, .v1_2)) break :blk 2;
+        if (std.Target.spirv.featureSetHas(target.cpu.features, .v1_1)) break :blk 1;
+        break :blk 0;
+    };
+
     return .{
         .gpa = gpa,
         .arena = std.heap.ArenaAllocator.init(gpa),
+        .target = target,
+        .version = .{ .major = 1, .minor = version_minor },
         .next_result_id = 1, // 0 is an invalid SPIR-V result id, so start counting at 1.
     };
 }
@@ -263,6 +282,10 @@ pub fn idBound(self: Module) Word {
     return self.next_result_id;
 }
 
+pub fn hasFeature(self: *Module, feature: std.Target.spirv.Feature) bool {
+    return std.Target.spirv.featureSetHas(self.target.cpu.features, feature);
+}
+
 fn addEntryPointDeps(
     self: *Module,
     decl_index: Decl.Index,
@@ -315,7 +338,7 @@ fn entryPoints(self: *Module) !Section {
     return entry_points;
 }
 
-pub fn finalize(self: *Module, a: Allocator, target: std.Target) ![]Word {
+pub fn finalize(self: *Module, a: Allocator) ![]Word {
     // See SPIR-V Spec section 2.3, "Physical Layout of a SPIR-V Module and Instruction"
     // TODO: Audit calls to allocId() in this function to make it idempotent.
 
@@ -324,16 +347,7 @@ pub fn finalize(self: *Module, a: Allocator, target: std.Target) ![]Word {
 
     const header = [_]Word{
         spec.magic_number,
-        // TODO: From cpu features
-        spec.Version.toWord(.{
-            .major = 1,
-            .minor = switch (target.os.tag) {
-                // Emit SPIR-V 1.3 for now. This is the highest version that Vulkan 1.1 supports.
-                .vulkan => 3,
-                // Emit SPIR-V 1.4 for now. This is the highest version that Intel's CPU OpenCL supports.
-                else => 4,
-            },
-        }),
+        self.version.toWord(),
         spec.zig_generator_id,
         self.idBound(),
         0, // Schema (currently reserved for future use)
@@ -342,7 +356,7 @@ pub fn finalize(self: *Module, a: Allocator, target: std.Target) ![]Word {
     var source = Section{};
     defer source.deinit(self.gpa);
     try self.sections.debug_strings.emit(self.gpa, .OpSource, .{
-        .source_language = .Unknown,
+        .source_language = .Zig,
         .version = 0,
         // We cannot emit these because the Khronos translator does not parse this instruction
         // correctly.

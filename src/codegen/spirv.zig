@@ -176,10 +176,10 @@ pub const Object = struct {
         push_constant_ptr: SpvModule.Decl.Index,
     } = null,
 
-    pub fn init(gpa: Allocator) Object {
+    pub fn init(gpa: Allocator, target: std.Target) Object {
         return .{
             .gpa = gpa,
-            .spv = SpvModule.init(gpa),
+            .spv = SpvModule.init(gpa, target),
         };
     }
 
@@ -412,11 +412,6 @@ const NavGen = struct {
         self.func.deinit(self.gpa);
     }
 
-    /// Return the target which we are currently compiling for.
-    pub fn getTarget(self: *NavGen) std.Target {
-        return self.pt.zcu.getTarget();
-    }
-
     pub fn fail(self: *NavGen, comptime format: []const u8, args: anytype) Error {
         @branchHint(.cold);
         const zcu = self.pt.zcu;
@@ -431,12 +426,12 @@ const NavGen = struct {
     }
 
     /// This imports the "default" extended instruction set for the target
-    /// For OpenCL, OpenCL.std.100. For Vulkan, GLSL.std.450.
+    /// For OpenCL, OpenCL.std.100. For Vulkan and OpenGL, GLSL.std.450.
     fn importExtendedSet(self: *NavGen) !IdResult {
-        const target = self.getTarget();
+        const target = self.spv.target;
         return switch (target.os.tag) {
             .opencl => try self.spv.importInstructionSet(.@"OpenCL.std"),
-            .vulkan => try self.spv.importInstructionSet(.@"GLSL.std.450"),
+            .vulkan, .opengl => try self.spv.importInstructionSet(.@"GLSL.std.450"),
             else => unreachable,
         };
     }
@@ -546,14 +541,10 @@ const NavGen = struct {
     }
 
     fn addFunctionDep(self: *NavGen, decl_index: SpvModule.Decl.Index, storage_class: StorageClass) !void {
-        const target = self.getTarget();
-        if (target.os.tag == .vulkan) {
-            // Shader entry point dependencies must be variables with Input or Output storage class
-            switch (storage_class) {
-                .Input, .Output => {
-                    try self.func.decl_deps.put(self.spv.gpa, decl_index, {});
-                },
-                else => {},
+        if (self.spv.version.minor < 4) {
+            // Before version 1.4, the interface’s storage classes are limited to the Input and Output
+            if (storage_class == .Input or storage_class == .Output) {
+                try self.func.decl_deps.put(self.spv.gpa, decl_index, {});
             }
         } else {
             try self.func.decl_deps.put(self.spv.gpa, decl_index, {});
@@ -561,11 +552,7 @@ const NavGen = struct {
     }
 
     fn castToGeneric(self: *NavGen, type_id: IdRef, ptr_id: IdRef) !IdRef {
-        const target = self.getTarget();
-
-        if (target.os.tag == .vulkan) {
-            return ptr_id;
-        } else {
+        if (self.spv.hasFeature(.Kernel)) {
             const result_id = self.spv.allocId();
             try self.func.body.emit(self.spv.gpa, .OpPtrCastToGeneric, .{
                 .id_result_type = type_id,
@@ -574,6 +561,8 @@ const NavGen = struct {
             });
             return result_id;
         }
+
+        return ptr_id;
     }
 
     /// Start a new SPIR-V block, Emits the label of the new block, and stores which
@@ -596,8 +585,6 @@ const NavGen = struct {
     /// TODO: This probably needs an ABI-version as well (especially in combination with SPV_INTEL_arbitrary_precision_integers).
     /// TODO: Should the result of this function be cached?
     fn backingIntBits(self: *NavGen, bits: u16) ?u16 {
-        const target = self.getTarget();
-
         // The backend will never be asked to compiler a 0-bit integer, so we won't have to handle those in this function.
         assert(bits != 0);
 
@@ -611,14 +598,8 @@ const NavGen = struct {
         };
 
         for (ints) |int| {
-            const has_feature = if (int.feature) |feature|
-                Target.spirv.featureSetHas(target.cpu.features, feature)
-            else
-                true;
-
-            if (bits <= int.bits and has_feature) {
-                return int.bits;
-            }
+            const has_feature = if (int.feature) |feature| self.spv.hasFeature(feature) else true;
+            if (bits <= int.bits and has_feature) return int.bits;
         }
 
         return null;
@@ -631,11 +612,7 @@ const NavGen = struct {
     /// is no way of knowing whether those are actually supported.
     /// TODO: Maybe this should be cached?
     fn largestSupportedIntBits(self: *NavGen) u16 {
-        const target = self.getTarget();
-        return if (Target.spirv.featureSetHas(target.cpu.features, .Int64))
-            64
-        else
-            32;
+        return if (self.spv.hasFeature(.Int64)) 64 else 32;
     }
 
     /// Checks whether the type is "composite int", an integer consisting of multiple native integers. These are represented by
@@ -648,7 +625,6 @@ const NavGen = struct {
     /// Checks whether the type can be directly translated to SPIR-V vectors
     fn isSpvVector(self: *NavGen, ty: Type) bool {
         const zcu = self.pt.zcu;
-        const target = self.getTarget();
         if (ty.zigTypeTag(zcu) != .vector) return false;
 
         // TODO: This check must be expanded for types that can be represented
@@ -664,17 +640,19 @@ const NavGen = struct {
         }
 
         const elem_ty = ty.childType(zcu);
-
         const len = ty.vectorLen(zcu);
-        const is_scalar = elem_ty.isNumeric(zcu) or elem_ty.toIntern() == .bool_type;
-        const spirv_len = len > 1 and len <= 4;
-        const opencl_len = if (target.os.tag == .opencl) (len == 8 or len == 16) else false;
-        return is_scalar and (spirv_len or opencl_len);
+
+        if (elem_ty.isNumeric(zcu) or elem_ty.toIntern() == .bool_type) {
+            if (len > 1 and len <= 4) return true;
+            if (self.spv.hasFeature(.Vector16)) return (len == 8 or len == 16);
+        }
+
+        return false;
     }
 
     fn arithmeticTypeInfo(self: *NavGen, ty: Type) ArithmeticTypeInfo {
         const zcu = self.pt.zcu;
-        const target = self.getTarget();
+        const target = self.spv.target;
         var scalar_ty = ty.scalarType(zcu);
         if (scalar_ty.zigTypeTag(zcu) == .@"enum") {
             scalar_ty = scalar_ty.intTagType(zcu);
@@ -791,7 +769,7 @@ const NavGen = struct {
     /// ty must be an aggregate type.
     fn constructCompositeSplat(self: *NavGen, ty: Type, constituent: IdRef) !IdRef {
         const zcu = self.pt.zcu;
-        const n = ty.arrayLen(zcu);
+        const n: usize = @intCast(ty.arrayLen(zcu));
 
         const constituents = try self.gpa.alloc(IdRef, n);
         defer self.gpa.free(constituents);
@@ -817,7 +795,7 @@ const NavGen = struct {
 
         const pt = self.pt;
         const zcu = pt.zcu;
-        const target = self.getTarget();
+        const target = self.spv.target;
         const result_ty_id = try self.resolveType(ty, repr);
         const ip = &zcu.intern_pool;
 
@@ -1263,11 +1241,11 @@ const NavGen = struct {
         };
 
         // Kernel only supports unsigned ints.
-        if (self.getTarget().os.tag == .vulkan) {
-            return self.spv.intType(signedness, backing_bits);
+        if (self.spv.hasFeature(.Kernel)) {
+            return self.spv.intType(.unsigned, backing_bits);
         }
 
-        return self.spv.intType(.unsigned, backing_bits);
+        return self.spv.intType(signedness, backing_bits);
     }
 
     fn arrayType(self: *NavGen, len: u32, child_ty: IdRef) !IdRef {
@@ -1436,7 +1414,7 @@ const NavGen = struct {
         const zcu = pt.zcu;
         const ip = &zcu.intern_pool;
         log.debug("resolveType: ty = {}", .{ty.fmt(pt)});
-        const target = self.getTarget();
+        const target = self.spv.target;
 
         const section = &self.spv.sections.types_globals_constants;
 
@@ -1533,7 +1511,7 @@ const NavGen = struct {
                     return try self.arrayType(1, elem_ty_id);
                 } else {
                     const result_id = try self.arrayType(total_len, elem_ty_id);
-                    if (target.os.tag == .vulkan) {
+                    if (self.spv.hasFeature(.Shader)) {
                         try self.spv.decorate(result_id, .{ .ArrayStride = .{
                             .array_stride = @intCast(elem_ty.abiSize(zcu)),
                         } });
@@ -1667,7 +1645,7 @@ const NavGen = struct {
                         continue;
                     }
 
-                    if (target.os.tag == .vulkan) {
+                    if (self.spv.hasFeature(.Shader)) {
                         try self.spv.decorateMember(result_id, index, .{ .Offset = .{
                             .byte_offset = @intCast(ty.structFieldOffset(field_index, zcu)),
                         } });
@@ -1769,20 +1747,11 @@ const NavGen = struct {
     }
 
     fn spvStorageClass(self: *NavGen, as: std.builtin.AddressSpace) StorageClass {
-        const target = self.getTarget();
         return switch (as) {
-            .generic => switch (target.os.tag) {
-                .vulkan => .Function,
-                .opencl => .Generic,
-                else => unreachable,
-            },
+            .generic => if (self.spv.hasFeature(.GenericPointer)) .Generic else .Function,
             .shared => .Workgroup,
             .local => .Function,
-            .global => switch (target.os.tag) {
-                .opencl => .CrossWorkgroup,
-                .vulkan => .PhysicalStorageBuffer,
-                else => unreachable,
-            },
+            .global => if (self.spv.hasFeature(.Shader)) .PhysicalStorageBuffer else .CrossWorkgroup,
             .constant => .UniformConstant,
             .push_constant => .PushConstant,
             .input => .Input,
@@ -2326,7 +2295,7 @@ const NavGen = struct {
     }
 
     fn buildFma(self: *NavGen, a: Temporary, b: Temporary, c: Temporary) !Temporary {
-        const target = self.getTarget();
+        const target = self.spv.target;
 
         const v = self.vectorization(.{ a, b, c });
         const ops = v.operations();
@@ -2348,7 +2317,7 @@ const NavGen = struct {
             // NOTE: Vulkan's FMA instruction does *NOT* produce the right values!
             //   its precision guarantees do NOT match zigs and it does NOT match OpenCLs!
             //   it needs to be emulated!
-            .vulkan => unreachable, // TODO: See above
+            .vulkan, .opengl => unreachable, // TODO: See above
             else => unreachable,
         };
 
@@ -2485,14 +2454,14 @@ const NavGen = struct {
     };
 
     fn buildUnary(self: *NavGen, op: UnaryOp, operand: Temporary) !Temporary {
-        const target = self.getTarget();
+        const target = self.spv.target;
         const v = blk: {
             const v = self.vectorization(.{operand});
             break :blk switch (op) {
                 // TODO: These instructions don't seem to be working
                 // properly for LLVM-based backends on OpenCL for 8- and
                 // 16-component vectors.
-                .i_abs => if (target.os.tag == .opencl and v.components() >= 8) v.unroll() else v,
+                .i_abs => if (self.spv.hasFeature(.Vector16) and v.components() >= 8) v.unroll() else v,
                 else => v,
             };
         };
@@ -2545,7 +2514,7 @@ const NavGen = struct {
                 // Note: We'll need to check these for floating point accuracy
                 // Vulkan does not put tight requirements on these, for correction
                 // we might want to emulate them at some point.
-                .vulkan => switch (op) {
+                .vulkan, .opengl => switch (op) {
                     .i_abs => 5, // SAbs
                     .f_abs => 4, // FAbs
                     .clz => unreachable, // TODO
@@ -2615,7 +2584,7 @@ const NavGen = struct {
     };
 
     fn buildBinary(self: *NavGen, op: BinaryOp, lhs: Temporary, rhs: Temporary) !Temporary {
-        const target = self.getTarget();
+        const target = self.spv.target;
 
         const v = self.vectorization(.{ lhs, rhs });
         const ops = v.operations();
@@ -2674,7 +2643,7 @@ const NavGen = struct {
                     .u_min => 159, // u_min
                     else => unreachable,
                 },
-                .vulkan => switch (op) {
+                .vulkan, .opengl => switch (op) {
                     .f_max => 40, // FMax
                     .s_max => 42, // SMax
                     .u_max => 41, // UMax
@@ -2713,7 +2682,7 @@ const NavGen = struct {
     ) !struct { Temporary, Temporary } {
         const pt = self.pt;
         const zcu = pt.zcu;
-        const target = self.getTarget();
+        const target = self.spv.target;
         const ip = &zcu.intern_pool;
 
         const v = lhs.vectorization(self).unify(rhs.vectorization(self));
@@ -2756,7 +2725,7 @@ const NavGen = struct {
                     });
                 }
             },
-            .vulkan => {
+            .vulkan, .opengl => {
                 // Operations return a struct{T, T}
                 // where T is maybe vectorized.
                 const op_result_ty: Type = .fromInterned(try ip.getTupleType(zcu.gpa, pt.tid, .{
@@ -2843,7 +2812,7 @@ const NavGen = struct {
 
         const section = &self.spv.sections.functions;
 
-        const target = self.getTarget();
+        const target = self.spv.target;
 
         const p_error_id = self.spv.allocId();
         switch (target.os.tag) {
@@ -2866,7 +2835,7 @@ const NavGen = struct {
                     .id_result = self.spv.allocId(),
                 });
             },
-            .vulkan => {
+            .vulkan, .opengl => {
                 const ptr_ptr_anyerror_ty_id = self.spv.allocId();
                 try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpTypePointer, .{
                     .id_result = ptr_ptr_anyerror_ty_id,
@@ -2967,7 +2936,7 @@ const NavGen = struct {
         defer self.gpa.free(test_name);
 
         const execution_mode: spec.ExecutionModel = switch (target.os.tag) {
-            .vulkan => .GLCompute,
+            .vulkan, .opengl => .GLCompute,
             .opencl => .Kernel,
             else => unreachable,
         };
@@ -3670,7 +3639,6 @@ const NavGen = struct {
     }
 
     fn abs(self: *NavGen, result_ty: Type, value: Temporary) !Temporary {
-        const target = self.getTarget();
         const operand_info = self.arithmeticTypeInfo(value.ty);
 
         switch (operand_info.class) {
@@ -3682,7 +3650,7 @@ const NavGen = struct {
                 // depending on the result type. Do that when
                 // bitCast is implemented for vectors.
                 // This is only relevant for Vulkan
-                assert(target.os.tag != .vulkan); // TODO
+                assert(self.spv.hasFeature(.Kernel)); // TODO
 
                 return try self.normalize(abs_value, self.arithmeticTypeInfo(result_ty));
             },
@@ -3756,7 +3724,6 @@ const NavGen = struct {
     }
 
     fn airMulOverflow(self: *NavGen, inst: Air.Inst.Index) !?IdRef {
-        const target = self.getTarget();
         const pt = self.pt;
 
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
@@ -3780,7 +3747,7 @@ const NavGen = struct {
         // - Additionally, if info.bits != 32, we'll have to check the high bits
         //   of the result too.
 
-        const largest_int_bits: u16 = if (Target.spirv.featureSetHas(target.cpu.features, .Int64)) 64 else 32;
+        const largest_int_bits = self.largestSupportedIntBits();
         // If non-null, the number of bits that the multiplication should be performed in. If
         // null, we have to use wide multiplication.
         const maybe_op_ty_bits: ?u16 = switch (info.bits) {
@@ -3989,7 +3956,6 @@ const NavGen = struct {
         if (self.liveness.isUnused(inst)) return null;
 
         const zcu = self.pt.zcu;
-        const target = self.getTarget();
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand = try self.temporary(ty_op.operand);
 
@@ -4002,10 +3968,7 @@ const NavGen = struct {
             .float, .bool => unreachable,
         }
 
-        switch (target.os.tag) {
-            .vulkan => unreachable, // TODO
-            else => {},
-        }
+        assert(self.spv.hasFeature(.Kernel)); // TODO
 
         const count = try self.buildUnary(op, operand);
 
@@ -4241,23 +4204,22 @@ const NavGen = struct {
         defer self.gpa.free(ids);
 
         const result_id = self.spv.allocId();
-        const target = self.getTarget();
-        switch (target.os.tag) {
-            .opencl => try self.func.body.emit(self.spv.gpa, .OpInBoundsPtrAccessChain, .{
+        if (self.spv.hasFeature(.Kernel)) {
+            try self.func.body.emit(self.spv.gpa, .OpInBoundsPtrAccessChain, .{
                 .id_result_type = result_ty_id,
                 .id_result = result_id,
                 .base = base,
                 .element = element,
                 .indexes = ids,
-            }),
-            .vulkan => try self.func.body.emit(self.spv.gpa, .OpPtrAccessChain, .{
+            });
+        } else {
+            try self.func.body.emit(self.spv.gpa, .OpPtrAccessChain, .{
                 .id_result_type = result_ty_id,
                 .id_result = result_id,
                 .base = base,
                 .element = element,
                 .indexes = ids,
-            }),
-            else => unreachable,
+            });
         }
         return result_id;
     }
@@ -5328,10 +5290,7 @@ const NavGen = struct {
             .initializer = options.initializer,
         });
 
-        const target = self.getTarget();
-        if (target.os.tag == .vulkan) {
-            return var_id;
-        }
+        if (self.spv.hasFeature(.Shader)) return var_id;
 
         switch (options.storage_class) {
             .Generic => {
@@ -6204,7 +6163,7 @@ const NavGen = struct {
     fn airSwitchBr(self: *NavGen, inst: Air.Inst.Index) !void {
         const pt = self.pt;
         const zcu = pt.zcu;
-        const target = self.getTarget();
+        const target = self.spv.target;
         const switch_br = self.air.unwrapSwitch(inst);
         const cond_ty = self.typeOf(switch_br.operand);
         const cond = try self.resolve(switch_br.operand);
