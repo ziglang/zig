@@ -552,7 +552,7 @@ const NavGen = struct {
     }
 
     fn castToGeneric(self: *NavGen, type_id: IdRef, ptr_id: IdRef) !IdRef {
-        if (self.spv.hasFeature(.Kernel)) {
+        if (self.spv.hasFeature(.kernel)) {
             const result_id = self.spv.allocId();
             try self.func.body.emit(self.spv.gpa, .OpPtrCastToGeneric, .{
                 .id_result_type = type_id,
@@ -591,10 +591,10 @@ const NavGen = struct {
         // 8, 16 and 64-bit integers require the Int8, Int16 and Inr64 capabilities respectively.
         // 32-bit integers are always supported (see spec, 2.16.1, Data rules).
         const ints = [_]struct { bits: u16, feature: ?Target.spirv.Feature }{
-            .{ .bits = 8, .feature = .Int8 },
-            .{ .bits = 16, .feature = .Int16 },
+            .{ .bits = 8, .feature = .int8 },
+            .{ .bits = 16, .feature = .int16 },
             .{ .bits = 32, .feature = null },
-            .{ .bits = 64, .feature = .Int64 },
+            .{ .bits = 64, .feature = .int64 },
         };
 
         for (ints) |int| {
@@ -612,7 +612,7 @@ const NavGen = struct {
     /// is no way of knowing whether those are actually supported.
     /// TODO: Maybe this should be cached?
     fn largestSupportedIntBits(self: *NavGen) u16 {
-        return if (self.spv.hasFeature(.Int64)) 64 else 32;
+        return if (self.spv.hasFeature(.int64)) 64 else 32;
     }
 
     /// Checks whether the type is "composite int", an integer consisting of multiple native integers. These are represented by
@@ -644,7 +644,7 @@ const NavGen = struct {
 
         if (elem_ty.isNumeric(zcu) or elem_ty.toIntern() == .bool_type) {
             if (len > 1 and len <= 4) return true;
-            if (self.spv.hasFeature(.Vector16)) return (len == 8 or len == 16);
+            if (self.spv.hasFeature(.vector16)) return (len == 8 or len == 16);
         }
 
         return false;
@@ -1241,7 +1241,7 @@ const NavGen = struct {
         };
 
         // Kernel only supports unsigned ints.
-        if (self.spv.hasFeature(.Kernel)) {
+        if (self.spv.hasFeature(.kernel)) {
             return self.spv.intType(.unsigned, backing_bits);
         }
 
@@ -1465,10 +1465,10 @@ const NavGen = struct {
                 // so if the float is not supported, just return an error.
                 const bits = ty.floatBits(target);
                 const supported = switch (bits) {
-                    16 => Target.spirv.featureSetHas(target.cpu.features, .Float16),
+                    16 => self.spv.hasFeature(.float16),
                     // 32-bit floats are always supported (see spec, 2.16.1, Data rules).
                     32 => true,
-                    64 => Target.spirv.featureSetHas(target.cpu.features, .Float64),
+                    64 => self.spv.hasFeature(.float64),
                     else => false,
                 };
 
@@ -1511,7 +1511,7 @@ const NavGen = struct {
                     return try self.arrayType(1, elem_ty_id);
                 } else {
                     const result_id = try self.arrayType(total_len, elem_ty_id);
-                    if (self.spv.hasFeature(.Shader)) {
+                    if (self.spv.hasFeature(.shader)) {
                         try self.spv.decorate(result_id, .{ .ArrayStride = .{
                             .array_stride = @intCast(elem_ty.abiSize(zcu)),
                         } });
@@ -1645,7 +1645,7 @@ const NavGen = struct {
                         continue;
                     }
 
-                    if (self.spv.hasFeature(.Shader)) {
+                    if (self.spv.hasFeature(.shader)) {
                         try self.spv.decorateMember(result_id, index, .{ .Offset = .{
                             .byte_offset = @intCast(ty.structFieldOffset(field_index, zcu)),
                         } });
@@ -1748,10 +1748,10 @@ const NavGen = struct {
 
     fn spvStorageClass(self: *NavGen, as: std.builtin.AddressSpace) StorageClass {
         return switch (as) {
-            .generic => if (self.spv.hasFeature(.GenericPointer)) .Generic else .Function,
+            .generic => if (self.spv.hasFeature(.generic_pointer)) .Generic else .Function,
             .shared => .Workgroup,
             .local => .Function,
-            .global => if (self.spv.hasFeature(.Shader)) .PhysicalStorageBuffer else .CrossWorkgroup,
+            .global => if (self.spv.hasFeature(.shader)) .PhysicalStorageBuffer else .CrossWorkgroup,
             .constant => .UniformConstant,
             .push_constant => .PushConstant,
             .input => .Input,
@@ -2461,7 +2461,7 @@ const NavGen = struct {
                 // TODO: These instructions don't seem to be working
                 // properly for LLVM-based backends on OpenCL for 8- and
                 // 16-component vectors.
-                .i_abs => if (self.spv.hasFeature(.Vector16) and v.components() >= 8) v.unroll() else v,
+                .i_abs => if (self.spv.hasFeature(.vector16) and v.components() >= 8) v.unroll() else v,
                 else => v,
             };
         };
@@ -3650,7 +3650,7 @@ const NavGen = struct {
                 // depending on the result type. Do that when
                 // bitCast is implemented for vectors.
                 // This is only relevant for Vulkan
-                assert(self.spv.hasFeature(.Kernel)); // TODO
+                assert(self.spv.hasFeature(.kernel)); // TODO
 
                 return try self.normalize(abs_value, self.arithmeticTypeInfo(result_ty));
             },
@@ -3968,7 +3968,7 @@ const NavGen = struct {
             .float, .bool => unreachable,
         }
 
-        assert(self.spv.hasFeature(.Kernel)); // TODO
+        assert(self.spv.hasFeature(.kernel)); // TODO
 
         const count = try self.buildUnary(op, operand);
 
@@ -4204,7 +4204,7 @@ const NavGen = struct {
         defer self.gpa.free(ids);
 
         const result_id = self.spv.allocId();
-        if (self.spv.hasFeature(.Kernel)) {
+        if (self.spv.hasFeature(.kernel)) {
             try self.func.body.emit(self.spv.gpa, .OpInBoundsPtrAccessChain, .{
                 .id_result_type = result_ty_id,
                 .id_result = result_id,
@@ -5290,7 +5290,7 @@ const NavGen = struct {
             .initializer = options.initializer,
         });
 
-        if (self.spv.hasFeature(.Shader)) return var_id;
+        if (self.spv.hasFeature(.shader)) return var_id;
 
         switch (options.storage_class) {
             .Generic => {

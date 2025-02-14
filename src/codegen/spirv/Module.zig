@@ -183,8 +183,11 @@ cache: struct {
     array_types: std.AutoHashMapUnmanaged(struct { IdRef, IdRef }, IdRef) = .empty,
     function_types: DeepHashMap(struct { IdRef, []const IdRef }, IdRef) = .empty,
 
-    builtins: std.AutoHashMapUnmanaged(struct { IdRef, spec.BuiltIn }, Decl.Index) = .empty,
+    capabilities: std.AutoHashMapUnmanaged(spec.Capability, void) = .empty,
+    extensions: std.StringHashMapUnmanaged(void) = .empty,
+    extended_instruction_set: std.AutoHashMapUnmanaged(spec.InstructionSet, IdRef) = .empty,
     decorations: std.AutoHashMapUnmanaged(struct { IdRef, spec.Decoration }, void) = .empty,
+    builtins: std.AutoHashMapUnmanaged(struct { IdRef, spec.BuiltIn }, Decl.Index) = .empty,
 
     bool_const: [2]?IdRef = .{ null, null },
 } = .{},
@@ -198,9 +201,6 @@ decl_deps: std.ArrayListUnmanaged(Decl.Index) = .empty,
 
 /// The list of entry points that should be exported from this module.
 entry_points: std.ArrayListUnmanaged(EntryPoint) = .empty,
-
-/// The list of extended instruction sets that should be imported.
-extended_instruction_set: std.AutoHashMapUnmanaged(spec.InstructionSet, IdRef) = .empty,
 
 pub fn init(gpa: Allocator, target: std.Target) Module {
     const version_minor: u8 = blk: {
@@ -242,15 +242,16 @@ pub fn deinit(self: *Module) void {
     self.cache.vector_types.deinit(self.gpa);
     self.cache.array_types.deinit(self.gpa);
     self.cache.function_types.deinit(self.gpa);
-    self.cache.builtins.deinit(self.gpa);
+    self.cache.capabilities.deinit(self.gpa);
+    self.cache.extensions.deinit(self.gpa);
+    self.cache.extended_instruction_set.deinit(self.gpa);
     self.cache.decorations.deinit(self.gpa);
+    self.cache.builtins.deinit(self.gpa);
 
     self.decls.deinit(self.gpa);
     self.decl_deps.deinit(self.gpa);
-
     self.entry_points.deinit(self.gpa);
 
-    self.extended_instruction_set.deinit(self.gpa);
     self.arena.deinit();
 
     self.* = undefined;
@@ -339,9 +340,61 @@ fn entryPoints(self: *Module) !Section {
 }
 
 pub fn finalize(self: *Module, a: Allocator) ![]Word {
+    // Emit capabilities and extensions
+    for (std.Target.spirv.all_features) |feature| {
+        if (self.target.cpu.features.isEnabled(feature.index)) {
+            const feature_tag: std.Target.spirv.Feature = @enumFromInt(feature.index);
+            switch (feature_tag) {
+                .v1_0, .v1_1, .v1_2, .v1_3, .v1_4, .v1_5, .v1_6 => {},
+                .int8 => try self.addCapability(.Int8),
+                .int16 => try self.addCapability(.Int16),
+                .int64 => try self.addCapability(.Int64),
+                .float16 => try self.addCapability(.Float16),
+                .float64 => try self.addCapability(.Float64),
+                .addresses => if (self.hasFeature(.shader)) {
+                    try self.addCapability(.PhysicalStorageBufferAddresses);
+                    try self.addExtension("SPV_KHR_physical_storage_buffer");
+                } else {
+                    try self.addCapability(.Addresses);
+                },
+                .matrix => try self.addCapability(.Matrix),
+                .kernel => try self.addCapability(.Kernel),
+                .generic_pointer => try self.addCapability(.GenericPointer),
+                .vector16 => try self.addCapability(.Vector16),
+                .shader => try self.addCapability(.Shader),
+            }
+        }
+    }
+
+    // Emit memory model
+    const addressing_model: spec.AddressingModel = blk: {
+        if (self.hasFeature(.shader)) {
+            break :blk switch (self.target.cpu.arch) {
+                .spirv32 => .Logical, // TODO: I don't think this will ever be implemented.
+                .spirv64 => .PhysicalStorageBuffer64,
+                else => unreachable,
+            };
+        } else if (self.hasFeature(.kernel)) {
+            break :blk switch (self.target.cpu.arch) {
+                .spirv32 => .Physical32,
+                .spirv64 => .Physical64,
+                else => unreachable,
+            };
+        }
+
+        unreachable;
+    };
+    try self.sections.memory_model.emit(self.gpa, .OpMemoryModel, .{
+        .addressing_model = addressing_model,
+        .memory_model = switch (self.target.os.tag) {
+            .opencl => .OpenCL,
+            .vulkan, .opengl => .GLSL450,
+            else => unreachable,
+        },
+    });
+
     // See SPIR-V Spec section 2.3, "Physical Layout of a SPIR-V Module and Instruction"
     // TODO: Audit calls to allocId() in this function to make it idempotent.
-
     var entry_points = try self.entryPoints();
     defer entry_points.deinit(self.gpa);
 
@@ -405,11 +458,23 @@ pub fn addFunction(self: *Module, decl_index: Decl.Index, func: Fn) !void {
     try self.declareDeclDeps(decl_index, func.decl_deps.keys());
 }
 
+pub fn addCapability(self: *Module, cap: spec.Capability) !void {
+    const entry = try self.cache.capabilities.getOrPut(self.gpa, cap);
+    if (entry.found_existing) return;
+    try self.sections.capabilities.emit(self.gpa, .OpCapability, .{ .capability = cap });
+}
+
+pub fn addExtension(self: *Module, ext: []const u8) !void {
+    const entry = try self.cache.extensions.getOrPut(self.gpa, ext);
+    if (entry.found_existing) return;
+    try self.sections.extensions.emit(self.gpa, .OpExtension, .{ .name = ext });
+}
+
 /// Imports or returns the existing id of an extended instruction set
 pub fn importInstructionSet(self: *Module, set: spec.InstructionSet) !IdRef {
     assert(set != .core);
 
-    const gop = try self.extended_instruction_set.getOrPut(self.gpa, set);
+    const gop = try self.cache.extended_instruction_set.getOrPut(self.gpa, set);
     if (gop.found_existing) return gop.value_ptr.*;
 
     const result_id = self.allocId();

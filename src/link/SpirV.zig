@@ -232,13 +232,9 @@ pub fn flushModule(
     const diags = &comp.link_diags;
     const gpa = comp.gpa;
 
-    try writeCapabilities(spv);
-    try writeMemoryModel(spv);
-
     // We need to export the list of error names somewhere so that we can pretty-print them in the
     // executor. This is not really an important thing though, so we can just dump it in any old
     // nonsemantic instruction. For now, just put it in OpSourceExtension with a special name.
-
     var error_info = std.ArrayList(u8).init(self.object.gpa);
     defer error_info.deinit();
 
@@ -296,66 +292,4 @@ fn linkModule(self: *SpirV, a: Allocator, module: []Word, progress: std.Progress
     try dedup.run(&parser, &binary, progress);
 
     return binary.finalize(a);
-}
-
-fn writeCapabilities(spv: *SpvModule) !void {
-    var caps: std.ArrayList(spec.Capability) = .init(spv.gpa);
-    var extensions: std.ArrayList([]const u8) = .init(spv.gpa);
-    defer {
-        caps.deinit();
-        extensions.deinit();
-    }
-
-    // Currently all spirv target features name are mapped to a Capability or an Extension.
-    // Except for versions which we ignore.
-    for (std.Target.spirv.all_features, 0..) |_, i| {
-        if (spv.target.cpu.features.isEnabled(@intCast(i))) {
-            const feature: std.Target.spirv.Feature = @enumFromInt(i);
-            const name = @tagName(feature);
-            if (std.meta.stringToEnum(spec.Capability, name)) |cap| {
-                try caps.append(cap);
-            } else if (std.mem.startsWith(u8, name, "SPV_")) {
-                try extensions.append(name);
-            }
-        }
-    }
-
-    for (caps.items) |cap| {
-        try spv.sections.capabilities.emit(spv.gpa, .OpCapability, .{
-            .capability = cap,
-        });
-    }
-
-    for (extensions.items) |ext| {
-        try spv.sections.extensions.emit(spv.gpa, .OpExtension, .{ .name = ext });
-    }
-}
-
-fn writeMemoryModel(spv: *SpvModule) !void {
-    const addressing_model: spec.AddressingModel = blk: {
-        if (spv.hasFeature(.Shader)) {
-            break :blk switch (spv.target.cpu.arch) {
-                .spirv32 => .Logical, // TODO: I don't think this will ever be implemented.
-                .spirv64 => .PhysicalStorageBuffer64,
-                else => unreachable,
-            };
-        } else if (spv.hasFeature(.Kernel)) {
-            break :blk switch (spv.target.cpu.arch) {
-                .spirv32 => .Physical32,
-                .spirv64 => .Physical64,
-                else => unreachable,
-            };
-        }
-
-        unreachable;
-    };
-    const memory_model: spec.MemoryModel = switch (spv.target.os.tag) {
-        .opencl => .OpenCL,
-        .vulkan, .opengl => .GLSL450,
-        else => unreachable,
-    };
-    try spv.sections.memory_model.emit(spv.gpa, .OpMemoryModel, .{
-        .addressing_model = addressing_model,
-        .memory_model = memory_model,
-    });
 }
