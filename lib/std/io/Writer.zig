@@ -53,13 +53,24 @@ pub const VTable = struct {
     };
 };
 
+pub fn writev(w: Writer, data: []const []const u8) anyerror!usize {
+    return w.vtable.writev(w.context, data);
+}
+
+pub fn writeFile(
+    w: Writer,
+    file: std.fs.File,
+    offset: u64,
+    len: VTable.FileLen,
+    headers_and_trailers: []const []const u8,
+    headers_len: usize,
+) anyerror!usize {
+    return w.vtable.writeFile(w.context, file, offset, len, headers_and_trailers, headers_len);
+}
+
 pub fn write(w: Writer, bytes: []const u8) anyerror!usize {
     const single: [1][]const u8 = .{bytes};
     return w.vtable.writev(w.context, &single);
-}
-
-pub fn writev(w: Writer, data: []const []const u8) anyerror!usize {
-    return w.vtable.writev(w.context, data);
 }
 
 pub fn writeAll(w: Writer, bytes: []const u8) anyerror!void {

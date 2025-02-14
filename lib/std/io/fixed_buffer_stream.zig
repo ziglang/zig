@@ -4,8 +4,7 @@ const testing = std.testing;
 const mem = std.mem;
 const assert = std.debug.assert;
 
-/// This turns a byte buffer into an `io.Writer`, `io.Reader`, or `io.SeekableStream`.
-/// If the supplied byte buffer is const, then `io.Writer` is not available.
+/// This turns a const byte buffer into an `io.Reader`, or `io.SeekableStream`.
 pub fn FixedBufferStream(comptime Buffer: type) type {
     return struct {
         /// `Buffer` is either a `[]u8` or `[]const u8`.
