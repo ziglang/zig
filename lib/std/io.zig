@@ -376,8 +376,7 @@ pub const cWriter = @import("io/c_writer.zig").cWriter;
 pub const LimitedReader = @import("io/limited_reader.zig").LimitedReader;
 pub const limitedReader = @import("io/limited_reader.zig").limitedReader;
 
-pub const CountingWriter = @import("io/counting_writer.zig").CountingWriter;
-pub const countingWriter = @import("io/counting_writer.zig").countingWriter;
+pub const CountingWriter = @import("io/CountingWriter.zig");
 pub const CountingReader = @import("io/counting_reader.zig").CountingReader;
 pub const countingReader = @import("io/counting_reader.zig").countingReader;
 
@@ -402,17 +401,42 @@ pub const StreamSource = @import("io/stream_source.zig").StreamSource;
 
 pub const tty = @import("io/tty.zig");
 
-/// A Writer that doesn't write to anything.
-pub const null_writer: NullWriter = .{ .context = {} };
+/// A `Writer` that discards all data.
+pub const null_writer: Writer = .{
+    .context = undefined,
+    .vtable = &.{
+        .writev = null_writev,
+        .writeFile = null_writeFile,
+    },
+};
 
-pub const NullWriter = Writer(void, error{}, dummyWrite);
-fn dummyWrite(context: void, data: []const u8) error{}!usize {
+fn null_writev(context: *anyopaque, data: []const []const u8) anyerror!usize {
     _ = context;
-    return data.len;
+    var n: usize = 0;
+    for (data) |bytes| n += bytes.len;
+    return n;
+}
+
+fn null_writeFile(
+    context: *anyopaque,
+    file: std.fs.File,
+    offset: u64,
+    len: Writer.VTable.FileLen,
+    headers_and_trailers: []const []const u8,
+    headers_len: usize,
+) anyerror!usize {
+    _ = context;
+    _ = offset;
+    _ = headers_len;
+    _ = file;
+    if (len == .entire_file) return error.Unimplemented;
+    var n: usize = 0;
+    for (headers_and_trailers) |bytes| n += bytes.len;
+    return len.int() + n;
 }
 
 test null_writer {
-    null_writer.writeAll("yay" ** 10) catch |err| switch (err) {};
+    try null_writer.writeAll("yay");
 }
 
 pub fn poll(
@@ -819,12 +843,12 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 test {
     _ = AnyReader;
     _ = Writer;
+    _ = CountingWriter;
     _ = @import("io/bit_reader.zig");
     _ = @import("io/bit_writer.zig");
     _ = @import("io/buffered_atomic_file.zig");
     _ = @import("io/buffered_reader.zig");
     _ = @import("io/c_writer.zig");
-    _ = @import("io/counting_writer.zig");
     _ = @import("io/counting_reader.zig");
     _ = @import("io/fixed_buffer_stream.zig");
     _ = @import("io/seekable_stream.zig");

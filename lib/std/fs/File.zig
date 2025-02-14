@@ -1618,7 +1618,7 @@ const interface = struct {
             return windows.WriteFile(file, first.base[0..first.len], null);
         }
 
-        var iovecs_buffer: [max_buffers_len]std.posix.iovec = undefined;
+        var iovecs_buffer: [max_buffers_len]std.posix.iovec_const = undefined;
         const iovecs = iovecs_buffer[0..@min(iovecs_buffer.len, data.len)];
         for (iovecs, data[0..iovecs.len]) |*v, d| v.* = .{ .base = d.ptr, .len = d.len };
         return std.posix.writev(file, iovecs);
@@ -1634,17 +1634,25 @@ const interface = struct {
     ) anyerror!usize {
         const out_fd = opaqueToHandle(context);
         const in_fd = in_file.handle;
-        const headers = headers_and_trailers[0..headers_len];
-        const trailers = headers_and_trailers[headers_len..];
+        const len_int = switch (in_len) {
+            .zero => return interface.writev(context, headers_and_trailers),
+            .entire_file => 0,
+            else => in_len.int(),
+        };
+        var iovecs_buffer: [max_buffers_len]std.posix.iovec_const = undefined;
+        const iovecs = iovecs_buffer[0..@min(iovecs_buffer.len, headers_and_trailers.len)];
+        for (iovecs, headers_and_trailers[0..iovecs.len]) |*v, d| v.* = .{ .base = d.ptr, .len = d.len };
+        const headers = iovecs[0..@min(headers_len, iovecs.len)];
+        const trailers = iovecs[headers.len..];
         const flags = 0;
-        return posix.sendfile(out_fd, in_fd, in_offset, in_len, headers, trailers, flags) catch |err| switch (err) {
+        return posix.sendfile(out_fd, in_fd, in_offset, len_int, headers, trailers, flags) catch |err| switch (err) {
             error.Unseekable,
             error.FastOpenAlreadyInProgress,
             error.MessageTooBig,
             error.FileDescriptorNotASocket,
             error.NetworkUnreachable,
             error.NetworkSubsystemFailed,
-            => return writeFileUnseekable(out_fd, in_fd, in_offset, in_len, headers, trailers),
+            => return writeFileUnseekable(out_fd, in_fd, in_offset, in_len, headers_and_trailers, headers_len),
 
             else => |e| return e,
         };
@@ -1655,15 +1663,15 @@ const interface = struct {
         in_fd: Handle,
         in_offset: u64,
         in_len: std.io.Writer.VTable.FileLen,
-        headers: []const []const u8,
-        trailers: []const []const u8,
+        headers_and_trailers: []const []const u8,
+        headers_len: usize,
     ) anyerror!usize {
         _ = out_fd;
         _ = in_fd;
         _ = in_offset;
         _ = in_len;
-        _ = headers;
-        _ = trailers;
+        _ = headers_and_trailers;
+        _ = headers_len;
         @panic("TODO writeFileUnseekable");
     }
 

@@ -2300,11 +2300,7 @@ pub const ElfModule = struct {
                 };
                 defer debuginfod_dir.close();
 
-                const filename = std.fmt.allocPrint(
-                    gpa,
-                    "{s}/debuginfo",
-                    .{std.fmt.fmtSliceHexLower(id)},
-                ) catch break :blk;
+                const filename = std.fmt.allocPrint(gpa, "{x}/debuginfo", .{id}) catch break :blk;
                 defer gpa.free(filename);
 
                 const path: Path = .{
@@ -2328,12 +2324,8 @@ pub const ElfModule = struct {
                 var id_prefix_buf: [2]u8 = undefined;
                 var filename_buf: [38 + extension.len]u8 = undefined;
 
-                _ = std.fmt.bufPrint(&id_prefix_buf, "{s}", .{std.fmt.fmtSliceHexLower(id[0..1])}) catch unreachable;
-                const filename = std.fmt.bufPrint(
-                    &filename_buf,
-                    "{s}" ++ extension,
-                    .{std.fmt.fmtSliceHexLower(id[1..])},
-                ) catch break :blk;
+                _ = std.fmt.bufPrint(&id_prefix_buf, "{x}", .{id[0..1]}) catch unreachable;
+                const filename = std.fmt.bufPrint(&filename_buf, "{x}" ++ extension, .{id[1..]}) catch break :blk;
 
                 for (global_debug_directories) |global_directory| {
                     const path: Path = .{

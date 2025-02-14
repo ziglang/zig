@@ -1675,9 +1675,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     if (compile.build_id) |build_id| {
         try zig_args.append(switch (build_id) {
-            .hexstring => |hs| b.fmt("--build-id=0x{s}", .{
-                std.fmt.fmtSliceHexLower(hs.toSlice()),
-            }),
+            .hexstring => |hs| b.fmt("--build-id=0x{x}", .{hs.toSlice()}),
             .none, .fast, .uuid, .sha1, .md5 => b.fmt("--build-id={s}", .{@tagName(build_id)}),
         });
     }
@@ -1764,11 +1762,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         var args_hash: [Sha256.digest_length]u8 = undefined;
         Sha256.hash(args, &args_hash, .{});
         var args_hex_hash: [Sha256.digest_length * 2]u8 = undefined;
-        _ = try std.fmt.bufPrint(
-            &args_hex_hash,
-            "{s}",
-            .{std.fmt.fmtSliceHexLower(&args_hash)},
-        );
+        _ = try std.fmt.bufPrint(&args_hex_hash, "{x}", .{&args_hash});
 
         const args_file = "args" ++ fs.path.sep_str ++ args_hex_hash;
         try b.cache_root.handle.writeFile(.{ .sub_path = args_file, .data = args });

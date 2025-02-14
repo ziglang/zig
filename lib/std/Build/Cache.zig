@@ -286,11 +286,9 @@ pub const HashHelper = struct {
 
 pub fn binToHex(bin_digest: BinDigest) HexDigest {
     var out_digest: HexDigest = undefined;
-    _ = fmt.bufPrint(
-        &out_digest,
-        "{s}",
-        .{fmt.fmtSliceHexLower(&bin_digest)},
-    ) catch unreachable;
+    var bw: std.io.BufferedWriter = undefined;
+    bw.initFixed(&out_digest);
+    bw.printHex(&bin_digest, .lower) catch unreachable;
     return out_digest;
 }
 
@@ -1066,11 +1064,11 @@ pub const Manifest = struct {
             const writer = contents.writer();
             try writer.writeAll(manifest_header ++ "\n");
             for (self.files.keys()) |file| {
-                try writer.print("{d} {d} {d} {} {d} {s}\n", .{
+                try writer.print("{d} {d} {d} {x} {d} {s}\n", .{
                     file.stat.size,
                     file.stat.inode,
                     file.stat.mtime,
-                    fmt.fmtSliceHexLower(&file.bin_digest),
+                    &file.bin_digest,
                     file.prefixed_path.prefix,
                     file.prefixed_path.sub_path,
                 });

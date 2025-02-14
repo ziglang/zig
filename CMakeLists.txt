@@ -415,7 +415,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/elf.zig
     lib/std/fifo.zig
     lib/std/fmt.zig
-    lib/std/fmt/format_float.zig
     lib/std/fmt/parse_float.zig
     lib/std/fs.zig
     lib/std/fs/AtomicFile.zig
@@ -433,10 +432,8 @@ set(ZIG_STAGE2_SOURCES
     lib/std/io/Reader.zig
     lib/std/io/Writer.zig
     lib/std/io/buffered_atomic_file.zig
-    lib/std/io/buffered_writer.zig
     lib/std/io/change_detection_stream.zig
     lib/std/io/counting_reader.zig
-    lib/std/io/counting_writer.zig
     lib/std/io/find_byte_writer.zig
     lib/std/io/fixed_buffer_stream.zig
     lib/std/io/limited_reader.zig

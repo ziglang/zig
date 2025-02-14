@@ -506,8 +506,8 @@ test "key pair creation" {
     _ = try fmt.hexToBytes(seed[0..], "8052030376d47112be7f73ed7a019293dd12ad910b654455798b4667d73de166");
     const key_pair = try Ed25519.KeyPair.generateDeterministic(seed);
     var buf: [256]u8 = undefined;
-    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&key_pair.secret_key.toBytes())}), "8052030376D47112BE7F73ED7A019293DD12AD910B654455798B4667D73DE1662D6F7455D97B4A3A10D7293909D1A4F2058CB9A370E43FA8154BB280DB839083");
-    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&key_pair.public_key.toBytes())}), "2D6F7455D97B4A3A10D7293909D1A4F2058CB9A370E43FA8154BB280DB839083");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{&key_pair.secret_key.toBytes()}), "8052030376D47112BE7F73ED7A019293DD12AD910B654455798B4667D73DE1662D6F7455D97B4A3A10D7293909D1A4F2058CB9A370E43FA8154BB280DB839083");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{&key_pair.public_key.toBytes()}), "2D6F7455D97B4A3A10D7293909D1A4F2058CB9A370E43FA8154BB280DB839083");
 }
 
 test "signature" {
@@ -517,7 +517,7 @@ test "signature" {
 
     const sig = try key_pair.sign("test", null);
     var buf: [128]u8 = undefined;
-    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&sig.toBytes())}), "10A442B4A80CC4225B154F43BEF28D2472CA80221951262EB8E0DF9091575E2687CC486E77263C3418C757522D54F84B0359236ABBBD4ACD20DC297FDCA66808");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{&sig.toBytes()}), "10A442B4A80CC4225B154F43BEF28D2472CA80221951262EB8E0DF9091575E2687CC486E77263C3418C757522D54F84B0359236ABBBD4ACD20DC297FDCA66808");
     try sig.verify("test", key_pair.public_key);
     try std.testing.expectError(error.SignatureVerificationFailed, sig.verify("TEST", key_pair.public_key));
 }
