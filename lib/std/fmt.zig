@@ -196,7 +196,6 @@ pub fn format(bw: *std.io.BufferedWriter, comptime fmt: []const u8, args: anytyp
             @compileError("too few arguments");
 
         try bw.printValue(
-            @field(args, fields_info[arg_to_print].name),
             placeholder.specifier_arg,
             .{
                 .fill = placeholder.fill,
@@ -204,6 +203,7 @@ pub fn format(bw: *std.io.BufferedWriter, comptime fmt: []const u8, args: anytyp
                 .width = width,
                 .precision = precision,
             },
+            @field(args, fields_info[arg_to_print].name),
             std.options.fmt_max_depth,
         );
     }
@@ -836,12 +836,13 @@ pub const BufPrintError = error{
 /// Print a Formatter string into `buf`. Actually just a thin wrapper around `format` and `fixedBufferStream`.
 /// Returns a slice of the bytes printed to.
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![]u8 {
-    var fbs = std.io.fixedBufferStream(buf);
-    format(fbs.writer().any(), fmt, args) catch |err| switch (err) {
+    var bw: std.io.BufferedWriter = undefined;
+    bw.initFixed(buf);
+    bw.print(fmt, args) catch |err| switch (err) {
         error.NoSpaceLeft => return error.NoSpaceLeft,
         else => unreachable,
     };
-    return fbs.getWritten();
+    return bw.getWritten();
 }
 
 pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![:0]u8 {
@@ -1011,15 +1012,15 @@ test "buffer" {
         var buf1: [32]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buf1);
         var bw = fbs.writer();
-        try bw.printValue(1234, "", .{}, std.options.fmt_max_depth);
+        try bw.printValue("", .{}, 1234, std.options.fmt_max_depth);
         try std.testing.expectEqualStrings("1234", fbs.getWritten());
 
         fbs.reset();
-        try bw.printValue('a', "c", .{}, std.options.fmt_max_depth);
+        try bw.printValue("c", .{}, 'a', std.options.fmt_max_depth);
         try std.testing.expectEqualStrings("a", fbs.getWritten());
 
         fbs.reset();
-        try bw.printValue(0b1100, "b", .{}, std.options.fmt_max_depth);
+        try bw.printValue("b", .{}, 0b1100, std.options.fmt_max_depth);
         try std.testing.expectEqualStrings("1100", fbs.getWritten());
     }
 }
