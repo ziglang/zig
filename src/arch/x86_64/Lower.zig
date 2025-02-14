@@ -431,7 +431,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 _ = lower.reloc(.{ .linker_tlsld = sym_index }, 0);
                                 lower.result_insts[lower.result_insts_len] = try .new(.none, .lea, &.{
                                     .{ .reg = .rdi },
-                                    .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) },
+                                    .{ .mem = Memory.initRip(.none, 0) },
                                 }, lower.target);
                                 lower.result_insts_len += 1;
                                 _ = lower.reloc(.{
@@ -443,7 +443,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 lower.result_insts_len += 1;
                                 _ = lower.reloc(.{ .linker_dtpoff = sym_index }, 0);
                                 emit_mnemonic = .lea;
-                                break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{
+                                break :op .{ .mem = Memory.initSib(.none, .{
                                     .base = .{ .reg = .rax },
                                     .disp = std.math.minInt(i32),
                                 }) };
@@ -456,7 +456,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                                 lower.result_insts_len += 1;
                                 _ = lower.reloc(.{ .linker_reloc = sym_index }, 0);
                                 emit_mnemonic = .lea;
-                                break :op .{ .mem = Memory.initSib(mem_op.sib.ptr_size, .{
+                                break :op .{ .mem = Memory.initSib(.none, .{
                                     .base = .{ .reg = .rax },
                                     .disp = std.math.minInt(i32),
                                 }) };
@@ -465,10 +465,10 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
 
                         _ = lower.reloc(.{ .linker_reloc = sym_index }, 0);
                         if (lower.pic) switch (mnemonic) {
-                            .lea => {
-                                if (elf_sym.flags.is_extern_ptr) emit_mnemonic = .mov;
-                                break :op .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) };
-                            },
+                            .lea => if (elf_sym.flags.is_extern_ptr) {
+                                emit_mnemonic = .mov;
+                                break :op .{ .mem = Memory.initRip(.ptr, 0) };
+                            } else break :op .{ .mem = Memory.initRip(.none, 0) },
                             .mov => {
                                 if (elf_sym.flags.is_extern_ptr) {
                                     const reg = ops[0].reg;
@@ -505,7 +505,7 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
                             _ = lower.reloc(.{ .linker_reloc = sym_index }, 0);
                             lower.result_insts[lower.result_insts_len] = try .new(.none, .mov, &.{
                                 .{ .reg = .rdi },
-                                .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) },
+                                .{ .mem = Memory.initRip(.ptr, 0) },
                             }, lower.target);
                             lower.result_insts_len += 1;
                             lower.result_insts[lower.result_insts_len] = try .new(.none, .call, &.{
@@ -518,10 +518,10 @@ fn emit(lower: *Lower, prefix: Prefix, mnemonic: Mnemonic, ops: []const Operand)
 
                         _ = lower.reloc(.{ .linker_reloc = sym_index }, 0);
                         break :op switch (mnemonic) {
-                            .lea => {
-                                if (macho_sym.flags.is_extern_ptr) emit_mnemonic = .mov;
-                                break :op .{ .mem = Memory.initRip(mem_op.sib.ptr_size, 0) };
-                            },
+                            .lea => if (macho_sym.flags.is_extern_ptr) {
+                                emit_mnemonic = .mov;
+                                break :op .{ .mem = Memory.initRip(.ptr, 0) };
+                            } else break :op .{ .mem = Memory.initRip(.none, 0) },
                             .mov => {
                                 if (macho_sym.flags.is_extern_ptr) {
                                     const reg = ops[0].reg;
