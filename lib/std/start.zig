@@ -605,9 +605,6 @@ fn expandStackSize(phdrs: []elf.Phdr) void {
 }
 
 inline fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8, aux: std.process.Init.Aux) u8 {
-    std.os.argv = argv[0..argc]; // To be removed after 0.15.0 is tagged.
-    std.os.environ = envp; // To be removed after 0.15.0 is tagged.
-
     std.debug.maybeEnableSegfaultHandler();
     maybeIgnoreSigpipe();
 
