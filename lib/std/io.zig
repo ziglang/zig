@@ -367,8 +367,7 @@ pub const BufferedReader = @import("io/buffered_reader.zig").BufferedReader;
 pub const bufferedReader = @import("io/buffered_reader.zig").bufferedReader;
 pub const bufferedReaderSize = @import("io/buffered_reader.zig").bufferedReaderSize;
 
-pub const FixedBufferStream = @import("io/fixed_buffer_stream.zig").FixedBufferStream;
-pub const fixedBufferStream = @import("io/fixed_buffer_stream.zig").fixedBufferStream;
+pub const FixedBufferStream = @import("io/FixedBufferStream.zig");
 
 pub const CWriter = @import("io/c_writer.zig").CWriter;
 pub const cWriter = @import("io/c_writer.zig").cWriter;
@@ -844,13 +843,13 @@ test {
     _ = AnyReader;
     _ = Writer;
     _ = CountingWriter;
+    _ = FixedBufferStream;
     _ = @import("io/bit_reader.zig");
     _ = @import("io/bit_writer.zig");
     _ = @import("io/buffered_atomic_file.zig");
     _ = @import("io/buffered_reader.zig");
     _ = @import("io/c_writer.zig");
     _ = @import("io/counting_reader.zig");
-    _ = @import("io/fixed_buffer_stream.zig");
     _ = @import("io/seekable_stream.zig");
     _ = @import("io/stream_source.zig");
     _ = @import("io/test.zig");

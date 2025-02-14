@@ -123,8 +123,9 @@ fn fixed_writev(context: *anyopaque, data: []const []const u8) anyerror!usize {
     // When this function is called it means the buffer got full, so it's time
     // to return an error. However, we still need to make sure all of the
     // available buffer has been used.
+    const first = data[0];
     const dest = bw.buffer[bw.end..];
-    @memcpy(dest, data[0..dest.len]);
+    @memcpy(dest, first[0..dest.len]);
     return error.NoSpaceLeft;
 }
 
@@ -558,9 +559,9 @@ pub fn printAddress(bw: *BufferedWriter, value: anytype) anyerror!void {
 
 pub fn printValue(
     bw: *BufferedWriter,
-    value: anytype,
     comptime fmt: []const u8,
     options: std.fmt.Options,
+    value: anytype,
     max_depth: usize,
 ) anyerror!void {
     const T = @TypeOf(value);
@@ -587,8 +588,8 @@ pub fn printValue(
     }
 
     switch (@typeInfo(T)) {
-        .float, .comptime_float => return printFloat(bw, fmt, options, value),
-        .int, .comptime_int => return printInt(bw, fmt, options, value),
+        .float, .comptime_float => return printFloat(bw, actual_fmt, options, value),
+        .int, .comptime_int => return printInt(bw, actual_fmt, options, value),
         .bool => {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
             return alignBufferOptions(bw, if (value) "true" else "false", options);
@@ -602,7 +603,7 @@ pub fn printValue(
                 @compileError("cannot print optional without a specifier (i.e. {?} or {any})");
             const remaining_fmt = comptime stripOptionalOrErrorUnionSpec(actual_fmt);
             if (value) |payload| {
-                return printValue(bw, payload, remaining_fmt, options, max_depth);
+                return printValue(bw, remaining_fmt, options, payload, max_depth);
             } else {
                 return alignBufferOptions(bw, "null", options);
             }
@@ -612,9 +613,9 @@ pub fn printValue(
                 @compileError("cannot format error union without a specifier (i.e. {!} or {any})");
             const remaining_fmt = comptime stripOptionalOrErrorUnionSpec(actual_fmt);
             if (value) |payload| {
-                return printValue(payload, remaining_fmt, options, bw, max_depth);
+                return printValue(bw, remaining_fmt, options, payload, max_depth);
             } else |err| {
-                return printValue(err, "", options, bw, max_depth);
+                return printValue(bw, "", options, err, max_depth);
             }
         },
         .error_set => {
@@ -641,9 +642,9 @@ pub fn printValue(
                 }
             }
 
-            try bw.writeAll("(");
-            try printValue(@intFromEnum(value), actual_fmt, options, bw, max_depth);
-            try bw.writeAll(")");
+            try bw.writeByte('(');
+            try printValue(bw, actual_fmt, options, @intFromEnum(value), max_depth);
+            try bw.writeByte(')');
         },
         .@"union" => |info| {
             if (actual_fmt.len != 0) invalidFmtError(fmt, value);
@@ -657,7 +658,7 @@ pub fn printValue(
                 try bw.writeAll(" = ");
                 inline for (info.fields) |u_field| {
                     if (value == @field(UnionTagType, u_field.name)) {
-                        try printValue(@field(value, u_field.name), ANY, options, bw, max_depth - 1);
+                        try printValue(bw, ANY, options, @field(value, u_field.name), max_depth - 1);
                     }
                 }
                 try bw.writeAll(" }");
@@ -680,7 +681,7 @@ pub fn printValue(
                     } else {
                         try bw.writeAll(", ");
                     }
-                    try printValue(@field(value, f.name), ANY, options, bw, max_depth - 1);
+                    try printValue(bw, ANY, options, @field(value, f.name), max_depth - 1);
                 }
                 return bw.writeAll(" }");
             }
@@ -697,14 +698,14 @@ pub fn printValue(
                 }
                 try bw.writeAll(f.name);
                 try bw.writeAll(" = ");
-                try printValue(@field(value, f.name), ANY, options, bw, max_depth - 1);
+                try printValue(bw, ANY, options, @field(value, f.name), max_depth - 1);
             }
             try bw.writeAll(" }");
         },
         .pointer => |ptr_info| switch (ptr_info.size) {
             .one => switch (@typeInfo(ptr_info.child)) {
                 .array, .@"enum", .@"union", .@"struct" => {
-                    return printValue(value.*, actual_fmt, options, bw, max_depth);
+                    return printValue(bw, actual_fmt, options, value.*, max_depth);
                 },
                 else => {
                     const buffers: [2][]const u8 = .{ @typeName(ptr_info.child), "@" };
@@ -716,7 +717,7 @@ pub fn printValue(
                 if (actual_fmt.len == 0)
                     @compileError("cannot format pointer without a specifier (i.e. {s} or {*})");
                 if (ptr_info.sentinel() != null) {
-                    return printValue(std.mem.span(value), actual_fmt, options, bw, max_depth);
+                    return printValue(bw, actual_fmt, options, std.mem.span(value), max_depth);
                 }
                 if (actual_fmt[0] == 's' and ptr_info.child == u8) {
                     return alignBufferOptions(bw, std.mem.span(value), options);
@@ -734,7 +735,7 @@ pub fn printValue(
                 }
                 try bw.writeAll("{ ");
                 for (value, 0..) |elem, i| {
-                    try printValue(elem, actual_fmt, options, bw, max_depth - 1);
+                    try printValue(bw, actual_fmt, options, elem, max_depth - 1);
                     if (i != value.len - 1) {
                         try bw.writeAll(", ");
                     }
@@ -753,7 +754,7 @@ pub fn printValue(
             }
             try bw.writeAll("{ ");
             for (value, 0..) |elem, i| {
-                try printValue(elem, actual_fmt, options, bw, max_depth - 1);
+                try printValue(bw, actual_fmt, options, elem, max_depth - 1);
                 if (i < value.len - 1) {
                     try bw.writeAll(", ");
                 }
@@ -767,7 +768,7 @@ pub fn printValue(
             try bw.writeAll("{ ");
             var i: usize = 0;
             while (i < info.len) : (i += 1) {
-                try printValue(value[i], actual_fmt, options, bw, max_depth - 1);
+                try printValue(bw, actual_fmt, options, value[i], max_depth - 1);
                 if (i < info.len - 1) {
                     try bw.writeAll(", ");
                 }
@@ -1279,28 +1280,28 @@ test "formatValue max_depth" {
     var buf: [1000]u8 = undefined;
     var bw: BufferedWriter = undefined;
     bw.initFixed(&buf);
-    try bw.printValue(inst, "", .{}, 0);
+    try bw.printValue("", .{}, inst, 0);
     try testing.expectEqualStrings("io.BufferedWriter.test.printValue max_depth.S{ ... }", bw.getWritten());
 
     bw.reset();
-    try bw.printValue(inst, "", .{}, 1);
+    try bw.printValue("", .{}, inst, 1);
     try testing.expectEqualStrings("io.BufferedWriter.test.printValue max_depth.S{ .a = io.BufferedWriter.test.printValue max_depth.S{ ... }, .tu = io.BufferedWriter.test.printValue max_depth.TU{ ... }, .e = io.BufferedWriter.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }", bw.getWritten());
 
     bw.reset();
-    try bw.printValue(inst, "", .{}, 2);
+    try bw.printValue("", .{}, inst, 2);
     try testing.expectEqualStrings("io.BufferedWriter.test.printValue max_depth.S{ .a = io.BufferedWriter.test.printValue max_depth.S{ .a = io.BufferedWriter.test.printValue max_depth.S{ ... }, .tu = io.BufferedWriter.test.printValue max_depth.TU{ ... }, .e = io.BufferedWriter.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }, .tu = io.BufferedWriter.test.printValue max_depth.TU{ .ptr = io.BufferedWriter.test.printValue max_depth.TU{ ... } }, .e = io.BufferedWriter.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }", bw.getWritten());
 
     bw.reset();
-    try bw.printValue(inst, "", .{}, 3);
+    try bw.printValue("", .{}, inst, 3);
     try testing.expectEqualStrings("io.BufferedWriter.test.printValue max_depth.S{ .a = io.BufferedWriter.test.printValue max_depth.S{ .a = io.BufferedWriter.test.printValue max_depth.S{ .a = io.BufferedWriter.test.printValue max_depth.S{ ... }, .tu = io.BufferedWriter.test.printValue max_depth.TU{ ... }, .e = io.BufferedWriter.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }, .tu = io.BufferedWriter.test.printValue max_depth.TU{ .ptr = io.BufferedWriter.test.printValue max_depth.TU{ ... } }, .e = io.BufferedWriter.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }, .tu = io.BufferedWriter.test.printValue max_depth.TU{ .ptr = io.BufferedWriter.test.printValue max_depth.TU{ .ptr = io.BufferedWriter.test.printValue max_depth.TU{ ... } } }, .e = io.BufferedWriter.test.printValue max_depth.E.Two, .vec = (10.200,2.220) }", bw.getWritten());
 
     const vec: @Vector(4, i32) = .{ 1, 2, 3, 4 };
     bw.reset();
-    try bw.printValue(vec, "", .{}, 0);
+    try bw.printValue("", .{}, vec, 0);
     try testing.expectEqualStrings("{ ... }", bw.getWritten());
 
     bw.reset();
-    try bw.printValue(vec, "", .{}, 1);
+    try bw.printValue("", .{}, vec, 1);
     try testing.expectEqualStrings("{ 1, 2, 3, 4 }", bw.getWritten());
 }
 

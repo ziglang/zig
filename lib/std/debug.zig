@@ -555,14 +555,14 @@ pub fn panicExtra(
     const size = 0x1000;
     const trunc_msg = "(msg truncated)";
     var buf: [size + trunc_msg.len]u8 = undefined;
+    var bw: std.io.BufferedWriter = undefined;
+    bw.initFixed(buf[0..size]);
     // a minor annoyance with this is that it will result in the NoSpaceLeft
     // error being part of the @panic stack trace (but that error should
     // only happen rarely)
-    const msg = std.fmt.bufPrint(buf[0..size], format, args) catch |err| switch (err) {
-        error.NoSpaceLeft => blk: {
-            @memcpy(buf[size..], trunc_msg);
-            break :blk &buf;
-        },
+    const msg = if (bw.print(format, args)) |_| bw.getWritten() else |_| blk: {
+        @memcpy(buf[size..], trunc_msg);
+        break :blk &buf;
     };
     std.builtin.panic.call(msg, ret_addr);
 }

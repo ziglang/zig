@@ -435,7 +435,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/io/change_detection_stream.zig
     lib/std/io/counting_reader.zig
     lib/std/io/find_byte_writer.zig
-    lib/std/io/fixed_buffer_stream.zig
     lib/std/io/limited_reader.zig
     lib/std/io/seekable_stream.zig
     lib/std/json.zig
