@@ -8,90 +8,150 @@ const CpuFeature = std.Target.Cpu.Feature;
 const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
+    v1_0,
     v1_1,
     v1_2,
     v1_3,
     v1_4,
     v1_5,
-    SPV_AMD_shader_fragment_mask,
-    SPV_AMD_gpu_shader_int16,
-    SPV_AMD_gpu_shader_half_float,
-    SPV_AMD_texture_gather_bias_lod,
-    SPV_AMD_shader_ballot,
+    v1_6,
+    SPV_AMDX_shader_enqueue,
     SPV_AMD_gcn_shader,
-    SPV_AMD_shader_image_load_store_lod,
-    SPV_AMD_shader_explicit_vertex_parameter,
-    SPV_AMD_shader_trinary_minmax,
+    SPV_AMD_gpu_shader_half_float,
     SPV_AMD_gpu_shader_half_float_fetch,
-    SPV_GOOGLE_hlsl_functionality1,
-    SPV_GOOGLE_user_type,
-    SPV_GOOGLE_decorate_string,
+    SPV_AMD_gpu_shader_int16,
+    SPV_AMD_shader_ballot,
+    SPV_AMD_shader_early_and_late_fragment_tests,
+    SPV_AMD_shader_explicit_vertex_parameter,
+    SPV_AMD_shader_fragment_mask,
+    SPV_AMD_shader_image_load_store_lod,
+    SPV_AMD_shader_trinary_minmax,
+    SPV_AMD_texture_gather_bias_lod,
+    SPV_ARM_cooperative_matrix_layouts,
+    SPV_ARM_core_builtins,
+    SPV_EXT_arithmetic_fence,
     SPV_EXT_demote_to_helper_invocation,
     SPV_EXT_descriptor_indexing,
     SPV_EXT_fragment_fully_covered,
-    SPV_EXT_shader_stencil_export,
+    SPV_EXT_fragment_invocation_density,
+    SPV_EXT_fragment_shader_interlock,
+    SPV_EXT_image_raw10_raw12,
+    SPV_EXT_mesh_shader,
+    SPV_EXT_opacity_micromap,
+    SPV_EXT_optnone,
     SPV_EXT_physical_storage_buffer,
+    SPV_EXT_replicated_composites,
+    SPV_EXT_shader_atomic_float16_add,
     SPV_EXT_shader_atomic_float_add,
     SPV_EXT_shader_atomic_float_min_max,
     SPV_EXT_shader_image_int64,
-    SPV_EXT_fragment_shader_interlock,
-    SPV_EXT_fragment_invocation_density,
+    SPV_EXT_shader_stencil_export,
+    SPV_EXT_shader_tile_image,
     SPV_EXT_shader_viewport_index_layer,
-    SPV_INTEL_loop_fuse,
-    SPV_INTEL_fpga_dsp_control,
-    SPV_INTEL_fpga_reg,
-    SPV_INTEL_fpga_memory_accesses,
-    SPV_INTEL_fpga_loop_controls,
-    SPV_INTEL_io_pipes,
-    SPV_INTEL_unstructured_loop_controls,
+    SPV_EXT_ycbcr_attachments,
+    SPV_GOOGLE_decorate_string,
+    SPV_GOOGLE_hlsl_functionality1,
+    SPV_GOOGLE_user_type,
+    SPV_HUAWEI_cluster_culling_shader,
+    SPV_HUAWEI_subpass_shading,
+    SPV_INTEL_arbitrary_precision_fixed_point,
+    SPV_INTEL_arbitrary_precision_floating_point,
+    SPV_INTEL_arbitrary_precision_integers,
     SPV_INTEL_blocking_pipes,
     SPV_INTEL_device_side_avc_motion_estimation,
-    SPV_INTEL_fpga_memory_attributes,
-    SPV_INTEL_fp_fast_math_mode,
-    SPV_INTEL_media_block_io,
-    SPV_INTEL_shader_integer_functions2,
-    SPV_INTEL_subgroups,
+    SPV_INTEL_fpga_argument_interfaces,
+    SPV_INTEL_fpga_buffer_location,
     SPV_INTEL_fpga_cluster_attributes,
+    SPV_INTEL_fpga_dsp_control,
+    SPV_INTEL_fpga_invocation_pipelining_attributes,
+    SPV_INTEL_fpga_latency_control,
+    SPV_INTEL_fpga_loop_controls,
+    SPV_INTEL_fpga_memory_accesses,
+    SPV_INTEL_fpga_memory_attributes,
+    SPV_INTEL_fpga_reg,
+    SPV_INTEL_fp_fast_math_mode,
+    SPV_INTEL_fp_max_error,
+    SPV_INTEL_global_variable_fpga_decorations,
+    SPV_INTEL_global_variable_host_access,
+    SPV_INTEL_io_pipes,
     SPV_INTEL_kernel_attributes,
-    SPV_INTEL_arbitrary_precision_integers,
-    SPV_KHR_8bit_storage,
-    SPV_KHR_shader_clock,
-    SPV_KHR_device_group,
+    SPV_INTEL_long_composites,
+    SPV_INTEL_loop_fuse,
+    SPV_INTEL_maximum_registers,
+    SPV_INTEL_media_block_io,
+    SPV_INTEL_runtime_aligned,
+    SPV_INTEL_shader_integer_functions2,
+    SPV_INTEL_split_barrier,
+    SPV_INTEL_subgroups,
+    SPV_INTEL_subgroup_buffer_prefetch,
+    SPV_INTEL_task_sequence,
+    SPV_INTEL_unstructured_loop_controls,
+    SPV_INTEL_usm_storage_classes,
     SPV_KHR_16bit_storage,
-    SPV_KHR_variable_pointers,
-    SPV_KHR_no_integer_wrap_decoration,
-    SPV_KHR_subgroup_vote,
-    SPV_KHR_multiview,
-    SPV_KHR_shader_ballot,
-    SPV_KHR_vulkan_memory_model,
-    SPV_KHR_physical_storage_buffer,
-    SPV_KHR_workgroup_memory_explicit_layout,
+    SPV_KHR_8bit_storage,
+    SPV_KHR_bit_instructions,
+    SPV_KHR_compute_shader_derivatives,
+    SPV_KHR_cooperative_matrix,
+    SPV_KHR_device_group,
+    SPV_KHR_expect_assume,
+    SPV_KHR_float_controls,
+    SPV_KHR_float_controls2,
+    SPV_KHR_fragment_shader_barycentric,
     SPV_KHR_fragment_shading_rate,
+    SPV_KHR_integer_dot_product,
+    SPV_KHR_linkonce_odr,
+    SPV_KHR_maximal_reconvergence,
+    SPV_KHR_multiview,
+    SPV_KHR_non_semantic_info,
+    SPV_KHR_no_integer_wrap_decoration,
+    SPV_KHR_physical_storage_buffer,
+    SPV_KHR_post_depth_coverage,
+    SPV_KHR_quad_control,
+    SPV_KHR_ray_cull_mask,
+    SPV_KHR_ray_query,
+    SPV_KHR_ray_tracing,
+    SPV_KHR_ray_tracing_position_fetch,
+    SPV_KHR_relaxed_extended_instruction,
     SPV_KHR_shader_atomic_counter_ops,
+    SPV_KHR_shader_ballot,
+    SPV_KHR_shader_clock,
     SPV_KHR_shader_draw_parameters,
     SPV_KHR_storage_buffer_storage_class,
-    SPV_KHR_linkonce_odr,
+    SPV_KHR_subgroup_rotate,
+    SPV_KHR_subgroup_uniform_control_flow,
+    SPV_KHR_subgroup_vote,
     SPV_KHR_terminate_invocation,
-    SPV_KHR_non_semantic_info,
-    SPV_KHR_post_depth_coverage,
-    SPV_KHR_expect_assume,
-    SPV_KHR_ray_tracing,
-    SPV_KHR_ray_query,
-    SPV_KHR_float_controls,
-    SPV_NV_viewport_array2,
-    SPV_NV_shader_subgroup_partitioned,
+    SPV_KHR_untyped_pointers,
+    SPV_KHR_variable_pointers,
+    SPV_KHR_vulkan_memory_model,
+    SPV_KHR_workgroup_memory_explicit_layout,
     SPV_NVX_multiview_per_view_attributes,
+    SPV_NV_bindless_texture,
+    SPV_NV_cluster_acceleration_structure,
+    SPV_NV_compute_shader_derivatives,
+    SPV_NV_cooperative_matrix,
+    SPV_NV_cooperative_matrix2,
+    SPV_NV_cooperative_vector,
+    SPV_NV_displacement_micromap,
+    SPV_NV_fragment_shader_barycentric,
+    SPV_NV_geometry_shader_passthrough,
+    SPV_NV_linear_swept_spheres,
+    SPV_NV_mesh_shader,
+    SPV_NV_raw_access_chains,
     SPV_NV_ray_tracing,
+    SPV_NV_ray_tracing_motion_blur,
+    SPV_NV_sample_mask_override_coverage,
+    SPV_NV_shader_atomic_fp16_vector,
     SPV_NV_shader_image_footprint,
+    SPV_NV_shader_invocation_reorder,
+    SPV_NV_shader_sm_builtins,
+    SPV_NV_shader_subgroup_partitioned,
     SPV_NV_shading_rate,
     SPV_NV_stereo_view_rendering,
-    SPV_NV_compute_shader_derivatives,
-    SPV_NV_shader_sm_builtins,
-    SPV_NV_mesh_shader,
-    SPV_NV_geometry_shader_passthrough,
-    SPV_NV_fragment_shader_barycentric,
-    SPV_NV_cooperative_matrix,
-    SPV_NV_sample_mask_override_coverage,
+    SPV_NV_tensor_addressing,
+    SPV_NV_viewport_array2,
+    SPV_QCOM_image_processing,
+    SPV_QCOM_image_processing2,
     Matrix,
     Shader,
     Geometry,
@@ -161,6 +221,12 @@ pub const Feature = enum {
     GroupNonUniformQuad,
     ShaderLayer,
     ShaderViewportIndex,
+    UniformDecoration,
+    CoreBuiltinsARM,
+    TileImageColorReadAccessEXT,
+    TileImageDepthReadAccessEXT,
+    TileImageStencilReadAccessEXT,
+    CooperativeMatrixLayoutsARM,
     FragmentShadingRateKHR,
     SubgroupBallotKHR,
     DrawParameters,
@@ -169,9 +235,7 @@ pub const Feature = enum {
     WorkgroupMemoryExplicitLayout16BitAccessKHR,
     SubgroupVoteKHR,
     StorageBuffer16BitAccess,
-    StorageUniformBufferBlock16,
     UniformAndStorageBuffer16BitAccess,
-    StorageUniform16,
     StoragePushConstant16,
     StorageInputOutput16,
     DeviceGroup,
@@ -190,8 +254,13 @@ pub const Feature = enum {
     RoundingModeRTZ,
     RayQueryProvisionalKHR,
     RayQueryKHR,
+    UntypedPointersKHR,
     RayTraversalPrimitiveCullingKHR,
     RayTracingKHR,
+    TextureSampleWeightedQCOM,
+    TextureBoxFilterQCOM,
+    TextureBlockMatchQCOM,
+    TextureBlockMatch2QCOM,
     Float16ImageAMD,
     ImageGatherBiasLodAMD,
     FragmentMaskAMD,
@@ -199,60 +268,67 @@ pub const Feature = enum {
     ImageReadWriteLodAMD,
     Int64ImageEXT,
     ShaderClockKHR,
+    ShaderEnqueueAMDX,
+    QuadControlKHR,
     SampleMaskOverrideCoverageNV,
     GeometryShaderPassthroughNV,
     ShaderViewportIndexLayerEXT,
-    ShaderViewportIndexLayerNV,
     ShaderViewportMaskNV,
     ShaderStereoViewNV,
     PerViewAttributesNV,
     FragmentFullyCoveredEXT,
     MeshShadingNV,
     ImageFootprintNV,
-    FragmentBarycentricNV,
-    ComputeDerivativeGroupQuadsNV,
+    MeshShadingEXT,
+    FragmentBarycentricKHR,
+    ComputeDerivativeGroupQuadsKHR,
     FragmentDensityEXT,
-    ShadingRateNV,
     GroupNonUniformPartitionedNV,
     ShaderNonUniform,
-    ShaderNonUniformEXT,
     RuntimeDescriptorArray,
-    RuntimeDescriptorArrayEXT,
     InputAttachmentArrayDynamicIndexing,
-    InputAttachmentArrayDynamicIndexingEXT,
     UniformTexelBufferArrayDynamicIndexing,
-    UniformTexelBufferArrayDynamicIndexingEXT,
     StorageTexelBufferArrayDynamicIndexing,
-    StorageTexelBufferArrayDynamicIndexingEXT,
     UniformBufferArrayNonUniformIndexing,
-    UniformBufferArrayNonUniformIndexingEXT,
     SampledImageArrayNonUniformIndexing,
-    SampledImageArrayNonUniformIndexingEXT,
     StorageBufferArrayNonUniformIndexing,
-    StorageBufferArrayNonUniformIndexingEXT,
     StorageImageArrayNonUniformIndexing,
-    StorageImageArrayNonUniformIndexingEXT,
     InputAttachmentArrayNonUniformIndexing,
-    InputAttachmentArrayNonUniformIndexingEXT,
     UniformTexelBufferArrayNonUniformIndexing,
-    UniformTexelBufferArrayNonUniformIndexingEXT,
     StorageTexelBufferArrayNonUniformIndexing,
-    StorageTexelBufferArrayNonUniformIndexingEXT,
+    RayTracingPositionFetchKHR,
     RayTracingNV,
+    RayTracingMotionBlurNV,
     VulkanMemoryModel,
-    VulkanMemoryModelKHR,
     VulkanMemoryModelDeviceScope,
-    VulkanMemoryModelDeviceScopeKHR,
     PhysicalStorageBufferAddresses,
-    PhysicalStorageBufferAddressesEXT,
-    ComputeDerivativeGroupLinearNV,
+    ComputeDerivativeGroupLinearKHR,
     RayTracingProvisionalKHR,
     CooperativeMatrixNV,
     FragmentShaderSampleInterlockEXT,
     FragmentShaderShadingRateInterlockEXT,
     ShaderSMBuiltinsNV,
     FragmentShaderPixelInterlockEXT,
-    DemoteToHelperInvocationEXT,
+    DemoteToHelperInvocation,
+    DisplacementMicromapNV,
+    RayTracingOpacityMicromapEXT,
+    ShaderInvocationReorderNV,
+    BindlessTextureNV,
+    RayQueryPositionFetchKHR,
+    CooperativeVectorNV,
+    AtomicFloat16VectorNV,
+    RayTracingDisplacementMicromapNV,
+    RawAccessChainsNV,
+    RayTracingSpheresGeometryNV,
+    RayTracingLinearSweptSpheresGeometryNV,
+    CooperativeMatrixReductionsNV,
+    CooperativeMatrixConversionsNV,
+    CooperativeMatrixPerElementOperationsNV,
+    CooperativeMatrixTensorAddressingNV,
+    CooperativeMatrixBlockLoadsNV,
+    CooperativeVectorTrainingNV,
+    RayTracingClusterAccelerationStructureNV,
+    TensorAddressingNV,
     SubgroupShuffleINTEL,
     SubgroupBufferBlockIOINTEL,
     SubgroupImageBlockIOINTEL,
@@ -277,6 +353,7 @@ pub const Feature = enum {
     FPGAMemoryAttributesINTEL,
     FPFastMathModeINTEL,
     ArbitraryPrecisionIntegersINTEL,
+    ArbitraryPrecisionFloatingPointINTEL,
     UnstructuredLoopControlsINTEL,
     FPGALoopControlsINTEL,
     KernelAttributesINTEL,
@@ -284,14 +361,51 @@ pub const Feature = enum {
     FPGAMemoryAccessesINTEL,
     FPGAClusterAttributesINTEL,
     LoopFuseINTEL,
+    FPGADSPControlINTEL,
+    MemoryAccessAliasingINTEL,
+    FPGAInvocationPipeliningAttributesINTEL,
     FPGABufferLocationINTEL,
+    ArbitraryPrecisionFixedPointINTEL,
     USMStorageClassesINTEL,
+    RuntimeAlignedAttributeINTEL,
     IOPipesINTEL,
     BlockingPipesINTEL,
     FPGARegINTEL,
+    DotProductInputAll,
+    DotProductInput4x8Bit,
+    DotProductInput4x8BitPacked,
+    DotProduct,
+    RayCullMaskKHR,
+    CooperativeMatrixKHR,
+    ReplicatedCompositesEXT,
+    BitInstructions,
+    GroupNonUniformRotateKHR,
+    FloatControls2,
     AtomicFloat32AddEXT,
     AtomicFloat64AddEXT,
-    LongConstantCompositeINTEL,
+    LongCompositesINTEL,
+    OptNoneEXT,
+    AtomicFloat16AddEXT,
+    DebugInfoModuleINTEL,
+    BFloat16ConversionINTEL,
+    SplitBarrierINTEL,
+    ArithmeticFenceEXT,
+    FPGAClusterAttributesV2INTEL,
+    FPGAKernelAttributesv2INTEL,
+    FPMaxErrorINTEL,
+    FPGALatencyControlINTEL,
+    FPGAArgumentInterfacesINTEL,
+    GlobalVariableHostAccessINTEL,
+    GlobalVariableFPGADecorationsINTEL,
+    SubgroupBufferPrefetchINTEL,
+    Subgroup2DBlockIOINTEL,
+    Subgroup2DBlockTransformINTEL,
+    Subgroup2DBlockTransposeINTEL,
+    SubgroupMatrixMultiplyAccumulateINTEL,
+    GroupUniformArithmeticKHR,
+    MaskedGatherScatterINTEL,
+    CacheControlsINTEL,
+    RegisterLimitsINTEL,
 };
 
 pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
@@ -304,10 +418,17 @@ pub const all_features = blk: {
     const len = @typeInfo(Feature).@"enum".fields.len;
     std.debug.assert(len <= CpuFeature.Set.needed_bit_count);
     var result: [len]CpuFeature = undefined;
+    result[@intFromEnum(Feature.v1_0)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V version 1.0",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.v1_1)] = .{
         .llvm_name = null,
         .description = "SPIR-V version 1.1",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .v1_0,
+        }),
     };
     result[@intFromEnum(Feature.v1_2)] = .{
         .llvm_name = null,
@@ -337,29 +458,16 @@ pub const all_features = blk: {
             .v1_4,
         }),
     };
-    result[@intFromEnum(Feature.SPV_AMD_shader_fragment_mask)] = .{
+    result[@intFromEnum(Feature.v1_6)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_AMD_shader_fragment_mask",
-        .dependencies = featureSet(&[_]Feature{}),
+        .description = "SPIR-V version 1.6",
+        .dependencies = featureSet(&[_]Feature{
+            .v1_5,
+        }),
     };
-    result[@intFromEnum(Feature.SPV_AMD_gpu_shader_int16)] = .{
+    result[@intFromEnum(Feature.SPV_AMDX_shader_enqueue)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_AMD_gpu_shader_int16",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.SPV_AMD_gpu_shader_half_float)] = .{
-        .llvm_name = null,
-        .description = "SPIR-V extension SPV_AMD_gpu_shader_half_float",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.SPV_AMD_texture_gather_bias_lod)] = .{
-        .llvm_name = null,
-        .description = "SPIR-V extension SPV_AMD_texture_gather_bias_lod",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.SPV_AMD_shader_ballot)] = .{
-        .llvm_name = null,
-        .description = "SPIR-V extension SPV_AMD_shader_ballot",
+        .description = "SPIR-V extension SPV_AMDX_shader_enqueue",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.SPV_AMD_gcn_shader)] = .{
@@ -367,19 +475,9 @@ pub const all_features = blk: {
         .description = "SPIR-V extension SPV_AMD_gcn_shader",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_AMD_shader_image_load_store_lod)] = .{
+    result[@intFromEnum(Feature.SPV_AMD_gpu_shader_half_float)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_AMD_shader_image_load_store_lod",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.SPV_AMD_shader_explicit_vertex_parameter)] = .{
-        .llvm_name = null,
-        .description = "SPIR-V extension SPV_AMD_shader_explicit_vertex_parameter",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.SPV_AMD_shader_trinary_minmax)] = .{
-        .llvm_name = null,
-        .description = "SPIR-V extension SPV_AMD_shader_trinary_minmax",
+        .description = "SPIR-V extension SPV_AMD_gpu_shader_half_float",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.SPV_AMD_gpu_shader_half_float_fetch)] = .{
@@ -387,19 +485,59 @@ pub const all_features = blk: {
         .description = "SPIR-V extension SPV_AMD_gpu_shader_half_float_fetch",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_GOOGLE_hlsl_functionality1)] = .{
+    result[@intFromEnum(Feature.SPV_AMD_gpu_shader_int16)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_GOOGLE_hlsl_functionality1",
+        .description = "SPIR-V extension SPV_AMD_gpu_shader_int16",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_GOOGLE_user_type)] = .{
+    result[@intFromEnum(Feature.SPV_AMD_shader_ballot)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_GOOGLE_user_type",
+        .description = "SPIR-V extension SPV_AMD_shader_ballot",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_GOOGLE_decorate_string)] = .{
+    result[@intFromEnum(Feature.SPV_AMD_shader_early_and_late_fragment_tests)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_GOOGLE_decorate_string",
+        .description = "SPIR-V extension SPV_AMD_shader_early_and_late_fragment_tests",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_AMD_shader_explicit_vertex_parameter)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_AMD_shader_explicit_vertex_parameter",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_AMD_shader_fragment_mask)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_AMD_shader_fragment_mask",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_AMD_shader_image_load_store_lod)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_AMD_shader_image_load_store_lod",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_AMD_shader_trinary_minmax)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_AMD_shader_trinary_minmax",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_AMD_texture_gather_bias_lod)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_AMD_texture_gather_bias_lod",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_ARM_cooperative_matrix_layouts)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_ARM_cooperative_matrix_layouts",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_ARM_core_builtins)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_ARM_core_builtins",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_EXT_arithmetic_fence)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_EXT_arithmetic_fence",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.SPV_EXT_demote_to_helper_invocation)] = .{
@@ -417,14 +555,49 @@ pub const all_features = blk: {
         .description = "SPIR-V extension SPV_EXT_fragment_fully_covered",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_shader_stencil_export)] = .{
+    result[@intFromEnum(Feature.SPV_EXT_fragment_invocation_density)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_EXT_shader_stencil_export",
+        .description = "SPIR-V extension SPV_EXT_fragment_invocation_density",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_EXT_fragment_shader_interlock)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_EXT_fragment_shader_interlock",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_EXT_image_raw10_raw12)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_EXT_image_raw10_raw12",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_EXT_mesh_shader)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_EXT_mesh_shader",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_EXT_opacity_micromap)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_EXT_opacity_micromap",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_EXT_optnone)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_EXT_optnone",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.SPV_EXT_physical_storage_buffer)] = .{
         .llvm_name = null,
         .description = "SPIR-V extension SPV_EXT_physical_storage_buffer",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_EXT_replicated_composites)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_EXT_replicated_composites",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_EXT_shader_atomic_float16_add)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_EXT_shader_atomic_float16_add",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.SPV_EXT_shader_atomic_float_add)] = .{
@@ -442,14 +615,14 @@ pub const all_features = blk: {
         .description = "SPIR-V extension SPV_EXT_shader_image_int64",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_fragment_shader_interlock)] = .{
+    result[@intFromEnum(Feature.SPV_EXT_shader_stencil_export)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_EXT_fragment_shader_interlock",
+        .description = "SPIR-V extension SPV_EXT_shader_stencil_export",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_EXT_fragment_invocation_density)] = .{
+    result[@intFromEnum(Feature.SPV_EXT_shader_tile_image)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_EXT_fragment_invocation_density",
+        .description = "SPIR-V extension SPV_EXT_shader_tile_image",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.SPV_EXT_shader_viewport_index_layer)] = .{
@@ -457,39 +630,49 @@ pub const all_features = blk: {
         .description = "SPIR-V extension SPV_EXT_shader_viewport_index_layer",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_INTEL_loop_fuse)] = .{
+    result[@intFromEnum(Feature.SPV_EXT_ycbcr_attachments)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_INTEL_loop_fuse",
+        .description = "SPIR-V extension SPV_EXT_ycbcr_attachments",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_INTEL_fpga_dsp_control)] = .{
+    result[@intFromEnum(Feature.SPV_GOOGLE_decorate_string)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_INTEL_fpga_dsp_control",
+        .description = "SPIR-V extension SPV_GOOGLE_decorate_string",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_INTEL_fpga_reg)] = .{
+    result[@intFromEnum(Feature.SPV_GOOGLE_hlsl_functionality1)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_INTEL_fpga_reg",
+        .description = "SPIR-V extension SPV_GOOGLE_hlsl_functionality1",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_INTEL_fpga_memory_accesses)] = .{
+    result[@intFromEnum(Feature.SPV_GOOGLE_user_type)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_INTEL_fpga_memory_accesses",
+        .description = "SPIR-V extension SPV_GOOGLE_user_type",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_INTEL_fpga_loop_controls)] = .{
+    result[@intFromEnum(Feature.SPV_HUAWEI_cluster_culling_shader)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_INTEL_fpga_loop_controls",
+        .description = "SPIR-V extension SPV_HUAWEI_cluster_culling_shader",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_INTEL_io_pipes)] = .{
+    result[@intFromEnum(Feature.SPV_HUAWEI_subpass_shading)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_INTEL_io_pipes",
+        .description = "SPIR-V extension SPV_HUAWEI_subpass_shading",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_INTEL_unstructured_loop_controls)] = .{
+    result[@intFromEnum(Feature.SPV_INTEL_arbitrary_precision_fixed_point)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_INTEL_unstructured_loop_controls",
+        .description = "SPIR-V extension SPV_INTEL_arbitrary_precision_fixed_point",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_arbitrary_precision_floating_point)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_arbitrary_precision_floating_point",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_arbitrary_precision_integers)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_arbitrary_precision_integers",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.SPV_INTEL_blocking_pipes)] = .{
@@ -502,29 +685,14 @@ pub const all_features = blk: {
         .description = "SPIR-V extension SPV_INTEL_device_side_avc_motion_estimation",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_INTEL_fpga_memory_attributes)] = .{
+    result[@intFromEnum(Feature.SPV_INTEL_fpga_argument_interfaces)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_INTEL_fpga_memory_attributes",
+        .description = "SPIR-V extension SPV_INTEL_fpga_argument_interfaces",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_INTEL_fp_fast_math_mode)] = .{
+    result[@intFromEnum(Feature.SPV_INTEL_fpga_buffer_location)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_INTEL_fp_fast_math_mode",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.SPV_INTEL_media_block_io)] = .{
-        .llvm_name = null,
-        .description = "SPIR-V extension SPV_INTEL_media_block_io",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.SPV_INTEL_shader_integer_functions2)] = .{
-        .llvm_name = null,
-        .description = "SPIR-V extension SPV_INTEL_shader_integer_functions2",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.SPV_INTEL_subgroups)] = .{
-        .llvm_name = null,
-        .description = "SPIR-V extension SPV_INTEL_subgroups",
+        .description = "SPIR-V extension SPV_INTEL_fpga_buffer_location",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.SPV_INTEL_fpga_cluster_attributes)] = .{
@@ -532,29 +700,129 @@ pub const all_features = blk: {
         .description = "SPIR-V extension SPV_INTEL_fpga_cluster_attributes",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.SPV_INTEL_fpga_dsp_control)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_fpga_dsp_control",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_fpga_invocation_pipelining_attributes)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_fpga_invocation_pipelining_attributes",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_fpga_latency_control)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_fpga_latency_control",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_fpga_loop_controls)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_fpga_loop_controls",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_fpga_memory_accesses)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_fpga_memory_accesses",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_fpga_memory_attributes)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_fpga_memory_attributes",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_fpga_reg)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_fpga_reg",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_fp_fast_math_mode)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_fp_fast_math_mode",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_fp_max_error)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_fp_max_error",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_global_variable_fpga_decorations)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_global_variable_fpga_decorations",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_global_variable_host_access)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_global_variable_host_access",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_io_pipes)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_io_pipes",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.SPV_INTEL_kernel_attributes)] = .{
         .llvm_name = null,
         .description = "SPIR-V extension SPV_INTEL_kernel_attributes",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_INTEL_arbitrary_precision_integers)] = .{
+    result[@intFromEnum(Feature.SPV_INTEL_long_composites)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_INTEL_arbitrary_precision_integers",
+        .description = "SPIR-V extension SPV_INTEL_long_composites",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_8bit_storage)] = .{
+    result[@intFromEnum(Feature.SPV_INTEL_loop_fuse)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_KHR_8bit_storage",
+        .description = "SPIR-V extension SPV_INTEL_loop_fuse",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_shader_clock)] = .{
+    result[@intFromEnum(Feature.SPV_INTEL_maximum_registers)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_KHR_shader_clock",
+        .description = "SPIR-V extension SPV_INTEL_maximum_registers",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_device_group)] = .{
+    result[@intFromEnum(Feature.SPV_INTEL_media_block_io)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_KHR_device_group",
+        .description = "SPIR-V extension SPV_INTEL_media_block_io",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_runtime_aligned)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_runtime_aligned",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_shader_integer_functions2)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_shader_integer_functions2",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_split_barrier)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_split_barrier",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_subgroups)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_subgroups",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_subgroup_buffer_prefetch)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_subgroup_buffer_prefetch",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_task_sequence)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_task_sequence",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_unstructured_loop_controls)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_unstructured_loop_controls",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_INTEL_usm_storage_classes)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_INTEL_usm_storage_classes",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.SPV_KHR_16bit_storage)] = .{
@@ -562,44 +830,49 @@ pub const all_features = blk: {
         .description = "SPIR-V extension SPV_KHR_16bit_storage",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_variable_pointers)] = .{
+    result[@intFromEnum(Feature.SPV_KHR_8bit_storage)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_KHR_variable_pointers",
+        .description = "SPIR-V extension SPV_KHR_8bit_storage",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_no_integer_wrap_decoration)] = .{
+    result[@intFromEnum(Feature.SPV_KHR_bit_instructions)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_KHR_no_integer_wrap_decoration",
+        .description = "SPIR-V extension SPV_KHR_bit_instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_subgroup_vote)] = .{
+    result[@intFromEnum(Feature.SPV_KHR_compute_shader_derivatives)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_KHR_subgroup_vote",
+        .description = "SPIR-V extension SPV_KHR_compute_shader_derivatives",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_multiview)] = .{
+    result[@intFromEnum(Feature.SPV_KHR_cooperative_matrix)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_KHR_multiview",
+        .description = "SPIR-V extension SPV_KHR_cooperative_matrix",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_shader_ballot)] = .{
+    result[@intFromEnum(Feature.SPV_KHR_device_group)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_KHR_shader_ballot",
+        .description = "SPIR-V extension SPV_KHR_device_group",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_vulkan_memory_model)] = .{
+    result[@intFromEnum(Feature.SPV_KHR_expect_assume)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_KHR_vulkan_memory_model",
+        .description = "SPIR-V extension SPV_KHR_expect_assume",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_physical_storage_buffer)] = .{
+    result[@intFromEnum(Feature.SPV_KHR_float_controls)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_KHR_physical_storage_buffer",
+        .description = "SPIR-V extension SPV_KHR_float_controls",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_workgroup_memory_explicit_layout)] = .{
+    result[@intFromEnum(Feature.SPV_KHR_float_controls2)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_KHR_workgroup_memory_explicit_layout",
+        .description = "SPIR-V extension SPV_KHR_float_controls2",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_KHR_fragment_shader_barycentric)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_KHR_fragment_shader_barycentric",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.SPV_KHR_fragment_shading_rate)] = .{
@@ -607,9 +880,89 @@ pub const all_features = blk: {
         .description = "SPIR-V extension SPV_KHR_fragment_shading_rate",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.SPV_KHR_integer_dot_product)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_KHR_integer_dot_product",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_KHR_linkonce_odr)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_KHR_linkonce_odr",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_KHR_maximal_reconvergence)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_KHR_maximal_reconvergence",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_KHR_multiview)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_KHR_multiview",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_KHR_non_semantic_info)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_KHR_non_semantic_info",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_KHR_no_integer_wrap_decoration)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_KHR_no_integer_wrap_decoration",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_KHR_physical_storage_buffer)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_KHR_physical_storage_buffer",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_KHR_post_depth_coverage)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_KHR_post_depth_coverage",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_KHR_quad_control)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_KHR_quad_control",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_KHR_ray_cull_mask)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_KHR_ray_cull_mask",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_KHR_ray_query)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_KHR_ray_query",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_KHR_ray_tracing)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_KHR_ray_tracing",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_KHR_ray_tracing_position_fetch)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_KHR_ray_tracing_position_fetch",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_KHR_relaxed_extended_instruction)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_KHR_relaxed_extended_instruction",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.SPV_KHR_shader_atomic_counter_ops)] = .{
         .llvm_name = null,
         .description = "SPIR-V extension SPV_KHR_shader_atomic_counter_ops",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_KHR_shader_ballot)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_KHR_shader_ballot",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_KHR_shader_clock)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_KHR_shader_clock",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.SPV_KHR_shader_draw_parameters)] = .{
@@ -622,9 +975,19 @@ pub const all_features = blk: {
         .description = "SPIR-V extension SPV_KHR_storage_buffer_storage_class",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_linkonce_odr)] = .{
+    result[@intFromEnum(Feature.SPV_KHR_subgroup_rotate)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_KHR_linkonce_odr",
+        .description = "SPIR-V extension SPV_KHR_subgroup_rotate",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_KHR_subgroup_uniform_control_flow)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_KHR_subgroup_uniform_control_flow",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_KHR_subgroup_vote)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_KHR_subgroup_vote",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.SPV_KHR_terminate_invocation)] = .{
@@ -632,44 +995,24 @@ pub const all_features = blk: {
         .description = "SPIR-V extension SPV_KHR_terminate_invocation",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_non_semantic_info)] = .{
+    result[@intFromEnum(Feature.SPV_KHR_untyped_pointers)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_KHR_non_semantic_info",
+        .description = "SPIR-V extension SPV_KHR_untyped_pointers",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_post_depth_coverage)] = .{
+    result[@intFromEnum(Feature.SPV_KHR_variable_pointers)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_KHR_post_depth_coverage",
+        .description = "SPIR-V extension SPV_KHR_variable_pointers",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_expect_assume)] = .{
+    result[@intFromEnum(Feature.SPV_KHR_vulkan_memory_model)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_KHR_expect_assume",
+        .description = "SPIR-V extension SPV_KHR_vulkan_memory_model",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_KHR_ray_tracing)] = .{
+    result[@intFromEnum(Feature.SPV_KHR_workgroup_memory_explicit_layout)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_KHR_ray_tracing",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.SPV_KHR_ray_query)] = .{
-        .llvm_name = null,
-        .description = "SPIR-V extension SPV_KHR_ray_query",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.SPV_KHR_float_controls)] = .{
-        .llvm_name = null,
-        .description = "SPIR-V extension SPV_KHR_float_controls",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.SPV_NV_viewport_array2)] = .{
-        .llvm_name = null,
-        .description = "SPIR-V extension SPV_NV_viewport_array2",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.SPV_NV_shader_subgroup_partitioned)] = .{
-        .llvm_name = null,
-        .description = "SPIR-V extension SPV_NV_shader_subgroup_partitioned",
+        .description = "SPIR-V extension SPV_KHR_workgroup_memory_explicit_layout",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.SPV_NVX_multiview_per_view_attributes)] = .{
@@ -677,14 +1020,104 @@ pub const all_features = blk: {
         .description = "SPIR-V extension SPV_NVX_multiview_per_view_attributes",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.SPV_NV_bindless_texture)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_NV_bindless_texture",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_NV_cluster_acceleration_structure)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_NV_cluster_acceleration_structure",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_NV_compute_shader_derivatives)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_NV_compute_shader_derivatives",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_NV_cooperative_matrix)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_NV_cooperative_matrix",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_NV_cooperative_matrix2)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_NV_cooperative_matrix2",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_NV_cooperative_vector)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_NV_cooperative_vector",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_NV_displacement_micromap)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_NV_displacement_micromap",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_NV_fragment_shader_barycentric)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_NV_fragment_shader_barycentric",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_NV_geometry_shader_passthrough)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_NV_geometry_shader_passthrough",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_NV_linear_swept_spheres)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_NV_linear_swept_spheres",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_NV_mesh_shader)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_NV_mesh_shader",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_NV_raw_access_chains)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_NV_raw_access_chains",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.SPV_NV_ray_tracing)] = .{
         .llvm_name = null,
         .description = "SPIR-V extension SPV_NV_ray_tracing",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.SPV_NV_ray_tracing_motion_blur)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_NV_ray_tracing_motion_blur",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_NV_sample_mask_override_coverage)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_NV_sample_mask_override_coverage",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_NV_shader_atomic_fp16_vector)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_NV_shader_atomic_fp16_vector",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.SPV_NV_shader_image_footprint)] = .{
         .llvm_name = null,
         .description = "SPIR-V extension SPV_NV_shader_image_footprint",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_NV_shader_invocation_reorder)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_NV_shader_invocation_reorder",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_NV_shader_sm_builtins)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_NV_shader_sm_builtins",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SPV_NV_shader_subgroup_partitioned)] = .{
+        .llvm_name = null,
+        .description = "SPIR-V extension SPV_NV_shader_subgroup_partitioned",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.SPV_NV_shading_rate)] = .{
@@ -697,50 +1130,38 @@ pub const all_features = blk: {
         .description = "SPIR-V extension SPV_NV_stereo_view_rendering",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_NV_compute_shader_derivatives)] = .{
+    result[@intFromEnum(Feature.SPV_NV_tensor_addressing)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_NV_compute_shader_derivatives",
+        .description = "SPIR-V extension SPV_NV_tensor_addressing",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_NV_shader_sm_builtins)] = .{
+    result[@intFromEnum(Feature.SPV_NV_viewport_array2)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_NV_shader_sm_builtins",
+        .description = "SPIR-V extension SPV_NV_viewport_array2",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_NV_mesh_shader)] = .{
+    result[@intFromEnum(Feature.SPV_QCOM_image_processing)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_NV_mesh_shader",
+        .description = "SPIR-V extension SPV_QCOM_image_processing",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.SPV_NV_geometry_shader_passthrough)] = .{
+    result[@intFromEnum(Feature.SPV_QCOM_image_processing2)] = .{
         .llvm_name = null,
-        .description = "SPIR-V extension SPV_NV_geometry_shader_passthrough",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.SPV_NV_fragment_shader_barycentric)] = .{
-        .llvm_name = null,
-        .description = "SPIR-V extension SPV_NV_fragment_shader_barycentric",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.SPV_NV_cooperative_matrix)] = .{
-        .llvm_name = null,
-        .description = "SPIR-V extension SPV_NV_cooperative_matrix",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.SPV_NV_sample_mask_override_coverage)] = .{
-        .llvm_name = null,
-        .description = "SPIR-V extension SPV_NV_sample_mask_override_coverage",
+        .description = "SPIR-V extension SPV_QCOM_image_processing2",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.Matrix)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Matrix",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .v1_0,
+        }),
     };
     result[@intFromEnum(Feature.Shader)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Shader",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Matrix,
         }),
     };
@@ -748,6 +1169,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability Geometry",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -755,28 +1177,36 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability Tessellation",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
     result[@intFromEnum(Feature.Addresses)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Addresses",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .v1_0,
+        }),
     };
     result[@intFromEnum(Feature.Linkage)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Linkage",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .v1_0,
+        }),
     };
     result[@intFromEnum(Feature.Kernel)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Kernel",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .v1_0,
+        }),
     };
     result[@intFromEnum(Feature.Vector16)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Vector16",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Kernel,
         }),
     };
@@ -784,28 +1214,36 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability Float16Buffer",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Kernel,
         }),
     };
     result[@intFromEnum(Feature.Float16)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Float16",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .v1_0,
+        }),
     };
     result[@intFromEnum(Feature.Float64)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Float64",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .v1_0,
+        }),
     };
     result[@intFromEnum(Feature.Int64)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Int64",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .v1_0,
+        }),
     };
     result[@intFromEnum(Feature.Int64Atomics)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Int64Atomics",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Int64,
         }),
     };
@@ -813,6 +1251,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability ImageBasic",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Kernel,
         }),
     };
@@ -820,6 +1259,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability ImageReadWrite",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .ImageBasic,
         }),
     };
@@ -827,6 +1267,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability ImageMipmap",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .ImageBasic,
         }),
     };
@@ -834,18 +1275,22 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability Pipes",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Kernel,
         }),
     };
     result[@intFromEnum(Feature.Groups)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Groups",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .v1_0,
+        }),
     };
     result[@intFromEnum(Feature.DeviceEnqueue)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability DeviceEnqueue",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Kernel,
         }),
     };
@@ -853,6 +1298,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability LiteralSampler",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Kernel,
         }),
     };
@@ -860,18 +1306,22 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability AtomicStorage",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
     result[@intFromEnum(Feature.Int16)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Int16",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .v1_0,
+        }),
     };
     result[@intFromEnum(Feature.TessellationPointSize)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability TessellationPointSize",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Tessellation,
         }),
     };
@@ -879,6 +1329,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability GeometryPointSize",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Geometry,
         }),
     };
@@ -886,6 +1337,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability ImageGatherExtended",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -893,6 +1345,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability StorageImageMultisample",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -900,6 +1353,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability UniformBufferArrayDynamicIndexing",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -907,6 +1361,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability SampledImageArrayDynamicIndexing",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -914,6 +1369,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability StorageBufferArrayDynamicIndexing",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -921,6 +1377,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability StorageImageArrayDynamicIndexing",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -928,6 +1385,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability ClipDistance",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -935,6 +1393,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability CullDistance",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -942,6 +1401,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability ImageCubeArray",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .SampledCubeArray,
         }),
     };
@@ -949,6 +1409,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability SampleRateShading",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -956,6 +1417,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability ImageRect",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .SampledRect,
         }),
     };
@@ -963,6 +1425,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability SampledRect",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -970,18 +1433,22 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability GenericPointer",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Addresses,
         }),
     };
     result[@intFromEnum(Feature.Int8)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Int8",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .v1_0,
+        }),
     };
     result[@intFromEnum(Feature.InputAttachment)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability InputAttachment",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -989,6 +1456,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability SparseResidency",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -996,18 +1464,22 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability MinLod",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
     result[@intFromEnum(Feature.Sampled1D)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Sampled1D",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .v1_0,
+        }),
     };
     result[@intFromEnum(Feature.Image1D)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability Image1D",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Sampled1D,
         }),
     };
@@ -1015,18 +1487,22 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability SampledCubeArray",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
     result[@intFromEnum(Feature.SampledBuffer)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability SampledBuffer",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .v1_0,
+        }),
     };
     result[@intFromEnum(Feature.ImageBuffer)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability ImageBuffer",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .SampledBuffer,
         }),
     };
@@ -1034,6 +1510,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability ImageMSArray",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -1041,6 +1518,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability StorageImageExtendedFormats",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -1048,6 +1526,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability ImageQuery",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -1055,6 +1534,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability DerivativeControl",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -1062,6 +1542,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability InterpolationFunction",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -1069,6 +1550,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability TransformFeedback",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -1076,6 +1558,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability GeometryStreams",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Geometry,
         }),
     };
@@ -1083,6 +1566,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability StorageImageReadWithoutFormat",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -1090,6 +1574,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability StorageImageWriteWithoutFormat",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Shader,
         }),
     };
@@ -1097,6 +1582,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability MultiViewport",
         .dependencies = featureSet(&[_]Feature{
+            .v1_0,
             .Geometry,
         }),
     };
@@ -1201,6 +1687,38 @@ pub const all_features = blk: {
             .v1_5,
         }),
     };
+    result[@intFromEnum(Feature.UniformDecoration)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability UniformDecoration",
+        .dependencies = featureSet(&[_]Feature{
+            .v1_6,
+        }),
+    };
+    result[@intFromEnum(Feature.CoreBuiltinsARM)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability CoreBuiltinsARM",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.TileImageColorReadAccessEXT)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability TileImageColorReadAccessEXT",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.TileImageDepthReadAccessEXT)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability TileImageDepthReadAccessEXT",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.TileImageStencilReadAccessEXT)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability TileImageStencilReadAccessEXT",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.CooperativeMatrixLayoutsARM)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability CooperativeMatrixLayoutsARM",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.FragmentShadingRateKHR)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability FragmentShadingRateKHR",
@@ -1239,7 +1757,7 @@ pub const all_features = blk: {
         .llvm_name = null,
         .description = "Enable SPIR-V capability WorkgroupMemoryExplicitLayout16BitAccessKHR",
         .dependencies = featureSet(&[_]Feature{
-            .Shader,
+            .WorkgroupMemoryExplicitLayoutKHR,
         }),
     };
     result[@intFromEnum(Feature.SubgroupVoteKHR)] = .{
@@ -1254,29 +1772,12 @@ pub const all_features = blk: {
             .v1_3,
         }),
     };
-    result[@intFromEnum(Feature.StorageUniformBufferBlock16)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability StorageUniformBufferBlock16",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_3,
-        }),
-    };
     result[@intFromEnum(Feature.UniformAndStorageBuffer16BitAccess)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability UniformAndStorageBuffer16BitAccess",
         .dependencies = featureSet(&[_]Feature{
             .v1_3,
             .StorageBuffer16BitAccess,
-            .StorageUniformBufferBlock16,
-        }),
-    };
-    result[@intFromEnum(Feature.StorageUniform16)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability StorageUniform16",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_3,
-            .StorageBuffer16BitAccess,
-            .StorageUniformBufferBlock16,
         }),
     };
     result[@intFromEnum(Feature.StoragePushConstant16)] = .{
@@ -1405,6 +1906,11 @@ pub const all_features = blk: {
             .Shader,
         }),
     };
+    result[@intFromEnum(Feature.UntypedPointersKHR)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability UntypedPointersKHR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.RayTraversalPrimitiveCullingKHR)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability RayTraversalPrimitiveCullingKHR",
@@ -1419,6 +1925,26 @@ pub const all_features = blk: {
         .dependencies = featureSet(&[_]Feature{
             .Shader,
         }),
+    };
+    result[@intFromEnum(Feature.TextureSampleWeightedQCOM)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability TextureSampleWeightedQCOM",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.TextureBoxFilterQCOM)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability TextureBoxFilterQCOM",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.TextureBlockMatchQCOM)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability TextureBlockMatchQCOM",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.TextureBlockMatch2QCOM)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability TextureBlockMatch2QCOM",
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.Float16ImageAMD)] = .{
         .llvm_name = null,
@@ -1465,9 +1991,19 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.ShaderClockKHR)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability ShaderClockKHR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.ShaderEnqueueAMDX)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability ShaderEnqueueAMDX",
         .dependencies = featureSet(&[_]Feature{
             .Shader,
         }),
+    };
+    result[@intFromEnum(Feature.QuadControlKHR)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability QuadControlKHR",
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.SampleMaskOverrideCoverageNV)] = .{
         .llvm_name = null,
@@ -1490,18 +2026,11 @@ pub const all_features = blk: {
             .MultiViewport,
         }),
     };
-    result[@intFromEnum(Feature.ShaderViewportIndexLayerNV)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability ShaderViewportIndexLayerNV",
-        .dependencies = featureSet(&[_]Feature{
-            .MultiViewport,
-        }),
-    };
     result[@intFromEnum(Feature.ShaderViewportMaskNV)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability ShaderViewportMaskNV",
         .dependencies = featureSet(&[_]Feature{
-            .ShaderViewportIndexLayerNV,
+            .ShaderViewportIndexLayerEXT,
         }),
     };
     result[@intFromEnum(Feature.ShaderStereoViewNV)] = .{
@@ -1537,26 +2066,28 @@ pub const all_features = blk: {
         .description = "Enable SPIR-V capability ImageFootprintNV",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.FragmentBarycentricNV)] = .{
+    result[@intFromEnum(Feature.MeshShadingEXT)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability FragmentBarycentricNV",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.ComputeDerivativeGroupQuadsNV)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability ComputeDerivativeGroupQuadsNV",
-        .dependencies = featureSet(&[_]Feature{}),
-    };
-    result[@intFromEnum(Feature.FragmentDensityEXT)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability FragmentDensityEXT",
+        .description = "Enable SPIR-V capability MeshShadingEXT",
         .dependencies = featureSet(&[_]Feature{
             .Shader,
         }),
     };
-    result[@intFromEnum(Feature.ShadingRateNV)] = .{
+    result[@intFromEnum(Feature.FragmentBarycentricKHR)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability ShadingRateNV",
+        .description = "Enable SPIR-V capability FragmentBarycentricKHR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.ComputeDerivativeGroupQuadsKHR)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability ComputeDerivativeGroupQuadsKHR",
+        .dependencies = featureSet(&[_]Feature{
+            .Shader,
+        }),
+    };
+    result[@intFromEnum(Feature.FragmentDensityEXT)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability FragmentDensityEXT",
         .dependencies = featureSet(&[_]Feature{
             .Shader,
         }),
@@ -1574,25 +2105,9 @@ pub const all_features = blk: {
             .Shader,
         }),
     };
-    result[@intFromEnum(Feature.ShaderNonUniformEXT)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability ShaderNonUniformEXT",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_5,
-            .Shader,
-        }),
-    };
     result[@intFromEnum(Feature.RuntimeDescriptorArray)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability RuntimeDescriptorArray",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_5,
-            .Shader,
-        }),
-    };
-    result[@intFromEnum(Feature.RuntimeDescriptorArrayEXT)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability RuntimeDescriptorArrayEXT",
         .dependencies = featureSet(&[_]Feature{
             .v1_5,
             .Shader,
@@ -1606,25 +2121,9 @@ pub const all_features = blk: {
             .InputAttachment,
         }),
     };
-    result[@intFromEnum(Feature.InputAttachmentArrayDynamicIndexingEXT)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability InputAttachmentArrayDynamicIndexingEXT",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_5,
-            .InputAttachment,
-        }),
-    };
     result[@intFromEnum(Feature.UniformTexelBufferArrayDynamicIndexing)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability UniformTexelBufferArrayDynamicIndexing",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_5,
-            .SampledBuffer,
-        }),
-    };
-    result[@intFromEnum(Feature.UniformTexelBufferArrayDynamicIndexingEXT)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability UniformTexelBufferArrayDynamicIndexingEXT",
         .dependencies = featureSet(&[_]Feature{
             .v1_5,
             .SampledBuffer,
@@ -1638,25 +2137,9 @@ pub const all_features = blk: {
             .ImageBuffer,
         }),
     };
-    result[@intFromEnum(Feature.StorageTexelBufferArrayDynamicIndexingEXT)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability StorageTexelBufferArrayDynamicIndexingEXT",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_5,
-            .ImageBuffer,
-        }),
-    };
     result[@intFromEnum(Feature.UniformBufferArrayNonUniformIndexing)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability UniformBufferArrayNonUniformIndexing",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_5,
-            .ShaderNonUniform,
-        }),
-    };
-    result[@intFromEnum(Feature.UniformBufferArrayNonUniformIndexingEXT)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability UniformBufferArrayNonUniformIndexingEXT",
         .dependencies = featureSet(&[_]Feature{
             .v1_5,
             .ShaderNonUniform,
@@ -1670,25 +2153,9 @@ pub const all_features = blk: {
             .ShaderNonUniform,
         }),
     };
-    result[@intFromEnum(Feature.SampledImageArrayNonUniformIndexingEXT)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability SampledImageArrayNonUniformIndexingEXT",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_5,
-            .ShaderNonUniform,
-        }),
-    };
     result[@intFromEnum(Feature.StorageBufferArrayNonUniformIndexing)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability StorageBufferArrayNonUniformIndexing",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_5,
-            .ShaderNonUniform,
-        }),
-    };
-    result[@intFromEnum(Feature.StorageBufferArrayNonUniformIndexingEXT)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability StorageBufferArrayNonUniformIndexingEXT",
         .dependencies = featureSet(&[_]Feature{
             .v1_5,
             .ShaderNonUniform,
@@ -1702,26 +2169,9 @@ pub const all_features = blk: {
             .ShaderNonUniform,
         }),
     };
-    result[@intFromEnum(Feature.StorageImageArrayNonUniformIndexingEXT)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability StorageImageArrayNonUniformIndexingEXT",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_5,
-            .ShaderNonUniform,
-        }),
-    };
     result[@intFromEnum(Feature.InputAttachmentArrayNonUniformIndexing)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability InputAttachmentArrayNonUniformIndexing",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_5,
-            .InputAttachment,
-            .ShaderNonUniform,
-        }),
-    };
-    result[@intFromEnum(Feature.InputAttachmentArrayNonUniformIndexingEXT)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability InputAttachmentArrayNonUniformIndexingEXT",
         .dependencies = featureSet(&[_]Feature{
             .v1_5,
             .InputAttachment,
@@ -1737,15 +2187,6 @@ pub const all_features = blk: {
             .ShaderNonUniform,
         }),
     };
-    result[@intFromEnum(Feature.UniformTexelBufferArrayNonUniformIndexingEXT)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability UniformTexelBufferArrayNonUniformIndexingEXT",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_5,
-            .SampledBuffer,
-            .ShaderNonUniform,
-        }),
-    };
     result[@intFromEnum(Feature.StorageTexelBufferArrayNonUniformIndexing)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability StorageTexelBufferArrayNonUniformIndexing",
@@ -1755,18 +2196,23 @@ pub const all_features = blk: {
             .ShaderNonUniform,
         }),
     };
-    result[@intFromEnum(Feature.StorageTexelBufferArrayNonUniformIndexingEXT)] = .{
+    result[@intFromEnum(Feature.RayTracingPositionFetchKHR)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability StorageTexelBufferArrayNonUniformIndexingEXT",
+        .description = "Enable SPIR-V capability RayTracingPositionFetchKHR",
         .dependencies = featureSet(&[_]Feature{
-            .v1_5,
-            .ImageBuffer,
-            .ShaderNonUniform,
+            .Shader,
         }),
     };
     result[@intFromEnum(Feature.RayTracingNV)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability RayTracingNV",
+        .dependencies = featureSet(&[_]Feature{
+            .Shader,
+        }),
+    };
+    result[@intFromEnum(Feature.RayTracingMotionBlurNV)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability RayTracingMotionBlurNV",
         .dependencies = featureSet(&[_]Feature{
             .Shader,
         }),
@@ -1778,23 +2224,9 @@ pub const all_features = blk: {
             .v1_5,
         }),
     };
-    result[@intFromEnum(Feature.VulkanMemoryModelKHR)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability VulkanMemoryModelKHR",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_5,
-        }),
-    };
     result[@intFromEnum(Feature.VulkanMemoryModelDeviceScope)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability VulkanMemoryModelDeviceScope",
-        .dependencies = featureSet(&[_]Feature{
-            .v1_5,
-        }),
-    };
-    result[@intFromEnum(Feature.VulkanMemoryModelDeviceScopeKHR)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability VulkanMemoryModelDeviceScopeKHR",
         .dependencies = featureSet(&[_]Feature{
             .v1_5,
         }),
@@ -1807,18 +2239,12 @@ pub const all_features = blk: {
             .Shader,
         }),
     };
-    result[@intFromEnum(Feature.PhysicalStorageBufferAddressesEXT)] = .{
+    result[@intFromEnum(Feature.ComputeDerivativeGroupLinearKHR)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability PhysicalStorageBufferAddressesEXT",
+        .description = "Enable SPIR-V capability ComputeDerivativeGroupLinearKHR",
         .dependencies = featureSet(&[_]Feature{
-            .v1_5,
             .Shader,
         }),
-    };
-    result[@intFromEnum(Feature.ComputeDerivativeGroupLinearNV)] = .{
-        .llvm_name = null,
-        .description = "Enable SPIR-V capability ComputeDerivativeGroupLinearNV",
-        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.RayTracingProvisionalKHR)] = .{
         .llvm_name = null,
@@ -1862,12 +2288,121 @@ pub const all_features = blk: {
             .Shader,
         }),
     };
-    result[@intFromEnum(Feature.DemoteToHelperInvocationEXT)] = .{
+    result[@intFromEnum(Feature.DemoteToHelperInvocation)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability DemoteToHelperInvocationEXT",
+        .description = "Enable SPIR-V capability DemoteToHelperInvocation",
+        .dependencies = featureSet(&[_]Feature{
+            .v1_6,
+            .Shader,
+        }),
+    };
+    result[@intFromEnum(Feature.DisplacementMicromapNV)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability DisplacementMicromapNV",
         .dependencies = featureSet(&[_]Feature{
             .Shader,
         }),
+    };
+    result[@intFromEnum(Feature.RayTracingOpacityMicromapEXT)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability RayTracingOpacityMicromapEXT",
+        .dependencies = featureSet(&[_]Feature{
+            .RayQueryKHR,
+            .RayTracingKHR,
+        }),
+    };
+    result[@intFromEnum(Feature.ShaderInvocationReorderNV)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability ShaderInvocationReorderNV",
+        .dependencies = featureSet(&[_]Feature{
+            .RayTracingKHR,
+        }),
+    };
+    result[@intFromEnum(Feature.BindlessTextureNV)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability BindlessTextureNV",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.RayQueryPositionFetchKHR)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability RayQueryPositionFetchKHR",
+        .dependencies = featureSet(&[_]Feature{
+            .Shader,
+        }),
+    };
+    result[@intFromEnum(Feature.CooperativeVectorNV)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability CooperativeVectorNV",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.AtomicFloat16VectorNV)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability AtomicFloat16VectorNV",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.RayTracingDisplacementMicromapNV)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability RayTracingDisplacementMicromapNV",
+        .dependencies = featureSet(&[_]Feature{
+            .RayTracingKHR,
+        }),
+    };
+    result[@intFromEnum(Feature.RawAccessChainsNV)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability RawAccessChainsNV",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.RayTracingSpheresGeometryNV)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability RayTracingSpheresGeometryNV",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.RayTracingLinearSweptSpheresGeometryNV)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability RayTracingLinearSweptSpheresGeometryNV",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.CooperativeMatrixReductionsNV)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability CooperativeMatrixReductionsNV",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.CooperativeMatrixConversionsNV)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability CooperativeMatrixConversionsNV",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.CooperativeMatrixPerElementOperationsNV)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability CooperativeMatrixPerElementOperationsNV",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.CooperativeMatrixTensorAddressingNV)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability CooperativeMatrixTensorAddressingNV",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.CooperativeMatrixBlockLoadsNV)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability CooperativeMatrixBlockLoadsNV",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.CooperativeVectorTrainingNV)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability CooperativeVectorTrainingNV",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.RayTracingClusterAccelerationStructureNV)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability RayTracingClusterAccelerationStructureNV",
+        .dependencies = featureSet(&[_]Feature{
+            .RayTracingKHR,
+        }),
+    };
+    result[@intFromEnum(Feature.TensorAddressingNV)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability TensorAddressingNV",
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.SubgroupShuffleINTEL)] = .{
         .llvm_name = null,
@@ -1902,9 +2437,7 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.IntegerFunctions2INTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability IntegerFunctions2INTEL",
-        .dependencies = featureSet(&[_]Feature{
-            .Shader,
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.FunctionPointersINTEL)] = .{
         .llvm_name = null,
@@ -1995,6 +2528,11 @@ pub const all_features = blk: {
         .description = "Enable SPIR-V capability ArbitraryPrecisionIntegersINTEL",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.ArbitraryPrecisionFloatingPointINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability ArbitraryPrecisionFloatingPointINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.UnstructuredLoopControlsINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability UnstructuredLoopControlsINTEL",
@@ -2030,14 +2568,39 @@ pub const all_features = blk: {
         .description = "Enable SPIR-V capability LoopFuseINTEL",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.FPGADSPControlINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability FPGADSPControlINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.MemoryAccessAliasingINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability MemoryAccessAliasingINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.FPGAInvocationPipeliningAttributesINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability FPGAInvocationPipeliningAttributesINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.FPGABufferLocationINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability FPGABufferLocationINTEL",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.ArbitraryPrecisionFixedPointINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability ArbitraryPrecisionFixedPointINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.USMStorageClassesINTEL)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability USMStorageClassesINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.RuntimeAlignedAttributeINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability RuntimeAlignedAttributeINTEL",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.IOPipesINTEL)] = .{
@@ -2055,23 +2618,198 @@ pub const all_features = blk: {
         .description = "Enable SPIR-V capability FPGARegINTEL",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.DotProductInputAll)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability DotProductInputAll",
+        .dependencies = featureSet(&[_]Feature{
+            .v1_6,
+        }),
+    };
+    result[@intFromEnum(Feature.DotProductInput4x8Bit)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability DotProductInput4x8Bit",
+        .dependencies = featureSet(&[_]Feature{
+            .v1_6,
+            .Int8,
+        }),
+    };
+    result[@intFromEnum(Feature.DotProductInput4x8BitPacked)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability DotProductInput4x8BitPacked",
+        .dependencies = featureSet(&[_]Feature{
+            .v1_6,
+        }),
+    };
+    result[@intFromEnum(Feature.DotProduct)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability DotProduct",
+        .dependencies = featureSet(&[_]Feature{
+            .v1_6,
+        }),
+    };
+    result[@intFromEnum(Feature.RayCullMaskKHR)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability RayCullMaskKHR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.CooperativeMatrixKHR)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability CooperativeMatrixKHR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.ReplicatedCompositesEXT)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability ReplicatedCompositesEXT",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.BitInstructions)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability BitInstructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.GroupNonUniformRotateKHR)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability GroupNonUniformRotateKHR",
+        .dependencies = featureSet(&[_]Feature{
+            .GroupNonUniform,
+        }),
+    };
+    result[@intFromEnum(Feature.FloatControls2)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability FloatControls2",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.AtomicFloat32AddEXT)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability AtomicFloat32AddEXT",
-        .dependencies = featureSet(&[_]Feature{
-            .Shader,
-        }),
+        .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.AtomicFloat64AddEXT)] = .{
         .llvm_name = null,
         .description = "Enable SPIR-V capability AtomicFloat64AddEXT",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.LongCompositesINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability LongCompositesINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.OptNoneEXT)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability OptNoneEXT",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.AtomicFloat16AddEXT)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability AtomicFloat16AddEXT",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.DebugInfoModuleINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability DebugInfoModuleINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.BFloat16ConversionINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability BFloat16ConversionINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SplitBarrierINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability SplitBarrierINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.ArithmeticFenceEXT)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability ArithmeticFenceEXT",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.FPGAClusterAttributesV2INTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability FPGAClusterAttributesV2INTEL",
         .dependencies = featureSet(&[_]Feature{
-            .Shader,
+            .FPGAClusterAttributesINTEL,
         }),
     };
-    result[@intFromEnum(Feature.LongConstantCompositeINTEL)] = .{
+    result[@intFromEnum(Feature.FPGAKernelAttributesv2INTEL)] = .{
         .llvm_name = null,
-        .description = "Enable SPIR-V capability LongConstantCompositeINTEL",
+        .description = "Enable SPIR-V capability FPGAKernelAttributesv2INTEL",
+        .dependencies = featureSet(&[_]Feature{
+            .FPGAKernelAttributesINTEL,
+        }),
+    };
+    result[@intFromEnum(Feature.FPMaxErrorINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability FPMaxErrorINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.FPGALatencyControlINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability FPGALatencyControlINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.FPGAArgumentInterfacesINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability FPGAArgumentInterfacesINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.GlobalVariableHostAccessINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability GlobalVariableHostAccessINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.GlobalVariableFPGADecorationsINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability GlobalVariableFPGADecorationsINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.SubgroupBufferPrefetchINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability SubgroupBufferPrefetchINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.Subgroup2DBlockIOINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability Subgroup2DBlockIOINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.Subgroup2DBlockTransformINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability Subgroup2DBlockTransformINTEL",
+        .dependencies = featureSet(&[_]Feature{
+            .Subgroup2DBlockIOINTEL,
+        }),
+    };
+    result[@intFromEnum(Feature.Subgroup2DBlockTransposeINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability Subgroup2DBlockTransposeINTEL",
+        .dependencies = featureSet(&[_]Feature{
+            .Subgroup2DBlockIOINTEL,
+        }),
+    };
+    result[@intFromEnum(Feature.SubgroupMatrixMultiplyAccumulateINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability SubgroupMatrixMultiplyAccumulateINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.GroupUniformArithmeticKHR)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability GroupUniformArithmeticKHR",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.MaskedGatherScatterINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability MaskedGatherScatterINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.CacheControlsINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability CacheControlsINTEL",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.RegisterLimitsINTEL)] = .{
+        .llvm_name = null,
+        .description = "Enable SPIR-V capability RegisterLimitsINTEL",
         .dependencies = featureSet(&[_]Feature{}),
     };
     const ti = @typeInfo(Feature);
@@ -2083,9 +2821,33 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const generic = CpuModel{
+    pub const generic: CpuModel = .{
         .name = "generic",
         .llvm_name = "generic",
-        .features = featureSet(&[_]Feature{}),
+        .features = featureSet(&[_]Feature{.v1_0}),
+    };
+
+    pub const vulkan_v1_2: CpuModel = .{
+        .name = "vulkan_v1_2",
+        .llvm_name = null,
+        .features = featureSet(&[_]Feature{
+            .v1_5,
+            .Shader,
+            .PhysicalStorageBufferAddresses,
+            .VariablePointers,
+            .VariablePointersStorageBuffer,
+            .SPV_KHR_physical_storage_buffer,
+        }),
+    };
+
+    pub const opencl_v2: CpuModel = .{
+        .name = "opencl_v2",
+        .llvm_name = null,
+        .features = featureSet(&[_]Feature{
+            .v1_2,
+            .Kernel,
+            .Addresses,
+            .GenericPointer,
+        }),
     };
 };

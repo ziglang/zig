@@ -77,7 +77,7 @@ pub fn main() !void {
     var scanner = std.json.Scanner.initCompleteInput(allocator, registry_json);
     var diagnostics = std.json.Diagnostics{};
     scanner.enableDiagnostics(&diagnostics);
-    const registry = std.json.parseFromTokenSourceLeaky(g.CoreRegistry, allocator, &scanner, .{}) catch |err| {
+    const registry = std.json.parseFromTokenSourceLeaky(g.CoreRegistry, allocator, &scanner, .{ .ignore_unknown_fields = true }) catch |err| {
         std.debug.print("line,col: {},{}\n", .{ diagnostics.getLine(), diagnostics.getColumn() });
         return err;
     };
@@ -188,11 +188,11 @@ pub fn main() !void {
             cap.enumerant,
         });
 
-        if (cap.version) |ver_str| {
-            if (!std.mem.eql(u8, ver_str, "None")) {
-                const ver = try Version.parse(ver_str);
-                try w.print("            .v{}_{},\n", .{ ver.major, ver.minor });
-            }
+        if (cap.version) |ver_str| blk: {
+            if (std.mem.eql(u8, ver_str, "None")) break :blk;
+
+            const ver = try Version.parse(ver_str);
+            try w.print("            .v{}_{},\n", .{ ver.major, ver.minor });
         }
 
         for (cap.capabilities) |cap_dep| {
@@ -215,6 +215,37 @@ pub fn main() !void {
         \\    break :blk result;
         \\};
         \\
+        \\pub const cpu = struct {
+        \\    pub const generic: CpuModel = .{
+        \\        .name = "generic",
+        \\        .llvm_name = "generic",
+        \\        .features = featureSet(&[_]Feature{ .v1_0 }),
+        \\    };
+        \\
+        \\    pub const vulkan_v1_2: CpuModel = .{
+        \\        .name = "vulkan_v1_2",
+        \\        .llvm_name = null,
+        \\        .features = featureSet(&[_]Feature{
+        \\            .v1_5,
+        \\            .Shader,
+        \\            .PhysicalStorageBufferAddresses,
+        \\            .VariablePointers,
+        \\            .VariablePointersStorageBuffer,
+        \\            .SPV_KHR_physical_storage_buffer,
+        \\        }),
+        \\    };
+        \\
+        \\    pub const opencl_v2: CpuModel = .{
+        \\        .name = "opencl_v2",
+        \\        .llvm_name = null,
+        \\        .features = featureSet(&[_]Feature{
+        \\            .v1_2,
+        \\            .Kernel,
+        \\            .Addresses,
+        \\            .GenericPointer,
+        \\        }),
+        \\    };
+        \\};
     );
 
     try bw.flush();
@@ -265,12 +296,15 @@ fn gather_extensions(allocator: Allocator, spirv_registry_root: []const u8) ![]c
 
             // As the specs are inconsistent on this next part, just skip any newlines/minuses
             var ext_start = name_strings_offset + name_strings.len + 1;
-            while (ext_spec[ext_start] == '\n' or ext_spec[ext_start] == '-') {
+            while (std.ascii.isWhitespace(ext_spec[ext_start]) or ext_spec[ext_start] == '-') {
                 ext_start += 1;
             }
 
             const ext_end = std.mem.indexOfScalarPos(u8, ext_spec, ext_start, '\n') orelse return error.InvalidRegistry;
-            const ext = ext_spec[ext_start..ext_end];
+            const ext = std.mem.trim(u8, ext_spec[ext_start..ext_end], &std.ascii.whitespace);
+
+            // Ignore invalid/incomplete extensions
+            if (std.mem.eql(u8, ext, "{extension_name}")) continue;
 
             std.debug.assert(std.mem.startsWith(u8, ext, "SPV_")); // Sanity check, all extensions should have a name like SPV_VENDOR_extension.
 
@@ -283,8 +317,7 @@ fn gather_extensions(allocator: Allocator, spirv_registry_root: []const u8) ![]c
 
 fn insertVersion(versions: *std.ArrayList(Version), version: ?[]const u8) !void {
     const ver_str = version orelse return;
-    if (std.mem.eql(u8, ver_str, "None"))
-        return;
+    if (std.mem.eql(u8, ver_str, "None")) return;
 
     const ver = try Version.parse(ver_str);
     for (versions.items) |existing_ver| {
