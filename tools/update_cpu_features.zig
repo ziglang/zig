@@ -1013,12 +1013,6 @@ const llvm_targets = [_]LlvmTarget{
         .llvm_name = "Sparc",
         .td_name = "Sparc.td",
     },
-    // TODO: merge tools/update_spirv_features.zig into this script
-    //.{
-    //    .zig_name = "spirv",
-    //    .llvm_name = "SPIRV",
-    //    .td_name = "SPIRV.td",
-    //},
     .{
         .zig_name = "s390x",
         .llvm_name = "SystemZ",

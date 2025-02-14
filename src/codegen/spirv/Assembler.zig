@@ -274,6 +274,16 @@ fn processInstruction(self: *Assembler) !void {
         .OpEntryPoint => {
             return self.fail(0, "cannot export entry points via OpEntryPoint, export the kernel using callconv(.Kernel)", .{});
         },
+        .OpCapability => {
+            try self.spv.addCapability(@enumFromInt(self.inst.operands.items[0].value));
+            return;
+        },
+        .OpExtension => {
+            const ext_name_offset = self.inst.operands.items[0].string;
+            const ext_name = std.mem.sliceTo(self.inst.string_bytes.items[ext_name_offset..], 0);
+            try self.spv.addExtension(ext_name);
+            return;
+        },
         .OpExtInstImport => blk: {
             const set_name_offset = self.inst.operands.items[1].string;
             const set_name = std.mem.sliceTo(self.inst.string_bytes.items[set_name_offset..], 0);
