@@ -1342,15 +1342,6 @@ fn analyzeBodyInner(
             .extended => ext: {
                 const extended = datas[@intFromEnum(inst)].extended;
                 break :ext switch (extended.opcode) {
-                    .deprecated => {
-                        if (!mod.allow_deprecated) {
-                            const src_node: i32 = @bitCast(extended.operand);
-                            const src = block.nodeOffset(src_node);
-                            return sema.fail(block, src, "found deprecated code", .{});
-                        }
-
-                        break :ext .void_value;
-                    },
                     // zig fmt: off
                     .struct_decl        => try sema.zirStructDecl(        block, extended, inst),
                     .enum_decl          => try sema.zirEnumDecl(          block, extended, inst),
@@ -1413,6 +1404,15 @@ fn analyzeBodyInner(
                         }
                         i += 1;
                         continue;
+                    },
+                    .deprecated => {
+                        if (!mod.allow_deprecated) {
+                            const src_node: i32 = @bitCast(extended.operand);
+                            const src = block.nodeOffset(src_node);
+                            return sema.fail(block, src, "found deprecated code", .{});
+                        }
+
+                        break :ext .void_value;
                     },
                     .disable_instrumentation => {
                         try sema.zirDisableInstrumentation();
