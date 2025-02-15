@@ -6102,6 +6102,7 @@ pub const WipFunction = struct {
         src_align: Alignment,
         len: Value,
         kind: MemoryAccessKind,
+        @"inline": bool,
     ) Allocator.Error!Instruction.Index {
         var dst_attrs = [_]Attribute.Index{try self.builder.attr(.{ .@"align" = dst_align })};
         var src_attrs = [_]Attribute.Index{try self.builder.attr(.{ .@"align" = src_align })};
@@ -6113,7 +6114,7 @@ pub const WipFunction = struct {
                 try self.builder.attrs(&dst_attrs),
                 try self.builder.attrs(&src_attrs),
             }),
-            .memcpy,
+            if (@"inline") .@"memcpy.inline" else .memcpy,
             &.{ dst.typeOfWip(self), src.typeOfWip(self), len.typeOfWip(self) },
             &.{ dst, src, len, switch (kind) {
                 .normal => Value.false,
@@ -6131,12 +6132,13 @@ pub const WipFunction = struct {
         val: Value,
         len: Value,
         kind: MemoryAccessKind,
+        @"inline": bool,
     ) Allocator.Error!Instruction.Index {
         var dst_attrs = [_]Attribute.Index{try self.builder.attr(.{ .@"align" = dst_align })};
         const value = try self.callIntrinsic(
             .normal,
             try self.builder.fnAttrs(&.{ .none, .none, try self.builder.attrs(&dst_attrs) }),
-            .memset,
+            if (@"inline") .@"memset.inline" else .memset,
             &.{ dst.typeOfWip(self), len.typeOfWip(self) },
             &.{ dst, val, len, switch (kind) {
                 .normal => Value.false,
