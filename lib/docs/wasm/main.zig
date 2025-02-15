@@ -14,8 +14,15 @@ const missing_feature_url_escape = @import("html_render.zig").missing_feature_ur
 const gpa = std.heap.wasm_allocator;
 
 const js = struct {
-    extern "js" fn log(ptr: [*]const u8, len: usize) void;
-    extern "js" fn panic(ptr: [*]const u8, len: usize) noreturn;
+    /// Keep in sync with the `LOG_` constants in `main.js`.
+    const LogLevel = enum(u8) {
+        err,
+        warn,
+        info,
+        debug,
+    };
+
+    extern "js" fn log(level: LogLevel, ptr: [*]const u8, len: usize) void;
 };
 
 pub const std_options: std.Options = .{
@@ -36,14 +43,13 @@ fn logFn(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    const level_txt = comptime message_level.asText();
-    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
+    const prefix = if (scope == .default) "" else @tagName(scope) ++ ": ";
     var buf: [500]u8 = undefined;
-    const line = std.fmt.bufPrint(&buf, level_txt ++ prefix2 ++ format, args) catch l: {
+    const line = std.fmt.bufPrint(&buf, prefix ++ format, args) catch l: {
         buf[buf.len - 3 ..][0..3].* = "...".*;
         break :l &buf;
     };
-    js.log(line.ptr, line.len);
+    js.log(@field(js.LogLevel, @tagName(message_level)), line.ptr, line.len);
 }
 
 export fn alloc(n: usize) [*]u8 {
@@ -56,7 +62,7 @@ export fn unpack(tar_ptr: [*]u8, tar_len: usize) void {
     //log.debug("received {d} bytes of tar file", .{tar_bytes.len});
 
     unpackInner(tar_bytes) catch |err| {
-        fatal("unable to unpack tar: {s}", .{@errorName(err)});
+        std.debug.panic("unable to unpack tar: {s}", .{@errorName(err)});
     };
 }
 
@@ -514,7 +520,7 @@ export fn decl_fn_proto_html(decl_index: Decl.Index, linkify_fn_name: bool) Stri
         .collapse_whitespace = true,
         .fn_link = if (linkify_fn_name) decl_index else .none,
     }) catch |err| {
-        fatal("unable to render source: {s}", .{@errorName(err)});
+        std.debug.panic("unable to render source: {s}", .{@errorName(err)});
     };
     return String.init(string_result.items);
 }
@@ -524,7 +530,7 @@ export fn decl_source_html(decl_index: Decl.Index) String {
 
     string_result.clearRetainingCapacity();
     fileSourceHtml(decl.file, &string_result, decl.ast_node, .{}) catch |err| {
-        fatal("unable to render source: {s}", .{@errorName(err)});
+        std.debug.panic("unable to render source: {s}", .{@errorName(err)});
     };
     return String.init(string_result.items);
 }
@@ -536,7 +542,7 @@ export fn decl_doctest_html(decl_index: Decl.Index) String {
 
     string_result.clearRetainingCapacity();
     fileSourceHtml(decl.file, &string_result, doctest_ast_node, .{}) catch |err| {
-        fatal("unable to render source: {s}", .{@errorName(err)});
+        std.debug.panic("unable to render source: {s}", .{@errorName(err)});
     };
     return String.init(string_result.items);
 }
@@ -740,7 +746,7 @@ export fn decl_type_html(decl_index: Decl.Index) String {
                     .skip_comments = true,
                     .collapse_whitespace = true,
                 }) catch |e| {
-                    fatal("unable to render html: {s}", .{@errorName(e)});
+                    std.debug.panic("unable to render html: {s}", .{@errorName(e)});
                 };
                 string_result.appendSlice(gpa, "</code>") catch @panic("OOM");
                 break :t;
@@ -789,15 +795,6 @@ fn unpackInner(tar_bytes: []u8) !void {
             else => continue,
         }
     }
-}
-
-fn fatal(comptime format: []const u8, args: anytype) noreturn {
-    var buf: [500]u8 = undefined;
-    const line = std.fmt.bufPrint(&buf, format, args) catch l: {
-        buf[buf.len - 3 ..][0..3].* = "...".*;
-        break :l &buf;
-    };
-    js.panic(line.ptr, line.len);
 }
 
 fn ascii_lower(bytes: []u8) void {
