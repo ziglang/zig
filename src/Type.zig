@@ -2542,6 +2542,13 @@ pub fn fnIsVarArgs(ty: Type, zcu: *const Zcu) bool {
     return zcu.intern_pool.indexToKey(ty.toIntern()).func_type.is_var_args;
 }
 
+pub fn fnPtrMaskOrNull(ty: Type, zcu: *const Zcu) ?u64 {
+    return switch (ty.zigTypeTag(zcu)) {
+        .@"fn" => target_util.functionPointerMask(zcu.getTarget()),
+        else => null,
+    };
+}
+
 pub fn isNumeric(ty: Type, zcu: *const Zcu) bool {
     return switch (ty.toIntern()) {
         .f16_type,
