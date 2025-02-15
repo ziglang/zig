@@ -135,6 +135,9 @@ const AsmValue = union(enum) {
     /// This is a pre-supplied constant integer value.
     constant: u32,
 
+    /// This is a pre-supplied constant string value.
+    string: []const u8,
+
     /// Retrieve the result-id of this AsmValue. Asserts that this AsmValue
     /// is of a variant that allows the result to be obtained (not an unresolved
     /// forward declaration, not in the process of being declared, etc).
@@ -144,6 +147,7 @@ const AsmValue = union(enum) {
             .unresolved_forward_reference,
             // TODO: Lower this value as constant?
             .constant,
+            .string,
             => unreachable,
             .value => |result| result,
             .ty => |result| result,
@@ -645,6 +649,28 @@ fn parseBitEnum(self: *Assembler, kind: spec.OperandKind) !void {
 /// Also handles parsing any required extra operands.
 fn parseValueEnum(self: *Assembler, kind: spec.OperandKind) !void {
     const tok = self.currentToken();
+    if (self.eatToken(.placeholder)) {
+        const name = self.tokenText(tok)[1..];
+        const value = self.value_map.get(name) orelse {
+            return self.fail(tok.start, "invalid placeholder '${s}'", .{name});
+        };
+        switch (value) {
+            .constant => |literal32| {
+                try self.inst.operands.append(self.gpa, .{ .value = literal32 });
+            },
+            .string => |str| {
+                const enumerant = for (kind.enumerants()) |enumerant| {
+                    if (std.mem.eql(u8, enumerant.name, str)) break enumerant;
+                } else {
+                    return self.fail(tok.start, "'{s}' is not a valid value for enumeration {s}", .{ str, @tagName(kind) });
+                };
+                try self.inst.operands.append(self.gpa, .{ .value = enumerant.value });
+            },
+            else => return self.fail(tok.start, "value '{s}' cannot be used as placeholder", .{name}),
+        }
+        return;
+    }
+
     try self.expectToken(.value);
 
     const text = self.tokenText(tok);
