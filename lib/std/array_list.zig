@@ -1003,6 +1003,15 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             return m.len;
         }
 
+        pub fn print(self: *Self, gpa: Allocator, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
+            comptime assert(T == u8);
+            try self.ensureUnusedCapacity(gpa, fmt.len);
+            var alw: std.io.ArrayListWriter = undefined;
+            const bw = alw.fromOwned(gpa, self);
+            defer self.* = alw.toOwned();
+            bw.print(fmt, args) catch return error.OutOfMemory;
+        }
+
         pub const FixedWriter = std.io.Writer(*Self, Allocator.Error, appendWriteFixed);
 
         /// Initializes a Writer which will append to the list but will return

@@ -1620,7 +1620,10 @@ const interface = struct {
 
         var iovecs_buffer: [max_buffers_len]std.posix.iovec_const = undefined;
         const iovecs = iovecs_buffer[0..@min(iovecs_buffer.len, data.len)];
-        for (iovecs, data[0..iovecs.len]) |*v, d| v.* = .{ .base = d.ptr, .len = d.len };
+        for (iovecs, data[0..iovecs.len]) |*v, d| v.* = .{
+            .base = if (d.len == 0) "" else d.ptr, // OS sadly checks ptr addr before length.
+            .len = d.len,
+        };
         return std.posix.writev(file, iovecs);
     }
 

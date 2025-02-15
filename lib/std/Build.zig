@@ -1808,13 +1808,13 @@ pub fn validateUserInputDidItFail(b: *Build) bool {
     return b.invalid_user_input;
 }
 
-fn allocPrintCmd(ally: Allocator, opt_cwd: ?[]const u8, argv: []const []const u8) error{OutOfMemory}![]u8 {
-    var buf = ArrayList(u8).init(ally);
-    if (opt_cwd) |cwd| try buf.writer().print("cd {s} && ", .{cwd});
+fn allocPrintCmd(gpa: Allocator, opt_cwd: ?[]const u8, argv: []const []const u8) error{OutOfMemory}![]u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    if (opt_cwd) |cwd| try buf.print(gpa, "cd {s} && ", .{cwd});
     for (argv) |arg| {
-        try buf.writer().print("{s} ", .{arg});
+        try buf.print(gpa, "{s} ", .{arg});
     }
-    return buf.toOwnedSlice();
+    return buf.toOwnedSlice(gpa);
 }
 
 fn printCmd(ally: Allocator, cwd: ?[]const u8, argv: []const []const u8) void {
@@ -2727,11 +2727,10 @@ fn dumpBadDirnameHelp(
     comptime msg: []const u8,
     args: anytype,
 ) anyerror!void {
-    debug.lockStdErr();
+    var w = debug.lockStdErr2();
     defer debug.unlockStdErr();
 
     const stderr = io.getStdErr();
-    const w = stderr.writer();
     try w.print(msg, args);
 
     const tty_config = std.io.tty.detectConfig(stderr);
@@ -2764,7 +2763,7 @@ pub fn dumpBadGetPathHelp(
     src_builder: *Build,
     asking_step: ?*Step,
 ) anyerror!void {
-    const w = stderr.writer();
+    var w = stderr.unbufferedWriter();
     try w.print(
         \\getPath() was called on a GeneratedFile that wasn't built yet.
         \\  source package path: {s}

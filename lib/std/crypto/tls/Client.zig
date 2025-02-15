@@ -95,11 +95,9 @@ pub const StreamInterface = struct {
         @panic("unimplemented");
     }
 
-    /// Returns the number of bytes read, which may be less than the buffer
-    /// space provided, indicating end-of-stream.
     /// The `iovecs` parameter is mutable in case this function needs to mutate
     /// the fields in order to handle partial writes from the underlying layer.
-    pub fn writevAll(this: @This(), iovecs: []std.posix.iovec_const) WriteError!usize {
+    pub fn writevAll(this: @This(), iovecs: []std.posix.iovec_const) WriteError!void {
         // This can be implemented in terms of writev, or specialized if desired.
         _ = .{ this, iovecs };
         @panic("unimplemented");
