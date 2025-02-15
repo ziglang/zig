@@ -100,6 +100,8 @@ pub const Inst = struct {
         /// ___ Division
         _d,
 
+        /// ___ Without Affecting Flags
+        _x,
         /// ___ Left
         _l,
         /// ___ Left Double
@@ -483,6 +485,7 @@ pub const Inst = struct {
         /// ASCII adjust al after subtraction
         aa,
         /// Add with carry
+        /// Unsigned integer addition of two operands with carry flag
         adc,
         /// Add
         /// Add packed integers
@@ -1162,10 +1165,8 @@ pub const Inst = struct {
         fmadd231,
 
         // ADX
-        /// Unsigned integer addition of two operands with carry flag
-        adcx,
         /// Unsigned integer addition of two operands with overflow flag
-        adox,
+        ado,
 
         // AESKLE
         /// Encode 128-bit key with key locker

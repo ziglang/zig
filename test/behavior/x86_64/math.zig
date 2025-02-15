@@ -44,6 +44,17 @@ fn AddOneBit(comptime Type: type) type {
         .vector => |vector| @Vector(vector.len, ResultScalar),
     };
 }
+fn DoubleBits(comptime Type: type) type {
+    const ResultScalar = switch (@typeInfo(Scalar(Type))) {
+        .int => |int| @Type(.{ .int = .{ .signedness = int.signedness, .bits = int.bits * 2 } }),
+        .float => Scalar(Type),
+        else => @compileError(@typeName(Type)),
+    };
+    return switch (@typeInfo(Type)) {
+        else => ResultScalar,
+        .vector => |vector| @Vector(vector.len, ResultScalar),
+    };
+}
 // inline to avoid a runtime `@splat`
 inline fn splat(comptime Type: type, scalar: Scalar(Type)) Type {
     return switch (@typeInfo(Type)) {
@@ -16216,6 +16227,8 @@ fn binary(comptime op: anytype, comptime opts: struct { compare: Compare = .rela
             );
         }
         fn testInts() !void {
+            try testArgs(i4, 0x3, 0x2);
+            try testArgs(u4, 0xe, 0x6);
             try testArgs(i8, 0x48, 0x6c);
             try testArgs(u8, 0xbb, 0x43);
             try testArgs(i16, -0x0fdf, 0x302e);
@@ -18991,6 +19004,15 @@ test subUnsafe {
     try test_sub_unsafe.testIntVectors();
     try test_sub_unsafe.testFloats();
     try test_sub_unsafe.testFloatVectors();
+}
+
+inline fn mulUnsafe(comptime Type: type, lhs: Type, rhs: Type) DoubleBits(Type) {
+    @setRuntimeSafety(false);
+    return @as(DoubleBits(Type), lhs) * rhs;
+}
+test mulUnsafe {
+    const test_mul_unsafe = binary(mulUnsafe, .{});
+    try test_mul_unsafe.testInts();
 }
 
 inline fn multiply(comptime Type: type, lhs: Type, rhs: Type) @TypeOf(lhs * rhs) {

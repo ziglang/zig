@@ -304,20 +304,20 @@ pub const Mnemonic = enum {
     jnc, jne, jng, jnge, jnl, jnle, jno, jnp, jns, jnz, jo, jp, jpe, jpo, jrcxz, js, jz,
     lahf, lar, lea, leave, lfence, lgdt, lidt, lldt, lmsw, loop, loope, loopne,
     lods, lodsb, lodsd, lodsq, lodsw,
-    lsl, ltr, lzcnt,
+    lsl, ltr,
     mfence, mov, movbe,
     movs, movsb, movsd, movsq, movsw,
     movsx, movsxd, movzx, mul,
     neg, nop, not,
     @"or", out, outs, outsb, outsd, outsw,
-    pause, pop, popcnt, popf, popfd, popfq, push, pushfq,
+    pause, pop, popf, popfd, popfq, push, pushfq,
     rcl, rcr,
     rdfsbase, rdgsbase, rdmsr, rdpid, rdpkru, rdpmc, rdrand, rdseed, rdssd, rdssq, rdtsc, rdtscp,
-    ret, rol, ror, rorx, rsm,
-    sahf, sal, sar, sarx, sbb,
+    ret, rol, ror, rsm,
+    sahf, sal, sar, sbb,
     scas, scasb, scasd, scasq, scasw,
     senduipi, serialize,
-    shl, shld, shlx, shr, shrd, shrx,
+    shl, shld, shr, shrd,
     stac, stc, std, sti, str, stui,
     sub, swapgs, syscall, sysenter, sysexit, sysret,
     seta, setae, setb, setbe, setc, sete, setg, setge, setl, setle, setna, setnae,
@@ -433,6 +433,8 @@ pub const Mnemonic = enum {
     roundpd, roundps, roundsd, roundss,
     // SSE4.2
     crc32, pcmpgtq,
+    // ABM
+    lzcnt, popcnt,
     // PCLMUL
     pclmulqdq,
     // AES
@@ -440,7 +442,6 @@ pub const Mnemonic = enum {
     // SHA
     sha1rnds4, sha1nexte, sha1msg1, sha1msg2, sha256msg1, sha256msg2, sha256rnds2,
     // AVX
-    andn, bextr, blsi, blsmsk, blsr, bzhi, tzcnt,
     vaddpd, vaddps, vaddsd, vaddss, vaddsubpd, vaddsubps,
     vaesdec, vaesdeclast, vaesenc, vaesenclast, vaesimc, vaeskeygenassist,
     vandnpd, vandnps, vandpd, vandps,
@@ -506,6 +507,10 @@ pub const Mnemonic = enum {
     vtestpd, vtestps,
     vucomisd, vucomiss, vunpckhpd, vunpckhps, vunpcklpd, vunpcklps,
     vxorpd, vxorps,
+    // BMI
+    andn, bextr, blsi, blsmsk, blsr, tzcnt,
+    // BMI2
+    bzhi, mulx, pdep, pext, rorx, sarx, shlx, shrx,
     // F16C
     vcvtph2ps, vcvtps2ph,
     // FMA
