@@ -14044,14 +14044,13 @@ fn zirImport(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.
             return Air.internedToRef(ty);
         },
         .zon => {
-            if (extra.res_ty == .none) {
-                return sema.fail(block, operand_src, "'@import' of ZON must have a known result type", .{});
-            }
-            const res_ty_inst = try sema.resolveInst(extra.res_ty);
-            const res_ty = try sema.analyzeAsType(block, operand_src, res_ty_inst);
-            if (res_ty.isGenericPoison()) {
-                return sema.fail(block, operand_src, "'@import' of ZON must have a known result type", .{});
-            }
+            const res_ty: InternPool.Index = b: {
+                if (extra.res_ty == .none) break :b .none;
+                const res_ty_inst = try sema.resolveInst(extra.res_ty);
+                const res_ty = try sema.analyzeAsType(block, operand_src, res_ty_inst);
+                if (res_ty.isGenericPoison()) break :b .none;
+                break :b res_ty.toIntern();
+            };
 
             try sema.declareDependency(.{ .zon_file = result.file_index });
             const interned = try LowerZon.run(
