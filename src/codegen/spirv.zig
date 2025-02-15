@@ -1254,6 +1254,7 @@ const NavGen = struct {
     }
 
     fn ptrType(self: *NavGen, child_ty: Type, storage_class: StorageClass, child_repr: Repr) !IdRef {
+        const zcu = self.pt.zcu;
         const key = .{ child_ty.toIntern(), storage_class, child_repr };
         const entry = try self.ptr_types.getOrPut(self.gpa, key);
         if (entry.found_existing) {
@@ -1275,6 +1276,17 @@ const NavGen = struct {
         };
 
         const child_ty_id = try self.resolveType(child_ty, child_repr);
+
+        if (self.spv.hasFeature(.shader)) {
+            if (child_ty.zigTypeTag(zcu) == .@"struct") {
+                switch (storage_class) {
+                    .Uniform, .PushConstant => try self.spv.decorate(child_ty_id, .Block),
+                    else => {},
+                }
+            }
+
+            try self.spv.decorate(result_id, .{ .ArrayStride = .{ .array_stride = @intCast(child_ty.abiSize(zcu)) } });
+        }
 
         try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpTypePointer, .{
             .id_result = result_id,
@@ -6426,9 +6438,8 @@ const NavGen = struct {
 
                     .undef => return self.fail("assembly input with 'c' constraint cannot be undefined", .{}),
 
-                    .int => {
-                        try as.value_map.put(as.gpa, name, .{ .constant = @intCast(val.toUnsignedInt(zcu)) });
-                    },
+                    .int => try as.value_map.put(as.gpa, name, .{ .constant = @intCast(val.toUnsignedInt(zcu)) }),
+                    .enum_literal => |str| try as.value_map.put(as.gpa, name, .{ .string = str.toSlice(ip) }),
 
                     else => unreachable, // TODO
                 }
@@ -6510,7 +6521,7 @@ const NavGen = struct {
                 .just_declared, .unresolved_forward_reference => unreachable,
                 .ty => return self.fail("cannot return spir-v type as value from assembly", .{}),
                 .value => |ref| return ref,
-                .constant => return self.fail("cannot return constant from assembly", .{}),
+                .constant, .string => return self.fail("cannot return constant from assembly", .{}),
             }
 
             // TODO: Multiple results
