@@ -33,7 +33,8 @@ pub const want_aeabi = switch (builtin.abi) {
 };
 
 /// These functions are provided by libc when targeting MSVC, but not MinGW.
-pub const want_windows_arm_abi = builtin.cpu.arch.isArm() and builtin.os.tag == .windows and (builtin.abi.isGnu() or !builtin.link_libc);
+// Temporarily used for thumb-uefi until https://github.com/ziglang/zig/issues/21630 is addressed.
+pub const want_windows_arm_abi = builtin.cpu.arch.isArm() and (builtin.os.tag == .windows or builtin.os.tag == .uefi) and (builtin.abi.isGnu() or !builtin.link_libc);
 
 pub const want_ppc_abi = builtin.cpu.arch.isPowerPC();
 
