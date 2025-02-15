@@ -25,6 +25,7 @@ pub const panic = struct {
     pub const forLenMismatch = simple_panic.forLenMismatch;
     pub const memcpyLenMismatch = simple_panic.memcpyLenMismatch;
     pub const memcpyAlias = simple_panic.memcpyAlias;
+    pub const memmoveLenMismatch = simple_panic.memmoveLenMismatch;
     pub const noreturnReturned = simple_panic.noreturnReturned;
 };
 
