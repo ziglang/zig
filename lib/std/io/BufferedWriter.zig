@@ -19,22 +19,20 @@ end: usize = 0,
 /// vectors through the underlying write calls as possible.
 pub const max_buffers_len = 8;
 
-const passthru_vtable: Writer.VTable = .{
-    .writev = passthru_writev,
-    .writeFile = passthru_writeFile,
-};
+pub fn writer(bw: *BufferedWriter) Writer {
+    return .{
+        .context = bw,
+        .vtable = &.{
+            .writev = passthru_writev,
+            .writeFile = passthru_writeFile,
+        },
+    };
+}
 
 const fixed_vtable: Writer.VTable = .{
     .writev = fixed_writev,
     .writeFile = fixed_writeFile,
 };
-
-pub fn writer(bw: *BufferedWriter) Writer {
-    return .{
-        .context = bw,
-        .vtable = &passthru_vtable,
-    };
-}
 
 /// Replaces the `BufferedWriter` with a new one that writes to `buffer` and
 /// returns `error.NoSpaceLeft` when it is full.
@@ -97,6 +95,7 @@ fn passthru_writev(context: *anyopaque, data: []const []const u8) anyerror!usize
             end = new_end;
             continue;
         }
+        if (end == 0) return bw.unbuffered_writer.writev(data);
         var buffers: [max_buffers_len][]const u8 = undefined;
         buffers[0] = buffer[0..end];
         const remaining_data = data[i..];
@@ -365,6 +364,7 @@ fn passthru_writeFile(
 ) anyerror!usize {
     const bw: *BufferedWriter = @alignCast(@ptrCast(context));
     const buffer = bw.buffer;
+    if (buffer.len == 0) return bw.unbuffered_writer.writeFile(file, offset, len, headers_and_trailers, headers_len);
     const start_end = bw.end;
     const headers = headers_and_trailers[0..headers_len];
     const trailers = headers_and_trailers[headers_len..];

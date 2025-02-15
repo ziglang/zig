@@ -1669,7 +1669,8 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
             if (!enabled) return;
 
             const tty_config = io.tty.detectConfig(std.io.getStdErr());
-            const stderr = io.getStdErr().writer();
+            var stderr = lockStdErr2();
+            defer unlockStdErr();
             const end = @min(t.index, size);
             const debug_info = getSelfDebugInfo() catch |err| {
                 stderr.print(
@@ -1686,7 +1687,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
                     .index = frames.len,
                     .instruction_addresses = frames,
                 };
-                writeStackTrace(stack_trace, stderr, debug_info, tty_config) catch continue;
+                writeStackTrace(stack_trace, &stderr, debug_info, tty_config) catch continue;
             }
             if (t.index > end) {
                 stderr.print("{d} more traces not shown; consider increasing trace size\n", .{

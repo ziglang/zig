@@ -289,67 +289,6 @@ pub fn GenericReader(
     };
 }
 
-pub fn GenericWriter(
-    comptime Context: type,
-    comptime WriteError: type,
-    comptime writeFn: fn (context: Context, bytes: []const u8) WriteError!usize,
-) type {
-    return struct {
-        context: Context,
-
-        const Self = @This();
-        pub const Error = WriteError;
-
-        pub inline fn write(self: Self, bytes: []const u8) Error!usize {
-            return writeFn(self.context, bytes);
-        }
-
-        pub inline fn writeAll(self: Self, bytes: []const u8) Error!void {
-            return @errorCast(self.any().writeAll(bytes));
-        }
-
-        pub inline fn print(self: Self, comptime format: []const u8, args: anytype) Error!void {
-            return @errorCast(self.any().print(format, args));
-        }
-
-        pub inline fn writeByte(self: Self, byte: u8) Error!void {
-            return @errorCast(self.any().writeByte(byte));
-        }
-
-        pub inline fn writeByteNTimes(self: Self, byte: u8, n: usize) Error!void {
-            return @errorCast(self.any().writeByteNTimes(byte, n));
-        }
-
-        pub inline fn writeBytesNTimes(self: Self, bytes: []const u8, n: usize) Error!void {
-            return @errorCast(self.any().writeBytesNTimes(bytes, n));
-        }
-
-        pub inline fn writeInt(self: Self, comptime T: type, value: T, endian: std.builtin.Endian) Error!void {
-            return @errorCast(self.any().writeInt(T, value, endian));
-        }
-
-        pub inline fn writeStruct(self: Self, value: anytype) Error!void {
-            return @errorCast(self.any().writeStruct(value));
-        }
-
-        pub inline fn writeStructEndian(self: Self, value: anytype, endian: std.builtin.Endian) Error!void {
-            return @errorCast(self.any().writeStructEndian(value, endian));
-        }
-
-        pub inline fn any(self: *const Self) Writer {
-            return .{
-                .context = @ptrCast(&self.context),
-                .writeFn = typeErasedWriteFn,
-            };
-        }
-
-        fn typeErasedWriteFn(context: *const anyopaque, bytes: []const u8) anyerror!usize {
-            const ptr: *const Context = @alignCast(@ptrCast(context));
-            return writeFn(ptr.*, bytes);
-        }
-    };
-}
-
 /// Deprecated; consider switching to `AnyReader` or use `GenericReader`
 /// to use previous API. To be removed after 0.14.0 is tagged.
 pub const Reader = GenericReader;
@@ -362,6 +301,7 @@ pub const AnyWriter = Writer;
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
 
 pub const BufferedWriter = @import("io/BufferedWriter.zig");
+pub const ArrayListWriter = @import("io/ArrayListWriter.zig");
 
 pub const BufferedReader = @import("io/buffered_reader.zig").BufferedReader;
 pub const bufferedReader = @import("io/buffered_reader.zig").bufferedReader;
@@ -844,6 +784,7 @@ test {
     _ = Writer;
     _ = CountingWriter;
     _ = FixedBufferStream;
+    _ = ArrayListWriter;
     _ = @import("io/bit_reader.zig");
     _ = @import("io/bit_writer.zig");
     _ = @import("io/buffered_atomic_file.zig");
