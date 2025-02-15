@@ -21,5 +21,5 @@ fn foo(bytes: []u8) u32 {
     return int_slice[0];
 }
 // run
-// backend=llvm
+// backend=stage2,llvm
 // target=native

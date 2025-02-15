@@ -23,7 +23,7 @@ pub export fn entry2() void {
 }
 
 // error
-// backend=llvm
+// backend=stage2,llvm
 // target=native
 //
 // :6:20: error: cannot @bitCast to '[]i32'

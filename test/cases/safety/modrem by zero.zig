@@ -16,5 +16,5 @@ fn div0(a: u32, b: u32) u32 {
     return a / b;
 }
 // run
-// backend=llvm
+// backend=stage2,llvm
 // target=native

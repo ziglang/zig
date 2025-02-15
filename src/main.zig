@@ -39,10 +39,7 @@ test {
     _ = Package;
 }
 
-const thread_stack_size = switch (builtin.zig_backend) {
-    else => std.Thread.SpawnConfig.default_stack_size,
-    .stage2_x86_64 => 32 << 20,
-};
+const thread_stack_size = 32 << 20;
 
 pub const std_options: std.Options = .{
     .wasiCwd = wasi_cwd,

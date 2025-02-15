@@ -14,5 +14,5 @@ pub fn main() !void {
     @memcpy(buffer[0..len], buffer[len .. len + 4]);
 }
 // run
-// backend=llvm
+// backend=stage2,llvm
 // target=native

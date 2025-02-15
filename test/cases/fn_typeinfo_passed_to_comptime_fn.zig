@@ -14,5 +14,5 @@ fn foo(comptime info: std.builtin.Type) !void {
 
 // run
 // is_test=true
-// backend=llvm
+// backend=stage2,llvm
 //
