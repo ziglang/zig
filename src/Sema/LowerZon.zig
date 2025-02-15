@@ -33,7 +33,7 @@ pub fn run(
     sema: *Sema,
     file: *File,
     file_index: Zcu.File.Index,
-    res_ty: Type,
+    res_ty: InternPool.Index,
     import_loc: LazySrcLoc,
     block: *Sema.Block,
 ) CompileError!InternPool.Index {
@@ -53,9 +53,9 @@ pub fn run(
         .base_node_inst = tracked_inst,
     };
 
-    try lower_zon.checkType(res_ty);
+    try lower_zon.checkType(.fromInterned(res_ty));
 
-    return lower_zon.lowerExpr(.root, res_ty);
+    return lower_zon.lowerExpr(.root, .fromInterned(res_ty));
 }
 
 /// Validate that `ty` is a valid ZON type. If not, emit a compile error.
