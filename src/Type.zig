@@ -3589,7 +3589,10 @@ pub fn typeDeclSrcLine(ty: Type, zcu: *Zcu) ?u32 {
     };
     const info = tracked.resolveFull(&zcu.intern_pool) orelse return null;
     const file = zcu.fileByIndex(info.file);
-    const zir = file.zir.?;
+    const zir = switch (file.getMode()) {
+        .zig => file.zir.?,
+        .zon => return 0,
+    };
     const inst = zir.instructions.get(@intFromEnum(info.inst));
     return switch (inst.tag) {
         .struct_init, .struct_init_ref => zir.extraData(Zir.Inst.StructInit, inst.data.pl_node.payload_index).data.abs_line,
