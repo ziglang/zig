@@ -10,6 +10,8 @@ const Module = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
+const autoHashStrat = std.hash.autoHashStrat;
+const Wyhash = std.hash.Wyhash;
 
 const spec = @import("spec.zig");
 const Word = spec.Word;
@@ -18,6 +20,19 @@ const IdResult = spec.IdResult;
 const IdResultType = spec.IdResultType;
 
 const Section = @import("Section.zig");
+
+/// Helper HashMap type to hash deeply
+fn DeepHashMap(K: type, V: type) type {
+    return std.HashMapUnmanaged(K, V, struct {
+        pub fn hash(ctx: @This(), key: K) u64 {
+            _ = ctx;
+            var hasher = Wyhash.init(0);
+            autoHashStrat(&hasher, key, .Deep);
+            return hasher.final();
+        }
+        pub const eql = std.hash_map.getAutoEqlFn(K, @This());
+    }, std.hash_map.default_max_load_percentage);
+}
 
 /// This structure represents a function that isc in-progress of being emitted.
 /// Commonly, the contents of this structure will be merged with the appropriate
@@ -159,8 +174,13 @@ cache: struct {
     // This cache is required so that @Vector(X, u1) in direct representation has the
     // same ID as @Vector(X, bool) in indirect representation.
     vector_types: std.AutoHashMapUnmanaged(struct { IdRef, u32 }, IdRef) = .empty,
+    array_types: std.AutoHashMapUnmanaged(struct { IdRef, IdRef }, IdRef) = .empty,
+    function_types: DeepHashMap(struct { IdRef, []const IdRef }, IdRef) = .empty,
 
     builtins: std.AutoHashMapUnmanaged(struct { IdRef, spec.BuiltIn }, Decl.Index) = .empty,
+    decorations: std.AutoHashMapUnmanaged(struct { IdRef, spec.Decoration }, void) = .empty,
+
+    bool_const: [2]?IdRef = .{ null, null },
 } = .{},
 
 /// Set of Decls, referred to by Decl.Index.
@@ -201,7 +221,10 @@ pub fn deinit(self: *Module) void {
     self.cache.int_types.deinit(self.gpa);
     self.cache.float_types.deinit(self.gpa);
     self.cache.vector_types.deinit(self.gpa);
+    self.cache.array_types.deinit(self.gpa);
+    self.cache.function_types.deinit(self.gpa);
     self.cache.builtins.deinit(self.gpa);
+    self.cache.decorations.deinit(self.gpa);
 
     self.decls.deinit(self.gpa);
     self.decl_deps.deinit(self.gpa);
@@ -477,18 +500,67 @@ pub fn floatType(self: *Module, bits: u16) !IdRef {
     return entry.value_ptr.*;
 }
 
-pub fn vectorType(self: *Module, len: u32, child_id: IdRef) !IdRef {
-    const entry = try self.cache.vector_types.getOrPut(self.gpa, .{ child_id, len });
+pub fn vectorType(self: *Module, len: u32, child_ty_id: IdRef) !IdRef {
+    const entry = try self.cache.vector_types.getOrPut(self.gpa, .{ child_ty_id, len });
     if (!entry.found_existing) {
         const result_id = self.allocId();
         entry.value_ptr.* = result_id;
         try self.sections.types_globals_constants.emit(self.gpa, .OpTypeVector, .{
             .id_result = result_id,
-            .component_type = child_id,
+            .component_type = child_ty_id,
             .component_count = len,
         });
     }
     return entry.value_ptr.*;
+}
+
+pub fn arrayType(self: *Module, len_id: IdRef, child_ty_id: IdRef) !IdRef {
+    const entry = try self.cache.array_types.getOrPut(self.gpa, .{ child_ty_id, len_id });
+    if (!entry.found_existing) {
+        const result_id = self.allocId();
+        entry.value_ptr.* = result_id;
+        try self.sections.types_globals_constants.emit(self.gpa, .OpTypeArray, .{
+            .id_result = result_id,
+            .element_type = child_ty_id,
+            .length = len_id,
+        });
+    }
+    return entry.value_ptr.*;
+}
+
+pub fn functionType(self: *Module, return_ty_id: IdRef, param_type_ids: []const IdRef) !IdRef {
+    const entry = try self.cache.function_types.getOrPut(self.gpa, .{ return_ty_id, param_type_ids });
+    if (!entry.found_existing) {
+        const result_id = self.allocId();
+        entry.value_ptr.* = result_id;
+        try self.sections.types_globals_constants.emit(self.gpa, .OpTypeFunction, .{
+            .id_result = result_id,
+            .return_type = return_ty_id,
+            .id_ref_2 = param_type_ids,
+        });
+    }
+    return entry.value_ptr.*;
+}
+
+pub fn constBool(self: *Module, value: bool) !IdRef {
+    if (self.cache.bool_const[@intFromBool(value)]) |b| return b;
+
+    const result_ty_id = try self.boolType();
+    const result_id = self.allocId();
+    self.cache.bool_const[@intFromBool(value)] = result_id;
+
+    switch (value) {
+        inline else => |value_ct| try self.sections.types_globals_constants.emit(
+            self.gpa,
+            if (value_ct) .OpConstantTrue else .OpConstantFalse,
+            .{
+                .id_result_type = result_ty_id,
+                .id_result = result_id,
+            },
+        ),
+    }
+
+    return result_id;
 }
 
 /// Return a pointer to a builtin variable. `result_ty_id` must be a **pointer**
@@ -534,13 +606,17 @@ pub fn decorate(
     target: IdRef,
     decoration: spec.Decoration.Extended,
 ) !void {
-    try self.sections.annotations.emit(self.gpa, .OpDecorate, .{
-        .target = target,
-        .decoration = decoration,
-    });
+    const entry = try self.cache.decorations.getOrPut(self.gpa, .{ target, decoration });
+    if (!entry.found_existing) {
+        try self.sections.annotations.emit(self.gpa, .OpDecorate, .{
+            .target = target,
+            .decoration = decoration,
+        });
+    }
 }
 
 /// Decorate a result-id which is a member of some struct.
+/// We really don't have to and shouldn't need to cache this.
 pub fn decorateMember(
     self: *Module,
     structure_type: IdRef,
