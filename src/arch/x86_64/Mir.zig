@@ -756,6 +756,8 @@ pub const Inst = struct {
         /// Swap GS base register
         swapgs,
         /// Test condition
+        /// Logical compare
+        /// Packed bit test
         @"test",
         /// Undefined instruction
         ud,
@@ -1053,6 +1055,7 @@ pub const Inst = struct {
         /// Blend scalar single-precision floating-point values
         /// Blend packed double-precision floating-point values
         /// Blend scalar double-precision floating-point values
+        /// Blend packed dwords
         blend,
         /// Variable blend packed single-precision floating-point values
         /// Variable blend scalar single-precision floating-point values
@@ -1127,19 +1130,36 @@ pub const Inst = struct {
         sha256rnds,
 
         // AVX
+        /// Load with broadcast floating-point data
+        /// Load integer and broadcast
+        broadcast,
+        /// Conditional SIMD packed loads and stores
+        /// Condition SIMD integer packed loads and stores
+        maskmov,
+        /// Permute floating-point values
+        /// Permute integer values
+        perm2,
+        /// Permute in-lane pairs of double-precision floating-point values
+        /// Permute in-lane quadruples of single-precision floating-point values
+        permil,
+
+        // BMI
         /// Bit field extract
         bextr,
         /// Extract lowest set isolated bit
         /// Get mask up to lowest set bit
         /// Reset lowest set bit
         bls,
-        /// Load with broadcast floating-point data
-        /// Load integer and broadcast
-        broadcast,
-        /// Zero high bits starting with specified bit position
-        bzhi,
         /// Count the number of trailing zero bits
         tzcnt,
+
+        // BMI2
+        /// Zero high bits starting with specified bit position
+        bzhi,
+        /// Parallel bits deposit
+        pdep,
+        /// Parallel bits extract
+        pext,
 
         // F16C
         /// Convert 16-bit floating-point values to single-precision floating-point values
@@ -1163,6 +1183,19 @@ pub const Inst = struct {
         /// Fused multiply-add of packed double-precision floating-point values
         /// Fused multiply-add of scalar double-precision floating-point values
         fmadd231,
+
+        // AVX2
+        /// Permute packed doubleword elements
+        /// Permute packed qword elements
+        /// Permute double-precision floating-point elements
+        /// Permute single-precision floating-point elements
+        perm,
+        /// Variable bit shift left logical
+        sllv,
+        /// Variable bit shift right arithmetic
+        srav,
+        /// Variable bit shift right logical
+        srlv,
 
         // ADX
         /// Unsigned integer addition of two operands with overflow flag

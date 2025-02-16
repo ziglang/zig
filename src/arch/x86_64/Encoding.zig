@@ -459,6 +459,7 @@ pub const Mnemonic = enum {
     vhaddpd, vhaddps,
     vinsertf128, vinsertps,
     vlddqu, vldmxcsr,
+    vmaskmovpd, vmaskmovps,
     vmaxpd, vmaxps, vmaxsd, vmaxss,
     vminpd, vminps, vminsd, vminss,
     vmovapd, vmovaps,
@@ -481,6 +482,7 @@ pub const Mnemonic = enum {
     vpblendvb, vpblendw, vpclmulqdq,
     vpcmpeqb, vpcmpeqd, vpcmpeqq, vpcmpeqw,
     vpcmpgtb, vpcmpgtd, vpcmpgtq, vpcmpgtw,
+    vperm2f128, vpermilpd, vpermilps,
     vpextrb, vpextrd, vpextrq, vpextrw,
     vpinsrb, vpinsrd, vpinsrq, vpinsrw,
     vpmaxsb, vpmaxsd, vpmaxsw, vpmaxub, vpmaxud, vpmaxuw,
@@ -521,6 +523,9 @@ pub const Mnemonic = enum {
     // AVX2
     vbroadcasti128, vpbroadcastb, vpbroadcastd, vpbroadcastq, vpbroadcastw,
     vextracti128, vinserti128, vpblendd,
+    vperm2i128, vpermd, vpermpd, vpermps, vpermq,
+    vpmaskmovd, vpmaskmovq,
+    vpsllvd, vpsllvq, vpsravd, vpsrlvd, vpsrlvq,
     // ADX
     adcx, adox,
     // AESKLE
@@ -997,7 +1002,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
 }
 
 const mnemonic_to_encodings_map = init: {
-    @setEvalBranchQuota(5_600);
+    @setEvalBranchQuota(5_700);
     const mnemonic_count = @typeInfo(Mnemonic).@"enum".fields.len;
     var mnemonic_map: [mnemonic_count][]Data = @splat(&.{});
     const encodings = @import("encodings.zig");
