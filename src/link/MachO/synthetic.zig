@@ -532,17 +532,23 @@ pub const Indsymtab = struct {
 
         for (macho_file.stubs.symbols.items) |ref| {
             const sym = ref.getSymbol(macho_file).?;
-            try writer.writeInt(u32, sym.getOutputSymtabIndex(macho_file).?, .little);
+            if (sym.getOutputSymtabIndex(macho_file)) |idx| {
+                try writer.writeInt(u32, idx, .little);
+            }
         }
 
         for (macho_file.got.symbols.items) |ref| {
             const sym = ref.getSymbol(macho_file).?;
-            try writer.writeInt(u32, sym.getOutputSymtabIndex(macho_file).?, .little);
+            if (sym.getOutputSymtabIndex(macho_file)) |idx| {
+                try writer.writeInt(u32, idx, .little);
+            }
         }
 
         for (macho_file.stubs.symbols.items) |ref| {
             const sym = ref.getSymbol(macho_file).?;
-            try writer.writeInt(u32, sym.getOutputSymtabIndex(macho_file).?, .little);
+            if (sym.getOutputSymtabIndex(macho_file)) |idx| {
+                try writer.writeInt(u32, idx, .little);
+            }
         }
     }
 };

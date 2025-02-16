@@ -918,6 +918,7 @@ fn buildOutputType(
     var headerpad_max_install_names: bool = false;
     var dead_strip_dylibs: bool = false;
     var force_load_objc: bool = false;
+    var discard_local_symbols: bool = false;
     var contains_res_file: bool = false;
     var reference_trace: ?u32 = null;
     var pdb_out_path: ?[]const u8 = null;
@@ -1151,6 +1152,8 @@ fn buildOutputType(
                         entry = .{ .named = arg["-fentry=".len..] };
                     } else if (mem.eql(u8, arg, "--force_undefined")) {
                         try force_undefined_symbols.put(arena, args_iter.nextOrFatal(), {});
+                    } else if (mem.eql(u8, arg, "--discard-all")) {
+                        discard_local_symbols = true;
                     } else if (mem.eql(u8, arg, "--stack")) {
                         stack_size = parseStackSize(args_iter.nextOrFatal());
                     } else if (mem.eql(u8, arg, "--image-base")) {
@@ -2510,6 +2513,8 @@ fn buildOutputType(
                     entry = .{ .named = linker_args_it.nextOrFatal() };
                 } else if (mem.eql(u8, arg, "-u")) {
                     try force_undefined_symbols.put(arena, linker_args_it.nextOrFatal(), {});
+                } else if (mem.eql(u8, arg, "-x") or mem.eql(u8, arg, "--discard-all")) {
+                    discard_local_symbols = true;
                 } else if (mem.eql(u8, arg, "--stack") or mem.eql(u8, arg, "-stack_size")) {
                     stack_size = parseStackSize(linker_args_it.nextOrFatal());
                 } else if (mem.eql(u8, arg, "--image-base")) {
@@ -3579,6 +3584,7 @@ fn buildOutputType(
         .headerpad_max_install_names = headerpad_max_install_names,
         .dead_strip_dylibs = dead_strip_dylibs,
         .force_load_objc = force_load_objc,
+        .discard_local_symbols = discard_local_symbols,
         .reference_trace = reference_trace,
         .pdb_out_path = pdb_out_path,
         .error_limit = error_limit,

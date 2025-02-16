@@ -139,6 +139,8 @@ no_implicit_dylibs: bool = false,
 /// Whether the linker should parse and always force load objects containing ObjC in archives.
 // TODO: in Zig we currently take -ObjC as always on
 force_load_objc: bool = true,
+/// Whether local symbols should be discarded from the symbol table.
+discard_local_symbols: bool = false,
 
 /// Hot-code swapping state.
 hot_state: if (is_hot_update_compatible) HotUpdateState else struct {} = .{},
@@ -221,6 +223,7 @@ pub fn createEmpty(
         .lib_directories = options.lib_directories,
         .framework_dirs = options.framework_dirs,
         .force_load_objc = options.force_load_objc,
+        .discard_local_symbols = options.discard_local_symbols,
     };
     if (use_llvm and comp.config.have_zcu) {
         self.llvm_object = try LlvmObject.create(arena, comp);
@@ -718,6 +721,10 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
 
         if (self.force_load_objc) {
             try argv.append("-ObjC");
+        }
+
+        if (self.discard_local_symbols) {
+            try argv.append("-x");
         }
 
         if (self.entry_name) |entry_name| {

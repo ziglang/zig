@@ -583,6 +583,7 @@ pub fn calcSymtabSize(self: *InternalObject, macho_file: *MachO) void {
         const file = ref.getFile(macho_file) orelse continue;
         if (file.getIndex() != self.index) continue;
         if (sym.getName(macho_file).len == 0) continue;
+        if (macho_file.discard_local_symbols and sym.isLocal()) continue;
         sym.flags.output_symtab = true;
         if (sym.isLocal()) {
             sym.addExtra(.{ .symtab = self.output_symtab_ctx.nlocals }, macho_file);

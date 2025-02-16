@@ -1160,6 +1160,8 @@ pub const CreateOptions = struct {
     dead_strip_dylibs: bool = false,
     /// (Darwin) Force load all members of static archives that implement an Objective-C class or category
     force_load_objc: bool = false,
+    /// Whether local symbols should be discarded from the symbol table.
+    discard_local_symbols: bool = false,
     libcxx_abi_version: libcxx.AbiVersion = libcxx.AbiVersion.default,
     /// (Windows) PDB source path prefix to instruct the linker how to resolve relative
     /// paths when consolidating CodeView streams into a single PDB file.
@@ -1585,6 +1587,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .headerpad_max_install_names = options.headerpad_max_install_names,
             .dead_strip_dylibs = options.dead_strip_dylibs,
             .force_load_objc = options.force_load_objc,
+            .discard_local_symbols = options.discard_local_symbols,
             .pdb_source_path = options.pdb_source_path,
             .pdb_out_path = options.pdb_out_path,
             .entry_addr = null, // CLI does not expose this option (yet?)
@@ -2674,6 +2677,7 @@ fn addNonIncrementalStuffToCacheManifest(
     man.hash.add(opts.headerpad_max_install_names);
     man.hash.add(opts.dead_strip_dylibs);
     man.hash.add(opts.force_load_objc);
+    man.hash.add(opts.discard_local_symbols);
 
     // COFF specific stuff
     man.hash.addOptional(opts.subsystem);

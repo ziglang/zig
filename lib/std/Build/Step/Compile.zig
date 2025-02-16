@@ -160,6 +160,9 @@ dead_strip_dylibs: bool = false,
 /// (Darwin) Force load all members of static archives that implement an Objective-C class or category
 force_load_objc: bool = false,
 
+/// Whether local symbols should be discarded from the symbol table.
+discard_local_symbols: bool = false,
+
 /// Position Independent Executable
 pie: ?bool = null,
 
@@ -1554,6 +1557,9 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
     if (compile.force_load_objc) {
         try zig_args.append("-ObjC");
+    }
+    if (compile.discard_local_symbols) {
+        try zig_args.append("--discard-all");
     }
 
     try addFlag(&zig_args, "compiler-rt", compile.bundle_compiler_rt);

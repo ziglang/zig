@@ -500,6 +500,7 @@ pub fn calcSymtabSize(self: *ZigObject, macho_file: *MachO) void {
         const file = ref.getFile(macho_file) orelse continue;
         if (file.getIndex() != self.index) continue;
         if (sym.getAtom(macho_file)) |atom| if (!atom.isAlive()) continue;
+        if (macho_file.discard_local_symbols and sym.isLocal()) continue;
         const name = sym.getName(macho_file);
         assert(name.len > 0);
         sym.flags.output_symtab = true;
