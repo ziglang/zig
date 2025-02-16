@@ -467,37 +467,37 @@ pub fn stringEscape(
     bytes: []const u8,
     comptime f: []const u8,
     options: std.fmt.FormatOptions,
-    writer: anytype,
+    bw: *std.io.BufferedWriter,
 ) !void {
     _ = options;
     for (bytes) |byte| switch (byte) {
-        '\n' => try writer.writeAll("\\n"),
-        '\r' => try writer.writeAll("\\r"),
-        '\t' => try writer.writeAll("\\t"),
-        '\\' => try writer.writeAll("\\\\"),
+        '\n' => try bw.writeAll("\\n"),
+        '\r' => try bw.writeAll("\\r"),
+        '\t' => try bw.writeAll("\\t"),
+        '\\' => try bw.writeAll("\\\\"),
         '"' => {
             if (f.len == 1 and f[0] == '\'') {
-                try writer.writeByte('"');
+                try bw.writeByte('"');
             } else if (f.len == 0) {
-                try writer.writeAll("\\\"");
+                try bw.writeAll("\\\"");
             } else {
                 @compileError("expected {} or {'}, found {" ++ f ++ "}");
             }
         },
         '\'' => {
             if (f.len == 1 and f[0] == '\'') {
-                try writer.writeAll("\\'");
+                try bw.writeAll("\\'");
             } else if (f.len == 0) {
-                try writer.writeByte('\'');
+                try bw.writeByte('\'');
             } else {
                 @compileError("expected {} or {'}, found {" ++ f ++ "}");
             }
         },
-        ' ', '!', '#'...'&', '('...'[', ']'...'~' => try writer.writeByte(byte),
+        ' ', '!', '#'...'&', '('...'[', ']'...'~' => try bw.writeByte(byte),
         // Use hex escapes for rest any unprintable characters.
         else => {
-            try writer.writeAll("\\x");
-            try std.fmt.formatInt(byte, 16, .lower, .{ .width = 2, .fill = '0' }, writer);
+            try bw.writeAll("\\x");
+            try bw.printIntOptions(byte, 16, .lower, .{ .width = 2, .fill = '0' });
         },
     };
 }

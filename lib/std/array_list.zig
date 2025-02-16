@@ -978,37 +978,12 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             @memcpy(self.items[old_len..][0..items.len], items);
         }
 
-        pub const WriterContext = struct {
-            self: *Self,
-            allocator: Allocator,
-        };
-
-        pub const Writer = if (T != u8)
-            @compileError("The Writer interface is only defined for ArrayList(u8) " ++
-                "but the given type is ArrayList(" ++ @typeName(T) ++ ")")
-        else
-            std.io.Writer(WriterContext, Allocator.Error, appendWrite);
-
-        /// Initializes a Writer which will append to the list.
-        pub fn writer(self: *Self, allocator: Allocator) Writer {
-            return .{ .context = .{ .self = self, .allocator = allocator } };
-        }
-
-        /// Same as `append` except it returns the number of bytes written,
-        /// which is always the same as `m.len`. The purpose of this function
-        /// existing is to match `std.io.Writer` API.
-        /// Invalidates element pointers if additional memory is needed.
-        fn appendWrite(context: WriterContext, m: []const u8) Allocator.Error!usize {
-            try context.self.appendSlice(context.allocator, m);
-            return m.len;
-        }
-
         pub fn print(self: *Self, gpa: Allocator, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
             comptime assert(T == u8);
             try self.ensureUnusedCapacity(gpa, fmt.len);
-            var alw: std.io.ArrayListWriter = undefined;
-            const bw = alw.fromOwned(gpa, self);
-            defer self.* = alw.toOwned();
+            var aw: std.io.AllocatingWriter = undefined;
+            const bw = aw.fromArrayList(gpa, self);
+            defer self.* = aw.toArrayList();
             bw.print(fmt, args) catch return error.OutOfMemory;
         }
 

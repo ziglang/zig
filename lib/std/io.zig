@@ -301,7 +301,7 @@ pub const AnyWriter = Writer;
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
 
 pub const BufferedWriter = @import("io/BufferedWriter.zig");
-pub const ArrayListWriter = @import("io/ArrayListWriter.zig");
+pub const AllocatingWriter = @import("io/AllocatingWriter.zig");
 
 pub const BufferedReader = @import("io/buffered_reader.zig").BufferedReader;
 pub const bufferedReader = @import("io/buffered_reader.zig").bufferedReader;
@@ -784,7 +784,7 @@ test {
     _ = Writer;
     _ = CountingWriter;
     _ = FixedBufferStream;
-    _ = ArrayListWriter;
+    _ = AllocatingWriter;
     _ = @import("io/bit_reader.zig");
     _ = @import("io/bit_writer.zig");
     _ = @import("io/buffered_atomic_file.zig");

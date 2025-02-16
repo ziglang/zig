@@ -2727,8 +2727,9 @@ fn dumpBadDirnameHelp(
     comptime msg: []const u8,
     args: anytype,
 ) anyerror!void {
-    var w = debug.lockStdErr2();
+    var buffered_writer = debug.lockStdErr2();
     defer debug.unlockStdErr();
+    const w = &buffered_writer;
 
     const stderr = io.getStdErr();
     try w.print(msg, args);
@@ -2745,7 +2746,7 @@ fn dumpBadDirnameHelp(
 
     if (asking_step) |as| {
         tty_config.setColor(w, .red) catch {};
-        try stderr.writer().print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
+        try w.print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
         tty_config.setColor(w, .reset) catch {};
 
         as.dump(stderr);
@@ -2763,7 +2764,8 @@ pub fn dumpBadGetPathHelp(
     src_builder: *Build,
     asking_step: ?*Step,
 ) anyerror!void {
-    var w = stderr.unbufferedWriter();
+    var buffered_writer = stderr.unbufferedWriter();
+    const w = &buffered_writer;
     try w.print(
         \\getPath() was called on a GeneratedFile that wasn't built yet.
         \\  source package path: {s}
@@ -2782,7 +2784,7 @@ pub fn dumpBadGetPathHelp(
     s.dump(stderr);
     if (asking_step) |as| {
         tty_config.setColor(w, .red) catch {};
-        try stderr.writer().print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
+        try w.print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
         tty_config.setColor(w, .reset) catch {};
 
         as.dump(stderr);

@@ -994,14 +994,17 @@ pub const Manifest = struct {
     }
 
     fn addDepFileMaybePost(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
-        const dep_file_contents = try dir.readFileAlloc(self.cache.gpa, dep_file_basename, manifest_file_size_max);
-        defer self.cache.gpa.free(dep_file_contents);
+        const gpa = self.cache.gpa;
+        const dep_file_contents = try dir.readFileAlloc(gpa, dep_file_basename, manifest_file_size_max);
+        defer gpa.free(dep_file_contents);
 
-        var error_buf = std.ArrayList(u8).init(self.cache.gpa);
-        defer error_buf.deinit();
+        var error_buf: std.ArrayListUnmanaged(u8) = .empty;
+        defer error_buf.deinit(gpa);
+
+        var resolve_buf: std.ArrayListUnmanaged(u8) = .empty;
+        defer resolve_buf.deinit(gpa);
 
         var it: DepTokenizer = .{ .bytes = dep_file_contents };
-
         while (it.next()) |token| {
             switch (token) {
                 // We don't care about targets, we only want the prereqs
@@ -1011,16 +1014,14 @@ pub const Manifest = struct {
                     _ = try self.addFile(file_path, null);
                 } else try self.addFilePost(file_path),
                 .prereq_must_resolve => {
-                    var resolve_buf = std.ArrayList(u8).init(self.cache.gpa);
-                    defer resolve_buf.deinit();
-
-                    try token.resolve(resolve_buf.writer());
+                    resolve_buf.clearRetainingCapacity();
+                    try token.resolve(gpa, &resolve_buf);
                     if (self.manifest_file == null) {
                         _ = try self.addFile(resolve_buf.items, null);
                     } else try self.addFilePost(resolve_buf.items);
                 },
                 else => |err| {
-                    try err.printError(error_buf.writer());
+                    try err.printError(gpa, &error_buf);
                     log.err("failed parsing {s}: {s}", .{ dep_file_basename, error_buf.items });
                     return error.InvalidDepFile;
                 },
@@ -1058,13 +1059,13 @@ pub const Manifest = struct {
         if (self.manifest_dirty) {
             self.manifest_dirty = false;
 
-            var contents = std.ArrayList(u8).init(self.cache.gpa);
-            defer contents.deinit();
+            const gpa = self.cache.gpa;
+            var contents: std.ArrayListUnmanaged(u8) = .empty;
+            defer contents.deinit(gpa);
 
-            const writer = contents.writer();
-            try writer.writeAll(manifest_header ++ "\n");
+            try contents.appendSlice(gpa, manifest_header ++ "\n");
             for (self.files.keys()) |file| {
-                try writer.print("{d} {d} {d} {x} {d} {s}\n", .{
+                try contents.print(gpa, "{d} {d} {d} {x} {d} {s}\n", .{
                     file.stat.size,
                     file.stat.inode,
                     file.stat.mtime,
