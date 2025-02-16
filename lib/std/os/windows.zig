@@ -1292,6 +1292,18 @@ pub fn GetFinalPathNameByHandle(
             return final_path;
         },
         .Dos => {
+            // The "\??\" directory contains a bunch of symlinks that translates DOS volume names (like "C:")
+            // into NT volume names (like "\Device\HarddiskVolume2"). However, we want the DOS volume name, so
+            // we can just strip the "\??\" and return the subpath into that directory.
+            //
+            // Based on:
+            // - this stackoverflow post https://stackoverflow.com/questions/23041983/path-prefixes-and
+            // - downloading the WinObj program and inspecting the contents of "\??\"
+            const nt_device_alias_directory_prefix = std.unicode.utf8ToUtf16LeStringLiteral("\\??\\");
+            if (mem.startsWith(u16, final_path, nt_device_alias_directory_prefix)) {
+                return final_path[nt_device_alias_directory_prefix.len..];
+            }
+
             // parse the string to separate volume path from file path
             const expected_prefix = std.unicode.utf8ToUtf16LeStringLiteral("\\Device\\");
 
