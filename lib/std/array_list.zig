@@ -338,86 +338,6 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             @memcpy(self.items[old_len..][0..items.len], items);
         }
 
-        /// Initializes a `std.io.Writer` which will append to the list.
-        pub fn writer(self: *Self) std.io.Writer {
-            comptime assert(T == u8);
-            return .{
-                .context = self,
-                .vtable = &.{
-                    .writev = expanding_writev,
-                    .writeFile = expanding_writeFile,
-                },
-            };
-        }
-
-        fn expanding_writev(context: *anyopaque, data: []const []const u8) anyerror!usize {
-            const self: *Self = @alignCast(@ptrCast(context));
-            const original_len = self.items.len;
-            var new_capacity: usize = self.capacity;
-            for (data) |bytes| new_capacity += bytes.len;
-            try self.ensureTotalCapacity(new_capacity);
-            for (data) |bytes| self.appendSliceAssumeCapacity(bytes);
-            return self.items.len - original_len;
-        }
-
-        fn expanding_writeFile(
-            context: *anyopaque,
-            file: std.fs.File,
-            offset: u64,
-            len: std.io.Writer.VTable.FileLen,
-            headers_and_trailers: []const []const u8,
-            headers_len: usize,
-        ) anyerror!usize {
-            const self: *Self = @alignCast(@ptrCast(context));
-            const trailers = headers_and_trailers[headers_len..];
-            const original_len = self.items.len;
-            if (len == .entire_file) {
-                var new_capacity: usize = self.capacity + std.atomic.cache_line;
-                for (headers_and_trailers) |bytes| new_capacity += bytes.len;
-                try self.ensureTotalCapacity(new_capacity);
-                for (headers_and_trailers[0..headers_len]) |bytes| self.appendSliceAssumeCapacity(bytes);
-                const dest = self.items.ptr[self.items.len..self.capacity];
-                const n = try file.pread(dest, offset);
-                if (n == 0) {
-                    new_capacity = self.capacity;
-                    for (trailers) |bytes| new_capacity += bytes.len;
-                    try self.ensureTotalCapacity(new_capacity);
-                    for (trailers) |bytes| self.appendSliceAssumeCapacity(bytes);
-                    return self.items.len - original_len;
-                }
-                self.items.len += n;
-                return self.items.len - original_len;
-            }
-            var new_capacity: usize = self.capacity + len.int();
-            for (headers_and_trailers) |bytes| new_capacity += bytes.len;
-            try self.ensureTotalCapacity(new_capacity);
-            for (headers_and_trailers[0..headers_len]) |bytes| self.appendSliceAssumeCapacity(bytes);
-            const dest = self.items.ptr[self.items.len..][0..len.int()];
-            const n = try file.pread(dest, offset);
-            self.items.len += n;
-            if (n < dest.len) return self.items.len - original_len;
-            for (trailers) |bytes| self.appendSliceAssumeCapacity(bytes);
-            return self.items.len - original_len;
-        }
-
-        pub const FixedWriter = std.io.Writer(*Self, Allocator.Error, appendWriteFixed);
-
-        /// Initializes a Writer which will append to the list but will return
-        /// `error.OutOfMemory` rather than increasing capacity.
-        pub fn fixedWriter(self: *Self) FixedWriter {
-            return .{ .context = self };
-        }
-
-        /// The purpose of this function existing is to match `std.io.Writer` API.
-        fn appendWriteFixed(self: *Self, m: []const u8) error{OutOfMemory}!usize {
-            const available_capacity = self.capacity - self.items.len;
-            if (m.len > available_capacity)
-                return error.OutOfMemory;
-
-            self.appendSliceAssumeCapacity(m);
-            return m.len;
-        }
-
         /// Append a value to the list `n` times.
         /// Allocates more memory as necessary.
         /// Invalidates element pointers if additional memory is needed.
@@ -985,24 +905,6 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             const bw = aw.fromArrayList(gpa, self);
             defer self.* = aw.toArrayList();
             bw.print(fmt, args) catch return error.OutOfMemory;
-        }
-
-        pub const FixedWriter = std.io.Writer(*Self, Allocator.Error, appendWriteFixed);
-
-        /// Initializes a Writer which will append to the list but will return
-        /// `error.OutOfMemory` rather than increasing capacity.
-        pub fn fixedWriter(self: *Self) FixedWriter {
-            return .{ .context = self };
-        }
-
-        /// The purpose of this function existing is to match `std.io.Writer` API.
-        fn appendWriteFixed(self: *Self, m: []const u8) error{OutOfMemory}!usize {
-            const available_capacity = self.capacity - self.items.len;
-            if (m.len > available_capacity)
-                return error.OutOfMemory;
-
-            self.appendSliceAssumeCapacity(m);
-            return m.len;
         }
 
         /// Append a value to the list `n` times.
