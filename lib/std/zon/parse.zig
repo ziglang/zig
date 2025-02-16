@@ -1,11 +1,14 @@
-//! The simplest way to parse ZON at runtime is to use `fromSlice`. If you need to parse ZON at
-//! compile time, you may use `@import`.
+//! The simplest way to parse ZON at runtime is to use `fromSlice`. See also `fromSliceFlat`.
+//!
+//! Note that if you need to parse ZON at compile time, you may use `@import`.
 //!
 //! Parsing from individual Zoir nodes is also available:
 //! * `fromZoir`
+//! * `fromZoirFlat`
 //! * `fromZoirNode`
+//! * `fromZoirNodeFlat`
 //!
-//! For lower level control, it is possible to operate on `std.zig.Zoir` directly.
+//! For lower level control over parsing, see `std.zig.Zoir`.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -288,6 +291,22 @@ pub fn fromSlice(
     return fromZoir(T, gpa, ast, zoir, diag, options);
 }
 
+/// Like `fromSlice`, but asserts at compile time that the result type doesn't contain pointers. As
+/// such, the result doesn't need to be freed.
+///
+/// An allocator is still required for temporary allocations made during parsing, and status must
+/// still be freed if it is non-null.
+pub fn fromSliceFlat(
+    T: type,
+    gpa: Allocator,
+    source: [:0]const u8,
+    status: ?*Status,
+    options: Options,
+) error{ OutOfMemory, ParseZon }!T {
+    comptime assert(!requiresAllocator(T));
+    return fromSlice(T, gpa, source, status, options);
+}
+
 /// Like `fromSlice`, but operates on `Zoir` instead of ZON source.
 pub fn fromZoir(
     T: type,
@@ -300,7 +319,31 @@ pub fn fromZoir(
     return fromZoirNode(T, gpa, ast, zoir, .root, diag, options);
 }
 
-/// Like `fromZoir`, but the parse starts on `node` instead of root.
+/// Like `fromSliceFlat`, but operates on `Zoir` instead of ZON source.
+pub fn fromZoirFlat(
+    T: type,
+    ast: Ast,
+    zoir: Zoir,
+    status: ?*Status,
+    options: Options,
+) error{ParseZon}!T {
+    comptime assert(!requiresAllocator(T));
+    var buf: [0]u8 = .{};
+    var failing_allocator = std.heap.FixedBufferAllocator.init(&buf);
+    return fromZoir(
+        T,
+        failing_allocator.allocator(),
+        ast,
+        zoir,
+        status,
+        options,
+    ) catch |err| switch (err) {
+        error.OutOfMemory => unreachable, // Checked by comptime assertion above
+        else => |e| return e,
+    };
+}
+
+/// Like `fromZoir`, but the parse starts at `node` instead of root.
 pub fn fromZoirNode(
     T: type,
     gpa: Allocator,
@@ -331,6 +374,32 @@ pub fn fromZoirNode(
     };
 
     return parser.parseExpr(T, node);
+}
+
+/// Like `fromZoirFlat`, but the parse starts at `node` instead of root.
+pub fn fromZoirNodeFlat(
+    T: type,
+    ast: Ast,
+    zoir: Zoir,
+    node: Zoir.Node.Index,
+    status: ?*Status,
+    options: Options,
+) error{ParseZon}!T {
+    comptime assert(!requiresAllocator(T));
+    var buf: [0]u8 = .{};
+    var failing_allocator = std.heap.FixedBufferAllocator.init(&buf);
+    return fromZoirNode(
+        T,
+        failing_allocator.allocator(),
+        ast,
+        zoir,
+        node,
+        status,
+        options,
+    ) catch |err| switch (err) {
+        error.OutOfMemory => unreachable, // Checked by comptime assertion above
+        else => |e| return e,
+    };
 }
 
 /// Frees ZON values.
@@ -3465,4 +3534,31 @@ test "std.zon stop on node" {
         const result = try fromSlice(Zoir.Node.Index, gpa, "1.23", &diag, .{});
         try std.testing.expectEqual(Zoir.Node{ .float_literal = 1.23 }, result.get(diag.zoir));
     }
+}
+
+test "std.zon flat" {
+    const gpa = std.testing.allocator;
+
+    try std.testing.expectEqual(
+        [3]u8{ 1, 2, 3 },
+        try fromSliceFlat([3]u8, gpa, ".{ 1, 2, 3 }", null, .{}),
+    );
+
+    const Nested = struct { u8, u8, struct { u8, u8 } };
+
+    var ast = try std.zig.Ast.parse(gpa, ".{ 1, 2, .{ 3, 4 } }", .zon);
+    defer ast.deinit(gpa);
+
+    var zoir = try ZonGen.generate(gpa, ast, .{ .parse_str_lits = false });
+    defer zoir.deinit(gpa);
+
+    try std.testing.expectEqual(
+        Nested{ 1, 2, .{ 3, 4 } },
+        try fromZoirFlat(Nested, ast, zoir, null, .{}),
+    );
+
+    try std.testing.expectEqual(
+        Nested{ 1, 2, .{ 3, 4 } },
+        try fromZoirNodeFlat(Nested, ast, zoir, .root, null, .{}),
+    );
 }
