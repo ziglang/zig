@@ -8,25 +8,16 @@ vtable: *const VTable,
 pub const VTable = struct {
     /// Each slice in `data` is written in order.
     ///
-    /// Number of bytes actually written is returned.
-    ///
-    /// Number of bytes returned may be zero, which does not mean
-    /// end-of-stream. A subsequent call may return nonzero, or may signal end
-    /// of stream via an error.
-    writev: *const fn (context: *anyopaque, data: []const []const u8) anyerror!usize,
-
-    /// `headers_and_pattern` must have length of at least one. The last slice
-    /// is `pattern` which is the byte sequence to repeat `n` times. The rest
-    /// of the slices are headers to write before the pattern.
-    ///
-    /// When `n == 1`, this is equivalent to `writev`.
+    /// `data.len` must be greater than zero, and the last element of `data` is
+    /// special. It is repeated as necessary so that it is written `splat`
+    /// number of times.
     ///
     /// Number of bytes actually written is returned.
     ///
     /// Number of bytes returned may be zero, which does not mean
     /// end-of-stream. A subsequent call may return nonzero, or may signal end
     /// of stream via an error.
-    splat: *const fn (context: *anyopaque, headers_and_pattern: []const []const u8, n: usize) anyerror!usize,
+    writeSplat: *const fn (context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize,
 
     /// Writes contents from an open file. `headers` are written first, then `len`
     /// bytes of `file` starting from `offset`, then `trailers`.
@@ -67,7 +58,11 @@ pub const VTable = struct {
 };
 
 pub fn writev(w: Writer, data: []const []const u8) anyerror!usize {
-    return w.vtable.writev(w.context, data);
+    return w.vtable.writeSplat(w.context, data, 1);
+}
+
+pub fn writeSplat(w: Writer, data: []const []const u8, splat: usize) anyerror!usize {
+    return w.vtable.writeSplat(w.context, data, splat);
 }
 
 pub fn writeFile(
@@ -83,12 +78,12 @@ pub fn writeFile(
 
 pub fn write(w: Writer, bytes: []const u8) anyerror!usize {
     const single: [1][]const u8 = .{bytes};
-    return w.vtable.writev(w.context, &single);
+    return w.vtable.writeSplat(w.context, &single, 1);
 }
 
 pub fn writeAll(w: Writer, bytes: []const u8) anyerror!void {
     var index: usize = 0;
-    while (index < bytes.len) index += try write(w, bytes[index..]);
+    while (index < bytes.len) index += try w.vtable.writeSplat(w.context, &.{bytes[index..]}, 1);
 }
 
 ///// Directly calls `writeAll` many times to render the formatted text. To
@@ -102,7 +97,7 @@ pub fn writeAll(w: Writer, bytes: []const u8) anyerror!void {
 pub fn writevAll(w: Writer, data: [][]const u8) anyerror!void {
     var i: usize = 0;
     while (true) {
-        var n = try w.vtable.writev(w.context, data[i..]);
+        var n = try w.vtable.writeSplat(w.context, data[i..], 1);
         while (n >= data[i].len) {
             n -= data[i].len;
             i += 1;
