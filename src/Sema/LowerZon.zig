@@ -33,7 +33,7 @@ pub fn run(
     sema: *Sema,
     file: *File,
     file_index: Zcu.File.Index,
-    res_ty: InternPool.Index,
+    res_ty_interned: InternPool.Index,
     import_loc: LazySrcLoc,
     block: *Sema.Block,
 ) CompileError!InternPool.Index {
@@ -53,13 +53,63 @@ pub fn run(
         .base_node_inst = tracked_inst,
     };
 
-    try lower_zon.checkType(.fromInterned(res_ty));
-
-    return lower_zon.lowerExpr(.root, .fromInterned(res_ty));
+    if (res_ty_interned == .none) {
+        return lower_zon.lowerExprAnonResTy(.root);
+    } else {
+        const res_ty: Type = .fromInterned(res_ty_interned);
+        try lower_zon.checkType(res_ty);
+        return lower_zon.lowerExprKnownResTy(.root, res_ty);
+    }
 }
 
-/// Validate that `ty` is a valid ZON type. If not, emit a compile error.
-/// i.e. no nested optionals, no error sets, etc.
+fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!InternPool.Index {
+    const gpa = self.sema.gpa;
+    const ip = &self.sema.pt.zcu.intern_pool;
+    switch (node.get(self.file.zoir.?)) {
+        .true => return .bool_true,
+        .false => return .bool_false,
+        .null => return .null_value,
+        .pos_inf => return self.fail(node, "infinity requires a known result type", .{}),
+        .neg_inf => return self.fail(node, "negative infinity requires a known result type", .{}),
+        .nan => return self.fail(node, "nan requires a known result type", .{}),
+        .int_literal => |int| switch (int) {
+            .small => |val| return self.sema.pt.intern(.{ .int = .{
+                .ty = .comptime_int_type,
+                .storage = .{ .i64 = val },
+            } }),
+            .big => |val| return self.sema.pt.intern(.{ .int = .{
+                .ty = .comptime_int_type,
+                .storage = .{ .big_int = val },
+            } }),
+        },
+        .float_literal => |val| {
+            const result = try self.sema.pt.floatValue(.fromInterned(.comptime_float_type), val);
+            return result.toIntern();
+        },
+        .char_literal => |val| return self.sema.pt.intern(.{ .int = .{
+            .ty = .comptime_int_type,
+            .storage = .{ .i64 = val },
+        } }),
+        .enum_literal => |val| return self.sema.pt.intern(.{
+            .enum_literal = try ip.getOrPutString(
+                self.sema.gpa,
+                self.sema.pt.tid,
+                val.get(self.file.zoir.?),
+                .no_embedded_nulls,
+            ),
+        }),
+        .string_literal => |val| {
+            const ip_str = try ip.getOrPutString(gpa, self.sema.pt.tid, val, .maybe_embedded_nulls);
+            const result = try self.sema.addStrLit(ip_str, val.len);
+            return result.toInterned().?;
+        },
+        .empty_literal, .array_literal, .struct_literal => @panic("unimplemented"),
+    }
+}
+
+/// Validate that `ty` is a valid ZON type, or is `.none`. If it is not, emit a compile error.
+///
+/// Rules out nested optionals, error sets, etc.
 fn checkType(self: *LowerZon, ty: Type) !void {
     var visited: std.AutoHashMapUnmanaged(InternPool.Index, void) = .empty;
     try self.checkTypeInner(ty, null, &visited);
@@ -201,9 +251,9 @@ fn fail(
     return self.sema.failWithOwnedErrorMsg(self.block, err_msg);
 }
 
-fn lowerExpr(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) CompileError!InternPool.Index {
+fn lowerExprKnownResTy(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) CompileError!InternPool.Index {
     const pt = self.sema.pt;
-    return self.lowerExprInner(node, res_ty) catch |err| switch (err) {
+    return self.lowerExprKnownResTyInner(node, res_ty) catch |err| switch (err) {
         error.WrongType => return self.fail(
             node,
             "expected type '{}'",
@@ -213,7 +263,7 @@ fn lowerExpr(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) CompileError!
     };
 }
 
-fn lowerExprInner(
+fn lowerExprKnownResTyInner(
     self: *LowerZon,
     node: Zoir.Node.Index,
     res_ty: Type,
@@ -227,7 +277,7 @@ fn lowerExprInner(
                     break :b .none;
                 } else b: {
                     const child_type = res_ty.optionalChild(pt.zcu);
-                    break :b try self.lowerExprInner(node, child_type);
+                    break :b try self.lowerExprKnownResTyInner(node, child_type);
                 },
             },
         }),
@@ -239,7 +289,7 @@ fn lowerExprInner(
                     .base_addr = .{
                         .uav = .{
                             .orig_ty = res_ty.toIntern(),
-                            .val = try self.lowerExprInner(node, .fromInterned(ptr_info.child)),
+                            .val = try self.lowerExprKnownResTyInner(node, .fromInterned(ptr_info.child)),
                         },
                     },
                     .byte_offset = 0,
@@ -486,7 +536,7 @@ fn lowerArray(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
     );
 
     for (0..nodes.len) |i| {
-        elems[i] = try self.lowerExpr(nodes.at(@intCast(i)), array_info.elem_type);
+        elems[i] = try self.lowerExprKnownResTy(nodes.at(@intCast(i)), array_info.elem_type);
     }
 
     if (array_info.sentinel) |sentinel| {
@@ -587,7 +637,7 @@ fn lowerTuple(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
             );
         }
 
-        const val = try self.lowerExpr(elem_nodes.at(@intCast(i)), .fromInterned(field_types[i]));
+        const val = try self.lowerExprKnownResTy(elem_nodes.at(@intCast(i)), .fromInterned(field_types[i]));
 
         if (elems[i] != .none and val != elems[i]) {
             const elem_node = elem_nodes.at(@intCast(i));
@@ -650,7 +700,7 @@ fn lowerStruct(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool
         };
 
         const field_type: Type = .fromInterned(struct_info.field_types.get(ip)[name_index]);
-        field_values[name_index] = try self.lowerExpr(field_node, field_type);
+        field_values[name_index] = try self.lowerExprKnownResTy(field_node, field_type);
 
         if (struct_info.comptime_bits.getBit(ip, name_index)) {
             const val = ip.indexToKey(field_values[name_index]);
@@ -715,7 +765,7 @@ fn lowerSlice(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
     const elems = try self.sema.arena.alloc(InternPool.Index, elem_nodes.len + @intFromBool(ptr_info.sentinel != .none));
 
     for (elems, 0..) |*elem, i| {
-        elem.* = try self.lowerExpr(elem_nodes.at(@intCast(i)), .fromInterned(ptr_info.child));
+        elem.* = try self.lowerExprKnownResTy(elem_nodes.at(@intCast(i)), .fromInterned(ptr_info.child));
     }
 
     if (ptr_info.sentinel != .none) {
@@ -810,7 +860,7 @@ fn lowerUnion(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
         if (field_type.toIntern() == .void_type) {
             return self.fail(field_node, "expected type 'void'", .{});
         }
-        break :b try self.lowerExpr(field_node, field_type);
+        break :b try self.lowerExprKnownResTy(field_node, field_type);
     } else b: {
         if (field_type.toIntern() != .void_type) {
             return error.WrongType;
@@ -846,7 +896,7 @@ fn lowerVector(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool
     }
 
     for (elems, 0..) |*elem, i| {
-        elem.* = try self.lowerExpr(elem_nodes.at(@intCast(i)), .fromInterned(vector_info.child));
+        elem.* = try self.lowerExprKnownResTy(elem_nodes.at(@intCast(i)), .fromInterned(vector_info.child));
     }
 
     return self.sema.pt.intern(.{ .aggregate = .{
