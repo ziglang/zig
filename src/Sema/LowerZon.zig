@@ -138,7 +138,81 @@ fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!Inter
                 .storage = .{ .elems = values },
             } });
         },
-        .struct_literal => @panic("unimplemented"),
+        .struct_literal => |init| {
+            const struct_ty = switch (try ip.getStructType(
+                gpa,
+                pt.tid,
+                .{
+                    .layout = .auto,
+                    .fields_len = @intCast(init.names.len),
+                    .known_non_opv = false,
+                    .requires_comptime = .no,
+                    .any_comptime_fields = true,
+                    .any_default_inits = true,
+                    .inits_resolved = true,
+                    .any_aligned_fields = false,
+                    .key = .{ .reified = .{
+                        .zir_index = self.base_node_inst,
+                        .type_hash = @intFromEnum(node),
+                    } },
+                },
+                false,
+            )) {
+                .wip => |wip| ty: {
+                    errdefer wip.cancel(ip, pt.tid);
+                    wip.setName(ip, try self.sema.createTypeName(
+                        self.block,
+                        .anon,
+                        "struct",
+                        self.base_node_inst.resolve(ip),
+                        wip.index,
+                    ));
+
+                    const struct_type = ip.loadStructType(wip.index);
+
+                    for (init.names, 0..) |name, field_idx| {
+                        const name_interned = try ip.getOrPutString(
+                            gpa,
+                            pt.tid,
+                            name.get(self.file.zoir.?),
+                            .no_embedded_nulls,
+                        );
+                        assert(struct_type.addFieldName(ip, name_interned) == null);
+                        struct_type.setFieldComptime(ip, field_idx);
+                    }
+
+                    const values = struct_type.field_inits.get(ip);
+                    const types = struct_type.field_types.get(ip);
+                    for (0..init.names.len) |i| {
+                        values[i] = try self.lowerExprAnonResTy(init.vals.at(@intCast(i)));
+                        types[i] = Value.fromInterned(values[i]).typeOf(pt.zcu).toIntern();
+                    }
+
+                    const new_namespace_index = try pt.createNamespace(.{
+                        .parent = self.block.namespace.toOptional(),
+                        .owner_type = wip.index,
+                        .file_scope = self.block.getFileScopeIndex(pt.zcu),
+                        .generation = pt.zcu.generation,
+                    });
+                    try pt.zcu.comp.queueJob(.{ .resolve_type_fully = wip.index });
+                    codegen_type: {
+                        if (pt.zcu.comp.config.use_llvm) break :codegen_type;
+                        if (self.block.ownerModule().strip) break :codegen_type;
+                        try pt.zcu.comp.queueJob(.{ .codegen_type = wip.index });
+                    }
+                    break :ty wip.finish(ip, new_namespace_index);
+                },
+                .existing => |ty| ty,
+            };
+            try self.sema.declareDependency(.{ .interned = struct_ty });
+            try self.sema.addTypeReferenceEntry(self.nodeSrc(node), struct_ty);
+
+            const elems = ip.loadStructType(struct_ty).field_inits.get(ip);
+            return try pt.intern(.{ .aggregate = .{
+                .ty = struct_ty,
+                .storage = .{ .elems = elems },
+            } });
+        },
     }
 }
 
