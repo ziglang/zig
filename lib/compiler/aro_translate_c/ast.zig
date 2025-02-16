@@ -794,8 +794,8 @@ pub fn render(gpa: Allocator, nodes: []const Node) !std.zig.Ast {
     };
 
     ctx.nodes.items(.data)[0] = .{
-        .lhs = root_members.start,
-        .rhs = root_members.end,
+        .lhs = .{ .extra_index = root_members.start },
+        .rhs = .{ .extra_index = root_members.end },
     };
 
     try ctx.tokens.append(gpa, .{
@@ -814,15 +814,18 @@ pub fn render(gpa: Allocator, nodes: []const Node) !std.zig.Ast {
 }
 
 const NodeIndex = std.zig.Ast.Node.Index;
+const NodeOptionalIndex = std.zig.Ast.Node.OptionalIndex;
 const NodeSubRange = std.zig.Ast.Node.SubRange;
 const TokenIndex = std.zig.Ast.TokenIndex;
+const TokenOptionalIndex = std.zig.Ast.OptionalTokenIndex;
 const TokenTag = std.zig.Token.Tag;
+const ExtraIndex = std.zig.Ast.ExtraIndex;
 
 const Context = struct {
     gpa: Allocator,
     buf: std.ArrayList(u8),
     nodes: std.zig.Ast.NodeList = .{},
-    extra_data: std.ArrayListUnmanaged(std.zig.Ast.Node.Index) = .empty,
+    extra_data: std.ArrayListUnmanaged(u32) = .empty,
     tokens: std.zig.Ast.TokenList = .{},
 
     fn addTokenFmt(c: *Context, tag: TokenTag, comptime format: []const u8, args: anytype) Allocator.Error!TokenIndex {
@@ -834,7 +837,7 @@ const Context = struct {
             .start = @as(u32, @intCast(start_index)),
         });
 
-        return @as(u32, @intCast(c.tokens.len - 1));
+        return @intCast(c.tokens.len - 1);
     }
 
     fn addToken(c: *Context, tag: TokenTag, bytes: []const u8) Allocator.Error!TokenIndex {
@@ -848,28 +851,35 @@ const Context = struct {
     }
 
     fn listToSpan(c: *Context, list: []const NodeIndex) Allocator.Error!NodeSubRange {
-        try c.extra_data.appendSlice(c.gpa, list);
+        try c.extra_data.appendSlice(c.gpa, @ptrCast(list));
         return NodeSubRange{
-            .start = @as(NodeIndex, @intCast(c.extra_data.items.len - list.len)),
-            .end = @as(NodeIndex, @intCast(c.extra_data.items.len)),
+            .start = @enumFromInt(c.extra_data.items.len - list.len),
+            .end = @enumFromInt(c.extra_data.items.len),
         };
     }
 
     fn addNode(c: *Context, elem: std.zig.Ast.Node) Allocator.Error!NodeIndex {
-        const result = @as(NodeIndex, @intCast(c.nodes.len));
+        const result: NodeIndex = @enumFromInt(c.nodes.len);
         try c.nodes.append(c.gpa, elem);
         return result;
     }
 
-    fn addExtra(c: *Context, extra: anytype) Allocator.Error!NodeIndex {
+    fn addExtra(c: *Context, extra: anytype) Allocator.Error!std.zig.Ast.Node.Data.Item {
         const fields = std.meta.fields(@TypeOf(extra));
         try c.extra_data.ensureUnusedCapacity(c.gpa, fields.len);
-        const result = @as(u32, @intCast(c.extra_data.items.len));
+        const result: ExtraIndex = @enumFromInt(c.extra_data.items.len);
         inline for (fields) |field| {
-            comptime std.debug.assert(field.type == NodeIndex);
-            c.extra_data.appendAssumeCapacity(@field(extra, field.name));
+            switch (field.type) {
+                NodeIndex,
+                NodeOptionalIndex,
+                TokenIndex,
+                TokenOptionalIndex,
+                ExtraIndex,
+                => c.extra_data.appendAssumeCapacity(@intFromEnum(@field(extra, field.name))),
+                else => @compileError("unexpected field type"),
+            }
         }
-        return result;
+        return .{ .extra_index = result };
     }
 };
 
@@ -894,7 +904,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             try c.buf.append('\n');
             try c.buf.appendSlice(payload);
             try c.buf.append('\n');
-            return @as(NodeIndex, 0); // error: integer value 0 cannot be coerced to type 'std.mem.Allocator.Error!u32'
+            return @enumFromInt(0);
         },
         .helpers_cast => {
             const payload = node.castTag(.helpers_cast).?.data;
@@ -992,15 +1002,15 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             .tag = .@"continue",
             .main_token = try c.addToken(.keyword_continue, "continue"),
             .data = .{
-                .lhs = 0,
-                .rhs = undefined,
+                .lhs = .{ .opt_token = .none },
+                .rhs = .{ .opt_node = .none },
             },
         }),
         .return_void => return c.addNode(.{
             .tag = .@"return",
             .main_token = try c.addToken(.keyword_return, "return"),
             .data = .{
-                .lhs = 0,
+                .lhs = .{ .opt_node = .none },
                 .rhs = undefined,
             },
         }),
@@ -1008,8 +1018,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             .tag = .@"break",
             .main_token = try c.addToken(.keyword_break, "break"),
             .data = .{
-                .lhs = 0,
-                .rhs = 0,
+                .lhs = .{ .opt_token = .none },
+                .rhs = .{ .opt_node = .none },
             },
         }),
         .break_val => {
@@ -1018,13 +1028,13 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const break_label = if (payload.label) |some| blk: {
                 _ = try c.addToken(.colon, ":");
                 break :blk try c.addIdentifier(some);
-            } else 0;
+            } else null;
             return c.addNode(.{
                 .tag = .@"break",
                 .main_token = tok,
                 .data = .{
-                    .lhs = break_label,
-                    .rhs = try renderNode(c, payload.val),
+                    .lhs = .{ .opt_token = .fromOptional(break_label) },
+                    .rhs = .{ .opt_node = (try renderNode(c, payload.val)).toOptional() },
                 },
             });
         },
@@ -1034,7 +1044,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .@"return",
                 .main_token = try c.addToken(.keyword_return, "return"),
                 .data = .{
-                    .lhs = try renderNode(c, payload),
+                    .lhs = .{ .opt_node = (try renderNode(c, payload)).toOptional() },
                     .rhs = undefined,
                 },
             });
@@ -1045,7 +1055,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .@"comptime",
                 .main_token = try c.addToken(.keyword_comptime, "comptime"),
                 .data = .{
-                    .lhs = try renderNode(c, payload),
+                    .lhs = .{ .node = try renderNode(c, payload) },
                     .rhs = undefined,
                 },
             });
@@ -1057,7 +1067,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .main_token = try c.addToken(.keyword_defer, "defer"),
                 .data = .{
                     .lhs = undefined,
-                    .rhs = try renderNode(c, payload),
+                    .rhs = .{ .node = try renderNode(c, payload) },
                 },
             });
         },
@@ -1069,8 +1079,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .asm_simple,
                 .main_token = asm_token,
                 .data = .{
-                    .lhs = try renderNode(c, payload),
-                    .rhs = try c.addToken(.r_paren, ")"),
+                    .lhs = .{ .node = try renderNode(c, payload) },
+                    .rhs = .{ .token = try c.addToken(.r_paren, ")") },
                 },
             });
         },
@@ -1105,7 +1115,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .address_of,
                 .main_token = tok,
                 .data = .{
-                    .lhs = arg,
+                    .lhs = .{ .node = arg },
                     .rhs = undefined,
                 },
             });
@@ -1192,7 +1202,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .slice,
                 .main_token = l_bracket,
                 .data = .{
-                    .lhs = string,
+                    .lhs = .{ .node = string },
                     .rhs = try c.addExtra(std.zig.Ast.Node.Slice{
                         .start = start,
                         .end = end,
@@ -1221,8 +1231,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .builtin_call_two,
                 .main_token = compile_error_tok,
                 .data = .{
-                    .lhs = err_msg,
-                    .rhs = 0,
+                    .lhs = .{ .opt_node = err_msg.toOptional() },
+                    .rhs = .{ .opt_node = .none },
                 },
             });
             _ = try c.addToken(.semicolon, ";");
@@ -1231,8 +1241,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .simple_var_decl,
                 .main_token = const_tok,
                 .data = .{
-                    .lhs = 0,
-                    .rhs = compile_error,
+                    .lhs = .{ .opt_node = .none },
+                    .rhs = .{ .opt_node = compile_error.toOptional() },
                 },
             });
         },
@@ -1250,8 +1260,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .simple_var_decl,
                 .main_token = const_tok,
                 .data = .{
-                    .lhs = 0,
-                    .rhs = init,
+                    .lhs = .{ .opt_node = .none },
+                    .rhs = .{ .opt_node = init.toOptional() },
                 },
             });
         },
@@ -1269,8 +1279,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .container_decl_two_trailing,
                 .main_token = kind_tok,
                 .data = .{
-                    .lhs = try renderNode(c, payload.init),
-                    .rhs = 0,
+                    .lhs = .{ .opt_node = (try renderNode(c, payload.init)).toOptional() },
+                    .rhs = .{ .opt_node = .none },
                 },
             });
             _ = try c.addToken(.r_brace, "}");
@@ -1280,8 +1290,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .simple_var_decl,
                 .main_token = const_tok,
                 .data = .{
-                    .lhs = 0,
-                    .rhs = container_def,
+                    .lhs = .{ .opt_node = .none },
+                    .rhs = .{ .opt_node = container_def.toOptional() },
                 },
             });
         },
@@ -1299,8 +1309,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .container_decl_two_trailing,
                 .main_token = kind_tok,
                 .data = .{
-                    .lhs = try renderNode(c, payload.init),
-                    .rhs = 0,
+                    .lhs = .{ .opt_node = (try renderNode(c, payload.init)).toOptional() },
+                    .rhs = .{ .opt_node = .none },
                 },
             });
             _ = try c.addToken(.r_brace, "}");
@@ -1310,8 +1320,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .simple_var_decl,
                 .main_token = const_tok,
                 .data = .{
-                    .lhs = 0,
-                    .rhs = container_def,
+                    .lhs = .{ .opt_node = .none },
+                    .rhs = .{ .opt_node = container_def.toOptional() },
                 },
             });
         },
@@ -1325,7 +1335,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const deref = try c.addNode(.{
                 .tag = .deref,
                 .data = .{
-                    .lhs = try renderNodeGrouped(c, payload.init),
+                    .lhs = .{ .node = try renderNodeGrouped(c, payload.init) },
                     .rhs = undefined,
                 },
                 .main_token = try c.addToken(.period_asterisk, ".*"),
@@ -1335,7 +1345,10 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             return c.addNode(.{
                 .tag = .simple_var_decl,
                 .main_token = var_tok,
-                .data = .{ .lhs = 0, .rhs = deref },
+                .data = .{
+                    .lhs = .{ .opt_node = .none },
+                    .rhs = .{ .opt_node = deref.toOptional() },
+                },
             });
         },
         .var_decl => return renderVar(c, node),
@@ -1360,8 +1373,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .simple_var_decl,
                 .main_token = mut_tok,
                 .data = .{
-                    .lhs = 0,
-                    .rhs = init,
+                    .lhs = .{ .opt_node = .none },
+                    .rhs = .{ .opt_node = init.toOptional() },
                 },
             });
         },
@@ -1506,7 +1519,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .address_of,
                 .main_token = ampersand,
                 .data = .{
-                    .lhs = base,
+                    .lhs = .{ .node = base },
                     .rhs = undefined,
                 },
             });
@@ -1519,7 +1532,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .deref,
                 .main_token = deref_tok,
                 .data = .{
-                    .lhs = operand,
+                    .lhs = .{ .node = operand },
                     .rhs = undefined,
                 },
             });
@@ -1533,8 +1546,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .unwrap_optional,
                 .main_token = period,
                 .data = .{
-                    .lhs = operand,
-                    .rhs = question_mark,
+                    .lhs = .{ .node = operand },
+                    .rhs = .{ .token = question_mark },
                 },
             });
         },
@@ -1558,8 +1571,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .ptr_type_aligned,
                 .main_token = main_token,
                 .data = .{
-                    .lhs = 0,
-                    .rhs = elem_type,
+                    .lhs = .{ .opt_node = .none },
+                    .rhs = .{ .node = elem_type },
                 },
             });
         },
@@ -1607,8 +1620,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .block_two,
                 .main_token = l_brace,
                 .data = .{
-                    .lhs = 0,
-                    .rhs = 0,
+                    .lhs = .{ .opt_node = .none },
+                    .rhs = .{ .opt_node = .none },
                 },
             });
         },
@@ -1624,8 +1637,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .block_two_semicolon,
                 .main_token = l_brace,
                 .data = .{
-                    .lhs = stmt,
-                    .rhs = 0,
+                    .lhs = .{ .opt_node = stmt.toOptional() },
+                    .rhs = .{ .opt_node = .none },
                 },
             });
         },
@@ -1641,7 +1654,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             defer stmts.deinit();
             for (payload.stmts) |stmt| {
                 const res = try renderNode(c, stmt);
-                if (res == 0) continue;
+                if (@intFromEnum(res) == 0) continue;
                 try addSemicolonIfNeeded(c, stmt);
                 try stmts.append(res);
             }
@@ -1653,8 +1666,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = if (semicolon) .block_semicolon else .block,
                 .main_token = l_brace,
                 .data = .{
-                    .lhs = span.start,
-                    .rhs = span.end,
+                    .lhs = .{ .extra_index = span.start },
+                    .rhs = .{ .extra_index = span.end },
                 },
             });
         },
@@ -1662,7 +1675,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
         .pub_inline_fn => return renderMacroFunc(c, node),
         .discard => {
             const payload = node.castTag(.discard).?.data;
-            if (payload.should_skip) return @as(NodeIndex, 0);
+            if (payload.should_skip) return @enumFromInt(0);
 
             const lhs = try c.addNode(.{
                 .tag = .identifier,
@@ -1681,8 +1694,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                     .tag = .assign,
                     .main_token = main_token,
                     .data = .{
-                        .lhs = lhs,
-                        .rhs = try renderNode(c, addr_of),
+                        .lhs = .{ .node = lhs },
+                        .rhs = .{ .node = try renderNode(c, addr_of) },
                     },
                 });
             } else {
@@ -1690,8 +1703,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                     .tag = .assign,
                     .main_token = main_token,
                     .data = .{
-                        .lhs = lhs,
-                        .rhs = try renderNode(c, payload.value),
+                        .lhs = .{ .node = lhs },
+                        .rhs = .{ .node = try renderNode(c, payload.value) },
                     },
                 });
             }
@@ -1709,16 +1722,16 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 const res = try renderNode(c, some);
                 _ = try c.addToken(.r_paren, ")");
                 break :blk res;
-            } else 0;
+            } else null;
             const body = try renderNode(c, payload.body);
 
-            if (cont_expr == 0) {
+            if (cont_expr == null) {
                 return c.addNode(.{
                     .tag = .while_simple,
                     .main_token = while_tok,
                     .data = .{
-                        .lhs = cond,
-                        .rhs = body,
+                        .lhs = .{ .node = cond },
+                        .rhs = .{ .node = body },
                     },
                 });
             } else {
@@ -1726,9 +1739,9 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                     .tag = .while_cont,
                     .main_token = while_tok,
                     .data = .{
-                        .lhs = cond,
+                        .lhs = .{ .node = cond },
                         .rhs = try c.addExtra(std.zig.Ast.Node.WhileCont{
-                            .cont_expr = cont_expr,
+                            .cont_expr = cont_expr.?,
                             .then_expr = body,
                         }),
                     },
@@ -1751,8 +1764,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .while_simple,
                 .main_token = while_tok,
                 .data = .{
-                    .lhs = cond,
-                    .rhs = body,
+                    .lhs = .{ .node = cond },
+                    .rhs = .{ .node = body },
                 },
             });
         },
@@ -1768,8 +1781,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .if_simple,
                 .main_token = if_tok,
                 .data = .{
-                    .lhs = cond,
-                    .rhs = then_expr,
+                    .lhs = .{ .node = cond },
+                    .rhs = .{ .node = then_expr },
                 },
             });
             _ = try c.addToken(.keyword_else, "else");
@@ -1779,7 +1792,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .@"if",
                 .main_token = if_tok,
                 .data = .{
-                    .lhs = cond,
+                    .lhs = .{ .node = cond },
                     .rhs = try c.addExtra(std.zig.Ast.Node.If{
                         .then_expr = then_expr,
                         .else_expr = else_expr,
@@ -1795,7 +1808,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .bool_not,
                 .main_token = try c.addToken(.bang, "!"),
                 .data = .{
-                    .lhs = try renderNodeGrouped(c, payload),
+                    .lhs = .{ .node = try renderNodeGrouped(c, payload) },
                     .rhs = undefined,
                 },
             });
@@ -1804,8 +1817,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .@"break",
                 .main_token = try c.addToken(.keyword_break, "break"),
                 .data = .{
-                    .lhs = 0,
-                    .rhs = 0,
+                    .lhs = .{ .opt_token = .none },
+                    .rhs = .{ .opt_node = .none },
                 },
             });
 
@@ -1813,8 +1826,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .if_simple,
                 .main_token = if_tok,
                 .data = .{
-                    .lhs = cond,
-                    .rhs = then_expr,
+                    .lhs = .{ .node = cond },
+                    .rhs = .{ .node = then_expr },
                 },
             });
         },
@@ -1838,7 +1851,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .switch_comma,
                 .main_token = switch_tok,
                 .data = .{
-                    .lhs = cond,
+                    .lhs = .{ .node = cond },
                     .rhs = try c.addExtra(NodeSubRange{
                         .start = span.start,
                         .end = span.end,
@@ -1853,19 +1866,18 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .switch_case_one,
                 .main_token = try c.addToken(.equal_angle_bracket_right, "=>"),
                 .data = .{
-                    .lhs = 0,
-                    .rhs = try renderNode(c, payload),
+                    .lhs = .{ .opt_node = .none },
+                    .rhs = .{ .node = try renderNode(c, payload) },
                 },
             });
         },
         .switch_prong => {
             const payload = node.castTag(.switch_prong).?.data;
-            var items = try c.gpa.alloc(NodeIndex, @max(payload.cases.len, 1));
+            var items = try c.gpa.alloc(NodeIndex, payload.cases.len);
             defer c.gpa.free(items);
-            items[0] = 0;
-            for (payload.cases, 0..) |item, i| {
+            for (payload.cases, items, 0..) |case, *item, i| {
                 if (i != 0) _ = try c.addToken(.comma, ",");
-                items[i] = try renderNode(c, item);
+                item.* = try renderNode(c, case);
             }
             _ = try c.addToken(.r_brace, "}");
             if (items.len < 2) {
@@ -1873,8 +1885,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                     .tag = .switch_case_one,
                     .main_token = try c.addToken(.equal_angle_bracket_right, "=>"),
                     .data = .{
-                        .lhs = items[0],
-                        .rhs = try renderNode(c, payload.cond),
+                        .lhs = .{ .opt_node = if (items.len == 0) .none else items[0].toOptional() },
+                        .rhs = .{ .node = try renderNode(c, payload.cond) },
                     },
                 });
             } else {
@@ -1887,7 +1899,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                             .start = span.start,
                             .end = span.end,
                         }),
-                        .rhs = try renderNode(c, payload.cond),
+                        .rhs = .{ .node = try renderNode(c, payload.cond) },
                     },
                 });
             }
@@ -1901,8 +1913,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .container_decl_two,
                 .main_token = opaque_tok,
                 .data = .{
-                    .lhs = 0,
-                    .rhs = 0,
+                    .lhs = .{ .opt_node = .none },
+                    .rhs = .{ .opt_node = .none },
                 },
             });
         },
@@ -1916,8 +1928,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .array_access,
                 .main_token = l_bracket,
                 .data = .{
-                    .lhs = lhs,
-                    .rhs = index_expr,
+                    .lhs = .{ .node = lhs },
+                    .rhs = .{ .node = index_expr },
                 },
             });
         },
@@ -1941,20 +1953,20 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .array_init_one,
                 .main_token = l_brace,
                 .data = .{
-                    .lhs = type_expr,
-                    .rhs = val,
+                    .lhs = .{ .node = type_expr },
+                    .rhs = .{ .node = val },
                 },
             });
             return c.addNode(.{
                 .tag = .array_cat,
                 .main_token = try c.addToken(.asterisk_asterisk, "**"),
                 .data = .{
-                    .lhs = init,
-                    .rhs = try c.addNode(.{
+                    .lhs = .{ .node = init },
+                    .rhs = .{ .node = try c.addNode(.{
                         .tag = .number_literal,
                         .main_token = try c.addTokenFmt(.number_literal, "{d}", .{payload.count}),
                         .data = undefined,
-                    }),
+                    }) },
                 },
             });
         },
@@ -1989,7 +2001,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const type_node = if (payload.type) |enum_const_type| blk: {
                 _ = try c.addToken(.colon, ":");
                 break :blk try renderNode(c, enum_const_type);
-            } else 0;
+            } else null;
 
             _ = try c.addToken(.equal, "=");
 
@@ -2000,8 +2012,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .simple_var_decl,
                 .main_token = const_tok,
                 .data = .{
-                    .lhs = type_node,
-                    .rhs = init_node,
+                    .lhs = .{ .opt_node = .fromOptional(type_node) },
+                    .rhs = .{ .opt_node = init_node.toOptional() },
                 },
             });
         },
@@ -2009,10 +2021,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.tuple).?.data;
             _ = try c.addToken(.period, ".");
             const l_brace = try c.addToken(.l_brace, "{");
-            var inits = try c.gpa.alloc(NodeIndex, @max(payload.len, 2));
+            var inits = try c.gpa.alloc(NodeIndex, payload.len);
             defer c.gpa.free(inits);
-            inits[0] = 0;
-            inits[1] = 0;
             for (payload, 0..) |init, i| {
                 if (i != 0) _ = try c.addToken(.comma, ",");
                 inits[i] = try renderNode(c, init);
@@ -2023,8 +2033,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                     .tag = .array_init_dot_two,
                     .main_token = l_brace,
                     .data = .{
-                        .lhs = inits[0],
-                        .rhs = inits[1],
+                        .lhs = .{ .opt_node = if (inits.len < 1) .none else inits[0].toOptional() },
+                        .rhs = .{ .opt_node = if (inits.len < 2) .none else inits[1].toOptional() },
                     },
                 });
             } else {
@@ -2033,8 +2043,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                     .tag = .array_init_dot,
                     .main_token = l_brace,
                     .data = .{
-                        .lhs = span.start,
-                        .rhs = span.end,
+                        .lhs = .{ .extra_index = span.start },
+                        .rhs = .{ .extra_index = span.end },
                     },
                 });
             }
@@ -2043,10 +2053,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const payload = node.castTag(.container_init_dot).?.data;
             _ = try c.addToken(.period, ".");
             const l_brace = try c.addToken(.l_brace, "{");
-            var inits = try c.gpa.alloc(NodeIndex, @max(payload.len, 2));
+            var inits = try c.gpa.alloc(NodeIndex, payload.len);
             defer c.gpa.free(inits);
-            inits[0] = 0;
-            inits[1] = 0;
             for (payload, 0..) |init, i| {
                 _ = try c.addToken(.period, ".");
                 _ = try c.addIdentifier(init.name);
@@ -2061,8 +2069,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                     .tag = .struct_init_dot_two_comma,
                     .main_token = l_brace,
                     .data = .{
-                        .lhs = inits[0],
-                        .rhs = inits[1],
+                        .lhs = .{ .opt_node = if (inits.len < 1) .none else inits[0].toOptional() },
+                        .rhs = .{ .opt_node = if (inits.len < 2) .none else inits[1].toOptional() },
                     },
                 });
             } else {
@@ -2071,8 +2079,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                     .tag = .struct_init_dot_comma,
                     .main_token = l_brace,
                     .data = .{
-                        .lhs = span.start,
-                        .rhs = span.end,
+                        .lhs = .{ .extra_index = span.start },
+                        .rhs = .{ .extra_index = span.end },
                     },
                 });
             }
@@ -2082,9 +2090,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             const lhs = try renderNode(c, payload.lhs);
 
             const l_brace = try c.addToken(.l_brace, "{");
-            var inits = try c.gpa.alloc(NodeIndex, @max(payload.inits.len, 1));
+            var inits = try c.gpa.alloc(NodeIndex, payload.inits.len);
             defer c.gpa.free(inits);
-            inits[0] = 0;
             for (payload.inits, 0..) |init, i| {
                 _ = try c.addToken(.period, ".");
                 _ = try c.addIdentifier(init.name);
@@ -2099,16 +2106,16 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                     .tag = .struct_init_one,
                     .main_token = l_brace,
                     .data = .{
-                        .lhs = lhs,
-                        .rhs = 0,
+                        .lhs = .{ .node = lhs },
+                        .rhs = .{ .opt_node = .none },
                     },
                 }),
                 1 => c.addNode(.{
                     .tag = .struct_init_one_comma,
                     .main_token = l_brace,
                     .data = .{
-                        .lhs = lhs,
-                        .rhs = inits[0],
+                        .lhs = .{ .node = lhs },
+                        .rhs = .{ .opt_node = inits[0].toOptional() },
                     },
                 }),
                 else => blk: {
@@ -2117,7 +2124,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                         .tag = .struct_init_comma,
                         .main_token = l_brace,
                         .data = .{
-                            .lhs = lhs,
+                            .lhs = .{ .node = lhs },
                             .rhs = try c.addExtra(NodeSubRange{
                                 .start = span.start,
                                 .end = span.end,
@@ -2147,10 +2154,8 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
     const num_vars = payload.variables.len;
     const num_funcs = payload.functions.len;
     const total_members = payload.fields.len + num_vars + num_funcs;
-    const members = try c.gpa.alloc(NodeIndex, @max(total_members, 2));
+    const members = try c.gpa.alloc(NodeIndex, total_members);
     defer c.gpa.free(members);
-    members[0] = 0;
-    members[1] = 0;
 
     for (payload.fields, 0..) |field, i| {
         const name_tok = try c.addTokenFmt(.identifier, "{p}", .{std.zig.fmtId(field.name)});
@@ -2167,35 +2172,35 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
             });
             _ = try c.addToken(.r_paren, ")");
             break :blk align_expr;
-        } else 0;
+        } else null;
 
         const value_expr = if (field.default_value) |value| blk: {
             _ = try c.addToken(.equal, "=");
             break :blk try renderNode(c, value);
-        } else 0;
+        } else null;
 
-        members[i] = try c.addNode(if (align_expr == 0) .{
+        members[i] = try c.addNode(if (align_expr == null) .{
             .tag = .container_field_init,
             .main_token = name_tok,
             .data = .{
-                .lhs = type_expr,
-                .rhs = value_expr,
+                .lhs = .{ .node = type_expr },
+                .rhs = .{ .opt_node = .fromOptional(value_expr) },
             },
-        } else if (value_expr == 0) .{
+        } else if (value_expr == null) .{
             .tag = .container_field_align,
             .main_token = name_tok,
             .data = .{
-                .lhs = type_expr,
-                .rhs = align_expr,
+                .lhs = .{ .node = type_expr },
+                .rhs = .{ .node = align_expr.? },
             },
         } else .{
             .tag = .container_field,
             .main_token = name_tok,
             .data = .{
-                .lhs = type_expr,
+                .lhs = .{ .node = type_expr },
                 .rhs = try c.addExtra(std.zig.Ast.Node.ContainerField{
-                    .align_expr = align_expr,
-                    .value_expr = value_expr,
+                    .align_expr = align_expr.?,
+                    .value_expr = value_expr.?,
                 }),
             },
         });
@@ -2214,8 +2219,8 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
             .tag = .container_decl_two,
             .main_token = kind_tok,
             .data = .{
-                .lhs = 0,
-                .rhs = 0,
+                .lhs = .{ .opt_node = .none },
+                .rhs = .{ .opt_node = .none },
             },
         });
     } else if (total_members <= 2) {
@@ -2223,8 +2228,8 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
             .tag = if (num_funcs == 0) .container_decl_two_trailing else .container_decl_two,
             .main_token = kind_tok,
             .data = .{
-                .lhs = members[0],
-                .rhs = members[1],
+                .lhs = .{ .opt_node = if (members.len < 1) .none else members[0].toOptional() },
+                .rhs = .{ .opt_node = if (members.len < 2) .none else members[1].toOptional() },
             },
         });
     } else {
@@ -2233,8 +2238,8 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
             .tag = if (num_funcs == 0) .container_decl_trailing else .container_decl,
             .main_token = kind_tok,
             .data = .{
-                .lhs = span.start,
-                .rhs = span.end,
+                .lhs = .{ .extra_index = span.start },
+                .rhs = .{ .extra_index = span.end },
             },
         });
     }
@@ -2245,44 +2250,52 @@ fn renderFieldAccess(c: *Context, lhs: NodeIndex, field_name: []const u8) !NodeI
         .tag = .field_access,
         .main_token = try c.addToken(.period, "."),
         .data = .{
-            .lhs = lhs,
-            .rhs = try c.addTokenFmt(.identifier, "{p}", .{std.zig.fmtId(field_name)}),
+            .lhs = .{ .node = lhs },
+            .rhs = .{ .token = try c.addTokenFmt(.identifier, "{p}", .{std.zig.fmtId(field_name)}) },
         },
     });
 }
 
 fn renderArrayInit(c: *Context, lhs: NodeIndex, inits: []const Node) !NodeIndex {
     const l_brace = try c.addToken(.l_brace, "{");
-    var rendered = try c.gpa.alloc(NodeIndex, @max(inits.len, 1));
+    var rendered = try c.gpa.alloc(NodeIndex, inits.len);
     defer c.gpa.free(rendered);
-    rendered[0] = 0;
     for (inits, 0..) |init, i| {
         rendered[i] = try renderNode(c, init);
         _ = try c.addToken(.comma, ",");
     }
     _ = try c.addToken(.r_brace, "}");
-    if (inits.len < 2) {
-        return c.addNode(.{
+    switch (inits.len) {
+        0 => return c.addNode(.{
+            .tag = .struct_init_one,
+            .main_token = l_brace,
+            .data = .{
+                .lhs = .{ .node = lhs },
+                .rhs = .{ .opt_node = .none },
+            },
+        }),
+        1 => return c.addNode(.{
             .tag = .array_init_one_comma,
             .main_token = l_brace,
             .data = .{
-                .lhs = lhs,
-                .rhs = rendered[0],
+                .lhs = .{ .node = lhs },
+                .rhs = .{ .node = rendered[0] },
             },
-        });
-    } else {
-        const span = try c.listToSpan(rendered);
-        return c.addNode(.{
-            .tag = .array_init_comma,
-            .main_token = l_brace,
-            .data = .{
-                .lhs = lhs,
-                .rhs = try c.addExtra(NodeSubRange{
-                    .start = span.start,
-                    .end = span.end,
-                }),
-            },
-        });
+        }),
+        else => {
+            const span = try c.listToSpan(rendered);
+            return c.addNode(.{
+                .tag = .array_init_comma,
+                .main_token = l_brace,
+                .data = .{
+                    .lhs = .{ .node = lhs },
+                    .rhs = try c.addExtra(NodeSubRange{
+                        .start = span.start,
+                        .end = span.end,
+                    }),
+                },
+            });
+        },
     }
 }
 
@@ -2299,8 +2312,8 @@ fn renderArrayType(c: *Context, len: usize, elem_type: Node) !NodeIndex {
         .tag = .array_type,
         .main_token = l_bracket,
         .data = .{
-            .lhs = len_expr,
-            .rhs = elem_type_expr,
+            .lhs = .{ .node = len_expr },
+            .rhs = .{ .node = elem_type_expr },
         },
     });
 }
@@ -2326,7 +2339,7 @@ fn renderNullSentinelArrayType(c: *Context, len: usize, elem_type: Node) !NodeIn
         .tag = .array_type_sentinel,
         .main_token = l_bracket,
         .data = .{
-            .lhs = len_expr,
+            .lhs = .{ .node = len_expr },
             .rhs = try c.addExtra(std.zig.Ast.Node.ArrayTypeSentinel{
                 .sentinel = sentinel_expr,
                 .elem_type = elem_type_expr,
@@ -2483,8 +2496,8 @@ fn renderNodeGrouped(c: *Context, node: Node) !NodeIndex {
             .tag = .grouped_expression,
             .main_token = try c.addToken(.l_paren, "("),
             .data = .{
-                .lhs = try renderNode(c, node),
-                .rhs = try c.addToken(.r_paren, ")"),
+                .lhs = .{ .node = try renderNode(c, node) },
+                .rhs = .{ .token = try c.addToken(.r_paren, ")") },
             },
         }),
         .ellipsis3,
@@ -2540,7 +2553,7 @@ fn renderPrefixOp(c: *Context, node: Node, tag: std.zig.Ast.Node.Tag, tok_tag: T
         .tag = tag,
         .main_token = try c.addToken(tok_tag, bytes),
         .data = .{
-            .lhs = try renderNodeGrouped(c, payload),
+            .lhs = .{ .node = try renderNodeGrouped(c, payload) },
             .rhs = undefined,
         },
     });
@@ -2553,8 +2566,8 @@ fn renderBinOpGrouped(c: *Context, node: Node, tag: std.zig.Ast.Node.Tag, tok_ta
         .tag = tag,
         .main_token = try c.addToken(tok_tag, bytes),
         .data = .{
-            .lhs = lhs,
-            .rhs = try renderNodeGrouped(c, payload.rhs),
+            .lhs = .{ .node = lhs },
+            .rhs = .{ .node = try renderNodeGrouped(c, payload.rhs) },
         },
     });
 }
@@ -2566,8 +2579,8 @@ fn renderBinOp(c: *Context, node: Node, tag: std.zig.Ast.Node.Tag, tok_tag: Toke
         .tag = tag,
         .main_token = try c.addToken(tok_tag, bytes),
         .data = .{
-            .lhs = lhs,
-            .rhs = try renderNode(c, payload.rhs),
+            .lhs = .{ .node = lhs },
+            .rhs = .{ .node = try renderNode(c, payload.rhs) },
         },
     });
 }
@@ -2587,8 +2600,8 @@ fn renderStdImport(c: *Context, parts: []const []const u8) !NodeIndex {
         .tag = .builtin_call_two,
         .main_token = import_tok,
         .data = .{
-            .lhs = std_node,
-            .rhs = 0,
+            .lhs = .{ .opt_node = std_node.toOptional() },
+            .rhs = .{ .opt_node = .none },
         },
     });
 
@@ -2606,8 +2619,8 @@ fn renderCall(c: *Context, lhs: NodeIndex, args: []const Node) !NodeIndex {
             .tag = .call_one,
             .main_token = lparen,
             .data = .{
-                .lhs = lhs,
-                .rhs = 0,
+                .lhs = .{ .node = lhs },
+                .rhs = .{ .opt_node = .none },
             },
         }),
         1 => blk: {
@@ -2616,8 +2629,8 @@ fn renderCall(c: *Context, lhs: NodeIndex, args: []const Node) !NodeIndex {
                 .tag = .call_one,
                 .main_token = lparen,
                 .data = .{
-                    .lhs = lhs,
-                    .rhs = arg,
+                    .lhs = .{ .node = lhs },
+                    .rhs = .{ .opt_node = arg.toOptional() },
                 },
             });
         },
@@ -2634,7 +2647,7 @@ fn renderCall(c: *Context, lhs: NodeIndex, args: []const Node) !NodeIndex {
                 .tag = .call,
                 .main_token = lparen,
                 .data = .{
-                    .lhs = lhs,
+                    .lhs = .{ .node = lhs },
                     .rhs = try c.addExtra(NodeSubRange{
                         .start = span.start,
                         .end = span.end,
@@ -2650,10 +2663,10 @@ fn renderCall(c: *Context, lhs: NodeIndex, args: []const Node) !NodeIndex {
 fn renderBuiltinCall(c: *Context, builtin: []const u8, args: []const Node) !NodeIndex {
     const builtin_tok = try c.addToken(.builtin, builtin);
     _ = try c.addToken(.l_paren, "(");
-    var arg_1: NodeIndex = 0;
-    var arg_2: NodeIndex = 0;
-    var arg_3: NodeIndex = 0;
-    var arg_4: NodeIndex = 0;
+    var arg_1: NodeIndex = undefined;
+    var arg_2: NodeIndex = undefined;
+    var arg_3: NodeIndex = undefined;
+    var arg_4: NodeIndex = undefined;
     switch (args.len) {
         0 => {},
         1 => {
@@ -2682,8 +2695,8 @@ fn renderBuiltinCall(c: *Context, builtin: []const u8, args: []const Node) !Node
             .tag = .builtin_call_two,
             .main_token = builtin_tok,
             .data = .{
-                .lhs = arg_1,
-                .rhs = arg_2,
+                .lhs = .{ .opt_node = if (args.len < 1) .none else arg_1.toOptional() },
+                .rhs = .{ .opt_node = if (args.len < 2) .none else arg_2.toOptional() },
             },
         });
     } else {
@@ -2694,8 +2707,8 @@ fn renderBuiltinCall(c: *Context, builtin: []const u8, args: []const Node) !Node
             .tag = .builtin_call,
             .main_token = builtin_tok,
             .data = .{
-                .lhs = params.start,
-                .rhs = params.end,
+                .lhs = .{ .extra_index = params.start },
+                .rhs = .{ .extra_index = params.end },
             },
         });
     }
@@ -2725,7 +2738,7 @@ fn renderVar(c: *Context, node: Node) !NodeIndex {
         });
         _ = try c.addToken(.r_paren, ")");
         break :blk res;
-    } else 0;
+    } else null;
 
     const section_node = if (payload.linksection_string) |some| blk: {
         _ = try c.addToken(.keyword_linksection, "linksection");
@@ -2737,22 +2750,22 @@ fn renderVar(c: *Context, node: Node) !NodeIndex {
         });
         _ = try c.addToken(.r_paren, ")");
         break :blk res;
-    } else 0;
+    } else null;
 
     const init_node = if (payload.init) |some| blk: {
         _ = try c.addToken(.equal, "=");
         break :blk try renderNode(c, some);
-    } else 0;
+    } else null;
     _ = try c.addToken(.semicolon, ";");
 
-    if (section_node == 0) {
-        if (align_node == 0) {
+    if (section_node == null) {
+        if (align_node == null) {
             return c.addNode(.{
                 .tag = .simple_var_decl,
                 .main_token = mut_tok,
                 .data = .{
-                    .lhs = type_node,
-                    .rhs = init_node,
+                    .lhs = .{ .opt_node = type_node.toOptional() },
+                    .rhs = .{ .opt_node = .fromOptional(init_node) },
                 },
             });
         } else {
@@ -2762,9 +2775,9 @@ fn renderVar(c: *Context, node: Node) !NodeIndex {
                 .data = .{
                     .lhs = try c.addExtra(std.zig.Ast.Node.LocalVarDecl{
                         .type_node = type_node,
-                        .align_node = align_node,
+                        .align_node = align_node.?,
                     }),
-                    .rhs = init_node,
+                    .rhs = .{ .opt_node = .fromOptional(init_node) },
                 },
             });
         }
@@ -2774,12 +2787,12 @@ fn renderVar(c: *Context, node: Node) !NodeIndex {
             .main_token = mut_tok,
             .data = .{
                 .lhs = try c.addExtra(std.zig.Ast.Node.GlobalVarDecl{
-                    .type_node = type_node,
-                    .align_node = align_node,
-                    .section_node = section_node,
-                    .addrspace_node = 0,
+                    .type_node = type_node.toOptional(),
+                    .align_node = .fromOptional(align_node),
+                    .section_node = .fromOptional(section_node),
+                    .addrspace_node = .none,
                 }),
-                .rhs = init_node,
+                .rhs = .{ .opt_node = .fromOptional(init_node) },
             },
         });
     }
@@ -2809,7 +2822,7 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
         });
         _ = try c.addToken(.r_paren, ")");
         break :blk res;
-    } else 0;
+    } else null;
 
     const section_expr = if (payload.linksection_string) |some| blk: {
         _ = try c.addToken(.keyword_linksection, "linksection");
@@ -2821,7 +2834,7 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
         });
         _ = try c.addToken(.r_paren, ")");
         break :blk res;
-    } else 0;
+    } else null;
 
     const callconv_expr = if (payload.explicit_callconv) |some| blk: {
         _ = try c.addToken(.keyword_callconv, "callconv");
@@ -2856,35 +2869,39 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
                 const inner_lbrace = try c.addToken(.l_brace, "{");
                 _ = try c.addToken(.r_brace, "}");
                 _ = try c.addToken(.r_brace, "}");
+                const inner_node = try c.addNode(.{
+                    .tag = .struct_init_dot_two,
+                    .main_token = inner_lbrace,
+                    .data = .{
+                        .lhs = .{ .opt_node = .none },
+                        .rhs = .{ .opt_node = .none },
+                    },
+                });
                 break :cc_node try c.addNode(.{
                     .tag = .struct_init_dot_two,
                     .main_token = outer_lbrace,
                     .data = .{
-                        .lhs = try c.addNode(.{
-                            .tag = .struct_init_dot_two,
-                            .main_token = inner_lbrace,
-                            .data = .{ .lhs = 0, .rhs = 0 },
-                        }),
-                        .rhs = 0,
+                        .lhs = .{ .opt_node = inner_node.toOptional() },
+                        .rhs = .{ .opt_node = .none },
                     },
                 });
             },
         };
         _ = try c.addToken(.r_paren, ")");
         break :blk cc_node;
-    } else 0;
+    } else null;
 
     const return_type_expr = try renderNode(c, payload.return_type);
 
     const fn_proto = try blk: {
-        if (align_expr == 0 and section_expr == 0 and callconv_expr == 0) {
+        if (align_expr == null and section_expr == null and callconv_expr == null) {
             if (params.items.len < 2)
                 break :blk c.addNode(.{
                     .tag = .fn_proto_simple,
                     .main_token = fn_token,
                     .data = .{
-                        .lhs = params.items[0],
-                        .rhs = return_type_expr,
+                        .lhs = .{ .opt_node = if (params.items.len == 0) .none else params.items[0].toOptional() },
+                        .rhs = .{ .opt_node = return_type_expr.toOptional() },
                     },
                 })
             else
@@ -2896,7 +2913,7 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
                             .start = span.start,
                             .end = span.end,
                         }),
-                        .rhs = return_type_expr,
+                        .rhs = .{ .opt_node = return_type_expr.toOptional() },
                     },
                 });
         }
@@ -2906,13 +2923,13 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
                 .main_token = fn_token,
                 .data = .{
                     .lhs = try c.addExtra(std.zig.Ast.Node.FnProtoOne{
-                        .param = params.items[0],
-                        .align_expr = align_expr,
-                        .addrspace_expr = 0, // TODO
-                        .section_expr = section_expr,
-                        .callconv_expr = callconv_expr,
+                        .param = if (params.items.len == 0) .none else params.items[0].toOptional(),
+                        .align_expr = .fromOptional(align_expr),
+                        .addrspace_expr = .none, // TODO
+                        .section_expr = .fromOptional(section_expr),
+                        .callconv_expr = .fromOptional(callconv_expr),
                     }),
-                    .rhs = return_type_expr,
+                    .rhs = .{ .opt_node = return_type_expr.toOptional() },
                 },
             })
         else
@@ -2923,12 +2940,12 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
                     .lhs = try c.addExtra(std.zig.Ast.Node.FnProto{
                         .params_start = span.start,
                         .params_end = span.end,
-                        .align_expr = align_expr,
-                        .addrspace_expr = 0, // TODO
-                        .section_expr = section_expr,
-                        .callconv_expr = callconv_expr,
+                        .align_expr = .fromOptional(align_expr),
+                        .addrspace_expr = .none, // TODO
+                        .section_expr = .fromOptional(section_expr),
+                        .callconv_expr = .fromOptional(callconv_expr),
                     }),
-                    .rhs = return_type_expr,
+                    .rhs = .{ .opt_node = return_type_expr.toOptional() },
                 },
             });
     };
@@ -2944,8 +2961,8 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
         .tag = .fn_decl,
         .main_token = fn_token,
         .data = .{
-            .lhs = fn_proto,
-            .rhs = body,
+            .lhs = .{ .node = fn_proto },
+            .rhs = .{ .node = body },
         },
     });
 }
@@ -2959,8 +2976,6 @@ fn renderMacroFunc(c: *Context, node: Node) !NodeIndex {
 
     const params = try renderParams(c, payload.params, false);
     defer params.deinit();
-    var span: NodeSubRange = undefined;
-    if (params.items.len > 1) span = try c.listToSpan(params.items);
 
     const return_type_expr = try renderNodeGrouped(c, payload.return_type);
 
@@ -2970,11 +2985,12 @@ fn renderMacroFunc(c: *Context, node: Node) !NodeIndex {
                 .tag = .fn_proto_simple,
                 .main_token = fn_token,
                 .data = .{
-                    .lhs = params.items[0],
-                    .rhs = return_type_expr,
+                    .lhs = .{ .opt_node = if (params.items.len == 0) .none else params.items[0].toOptional() },
+                    .rhs = .{ .opt_node = return_type_expr.toOptional() },
                 },
             });
         } else {
+            const span: NodeSubRange = try c.listToSpan(params.items);
             break :blk try c.addNode(.{
                 .tag = .fn_proto_multi,
                 .main_token = fn_token,
@@ -2983,7 +2999,7 @@ fn renderMacroFunc(c: *Context, node: Node) !NodeIndex {
                         .start = span.start,
                         .end = span.end,
                     }),
-                    .rhs = return_type_expr,
+                    .rhs = .{ .opt_node = return_type_expr.toOptional() },
                 },
             });
         }
@@ -2992,15 +3008,15 @@ fn renderMacroFunc(c: *Context, node: Node) !NodeIndex {
         .tag = .fn_decl,
         .main_token = fn_token,
         .data = .{
-            .lhs = fn_proto,
-            .rhs = try renderNode(c, payload.body),
+            .lhs = .{ .node = fn_proto },
+            .rhs = .{ .node = try renderNode(c, payload.body) },
         },
     });
 }
 
 fn renderParams(c: *Context, params: []Payload.Param, is_var_args: bool) !std.ArrayList(NodeIndex) {
     _ = try c.addToken(.l_paren, "(");
-    var rendered = try std.ArrayList(NodeIndex).initCapacity(c.gpa, @max(params.len, 1));
+    var rendered = try std.ArrayList(NodeIndex).initCapacity(c.gpa, params.len);
     errdefer rendered.deinit();
 
     for (params, 0..) |param, i| {
@@ -3022,6 +3038,5 @@ fn renderParams(c: *Context, params: []Payload.Param, is_var_args: bool) !std.Ar
     }
     _ = try c.addToken(.r_paren, ")");
 
-    if (rendered.items.len == 0) rendered.appendAssumeCapacity(0);
     return rendered;
 }

@@ -220,7 +220,7 @@ pub fn main() !void {
                             mem.eql(u8, msg, "unused function parameter") or
                             mem.eql(u8, msg, "unused capture"))
                         {
-                            const ident_token = item.data.token;
+                            const ident_token = item.data.token.unwrap().?;
                             try more_fixups.unused_var_decls.put(gpa, ident_token, {});
                         } else {
                             std.debug.print("found other ZIR error: '{s}'\n", .{msg});
