@@ -99,7 +99,7 @@ pub fn build(b: *std.Build) void {
             }),
         });
 
-        exe.linkLibrary(c_shared_lib);
+        exe.root_module.linkLibrary(c_shared_lib);
 
         const run_cmd = b.addRunArtifact(exe);
         test_step.dependOn(&run_cmd.step);
