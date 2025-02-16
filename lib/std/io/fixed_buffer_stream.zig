@@ -16,9 +16,11 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         pub const WriteError = error{NoSpaceLeft};
         pub const SeekError = error{};
         pub const GetSeekPosError = error{};
+        pub const PeekError = error{};
 
         pub const Reader = io.Reader(*Self, ReadError, read);
         pub const Writer = io.Writer(*Self, WriteError, write);
+        pub const GenericPeeker = io.GenericPeeker(*Self, PeekError, peek);
 
         pub const SeekableStream = io.SeekableStream(
             *Self,
@@ -44,14 +46,23 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             return .{ .context = self };
         }
 
+        pub fn peeker(self: *Self) GenericPeeker {
+            return .{ .context = self };
+        }
+
+        pub fn peek(self: *Self, dest: []u8) PeekError!usize {
+            const len = @min(dest.len, self.buffer.len - self.pos);
+            const end = self.pos + len;
+
+            @memcpy(dest[0..len], self.buffer[self.pos..end]);
+
+            return len;
+        }
+
         pub fn read(self: *Self, dest: []u8) ReadError!usize {
-            const size = @min(dest.len, self.buffer.len - self.pos);
-            const end = self.pos + size;
-
-            @memcpy(dest[0..size], self.buffer[self.pos..end]);
-            self.pos = end;
-
-            return size;
+            const len = try self.peek(dest);
+            self.pos += len;
+            return len;
         }
 
         /// If the returned number of bytes written is less than requested, the
@@ -195,4 +206,21 @@ test "input" {
     try fbs.seekTo((try fbs.getEndPos()) + 1);
     read = try fbs.reader().read(&dest);
     try testing.expect(read == 0);
+}
+test "peek" {
+    const bytes = [_]u8{ 1, 2, 3, 4, 5, 6, 7 };
+    var fbs = fixedBufferStream(&bytes);
+
+    var dest: [4]u8 = undefined;
+
+    try std.testing.expectEqual(try fbs.peek(dest[0..4]), 4);
+    try std.testing.expectEqualStrings(bytes[0..4], dest[0..4]);
+
+    try std.testing.expectEqual(try fbs.read(dest[0..4]), 4);
+
+    try std.testing.expectEqual(try fbs.peek(dest[0..2]), 2);
+    try std.testing.expectEqualStrings(bytes[4..][0..2], dest[0..2]);
+
+    try std.testing.expectEqual(try fbs.peek(dest[0..4]), 3);
+    try std.testing.expectEqualStrings(bytes[4..][0..3], dest[0..3]);
 }
