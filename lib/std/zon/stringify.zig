@@ -40,15 +40,12 @@ pub const SerializeOptions = struct {
 /// Serialize the given value as ZON.
 ///
 /// It is asserted at comptime that `@TypeOf(val)` is not a recursive type.
-pub fn serialize(
-    val: anytype,
-    options: SerializeOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
-    var sz = serializer(writer, .{
-        .whitespace = options.whitespace,
-    });
-    try sz.value(val, .{
+pub fn serialize(val: anytype, options: SerializeOptions, writer: *std.io.BufferedWriter) anyerror!void {
+    var s: Serializer = .{
+        .writer = writer,
+        .options = .{ .whitespace = options.whitespace },
+    };
+    try s.value(val, .{
         .emit_codepoint_literals = options.emit_codepoint_literals,
         .emit_strings_as_containers = options.emit_strings_as_containers,
         .emit_default_optional_fields = options.emit_default_optional_fields,
@@ -62,13 +59,14 @@ pub fn serialize(
 pub fn serializeMaxDepth(
     val: anytype,
     options: SerializeOptions,
-    writer: anytype,
+    writer: *std.io.BufferedWriter,
     depth: usize,
-) (@TypeOf(writer).Error || error{ExceededMaxDepth})!void {
-    var sz = serializer(writer, .{
-        .whitespace = options.whitespace,
-    });
-    try sz.valueMaxDepth(val, .{
+) anyerror!void {
+    var s: Serializer = .{
+        .writer = writer,
+        .options = .{ .whitespace = options.whitespace },
+    };
+    try s.valueMaxDepth(val, .{
         .emit_codepoint_literals = options.emit_codepoint_literals,
         .emit_strings_as_containers = options.emit_strings_as_containers,
         .emit_default_optional_fields = options.emit_default_optional_fields,
@@ -81,44 +79,45 @@ pub fn serializeMaxDepth(
 pub fn serializeArbitraryDepth(
     val: anytype,
     options: SerializeOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
-    var sz = serializer(writer, .{
-        .whitespace = options.whitespace,
-    });
-    try sz.valueArbitraryDepth(val, .{
+    writer: *std.io.BufferedWriter,
+) anyerror!void {
+    var s: Serializer = .{
+        .writer = writer,
+        .options = .{ .whitespace = options.whitespace },
+    };
+    try s.valueArbitraryDepth(val, .{
         .emit_codepoint_literals = options.emit_codepoint_literals,
         .emit_strings_as_containers = options.emit_strings_as_containers,
         .emit_default_optional_fields = options.emit_default_optional_fields,
     });
 }
 
-fn typeIsRecursive(comptime T: type) bool {
-    return comptime typeIsRecursiveImpl(T, &.{});
+inline fn typeIsRecursive(comptime T: type) bool {
+    return comptime typeIsRecursiveInner(T, &.{});
 }
 
-fn typeIsRecursiveImpl(comptime T: type, comptime prev_visited: []const type) bool {
+fn typeIsRecursiveInner(comptime T: type, comptime prev_visited: []const type) bool {
     for (prev_visited) |V| {
         if (V == T) return true;
     }
     const visited = prev_visited ++ .{T};
 
     return switch (@typeInfo(T)) {
-        .pointer => |pointer| typeIsRecursiveImpl(pointer.child, visited),
-        .optional => |optional| typeIsRecursiveImpl(optional.child, visited),
-        .array => |array| typeIsRecursiveImpl(array.child, visited),
-        .vector => |vector| typeIsRecursiveImpl(vector.child, visited),
+        .pointer => |pointer| typeIsRecursiveInner(pointer.child, visited),
+        .optional => |optional| typeIsRecursiveInner(optional.child, visited),
+        .array => |array| typeIsRecursiveInner(array.child, visited),
+        .vector => |vector| typeIsRecursiveInner(vector.child, visited),
         .@"struct" => |@"struct"| for (@"struct".fields) |field| {
-            if (typeIsRecursiveImpl(field.type, visited)) break true;
+            if (typeIsRecursiveInner(field.type, visited)) break true;
         } else false,
         .@"union" => |@"union"| inline for (@"union".fields) |field| {
-            if (typeIsRecursiveImpl(field.type, visited)) break true;
+            if (typeIsRecursiveInner(field.type, visited)) break true;
         } else false,
         else => false,
     };
 }
 
-fn canSerializeType(T: type) bool {
+inline fn canSerializeType(T: type) bool {
     comptime return canSerializeTypeInner(T, &.{}, false);
 }
 
@@ -343,12 +342,6 @@ test "std.zon checkValueDepth" {
     try expectValueDepthEquals(3, @as([]const []const u8, &.{&.{ 1, 2, 3 }}));
 }
 
-/// Options for `Serializer`.
-pub const SerializerOptions = struct {
-    /// If false, only syntactically necessary whitespace is emitted.
-    whitespace: bool = true,
-};
-
 /// Determines when to emit Unicode code point literals as opposed to integer literals.
 pub const EmitCodepointLiterals = enum {
     /// Never emit Unicode code point literals.
@@ -440,633 +433,610 @@ pub const SerializeContainerOptions = struct {
 /// For manual serialization of containers, see:
 /// * `beginStruct`
 /// * `beginTuple`
-///
-/// # Example
-/// ```zig
-/// var sz = serializer(writer, .{});
-/// var vec2 = try sz.beginStruct(.{});
-/// try vec2.field("x", 1.5, .{});
-/// try vec2.fieldPrefix();
-/// try sz.value(2.5);
-/// try vec2.end();
-/// ```
-pub fn Serializer(Writer: type) type {
-    return struct {
-        const Self = @This();
+pub const Serializer = struct {
+    options: Options,
+    indent_level: u8 = 0,
+    writer: *std.io.BufferedWriter,
 
-        options: SerializerOptions,
-        indent_level: u8,
-        writer: Writer,
+    pub const Options = struct {
+        /// If false, only syntactically necessary whitespace is emitted.
+        whitespace: bool = true,
+    };
 
-        /// Initialize a serializer.
-        fn init(writer: Writer, options: SerializerOptions) Self {
+    /// Serialize a value, similar to `serialize`.
+    pub fn value(self: *Serializer, val: anytype, options: ValueOptions) anyerror!void {
+        comptime assert(!typeIsRecursive(@TypeOf(val)));
+        return self.valueArbitraryDepth(val, options);
+    }
+
+    /// Serialize a value, similar to `serializeMaxDepth`.
+    /// Can return `error.ExceededMaxDepth`.
+    pub fn valueMaxDepth(self: *Serializer, val: anytype, options: ValueOptions, depth: usize) anyerror!void {
+        try checkValueDepth(val, depth);
+        return self.valueArbitraryDepth(val, options);
+    }
+
+    /// Serialize a value, similar to `serializeArbitraryDepth`.
+    pub fn valueArbitraryDepth(self: *Serializer, val: anytype, options: ValueOptions) anyerror!void {
+        comptime assert(canSerializeType(@TypeOf(val)));
+        switch (@typeInfo(@TypeOf(val))) {
+            .int, .comptime_int => if (options.emit_codepoint_literals.emitAsCodepoint(val)) |c| {
+                self.codePoint(c) catch |err| switch (err) {
+                    error.InvalidCodepoint => unreachable, // Already validated
+                    else => |e| return e,
+                };
+            } else {
+                try self.int(val);
+            },
+            .float, .comptime_float => try self.float(val),
+            .bool, .null => try std.fmt.format(self.writer, "{}", .{val}),
+            .enum_literal => try self.ident(@tagName(val)),
+            .@"enum" => try self.ident(@tagName(val)),
+            .pointer => |pointer| {
+                // Try to serialize as a string
+                const item: ?type = switch (@typeInfo(pointer.child)) {
+                    .array => |array| array.child,
+                    else => if (pointer.size == .slice) pointer.child else null,
+                };
+                if (item == u8 and
+                    (pointer.sentinel() == null or pointer.sentinel() == 0) and
+                    !options.emit_strings_as_containers)
+                {
+                    return try self.string(val);
+                }
+
+                // Serialize as either a tuple or as the child type
+                switch (pointer.size) {
+                    .slice => try self.tupleImpl(val, options),
+                    .one => try self.valueArbitraryDepth(val.*, options),
+                    else => comptime unreachable,
+                }
+            },
+            .array => {
+                var container = try self.beginTuple(
+                    .{ .whitespace_style = .{ .fields = val.len } },
+                );
+                for (val) |item_val| {
+                    try container.fieldArbitraryDepth(item_val, options);
+                }
+                try container.end();
+            },
+            .@"struct" => |@"struct"| if (@"struct".is_tuple) {
+                var container = try self.beginTuple(
+                    .{ .whitespace_style = .{ .fields = @"struct".fields.len } },
+                );
+                inline for (val) |field_value| {
+                    try container.fieldArbitraryDepth(field_value, options);
+                }
+                try container.end();
+            } else {
+                // Decide which fields to emit
+                const fields, const skipped: [@"struct".fields.len]bool = if (options.emit_default_optional_fields) b: {
+                    break :b .{ @"struct".fields.len, @splat(false) };
+                } else b: {
+                    var fields = @"struct".fields.len;
+                    var skipped: [@"struct".fields.len]bool = @splat(false);
+                    inline for (@"struct".fields, &skipped) |field_info, *skip| {
+                        if (field_info.default_value_ptr) |ptr| {
+                            const default: *const field_info.type = @ptrCast(@alignCast(ptr));
+                            const field_value = @field(val, field_info.name);
+                            if (std.meta.eql(field_value, default.*)) {
+                                skip.* = true;
+                                fields -= 1;
+                            }
+                        }
+                    }
+                    break :b .{ fields, skipped };
+                };
+
+                // Emit those fields
+                var container = try self.beginStruct(
+                    .{ .whitespace_style = .{ .fields = fields } },
+                );
+                inline for (@"struct".fields, skipped) |field_info, skip| {
+                    if (!skip) {
+                        try container.fieldArbitraryDepth(
+                            field_info.name,
+                            @field(val, field_info.name),
+                            options,
+                        );
+                    }
+                }
+                try container.end();
+            },
+            .@"union" => |@"union"| {
+                comptime assert(@"union".tag_type != null);
+                switch (val) {
+                    inline else => |pl, tag| if (@TypeOf(pl) == void)
+                        try self.writer.print(".{s}", .{@tagName(tag)})
+                    else {
+                        var container = try self.beginStruct(.{ .whitespace_style = .{ .fields = 1 } });
+
+                        try container.fieldArbitraryDepth(
+                            @tagName(tag),
+                            pl,
+                            options,
+                        );
+
+                        try container.end();
+                    },
+                }
+            },
+            .optional => if (val) |inner| {
+                try self.valueArbitraryDepth(inner, options);
+            } else {
+                try self.writer.writeAll("null");
+            },
+            .vector => |vector| {
+                var container = try self.beginTuple(
+                    .{ .whitespace_style = .{ .fields = vector.len } },
+                );
+                for (0..vector.len) |i| {
+                    try container.fieldArbitraryDepth(val[i], options);
+                }
+                try container.end();
+            },
+
+            else => comptime unreachable,
+        }
+    }
+
+    /// Serialize an integer.
+    pub fn int(self: *Serializer, val: anytype) anyerror!void {
+        try std.fmt.formatInt(val, 10, .lower, .{}, self.writer);
+    }
+
+    /// Serialize a float.
+    pub fn float(self: *Serializer, val: anytype) anyerror!void {
+        switch (@typeInfo(@TypeOf(val))) {
+            .float => if (std.math.isNan(val)) {
+                return self.writer.writeAll("nan");
+            } else if (std.math.isPositiveInf(val)) {
+                return self.writer.writeAll("inf");
+            } else if (std.math.isNegativeInf(val)) {
+                return self.writer.writeAll("-inf");
+            } else {
+                try std.fmt.format(self.writer, "{d}", .{val});
+            },
+            .comptime_float => try std.fmt.format(self.writer, "{d}", .{val}),
+            else => comptime unreachable,
+        }
+    }
+
+    /// Serialize `name` as an identifier prefixed with `.`.
+    ///
+    /// Escapes the identifier if necessary.
+    pub fn ident(self: *Serializer, name: []const u8) anyerror!void {
+        try self.writer.print(".{p_}", .{std.zig.fmtId(name)});
+    }
+
+    /// Serialize `val` as a Unicode codepoint.
+    ///
+    /// Returns `error.InvalidCodepoint` if `val` is not a valid Unicode codepoint.
+    pub fn codePoint(
+        self: *Serializer,
+        val: u21,
+    ) anyerror!void {
+        var buf: [8]u8 = undefined;
+        const len = std.unicode.utf8Encode(val, &buf) catch return error.InvalidCodepoint;
+        const str = buf[0..len];
+        try std.fmt.format(self.writer, "'{'}'", .{std.zig.fmtEscapes(str)});
+    }
+
+    /// Like `value`, but always serializes `val` as a tuple.
+    ///
+    /// Will fail at comptime if `val` is not a tuple, array, pointer to an array, or slice.
+    pub fn tuple(self: *Serializer, val: anytype, options: ValueOptions) anyerror!void {
+        comptime assert(!typeIsRecursive(@TypeOf(val)));
+        try self.tupleArbitraryDepth(val, options);
+    }
+
+    /// Like `tuple`, but recursive types are allowed.
+    ///
+    /// Returns `error.ExceededMaxDepth` if `depth` is exceeded.
+    pub fn tupleMaxDepth(
+        self: *Serializer,
+        val: anytype,
+        options: ValueOptions,
+        depth: usize,
+    ) anyerror!void {
+        try checkValueDepth(val, depth);
+        try self.tupleArbitraryDepth(val, options);
+    }
+
+    /// Like `tuple`, but recursive types are allowed.
+    ///
+    /// It is the caller's responsibility to ensure that `val` does not contain cycles.
+    pub fn tupleArbitraryDepth(
+        self: *Serializer,
+        val: anytype,
+        options: ValueOptions,
+    ) anyerror!void {
+        try self.tupleImpl(val, options);
+    }
+
+    fn tupleImpl(self: *Serializer, val: anytype, options: ValueOptions) anyerror!void {
+        comptime assert(canSerializeType(@TypeOf(val)));
+        switch (@typeInfo(@TypeOf(val))) {
+            .@"struct" => {
+                var container = try self.beginTuple(.{ .whitespace_style = .{ .fields = val.len } });
+                inline for (val) |item_val| {
+                    try container.fieldArbitraryDepth(item_val, options);
+                }
+                try container.end();
+            },
+            .pointer, .array => {
+                var container = try self.beginTuple(.{ .whitespace_style = .{ .fields = val.len } });
+                for (val) |item_val| {
+                    try container.fieldArbitraryDepth(item_val, options);
+                }
+                try container.end();
+            },
+            else => comptime unreachable,
+        }
+    }
+
+    /// Like `value`, but always serializes `val` as a string.
+    pub fn string(self: *Serializer, val: []const u8) anyerror!void {
+        try std.fmt.format(self.writer, "\"{}\"", .{std.zig.fmtEscapes(val)});
+    }
+
+    /// Options for formatting multiline strings.
+    pub const MultilineStringOptions = struct {
+        /// If top level is true, whitespace before and after the multiline string is elided.
+        /// If it is true, a newline is printed, then the value, followed by a newline, and if
+        /// whitespace is true any necessary indentation follows.
+        top_level: bool = false,
+    };
+
+    /// Like `value`, but always serializes to a multiline string literal.
+    ///
+    /// Returns `error.InnerCarriageReturn` if `val` contains a CR not followed by a newline,
+    /// since multiline strings cannot represent CR without a following newline.
+    pub fn multilineString(
+        self: *Serializer,
+        val: []const u8,
+        options: MultilineStringOptions,
+    ) anyerror!void {
+        // Make sure the string does not contain any carriage returns not followed by a newline
+        var i: usize = 0;
+        while (i < val.len) : (i += 1) {
+            if (val[i] == '\r') {
+                if (i + 1 < val.len) {
+                    if (val[i + 1] == '\n') {
+                        i += 1;
+                        continue;
+                    }
+                }
+                return error.InnerCarriageReturn;
+            }
+        }
+
+        if (!options.top_level) {
+            try self.newline();
+            try self.indent();
+        }
+
+        try self.writer.writeAll("\\\\");
+        for (val) |c| {
+            if (c != '\r') {
+                try self.writer.writeByte(c); // We write newlines here even if whitespace off
+                if (c == '\n') {
+                    try self.indent();
+                    try self.writer.writeAll("\\\\");
+                }
+            }
+        }
+
+        if (!options.top_level) {
+            try self.writer.writeByte('\n'); // Even if whitespace off
+            try self.indent();
+        }
+    }
+
+    /// Create a `Struct` for writing ZON structs field by field.
+    pub fn beginStruct(
+        self: *Serializer,
+        options: SerializeContainerOptions,
+    ) anyerror!Struct {
+        return Struct.begin(self, options);
+    }
+
+    /// Creates a `Tuple` for writing ZON tuples field by field.
+    pub fn beginTuple(
+        self: *Serializer,
+        options: SerializeContainerOptions,
+    ) anyerror!Tuple {
+        return Tuple.begin(self, options);
+    }
+
+    fn indent(self: *Serializer) anyerror!void {
+        if (self.options.whitespace) {
+            try self.writer.writeByteNTimes(' ', 4 * self.indent_level);
+        }
+    }
+
+    fn newline(self: *Serializer) anyerror!void {
+        if (self.options.whitespace) {
+            try self.writer.writeByte('\n');
+        }
+    }
+
+    fn newlineOrSpace(self: *Serializer, len: usize) anyerror!void {
+        if (self.containerShouldWrap(len)) {
+            try self.newline();
+        } else {
+            try self.space();
+        }
+    }
+
+    fn space(self: *Serializer) anyerror!void {
+        if (self.options.whitespace) {
+            try self.writer.writeByte(' ');
+        }
+    }
+
+    /// Writes ZON tuples field by field.
+    pub const Tuple = struct {
+        container: Container,
+
+        fn begin(parent: *Serializer, options: SerializeContainerOptions) anyerror!Tuple {
             return .{
-                .options = options,
-                .writer = writer,
-                .indent_level = 0,
+                .container = try Container.begin(parent, .anon, options),
             };
         }
 
-        /// Serialize a value, similar to `serialize`.
-        pub fn value(self: *Self, val: anytype, options: ValueOptions) Writer.Error!void {
-            comptime assert(!typeIsRecursive(@TypeOf(val)));
-            return self.valueArbitraryDepth(val, options);
+        /// Finishes serializing the tuple.
+        ///
+        /// Prints a trailing comma as configured when appropriate, and the closing bracket.
+        pub fn end(self: *Tuple) anyerror!void {
+            try self.container.end();
+            self.* = undefined;
         }
 
-        /// Serialize a value, similar to `serializeMaxDepth`.
-        pub fn valueMaxDepth(
-            self: *Self,
+        /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `value`.
+        pub fn field(
+            self: *Tuple,
             val: anytype,
             options: ValueOptions,
-            depth: usize,
-        ) (Writer.Error || error{ExceededMaxDepth})!void {
-            try checkValueDepth(val, depth);
-            return self.valueArbitraryDepth(val, options);
+        ) anyerror!void {
+            try self.container.field(null, val, options);
         }
 
-        /// Serialize a value, similar to `serializeArbitraryDepth`.
-        pub fn valueArbitraryDepth(
-            self: *Self,
-            val: anytype,
-            options: ValueOptions,
-        ) Writer.Error!void {
-            comptime assert(canSerializeType(@TypeOf(val)));
-            switch (@typeInfo(@TypeOf(val))) {
-                .int, .comptime_int => if (options.emit_codepoint_literals.emitAsCodepoint(val)) |c| {
-                    self.codePoint(c) catch |err| switch (err) {
-                        error.InvalidCodepoint => unreachable, // Already validated
-                        else => |e| return e,
-                    };
-                } else {
-                    try self.int(val);
-                },
-                .float, .comptime_float => try self.float(val),
-                .bool, .null => try std.fmt.format(self.writer, "{}", .{val}),
-                .enum_literal => try self.ident(@tagName(val)),
-                .@"enum" => try self.ident(@tagName(val)),
-                .pointer => |pointer| {
-                    // Try to serialize as a string
-                    const item: ?type = switch (@typeInfo(pointer.child)) {
-                        .array => |array| array.child,
-                        else => if (pointer.size == .slice) pointer.child else null,
-                    };
-                    if (item == u8 and
-                        (pointer.sentinel() == null or pointer.sentinel() == 0) and
-                        !options.emit_strings_as_containers)
-                    {
-                        return try self.string(val);
-                    }
-
-                    // Serialize as either a tuple or as the child type
-                    switch (pointer.size) {
-                        .slice => try self.tupleImpl(val, options),
-                        .one => try self.valueArbitraryDepth(val.*, options),
-                        else => comptime unreachable,
-                    }
-                },
-                .array => {
-                    var container = try self.beginTuple(
-                        .{ .whitespace_style = .{ .fields = val.len } },
-                    );
-                    for (val) |item_val| {
-                        try container.fieldArbitraryDepth(item_val, options);
-                    }
-                    try container.end();
-                },
-                .@"struct" => |@"struct"| if (@"struct".is_tuple) {
-                    var container = try self.beginTuple(
-                        .{ .whitespace_style = .{ .fields = @"struct".fields.len } },
-                    );
-                    inline for (val) |field_value| {
-                        try container.fieldArbitraryDepth(field_value, options);
-                    }
-                    try container.end();
-                } else {
-                    // Decide which fields to emit
-                    const fields, const skipped: [@"struct".fields.len]bool = if (options.emit_default_optional_fields) b: {
-                        break :b .{ @"struct".fields.len, @splat(false) };
-                    } else b: {
-                        var fields = @"struct".fields.len;
-                        var skipped: [@"struct".fields.len]bool = @splat(false);
-                        inline for (@"struct".fields, &skipped) |field_info, *skip| {
-                            if (field_info.default_value_ptr) |ptr| {
-                                const default: *const field_info.type = @ptrCast(@alignCast(ptr));
-                                const field_value = @field(val, field_info.name);
-                                if (std.meta.eql(field_value, default.*)) {
-                                    skip.* = true;
-                                    fields -= 1;
-                                }
-                            }
-                        }
-                        break :b .{ fields, skipped };
-                    };
-
-                    // Emit those fields
-                    var container = try self.beginStruct(
-                        .{ .whitespace_style = .{ .fields = fields } },
-                    );
-                    inline for (@"struct".fields, skipped) |field_info, skip| {
-                        if (!skip) {
-                            try container.fieldArbitraryDepth(
-                                field_info.name,
-                                @field(val, field_info.name),
-                                options,
-                            );
-                        }
-                    }
-                    try container.end();
-                },
-                .@"union" => |@"union"| {
-                    comptime assert(@"union".tag_type != null);
-                    switch (val) {
-                        inline else => |pl, tag| if (@TypeOf(pl) == void)
-                            try self.writer.print(".{s}", .{@tagName(tag)})
-                        else {
-                            var container = try self.beginStruct(.{ .whitespace_style = .{ .fields = 1 } });
-
-                            try container.fieldArbitraryDepth(
-                                @tagName(tag),
-                                pl,
-                                options,
-                            );
-
-                            try container.end();
-                        },
-                    }
-                },
-                .optional => if (val) |inner| {
-                    try self.valueArbitraryDepth(inner, options);
-                } else {
-                    try self.writer.writeAll("null");
-                },
-                .vector => |vector| {
-                    var container = try self.beginTuple(
-                        .{ .whitespace_style = .{ .fields = vector.len } },
-                    );
-                    for (0..vector.len) |i| {
-                        try container.fieldArbitraryDepth(val[i], options);
-                    }
-                    try container.end();
-                },
-
-                else => comptime unreachable,
-            }
-        }
-
-        /// Serialize an integer.
-        pub fn int(self: *Self, val: anytype) Writer.Error!void {
-            try std.fmt.formatInt(val, 10, .lower, .{}, self.writer);
-        }
-
-        /// Serialize a float.
-        pub fn float(self: *Self, val: anytype) Writer.Error!void {
-            switch (@typeInfo(@TypeOf(val))) {
-                .float => if (std.math.isNan(val)) {
-                    return self.writer.writeAll("nan");
-                } else if (std.math.isPositiveInf(val)) {
-                    return self.writer.writeAll("inf");
-                } else if (std.math.isNegativeInf(val)) {
-                    return self.writer.writeAll("-inf");
-                } else if (std.math.isNegativeZero(val)) {
-                    return self.writer.writeAll("-0.0");
-                } else {
-                    try std.fmt.format(self.writer, "{d}", .{val});
-                },
-                .comptime_float => if (val == 0) {
-                    return self.writer.writeAll("0");
-                } else {
-                    try std.fmt.format(self.writer, "{d}", .{val});
-                },
-                else => comptime unreachable,
-            }
-        }
-
-        /// Serialize `name` as an identifier prefixed with `.`.
-        ///
-        /// Escapes the identifier if necessary.
-        pub fn ident(self: *Self, name: []const u8) Writer.Error!void {
-            try self.writer.print(".{p_}", .{std.zig.fmtId(name)});
-        }
-
-        /// Serialize `val` as a Unicode codepoint.
-        ///
-        /// Returns `error.InvalidCodepoint` if `val` is not a valid Unicode codepoint.
-        pub fn codePoint(
-            self: *Self,
-            val: u21,
-        ) (Writer.Error || error{InvalidCodepoint})!void {
-            var buf: [8]u8 = undefined;
-            const len = std.unicode.utf8Encode(val, &buf) catch return error.InvalidCodepoint;
-            const str = buf[0..len];
-            try std.fmt.format(self.writer, "'{'}'", .{std.zig.fmtEscapes(str)});
-        }
-
-        /// Like `value`, but always serializes `val` as a tuple.
-        ///
-        /// Will fail at comptime if `val` is not a tuple, array, pointer to an array, or slice.
-        pub fn tuple(self: *Self, val: anytype, options: ValueOptions) Writer.Error!void {
-            comptime assert(!typeIsRecursive(@TypeOf(val)));
-            try self.tupleArbitraryDepth(val, options);
-        }
-
-        /// Like `tuple`, but recursive types are allowed.
-        ///
+        /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `valueMaxDepth`.
         /// Returns `error.ExceededMaxDepth` if `depth` is exceeded.
-        pub fn tupleMaxDepth(
-            self: *Self,
+        pub fn fieldMaxDepth(
+            self: *Tuple,
             val: anytype,
             options: ValueOptions,
             depth: usize,
-        ) (Writer.Error || error{ExceededMaxDepth})!void {
-            try checkValueDepth(val, depth);
-            try self.tupleArbitraryDepth(val, options);
+        ) anyerror!void {
+            try self.container.fieldMaxDepth(null, val, options, depth);
         }
 
-        /// Like `tuple`, but recursive types are allowed.
-        ///
-        /// It is the caller's responsibility to ensure that `val` does not contain cycles.
-        pub fn tupleArbitraryDepth(
-            self: *Self,
+        /// Serialize a field. Equivalent to calling `fieldPrefix` followed by
+        /// `valueArbitraryDepth`.
+        pub fn fieldArbitraryDepth(
+            self: *Tuple,
             val: anytype,
             options: ValueOptions,
-        ) Writer.Error!void {
-            try self.tupleImpl(val, options);
+        ) anyerror!void {
+            try self.container.fieldArbitraryDepth(null, val, options);
         }
 
-        fn tupleImpl(self: *Self, val: anytype, options: ValueOptions) Writer.Error!void {
-            comptime assert(canSerializeType(@TypeOf(val)));
-            switch (@typeInfo(@TypeOf(val))) {
-                .@"struct" => {
-                    var container = try self.beginTuple(.{ .whitespace_style = .{ .fields = val.len } });
-                    inline for (val) |item_val| {
-                        try container.fieldArbitraryDepth(item_val, options);
-                    }
-                    try container.end();
-                },
-                .pointer, .array => {
-                    var container = try self.beginTuple(.{ .whitespace_style = .{ .fields = val.len } });
-                    for (val) |item_val| {
-                        try container.fieldArbitraryDepth(item_val, options);
-                    }
-                    try container.end();
-                },
-                else => comptime unreachable,
-            }
+        /// Starts a field with a struct as a value. Returns the struct.
+        pub fn beginStructField(
+            self: *Tuple,
+            options: SerializeContainerOptions,
+        ) anyerror!Struct {
+            try self.fieldPrefix();
+            return self.container.serializer.beginStruct(options);
         }
 
-        /// Like `value`, but always serializes `val` as a string.
-        pub fn string(self: *Self, val: []const u8) Writer.Error!void {
-            try std.fmt.format(self.writer, "\"{}\"", .{std.zig.fmtEscapes(val)});
+        /// Starts a field with a tuple as a value. Returns the tuple.
+        pub fn beginTupleField(
+            self: *Tuple,
+            options: SerializeContainerOptions,
+        ) anyerror!Tuple {
+            try self.fieldPrefix();
+            return self.container.serializer.beginTuple(options);
         }
 
-        /// Options for formatting multiline strings.
-        pub const MultilineStringOptions = struct {
-            /// If top level is true, whitespace before and after the multiline string is elided.
-            /// If it is true, a newline is printed, then the value, followed by a newline, and if
-            /// whitespace is true any necessary indentation follows.
-            top_level: bool = false,
-        };
+        /// Print a field prefix. This prints any necessary commas, and whitespace as
+        /// configured. Useful if you want to serialize the field value yourself.
+        pub fn fieldPrefix(self: *Tuple) anyerror!void {
+            try self.container.fieldPrefix(null);
+        }
+    };
 
-        /// Like `value`, but always serializes to a multiline string literal.
+    /// Writes ZON structs field by field.
+    pub const Struct = struct {
+        container: Container,
+
+        fn begin(parent: *Serializer, options: SerializeContainerOptions) anyerror!Struct {
+            return .{
+                .container = try Container.begin(parent, .named, options),
+            };
+        }
+
+        /// Finishes serializing the struct.
         ///
-        /// Returns `error.InnerCarriageReturn` if `val` contains a CR not followed by a newline,
-        /// since multiline strings cannot represent CR without a following newline.
-        pub fn multilineString(
-            self: *Self,
-            val: []const u8,
-            options: MultilineStringOptions,
-        ) (Writer.Error || error{InnerCarriageReturn})!void {
-            // Make sure the string does not contain any carriage returns not followed by a newline
-            var i: usize = 0;
-            while (i < val.len) : (i += 1) {
-                if (val[i] == '\r') {
-                    if (i + 1 < val.len) {
-                        if (val[i + 1] == '\n') {
-                            i += 1;
-                            continue;
-                        }
-                    }
-                    return error.InnerCarriageReturn;
-                }
-            }
-
-            if (!options.top_level) {
-                try self.newline();
-                try self.indent();
-            }
-
-            try self.writer.writeAll("\\\\");
-            for (val) |c| {
-                if (c != '\r') {
-                    try self.writer.writeByte(c); // We write newlines here even if whitespace off
-                    if (c == '\n') {
-                        try self.indent();
-                        try self.writer.writeAll("\\\\");
-                    }
-                }
-            }
-
-            if (!options.top_level) {
-                try self.writer.writeByte('\n'); // Even if whitespace off
-                try self.indent();
-            }
+        /// Prints a trailing comma as configured when appropriate, and the closing bracket.
+        pub fn end(self: *Struct) anyerror!void {
+            try self.container.end();
+            self.* = undefined;
         }
 
-        /// Create a `Struct` for writing ZON structs field by field.
-        pub fn beginStruct(
-            self: *Self,
+        /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `value`.
+        pub fn field(
+            self: *Struct,
+            name: []const u8,
+            val: anytype,
+            options: ValueOptions,
+        ) anyerror!void {
+            try self.container.field(name, val, options);
+        }
+
+        /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `valueMaxDepth`.
+        /// Returns `error.ExceededMaxDepth` if `depth` is exceeded.
+        pub fn fieldMaxDepth(
+            self: *Struct,
+            name: []const u8,
+            val: anytype,
+            options: ValueOptions,
+            depth: usize,
+        ) anyerror!void {
+            try self.container.fieldMaxDepth(name, val, options, depth);
+        }
+
+        /// Serialize a field. Equivalent to calling `fieldPrefix` followed by
+        /// `valueArbitraryDepth`.
+        pub fn fieldArbitraryDepth(
+            self: *Struct,
+            name: []const u8,
+            val: anytype,
+            options: ValueOptions,
+        ) anyerror!void {
+            try self.container.fieldArbitraryDepth(name, val, options);
+        }
+
+        /// Starts a field with a struct as a value. Returns the struct.
+        pub fn beginStructField(
+            self: *Struct,
+            name: []const u8,
             options: SerializeContainerOptions,
-        ) Writer.Error!Struct {
-            return Struct.begin(self, options);
+        ) anyerror!Struct {
+            try self.fieldPrefix(name);
+            return self.container.serializer.beginStruct(options);
         }
 
-        /// Creates a `Tuple` for writing ZON tuples field by field.
-        pub fn beginTuple(
-            self: *Self,
+        /// Starts a field with a tuple as a value. Returns the tuple.
+        pub fn beginTupleField(
+            self: *Struct,
+            name: []const u8,
             options: SerializeContainerOptions,
-        ) Writer.Error!Tuple {
-            return Tuple.begin(self, options);
+        ) anyerror!Tuple {
+            try self.fieldPrefix(name);
+            return self.container.serializer.beginTuple(options);
         }
 
-        fn indent(self: *Self) Writer.Error!void {
-            if (self.options.whitespace) {
-                try self.writer.writeByteNTimes(' ', 4 * self.indent_level);
-            }
+        /// Print a field prefix. This prints any necessary commas, the field name (escaped if
+        /// necessary) and whitespace as configured. Useful if you want to serialize the field
+        /// value yourself.
+        pub fn fieldPrefix(self: *Struct, name: []const u8) anyerror!void {
+            try self.container.fieldPrefix(name);
         }
+    };
 
-        fn newline(self: *Self) Writer.Error!void {
-            if (self.options.whitespace) {
-                try self.writer.writeByte('\n');
-            }
-        }
+    const Container = struct {
+        const FieldStyle = enum { named, anon };
 
-        fn newlineOrSpace(self: *Self, len: usize) Writer.Error!void {
-            if (self.containerShouldWrap(len)) {
-                try self.newline();
-            } else {
-                try self.space();
-            }
-        }
+        serializer: *Serializer,
+        field_style: FieldStyle,
+        options: SerializeContainerOptions,
+        empty: bool,
 
-        fn space(self: *Self) Writer.Error!void {
-            if (self.options.whitespace) {
-                try self.writer.writeByte(' ');
-            }
-        }
-
-        /// Writes ZON tuples field by field.
-        pub const Tuple = struct {
-            container: Container,
-
-            fn begin(parent: *Self, options: SerializeContainerOptions) Writer.Error!Tuple {
-                return .{
-                    .container = try Container.begin(parent, .anon, options),
-                };
-            }
-
-            /// Finishes serializing the tuple.
-            ///
-            /// Prints a trailing comma as configured when appropriate, and the closing bracket.
-            pub fn end(self: *Tuple) Writer.Error!void {
-                try self.container.end();
-                self.* = undefined;
-            }
-
-            /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `value`.
-            pub fn field(
-                self: *Tuple,
-                val: anytype,
-                options: ValueOptions,
-            ) Writer.Error!void {
-                try self.container.field(null, val, options);
-            }
-
-            /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `valueMaxDepth`.
-            pub fn fieldMaxDepth(
-                self: *Tuple,
-                val: anytype,
-                options: ValueOptions,
-                depth: usize,
-            ) (Writer.Error || error{ExceededMaxDepth})!void {
-                try self.container.fieldMaxDepth(null, val, options, depth);
-            }
-
-            /// Serialize a field. Equivalent to calling `fieldPrefix` followed by
-            /// `valueArbitraryDepth`.
-            pub fn fieldArbitraryDepth(
-                self: *Tuple,
-                val: anytype,
-                options: ValueOptions,
-            ) Writer.Error!void {
-                try self.container.fieldArbitraryDepth(null, val, options);
-            }
-
-            /// Starts a field with a struct as a value. Returns the struct.
-            pub fn beginStructField(
-                self: *Tuple,
-                options: SerializeContainerOptions,
-            ) Writer.Error!Struct {
-                try self.fieldPrefix();
-                return self.container.serializer.beginStruct(options);
-            }
-
-            /// Starts a field with a tuple as a value. Returns the tuple.
-            pub fn beginTupleField(
-                self: *Tuple,
-                options: SerializeContainerOptions,
-            ) Writer.Error!Tuple {
-                try self.fieldPrefix();
-                return self.container.serializer.beginTuple(options);
-            }
-
-            /// Print a field prefix. This prints any necessary commas, and whitespace as
-            /// configured. Useful if you want to serialize the field value yourself.
-            pub fn fieldPrefix(self: *Tuple) Writer.Error!void {
-                try self.container.fieldPrefix(null);
-            }
-        };
-
-        /// Writes ZON structs field by field.
-        pub const Struct = struct {
-            container: Container,
-
-            fn begin(parent: *Self, options: SerializeContainerOptions) Writer.Error!Struct {
-                return .{
-                    .container = try Container.begin(parent, .named, options),
-                };
-            }
-
-            /// Finishes serializing the struct.
-            ///
-            /// Prints a trailing comma as configured when appropriate, and the closing bracket.
-            pub fn end(self: *Struct) Writer.Error!void {
-                try self.container.end();
-                self.* = undefined;
-            }
-
-            /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `value`.
-            pub fn field(
-                self: *Struct,
-                name: []const u8,
-                val: anytype,
-                options: ValueOptions,
-            ) Writer.Error!void {
-                try self.container.field(name, val, options);
-            }
-
-            /// Serialize a field. Equivalent to calling `fieldPrefix` followed by `valueMaxDepth`.
-            pub fn fieldMaxDepth(
-                self: *Struct,
-                name: []const u8,
-                val: anytype,
-                options: ValueOptions,
-                depth: usize,
-            ) (Writer.Error || error{ExceededMaxDepth})!void {
-                try self.container.fieldMaxDepth(name, val, options, depth);
-            }
-
-            /// Serialize a field. Equivalent to calling `fieldPrefix` followed by
-            /// `valueArbitraryDepth`.
-            pub fn fieldArbitraryDepth(
-                self: *Struct,
-                name: []const u8,
-                val: anytype,
-                options: ValueOptions,
-            ) Writer.Error!void {
-                try self.container.fieldArbitraryDepth(name, val, options);
-            }
-
-            /// Starts a field with a struct as a value. Returns the struct.
-            pub fn beginStructField(
-                self: *Struct,
-                name: []const u8,
-                options: SerializeContainerOptions,
-            ) Writer.Error!Struct {
-                try self.fieldPrefix(name);
-                return self.container.serializer.beginStruct(options);
-            }
-
-            /// Starts a field with a tuple as a value. Returns the tuple.
-            pub fn beginTupleField(
-                self: *Struct,
-                name: []const u8,
-                options: SerializeContainerOptions,
-            ) Writer.Error!Tuple {
-                try self.fieldPrefix(name);
-                return self.container.serializer.beginTuple(options);
-            }
-
-            /// Print a field prefix. This prints any necessary commas, the field name (escaped if
-            /// necessary) and whitespace as configured. Useful if you want to serialize the field
-            /// value yourself.
-            pub fn fieldPrefix(self: *Struct, name: []const u8) Writer.Error!void {
-                try self.container.fieldPrefix(name);
-            }
-        };
-
-        const Container = struct {
-            const FieldStyle = enum { named, anon };
-
-            serializer: *Self,
+        fn begin(
+            sz: *Serializer,
             field_style: FieldStyle,
             options: SerializeContainerOptions,
-            empty: bool,
+        ) anyerror!Container {
+            if (options.shouldWrap()) sz.indent_level +|= 1;
+            try sz.writer.writeAll(".{");
+            return .{
+                .serializer = sz,
+                .field_style = field_style,
+                .options = options,
+                .empty = true,
+            };
+        }
 
-            fn begin(
-                sz: *Self,
-                field_style: FieldStyle,
-                options: SerializeContainerOptions,
-            ) Writer.Error!Container {
-                if (options.shouldWrap()) sz.indent_level +|= 1;
-                try sz.writer.writeAll(".{");
-                return .{
-                    .serializer = sz,
-                    .field_style = field_style,
-                    .options = options,
-                    .empty = true,
-                };
-            }
-
-            fn end(self: *Container) Writer.Error!void {
-                if (self.options.shouldWrap()) self.serializer.indent_level -|= 1;
-                if (!self.empty) {
-                    if (self.options.shouldWrap()) {
-                        if (self.serializer.options.whitespace) {
-                            try self.serializer.writer.writeByte(',');
-                        }
-                        try self.serializer.newline();
-                        try self.serializer.indent();
-                    } else if (!self.shouldElideSpaces()) {
-                        try self.serializer.space();
-                    }
-                }
-                try self.serializer.writer.writeByte('}');
-                self.* = undefined;
-            }
-
-            fn fieldPrefix(self: *Container, name: ?[]const u8) Writer.Error!void {
-                if (!self.empty) {
-                    try self.serializer.writer.writeByte(',');
-                }
-                self.empty = false;
+        fn end(self: *Container) anyerror!void {
+            if (self.options.shouldWrap()) self.serializer.indent_level -|= 1;
+            if (!self.empty) {
                 if (self.options.shouldWrap()) {
+                    if (self.serializer.options.whitespace) {
+                        try self.serializer.writer.writeByte(',');
+                    }
                     try self.serializer.newline();
+                    try self.serializer.indent();
                 } else if (!self.shouldElideSpaces()) {
                     try self.serializer.space();
                 }
-                if (self.options.shouldWrap()) try self.serializer.indent();
-                if (name) |n| {
-                    try self.serializer.ident(n);
-                    try self.serializer.space();
-                    try self.serializer.writer.writeByte('=');
-                    try self.serializer.space();
-                }
             }
+            try self.serializer.writer.writeByte('}');
+            self.* = undefined;
+        }
 
-            fn field(
-                self: *Container,
-                name: ?[]const u8,
-                val: anytype,
-                options: ValueOptions,
-            ) Writer.Error!void {
-                comptime assert(!typeIsRecursive(@TypeOf(val)));
-                try self.fieldArbitraryDepth(name, val, options);
+        fn fieldPrefix(self: *Container, name: ?[]const u8) anyerror!void {
+            if (!self.empty) {
+                try self.serializer.writer.writeByte(',');
             }
+            self.empty = false;
+            if (self.options.shouldWrap()) {
+                try self.serializer.newline();
+            } else if (!self.shouldElideSpaces()) {
+                try self.serializer.space();
+            }
+            if (self.options.shouldWrap()) try self.serializer.indent();
+            if (name) |n| {
+                try self.serializer.ident(n);
+                try self.serializer.space();
+                try self.serializer.writer.writeByte('=');
+                try self.serializer.space();
+            }
+        }
 
-            fn fieldMaxDepth(
-                self: *Container,
-                name: ?[]const u8,
-                val: anytype,
-                options: ValueOptions,
-                depth: usize,
-            ) (Writer.Error || error{ExceededMaxDepth})!void {
-                try checkValueDepth(val, depth);
-                try self.fieldArbitraryDepth(name, val, options);
-            }
+        fn field(
+            self: *Container,
+            name: ?[]const u8,
+            val: anytype,
+            options: ValueOptions,
+        ) anyerror!void {
+            comptime assert(!typeIsRecursive(@TypeOf(val)));
+            try self.fieldArbitraryDepth(name, val, options);
+        }
 
-            fn fieldArbitraryDepth(
-                self: *Container,
-                name: ?[]const u8,
-                val: anytype,
-                options: ValueOptions,
-            ) Writer.Error!void {
-                try self.fieldPrefix(name);
-                try self.serializer.valueArbitraryDepth(val, options);
-            }
+        /// Returns `error.ExceededMaxDepth` if `depth` is exceeded.
+        fn fieldMaxDepth(
+            self: *Container,
+            name: ?[]const u8,
+            val: anytype,
+            options: ValueOptions,
+            depth: usize,
+        ) anyerror!void {
+            try checkValueDepth(val, depth);
+            try self.fieldArbitraryDepth(name, val, options);
+        }
 
-            fn shouldElideSpaces(self: *const Container) bool {
-                return switch (self.options.whitespace_style) {
-                    .fields => |fields| self.field_style != .named and fields == 1,
-                    else => false,
-                };
-            }
-        };
+        fn fieldArbitraryDepth(
+            self: *Container,
+            name: ?[]const u8,
+            val: anytype,
+            options: ValueOptions,
+        ) anyerror!void {
+            try self.fieldPrefix(name);
+            try self.serializer.valueArbitraryDepth(val, options);
+        }
+
+        fn shouldElideSpaces(self: *const Container) bool {
+            return switch (self.options.whitespace_style) {
+                .fields => |fields| self.field_style != .named and fields == 1,
+                else => false,
+            };
+        }
     };
-}
+};
 
-/// Creates a new `Serializer` with the given writer and options.
-pub fn serializer(writer: anytype, options: SerializerOptions) Serializer(@TypeOf(writer)) {
-    return .init(writer, options);
+test Serializer {
+    var s: Serializer = .{
+        .writer = std.io.null_writer,
+    };
+    var vec2 = try s.beginStruct(.{});
+    try vec2.field("x", 1.5, .{});
+    try vec2.fieldPrefix();
+    try s.value(2.5);
+    try vec2.end();
 }
 
 fn expectSerializeEqual(
@@ -1074,10 +1044,12 @@ fn expectSerializeEqual(
     value: anytype,
     options: SerializeOptions,
 ) !void {
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf.deinit();
-    try serialize(value, options, buf.writer());
-    try std.testing.expectEqualStrings(expected, buf.items);
+    var aw: std.io.AllocatingWriter = undefined;
+    defer aw.deinit();
+    const bw = aw.init(std.testing.allocator);
+
+    try serialize(value, options, bw);
+    try std.testing.expectEqualStrings(expected, aw.getWritten());
 }
 
 test "std.zon stringify whitespace, high level API" {
@@ -1174,59 +1146,59 @@ test "std.zon stringify whitespace, high level API" {
 }
 
 test "std.zon stringify whitespace, low level API" {
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf.deinit();
-    var sz = serializer(buf.writer(), .{});
+    var aw: std.io.AllocatingWriter = undefined;
+    defer aw.deinit();
+    var s: Serializer = .{ .writer = aw.init(std.testing.allocator) };
 
-    inline for (.{ true, false }) |whitespace| {
-        sz.options = .{ .whitespace = whitespace };
+    for ([2]bool{ true, false }) |whitespace| {
+        s.options = .{ .whitespace = whitespace };
 
         // Empty containers
         {
-            var container = try sz.beginStruct(.{});
+            var container = try s.beginStruct(.{});
             try container.end();
-            try std.testing.expectEqualStrings(".{}", buf.items);
-            buf.clearRetainingCapacity();
+            try std.testing.expectEqualStrings(".{}", aw.getWritten());
+            aw.clearRetainingCapacity();
         }
 
         {
-            var container = try sz.beginTuple(.{});
+            var container = try s.beginTuple(.{});
             try container.end();
-            try std.testing.expectEqualStrings(".{}", buf.items);
-            buf.clearRetainingCapacity();
+            try std.testing.expectEqualStrings(".{}", aw.getWritten());
+            aw.clearRetainingCapacity();
         }
 
         {
-            var container = try sz.beginStruct(.{ .whitespace_style = .{ .wrap = false } });
+            var container = try s.beginStruct(.{ .whitespace_style = .{ .wrap = false } });
             try container.end();
-            try std.testing.expectEqualStrings(".{}", buf.items);
-            buf.clearRetainingCapacity();
+            try std.testing.expectEqualStrings(".{}", aw.getWritten());
+            aw.clearRetainingCapacity();
         }
 
         {
-            var container = try sz.beginTuple(.{ .whitespace_style = .{ .wrap = false } });
+            var container = try s.beginTuple(.{ .whitespace_style = .{ .wrap = false } });
             try container.end();
-            try std.testing.expectEqualStrings(".{}", buf.items);
-            buf.clearRetainingCapacity();
+            try std.testing.expectEqualStrings(".{}", aw.getWritten());
+            aw.clearRetainingCapacity();
         }
 
         {
-            var container = try sz.beginStruct(.{ .whitespace_style = .{ .fields = 0 } });
+            var container = try s.beginStruct(.{ .whitespace_style = .{ .fields = 0 } });
             try container.end();
-            try std.testing.expectEqualStrings(".{}", buf.items);
-            buf.clearRetainingCapacity();
+            try std.testing.expectEqualStrings(".{}", aw.getWritten());
+            aw.clearRetainingCapacity();
         }
 
         {
-            var container = try sz.beginTuple(.{ .whitespace_style = .{ .fields = 0 } });
+            var container = try s.beginTuple(.{ .whitespace_style = .{ .fields = 0 } });
             try container.end();
-            try std.testing.expectEqualStrings(".{}", buf.items);
-            buf.clearRetainingCapacity();
+            try std.testing.expectEqualStrings(".{}", aw.getWritten());
+            aw.clearRetainingCapacity();
         }
 
         // Size 1
         {
-            var container = try sz.beginStruct(.{});
+            var container = try s.beginStruct(.{});
             try container.field("a", 1, .{});
             try container.end();
             if (whitespace) {
@@ -1234,15 +1206,15 @@ test "std.zon stringify whitespace, low level API" {
                     \\.{
                     \\    .a = 1,
                     \\}
-                , buf.items);
+                , aw.getWritten());
             } else {
-                try std.testing.expectEqualStrings(".{.a=1}", buf.items);
+                try std.testing.expectEqualStrings(".{.a=1}", aw.getWritten());
             }
-            buf.clearRetainingCapacity();
+            aw.clearRetainingCapacity();
         }
 
         {
-            var container = try sz.beginTuple(.{});
+            var container = try s.beginTuple(.{});
             try container.field(1, .{});
             try container.end();
             if (whitespace) {
@@ -1250,62 +1222,62 @@ test "std.zon stringify whitespace, low level API" {
                     \\.{
                     \\    1,
                     \\}
-                , buf.items);
+                , aw.getWritten());
             } else {
-                try std.testing.expectEqualStrings(".{1}", buf.items);
+                try std.testing.expectEqualStrings(".{1}", aw.getWritten());
             }
-            buf.clearRetainingCapacity();
+            aw.clearRetainingCapacity();
         }
 
         {
-            var container = try sz.beginStruct(.{ .whitespace_style = .{ .wrap = false } });
+            var container = try s.beginStruct(.{ .whitespace_style = .{ .wrap = false } });
             try container.field("a", 1, .{});
             try container.end();
             if (whitespace) {
-                try std.testing.expectEqualStrings(".{ .a = 1 }", buf.items);
+                try std.testing.expectEqualStrings(".{ .a = 1 }", aw.getWritten());
             } else {
-                try std.testing.expectEqualStrings(".{.a=1}", buf.items);
+                try std.testing.expectEqualStrings(".{.a=1}", aw.getWritten());
             }
-            buf.clearRetainingCapacity();
+            aw.clearRetainingCapacity();
         }
 
         {
             // We get extra spaces here, since we didn't know up front that there would only be one
             // field.
-            var container = try sz.beginTuple(.{ .whitespace_style = .{ .wrap = false } });
+            var container = try s.beginTuple(.{ .whitespace_style = .{ .wrap = false } });
             try container.field(1, .{});
             try container.end();
             if (whitespace) {
-                try std.testing.expectEqualStrings(".{ 1 }", buf.items);
+                try std.testing.expectEqualStrings(".{ 1 }", aw.getWritten());
             } else {
-                try std.testing.expectEqualStrings(".{1}", buf.items);
+                try std.testing.expectEqualStrings(".{1}", aw.getWritten());
             }
-            buf.clearRetainingCapacity();
+            aw.clearRetainingCapacity();
         }
 
         {
-            var container = try sz.beginStruct(.{ .whitespace_style = .{ .fields = 1 } });
+            var container = try s.beginStruct(.{ .whitespace_style = .{ .fields = 1 } });
             try container.field("a", 1, .{});
             try container.end();
             if (whitespace) {
-                try std.testing.expectEqualStrings(".{ .a = 1 }", buf.items);
+                try std.testing.expectEqualStrings(".{ .a = 1 }", aw.getWritten());
             } else {
-                try std.testing.expectEqualStrings(".{.a=1}", buf.items);
+                try std.testing.expectEqualStrings(".{.a=1}", aw.getWritten());
             }
-            buf.clearRetainingCapacity();
+            aw.clearRetainingCapacity();
         }
 
         {
-            var container = try sz.beginTuple(.{ .whitespace_style = .{ .fields = 1 } });
+            var container = try s.beginTuple(.{ .whitespace_style = .{ .fields = 1 } });
             try container.field(1, .{});
             try container.end();
-            try std.testing.expectEqualStrings(".{1}", buf.items);
-            buf.clearRetainingCapacity();
+            try std.testing.expectEqualStrings(".{1}", aw.getWritten());
+            aw.clearRetainingCapacity();
         }
 
         // Size 2
         {
-            var container = try sz.beginStruct(.{});
+            var container = try s.beginStruct(.{});
             try container.field("a", 1, .{});
             try container.field("b", 2, .{});
             try container.end();
@@ -1315,15 +1287,15 @@ test "std.zon stringify whitespace, low level API" {
                     \\    .a = 1,
                     \\    .b = 2,
                     \\}
-                , buf.items);
+                , aw.getWritten());
             } else {
-                try std.testing.expectEqualStrings(".{.a=1,.b=2}", buf.items);
+                try std.testing.expectEqualStrings(".{.a=1,.b=2}", aw.getWritten());
             }
-            buf.clearRetainingCapacity();
+            aw.clearRetainingCapacity();
         }
 
         {
-            var container = try sz.beginTuple(.{});
+            var container = try s.beginTuple(.{});
             try container.field(1, .{});
             try container.field(2, .{});
             try container.end();
@@ -1333,68 +1305,68 @@ test "std.zon stringify whitespace, low level API" {
                     \\    1,
                     \\    2,
                     \\}
-                , buf.items);
+                , aw.getWritten());
             } else {
-                try std.testing.expectEqualStrings(".{1,2}", buf.items);
+                try std.testing.expectEqualStrings(".{1,2}", aw.getWritten());
             }
-            buf.clearRetainingCapacity();
+            aw.clearRetainingCapacity();
         }
 
         {
-            var container = try sz.beginStruct(.{ .whitespace_style = .{ .wrap = false } });
+            var container = try s.beginStruct(.{ .whitespace_style = .{ .wrap = false } });
             try container.field("a", 1, .{});
             try container.field("b", 2, .{});
             try container.end();
             if (whitespace) {
-                try std.testing.expectEqualStrings(".{ .a = 1, .b = 2 }", buf.items);
+                try std.testing.expectEqualStrings(".{ .a = 1, .b = 2 }", aw.getWritten());
             } else {
-                try std.testing.expectEqualStrings(".{.a=1,.b=2}", buf.items);
+                try std.testing.expectEqualStrings(".{.a=1,.b=2}", aw.getWritten());
             }
-            buf.clearRetainingCapacity();
+            aw.clearRetainingCapacity();
         }
 
         {
-            var container = try sz.beginTuple(.{ .whitespace_style = .{ .wrap = false } });
+            var container = try s.beginTuple(.{ .whitespace_style = .{ .wrap = false } });
             try container.field(1, .{});
             try container.field(2, .{});
             try container.end();
             if (whitespace) {
-                try std.testing.expectEqualStrings(".{ 1, 2 }", buf.items);
+                try std.testing.expectEqualStrings(".{ 1, 2 }", aw.getWritten());
             } else {
-                try std.testing.expectEqualStrings(".{1,2}", buf.items);
+                try std.testing.expectEqualStrings(".{1,2}", aw.getWritten());
             }
-            buf.clearRetainingCapacity();
+            aw.clearRetainingCapacity();
         }
 
         {
-            var container = try sz.beginStruct(.{ .whitespace_style = .{ .fields = 2 } });
+            var container = try s.beginStruct(.{ .whitespace_style = .{ .fields = 2 } });
             try container.field("a", 1, .{});
             try container.field("b", 2, .{});
             try container.end();
             if (whitespace) {
-                try std.testing.expectEqualStrings(".{ .a = 1, .b = 2 }", buf.items);
+                try std.testing.expectEqualStrings(".{ .a = 1, .b = 2 }", aw.getWritten());
             } else {
-                try std.testing.expectEqualStrings(".{.a=1,.b=2}", buf.items);
+                try std.testing.expectEqualStrings(".{.a=1,.b=2}", aw.getWritten());
             }
-            buf.clearRetainingCapacity();
+            aw.clearRetainingCapacity();
         }
 
         {
-            var container = try sz.beginTuple(.{ .whitespace_style = .{ .fields = 2 } });
+            var container = try s.beginTuple(.{ .whitespace_style = .{ .fields = 2 } });
             try container.field(1, .{});
             try container.field(2, .{});
             try container.end();
             if (whitespace) {
-                try std.testing.expectEqualStrings(".{ 1, 2 }", buf.items);
+                try std.testing.expectEqualStrings(".{ 1, 2 }", aw.getWritten());
             } else {
-                try std.testing.expectEqualStrings(".{1,2}", buf.items);
+                try std.testing.expectEqualStrings(".{1,2}", aw.getWritten());
             }
-            buf.clearRetainingCapacity();
+            aw.clearRetainingCapacity();
         }
 
         // Size 3
         {
-            var container = try sz.beginStruct(.{});
+            var container = try s.beginStruct(.{});
             try container.field("a", 1, .{});
             try container.field("b", 2, .{});
             try container.field("c", 3, .{});
@@ -1406,15 +1378,15 @@ test "std.zon stringify whitespace, low level API" {
                     \\    .b = 2,
                     \\    .c = 3,
                     \\}
-                , buf.items);
+                , aw.getWritten());
             } else {
-                try std.testing.expectEqualStrings(".{.a=1,.b=2,.c=3}", buf.items);
+                try std.testing.expectEqualStrings(".{.a=1,.b=2,.c=3}", aw.getWritten());
             }
-            buf.clearRetainingCapacity();
+            aw.clearRetainingCapacity();
         }
 
         {
-            var container = try sz.beginTuple(.{});
+            var container = try s.beginTuple(.{});
             try container.field(1, .{});
             try container.field(2, .{});
             try container.field(3, .{});
@@ -1426,43 +1398,43 @@ test "std.zon stringify whitespace, low level API" {
                     \\    2,
                     \\    3,
                     \\}
-                , buf.items);
+                , aw.getWritten());
             } else {
-                try std.testing.expectEqualStrings(".{1,2,3}", buf.items);
+                try std.testing.expectEqualStrings(".{1,2,3}", aw.getWritten());
             }
-            buf.clearRetainingCapacity();
+            aw.clearRetainingCapacity();
         }
 
         {
-            var container = try sz.beginStruct(.{ .whitespace_style = .{ .wrap = false } });
+            var container = try s.beginStruct(.{ .whitespace_style = .{ .wrap = false } });
             try container.field("a", 1, .{});
             try container.field("b", 2, .{});
             try container.field("c", 3, .{});
             try container.end();
             if (whitespace) {
-                try std.testing.expectEqualStrings(".{ .a = 1, .b = 2, .c = 3 }", buf.items);
+                try std.testing.expectEqualStrings(".{ .a = 1, .b = 2, .c = 3 }", aw.getWritten());
             } else {
-                try std.testing.expectEqualStrings(".{.a=1,.b=2,.c=3}", buf.items);
+                try std.testing.expectEqualStrings(".{.a=1,.b=2,.c=3}", aw.getWritten());
             }
-            buf.clearRetainingCapacity();
+            aw.clearRetainingCapacity();
         }
 
         {
-            var container = try sz.beginTuple(.{ .whitespace_style = .{ .wrap = false } });
+            var container = try s.beginTuple(.{ .whitespace_style = .{ .wrap = false } });
             try container.field(1, .{});
             try container.field(2, .{});
             try container.field(3, .{});
             try container.end();
             if (whitespace) {
-                try std.testing.expectEqualStrings(".{ 1, 2, 3 }", buf.items);
+                try std.testing.expectEqualStrings(".{ 1, 2, 3 }", aw.getWritten());
             } else {
-                try std.testing.expectEqualStrings(".{1,2,3}", buf.items);
+                try std.testing.expectEqualStrings(".{1,2,3}", aw.getWritten());
             }
-            buf.clearRetainingCapacity();
+            aw.clearRetainingCapacity();
         }
 
         {
-            var container = try sz.beginStruct(.{ .whitespace_style = .{ .fields = 3 } });
+            var container = try s.beginStruct(.{ .whitespace_style = .{ .fields = 3 } });
             try container.field("a", 1, .{});
             try container.field("b", 2, .{});
             try container.field("c", 3, .{});
@@ -1474,15 +1446,15 @@ test "std.zon stringify whitespace, low level API" {
                     \\    .b = 2,
                     \\    .c = 3,
                     \\}
-                , buf.items);
+                , aw.getWritten());
             } else {
-                try std.testing.expectEqualStrings(".{.a=1,.b=2,.c=3}", buf.items);
+                try std.testing.expectEqualStrings(".{.a=1,.b=2,.c=3}", aw.getWritten());
             }
-            buf.clearRetainingCapacity();
+            aw.clearRetainingCapacity();
         }
 
         {
-            var container = try sz.beginTuple(.{ .whitespace_style = .{ .fields = 3 } });
+            var container = try s.beginTuple(.{ .whitespace_style = .{ .fields = 3 } });
             try container.field(1, .{});
             try container.field(2, .{});
             try container.field(3, .{});
@@ -1494,16 +1466,16 @@ test "std.zon stringify whitespace, low level API" {
                     \\    2,
                     \\    3,
                     \\}
-                , buf.items);
+                , aw.getWritten());
             } else {
-                try std.testing.expectEqualStrings(".{1,2,3}", buf.items);
+                try std.testing.expectEqualStrings(".{1,2,3}", aw.getWritten());
             }
-            buf.clearRetainingCapacity();
+            aw.clearRetainingCapacity();
         }
 
         // Nested objects where the outer container doesn't wrap but the inner containers do
         {
-            var container = try sz.beginStruct(.{ .whitespace_style = .{ .wrap = false } });
+            var container = try s.beginStruct(.{ .whitespace_style = .{ .wrap = false } });
             try container.field("first", .{ 1, 2, 3 }, .{});
             try container.field("second", .{ 4, 5, 6 }, .{});
             try container.end();
@@ -1518,139 +1490,139 @@ test "std.zon stringify whitespace, low level API" {
                     \\    5,
                     \\    6,
                     \\} }
-                , buf.items);
+                , aw.getWritten());
             } else {
                 try std.testing.expectEqualStrings(
                     ".{.first=.{1,2,3},.second=.{4,5,6}}",
-                    buf.items,
+                    aw.getWritten(),
                 );
             }
-            buf.clearRetainingCapacity();
+            aw.clearRetainingCapacity();
         }
     }
 }
 
 test "std.zon stringify utf8 codepoints" {
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf.deinit();
-    var sz = serializer(buf.writer(), .{});
+    var aw: std.io.AllocatingWriter = undefined;
+    defer aw.deinit();
+    var s: Serializer = .{ .writer = aw.init(std.testing.allocator) };
 
     // Printable ASCII
-    try sz.int('a');
-    try std.testing.expectEqualStrings("97", buf.items);
-    buf.clearRetainingCapacity();
+    try s.int('a');
+    try std.testing.expectEqualStrings("97", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.codePoint('a');
-    try std.testing.expectEqualStrings("'a'", buf.items);
-    buf.clearRetainingCapacity();
+    try s.codePoint('a');
+    try std.testing.expectEqualStrings("'a'", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.value('a', .{ .emit_codepoint_literals = .always });
-    try std.testing.expectEqualStrings("'a'", buf.items);
-    buf.clearRetainingCapacity();
+    try s.value('a', .{ .emit_codepoint_literals = .always });
+    try std.testing.expectEqualStrings("'a'", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.value('a', .{ .emit_codepoint_literals = .printable_ascii });
-    try std.testing.expectEqualStrings("'a'", buf.items);
-    buf.clearRetainingCapacity();
+    try s.value('a', .{ .emit_codepoint_literals = .printable_ascii });
+    try std.testing.expectEqualStrings("'a'", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.value('a', .{ .emit_codepoint_literals = .never });
-    try std.testing.expectEqualStrings("97", buf.items);
-    buf.clearRetainingCapacity();
+    try s.value('a', .{ .emit_codepoint_literals = .never });
+    try std.testing.expectEqualStrings("97", aw.getWritten());
+    aw.clearRetainingCapacity();
 
     // Short escaped codepoint
-    try sz.int('\n');
-    try std.testing.expectEqualStrings("10", buf.items);
-    buf.clearRetainingCapacity();
+    try s.int('\n');
+    try std.testing.expectEqualStrings("10", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.codePoint('\n');
-    try std.testing.expectEqualStrings("'\\n'", buf.items);
-    buf.clearRetainingCapacity();
+    try s.codePoint('\n');
+    try std.testing.expectEqualStrings("'\\n'", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.value('\n', .{ .emit_codepoint_literals = .always });
-    try std.testing.expectEqualStrings("'\\n'", buf.items);
-    buf.clearRetainingCapacity();
+    try s.value('\n', .{ .emit_codepoint_literals = .always });
+    try std.testing.expectEqualStrings("'\\n'", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.value('\n', .{ .emit_codepoint_literals = .printable_ascii });
-    try std.testing.expectEqualStrings("10", buf.items);
-    buf.clearRetainingCapacity();
+    try s.value('\n', .{ .emit_codepoint_literals = .printable_ascii });
+    try std.testing.expectEqualStrings("10", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.value('\n', .{ .emit_codepoint_literals = .never });
-    try std.testing.expectEqualStrings("10", buf.items);
-    buf.clearRetainingCapacity();
+    try s.value('\n', .{ .emit_codepoint_literals = .never });
+    try std.testing.expectEqualStrings("10", aw.getWritten());
+    aw.clearRetainingCapacity();
 
     // Large codepoint
-    try sz.int('⚡');
-    try std.testing.expectEqualStrings("9889", buf.items);
-    buf.clearRetainingCapacity();
+    try s.int('⚡');
+    try std.testing.expectEqualStrings("9889", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.codePoint('⚡');
-    try std.testing.expectEqualStrings("'\\xe2\\x9a\\xa1'", buf.items);
-    buf.clearRetainingCapacity();
+    try s.codePoint('⚡');
+    try std.testing.expectEqualStrings("'\\xe2\\x9a\\xa1'", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.value('⚡', .{ .emit_codepoint_literals = .always });
-    try std.testing.expectEqualStrings("'\\xe2\\x9a\\xa1'", buf.items);
-    buf.clearRetainingCapacity();
+    try s.value('⚡', .{ .emit_codepoint_literals = .always });
+    try std.testing.expectEqualStrings("'\\xe2\\x9a\\xa1'", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.value('⚡', .{ .emit_codepoint_literals = .printable_ascii });
-    try std.testing.expectEqualStrings("9889", buf.items);
-    buf.clearRetainingCapacity();
+    try s.value('⚡', .{ .emit_codepoint_literals = .printable_ascii });
+    try std.testing.expectEqualStrings("9889", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.value('⚡', .{ .emit_codepoint_literals = .never });
-    try std.testing.expectEqualStrings("9889", buf.items);
-    buf.clearRetainingCapacity();
+    try s.value('⚡', .{ .emit_codepoint_literals = .never });
+    try std.testing.expectEqualStrings("9889", aw.getWritten());
+    aw.clearRetainingCapacity();
 
     // Invalid codepoint
-    try std.testing.expectError(error.InvalidCodepoint, sz.codePoint(0x110000 + 1));
+    try std.testing.expectError(error.InvalidCodepoint, s.codePoint(0x110000 + 1));
 
-    try sz.int(0x110000 + 1);
-    try std.testing.expectEqualStrings("1114113", buf.items);
-    buf.clearRetainingCapacity();
+    try s.int(0x110000 + 1);
+    try std.testing.expectEqualStrings("1114113", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.value(0x110000 + 1, .{ .emit_codepoint_literals = .always });
-    try std.testing.expectEqualStrings("1114113", buf.items);
-    buf.clearRetainingCapacity();
+    try s.value(0x110000 + 1, .{ .emit_codepoint_literals = .always });
+    try std.testing.expectEqualStrings("1114113", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.value(0x110000 + 1, .{ .emit_codepoint_literals = .printable_ascii });
-    try std.testing.expectEqualStrings("1114113", buf.items);
-    buf.clearRetainingCapacity();
+    try s.value(0x110000 + 1, .{ .emit_codepoint_literals = .printable_ascii });
+    try std.testing.expectEqualStrings("1114113", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.value(0x110000 + 1, .{ .emit_codepoint_literals = .never });
-    try std.testing.expectEqualStrings("1114113", buf.items);
-    buf.clearRetainingCapacity();
+    try s.value(0x110000 + 1, .{ .emit_codepoint_literals = .never });
+    try std.testing.expectEqualStrings("1114113", aw.getWritten());
+    aw.clearRetainingCapacity();
 
     // Valid codepoint, not a codepoint type
-    try sz.value(@as(u22, 'a'), .{ .emit_codepoint_literals = .always });
-    try std.testing.expectEqualStrings("97", buf.items);
-    buf.clearRetainingCapacity();
+    try s.value(@as(u22, 'a'), .{ .emit_codepoint_literals = .always });
+    try std.testing.expectEqualStrings("97", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.value(@as(u22, 'a'), .{ .emit_codepoint_literals = .printable_ascii });
-    try std.testing.expectEqualStrings("97", buf.items);
-    buf.clearRetainingCapacity();
+    try s.value(@as(u22, 'a'), .{ .emit_codepoint_literals = .printable_ascii });
+    try std.testing.expectEqualStrings("97", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.value(@as(i32, 'a'), .{ .emit_codepoint_literals = .never });
-    try std.testing.expectEqualStrings("97", buf.items);
-    buf.clearRetainingCapacity();
+    try s.value(@as(i32, 'a'), .{ .emit_codepoint_literals = .never });
+    try std.testing.expectEqualStrings("97", aw.getWritten());
+    aw.clearRetainingCapacity();
 
     // Make sure value options are passed to children
-    try sz.value(.{ .c = '⚡' }, .{ .emit_codepoint_literals = .always });
-    try std.testing.expectEqualStrings(".{ .c = '\\xe2\\x9a\\xa1' }", buf.items);
-    buf.clearRetainingCapacity();
+    try s.value(.{ .c = '⚡' }, .{ .emit_codepoint_literals = .always });
+    try std.testing.expectEqualStrings(".{ .c = '\\xe2\\x9a\\xa1' }", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.value(.{ .c = '⚡' }, .{ .emit_codepoint_literals = .never });
-    try std.testing.expectEqualStrings(".{ .c = 9889 }", buf.items);
-    buf.clearRetainingCapacity();
+    try s.value(.{ .c = '⚡' }, .{ .emit_codepoint_literals = .never });
+    try std.testing.expectEqualStrings(".{ .c = 9889 }", aw.getWritten());
+    aw.clearRetainingCapacity();
 }
 
 test "std.zon stringify strings" {
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf.deinit();
-    var sz = serializer(buf.writer(), .{});
+    var aw: std.io.AllocatingWriter = undefined;
+    defer aw.deinit();
+    var s: Serializer = .{ .writer = aw.init(std.testing.allocator) };
 
     // Minimal case
-    try sz.string("abc⚡\n");
-    try std.testing.expectEqualStrings("\"abc\\xe2\\x9a\\xa1\\n\"", buf.items);
-    buf.clearRetainingCapacity();
+    try s.string("abc⚡\n");
+    try std.testing.expectEqualStrings("\"abc\\xe2\\x9a\\xa1\\n\"", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.tuple("abc⚡\n", .{});
+    try s.tuple("abc⚡\n", .{});
     try std.testing.expectEqualStrings(
         \\.{
         \\    97,
@@ -1661,14 +1633,14 @@ test "std.zon stringify strings" {
         \\    161,
         \\    10,
         \\}
-    , buf.items);
-    buf.clearRetainingCapacity();
+    , aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.value("abc⚡\n", .{});
-    try std.testing.expectEqualStrings("\"abc\\xe2\\x9a\\xa1\\n\"", buf.items);
-    buf.clearRetainingCapacity();
+    try s.value("abc⚡\n", .{});
+    try std.testing.expectEqualStrings("\"abc\\xe2\\x9a\\xa1\\n\"", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.value("abc⚡\n", .{ .emit_strings_as_containers = true });
+    try s.value("abc⚡\n", .{ .emit_strings_as_containers = true });
     try std.testing.expectEqualStrings(
         \\.{
         \\    97,
@@ -1679,113 +1651,113 @@ test "std.zon stringify strings" {
         \\    161,
         \\    10,
         \\}
-    , buf.items);
-    buf.clearRetainingCapacity();
+    , aw.getWritten());
+    aw.clearRetainingCapacity();
 
     // Value options are inherited by children
-    try sz.value(.{ .str = "abc" }, .{});
-    try std.testing.expectEqualStrings(".{ .str = \"abc\" }", buf.items);
-    buf.clearRetainingCapacity();
+    try s.value(.{ .str = "abc" }, .{});
+    try std.testing.expectEqualStrings(".{ .str = \"abc\" }", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.value(.{ .str = "abc" }, .{ .emit_strings_as_containers = true });
+    try s.value(.{ .str = "abc" }, .{ .emit_strings_as_containers = true });
     try std.testing.expectEqualStrings(
         \\.{ .str = .{
         \\    97,
         \\    98,
         \\    99,
         \\} }
-    , buf.items);
-    buf.clearRetainingCapacity();
+    , aw.getWritten());
+    aw.clearRetainingCapacity();
 
     // Arrays (rather than pointers to arrays) of u8s are not considered strings, so that data can
     // round trip correctly.
-    try sz.value("abc".*, .{});
+    try s.value("abc".*, .{});
     try std.testing.expectEqualStrings(
         \\.{
         \\    97,
         \\    98,
         \\    99,
         \\}
-    , buf.items);
-    buf.clearRetainingCapacity();
+    , aw.getWritten());
+    aw.clearRetainingCapacity();
 }
 
 test "std.zon stringify multiline strings" {
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf.deinit();
-    var sz = serializer(buf.writer(), .{});
+    var aw: std.io.AllocatingWriter = undefined;
+    defer aw.deinit();
+    var s: Serializer = .{ .writer = aw.init(std.testing.allocator) };
 
     inline for (.{ true, false }) |whitespace| {
-        sz.options.whitespace = whitespace;
+        s.options.whitespace = whitespace;
 
         {
-            try sz.multilineString("", .{ .top_level = true });
-            try std.testing.expectEqualStrings("\\\\", buf.items);
-            buf.clearRetainingCapacity();
+            try s.multilineString("", .{ .top_level = true });
+            try std.testing.expectEqualStrings("\\\\", aw.getWritten());
+            aw.clearRetainingCapacity();
         }
 
         {
-            try sz.multilineString("abc⚡", .{ .top_level = true });
-            try std.testing.expectEqualStrings("\\\\abc⚡", buf.items);
-            buf.clearRetainingCapacity();
+            try s.multilineString("abc⚡", .{ .top_level = true });
+            try std.testing.expectEqualStrings("\\\\abc⚡", aw.getWritten());
+            aw.clearRetainingCapacity();
         }
 
         {
-            try sz.multilineString("abc⚡\ndef", .{ .top_level = true });
-            try std.testing.expectEqualStrings("\\\\abc⚡\n\\\\def", buf.items);
-            buf.clearRetainingCapacity();
+            try s.multilineString("abc⚡\ndef", .{ .top_level = true });
+            try std.testing.expectEqualStrings("\\\\abc⚡\n\\\\def", aw.getWritten());
+            aw.clearRetainingCapacity();
         }
 
         {
-            try sz.multilineString("abc⚡\r\ndef", .{ .top_level = true });
-            try std.testing.expectEqualStrings("\\\\abc⚡\n\\\\def", buf.items);
-            buf.clearRetainingCapacity();
+            try s.multilineString("abc⚡\r\ndef", .{ .top_level = true });
+            try std.testing.expectEqualStrings("\\\\abc⚡\n\\\\def", aw.getWritten());
+            aw.clearRetainingCapacity();
         }
 
         {
-            try sz.multilineString("\nabc⚡", .{ .top_level = true });
-            try std.testing.expectEqualStrings("\\\\\n\\\\abc⚡", buf.items);
-            buf.clearRetainingCapacity();
+            try s.multilineString("\nabc⚡", .{ .top_level = true });
+            try std.testing.expectEqualStrings("\\\\\n\\\\abc⚡", aw.getWritten());
+            aw.clearRetainingCapacity();
         }
 
         {
-            try sz.multilineString("\r\nabc⚡", .{ .top_level = true });
-            try std.testing.expectEqualStrings("\\\\\n\\\\abc⚡", buf.items);
-            buf.clearRetainingCapacity();
+            try s.multilineString("\r\nabc⚡", .{ .top_level = true });
+            try std.testing.expectEqualStrings("\\\\\n\\\\abc⚡", aw.getWritten());
+            aw.clearRetainingCapacity();
         }
 
         {
-            try sz.multilineString("abc\ndef", .{});
+            try s.multilineString("abc\ndef", .{});
             if (whitespace) {
-                try std.testing.expectEqualStrings("\n\\\\abc\n\\\\def\n", buf.items);
+                try std.testing.expectEqualStrings("\n\\\\abc\n\\\\def\n", aw.getWritten());
             } else {
-                try std.testing.expectEqualStrings("\\\\abc\n\\\\def\n", buf.items);
+                try std.testing.expectEqualStrings("\\\\abc\n\\\\def\n", aw.getWritten());
             }
-            buf.clearRetainingCapacity();
+            aw.clearRetainingCapacity();
         }
 
         {
             const str: []const u8 = &.{ 'a', '\r', 'c' };
-            try sz.string(str);
-            try std.testing.expectEqualStrings("\"a\\rc\"", buf.items);
-            buf.clearRetainingCapacity();
+            try s.string(str);
+            try std.testing.expectEqualStrings("\"a\\rc\"", aw.getWritten());
+            aw.clearRetainingCapacity();
         }
 
         {
             try std.testing.expectError(
                 error.InnerCarriageReturn,
-                sz.multilineString(@as([]const u8, &.{ 'a', '\r', 'c' }), .{}),
+                s.multilineString(@as([]const u8, &.{ 'a', '\r', 'c' }), .{}),
             );
             try std.testing.expectError(
                 error.InnerCarriageReturn,
-                sz.multilineString(@as([]const u8, &.{ 'a', '\r', 'c', '\n' }), .{}),
+                s.multilineString(@as([]const u8, &.{ 'a', '\r', 'c', '\n' }), .{}),
             );
             try std.testing.expectError(
                 error.InnerCarriageReturn,
-                sz.multilineString(@as([]const u8, &.{ 'a', '\r', 'c', '\r', '\n' }), .{}),
+                s.multilineString(@as([]const u8, &.{ 'a', '\r', 'c', '\r', '\n' }), .{}),
             );
-            try std.testing.expectEqualStrings("", buf.items);
-            buf.clearRetainingCapacity();
+            try std.testing.expectEqualStrings("", aw.getWritten());
+            aw.clearRetainingCapacity();
         }
     }
 }
@@ -1931,42 +1903,43 @@ test "std.zon stringify skip default fields" {
 }
 
 test "std.zon depth limits" {
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf.deinit();
+    var aw: std.io.AllocatingWriter = undefined;
+    defer aw.deinit();
+    const bw = aw.init(std.testing.allocator);
 
     const Recurse = struct { r: []const @This() };
 
     // Normal operation
-    try serializeMaxDepth(.{ 1, .{ 2, 3 } }, .{}, buf.writer(), 16);
-    try std.testing.expectEqualStrings(".{ 1, .{ 2, 3 } }", buf.items);
-    buf.clearRetainingCapacity();
+    try serializeMaxDepth(.{ 1, .{ 2, 3 } }, .{}, bw, 16);
+    try std.testing.expectEqualStrings(".{ 1, .{ 2, 3 } }", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try serializeArbitraryDepth(.{ 1, .{ 2, 3 } }, .{}, buf.writer());
-    try std.testing.expectEqualStrings(".{ 1, .{ 2, 3 } }", buf.items);
-    buf.clearRetainingCapacity();
+    try serializeArbitraryDepth(.{ 1, .{ 2, 3 } }, .{}, bw);
+    try std.testing.expectEqualStrings(".{ 1, .{ 2, 3 } }", aw.getWritten());
+    aw.clearRetainingCapacity();
 
     // Max depth failing on non recursive type
     try std.testing.expectError(
         error.ExceededMaxDepth,
-        serializeMaxDepth(.{ 1, .{ 2, .{ 3, 4 } } }, .{}, buf.writer(), 3),
+        serializeMaxDepth(.{ 1, .{ 2, .{ 3, 4 } } }, .{}, bw, 3),
     );
-    try std.testing.expectEqualStrings("", buf.items);
-    buf.clearRetainingCapacity();
+    try std.testing.expectEqualStrings("", aw.getWritten());
+    aw.clearRetainingCapacity();
 
     // Max depth passing on recursive type
     {
         const maybe_recurse = Recurse{ .r = &.{} };
-        try serializeMaxDepth(maybe_recurse, .{}, buf.writer(), 2);
-        try std.testing.expectEqualStrings(".{ .r = .{} }", buf.items);
-        buf.clearRetainingCapacity();
+        try serializeMaxDepth(maybe_recurse, .{}, bw, 2);
+        try std.testing.expectEqualStrings(".{ .r = .{} }", aw.getWritten());
+        aw.clearRetainingCapacity();
     }
 
     // Unchecked passing on recursive type
     {
         const maybe_recurse = Recurse{ .r = &.{} };
-        try serializeArbitraryDepth(maybe_recurse, .{}, buf.writer());
-        try std.testing.expectEqualStrings(".{ .r = .{} }", buf.items);
-        buf.clearRetainingCapacity();
+        try serializeArbitraryDepth(maybe_recurse, .{}, bw);
+        try std.testing.expectEqualStrings(".{ .r = .{} }", aw.getWritten());
+        aw.clearRetainingCapacity();
     }
 
     // Max depth failing on recursive type due to depth
@@ -1975,10 +1948,10 @@ test "std.zon depth limits" {
         maybe_recurse.r = &.{.{ .r = &.{} }};
         try std.testing.expectError(
             error.ExceededMaxDepth,
-            serializeMaxDepth(maybe_recurse, .{}, buf.writer(), 2),
+            serializeMaxDepth(maybe_recurse, .{}, bw, 2),
         );
-        try std.testing.expectEqualStrings("", buf.items);
-        buf.clearRetainingCapacity();
+        try std.testing.expectEqualStrings("", aw.getWritten());
+        aw.clearRetainingCapacity();
     }
 
     // Same but for a slice
@@ -1988,23 +1961,23 @@ test "std.zon depth limits" {
 
         try std.testing.expectError(
             error.ExceededMaxDepth,
-            serializeMaxDepth(maybe_recurse, .{}, buf.writer(), 2),
+            serializeMaxDepth(maybe_recurse, .{}, bw, 2),
         );
-        try std.testing.expectEqualStrings("", buf.items);
-        buf.clearRetainingCapacity();
+        try std.testing.expectEqualStrings("", aw.getWritten());
+        aw.clearRetainingCapacity();
 
-        var sz = serializer(buf.writer(), .{});
+        var s: Serializer = .{ .writer = bw };
 
         try std.testing.expectError(
             error.ExceededMaxDepth,
-            sz.tupleMaxDepth(maybe_recurse, .{}, 2),
+            s.tupleMaxDepth(maybe_recurse, .{}, 2),
         );
-        try std.testing.expectEqualStrings("", buf.items);
-        buf.clearRetainingCapacity();
+        try std.testing.expectEqualStrings("", aw.getWritten());
+        aw.clearRetainingCapacity();
 
-        try sz.tupleArbitraryDepth(maybe_recurse, .{});
-        try std.testing.expectEqualStrings(".{.{ .r = .{} }}", buf.items);
-        buf.clearRetainingCapacity();
+        try s.tupleArbitraryDepth(maybe_recurse, .{});
+        try std.testing.expectEqualStrings(".{.{ .r = .{} }}", aw.getWritten());
+        aw.clearRetainingCapacity();
     }
 
     // A slice succeeding
@@ -2012,19 +1985,19 @@ test "std.zon depth limits" {
         var temp: [1]Recurse = .{.{ .r = &.{} }};
         const maybe_recurse: []const Recurse = &temp;
 
-        try serializeMaxDepth(maybe_recurse, .{}, buf.writer(), 3);
-        try std.testing.expectEqualStrings(".{.{ .r = .{} }}", buf.items);
-        buf.clearRetainingCapacity();
+        try serializeMaxDepth(maybe_recurse, .{}, bw, 3);
+        try std.testing.expectEqualStrings(".{.{ .r = .{} }}", aw.getWritten());
+        aw.clearRetainingCapacity();
 
-        var sz = serializer(buf.writer(), .{});
+        var s: Serializer = .{ .writer = bw };
 
-        try sz.tupleMaxDepth(maybe_recurse, .{}, 3);
-        try std.testing.expectEqualStrings(".{.{ .r = .{} }}", buf.items);
-        buf.clearRetainingCapacity();
+        try s.tupleMaxDepth(maybe_recurse, .{}, 3);
+        try std.testing.expectEqualStrings(".{.{ .r = .{} }}", aw.getWritten());
+        aw.clearRetainingCapacity();
 
-        try sz.tupleArbitraryDepth(maybe_recurse, .{});
-        try std.testing.expectEqualStrings(".{.{ .r = .{} }}", buf.items);
-        buf.clearRetainingCapacity();
+        try s.tupleArbitraryDepth(maybe_recurse, .{});
+        try std.testing.expectEqualStrings(".{.{ .r = .{} }}", aw.getWritten());
+        aw.clearRetainingCapacity();
     }
 
     // Max depth failing on recursive type due to recursion
@@ -2035,46 +2008,46 @@ test "std.zon depth limits" {
 
         try std.testing.expectError(
             error.ExceededMaxDepth,
-            serializeMaxDepth(maybe_recurse, .{}, buf.writer(), 128),
+            serializeMaxDepth(maybe_recurse, .{}, bw, 128),
         );
-        try std.testing.expectEqualStrings("", buf.items);
-        buf.clearRetainingCapacity();
+        try std.testing.expectEqualStrings("", aw.getWritten());
+        aw.clearRetainingCapacity();
 
-        var sz = serializer(buf.writer(), .{});
+        var s: Serializer = .{ .writer = bw };
         try std.testing.expectError(
             error.ExceededMaxDepth,
-            sz.tupleMaxDepth(maybe_recurse, .{}, 128),
+            s.tupleMaxDepth(maybe_recurse, .{}, 128),
         );
-        try std.testing.expectEqualStrings("", buf.items);
-        buf.clearRetainingCapacity();
+        try std.testing.expectEqualStrings("", aw.getWritten());
+        aw.clearRetainingCapacity();
     }
 
     // Max depth on other parts of the lower level API
     {
-        var sz = serializer(buf.writer(), .{});
+        var s: Serializer = .{ .writer = bw };
 
         const maybe_recurse: []const Recurse = &.{};
 
-        try std.testing.expectError(error.ExceededMaxDepth, sz.valueMaxDepth(1, .{}, 0));
-        try sz.valueMaxDepth(2, .{}, 1);
-        try sz.value(3, .{});
-        try sz.valueArbitraryDepth(maybe_recurse, .{});
+        try std.testing.expectError(error.ExceededMaxDepth, s.valueMaxDepth(1, .{}, 0));
+        try s.valueMaxDepth(2, .{}, 1);
+        try s.value(3, .{});
+        try s.valueArbitraryDepth(maybe_recurse, .{});
 
-        var s = try sz.beginStruct(.{});
-        try std.testing.expectError(error.ExceededMaxDepth, s.fieldMaxDepth("a", 1, .{}, 0));
-        try s.fieldMaxDepth("b", 4, .{}, 1);
-        try s.field("c", 5, .{});
-        try s.fieldArbitraryDepth("d", maybe_recurse, .{});
-        try s.end();
+        var wip_struct = try s.beginStruct(.{});
+        try std.testing.expectError(error.ExceededMaxDepth, wip_struct.fieldMaxDepth("a", 1, .{}, 0));
+        try wip_struct.fieldMaxDepth("b", 4, .{}, 1);
+        try wip_struct.field("c", 5, .{});
+        try wip_struct.fieldArbitraryDepth("d", maybe_recurse, .{});
+        try wip_struct.end();
 
-        var t = try sz.beginTuple(.{});
+        var t = try s.beginTuple(.{});
         try std.testing.expectError(error.ExceededMaxDepth, t.fieldMaxDepth(1, .{}, 0));
         try t.fieldMaxDepth(6, .{}, 1);
         try t.field(7, .{});
         try t.fieldArbitraryDepth(maybe_recurse, .{});
         try t.end();
 
-        var a = try sz.beginTuple(.{});
+        var a = try s.beginTuple(.{});
         try std.testing.expectError(error.ExceededMaxDepth, a.fieldMaxDepth(1, .{}, 0));
         try a.fieldMaxDepth(8, .{}, 1);
         try a.field(9, .{});
@@ -2095,7 +2068,7 @@ test "std.zon depth limits" {
             \\    9,
             \\    .{},
             \\}
-        , buf.items);
+        , aw.getWritten());
     }
 }
 
@@ -2191,42 +2164,42 @@ test "std.zon stringify primitives" {
 }
 
 test "std.zon stringify ident" {
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf.deinit();
-    var sz = serializer(buf.writer(), .{});
+    var aw: std.io.AllocatingWriter = undefined;
+    defer aw.deinit();
+    var s: Serializer = .{ .writer = aw.init(std.testing.allocator) };
 
     try expectSerializeEqual(".{ .a = 0 }", .{ .a = 0 }, .{});
-    try sz.ident("a");
-    try std.testing.expectEqualStrings(".a", buf.items);
-    buf.clearRetainingCapacity();
+    try s.ident("a");
+    try std.testing.expectEqualStrings(".a", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.ident("foo_1");
-    try std.testing.expectEqualStrings(".foo_1", buf.items);
-    buf.clearRetainingCapacity();
+    try s.ident("foo_1");
+    try std.testing.expectEqualStrings(".foo_1", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.ident("_foo_1");
-    try std.testing.expectEqualStrings("._foo_1", buf.items);
-    buf.clearRetainingCapacity();
+    try s.ident("_foo_1");
+    try std.testing.expectEqualStrings("._foo_1", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.ident("foo bar");
-    try std.testing.expectEqualStrings(".@\"foo bar\"", buf.items);
-    buf.clearRetainingCapacity();
+    try s.ident("foo bar");
+    try std.testing.expectEqualStrings(".@\"foo bar\"", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.ident("1foo");
-    try std.testing.expectEqualStrings(".@\"1foo\"", buf.items);
-    buf.clearRetainingCapacity();
+    try s.ident("1foo");
+    try std.testing.expectEqualStrings(".@\"1foo\"", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.ident("var");
-    try std.testing.expectEqualStrings(".@\"var\"", buf.items);
-    buf.clearRetainingCapacity();
+    try s.ident("var");
+    try std.testing.expectEqualStrings(".@\"var\"", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.ident("true");
-    try std.testing.expectEqualStrings(".true", buf.items);
-    buf.clearRetainingCapacity();
+    try s.ident("true");
+    try std.testing.expectEqualStrings(".true", aw.getWritten());
+    aw.clearRetainingCapacity();
 
-    try sz.ident("_");
-    try std.testing.expectEqualStrings("._", buf.items);
-    buf.clearRetainingCapacity();
+    try s.ident("_");
+    try std.testing.expectEqualStrings("._", aw.getWritten());
+    aw.clearRetainingCapacity();
 
     const Enum = enum {
         @"foo bar",
@@ -2238,40 +2211,40 @@ test "std.zon stringify ident" {
 }
 
 test "std.zon stringify as tuple" {
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf.deinit();
-    var sz = serializer(buf.writer(), .{});
+    var aw: std.io.AllocatingWriter = undefined;
+    defer aw.deinit();
+    var s: Serializer = .{ .writer = aw.init(std.testing.allocator) };
 
     // Tuples
-    try sz.tuple(.{ 1, 2 }, .{});
-    try std.testing.expectEqualStrings(".{ 1, 2 }", buf.items);
-    buf.clearRetainingCapacity();
+    try s.tuple(.{ 1, 2 }, .{});
+    try std.testing.expectEqualStrings(".{ 1, 2 }", aw.getWritten());
+    aw.clearRetainingCapacity();
 
     // Slice
-    try sz.tuple(@as([]const u8, &.{ 1, 2 }), .{});
-    try std.testing.expectEqualStrings(".{ 1, 2 }", buf.items);
-    buf.clearRetainingCapacity();
+    try s.tuple(@as([]const u8, &.{ 1, 2 }), .{});
+    try std.testing.expectEqualStrings(".{ 1, 2 }", aw.getWritten());
+    aw.clearRetainingCapacity();
 
     // Array
-    try sz.tuple([2]u8{ 1, 2 }, .{});
-    try std.testing.expectEqualStrings(".{ 1, 2 }", buf.items);
-    buf.clearRetainingCapacity();
+    try s.tuple([2]u8{ 1, 2 }, .{});
+    try std.testing.expectEqualStrings(".{ 1, 2 }", aw.getWritten());
+    aw.clearRetainingCapacity();
 }
 
 test "std.zon stringify as float" {
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf.deinit();
-    var sz = serializer(buf.writer(), .{});
+    var aw: std.io.AllocatingWriter = undefined;
+    defer aw.deinit();
+    var s: Serializer = .{ .writer = aw.init(std.testing.allocator) };
 
     // Comptime float
-    try sz.float(2.5);
-    try std.testing.expectEqualStrings("2.5", buf.items);
-    buf.clearRetainingCapacity();
+    try s.float(2.5);
+    try std.testing.expectEqualStrings("2.5", aw.getWritten());
+    aw.clearRetainingCapacity();
 
     // Sized float
-    try sz.float(@as(f32, 2.5));
-    try std.testing.expectEqualStrings("2.5", buf.items);
-    buf.clearRetainingCapacity();
+    try s.float(@as(f32, 2.5));
+    try std.testing.expectEqualStrings("2.5", aw.getWritten());
+    aw.clearRetainingCapacity();
 }
 
 test "std.zon stringify vector" {
@@ -2363,13 +2336,13 @@ test "std.zon pointers" {
 }
 
 test "std.zon tuple/struct field" {
-    var buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer buf.deinit();
-    var sz = serializer(buf.writer(), .{});
+    var aw: std.io.AllocatingWriter = undefined;
+    defer aw.deinit();
+    var s: Serializer = .{ .writer = aw.init(std.testing.allocator) };
 
     // Test on structs
     {
-        var root = try sz.beginStruct(.{});
+        var root = try s.beginStruct(.{});
         {
             var tuple = try root.beginTupleField("foo", .{});
             try tuple.field(0, .{});
@@ -2395,13 +2368,13 @@ test "std.zon tuple/struct field" {
             \\        .b = 1,
             \\    },
             \\}
-        , buf.items);
-        buf.clearRetainingCapacity();
+        , aw.getWritten());
+        aw.clearRetainingCapacity();
     }
 
     // Test on tuples
     {
-        var root = try sz.beginTuple(.{});
+        var root = try s.beginTuple(.{});
         {
             var tuple = try root.beginTupleField(.{});
             try tuple.field(0, .{});
@@ -2427,7 +2400,7 @@ test "std.zon tuple/struct field" {
             \\        .b = 1,
             \\    },
             \\}
-        , buf.items);
-        buf.clearRetainingCapacity();
+        , aw.getWritten());
+        aw.clearRetainingCapacity();
     }
 }
