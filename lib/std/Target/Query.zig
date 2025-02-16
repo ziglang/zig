@@ -394,25 +394,24 @@ pub fn canDetectLibC(self: Query) bool {
 
 /// Formats a version with the patch component omitted if it is zero,
 /// unlike SemanticVersion.format which formats all its version components regardless.
-fn formatVersion(version: SemanticVersion, writer: anytype) !void {
+fn formatVersion(version: SemanticVersion, gpa: Allocator, list: *std.ArrayListUnmanaged(u8)) !void {
     if (version.patch == 0) {
-        try writer.print("{d}.{d}", .{ version.major, version.minor });
+        try list.print(gpa, "{d}.{d}", .{ version.major, version.minor });
     } else {
-        try writer.print("{d}.{d}.{d}", .{ version.major, version.minor, version.patch });
+        try list.print(gpa, "{d}.{d}.{d}", .{ version.major, version.minor, version.patch });
     }
 }
 
-pub fn zigTriple(self: Query, allocator: Allocator) Allocator.Error![]u8 {
-    if (self.isNativeTriple())
-        return allocator.dupe(u8, "native");
+pub fn zigTriple(self: Query, gpa: Allocator) Allocator.Error![]u8 {
+    if (self.isNativeTriple()) return gpa.dupe(u8, "native");
 
     const arch_name = if (self.cpu_arch) |arch| @tagName(arch) else "native";
     const os_name = if (self.os_tag) |os_tag| @tagName(os_tag) else "native";
 
-    var result = std.ArrayList(u8).init(allocator);
-    defer result.deinit();
+    var result: std.ArrayListUnmanaged(u8) = .empty;
+    defer result.deinit(gpa);
 
-    try result.writer().print("{s}-{s}", .{ arch_name, os_name });
+    try result.print(gpa, "{s}-{s}", .{ arch_name, os_name });
 
     // The zig target syntax does not allow specifying a max os version with no min, so
     // if either are present, we need the min.
@@ -420,11 +419,11 @@ pub fn zigTriple(self: Query, allocator: Allocator) Allocator.Error![]u8 {
         switch (min) {
             .none => {},
             .semver => |v| {
-                try result.writer().writeAll(".");
-                try formatVersion(v, result.writer());
+                try result.appendSlice(gpa, ".");
+                try formatVersion(v, gpa, &result);
             },
             .windows => |v| {
-                try result.writer().print("{s}", .{v});
+                try result.print(gpa, "{s}", .{v});
             },
         }
     }
@@ -432,39 +431,39 @@ pub fn zigTriple(self: Query, allocator: Allocator) Allocator.Error![]u8 {
         switch (max) {
             .none => {},
             .semver => |v| {
-                try result.writer().writeAll("...");
-                try formatVersion(v, result.writer());
+                try result.appendSlice(gpa, "...");
+                try formatVersion(v, gpa, &result);
             },
             .windows => |v| {
                 // This is counting on a custom format() function defined on `WindowsVersion`
                 // to add a prefix '.' and make there be a total of three dots.
-                try result.writer().print("..{s}", .{v});
+                try result.print(gpa, "..{s}", .{v});
             },
         }
     }
 
     if (self.glibc_version) |v| {
         const name = if (self.abi) |abi| @tagName(abi) else "gnu";
-        try result.ensureUnusedCapacity(name.len + 2);
+        try result.ensureUnusedCapacity(gpa, name.len + 2);
         result.appendAssumeCapacity('-');
         result.appendSliceAssumeCapacity(name);
         result.appendAssumeCapacity('.');
-        try formatVersion(v, result.writer());
+        try formatVersion(v, gpa, &result);
     } else if (self.android_api_level) |lvl| {
         const name = if (self.abi) |abi| @tagName(abi) else "android";
-        try result.ensureUnusedCapacity(name.len + 2);
+        try result.ensureUnusedCapacity(gpa, name.len + 2);
         result.appendAssumeCapacity('-');
         result.appendSliceAssumeCapacity(name);
         result.appendAssumeCapacity('.');
-        try result.writer().print("{d}", .{lvl});
+        try result.print(gpa, "{d}", .{lvl});
     } else if (self.abi) |abi| {
         const name = @tagName(abi);
-        try result.ensureUnusedCapacity(name.len + 1);
+        try result.ensureUnusedCapacity(gpa, name.len + 1);
         result.appendAssumeCapacity('-');
         result.appendSliceAssumeCapacity(name);
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(gpa);
 }
 
 /// Renders the query into a textual representation that can be parsed via the
