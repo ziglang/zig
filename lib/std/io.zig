@@ -345,15 +345,23 @@ pub const null_writer: Writer = .{
     .context = undefined,
     .vtable = &.{
         .writev = null_writev,
+        .splat = null_splat,
         .writeFile = null_writeFile,
     },
 };
 
 fn null_writev(context: *anyopaque, data: []const []const u8) anyerror!usize {
     _ = context;
-    var n: usize = 0;
-    for (data) |bytes| n += bytes.len;
-    return n;
+    var written: usize = 0;
+    for (data) |bytes| written += bytes.len;
+    return written;
+}
+
+fn null_splat(context: *anyopaque, headers: []const []const u8, pattern: []const u8, n: usize) anyerror!usize {
+    _ = context;
+    var written: usize = pattern.len * n;
+    for (headers) |bytes| written += bytes.len;
+    return written;
 }
 
 fn null_writeFile(
