@@ -1591,6 +1591,7 @@ pub fn writer(file: File) std.io.Writer {
         .context = interface.handleToOpaque(file.handle),
         .vtable = &.{
             .writev = interface.writev,
+            .splat = interface.splat,
             .writeFile = interface.writeFile,
         },
     };
@@ -1621,6 +1622,28 @@ const interface = struct {
         var iovecs_buffer: [max_buffers_len]std.posix.iovec_const = undefined;
         const iovecs = iovecs_buffer[0..@min(iovecs_buffer.len, data.len)];
         for (iovecs, data[0..iovecs.len]) |*v, d| v.* = .{
+            .base = if (d.len == 0) "" else d.ptr, // OS sadly checks ptr addr before length.
+            .len = d.len,
+        };
+        return std.posix.writev(file, iovecs);
+    }
+
+    fn splat(context: *anyopaque, headers: []const []const u8, pattern: []const u8, n: usize) anyerror!usize {
+        const file = opaqueToHandle(context);
+
+        if (is_windows) {
+            // TODO improve this to use WriteFileScatter
+            if (headers.len > 0) {
+                const first = headers[0];
+                return windows.WriteFile(file, first, null);
+            }
+            if (n > 0) return windows.WriteFile(file, pattern, null);
+            return 0;
+        }
+
+        var iovecs_buffer: [max_buffers_len]std.posix.iovec_const = undefined;
+        const iovecs = iovecs_buffer[0..@min(iovecs_buffer.len, headers.len)];
+        for (iovecs, headers[0..iovecs.len]) |*v, d| v.* = .{
             .base = if (d.len == 0) "" else d.ptr, // OS sadly checks ptr addr before length.
             .len = d.len,
         };
