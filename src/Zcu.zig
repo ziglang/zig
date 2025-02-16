@@ -4237,7 +4237,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
             };
         },
         .stage2_wasm => switch (cc) {
-            .wasm_watc => |opts| opts.incoming_stack_alignment == null,
+            .wasm_mvp => |opts| opts.incoming_stack_alignment == null,
             else => false,
         },
         .stage2_arm => switch (cc) {
