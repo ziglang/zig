@@ -8,6 +8,7 @@ const std = @import("../std.zig");
 const math = std.math;
 const mem = std.mem;
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 /// Returns the natural logarithm of 1 + x with greater accuracy when x is near zero.
 ///
@@ -182,49 +183,72 @@ fn log1p_64(x: f64) f64 {
     return s * (hfsq + R) + (dk * ln2_lo + c) - hfsq + f + dk * ln2_hi;
 }
 
-test log1p {
-    try expect(log1p(@as(f32, 0.0)) == log1p_32(0.0));
-    try expect(log1p(@as(f64, 0.0)) == log1p_64(0.0));
-}
-
-test log1p_32 {
-    const epsilon = 0.000001;
-
-    try expect(math.approxEqAbs(f32, log1p_32(0.0), 0.0, epsilon));
-    try expect(math.approxEqAbs(f32, log1p_32(0.2), 0.182322, epsilon));
-    try expect(math.approxEqAbs(f32, log1p_32(0.8923), 0.637793, epsilon));
-    try expect(math.approxEqAbs(f32, log1p_32(1.5), 0.916291, epsilon));
-    try expect(math.approxEqAbs(f32, log1p_32(37.45), 3.649359, epsilon));
-    try expect(math.approxEqAbs(f32, log1p_32(89.123), 4.501175, epsilon));
-    try expect(math.approxEqAbs(f32, log1p_32(123123.234375), 11.720949, epsilon));
-}
-
-test log1p_64 {
-    const epsilon = 0.000001;
-
-    try expect(math.approxEqAbs(f64, log1p_64(0.0), 0.0, epsilon));
-    try expect(math.approxEqAbs(f64, log1p_64(0.2), 0.182322, epsilon));
-    try expect(math.approxEqAbs(f64, log1p_64(0.8923), 0.637793, epsilon));
-    try expect(math.approxEqAbs(f64, log1p_64(1.5), 0.916291, epsilon));
-    try expect(math.approxEqAbs(f64, log1p_64(37.45), 3.649359, epsilon));
-    try expect(math.approxEqAbs(f64, log1p_64(89.123), 4.501175, epsilon));
-    try expect(math.approxEqAbs(f64, log1p_64(123123.234375), 11.720949, epsilon));
-}
-
-test "log1p_32.special" {
-    try expect(math.isPositiveInf(log1p_32(math.inf(f32))));
+test "log1p_32() special" {
     try expect(math.isPositiveZero(log1p_32(0.0)));
     try expect(math.isNegativeZero(log1p_32(-0.0)));
-    try expect(math.isNegativeInf(log1p_32(-1.0)));
+    try expectEqual(log1p_32(-1.0), -math.inf(f32));
+    try expectEqual(log1p_32(1.0), math.ln2);
+    try expectEqual(log1p_32(math.inf(f32)), math.inf(f32));
     try expect(math.isNan(log1p_32(-2.0)));
+    try expect(math.isNan(log1p_32(-math.inf(f32))));
     try expect(math.isNan(log1p_32(math.nan(f32))));
+    try expect(math.isNan(log1p_32(math.snan(f32))));
 }
 
-test "log1p_64.special" {
-    try expect(math.isPositiveInf(log1p_64(math.inf(f64))));
+test "log1p_32() sanity" {
+    try expect(math.isNan(log1p_32(-0x1.0223a0p+3)));
+    try expectEqual(log1p_32(0x1.161868p+2), 0x1.ad1bdcp+0);
+    try expect(math.isNan(log1p_32(-0x1.0c34b4p+3)));
+    try expect(math.isNan(log1p_32(-0x1.a206f0p+2)));
+    try expectEqual(log1p_32(0x1.288bbcp+3), 0x1.2a1ab8p+1);
+    try expectEqual(log1p_32(0x1.52efd0p-1), 0x1.041a4ep-1);
+    try expectEqual(log1p_32(-0x1.a05cc8p-2), -0x1.0b3596p-1);
+    try expectEqual(log1p_32(0x1.1f9efap-1), 0x1.c88344p-2);
+    try expectEqual(log1p_32(0x1.8c5db0p-1), 0x1.258a8ep-1);
+    try expectEqual(log1p_32(-0x1.5b86eap-1), -0x1.22b542p+0);
+}
+
+test "log1p_32() boundary" {
+    try expectEqual(log1p_32(0x1.fffffep+127), 0x1.62e430p+6); // Max input value
+    try expectEqual(log1p_32(0x1p-149), 0x1p-149); // Min positive input value
+    try expectEqual(log1p_32(-0x1p-149), -0x1p-149); // Min negative input value
+    try expectEqual(log1p_32(0x1p-126), 0x1p-126); // First subnormal
+    try expectEqual(log1p_32(-0x1p-126), -0x1p-126); // First negative subnormal
+    try expectEqual(log1p_32(-0x1.fffffep-1), -0x1.0a2b24p+4); // Last value before result is -inf
+    try expect(math.isNan(log1p_32(-0x1.000002p+0))); // First value where result is nan
+}
+
+test "log1p_64() special" {
     try expect(math.isPositiveZero(log1p_64(0.0)));
     try expect(math.isNegativeZero(log1p_64(-0.0)));
-    try expect(math.isNegativeInf(log1p_64(-1.0)));
+    try expectEqual(log1p_64(-1.0), -math.inf(f64));
+    try expectEqual(log1p_64(1.0), math.ln2);
+    try expectEqual(log1p_64(math.inf(f64)), math.inf(f64));
     try expect(math.isNan(log1p_64(-2.0)));
+    try expect(math.isNan(log1p_64(-math.inf(f64))));
     try expect(math.isNan(log1p_64(math.nan(f64))));
+    try expect(math.isNan(log1p_64(math.snan(f64))));
+}
+
+test "log1p_64() sanity" {
+    try expect(math.isNan(log1p_64(-0x1.02239f3c6a8f1p+3)));
+    try expectEqual(log1p_64(0x1.161868e18bc67p+2), 0x1.ad1bdd1e9e686p+0); // Disagrees with GCC in last bit
+    try expect(math.isNan(log1p_64(-0x1.0c34b3e01e6e7p+3)));
+    try expect(math.isNan(log1p_64(-0x1.a206f0a19dcc4p+2)));
+    try expectEqual(log1p_64(0x1.288bbb0d6a1e6p+3), 0x1.2a1ab8365b56fp+1);
+    try expectEqual(log1p_64(0x1.52efd0cd80497p-1), 0x1.041a4ec2a680ap-1);
+    try expectEqual(log1p_64(-0x1.a05cc754481d1p-2), -0x1.0b3595423aec1p-1);
+    try expectEqual(log1p_64(0x1.1f9ef934745cbp-1), 0x1.c8834348a846ep-2);
+    try expectEqual(log1p_64(0x1.8c5db097f7442p-1), 0x1.258a8e8a35bbfp-1);
+    try expectEqual(log1p_64(-0x1.5b86ea8118a0ep-1), -0x1.22b5426327502p+0);
+}
+
+test "log1p_64() boundary" {
+    try expectEqual(log1p_64(0x1.fffffffffffffp+1023), 0x1.62e42fefa39efp+9); // Max input value
+    try expectEqual(log1p_64(0x1p-1074), 0x1p-1074); // Min positive input value
+    try expectEqual(log1p_64(-0x1p-1074), -0x1p-1074); // Min negative input value
+    try expectEqual(log1p_64(0x1p-1022), 0x1p-1022); // First subnormal
+    try expectEqual(log1p_64(-0x1p-1022), -0x1p-1022); // First negative subnormal
+    try expectEqual(log1p_64(-0x1.fffffffffffffp-1), -0x1.25e4f7b2737fap+5); // Last value before result is -inf
+    try expect(math.isNan(log1p_64(-0x1.0000000000001p+0))); // First value where result is nan
 }
