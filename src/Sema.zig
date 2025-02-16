@@ -3004,7 +3004,7 @@ fn zirStructDecl(
     return Air.internedToRef(wip_ty.finish(ip, new_namespace_index));
 }
 
-fn createTypeName(
+pub fn createTypeName(
     sema: *Sema,
     block: *Block,
     name_strategy: Zir.Inst.NameStrategy,
@@ -32379,7 +32379,7 @@ fn addReferenceEntry(
     try zcu.addUnitReference(sema.owner, referenced_unit, src);
 }
 
-fn addTypeReferenceEntry(
+pub fn addTypeReferenceEntry(
     sema: *Sema,
     src: LazySrcLoc,
     referenced_type: InternPool.Index,
