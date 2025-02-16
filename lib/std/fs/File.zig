@@ -1610,18 +1610,38 @@ const interface = struct {
 
     fn writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
         const file = opaqueToHandle(context);
+        var splat_buffer: [256]u8 = undefined;
         if (is_windows) {
             if (data.len == 1 and splat == 0) return 0;
             return windows.WriteFile(file, data[0], null);
         }
-        var iovecs_buffer: [max_buffers_len]std.posix.iovec_const = undefined;
-        const iovecs = iovecs_buffer[0..@min(iovecs_buffer.len, data.len)];
-        for (iovecs, data[0..iovecs.len]) |*v, d| v.* = .{
+        var iovecs: [max_buffers_len]std.posix.iovec_const = undefined;
+        var len: usize = @min(iovecs.len, data.len);
+        for (iovecs[0..len], data[0..len]) |*v, d| v.* = .{
             .base = if (d.len == 0) "" else d.ptr, // OS sadly checks ptr addr before length.
             .len = d.len,
         };
-        const send_iovecs = if (splat == 0) iovecs[0 .. iovecs.len - 1] else iovecs;
-        return std.posix.writev(file, send_iovecs);
+        switch (splat) {
+            0 => return std.posix.writev(file, iovecs[0 .. len - 1]),
+            1 => return std.posix.writev(file, iovecs[0..len]),
+            else => {
+                const pattern = data[data.len - 1];
+                if (pattern.len == 1) {
+                    const memset_len = @min(splat_buffer.len, splat);
+                    const buf = splat_buffer[0..memset_len];
+                    @memset(buf, pattern[0]);
+                    iovecs[len - 1] = .{ .base = buf.ptr, .len = buf.len };
+                    var remaining_splat = splat - buf.len;
+                    while (remaining_splat > 0 and len < iovecs.len) {
+                        iovecs[len] = .{ .base = &splat_buffer, .len = splat_buffer.len };
+                        remaining_splat -= splat_buffer.len;
+                        len += 1;
+                    }
+                    return std.posix.writev(file, iovecs[0..len]);
+                }
+            },
+        }
+        return std.posix.writev(file, iovecs[0..len]);
     }
 
     fn writeFile(

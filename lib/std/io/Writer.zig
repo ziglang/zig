@@ -47,7 +47,7 @@ pub const VTable = struct {
 
         pub fn init(integer: u64) FileLen {
             const result: FileLen = @enumFromInt(integer);
-            assert(result != .none);
+            assert(result != .entire_file);
             return result;
         }
 
