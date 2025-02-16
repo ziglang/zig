@@ -494,14 +494,14 @@ fn renderValueC(output: *std.ArrayList(u8), name: []const u8, value: Value) !voi
             try output.appendSlice(if (b) " 1\n" else " 0\n");
         },
         .int => |i| {
-            try output.writer().print("#define {s} {d}\n", .{ name, i });
+            try output.print("#define {s} {d}\n", .{ name, i });
         },
         .ident => |ident| {
-            try output.writer().print("#define {s} {s}\n", .{ name, ident });
+            try output.print("#define {s} {s}\n", .{ name, ident });
         },
         .string => |string| {
             // TODO: use C-specific escaping instead of zig string literals
-            try output.writer().print("#define {s} \"{}\"\n", .{ name, std.zig.fmtEscapes(string) });
+            try output.print("#define {s} \"{}\"\n", .{ name, std.zig.fmtEscapes(string) });
         },
     }
 }

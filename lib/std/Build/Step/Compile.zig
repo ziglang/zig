@@ -1740,12 +1740,12 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
             for (arg, 0..) |c, arg_idx| {
                 if (c == '\\' or c == '"') {
                     // Slow path for arguments that need to be escaped. We'll need to allocate and copy
-                    var escaped = try ArrayList(u8).initCapacity(arena, arg.len + 1);
-                    const writer = escaped.writer();
-                    try writer.writeAll(arg[0..arg_idx]);
+                    var escaped: std.ArrayListUnmanaged(u8) = .empty;
+                    try escaped.ensureTotalCapacityPrecise(arena, arg.len + 1);
+                    try escaped.appendSlice(arena, arg[0..arg_idx]);
                     for (arg[arg_idx..]) |to_escape| {
-                        if (to_escape == '\\' or to_escape == '"') try writer.writeByte('\\');
-                        try writer.writeByte(to_escape);
+                        if (to_escape == '\\' or to_escape == '"') try escaped.append(arena, '\\');
+                        try escaped.append(arena, to_escape);
                     }
                     escaped_args.appendAssumeCapacity(escaped.items);
                     continue :arg_blk;

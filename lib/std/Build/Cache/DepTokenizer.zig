@@ -407,7 +407,7 @@ pub const Token = union(enum) {
             .incomplete_quoted_prerequisite,
             .incomplete_target,
             => |index_and_bytes| {
-                try list.print("{s} '", .{self.errStr()});
+                try list.print(gpa, "{s} '", .{self.errStr()});
                 if (self == .incomplete_target) {
                     const tmp = Token{ .target_must_resolve = index_and_bytes.bytes };
                     try tmp.resolve(gpa, list);
@@ -422,7 +422,7 @@ pub const Token = union(enum) {
             .continuation_eol,
             .incomplete_escape,
             => |index_and_char| {
-                try list.appendSlice("illegal char ");
+                try list.appendSlice(gpa, "illegal char ");
                 try printUnderstandableChar(gpa, list, index_and_char.char);
                 try list.print(gpa, " at position {d}: {s}", .{ index_and_char.index, self.errStr() });
             },
@@ -1020,17 +1020,15 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
     try testing.expectEqualStrings(expect, buffer.items);
 }
 
-fn printCharValues(out: anytype, bytes: []const u8) !void {
-    for (bytes) |b| {
-        try out.writeAll(&[_]u8{printable_char_tab[b]});
-    }
+fn printCharValues(gpa: Allocator, list: *std.ArrayListUnmanaged(u8), bytes: []const u8) !void {
+    for (bytes) |b| try list.append(gpa, printable_char_tab[b]);
 }
 
-fn printUnderstandableChar(out: anytype, char: u8) !void {
+fn printUnderstandableChar(gpa: Allocator, list: *std.ArrayListUnmanaged(u8), char: u8) !void {
     if (std.ascii.isPrint(char)) {
-        try out.print("'{c}'", .{char});
+        try list.print(gpa, "'{c}'", .{char});
     } else {
-        try out.print("\\x{X:0>2}", .{char});
+        try list.print(gpa, "\\x{X:0>2}", .{char});
     }
 }
 
