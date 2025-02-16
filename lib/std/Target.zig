@@ -1794,7 +1794,7 @@ pub const Cpu = struct {
                 .powerpc_aix_altivec,
                 => &.{ .powerpc, .powerpcle },
 
-                .wasm_watc,
+                .wasm_mvp,
                 => &.{ .wasm64, .wasm32 },
 
                 .arc_sysv,
@@ -3322,8 +3322,7 @@ pub fn cCallingConvention(target: Target) ?std.builtin.CallingConvention {
             .aix => .{ .powerpc_aix = .{} },
             else => .{ .powerpc_sysv = .{} },
         },
-        .wasm32 => .{ .wasm_watc = .{} },
-        .wasm64 => .{ .wasm_watc = .{} },
+        .wasm32, .wasm64 => .{ .wasm_mvp = .{} },
         .arc => .{ .arc_sysv = .{} },
         .avr => .avr_gnu,
         .bpfel, .bpfeb => .{ .bpf_std = .{} },

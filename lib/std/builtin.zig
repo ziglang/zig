@@ -325,7 +325,7 @@ pub const CallingConvention = union(enum(u8)) {
     powerpc_aix_altivec: CommonOptions,
 
     /// The standard `wasm32` and `wasm64` calling convention, as specified in the WebAssembly Tool Conventions.
-    wasm_watc: CommonOptions,
+    wasm_mvp: CommonOptions,
 
     /// The standard `arc` calling convention.
     arc_sysv: CommonOptions,
