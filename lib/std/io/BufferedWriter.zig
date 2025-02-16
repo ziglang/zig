@@ -769,12 +769,18 @@ pub fn printValue(
             },
             .slice => {
                 if (actual_fmt.len == 0)
-                    @compileError("cannot format slice without a specifier (i.e. {s} or {any})");
+                    @compileError("cannot format slice without a specifier (i.e. {s}, {x}, or {any})");
                 if (max_depth == 0) {
                     return bw.writeAll("{ ... }");
                 }
-                if (actual_fmt[0] == 's' and ptr_info.child == u8) {
-                    return alignBufferOptions(bw, value, options);
+                if (ptr_info.child == u8) {
+                    if (actual_fmt[0] == 's') {
+                        return alignBufferOptions(bw, value, options);
+                    } else if (actual_fmt[0] == 'x') {
+                        return printHex(bw, value, .lower);
+                    } else if (actual_fmt[0] == 'X') {
+                        return printHex(bw, value, .upper);
+                    }
                 }
                 try bw.writeAll("{ ");
                 for (value, 0..) |elem, i| {
@@ -792,8 +798,14 @@ pub fn printValue(
             if (max_depth == 0) {
                 return bw.writeAll("{ ... }");
             }
-            if (actual_fmt[0] == 's' and info.child == u8) {
-                return alignBufferOptions(bw, &value, options);
+            if (info.child == u8) {
+                if (actual_fmt[0] == 's') {
+                    return alignBufferOptions(bw, &value, options);
+                } else if (actual_fmt[0] == 'x') {
+                    return printHex(bw, &value, .lower);
+                } else if (actual_fmt[0] == 'X') {
+                    return printHex(bw, &value, .upper);
+                }
             }
             try bw.writeAll("{ ");
             for (value, 0..) |elem, i| {
