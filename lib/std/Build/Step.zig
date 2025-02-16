@@ -287,26 +287,26 @@ pub fn cast(step: *Step, comptime T: type) ?*T {
 
 /// For debugging purposes, prints identifying information about this Step.
 pub fn dump(step: *Step, file: std.fs.File) void {
-    const w = file.writer();
+    var bw = file.unbufferedWriter();
     const tty_config = std.io.tty.detectConfig(file);
     const debug_info = std.debug.getSelfDebugInfo() catch |err| {
-        w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{
+        bw.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{
             @errorName(err),
         }) catch {};
         return;
     };
     if (step.getStackTrace()) |stack_trace| {
-        w.print("name: '{s}'. creation stack trace:\n", .{step.name}) catch {};
-        std.debug.writeStackTrace(stack_trace, w, debug_info, tty_config) catch |err| {
-            w.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch {};
+        bw.print("name: '{s}'. creation stack trace:\n", .{step.name}) catch {};
+        std.debug.writeStackTrace(stack_trace, &bw, debug_info, tty_config) catch |err| {
+            bw.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch {};
             return;
         };
     } else {
         const field = "debug_stack_frames_count";
         comptime assert(@hasField(Build, field));
-        tty_config.setColor(w, .yellow) catch {};
-        w.print("name: '{s}'. no stack trace collected for this step, see std.Build." ++ field ++ "\n", .{step.name}) catch {};
-        tty_config.setColor(w, .reset) catch {};
+        tty_config.setColor(&bw, .yellow) catch {};
+        bw.print("name: '{s}'. no stack trace collected for this step, see std.Build." ++ field ++ "\n", .{step.name}) catch {};
+        tty_config.setColor(&bw, .reset) catch {};
     }
 }
 
@@ -738,7 +738,7 @@ pub fn allocPrintCmd2(
     argv: []const []const u8,
 ) Allocator.Error![]u8 {
     const shell = struct {
-        fn escape(writer: anytype, string: []const u8, is_argv0: bool) !void {
+        fn escape(writer: *std.io.Writer, string: []const u8, is_argv0: bool) !void {
             for (string) |c| {
                 if (switch (c) {
                     else => true,
@@ -772,9 +772,9 @@ pub fn allocPrintCmd2(
         }
     };
 
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
-    const writer = buf.writer(arena);
-    if (opt_cwd) |cwd| try writer.print("cd {s} && ", .{cwd});
+    var aw: std.io.Writer.Allocating = .init(arena);
+    const w = &aw.interface;
+    if (opt_cwd) |cwd| try w.print(arena, "cd {s} && ", .{cwd});
     if (opt_env) |env| {
         const process_env_map = std.process.getEnvMap(arena) catch std.process.EnvMap.init(arena);
         var it = env.iterator();
@@ -784,17 +784,17 @@ pub fn allocPrintCmd2(
             if (process_env_map.get(key)) |process_value| {
                 if (std.mem.eql(u8, value, process_value)) continue;
             }
-            try writer.print("{s}=", .{key});
-            try shell.escape(writer, value, false);
-            try writer.writeByte(' ');
+            try w.print(arena, "{s}=", .{key});
+            try shell.escape(w, value, false);
+            try w.writeByte(arena, ' ');
         }
     }
-    try shell.escape(writer, argv[0], true);
+    try shell.escape(w, argv[0], true);
     for (argv[1..]) |arg| {
-        try writer.writeByte(' ');
-        try shell.escape(writer, arg, false);
+        try w.writeByte(arena, ' ');
+        try shell.escape(w, arg, false);
     }
-    return buf.toOwnedSlice(arena);
+    return aw.getWritten();
 }
 
 /// Prefer `cacheHitAndWatch` unless you already added watch inputs

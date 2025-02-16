@@ -12,9 +12,9 @@ pub const base_id: Step.Id = .options;
 step: Step,
 generated_file: GeneratedFile,
 
-contents: std.ArrayList(u8),
-args: std.ArrayList(Arg),
-encountered_types: std.StringHashMap(void),
+contents: std.ArrayListUnmanaged(u8),
+args: std.ArrayListUnmanaged(Arg),
+encountered_types: std.StringHashMapUnmanaged(void),
 
 pub fn create(owner: *std.Build) *Options {
     const options = owner.allocator.create(Options) catch @panic("OOM");
@@ -26,9 +26,9 @@ pub fn create(owner: *std.Build) *Options {
             .makeFn = make,
         }),
         .generated_file = undefined,
-        .contents = std.ArrayList(u8).init(owner.allocator),
-        .args = std.ArrayList(Arg).init(owner.allocator),
-        .encountered_types = std.StringHashMap(void).init(owner.allocator),
+        .contents = .empty,
+        .args = .empty,
+        .encountered_types = .empty,
     };
     options.generated_file = .{ .step = &options.step };
 
@@ -40,110 +40,117 @@ pub fn addOption(options: *Options, comptime T: type, name: []const u8, value: T
 }
 
 fn addOptionFallible(options: *Options, comptime T: type, name: []const u8, value: T) !void {
-    const out = options.contents.writer();
-    try printType(options, out, T, value, 0, name);
+    try printType(options, &options.contents, T, value, 0, name);
 }
 
-fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent: u8, name: ?[]const u8) !void {
+fn printType(
+    options: *Options,
+    out: *std.ArrayListUnmanaged(u8),
+    comptime T: type,
+    value: T,
+    indent: u8,
+    name: ?[]const u8,
+) !void {
+    const gpa = options.step.owner.allocator;
     switch (T) {
         []const []const u8 => {
             if (name) |payload| {
-                try out.print("pub const {}: []const []const u8 = ", .{std.zig.fmtId(payload)});
+                try out.print(gpa, "pub const {}: []const []const u8 = ", .{std.zig.fmtId(payload)});
             }
 
-            try out.writeAll("&[_][]const u8{\n");
+            try out.appendSlice(gpa, "&[_][]const u8{\n");
 
             for (value) |slice| {
-                try out.writeByteNTimes(' ', indent);
-                try out.print("    \"{}\",\n", .{std.zig.fmtEscapes(slice)});
+                try out.appendNTimes(gpa, ' ', indent);
+                try out.print(gpa, "    \"{}\",\n", .{std.zig.fmtEscapes(slice)});
             }
 
             if (name != null) {
-                try out.writeAll("};\n");
+                try out.appendSlice(gpa, "};\n");
             } else {
-                try out.writeAll("},\n");
+                try out.appendSlice(gpa, "},\n");
             }
 
             return;
         },
         []const u8 => {
             if (name) |some| {
-                try out.print("pub const {}: []const u8 = \"{}\";", .{ std.zig.fmtId(some), std.zig.fmtEscapes(value) });
+                try out.print(gpa, "pub const {}: []const u8 = \"{}\";", .{ std.zig.fmtId(some), std.zig.fmtEscapes(value) });
             } else {
-                try out.print("\"{}\",", .{std.zig.fmtEscapes(value)});
+                try out.print(gpa, "\"{}\",", .{std.zig.fmtEscapes(value)});
             }
-            return out.writeAll("\n");
+            return out.appendSlice(gpa, "\n");
         },
         [:0]const u8 => {
             if (name) |some| {
-                try out.print("pub const {}: [:0]const u8 = \"{}\";", .{ std.zig.fmtId(some), std.zig.fmtEscapes(value) });
+                try out.print(gpa, "pub const {}: [:0]const u8 = \"{}\";", .{ std.zig.fmtId(some), std.zig.fmtEscapes(value) });
             } else {
-                try out.print("\"{}\",", .{std.zig.fmtEscapes(value)});
+                try out.print(gpa, "\"{}\",", .{std.zig.fmtEscapes(value)});
             }
-            return out.writeAll("\n");
+            return out.appendSlice(gpa, "\n");
         },
         ?[]const u8 => {
             if (name) |some| {
-                try out.print("pub const {}: ?[]const u8 = ", .{std.zig.fmtId(some)});
+                try out.print(gpa, "pub const {}: ?[]const u8 = ", .{std.zig.fmtId(some)});
             }
 
             if (value) |payload| {
-                try out.print("\"{}\"", .{std.zig.fmtEscapes(payload)});
+                try out.print(gpa, "\"{}\"", .{std.zig.fmtEscapes(payload)});
             } else {
-                try out.writeAll("null");
+                try out.appendSlice(gpa, "null");
             }
 
             if (name != null) {
-                try out.writeAll(";\n");
+                try out.appendSlice(gpa, ";\n");
             } else {
-                try out.writeAll(",\n");
+                try out.appendSlice(gpa, ",\n");
             }
             return;
         },
         ?[:0]const u8 => {
             if (name) |some| {
-                try out.print("pub const {}: ?[:0]const u8 = ", .{std.zig.fmtId(some)});
+                try out.print(gpa, "pub const {}: ?[:0]const u8 = ", .{std.zig.fmtId(some)});
             }
 
             if (value) |payload| {
-                try out.print("\"{}\"", .{std.zig.fmtEscapes(payload)});
+                try out.print(gpa, "\"{}\"", .{std.zig.fmtEscapes(payload)});
             } else {
-                try out.writeAll("null");
+                try out.appendSlice(gpa, "null");
             }
 
             if (name != null) {
-                try out.writeAll(";\n");
+                try out.appendSlice(gpa, ";\n");
             } else {
-                try out.writeAll(",\n");
+                try out.appendSlice(gpa, ",\n");
             }
             return;
         },
         std.SemanticVersion => {
             if (name) |some| {
-                try out.print("pub const {}: @import(\"std\").SemanticVersion = ", .{std.zig.fmtId(some)});
+                try out.print(gpa, "pub const {}: @import(\"std\").SemanticVersion = ", .{std.zig.fmtId(some)});
             }
 
-            try out.writeAll(".{\n");
-            try out.writeByteNTimes(' ', indent);
-            try out.print("    .major = {d},\n", .{value.major});
-            try out.writeByteNTimes(' ', indent);
-            try out.print("    .minor = {d},\n", .{value.minor});
-            try out.writeByteNTimes(' ', indent);
-            try out.print("    .patch = {d},\n", .{value.patch});
+            try out.appendSlice(gpa, ".{\n");
+            try out.appendNTimes(gpa, ' ', indent);
+            try out.print(gpa, "    .major = {d},\n", .{value.major});
+            try out.appendNTimes(gpa, ' ', indent);
+            try out.print(gpa, "    .minor = {d},\n", .{value.minor});
+            try out.appendNTimes(gpa, ' ', indent);
+            try out.print(gpa, "    .patch = {d},\n", .{value.patch});
 
             if (value.pre) |some| {
-                try out.writeByteNTimes(' ', indent);
-                try out.print("    .pre = \"{}\",\n", .{std.zig.fmtEscapes(some)});
+                try out.appendNTimes(gpa, ' ', indent);
+                try out.print(gpa, "    .pre = \"{}\",\n", .{std.zig.fmtEscapes(some)});
             }
             if (value.build) |some| {
-                try out.writeByteNTimes(' ', indent);
-                try out.print("    .build = \"{}\",\n", .{std.zig.fmtEscapes(some)});
+                try out.appendNTimes(gpa, ' ', indent);
+                try out.print(gpa, "    .build = \"{}\",\n", .{std.zig.fmtEscapes(some)});
             }
 
             if (name != null) {
-                try out.writeAll("};\n");
+                try out.appendSlice(gpa, "};\n");
             } else {
-                try out.writeAll("},\n");
+                try out.appendSlice(gpa, "},\n");
             }
             return;
         },
@@ -153,21 +160,21 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
     switch (@typeInfo(T)) {
         .array => {
             if (name) |some| {
-                try out.print("pub const {}: {s} = ", .{ std.zig.fmtId(some), @typeName(T) });
+                try out.print(gpa, "pub const {}: {s} = ", .{ std.zig.fmtId(some), @typeName(T) });
             }
 
-            try out.print("{s} {{\n", .{@typeName(T)});
+            try out.print(gpa, "{s} {{\n", .{@typeName(T)});
             for (value) |item| {
-                try out.writeByteNTimes(' ', indent + 4);
+                try out.appendNTimes(gpa, ' ', indent + 4);
                 try printType(options, out, @TypeOf(item), item, indent + 4, null);
             }
-            try out.writeByteNTimes(' ', indent);
-            try out.writeAll("}");
+            try out.appendNTimes(gpa, ' ', indent);
+            try out.appendSlice(gpa, "}");
 
             if (name != null) {
-                try out.writeAll(";\n");
+                try out.appendSlice(gpa, ";\n");
             } else {
-                try out.writeAll(",\n");
+                try out.appendSlice(gpa, ",\n");
             }
             return;
         },
@@ -177,27 +184,27 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
             }
 
             if (name) |some| {
-                try out.print("pub const {}: {s} = ", .{ std.zig.fmtId(some), @typeName(T) });
+                try out.print(gpa, "pub const {}: {s} = ", .{ std.zig.fmtId(some), @typeName(T) });
             }
 
-            try out.print("&[_]{s} {{\n", .{@typeName(p.child)});
+            try out.print(gpa, "&[_]{s} {{\n", .{@typeName(p.child)});
             for (value) |item| {
-                try out.writeByteNTimes(' ', indent + 4);
+                try out.appendNTimes(gpa, ' ', indent + 4);
                 try printType(options, out, @TypeOf(item), item, indent + 4, null);
             }
-            try out.writeByteNTimes(' ', indent);
-            try out.writeAll("}");
+            try out.appendNTimes(gpa, ' ', indent);
+            try out.appendSlice(gpa, "}");
 
             if (name != null) {
-                try out.writeAll(";\n");
+                try out.appendSlice(gpa, ";\n");
             } else {
-                try out.writeAll(",\n");
+                try out.appendSlice(gpa, ",\n");
             }
             return;
         },
         .optional => {
             if (name) |some| {
-                try out.print("pub const {}: {s} = ", .{ std.zig.fmtId(some), @typeName(T) });
+                try out.print(gpa, "pub const {}: {s} = ", .{ std.zig.fmtId(some), @typeName(T) });
             }
 
             if (value) |inner| {
@@ -206,13 +213,13 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
                 _ = options.contents.pop();
                 _ = options.contents.pop();
             } else {
-                try out.writeAll("null");
+                try out.appendSlice(gpa, "null");
             }
 
             if (name != null) {
-                try out.writeAll(";\n");
+                try out.appendSlice(gpa, ";\n");
             } else {
-                try out.writeAll(",\n");
+                try out.appendSlice(gpa, ",\n");
             }
             return;
         },
@@ -224,9 +231,9 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
         .null,
         => {
             if (name) |some| {
-                try out.print("pub const {}: {s} = {any};\n", .{ std.zig.fmtId(some), @typeName(T), value });
+                try out.print(gpa, "pub const {}: {s} = {any};\n", .{ std.zig.fmtId(some), @typeName(T), value });
             } else {
-                try out.print("{any},\n", .{value});
+                try out.print(gpa, "{any},\n", .{value});
             }
             return;
         },
@@ -234,7 +241,7 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
             try printEnum(options, out, T, info, indent);
 
             if (name) |some| {
-                try out.print("pub const {}: {} = .{p_};\n", .{
+                try out.print(gpa, "pub const {}: {} = .{p_};\n", .{
                     std.zig.fmtId(some),
                     std.zig.fmtId(@typeName(T)),
                     std.zig.fmtId(@tagName(value)),
@@ -246,7 +253,7 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
             try printStruct(options, out, T, info, indent);
 
             if (name) |some| {
-                try out.print("pub const {}: {} = ", .{
+                try out.print(gpa, "pub const {}: {} = ", .{
                     std.zig.fmtId(some),
                     std.zig.fmtId(@typeName(T)),
                 });
@@ -258,7 +265,7 @@ fn printType(options: *Options, out: anytype, comptime T: type, value: T, indent
     }
 }
 
-fn printUserDefinedType(options: *Options, out: anytype, comptime T: type, indent: u8) !void {
+fn printUserDefinedType(options: *Options, out: *std.ArrayListUnmanaged(u8), comptime T: type, indent: u8) !void {
     switch (@typeInfo(T)) {
         .@"enum" => |info| {
             return try printEnum(options, out, T, info, indent);
@@ -270,94 +277,109 @@ fn printUserDefinedType(options: *Options, out: anytype, comptime T: type, inden
     }
 }
 
-fn printEnum(options: *Options, out: anytype, comptime T: type, comptime val: std.builtin.Type.Enum, indent: u8) !void {
-    const gop = try options.encountered_types.getOrPut(@typeName(T));
+fn printEnum(
+    options: *Options,
+    out: *std.ArrayListUnmanaged(u8),
+    comptime T: type,
+    comptime val: std.builtin.Type.Enum,
+    indent: u8,
+) !void {
+    const gpa = options.step.owner.allocator;
+    const gop = try options.encountered_types.getOrPut(gpa, @typeName(T));
     if (gop.found_existing) return;
 
-    try out.writeByteNTimes(' ', indent);
-    try out.print("pub const {} = enum ({s}) {{\n", .{ std.zig.fmtId(@typeName(T)), @typeName(val.tag_type) });
+    try out.appendNTimes(gpa, ' ', indent);
+    try out.print(gpa, "pub const {} = enum ({s}) {{\n", .{ std.zig.fmtId(@typeName(T)), @typeName(val.tag_type) });
 
     inline for (val.fields) |field| {
-        try out.writeByteNTimes(' ', indent);
-        try out.print("    {p} = {d},\n", .{ std.zig.fmtId(field.name), field.value });
+        try out.appendNTimes(gpa, ' ', indent);
+        try out.print(gpa, "    {p} = {d},\n", .{ std.zig.fmtId(field.name), field.value });
     }
 
     if (!val.is_exhaustive) {
-        try out.writeByteNTimes(' ', indent);
-        try out.writeAll("    _,\n");
+        try out.appendNTimes(gpa, ' ', indent);
+        try out.appendSlice(gpa, "    _,\n");
     }
 
-    try out.writeByteNTimes(' ', indent);
-    try out.writeAll("};\n");
+    try out.appendNTimes(gpa, ' ', indent);
+    try out.appendSlice(gpa, "};\n");
 }
 
-fn printStruct(options: *Options, out: anytype, comptime T: type, comptime val: std.builtin.Type.Struct, indent: u8) !void {
-    const gop = try options.encountered_types.getOrPut(@typeName(T));
+fn printStruct(options: *Options, out: *std.ArrayListUnmanaged(u8), comptime T: type, comptime val: std.builtin.Type.Struct, indent: u8) !void {
+    const gpa = options.step.owner.allocator;
+    const gop = try options.encountered_types.getOrPut(gpa, @typeName(T));
     if (gop.found_existing) return;
 
-    try out.writeByteNTimes(' ', indent);
-    try out.print("pub const {} = ", .{std.zig.fmtId(@typeName(T))});
+    try out.appendNTimes(gpa, ' ', indent);
+    try out.print(gpa, "pub const {} = ", .{std.zig.fmtId(@typeName(T))});
 
     switch (val.layout) {
-        .@"extern" => try out.writeAll("extern struct"),
-        .@"packed" => try out.writeAll("packed struct"),
-        else => try out.writeAll("struct"),
+        .@"extern" => try out.appendSlice(gpa, "extern struct"),
+        .@"packed" => try out.appendSlice(gpa, "packed struct"),
+        else => try out.appendSlice(gpa, "struct"),
     }
 
-    try out.writeAll(" {\n");
+    try out.appendSlice(gpa, " {\n");
 
     inline for (val.fields) |field| {
-        try out.writeByteNTimes(' ', indent);
+        try out.appendNTimes(gpa, ' ', indent);
 
         const type_name = @typeName(field.type);
 
         // If the type name doesn't contains a '.' the type is from zig builtins.
         if (std.mem.containsAtLeast(u8, type_name, 1, ".")) {
-            try out.print("    {p_}: {}", .{ std.zig.fmtId(field.name), std.zig.fmtId(type_name) });
+            try out.print(gpa, "    {p_}: {}", .{ std.zig.fmtId(field.name), std.zig.fmtId(type_name) });
         } else {
-            try out.print("    {p_}: {s}", .{ std.zig.fmtId(field.name), type_name });
+            try out.print(gpa, "    {p_}: {s}", .{ std.zig.fmtId(field.name), type_name });
         }
 
         if (field.defaultValue()) |default_value| {
-            try out.writeAll(" = ");
+            try out.appendSlice(gpa, " = ");
             switch (@typeInfo(@TypeOf(default_value))) {
-                .@"enum" => try out.print(".{s},\n", .{@tagName(default_value)}),
+                .@"enum" => try out.print(gpa, ".{s},\n", .{@tagName(default_value)}),
                 .@"struct" => |info| {
                     try printStructValue(options, out, info, default_value, indent + 4);
                 },
                 else => try printType(options, out, @TypeOf(default_value), default_value, indent, null),
             }
         } else {
-            try out.writeAll(",\n");
+            try out.appendSlice(gpa, ",\n");
         }
     }
 
     // TODO: write declarations
 
-    try out.writeByteNTimes(' ', indent);
-    try out.writeAll("};\n");
+    try out.appendNTimes(gpa, ' ', indent);
+    try out.appendSlice(gpa, "};\n");
 
     inline for (val.fields) |field| {
         try printUserDefinedType(options, out, field.type, 0);
     }
 }
 
-fn printStructValue(options: *Options, out: anytype, comptime struct_val: std.builtin.Type.Struct, val: anytype, indent: u8) !void {
-    try out.writeAll(".{\n");
+fn printStructValue(
+    options: *Options,
+    out: *std.ArrayListUnmanaged(u8),
+    comptime struct_val: std.builtin.Type.Struct,
+    val: anytype,
+    indent: u8,
+) !void {
+    const gpa = options.step.owner.allocator;
+    try out.appendSlice(gpa, ".{\n");
 
     if (struct_val.is_tuple) {
         inline for (struct_val.fields) |field| {
-            try out.writeByteNTimes(' ', indent);
+            try out.appendNTimes(gpa, ' ', indent);
             try printType(options, out, @TypeOf(@field(val, field.name)), @field(val, field.name), indent, null);
         }
     } else {
         inline for (struct_val.fields) |field| {
-            try out.writeByteNTimes(' ', indent);
-            try out.print("    .{p_} = ", .{std.zig.fmtId(field.name)});
+            try out.appendNTimes(gpa, ' ', indent);
+            try out.print(gpa, "    .{p_} = ", .{std.zig.fmtId(field.name)});
 
             const field_name = @field(val, field.name);
             switch (@typeInfo(@TypeOf(field_name))) {
-                .@"enum" => try out.print(".{s},\n", .{@tagName(field_name)}),
+                .@"enum" => try out.print(gpa, ".{s},\n", .{@tagName(field_name)}),
                 .@"struct" => |struct_info| {
                     try printStructValue(options, out, struct_info, field_name, indent + 4);
                 },
@@ -367,10 +389,10 @@ fn printStructValue(options: *Options, out: anytype, comptime struct_val: std.bu
     }
 
     if (indent == 0) {
-        try out.writeAll("};\n");
+        try out.appendSlice(gpa, "};\n");
     } else {
-        try out.writeByteNTimes(' ', indent);
-        try out.writeAll("},\n");
+        try out.appendNTimes(gpa, ' ', indent);
+        try out.appendSlice(gpa, "},\n");
     }
 }
 

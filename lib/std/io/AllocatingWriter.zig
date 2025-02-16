@@ -77,6 +77,12 @@ pub fn toArrayList(aw: *AllocatingWriter) std.ArrayListUnmanaged(u8) {
     return result;
 }
 
+pub fn toOwnedSlice(aw: *AllocatingWriter) error{OutOfMemory}![]u8 {
+    const gpa = aw.allocator;
+    var list = toArrayList(aw);
+    return list.toOwnedSlice(gpa);
+}
+
 fn setArrayList(aw: *AllocatingWriter, list: std.ArrayListUnmanaged(u8)) void {
     aw.written = list.items;
     aw.buffered_writer.buffer = list.unusedCapacitySlice();
