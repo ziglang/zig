@@ -15,6 +15,19 @@ pub const VTable = struct {
     /// of stream via an error.
     writev: *const fn (context: *anyopaque, data: []const []const u8) anyerror!usize,
 
+    /// `headers_and_pattern` must have length of at least one. The last slice
+    /// is `pattern` which is the byte sequence to repeat `n` times. The rest
+    /// of the slices are headers to write before the pattern.
+    ///
+    /// When `n == 1`, this is equivalent to `writev`.
+    ///
+    /// Number of bytes actually written is returned.
+    ///
+    /// Number of bytes returned may be zero, which does not mean
+    /// end-of-stream. A subsequent call may return nonzero, or may signal end
+    /// of stream via an error.
+    splat: *const fn (context: *anyopaque, headers_and_pattern: []const []const u8, n: usize) anyerror!usize,
+
     /// Writes contents from an open file. `headers` are written first, then `len`
     /// bytes of `file` starting from `offset`, then `trailers`.
     ///
