@@ -1,0 +1,15 @@
+.{
+    .name = "unpacktrue",
+    .version = "0.0.0",
+    .dependencies = .{
+        .somedependency = .{
+            .url = "file://localhost/bar",
+            .hash = "1220f3b02ca452c26a96b48d2912b7fc907bef8d0b85c2e8f7e4a5c8bd95cdbfbae6",
+            .unpack = true,
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+    },
+}
