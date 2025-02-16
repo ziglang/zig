@@ -76,7 +76,7 @@ pub fn flush(bw: *BufferedWriter) anyerror!void {
 
 /// The `data` parameter is mutable because this function needs to mutate the
 /// fields in order to handle partial writes from `Writer.VTable.writev`.
-pub fn writevAll(bw: *BufferedWriter, data: []const []const u8) anyerror!void {
+pub fn writevAll(bw: *BufferedWriter, data: [][]const u8) anyerror!void {
     var i: usize = 0;
     while (true) {
         var n = try passthru_writeSplat(bw, data[i..], 1);
@@ -164,7 +164,7 @@ fn passthru_writeSplat(context: *anyopaque, data: []const []const u8, splat: usi
                 @branchHint(.likely);
                 @memset(buffer[end..new_end], pattern[0]);
                 bw.end = new_end;
-                return end - start_end;
+                return new_end - start_end;
             }
             buffers[0] = buffer[0..end];
             buffers[1] = pattern;
@@ -186,8 +186,8 @@ fn passthru_writeSplat(context: *anyopaque, data: []const []const u8, splat: usi
                 while (end < new_end) : (end += pattern.len) {
                     @memcpy(buffer[end..][0..pattern.len], pattern);
                 }
-                bw.end = end;
-                return end - start_end;
+                bw.end = new_end;
+                return new_end - start_end;
             }
             buffers[0] = buffer[0..end];
             buffers[1] = pattern;
@@ -471,32 +471,55 @@ pub const WriteFileOptions = struct {
 pub fn writeFileAll(bw: *BufferedWriter, file: std.fs.File, options: WriteFileOptions) anyerror!void {
     const headers_and_trailers = options.headers_and_trailers;
     const headers = headers_and_trailers[0..options.headers_len];
-    var len = options.len;
-    var i: usize = 0;
-    var offset = options.offset;
-    if (len == .zero) return writevAll(bw, headers_and_trailers[i..]);
-    while (i < headers_and_trailers.len) {
-        var n = try writeFile(bw, file, offset, len, headers_and_trailers[i..], headers.len - i);
-        while (i < headers.len and n >= headers[i].len) {
-            n -= headers[i].len;
-            i += 1;
-        }
-        if (i < headers.len) {
-            headers[i] = headers[i][n..];
-            continue;
-        }
-        if (n >= len.int()) {
-            n -= len.int();
-            while (n >= headers_and_trailers[i].len) {
-                n -= headers_and_trailers[i].len;
+    if (options.len == .zero) return writevAll(bw, headers_and_trailers);
+    if (options.len == .entire_file) {
+        // When reading the whole file, we cannot include the trailers in the
+        // call that reads from the file handle, because we have no way to
+        // determine whether a partial write is past the end of the file or
+        // not.
+        var i: usize = 0;
+        var offset = options.offset;
+        while (true) {
+            var n = try writeFile(bw, file, offset, .entire_file, headers[i..], headers.len - i);
+            while (i < headers.len and n >= headers[i].len) {
+                n -= headers[i].len;
                 i += 1;
-                if (i >= headers_and_trailers.len) return;
             }
-            headers_and_trailers[i] = headers_and_trailers[i][n..];
-            return writevAll(bw, headers_and_trailers[i..]);
+            if (i < headers.len) {
+                headers[i] = headers[i][n..];
+                continue;
+            }
+            if (n == 0) break;
+            offset += n;
         }
-        offset += n;
-        len = if (len == .entire_file) .entire_file else .init(len.int() - n);
+    } else {
+        var len = options.len.int();
+        var i: usize = 0;
+        var offset = options.offset;
+        while (true) {
+            var n = try writeFile(bw, file, offset, .init(len), headers_and_trailers[i..], headers.len - i);
+            while (i < headers.len and n >= headers[i].len) {
+                n -= headers[i].len;
+                i += 1;
+            }
+            if (i < headers.len) {
+                headers[i] = headers[i][n..];
+                continue;
+            }
+            if (n >= len) {
+                n -= len;
+                if (i >= headers_and_trailers.len) return;
+                while (n >= headers_and_trailers[i].len) {
+                    n -= headers_and_trailers[i].len;
+                    i += 1;
+                    if (i >= headers_and_trailers.len) return;
+                }
+                headers_and_trailers[i] = headers_and_trailers[i][n..];
+                return writevAll(bw, headers_and_trailers[i..]);
+            }
+            offset += n;
+            len -= n;
+        }
     }
 }
 
