@@ -21,7 +21,7 @@ allocator: std.mem.Allocator,
 buffered_writer: std.io.BufferedWriter,
 
 const vtable: std.io.Writer.VTable = .{
-    .writev = writev,
+    .writeSplat = writeSplat,
     .writeFile = writeFile,
 };
 
@@ -98,33 +98,35 @@ pub fn clearRetainingCapacity(aw: *AllocatingWriter) void {
     aw.written.len = 0;
 }
 
-fn writev(context: *anyopaque, data: []const []const u8) anyerror!usize {
-    return splat(context, data, &.{}, 0);
-}
-
-fn splat(context: *anyopaque, headers: []const []const u8, pattern: []const u8, n: usize) anyerror!usize {
+fn writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
     const aw: *AllocatingWriter = @alignCast(@ptrCast(context));
     const start_len = aw.written.len;
     const bw = &aw.buffered_writer;
-    assert(headers[0].ptr == aw.written.ptr + start_len);
+    const skip_first = data[0].ptr == aw.written.ptr + start_len;
+    const items_len = if (skip_first) start_len + data[0].len else start_len;
     var list: std.ArrayListUnmanaged(u8) = .{
-        .items = aw.written.ptr[0 .. start_len + headers[0].len],
+        .items = aw.written.ptr[0..items_len],
         .capacity = start_len + bw.buffer.len,
     };
     defer setArrayList(aw, list);
-    const rest = headers[1..];
-    var new_capacity: usize = list.capacity + pattern.len * n;
+    const rest = data[1 .. data.len - 1];
+    const pattern = data[data.len - 1];
+    var new_capacity: usize = list.capacity + pattern.len * splat;
     for (rest) |bytes| new_capacity += bytes.len;
     try list.ensureTotalCapacity(aw.allocator, new_capacity + 1);
     for (rest) |bytes| list.appendSliceAssumeCapacity(bytes);
-    if (pattern.len == 1) {
-        list.appendNTimesAssumeCapacity(pattern[0], n);
-    } else {
-        for (0..n) |_| list.appendSliceAssumeCapacity(pattern);
-    }
+    appendPatternAssumeCapacity(&list, pattern, splat);
     aw.written = list.items;
     bw.buffer = list.unusedCapacitySlice();
     return list.items.len - start_len;
+}
+
+fn appendPatternAssumeCapacity(list: *std.ArrayListUnmanaged(u8), pattern: []const u8, splat: usize) void {
+    if (pattern.len == 1) {
+        list.appendNTimesAssumeCapacity(pattern[0], splat);
+    } else {
+        for (0..splat) |_| list.appendSliceAssumeCapacity(pattern);
+    }
 }
 
 fn writeFile(

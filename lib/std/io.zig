@@ -344,22 +344,16 @@ pub const tty = @import("io/tty.zig");
 pub const null_writer: Writer = .{
     .context = undefined,
     .vtable = &.{
-        .writev = null_writev,
-        .splat = null_splat,
+        .writeSplat = null_writeSplat,
         .writeFile = null_writeFile,
     },
 };
 
-fn null_writev(context: *anyopaque, data: []const []const u8) anyerror!usize {
+fn null_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
     _ = context;
-    var written: usize = 0;
-    for (data) |bytes| written += bytes.len;
-    return written;
-}
-
-fn null_splat(context: *anyopaque, headers: []const []const u8, pattern: []const u8, n: usize) anyerror!usize {
-    _ = context;
-    var written: usize = pattern.len * n;
+    const headers = data[0 .. data.len - 1];
+    const pattern = data[headers.len..];
+    var written: usize = pattern.len * splat;
     for (headers) |bytes| written += bytes.len;
     return written;
 }
