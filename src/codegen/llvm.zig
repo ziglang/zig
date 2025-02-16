@@ -11824,7 +11824,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .m68k_sysv,
         .m68k_gnu,
         .msp430_eabi,
-        .propeller1_sysv,
+        .propeller_sysv,
         .s390x_sysv,
         .s390x_sysv_vx,
         .ve_sysv,

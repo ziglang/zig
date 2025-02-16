@@ -1835,7 +1835,7 @@ pub const Cpu = struct {
                 .msp430_eabi,
                 => &.{.msp430},
 
-                .propeller1_sysv,
+                .propeller_sysv,
                 => &.{.propeller},
 
                 .s390x_sysv,
@@ -3337,7 +3337,7 @@ pub fn cCallingConvention(target: Target) ?std.builtin.CallingConvention {
         else
             .{ .m68k_sysv = .{} },
         .msp430 => .{ .msp430_eabi = .{} },
-        .propeller => .{ .propeller1_sysv = .{} },
+        .propeller => .{ .propeller_sysv = .{} },
         .s390x => .{ .s390x_sysv = .{} },
         .ve => .{ .ve_sysv = .{} },
         .xcore => .{ .xcore_xs1 = .{} },
