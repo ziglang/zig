@@ -71,12 +71,7 @@ pub const Config = union(enum) {
         reset_attributes: u16,
     };
 
-    pub fn setColor(
-        conf: Config,
-        writer: anytype,
-        color: Color,
-    ) (@typeInfo(@TypeOf(writer.writeAll(""))).error_union.error_set ||
-        windows.SetConsoleTextAttributeError)!void {
+    pub fn setColor(conf: Config, bw: *std.io.BufferedWriter, color: Color) anyerror!void {
         nosuspend switch (conf) {
             .no_color => return,
             .escape_codes => {
@@ -101,7 +96,7 @@ pub const Config = union(enum) {
                     .dim => "\x1b[2m",
                     .reset => "\x1b[0m",
                 };
-                try writer.writeAll(color_string);
+                try bw.writeAll(color_string);
             },
             .windows_api => |ctx| if (native_os == .windows) {
                 const attributes = switch (color) {

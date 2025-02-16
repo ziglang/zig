@@ -1,73 +1,119 @@
-//! The straightforward way to use `std.ArrayList` as the underlying writer
-//! when using `std.io.BufferedWriter` is to populate the `std.io.Writer`
-//! interface and then use an empty buffer. However, this means that every use
-//! of `std.io.BufferedWriter` will go through the vtable, including for
+//! TODO rename to AllocatingWriter.
+//! While it is possible to use `std.ArrayList` as the underlying writer when
+//! using `std.io.BufferedWriter` by populating the `std.io.Writer` interface
+//! and then using an empty buffer, it means that every use of
+//! `std.io.BufferedWriter` will go through the vtable, including for
 //! functions such as `writeByte`. This API instead maintains
 //! `std.io.BufferedWriter` state such that it writes to the unused capacity of
-//! the array list, filling it up completely before making a call through the
+//! an array list, filling it up completely before making a call through the
 //! vtable, causing a resize. Consequently, the same, optimized, non-generic
 //! machine code that uses `std.io.BufferedReader`, such as formatted printing,
-//! is also used when the underlying writer is backed by `std.ArrayList`.
+//! takes the hot paths when using this API.
 
 const std = @import("../std.zig");
-const ArrayListWriter = @This();
+const AllocatingWriter = @This();
 const assert = std.debug.assert;
 
-items: []u8,
+/// This is missing the data stored in `buffered_writer`. See `getWritten` for
+/// returning a slice that includes both.
+written: []u8,
 allocator: std.mem.Allocator,
 buffered_writer: std.io.BufferedWriter,
 
-/// Replaces `array_list` with empty, taking ownership of the memory.
-pub fn fromOwned(
-    alw: *ArrayListWriter,
-    allocator: std.mem.Allocator,
-    array_list: *std.ArrayListUnmanaged(u8),
-) *std.io.BufferedWriter {
-    alw.* = .{
-        .allocated_slice = array_list.items,
+const vtable: std.io.Writer.VTable = .{
+    .writev = writev,
+    .writeFile = writeFile,
+};
+
+/// Sets the `AllocatingWriter` to an empty state.
+pub fn init(aw: *AllocatingWriter, allocator: std.mem.Allocator) *std.io.BufferedWriter {
+    aw.* = .{
+        .written = &.{},
         .allocator = allocator,
         .buffered_writer = .{
             .unbuffered_writer = .{
-                .context = alw,
-                .vtable = &.{
-                    .writev = writev,
-                    .writeFile = writeFile,
-                },
+                .context = aw,
+                .vtable = &vtable,
+            },
+            .buffer = &.{},
+        },
+    };
+    return &aw.buffered_writer;
+}
+
+/// Replaces `array_list` with empty, taking ownership of the memory.
+pub fn fromArrayList(
+    aw: *AllocatingWriter,
+    allocator: std.mem.Allocator,
+    array_list: *std.ArrayListUnmanaged(u8),
+) *std.io.BufferedWriter {
+    aw.* = .{
+        .written = array_list.items,
+        .allocator = allocator,
+        .buffered_writer = .{
+            .unbuffered_writer = .{
+                .context = aw,
+                .vtable = &vtable,
             },
             .buffer = array_list.unusedCapacitySlice(),
         },
     };
     array_list.* = .empty;
-    return &alw.buffered_writer;
+    return &aw.buffered_writer;
 }
 
-/// Returns the memory back that was borrowed with `fromOwned`.
-pub fn toOwned(alw: *ArrayListWriter) std.ArrayListUnmanaged(u8) {
-    const end = alw.buffered_writer.end;
+/// Returns an array list that takes ownership of the allocated memory.
+/// Resets the `AllocatingWriter` to an empty state.
+pub fn toArrayList(aw: *AllocatingWriter) std.ArrayListUnmanaged(u8) {
+    const bw = &aw.buffered_writer;
+    const written = aw.written;
     const result: std.ArrayListUnmanaged(u8) = .{
-        .items = alw.items.ptr[0 .. alw.items.len + end],
-        .capacity = alw.buffered_writer.buffer.len - end,
+        .items = written.ptr[0 .. written.len + bw.end],
+        .capacity = written.len + bw.buffer.len,
     };
-    alw.* = undefined;
+    aw.written = &.{};
+    bw.buffer = &.{};
+    bw.end = 0;
     return result;
 }
 
+fn setArrayList(aw: *AllocatingWriter, list: std.ArrayListUnmanaged(u8)) void {
+    aw.written = list.items;
+    aw.buffered_writer.buffer = list.unusedCapacitySlice();
+}
+
+pub fn getWritten(aw: *AllocatingWriter) []u8 {
+    const bw = &aw.buffered_writer;
+    const end = aw.buffered_writer.end;
+    const result = aw.written.ptr[0 .. aw.written.len + end];
+    bw.buffer = bw.buffer[end..];
+    bw.end = 0;
+    return result;
+}
+
+pub fn clearRetainingCapacity(aw: *AllocatingWriter) void {
+    const bw = &aw.buffered_writer;
+    bw.buffer = aw.written.ptr[0 .. aw.written.len + bw.buffer.len];
+    bw.end = 0;
+    aw.written.len = 0;
+}
+
 fn writev(context: *anyopaque, data: []const []const u8) anyerror!usize {
-    const alw: *ArrayListWriter = @alignCast(@ptrCast(context));
-    const start_len = alw.items.len;
-    const bw = &alw.buffered_writer;
-    assert(data[0].ptr == alw.items.ptr + start_len);
-    const bw_end = data[0].len;
+    const aw: *AllocatingWriter = @alignCast(@ptrCast(context));
+    const start_len = aw.written.len;
+    const bw = &aw.buffered_writer;
+    assert(data[0].ptr == aw.written.ptr + start_len);
     var list: std.ArrayListUnmanaged(u8) = .{
-        .items = alw.items.ptr[0 .. start_len + bw_end],
-        .capacity = bw.buffer.len - bw_end,
+        .items = aw.written.ptr[0 .. start_len + data[0].len],
+        .capacity = start_len + bw.buffer.len,
     };
+    defer setArrayList(aw, list);
     const rest = data[1..];
     var new_capacity: usize = list.capacity;
     for (rest) |bytes| new_capacity += bytes.len;
-    try list.ensureTotalCapacity(alw.allocator, new_capacity + 1);
+    try list.ensureTotalCapacity(aw.allocator, new_capacity + 1);
     for (rest) |bytes| list.appendSliceAssumeCapacity(bytes);
-    alw.items = list.items;
+    aw.written = list.items;
     bw.buffer = list.unusedCapacitySlice();
     return list.items.len - start_len;
 }
@@ -80,16 +126,16 @@ fn writeFile(
     headers_and_trailers_full: []const []const u8,
     headers_len_full: usize,
 ) anyerror!usize {
-    const alw: *ArrayListWriter = @alignCast(@ptrCast(context));
-    const list = alw.array_list;
-    const bw = &alw.buffered_writer;
+    const aw: *AllocatingWriter = @alignCast(@ptrCast(context));
+    const gpa = aw.allocator;
+    var list = aw.toArrayList();
+    defer setArrayList(aw, list);
     const start_len = list.items.len;
     const headers_and_trailers, const headers_len = if (headers_len_full >= 1) b: {
         assert(headers_and_trailers_full[0].ptr == list.items.ptr + start_len);
         list.items.len += headers_and_trailers_full[0].len;
         break :b .{ headers_and_trailers_full[1..], headers_len_full - 1 };
     } else .{ headers_and_trailers_full, headers_len_full };
-    const gpa = alw.allocator;
     const trailers = headers_and_trailers[headers_len..];
     if (len == .entire_file) {
         var new_capacity: usize = list.capacity + std.atomic.cache_line;
@@ -103,11 +149,9 @@ fn writeFile(
             for (trailers) |bytes| new_capacity += bytes.len;
             try list.ensureTotalCapacity(gpa, new_capacity);
             for (trailers) |bytes| list.appendSliceAssumeCapacity(bytes);
-            bw.buffer = list.unusedCapacitySlice();
             return list.items.len - start_len;
         }
         list.items.len += n;
-        bw.buffer = list.unusedCapacitySlice();
         return list.items.len - start_len;
     }
     var new_capacity: usize = list.capacity + len.int();
@@ -118,10 +162,8 @@ fn writeFile(
     const n = try file.pread(dest, offset);
     list.items.len += n;
     if (n < dest.len) {
-        bw.buffer = list.unusedCapacitySlice();
         return list.items.len - start_len;
     }
     for (trailers) |bytes| list.appendSliceAssumeCapacity(bytes);
-    bw.buffer = list.unusedCapacitySlice();
     return list.items.len - start_len;
 }

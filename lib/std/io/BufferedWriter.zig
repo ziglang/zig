@@ -19,6 +19,9 @@ end: usize = 0,
 /// vectors through the underlying write calls as possible.
 pub const max_buffers_len = 8;
 
+/// Although `BufferedWriter` can easily satisfy the `Writer` interface, it's
+/// generally more practical to pass a `BufferedWriter` instance itself around,
+/// since it will result in fewer calls across vtable boundaries.
 pub fn writer(bw: *BufferedWriter) Writer {
     return .{
         .context = bw,
@@ -212,6 +215,7 @@ pub fn splatByte(bw: *BufferedWriter, byte: u8, n: usize) anyerror!usize {
 
     const new_end = end + n;
     if (new_end <= buffer.len) {
+        @branchHint(.likely);
         @memset(buffer[end..][0..n], byte);
         bw.end = new_end;
         return n;
@@ -226,6 +230,7 @@ pub fn splatByte(bw: *BufferedWriter, byte: u8, n: usize) anyerror!usize {
             bw.end = remainder.len;
             return 0;
         }
+        assert(bw.buffer.ptr == buffer.ptr); // TODO this is not a valid assertion
         @memset(buffer[0..n], byte);
         bw.end = n;
         return n;
