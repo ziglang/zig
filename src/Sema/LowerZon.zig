@@ -64,7 +64,8 @@ pub fn run(
 
 fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!InternPool.Index {
     const gpa = self.sema.gpa;
-    const ip = &self.sema.pt.zcu.intern_pool;
+    const pt = self.sema.pt;
+    const ip = &pt.zcu.intern_pool;
     switch (node.get(self.file.zoir.?)) {
         .true => return .bool_true,
         .false => return .bool_false,
@@ -73,55 +74,75 @@ fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!Inter
         .neg_inf => return self.fail(node, "negative infinity requires a known result type", .{}),
         .nan => return self.fail(node, "nan requires a known result type", .{}),
         .int_literal => |int| switch (int) {
-            .small => |val| return self.sema.pt.intern(.{ .int = .{
+            .small => |val| return pt.intern(.{ .int = .{
                 .ty = .comptime_int_type,
                 .storage = .{ .i64 = val },
             } }),
-            .big => |val| return self.sema.pt.intern(.{ .int = .{
+            .big => |val| return pt.intern(.{ .int = .{
                 .ty = .comptime_int_type,
                 .storage = .{ .big_int = val },
             } }),
         },
         .float_literal => |val| {
-            const result = try self.sema.pt.floatValue(.fromInterned(.comptime_float_type), val);
+            const result = try pt.floatValue(.fromInterned(.comptime_float_type), val);
             return result.toIntern();
         },
-        .char_literal => |val| return self.sema.pt.intern(.{ .int = .{
+        .char_literal => |val| return pt.intern(.{ .int = .{
             .ty = .comptime_int_type,
             .storage = .{ .i64 = val },
         } }),
-        .enum_literal => |val| return self.sema.pt.intern(.{
+        .enum_literal => |val| return pt.intern(.{
             .enum_literal = try ip.getOrPutString(
-                self.sema.gpa,
-                self.sema.pt.tid,
+                gpa,
+                pt.tid,
                 val.get(self.file.zoir.?),
                 .no_embedded_nulls,
             ),
         }),
         .string_literal => |val| {
-            const ip_str = try ip.getOrPutString(gpa, self.sema.pt.tid, val, .maybe_embedded_nulls);
+            const ip_str = try ip.getOrPutString(gpa, pt.tid, val, .maybe_embedded_nulls);
             const result = try self.sema.addStrLit(ip_str, val.len);
             return result.toInterned().?;
         },
         .empty_literal => {
             const ty = try ip.getTupleType(
                 gpa,
-                self.sema.pt.tid,
+                pt.tid,
                 .{
                     .types = &.{},
                     .values = &.{},
                 },
             );
-            return self.sema.pt.intern(.{ .aggregate = .{
+            return pt.intern(.{ .aggregate = .{
                 .ty = ty,
                 .storage = .{ .elems = &.{} },
             } });
         },
-        .array_literal, .struct_literal => @panic("unimplemented"),
+        .array_literal => |nodes| {
+            const types = try self.sema.arena.alloc(InternPool.Index, nodes.len);
+            const values = try self.sema.arena.alloc(InternPool.Index, nodes.len);
+            for (0..nodes.len) |i| {
+                values[i] = try self.lowerExprAnonResTy(nodes.at(@intCast(i)));
+                types[i] = Value.fromInterned(values[i]).typeOf(pt.zcu).toIntern();
+            }
+            const ty = try ip.getTupleType(
+                gpa,
+                pt.tid,
+                .{
+                    .types = types,
+                    .values = values,
+                },
+            );
+            return pt.intern(.{ .aggregate = .{
+                .ty = ty,
+                .storage = .{ .elems = values },
+            } });
+        },
+        .struct_literal => @panic("unimplemented"),
     }
 }
 
-/// Validate that `ty` is a valid ZON type, or is `.none`. If it is not, emit a compile error.
+/// Validate that `ty` is a valid ZON type, or emit a compile error.
 ///
 /// Rules out nested optionals, error sets, etc.
 fn checkType(self: *LowerZon, ty: Type) !void {
