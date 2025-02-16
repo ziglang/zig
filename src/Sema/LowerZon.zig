@@ -103,7 +103,21 @@ fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!Inter
             const result = try self.sema.addStrLit(ip_str, val.len);
             return result.toInterned().?;
         },
-        .empty_literal, .array_literal, .struct_literal => @panic("unimplemented"),
+        .empty_literal => {
+            const ty = try ip.getTupleType(
+                gpa,
+                self.sema.pt.tid,
+                .{
+                    .types = &.{},
+                    .values = &.{},
+                },
+            );
+            return self.sema.pt.intern(.{ .aggregate = .{
+                .ty = ty,
+                .storage = .{ .elems = &.{} },
+            } });
+        },
+        .array_literal, .struct_literal => @panic("unimplemented"),
     }
 }
 
