@@ -33,16 +33,14 @@ pub fn writer(bw: *BufferedWriter) Writer {
     return .{
         .context = bw,
         .vtable = &.{
-            .writev = passthru_writev,
-            .splat = passthru_splat,
+            .write = passthru_writeSplat,
             .writeFile = passthru_writeFile,
         },
     };
 }
 
 const fixed_vtable: Writer.VTable = .{
-    .writev = fixed_writev,
-    .splat = fixed_splat,
+    .writeSplat = fixed_writeSplat,
     .writeFile = fixed_writeFile,
 };
 
@@ -81,7 +79,7 @@ pub fn flush(bw: *BufferedWriter) anyerror!void {
 pub fn writevAll(bw: *BufferedWriter, data: []const []const u8) anyerror!void {
     var i: usize = 0;
     while (true) {
-        var n = try writev(bw, data[i..]);
+        var n = try passthru_writeSplat(bw, data[i..], 1);
         while (n >= data[i].len) {
             n -= data[i].len;
             i += 1;
@@ -91,14 +89,16 @@ pub fn writevAll(bw: *BufferedWriter, data: []const []const u8) anyerror!void {
     }
 }
 
-pub fn writev(bw: *BufferedWriter, data: []const []const u8) anyerror!usize {
-    return passthru_writev(bw, data);
+pub fn writeSplat(bw: *BufferedWriter, data: []const []const u8, splat: usize) anyerror!usize {
+    return passthru_writeSplat(bw, data, splat);
 }
 
-fn passthru_writev(context: *anyopaque, data: []const []const u8) anyerror!usize {
+fn passthru_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
     const bw: *BufferedWriter = @alignCast(@ptrCast(context));
     const buffer = bw.buffer;
     const start_end = bw.end;
+
+    var buffers: [max_buffers_len][]const u8 = undefined;
     var end = bw.end;
     for (data, 0..) |bytes, i| {
         const new_end = end + bytes.len;
@@ -108,14 +108,28 @@ fn passthru_writev(context: *anyopaque, data: []const []const u8) anyerror!usize
             end = new_end;
             continue;
         }
-        if (end == 0) return bw.unbuffered_writer.writev(data);
-        var buffers: [max_buffers_len][]const u8 = undefined;
+        if (end == 0) return bw.unbuffered_writer.writeSplat(data, splat);
         buffers[0] = buffer[0..end];
         const remaining_data = data[i..];
         const remaining_buffers = buffers[1..];
         const len: usize = @min(remaining_data.len, remaining_buffers.len);
         @memcpy(remaining_buffers[0..len], remaining_data[0..len]);
-        const n = try bw.unbuffered_writer.writev(buffers[0 .. len + 1]);
+        const send_buffers = buffers[0 .. len + 1];
+        if (len >= remaining_data.len) {
+            @branchHint(.likely);
+            // Made it past the headers, so we can enable splatting.
+            const n = try bw.unbuffered_writer.writeSplat(send_buffers, splat);
+            if (n < end) {
+                @branchHint(.unlikely);
+                const remainder = buffer[n..end];
+                std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
+                bw.end = remainder.len;
+                return end - start_end;
+            }
+            bw.end = 0;
+            return n - start_end;
+        }
+        const n = try bw.unbuffered_writer.writeSplat(send_buffers, 1);
         if (n < end) {
             @branchHint(.unlikely);
             const remainder = buffer[n..end];
@@ -126,57 +140,18 @@ fn passthru_writev(context: *anyopaque, data: []const []const u8) anyerror!usize
         bw.end = 0;
         return n - start_end;
     }
-    bw.end = end;
-    return end - start_end;
-}
 
-fn passthru_splat(context: *anyopaque, headers: []const []const u8, pattern: []const u8, n: usize) anyerror!usize {
-    const bw: *BufferedWriter = @alignCast(@ptrCast(context));
-    const buffer = bw.buffer;
-    const start_end = bw.end;
+    const pattern = data[data.len - 1];
 
-    var end = bw.end;
-    for (headers, 0..) |bytes, i| {
-        const new_end = end + bytes.len;
-        if (new_end <= buffer.len) {
-            @branchHint(.likely);
-            @memcpy(buffer[end..new_end], bytes);
-            end = new_end;
-            continue;
-        }
-        if (end == 0) return bw.unbuffered_writer.splat(headers, pattern, n);
-        var buffers: [max_buffers_len][]const u8 = undefined;
-        buffers[0] = buffer[0..end];
-        const remaining_headers = headers[i..];
-        const remaining_buffers = buffers[1..];
-        const len: usize = @min(remaining_headers.len, remaining_buffers.len);
-        @memcpy(remaining_buffers[0..len], remaining_headers[0..len]);
-        const send_buffers = buffers[0 .. len + 1];
-        if (len >= remaining_headers.len) {
-            @branchHint(.likely);
-            // Made it past the headers, so we can call `splat`.
-            const written = try bw.unbuffered_writer.splat(send_buffers, pattern, n);
-            if (written < end) {
-                @branchHint(.unlikely);
-                const remainder = buffer[written..end];
-                std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-                bw.end = remainder.len;
-                return end - start_end;
-            }
-            bw.end = 0;
-            return written - start_end;
-        }
-        const written = try bw.unbuffered_writer.writev(send_buffers);
-        if (written < end) {
-            @branchHint(.unlikely);
-            const remainder = buffer[written..end];
-            std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-            bw.end = remainder.len;
-            return end - start_end;
-        }
-        bw.end = 0;
-        return written - start_end;
+    if (splat == 0) {
+        @branchHint(.unlikely);
+        // It was added in the loop above; undo it here.
+        end -= pattern.len;
+        bw.end = end;
+        return end - start_end;
     }
+
+    const remaining_splat = splat - 1;
 
     switch (pattern.len) {
         0 => {
@@ -184,26 +159,28 @@ fn passthru_splat(context: *anyopaque, headers: []const []const u8, pattern: []c
             return end - start_end;
         },
         1 => {
-            const new_end = end + n;
+            const new_end = end + remaining_splat;
             if (new_end <= buffer.len) {
                 @branchHint(.likely);
                 @memset(buffer[end..new_end], pattern[0]);
                 bw.end = new_end;
                 return end - start_end;
             }
-            const written = try bw.unbuffered_writer.splat(buffer[0..end], pattern, n);
-            if (written < end) {
+            buffers[0] = buffer[0..end];
+            buffers[1] = pattern;
+            const n = try bw.unbuffered_writer.writeSplat(buffers[0..2], remaining_splat);
+            if (n < end) {
                 @branchHint(.unlikely);
-                const remainder = buffer[written..end];
+                const remainder = buffer[n..end];
                 std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
                 bw.end = remainder.len;
                 return end - start_end;
             }
             bw.end = 0;
-            return written - start_end;
+            return n - start_end;
         },
         else => {
-            const new_end = end + pattern.len * n;
+            const new_end = end + pattern.len * remaining_splat;
             if (new_end <= buffer.len) {
                 @branchHint(.likely);
                 while (end < new_end) : (end += pattern.len) {
@@ -212,16 +189,18 @@ fn passthru_splat(context: *anyopaque, headers: []const []const u8, pattern: []c
                 bw.end = end;
                 return end - start_end;
             }
-            const written = try bw.unbuffered_writer.splat(buffer[0..end], pattern, n);
-            if (written < end) {
+            buffers[0] = buffer[0..end];
+            buffers[1] = pattern;
+            const n = try bw.unbuffered_writer.writeSplat(buffers[0..2], remaining_splat);
+            if (n < end) {
                 @branchHint(.unlikely);
-                const remainder = buffer[written..end];
+                const remainder = buffer[n..end];
                 std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
                 bw.end = remainder.len;
                 return end - start_end;
             }
             bw.end = 0;
-            return written - start_end;
+            return n - start_end;
         },
     }
 }
@@ -237,15 +216,24 @@ fn fixed_writev(context: *anyopaque, data: []const []const u8) anyerror!usize {
     return error.NoSpaceLeft;
 }
 
-fn fixed_splat(context: *anyopaque, headers: []const []const u8, pattern: []const u8, n: usize) anyerror!usize {
+/// When this function is called it means the buffer got full, so it's time
+/// to return an error. However, we still need to make sure all of the
+/// available buffer has been filled.
+fn fixed_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
     const bw: *BufferedWriter = @alignCast(@ptrCast(context));
+    for (data) |bytes| {
+        const dest = bw.buffer[bw.end..];
+        if (dest.len == 0) return error.NoSpaceLeft;
+        const len = @min(bytes.len, dest.len);
+        @memcpy(dest[0..len], bytes[0..len]);
+        bw.end += len;
+    }
+    const pattern = data[data.len - 1];
     const dest = bw.buffer[bw.end..];
-    if (headers.len > 0) {
-        @memcpy(dest, headers[0][0..dest.len]);
-    } else switch (pattern.len) {
+    switch (pattern.len) {
         0 => unreachable,
         1 => @memset(dest, pattern[0]),
-        else => for (0..n) |i| @memcpy(dest[i * pattern.len ..][0..pattern.len], pattern),
+        else => for (0..splat - 1) |i| @memcpy(dest[i * pattern.len ..][0..pattern.len], pattern),
     }
     return error.NoSpaceLeft;
 }
@@ -329,21 +317,26 @@ pub fn splatByteAll(bw: *BufferedWriter, byte: u8, n: usize) anyerror!void {
 ///
 /// Does maximum of one underlying `Writer.VTable.writev`.
 pub fn splatByte(bw: *BufferedWriter, byte: u8, n: usize) anyerror!usize {
-    return passthru_splat(bw, &.{}, &.{byte}, n);
+    return passthru_writeSplat(bw, &.{&.{byte}}, n);
 }
 
 /// Writes the same slice many times, performing the underlying write call as
 /// many times as necessary.
-pub fn splatBytesAll(bw: *BufferedWriter, bytes: []const u8, n: usize) anyerror!void {
-    var remaining: usize = n * bytes.len;
-    while (remaining > 0) remaining -= try splatBytes(bw, bytes, remaining);
+pub fn splatBytesAll(bw: *BufferedWriter, bytes: []const u8, splat: usize) anyerror!void {
+    var remaining_bytes: usize = bytes.len * splat;
+    remaining_bytes -= try splatBytes(bw, bytes, splat);
+    while (remaining_bytes > 0) {
+        const leftover = remaining_bytes % bytes.len;
+        const buffers: [2][]const u8 = .{ bytes[bytes.len - leftover ..], bytes };
+        remaining_bytes -= try splatBytes(bw, &buffers, splat);
+    }
 }
 
 /// Writes the same slice many times, allowing short writes.
 ///
 /// Does maximum of one underlying `Writer.VTable.writev`.
 pub fn splatBytes(bw: *BufferedWriter, bytes: []const u8, n: usize) anyerror!usize {
-    return passthru_splat(bw, &.{}, bytes, n);
+    return passthru_writeSplat(bw, &.{bytes}, n);
 }
 
 /// Asserts the `buffer` was initialized with a capacity of at least `@sizeOf(T)` bytes.
