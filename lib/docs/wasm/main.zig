@@ -7,6 +7,7 @@ const markdown = @import("markdown.zig");
 const Decl = Walk.Decl;
 
 const fileSourceHtml = @import("html_render.zig").fileSourceHtml;
+const fileSourceLineNumbersHtml = @import("html_render.zig").fileSourceLineNumbersHtml;
 const appendEscaped = @import("html_render.zig").appendEscaped;
 const resolveDeclLink = @import("html_render.zig").resolveDeclLink;
 const missing_feature_url_escape = @import("html_render.zig").missing_feature_url_escape;
@@ -515,6 +516,16 @@ export fn decl_fn_proto_html(decl_index: Decl.Index, linkify_fn_name: bool) Stri
         .fn_link = if (linkify_fn_name) decl_index else .none,
     }) catch |err| {
         fatal("unable to render source: {s}", .{@errorName(err)});
+    };
+    return String.init(string_result.items);
+}
+
+export fn decl_line_numbers_html(decl_index: Decl.Index) String {
+    const decl = decl_index.get();
+
+    string_result.clearRetainingCapacity();
+    fileSourceLineNumbersHtml(decl.file, &string_result, decl.ast_node) catch |err| {
+        fatal("unable to render source line numbers: {s}", .{@errorName(err)});
     };
     return String.init(string_result.items);
 }
