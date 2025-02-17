@@ -620,13 +620,14 @@ pub fn printValue(
     }
 
     if (std.meta.hasMethod(T, "format")) {
-        if (fmt.len == 0) {
-            // @deprecated()
-            // After 0.14.0 is tagged, uncomment this next line:
-            //@compileError("ambiguous format string; specify {f} to call print method, or {any} to skip it");
-            return value.format(fmt, options, bw);
-        } else if (fmt[0] == 'f') {
+        if (fmt.len > 0 and fmt[0] == 'f') {
             return value.format(fmt[1..], options, bw);
+        } else {
+            //@deprecated();
+            // After 0.14.0 is tagged, uncomment this next line:
+            //@compileError("ambiguous format string; specify {f} to call format method, or {any} to skip it");
+            //and then delete the `hasMethod` condition
+            return value.format(fmt, options, bw);
         }
     }
 

@@ -55,14 +55,14 @@ fn printType(
     switch (T) {
         []const []const u8 => {
             if (name) |payload| {
-                try out.print(gpa, "pub const {}: []const []const u8 = ", .{std.zig.fmtId(payload)});
+                try out.print(gpa, "pub const {f}: []const []const u8 = ", .{std.zig.fmtId(payload)});
             }
 
             try out.appendSlice(gpa, "&[_][]const u8{\n");
 
             for (value) |slice| {
                 try out.appendNTimes(gpa, ' ', indent);
-                try out.print(gpa, "    \"{}\",\n", .{std.zig.fmtEscapes(slice)});
+                try out.print(gpa, "    \"{f}\",\n", .{std.zig.fmtEscapes(slice)});
             }
 
             if (name != null) {
@@ -75,7 +75,9 @@ fn printType(
         },
         []const u8 => {
             if (name) |some| {
-                try out.print(gpa, "pub const {}: []const u8 = \"{}\";", .{ std.zig.fmtId(some), std.zig.fmtEscapes(value) });
+                try out.print(gpa, "pub const {f}: []const u8 = \"{f}\";", .{
+                    std.zig.fmtId(some), std.zig.fmtEscapes(value),
+                });
             } else {
                 try out.print(gpa, "\"{}\",", .{std.zig.fmtEscapes(value)});
             }
@@ -293,7 +295,7 @@ fn printEnum(
 
     inline for (val.fields) |field| {
         try out.appendNTimes(gpa, ' ', indent);
-        try out.print(gpa, "    {p} = {d},\n", .{ std.zig.fmtId(field.name), field.value });
+        try out.print(gpa, "    {fp} = {d},\n", .{ std.zig.fmtId(field.name), field.value });
     }
 
     if (!val.is_exhaustive) {

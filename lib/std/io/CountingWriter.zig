@@ -22,13 +22,6 @@ pub fn writer(cw: *CountingWriter) Writer {
     };
 }
 
-pub fn unbufferedWriter(cw: *CountingWriter) std.io.BufferedWriter {
-    return .{
-        .buffer = &.{},
-        .unbuffered_writer = writer(cw),
-    };
-}
-
 fn passthru_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
     const cw: *CountingWriter = @alignCast(@ptrCast(context));
     const n = try cw.child_writer.writeSplat(data, splat);
@@ -52,7 +45,7 @@ fn passthru_writeFile(
 
 test CountingWriter {
     var cw: CountingWriter = .{ .child_writer = std.io.null_writer };
-    var bw = cw.unbufferedWriter();
+    var bw = cw.writer().unbuffered();
     const bytes = "yay";
     try bw.writeAll(bytes);
     try testing.expect(cw.bytes_written == bytes.len);
