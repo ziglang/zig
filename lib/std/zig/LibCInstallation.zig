@@ -370,7 +370,7 @@ fn findNativeIncludeDirWindows(
 
     for (installs) |install| {
         result_buf.shrinkAndFree(0);
-        try result_buf.writer().print("{s}\\Include\\{s}\\ucrt", .{ install.path, install.version });
+        try result_buf.print("{s}\\Include\\{s}\\ucrt", .{ install.path, install.version });
 
         var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
             error.FileNotFound,
@@ -417,7 +417,7 @@ fn findNativeCrtDirWindows(
 
     for (installs) |install| {
         result_buf.shrinkAndFree(0);
-        try result_buf.writer().print("{s}\\Lib\\{s}\\ucrt\\{s}", .{ install.path, install.version, arch_sub_dir });
+        try result_buf.print("{s}\\Lib\\{s}\\ucrt\\{s}", .{ install.path, install.version, arch_sub_dir });
 
         var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
             error.FileNotFound,

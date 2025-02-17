@@ -421,9 +421,9 @@ pub const Request = struct {
             try request.server.connection.stream.writeAll(h.items);
             return;
         }
-        h.fixedWriter().print("{s} {d} {s}\r\n", .{
+        h.printAssumeCapacity("{s} {d} {s}\r\n", .{
             @tagName(options.version), @intFromEnum(options.status), phrase,
-        }) catch unreachable;
+        });
 
         switch (options.version) {
             .@"HTTP/1.0" => if (keep_alive) h.appendSliceAssumeCapacity("connection: keep-alive\r\n"),
@@ -434,7 +434,7 @@ pub const Request = struct {
             .none => {},
             .chunked => h.appendSliceAssumeCapacity("transfer-encoding: chunked\r\n"),
         } else {
-            h.fixedWriter().print("content-length: {d}\r\n", .{content.len}) catch unreachable;
+            h.printAssumeCapacity("content-length: {d}\r\n", .{content.len});
         }
 
         var chunk_header_buffer: [18]u8 = undefined;
@@ -573,9 +573,9 @@ pub const Request = struct {
             h.appendSliceAssumeCapacity("content-length: 0\r\n\r\n");
             break :eb true;
         } else eb: {
-            h.fixedWriter().print("{s} {d} {s}\r\n", .{
+            h.printAssumeCapacity("{s} {d} {s}\r\n", .{
                 @tagName(o.version), @intFromEnum(o.status), phrase,
-            }) catch unreachable;
+            });
 
             switch (o.version) {
                 .@"HTTP/1.0" => if (keep_alive) h.appendSliceAssumeCapacity("connection: keep-alive\r\n"),
@@ -586,7 +586,7 @@ pub const Request = struct {
                 .chunked => h.appendSliceAssumeCapacity("transfer-encoding: chunked\r\n"),
                 .none => {},
             } else if (options.content_length) |len| {
-                h.fixedWriter().print("content-length: {d}\r\n", .{len}) catch unreachable;
+                h.printAssumeCapacity("content-length: {d}\r\n", .{len});
             } else {
                 h.appendSliceAssumeCapacity("transfer-encoding: chunked\r\n");
             }
@@ -889,12 +889,34 @@ pub const Response = struct {
     /// when the end of stream occurs by calling `end`.
     pub fn write(r: *Response, bytes: []const u8) WriteError!usize {
         switch (r.transfer_encoding) {
-            .content_length, .none => return write_cl(r, bytes),
-            .chunked => return write_chunked(r, bytes),
+            .content_length, .none => return @errorCast(cl_writeSplat(r, &.{bytes}, 1)),
+            .chunked => return @errorCast(chunked_writeSplat(r, &.{bytes}, 1)),
         }
     }
 
-    fn write_cl(context: *const anyopaque, bytes: []const u8) WriteError!usize {
+    fn cl_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+        _ = splat;
+        return cl_write(context, data[0]); // TODO: try to send all the data
+    }
+
+    fn cl_writeFile(
+        context: *anyopaque,
+        file: std.fs.File,
+        offset: u64,
+        len: std.io.Writer.VTable.FileLen,
+        headers_and_trailers: []const []const u8,
+        headers_len: usize,
+    ) anyerror!usize {
+        _ = context;
+        _ = file;
+        _ = offset;
+        _ = len;
+        _ = headers_and_trailers;
+        _ = headers_len;
+        return error.Unimplemented;
+    }
+
+    fn cl_write(context: *anyopaque, bytes: []const u8) WriteError!usize {
         const r: *Response = @constCast(@alignCast(@ptrCast(context)));
 
         var trash: u64 = std.math.maxInt(u64);
@@ -944,7 +966,29 @@ pub const Response = struct {
         return bytes.len;
     }
 
-    fn write_chunked(context: *const anyopaque, bytes: []const u8) WriteError!usize {
+    fn chunked_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+        _ = splat;
+        return chunked_write(context, data[0]); // TODO: try to send all the data
+    }
+
+    fn chunked_writeFile(
+        context: *anyopaque,
+        file: std.fs.File,
+        offset: u64,
+        len: std.io.Writer.VTable.FileLen,
+        headers_and_trailers: []const []const u8,
+        headers_len: usize,
+    ) anyerror!usize {
+        _ = context;
+        _ = file;
+        _ = offset;
+        _ = len;
+        _ = headers_and_trailers;
+        _ = headers_len;
+        return error.Unimplemented;
+    }
+
+    fn chunked_write(context: *anyopaque, bytes: []const u8) WriteError!usize {
         const r: *Response = @constCast(@alignCast(@ptrCast(context)));
         assert(r.transfer_encoding == .chunked);
 
@@ -1115,11 +1159,17 @@ pub const Response = struct {
         r.chunk_len = 0;
     }
 
-    pub fn writer(r: *Response) std.io.AnyWriter {
+    pub fn writer(r: *Response) std.io.Writer {
         return .{
-            .writeFn = switch (r.transfer_encoding) {
-                .none, .content_length => write_cl,
-                .chunked => write_chunked,
+            .vtable = switch (r.transfer_encoding) {
+                .none, .content_length => &.{
+                    .writeSplat = cl_writeSplat,
+                    .writeFile = cl_writeFile,
+                },
+                .chunked => &.{
+                    .writeSplat = chunked_writeSplat,
+                    .writeFile = chunked_writeFile,
+                },
             },
             .context = r,
         };

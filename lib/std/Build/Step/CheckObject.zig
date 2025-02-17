@@ -1393,7 +1393,8 @@ const MachODumper = struct {
                     },
                     macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
                         name_buf.clearRetainingCapacity();
-                        try reader.readUntilDelimiterArrayList(&name_buf, 0, std.math.maxInt(u32));
+                        if (true) @panic("TODO fix this");
+                        //try reader.readUntilDelimiterArrayList(&name_buf, 0, std.math.maxInt(u32));
                         try name_buf.append(0);
                     },
                     macho.BIND_OPCODE_SET_ADDEND_SLEB => {
@@ -2430,10 +2431,11 @@ const WasmDumper = struct {
             return error.UnsupportedWasmVersion;
         }
 
-        var output = std.ArrayList(u8).init(gpa);
+        var output: std.io.AllocatingWriter = undefined;
+        const bw = output.init(gpa);
         defer output.deinit();
-        parseAndDumpInner(step, check, bytes, &fbs, &output) catch |err| switch (err) {
-            error.EndOfStream => try output.appendSlice("\n<UnexpectedEndOfStream>"),
+        parseAndDumpInner(step, check, bytes, &fbs, bw) catch |err| switch (err) {
+            error.EndOfStream => try bw.writeAll("\n<UnexpectedEndOfStream>"),
             else => |e| return e,
         };
         return output.toOwnedSlice();
@@ -2443,11 +2445,10 @@ const WasmDumper = struct {
         step: *Step,
         check: Check,
         bytes: []const u8,
-        fbs: *std.io.FixedBufferStream([]const u8),
-        output: *std.ArrayList(u8),
+        fbs: *std.io.FixedBufferStream,
+        bw: *std.io.BufferedWriter,
     ) !void {
         const reader = fbs.reader();
-        const writer = output.writer();
 
         switch (check.kind) {
             .headers => {
@@ -2457,7 +2458,7 @@ const WasmDumper = struct {
                     };
 
                     const section_length = try std.leb.readUleb128(u32, reader);
-                    try parseAndDumpSection(step, section, bytes[fbs.pos..][0..section_length], writer);
+                    try parseAndDumpSection(step, section, bytes[fbs.pos..][0..section_length], bw);
                     fbs.pos += section_length;
                 } else |_| {} // reached end of stream
             },

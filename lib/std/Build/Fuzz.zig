@@ -112,7 +112,6 @@ fn rebuildTestsWorkerRun(run: *Step.Run, ttyconf: std.io.tty.Config, parent_prog
 
 fn rebuildTestsWorkerRunFallible(run: *Step.Run, ttyconf: std.io.tty.Config, parent_prog_node: std.Progress.Node) !void {
     const gpa = run.step.owner.allocator;
-    const stderr = std.io.getStdErr();
 
     const compile = run.producer.?;
     const prog_node = parent_prog_node.start(compile.step.name, 0);
@@ -125,9 +124,9 @@ fn rebuildTestsWorkerRunFallible(run: *Step.Run, ttyconf: std.io.tty.Config, par
     const show_stderr = compile.step.result_stderr.len > 0;
 
     if (show_error_msgs or show_compile_errors or show_stderr) {
-        std.debug.lockStdErr();
+        var bw = std.debug.lockStdErr2();
         defer std.debug.unlockStdErr();
-        build_runner.printErrorMessages(gpa, &compile.step, .{ .ttyconf = ttyconf }, stderr, false) catch {};
+        build_runner.printErrorMessages(gpa, &compile.step, .{ .ttyconf = ttyconf }, &bw, false) catch {};
     }
 
     const rebuilt_bin_path = result catch |err| switch (err) {
@@ -152,10 +151,9 @@ fn fuzzWorkerRun(
 
     run.rerunInFuzzMode(web_server, unit_test_index, prog_node) catch |err| switch (err) {
         error.MakeFailed => {
-            const stderr = std.io.getStdErr();
-            std.debug.lockStdErr();
+            var bw = std.debug.lockStdErr2();
             defer std.debug.unlockStdErr();
-            build_runner.printErrorMessages(gpa, &run.step, .{ .ttyconf = ttyconf }, stderr, false) catch {};
+            build_runner.printErrorMessages(gpa, &run.step, .{ .ttyconf = ttyconf }, &bw, false) catch {};
             return;
         },
         else => {

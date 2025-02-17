@@ -445,13 +445,14 @@ test remove_dot_segments {
 
 /// 5.2.3. Merge Paths
 fn merge_paths(base: Component, new: []u8, aux_buf: *[]u8) error{NoSpaceLeft}!Component {
-    var aux = std.io.fixedBufferStream(aux_buf.*);
+    var aux: std.io.BufferedWriter = undefined;
+    aux.initFixed(aux_buf.*);
     if (!base.isEmpty()) {
-        try aux.writer().print("{path}", .{base});
+        aux.print("{fpath}", .{base}) catch |err| return @errorCast(err);
         aux.pos = std.mem.lastIndexOfScalar(u8, aux.getWritten(), '/') orelse
             return remove_dot_segments(new);
     }
-    try aux.writer().print("/{s}", .{new});
+    aux.print("/{s}", .{new}) catch |err| return @errorCast(err);
     const merged_path = remove_dot_segments(aux.getWritten());
     aux_buf.* = aux_buf.*[merged_path.percent_encoded.len..];
     return merged_path;

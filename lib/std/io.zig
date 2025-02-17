@@ -123,19 +123,6 @@ pub fn GenericReader(
             return @errorCast(self.any().readAllAlloc(allocator, max_size));
         }
 
-        pub inline fn readUntilDelimiterArrayList(
-            self: Self,
-            array_list: *std.ArrayList(u8),
-            delimiter: u8,
-            max_size: usize,
-        ) (NoEofError || Allocator.Error || error{StreamTooLong})!void {
-            return @errorCast(self.any().readUntilDelimiterArrayList(
-                array_list,
-                delimiter,
-                max_size,
-            ));
-        }
-
         pub inline fn readUntilDelimiterAlloc(
             self: Self,
             allocator: Allocator,

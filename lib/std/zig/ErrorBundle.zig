@@ -194,11 +194,11 @@ fn renderErrorMessageToWriter(
 ) anyerror!void {
     const ttyconf = options.ttyconf;
     var counting_writer: std.io.CountingWriter = .{ .child_writer = bw.writer() };
-    const counting_bw = counting_writer.unbufferedWriter();
+    var counting_bw = counting_writer.unbufferedWriter();
     const err_msg = eb.getErrorMessage(err_msg_index);
     if (err_msg.src_loc != .none) {
         const src = eb.extraData(SourceLocation, @intFromEnum(err_msg.src_loc));
-        try counting_bw.writeByteNTimes(' ', indent);
+        try counting_bw.splatByteAll(' ', indent);
         try ttyconf.setColor(bw, .bold);
         try counting_bw.print("{s}:{d}:{d}: ", .{
             eb.nullTerminatedString(src.data.src_path),
@@ -210,7 +210,7 @@ fn renderErrorMessageToWriter(
         try counting_bw.writeAll(": ");
         // This is the length of the part before the error message:
         // e.g. "file.zig:4:5: error: "
-        const prefix_len: usize = @intCast(counting_bw.context.bytes_written);
+        const prefix_len: usize = @intCast(counting_writer.bytes_written);
         try ttyconf.setColor(bw, .reset);
         try ttyconf.setColor(bw, .bold);
         if (err_msg.count == 1) {
@@ -233,11 +233,11 @@ fn renderErrorMessageToWriter(
             const before_caret = src.data.span_main - src.data.span_start;
             // -1 since span.main includes the caret
             const after_caret = src.data.span_end -| src.data.span_main -| 1;
-            try bw.writeByteNTimes(' ', src.data.column - before_caret);
+            try bw.splatByteAll(' ', src.data.column - before_caret);
             try ttyconf.setColor(bw, .green);
-            try bw.writeByteNTimes('~', before_caret);
+            try bw.splatByteAll('~', before_caret);
             try bw.writeByte('^');
-            try bw.writeByteNTimes('~', after_caret);
+            try bw.splatByteAll('~', after_caret);
             try bw.writeByte('\n');
             try ttyconf.setColor(bw, .reset);
         }
@@ -277,7 +277,7 @@ fn renderErrorMessageToWriter(
         }
     } else {
         try ttyconf.setColor(bw, color);
-        try bw.writeByteNTimes(' ', indent);
+        try bw.splatByteAll(' ', indent);
         try bw.writeAll(kind);
         try bw.writeAll(": ");
         try ttyconf.setColor(bw, .reset);
@@ -306,7 +306,7 @@ fn writeMsg(eb: ErrorBundle, err_msg: ErrorMessage, bw: *std.io.BufferedWriter, 
         try bw.writeAll(line);
         if (lines.index == null) break;
         try bw.writeByte('\n');
-        try bw.writeByteNTimes(' ', indent);
+        try bw.splatByteAll(' ', indent);
     }
 }
 

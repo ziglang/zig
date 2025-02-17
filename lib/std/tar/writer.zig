@@ -2,187 +2,176 @@ const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
 
-/// Creates tar Writer which will write tar content to the `underlying_writer`.
-/// Use setRoot to nest all following entries under single root. If file don't
-/// fit into posix header (name+prefix: 100+155 bytes) gnu extented header will
-/// be used for long names. Options enables setting file premission mode and
-/// mtime. Default is to use current time for mtime and 0o664 for file mode.
-pub fn writer(underlying_writer: anytype) Writer(@TypeOf(underlying_writer)) {
-    return .{ .underlying_writer = underlying_writer };
-}
+pub const Writer = struct {
+    const block_size = @sizeOf(Header);
+    const empty_block: [block_size]u8 = [_]u8{0} ** block_size;
 
-pub fn Writer(comptime WriterType: type) type {
-    return struct {
-        const block_size = @sizeOf(Header);
-        const empty_block: [block_size]u8 = [_]u8{0} ** block_size;
+    /// Options for writing file/dir/link. If left empty 0o664 is used for
+    /// file mode and current time for mtime.
+    pub const Options = struct {
+        /// File system permission mode.
+        mode: u32 = 0,
+        /// File system modification time.
+        mtime: u64 = 0,
+    };
+    const Self = @This();
 
-        /// Options for writing file/dir/link. If left empty 0o664 is used for
-        /// file mode and current time for mtime.
-        pub const Options = struct {
-            /// File system permission mode.
-            mode: u32 = 0,
-            /// File system modification time.
-            mtime: u64 = 0,
-        };
-        const Self = @This();
+    underlying_writer: *std.io.BufferedWriter,
+    prefix: []const u8 = "",
+    mtime_now: u64 = 0,
 
-        underlying_writer: WriterType,
-        prefix: []const u8 = "",
-        mtime_now: u64 = 0,
+    /// Sets prefix for all other write* method paths.
+    pub fn setRoot(self: *Self, root: []const u8) !void {
+        if (root.len > 0)
+            try self.writeDir(root, .{});
 
-        /// Sets prefix for all other write* method paths.
-        pub fn setRoot(self: *Self, root: []const u8) !void {
-            if (root.len > 0)
-                try self.writeDir(root, .{});
+        self.prefix = root;
+    }
 
-            self.prefix = root;
+    /// Writes directory.
+    pub fn writeDir(self: *Self, sub_path: []const u8, opt: Options) !void {
+        try self.writeHeader(.directory, sub_path, "", 0, opt);
+    }
+
+    /// Writes file system file.
+    pub fn writeFile(self: *Self, sub_path: []const u8, file: std.fs.File) !void {
+        const stat = try file.stat();
+        const mtime: u64 = @intCast(@divFloor(stat.mtime, std.time.ns_per_s));
+
+        var header = Header{};
+        try self.setPath(&header, sub_path);
+        try header.setSize(stat.size);
+        try header.setMtime(mtime);
+        try header.write(self.underlying_writer);
+
+        try self.underlying_writer.writeFileAll(file, .{ .len = .init(stat.size) });
+        try self.writePadding(stat.size);
+    }
+
+    /// Writes file reading file content from `reader`. Number of bytes in
+    /// reader must be equal to `size`.
+    pub fn writeFileStream(self: *Self, sub_path: []const u8, size: usize, reader: anytype, opt: Options) !void {
+        try self.writeHeader(.regular, sub_path, "", @intCast(size), opt);
+
+        var counting_reader = std.io.countingReader(reader);
+        var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
+        try fifo.pump(counting_reader.reader(), self.underlying_writer);
+        if (counting_reader.bytes_read != size) return error.WrongReaderSize;
+        try self.writePadding(size);
+    }
+
+    /// Writes file using bytes buffer `content` for size and file content.
+    pub fn writeFileBytes(self: *Self, sub_path: []const u8, content: []const u8, opt: Options) !void {
+        try self.writeHeader(.regular, sub_path, "", @intCast(content.len), opt);
+        try self.underlying_writer.writeAll(content);
+        try self.writePadding(content.len);
+    }
+
+    /// Writes symlink.
+    pub fn writeLink(self: *Self, sub_path: []const u8, link_name: []const u8, opt: Options) !void {
+        try self.writeHeader(.symbolic_link, sub_path, link_name, 0, opt);
+    }
+
+    /// Writes fs.Dir.WalkerEntry. Uses `mtime` from file system entry and
+    /// default for entry mode .
+    pub fn writeEntry(self: *Self, entry: std.fs.Dir.Walker.Entry) !void {
+        switch (entry.kind) {
+            .directory => {
+                try self.writeDir(entry.path, .{ .mtime = try entryMtime(entry) });
+            },
+            .file => {
+                var file = try entry.dir.openFile(entry.basename, .{});
+                defer file.close();
+                try self.writeFile(entry.path, file);
+            },
+            .sym_link => {
+                var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
+                const link_name = try entry.dir.readLink(entry.basename, &link_name_buffer);
+                try self.writeLink(entry.path, link_name, .{ .mtime = try entryMtime(entry) });
+            },
+            else => {
+                return error.UnsupportedWalkerEntryKind;
+            },
         }
+    }
 
-        /// Writes directory.
-        pub fn writeDir(self: *Self, sub_path: []const u8, opt: Options) !void {
-            try self.writeHeader(.directory, sub_path, "", 0, opt);
-        }
-
-        /// Writes file system file.
-        pub fn writeFile(self: *Self, sub_path: []const u8, file: std.fs.File) !void {
-            const stat = try file.stat();
-            const mtime: u64 = @intCast(@divFloor(stat.mtime, std.time.ns_per_s));
-
-            var header = Header{};
-            try self.setPath(&header, sub_path);
-            try header.setSize(stat.size);
-            try header.setMtime(mtime);
-            try header.write(self.underlying_writer);
-
-            try self.underlying_writer.writeFile(file);
-            try self.writePadding(stat.size);
-        }
-
-        /// Writes file reading file content from `reader`. Number of bytes in
-        /// reader must be equal to `size`.
-        pub fn writeFileStream(self: *Self, sub_path: []const u8, size: usize, reader: anytype, opt: Options) !void {
-            try self.writeHeader(.regular, sub_path, "", @intCast(size), opt);
-
-            var counting_reader = std.io.countingReader(reader);
-            var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
-            try fifo.pump(counting_reader.reader(), self.underlying_writer);
-            if (counting_reader.bytes_read != size) return error.WrongReaderSize;
-            try self.writePadding(size);
-        }
-
-        /// Writes file using bytes buffer `content` for size and file content.
-        pub fn writeFileBytes(self: *Self, sub_path: []const u8, content: []const u8, opt: Options) !void {
-            try self.writeHeader(.regular, sub_path, "", @intCast(content.len), opt);
-            try self.underlying_writer.writeAll(content);
-            try self.writePadding(content.len);
-        }
-
-        /// Writes symlink.
-        pub fn writeLink(self: *Self, sub_path: []const u8, link_name: []const u8, opt: Options) !void {
-            try self.writeHeader(.symbolic_link, sub_path, link_name, 0, opt);
-        }
-
-        /// Writes fs.Dir.WalkerEntry. Uses `mtime` from file system entry and
-        /// default for entry mode .
-        pub fn writeEntry(self: *Self, entry: std.fs.Dir.Walker.Entry) !void {
-            switch (entry.kind) {
-                .directory => {
-                    try self.writeDir(entry.path, .{ .mtime = try entryMtime(entry) });
-                },
-                .file => {
-                    var file = try entry.dir.openFile(entry.basename, .{});
-                    defer file.close();
-                    try self.writeFile(entry.path, file);
-                },
-                .sym_link => {
-                    var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
-                    const link_name = try entry.dir.readLink(entry.basename, &link_name_buffer);
-                    try self.writeLink(entry.path, link_name, .{ .mtime = try entryMtime(entry) });
-                },
-                else => {
-                    return error.UnsupportedWalkerEntryKind;
-                },
-            }
-        }
-
-        fn writeHeader(
-            self: *Self,
-            typeflag: Header.FileType,
-            sub_path: []const u8,
-            link_name: []const u8,
-            size: u64,
-            opt: Options,
-        ) !void {
-            var header = Header.init(typeflag);
-            try self.setPath(&header, sub_path);
-            try header.setSize(size);
-            try header.setMtime(if (opt.mtime != 0) opt.mtime else self.mtimeNow());
-            if (opt.mode != 0)
-                try header.setMode(opt.mode);
-            if (typeflag == .symbolic_link)
-                header.setLinkname(link_name) catch |err| switch (err) {
-                    error.NameTooLong => try self.writeExtendedHeader(.gnu_long_link, &.{link_name}),
-                    else => return err,
-                };
-            try header.write(self.underlying_writer);
-        }
-
-        fn mtimeNow(self: *Self) u64 {
-            if (self.mtime_now == 0)
-                self.mtime_now = @intCast(std.time.timestamp());
-            return self.mtime_now;
-        }
-
-        fn entryMtime(entry: std.fs.Dir.Walker.Entry) !u64 {
-            const stat = try entry.dir.statFile(entry.basename);
-            return @intCast(@divFloor(stat.mtime, std.time.ns_per_s));
-        }
-
-        /// Writes path in posix header, if don't fit (in name+prefix; 100+155
-        /// bytes) writes it in gnu extended header.
-        fn setPath(self: *Self, header: *Header, sub_path: []const u8) !void {
-            header.setPath(self.prefix, sub_path) catch |err| switch (err) {
-                error.NameTooLong => {
-                    // write extended header
-                    const buffers: []const []const u8 = if (self.prefix.len == 0)
-                        &.{sub_path}
-                    else
-                        &.{ self.prefix, "/", sub_path };
-                    try self.writeExtendedHeader(.gnu_long_name, buffers);
-                },
+    fn writeHeader(
+        self: *Self,
+        typeflag: Header.FileType,
+        sub_path: []const u8,
+        link_name: []const u8,
+        size: u64,
+        opt: Options,
+    ) !void {
+        var header = Header.init(typeflag);
+        try self.setPath(&header, sub_path);
+        try header.setSize(size);
+        try header.setMtime(if (opt.mtime != 0) opt.mtime else self.mtimeNow());
+        if (opt.mode != 0)
+            try header.setMode(opt.mode);
+        if (typeflag == .symbolic_link)
+            header.setLinkname(link_name) catch |err| switch (err) {
+                error.NameTooLong => try self.writeExtendedHeader(.gnu_long_link, &.{link_name}),
                 else => return err,
             };
-        }
+        try header.write(self.underlying_writer);
+    }
 
-        /// Writes gnu extended header: gnu_long_name or gnu_long_link.
-        fn writeExtendedHeader(self: *Self, typeflag: Header.FileType, buffers: []const []const u8) !void {
-            var len: usize = 0;
-            for (buffers) |buf|
-                len += buf.len;
+    fn mtimeNow(self: *Self) u64 {
+        if (self.mtime_now == 0)
+            self.mtime_now = @intCast(std.time.timestamp());
+        return self.mtime_now;
+    }
 
-            var header = Header.init(typeflag);
-            try header.setSize(len);
-            try header.write(self.underlying_writer);
-            for (buffers) |buf|
-                try self.underlying_writer.writeAll(buf);
-            try self.writePadding(len);
-        }
+    fn entryMtime(entry: std.fs.Dir.Walker.Entry) !u64 {
+        const stat = try entry.dir.statFile(entry.basename);
+        return @intCast(@divFloor(stat.mtime, std.time.ns_per_s));
+    }
 
-        fn writePadding(self: *Self, bytes: u64) !void {
-            const pos: usize = @intCast(bytes % block_size);
-            if (pos == 0) return;
-            try self.underlying_writer.writeAll(empty_block[pos..]);
-        }
+    /// Writes path in posix header, if don't fit (in name+prefix; 100+155
+    /// bytes) writes it in gnu extended header.
+    fn setPath(self: *Self, header: *Header, sub_path: []const u8) !void {
+        header.setPath(self.prefix, sub_path) catch |err| switch (err) {
+            error.NameTooLong => {
+                // write extended header
+                const buffers: []const []const u8 = if (self.prefix.len == 0)
+                    &.{sub_path}
+                else
+                    &.{ self.prefix, "/", sub_path };
+                try self.writeExtendedHeader(.gnu_long_name, buffers);
+            },
+            else => return err,
+        };
+    }
 
-        /// Tar should finish with two zero blocks, but 'reasonable system must
-        /// not assume that such a block exists when reading an archive' (from
-        /// reference). In practice it is safe to skip this finish.
-        pub fn finish(self: *Self) !void {
-            try self.underlying_writer.writeAll(&empty_block);
-            try self.underlying_writer.writeAll(&empty_block);
-        }
-    };
-}
+    /// Writes gnu extended header: gnu_long_name or gnu_long_link.
+    fn writeExtendedHeader(self: *Self, typeflag: Header.FileType, buffers: []const []const u8) !void {
+        var len: usize = 0;
+        for (buffers) |buf|
+            len += buf.len;
+
+        var header = Header.init(typeflag);
+        try header.setSize(len);
+        try header.write(self.underlying_writer);
+        for (buffers) |buf|
+            try self.underlying_writer.writeAll(buf);
+        try self.writePadding(len);
+    }
+
+    fn writePadding(self: *Self, bytes: u64) !void {
+        const pos: usize = @intCast(bytes % block_size);
+        if (pos == 0) return;
+        try self.underlying_writer.writeAll(empty_block[pos..]);
+    }
+
+    /// Tar should finish with two zero blocks, but 'reasonable system must
+    /// not assume that such a block exists when reading an archive' (from
+    /// reference). In practice it is safe to skip this finish.
+    pub fn finish(self: *Self) !void {
+        try self.underlying_writer.writeAll(&empty_block);
+        try self.underlying_writer.writeAll(&empty_block);
+    }
+};
 
 /// A struct that is exactly 512 bytes and matches tar file format. This is
 /// intended to be used for outputting tar files; for parsing there is
@@ -431,14 +420,14 @@ test "write files" {
     {
         const root = "root";
 
-        var output = std.ArrayList(u8).init(testing.allocator);
+        var output: std.io.AllocatingWriter = undefined;
+        var wrt: Writer = .{ .underlying_writer = output.init(testing.allocator) };
         defer output.deinit();
-        var wrt = writer(output.writer());
         try wrt.setRoot(root);
         for (files) |file|
             try wrt.writeFileBytes(file.path, file.content, .{});
 
-        var input = std.io.fixedBufferStream(output.items);
+        var input: std.io.FixedBufferStream = .{ .buffer = output.getWritten() };
         var iter = std.tar.iterator(
             input.reader(),
             .{ .file_name_buffer = &file_name_buffer, .link_name_buffer = &link_name_buffer },
@@ -467,15 +456,15 @@ test "write files" {
     }
     // without root
     {
-        var output = std.ArrayList(u8).init(testing.allocator);
+        var output: std.io.AllocatingWriter = undefined;
+        var wrt: Writer = .{ .underlying_writer = output.init(testing.allocator) };
         defer output.deinit();
-        var wrt = writer(output.writer());
         for (files) |file| {
             var content = std.io.fixedBufferStream(file.content);
             try wrt.writeFileStream(file.path, file.content.len, content.reader(), .{});
         }
 
-        var input = std.io.fixedBufferStream(output.items);
+        var input: std.io.FixedBufferStream = .{ .buffer = output.getWritten() };
         var iter = std.tar.iterator(
             input.reader(),
             .{ .file_name_buffer = &file_name_buffer, .link_name_buffer = &link_name_buffer },
