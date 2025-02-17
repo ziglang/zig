@@ -1370,6 +1370,18 @@ pub const table = [_]Entry{
     .{ .pmovmskb, .rm, &.{ .r32, .xmm }, &.{ 0x66, 0x0f, 0xd7 }, 0, .none, .sse },
     .{ .pmovmskb, .rm, &.{ .r64, .xmm }, &.{ 0x66, 0x0f, 0xd7 }, 0, .none, .sse },
 
+    .{ .prefetchit0, .m, &.{ .mrip8 }, &.{ 0x0f, 0x18 }, 7, .none, .@"prefetchi 64bit" },
+    .{ .prefetchit1, .m, &.{ .mrip8 }, &.{ 0x0f, 0x18 }, 6, .none, .@"prefetchi 64bit" },
+
+    .{ .prefetchnta, .m, &.{ .m8 }, &.{ 0x0f, 0x18 }, 0, .none, .prefetch },
+    .{ .prefetcht0,  .m, &.{ .m8 }, &.{ 0x0f, 0x18 }, 1, .none, .prefetch },
+    .{ .prefetcht1,  .m, &.{ .m8 }, &.{ 0x0f, 0x18 }, 2, .none, .prefetch },
+    .{ .prefetcht2,  .m, &.{ .m8 }, &.{ 0x0f, 0x18 }, 3, .none, .prefetch },
+
+    .{ .prefetchw, .m, &.{ .m8 }, &.{ 0x0f, 0x0d }, 1, .none, .prfchw },
+
+    .{ .prefetchwt1, .m, &.{ .m8 }, &.{ 0x0f, 0x0d }, 2, .none, .prefetchwt1 },
+
     .{ .shufps, .rmi, &.{ .xmm, .xmm_m128, .imm8 }, &.{ 0x0f, 0xc6 }, 0, .none, .sse },
 
     .{ .sqrtps, .rm, &.{ .xmm, .xmm_m128 }, &.{ 0x0f, 0x51 }, 0, .none, .sse },

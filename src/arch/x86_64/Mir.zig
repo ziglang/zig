@@ -34,8 +34,18 @@ pub const Inst = struct {
         /// ___ 4
         _4,
 
+        /// ___ With NTA Hint
+        _nta,
         /// System Call ___
         sys_,
+        /// ___ With T0 Hint
+        _t0,
+        /// ___ With T1 Hint
+        _t1,
+        /// ___ With T2 Hint
+        _t2,
+        /// ___ With Intent to Write and T1 Hint
+        _wt1,
 
         /// ___ crement Shadow Stack Pointer Doubleword
         _csspd,
@@ -198,6 +208,7 @@ pub const Inst = struct {
         //_b,
         /// ___ Word
         /// ___ For Writing
+        /// ___ With Intent to Write
         _w,
         /// ___ Doubleword
         //_d,
@@ -975,6 +986,9 @@ pub const Inst = struct {
         /// Move unaligned packed single-precision floating-point values
         /// Move unaligned packed double-precision floating-point values
         movu,
+        /// Prefetch data into caches
+        /// Prefetch data into caches with intent to write
+        prefetch,
         /// Packed interleave shuffle of quadruplets of single-precision floating-point values
         /// Packed interleave shuffle of pairs of double-precision floating-point values
         /// Shuffle packed doublewords
