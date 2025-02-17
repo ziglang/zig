@@ -199,6 +199,8 @@ fn wasi_start() callconv(.c) void {
     }
 }
 
+const bad_efi_main_ret = "expected return type of main to be 'void', '!void', 'noreturn', 'u8', '!u8', 'usize', '!usize', 'uefi.Status', or '!uefi.Status'";
+
 fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv(.c) usize {
     uefi.handle = handle;
     uefi.system_table = system_table;
@@ -217,7 +219,28 @@ fn EfiMain(handle: uefi.Handle, system_table: *uefi.tables.SystemTable) callconv
         uefi.Status => {
             return @intFromEnum(root.main());
         },
-        else => @compileError("expected return type of main to be 'void', 'noreturn', 'usize', or 'std.os.uefi.Status'"),
+        else => |T| if (@typeInfo(T) == .error_union) {
+            const result = root.main() catch |err| {
+                std.log.err("{s}", .{@errorName(err)});
+                if (@errorReturnTrace()) |trace| {
+                    std.debug.dumpStackTrace(trace.*);
+                }
+                return @intFromEnum(uefi.Status.aborted);
+            };
+
+            switch (@TypeOf(result)) {
+                void => return 0,
+                u8, usize => {
+                    return result;
+                },
+                uefi.Status => {
+                    return @intFromEnum(result);
+                },
+                else => @compileError(bad_efi_main_ret),
+            }
+        } else {
+            @compileError(bad_efi_main_ret);
+        },
     }
 }
 

@@ -127,6 +127,8 @@ pub fn getModuleForAddress(self: *SelfInfo, address: usize) !*Module {
         return self.lookupModuleWin32(address);
     } else if (native_os == .haiku) {
         return self.lookupModuleHaiku(address);
+    } else if (native_os == .uefi) {
+        return self.lookupModuleUefi(address);
     } else if (builtin.target.isWasm()) {
         return self.lookupModuleWasm(address);
     } else {
@@ -143,6 +145,8 @@ pub fn getModuleNameForAddress(self: *SelfInfo, address: usize) ?[]const u8 {
     } else if (native_os == .windows) {
         return self.lookupModuleNameWin32(address);
     } else if (native_os == .haiku) {
+        return null;
+    } else if (native_os == .uefi) {
         return null;
     } else if (builtin.target.isWasm()) {
         return null;
@@ -492,6 +496,12 @@ fn lookupModuleHaiku(self: *SelfInfo, address: usize) !*Module {
     _ = self;
     _ = address;
     @panic("TODO implement lookup module for Haiku");
+}
+
+fn lookupModuleUefi(self: *SelfInfo, address: usize) !*Module {
+    _ = self;
+    _ = address;
+    @panic("TODO implement lookup module for UEFI");
 }
 
 fn lookupModuleWasm(self: *SelfInfo, address: usize) !*Module {
