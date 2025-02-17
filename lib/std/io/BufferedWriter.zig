@@ -33,7 +33,7 @@ pub fn writer(bw: *BufferedWriter) Writer {
     return .{
         .context = bw,
         .vtable = &.{
-            .write = passthru_writeSplat,
+            .writeSplat = passthru_writeSplat,
             .writeFile = passthru_writeFile,
         },
     };
@@ -1003,7 +1003,7 @@ pub fn printFloat(
         'x' => {
             var sub_bw: BufferedWriter = undefined;
             sub_bw.initFixed(&buf);
-            sub_bw.printFloatHexadecimal(value, options) catch unreachable;
+            sub_bw.printFloatHexadecimal(value, options.precision) catch unreachable;
             return alignBufferOptions(bw, sub_bw.getWritten(), options);
         },
         else => invalidFmtError(fmt, value),
@@ -1103,7 +1103,7 @@ pub fn printFloatHexadecimal(bw: *BufferedWriter, value: anytype, opt_precision:
     // Add trailing zeros if explicitly requested.
     if (opt_precision) |precision| if (precision > 0) {
         if (precision > trimmed.len)
-            try bw.writeByteNTimes('0', precision - trimmed.len);
+            try bw.splatByteAll('0', precision - trimmed.len);
     };
     try bw.writeAll("p");
     try printIntOptions(bw, exponent - exponent_bias, 10, .lower, .{});
