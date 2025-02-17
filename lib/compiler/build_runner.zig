@@ -378,13 +378,16 @@ pub fn main() !void {
 
     validateSystemLibraryOptions(builder);
 
-    const stdout_writer = io.getStdOut().writer();
+    var stdout_writer: std.io.BufferedWriter = .{
+        .buffer = &stdout_buffer,
+        .unbuffered_writer = std.io.getStdOut().writer(),
+    };
 
     if (help_menu)
-        return usage(builder, stdout_writer);
+        return usage(builder, &stdout_writer);
 
     if (steps_menu)
-        return steps(builder, stdout_writer);
+        return steps(builder, &stdout_writer);
 
     var run: Run = .{
         .max_rss = max_rss,
@@ -696,24 +699,23 @@ fn runStepNames(
     const ttyconf = run.ttyconf;
 
     if (run.summary != .none) {
-        std.debug.lockStdErr();
+        var bw = std.debug.lockStdErr2();
         defer std.debug.unlockStdErr();
-        const stderr = run.stderr;
 
         const total_count = success_count + failure_count + pending_count + skipped_count;
-        ttyconf.setColor(stderr, .cyan) catch {};
-        stderr.writeAll("Build Summary:") catch {};
-        ttyconf.setColor(stderr, .reset) catch {};
-        stderr.writer().print(" {d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
-        if (skipped_count > 0) stderr.writer().print("; {d} skipped", .{skipped_count}) catch {};
-        if (failure_count > 0) stderr.writer().print("; {d} failed", .{failure_count}) catch {};
+        ttyconf.setColor(&bw, .cyan) catch {};
+        bw.writeAll("Build Summary:") catch {};
+        ttyconf.setColor(&bw, .reset) catch {};
+        bw.print(" {d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
+        if (skipped_count > 0) bw.print("; {d} skipped", .{skipped_count}) catch {};
+        if (failure_count > 0) bw.print("; {d} failed", .{failure_count}) catch {};
 
-        if (test_count > 0) stderr.writer().print("; {d}/{d} tests passed", .{ test_pass_count, test_count }) catch {};
-        if (test_skip_count > 0) stderr.writer().print("; {d} skipped", .{test_skip_count}) catch {};
-        if (test_fail_count > 0) stderr.writer().print("; {d} failed", .{test_fail_count}) catch {};
-        if (test_leak_count > 0) stderr.writer().print("; {d} leaked", .{test_leak_count}) catch {};
+        if (test_count > 0) bw.print("; {d}/{d} tests passed", .{ test_pass_count, test_count }) catch {};
+        if (test_skip_count > 0) bw.print("; {d} skipped", .{test_skip_count}) catch {};
+        if (test_fail_count > 0) bw.print("; {d} failed", .{test_fail_count}) catch {};
+        if (test_leak_count > 0) bw.print("; {d} leaked", .{test_leak_count}) catch {};
 
-        stderr.writeAll("\n") catch {};
+        bw.writeAll("\n") catch {};
 
         // Print a fancy tree with build results.
         var step_stack_copy = try step_stack.clone(gpa);
@@ -722,7 +724,7 @@ fn runStepNames(
         var print_node: PrintNode = .{ .parent = null };
         if (step_names.len == 0) {
             print_node.last = true;
-            printTreeStep(b, b.default_step, run, stderr, ttyconf, &print_node, &step_stack_copy) catch {};
+            printTreeStep(b, b.default_step, run, &bw, ttyconf, &print_node, &step_stack_copy) catch {};
         } else {
             const last_index = if (run.summary == .all) b.top_level_steps.count() else blk: {
                 var i: usize = step_names.len;
@@ -741,7 +743,7 @@ fn runStepNames(
             for (step_names, 0..) |step_name, i| {
                 const tls = b.top_level_steps.get(step_name).?;
                 print_node.last = i + 1 == last_index;
-                printTreeStep(b, &tls.step, run, stderr, ttyconf, &print_node, &step_stack_copy) catch {};
+                printTreeStep(b, &tls.step, run, &bw, ttyconf, &print_node, &step_stack_copy) catch {};
             }
         }
     }
@@ -775,7 +777,7 @@ const PrintNode = struct {
     last: bool = false,
 };
 
-fn printPrefix(node: *PrintNode, stderr: File, ttyconf: std.io.tty.Config) !void {
+fn printPrefix(node: *PrintNode, stderr: *std.io.BufferedWriter, ttyconf: std.io.tty.Config) !void {
     const parent = node.parent orelse return;
     if (parent.parent == null) return;
     try printPrefix(parent, stderr, ttyconf);
@@ -789,7 +791,7 @@ fn printPrefix(node: *PrintNode, stderr: File, ttyconf: std.io.tty.Config) !void
     }
 }
 
-fn printChildNodePrefix(stderr: File, ttyconf: std.io.tty.Config) !void {
+fn printChildNodePrefix(stderr: *std.io.BufferedWriter, ttyconf: std.io.tty.Config) !void {
     try stderr.writeAll(switch (ttyconf) {
         .no_color, .windows_api => "+- ",
         .escape_codes => "\x1B\x28\x30\x6d\x71\x1B\x28\x42 ", // └─
@@ -798,7 +800,7 @@ fn printChildNodePrefix(stderr: File, ttyconf: std.io.tty.Config) !void {
 
 fn printStepStatus(
     s: *Step,
-    stderr: File,
+    stderr: *std.io.BufferedWriter,
     ttyconf: std.io.tty.Config,
     run: *const Run,
 ) !void {
@@ -820,10 +822,10 @@ fn printStepStatus(
                 try stderr.writeAll(" cached");
             } else if (s.test_results.test_count > 0) {
                 const pass_count = s.test_results.passCount();
-                try stderr.writer().print(" {d} passed", .{pass_count});
+                try stderr.print(" {d} passed", .{pass_count});
                 if (s.test_results.skip_count > 0) {
                     try ttyconf.setColor(stderr, .yellow);
-                    try stderr.writer().print(" {d} skipped", .{s.test_results.skip_count});
+                    try stderr.print(" {d} skipped", .{s.test_results.skip_count});
                 }
             } else {
                 try stderr.writeAll(" success");
@@ -832,15 +834,15 @@ fn printStepStatus(
             if (s.result_duration_ns) |ns| {
                 try ttyconf.setColor(stderr, .dim);
                 if (ns >= std.time.ns_per_min) {
-                    try stderr.writer().print(" {d}m", .{ns / std.time.ns_per_min});
+                    try stderr.print(" {d}m", .{ns / std.time.ns_per_min});
                 } else if (ns >= std.time.ns_per_s) {
-                    try stderr.writer().print(" {d}s", .{ns / std.time.ns_per_s});
+                    try stderr.print(" {d}s", .{ns / std.time.ns_per_s});
                 } else if (ns >= std.time.ns_per_ms) {
-                    try stderr.writer().print(" {d}ms", .{ns / std.time.ns_per_ms});
+                    try stderr.print(" {d}ms", .{ns / std.time.ns_per_ms});
                 } else if (ns >= std.time.ns_per_us) {
-                    try stderr.writer().print(" {d}us", .{ns / std.time.ns_per_us});
+                    try stderr.print(" {d}us", .{ns / std.time.ns_per_us});
                 } else {
-                    try stderr.writer().print(" {d}ns", .{ns});
+                    try stderr.print(" {d}ns", .{ns});
                 }
                 try ttyconf.setColor(stderr, .reset);
             }
@@ -848,13 +850,13 @@ fn printStepStatus(
                 const rss = s.result_peak_rss;
                 try ttyconf.setColor(stderr, .dim);
                 if (rss >= 1000_000_000) {
-                    try stderr.writer().print(" MaxRSS:{d}G", .{rss / 1000_000_000});
+                    try stderr.print(" MaxRSS:{d}G", .{rss / 1000_000_000});
                 } else if (rss >= 1000_000) {
-                    try stderr.writer().print(" MaxRSS:{d}M", .{rss / 1000_000});
+                    try stderr.print(" MaxRSS:{d}M", .{rss / 1000_000});
                 } else if (rss >= 1000) {
-                    try stderr.writer().print(" MaxRSS:{d}K", .{rss / 1000});
+                    try stderr.print(" MaxRSS:{d}K", .{rss / 1000});
                 } else {
-                    try stderr.writer().print(" MaxRSS:{d}B", .{rss});
+                    try stderr.print(" MaxRSS:{d}B", .{rss});
                 }
                 try ttyconf.setColor(stderr, .reset);
             }
@@ -866,7 +868,7 @@ fn printStepStatus(
             if (skip == .skipped_oom) {
                 try stderr.writeAll(" (not enough memory)");
                 try ttyconf.setColor(stderr, .dim);
-                try stderr.writer().print(" upper bound of {d} exceeded runner limit ({d})", .{ s.max_rss, run.max_rss });
+                try stderr.print(" upper bound of {d} exceeded runner limit ({d})", .{ s.max_rss, run.max_rss });
                 try ttyconf.setColor(stderr, .yellow);
             }
             try stderr.writeAll("\n");
@@ -878,23 +880,23 @@ fn printStepStatus(
 
 fn printStepFailure(
     s: *Step,
-    stderr: File,
+    stderr: *std.io.BufferedWriter,
     ttyconf: std.io.tty.Config,
 ) !void {
     if (s.result_error_bundle.errorMessageCount() > 0) {
         try ttyconf.setColor(stderr, .red);
-        try stderr.writer().print(" {d} errors\n", .{
+        try stderr.print(" {d} errors\n", .{
             s.result_error_bundle.errorMessageCount(),
         });
         try ttyconf.setColor(stderr, .reset);
     } else if (!s.test_results.isSuccess()) {
-        try stderr.writer().print(" {d}/{d} passed", .{
+        try stderr.print(" {d}/{d} passed", .{
             s.test_results.passCount(), s.test_results.test_count,
         });
         if (s.test_results.fail_count > 0) {
             try stderr.writeAll(", ");
             try ttyconf.setColor(stderr, .red);
-            try stderr.writer().print("{d} failed", .{
+            try stderr.print("{d} failed", .{
                 s.test_results.fail_count,
             });
             try ttyconf.setColor(stderr, .reset);
@@ -902,7 +904,7 @@ fn printStepFailure(
         if (s.test_results.skip_count > 0) {
             try stderr.writeAll(", ");
             try ttyconf.setColor(stderr, .yellow);
-            try stderr.writer().print("{d} skipped", .{
+            try stderr.print("{d} skipped", .{
                 s.test_results.skip_count,
             });
             try ttyconf.setColor(stderr, .reset);
@@ -910,7 +912,7 @@ fn printStepFailure(
         if (s.test_results.leak_count > 0) {
             try stderr.writeAll(", ");
             try ttyconf.setColor(stderr, .red);
-            try stderr.writer().print("{d} leaked", .{
+            try stderr.print("{d} leaked", .{
                 s.test_results.leak_count,
             });
             try ttyconf.setColor(stderr, .reset);
@@ -932,7 +934,7 @@ fn printTreeStep(
     b: *std.Build,
     s: *Step,
     run: *const Run,
-    stderr: File,
+    stderr: *std.io.BufferedWriter,
     ttyconf: std.io.tty.Config,
     parent_node: *PrintNode,
     step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
@@ -992,7 +994,7 @@ fn printTreeStep(
         if (s.dependencies.items.len == 0) {
             try stderr.writeAll(" (reused)\n");
         } else {
-            try stderr.writer().print(" (+{d} more reused dependencies)\n", .{
+            try stderr.print(" (+{d} more reused dependencies)\n", .{
                 s.dependencies.items.len,
             });
         }
@@ -1129,11 +1131,11 @@ fn workerMakeOneStep(
     const show_stderr = s.result_stderr.len > 0;
 
     if (show_error_msgs or show_compile_errors or show_stderr) {
-        std.debug.lockStdErr();
+        var bw = std.debug.lockStdErr2();
         defer std.debug.unlockStdErr();
 
         const gpa = b.allocator;
-        printErrorMessages(gpa, s, .{ .ttyconf = run.ttyconf }, run.stderr, run.prominent_compile_errors) catch {};
+        printErrorMessages(gpa, s, .{ .ttyconf = run.ttyconf }, &bw, run.prominent_compile_errors) catch {};
     }
 
     handle_result: {
@@ -1190,7 +1192,7 @@ pub fn printErrorMessages(
     gpa: Allocator,
     failing_step: *Step,
     options: std.zig.ErrorBundle.RenderOptions,
-    stderr: File,
+    stderr: *std.io.BufferedWriter,
     prominent_compile_errors: bool,
 ) !void {
     // Provide context for where these error messages are coming from by
@@ -1209,7 +1211,7 @@ pub fn printErrorMessages(
     var indent: usize = 0;
     while (step_stack.pop()) |s| : (indent += 1) {
         if (indent > 0) {
-            try stderr.writer().writeByteNTimes(' ', (indent - 1) * 3);
+            try stderr.splatByteAll(' ', (indent - 1) * 3);
             try printChildNodePrefix(stderr, ttyconf);
         }
 
@@ -1231,7 +1233,7 @@ pub fn printErrorMessages(
     }
 
     if (!prominent_compile_errors and failing_step.result_error_bundle.errorMessageCount() > 0) {
-        try failing_step.result_error_bundle.renderToWriter(options, stderr.writer());
+        try failing_step.result_error_bundle.renderToWriter(options, stderr);
     }
 
     for (failing_step.result_error_msgs.items) |msg| {
@@ -1243,27 +1245,29 @@ pub fn printErrorMessages(
     }
 }
 
-fn steps(builder: *std.Build, out_stream: anytype) !void {
+fn steps(builder: *std.Build, bw: *std.io.BufferedWriter) !void {
     const allocator = builder.allocator;
     for (builder.top_level_steps.values()) |top_level_step| {
         const name = if (&top_level_step.step == builder.default_step)
             try fmt.allocPrint(allocator, "{s} (default)", .{top_level_step.step.name})
         else
             top_level_step.step.name;
-        try out_stream.print("  {s:<28} {s}\n", .{ name, top_level_step.description });
+        try bw.print("  {s:<28} {s}\n", .{ name, top_level_step.description });
     }
 }
 
-fn usage(b: *std.Build, out_stream: anytype) !void {
-    try out_stream.print(
+var stdout_buffer: [256]u8 = undefined;
+
+fn usage(b: *std.Build, bw: *std.io.BufferedWriter) !void {
+    try bw.print(
         \\Usage: {s} build [steps] [options]
         \\
         \\Steps:
         \\
     , .{b.graph.zig_exe});
-    try steps(b, out_stream);
+    try steps(b, bw);
 
-    try out_stream.writeAll(
+    try bw.writeAll(
         \\
         \\General Options:
         \\  -p, --prefix [path]          Where to install files (default: zig-out)
@@ -1319,25 +1323,25 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
 
     const arena = b.allocator;
     if (b.available_options_list.items.len == 0) {
-        try out_stream.print("  (none)\n", .{});
+        try bw.print("  (none)\n", .{});
     } else {
         for (b.available_options_list.items) |option| {
             const name = try fmt.allocPrint(arena, "  -D{s}=[{s}]", .{
                 option.name,
                 @tagName(option.type_id),
             });
-            try out_stream.print("{s:<30} {s}\n", .{ name, option.description });
+            try bw.print("{s:<30} {s}\n", .{ name, option.description });
             if (option.enum_options) |enum_options| {
                 const padding = " " ** 33;
-                try out_stream.writeAll(padding ++ "Supported Values:\n");
+                try bw.writeAll(padding ++ "Supported Values:\n");
                 for (enum_options) |enum_option| {
-                    try out_stream.print(padding ++ "  {s}\n", .{enum_option});
+                    try bw.print(padding ++ "  {s}\n", .{enum_option});
                 }
             }
         }
     }
 
-    try out_stream.writeAll(
+    try bw.writeAll(
         \\
         \\System Integration Options:
         \\  --search-prefix [path]       Add a path to look for binaries, libraries, headers
@@ -1352,7 +1356,7 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\
     );
     if (b.graph.system_library_options.entries.len == 0) {
-        try out_stream.writeAll("  (none)                                        -\n");
+        try bw.writeAll("  (none)                                        -\n");
     } else {
         for (b.graph.system_library_options.keys(), b.graph.system_library_options.values()) |k, v| {
             const status = switch (v) {
@@ -1360,11 +1364,11 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
                 .declared_disabled => "no",
                 .user_enabled, .user_disabled => unreachable, // already emitted error
             };
-            try out_stream.print("    {s:<43} {s}\n", .{ k, status });
+            try bw.print("    {s:<43} {s}\n", .{ k, status });
         }
     }
 
-    try out_stream.writeAll(
+    try bw.writeAll(
         \\
         \\Advanced Options:
         \\  -freference-trace[=num]      How many lines of reference trace should be shown per compile error
