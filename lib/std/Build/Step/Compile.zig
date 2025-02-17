@@ -1951,20 +1951,24 @@ fn addFlag(args: *ArrayList([]const u8), comptime name: []const u8, opt: ?bool) 
 fn checkCompileErrors(compile: *Compile) !void {
     // Clear this field so that it does not get printed by the build runner.
     const actual_eb = compile.step.result_error_bundle;
-    compile.step.result_error_bundle = std.zig.ErrorBundle.empty;
+    compile.step.result_error_bundle = .empty;
 
     const arena = compile.step.owner.allocator;
 
-    var actual_errors_list = std.ArrayList(u8).init(arena);
-    try actual_eb.renderToWriter(.{
-        .ttyconf = .no_color,
-        .include_reference_trace = false,
-        .include_source_line = false,
-    }, actual_errors_list.writer());
-    const actual_errors = try actual_errors_list.toOwnedSlice();
+    const actual_errors = ae: {
+        var aw: std.io.AllocatingWriter = undefined;
+        const bw = aw.init(arena);
+        defer aw.deinit();
+        try actual_eb.renderToWriter(.{
+            .ttyconf = .no_color,
+            .include_reference_trace = false,
+            .include_source_line = false,
+        }, bw);
+        break :ae try aw.toOwnedSlice();
+    };
 
     // Render the expected lines into a string that we can compare verbatim.
-    var expected_generated = std.ArrayList(u8).init(arena);
+    var expected_generated: std.ArrayListUnmanaged(u8) = .empty;
     const expect_errors = compile.expect_errors.?;
 
     var actual_line_it = mem.splitScalar(u8, actual_errors, '\n');

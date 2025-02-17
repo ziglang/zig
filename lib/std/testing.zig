@@ -373,8 +373,9 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     const actual_window = actual[window_start..@min(actual.len, window_start + max_window_size)];
     const actual_truncated = window_start + actual_window.len < actual.len;
 
-    const stderr = std.io.getStdErr();
-    const ttyconf = std.io.tty.detectConfig(stderr);
+    var bw = std.debug.lockStdErr2();
+    defer std.debug.unlockStdErr();
+    const ttyconf = std.io.tty.detectConfig(std.io.getStdErr());
     var differ = if (T == u8) BytesDiffer{
         .expected = expected_window,
         .actual = actual_window,
@@ -398,7 +399,7 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
             print("... truncated ...\n", .{});
         }
     }
-    differ.write(stderr.writer()) catch {};
+    differ.write(&bw) catch {};
     if (expected_truncated) {
         const end_offset = window_start + expected_window.len;
         const num_missing_items = expected.len - (window_start + expected_window.len);
@@ -420,7 +421,7 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
             print("... truncated ...\n", .{});
         }
     }
-    differ.write(stderr.writer()) catch {};
+    differ.write(&bw) catch {};
     if (actual_truncated) {
         const end_offset = window_start + actual_window.len;
         const num_missing_items = actual.len - (window_start + actual_window.len);
@@ -444,17 +445,17 @@ fn SliceDiffer(comptime T: type) type {
 
         const Self = @This();
 
-        pub fn write(self: Self, writer: anytype) !void {
+        pub fn write(self: Self, bw: *std.io.BufferedWriter) !void {
             for (self.expected, 0..) |value, i| {
                 const full_index = self.start_index + i;
                 const diff = if (i < self.actual.len) !std.meta.eql(self.actual[i], value) else true;
-                if (diff) try self.ttyconf.setColor(writer, .red);
+                if (diff) try self.ttyconf.setColor(bw, .red);
                 if (@typeInfo(T) == .pointer) {
-                    try writer.print("[{}]{*}: {any}\n", .{ full_index, value, value });
+                    try bw.print("[{}]{*}: {any}\n", .{ full_index, value, value });
                 } else {
-                    try writer.print("[{}]: {any}\n", .{ full_index, value });
+                    try bw.print("[{}]: {any}\n", .{ full_index, value });
                 }
-                if (diff) try self.ttyconf.setColor(writer, .reset);
+                if (diff) try self.ttyconf.setColor(bw, .reset);
             }
         }
     };
@@ -465,7 +466,7 @@ const BytesDiffer = struct {
     actual: []const u8,
     ttyconf: std.io.tty.Config,
 
-    pub fn write(self: BytesDiffer, writer: anytype) !void {
+    pub fn write(self: BytesDiffer, bw: *std.io.BufferedWriter) !void {
         var expected_iterator = std.mem.window(u8, self.expected, 16, 16);
         var row: usize = 0;
         while (expected_iterator.next()) |chunk| {
@@ -475,23 +476,23 @@ const BytesDiffer = struct {
                 const absolute_byte_index = col + row * 16;
                 const diff = if (absolute_byte_index < self.actual.len) self.actual[absolute_byte_index] != byte else true;
                 if (diff) diffs.set(col);
-                try self.writeDiff(writer, "{X:0>2} ", .{byte}, diff);
-                if (col == 7) try writer.writeByte(' ');
+                try self.writeDiff(bw, "{X:0>2} ", .{byte}, diff);
+                if (col == 7) try bw.writeByte(' ');
             }
-            try writer.writeByte(' ');
+            try bw.writeByte(' ');
             if (chunk.len < 16) {
                 var missing_columns = (16 - chunk.len) * 3;
                 if (chunk.len < 8) missing_columns += 1;
-                try writer.writeByteNTimes(' ', missing_columns);
+                try bw.splatByteAll(' ', missing_columns);
             }
             for (chunk, 0..) |byte, col| {
                 const diff = diffs.isSet(col);
                 if (std.ascii.isPrint(byte)) {
-                    try self.writeDiff(writer, "{c}", .{byte}, diff);
+                    try self.writeDiff(bw, "{c}", .{byte}, diff);
                 } else {
                     // TODO: remove this `if` when https://github.com/ziglang/zig/issues/7600 is fixed
                     if (self.ttyconf == .windows_api) {
-                        try self.writeDiff(writer, ".", .{}, diff);
+                        try self.writeDiff(bw, ".", .{}, diff);
                         continue;
                     }
 
@@ -499,22 +500,22 @@ const BytesDiffer = struct {
                     // We don't want to do this for all control codes because most control codes apart from
                     // the ones that Zig has escape sequences for are likely not very useful to print as symbols.
                     switch (byte) {
-                        '\n' => try self.writeDiff(writer, "␊", .{}, diff),
-                        '\r' => try self.writeDiff(writer, "␍", .{}, diff),
-                        '\t' => try self.writeDiff(writer, "␉", .{}, diff),
-                        else => try self.writeDiff(writer, ".", .{}, diff),
+                        '\n' => try self.writeDiff(bw, "␊", .{}, diff),
+                        '\r' => try self.writeDiff(bw, "␍", .{}, diff),
+                        '\t' => try self.writeDiff(bw, "␉", .{}, diff),
+                        else => try self.writeDiff(bw, ".", .{}, diff),
                     }
                 }
             }
-            try writer.writeByte('\n');
+            try bw.writeByte('\n');
             row += 1;
         }
     }
 
-    fn writeDiff(self: BytesDiffer, writer: anytype, comptime fmt: []const u8, args: anytype, diff: bool) !void {
-        if (diff) try self.ttyconf.setColor(writer, .red);
-        try writer.print(fmt, args);
-        if (diff) try self.ttyconf.setColor(writer, .reset);
+    fn writeDiff(self: BytesDiffer, bw: *std.io.BufferedWriter, comptime fmt: []const u8, args: anytype, diff: bool) !void {
+        if (diff) try self.ttyconf.setColor(bw, .red);
+        try bw.print(fmt, args);
+        if (diff) try self.ttyconf.setColor(bw, .reset);
     }
 };
 

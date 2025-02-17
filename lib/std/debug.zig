@@ -240,46 +240,44 @@ pub fn getSelfDebugInfo() !*SelfInfo {
 /// Tries to print a hexadecimal view of the bytes, unbuffered, and ignores any error returned.
 /// Obtains the stderr mutex while dumping.
 pub fn dumpHex(bytes: []const u8) void {
-    lockStdErr();
+    var bw = lockStdErr2();
     defer unlockStdErr();
-    dumpHexFallible(bytes) catch {};
+    const ttyconf = std.io.tty.detectConfig(std.io.getStdErr());
+    dumpHexFallible(&bw, ttyconf, bytes) catch {};
 }
 
 /// Prints a hexadecimal view of the bytes, unbuffered, returning any error that occurs.
-pub fn dumpHexFallible(bytes: []const u8) !void {
-    const stderr = std.io.getStdErr();
-    const ttyconf = std.io.tty.detectConfig(stderr);
-    const writer = stderr.writer();
+pub fn dumpHexFallible(bw: *std.io.BufferedWriter, ttyconf: std.io.tty.Config, bytes: []const u8) !void {
     var chunks = mem.window(u8, bytes, 16, 16);
     while (chunks.next()) |window| {
         // 1. Print the address.
         const address = (@intFromPtr(bytes.ptr) + 0x10 * (chunks.index orelse 0) / 16) - 0x10;
-        try ttyconf.setColor(writer, .dim);
+        try ttyconf.setColor(bw, .dim);
         // We print the address in lowercase and the bytes in uppercase hexadecimal to distinguish them more.
         // Also, make sure all lines are aligned by padding the address.
-        try writer.print("{x:0>[1]}  ", .{ address, @sizeOf(usize) * 2 });
-        try ttyconf.setColor(writer, .reset);
+        try bw.print("{x:0>[1]}  ", .{ address, @sizeOf(usize) * 2 });
+        try ttyconf.setColor(bw, .reset);
 
         // 2. Print the bytes.
         for (window, 0..) |byte, index| {
-            try writer.print("{X:0>2} ", .{byte});
-            if (index == 7) try writer.writeByte(' ');
+            try bw.print("{X:0>2} ", .{byte});
+            if (index == 7) try bw.writeByte(' ');
         }
-        try writer.writeByte(' ');
+        try bw.writeByte(' ');
         if (window.len < 16) {
             var missing_columns = (16 - window.len) * 3;
             if (window.len < 8) missing_columns += 1;
-            try writer.splatByteAll(' ', missing_columns);
+            try bw.splatByteAll(' ', missing_columns);
         }
 
         // 3. Print the characters.
         for (window) |byte| {
             if (std.ascii.isPrint(byte)) {
-                try writer.writeByte(byte);
+                try bw.writeByte(byte);
             } else {
                 // Related: https://github.com/ziglang/zig/issues/7600
                 if (ttyconf == .windows_api) {
-                    try writer.writeByte('.');
+                    try bw.writeByte('.');
                     continue;
                 }
 
@@ -287,14 +285,14 @@ pub fn dumpHexFallible(bytes: []const u8) !void {
                 // We don't want to do this for all control codes because most control codes apart from
                 // the ones that Zig has escape sequences for are likely not very useful to print as symbols.
                 switch (byte) {
-                    '\n' => try writer.writeAll("␊"),
-                    '\r' => try writer.writeAll("␍"),
-                    '\t' => try writer.writeAll("␉"),
-                    else => try writer.writeByte('.'),
+                    '\n' => try bw.writeAll("␊"),
+                    '\r' => try bw.writeAll("␍"),
+                    '\t' => try bw.writeAll("␉"),
+                    else => try bw.writeByte('.'),
                 }
             }
         }
-        try writer.writeByte('\n');
+        try bw.writeByte('\n');
     }
 }
 

@@ -1495,6 +1495,11 @@ pub fn writeFileAll(self: File, in_file: File, args: WriteFileOptions) WriteFile
 /// Does not try seeking in either of the File parameters.
 /// See `writeFileAll` as an alternative to calling this.
 pub fn writeFileAllUnseekable(self: File, in_file: File, args: WriteFileOptions) WriteFileError!void {
+    // TODO make `try @errorCast(...)` work
+    return @errorCast(writeFileAllUnseekableInner(self, in_file, args));
+}
+
+fn writeFileAllUnseekableInner(self: File, in_file: File, args: WriteFileOptions) anyerror!void {
     const headers = args.headers_and_trailers[0..args.header_count];
     const trailers = args.headers_and_trailers[args.header_count..];
 

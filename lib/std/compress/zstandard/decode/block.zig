@@ -631,7 +631,7 @@ pub fn decodeBlock(
             var bytes_read: usize = 0;
             const literals = decodeLiteralsSectionSlice(src[0..block_size], &bytes_read) catch
                 return error.MalformedCompressedBlock;
-            var fbs = std.io.fixedBufferStream(src[bytes_read..block_size]);
+            var fbs: std.io.FixedBufferStream = .{ .buffer = src[bytes_read..block_size] };
             const fbs_reader = fbs.reader();
             const sequences_header = decodeSequencesHeader(fbs_reader) catch
                 return error.MalformedCompressedBlock;
@@ -737,7 +737,7 @@ pub fn decodeBlockRingBuffer(
             var bytes_read: usize = 0;
             const literals = decodeLiteralsSectionSlice(src[0..block_size], &bytes_read) catch
                 return error.MalformedCompressedBlock;
-            var fbs = std.io.fixedBufferStream(src[bytes_read..block_size]);
+            var fbs: std.io.FixedBufferStream = .{ .buffer = src[bytes_read..block_size] };
             const fbs_reader = fbs.reader();
             const sequences_header = decodeSequencesHeader(fbs_reader) catch
                 return error.MalformedCompressedBlock;
@@ -931,7 +931,7 @@ pub fn decodeLiteralsSectionSlice(
 ) (error{ MalformedLiteralsHeader, MalformedLiteralsSection, EndOfStream } || huffman.Error)!LiteralsSection {
     var bytes_read: usize = 0;
     const header = header: {
-        var fbs = std.io.fixedBufferStream(src);
+        var fbs: std.io.FixedBufferStream = .{ .buffer = src };
         defer bytes_read = fbs.pos;
         break :header decodeLiteralsHeader(fbs.reader()) catch return error.MalformedLiteralsHeader;
     };

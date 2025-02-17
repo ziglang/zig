@@ -1830,60 +1830,6 @@ test "ArrayList(T) of struct T" {
     }
 }
 
-test "ArrayList(u8) implements writer" {
-    const a = testing.allocator;
-
-    {
-        var buffer = ArrayList(u8).init(a);
-        defer buffer.deinit();
-
-        const x: i32 = 42;
-        const y: i32 = 1234;
-        try buffer.writer().print("x: {}\ny: {}\n", .{ x, y });
-
-        try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", buffer.items);
-    }
-    {
-        var list = ArrayListAligned(u8, 2).init(a);
-        defer list.deinit();
-
-        const writer = list.writer();
-        try writer.writeAll("a");
-        try writer.writeAll("bc");
-        try writer.writeAll("d");
-        try writer.writeAll("efg");
-
-        try testing.expectEqualSlices(u8, list.items, "abcdefg");
-    }
-}
-
-test "ArrayListUnmanaged(u8) implements writer" {
-    const a = testing.allocator;
-
-    {
-        var buffer: ArrayListUnmanaged(u8) = .empty;
-        defer buffer.deinit(a);
-
-        const x: i32 = 42;
-        const y: i32 = 1234;
-        try buffer.writer(a).print("x: {}\ny: {}\n", .{ x, y });
-
-        try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", buffer.items);
-    }
-    {
-        var list: ArrayListAlignedUnmanaged(u8, 2) = .empty;
-        defer list.deinit(a);
-
-        const writer = list.writer(a);
-        try writer.writeAll("a");
-        try writer.writeAll("bc");
-        try writer.writeAll("d");
-        try writer.writeAll("efg");
-
-        try testing.expectEqualSlices(u8, list.items, "abcdefg");
-    }
-}
-
 test "shrink still sets length when resizing is disabled" {
     var failing_allocator = testing.FailingAllocator.init(testing.allocator, .{ .resize_fail_index = 0 });
     const a = failing_allocator.allocator();
