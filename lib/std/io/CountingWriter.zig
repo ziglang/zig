@@ -1,3 +1,6 @@
+//! TODO make this more like AllocatingWriter, managing the state of
+//! BufferedWriter both as the output and the input, but with only
+//! one buffer.
 const std = @import("../std.zig");
 const CountingWriter = @This();
 const assert = std.debug.assert;
