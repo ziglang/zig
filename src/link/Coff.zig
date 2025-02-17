@@ -2162,6 +2162,15 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             try argv.append(try comp.fuzzer_lib.?.full_object_path.toString(arena));
         }
 
+        const ubsan_rt_path: ?Path = blk: {
+            if (comp.ubsan_rt_lib) |x| break :blk x.full_object_path;
+            if (comp.ubsan_rt_obj) |x| break :blk x.full_object_path;
+            break :blk null;
+        };
+        if (ubsan_rt_path) |path| {
+            try argv.append(try path.toString(arena));
+        }
+
         if (is_exe_or_dyn_lib and !comp.skip_linker_dependencies) {
             if (!comp.config.link_libc) {
                 if (comp.libc_static_lib) |lib| {
