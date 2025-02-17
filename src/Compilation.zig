@@ -5922,10 +5922,10 @@ pub fn addCCArgs(
                         // function was called.
                         try argv.append("-fno-sanitize=function");
                     }
+                }
 
-                    if (comp.config.san_cov_trace_pc_guard) {
-                        try argv.appendSlice(&.{ "-Xclang", "-fsanitize-coverage-trace-pc-guard" });
-                    }
+                if (comp.config.san_cov_trace_pc_guard) {
+                    try argv.append("-fsanitize-coverage=trace-pc-guard");
                 }
             }
 

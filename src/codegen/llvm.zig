@@ -1333,7 +1333,6 @@ pub const Object = struct {
             .is_small = options.is_small,
             .time_report = options.time_report,
             .tsan = options.sanitize_thread,
-            .sancov = options.fuzz,
             .lto = options.lto != .none,
             // https://github.com/ziglang/zig/issues/21215
             .allow_fast_isel = !comp.root_mod.resolved_target.result.cpu.arch.isMIPS(),
@@ -1341,6 +1340,9 @@ pub const Object = struct {
             .bin_filename = options.bin_path,
             .llvm_ir_filename = options.post_ir_path,
             .bitcode_filename = null,
+
+            // `.coverage` value is only used when `.sancov` is enabled.
+            .sancov = options.fuzz or comp.config.san_cov_trace_pc_guard,
             .coverage = .{
                 .CoverageType = .Edge,
                 // Works in tandem with Inline8bitCounters or InlineBoolFlag.
@@ -1348,7 +1350,7 @@ pub const Object = struct {
                 // needs to for better fuzzing logic.
                 .IndirectCalls = false,
                 .TraceBB = false,
-                .TraceCmp = true,
+                .TraceCmp = options.fuzz,
                 .TraceDiv = false,
                 .TraceGep = false,
                 .Use8bitCounters = false,
