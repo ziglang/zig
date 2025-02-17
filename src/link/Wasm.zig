@@ -4600,7 +4600,7 @@ fn convertZcuFnType(
     if (CodeGen.firstParamSRet(cc, return_type, zcu, target)) {
         try params_buffer.append(gpa, .i32); // memory address is always a 32-bit handle
     } else if (return_type.hasRuntimeBitsIgnoreComptime(zcu)) {
-        if (cc == .wasm_watc) {
+        if (cc == .wasm_mvp) {
             const res_classes = abi.classifyType(return_type, zcu);
             assert(res_classes[0] == .direct and res_classes[1] == .none);
             const scalar_type = abi.scalarType(return_type, zcu);
@@ -4618,7 +4618,7 @@ fn convertZcuFnType(
         if (!param_type.hasRuntimeBitsIgnoreComptime(zcu)) continue;
 
         switch (cc) {
-            .wasm_watc => {
+            .wasm_mvp => {
                 const param_classes = abi.classifyType(param_type, zcu);
                 if (param_classes[1] == .none) {
                     if (param_classes[0] == .direct) {

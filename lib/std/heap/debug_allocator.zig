@@ -1140,7 +1140,7 @@ test "shrink" {
 }
 
 test "large object - grow" {
-    if (builtin.target.isWasm()) {
+    if (builtin.target.cpu.arch.isWasm()) {
         // Not expected to pass on targets that do not have memory mapping.
         return error.SkipZigTest;
     }
@@ -1319,7 +1319,7 @@ test "realloc large object to larger alignment" {
 }
 
 test "large object rejects shrinking to small" {
-    if (builtin.target.isWasm()) {
+    if (builtin.target.cpu.arch.isWasm()) {
         // Not expected to pass on targets that do not have memory mapping.
         return error.SkipZigTest;
     }

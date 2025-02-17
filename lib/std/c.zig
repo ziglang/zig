@@ -2808,7 +2808,7 @@ pub const Sigaction = switch (native_os) {
         .mipsel,
         .mips64,
         .mips64el,
-        => if (builtin.target.isMusl())
+        => if (builtin.target.abi.isMusl())
             linux.Sigaction
         else if (builtin.target.ptrBitWidth() == 64) extern struct {
             pub const handler_fn = *align(1) const fn (i32) callconv(.c) void;
@@ -6701,7 +6701,7 @@ pub const Stat = switch (native_os) {
                 return self.ctim;
             }
         },
-        .mips, .mipsel => if (builtin.target.isMusl()) extern struct {
+        .mips, .mipsel => if (builtin.target.abi.isMusl()) extern struct {
             dev: dev_t,
             __pad0: [2]i32,
             ino: ino_t,
@@ -6762,7 +6762,7 @@ pub const Stat = switch (native_os) {
                 return self.ctim;
             }
         },
-        .mips64, .mips64el => if (builtin.target.isMusl()) extern struct {
+        .mips64, .mips64el => if (builtin.target.abi.isMusl()) extern struct {
             dev: dev_t,
             __pad0: [3]i32,
             ino: ino_t,
@@ -9863,16 +9863,16 @@ pub const LC = enum(c_int) {
 
 pub extern "c" fn setlocale(category: LC, locale: ?[*:0]const u8) ?[*:0]const u8;
 
-pub const getcontext = if (builtin.target.isAndroid() or builtin.target.os.tag == .openbsd)
+pub const getcontext = if (builtin.target.abi.isAndroid() or builtin.target.os.tag == .openbsd)
 {} // android bionic and openbsd libc does not implement getcontext
-else if (native_os == .linux and builtin.target.isMusl())
+else if (native_os == .linux and builtin.target.abi.isMusl())
     linux.getcontext
 else
     private.getcontext;
 
 pub const max_align_t = if (native_abi == .msvc or native_abi == .itanium)
     f64
-else if (builtin.target.isDarwin())
+else if (native_os.isDarwin())
     c_longdouble
 else
     extern struct {
