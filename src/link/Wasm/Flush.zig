@@ -1020,20 +1020,14 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 var id: [16]u8 = undefined;
                 std.crypto.hash.sha3.TurboShake128(null).hash(binary_bytes.items, &id, .{});
                 var uuid: [36]u8 = undefined;
-                _ = try std.fmt.bufPrint(&uuid, "{s}-{s}-{s}-{s}-{s}", .{
-                    std.fmt.fmtSliceHexLower(id[0..4]),
-                    std.fmt.fmtSliceHexLower(id[4..6]),
-                    std.fmt.fmtSliceHexLower(id[6..8]),
-                    std.fmt.fmtSliceHexLower(id[8..10]),
-                    std.fmt.fmtSliceHexLower(id[10..]),
+                _ = try std.fmt.bufPrint(&uuid, "{x}-{x}-{x}-{x}-{x}", .{
+                    id[0..4], id[4..6], id[6..8], id[8..10], id[10..],
                 });
                 try emitBuildIdSection(gpa, binary_bytes, &uuid);
             },
             .hexstring => |hs| {
                 var buffer: [32 * 2]u8 = undefined;
-                const str = std.fmt.bufPrint(&buffer, "{s}", .{
-                    std.fmt.fmtSliceHexLower(hs.toSlice()),
-                }) catch unreachable;
+                const str = std.fmt.bufPrint(&buffer, "{x}", .{hs.toSlice()}) catch unreachable;
                 try emitBuildIdSection(gpa, binary_bytes, str);
             },
             else => |mode| {
