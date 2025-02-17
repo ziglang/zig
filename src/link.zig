@@ -2067,29 +2067,45 @@ fn resolveLibInput(
 
     const lib_name = name_query.name;
 
-    if (target.isDarwin() and link_mode == .dynamic) tbd: {
-        // Prefer .tbd over .dylib.
-        const test_path: Path = .{
-            .root_dir = lib_directory,
-            .sub_path = try std.fmt.allocPrint(arena, "lib{s}.tbd", .{lib_name}),
+    const LibPathPattern = struct {
+        prefix: []const u8,
+        suffix: []const u8,
+    };
+    const default_pattern_count = 1;
+    var candidate_patterns: []const LibPathPattern =
+        &[default_pattern_count]LibPathPattern{.{ .prefix = target.libPrefix(), .suffix = switch (link_mode) {
+        .static => target.staticLibSuffix(),
+        .dynamic => target.dynamicLibSuffix(),
+    } }};
+
+    if (target.isDarwin() and link_mode == .dynamic) {
+        candidate_patterns =
+            // Prefer .tbd over .dylib.
+            [_]LibPathPattern{.{ .prefix = "lib", .suffix = ".tbd" }}
+        // In the case of Darwin, the main check will be .dylib
+        ++ candidate_patterns[0..default_pattern_count]
+        // Additionally check for .so files.
+        ++ [_]LibPathPattern{.{ .prefix = "lib", .suffix = ".so" }};
+    } else if (target.isMinGW()) {
+        // In the case of MinGW, the main check will be `libfoo.dll` and `libfoo.a`, but we also need to
+        // look for `libfoo.dll.a`, `foo.dll` and `foo.lib`.
+        candidate_patterns = switch (link_mode) {
+            .dynamic => candidate_patterns[0..default_pattern_count] ++ [_]LibPathPattern{
+                .{ .prefix = "lib", .suffix = ".dll.a" },
+                .{ .prefix = "", .suffix = ".dll" },
+                .{ .prefix = "", .suffix = ".lib" },
+            },
+            .static => candidate_patterns[0..default_pattern_count] ++ [_]LibPathPattern{
+                .{ .prefix = "", .suffix = ".lib" },
+            },
         };
-        try checked_paths.writer(gpa).print("\n  {}", .{test_path});
-        var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
-            error.FileNotFound => break :tbd,
-            else => |e| fatal("unable to search for tbd library '{}': {s}", .{ test_path, @errorName(e) }),
-        };
-        errdefer file.close();
-        return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query);
     }
 
-    {
+    for (candidate_patterns) |pattern| {
         const test_path: Path = .{
             .root_dir = lib_directory,
             .sub_path = try std.fmt.allocPrint(arena, "{s}{s}{s}", .{
-                target.libPrefix(), lib_name, switch (link_mode) {
-                    .static => target.staticLibSuffix(),
-                    .dynamic => target.dynamicLibSuffix(),
-                },
+                pattern.prefix, lib_name, pattern.suffix,
             }),
         };
         try checked_paths.writer(gpa).print("\n  {}", .{test_path});
@@ -2100,40 +2116,6 @@ fn resolveLibInput(
             .no_match => {},
             .ok => return .ok,
         }
-    }
-
-    // In the case of Darwin, the main check will be .dylib, so here we
-    // additionally check for .so files.
-    if (target.isDarwin() and link_mode == .dynamic) so: {
-        const test_path: Path = .{
-            .root_dir = lib_directory,
-            .sub_path = try std.fmt.allocPrint(arena, "lib{s}.so", .{lib_name}),
-        };
-        try checked_paths.writer(gpa).print("\n  {}", .{test_path});
-        var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
-            error.FileNotFound => break :so,
-            else => |e| fatal("unable to search for so library '{}': {s}", .{
-                test_path, @errorName(e),
-            }),
-        };
-        errdefer file.close();
-        return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query);
-    }
-
-    // In the case of MinGW, the main check will be .lib but we also need to
-    // look for `libfoo.a`.
-    if (target.isMinGW() and link_mode == .static) mingw: {
-        const test_path: Path = .{
-            .root_dir = lib_directory,
-            .sub_path = try std.fmt.allocPrint(arena, "lib{s}.a", .{lib_name}),
-        };
-        try checked_paths.writer(gpa).print("\n  {}", .{test_path});
-        var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
-            error.FileNotFound => break :mingw,
-            else => |e| fatal("unable to search for static library '{}': {s}", .{ test_path, @errorName(e) }),
-        };
-        errdefer file.close();
-        return finishResolveLibInput(resolved_inputs, test_path, file, link_mode, name_query.query);
     }
 
     return .no_match;
