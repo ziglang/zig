@@ -1587,7 +1587,11 @@ pub const Inst = struct {
                 => false,
 
                 .extended => switch (data.extended.opcode) {
-                    .branch_hint, .breakpoint, .disable_instrumentation => true,
+                    .branch_hint,
+                    .breakpoint,
+                    .disable_instrumentation,
+                    .disable_intrinsics,
+                    => true,
                     else => false,
                 },
             };
@@ -2004,6 +2008,8 @@ pub const Inst = struct {
         breakpoint,
         /// Implement builtin `@disableInstrumentation`. `operand` is `src_node: i32`.
         disable_instrumentation,
+        /// Implement builtin `@disableIntrinsics`. `operand` is `src_node: i32`.
+        disable_intrinsics,
         /// Implements the `@select` builtin.
         /// `operand` is payload index to `Select`.
         select,
@@ -4332,6 +4338,7 @@ fn findTrackableInner(
                 .await_nosuspend,
                 .breakpoint,
                 .disable_instrumentation,
+                .disable_intrinsics,
                 .select,
                 .int_from_error,
                 .error_from_int,
