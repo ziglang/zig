@@ -86,12 +86,6 @@ pub fn writeAll(w: Writer, bytes: []const u8) anyerror!void {
     while (index < bytes.len) index += try w.vtable.writeSplat(w.context, &.{bytes[index..]}, 1);
 }
 
-///// Directly calls `writeAll` many times to render the formatted text. To
-///// enable buffering, call `std.io.BufferedWriter.print` instead.
-//pub fn unbufferedPrint(w: Writer, comptime format: []const u8, args: anytype) anyerror!void {
-//    return std.fmt.format(w, format, args);
-//}
-
 /// The `data` parameter is mutable because this function needs to mutate the
 /// fields in order to handle partial writes from `VTable.writev`.
 pub fn writevAll(w: Writer, data: [][]const u8) anyerror!void {
@@ -105,4 +99,11 @@ pub fn writevAll(w: Writer, data: [][]const u8) anyerror!void {
         }
         data[i] = data[i][n..];
     }
+}
+
+pub fn unbuffered(w: Writer) std.io.BufferedWriter {
+    return .{
+        .buffer = &.{},
+        .unbuffered_writer = w,
+    };
 }

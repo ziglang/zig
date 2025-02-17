@@ -305,8 +305,8 @@ pub const Os = struct {
             ver: WindowsVersion,
             comptime fmt_str: []const u8,
             _: std.fmt.FormatOptions,
-            writer: anytype,
-        ) @TypeOf(writer).Error!void {
+            writer: *std.io.BufferedWriter,
+        ) anyerror!void {
             const maybe_name = std.enums.tagName(WindowsVersion, ver);
             if (comptime std.mem.eql(u8, fmt_str, "s")) {
                 if (maybe_name) |name|
