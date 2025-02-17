@@ -17,6 +17,8 @@ const assert = std.debug.assert;
 /// returning a slice that includes both.
 written: []u8,
 allocator: std.mem.Allocator,
+/// When using this API, it is not necessary to call
+/// `std.io.BufferedWriter.flush`.
 buffered_writer: std.io.BufferedWriter,
 
 const vtable: std.io.Writer.VTable = .{
