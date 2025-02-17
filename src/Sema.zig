@@ -1412,7 +1412,8 @@ fn analyzeBodyInner(
                             return sema.fail(block, src, "found deprecated code", .{});
                         }
 
-                        break :ext .void_value;
+                        i += 1;
+                        continue;
                     },
                     .disable_instrumentation => {
                         try sema.zirDisableInstrumentation();
