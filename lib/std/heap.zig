@@ -989,6 +989,7 @@ test {
     _ = GeneralPurposeAllocator;
     _ = FixedBufferAllocator;
     _ = ThreadSafeAllocator;
+    _ = SbrkAllocator;
     if (builtin.target.isWasm()) {
         _ = WasmAllocator;
     }
