@@ -3,8 +3,9 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const Allocator = std.mem.Allocator;
 
-/// This allocator takes an existing allocator, wraps it, and provides an interface
-/// where you can allocate without freeing, and then free it all together.
+/// This allocator takes an existing allocator, wraps it, and provides an interface where
+/// you can allocate and then free it all together. You can only free an individual item
+/// if it was the most recent allocation, otherwise calls to free do nothing.
 pub const ArenaAllocator = struct {
     child_allocator: Allocator,
     state: State,
