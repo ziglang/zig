@@ -391,7 +391,7 @@ const CryptoPwhash = struct {
     params: *const anyopaque,
     name: []const u8,
 };
-const bcrypt_params = crypto.pwhash.bcrypt.Params{ .rounds_log = 8 };
+const bcrypt_params = crypto.pwhash.bcrypt.Params{ .rounds_log = 8, .silently_truncate_password = true };
 const pwhashes = [_]CryptoPwhash{
     .{
         .ty = crypto.pwhash.bcrypt,
