@@ -21,6 +21,7 @@ const T = struct {
 //
 // :2:5: error: enum field missing name
 // :5:5: error: union field missing name
-// :8:5: error: tuple field has a name
+// :9:5: error: struct field needs a name and a type
+// :8:5: note: to make this a tuple type, remove all field names
 // :15:5: error: tuple declarations cannot contain declarations
 // :12:5: note: tuple field here
