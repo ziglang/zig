@@ -338,6 +338,12 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?u29) type {
             @memcpy(self.items[old_len..][0..items.len], items);
         }
 
+        pub fn print(self: *Self, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
+            var unmanaged = self.moveToUnmanaged();
+            try unmanaged.print(self.allocator, fmt, args);
+            self.* = unmanaged.toManaged(self.allocator);
+        }
+
         /// Append a value to the list `n` times.
         /// Allocates more memory as necessary.
         /// Invalidates element pointers if additional memory is needed.
@@ -904,7 +910,15 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?u29) typ
             var aw: std.io.AllocatingWriter = undefined;
             const bw = aw.fromArrayList(gpa, self);
             defer self.* = aw.toArrayList();
-            bw.print(fmt, args) catch return error.OutOfMemory;
+            return @errorCast(bw.print(fmt, args));
+        }
+
+        pub fn printAssumeCapacity(self: *Self, comptime fmt: []const u8, args: anytype) void {
+            comptime assert(T == u8);
+            var bw: std.io.BufferedWriter = undefined;
+            bw.initFixed(self.unusedCapacitySlice());
+            bw.print(fmt, args) catch unreachable;
+            self.items.len += bw.end;
         }
 
         /// Append a value to the list `n` times.

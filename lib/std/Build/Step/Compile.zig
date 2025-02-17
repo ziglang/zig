@@ -2027,17 +2027,17 @@ fn checkCompileErrors(compile: *Compile) !void {
         .exact => |expect_lines| {
             for (expect_lines) |expect_line| {
                 const actual_line = actual_line_it.next() orelse {
-                    try expected_generated.appendSlice(expect_line);
-                    try expected_generated.append('\n');
+                    try expected_generated.appendSlice(arena, expect_line);
+                    try expected_generated.append(arena, '\n');
                     continue;
                 };
                 if (matchCompileError(actual_line, expect_line)) {
-                    try expected_generated.appendSlice(actual_line);
-                    try expected_generated.append('\n');
+                    try expected_generated.appendSlice(arena, actual_line);
+                    try expected_generated.append(arena, '\n');
                     continue;
                 }
-                try expected_generated.appendSlice(expect_line);
-                try expected_generated.append('\n');
+                try expected_generated.appendSlice(arena, expect_line);
+                try expected_generated.append(arena, '\n');
             }
 
             if (mem.eql(u8, expected_generated.items, actual_errors)) return;

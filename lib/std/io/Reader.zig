@@ -93,108 +93,14 @@ pub fn readAllAlloc(self: Self, allocator: mem.Allocator, max_size: usize) anyer
     return try array_list.toOwnedSlice();
 }
 
-/// Deprecated: use `streamUntilDelimiter` with ArrayList's writer instead.
-/// Replaces the `std.ArrayList` contents by reading from the stream until `delimiter` is found.
-/// Does not include the delimiter in the result.
-/// If the `std.ArrayList` length would exceed `max_size`, `error.StreamTooLong` is returned and the
-/// `std.ArrayList` is populated with `max_size` bytes from the stream.
-pub fn readUntilDelimiterArrayList(
-    self: Self,
-    array_list: *std.ArrayList(u8),
-    delimiter: u8,
-    max_size: usize,
-) anyerror!void {
-    array_list.shrinkRetainingCapacity(0);
-    try self.streamUntilDelimiter(array_list.writer(), delimiter, max_size);
-}
-
-/// Deprecated: use `streamUntilDelimiter` with ArrayList's writer instead.
-/// Allocates enough memory to read until `delimiter`. If the allocated
-/// memory would be greater than `max_size`, returns `error.StreamTooLong`.
-/// Caller owns returned memory.
-/// If this function returns an error, the contents from the stream read so far are lost.
-pub fn readUntilDelimiterAlloc(
-    self: Self,
-    allocator: mem.Allocator,
-    delimiter: u8,
-    max_size: usize,
-) anyerror![]u8 {
-    var array_list = std.ArrayList(u8).init(allocator);
-    defer array_list.deinit();
-    try self.streamUntilDelimiter(array_list.writer(), delimiter, max_size);
-    return try array_list.toOwnedSlice();
-}
-
-/// Deprecated: use `streamUntilDelimiter` with FixedBufferStream's writer instead.
-/// Reads from the stream until specified byte is found. If the buffer is not
-/// large enough to hold the entire contents, `error.StreamTooLong` is returned.
-/// If end-of-stream is found, `error.EndOfStream` is returned.
-/// Returns a slice of the stream data, with ptr equal to `buf.ptr`. The
-/// delimiter byte is written to the output buffer but is not included
-/// in the returned slice.
-pub fn readUntilDelimiter(self: Self, buf: []u8, delimiter: u8) anyerror![]u8 {
-    var fbs = std.io.fixedBufferStream(buf);
-    try self.streamUntilDelimiter(fbs.writer(), delimiter, fbs.buffer.len);
-    const output = fbs.getWritten();
-    buf[output.len] = delimiter; // emulating old behaviour
-    return output;
-}
-
-/// Deprecated: use `streamUntilDelimiter` with ArrayList's (or any other's) writer instead.
-/// Allocates enough memory to read until `delimiter` or end-of-stream.
-/// If the allocated memory would be greater than `max_size`, returns
-/// `error.StreamTooLong`. If end-of-stream is found, returns the rest
-/// of the stream. If this function is called again after that, returns
-/// null.
-/// Caller owns returned memory.
-/// If this function returns an error, the contents from the stream read so far are lost.
-pub fn readUntilDelimiterOrEofAlloc(
-    self: Self,
-    allocator: mem.Allocator,
-    delimiter: u8,
-    max_size: usize,
-) anyerror!?[]u8 {
-    var array_list = std.ArrayList(u8).init(allocator);
-    defer array_list.deinit();
-    self.streamUntilDelimiter(array_list.writer(), delimiter, max_size) catch |err| switch (err) {
-        error.EndOfStream => if (array_list.items.len == 0) {
-            return null;
-        },
-        else => |e| return e,
-    };
-    return try array_list.toOwnedSlice();
-}
-
-/// Deprecated: use `streamUntilDelimiter` with FixedBufferStream's writer instead.
-/// Reads from the stream until specified byte is found. If the buffer is not
-/// large enough to hold the entire contents, `error.StreamTooLong` is returned.
-/// If end-of-stream is found, returns the rest of the stream. If this
-/// function is called again after that, returns null.
-/// Returns a slice of the stream data, with ptr equal to `buf.ptr`. The
-/// delimiter byte is written to the output buffer but is not included
-/// in the returned slice.
-pub fn readUntilDelimiterOrEof(self: Self, buf: []u8, delimiter: u8) anyerror!?[]u8 {
-    var fbs = std.io.fixedBufferStream(buf);
-    self.streamUntilDelimiter(fbs.writer(), delimiter, fbs.buffer.len) catch |err| switch (err) {
-        error.EndOfStream => if (fbs.getWritten().len == 0) {
-            return null;
-        },
-
-        else => |e| return e,
-    };
-    const output = fbs.getWritten();
-    buf[output.len] = delimiter; // emulating old behaviour
-    return output;
-}
-
-/// Appends to the `writer` contents by reading from the stream until `delimiter` is found.
+/// Appends to `bw` contents by reading from the stream until `delimiter` is found.
 /// Does not write the delimiter itself.
 /// If `optional_max_size` is not null and amount of written bytes exceeds `optional_max_size`,
 /// returns `error.StreamTooLong` and finishes appending.
 /// If `optional_max_size` is null, appending is unbounded.
 pub fn streamUntilDelimiter(
     self: Self,
-    writer: anytype,
+    bw: *std.io.BufferedWriter,
     delimiter: u8,
     optional_max_size: ?usize,
 ) anyerror!void {
@@ -202,14 +108,14 @@ pub fn streamUntilDelimiter(
         for (0..max_size) |_| {
             const byte: u8 = try self.readByte();
             if (byte == delimiter) return;
-            try writer.writeByte(byte);
+            try bw.writeByte(byte);
         }
         return error.StreamTooLong;
     } else {
         while (true) {
             const byte: u8 = try self.readByte();
             if (byte == delimiter) return;
-            try writer.writeByte(byte);
+            try bw.writeByte(byte);
         }
         // Can not throw `error.StreamTooLong` since there are no boundary.
     }

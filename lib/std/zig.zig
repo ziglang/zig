@@ -627,7 +627,7 @@ pub fn parseTargetQueryOrReportFatalError(
                 var help_text = std.ArrayList(u8).init(allocator);
                 defer help_text.deinit();
                 for (diags.arch.?.allCpuModels()) |cpu| {
-                    help_text.writer().print(" {s}\n", .{cpu.name}) catch break :help;
+                    help_text.print(" {s}\n", .{cpu.name}) catch break :help;
                 }
                 std.log.info("available CPUs for architecture '{s}':\n{s}", .{
                     @tagName(diags.arch.?), help_text.items,
@@ -640,7 +640,7 @@ pub fn parseTargetQueryOrReportFatalError(
                 var help_text = std.ArrayList(u8).init(allocator);
                 defer help_text.deinit();
                 for (diags.arch.?.allFeaturesList()) |feature| {
-                    help_text.writer().print(" {s}: {s}\n", .{ feature.name, feature.description }) catch break :help;
+                    help_text.print(" {s}: {s}\n", .{ feature.name, feature.description }) catch break :help;
                 }
                 std.log.info("available CPU features for architecture '{s}':\n{s}", .{
                     @tagName(diags.arch.?), help_text.items,
@@ -653,7 +653,7 @@ pub fn parseTargetQueryOrReportFatalError(
                 var help_text = std.ArrayList(u8).init(allocator);
                 defer help_text.deinit();
                 inline for (@typeInfo(std.Target.ObjectFormat).@"enum".fields) |field| {
-                    help_text.writer().print(" {s}\n", .{field.name}) catch break :help;
+                    help_text.print(" {s}\n", .{field.name}) catch break :help;
                 }
                 std.log.info("available object formats:\n{s}", .{help_text.items});
             }
@@ -664,7 +664,7 @@ pub fn parseTargetQueryOrReportFatalError(
                 var help_text = std.ArrayList(u8).init(allocator);
                 defer help_text.deinit();
                 inline for (@typeInfo(std.Target.Cpu.Arch).@"enum".fields) |field| {
-                    help_text.writer().print(" {s}\n", .{field.name}) catch break :help;
+                    help_text.print(" {s}\n", .{field.name}) catch break :help;
                 }
                 std.log.info("available architectures:\n{s} native\n", .{help_text.items});
             }
