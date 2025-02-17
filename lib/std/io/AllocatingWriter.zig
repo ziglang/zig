@@ -96,10 +96,11 @@ fn setArrayList(aw: *AllocatingWriter, list: std.ArrayListUnmanaged(u8)) void {
 pub fn getWritten(aw: *AllocatingWriter) []u8 {
     const bw = &aw.buffered_writer;
     const end = aw.buffered_writer.end;
-    const result = aw.written.ptr[0 .. aw.written.len + end];
+    const written = aw.written.ptr[0 .. aw.written.len + end];
+    aw.written = written;
     bw.buffer = bw.buffer[end..];
     bw.end = 0;
-    return result;
+    return written;
 }
 
 pub fn clearRetainingCapacity(aw: *AllocatingWriter) void {
