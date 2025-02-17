@@ -186,7 +186,7 @@ pub fn decodeFrame(
     DictionaryIdFlagUnsupported,
     SkippableSizeTooLarge,
 } || FrameError)!ReadWriteCount {
-    var fbs = std.io.fixedBufferStream(src);
+    var fbs: std.io.FixedBufferStream = .{ .buffer = src };
     switch (try decodeFrameType(fbs.reader())) {
         .zstandard => return decodeZstandardFrame(dest, src, verify_checksum),
         .skippable => {
@@ -233,7 +233,7 @@ pub fn decodeFrameArrayList(
     verify_checksum: bool,
     window_size_max: usize,
 ) (error{ BadMagic, OutOfMemory, SkippableSizeTooLarge } || FrameContext.Error || FrameError)!usize {
-    var fbs = std.io.fixedBufferStream(src);
+    var fbs: std.io.FixedBufferStream = .{ .buffer = src };
     const reader = fbs.reader();
     const magic = try reader.readInt(u32, .little);
     switch (try frameType(magic)) {
@@ -303,7 +303,7 @@ pub fn decodeZstandardFrame(
     var consumed_count: usize = 4;
 
     var frame_context = context: {
-        var fbs = std.io.fixedBufferStream(src[consumed_count..]);
+        var fbs: std.io.FixedBufferStream = .{ .buffer = src[consumed_count..] };
         const source = fbs.reader();
         const frame_header = try decodeZstandardHeader(source);
         consumed_count += fbs.pos;
@@ -446,7 +446,7 @@ pub fn decodeZstandardFrameArrayList(
     var consumed_count: usize = 4;
 
     var frame_context = context: {
-        var fbs = std.io.fixedBufferStream(src[consumed_count..]);
+        var fbs: std.io.FixedBufferStream = .{ .buffer = src[consumed_count..] };
         const source = fbs.reader();
         const frame_header = try decodeZstandardHeader(source);
         consumed_count += fbs.pos;

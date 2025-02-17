@@ -1283,26 +1283,22 @@ pub const basic_authorization = struct {
     }
 
     pub fn valueLengthFromUri(uri: Uri) usize {
-        var stream = std.io.countingWriter(std.io.null_writer);
-        try stream.writer().print("{user}", .{uri.user orelse Uri.Component.empty});
-        const user_len = stream.bytes_written;
-        stream.bytes_written = 0;
-        try stream.writer().print("{password}", .{uri.password orelse Uri.Component.empty});
-        const password_len = stream.bytes_written;
+        // TODO don't abuse formatted printing to count percent encoded characters
+        const user_len = std.fmt.count("{fuser}", .{uri.user orelse Uri.Component.empty});
+        const password_len = std.fmt.count("{fpassword}", .{uri.password orelse Uri.Component.empty});
         return valueLength(@intCast(user_len), @intCast(password_len));
     }
 
     pub fn value(uri: Uri, out: []u8) []u8 {
         var buf: [max_user_len + ":".len + max_password_len]u8 = undefined;
-        var stream = std.io.fixedBufferStream(&buf);
-        stream.writer().print("{user}", .{uri.user orelse Uri.Component.empty}) catch
-            unreachable;
-        assert(stream.pos <= max_user_len);
-        stream.writer().print(":{password}", .{uri.password orelse Uri.Component.empty}) catch
-            unreachable;
-
+        var bw: std.io.BufferedWriter = undefined;
+        bw.initFixed(&buf);
+        bw.print("{fuser}:{fpassword}", .{
+            uri.user orelse Uri.Component.empty,
+            uri.password orelse Uri.Component.empty,
+        }) catch unreachable;
         @memcpy(out[0..prefix.len], prefix);
-        const base64 = std.base64.standard.Encoder.encode(out[prefix.len..], stream.getWritten());
+        const base64 = std.base64.standard.Encoder.encode(out[prefix.len..], bw.getWritten());
         return out[0 .. prefix.len + base64.len];
     }
 };
