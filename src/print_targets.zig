@@ -11,36 +11,36 @@ const assert = std.debug.assert;
 const glibc = @import("libs/glibc.zig");
 const introspect = @import("introspect.zig");
 
-pub fn cmdTargets(
-    allocator: Allocator,
-    args: []const []const u8,
-    /// Output stream
-    stdout: anytype,
-    native_target: *const Target,
-) !void {
+pub fn cmdTargets(arena: Allocator, args: []const []const u8) anyerror!void {
     _ = args;
-    var zig_lib_directory = introspect.findZigLibDir(allocator) catch |err| {
+    const host = std.zig.resolveTargetQueryOrFatal(.{});
+    var buffer: [1024]u8 = undefined;
+    var bw: std.io.BufferedWriter = .{
+        .unbuffered_writer = io.getStdOut().writer(),
+        .buffer = &buffer,
+    };
+    try print(arena, &bw, host);
+    try bw.flush();
+}
+
+fn print(arena: Allocator, output: *std.io.BufferedWriter, host: *const Target) anyerror!void {
+    var zig_lib_directory = introspect.findZigLibDir(arena) catch |err| {
         fatal("unable to find zig installation directory: {s}\n", .{@errorName(err)});
     };
     defer zig_lib_directory.handle.close();
-    defer allocator.free(zig_lib_directory.path.?);
 
     const abilists_contents = zig_lib_directory.handle.readFileAlloc(
-        allocator,
+        arena,
         glibc.abilists_path,
         glibc.abilists_max_size,
     ) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => fatal("unable to read " ++ glibc.abilists_path ++ ": {s}", .{@errorName(err)}),
     };
-    defer allocator.free(abilists_contents);
 
-    const glibc_abi = try glibc.loadMetaData(allocator, abilists_contents);
-    defer glibc_abi.destroy(allocator);
+    const glibc_abi = try glibc.loadMetaData(arena, abilists_contents);
 
-    var bw = io.bufferedWriter(stdout);
-    const w = bw.writer();
-    var sz = std.zon.stringify.serializer(w, .{});
+    var sz = std.zon.stringify.serializer(output, .{});
 
     {
         var root_obj = try sz.beginStruct(.{});
@@ -52,10 +52,9 @@ pub fn cmdTargets(
         {
             var libc_obj = try root_obj.beginTupleField("libc", .{});
             for (std.zig.target.available_libcs) |libc| {
-                const tmp = try std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{
+                const tmp = try std.fmt.allocPrint(arena, "{s}-{s}-{s}", .{
                     @tagName(libc.arch), @tagName(libc.os), @tagName(libc.abi),
                 });
-                defer allocator.free(tmp);
                 try libc_obj.field(tmp, .{});
             }
             try libc_obj.end();
@@ -64,8 +63,7 @@ pub fn cmdTargets(
         {
             var glibc_obj = try root_obj.beginTupleField("glibc", .{});
             for (glibc_abi.all_versions) |ver| {
-                const tmp = try std.fmt.allocPrint(allocator, "{}", .{ver});
-                defer allocator.free(tmp);
+                const tmp = try std.fmt.allocPrint(arena, "{}", .{ver});
                 try glibc_obj.field(tmp, .{});
             }
             try glibc_obj.end();
@@ -105,21 +103,20 @@ pub fn cmdTargets(
         {
             var native_obj = try root_obj.beginStructField("native", .{});
             {
-                const triple = try native_target.zigTriple(allocator);
-                defer allocator.free(triple);
+                const triple = try host.zigTriple(arena);
                 try native_obj.field("triple", triple, .{});
             }
             {
                 var cpu_obj = try native_obj.beginStructField("cpu", .{});
-                try cpu_obj.field("arch", @tagName(native_target.cpu.arch), .{});
+                try cpu_obj.field("arch", @tagName(host.cpu.arch), .{});
 
-                try cpu_obj.field("name", native_target.cpu.model.name, .{});
+                try cpu_obj.field("name", host.cpu.model.name, .{});
 
                 {
                     var features = try native_obj.beginTupleField("features", .{});
-                    for (native_target.cpu.arch.allFeaturesList(), 0..) |feature, i_usize| {
+                    for (host.cpu.arch.allFeaturesList(), 0..) |feature, i_usize| {
                         const index = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
-                        if (native_target.cpu.features.isEnabled(index)) {
+                        if (host.cpu.features.isEnabled(index)) {
                             try features.field(feature.name, .{});
                         }
                     }
@@ -128,14 +125,13 @@ pub fn cmdTargets(
                 try cpu_obj.end();
             }
 
-            try native_obj.field("os", @tagName(native_target.os.tag), .{});
-            try native_obj.field("abi", @tagName(native_target.abi), .{});
+            try native_obj.field("os", @tagName(host.os.tag), .{});
+            try native_obj.field("abi", @tagName(host.abi), .{});
             try native_obj.end();
         }
 
         try root_obj.end();
     }
 
-    try w.writeByte('\n');
-    return bw.flush();
+    try output.writeByte('\n');
 }
