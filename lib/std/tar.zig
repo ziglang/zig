@@ -596,9 +596,10 @@ fn PaxIterator(comptime ReaderType: type) type {
             return null;
         }
 
-        fn readUntil(self: *Self, delimiter: u8) ![]const u8 {
-            var fbs: std.io.FixedBufferStream = .{ .buffer = &self.scratch };
-            try self.reader.streamUntilDelimiter(fbs.writer(), delimiter, null);
+        fn readUntil(self: *Self, delimiter: u8) anyerror![]const u8 {
+            var fbs: std.io.BufferedWriter = undefined;
+            fbs.initFixed(&self.scratch);
+            try self.reader.streamUntilDelimiter(&fbs, delimiter, null);
             return fbs.getWritten();
         }
 

@@ -31,7 +31,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
     const zig_backend = opts.zig_backend;
 
     @setEvalBranchQuota(4000);
-    try buffer.writer().print(
+    try buffer.print(
         \\const std = @import("std");
         \\/// Zig version. When writing code that supports multiple versions of Zig, prefer
         \\/// feature detection (i.e. with `@hasDecl` or `@hasField`) over version checks.
@@ -69,10 +69,10 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
         const index = @as(std.Target.Cpu.Feature.Set.Index, @intCast(index_usize));
         const is_enabled = target.cpu.features.isEnabled(index);
         if (is_enabled) {
-            try buffer.writer().print("        .{p_},\n", .{std.zig.fmtId(feature.name)});
+            try buffer.print("        .{p_},\n", .{std.zig.fmtId(feature.name)});
         }
     }
-    try buffer.writer().print(
+    try buffer.print(
         \\    }}),
         \\}};
         \\pub const os: std.Target.Os = .{{
@@ -84,7 +84,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
 
     switch (target.os.versionRange()) {
         .none => try buffer.appendSlice(" .none = {} },\n"),
-        .semver => |semver| try buffer.writer().print(
+        .semver => |semver| try buffer.print(
             \\ .semver = .{{
             \\        .min = .{{
             \\            .major = {},
@@ -107,7 +107,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
             semver.max.minor,
             semver.max.patch,
         }),
-        .linux => |linux| try buffer.writer().print(
+        .linux => |linux| try buffer.print(
             \\ .linux = .{{
             \\        .range = .{{
             \\            .min = .{{
@@ -144,7 +144,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
 
             linux.android,
         }),
-        .hurd => |hurd| try buffer.writer().print(
+        .hurd => |hurd| try buffer.print(
             \\ .hurd = .{{
             \\        .range = .{{
             \\            .min = .{{
@@ -178,7 +178,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
             hurd.glibc.minor,
             hurd.glibc.patch,
         }),
-        .windows => |windows| try buffer.writer().print(
+        .windows => |windows| try buffer.print(
             \\ .windows = .{{
             \\        .min = {c},
             \\        .max = {c},
@@ -197,7 +197,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
     );
 
     if (target.dynamic_linker.get()) |dl| {
-        try buffer.writer().print(
+        try buffer.print(
             \\    .dynamic_linker = .init("{s}"),
             \\}};
             \\
@@ -217,7 +217,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
     // knows libc will provide it, and likewise c.zig will not export memcpy.
     const link_libc = opts.link_libc;
 
-    try buffer.writer().print(
+    try buffer.print(
         \\pub const object_format: std.Target.ObjectFormat = .{p_};
         \\pub const mode: std.builtin.OptimizeMode = .{p_};
         \\pub const link_libc = {};
@@ -249,7 +249,7 @@ pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
     });
 
     if (target.os.tag == .wasi) {
-        try buffer.writer().print(
+        try buffer.print(
             \\pub const wasi_exec_model: std.builtin.WasiExecModel = .{p_};
             \\
         , .{std.zig.fmtId(@tagName(opts.wasi_exec_model))});

@@ -5851,7 +5851,7 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
             if (slice[0] != '\'' or slice[1] == '\\' or slice.len == 3) {
                 return Tag.char_literal.create(c.arena, try escapeUnprintables(c, m));
             } else {
-                const str = try std.fmt.allocPrint(c.arena, "0x{s}", .{std.fmt.fmtSliceHexLower(slice[1 .. slice.len - 1])});
+                const str = try std.fmt.allocPrint(c.arena, "0x{x}", .{slice[1 .. slice.len - 1]});
                 return Tag.integer_literal.create(c.arena, str);
             }
         },

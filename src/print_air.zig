@@ -1,6 +1,5 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
 
 const Zcu = @import("Zcu.zig");
 const Value = @import("Value.zig");
@@ -24,20 +23,20 @@ pub fn write(stream: anytype, pt: Zcu.PerThread, air: Air, liveness: ?Liveness) 
 
     // zig fmt: off
     stream.print(
-        \\# Total AIR+Liveness bytes: {}
-        \\# AIR Instructions:         {d} ({})
-        \\# AIR Extra Data:           {d} ({})
-        \\# Liveness tomb_bits:       {}
-        \\# Liveness Extra Data:      {d} ({})
-        \\# Liveness special table:   {d} ({})
+        \\# Total AIR+Liveness bytes: {Bi}
+        \\# AIR Instructions:         {d} ({Bi})
+        \\# AIR Extra Data:           {d} ({Bi})
+        \\# Liveness tomb_bits:       {Bi}
+        \\# Liveness Extra Data:      {d} ({Bi})
+        \\# Liveness special table:   {d} ({Bi})
         \\
     , .{
-        fmtIntSizeBin(total_bytes),
-        air.instructions.len, fmtIntSizeBin(instruction_bytes),
-        air.extra.len, fmtIntSizeBin(extra_bytes),
-        fmtIntSizeBin(tomb_bytes),
-        if (liveness) |l| l.extra.len else 0, fmtIntSizeBin(liveness_extra_bytes),
-        if (liveness) |l| l.special.count() else 0, fmtIntSizeBin(liveness_special_bytes),
+        total_bytes,
+        air.instructions.len, instruction_bytes,
+        air.extra.len, extra_bytes,
+        tomb_bytes,
+        if (liveness) |l| l.extra.len else 0, liveness_extra_bytes,
+        if (liveness) |l| l.special.count() else 0, liveness_special_bytes,
     }) catch return;
     // zig fmt: on
 

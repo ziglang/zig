@@ -190,39 +190,7 @@ pub fn run(
     }
 }
 
-const FmtError = error{
-    SystemResources,
-    OperationAborted,
-    IoPending,
-    BrokenPipe,
-    Unexpected,
-    WouldBlock,
-    Canceled,
-    FileClosed,
-    DestinationAddressRequired,
-    DiskQuota,
-    FileTooBig,
-    InputOutput,
-    NoSpaceLeft,
-    AccessDenied,
-    OutOfMemory,
-    RenameAcrossMountPoints,
-    ReadOnlyFileSystem,
-    LinkQuotaExceeded,
-    FileBusy,
-    EndOfStream,
-    Unseekable,
-    NotOpenForWriting,
-    UnsupportedEncoding,
-    ConnectionResetByPeer,
-    SocketNotConnected,
-    LockViolation,
-    NetNameDeleted,
-    InvalidArgument,
-    ProcessNotFound,
-} || fs.File.OpenError;
-
-fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) FmtError!void {
+fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) anyerror!void {
     fmtPathFile(fmt, file_path, check_mode, dir, sub_path) catch |err| switch (err) {
         error.IsDir, error.AccessDenied => return fmtPathDir(fmt, file_path, check_mode, dir, sub_path),
         else => {
@@ -239,7 +207,7 @@ fn fmtPathDir(
     check_mode: bool,
     parent_dir: fs.Dir,
     parent_sub_path: []const u8,
-) FmtError!void {
+) anyerror!void {
     var dir = try parent_dir.openDir(parent_sub_path, .{ .iterate = true });
     defer dir.close();
 
@@ -275,7 +243,7 @@ fn fmtPathFile(
     check_mode: bool,
     dir: fs.Dir,
     sub_path: []const u8,
-) FmtError!void {
+) anyerror!void {
     const source_file = try dir.openFile(sub_path, .{});
     var file_closed = false;
     errdefer if (!file_closed) source_file.close();

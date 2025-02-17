@@ -282,8 +282,6 @@ pub const Reader = GenericReader;
 pub const Writer = @import("io/Writer.zig");
 
 pub const AnyReader = @import("io/Reader.zig");
-/// Deprecated; to be removed after 0.14.0 is tagged.
-pub const AnyWriter = Writer;
 
 pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
 

@@ -77,6 +77,9 @@ pub fn fatal(comptime format: []const u8, args: anytype) noreturn {
     process.exit(1);
 }
 
+/// This can be global since stdout is a singleton.
+var stdout_buffer: [4096]u8 = undefined;
+
 /// Shaming all the locations that inappropriately use an O(N) search algorithm.
 /// Please delete this and fix the compilation errors!
 pub const @"bad O(N)" = void;
@@ -348,9 +351,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         return cmdInit(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "targets")) {
         dev.check(.targets_command);
-        const host = std.zig.resolveTargetQueryOrFatal(.{});
-        const stdout = io.getStdOut().writer();
-        return @import("print_targets.zig").cmdTargets(arena, cmd_args, stdout, host);
+        return @import("print_targets.zig").cmdTargets(arena, cmd_args);
     } else if (mem.eql(u8, cmd, "version")) {
         dev.check(.version_command);
         try std.io.getStdOut().writeAll(build_options.version ++ "\n");
@@ -361,7 +362,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "env")) {
         dev.check(.env_command);
         verifyLibcxxCorrectlyLinked();
-        return @import("print_env.zig").cmdEnv(arena, cmd_args, io.getStdOut().writer());
+        return @import("print_env.zig").cmdEnv(arena, cmd_args);
     } else if (mem.eql(u8, cmd, "reduce")) {
         return jitCmd(gpa, arena, cmd_args, .{
             .cmd_name = "reduce",
@@ -3422,9 +3423,8 @@ fn buildOutputType(
         var bin_digest: Cache.BinDigest = undefined;
         hasher.final(&bin_digest);
 
-        const sub_path = try std.fmt.allocPrint(arena, "tmp" ++ sep ++ "{s}-stdin{s}", .{
-            std.fmt.fmtSliceHexLower(&bin_digest),
-            ext.canonicalName(target),
+        const sub_path = try std.fmt.allocPrint(arena, "tmp" ++ sep ++ "{x}-stdin{s}", .{
+            &bin_digest, ext.canonicalName(target),
         });
         try local_cache_directory.handle.rename(dump_path, sub_path);
 
@@ -6192,6 +6192,11 @@ fn cmdAstCheck(
     file.tree = try Ast.parse(gpa, file.source.?, mode);
     defer file.tree.?.deinit(gpa);
 
+    var bw: std.io.BufferedWriter = .{
+        .unbuffered_writer = io.getStdOut().writer(),
+        .buffer = &stdout_buffer,
+    };
+
     switch (mode) {
         .zig => {
             file.zir = try AstGen.generate(gpa, file.tree.?);
@@ -6236,31 +6241,30 @@ fn cmdAstCheck(
                 const extra_bytes = file.zir.?.extra.len * @sizeOf(u32);
                 const total_bytes = @sizeOf(Zir) + instruction_bytes + extra_bytes +
                     file.zir.?.string_bytes.len * @sizeOf(u8);
-                const stdout = io.getStdOut();
-                const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
                 // zig fmt: off
-                try stdout.writer().print(
-                    \\# Source bytes:       {}
-                    \\# Tokens:             {} ({})
-                    \\# AST Nodes:          {} ({})
-                    \\# Total ZIR bytes:    {}
-                    \\# Instructions:       {d} ({})
+                try bw.print(
+                    \\# Source bytes:       {Bi}
+                    \\# Tokens:             {} ({Bi})
+                    \\# AST Nodes:          {} ({Bi})
+                    \\# Total ZIR bytes:    {Bi}
+                    \\# Instructions:       {d} ({Bi})
                     \\# String Table Bytes: {}
-                    \\# Extra Data Items:   {d} ({})
+                    \\# Extra Data Items:   {d} ({Bi})
                     \\
                 , .{
-                    fmtIntSizeBin(file.source.?.len),
-                    file.tree.?.tokens.len, fmtIntSizeBin(token_bytes),
-                    file.tree.?.nodes.len, fmtIntSizeBin(tree_bytes),
-                    fmtIntSizeBin(total_bytes),
-                    file.zir.?.instructions.len, fmtIntSizeBin(instruction_bytes),
-                    fmtIntSizeBin(file.zir.?.string_bytes.len),
-                    file.zir.?.extra.len, fmtIntSizeBin(extra_bytes),
+                    file.source.?.len,
+                    file.tree.?.tokens.len, token_bytes,
+                    file.tree.?.nodes.len, tree_bytes,
+                    total_bytes,
+                    file.zir.?.instructions.len, instruction_bytes,
+                    file.zir.?.string_bytes.len,
+                    file.zir.?.extra.len, extra_bytes,
                 });
                 // zig fmt: on
             }
 
-            try @import("print_zir.zig").renderAsTextToFile(gpa, &file, io.getStdOut());
+            try @import("print_zir.zig").renderAsText(gpa, &file, &bw);
+            try bw.flush();
 
             if (file.zir.?.hasCompileErrors()) {
                 process.exit(1);
@@ -6298,7 +6302,8 @@ fn cmdAstCheck(
                 fatal("-t option only available in builds of zig with debug extensions", .{});
             }
 
-            try @import("print_zoir.zig").renderToFile(zoir, arena, io.getStdOut());
+            try @import("print_zoir.zig").renderToWriter(zoir, arena, &bw);
+            try bw.flush();
             return cleanExit();
         },
     }
@@ -6426,11 +6431,13 @@ fn detectNativeCpuWithLLVM(
 }
 
 fn printCpu(cpu: std.Target.Cpu) !void {
-    var bw = io.bufferedWriter(io.getStdOut().writer());
-    const stdout = bw.writer();
+    var bw: std.io.BufferedWriter = .{
+        .unbuffered_writer = io.getStdOut().writer(),
+        .buffer = &stdout_buffer,
+    };
 
     if (cpu.model.llvm_name) |llvm_name| {
-        try stdout.print("{s}\n", .{llvm_name});
+        try bw.print("{s}\n", .{llvm_name});
     }
 
     const all_features = cpu.arch.allFeaturesList();
@@ -6439,7 +6446,7 @@ fn printCpu(cpu: std.Target.Cpu) !void {
         const index: std.Target.Cpu.Feature.Set.Index = @intCast(index_usize);
         const is_enabled = cpu.features.isEnabled(index);
         const plus_or_minus = "-+"[@intFromBool(is_enabled)];
-        try stdout.print("{c}{s}\n", .{ plus_or_minus, llvm_name });
+        try bw.print("{c}{s}\n", .{ plus_or_minus, llvm_name });
     }
 
     try bw.flush();
@@ -6519,6 +6526,11 @@ fn cmdDumpZir(
     };
     defer file.zir.?.deinit(gpa);
 
+    var bw: std.io.BufferedWriter = .{
+        .unbuffered_writer = io.getStdOut().writer(),
+        .buffer = &stdout_buffer,
+    };
+
     {
         const instruction_bytes = file.zir.?.instructions.len *
             // Here we don't use @sizeOf(Zir.Inst.Data) because it would include
@@ -6527,25 +6539,24 @@ fn cmdDumpZir(
         const extra_bytes = file.zir.?.extra.len * @sizeOf(u32);
         const total_bytes = @sizeOf(Zir) + instruction_bytes + extra_bytes +
             file.zir.?.string_bytes.len * @sizeOf(u8);
-        const stdout = io.getStdOut();
-        const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
         // zig fmt: off
-        try stdout.writer().print(
-            \\# Total ZIR bytes:    {}
-            \\# Instructions:       {d} ({})
-            \\# String Table Bytes: {}
-            \\# Extra Data Items:   {d} ({})
+        try bw.print(
+            \\# Total ZIR bytes:    {Bi}
+            \\# Instructions:       {d} ({Bi})
+            \\# String Table Bytes: {Bi}
+            \\# Extra Data Items:   {d} ({Bi})
             \\
         , .{
-            fmtIntSizeBin(total_bytes),
-            file.zir.?.instructions.len, fmtIntSizeBin(instruction_bytes),
-            fmtIntSizeBin(file.zir.?.string_bytes.len),
-            file.zir.?.extra.len, fmtIntSizeBin(extra_bytes),
+            total_bytes,
+            file.zir.?.instructions.len, instruction_bytes,
+            file.zir.?.string_bytes.len,
+            file.zir.?.extra.len, extra_bytes,
         });
         // zig fmt: on
     }
 
-    return @import("print_zir.zig").renderAsTextToFile(gpa, &file, io.getStdOut());
+    try @import("print_zir.zig").renderAsText(gpa, &file, &bw);
+    try bw.flush();
 }
 
 /// This is only enabled for debug builds.
@@ -6655,13 +6666,15 @@ fn cmdChangelist(
 
     try Zcu.mapOldZirToNew(gpa, old_zir, file.zir.?, &inst_map);
 
-    var bw = io.bufferedWriter(io.getStdOut().writer());
-    const stdout = bw.writer();
+    var bw: std.io.BufferedWriter = .{
+        .unbuffered_writer = io.getStdOut().writer(),
+        .buffer = &stdout_buffer,
+    };
     {
-        try stdout.print("Instruction mappings:\n", .{});
+        try bw.print("Instruction mappings:\n", .{});
         var it = inst_map.iterator();
         while (it.next()) |entry| {
-            try stdout.print(" %{d} => %{d}\n", .{
+            try bw.print(" %{d} => %{d}\n", .{
                 @intFromEnum(entry.key_ptr.*),
                 @intFromEnum(entry.value_ptr.*),
             });
@@ -6924,13 +6937,10 @@ fn accessFrameworkPath(
 
     for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
         test_path.clearRetainingCapacity();
-        try test_path.writer().print("{s}" ++ sep ++ "{s}.framework" ++ sep ++ "{s}{s}", .{
-            framework_dir_path,
-            framework_name,
-            framework_name,
-            ext,
+        try test_path.print("{s}" ++ sep ++ "{s}.framework" ++ sep ++ "{s}{s}", .{
+            framework_dir_path, framework_name, framework_name, ext,
         });
-        try checked_paths.writer().print("\n {s}", .{test_path.items});
+        try checked_paths.print("\n {s}", .{test_path.items});
         fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
             error.FileNotFound => continue,
             else => |e| fatal("unable to search for {s} framework '{s}': {s}", .{
@@ -7235,14 +7245,19 @@ fn cmdFetch(
         try fixups.append_string_after_node.put(gpa, manifest.version_node, dependencies_text);
     }
 
-    var rendered = std.ArrayList(u8).init(gpa);
-    defer rendered.deinit();
-    try ast.renderToArrayList(&rendered, fixups);
-
-    build_root.directory.handle.writeFile(.{ .sub_path = Package.Manifest.basename, .data = rendered.items }) catch |err| {
-        fatal("unable to write {s} file: {s}", .{ Package.Manifest.basename, @errorName(err) });
+    var file = build_root.directory.handle.createFile(Package.Manifest.basename, .{}) catch |err| {
+        fatal("unable to create {s} file: {s}", .{ Package.Manifest.basename, err });
     };
-
+    defer file.close();
+    var buffer: [4096]u8 = undefined;
+    var bw: std.io.BufferedWriter = .{
+        .unbuffered_writer = file.writer(),
+        .buffer = &buffer,
+    };
+    ast.render(gpa, &bw, fixups) catch |err| fatal("failed to render AST to {s}: {s}", .{
+        Package.Manifest.basename, err,
+    });
+    bw.flush() catch |err| fatal("failed to flush {s}: {s}", .{ Package.Manifest.basename, err });
     return cleanExit();
 }
 

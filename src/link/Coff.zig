@@ -870,8 +870,8 @@ fn debugMem(allocator: Allocator, handle: std.process.Child.Id, pvaddr: std.os.w
     const buffer = try allocator.alloc(u8, code.len);
     defer allocator.free(buffer);
     const memread = try std.os.windows.ReadProcessMemory(handle, pvaddr, buffer);
-    log.debug("to write: {x}", .{std.fmt.fmtSliceHexLower(code)});
-    log.debug("in memory: {x}", .{std.fmt.fmtSliceHexLower(memread)});
+    log.debug("to write: {x}", .{code});
+    log.debug("in memory: {x}", .{memread});
 }
 
 fn writeMemProtected(handle: std.process.Child.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
@@ -1802,17 +1802,17 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| blk: {
-            log.debug("COFF LLD new_digest={s} error: {s}", .{ std.fmt.fmtSliceHexLower(&digest), @errorName(err) });
+            log.debug("COFF LLD new_digest={x} error: {s}", .{ &digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
         if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("COFF LLD digest={s} match - skipping invocation", .{std.fmt.fmtSliceHexLower(&digest)});
+            log.debug("COFF LLD digest={x} match - skipping invocation", .{&digest});
             // Hot diggity dog! The output binary is already there.
             coff.base.lock = man.toOwnedLock();
             return;
         }
-        log.debug("COFF LLD prev_digest={s} new_digest={s}", .{ std.fmt.fmtSliceHexLower(prev_digest), std.fmt.fmtSliceHexLower(&digest) });
+        log.debug("COFF LLD prev_digest={x} new_digest={x}", .{ prev_digest, &digest });
 
         // We are about to change the output file to be different, so we invalidate the build hash now.
         directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {

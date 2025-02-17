@@ -1589,10 +1589,8 @@ fn dumpHashInfo(all_files: []const *const HashedFile) !void {
     const w = bw.writer();
 
     for (all_files) |hashed_file| {
-        try w.print("{s}: {s}: {s}\n", .{
-            @tagName(hashed_file.kind),
-            std.fmt.fmtSliceHexLower(&hashed_file.hash),
-            hashed_file.normalized_path,
+        try w.print("{s}: {x}: {s}\n", .{
+            @tagName(hashed_file.kind), &hashed_file.hash, hashed_file.normalized_path,
         });
     }
 

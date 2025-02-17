@@ -322,9 +322,9 @@ test parseCharLiteral {
     );
 }
 
-/// Parses `bytes` as a Zig string literal and writes the result to the std.io.Writer type.
+/// Parses `bytes` as a Zig string literal and writes the result to the `std.io.Writer` type.
 /// Asserts `bytes` has '"' at beginning and end.
-pub fn parseWrite(writer: anytype, bytes: []const u8) error{OutOfMemory}!Result {
+pub fn parseWrite(writer: *std.io.BufferedWriter, bytes: []const u8) anyerror!Result {
     assert(bytes.len >= 2 and bytes[0] == '"' and bytes[bytes.len - 1] == '"');
 
     var index: usize = 1;
@@ -340,18 +340,18 @@ pub fn parseWrite(writer: anytype, bytes: []const u8) error{OutOfMemory}!Result 
                         if (bytes[escape_char_index] == 'u') {
                             var buf: [4]u8 = undefined;
                             const len = utf8Encode(codepoint, &buf) catch {
-                                return Result{ .failure = .{ .invalid_unicode_codepoint = escape_char_index + 1 } };
+                                return .{ .failure = .{ .invalid_unicode_codepoint = escape_char_index + 1 } };
                             };
                             try writer.writeAll(buf[0..len]);
                         } else {
                             try writer.writeByte(@as(u8, @intCast(codepoint)));
                         }
                     },
-                    .failure => |err| return Result{ .failure = err },
+                    .failure => |err| return .{ .failure = err },
                 }
             },
-            '\n' => return Result{ .failure = .{ .invalid_character = index } },
-            '"' => return Result.success,
+            '\n' => return .{ .failure = .{ .invalid_character = index } },
+            '"' => return .success,
             else => {
                 try writer.writeByte(b);
                 index += 1;
@@ -363,10 +363,12 @@ pub fn parseWrite(writer: anytype, bytes: []const u8) error{OutOfMemory}!Result 
 /// Higher level API. Does not return extra info about parse errors.
 /// Caller owns returned memory.
 pub fn parseAlloc(allocator: std.mem.Allocator, bytes: []const u8) ParseError![]u8 {
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf: std.io.AllocatingWriter = undefined;
+    const bw = buf.init(allocator);
     defer buf.deinit();
-
-    switch (try parseWrite(buf.writer(), bytes)) {
+    // TODO try @errorCast(...)
+    const result = parseWrite(bw, bytes) catch |err| return @errorCast(err);
+    switch (result) {
         .success => return buf.toOwnedSlice(),
         .failure => return error.InvalidLiteral,
     }

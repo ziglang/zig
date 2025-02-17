@@ -4,7 +4,7 @@ const introspect = @import("introspect.zig");
 const Allocator = std.mem.Allocator;
 const fatal = @import("main.zig").fatal;
 
-pub fn cmdEnv(arena: Allocator, args: []const []const u8, stdout: std.fs.File.Writer) !void {
+pub fn cmdEnv(arena: Allocator, args: []const []const u8) !void {
     _ = args;
     const self_exe_path = try introspect.findZigExePath(arena);
 
@@ -20,10 +20,12 @@ pub fn cmdEnv(arena: Allocator, args: []const []const u8, stdout: std.fs.File.Wr
     const host = try std.zig.system.resolveTargetQuery(.{});
     const triple = try host.zigTriple(arena);
 
-    var bw = std.io.bufferedWriter(stdout);
-    const w = bw.writer();
-
-    var jws = std.json.writeStream(w, .{ .whitespace = .indent_1 });
+    var buffer: [1024]u8 = undefined;
+    var bw: std.io.BufferedWriter = .{
+        .buffer = &buffer,
+        .unbuffered_writer = std.io.getStdOut().writer(),
+    };
+    var jws = std.json.writeStream(bw, .{ .whitespace = .indent_1 });
 
     try jws.beginObject();
 
@@ -54,7 +56,7 @@ pub fn cmdEnv(arena: Allocator, args: []const []const u8, stdout: std.fs.File.Wr
     try jws.endObject();
 
     try jws.endObject();
-    try w.writeByte('\n');
+    try bw.writeByte('\n');
 
     try bw.flush();
 }

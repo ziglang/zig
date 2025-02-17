@@ -1634,17 +1634,17 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
             id_symlink_basename,
             &prev_digest_buf,
         ) catch |err| blk: {
-            log.debug("ELF LLD new_digest={s} error: {s}", .{ std.fmt.fmtSliceHexLower(&digest), @errorName(err) });
+            log.debug("ELF LLD new_digest={x} error: {s}", .{ &digest, @errorName(err) });
             // Handle this as a cache miss.
             break :blk prev_digest_buf[0..0];
         };
         if (mem.eql(u8, prev_digest, &digest)) {
-            log.debug("ELF LLD digest={s} match - skipping invocation", .{std.fmt.fmtSliceHexLower(&digest)});
+            log.debug("ELF LLD digest={x} match - skipping invocation", .{&digest});
             // Hot diggity dog! The output binary is already there.
             self.base.lock = man.toOwnedLock();
             return;
         }
-        log.debug("ELF LLD prev_digest={s} new_digest={s}", .{ std.fmt.fmtSliceHexLower(prev_digest), std.fmt.fmtSliceHexLower(&digest) });
+        log.debug("ELF LLD prev_digest={x} new_digest={x}", .{ prev_digest, &digest });
 
         // We are about to change the output file to be different, so we invalidate the build hash now.
         directory.handle.deleteFile(id_symlink_basename) catch |err| switch (err) {
@@ -1756,9 +1756,7 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                     }));
                 },
                 .hexstring => |hs| {
-                    try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{s}", .{
-                        std.fmt.fmtSliceHexLower(hs.toSlice()),
-                    }));
+                    try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{x}", .{hs.toSlice()}));
                 },
             }
         }

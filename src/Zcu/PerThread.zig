@@ -458,11 +458,8 @@ pub fn updateZirRefs(pt: Zcu.PerThread) Allocator.Error!void {
                     if (std.zig.srcHashEql(old_hash, new_hash)) {
                         break :hash_changed;
                     }
-                    log.debug("hash for (%{d} -> %{d}) changed: {} -> {}", .{
-                        old_inst,
-                        new_inst,
-                        std.fmt.fmtSliceHexLower(&old_hash),
-                        std.fmt.fmtSliceHexLower(&new_hash),
+                    log.debug("hash for (%{d} -> %{d}) changed: {x} -> {x}", .{
+                        old_inst, new_inst, &old_hash, &new_hash,
                     });
                 }
                 // The source hash associated with this instruction changed - invalidate relevant dependencies.

@@ -433,11 +433,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
             hasher.final(&bin_digest);
 
             var hex_digest: Cache.HexDigest = undefined;
-            _ = std.fmt.bufPrint(
-                &hex_digest,
-                "{s}",
-                .{std.fmt.fmtSliceHexLower(&bin_digest)},
-            ) catch unreachable;
+            _ = std.fmt.bufPrint(&hex_digest, "{x}", .{&bin_digest}) catch unreachable;
 
             break :digest hex_digest;
         };
