@@ -11441,10 +11441,13 @@ fn parseStrLit(
     offset: u32,
 ) InnerError!void {
     const raw_string = bytes[offset..];
-    var buf_managed = buf.toManaged(astgen.gpa);
-    const result = std.zig.string_literal.parseWrite(buf_managed.writer(), raw_string);
-    buf.* = buf_managed.moveToUnmanaged();
-    switch (try result) {
+    const result = r: {
+        var aw: std.io.AllocatingWriter = undefined;
+        const bw = aw.fromArrayList(astgen.gpa, buf);
+        defer buf.* = aw.toArrayList();
+        break :r std.zig.string_literal.parseWrite(bw, raw_string) catch |err| return @errorCast(err);
+    };
+    switch (result) {
         .success => return,
         .failure => |err| return astgen.failWithStrLitError(err, token, bytes, offset),
     }
@@ -11493,17 +11496,18 @@ fn appendErrorNodeNotes(
     notes: []const u32,
 ) Allocator.Error!void {
     @branchHint(.cold);
+    const gpa = astgen.gpa;
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
-    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
+    try string_bytes.print(gpa, format ++ "\x00", args);
     const notes_index: u32 = if (notes.len != 0) blk: {
         const notes_start = astgen.extra.items.len;
-        try astgen.extra.ensureTotalCapacity(astgen.gpa, notes_start + 1 + notes.len);
+        try astgen.extra.ensureTotalCapacity(gpa, notes_start + 1 + notes.len);
         astgen.extra.appendAssumeCapacity(@intCast(notes.len));
         astgen.extra.appendSliceAssumeCapacity(notes);
         break :blk @intCast(notes_start);
     } else 0;
-    try astgen.compile_errors.append(astgen.gpa, .{
+    try astgen.compile_errors.append(gpa, .{
         .msg = msg,
         .node = node.toOptional(),
         .token = .none,
@@ -11587,7 +11591,7 @@ fn appendErrorTokNotesOff(
     const gpa = astgen.gpa;
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
-    try string_bytes.writer(gpa).print(format ++ "\x00", args);
+    try string_bytes.print(gpa, format ++ "\x00", args);
     const notes_index: u32 = if (notes.len != 0) blk: {
         const notes_start = astgen.extra.items.len;
         try astgen.extra.ensureTotalCapacity(gpa, notes_start + 1 + notes.len);
@@ -11623,7 +11627,7 @@ fn errNoteTokOff(
     @branchHint(.cold);
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
-    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
+    try string_bytes.print(astgen.gpa, format ++ "\x00", args);
     return astgen.addExtra(Zir.Inst.CompileErrors.Item{
         .msg = msg,
         .node = .none,
@@ -11642,7 +11646,7 @@ fn errNoteNode(
     @branchHint(.cold);
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
-    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
+    try string_bytes.print(astgen.gpa, format ++ "\x00", args);
     return astgen.addExtra(Zir.Inst.CompileErrors.Item{
         .msg = msg,
         .node = node.toOptional(),
@@ -13888,13 +13892,14 @@ fn emitDbgStmtForceCurrentIndex(gz: *GenZir, lc: LineColumn) !void {
     } });
 }
 
-fn lowerAstErrors(astgen: *AstGen) !void {
+fn lowerAstErrors(astgen: *AstGen) error{OutOfMemory}!void {
     const gpa = astgen.gpa;
     const tree = astgen.tree;
     assert(tree.errors.len > 0);
 
-    var msg: std.ArrayListUnmanaged(u8) = .empty;
-    defer msg.deinit(gpa);
+    var msg: std.io.AllocatingWriter = undefined;
+    const msg_writer = msg.init(gpa);
+    defer msg.deinit();
 
     var notes: std.ArrayListUnmanaged(u32) = .empty;
     defer notes.deinit(gpa);
@@ -13928,20 +13933,20 @@ fn lowerAstErrors(astgen: *AstGen) !void {
             .extra = .{ .offset = bad_off },
         };
         msg.clearRetainingCapacity();
-        try tree.renderError(err, msg.writer(gpa));
-        return try astgen.appendErrorTokNotesOff(tok, bad_off, "{s}", .{msg.items}, notes.items);
+        tree.renderError(err, msg_writer) catch |e| return @errorCast(e); // TODO try @errorCast(...)
+        return try astgen.appendErrorTokNotesOff(tok, bad_off, "{s}", .{msg.getWritten()}, notes.items);
     }
 
     var cur_err = tree.errors[0];
     for (tree.errors[1..]) |err| {
         if (err.is_note) {
-            try tree.renderError(err, msg.writer(gpa));
-            try notes.append(gpa, try astgen.errNoteTok(err.token, "{s}", .{msg.items}));
+            tree.renderError(err, msg_writer) catch |e| return @errorCast(e); // TODO try @errorCast(...)
+            try notes.append(gpa, try astgen.errNoteTok(err.token, "{s}", .{msg.getWritten()}));
         } else {
             // Flush error
             const extra_offset = tree.errorOffset(cur_err);
-            try tree.renderError(cur_err, msg.writer(gpa));
-            try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.items}, notes.items);
+            tree.renderError(cur_err, msg_writer) catch |e| return @errorCast(e); // TODO try @errorCast(...)
+            try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.getWritten()}, notes.items);
             notes.clearRetainingCapacity();
             cur_err = err;
 
@@ -13954,8 +13959,8 @@ fn lowerAstErrors(astgen: *AstGen) !void {
 
     // Flush error
     const extra_offset = tree.errorOffset(cur_err);
-    try tree.renderError(cur_err, msg.writer(gpa));
-    try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.items}, notes.items);
+    tree.renderError(cur_err, msg_writer) catch |e| return @errorCast(e); // TODO try @errorCast(...)
+    try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.getWritten()}, notes.items);
 }
 
 const DeclarationName = union(enum) {

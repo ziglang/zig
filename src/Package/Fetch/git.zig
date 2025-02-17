@@ -127,7 +127,7 @@ pub const Oid = union(Format) {
     ) @TypeOf(writer).Error!void {
         _ = fmt;
         _ = options;
-        try writer.print("{}", .{std.fmt.fmtSliceHexLower(oid.slice())});
+        try writer.print("{x}", .{oid.slice()});
     }
 
     pub fn slice(oid: *const Oid) []const u8 {

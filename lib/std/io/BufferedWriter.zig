@@ -663,9 +663,14 @@ pub fn printValue(
             }
         },
         .error_set => {
-            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
-            try bw.writeAll("error.");
-            return bw.writeAll(@errorName(value));
+            if (actual_fmt.len > 0 and actual_fmt.len[0] == 's') {
+                return bw.writeAll(@errorName(value));
+            } else if (actual_fmt.len != 0) {
+                invalidFmtError(fmt, value);
+            } else {
+                try bw.writeAll("error.");
+                return bw.writeAll(@errorName(value));
+            }
         },
         .@"enum" => |enumInfo| {
             try bw.writeAll(@typeName(T));

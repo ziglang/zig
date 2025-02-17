@@ -1,13 +1,6 @@
-pub fn renderToFile(zoir: Zoir, arena: Allocator, f: std.fs.File) (std.fs.File.WriteError || Allocator.Error)!void {
-    var bw = std.io.bufferedWriter(f.writer());
-    try renderToWriter(zoir, arena, bw.writer());
-    try bw.flush();
-}
-
-pub fn renderToWriter(zoir: Zoir, arena: Allocator, w: anytype) (@TypeOf(w).Error || Allocator.Error)!void {
+pub fn renderToWriter(zoir: Zoir, arena: Allocator, w: *std.io.BufferedWriter) anyerror!void {
     assert(!zoir.hasCompileErrors());
 
-    const fmtIntSizeBin = std.fmt.fmtIntSizeBin;
     const bytes_per_node = comptime n: {
         var n: usize = 0;
         for (@typeInfo(Zoir.Node.Repr).@"struct".fields) |f| {
@@ -23,22 +16,22 @@ pub fn renderToWriter(zoir: Zoir, arena: Allocator, w: anytype) (@TypeOf(w).Erro
 
     // zig fmt: off
     try w.print(
-        \\# Nodes:              {} ({})
-        \\# Extra Data Items:   {} ({})
-        \\# BigInt Limbs:       {} ({})
-        \\# String Table Bytes: {}
-        \\# Total ZON Bytes:    {}
+        \\# Nodes:              {} ({Bi})
+        \\# Extra Data Items:   {} ({Bi})
+        \\# BigInt Limbs:       {} ({Bi})
+        \\# String Table Bytes: {Bi}
+        \\# Total ZON Bytes:    {Bi}
         \\
     , .{
-        zoir.nodes.len, fmtIntSizeBin(node_bytes),
-        zoir.extra.len, fmtIntSizeBin(extra_bytes),
-        zoir.limbs.len, fmtIntSizeBin(limb_bytes),
-        fmtIntSizeBin(string_bytes),
-        fmtIntSizeBin(node_bytes + extra_bytes + limb_bytes + string_bytes),
+        zoir.nodes.len, node_bytes,
+        zoir.extra.len, extra_bytes,
+        zoir.limbs.len, limb_bytes,
+        string_bytes,
+        node_bytes + extra_bytes + limb_bytes + string_bytes,
     });
     // zig fmt: on
     var pz: PrintZon = .{
-        .w = w.any(),
+        .w = w,
         .arena = arena,
         .zoir = zoir,
         .indent = 0,
@@ -48,7 +41,7 @@ pub fn renderToWriter(zoir: Zoir, arena: Allocator, w: anytype) (@TypeOf(w).Erro
 }
 
 const PrintZon = struct {
-    w: std.io.AnyWriter,
+    w: *std.io.BufferedWriter,
     arena: Allocator,
     zoir: Zoir,
     indent: u32,
