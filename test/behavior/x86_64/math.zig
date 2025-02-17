@@ -55,6 +55,17 @@ fn DoubleBits(comptime Type: type) type {
         .vector => |vector| @Vector(vector.len, ResultScalar),
     };
 }
+fn RoundBitsUp(comptime Type: type, comptime multiple: u16) type {
+    const ResultScalar = switch (@typeInfo(Scalar(Type))) {
+        .int => |int| @Type(.{ .int = .{ .signedness = int.signedness, .bits = std.mem.alignForward(u16, int.bits, multiple) } }),
+        .float => Scalar(Type),
+        else => @compileError(@typeName(Type)),
+    };
+    return switch (@typeInfo(Type)) {
+        else => ResultScalar,
+        .vector => |vector| @Vector(vector.len, ResultScalar),
+    };
+}
 // inline to avoid a runtime `@splat`
 inline fn splat(comptime Type: type, scalar: Scalar(Type)) Type {
     return switch (@typeInfo(Type)) {
@@ -19260,6 +19271,14 @@ test clz {
     const test_clz = unary(clz, .{});
     try test_clz.testInts();
     try test_clz.testIntVectors();
+}
+
+inline fn byteSwap(comptime Type: type, rhs: Type) RoundBitsUp(Type, 8) {
+    return @byteSwap(@as(RoundBitsUp(Type, 8), rhs));
+}
+test byteSwap {
+    const test_byte_swap = unary(byteSwap, .{});
+    try test_byte_swap.testInts();
 }
 
 inline fn sqrt(comptime Type: type, rhs: Type) @TypeOf(@sqrt(rhs)) {
