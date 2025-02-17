@@ -19,7 +19,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
 
-pub const writer = @import("tar/writer.zig").writer;
+pub const Writer = @import("tar/Writer.zig");
 
 /// Provide this to receive detailed error messages.
 /// When this is provided, some errors which would otherwise be returned
@@ -597,7 +597,7 @@ fn PaxIterator(comptime ReaderType: type) type {
         }
 
         fn readUntil(self: *Self, delimiter: u8) ![]const u8 {
-            var fbs = std.io.fixedBufferStream(&self.scratch);
+            var fbs: std.io.FixedBufferStream = .{ .buffer = &self.scratch };
             try self.reader.streamUntilDelimiter(fbs.writer(), delimiter, null);
             return fbs.getWritten();
         }
@@ -848,7 +848,7 @@ test PaxIterator {
 
 test {
     _ = @import("tar/test.zig");
-    _ = @import("tar/writer.zig");
+    _ = Writer;
     _ = Diagnostics;
 }
 

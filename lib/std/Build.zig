@@ -2764,7 +2764,7 @@ pub fn dumpBadGetPathHelp(
     src_builder: *Build,
     asking_step: ?*Step,
 ) anyerror!void {
-    var buffered_writer = stderr.unbufferedWriter();
+    var buffered_writer = stderr.writer().unbuffered();
     const w = &buffered_writer;
     try w.print(
         \\getPath() was called on a GeneratedFile that wasn't built yet.

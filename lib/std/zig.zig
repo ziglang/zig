@@ -408,7 +408,7 @@ fn formatId(
     bytes: []const u8,
     comptime fmt: []const u8,
     options: std.fmt.FormatOptions,
-    writer: anytype,
+    writer: *std.io.BufferedWriter,
 ) !void {
     const allow_primitive, const allow_underscore = comptime parse_fmt: {
         var allow_primitive = false;

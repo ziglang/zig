@@ -210,7 +210,7 @@ pub fn unlockStdErr() void {
 /// in fact unbuffered and does not need to be flushed.
 pub fn lockStdErr2() std.io.BufferedWriter {
     std.Progress.lockStdErr();
-    return io.getStdErr().unbufferedWriter();
+    return io.getStdErr().writer().unbuffered();
 }
 
 /// Print to stderr, unbuffered, and silently returning on failure. Intended
@@ -1434,7 +1434,7 @@ fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopa
 }
 
 fn dumpSegfaultInfoPosix(sig: i32, code: i32, addr: usize, ctx_ptr: ?*anyopaque) void {
-    var stderr = io.getStdErr().unbufferedWriter();
+    var stderr = io.getStdErr().writer().unbuffered();
     _ = switch (sig) {
         posix.SIG.SEGV => if (native_arch == .x86_64 and native_os == .linux and code == 128) // SI_KERNEL
             // x86_64 doesn't have a full 64-bit virtual address space.
@@ -1506,7 +1506,7 @@ fn handleSegfaultWindowsExtra(info: *windows.EXCEPTION_POINTERS, msg: u8, label:
 }
 
 fn dumpSegfaultInfoWindows(info: *windows.EXCEPTION_POINTERS, msg: u8, label: ?[]const u8) void {
-    var stderr = io.getStdErr().unbufferedWriter();
+    var stderr = io.getStdErr().writer().unbuffered();
     _ = switch (msg) {
         0 => stderr.print("{s}\n", .{label.?}),
         1 => stderr.print("Segmentation fault at address 0x{x}\n", .{info.ExceptionRecord.ExceptionInformation[1]}),

@@ -853,7 +853,7 @@ pub fn bufPrintZ(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintErr
 /// Count the characters needed for format.
 pub fn count(comptime fmt: []const u8, args: anytype) u64 {
     var counting_writer: std.io.CountingWriter = .{ .child_writer = std.io.null_writer };
-    var bw = counting_writer.unbufferedWriter();
+    var bw = counting_writer.writer().unbuffered();
     bw.print(fmt, args) catch unreachable;
     return counting_writer.bytes_written;
 }

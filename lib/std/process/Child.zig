@@ -994,7 +994,7 @@ fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
     const file: File = .{ .handle = fd };
-    var bw = file.unbufferedWriter();
+    var bw = file.writer().unbuffered();
     bw.writeInt(u64, @intCast(value), .little) catch return error.SystemResources;
 }
 

@@ -1601,13 +1601,6 @@ pub fn writer(file: File) std.io.Writer {
     };
 }
 
-pub fn unbufferedWriter(file: File) std.io.BufferedWriter {
-    return .{
-        .buffer = &.{},
-        .unbuffered_writer = writer(file),
-    };
-}
-
 const interface = struct {
     /// Number of slices to store on the stack, when trying to send as many byte
     /// vectors through the underlying write calls as possible.
