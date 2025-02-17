@@ -1,4 +1,3 @@
-//! TODO rename to AllocatingWriter.
 //! While it is possible to use `std.ArrayList` as the underlying writer when
 //! using `std.io.BufferedWriter` by populating the `std.io.Writer` interface
 //! and then using an empty buffer, it means that every use of
@@ -39,6 +38,12 @@ pub fn init(aw: *AllocatingWriter, allocator: std.mem.Allocator) *std.io.Buffere
         },
     };
     return &aw.buffered_writer;
+}
+
+pub fn deinit(aw: *AllocatingWriter) void {
+    const written = aw.written;
+    aw.allocator.free(written.ptr[0 .. written.len + aw.buffered_writer.buffer.len]);
+    aw.* = undefined;
 }
 
 /// Replaces `array_list` with empty, taking ownership of the memory.
@@ -183,4 +188,16 @@ fn writeFile(
     }
     for (trailers) |bytes| list.appendSliceAssumeCapacity(bytes);
     return list.items.len - start_len;
+}
+
+test AllocatingWriter {
+    var aw: AllocatingWriter = undefined;
+    const bw = aw.init(std.testing.allocator);
+    defer aw.deinit();
+
+    const x: i32 = 42;
+    const y: i32 = 1234;
+    try bw.print("x: {}\ny: {}\n", .{ x, y });
+
+    try std.testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", aw.getWritten());
 }

@@ -15,12 +15,15 @@ pub fn decompress(
 
 test {
     const expected = "Hello\nWorld!\n";
-    const compressed = &[_]u8{ 0x01, 0x00, 0x05, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x0A, 0x02, 0x00, 0x06, 0x57, 0x6F, 0x72, 0x6C, 0x64, 0x21, 0x0A, 0x00 };
+    const compressed = &[_]u8{
+        0x01, 0x00, 0x05, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x0A, 0x02,
+        0x00, 0x06, 0x57, 0x6F, 0x72, 0x6C, 0x64, 0x21, 0x0A, 0x00,
+    };
+    var stream: std.io.FixedBufferStream = .{ .buffer = compressed };
 
-    const allocator = std.testing.allocator;
-    var decomp = std.ArrayList(u8).init(allocator);
+    var decomp: std.io.AllocatingWriter = undefined;
+    const decomp_bw = decomp.init(std.testing.allocator);
     defer decomp.deinit();
-    var stream = std.io.fixedBufferStream(compressed);
-    try decompress(allocator, stream.reader(), decomp.writer());
-    try std.testing.expectEqualSlices(u8, expected, decomp.items);
+    try decompress(std.testing.allocator, stream.reader(), decomp_bw);
+    try std.testing.expectEqualSlices(u8, expected, decomp.getWritten());
 }

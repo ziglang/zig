@@ -34,7 +34,7 @@ pub const Component = union(enum) {
         return switch (component) {
             .raw => |raw| raw,
             .percent_encoded => |percent_encoded| if (std.mem.indexOfScalar(u8, percent_encoded, '%')) |_|
-                try std.fmt.allocPrint(arena, "{raw}", .{component})
+                try std.fmt.allocPrint(arena, "{fraw}", .{component})
             else
                 percent_encoded,
         };
@@ -44,8 +44,8 @@ pub const Component = union(enum) {
         component: Component,
         comptime fmt_str: []const u8,
         _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
+        writer: *std.io.BufferedWriter,
+    ) anyerror!void {
         if (fmt_str.len == 0) {
             try writer.print("std.Uri.Component{{ .{s} = \"{}\" }}", .{
                 @tagName(component),
@@ -97,10 +97,10 @@ pub const Component = union(enum) {
     }
 
     pub fn percentEncode(
-        writer: anytype,
+        writer: *std.io.BufferedWriter,
         raw: []const u8,
         comptime isValidChar: fn (u8) bool,
-    ) @TypeOf(writer).Error!void {
+    ) anyerror!void {
         var start: usize = 0;
         for (raw, 0..) |char, index| {
             if (isValidChar(char)) continue;
@@ -822,7 +822,7 @@ test "URI percent decoding" {
         const expected = "\\ö/ äöß ~~.adas-https://canvas:123/#ads&&sad";
         var input = "%5C%C3%B6%2F%20%C3%A4%C3%B6%C3%9F%20~~.adas-https%3A%2F%2Fcanvas%3A123%2F%23ads%26%26sad".*;
 
-        try std.testing.expectFmt(expected, "{raw}", .{Component{ .percent_encoded = &input }});
+        try std.testing.expectFmt(expected, "{fraw}", .{Component{ .percent_encoded = &input }});
 
         var output: [expected.len]u8 = undefined;
         try std.testing.expectEqualStrings(percentDecodeBackwards(&output, &input), expected);
@@ -834,7 +834,7 @@ test "URI percent decoding" {
         const expected = "/abc%";
         var input = expected.*;
 
-        try std.testing.expectFmt(expected, "{raw}", .{Component{ .percent_encoded = &input }});
+        try std.testing.expectFmt(expected, "{fraw}", .{Component{ .percent_encoded = &input }});
 
         var output: [expected.len]u8 = undefined;
         try std.testing.expectEqualStrings(percentDecodeBackwards(&output, &input), expected);

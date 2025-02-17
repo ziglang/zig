@@ -1242,7 +1242,7 @@ const MachODumper = struct {
         }
 
         fn parseRebaseInfo(ctx: ObjectContext, data: []const u8, rebases: *std.ArrayList(u64)) !void {
-            var stream = std.io.fixedBufferStream(data);
+            var stream: std.io.FixedBufferStream = .{ .buffer = data };
             var creader = std.io.countingReader(stream.reader());
             const reader = creader.reader();
 
@@ -1354,7 +1354,7 @@ const MachODumper = struct {
         }
 
         fn parseBindInfo(ctx: ObjectContext, data: []const u8, bindings: *std.ArrayList(Binding)) !void {
-            var stream = std.io.fixedBufferStream(data);
+            var stream: std.io.FixedBufferStream = .{ .buffer = data };
             var creader = std.io.countingReader(stream.reader());
             const reader = creader.reader();
 
@@ -1487,8 +1487,8 @@ const MachODumper = struct {
             data: []const u8,
             pos: usize = 0,
 
-            fn getStream(it: *TrieIterator) std.io.FixedBufferStream([]const u8) {
-                return std.io.fixedBufferStream(it.data[it.pos..]);
+            fn getStream(it: *TrieIterator) std.io.FixedBufferStream {
+                return .{ .buffer = it.data[it.pos..] };
             }
 
             fn readUleb128(it: *TrieIterator) !u64 {
@@ -1748,7 +1748,7 @@ const ElfDumper = struct {
 
     fn parseAndDumpArchive(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
-        var stream = std.io.fixedBufferStream(bytes);
+        var stream: std.io.FixedBufferStream = .{ .buffer = bytes };
         const reader = stream.reader();
 
         const magic = try reader.readBytesNoEof(elf.ARMAG.len);
@@ -1805,8 +1805,8 @@ const ElfDumper = struct {
             try ctx.objects.append(gpa, .{ .name = name, .off = stream.pos, .len = size });
         }
 
-        var output = std.ArrayList(u8).init(gpa);
-        const writer = output.writer();
+        var output: std.io.AllocatingWriter = undefined;
+        const writer = output.init(gpa);
 
         switch (check.kind) {
             .archive_symtab => if (ctx.symtab.items.len > 0) {
@@ -1829,7 +1829,7 @@ const ElfDumper = struct {
         objects: std.ArrayListUnmanaged(struct { name: []const u8, off: usize, len: usize }) = .empty,
 
         fn parseSymtab(ctx: *ArchiveContext, raw: []const u8, ptr_width: enum { p32, p64 }) !void {
-            var stream = std.io.fixedBufferStream(raw);
+            var stream: std.io.FixedBufferStream = .{ .buffer = raw };
             const reader = stream.reader();
             const num = switch (ptr_width) {
                 .p32 => try reader.readInt(u32, .big),
@@ -1914,7 +1914,7 @@ const ElfDumper = struct {
 
     fn parseAndDumpObject(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
-        var stream = std.io.fixedBufferStream(bytes);
+        var stream: std.io.FixedBufferStream = .{ .buffer = bytes };
         const reader = stream.reader();
 
         const hdr = try reader.readStruct(elf.Elf64_Ehdr);
@@ -2419,7 +2419,7 @@ const WasmDumper = struct {
 
     fn parseAndDump(step: *Step, check: Check, bytes: []const u8) ![]const u8 {
         const gpa = step.owner.allocator;
-        var fbs = std.io.fixedBufferStream(bytes);
+        var fbs: std.io.FixedBufferStream = .{ .buffer = bytes };
         const reader = fbs.reader();
 
         const buf = try reader.readBytesNoEof(8);
@@ -2472,7 +2472,7 @@ const WasmDumper = struct {
         data: []const u8,
         bw: *std.io.BufferedWriter,
     ) !void {
-        var fbs = std.io.fixedBufferStream(data);
+        var fbs: std.io.FixedBufferStream = .{ .buffer = data };
         const reader = fbs.reader();
 
         try bw.print(
@@ -2524,7 +2524,7 @@ const WasmDumper = struct {
     }
 
     fn parseSection(step: *Step, section: std.wasm.Section, data: []const u8, entries: u32, bw: *std.io.BufferedWriter) !void {
-        var fbs = std.io.fixedBufferStream(data);
+        var fbs: std.io.FixedBufferStream = .{ .buffer = data };
         const reader = fbs.reader();
 
         switch (section) {

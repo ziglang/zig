@@ -41,7 +41,7 @@ fn decodeFseHuffmanTree(
 
 fn decodeFseHuffmanTreeSlice(src: []const u8, compressed_size: usize, weights: *[256]u4) !usize {
     if (src.len < compressed_size) return error.MalformedHuffmanTree;
-    var stream = std.io.fixedBufferStream(src[0..compressed_size]);
+    var stream: std.io.FixedBufferStream = .{ .buffer = src[0..compressed_size] };
     var counting_reader = std.io.countingReader(stream.reader());
     var bit_reader = readers.bitReader(counting_reader.reader());
 
@@ -213,7 +213,7 @@ pub fn decodeHuffmanTreeSlice(
         bytes_read += header;
         break :count try decodeFseHuffmanTreeSlice(src[1..], header, &weights);
     } else count: {
-        var fbs = std.io.fixedBufferStream(src[1..]);
+        var fbs: std.io.FixedBufferStream = .{ .buffer = src[1..] };
         defer bytes_read += fbs.pos;
         break :count try decodeDirectHuffmanTree(fbs.reader(), header - 127, &weights);
     };
