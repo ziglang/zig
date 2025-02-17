@@ -219,7 +219,8 @@ fn State128X(comptime degree: u7) type {
                     128 => {
                         const tags = blocks[0].xorBlocks(blocks[1]).xorBlocks(blocks[2]).xorBlocks(blocks[3]).xorBlocks(blocks[4]).xorBlocks(blocks[5]).xorBlocks(blocks[6]).toBytes();
                         for (0..degree / 2) |d| {
-                            v[0..32].* = tags[d * 32 ..][0..32].*;
+                            v[0..16].* = tags[d * 32 ..][0..16].*;
+                            v[rate / 2 ..][0..16].* = tags[d * 32 ..][16..32].*;
                             state.absorb(&v);
                         }
                     },
@@ -227,7 +228,8 @@ fn State128X(comptime degree: u7) type {
                         const tags_0 = blocks[0].xorBlocks(blocks[1]).xorBlocks(blocks[2]).xorBlocks(blocks[3]).toBytes();
                         const tags_1 = blocks[4].xorBlocks(blocks[5]).xorBlocks(blocks[6]).xorBlocks(blocks[7]).toBytes();
                         for (1..degree) |d| {
-                            v[0..32].* = tags_0[d * 16 ..][0..16].* ++ tags_1[d * 16 ..][0..16].*;
+                            v[0..16].* = tags_0[d * 16 ..][0..16].*;
+                            v[rate / 2 ..][0..16].* = tags_1[d * 16 ..][0..16].*;
                             state.absorb(&v);
                         }
                     },
@@ -1013,13 +1015,13 @@ test "AEGISMAC-128* test vectors" {
 
     Aegis128X2Mac.createWithNonce(&mac256, &msg, &key, &nonce);
     Aegis128X2Mac_128.createWithNonce(&mac128, &msg, &key, &nonce);
-    try htest.assertEqual("7aa41edfd57a95c1108d83c63b8d4d01", &mac128);
-    try htest.assertEqual("55b6449929cd2b01d04786e57698b3ddfb5cbf6e421bbd022637a33d60f40294", &mac256);
+    try htest.assertEqual("6873ee34e6b5c59143b6d35c5e4f2c6e", &mac128);
+    try htest.assertEqual("afcba3fc2d63c8d6c7f2d63f3ec8fbbbaf022e15ac120e78ffa7755abccd959c", &mac256);
 
     Aegis128X4Mac.createWithNonce(&mac256, &msg, &key, &nonce);
     Aegis128X4Mac_128.createWithNonce(&mac128, &msg, &key, &nonce);
-    try htest.assertEqual("46a194ea4337bb32c2186a99e312f3a7", &mac128);
-    try htest.assertEqual("ea884072699569532fb68ae9fb2653c9ffef3e974333d3a17d77be02453cc12f", &mac256);
+    try htest.assertEqual("c45a98fd9ab8956ce616eb008cfe4e53", &mac128);
+    try htest.assertEqual("26fdc76f41b1da7aec7779f6e964beae8904e662f05aca8345ae3befb357412a", &mac256);
 }
 
 test "AEGISMAC-256* test vectors" {
