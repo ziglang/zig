@@ -458,6 +458,16 @@ pub fn renderError(tree: Ast, parse_error: Error, stream: anytype) !void {
             return stream.writeAll("for input is not captured");
         },
 
+        .unterminated_literal => {
+            return stream.print("unterminated '{s} literal'", .{
+                switch (tree.source[tree.tokens.items(.start)[parse_error.token]]) {
+                    '\'' => "character",
+                    '"' => "string",
+                    else => unreachable,
+                },
+            });
+        },
+
         .invalid_byte => {
             const tok_slice = tree.source[tree.tokens.items(.start)[parse_error.token]..];
             return stream.print("{s} contains invalid byte: '{'}'", .{
@@ -3003,6 +3013,7 @@ pub const Error = struct {
         var_const_decl,
         extra_for_capture,
         for_input_not_captured,
+        unterminated_literal,
 
         zig_style_container,
         previous_field,

@@ -5,4 +5,4 @@ b";
 // backend=stage2
 // target=native
 //
-// :1:15: error: string literal contains invalid byte: '\n'
+// :1:13: error: unterminated 'string literal'
