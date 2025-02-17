@@ -194,7 +194,7 @@ fn renderErrorMessageToWriter(
 ) anyerror!void {
     const ttyconf = options.ttyconf;
     var counting_writer: std.io.CountingWriter = .{ .child_writer = bw.writer() };
-    var counting_bw = counting_writer.unbufferedWriter();
+    var counting_bw = counting_writer.writer().unbuffered();
     const err_msg = eb.getErrorMessage(err_msg_index);
     if (err_msg.src_loc != .none) {
         const src = eb.extraData(SourceLocation, @intFromEnum(err_msg.src_loc));
