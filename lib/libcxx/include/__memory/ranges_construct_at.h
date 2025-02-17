@@ -22,7 +22,6 @@
 #include <__utility/declval.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
-#include <new>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -38,43 +37,33 @@ namespace ranges {
 
 // construct_at
 
-namespace __construct_at {
-
-struct __fn {
+struct __construct_at {
   template <class _Tp, class... _Args, class = decltype(::new(std::declval<void*>()) _Tp(std::declval<_Args>()...))>
   _LIBCPP_HIDE_FROM_ABI constexpr _Tp* operator()(_Tp* __location, _Args&&... __args) const {
     return std::construct_at(__location, std::forward<_Args>(__args)...);
   }
 };
 
-} // namespace __construct_at
-
 inline namespace __cpo {
-inline constexpr auto construct_at = __construct_at::__fn{};
+inline constexpr auto construct_at = __construct_at{};
 } // namespace __cpo
 
 // destroy_at
 
-namespace __destroy_at {
-
-struct __fn {
+struct __destroy_at {
   template <destructible _Tp>
   _LIBCPP_HIDE_FROM_ABI constexpr void operator()(_Tp* __location) const noexcept {
     std::destroy_at(__location);
   }
 };
 
-} // namespace __destroy_at
-
 inline namespace __cpo {
-inline constexpr auto destroy_at = __destroy_at::__fn{};
+inline constexpr auto destroy_at = __destroy_at{};
 } // namespace __cpo
 
 // destroy
 
-namespace __destroy {
-
-struct __fn {
+struct __destroy {
   template <__nothrow_input_iterator _InputIterator, __nothrow_sentinel_for<_InputIterator> _Sentinel>
     requires destructible<iter_value_t<_InputIterator>>
   _LIBCPP_HIDE_FROM_ABI constexpr _InputIterator operator()(_InputIterator __first, _Sentinel __last) const noexcept {
@@ -88,17 +77,13 @@ struct __fn {
   }
 };
 
-} // namespace __destroy
-
 inline namespace __cpo {
-inline constexpr auto destroy = __destroy::__fn{};
+inline constexpr auto destroy = __destroy{};
 } // namespace __cpo
 
 // destroy_n
 
-namespace __destroy_n {
-
-struct __fn {
+struct __destroy_n {
   template <__nothrow_input_iterator _InputIterator>
     requires destructible<iter_value_t<_InputIterator>>
   _LIBCPP_HIDE_FROM_ABI constexpr _InputIterator
@@ -107,10 +92,8 @@ struct __fn {
   }
 };
 
-} // namespace __destroy_n
-
 inline namespace __cpo {
-inline constexpr auto destroy_n = __destroy_n::__fn{};
+inline constexpr auto destroy_n = __destroy_n{};
 } // namespace __cpo
 
 } // namespace ranges

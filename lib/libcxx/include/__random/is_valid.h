@@ -66,12 +66,12 @@ struct __libcpp_random_is_valid_inttype<unsigned long> : true_type {};
 template <>
 struct __libcpp_random_is_valid_inttype<unsigned long long> : true_type {};
 
-#ifndef _LIBCPP_HAS_NO_INT128
+#if _LIBCPP_HAS_INT128
 template <>
 struct __libcpp_random_is_valid_inttype<__int128_t> : true_type {}; // extension
 template <>
 struct __libcpp_random_is_valid_inttype<__uint128_t> : true_type {}; // extension
-#endif                                                               // _LIBCPP_HAS_NO_INT128
+#endif                                                               // _LIBCPP_HAS_INT128
 
 // [rand.req.urng]/3:
 // A class G meets the uniform random bit generator requirements if G models

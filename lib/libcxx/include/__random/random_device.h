@@ -21,7 +21,7 @@ _LIBCPP_PUSH_MACROS
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#if !defined(_LIBCPP_HAS_NO_RANDOM_DEVICE)
+#if _LIBCPP_HAS_RANDOM_DEVICE
 
 class _LIBCPP_EXPORTED_FROM_ABI random_device {
 #  ifdef _LIBCPP_USING_DEV_RANDOM
@@ -72,7 +72,7 @@ public:
   void operator=(const random_device&) = delete;
 };
 
-#endif // !_LIBCPP_HAS_NO_RANDOM_DEVICE
+#endif // _LIBCPP_HAS_RANDOM_DEVICE
 
 _LIBCPP_END_NAMESPACE_STD
 

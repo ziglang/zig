@@ -5680,29 +5680,7 @@ pub fn addCCArgs(
                     comp.zig_lib_directory.path.?, "libcxxabi", "include",
                 }));
 
-                if (target.abi.isMusl()) {
-                    try argv.append("-D_LIBCPP_HAS_MUSL_LIBC");
-                }
-
-                try argv.append("-D_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS");
-                try argv.append("-D_LIBCPP_HAS_NO_VENDOR_AVAILABILITY_ANNOTATIONS");
-                try argv.append("-D_LIBCXXABI_DISABLE_VISIBILITY_ANNOTATIONS");
-
-                if (!comp.config.any_non_single_threaded) {
-                    try argv.append("-D_LIBCPP_HAS_NO_THREADS");
-                }
-
-                // See the comment in libcxx.zig for more details about this.
-                try argv.append("-D_LIBCPP_PSTL_BACKEND_SERIAL");
-
-                try argv.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_VERSION={d}", .{
-                    @intFromEnum(comp.libcxx_abi_version),
-                }));
-                try argv.append(try std.fmt.allocPrint(arena, "-D_LIBCPP_ABI_NAMESPACE=__{d}", .{
-                    @intFromEnum(comp.libcxx_abi_version),
-                }));
-
-                try argv.append(libcxx.hardeningModeFlag(mod.optimize_mode));
+                try libcxx.addCxxArgs(comp, arena, argv);
             }
 
             // According to Rich Felker libc headers are supposed to go before C language headers.

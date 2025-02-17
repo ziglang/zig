@@ -15,6 +15,7 @@
 #include <__concepts/constructible.h>
 #include <__concepts/convertible_to.h>
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__functional/bind_back.h>
 #include <__fwd/span.h>
 #include <__fwd/string_view.h>
@@ -42,7 +43,6 @@
 #include <__utility/auto_cast.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -64,7 +64,7 @@ class drop_view : public view_interface<drop_view<_View>> {
   // Note: drop_view<input-range>::begin() is still trivially amortized O(1) because
   // one can't call begin() on it more than once.
   static constexpr bool _UseCache = forward_range<_View> && !(random_access_range<_View> && sized_range<_View>);
-  using _Cache                    = _If<_UseCache, __non_propagating_cache<iterator_t<_View>>, __empty_cache>;
+  using _Cache _LIBCPP_NODEBUG    = _If<_UseCache, __non_propagating_cache<iterator_t<_View>>, __empty_cache>;
   _LIBCPP_NO_UNIQUE_ADDRESS _Cache __cached_begin_ = _Cache();
   range_difference_t<_View> __count_               = 0;
   _View __base_                                    = _View();
@@ -204,7 +204,7 @@ struct __passthrough_type<subrange<_Iter, _Sent, _Kind>> {
 };
 
 template <class _Tp>
-using __passthrough_type_t = typename __passthrough_type<_Tp>::type;
+using __passthrough_type_t _LIBCPP_NODEBUG = typename __passthrough_type<_Tp>::type;
 
 struct __fn {
   // [range.drop.overview]: the `empty_view` case.
@@ -307,7 +307,7 @@ struct __fn {
     requires constructible_from<decay_t<_Np>, _Np>
   [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Np&& __n) const
       noexcept(is_nothrow_constructible_v<decay_t<_Np>, _Np>) {
-    return __range_adaptor_closure_t(std::__bind_back(*this, std::forward<_Np>(__n)));
+    return __pipeable(std::__bind_back(*this, std::forward<_Np>(__n)));
   }
 };
 

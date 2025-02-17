@@ -10,8 +10,11 @@
 #ifndef _LIBCPP___ALGORITHM_COUNT_IF_H
 #define _LIBCPP___ALGORITHM_COUNT_IF_H
 
+#include <__algorithm/iterator_operations.h>
 #include <__config>
+#include <__functional/identity.h>
 #include <__iterator/iterator_traits.h>
+#include <__type_traits/invoke.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -19,15 +22,23 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
+template <class _AlgPolicy, class _Iter, class _Sent, class _Proj, class _Pred>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 __policy_iter_diff_t<_AlgPolicy, _Iter>
+__count_if(_Iter __first, _Sent __last, _Pred& __pred, _Proj& __proj) {
+  __policy_iter_diff_t<_AlgPolicy, _Iter> __counter(0);
+  for (; __first != __last; ++__first) {
+    if (std::__invoke(__pred, std::__invoke(__proj, *__first)))
+      ++__counter;
+  }
+  return __counter;
+}
+
 template <class _InputIterator, class _Predicate>
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
 typename iterator_traits<_InputIterator>::difference_type
 count_if(_InputIterator __first, _InputIterator __last, _Predicate __pred) {
-  typename iterator_traits<_InputIterator>::difference_type __r(0);
-  for (; __first != __last; ++__first)
-    if (__pred(*__first))
-      ++__r;
-  return __r;
+  __identity __proj;
+  return std::__count_if<_ClassicAlgPolicy>(__first, __last, __pred, __proj);
 }
 
 _LIBCPP_END_NAMESPACE_STD
