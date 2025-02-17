@@ -98,9 +98,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .ve => "ve",
 
         .kalimba,
-        .spu_2,
-        .propeller1,
-        .propeller2,
+        .propeller,
         => unreachable, // Gated by hasLlvmSupport().
 
     };
@@ -1303,7 +1301,7 @@ pub const Object = struct {
             .large => .Large,
         };
 
-        const float_abi: llvm.TargetMachine.FloatABI = if (comp.root_mod.resolved_target.result.floatAbi() == .hard)
+        const float_abi: llvm.TargetMachine.FloatABI = if (comp.root_mod.resolved_target.result.abi.float() == .hard)
             .Hard
         else
             .Soft;
@@ -2941,7 +2939,7 @@ pub const Object = struct {
             function_index.setLinkage(.internal, &o.builder);
             function_index.setUnnamedAddr(.unnamed_addr, &o.builder);
         } else {
-            if (target.isWasm()) {
+            if (target.cpu.arch.isWasm()) {
                 try attributes.addFnAttr(.{ .string = .{
                     .kind = try o.builder.string("wasm-import-name"),
                     .value = try o.builder.string(nav.name.toSlice(ip)),
@@ -3158,7 +3156,7 @@ pub const Object = struct {
                 .value = try o.builder.string(std.mem.span(s)),
             } }, &o.builder);
         }
-        if (target.floatAbi() == .soft) {
+        if (target.abi.float() == .soft) {
             // `use-soft-float` means "use software routines for floating point computations". In
             // other words, it configures how LLVM lowers basic float instructions like `fcmp`,
             // `fadd`, etc. The float calling convention is configured on `TargetMachine` and is
@@ -4832,7 +4830,7 @@ pub const NavGen = struct {
             const global_index = o.nav_map.get(nav_index).?;
 
             const decl_name = decl_name: {
-                if (zcu.getTarget().isWasm() and ty.zigTypeTag(zcu) == .@"fn") {
+                if (zcu.getTarget().cpu.arch.isWasm() and ty.zigTypeTag(zcu) == .@"fn") {
                     if (lib_name.toSlice(ip)) |lib_name_slice| {
                         if (!std.mem.eql(u8, lib_name_slice, "c")) {
                             break :decl_name try o.builder.strtabStringFmt("{}|{s}", .{ nav.name.fmt(ip), lib_name_slice });
@@ -6569,7 +6567,7 @@ pub const FuncGen = struct {
             // Workaround for:
             // * https://github.com/llvm/llvm-project/blob/56905dab7da50bccfcceaeb496b206ff476127e1/llvm/lib/MC/WasmObjectWriter.cpp#L560
             // * https://github.com/llvm/llvm-project/blob/56905dab7da50bccfcceaeb496b206ff476127e1/llvm/test/MC/WebAssembly/blockaddress.ll
-            if (zcu.comp.getTarget().isWasm()) break :jmp_table null;
+            if (zcu.comp.getTarget().cpu.arch.isWasm()) break :jmp_table null;
 
             // On a 64-bit target, 1024 pointers in our jump table is about 8K of pointers. This seems just
             // about acceptable - it won't fill L1d cache on most CPUs.
@@ -10026,7 +10024,7 @@ pub const FuncGen = struct {
         // of the length. This means we need to emit a check where we skip the memset when the length
         // is 0 as we allow for undefined pointers in 0-sized slices.
         // This logic can be removed once https://github.com/ziglang/zig/issues/16360 is done.
-        const intrinsic_len0_traps = o.target.isWasm() and
+        const intrinsic_len0_traps = o.target.cpu.arch.isWasm() and
             ptr_ty.isSlice(zcu) and
             std.Target.wasm.featureSetHas(o.target.cpu.features, .bulk_memory);
 
@@ -10183,7 +10181,7 @@ pub const FuncGen = struct {
         // For this reason we must add a check for 0-sized slices as its pointer field can be undefined.
         // We only have to do this for slices as arrays will have a valid pointer.
         // This logic can be removed once https://github.com/ziglang/zig/issues/16360 is done.
-        if (o.target.isWasm() and
+        if (o.target.cpu.arch.isWasm() and
             std.Target.wasm.featureSetHas(o.target.cpu.features, .bulk_memory) and
             dest_ptr_ty.isSlice(zcu))
         {
@@ -11768,16 +11766,8 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .x86_interrupt => .x86_intrcc,
         .aarch64_vfabi => .aarch64_vector_pcs,
         .aarch64_vfabi_sve => .aarch64_sve_vector_pcs,
-        .arm_apcs => .arm_apcscc,
         .arm_aapcs => .arm_aapcscc,
-        .arm_aapcs_vfp => if (target.os.tag != .watchos)
-            .arm_aapcs_vfpcc
-        else
-            null,
-        .arm_aapcs16_vfp => if (target.os.tag == .watchos)
-            .arm_aapcs_vfpcc
-        else
-            null,
+        .arm_aapcs_vfp => .arm_aapcs_vfpcc,
         .riscv64_lp64_v => .riscv_vectorcallcc,
         .riscv32_ilp32_v => .riscv_vectorcallcc,
         .avr_builtin => .avr_builtincc,
@@ -11821,7 +11811,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .powerpc_sysv_altivec,
         .powerpc_aix,
         .powerpc_aix_altivec,
-        .wasm_watc,
+        .wasm_mvp,
         .arc_sysv,
         .avr_gnu,
         .bpf_std,
@@ -11834,8 +11824,7 @@ fn toLlvmCallConvTag(cc_tag: std.builtin.CallingConvention.Tag, target: std.Targ
         .m68k_sysv,
         .m68k_gnu,
         .msp430_eabi,
-        .propeller1_sysv,
-        .propeller2_sysv,
+        .propeller_sysv,
         .s390x_sysv,
         .s390x_sysv_vx,
         .ve_sysv,
@@ -11999,12 +11988,12 @@ fn firstParamSRet(fn_info: InternPool.Key.FuncType, zcu: *Zcu, target: std.Targe
         .x86_64_win => x86_64_abi.classifyWindows(return_type, zcu) == .memory,
         .x86_sysv, .x86_win => isByRef(return_type, zcu),
         .x86_stdcall => !isScalar(zcu, return_type),
-        .wasm_watc => wasm_c_abi.classifyType(return_type, zcu)[0] == .indirect,
+        .wasm_mvp => wasm_c_abi.classifyType(return_type, zcu)[0] == .indirect,
         .aarch64_aapcs,
         .aarch64_aapcs_darwin,
         .aarch64_aapcs_win,
         => aarch64_c_abi.classifyType(return_type, zcu) == .memory,
-        .arm_aapcs, .arm_aapcs_vfp, .arm_aapcs16_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
+        .arm_aapcs, .arm_aapcs_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
             .memory, .i64_array => true,
             .i32_array => |size| size != 1,
             .byval => false,
@@ -12054,7 +12043,7 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
             .integer => return o.builder.intType(@intCast(return_type.bitSize(zcu))),
             .double_integer => return o.builder.arrayType(2, .i64),
         },
-        .arm_aapcs, .arm_aapcs_vfp, .arm_aapcs16_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
+        .arm_aapcs, .arm_aapcs_vfp => switch (arm_c_abi.classifyType(return_type, zcu, .ret)) {
             .memory, .i64_array => return .void,
             .i32_array => |len| return if (len == 1) .i32 else .void,
             .byval => return o.lowerType(return_type),
@@ -12084,7 +12073,7 @@ fn lowerFnRetTy(o: *Object, fn_info: InternPool.Key.FuncType) Allocator.Error!Bu
                 return o.builder.structType(.normal, types[0..types_len]);
             },
         },
-        .wasm_watc => {
+        .wasm_mvp => {
             if (isScalar(zcu, return_type)) {
                 return o.lowerType(return_type);
             }
@@ -12303,7 +12292,7 @@ const ParamTypeIterator = struct {
                     .double_integer => return Lowering{ .i64_array = 2 },
                 }
             },
-            .arm_aapcs, .arm_aapcs_vfp, .arm_aapcs16_vfp => {
+            .arm_aapcs, .arm_aapcs_vfp => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
                 switch (arm_c_abi.classifyType(ty, zcu, .arg)) {
@@ -12349,7 +12338,7 @@ const ParamTypeIterator = struct {
                     },
                 }
             },
-            .wasm_watc => {
+            .wasm_mvp => {
                 it.zig_index += 1;
                 it.llvm_index += 1;
                 if (isScalar(zcu, ty)) {
@@ -12707,7 +12696,7 @@ fn backendSupportsF16(target: std.Target) bool {
         .armeb,
         .thumb,
         .thumbeb,
-        => target.floatAbi() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
+        => target.abi.float() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
         .aarch64,
         .aarch64_be,
         => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
@@ -12734,7 +12723,7 @@ fn backendSupportsF128(target: std.Target) bool {
         .armeb,
         .thumb,
         .thumbeb,
-        => target.floatAbi() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
+        => target.abi.float() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
         .aarch64,
         .aarch64_be,
         => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
@@ -13024,9 +13013,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
 
         // LLVM does does not have a backend for these.
         .kalimba,
-        .spu_2,
-        .propeller1,
-        .propeller2,
+        .propeller,
         => unreachable,
     }
 }

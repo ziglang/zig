@@ -1881,7 +1881,7 @@ fn linkWithLLD(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: 
             try argv.append(try allocPrint(arena, "-MLLVM:-target-abi={s}", .{mabi}));
         }
 
-        try argv.append(try allocPrint(arena, "-MLLVM:-float-abi={s}", .{if (target.abi.floatAbi() == .hard) "hard" else "soft"}));
+        try argv.append(try allocPrint(arena, "-MLLVM:-float-abi={s}", .{if (target.abi.float() == .hard) "hard" else "soft"}));
 
         if (comp.config.lto != .none) {
             switch (optimize_mode) {

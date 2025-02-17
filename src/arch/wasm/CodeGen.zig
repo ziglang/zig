@@ -1396,7 +1396,7 @@ fn resolveCallingConventionValues(
                 result.local_index += 1;
             }
         },
-        .wasm_watc => {
+        .wasm_mvp => {
             for (fn_info.param_types.get(ip)) |ty| {
                 const ty_classes = abi.classifyType(Type.fromInterned(ty), zcu);
                 for (ty_classes) |class| {
@@ -1421,7 +1421,7 @@ pub fn firstParamSRet(
     switch (cc) {
         .@"inline" => unreachable,
         .auto => return isByRef(return_type, zcu, target),
-        .wasm_watc => {
+        .wasm_mvp => {
             const ty_classes = abi.classifyType(return_type, zcu);
             if (ty_classes[0] == .indirect) return true;
             if (ty_classes[0] == .direct and ty_classes[1] == .direct) return true;
@@ -1434,7 +1434,7 @@ pub fn firstParamSRet(
 /// Lowers a Zig type and its value based on a given calling convention to ensure
 /// it matches the ABI.
 fn lowerArg(cg: *CodeGen, cc: std.builtin.CallingConvention, ty: Type, value: WValue) !void {
-    if (cc != .wasm_watc) {
+    if (cc != .wasm_mvp) {
         return cg.lowerToStack(value);
     }
 
@@ -2124,7 +2124,7 @@ fn airRet(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     // to the stack instead
     if (cg.return_value != .none) {
         try cg.store(cg.return_value, operand, ret_ty, 0);
-    } else if (fn_info.cc == .wasm_watc and ret_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+    } else if (fn_info.cc == .wasm_mvp and ret_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
         switch (ret_ty.zigTypeTag(zcu)) {
             // Aggregate types can be lowered as a singular value
             .@"struct", .@"union" => {
@@ -2268,7 +2268,7 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
         } else if (first_param_sret) {
             break :result_value sret;
             // TODO: Make this less fragile and optimize
-        } else if (zcu.typeToFunc(fn_ty).?.cc == .wasm_watc and ret_ty.zigTypeTag(zcu) == .@"struct" or ret_ty.zigTypeTag(zcu) == .@"union") {
+        } else if (zcu.typeToFunc(fn_ty).?.cc == .wasm_mvp and ret_ty.zigTypeTag(zcu) == .@"struct" or ret_ty.zigTypeTag(zcu) == .@"union") {
             const result_local = try cg.allocLocal(ret_ty);
             try cg.addLocal(.local_set, result_local.local.value);
             const scalar_type = abi.scalarType(ret_ty, zcu);
@@ -2546,7 +2546,7 @@ fn airArg(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const arg = cg.args[arg_index];
     const cc = zcu.typeToFunc(zcu.navValue(cg.owner_nav).typeOf(zcu)).?.cc;
     const arg_ty = cg.typeOfIndex(inst);
-    if (cc == .wasm_watc) {
+    if (cc == .wasm_mvp) {
         const arg_classes = abi.classifyType(arg_ty, zcu);
         for (arg_classes) |class| {
             if (class != .none) {
@@ -7047,7 +7047,7 @@ fn callIntrinsic(
 
     // Always pass over C-ABI
 
-    const want_sret_param = firstParamSRet(.{ .wasm_watc = .{} }, return_type, zcu, cg.target);
+    const want_sret_param = firstParamSRet(.{ .wasm_mvp = .{} }, return_type, zcu, cg.target);
     // if we want return as first param, we allocate a pointer to stack,
     // and emit it as our first argument
     const sret = if (want_sret_param) blk: {
@@ -7060,7 +7060,7 @@ fn callIntrinsic(
     for (args, 0..) |arg, arg_i| {
         assert(!(want_sret_param and arg == .stack));
         assert(Type.fromInterned(param_types[arg_i]).hasRuntimeBitsIgnoreComptime(zcu));
-        try cg.lowerArg(.{ .wasm_watc = .{} }, Type.fromInterned(param_types[arg_i]), arg);
+        try cg.lowerArg(.{ .wasm_mvp = .{} }, Type.fromInterned(param_types[arg_i]), arg);
     }
 
     try cg.addInst(.{ .tag = .call_intrinsic, .data = .{ .intrinsic = intrinsic } });

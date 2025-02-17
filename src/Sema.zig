@@ -9378,7 +9378,7 @@ pub fn handleExternLibName(
             );
             break :blk;
         }
-        if (!target.isWasm() and !block.ownerModule().pic) {
+        if (!target.cpu.arch.isWasm() and !block.ownerModule().pic) {
             return sema.fail(
                 block,
                 src_loc,
@@ -9407,10 +9407,8 @@ const calling_conventions_supporting_var_args = [_]std.builtin.CallingConvention
     .aarch64_aapcs_win,
     .aarch64_vfabi,
     .aarch64_vfabi_sve,
-    .arm_apcs,
     .arm_aapcs,
     .arm_aapcs_vfp,
-    .arm_aapcs16_vfp,
     .mips64_n64,
     .mips64_n32,
     .mips_o32,
@@ -9427,7 +9425,7 @@ const calling_conventions_supporting_var_args = [_]std.builtin.CallingConvention
     .powerpc_sysv_altivec,
     .powerpc_aix,
     .powerpc_aix_altivec,
-    .wasm_watc,
+    .wasm_mvp,
     .arc_sysv,
     .avr_gnu,
     .bpf_std,
@@ -26513,7 +26511,7 @@ fn zirWasmMemorySize(
     const index_src = block.builtinCallArgSrc(extra.node, 0);
     const builtin_src = block.nodeOffset(extra.node);
     const target = sema.pt.zcu.getTarget();
-    if (!target.isWasm()) {
+    if (!target.cpu.arch.isWasm()) {
         return sema.fail(block, builtin_src, "builtin @wasmMemorySize is available when targeting WebAssembly; targeted CPU architecture is {s}", .{@tagName(target.cpu.arch)});
     }
 
@@ -26538,7 +26536,7 @@ fn zirWasmMemoryGrow(
     const index_src = block.builtinCallArgSrc(extra.node, 0);
     const delta_src = block.builtinCallArgSrc(extra.node, 1);
     const target = sema.pt.zcu.getTarget();
-    if (!target.isWasm()) {
+    if (!target.cpu.arch.isWasm()) {
         return sema.fail(block, builtin_src, "builtin @wasmMemoryGrow is available when targeting WebAssembly; targeted CPU architecture is {s}", .{@tagName(target.cpu.arch)});
     }
 
@@ -37222,30 +37220,12 @@ fn analyzeComptimeAlloc(
     } })));
 }
 
-/// The places where a user can specify an address space attribute
-pub const AddressSpaceContext = enum {
-    /// A function is specified to be placed in a certain address space.
-    function,
-
-    /// A (global) variable is specified to be placed in a certain address space.
-    /// In contrast to .constant, these values (and thus the address space they will be
-    /// placed in) are required to be mutable.
-    variable,
-
-    /// A (global) constant value is specified to be placed in a certain address space.
-    /// In contrast to .variable, values placed in this address space are not required to be mutable.
-    constant,
-
-    /// A pointer is ascripted to point into a certain address space.
-    pointer,
-};
-
 fn resolveAddressSpace(
     sema: *Sema,
     block: *Block,
     src: LazySrcLoc,
     zir_ref: Zir.Inst.Ref,
-    ctx: AddressSpaceContext,
+    ctx: std.builtin.AddressSpace.Context,
 ) !std.builtin.AddressSpace {
     const air_ref = try sema.resolveInst(zir_ref);
     return sema.analyzeAsAddressSpace(block, src, air_ref, ctx);
@@ -37256,7 +37236,7 @@ pub fn analyzeAsAddressSpace(
     block: *Block,
     src: LazySrcLoc,
     air_ref: Air.Inst.Ref,
-    ctx: AddressSpaceContext,
+    ctx: std.builtin.AddressSpace.Context,
 ) !std.builtin.AddressSpace {
     const pt = sema.pt;
     const addrspace_ty = try sema.getBuiltinType(src, .AddressSpace);
@@ -37264,30 +37244,8 @@ pub fn analyzeAsAddressSpace(
     const addrspace_val = try sema.resolveConstDefinedValue(block, src, coerced, .{ .simple = .@"addrspace" });
     const address_space = try sema.interpretBuiltinType(block, src, addrspace_val, std.builtin.AddressSpace);
     const target = pt.zcu.getTarget();
-    const arch = target.cpu.arch;
 
-    const is_nv = arch.isNvptx();
-    const is_amd = arch == .amdgcn;
-    const is_spirv = arch.isSpirV();
-    const is_gpu = is_nv or is_amd or is_spirv;
-
-    const supported = switch (address_space) {
-        // TODO: on spir-v only when os is opencl.
-        .generic => true,
-        .gs, .fs, .ss => (arch == .x86 or arch == .x86_64) and ctx == .pointer,
-        // TODO: check that .shared and .local are left uninitialized
-        .param => is_nv,
-        .input, .output, .uniform, .push_constant, .storage_buffer => is_spirv,
-        .global, .shared, .local => is_gpu,
-        .constant => is_gpu and (ctx == .constant),
-        // TODO this should also check how many flash banks the cpu has
-        .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr,
-
-        .cog, .hub => arch.isPropeller(),
-        .lut => (arch == .propeller2),
-    };
-
-    if (!supported) {
+    if (!target.cpu.supportsAddressSpace(address_space, ctx)) {
         // TODO error messages could be made more elaborate here
         const entity = switch (ctx) {
             .function => "functions",
@@ -37299,7 +37257,7 @@ pub fn analyzeAsAddressSpace(
             block,
             src,
             "{s} with address space '{s}' are not supported on {s}",
-            .{ entity, @tagName(address_space), arch.genericName() },
+            .{ entity, @tagName(address_space), target.cpu.arch.genericName() },
         );
     }
 
@@ -38729,7 +38687,7 @@ pub fn resolveNavPtrModifiers(
     };
 
     const @"addrspace": std.builtin.AddressSpace = as: {
-        const addrspace_ctx: Sema.AddressSpaceContext = switch (zir_decl.kind) {
+        const addrspace_ctx: std.builtin.AddressSpace.Context = switch (zir_decl.kind) {
             .@"var" => .variable,
             else => switch (nav_ty.zigTypeTag(zcu)) {
                 .@"fn" => .function,

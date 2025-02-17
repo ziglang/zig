@@ -88,7 +88,7 @@ noinline fn frame0(expected: *[4]usize, unwound: *[4]usize) void {
 
 pub fn main() !void {
     // Disabled until the DWARF unwinder bugs on .aarch64 are solved
-    if (builtin.omit_frame_pointer and comptime builtin.target.isDarwin() and builtin.cpu.arch == .aarch64) return;
+    if (builtin.omit_frame_pointer and comptime builtin.target.os.tag.isDarwin() and builtin.cpu.arch == .aarch64) return;
 
     if (!std.debug.have_ucontext or !std.debug.have_getcontext) return;
 

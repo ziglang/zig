@@ -14,7 +14,7 @@ else
 /// For WebAssembly this allows the symbol to be resolved to other modules, but will not
 /// export it to the host runtime.
 pub const visibility: std.builtin.SymbolVisibility =
-    if (builtin.target.isWasm() and linkage != .internal) .hidden else .default;
+    if (builtin.target.cpu.arch.isWasm() and linkage != .internal) .hidden else .default;
 
 pub const want_aeabi = switch (builtin.abi) {
     .eabi,
@@ -92,7 +92,7 @@ pub const panic = if (builtin.is_test) std.debug.FullPanic(std.debug.defaultPani
 pub fn F16T(comptime OtherType: type) type {
     return switch (builtin.cpu.arch) {
         .arm, .armeb, .thumb, .thumbeb => if (std.Target.arm.featureSetHas(builtin.cpu.features, .has_v8))
-            switch (builtin.abi.floatAbi()) {
+            switch (builtin.abi.float()) {
                 .soft => u16,
                 .hard => f16,
             }
@@ -100,7 +100,7 @@ pub fn F16T(comptime OtherType: type) type {
             u16,
         .aarch64, .aarch64_be => f16,
         .riscv32, .riscv64 => f16,
-        .x86, .x86_64 => if (builtin.target.isDarwin()) switch (OtherType) {
+        .x86, .x86_64 => if (builtin.target.os.tag.isDarwin()) switch (OtherType) {
             // Starting with LLVM 16, Darwin uses different abi for f16
             // depending on the type of the other return/argument..???
             f32, f64 => u16,
