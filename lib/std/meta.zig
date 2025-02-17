@@ -22,15 +22,14 @@ pub fn stringToEnum(comptime T: type, str: []const u8) ?T {
     // - https://github.com/ziglang/zig/issues/4055
     // - https://github.com/ziglang/zig/issues/3863
     if (@typeInfo(T).@"enum".fields.len <= 100) {
-        const kvs = comptime build_kvs: {
+        const map = comptime build_kvs: {
             const EnumKV = struct { []const u8, T };
             var kvs_array: [@typeInfo(T).@"enum".fields.len]EnumKV = undefined;
             for (@typeInfo(T).@"enum".fields, 0..) |enumField, i| {
                 kvs_array[i] = .{ enumField.name, @field(T, enumField.name) };
             }
-            break :build_kvs kvs_array[0..];
+            break :build_kvs std.StaticStringMap(T).initComptime(kvs_array);
         };
-        const map = std.StaticStringMap(T).initComptime(kvs);
         return map.get(str);
     } else {
         inline for (@typeInfo(T).@"enum".fields) |enumField| {
