@@ -629,6 +629,14 @@ pub fn supportsFunctionAlignment(target: std.Target) bool {
     };
 }
 
+pub fn functionPointerMask(target: std.Target) ?u64 {
+    // 32-bit Arm uses the LSB to mean that the target function contains Thumb code.
+    return if (target.cpu.arch.isArm())
+        ~@as(u32, 1)
+    else
+        null;
+}
+
 pub fn supportsTailCall(target: std.Target, backend: std.builtin.CompilerBackend) bool {
     switch (backend) {
         .stage1, .stage2_llvm => return @import("codegen/llvm.zig").supportsTailCall(target),
