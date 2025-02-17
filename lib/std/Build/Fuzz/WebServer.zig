@@ -522,7 +522,8 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
 
     var cwd_cache: ?[]const u8 = null;
 
-    var archiver = std.tar.writer(response.writer());
+    var response_writer = response.writer().unbuffered();
+    var archiver: std.tar.Writer = .{ .underlying_writer = &response_writer };
 
     for (deduped_paths) |joined_path| {
         var file = joined_path.root_dir.handle.openFile(joined_path.sub_path, .{}) catch |err| {
