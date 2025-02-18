@@ -142,12 +142,12 @@ test "peek all types" {
     defer scanner.deinit();
     try testAllTypes(&scanner, true);
 
-    var stream = std.io.fixedBufferStream(all_types_test_case);
+    var stream: std.io.FixedBufferStream = .{ .buffer = all_types_test_case };
     var json_reader = jsonReader(std.testing.allocator, stream.reader());
     defer json_reader.deinit();
     try testAllTypes(&json_reader, true);
 
-    var tiny_stream = std.io.fixedBufferStream(all_types_test_case);
+    var tiny_stream: std.io.FixedBufferStream = .{ .buffer = all_types_test_case };
     var tiny_json_reader = JsonReader(1, @TypeOf(tiny_stream.reader())).init(std.testing.allocator, tiny_stream.reader());
     defer tiny_json_reader.deinit();
     try testAllTypes(&tiny_json_reader, false);
@@ -182,7 +182,7 @@ test "JsonScanner basic" {
 }
 
 test "JsonReader basic" {
-    var stream = std.io.fixedBufferStream(example_document_str);
+    var stream: std.io.FixedBufferStream = .{ .buffer = example_document_str };
 
     var json_reader = jsonReader(std.testing.allocator, stream.reader());
     defer json_reader.deinit();
@@ -243,7 +243,7 @@ const string_test_cases = .{
 
 test "strings" {
     inline for (string_test_cases) |tuple| {
-        var stream = std.io.fixedBufferStream("\"" ++ tuple[0] ++ "\"");
+        var stream: std.io.FixedBufferStream = .{ .buffer = "\"" ++ tuple[0] ++ "\"" };
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena.deinit();
         var json_reader = jsonReader(std.testing.allocator, stream.reader());
@@ -352,8 +352,8 @@ fn expectEqualTokens(expected_token: Token, actual_token: Token) !void {
 }
 
 fn testTinyBufferSize(document_str: []const u8) !void {
-    var tiny_stream = std.io.fixedBufferStream(document_str);
-    var normal_stream = std.io.fixedBufferStream(document_str);
+    var tiny_stream: std.io.FixedBufferStream = .{ .buffer = document_str };
+    var normal_stream: std.io.FixedBufferStream = .{ .buffer = document_str };
 
     var tiny_json_reader = JsonReader(1, @TypeOf(tiny_stream.reader())).init(std.testing.allocator, tiny_stream.reader());
     defer tiny_json_reader.deinit();
@@ -402,7 +402,7 @@ fn testSkipValue(s: []const u8) !void {
     try scanner.skipValue();
     try expectEqualTokens(.end_of_document, try scanner.next());
 
-    var stream = std.io.fixedBufferStream(s);
+    var stream: std.io.FixedBufferStream = .{ .buffer = s };
     var json_reader = jsonReader(std.testing.allocator, stream.reader());
     defer json_reader.deinit();
     try json_reader.skipValue();
@@ -477,12 +477,12 @@ fn testDiagnostics(expected_error: ?anyerror, line: u64, col: u64, byte_offset: 
     defer scanner.deinit();
     try testDiagnosticsFromSource(expected_error, line, col, byte_offset, &scanner);
 
-    var tiny_stream = std.io.fixedBufferStream(s);
+    var tiny_stream: std.io.FixedBufferStream = .{ .buffer = s };
     var tiny_json_reader = JsonReader(1, @TypeOf(tiny_stream.reader())).init(std.testing.allocator, tiny_stream.reader());
     defer tiny_json_reader.deinit();
     try testDiagnosticsFromSource(expected_error, line, col, byte_offset, &tiny_json_reader);
 
-    var medium_stream = std.io.fixedBufferStream(s);
+    var medium_stream: std.io.FixedBufferStream = .{ .buffer = s };
     var medium_json_reader = JsonReader(5, @TypeOf(medium_stream.reader())).init(std.testing.allocator, medium_stream.reader());
     defer medium_json_reader.deinit();
     try testDiagnosticsFromSource(expected_error, line, col, byte_offset, &medium_json_reader);

@@ -76,6 +76,23 @@ pub fn writeFile(
     return w.vtable.writeFile(w.context, file, offset, len, headers_and_trailers, headers_len);
 }
 
+pub fn unimplemented_writeFile(
+    context: *anyopaque,
+    file: std.fs.File,
+    offset: u64,
+    len: VTable.FileLen,
+    headers_and_trailers: []const []const u8,
+    headers_len: usize,
+) anyerror!usize {
+    _ = context;
+    _ = file;
+    _ = offset;
+    _ = len;
+    _ = headers_and_trailers;
+    _ = headers_len;
+    return error.Unimplemented;
+}
+
 pub fn write(w: Writer, bytes: []const u8) anyerror!usize {
     const single: [1][]const u8 = .{bytes};
     return w.vtable.writeSplat(w.context, &single, 1);

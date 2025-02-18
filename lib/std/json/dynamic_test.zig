@@ -76,7 +76,6 @@ test "write json then parse it" {
     var fixed_writer: std.io.BufferedWriter = undefined;
     fixed_writer.initFixed(&out_buffer);
     var jw: json.Stringify = .{ .writer = &fixed_writer, .options = .{} };
-    defer jw.deinit();
 
     try jw.beginObject();
 
@@ -245,7 +244,6 @@ test "Value.jsonStringify" {
     fixed_writer.initFixed(&buffer);
 
     var jw: json.Stringify = .{ .writer = &fixed_writer, .options = .{ .whitespace = .indent_1 } };
-    defer jw.deinit();
     try jw.write(array);
 
     const expected =
@@ -334,7 +332,7 @@ test "polymorphic parsing" {
 test "long object value" {
     const value = "01234567890123456789";
     const doc = "{\"key\":\"" ++ value ++ "\"}";
-    var fbs = std.io.fixedBufferStream(doc);
+    var fbs: std.io.FixedBufferStream = .{ .buffer = doc };
     var reader = smallBufferJsonReader(testing.allocator, fbs.reader());
     defer reader.deinit();
     var parsed = try parseFromTokenSource(Value, testing.allocator, &reader, .{});
@@ -367,7 +365,7 @@ test "many object keys" {
         \\  "k5": "v5"
         \\}
     ;
-    var fbs = std.io.fixedBufferStream(doc);
+    var fbs: std.io.FixedBufferStream = .{ .buffer = doc };
     var reader = smallBufferJsonReader(testing.allocator, fbs.reader());
     defer reader.deinit();
     var parsed = try parseFromTokenSource(Value, testing.allocator, &reader, .{});
@@ -382,7 +380,7 @@ test "many object keys" {
 
 test "negative zero" {
     const doc = "-0";
-    var fbs = std.io.fixedBufferStream(doc);
+    var fbs: std.io.FixedBufferStream = .{ .buffer = doc };
     var reader = smallBufferJsonReader(testing.allocator, fbs.reader());
     defer reader.deinit();
     var parsed = try parseFromTokenSource(Value, testing.allocator, &reader, .{});

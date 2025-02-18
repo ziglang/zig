@@ -757,9 +757,9 @@ pub fn printValue(
                     return printValue(bw, actual_fmt, options, value.*, max_depth);
                 },
                 else => {
-                    const buffers: [2][]const u8 = .{ @typeName(ptr_info.child), "@" };
+                    var buffers: [2][]const u8 = .{ @typeName(ptr_info.child), "@" };
                     try writevAll(bw, &buffers);
-                    try printIntOptions(bw, @intFromPtr(value), 16, .lower);
+                    try printIntOptions(bw, @intFromPtr(value), 16, .lower, options);
                 },
             },
             .many, .c => {
