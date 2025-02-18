@@ -39,7 +39,7 @@ test "parse json hashmap while streaming" {
         \\  "xyz": {"i": 1, "s": "w"}
         \\}
     ;
-    var stream = std.io.fixedBufferStream(doc);
+    var stream: std.io.FixedBufferStream = .{ .buffer = doc };
     var json_reader = jsonReader(testing.allocator, stream.reader());
 
     var parsed = try parseFromTokenSource(
