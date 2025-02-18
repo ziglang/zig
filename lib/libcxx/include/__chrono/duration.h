@@ -35,26 +35,25 @@ template <class _Rep, class _Period = ratio<1> >
 class _LIBCPP_TEMPLATE_VIS duration;
 
 template <class _Tp>
-struct __is_duration : false_type {};
+inline const bool __is_duration_v = false;
 
 template <class _Rep, class _Period>
-struct __is_duration<duration<_Rep, _Period> > : true_type {};
+inline const bool __is_duration_v<duration<_Rep, _Period> > = true;
 
 template <class _Rep, class _Period>
-struct __is_duration<const duration<_Rep, _Period> > : true_type {};
+inline const bool __is_duration_v<const duration<_Rep, _Period> > = true;
 
 template <class _Rep, class _Period>
-struct __is_duration<volatile duration<_Rep, _Period> > : true_type {};
+inline const bool __is_duration_v<volatile duration<_Rep, _Period> > = true;
 
 template <class _Rep, class _Period>
-struct __is_duration<const volatile duration<_Rep, _Period> > : true_type {};
+inline const bool __is_duration_v<const volatile duration<_Rep, _Period> > = true;
 
 } // namespace chrono
 
 template <class _Rep1, class _Period1, class _Rep2, class _Period2>
 struct _LIBCPP_TEMPLATE_VIS common_type<chrono::duration<_Rep1, _Period1>, chrono::duration<_Rep2, _Period2> > {
-  typedef chrono::duration<typename common_type<_Rep1, _Rep2>::type, typename __ratio_gcd<_Period1, _Period2>::type>
-      type;
+  typedef chrono::duration<typename common_type<_Rep1, _Rep2>::type, __ratio_gcd<_Period1, _Period2> > type;
 };
 
 namespace chrono {
@@ -102,7 +101,7 @@ struct __duration_cast<_FromDuration, _ToDuration, _Period, false, false> {
   }
 };
 
-template <class _ToDuration, class _Rep, class _Period, __enable_if_t<__is_duration<_ToDuration>::value, int> = 0>
+template <class _ToDuration, class _Rep, class _Period, __enable_if_t<__is_duration_v<_ToDuration>, int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _ToDuration duration_cast(const duration<_Rep, _Period>& __fd) {
   return __duration_cast<duration<_Rep, _Period>, _ToDuration>()(__fd);
 }
@@ -124,7 +123,7 @@ public:
 };
 
 #if _LIBCPP_STD_VER >= 17
-template <class _ToDuration, class _Rep, class _Period, enable_if_t<__is_duration<_ToDuration>::value, int> = 0>
+template <class _ToDuration, class _Rep, class _Period, enable_if_t<__is_duration_v<_ToDuration>, int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _ToDuration floor(const duration<_Rep, _Period>& __d) {
   _ToDuration __t = chrono::duration_cast<_ToDuration>(__d);
   if (__t > __d)
@@ -132,7 +131,7 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _ToDuration floor(const duration<
   return __t;
 }
 
-template <class _ToDuration, class _Rep, class _Period, enable_if_t<__is_duration<_ToDuration>::value, int> = 0>
+template <class _ToDuration, class _Rep, class _Period, enable_if_t<__is_duration_v<_ToDuration>, int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _ToDuration ceil(const duration<_Rep, _Period>& __d) {
   _ToDuration __t = chrono::duration_cast<_ToDuration>(__d);
   if (__t < __d)
@@ -140,7 +139,7 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _ToDuration ceil(const duration<_
   return __t;
 }
 
-template <class _ToDuration, class _Rep, class _Period, enable_if_t<__is_duration<_ToDuration>::value, int> = 0>
+template <class _ToDuration, class _Rep, class _Period, enable_if_t<__is_duration_v<_ToDuration>, int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _ToDuration round(const duration<_Rep, _Period>& __d) {
   _ToDuration __lower = chrono::floor<_ToDuration>(__d);
   _ToDuration __upper = __lower + _ToDuration{1};
@@ -158,15 +157,15 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR _ToDuration round(const duration<
 
 template <class _Rep, class _Period>
 class _LIBCPP_TEMPLATE_VIS duration {
-  static_assert(!__is_duration<_Rep>::value, "A duration representation can not be a duration");
-  static_assert(__is_ratio<_Period>::value, "Second template parameter of duration must be a std::ratio");
+  static_assert(!__is_duration_v<_Rep>, "A duration representation can not be a duration");
+  static_assert(__is_ratio_v<_Period>, "Second template parameter of duration must be a std::ratio");
   static_assert(_Period::num > 0, "duration period must be positive");
 
   template <class _R1, class _R2>
   struct __no_overflow {
   private:
-    static const intmax_t __gcd_n1_n2 = __static_gcd<_R1::num, _R2::num>::value;
-    static const intmax_t __gcd_d1_d2 = __static_gcd<_R1::den, _R2::den>::value;
+    static const intmax_t __gcd_n1_n2 = __static_gcd<_R1::num, _R2::num>;
+    static const intmax_t __gcd_d1_d2 = __static_gcd<_R1::den, _R2::den>;
     static const intmax_t __n1        = _R1::num / __gcd_n1_n2;
     static const intmax_t __d1        = _R1::den / __gcd_d1_d2;
     static const intmax_t __n2        = _R2::num / __gcd_n1_n2;
@@ -434,7 +433,7 @@ operator*(const _Rep1& __s, const duration<_Rep2, _Period>& __d) {
 template <class _Rep1,
           class _Period,
           class _Rep2,
-          __enable_if_t<!__is_duration<_Rep2>::value &&
+          __enable_if_t<!__is_duration_v<_Rep2> &&
                             is_convertible<const _Rep2&, typename common_type<_Rep1, _Rep2>::type>::value,
                         int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR duration<typename common_type<_Rep1, _Rep2>::type, _Period>
@@ -456,7 +455,7 @@ operator/(const duration<_Rep1, _Period1>& __lhs, const duration<_Rep2, _Period2
 template <class _Rep1,
           class _Period,
           class _Rep2,
-          __enable_if_t<!__is_duration<_Rep2>::value &&
+          __enable_if_t<!__is_duration_v<_Rep2> &&
                             is_convertible<const _Rep2&, typename common_type<_Rep1, _Rep2>::type>::value,
                         int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR duration<typename common_type<_Rep1, _Rep2>::type, _Period>
@@ -542,9 +541,5 @@ using namespace literals::chrono_literals;
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
-
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <type_traits>
-#endif
 
 #endif // _LIBCPP___CHRONO_DURATION_H

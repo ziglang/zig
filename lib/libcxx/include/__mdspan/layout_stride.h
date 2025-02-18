@@ -18,19 +18,22 @@
 #define _LIBCPP___MDSPAN_LAYOUT_STRIDE_H
 
 #include <__assert>
+#include <__concepts/same_as.h>
 #include <__config>
 #include <__fwd/mdspan.h>
 #include <__mdspan/extents.h>
+#include <__type_traits/common_type.h>
 #include <__type_traits/is_constructible.h>
 #include <__type_traits/is_convertible.h>
+#include <__type_traits/is_integral.h>
 #include <__type_traits/is_nothrow_constructible.h>
+#include <__type_traits/is_same.h>
 #include <__utility/as_const.h>
 #include <__utility/integer_sequence.h>
 #include <__utility/swap.h>
 #include <array>
-#include <cinttypes>
-#include <cstddef>
 #include <limits>
+#include <span>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

@@ -20,13 +20,14 @@ namespace __sanitizer {
 // The Windows implementations of these functions use the win32 API directly,
 // bypassing libc.
 #if !SANITIZER_WINDOWS
-#if SANITIZER_LINUX
+#  if SANITIZER_LINUX
 void LogMessageOnPrintf(const char *str) {}
-#endif
+void InitTlsSize() {}
+#  endif
 void WriteToSyslog(const char *buffer) {}
 void Abort() { internal__exit(1); }
 bool CreateDir(const char *pathname) { return false; }
-#endif // !SANITIZER_WINDOWS
+#endif  // !SANITIZER_WINDOWS
 
 #if !SANITIZER_WINDOWS && !SANITIZER_APPLE
 void ListOfModules::init() {}

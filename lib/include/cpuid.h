@@ -187,17 +187,18 @@
 #define bit_ENQCMD           0x20000000
 
 /* Features in %edx for leaf 7 sub-leaf 0 */
-#define bit_AVX5124VNNIW  0x00000004
-#define bit_AVX5124FMAPS  0x00000008
-#define bit_UINTR         0x00000020
-#define bit_SERIALIZE     0x00004000
-#define bit_TSXLDTRK      0x00010000
-#define bit_PCONFIG       0x00040000
-#define bit_IBT           0x00100000
-#define bit_AMXBF16       0x00400000
-#define bit_AVX512FP16    0x00800000
-#define bit_AMXTILE       0x01000000
-#define bit_AMXINT8       0x02000000
+#define bit_AVX5124VNNIW        0x00000004
+#define bit_AVX5124FMAPS        0x00000008
+#define bit_UINTR               0x00000020
+#define bit_AVX512VP2INTERSECT  0x00000100
+#define bit_SERIALIZE           0x00004000
+#define bit_TSXLDTRK            0x00010000
+#define bit_PCONFIG             0x00040000
+#define bit_IBT                 0x00100000
+#define bit_AMXBF16             0x00400000
+#define bit_AVX512FP16          0x00800000
+#define bit_AMXTILE             0x01000000
+#define bit_AMXINT8             0x02000000
 
 /* Features in %eax for leaf 7 sub-leaf 1 */
 #define bit_SHA512        0x00000001
