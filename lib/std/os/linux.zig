@@ -103,8 +103,6 @@ pub const dev_t = arch_bits.dev_t;
 pub const ino_t = arch_bits.ino_t;
 pub const mcontext_t = arch_bits.mcontext_t;
 pub const mode_t = arch_bits.mode_t;
-pub const msghdr = arch_bits.msghdr;
-pub const msghdr_const = arch_bits.msghdr_const;
 pub const nlink_t = arch_bits.nlink_t;
 pub const off_t = arch_bits.off_t;
 pub const time_t = arch_bits.time_t;
@@ -8911,4 +8909,24 @@ pub const cache_stat = extern struct {
 pub const SHADOW_STACK = struct {
     /// Set up a restore token in the shadow stack.
     pub const SET_TOKEN: u64 = 1 << 0;
+};
+
+pub const msghdr = extern struct {
+    name: ?*sockaddr,
+    namelen: socklen_t,
+    iov: [*]iovec,
+    iovlen: usize,
+    control: ?*anyopaque,
+    controllen: usize,
+    flags: u32,
+};
+
+pub const msghdr_const = extern struct {
+    name: ?*const sockaddr,
+    namelen: socklen_t,
+    iov: [*]const iovec_const,
+    iovlen: usize,
+    control: ?*const anyopaque,
+    controllen: usize,
+    flags: u32,
 };
