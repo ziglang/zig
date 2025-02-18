@@ -1,10 +1,10 @@
 const std = @import("std");
+const json = std.json;
 const testing = std.testing;
 const parseFromSlice = @import("./static.zig").parseFromSlice;
 const validate = @import("./scanner.zig").validate;
 const JsonScanner = @import("./scanner.zig").Scanner;
 const Value = @import("./dynamic.zig").Value;
-const stringifyAlloc = @import("./stringify.zig").stringifyAlloc;
 
 // Support for JSONTestSuite.zig
 pub fn ok(s: []const u8) !void {
@@ -52,7 +52,7 @@ fn roundTrip(s: []const u8) !void {
     var parsed = try parseFromSlice(Value, testing.allocator, s, .{});
     defer parsed.deinit();
 
-    const rendered = try stringifyAlloc(testing.allocator, parsed.value, .{});
+    const rendered = try json.Stringify.valueAlloc(testing.allocator, parsed.value, .{});
     defer testing.allocator.free(rendered);
 
     try testing.expectEqualStrings(s, rendered);
