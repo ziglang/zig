@@ -10,7 +10,7 @@ test "@mulAdd" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt == .coff and
-        !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .fma)) return error.SkipZigTest;
+        !comptime builtin.cpu.has(.x86, .fma)) return error.SkipZigTest;
 
     try comptime testMulAdd();
     try testMulAdd();
@@ -143,7 +143,7 @@ test "vector f32" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt == .coff and
-        !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .fma)) return error.SkipZigTest;
+        !comptime builtin.cpu.has(.x86, .fma)) return error.SkipZigTest;
 
     try comptime vector32();
     try vector32();
@@ -171,7 +171,7 @@ test "vector f64" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt == .coff and
-        !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .fma)) return error.SkipZigTest;
+        !comptime builtin.cpu.has(.x86, .fma)) return error.SkipZigTest;
 
     try comptime vector64();
     try vector64();

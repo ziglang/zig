@@ -3741,7 +3741,7 @@ pub fn errorSetBits(zcu: *const Zcu) u16 {
 
     if (zcu.error_limit == 0) return 0;
     if (target.cpu.arch.isSpirV()) {
-        if (!std.Target.spirv.featureSetHas(target.cpu.features, .storage_push_constant16)) {
+        if (!target.cpu.has(.spirv, .storage_push_constant16)) {
             return 32;
         }
     }
@@ -3911,7 +3911,7 @@ pub fn atomicPtrAlignment(
         .aarch64_be,
         => 128,
 
-        .x86_64 => if (std.Target.x86.featureSetHas(target.cpu.features, .cx16)) 128 else 64,
+        .x86_64 => if (target.cpu.has(.x86, .cx16)) 128 else 64,
     };
 
     if (ty.toIntern() == .bool_type) return .none;

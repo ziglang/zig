@@ -461,9 +461,8 @@ const DragonflyImpl = struct {
 
 const WasmImpl = struct {
     fn wait(ptr: *const atomic.Value(u32), expect: u32, timeout: ?u64) error{Timeout}!void {
-        if (!comptime std.Target.wasm.featureSetHas(builtin.target.cpu.features, .atomics)) {
-            @compileError("WASI target missing cpu feature 'atomics'");
-        }
+        if (!comptime builtin.cpu.has(.wasm, .atomics)) @compileError("WASI target missing cpu feature 'atomics'");
+
         const to: i64 = if (timeout) |to| @intCast(to) else -1;
         const result = asm volatile (
             \\local.get %[ptr]
@@ -485,9 +484,8 @@ const WasmImpl = struct {
     }
 
     fn wake(ptr: *const atomic.Value(u32), max_waiters: u32) void {
-        if (!comptime std.Target.wasm.featureSetHas(builtin.target.cpu.features, .atomics)) {
-            @compileError("WASI target missing cpu feature 'atomics'");
-        }
+        if (!comptime builtin.cpu.has(.wasm, .atomics)) @compileError("WASI target missing cpu feature 'atomics'");
+
         assert(max_waiters != 0);
         const woken_count = asm volatile (
             \\local.get %[ptr]

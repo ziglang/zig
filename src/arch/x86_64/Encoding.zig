@@ -72,8 +72,8 @@ pub fn findByMnemonic(
             },
             inline .@"invpcid 32bit", .@"rdpid 32bit" => |tag| switch (target.cpu.arch) {
                 else => unreachable,
-                .x86 => std.Target.x86.featureSetHas(
-                    target.cpu.features,
+                .x86 => target.cpu.has(
+                    .x86,
                     @field(std.Target.x86.Feature, @tagName(tag)[0 .. @tagName(tag).len - " 32bit".len]),
                 ),
                 .x86_64 => false,
@@ -81,17 +81,17 @@ pub fn findByMnemonic(
             inline .@"invpcid 64bit", .@"rdpid 64bit", .@"prefetchi 64bit" => |tag| switch (target.cpu.arch) {
                 else => unreachable,
                 .x86 => false,
-                .x86_64 => std.Target.x86.featureSetHas(
-                    target.cpu.features,
+                .x86_64 => target.cpu.has(
+                    .x86,
                     @field(std.Target.x86.Feature, @tagName(tag)[0 .. @tagName(tag).len - " 64bit".len]),
                 ),
             },
-            .prefetch => std.Target.x86.featureSetHasAny(target.cpu.features, .{ .sse, .prfchw, .prefetchi, .prefetchwt1 }),
+            .prefetch => target.cpu.hasAny(.x86, &.{ .sse, .prfchw, .prefetchi, .prefetchwt1 }),
             inline else => |tag| has_features: {
                 comptime var feature_it = std.mem.splitScalar(u8, @tagName(tag), ' ');
                 comptime var features: []const std.Target.x86.Feature = &.{};
                 inline while (comptime feature_it.next()) |feature| features = features ++ .{@field(std.Target.x86.Feature, feature)};
-                break :has_features std.Target.x86.featureSetHasAll(target.cpu.features, features[0..].*);
+                break :has_features target.cpu.hasAll(.x86, features);
             },
         }) continue;
 

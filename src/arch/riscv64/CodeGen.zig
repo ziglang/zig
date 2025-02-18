@@ -8455,7 +8455,7 @@ fn typeOfIndex(func: *Func, inst: Air.Inst.Index) Type {
 }
 
 fn hasFeature(func: *Func, feature: Target.riscv.Feature) bool {
-    return Target.riscv.featureSetHas(func.target.cpu.features, feature);
+    return func.target.cpu.has(.riscv, feature);
 }
 
 pub fn errUnionPayloadOffset(payload_ty: Type, zcu: *Zcu) u64 {

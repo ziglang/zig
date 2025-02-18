@@ -40,9 +40,9 @@ pub fn legalizeFeatures(_: *const std.Target) ?*const Air.Legalize.Features {
     return null;
 }
 
-fn subArchName(features: std.Target.Cpu.Feature.Set, arch: anytype, mappings: anytype) ?[]const u8 {
+fn subArchName(target: std.Target, comptime family: std.Target.Cpu.Arch.Family, mappings: anytype) ?[]const u8 {
     inline for (mappings) |mapping| {
-        if (arch.featureSetHas(features, mapping[0])) return mapping[1];
+        if (target.cpu.has(family, mapping[0])) return mapping[1];
     }
 
     return null;
@@ -51,8 +51,6 @@ fn subArchName(features: std.Target.Cpu.Feature.Set, arch: anytype, mappings: an
 pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     var llvm_triple = std.ArrayList(u8).init(allocator);
     defer llvm_triple.deinit();
-
-    const features = target.cpu.features;
 
     const llvm_arch = switch (target.cpu.arch) {
         .arm => "arm",
@@ -69,10 +67,10 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
         .loongarch64 => "loongarch64",
         .m68k => "m68k",
         // MIPS sub-architectures are a bit irregular, so we handle them manually here.
-        .mips => if (std.Target.mips.featureSetHas(features, .mips32r6)) "mipsisa32r6" else "mips",
-        .mipsel => if (std.Target.mips.featureSetHas(features, .mips32r6)) "mipsisa32r6el" else "mipsel",
-        .mips64 => if (std.Target.mips.featureSetHas(features, .mips64r6)) "mipsisa64r6" else "mips64",
-        .mips64el => if (std.Target.mips.featureSetHas(features, .mips64r6)) "mipsisa64r6el" else "mips64el",
+        .mips => if (target.cpu.has(.mips, .mips32r6)) "mipsisa32r6" else "mips",
+        .mipsel => if (target.cpu.has(.mips, .mips32r6)) "mipsisa32r6el" else "mipsel",
+        .mips64 => if (target.cpu.has(.mips, .mips64r6)) "mipsisa64r6" else "mips64",
+        .mips64el => if (target.cpu.has(.mips, .mips64r6)) "mipsisa64r6el" else "mips64el",
         .msp430 => "msp430",
         .powerpc => "powerpc",
         .powerpcle => "powerpcle",
@@ -109,7 +107,7 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
     try llvm_triple.appendSlice(llvm_arch);
 
     const llvm_sub_arch: ?[]const u8 = switch (target.cpu.arch) {
-        .arm, .armeb, .thumb, .thumbeb => subArchName(features, std.Target.arm, .{
+        .arm, .armeb, .thumb, .thumbeb => subArchName(target, .arm, .{
             .{ .v4t, "v4t" },
             .{ .v5t, "v5t" },
             .{ .v5te, "v5te" },
@@ -146,13 +144,13 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
             .{ .v9_5a, "v9.5a" },
             .{ .v9_6a, "v9.6a" },
         }),
-        .powerpc => subArchName(features, std.Target.powerpc, .{
+        .powerpc => subArchName(target, .powerpc, .{
             .{ .spe, "spe" },
         }),
-        .spirv => subArchName(features, std.Target.spirv, .{
+        .spirv => subArchName(target, .spirv, .{
             .{ .v1_5, "1.5" },
         }),
-        .spirv32, .spirv64 => subArchName(features, std.Target.spirv, .{
+        .spirv32, .spirv64 => subArchName(target, .spirv, .{
             .{ .v1_5, "1.5" },
             .{ .v1_4, "1.4" },
             .{ .v1_3, "1.3" },
@@ -309,13 +307,13 @@ pub fn targetTriple(allocator: Allocator, target: std.Target) ![]const u8 {
 }
 
 pub fn supportsTailCall(target: std.Target) bool {
-    switch (target.cpu.arch) {
-        .wasm32, .wasm64 => return std.Target.wasm.featureSetHas(target.cpu.features, .tail_call),
+    return switch (target.cpu.arch) {
+        .wasm32, .wasm64 => target.cpu.has(.wasm, .tail_call),
         // Although these ISAs support tail calls, LLVM does not support tail calls on them.
-        .mips, .mipsel, .mips64, .mips64el => return false,
-        .powerpc, .powerpcle, .powerpc64, .powerpc64le => return false,
-        else => return true,
-    }
+        .mips, .mipsel, .mips64, .mips64el => false,
+        .powerpc, .powerpcle, .powerpc64, .powerpc64le => false,
+        else => true,
+    };
 }
 
 pub fn dataLayout(target: std.Target) []const u8 {
@@ -391,11 +389,11 @@ pub fn dataLayout(target: std.Target) []const u8 {
         .nvptx => "e-p:32:32-i64:64-i128:128-v16:16-v32:32-n16:32:64",
         .nvptx64 => "e-i64:64-i128:128-v16:16-v32:32-n16:32:64",
         .amdgcn => "e-p:64:64-p1:64:64-p2:32:32-p3:32:32-p4:64:64-p5:32:32-p6:32:32-p7:160:256:256:32-p8:128:128-p9:192:256:256:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64-S32-A5-G1-ni:7:8:9",
-        .riscv32 => if (std.Target.riscv.featureSetHas(target.cpu.features, .e))
+        .riscv32 => if (target.cpu.has(.riscv, .e))
             "e-m:e-p:32:32-i64:64-n32-S32"
         else
             "e-m:e-p:32:32-i64:64-n32-S128",
-        .riscv64 => if (std.Target.riscv.featureSetHas(target.cpu.features, .e))
+        .riscv64 => if (target.cpu.has(.riscv, .e))
             "e-m:e-p:64:64-i64:64-i128:128-n32:64-S64"
         else
             "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
@@ -12047,7 +12045,7 @@ fn returnTypeByRef(zcu: *Zcu, target: std.Target, ty: Type) bool {
     if (isByRef(ty, zcu)) {
         return true;
     } else if (target.cpu.arch.isX86() and
-        !std.Target.x86.featureSetHas(target.cpu.features, .evex512) and
+        !target.cpu.has(.x86, .evex512) and
         ty.totalVectorBits(zcu) >= 512)
     {
         // As of LLVM 18, passing a vector byval with fastcc that is 512 bits or more returns
@@ -12322,7 +12320,7 @@ const ParamTypeIterator = struct {
                 } else if (isByRef(ty, zcu)) {
                     return .byref;
                 } else if (target.cpu.arch.isX86() and
-                    !std.Target.x86.featureSetHas(target.cpu.features, .evex512) and
+                    !target.cpu.has(.x86, .evex512) and
                     ty.totalVectorBits(zcu) >= 512)
                 {
                     // As of LLVM 18, passing a vector byval with fastcc that is 512 bits or more returns
@@ -12746,7 +12744,7 @@ fn isScalar(zcu: *Zcu, ty: Type) bool {
 /// or if it produces miscompilations.
 fn backendSupportsF80(target: std.Target) bool {
     return switch (target.cpu.arch) {
-        .x86_64, .x86 => !std.Target.x86.featureSetHas(target.cpu.features, .soft_float),
+        .x86, .x86_64 => !target.cpu.has(.x86, .soft_float),
         else => false,
     };
 }
@@ -12778,11 +12776,11 @@ fn backendSupportsF16(target: std.Target) bool {
         .armeb,
         .thumb,
         .thumbeb,
-        => target.abi.float() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fullfp16),
+        => target.abi.float() == .soft or target.cpu.has(.arm, .fullfp16),
         // https://github.com/llvm/llvm-project/issues/129394
         .aarch64,
         .aarch64_be,
-        => std.Target.aarch64.featureSetHas(target.cpu.features, .fp_armv8),
+        => target.cpu.has(.aarch64, .fp_armv8),
         else => true,
     };
 }
@@ -12813,7 +12811,7 @@ fn backendSupportsF128(target: std.Target) bool {
         .armeb,
         .thumb,
         .thumbeb,
-        => target.abi.float() == .soft or std.Target.arm.featureSetHas(target.cpu.features, .fp_armv8),
+        => target.abi.float() == .soft or target.cpu.has(.arm, .fp_armv8),
         else => true,
     };
 }

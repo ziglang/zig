@@ -13,68 +13,59 @@ pub fn suggestVectorLengthForCpu(comptime T: type, comptime cpu: std.Target.Cpu)
     const element_bit_size = @max(8, std.math.ceilPowerOfTwo(u16, @bitSizeOf(T)) catch unreachable);
     const vector_bit_size: u16 = blk: {
         if (cpu.arch.isX86()) {
-            if (T == bool and std.Target.x86.featureSetHas(cpu.features, .prefer_mask_registers)) return 64;
-            if (builtin.zig_backend != .stage2_x86_64 and std.Target.x86.featureSetHas(cpu.features, .avx512f) and !std.Target.x86.featureSetHasAny(cpu.features, .{ .prefer_256_bit, .prefer_128_bit })) break :blk 512;
-            if (std.Target.x86.featureSetHasAny(cpu.features, .{ .prefer_256_bit, .avx2 }) and !std.Target.x86.featureSetHas(cpu.features, .prefer_128_bit)) break :blk 256;
-            if (std.Target.x86.featureSetHas(cpu.features, .sse)) break :blk 128;
-            if (std.Target.x86.featureSetHasAny(cpu.features, .{ .mmx, .@"3dnow" })) break :blk 64;
+            if (T == bool and cpu.has(.x86, .prefer_mask_registers)) return 64;
+            if (builtin.zig_backend != .stage2_x86_64 and cpu.has(.x86, .avx512f) and !cpu.hasAny(.x86, &.{ .prefer_256_bit, .prefer_128_bit })) break :blk 512;
+            if (cpu.hasAny(.x86, &.{ .prefer_256_bit, .avx2 }) and !cpu.has(.x86, .prefer_128_bit)) break :blk 256;
+            if (cpu.has(.x86, .sse)) break :blk 128;
+            if (cpu.hasAny(.x86, &.{ .mmx, .@"3dnow" })) break :blk 64;
         } else if (cpu.arch.isArm()) {
-            if (std.Target.arm.featureSetHas(cpu.features, .neon)) break :blk 128;
+            if (cpu.has(.arm, .neon)) break :blk 128;
         } else if (cpu.arch.isAARCH64()) {
             // SVE allows up to 2048 bits in the specification, as of 2022 the most powerful machine has implemented 512-bit
             // I think is safer to just be on 128 until is more common
             // TODO: Check on this return when bigger values are more common
-            if (std.Target.aarch64.featureSetHas(cpu.features, .sve)) break :blk 128;
-            if (std.Target.aarch64.featureSetHas(cpu.features, .neon)) break :blk 128;
+            if (cpu.has(.aarch64, .sve)) break :blk 128;
+            if (cpu.has(.aarch64, .neon)) break :blk 128;
         } else if (cpu.arch.isPowerPC()) {
-            if (std.Target.powerpc.featureSetHas(cpu.features, .altivec)) break :blk 128;
+            if (cpu.has(.powerpc, .altivec)) break :blk 128;
         } else if (cpu.arch.isMIPS()) {
-            if (std.Target.mips.featureSetHas(cpu.features, .msa)) break :blk 128;
+            if (cpu.has(.mips, .msa)) break :blk 128;
             // TODO: Test MIPS capability to handle bigger vectors
             //       In theory MDMX and by extension mips3d have 32 registers of 64 bits which can use in parallel
             //       for multiple processing, but I don't know what's optimal here, if using
             //       the 2048 bits or using just 64 per vector or something in between
-            if (std.Target.mips.featureSetHas(cpu.features, std.Target.mips.Feature.mips3d)) break :blk 64;
+            if (cpu.has(.mips, .mips3d)) break :blk 64;
         } else if (cpu.arch.isRISCV()) {
             // In RISC-V Vector Registers are length agnostic so there's no good way to determine the best size.
             // The usual vector length in most RISC-V cpus is 256 bits, however it can get to multiple kB.
-            if (std.Target.riscv.featureSetHas(cpu.features, .v)) {
-                var vec_bit_length: u32 = 256;
-                if (std.Target.riscv.featureSetHas(cpu.features, .zvl32b)) {
-                    vec_bit_length = 32;
-                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl64b)) {
-                    vec_bit_length = 64;
-                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl128b)) {
-                    vec_bit_length = 128;
-                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl256b)) {
-                    vec_bit_length = 256;
-                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl512b)) {
-                    vec_bit_length = 512;
-                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl1024b)) {
-                    vec_bit_length = 1024;
-                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl2048b)) {
-                    vec_bit_length = 2048;
-                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl4096b)) {
-                    vec_bit_length = 4096;
-                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl8192b)) {
-                    vec_bit_length = 8192;
-                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl16384b)) {
-                    vec_bit_length = 16384;
-                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl32768b)) {
-                    vec_bit_length = 32768;
-                } else if (std.Target.riscv.featureSetHas(cpu.features, .zvl65536b)) {
-                    vec_bit_length = 65536;
+            if (cpu.has(.riscv, .v)) {
+                inline for (.{
+                    .{ .zvl65536b, 65536 },
+                    .{ .zvl32768b, 32768 },
+                    .{ .zvl16384b, 16384 },
+                    .{ .zvl8192b, 8192 },
+                    .{ .zvl4096b, 4096 },
+                    .{ .zvl2048b, 2048 },
+                    .{ .zvl1024b, 1024 },
+                    .{ .zvl512b, 512 },
+                    .{ .zvl256b, 256 },
+                    .{ .zvl128b, 128 },
+                    .{ .zvl64b, 64 },
+                    .{ .zvl32b, 32 },
+                }) |mapping| {
+                    if (cpu.has(.riscv, mapping[0])) break :blk mapping[1];
                 }
-                break :blk vec_bit_length;
+
+                break :blk 256;
             }
         } else if (cpu.arch.isSPARC()) {
             // TODO: Test Sparc capability to handle bigger vectors
             //       In theory Sparc have 32 registers of 64 bits which can use in parallel
             //       for multiple processing, but I don't know what's optimal here, if using
             //       the 2048 bits or using just 64 per vector or something in between
-            if (std.Target.sparc.featureSetHasAny(cpu.features, .{ .vis, .vis2, .vis3 })) break :blk 64;
+            if (cpu.hasAny(.sparc, &.{ .vis, .vis2, .vis3 })) break :blk 64;
         } else if (cpu.arch.isWasm()) {
-            if (std.Target.wasm.featureSetHas(cpu.features, .simd128)) break :blk 128;
+            if (cpu.has(.wasm, .simd128)) break :blk 128;
         }
         return null;
     };
