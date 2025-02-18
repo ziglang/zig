@@ -317,7 +317,7 @@ fn testAllParseFunctions(comptime T: type, expected: T, doc: []const u8) !void {
         try testing.expectEqualDeep(expected, parsed.value);
     }
     {
-        var stream = std.io.fixedBufferStream(doc);
+        var stream: std.io.FixedBufferStream = .{ .buffer = doc };
         var json_reader = jsonReader(std.testing.allocator, stream.reader());
         defer json_reader.deinit();
         var parsed = try parseFromTokenSource(T, testing.allocator, &json_reader, .{});
@@ -336,7 +336,7 @@ fn testAllParseFunctions(comptime T: type, expected: T, doc: []const u8) !void {
         try testing.expectEqualDeep(expected, try parseFromTokenSourceLeaky(T, arena.allocator(), &scanner, .{}));
     }
     {
-        var stream = std.io.fixedBufferStream(doc);
+        var stream: std.io.FixedBufferStream = .{ .buffer = doc };
         var json_reader = jsonReader(std.testing.allocator, stream.reader());
         defer json_reader.deinit();
         try testing.expectEqualDeep(expected, try parseFromTokenSourceLeaky(T, arena.allocator(), &json_reader, .{}));
@@ -771,7 +771,7 @@ test "parseFromTokenSource" {
     }
 
     {
-        var stream = std.io.fixedBufferStream("123");
+        var stream: std.io.FixedBufferStream = .{ .buffer = "123" };
         var json_reader = jsonReader(std.testing.allocator, stream.reader());
         defer json_reader.deinit();
         var parsed = try parseFromTokenSource(u32, testing.allocator, &json_reader, .{});
@@ -886,7 +886,7 @@ test "json parse allocate when streaming" {
     var arena = ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    var stream = std.io.fixedBufferStream(str);
+    var stream: std.io.FixedBufferStream = .{ .buffer = str };
     var json_reader = jsonReader(std.testing.allocator, stream.reader());
 
     const parsed = parseFromTokenSourceLeaky(T, arena.allocator(), &json_reader, .{}) catch |err| {

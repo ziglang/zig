@@ -24,8 +24,10 @@ const ArrayList = std.ArrayList;
 const BitStack = std.BitStack;
 const Stringify = @This();
 
-const OBJECT_MODE = 0;
-const ARRAY_MODE = 1;
+const IndentationMode = enum(u1) {
+    object = 0,
+    array = 1,
+};
 
 writer: *std.io.BufferedWriter,
 options: Options = .{},
@@ -78,22 +80,22 @@ else
 pub fn beginArray(self: *Stringify) anyerror!void {
     if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
     try self.valueStart();
-    try self.stream.writeByte('[');
-    try self.pushIndentation(ARRAY_MODE);
+    try self.writer.writeByte('[');
+    try self.pushIndentation(.array);
     self.next_punctuation = .none;
 }
 
 pub fn beginObject(self: *Stringify) anyerror!void {
     if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
     try self.valueStart();
-    try self.stream.writeByte('{');
-    try self.pushIndentation(OBJECT_MODE);
+    try self.writer.writeByte('{');
+    try self.pushIndentation(.object);
     self.next_punctuation = .none;
 }
 
 pub fn endArray(self: *Stringify) anyerror!void {
     if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
-    self.popIndentation(ARRAY_MODE);
+    self.popIndentation(.array);
     switch (self.next_punctuation) {
         .none => {},
         .comma => {
@@ -101,13 +103,13 @@ pub fn endArray(self: *Stringify) anyerror!void {
         },
         .the_beginning, .colon => unreachable,
     }
-    try self.stream.writeByte(']');
+    try self.writer.writeByte(']');
     self.valueDone();
 }
 
 pub fn endObject(self: *Stringify) anyerror!void {
     if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
-    self.popIndentation(OBJECT_MODE);
+    self.popIndentation(.object);
     switch (self.next_punctuation) {
         .none => {},
         .comma => {
@@ -115,24 +117,24 @@ pub fn endObject(self: *Stringify) anyerror!void {
         },
         .the_beginning, .colon => unreachable,
     }
-    try self.stream.writeByte('}');
+    try self.writer.writeByte('}');
     self.valueDone();
 }
 
-fn pushIndentation(self: *Stringify, mode: u1) !void {
+fn pushIndentation(self: *Stringify, mode: IndentationMode) !void {
     switch (safety_checks) {
         .checked_to_fixed_depth => {
-            BitStack.pushWithStateAssumeCapacity(&self.nesting_stack, &self.indent_level, mode);
+            BitStack.pushWithStateAssumeCapacity(&self.nesting_stack, &self.indent_level, @intFromEnum(mode));
         },
         .assumed_correct => {
             self.indent_level += 1;
         },
     }
 }
-fn popIndentation(self: *Stringify, assert_its_this_one: u1) void {
+fn popIndentation(self: *Stringify, expected_mode: IndentationMode) void {
     switch (safety_checks) {
         .checked_to_fixed_depth => {
-            assert(BitStack.popWithState(&self.nesting_stack, &self.indent_level) == assert_its_this_one);
+            assert(BitStack.popWithState(&self.nesting_stack, &self.indent_level) == @intFromEnum(expected_mode));
         },
         .assumed_correct => {
             self.indent_level -= 1;
@@ -154,8 +156,8 @@ fn indent(self: *Stringify) !void {
             break :blk self.indent_level;
         },
     };
-    try self.stream.writeByte('\n');
-    try self.stream.writeByteNTimes(char, n_chars);
+    try self.writer.writeByte('\n');
+    try self.writer.splatByteAll(char, n_chars);
 }
 
 fn valueStart(self: *Stringify) !void {
@@ -178,13 +180,13 @@ fn valueStartAssumeTypeOk(self: *Stringify) !void {
         },
         .comma => {
             // Subsequent item in a container.
-            try self.stream.writeByte(',');
+            try self.writer.writeByte(',');
             try self.indent();
         },
         .colon => {
-            try self.stream.writeByte(':');
+            try self.writer.writeByte(':');
             if (self.options.whitespace != .minified) {
-                try self.stream.writeByte(' ');
+                try self.writer.writeByte(' ');
             }
         },
     }
@@ -197,7 +199,7 @@ fn valueDone(self: *Stringify) void {
 fn isObjectKeyExpected(self: *const Stringify) ?bool {
     switch (safety_checks) {
         .checked_to_fixed_depth => return self.indent_level > 0 and
-            BitStack.peekWithState(&self.nesting_stack, self.indent_level) == OBJECT_MODE and
+            BitStack.peekWithState(&self.nesting_stack, self.indent_level) == @intFromEnum(IndentationMode.object) and
             self.next_punctuation != .colon,
         .assumed_correct => return null,
     }
@@ -214,7 +216,7 @@ fn isComplete(self: *const Stringify) bool {
 pub fn print(self: *Stringify, comptime fmt: []const u8, args: anytype) anyerror!void {
     if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
     try self.valueStart();
-    try self.stream.print(fmt, args);
+    try self.writer.print(fmt, args);
     self.valueDone();
 }
 
@@ -224,7 +226,6 @@ test print {
     out.initFixed(&out_buf);
 
     var w: Stringify = .{ .writer = &out, .options = .{ .whitespace = .indent_2 } };
-    defer w.deinit();
 
     try w.beginObject();
     try w.objectField("a");
@@ -248,8 +249,8 @@ test print {
     try std.testing.expectEqualStrings(expected, out.getWritten());
 }
 
-/// An alternative to calling `write` that allows you to write directly to the `.stream` field, e.g. with `.stream.writeAll()`.
-/// Call `beginWriteRaw()`, then write a complete value (including any quotes if necessary) directly to the `.stream` field,
+/// An alternative to calling `write` that allows you to write directly to the `.writer` field, e.g. with `.writer.writeAll()`.
+/// Call `beginWriteRaw()`, then write a complete value (including any quotes if necessary) directly to the `.writer` field,
 /// then call `endWriteRaw()`.
 /// This can be useful for streaming very long strings into the output without needing it all buffered in memory.
 pub fn beginWriteRaw(self: *Stringify) !void {
@@ -276,7 +277,7 @@ pub fn endWriteRaw(self: *Stringify) void {
 pub fn objectField(self: *Stringify, key: []const u8) anyerror!void {
     if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
     try self.objectFieldStart();
-    try encodeJsonString(key, self.options, self.stream);
+    try encodeJsonString(key, self.options, self.writer);
     self.next_punctuation = .colon;
 }
 /// See `Stringify` for when to call this method.
@@ -287,12 +288,12 @@ pub fn objectFieldRaw(self: *Stringify, quoted_key: []const u8) anyerror!void {
     if (build_mode_has_safety) assert(self.raw_streaming_mode == .none);
     assert(quoted_key.len >= 2 and quoted_key[0] == '"' and quoted_key[quoted_key.len - 1] == '"'); // quoted_key should be "quoted".
     try self.objectFieldStart();
-    try self.stream.writeAll(quoted_key);
+    try self.writer.writeAll(quoted_key);
     self.next_punctuation = .colon;
 }
 
 /// In the rare case that you need to write very long object field names,
-/// this is an alternative to `objectField` and `objectFieldRaw` that allows you to write directly to the `.stream` field
+/// this is an alternative to `objectField` and `objectFieldRaw` that allows you to write directly to the `.writer` field
 /// similar to `beginWriteRaw`.
 /// Call `endObjectFieldRaw()` when you're done.
 pub fn beginObjectFieldRaw(self: *Stringify) !void {
@@ -351,9 +352,9 @@ pub fn write(self: *Stringify, v: anytype) anyerror!void {
             if (self.options.emit_nonportable_numbers_as_strings and
                 (v <= -(1 << 53) or v >= (1 << 53)))
             {
-                try self.stream.print("\"{}\"", .{v});
+                try self.writer.print("\"{}\"", .{v});
             } else {
-                try self.stream.print("{}", .{v});
+                try self.writer.print("{}", .{v});
             }
             self.valueDone();
             return;
@@ -364,25 +365,25 @@ pub fn write(self: *Stringify, v: anytype) anyerror!void {
         .float, .comptime_float => {
             if (@as(f64, @floatCast(v)) == v) {
                 try self.valueStart();
-                try self.stream.print("{}", .{@as(f64, @floatCast(v))});
+                try self.writer.print("{}", .{@as(f64, @floatCast(v))});
                 self.valueDone();
                 return;
             }
             try self.valueStart();
-            try self.stream.print("\"{}\"", .{v});
+            try self.writer.print("\"{}\"", .{v});
             self.valueDone();
             return;
         },
 
         .bool => {
             try self.valueStart();
-            try self.stream.writeAll(if (v) "true" else "false");
+            try self.writer.writeAll(if (v) "true" else "false");
             self.valueDone();
             return;
         },
         .null => {
             try self.valueStart();
-            try self.stream.writeAll("null");
+            try self.writer.writeAll("null");
             self.valueDone();
             return;
         },
@@ -529,7 +530,7 @@ pub fn write(self: *Stringify, v: anytype) anyerror!void {
 
 fn stringValue(self: *Stringify, s: []const u8) !void {
     try self.valueStart();
-    try encodeJsonString(s, self.options, self.stream);
+    try encodeJsonString(s, self.options, self.writer);
     self.valueDone();
 }
 
@@ -564,7 +565,7 @@ pub const Options = struct {
     emit_nonportable_numbers_as_strings: bool = false,
 };
 
-/// Writes the given value to the `std.io.Writer` stream.
+/// Writes the given value to the `std.io.Writer` writer.
 /// See `Stringify` for how the given value is serialized into JSON.
 /// The maximum nesting depth of the output JSON document is 256.
 pub fn value(v: anytype, options: Options, writer: *std.io.BufferedWriter) anyerror!void {
@@ -616,7 +617,7 @@ pub fn valueAlloc(gpa: Allocator, v: anytype, options: Options) error{OutOfMemor
     var aw: std.io.AllocatingWriter = undefined;
     const writer = aw.init(gpa);
     defer aw.deinit();
-    try value(v, options, writer);
+    value(v, options, writer) catch return error.OutOfMemory; // TODO: try @errorCast(...)
     return aw.toOwnedSlice();
 }
 
@@ -631,27 +632,27 @@ test valueAlloc {
     try std.testing.expectEqualStrings(expected, actual);
 }
 
-fn outputUnicodeEscape(codepoint: u21, out_stream: *std.io.BufferedWriter) !void {
+fn outputUnicodeEscape(codepoint: u21, bw: *std.io.BufferedWriter) anyerror!void {
     if (codepoint <= 0xFFFF) {
         // If the character is in the Basic Multilingual Plane (U+0000 through U+FFFF),
         // then it may be represented as a six-character sequence: a reverse solidus, followed
         // by the lowercase letter u, followed by four hexadecimal digits that encode the character's code point.
-        try out_stream.writeAll("\\u");
-        try std.fmt.formatIntValue(codepoint, "x", std.fmt.FormatOptions{ .width = 4, .fill = '0' }, out_stream);
+        try bw.writeAll("\\u");
+        try bw.printInt("x", .{ .width = 4, .fill = '0' }, codepoint);
     } else {
         assert(codepoint <= 0x10FFFF);
         // To escape an extended character that is not in the Basic Multilingual Plane,
         // the character is represented as a 12-character sequence, encoding the UTF-16 surrogate pair.
         const high = @as(u16, @intCast((codepoint - 0x10000) >> 10)) + 0xD800;
         const low = @as(u16, @intCast(codepoint & 0x3FF)) + 0xDC00;
-        try out_stream.writeAll("\\u");
-        try std.fmt.formatIntValue(high, "x", std.fmt.FormatOptions{ .width = 4, .fill = '0' }, out_stream);
-        try out_stream.writeAll("\\u");
-        try std.fmt.formatIntValue(low, "x", std.fmt.FormatOptions{ .width = 4, .fill = '0' }, out_stream);
+        try bw.writeAll("\\u");
+        try bw.printInt("x", .{ .width = 4, .fill = '0' }, high);
+        try bw.writeAll("\\u");
+        try bw.printInt("x", .{ .width = 4, .fill = '0' }, low);
     }
 }
 
-fn outputSpecialEscape(c: u8, writer: *std.io.BufferedWriter) !void {
+fn outputSpecialEscape(c: u8, writer: *std.io.BufferedWriter) anyerror!void {
     switch (c) {
         '\\' => try writer.writeAll("\\\\"),
         '\"' => try writer.writeAll("\\\""),
@@ -665,14 +666,14 @@ fn outputSpecialEscape(c: u8, writer: *std.io.BufferedWriter) !void {
 }
 
 /// Write `string` to `writer` as a JSON encoded string.
-pub fn encodeJsonString(string: []const u8, options: Options, writer: *std.io.BufferedWriter) !void {
+pub fn encodeJsonString(string: []const u8, options: Options, writer: *std.io.BufferedWriter) anyerror!void {
     try writer.writeByte('\"');
     try encodeJsonStringChars(string, options, writer);
     try writer.writeByte('\"');
 }
 
 /// Write `chars` to `writer` as JSON encoded string characters.
-pub fn encodeJsonStringChars(chars: []const u8, options: Options, writer: *std.io.BufferedWriter) !void {
+pub fn encodeJsonStringChars(chars: []const u8, options: Options, writer: *std.io.BufferedWriter) anyerror!void {
     var write_cursor: usize = 0;
     var i: usize = 0;
     if (options.escape_unicode) {
@@ -721,8 +722,8 @@ test "json write stream" {
     try testBasicWriteStream(&w);
 }
 
-fn testBasicWriteStream(w: *Stringify, out: *std.io.BufferedWriter) !void {
-    out.reset();
+fn testBasicWriteStream(w: *Stringify) anyerror!void {
+    w.writer.reset();
 
     try w.beginObject();
 
@@ -765,7 +766,7 @@ fn testBasicWriteStream(w: *Stringify, out: *std.io.BufferedWriter) !void {
         \\  "float": 3.5e0
         \\}
     ;
-    try std.testing.expectEqualStrings(expected, out.getWritten());
+    try std.testing.expectEqualStrings(expected, w.writer.getWritten());
 }
 
 fn getJsonObject(allocator: std.mem.Allocator) !std.json.Value {
@@ -967,59 +968,11 @@ test "stringify struct with custom stringifier" {
 }
 
 fn testStringify(expected: []const u8, v: anytype, options: Options) !void {
-    const ValidationWriter = struct {
-        const Self = @This();
-        pub const Writer = std.io.Writer(*Self, Error, Self.write);
-        pub const Error = error{
-            TooMuchData,
-            DifferentData,
-        };
-
-        expected_remaining: []const u8,
-
-        fn init(exp: []const u8) Self {
-            return .{ .expected_remaining = exp };
-        }
-
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
-        }
-
-        fn write(self: *Self, bytes: []const u8) Error!usize {
-            if (self.expected_remaining.len < bytes.len) {
-                std.debug.print(
-                    \\====== expected this output: =========
-                    \\{s}
-                    \\======== instead found this: =========
-                    \\{s}
-                    \\======================================
-                , .{
-                    self.expected_remaining,
-                    bytes,
-                });
-                return error.TooMuchData;
-            }
-            if (!std.mem.eql(u8, self.expected_remaining[0..bytes.len], bytes)) {
-                std.debug.print(
-                    \\====== expected this output: =========
-                    \\{s}
-                    \\======== instead found this: =========
-                    \\{s}
-                    \\======================================
-                , .{
-                    self.expected_remaining[0..bytes.len],
-                    bytes,
-                });
-                return error.DifferentData;
-            }
-            self.expected_remaining = self.expected_remaining[bytes.len..];
-            return bytes.len;
-        }
-    };
-
-    var vos = ValidationWriter.init(expected);
-    try value(v, options, vos.writer());
-    if (vos.expected_remaining.len > 0) return error.NotEnoughData;
+    var buffer: [4096]u8 = undefined;
+    var bw: std.io.BufferedWriter = undefined;
+    bw.initFixed(&buffer);
+    try value(v, options, &bw);
+    try std.testing.expectEqualStrings(expected, bw.getWritten());
 }
 
 test "raw streaming" {
@@ -1030,12 +983,12 @@ test "raw streaming" {
     var w: Stringify = .{ .writer = &out, .options = .{ .whitespace = .indent_2 } };
     try w.beginObject();
     try w.beginObjectFieldRaw();
-    try w.stream.writeAll("\"long");
-    try w.stream.writeAll(" key\"");
+    try w.writer.writeAll("\"long");
+    try w.writer.writeAll(" key\"");
     w.endObjectFieldRaw();
     try w.beginWriteRaw();
-    try w.stream.writeAll("\"long");
-    try w.stream.writeAll(" value\"");
+    try w.writer.writeAll("\"long");
+    try w.writer.writeAll(" value\"");
     w.endWriteRaw();
     try w.endObject();
 
