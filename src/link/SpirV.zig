@@ -75,7 +75,7 @@ pub fn createEmpty(
             .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
         },
-        .object = codegen.Object.init(gpa),
+        .object = codegen.Object.init(gpa, comp.getTarget()),
     };
     errdefer self.deinit();
 
@@ -172,7 +172,7 @@ pub fn updateExports(
         const spv_decl_index = try self.object.resolveNav(zcu, nav_index);
         const cc = Type.fromInterned(nav_ty).fnCallingConvention(zcu);
         const execution_model: spec.ExecutionModel = switch (target.os.tag) {
-            .vulkan => switch (cc) {
+            .vulkan, .opengl => switch (cc) {
                 .spirv_vertex => .Vertex,
                 .spirv_fragment => .Fragment,
                 .spirv_kernel => .GLCompute,
@@ -231,15 +231,10 @@ pub fn flushModule(
     const spv = &self.object.spv;
     const diags = &comp.link_diags;
     const gpa = comp.gpa;
-    const target = comp.getTarget();
-
-    try writeCapabilities(spv, target);
-    try writeMemoryModel(spv, target);
 
     // We need to export the list of error names somewhere so that we can pretty-print them in the
     // executor. This is not really an important thing though, so we can just dump it in any old
     // nonsemantic instruction. For now, just put it in OpSourceExtension with a special name.
-
     var error_info = std.ArrayList(u8).init(self.object.gpa);
     defer error_info.deinit();
 
@@ -269,7 +264,7 @@ pub fn flushModule(
         .extension = error_info.items,
     });
 
-    const module = try spv.finalize(arena, target);
+    const module = try spv.finalize(arena);
     errdefer arena.free(module);
 
     const linked_module = self.linkModule(arena, module, sub_prog_node) catch |err| switch (err) {
@@ -297,59 +292,4 @@ fn linkModule(self: *SpirV, a: Allocator, module: []Word, progress: std.Progress
     try dedup.run(&parser, &binary, progress);
 
     return binary.finalize(a);
-}
-
-fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
-    const gpa = spv.gpa;
-    // TODO: Integrate with a hypothetical feature system
-    const caps: []const spec.Capability = switch (target.os.tag) {
-        .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .Float16, .Vector16, .GenericPointer },
-        .vulkan => &.{ .Shader, .PhysicalStorageBufferAddresses, .Int8, .Int16, .Int64, .Float64, .Float16, .VariablePointers, .VariablePointersStorageBuffer },
-        else => unreachable,
-    };
-
-    for (caps) |cap| {
-        try spv.sections.capabilities.emit(gpa, .OpCapability, .{
-            .capability = cap,
-        });
-    }
-
-    switch (target.os.tag) {
-        .vulkan => {
-            try spv.sections.extensions.emit(gpa, .OpExtension, .{
-                .name = "SPV_KHR_physical_storage_buffer",
-            });
-        },
-        else => {},
-    }
-}
-
-fn writeMemoryModel(spv: *SpvModule, target: std.Target) !void {
-    const gpa = spv.gpa;
-
-    const addressing_model: spec.AddressingModel = switch (target.os.tag) {
-        .opencl => switch (target.cpu.arch) {
-            .spirv32 => .Physical32,
-            .spirv64 => .Physical64,
-            else => unreachable,
-        },
-        .opengl, .vulkan => switch (target.cpu.arch) {
-            .spirv32 => .Logical, // TODO: I don't think this will ever be implemented.
-            .spirv64 => .PhysicalStorageBuffer64,
-            else => unreachable,
-        },
-        else => unreachable,
-    };
-
-    const memory_model: spec.MemoryModel = switch (target.os.tag) {
-        .opencl => .OpenCL,
-        .opengl => .GLSL450,
-        .vulkan => .GLSL450,
-        else => unreachable,
-    };
-
-    try spv.sections.memory_model.emit(gpa, .OpMemoryModel, .{
-        .addressing_model = addressing_model,
-        .memory_model = memory_model,
-    });
 }
