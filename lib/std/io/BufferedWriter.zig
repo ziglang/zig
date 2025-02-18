@@ -860,46 +860,46 @@ pub fn printInt(
     options: std.fmt.Options,
     value: anytype,
 ) anyerror!void {
-    comptime var base = 10;
-    comptime var case: std.fmt.Case = .lower;
-
     const int_value = if (@TypeOf(value) == comptime_int) blk: {
         const Int = std.math.IntFittingRange(value, value);
         break :blk @as(Int, value);
     } else value;
 
-    if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "d")) {
-        base = 10;
-        case = .lower;
-    } else if (comptime std.mem.eql(u8, fmt, "c")) {
-        if (@typeInfo(@TypeOf(int_value)).int.bits <= 8) {
-            return printAsciiChar(bw, @as(u8, int_value), options);
-        } else {
-            @compileError("cannot print integer that is larger than 8 bits as an ASCII character");
-        }
-    } else if (comptime std.mem.eql(u8, fmt, "u")) {
-        if (@typeInfo(@TypeOf(int_value)).int.bits <= 21) {
-            return printUnicodeCodepoint(bw, @as(u21, int_value), options);
-        } else {
-            @compileError("cannot print integer that is larger than 21 bits as an UTF-8 sequence");
-        }
-    } else if (comptime std.mem.eql(u8, fmt, "b")) {
-        base = 2;
-        case = .lower;
-    } else if (comptime std.mem.eql(u8, fmt, "x")) {
-        base = 16;
-        case = .lower;
-    } else if (comptime std.mem.eql(u8, fmt, "X")) {
-        base = 16;
-        case = .upper;
-    } else if (comptime std.mem.eql(u8, fmt, "o")) {
-        base = 8;
-        case = .lower;
-    } else {
-        invalidFmtError(fmt, value);
+    switch (fmt.len) {
+        0 => return printIntOptions(bw, int_value, 10, .lower, options),
+        1 => switch (fmt[0]) {
+            'd' => return printIntOptions(bw, int_value, 10, .lower, options),
+            'c' => {
+                if (@typeInfo(@TypeOf(int_value)).int.bits <= 8) {
+                    return printAsciiChar(bw, @as(u8, int_value), options);
+                } else {
+                    @compileError("cannot print integer that is larger than 8 bits as an ASCII character");
+                }
+            },
+            'u' => {
+                if (@typeInfo(@TypeOf(int_value)).int.bits <= 21) {
+                    return printUnicodeCodepoint(bw, @as(u21, int_value), options);
+                } else {
+                    @compileError("cannot print integer that is larger than 21 bits as an UTF-8 sequence");
+                }
+            },
+            'b' => return printIntOptions(bw, int_value, 2, .lower, options),
+            'x' => return printIntOptions(bw, int_value, 16, .lower, options),
+            'X' => return printIntOptions(bw, int_value, 16, .upper, options),
+            'o' => return printIntOptions(bw, int_value, 8, .lower, options),
+            'B' => return printByteSize(bw, int_value, .decimal, options),
+            else => invalidFmtError(fmt, value),
+        },
+        2 => {
+            if (fmt[0] == 'B' and fmt[1] == 'i') {
+                return printByteSize(bw, int_value, .binary, options);
+            } else {
+                invalidFmtError(fmt, value);
+            }
+        },
+        else => invalidFmtError(fmt, value),
     }
-
-    return printIntOptions(bw, int_value, base, case, options);
+    comptime unreachable;
 }
 
 pub fn printAsciiChar(bw: *BufferedWriter, c: u8, options: std.fmt.Options) anyerror!void {
@@ -1128,7 +1128,7 @@ pub const ByteSizeUnits = enum {
 pub fn printByteSize(
     bw: *std.io.BufferedWriter,
     value: u64,
-    units: ByteSizeUnits,
+    comptime units: ByteSizeUnits,
     options: std.fmt.Options,
 ) anyerror!void {
     if (value == 0) return alignBufferOptions(bw, "0B", options);
