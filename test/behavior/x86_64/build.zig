@@ -133,7 +133,7 @@ pub fn build(b: *std.Build) void {
                 .use_lld = false,
                 .root_module = test_mod,
             });
-            if (!std.Target.x86.featureSetHas(target.result.cpu.features, .sse2)) {
+            if (!target.result.cpu.has(.x86, .sse2)) {
                 test_exe.bundle_compiler_rt = false;
                 test_mod.linkLibrary(compiler_rt_lib);
             }

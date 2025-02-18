@@ -6410,7 +6410,7 @@ pub fn addCCArgs(
                     var march_index: usize = prefix_len;
                     @memcpy(march_buf[0..prefix.len], prefix);
 
-                    if (std.Target.riscv.featureSetHas(target.cpu.features, .e)) {
+                    if (target.cpu.has(.riscv, .e)) {
                         march_buf[march_index] = 'e';
                     } else {
                         march_buf[march_index] = 'i';
@@ -6418,7 +6418,7 @@ pub fn addCCArgs(
                     march_index += 1;
 
                     for (letters) |letter| {
-                        if (std.Target.riscv.featureSetHas(target.cpu.features, letter.feat)) {
+                        if (target.cpu.has(.riscv, letter.feat)) {
                             march_buf[march_index] = letter.char;
                             march_index += 1;
                         }
@@ -6429,12 +6429,12 @@ pub fn addCCArgs(
                     });
                     try argv.append(march_arg);
 
-                    if (std.Target.riscv.featureSetHas(target.cpu.features, .relax)) {
+                    if (target.cpu.has(.riscv, .relax)) {
                         try argv.append("-mrelax");
                     } else {
                         try argv.append("-mno-relax");
                     }
-                    if (std.Target.riscv.featureSetHas(target.cpu.features, .save_restore)) {
+                    if (target.cpu.has(.riscv, .save_restore)) {
                         try argv.append("-msave-restore");
                     } else {
                         try argv.append("-mno-save-restore");

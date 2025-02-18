@@ -1159,7 +1159,7 @@ fn emitFeaturesSection(
 
     var safety_count = feature_count;
     for (target.cpu.arch.allFeaturesList(), 0..) |*feature, i| {
-        if (!std.Target.wasm.featureSetHas(target.cpu.features, @enumFromInt(i))) continue;
+        if (!target.cpu.has(.wasm, @as(std.Target.wasm.Feature, @enumFromInt(i)))) continue;
         safety_count -= 1;
 
         try leb.writeUleb128(writer, @as(u32, '+'));
