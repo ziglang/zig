@@ -387,18 +387,13 @@ fn decl_fields_fallible(decl_index: Decl.Index) ![]Ast.Node.Index {
         .type_function => {
             const node_tags = ast.nodes.items(.tag);
 
-            // Find the return statement
+            // If the type function returns a reference to another type function, get the fields from there
+            if (decl.get_type_fn_return_type_fn()) |function_decl| {
+                return decl_fields_fallible(function_decl);
+            }
+            // If the type function returns a container, such as a `struct`, read that container's fields
             if (decl.get_type_fn_return_expr()) |return_expr| {
                 switch (node_tags[return_expr]) {
-                    .call, .call_comma, .call_one, .call_one_comma => {
-                        const node_data = ast.nodes.items(.data);
-                        const function = node_data[return_expr].lhs;
-                        const token = ast.nodes.items(.main_token)[function];
-                        const name = ast.tokenSlice(token);
-                        if (decl.lookup(name)) |function_decl| {
-                            return decl_fields_fallible(function_decl);
-                        }
-                    },
                     .container_decl, .container_decl_trailing, .container_decl_two, .container_decl_two_trailing, .container_decl_arg, .container_decl_arg_trailing => {
                         return ast_decl_fields_fallible(ast, return_expr);
                     },
