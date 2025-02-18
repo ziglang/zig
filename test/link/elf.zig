@@ -2123,24 +2123,35 @@ fn testLinkOrder(b: *Build, opts: Options) *Step {
 fn testLdScript(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "ld-script", opts);
 
-    const dso = addSharedLibrary(b, opts, .{ .name = "bar" });
-    addCSourceBytes(dso, "int foo() { return 42; }", &.{});
+    const bar = addSharedLibrary(b, opts, .{ .name = "bar" });
+    addCSourceBytes(bar, "int bar() { return 42; }", &.{});
+
+    const baz = addSharedLibrary(b, opts, .{ .name = "baz" });
+    addCSourceBytes(baz, "int baz() { return 42; }", &.{});
 
     const scripts = WriteFile.create(b);
-    _ = scripts.add("liba.so", "INPUT(libfoo.so)");
+    _ = scripts.add("liba.so", "INPUT(libfoo.so libfoo2.so.1)");
     _ = scripts.add("libfoo.so", "GROUP(AS_NEEDED(-lbar))");
+
+    // Check finding a versioned .so file that is elsewhere in the library search paths.
+    const scripts2 = WriteFile.create(b);
+    _ = scripts2.add("libfoo2.so.1", "GROUP(AS_NEEDED(-lbaz))");
 
     const exe = addExecutable(b, opts, .{ .name = "main" });
     addCSourceBytes(exe,
-        \\int foo();
+        \\int bar();
+        \\int baz();
         \\int main() {
-        \\  return foo() - 42;
+        \\  return bar() - baz();
         \\}
     , &.{});
     exe.linkSystemLibrary2("a", .{});
     exe.addLibraryPath(scripts.getDirectory());
-    exe.addLibraryPath(dso.getEmittedBinDirectory());
-    exe.addRPath(dso.getEmittedBinDirectory());
+    exe.addLibraryPath(scripts2.getDirectory());
+    exe.addLibraryPath(bar.getEmittedBinDirectory());
+    exe.addLibraryPath(baz.getEmittedBinDirectory());
+    exe.addRPath(bar.getEmittedBinDirectory());
+    exe.addRPath(baz.getEmittedBinDirectory());
     exe.linkLibC();
     exe.allow_so_scripts = true;
 
@@ -2167,7 +2178,7 @@ fn testLdScriptPathError(b: *Build, opts: Options) *Step {
     // TODO: A future enhancement could make this error message also mention
     // the file that references the missing library.
     expectLinkErrors(exe, test_step, .{
-        .stderr_contains = "error: unable to find dynamic system library 'foo' using strategy 'no_fallback'. searched paths:",
+        .stderr_contains = "error: libfoo.so: file listed in linker script not found",
     });
 
     return test_step;
