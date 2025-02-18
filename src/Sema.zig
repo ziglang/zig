@@ -9622,7 +9622,7 @@ fn checkMergeAllowed(sema: *Sema, block: *Block, src: LazySrcLoc, peer_ty: Type)
         const backend = target_util.zigBackend(target, zcu.comp.config.use_llvm);
         try sema.errNote(src, msg, "pointers with address space '{s}' cannot be returned from a branch on target {s}-{s} by compiler backend {s}", .{
             @tagName(as),
-            target.cpu.arch.genericName(),
+            @tagName(target.cpu.arch.family()),
             @tagName(target.os.tag),
             @tagName(backend),
         });
@@ -23951,7 +23951,7 @@ fn checkLogicalPtrOperation(sema: *Sema, block: *Block, src: LazySrcLoc, ty: Typ
                     "cannot perform arithmetic on pointers with address space '{s}' on target {s}-{s}",
                     .{
                         @tagName(as),
-                        target.cpu.arch.genericName(),
+                        @tagName(target.cpu.arch.family()),
                         @tagName(target.os.tag),
                     },
                 );
@@ -37033,7 +37033,7 @@ pub fn analyzeAsAddressSpace(
             block,
             src,
             "{s} with address space '{s}' are not supported on {s}",
-            .{ entity, @tagName(address_space), target.cpu.arch.genericName() },
+            .{ entity, @tagName(address_space), @tagName(target.cpu.arch.family()) },
         );
     }
 
