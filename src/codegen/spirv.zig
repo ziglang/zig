@@ -1018,7 +1018,7 @@ const NavGen = struct {
                         const comp_ty_id = try self.resolveType(ty, .direct);
                         return try self.constructComposite(comp_ty_id, constituents.items);
                     },
-                    .tuple_type => unreachable, // TODO
+                    .tuple_type => return self.todo("implement tuple types", .{}),
                     else => unreachable,
                 },
                 .un => |un| {
@@ -1255,6 +1255,7 @@ const NavGen = struct {
 
     fn ptrType(self: *NavGen, child_ty: Type, storage_class: StorageClass, child_repr: Repr) !IdRef {
         const zcu = self.pt.zcu;
+        const ip = &zcu.intern_pool;
         const key = .{ child_ty.toIntern(), storage_class, child_repr };
         const entry = try self.ptr_types.getOrPut(self.gpa, key);
         if (entry.found_existing) {
@@ -1285,7 +1286,12 @@ const NavGen = struct {
                 }
             }
 
-            try self.spv.decorate(result_id, .{ .ArrayStride = .{ .array_stride = @intCast(child_ty.abiSize(zcu)) } });
+            switch (ip.indexToKey(child_ty.toIntern())) {
+                .func_type, .opaque_type => {},
+                else => {
+                    try self.spv.decorate(result_id, .{ .ArrayStride = .{ .array_stride = @intCast(child_ty.abiSize(zcu)) } });
+                },
+            }
         }
 
         try self.spv.sections.types_globals_constants.emit(self.spv.gpa, .OpTypePointer, .{
@@ -1704,7 +1710,10 @@ const NavGen = struct {
                 return result_id;
             },
             .@"union" => return try self.resolveUnionType(ty),
-            .error_set => return try self.resolveType(Type.u16, repr),
+            .error_set => {
+                const err_int_ty = try pt.errorIntType();
+                return try self.resolveType(err_int_ty, repr);
+            },
             .error_union => {
                 const payload_ty = ty.errorUnionPayload(zcu);
                 const error_ty_id = try self.resolveType(Type.anyerror, .indirect);
@@ -2329,7 +2338,7 @@ const NavGen = struct {
             // NOTE: Vulkan's FMA instruction does *NOT* produce the right values!
             //   its precision guarantees do NOT match zigs and it does NOT match OpenCLs!
             //   it needs to be emulated!
-            .vulkan, .opengl => unreachable, // TODO: See above
+            .vulkan, .opengl => return self.todo("implement fma operation for {s} os", .{@tagName(target.os.tag)}),
             else => unreachable,
         };
 
@@ -2529,12 +2538,12 @@ const NavGen = struct {
                 .vulkan, .opengl => switch (op) {
                     .i_abs => 5, // SAbs
                     .f_abs => 4, // FAbs
-                    .clz => unreachable, // TODO
-                    .ctz => unreachable, // TODO
                     .floor => 8, // Floor
                     .ceil => 9, // Ceil
                     .trunc => 3, // Trunc
                     .round => 1, // Round
+                    .clz,
+                    .ctz,
                     .sqrt,
                     .sin,
                     .cos,
@@ -2544,7 +2553,7 @@ const NavGen = struct {
                     .log,
                     .log2,
                     .log10,
-                    => unreachable, // TODO
+                    => return self.todo("implement unary operation '{s}' for {s} os", .{ @tagName(op), @tagName(target.os.tag) }),
                     else => unreachable,
                 },
                 else => unreachable,
@@ -2810,6 +2819,8 @@ const NavGen = struct {
     /// TODO is to also write out the error as a function call parameter, and to somehow fetch
     /// the name of an error in the text executor.
     fn generateTestEntryPoint(self: *NavGen, name: []const u8, spv_test_decl_index: SpvModule.Decl.Index) !void {
+        const target = self.spv.target;
+
         const anyerror_ty_id = try self.resolveType(Type.anyerror, .direct);
         const ptr_anyerror_ty = try self.pt.ptrType(.{
             .child = Type.anyerror.toIntern(),
@@ -2819,12 +2830,12 @@ const NavGen = struct {
 
         const spv_decl_index = try self.spv.allocDecl(.func);
         const kernel_id = self.spv.declPtr(spv_decl_index).result_id;
-        // for some reason we don't need to decorate the push constant here...
-        try self.spv.declareDeclDeps(spv_decl_index, &.{spv_test_decl_index});
+
+        var decl_deps = std.ArrayList(SpvModule.Decl.Index).init(self.gpa);
+        defer decl_deps.deinit();
+        try decl_deps.append(spv_test_decl_index);
 
         const section = &self.spv.sections.functions;
-
-        const target = self.spv.target;
 
         const p_error_id = self.spv.allocId();
         switch (target.os.tag) {
@@ -2904,6 +2915,7 @@ const NavGen = struct {
 
                 const spv_err_decl_index = self.object.error_push_constant.?.push_constant_ptr;
                 const push_constant_id = self.spv.declPtr(spv_err_decl_index).result_id;
+                try decl_deps.append(spv_err_decl_index);
 
                 const zero_id = try self.constInt(Type.u32, 0);
                 // We cannot use OpInBoundsAccessChain to dereference cross-storage class, so we have to use
@@ -2953,6 +2965,7 @@ const NavGen = struct {
             else => unreachable,
         };
 
+        try self.spv.declareDeclDeps(spv_decl_index, decl_deps.items);
         try self.spv.declareEntryPoint(spv_decl_index, test_name, execution_mode);
     }
 
@@ -3372,6 +3385,7 @@ const NavGen = struct {
             .switch_br      => return self.airSwitchBr(inst),
             .unreach, .trap => return self.airUnreach(),
 
+            .dbg_empty_stmt            => return,
             .dbg_stmt                  => return self.airDbgStmt(inst),
             .dbg_inline_block          => try self.airDbgInlineBlock(inst),
             .dbg_var_ptr, .dbg_var_val, .dbg_arg_inline => return self.airDbgVar(inst),
@@ -3651,6 +3665,7 @@ const NavGen = struct {
     }
 
     fn abs(self: *NavGen, result_ty: Type, value: Temporary) !Temporary {
+        const zcu = self.pt.zcu;
         const operand_info = self.arithmeticTypeInfo(value.ty);
 
         switch (operand_info.class) {
@@ -3658,11 +3673,9 @@ const NavGen = struct {
             .integer, .strange_integer => {
                 const abs_value = try self.buildUnary(.i_abs, value);
 
-                // TODO: We may need to bitcast the result to a uint
-                // depending on the result type. Do that when
-                // bitCast is implemented for vectors.
-                // This is only relevant for Vulkan
-                assert(self.spv.hasFeature(.kernel)); // TODO
+                if (value.ty.intInfo(zcu).signedness == .signed and self.spv.hasFeature(.shader)) {
+                    return self.todo("perform bitcast after @abs", .{});
+                }
 
                 return try self.normalize(abs_value, self.arithmeticTypeInfo(result_ty));
             },
@@ -3979,8 +3992,6 @@ const NavGen = struct {
             .integer, .strange_integer => {},
             .float, .bool => unreachable,
         }
-
-        assert(self.spv.hasFeature(.kernel)); // TODO
 
         const count = try self.buildUnary(op, operand);
 
@@ -4307,7 +4318,8 @@ const NavGen = struct {
             },
             .error_set => {
                 assert(!is_vector);
-                return try self.cmp(op, lhs.pun(Type.u16), rhs.pun(Type.u16));
+                const err_int_ty = try pt.errorIntType();
+                return try self.cmp(op, lhs.pun(err_int_ty), rhs.pun(err_int_ty));
             },
             .pointer => {
                 assert(!is_vector);
@@ -4411,7 +4423,7 @@ const NavGen = struct {
                     else => unreachable,
                 };
             },
-            else => unreachable,
+            else => |ty| return self.todo("implement cmp operation for '{s}' type", .{@tagName(ty)}),
         }
 
         const info = self.arithmeticTypeInfo(scalar_ty);
@@ -5233,13 +5245,13 @@ const NavGen = struct {
                 return self.accessChain(result_ty_id, object_ptr, &.{field_index});
             },
             .@"struct" => switch (object_ty.containerLayout(zcu)) {
-                .@"packed" => unreachable, // TODO
+                .@"packed" => return self.todo("implement field access for packed structs", .{}),
                 else => {
                     return try self.accessChain(result_ty_id, object_ptr, &.{field_index});
                 },
             },
             .@"union" => switch (object_ty.containerLayout(zcu)) {
-                .@"packed" => unreachable, // TODO
+                .@"packed" => return self.todo("implement field access for packed unions", .{}),
                 else => {
                     const layout = self.unionLayout(object_ty);
                     if (!layout.has_payload) {
