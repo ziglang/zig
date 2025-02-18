@@ -23100,7 +23100,18 @@ fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
             if (ptr_align.compare(.gt, .@"1")) {
                 const align_bytes_minus_1 = ptr_align.toByteUnits().? - 1;
                 const align_minus_1 = Air.internedToRef((try sema.splat(operand_ty, try pt.intValue(Type.usize, align_bytes_minus_1))).toIntern());
-                const remainder = try block.addBinOp(.bit_and, operand_coerced, align_minus_1);
+                const remainder = try block.addBinOp(
+                    .bit_and,
+                    if (elem_ty.fnPtrMaskOrNull(zcu)) |mask|
+                        try block.addBinOp(
+                            .bit_and,
+                            operand_coerced,
+                            Air.internedToRef((try sema.splat(operand_ty, try pt.intValue(Type.usize, mask))).toIntern()),
+                        )
+                    else
+                        operand_coerced,
+                    align_minus_1,
+                );
                 const is_aligned = if (is_vector) all_aligned: {
                     const splat_zero_usize = Air.internedToRef((try sema.splat(operand_ty, .zero_usize)).toIntern());
                     const is_aligned = try block.addCmpVector(remainder, splat_zero_usize, .eq);
@@ -23130,7 +23141,18 @@ fn zirPtrFromInt(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
             if (ptr_align.compare(.gt, .@"1")) {
                 const align_bytes_minus_1 = ptr_align.toByteUnits().? - 1;
                 const align_minus_1 = Air.internedToRef((try pt.intValue(Type.usize, align_bytes_minus_1)).toIntern());
-                const remainder = try block.addBinOp(.bit_and, elem_coerced, align_minus_1);
+                const remainder = try block.addBinOp(
+                    .bit_and,
+                    if (elem_ty.fnPtrMaskOrNull(zcu)) |mask|
+                        try block.addBinOp(
+                            .bit_and,
+                            elem_coerced,
+                            Air.internedToRef((try pt.intValue(Type.usize, mask)).toIntern()),
+                        )
+                    else
+                        elem_coerced,
+                    align_minus_1,
+                );
                 const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
                 try sema.addSafetyCheck(block, src, is_aligned, .incorrect_alignment);
             }
@@ -23716,7 +23738,18 @@ fn ptrCastFull(
         else
             ptr;
         const ptr_int = try block.addBitCast(.usize, actual_ptr);
-        const remainder = try block.addBinOp(.bit_and, ptr_int, align_minus_1);
+        const remainder = try block.addBinOp(
+            .bit_and,
+            if (Type.fromInterned(dest_info.child).fnPtrMaskOrNull(zcu)) |mask|
+                try block.addBinOp(
+                    .bit_and,
+                    ptr_int,
+                    Air.internedToRef((try pt.intValue(Type.usize, mask)).toIntern()),
+                )
+            else
+                ptr_int,
+            align_minus_1,
+        );
         const is_aligned = try block.addBinOp(.cmp_eq, remainder, .zero_usize);
         const ok = if (src_info.flags.size == .slice and dest_info.flags.size == .slice) ok: {
             const len = try sema.analyzeSliceLen(block, operand_src, ptr);
