@@ -184,7 +184,7 @@ pub const JobQueue = struct {
 
             const hash_slice = hash.toSlice();
 
-            try buf.writer().print(
+            try buf.print(
                 \\    pub const {} = struct {{
                 \\
             , .{std.zig.fmtId(hash_slice)});
@@ -210,13 +210,13 @@ pub const JobQueue = struct {
                 }
             }
 
-            try buf.writer().print(
+            try buf.print(
                 \\        pub const build_root = "{q}";
                 \\
             , .{fetch.package_root});
 
             if (fetch.has_build_zig) {
-                try buf.writer().print(
+                try buf.print(
                     \\        pub const build_zig = @import("{}");
                     \\
                 , .{std.zig.fmtEscapes(hash_slice)});
@@ -229,7 +229,7 @@ pub const JobQueue = struct {
                 );
                 for (manifest.dependencies.keys(), manifest.dependencies.values()) |name, dep| {
                     const h = depDigest(fetch.package_root, jq.global_cache, dep) orelse continue;
-                    try buf.writer().print(
+                    try buf.print(
                         "            .{{ \"{}\", \"{}\" }},\n",
                         .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(h.toSlice()) },
                     );
@@ -261,7 +261,7 @@ pub const JobQueue = struct {
 
         for (root_manifest.dependencies.keys(), root_manifest.dependencies.values()) |name, dep| {
             const h = depDigest(root_fetch.package_root, jq.global_cache, dep) orelse continue;
-            try buf.writer().print(
+            try buf.print(
                 "    .{{ \"{}\", \"{}\" }},\n",
                 .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(h.toSlice()) },
             );
@@ -1366,8 +1366,12 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!U
         {
             const index_prog_node = f.prog_node.start("Index pack", 0);
             defer index_prog_node.end();
-            var index_buffered_writer = std.io.bufferedWriter(index_file.writer());
-            try git.indexPack(gpa, object_format, pack_file, index_buffered_writer.writer());
+            var buffer: [4096]u8 = undefined;
+            var index_buffered_writer: std.io.BufferedWriter = .{
+                .unbuffered_writer = index_file.writer(),
+                .buffer = &buffer,
+            };
+            try git.indexPack(gpa, object_format, pack_file, &index_buffered_writer);
             try index_buffered_writer.flush();
             try index_file.sync();
         }
@@ -1638,12 +1642,13 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
 }
 
 fn dumpHashInfo(all_files: []const *const HashedFile) !void {
-    const stdout = std.io.getStdOut();
-    var bw = std.io.bufferedWriter(stdout.writer());
-    const w = bw.writer();
-
+    var buffer: [4096]u8 = undefined;
+    var bw: std.io.BufferedWriter = .{
+        .unbuffered_writer = std.io.getStdOut().writer(),
+        .buffer = &buffer,
+    };
     for (all_files) |hashed_file| {
-        try w.print("{s}: {x}: {s}\n", .{
+        try bw.print("{s}: {x}: {s}\n", .{
             @tagName(hashed_file.kind), &hashed_file.hash, hashed_file.normalized_path,
         });
     }

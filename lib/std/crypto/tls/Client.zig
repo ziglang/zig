@@ -125,9 +125,10 @@ pub const Options = struct {
         /// Verify that the server certificate is authorized by a given ca bundle.
         bundle: Certificate.Bundle,
     },
-    /// If non-null, ssl secrets are logged to this stream.  Creating such a log file allows
+    /// If non-null, ssl secrets are logged to this file.  Creating such a log file allows
     /// other programs with access to that file to decrypt all traffic over this connection.
-    ssl_key_log_file: ?*std.io.BufferedWriter = null,
+    /// TODO `std.crypto` should have no dependencies on `std.fs`.
+    ssl_key_log_file: ?std.fs.File = null,
 };
 
 pub fn InitError(comptime Stream: type) type {

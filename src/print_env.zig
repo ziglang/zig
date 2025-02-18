@@ -26,7 +26,7 @@ pub fn cmdEnv(arena: Allocator, args: []const []const u8) !void {
         .buffer = &buffer,
         .unbuffered_writer = std.io.getStdOut().writer(),
     };
-    var jws = std.json.writeStream(bw, .{ .whitespace = .indent_1 });
+    var jws: std.json.Stringify = .{ .writer = &bw, .options = .{ .whitespace = .indent_1 } };
 
     try jws.beginObject();
 

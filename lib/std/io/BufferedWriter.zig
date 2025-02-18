@@ -663,7 +663,7 @@ pub fn printValue(
             }
         },
         .error_set => {
-            if (actual_fmt.len > 0 and actual_fmt.len[0] == 's') {
+            if (actual_fmt.len > 0 and actual_fmt[0] == 's') {
                 return bw.writeAll(@errorName(value));
             } else if (actual_fmt.len != 0) {
                 invalidFmtError(fmt, value);
@@ -1147,13 +1147,11 @@ pub fn printByteSize(
     const magnitude = switch (units) {
         .decimal => @min(log2 / comptime std.math.log2(1000), mags_si.len - 1),
         .binary => @min(log2 / 10, mags_iec.len - 1),
-        else => unreachable,
     };
     const new_value = std.math.lossyCast(f64, value) / std.math.pow(f64, std.math.lossyCast(f64, base), std.math.lossyCast(f64, magnitude));
     const suffix = switch (units) {
         .decimal => mags_si[magnitude],
         .binary => mags_iec[magnitude],
-        else => unreachable,
     };
 
     const s = switch (magnitude) {
@@ -1176,10 +1174,9 @@ pub fn printByteSize(
             buf[i..][0..3].* = [_]u8{ suffix, 'i', 'B' };
             i += 3;
         },
-        else => unreachable,
     }
 
-    return alignBufferOptions(buf[0..i], options, bw);
+    return alignBufferOptions(bw, buf[0..i], options);
 }
 
 // This ANY const is a workaround for: https://github.com/ziglang/zig/issues/7948
