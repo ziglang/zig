@@ -78,7 +78,7 @@ pub fn findByMnemonic(
                 ),
                 .x86_64 => false,
             },
-            inline .@"invpcid 64bit", .@"rdpid 64bit" => |tag| switch (target.cpu.arch) {
+            inline .@"invpcid 64bit", .@"rdpid 64bit", .@"prefetchi 64bit" => |tag| switch (target.cpu.arch) {
                 else => unreachable,
                 .x86 => false,
                 .x86_64 => std.Target.x86.featureSetHas(
@@ -86,6 +86,7 @@ pub fn findByMnemonic(
                     @field(std.Target.x86.Feature, @tagName(tag)[0 .. @tagName(tag).len - " 64bit".len]),
                 ),
             },
+            .prefetch => std.Target.x86.featureSetHasAny(target.cpu.features, .{ .sse, .prfchw, .prefetchi, .prefetchwt1 }),
             inline else => |tag| has_features: {
                 comptime var feature_it = std.mem.splitScalar(u8, @tagName(tag), ' ');
                 comptime var features: []const std.Target.x86.Feature = &.{};
@@ -375,6 +376,7 @@ pub const Mnemonic = enum {
     orps,
     pextrw, pinsrw,
     pmaxsw, pmaxub, pminsw, pminub, pmovmskb,
+    prefetchit0, prefetchit1, prefetchnta, prefetcht0, prefetcht1, prefetcht2, prefetchw, prefetchwt1,
     shufps,
     sqrtps, sqrtss,
     stmxcsr,
@@ -459,6 +461,7 @@ pub const Mnemonic = enum {
     vhaddpd, vhaddps,
     vinsertf128, vinsertps,
     vlddqu, vldmxcsr,
+    vmaskmovpd, vmaskmovps,
     vmaxpd, vmaxps, vmaxsd, vmaxss,
     vminpd, vminps, vminsd, vminss,
     vmovapd, vmovaps,
@@ -481,6 +484,7 @@ pub const Mnemonic = enum {
     vpblendvb, vpblendw, vpclmulqdq,
     vpcmpeqb, vpcmpeqd, vpcmpeqq, vpcmpeqw,
     vpcmpgtb, vpcmpgtd, vpcmpgtq, vpcmpgtw,
+    vperm2f128, vpermilpd, vpermilps,
     vpextrb, vpextrd, vpextrq, vpextrw,
     vpinsrb, vpinsrd, vpinsrq, vpinsrw,
     vpmaxsb, vpmaxsd, vpmaxsw, vpmaxub, vpmaxud, vpmaxuw,
@@ -521,6 +525,9 @@ pub const Mnemonic = enum {
     // AVX2
     vbroadcasti128, vpbroadcastb, vpbroadcastd, vpbroadcastq, vpbroadcastw,
     vextracti128, vinserti128, vpblendd,
+    vperm2i128, vpermd, vpermpd, vpermps, vpermq,
+    vpmaskmovd, vpmaskmovq,
+    vpsllvd, vpsllvq, vpsravd, vpsrlvd, vpsrlvq,
     // ADX
     adcx, adox,
     // AESKLE
@@ -557,8 +564,7 @@ pub const Op = enum {
     r32_m8, r32_m16, r64_m16,
     m8, m16, m32, m64, m80, m128, m256,
     rel8, rel16, rel32,
-    m,
-    moffs,
+    m, moffs, mrip8,
     sreg,
     st0, st, mm, mm_m64,
     xmm0, xmm, xmm_m8, xmm_m16, xmm_m32, xmm_m64, xmm_m128,
@@ -612,9 +618,19 @@ pub const Op = enum {
 
             .mem => |mem| switch (mem) {
                 .moffs => .moffs,
-                .sib, .rip => switch (mem.bitSize(target)) {
+                .sib => switch (mem.bitSize(target)) {
                     0 => .m,
                     8 => .m8,
+                    16 => .m16,
+                    32 => .m32,
+                    64 => .m64,
+                    80 => .m80,
+                    128 => .m128,
+                    256 => .m256,
+                    else => unreachable,
+                },
+                .rip => switch (mem.bitSize(target)) {
+                    0, 8 => .mrip8,
                     16 => .m16,
                     32 => .m32,
                     64 => .m64,
@@ -675,7 +691,7 @@ pub const Op = enum {
 
     pub fn immBitSize(op: Op) u64 {
         return switch (op) {
-            .none, .moffs, .m, .sreg => unreachable,
+            .none, .m, .moffs, .mrip8, .sreg => unreachable,
             .al, .cl, .dx, .rip, .eip, .ip, .r8, .rm8, .r32_m8 => unreachable,
             .ax, .r16, .rm16 => unreachable,
             .eax, .r32, .rm32, .r32_m16 => unreachable,
@@ -695,7 +711,7 @@ pub const Op = enum {
 
     pub fn regBitSize(op: Op) u64 {
         return switch (op) {
-            .none, .moffs, .m, .sreg => unreachable,
+            .none, .m, .moffs, .mrip8, .sreg => unreachable,
             .unity, .imm8, .imm8s, .imm16, .imm16s, .imm32, .imm32s, .imm64 => unreachable,
             .rel8, .rel16, .rel32 => unreachable,
             .m8, .m16, .m32, .m64, .m80, .m128, .m256 => unreachable,
@@ -711,13 +727,13 @@ pub const Op = enum {
 
     pub fn memBitSize(op: Op) u64 {
         return switch (op) {
-            .none, .moffs, .m, .sreg => unreachable,
+            .none, .m, .moffs, .sreg => unreachable,
             .unity, .imm8, .imm8s, .imm16, .imm16s, .imm32, .imm32s, .imm64 => unreachable,
             .rel8, .rel16, .rel32 => unreachable,
             .al, .cl, .r8, .ax, .dx, .ip, .r16, .eax, .eip, .r32, .rax, .rip, .r64 => unreachable,
             .st0, .st, .mm, .xmm0, .xmm, .ymm => unreachable,
             .cr, .dr => unreachable,
-            .m8, .rm8, .r32_m8, .xmm_m8 => 8,
+            .mrip8, .m8, .rm8, .r32_m8, .xmm_m8 => 8,
             .m16, .rm16, .r32_m16, .r64_m16, .xmm_m16 => 16,
             .m32, .rm32, .xmm_m32 => 32,
             .m64, .rm64, .mm_m64, .xmm_m64 => 64,
@@ -778,7 +794,7 @@ pub const Op = enum {
             .rm8, .rm16, .rm32, .rm64,
             .r32_m8, .r32_m16, .r64_m16,
             .m8, .m16, .m32, .m64, .m80, .m128, .m256,
-            .m,
+            .m, .moffs, .mrip8,
             .mm_m64,
             .xmm_m8, .xmm_m16, .xmm_m32, .xmm_m64, .xmm_m128,
             .ymm_m256,
@@ -816,11 +832,7 @@ pub const Op = enum {
     /// Given an operand `op` checks if `target` is a subset for the purposes of the encoding.
     pub fn isSubset(op: Op, target: Op) bool {
         switch (op) {
-            .moffs, .sreg => return op == target,
-            .none => switch (target) {
-                .none => return true,
-                else => return false,
-            },
+            .none, .m, .moffs, .sreg => return op == target,
             else => {
                 if (op.isRegister() and target.isRegister()) {
                     return switch (target.toReg()) {
@@ -831,6 +843,7 @@ pub const Op = enum {
                 if (op.isMemory() and target.isMemory()) {
                     switch (target) {
                         .m => return true,
+                        .moffs, .mrip8 => return op == target,
                         else => return op.memBitSize() == target.memBitSize(),
                     }
                 }
@@ -957,6 +970,10 @@ pub const Feature = enum {
     @"pclmul avx",
     pku,
     popcnt,
+    prefetch,
+    @"prefetchi 64bit",
+    prefetchwt1,
+    prfchw,
     rdrnd,
     rdseed,
     @"rdpid 32bit",
@@ -997,7 +1014,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
 }
 
 const mnemonic_to_encodings_map = init: {
-    @setEvalBranchQuota(5_600);
+    @setEvalBranchQuota(5_800);
     const mnemonic_count = @typeInfo(Mnemonic).@"enum".fields.len;
     var mnemonic_map: [mnemonic_count][]Data = @splat(&.{});
     const encodings = @import("encodings.zig");
