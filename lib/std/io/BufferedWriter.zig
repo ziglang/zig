@@ -888,6 +888,7 @@ pub fn printInt(
             'X' => return printIntOptions(bw, int_value, 16, .upper, options),
             'o' => return printIntOptions(bw, int_value, 8, .lower, options),
             'B' => return printByteSize(bw, int_value, .decimal, options),
+            'D' => return printDuration(bw, int_value, options),
             else => invalidFmtError(fmt, value),
         },
         2 => {
@@ -1249,7 +1250,9 @@ pub fn printDurationUnsigned(bw: *BufferedWriter, ns: u64) anyerror!void {
             if (frac > 0) {
                 // Write up to 3 decimal places
                 var decimal_buf = [_]u8{ '.', 0, 0, 0 };
-                assert(printInt(decimal_buf[1..], frac, 10, .lower, .{ .fill = '0', .width = 3 }) == 3);
+                var inner: BufferedWriter = undefined;
+                inner.initFixed(decimal_buf[1..]);
+                inner.printIntOptions(frac, 10, .lower, .{ .fill = '0', .width = 3 }) catch unreachable;
                 var end: usize = 4;
                 while (end > 1) : (end -= 1) {
                     if (decimal_buf[end - 1] != '0') break;
@@ -1273,8 +1276,8 @@ pub fn printDuration(bw: *BufferedWriter, nanoseconds: anytype, options: std.fmt
     var sub_bw: BufferedWriter = undefined;
     sub_bw.initFixed(&buf);
     switch (@typeInfo(@TypeOf(nanoseconds)).int.signedness) {
-        .signed => sub_bw.printDurationSigned(nanoseconds, options) catch unreachable,
-        .unsigned => sub_bw.printDurationUnsigned(nanoseconds, options) catch unreachable,
+        .signed => sub_bw.printDurationSigned(nanoseconds) catch unreachable,
+        .unsigned => sub_bw.printDurationUnsigned(nanoseconds) catch unreachable,
     }
     return alignBufferOptions(bw, sub_bw.getWritten(), options);
 }
