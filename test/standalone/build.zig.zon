@@ -186,6 +186,9 @@
         .omit_cfi = .{
             .path = "omit_cfi",
         },
+        .x86_cpu_model = .{
+            .path = "x86_cpu_model",
+        },
     },
     .paths = .{
         "build.zig",
