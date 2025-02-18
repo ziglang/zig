@@ -17,7 +17,7 @@ pub const Gpr = switch (builtin.cpu.arch) {
     .x86 => u32,
     .x86_64 => u64,
 };
-pub const Sse = if (std.Target.x86.featureSetHas(builtin.cpu.features, .avx))
+pub const Sse = if (builtin.cpu.has(.x86, .avx))
     @Vector(32, u8)
 else
     @Vector(16, u8);

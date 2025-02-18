@@ -165,7 +165,7 @@ pub fn resolve(options: Options) ResolveError!Config {
             if (options.shared_memory == true) return error.ObjectFilesCannotShareMemory;
             break :b false;
         }
-        if (!std.Target.wasm.featureSetHasAll(target.cpu.features, .{ .atomics, .bulk_memory })) {
+        if (!target.cpu.hasAll(.wasm, &.{ .atomics, .bulk_memory })) {
             if (options.shared_memory == true)
                 return error.SharedMemoryRequiresAtomicsAndBulkMemory;
             break :b false;
