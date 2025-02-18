@@ -438,7 +438,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/io/limited_reader.zig
     lib/std/io/seekable_stream.zig
     lib/std/json.zig
-    lib/std/json/stringify.zig
     lib/std/leb128.zig
     lib/std/linked_list.zig
     lib/std/log.zig
