@@ -491,6 +491,8 @@ pub const File = struct {
         /// Force load all members of static archives that implement an
         /// Objective-C class or category
         force_load_objc: bool,
+        /// Whether local symbols should be discarded from the symbol table.
+        discard_local_symbols: bool,
 
         /// Windows-specific linker flags:
         /// PDB source path prefix to instruct the linker how to resolve relative
