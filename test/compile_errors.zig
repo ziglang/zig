@@ -238,6 +238,22 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
     }
 
     {
+        const case = ctx.obj("unterminated character literal eof", b.graph.host);
+
+        case.addError("const c = '", &[_][]const u8{
+            ":1:11: error: unterminated 'character literal'",
+        });
+    }
+
+    {
+        const case = ctx.obj("unterminated string literal eof", b.graph.host);
+
+        case.addError("const s = \"hello, ", &[_][]const u8{
+            ":1:11: error: unterminated 'string literal'",
+        });
+    }
+
+    {
         const case = ctx.obj("invalid byte at start of token", b.graph.host);
 
         case.addError("x = \x00Q", &[_][]const u8{
