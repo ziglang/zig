@@ -1,4 +1,5 @@
 const std = @import("std");
+const json = std.json;
 const mem = std.mem;
 const testing = std.testing;
 const ArenaAllocator = std.heap.ArenaAllocator;
@@ -70,13 +71,11 @@ test "json.parser.dynamic" {
     try testing.expect(mem.eql(u8, large_int.number_string, "18446744073709551615"));
 }
 
-const writeStream = @import("./stringify.zig").writeStream;
 test "write json then parse it" {
     var out_buffer: [1000]u8 = undefined;
-
-    var fixed_buffer_stream = std.io.fixedBufferStream(&out_buffer);
-    const out_stream = fixed_buffer_stream.writer();
-    var jw = writeStream(out_stream, .{});
+    var fixed_writer: std.io.BufferedWriter = undefined;
+    fixed_writer.initFixed(&out_buffer);
+    var jw: json.Stringify = .{ .writer = &fixed_writer, .options = .{} };
     defer jw.deinit();
 
     try jw.beginObject();
@@ -101,8 +100,8 @@ test "write json then parse it" {
 
     try jw.endObject();
 
-    fixed_buffer_stream = std.io.fixedBufferStream(fixed_buffer_stream.getWritten());
-    var json_reader = jsonReader(testing.allocator, fixed_buffer_stream.reader());
+    var fbs: std.io.FixedBufferStream = .{ .buffer = fixed_writer.getWritten() };
+    var json_reader = jsonReader(testing.allocator, fbs.reader());
     defer json_reader.deinit();
     var parsed = try parseFromTokenSource(Value, testing.allocator, &json_reader, .{});
     defer parsed.deinit();
@@ -242,9 +241,10 @@ test "Value.jsonStringify" {
         .{ .object = obj },
     };
     var buffer: [0x1000]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buffer);
+    var fixed_writer: std.io.BufferedWriter = undefined;
+    fixed_writer.initFixed(&buffer);
 
-    var jw = writeStream(fbs.writer(), .{ .whitespace = .indent_1 });
+    var jw: json.Stringify = .{ .writer = &fixed_writer, .options = .{ .whitespace = .indent_1 } };
     defer jw.deinit();
     try jw.write(array);
 
@@ -266,7 +266,7 @@ test "Value.jsonStringify" {
         \\ }
         \\]
     ;
-    try testing.expectEqualSlices(u8, expected, fbs.getWritten());
+    try testing.expectEqualStrings(expected, fixed_writer.getWritten());
 }
 
 test "parseFromValue(std.json.Value,...)" {

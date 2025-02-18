@@ -1,4 +1,5 @@
 const std = @import("std");
+const json = std.json;
 const testing = std.testing;
 
 const ArrayHashMap = @import("hashmap.zig").ArrayHashMap;
@@ -7,7 +8,6 @@ const parseFromSlice = @import("static.zig").parseFromSlice;
 const parseFromSliceLeaky = @import("static.zig").parseFromSliceLeaky;
 const parseFromTokenSource = @import("static.zig").parseFromTokenSource;
 const parseFromValue = @import("static.zig").parseFromValue;
-const stringifyAlloc = @import("stringify.zig").stringifyAlloc;
 const Value = @import("dynamic.zig").Value;
 
 const jsonReader = @import("./scanner.zig").reader;
@@ -89,7 +89,7 @@ test "stringify json hashmap" {
     var value = ArrayHashMap(T){};
     defer value.deinit(testing.allocator);
     {
-        const doc = try stringifyAlloc(testing.allocator, value, .{});
+        const doc = try json.Stringify.valueAlloc(testing.allocator, value, .{});
         defer testing.allocator.free(doc);
         try testing.expectEqualStrings("{}", doc);
     }
@@ -98,7 +98,7 @@ test "stringify json hashmap" {
     try value.map.put(testing.allocator, "xyz", .{ .i = 1, .s = "w" });
 
     {
-        const doc = try stringifyAlloc(testing.allocator, value, .{});
+        const doc = try json.Stringify.valueAlloc(testing.allocator, value, .{});
         defer testing.allocator.free(doc);
         try testing.expectEqualStrings(
             \\{"abc":{"i":0,"s":"d"},"xyz":{"i":1,"s":"w"}}
@@ -107,7 +107,7 @@ test "stringify json hashmap" {
 
     try testing.expect(value.map.swapRemove("abc"));
     {
-        const doc = try stringifyAlloc(testing.allocator, value, .{});
+        const doc = try json.Stringify.valueAlloc(testing.allocator, value, .{});
         defer testing.allocator.free(doc);
         try testing.expectEqualStrings(
             \\{"xyz":{"i":1,"s":"w"}}
@@ -116,7 +116,7 @@ test "stringify json hashmap" {
 
     try testing.expect(value.map.swapRemove("xyz"));
     {
-        const doc = try stringifyAlloc(testing.allocator, value, .{});
+        const doc = try json.Stringify.valueAlloc(testing.allocator, value, .{});
         defer testing.allocator.free(doc);
         try testing.expectEqualStrings("{}", doc);
     }
@@ -129,7 +129,7 @@ test "stringify json hashmap whitespace" {
     try value.map.put(testing.allocator, "xyz", .{ .i = 1, .s = "w" });
 
     {
-        const doc = try stringifyAlloc(testing.allocator, value, .{ .whitespace = .indent_2 });
+        const doc = try json.Stringify.valueAlloc(testing.allocator, value, .{ .whitespace = .indent_2 });
         defer testing.allocator.free(doc);
         try testing.expectEqualStrings(
             \\{

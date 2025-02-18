@@ -4,9 +4,7 @@ const ArenaAllocator = std.heap.ArenaAllocator;
 const ArrayList = std.ArrayList;
 const StringArrayHashMap = std.StringArrayHashMap;
 const Allocator = std.mem.Allocator;
-
-const StringifyOptions = @import("./stringify.zig").StringifyOptions;
-const stringify = @import("./stringify.zig").stringify;
+const json = std.json;
 
 const ParseOptions = @import("./static.zig").ParseOptions;
 const ParseError = @import("./static.zig").ParseError;
@@ -52,12 +50,11 @@ pub const Value = union(enum) {
         }
     }
 
-    pub fn dump(self: Value) void {
-        std.debug.lockStdErr();
+    pub fn dump(v: Value) void {
+        var bw = std.debug.lockStdErr2();
         defer std.debug.unlockStdErr();
 
-        const stderr = std.io.getStdErr().writer();
-        stringify(self, .{}, stderr) catch return;
+        json.Stringify.value(v, .{}, &bw) catch return;
     }
 
     pub fn jsonStringify(value: @This(), jws: anytype) !void {
