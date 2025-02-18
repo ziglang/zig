@@ -61,9 +61,15 @@ pub fn rescanMac(cb: *Bundle, gpa: Allocator) RescanMacError!void {
             }
 
             for (record_list) |record_offset| {
+                // An offset of zero means that the record is not present.
+                // An offset that is not 4-byte-aligned is invalid.
+                if (record_offset == 0 or record_offset % 4 != 0) continue;
+
                 try stream.seekTo(db_header.schema_offset + table_offset + record_offset);
 
                 const cert_header = try reader.readStructEndian(X509CertHeader, .big);
+
+                if (cert_header.cert_size == 0) continue;
 
                 try cb.bytes.ensureUnusedCapacity(gpa, cert_header.cert_size);
 
