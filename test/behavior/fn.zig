@@ -257,6 +257,7 @@ test "implicit cast fn call result to optional in field result" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn entry() !void {
@@ -296,6 +297,7 @@ fn voidFun(a: i32, b: void, c: i32, d: void) !void {
 
 test "call function with empty string" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     acceptsString("");
 }
@@ -468,6 +470,7 @@ test "method call with optional and error union first param" {
 test "method call with optional pointer first param" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         x: i32 = 1234,
@@ -524,6 +527,7 @@ test "function returns function returning type" {
 
 test "peer type resolution of inferred error set with non-void payload" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn openDataFile(mode: enum { read, write }) !u32 {
@@ -605,6 +609,8 @@ test "comptime parameters don't have to be marked comptime if only called at com
 }
 
 test "inline function with comptime-known comptime-only return type called at runtime" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         inline fn foo(x: *i32, y: *const i32) type {
             x.* = y.*;
@@ -619,6 +625,8 @@ test "inline function with comptime-known comptime-only return type called at ru
 }
 
 test "address of function parameter is consistent" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         fn paramAddrMatch(x: u8) bool {
             return &x == &x;

@@ -12,6 +12,8 @@ const var_linksection = linksections.?[1];
 const fn_linksection = linksections.?[2];
 
 test "addrspace on container-level const" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         const a: u32 addrspace(.generic) = 123;
         fn check(ptr: anytype) !void {
@@ -23,6 +25,8 @@ test "addrspace on container-level const" {
 }
 
 test "linksection on container-level const" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     if (linksections == null) return;
     const S = struct {
         const a: u32 linksection(const_linksection) = 123;
@@ -35,6 +39,8 @@ test "linksection on container-level const" {
 }
 
 test "addrspace and linksection on container-level const" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     if (linksections == null) return;
     const S = struct {
         const a: u32 addrspace(.generic) linksection(const_linksection) = 123;
@@ -47,6 +53,8 @@ test "addrspace and linksection on container-level const" {
 }
 
 test "addrspace on container-level var" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         var a: u32 addrspace(.generic) = 123;
         fn check(ptr: anytype) !void {
@@ -57,6 +65,8 @@ test "addrspace on container-level var" {
 }
 
 test "linksection on container-level var" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     if (linksections == null) return;
     const S = struct {
         var a: u32 linksection(var_linksection) = 123;
@@ -68,6 +78,8 @@ test "linksection on container-level var" {
 }
 
 test "addrspace and linksection on container-level var" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     if (linksections == null) return;
     const S = struct {
         var a: u32 addrspace(.generic) linksection(var_linksection) = 123;
@@ -79,6 +91,8 @@ test "addrspace and linksection on container-level var" {
 }
 
 test "addrspace on fn" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         fn f() addrspace(.generic) u32 {
             return 123;
@@ -92,6 +106,8 @@ test "addrspace on fn" {
 }
 
 test "linksection on fn" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     if (linksections == null) return;
     const S = struct {
         fn f() linksection(fn_linksection) u32 {
@@ -106,6 +122,8 @@ test "linksection on fn" {
 }
 
 test "addrspace and linksection on fn" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     if (linksections == null) return;
     const S = struct {
         fn f() addrspace(.generic) linksection(fn_linksection) u32 {

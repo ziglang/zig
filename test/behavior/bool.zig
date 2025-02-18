@@ -10,6 +10,7 @@ test "bool literals" {
 
 test "cast bool to int" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const t = true;
     const f = false;

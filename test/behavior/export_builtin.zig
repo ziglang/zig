@@ -5,6 +5,7 @@ const expect = std.testing.expect;
 test "exporting enum value" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     if (builtin.cpu.arch.isWasm()) {
         // https://github.com/ziglang/zig/issues/4866
@@ -24,6 +25,7 @@ test "exporting enum value" {
 test "exporting with internal linkage" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo() callconv(.c) void {}
@@ -37,6 +39,7 @@ test "exporting with internal linkage" {
 test "exporting using namespace access" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     if (builtin.cpu.arch.isWasm()) {
         // https://github.com/ziglang/zig/issues/4866

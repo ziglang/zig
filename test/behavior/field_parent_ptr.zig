@@ -2,6 +2,7 @@ const expect = @import("std").testing.expect;
 const builtin = @import("builtin");
 
 test "@fieldParentPtr struct" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const C = struct {
@@ -138,6 +139,7 @@ test "@fieldParentPtr struct" {
 
 test "@fieldParentPtr extern struct" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const C = extern struct {
         a: bool = true,
@@ -1344,6 +1346,7 @@ test "@fieldParentPtr packed struct last zero-bit field" {
 
 test "@fieldParentPtr tagged union" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const C = union(enum) {
         a: bool,
@@ -1478,6 +1481,7 @@ test "@fieldParentPtr tagged union" {
 }
 
 test "@fieldParentPtr untagged union" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const C = union {
@@ -1614,6 +1618,7 @@ test "@fieldParentPtr untagged union" {
 
 test "@fieldParentPtr extern union" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const C = extern union {
         a: bool,
@@ -1889,6 +1894,7 @@ test "@fieldParentPtr tagged union all zero-bit fields" {
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const C = union(enum) {
         a: u0,

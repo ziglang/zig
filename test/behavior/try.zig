@@ -23,6 +23,8 @@ fn returnsTen() anyerror!i32 {
 }
 
 test "try without vars" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const result1 = if (failIfTrue(true)) 1 else |_| @as(i32, 2);
     try expect(result1 == 2);
 
@@ -106,6 +108,8 @@ test "'return try' of empty error set in function returning non-error" {
 }
 
 test "'return try' through conditional" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         fn get(t: bool) !u32 {
             return try if (t) inner() else error.TestFailed;

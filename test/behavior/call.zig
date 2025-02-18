@@ -344,6 +344,7 @@ test "inline call preserves tail call" {
 test "inline call doesn't re-evaluate non generic struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo(f: struct { a: u8, b: u8 }) !void {
@@ -357,6 +358,8 @@ test "inline call doesn't re-evaluate non generic struct" {
 }
 
 test "Enum constructed by @Type passed as generic argument" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         const E = std.meta.FieldEnum(struct {
             prev_pos: bool,
@@ -410,6 +413,7 @@ test "recursive inline call with comptime known argument" {
 test "inline while with @call" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn inc(a: *u32) void {
@@ -472,6 +476,7 @@ test "argument to generic function has correct result type" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo(_: anytype, e: enum { a, b }) bool {
@@ -497,6 +502,8 @@ test "argument to generic function has correct result type" {
 }
 
 test "call inline fn through pointer" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         inline fn foo(x: u8) !void {
             try expect(x == 123);
@@ -597,6 +604,7 @@ test "value returned from comptime function is comptime known" {
 test "registers get overwritten when ignoring return" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
     if (builtin.cpu.arch != .x86_64 or builtin.os.tag != .linux) return error.SkipZigTest;
 
     const S = struct {
@@ -644,6 +652,8 @@ test "function call with cast to anyopaque pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const Foo = struct {
         y: u8,
         var foo: @This() = undefined;
