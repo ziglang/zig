@@ -2544,8 +2544,7 @@ pub const Const = struct {
         const bits_per_limb = @bitSizeOf(Limb);
         while (i != 0) {
             i -= 1;
-            const limb = a.limbs[i];
-            const this_limb_lz = @clz(limb);
+            const this_limb_lz = @clz(a.limbs[i]);
             total_limb_lz += this_limb_lz;
             if (this_limb_lz != bits_per_limb) break;
         }
@@ -2557,6 +2556,7 @@ pub const Const = struct {
     pub fn ctz(a: Const, bits: Limb) Limb {
         // Limbs are stored in little-endian order. Converting a negative number to twos-complement
         // flips all bits above the lowest set bit, which does not affect the trailing zero count.
+        if (a.eqlZero()) return bits;
         var result: Limb = 0;
         for (a.limbs) |limb| {
             const limb_tz = @ctz(limb);
