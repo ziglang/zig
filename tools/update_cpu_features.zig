@@ -1072,13 +1072,6 @@ const targets = [_]ArchTarget{
             .td_name = "Sparc",
         },
     },
-    // TODO: merge tools/update_spirv_features.zig into this script
-    //.{
-    //    .zig_name = "spirv",
-    //    .llvm = .{
-    //        .name = "SPIRV",
-    //    },
-    //},
     .{
         .zig_name = "s390x",
         .llvm = .{
