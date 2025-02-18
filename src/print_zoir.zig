@@ -103,9 +103,7 @@ const PrintZon = struct {
 
     fn newline(pz: *PrintZon) !void {
         try pz.w.writeByte('\n');
-        for (0..pz.indent) |_| {
-            try pz.w.writeByteNTimes(' ', 2);
-        }
+        try pz.w.splatByteAll(' ', 2 * pz.indent);
     }
 };
 
