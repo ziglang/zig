@@ -50,8 +50,7 @@ pub fn cmdTargets(
         try root_obj.field("abi", meta.fieldNames(Target.Abi), .{});
 
         {
-            try root_obj.fieldPrefix("libc");
-            var libc_obj = try sz.startTuple(.{});
+            var libc_obj = try root_obj.startTupleField("libc", .{});
             for (std.zig.target.available_libcs) |libc| {
                 const tmp = try std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{
                     @tagName(libc.arch), @tagName(libc.os), @tagName(libc.abi),
@@ -63,8 +62,7 @@ pub fn cmdTargets(
         }
 
         {
-            try root_obj.fieldPrefix("glibc");
-            var glibc_obj = try sz.startTuple(.{});
+            var glibc_obj = try root_obj.startTupleField("glibc", .{});
             for (glibc_abi.all_versions) |ver| {
                 const tmp = try std.fmt.allocPrint(allocator, "{}", .{ver});
                 defer allocator.free(tmp);
@@ -74,14 +72,11 @@ pub fn cmdTargets(
         }
 
         {
-            try root_obj.fieldPrefix("cpus");
-            var cpus_obj = try sz.startStruct(.{});
+            var cpus_obj = try root_obj.startStructField("cpus", .{});
             for (meta.tags(Target.Cpu.Arch)) |arch| {
-                try cpus_obj.fieldPrefix(@tagName(arch));
-                var arch_obj = try sz.startStruct(.{});
+                var arch_obj = try cpus_obj.startStructField(@tagName(arch), .{});
                 for (arch.allCpuModels()) |model| {
-                    try arch_obj.fieldPrefix(model.name);
-                    var features = try sz.startTuple(.{});
+                    var features = try arch_obj.startTupleField(model.name, .{});
                     for (arch.allFeaturesList(), 0..) |feature, i_usize| {
                         const index = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
                         if (model.features.isEnabled(index)) {
@@ -96,11 +91,9 @@ pub fn cmdTargets(
         }
 
         {
-            try root_obj.fieldPrefix("cpuFeatures");
-            var cpu_features_obj = try sz.startStruct(.{});
+            var cpu_features_obj = try root_obj.startStructField("cpu_features", .{});
             for (meta.tags(Target.Cpu.Arch)) |arch| {
-                try cpu_features_obj.fieldPrefix(@tagName(arch));
-                var arch_features = try sz.startTuple(.{});
+                var arch_features = try cpu_features_obj.startTupleField(@tagName(arch), .{});
                 for (arch.allFeaturesList()) |feature| {
                     try arch_features.field(feature.name, .{});
                 }
@@ -110,23 +103,20 @@ pub fn cmdTargets(
         }
 
         {
-            try root_obj.fieldPrefix("native");
-            var native_obj = try sz.startStruct(.{});
+            var native_obj = try root_obj.startStructField("native", .{});
             {
                 const triple = try native_target.zigTriple(allocator);
                 defer allocator.free(triple);
                 try native_obj.field("triple", triple, .{});
             }
             {
-                try native_obj.fieldPrefix("cpu");
-                var cpu_obj = try sz.startStruct(.{});
+                var cpu_obj = try native_obj.startStructField("cpu", .{});
                 try cpu_obj.field("arch", native_target.cpu.arch, .{});
 
                 try cpu_obj.field("name", native_target.cpu.model.name, .{});
 
                 {
-                    try native_obj.fieldPrefix("features");
-                    var features = try sz.startTuple(.{});
+                    var features = try native_obj.startTupleField("features", .{});
                     for (native_target.cpu.arch.allFeaturesList(), 0..) |feature, i_usize| {
                         const index = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
                         if (native_target.cpu.features.isEnabled(index)) {

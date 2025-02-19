@@ -855,6 +855,24 @@ pub fn Serializer(Writer: type) type {
                 try self.container.fieldArbitraryDepth(null, val, options);
             }
 
+            /// Starts a field with a struct as a value. Returns the struct.
+            pub fn startStructField(
+                self: *Tuple,
+                options: SerializeContainerOptions,
+            ) Writer.Error!Struct {
+                try self.fieldPrefix();
+                return self.container.serializer.startStruct(options);
+            }
+
+            /// Starts a field with a tuple as a value. Returns the tuple.
+            pub fn startTupleField(
+                self: *Tuple,
+                options: SerializeContainerOptions,
+            ) Writer.Error!Tuple {
+                try self.fieldPrefix();
+                return self.container.serializer.startTuple(options);
+            }
+
             /// Print a field prefix. This prints any necessary commas, and whitespace as
             /// configured. Useful if you want to serialize the field value yourself.
             pub fn fieldPrefix(self: *Tuple) Writer.Error!void {
@@ -910,6 +928,26 @@ pub fn Serializer(Writer: type) type {
                 options: ValueOptions,
             ) Writer.Error!void {
                 try self.container.fieldArbitraryDepth(name, val, options);
+            }
+
+            /// Starts a field with a struct as a value. Returns the struct.
+            pub fn startStructField(
+                self: *Struct,
+                name: []const u8,
+                options: SerializeContainerOptions,
+            ) Writer.Error!Struct {
+                try self.fieldPrefix(name);
+                return self.container.serializer.startStruct(options);
+            }
+
+            /// Starts a field with a tuple as a value. Returns the tuple.
+            pub fn startTupleField(
+                self: *Struct,
+                name: []const u8,
+                options: SerializeContainerOptions,
+            ) Writer.Error!Tuple {
+                try self.fieldPrefix(name);
+                return self.container.serializer.startTuple(options);
             }
 
             /// Print a field prefix. This prints any necessary commas, the field name (escaped if
@@ -2313,5 +2351,75 @@ test "std.zon pointers" {
         try expectSerializeEqual(
             \\.{ .f1 = .{ .f1 = null, .f2 = "foo" }, .f2 = null }
         , val, .{});
+    }
+}
+
+test "std.zon tuple/struct field" {
+    var buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer buf.deinit();
+    var sz = serializer(buf.writer(), .{});
+
+    // Test on structs
+    {
+        var root = try sz.startStruct(.{});
+        {
+            var tuple = try root.startTupleField("foo", .{});
+            try tuple.field(0, .{});
+            try tuple.field(1, .{});
+            try tuple.finish();
+        }
+        {
+            var strct = try root.startStructField("bar", .{});
+            try strct.field("a", 0, .{});
+            try strct.field("b", 1, .{});
+            try strct.finish();
+        }
+        try root.finish();
+
+        try std.testing.expectEqualStrings(
+            \\.{
+            \\    .foo = .{
+            \\        0,
+            \\        1,
+            \\    },
+            \\    .bar = .{
+            \\        .a = 0,
+            \\        .b = 1,
+            \\    },
+            \\}
+        , buf.items);
+        buf.clearRetainingCapacity();
+    }
+
+    // Test on tuples
+    {
+        var root = try sz.startTuple(.{});
+        {
+            var tuple = try root.startTupleField(.{});
+            try tuple.field(0, .{});
+            try tuple.field(1, .{});
+            try tuple.finish();
+        }
+        {
+            var strct = try root.startStructField(.{});
+            try strct.field("a", 0, .{});
+            try strct.field("b", 1, .{});
+            try strct.finish();
+        }
+        try root.finish();
+
+        try std.testing.expectEqualStrings(
+            \\.{
+            \\    .{
+            \\        0,
+            \\        1,
+            \\    },
+            \\    .{
+            \\        .a = 0,
+            \\        .b = 1,
+            \\    },
+            \\}
+        , buf.items);
+        buf.clearRetainingCapacity();
     }
 }
