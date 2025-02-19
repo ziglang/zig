@@ -1587,7 +1587,7 @@ pub const Inst = struct {
                 => false,
 
                 .extended => switch (data.extended.opcode) {
-                    .branch_hint, .breakpoint, .disable_instrumentation => true,
+                    .branch_hint, .loop_hint, .breakpoint, .disable_instrumentation => true,
                     else => false,
                 },
             };
@@ -2092,6 +2092,10 @@ pub const Inst = struct {
         /// `operand` is payload index to `UnNode`.
         /// `small` is unused.
         branch_hint,
+        /// Provide a `@loopHint` for the current loop.
+        /// `operand` is payload index to `UnNode`.
+        /// `small` is unused.
+        loop_hint,
         /// Compute the result type for in-place arithmetic, e.g. `+=`.
         /// `operand` is `Zir.Inst.Ref` of the loaded LHS (*not* its type).
         /// `small` is an `Inst.InplaceOp`.
@@ -3459,6 +3463,7 @@ pub const Inst = struct {
         extern_options,
         type_info,
         branch_hint,
+        loop_hint,
         // Values
         calling_convention_c,
         calling_convention_inline,
@@ -4352,6 +4357,7 @@ fn findTrackableInner(
                 .field_parent_ptr,
                 .builtin_value,
                 .branch_hint,
+                .loop_hint,
                 .inplace_arith_result_ty,
                 .tuple_decl,
                 .dbg_empty_stmt,

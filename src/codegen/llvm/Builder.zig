@@ -4120,6 +4120,7 @@ pub const Function = struct {
             bitcast,
             block,
             br,
+            br_loop,
             br_cond,
             call,
             @"call fast",
@@ -4398,6 +4399,7 @@ pub const Function = struct {
             pub fn isTerminatorWip(self: Instruction.Index, wip: *const WipFunction) bool {
                 return switch (wip.instructions.items(.tag)[@intFromEnum(self)]) {
                     .br,
+                    .br_loop,
                     .br_cond,
                     .indirectbr,
                     .ret,
@@ -4412,6 +4414,7 @@ pub const Function = struct {
             pub fn hasResultWip(self: Instruction.Index, wip: *const WipFunction) bool {
                 return switch (wip.instructions.items(.tag)[@intFromEnum(self)]) {
                     .br,
+                    .br_loop,
                     .br_cond,
                     .fence,
                     .indirectbr,
@@ -4503,6 +4506,7 @@ pub const Function = struct {
                     .atomicrmw => wip.extraData(AtomicRmw, instruction.data).val.typeOfWip(wip),
                     .block => .label,
                     .br,
+                    .br_loop,
                     .br_cond,
                     .fence,
                     .indirectbr,
@@ -4690,6 +4694,7 @@ pub const Function = struct {
                         .val.typeOf(function_index, builder),
                     .block => .label,
                     .br,
+                    .br_loop,
                     .br_cond,
                     .fence,
                     .indirectbr,
@@ -4848,6 +4853,15 @@ pub const Function = struct {
         };
 
         pub const ExtraIndex = u32;
+
+        pub const BrLoop = struct {
+            block: Block.Index,
+            loop_meta: LoopMetadata,
+            pub const LoopMetadata = enum(u32) {
+                none = 0,
+                _,
+            };
+        };
 
         pub const BrCond = struct {
             cond: Value,
@@ -5090,6 +5104,7 @@ pub const Function = struct {
                 Type,
                 Value,
                 Instruction.BrCond.Weights,
+                Instruction.BrLoop.LoopMetadata,
                 => @enumFromInt(value),
                 MemoryAccessInfo,
                 Instruction.Alloca.Info,
@@ -5247,6 +5262,40 @@ pub const WipFunction = struct {
         try self.ensureUnusedExtraCapacity(1, NoExtra, 0);
         const instruction = try self.addInst(null, .{ .tag = .br, .data = @intFromEnum(dest) });
         dest.ptr(self).branches += 1;
+        return instruction;
+    }
+
+    pub fn brLoop(
+        self: *WipFunction,
+        dest: Block.Index,
+        hint: std.builtin.LoopHint,
+    ) Allocator.Error!Instruction.Index {
+        try self.ensureUnusedExtraCapacity(1, Instruction.BrLoop, 0);
+
+        const instruction = try self.addInst(null, .{
+            .tag = .br_loop,
+            .data = self.addExtraAssumeCapacity(Instruction.BrLoop{
+                .block = dest,
+                .loop_meta = switch (hint.unroll) {
+                    .auto => .none,
+                    .disable => w: {
+                        const disable_str = try self.builder.metadataString("llvm.loop.unroll.disable");
+                        const disable_property = try self.builder.strTuple(disable_str, &.{});
+                        const loop_tuple = try self.builder.metadataTupleSelfRef(&.{disable_property});
+                        break :w @enumFromInt(@intFromEnum(loop_tuple));
+                    },
+                    .count => |count| w: {
+                        const count_str = try self.builder.metadataString("llvm.loop.unroll.count");
+                        const count_constant = try self.builder.metadataConstant(try self.builder.intConst(.i16, count));
+                        const count_property = try self.builder.strTuple(count_str, &.{count_constant});
+                        const loop_tuple = try self.builder.metadataTupleSelfRef(&.{count_property});
+                        break :w @enumFromInt(@intFromEnum(loop_tuple));
+                    },
+                },
+            }),
+        });
+        dest.ptr(self).branches += 1;
+
         return instruction;
     }
 
@@ -6221,6 +6270,7 @@ pub const WipFunction = struct {
                         Type,
                         Value,
                         Instruction.BrCond.Weights,
+                        Instruction.BrLoop.LoopMetadata,
                         => @intFromEnum(value),
                         MemoryAccessInfo,
                         Instruction.Alloca.Info,
@@ -6495,6 +6545,13 @@ pub const WipFunction = struct {
                     .@"ret void",
                     .@"unreachable",
                     => {},
+                    .br_loop => {
+                        const extra = self.extraData(Instruction.BrLoop, instruction.data);
+                        instruction.data = wip_extra.addExtra(Instruction.BrLoop{
+                            .block = extra.block,
+                            .loop_meta = extra.loop_meta,
+                        });
+                    },
                     .br_cond => {
                         const extra = self.extraData(Instruction.BrCond, instruction.data);
                         instruction.data = wip_extra.addExtra(Instruction.BrCond{
@@ -6877,6 +6934,7 @@ pub const WipFunction = struct {
                 Type,
                 Value,
                 Instruction.BrCond.Weights,
+                Instruction.BrLoop.LoopMetadata,
                 => @intFromEnum(value),
                 MemoryAccessInfo,
                 Instruction.Alloca.Info,
@@ -6926,6 +6984,7 @@ pub const WipFunction = struct {
                 Type,
                 Value,
                 Instruction.BrCond.Weights,
+                Instruction.BrLoop.LoopMetadata,
                 => @enumFromInt(value),
                 MemoryAccessInfo,
                 Instruction.Alloca.Info,
@@ -9822,6 +9881,18 @@ pub fn printUnbuffered(
                             @tagName(tag), target.toInst(&function).fmt(function_index, self),
                         });
                     },
+                    .br_loop => {
+                        const extra = function.extraData(Function.Instruction.BrLoop, instruction.data);
+                        switch (extra.loop_meta) {
+                            .none => try writer.print("  br {%}", .{
+                                extra.block.toInst(&function).fmt(function_index, self),
+                            }),
+                            _ => try writer.print("  br {%}, {}", .{
+                                extra.block.toInst(&function).fmt(function_index, self),
+                                try metadata_formatter.fmt("!llvm.loop ", @as(Metadata, @enumFromInt(@intFromEnum(extra.loop_meta)))),
+                            }),
+                        }
+                    },
                     .br_cond => {
                         const extra = function.extraData(Function.Instruction.BrCond, instruction.data);
                         try writer.print("  br {%}, {%}, {%}", .{
@@ -12292,6 +12363,14 @@ pub fn metadataTuple(
     return self.metadataTupleAssumeCapacity(elements);
 }
 
+pub fn metadataTupleSelfRef(
+    self: *Builder,
+    elements: []const Metadata,
+) Allocator.Error!Metadata {
+    try self.ensureUnusedMetadataCapacity(1, Metadata.Tuple, elements.len + 1);
+    return self.metadataTupleSelfRefAssumeCapacity(elements);
+}
+
 pub fn strTuple(
     self: *Builder,
     str: MetadataString,
@@ -12945,6 +13024,21 @@ fn metadataTupleAssumeCapacity(
     self: *Builder,
     elements: []const Metadata,
 ) Metadata {
+    return self.metadataTupleAssumeCapacityInner(elements, false);
+}
+
+fn metadataTupleSelfRefAssumeCapacity(
+    self: *Builder,
+    elements: []const Metadata,
+) Metadata {
+    return self.metadataTupleAssumeCapacityInner(elements, true);
+}
+
+fn metadataTupleAssumeCapacityInner(
+    self: *Builder,
+    elements: []const Metadata,
+    self_ref: bool,
+) Metadata {
     const Key = struct {
         elements: []const Metadata,
     };
@@ -12973,18 +13067,22 @@ fn metadataTupleAssumeCapacity(
         Adapter{ .builder = self },
     );
 
+    const metadata: Metadata = @enumFromInt(gop.index);
     if (!gop.found_existing) {
         gop.key_ptr.* = {};
         gop.value_ptr.* = {};
         self.metadata_items.appendAssumeCapacity(.{
             .tag = .tuple,
             .data = self.addMetadataExtraAssumeCapacity(Metadata.Tuple{
-                .elements_len = @intCast(elements.len),
+                .elements_len = @intCast(elements.len + @intFromBool(self_ref)),
             }),
         });
+        if (self_ref) {
+            self.metadata_extra.appendAssumeCapacity(@intFromEnum(metadata));
+        }
         self.metadata_extra.appendSliceAssumeCapacity(@ptrCast(elements));
     }
-    return @enumFromInt(gop.index);
+    return metadata;
 }
 
 fn strTupleAssumeCapacity(
@@ -14986,6 +15084,12 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                                 .block = data,
                             });
                         },
+                        .br_loop => {
+                            const extra = func.extraData(Function.Instruction.BrLoop, data);
+                            try function_block.writeAbbrev(FunctionBlock.BrUnconditional{
+                                .block = @intFromEnum(extra.block),
+                            });
+                        },
                         .br_cond => {
                             const extra = func.extraData(Function.Instruction.BrCond, data);
                             try function_block.writeAbbrev(FunctionBlock.BrConditional{
@@ -15154,6 +15258,18 @@ pub fn toBitcode(self: *Builder, allocator: Allocator) bitcode_writer.Error![]co
                     for (func.instructions.items(.tag), func.instructions.items(.data)) |instr_tag, data| switch (instr_tag) {
                         .arg, .block => {}, // not an actual instruction
                         else => {
+                            instr_index += 1;
+                        },
+                        .br_loop => {
+                            const loop_meta = func.extraData(Function.Instruction.BrLoop, data).loop_meta;
+                            switch (loop_meta) {
+                                .none => {},
+                                _ => try metadata_attach_block.writeAbbrev(MetadataAttachmentBlock.AttachmentInstructionSingle{
+                                    .inst = instr_index,
+                                    .kind = .@"llvm.loop",
+                                    .metadata = @enumFromInt(metadata_adapter.getMetadataIndex(@enumFromInt(@intFromEnum(loop_meta))) - 1),
+                                }),
+                            }
                             instr_index += 1;
                         },
                         .br_cond, .@"switch" => {
