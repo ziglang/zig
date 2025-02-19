@@ -19273,6 +19273,22 @@ test clz {
     try test_clz.testIntVectors();
 }
 
+inline fn ctz(comptime Type: type, rhs: Type) @TypeOf(@ctz(rhs)) {
+    return @ctz(rhs);
+}
+test ctz {
+    const test_ctz = unary(ctz, .{});
+    try test_ctz.testInts();
+}
+
+inline fn popCount(comptime Type: type, rhs: Type) @TypeOf(@popCount(rhs)) {
+    return @popCount(rhs);
+}
+test popCount {
+    const test_pop_count = unary(popCount, .{});
+    try test_pop_count.testInts();
+}
+
 inline fn byteSwap(comptime Type: type, rhs: Type) RoundBitsUp(Type, 8) {
     return @byteSwap(@as(RoundBitsUp(Type, 8), rhs));
 }
