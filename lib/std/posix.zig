@@ -4914,6 +4914,7 @@ pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
     switch (errno(system.access(path, mode))) {
         .SUCCESS => return,
         .ACCES => return error.PermissionDenied,
+        .PERM => return error.PermissionDenied,
         .ROFS => return error.ReadOnlyFileSystem,
         .LOOP => return error.SymLinkLoop,
         .TXTBSY => return error.FileBusy,
@@ -4999,6 +5000,7 @@ pub fn faccessatZ(dirfd: fd_t, path: [*:0]const u8, mode: u32, flags: u32) Acces
     switch (errno(system.faccessat(dirfd, path, mode, flags))) {
         .SUCCESS => return,
         .ACCES => return error.PermissionDenied,
+        .PERM => return error.PermissionDenied,
         .ROFS => return error.ReadOnlyFileSystem,
         .LOOP => return error.SymLinkLoop,
         .TXTBSY => return error.FileBusy,
