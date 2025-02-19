@@ -12,3 +12,6 @@ int foo();
 #define SOME_ENUM_LITERAL test
 #define SOME_STRING "test"
 
+// Used twice
+#define SOME_TRUE 1
+

@@ -10,3 +10,6 @@ int foo();
 #undef SOME_TEN
 #undef SOME_ENUM_LITERAL
 #undef SOME_STRING
+
+// Used twice
+#undef SOME_TRUE

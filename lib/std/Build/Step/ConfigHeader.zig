@@ -264,8 +264,11 @@ fn render_autoconf(
     values: std.StringArrayHashMap(Value),
     src_path: []const u8,
 ) !void {
-    var values_copy = try values.clone();
-    defer values_copy.deinit();
+    const build = step.owner;
+    const allocator = build.allocator;
+
+    var is_used: std.DynamicBitSetUnmanaged = try .initEmpty(allocator, values.count());
+    defer is_used.deinit(allocator);
 
     var any_errors = false;
     var line_index: u32 = 0;
@@ -284,18 +287,20 @@ fn render_autoconf(
             continue;
         }
         const name = it.rest();
-        const kv = values_copy.fetchSwapRemove(name) orelse {
+        const index = values.getIndex(name) orelse {
             try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
                 src_path, line_index + 1, name,
             });
             any_errors = true;
             continue;
         };
-        try renderValueC(output, name, kv.value);
+        is_used.set(index);
+        try renderValueC(output, name, values.values()[index]);
     }
 
-    for (values_copy.keys()) |name| {
-        try step.addError("{s}: error: config header value unused: '{s}'", .{ src_path, name });
+    var unused_value_it = is_used.iterator(.{ .kind = .unset });
+    while (unused_value_it.next()) |index| {
+        try step.addError("{s}: error: config header value unused: '{s}'", .{ src_path, values.keys()[index] });
         any_errors = true;
     }
 
