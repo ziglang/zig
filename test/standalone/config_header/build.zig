@@ -10,6 +10,7 @@ pub fn build(b: *std.Build) void {
             .SOME_ZERO = 0,
             .SOME_ONE = 1,
             .SOME_TEN = 10,
+            .SOME_ENUM = @as(enum { foo, bar }, .foo),
             .SOME_ENUM_LITERAL = .@"test",
             .SOME_STRING = "test",
 

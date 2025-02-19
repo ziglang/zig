@@ -131,7 +131,7 @@ fn putValue(config_header: *ConfigHeader, field_name: []const u8, comptime T: ty
         .comptime_int => {
             try config_header.values.put(field_name, .{ .int = v });
         },
-        .enum_literal => {
+        .@"enum", .enum_literal => {
             try config_header.values.put(field_name, .{ .ident = @tagName(v) });
         },
         .optional => {

@@ -8,6 +8,7 @@ int foo();
 #undef SOME_ZERO
 #undef SOME_ONE
 #undef SOME_TEN
+#undef SOME_ENUM
 #undef SOME_ENUM_LITERAL
 #undef SOME_STRING
 

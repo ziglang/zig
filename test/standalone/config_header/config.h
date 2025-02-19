@@ -9,6 +9,7 @@ int foo();
 #define SOME_ZERO 0
 #define SOME_ONE 1
 #define SOME_TEN 10
+#define SOME_ENUM foo
 #define SOME_ENUM_LITERAL test
 #define SOME_STRING "test"
 
