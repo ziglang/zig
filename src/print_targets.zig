@@ -111,7 +111,7 @@ pub fn cmdTargets(
             }
             {
                 var cpu_obj = try native_obj.startStructField("cpu", .{});
-                try cpu_obj.field("arch", native_target.cpu.arch, .{});
+                try cpu_obj.field("arch", @tagName(native_target.cpu.arch), .{});
 
                 try cpu_obj.field("name", native_target.cpu.model.name, .{});
 
@@ -128,8 +128,8 @@ pub fn cmdTargets(
                 try cpu_obj.finish();
             }
 
-            try native_obj.field("os", native_target.os.tag, .{});
-            try native_obj.field("abi", native_target.abi, .{});
+            try native_obj.field("os", @tagName(native_target.os.tag), .{});
+            try native_obj.field("abi", @tagName(native_target.abi), .{});
             try native_obj.finish();
         }
 
