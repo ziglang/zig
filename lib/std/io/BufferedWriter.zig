@@ -41,7 +41,7 @@ pub fn writer(bw: *BufferedWriter) Writer {
 
 const fixed_vtable: Writer.VTable = .{
     .writeSplat = fixed_writeSplat,
-    .writeFile = fixed_writeFile,
+    .writeFile = Writer.unimplemented_writeFile,
 };
 
 /// Replaces the `BufferedWriter` with a new one that writes to `buffer` and
@@ -74,6 +74,10 @@ pub fn flush(bw: *BufferedWriter) anyerror!void {
     bw.end = 0;
 }
 
+pub fn unusedCapacitySlice(bw: *const BufferedWriter) []u8 {
+    return bw.buffer[bw.end..];
+}
+
 /// The `data` parameter is mutable because this function needs to mutate the
 /// fields in order to handle partial writes from `Writer.VTable.writev`.
 pub fn writevAll(bw: *BufferedWriter, data: [][]const u8) anyerror!void {
@@ -91,6 +95,10 @@ pub fn writevAll(bw: *BufferedWriter, data: [][]const u8) anyerror!void {
 
 pub fn writeSplat(bw: *BufferedWriter, data: []const []const u8, splat: usize) anyerror!usize {
     return passthru_writeSplat(bw, data, splat);
+}
+
+pub fn writev(bw: *BufferedWriter, data: []const []const u8) anyerror!usize {
+    return passthru_writeSplat(bw, data, 1);
 }
 
 fn passthru_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
@@ -523,23 +531,6 @@ pub fn writeFileAll(bw: *BufferedWriter, file: std.fs.File, options: WriteFileOp
     }
 }
 
-fn fixed_writeFile(
-    context: *anyopaque,
-    file: std.fs.File,
-    offset: u64,
-    len: Writer.VTable.FileLen,
-    headers_and_trailers: []const []const u8,
-    headers_len: usize,
-) anyerror!usize {
-    _ = context;
-    _ = file;
-    _ = offset;
-    _ = len;
-    _ = headers_and_trailers;
-    _ = headers_len;
-    return error.Unimplemented;
-}
-
 pub fn alignBuffer(
     bw: *BufferedWriter,
     buffer: []const u8,
@@ -775,19 +766,22 @@ pub fn printValue(
             },
             .slice => {
                 if (actual_fmt.len == 0)
-                    @compileError("cannot format slice without a specifier (i.e. {s}, {x}, or {any})");
+                    @compileError("cannot format slice without a specifier (i.e. {s}, {x}, {b64}, or {any})");
                 if (max_depth == 0) {
                     return bw.writeAll("{ ... }");
                 }
-                if (ptr_info.child == u8) {
-                    if (actual_fmt[0] == 's') {
-                        return alignBufferOptions(bw, value, options);
-                    } else if (actual_fmt[0] == 'x') {
-                        return printHex(bw, value, .lower);
-                    } else if (actual_fmt[0] == 'X') {
-                        return printHex(bw, value, .upper);
-                    }
-                }
+                if (ptr_info.child == u8) switch (actual_fmt.len) {
+                    1 => switch (actual_fmt[0]) {
+                        's' => return alignBufferOptions(bw, value, options),
+                        'x' => return printHex(bw, value, .lower),
+                        'X' => return printHex(bw, value, .upper),
+                        else => {},
+                    },
+                    3 => if (actual_fmt[0] == 'b' and actual_fmt[1] == '6' and actual_fmt[2] == '4') {
+                        return printBase64(bw, value);
+                    },
+                    else => {},
+                };
                 try bw.writeAll("{ ");
                 for (value, 0..) |elem, i| {
                     try printValue(bw, actual_fmt, options, elem, max_depth - 1);
@@ -1287,6 +1281,12 @@ pub fn printHex(bw: *BufferedWriter, bytes: []const u8, case: std.fmt.Case) anye
         try writeByte(bw, charset[c >> 4]);
         try writeByte(bw, charset[c & 15]);
     }
+}
+
+pub fn printBase64(bw: *BufferedWriter, bytes: []const u8) anyerror!void {
+    var chunker = std.mem.window(u8, bytes, 3, 3);
+    var temp: [5]u8 = undefined;
+    while (chunker.next()) |chunk| try bw.writeAll(std.base64.standard.Encoder.encode(&temp, chunk));
 }
 
 test "formatValue max_depth" {
