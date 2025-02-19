@@ -73,7 +73,7 @@ pub const Ed25519 = struct {
         nonce: CompressedScalar,
         r_bytes: [Curve.encoded_length]u8,
 
-        fn init(scalar: CompressedScalar, nonce: CompressedScalar, public_key: PublicKey) (IdentityElementError || KeyMismatchError || NonCanonicalError || WeakPublicKeyError)!Signer {
+        fn init(scalar: CompressedScalar, nonce: CompressedScalar, public_key: PublicKey) (IdentityElementError || WeakPublicKeyError)!Signer {
             const r = try Curve.basePoint.mul(nonce);
             const r_bytes = r.toBytes();
 
@@ -121,13 +121,13 @@ pub const Ed25519 = struct {
             return pk.bytes;
         }
 
-        fn signWithNonce(public_key: PublicKey, msg: []const u8, scalar: CompressedScalar, nonce: CompressedScalar) (IdentityElementError || NonCanonicalError || KeyMismatchError || WeakPublicKeyError)!Signature {
+        fn signWithNonce(public_key: PublicKey, msg: []const u8, scalar: CompressedScalar, nonce: CompressedScalar) (IdentityElementError || WeakPublicKeyError)!Signature {
             var st = try Signer.init(scalar, nonce, public_key);
             st.update(msg);
             return st.finalize();
         }
 
-        fn computeNonceAndSign(public_key: PublicKey, msg: []const u8, noise: ?[noise_length]u8, scalar: CompressedScalar, prefix: []const u8) (IdentityElementError || NonCanonicalError || KeyMismatchError || WeakPublicKeyError)!Signature {
+        fn computeNonceAndSign(public_key: PublicKey, msg: []const u8, noise: ?[noise_length]u8, scalar: CompressedScalar, prefix: []const u8) (IdentityElementError || WeakPublicKeyError)!Signature {
             var h = Sha512.init(.{});
             if (noise) |*z| {
                 h.update(z);
@@ -310,7 +310,7 @@ pub const Ed25519 = struct {
         /// The noise can be null in order to create deterministic signatures.
         /// If deterministic signatures are not required, the noise should be randomly generated instead.
         /// This helps defend against fault attacks.
-        pub fn sign(key_pair: KeyPair, msg: []const u8, noise: ?[noise_length]u8) (IdentityElementError || NonCanonicalError || KeyMismatchError || WeakPublicKeyError)!Signature {
+        pub fn sign(key_pair: KeyPair, msg: []const u8, noise: ?[noise_length]u8) (IdentityElementError || KeyMismatchError || WeakPublicKeyError)!Signature {
             if (!mem.eql(u8, &key_pair.secret_key.publicKeyBytes(), &key_pair.public_key.toBytes())) {
                 return error.KeyMismatch;
             }
