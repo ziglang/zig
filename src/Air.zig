@@ -960,9 +960,9 @@ pub const Inst = struct {
         pub fn format(
             index: Index,
             comptime _: []const u8,
-            _: std.fmt.FormatOptions,
-            writer: anytype,
-        ) @TypeOf(writer).Error!void {
+            _: std.fmt.Options,
+            writer: *std.io.BufferedWriter,
+        ) anyerror!void {
             try writer.writeByte('%');
             switch (index.unwrap()) {
                 .ref => {},

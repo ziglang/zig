@@ -239,12 +239,12 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .none,
         .windows,
         => {},
-        .semver => |ver| try llvm_triple.writer().print("{d}.{d}.{d}", .{
+        .semver => |ver| try llvm_triple.print("{d}.{d}.{d}", .{
             ver.min.major,
             ver.min.minor,
             ver.min.patch,
         }),
-        inline .linux, .hurd => |ver| try llvm_triple.writer().print("{d}.{d}.{d}", .{
+        inline .linux, .hurd => |ver| try llvm_triple.print("{d}.{d}.{d}", .{
             ver.range.min.major,
             ver.range.min.minor,
             ver.range.min.patch,
@@ -295,13 +295,13 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .windows,
         => {},
         inline .hurd, .linux => |ver| if (target.abi.isGnu()) {
-            try llvm_triple.writer().print("{d}.{d}.{d}", .{
+            try llvm_triple.print("{d}.{d}.{d}", .{
                 ver.glibc.major,
                 ver.glibc.minor,
                 ver.glibc.patch,
             });
         } else if (@TypeOf(ver) == std.Target.Os.LinuxVersionRange and target.abi.isAndroid()) {
-            try llvm_triple.writer().print("{d}", .{ver.android});
+            try llvm_triple.print("{d}", .{ver.android});
         },
     }
 
@@ -2676,10 +2676,11 @@ pub const Object = struct {
     }
 
     fn allocTypeName(o: *Object, ty: Type) Allocator.Error![:0]const u8 {
-        var buffer = std.ArrayList(u8).init(o.gpa);
-        errdefer buffer.deinit();
-        try ty.print(buffer.writer(), o.pt);
-        return buffer.toOwnedSliceSentinel(0);
+        var aw: std.io.AllocatingWriter = undefined;
+        const bw = aw.init(o.gpa);
+        defer aw.deinit();
+        try ty.print(bw, o.pt);
+        return aw.toOwnedSliceSentinel(0);
     }
 
     /// If the llvm function does not exist, create it.

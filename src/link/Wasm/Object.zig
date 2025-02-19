@@ -1460,7 +1460,7 @@ fn parseFeatures(
 }
 
 fn readLeb(comptime T: type, bytes: []const u8, pos: usize) struct { T, usize } {
-    var fbr = std.io.fixedBufferStream(bytes[pos..]);
+    var fbr: std.io.FixedBufferStream = .{ .buffer = bytes[pos..] };
     return .{
         switch (@typeInfo(T).int.signedness) {
             .signed => std.leb.readIleb128(T, fbr.reader()) catch unreachable,
