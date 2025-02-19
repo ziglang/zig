@@ -731,6 +731,7 @@ pub fn abiAndDynamicLinkerFromFile(
                 error.NetworkNotFound => unreachable, // Windows only
 
                 error.AccessDenied,
+                error.PermissionDenied,
                 error.FileNotFound,
                 error.NotLink,
                 error.NotDir,
@@ -825,6 +826,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.FileNotFound,
         error.NotDir,
         error.AccessDenied,
+        error.PermissionDenied,
         error.NoDevice,
         => return error.GLibCNotFound,
 
@@ -863,6 +865,7 @@ fn glibcVerFromRPath(rpath: []const u8) !std.SemanticVersion {
         error.NoDevice => unreachable, // not asking for a special device
 
         error.AccessDenied,
+        error.PermissionDenied,
         error.FileNotFound,
         error.NotDir,
         error.IsDir,
@@ -1122,6 +1125,7 @@ fn detectAbiAndDynamicLinker(
                 error.IsDir,
                 error.NotDir,
                 error.AccessDenied,
+                error.PermissionDenied,
                 error.NoDevice,
                 error.FileNotFound,
                 error.NetworkNotFound,
