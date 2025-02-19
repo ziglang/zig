@@ -23,9 +23,9 @@ pub const FormatContext = struct {
 pub fn formatSema(
     ctx: FormatContext,
     comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+    options: std.fmt.Options,
+    writer: *std.io.BufferedWriter,
+) anyerror!void {
     _ = options;
     const sema = ctx.opt_sema.?;
     comptime std.debug.assert(fmt.len == 0);
@@ -40,9 +40,9 @@ pub fn formatSema(
 pub fn format(
     ctx: FormatContext,
     comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
+    options: std.fmt.Options,
+    writer: *std.io.BufferedWriter,
+) anyerror!void {
     _ = options;
     std.debug.assert(ctx.opt_sema == null);
     comptime std.debug.assert(fmt.len == 0);
@@ -55,11 +55,11 @@ pub fn format(
 
 pub fn print(
     val: Value,
-    writer: anytype,
+    writer: *std.io.BufferedWriter,
     level: u8,
     pt: Zcu.PerThread,
     opt_sema: ?*Sema,
-) (@TypeOf(writer).Error || Zcu.CompileError)!void {
+) anyerror!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     switch (ip.indexToKey(val.toIntern())) {
@@ -197,11 +197,11 @@ fn printAggregate(
     val: Value,
     aggregate: InternPool.Key.Aggregate,
     is_ref: bool,
-    writer: anytype,
+    writer: *std.io.BufferedWriter,
     level: u8,
     pt: Zcu.PerThread,
     opt_sema: ?*Sema,
-) (@TypeOf(writer).Error || Zcu.CompileError)!void {
+) anyerror!void {
     if (level == 0) {
         if (is_ref) try writer.writeByte('&');
         return writer.writeAll(".{ ... }");
@@ -283,11 +283,11 @@ fn printPtr(
     ptr_val: Value,
     /// Whether to print `derivation` as an lvalue or rvalue. If `null`, the more concise option is chosen.
     want_kind: ?PrintPtrKind,
-    writer: anytype,
+    writer: *std.io.BufferedWriter,
     level: u8,
     pt: Zcu.PerThread,
     opt_sema: ?*Sema,
-) (@TypeOf(writer).Error || Zcu.CompileError)!void {
+) anyerror!void {
     const ptr = switch (pt.zcu.intern_pool.indexToKey(ptr_val.toIntern())) {
         .undef => return writer.writeAll("undefined"),
         .ptr => |ptr| ptr,
@@ -329,7 +329,7 @@ const PrintPtrKind = enum { lvalue, rvalue };
 /// Returns the root derivation, which may be ignored.
 pub fn printPtrDerivation(
     derivation: Value.PointerDeriveStep,
-    writer: anytype,
+    writer: *std.io.BufferedWriter,
     pt: Zcu.PerThread,
     /// Whether to print `derivation` as an lvalue or rvalue. If `null`, the more concise option is chosen.
     /// If this is `.rvalue`, the result may look like `&foo`, so it's not necessarily valid to treat it as
@@ -347,7 +347,7 @@ pub fn printPtrDerivation(
     /// The maximum recursion depth. We can never recurse infinitely here, but the depth can be arbitrary,
     /// so at this depth we just write "..." to prevent stack overflow.
     ptr_depth: u8,
-) !Value.PointerDeriveStep {
+) anyerror!Value.PointerDeriveStep {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
