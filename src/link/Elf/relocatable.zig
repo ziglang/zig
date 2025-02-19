@@ -407,15 +407,17 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
         };
         const shdr = slice.items(.shdr)[shndx];
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, @intCast(sh_size - existing_size));
+        var buffer: std.io.AllocatingWriter = undefined;
+        const bw = buffer.init(gpa);
         defer buffer.deinit();
-        try eh_frame.writeEhFrameRelocatable(elf_file, buffer.writer());
+        try buffer.ensureTotalCapacity(gpa, sh_size - existing_size);
+        try eh_frame.writeEhFrameRelocatable(elf_file, bw);
         log.debug("writing .eh_frame from 0x{x} to 0x{x}", .{
             shdr.sh_offset + existing_size,
             shdr.sh_offset + sh_size,
         });
-        assert(buffer.items.len == sh_size - existing_size);
-        try elf_file.base.file.?.pwriteAll(buffer.items, shdr.sh_offset + existing_size);
+        assert(buffer.getWritten().len == sh_size - existing_size);
+        try elf_file.base.file.?.pwriteAll(buffer.getWritten(), shdr.sh_offset + existing_size);
     }
     if (elf_file.section_indexes.eh_frame_rela) |shndx| {
         const shdr = slice.items(.shdr)[shndx];

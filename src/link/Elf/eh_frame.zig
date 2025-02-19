@@ -51,7 +51,7 @@ pub const Fde = struct {
         fde: Fde,
         comptime unused_fmt_string: []const u8,
         options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.io.BufferedWriter,
     ) !void {
         _ = fde;
         _ = unused_fmt_string;
@@ -76,7 +76,7 @@ pub const Fde = struct {
         ctx: FdeFormatContext,
         comptime unused_fmt_string: []const u8,
         options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.io.BufferedWriter,
     ) !void {
         _ = unused_fmt_string;
         _ = options;
@@ -154,7 +154,7 @@ pub const Cie = struct {
         cie: Cie,
         comptime unused_fmt_string: []const u8,
         options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.io.BufferedWriter,
     ) !void {
         _ = cie;
         _ = unused_fmt_string;
@@ -179,7 +179,7 @@ pub const Cie = struct {
         ctx: CieFormatContext,
         comptime unused_fmt_string: []const u8,
         options: std.fmt.FormatOptions,
-        writer: anytype,
+        writer: *std.io.BufferedWriter,
     ) !void {
         _ = unused_fmt_string;
         _ = options;
@@ -332,7 +332,7 @@ fn resolveReloc(rec: anytype, sym: *const Symbol, rel: elf.Elf64_Rela, elf_file:
     }
 }
 
-pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
+pub fn writeEhFrame(elf_file: *Elf, writer: *std.io.BufferedWriter) !void {
     relocs_log.debug("{x}: .eh_frame", .{
         elf_file.sections.items(.shdr)[elf_file.section_indexes.eh_frame.?].sh_addr,
     });
@@ -393,7 +393,7 @@ pub fn writeEhFrame(elf_file: *Elf, writer: anytype) !void {
     if (has_reloc_errors) return error.RelocFailure;
 }
 
-pub fn writeEhFrameRelocatable(elf_file: *Elf, writer: anytype) !void {
+pub fn writeEhFrameRelocatable(elf_file: *Elf, writer: *std.io.BufferedWriter) !void {
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
 
@@ -495,7 +495,7 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, relocs: *std.ArrayList(elf.Elf64_Rela)
     }
 }
 
-pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
+pub fn writeEhFrameHdr(elf_file: *Elf, writer: *std.io.BufferedWriter) !void {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
 

@@ -304,9 +304,8 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     const include_dir = try comp.dirs.zig_lib.join(arena, &.{ "libc", "mingw", "def-include" });
 
     if (comp.verbose_cc) print: {
-        std.debug.lockStdErr();
+        var stderr = std.debug.lockStdErr2();
         defer std.debug.unlockStdErr();
-        const stderr = std.io.getStdErr().writer();
         nosuspend stderr.print("def file: {s}\n", .{def_file_path}) catch break :print;
         nosuspend stderr.print("include dir: {s}\n", .{include_dir}) catch break :print;
         nosuspend stderr.print("output path: {s}\n", .{def_final_path}) catch break :print;
