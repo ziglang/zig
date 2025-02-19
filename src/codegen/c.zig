@@ -7725,7 +7725,7 @@ fn toCallingConvention(cc: std.builtin.CallingConvention, zcu: *Zcu) ?[]const u8
         .aarch64_vfabi_sve => "aarch64_sve_pcs",
 
         .arm_aapcs => "pcs(\"aapcs\")",
-        .arm_aapcs_vfp, .arm_aapcs16_vfp => "pcs(\"aapcs-vfp\")",
+        .arm_aapcs_vfp => "pcs(\"aapcs-vfp\")",
 
         .arm_interrupt => |opts| switch (opts.type) {
             .generic => "interrupt",

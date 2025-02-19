@@ -147,7 +147,7 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
 
         .@"union" => |union_info| {
             if (union_info.tag_type == null) {
-                @compileError("Unable to compare untagged union values");
+                @compileError("Unable to compare untagged union values for type " ++ @typeName(@TypeOf(actual)));
             }
 
             const Tag = std.meta.Tag(@TypeOf(expected));
@@ -818,7 +818,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
 
         .@"union" => |union_info| {
             if (union_info.tag_type == null) {
-                @compileError("Unable to compare untagged union values");
+                @compileError("Unable to compare untagged union values for type " ++ @typeName(@TypeOf(actual)));
             }
 
             const Tag = std.meta.Tag(@TypeOf(expected));

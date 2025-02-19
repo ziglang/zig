@@ -166,7 +166,7 @@ const ModuleInfo = struct {
             return error.InvalidPhysicalFormat;
         }
 
-        return ModuleInfo{
+        return .{
             .functions = functions.unmanaged,
             .callee_store = callee_store.items,
             .result_id_to_code_offset = result_id_to_code_offset.unmanaged,
