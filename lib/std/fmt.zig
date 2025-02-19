@@ -62,10 +62,11 @@ pub const Options = struct {
 /// one has to specify *alignment* as well, as otherwise the digit following `:` is interpreted as *width*, not *fill*.
 ///
 /// The *specifier* has several options for types:
-/// - `x` and `X`: output numeric value in hexadecimal notation
+/// - `x` and `X`: output numeric value in hexadecimal notation, or string in hexadecimal bytes
 /// - `s`:
 ///   - for pointer-to-many and C pointers of u8, print as a C-string using zero-termination
 ///   - for slices of u8, print the entire slice as a string without zero-termination
+/// - `b64`: output string as standard base64
 /// - `e`: output floating point value in scientific notation
 /// - `d`: output numeric value in decimal notation
 /// - `b`: output integer value in binary notation
