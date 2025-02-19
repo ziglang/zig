@@ -6092,17 +6092,13 @@ pub const SendError = error{
 pub const SendMsgError = SendError || error{
     /// The passed address didn't have the correct address family in its sa_family field.
     AddressFamilyNotSupported,
-
     /// Returned when socket is AF.UNIX and the given path has a symlink loop.
     SymLinkLoop,
-
     /// Returned when socket is AF.UNIX and the given path length exceeds `max_path_bytes` bytes.
     NameTooLong,
-
     /// Returned when socket is AF.UNIX and the given path does not point to an existing file.
     FileNotFound,
     NotDir,
-
     /// The socket is not connected (connection-oriented sockets only).
     SocketNotConnected,
     AddressNotAvailable,
@@ -6400,14 +6396,7 @@ pub fn sendfile(
                     .SUCCESS => {
                         const amt: usize = @bitCast(rc);
                         total_written += amt;
-                        if (in_len == 0 and amt == 0) {
-                            // We have detected EOF from `in_fd`.
-                            break;
-                        } else if (amt < in_len) {
-                            return total_written;
-                        } else {
-                            break;
-                        }
+                        return total_written;
                     },
 
                     .BADF => unreachable, // Always a race condition.
