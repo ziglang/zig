@@ -5,6 +5,7 @@ const fs = std.fs;
 const assert = std.debug.assert;
 const panic = std.debug.panic;
 const ArrayList = std.ArrayList;
+const Build = std.Build;
 const StringHashMap = std.StringHashMap;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const Allocator = mem.Allocator;
@@ -239,6 +240,9 @@ zig_process: ?*Step.ZigProcess,
 /// To instead enable fuzz testing instrumentation on a compilation using Zig's
 /// builtin fuzzer, see the `fuzz` flag in `Module`.
 sanitize_coverage_trace_pc_guard: ?bool = null,
+
+/// Use `setCwd` to set the initial current working directory
+cwd: ?Build.LazyPath = null,
 
 pub const ExpectedCompileErrors = union(enum) {
     contains: []const u8,
@@ -939,8 +943,16 @@ pub fn addLibraryPath(compile: *Compile, directory_path: LazyPath) void {
     compile.root_module.addLibraryPath(directory_path);
 }
 
+pub fn addLibraryPathSpecial(compile: *Compile, bytes: []const u8) void {
+    compile.root_module.addLibraryPathSpecial(bytes);
+}
+
 pub fn addRPath(compile: *Compile, directory_path: LazyPath) void {
     compile.root_module.addRPath(directory_path);
+}
+
+pub fn addRPathSpecial(compile: *Compile, bytes: []const u8) void {
+    compile.root_module.addRPathSpecial(bytes);
 }
 
 pub fn addSystemFrameworkPath(compile: *Compile, directory_path: LazyPath) void {
@@ -1691,7 +1703,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     if (opt_zig_lib_dir) |zig_lib_dir| {
         try zig_args.append("--zig-lib-dir");
-        try zig_args.append(zig_lib_dir);
+        try zig_args.append(try fs.cwd().realpathAlloc(arena, zig_lib_dir));
     }
 
     try addFlag(&zig_args, "PIE", compile.pie);
@@ -1789,9 +1801,11 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const b = step.owner;
     const compile: *Compile = @fieldParentPtr("step", step);
 
+    const cwd: ?[]const u8 = if (compile.cwd) |lazy_cwd| lazy_cwd.getPath(b) else null;
     const zig_args = try getZigArgs(compile, false);
 
     const maybe_output_dir = step.evalZigProcess(
+        cwd,
         zig_args,
         options.progress_node,
         (b.graph.incremental == true) and options.watch,
@@ -1874,8 +1888,9 @@ pub fn rebuildInFuzzMode(c: *Compile, progress_node: std.Progress.Node) !Path {
     c.step.result_error_bundle.deinit(gpa);
     c.step.result_error_bundle = std.zig.ErrorBundle.empty;
 
+    const cwd: ?[]const u8 = if (c.cwd) |lazy_cwd| lazy_cwd.getPath(c.step.owner) else null;
     const zig_args = try getZigArgs(c, true);
-    const maybe_output_bin_path = try c.step.evalZigProcess(zig_args, progress_node, false);
+    const maybe_output_bin_path = try c.step.evalZigProcess(cwd, zig_args, progress_node, false);
     return maybe_output_bin_path.?;
 }
 
@@ -2115,4 +2130,9 @@ pub fn getCompileDependencies(start: *Compile, chase_dynamic: bool) []const *Com
     }
 
     return compiles.keys();
+}
+
+pub fn setCwd(self: *Compile, cwd: Build.LazyPath) void {
+    cwd.addStepDependencies(&self.step);
+    self.cwd = cwd;
 }

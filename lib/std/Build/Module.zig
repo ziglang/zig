@@ -12,12 +12,13 @@ dwarf_format: ?std.dwarf.Format,
 
 c_macros: std.ArrayListUnmanaged([]const u8),
 include_dirs: std.ArrayListUnmanaged(IncludeDir),
-lib_paths: std.ArrayListUnmanaged(LazyPath),
+lib_paths: std.ArrayListUnmanaged(LibraryPath),
 rpaths: std.ArrayListUnmanaged(RPath),
 frameworks: std.StringArrayHashMapUnmanaged(LinkFrameworkOptions),
 link_objects: std.ArrayListUnmanaged(LinkObject),
 
 strip: ?bool,
+omit_soname: ?bool,
 unwind_tables: ?std.builtin.UnwindTables,
 single_threaded: ?bool,
 stack_protector: ?bool,
@@ -40,6 +41,11 @@ export_symbol_names: []const []const u8 = &.{},
 /// Caches the result of `getGraph` when called multiple times.
 /// Use `getGraph` instead of accessing this field directly.
 cached_graph: Graph = .{ .modules = &.{}, .names = &.{} },
+
+pub const LibraryPath = union(enum) {
+    lazy_path: LazyPath,
+    special: []const u8,
+};
 
 pub const RPath = union(enum) {
     lazy_path: LazyPath,
@@ -247,6 +253,7 @@ pub const CreateOptions = struct {
     link_libcpp: ?bool = null,
     single_threaded: ?bool = null,
     strip: ?bool = null,
+    omit_soname: ?bool = null,
     unwind_tables: ?std.builtin.UnwindTables = null,
     dwarf_format: ?std.dwarf.Format = null,
     code_model: std.builtin.CodeModel = .default,
@@ -296,6 +303,7 @@ pub fn init(
                 .frameworks = .{},
                 .link_objects = .{},
                 .strip = options.strip,
+                .omit_soname = options.omit_soname,
                 .unwind_tables = options.unwind_tables,
                 .single_threaded = options.single_threaded,
                 .stack_protector = options.stack_protector,
@@ -513,7 +521,12 @@ pub fn addFrameworkPath(m: *Module, directory_path: LazyPath) void {
 
 pub fn addLibraryPath(m: *Module, directory_path: LazyPath) void {
     const b = m.owner;
-    m.lib_paths.append(b.allocator, directory_path.dupe(b)) catch @panic("OOM");
+    m.lib_paths.append(b.allocator, .{ .lazy_path = directory_path.dupe(b) }) catch @panic("OOM");
+}
+
+pub fn addLibraryPathSpecial(m: *Module, bytes: []const u8) void {
+    const b = m.owner;
+    m.lib_paths.append(b.allocator, .{ .special = b.dupe(bytes) }) catch @panic("OOM");
 }
 
 pub fn addRPath(m: *Module, directory_path: LazyPath) void {
@@ -545,6 +558,7 @@ pub fn appendZigProcessFlags(
     const b = m.owner;
 
     try addFlag(zig_args, m.strip, "-fstrip", "-fno-strip");
+    try addFlag(zig_args, m.omit_soname, "-fno-soname", "-fsoname");
     try addFlag(zig_args, m.single_threaded, "-fsingle-threaded", "-fno-single-threaded");
     try addFlag(zig_args, m.stack_check, "-fstack-check", "-fno-stack-check");
     try addFlag(zig_args, m.stack_protector, "-fstack-protector", "-fno-stack-protector");
@@ -611,10 +625,16 @@ pub fn appendZigProcessFlags(
     try zig_args.appendSlice(m.c_macros.items);
 
     try zig_args.ensureUnusedCapacity(2 * m.lib_paths.items.len);
-    for (m.lib_paths.items) |lib_path| {
-        zig_args.appendAssumeCapacity("-L");
-        zig_args.appendAssumeCapacity(lib_path.getPath2(b, asking_step));
-    }
+    for (m.lib_paths.items) |lib_path| switch (lib_path) {
+        .lazy_path => |lp| {
+            zig_args.appendAssumeCapacity("-L");
+            zig_args.appendAssumeCapacity(lp.getPath2(b, asking_step));
+        },
+        .special => |bytes| {
+            zig_args.appendAssumeCapacity("-L");
+            zig_args.appendAssumeCapacity(bytes);
+        },
+    };
 
     try zig_args.ensureUnusedCapacity(2 * m.rpaths.items.len);
     for (m.rpaths.items) |rpath| switch (rpath) {

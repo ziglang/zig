@@ -44,6 +44,7 @@ const OverlayOptions = struct {
     zig_source_bytes: ?[]const u8 = null,
     pic: ?bool = null,
     strip: ?bool = null,
+    omit_soname: ?bool = null,
 };
 
 pub fn addExecutable(b: *std.Build, base: Options, overlay: OverlayOptions) *Compile {
@@ -97,6 +98,7 @@ fn createModule(b: *Build, base: Options, overlay: OverlayOptions) *Build.Module
         },
         .pic = overlay.pic,
         .strip = if (base.strip) |s| s else overlay.strip,
+        .omit_soname = overlay.omit_soname,
     });
 
     if (overlay.objcpp_source_bytes) |bytes| {

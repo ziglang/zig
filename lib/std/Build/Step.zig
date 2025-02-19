@@ -371,6 +371,7 @@ pub const ZigProcess = struct {
 /// is the zig compiler - the same version that compiled the build runner.
 pub fn evalZigProcess(
     s: *Step,
+    opt_cwd: ?[]const u8,
     argv: []const []const u8,
     prog_node: std.Progress.Node,
     watch: bool,
@@ -401,7 +402,7 @@ pub fn evalZigProcess(
             };
             s.result_peak_rss = zp.child.resource_usage_statistics.getMaxRss() orelse 0;
             s.clearZigProcess();
-            try handleChildProcessTerm(s, term, null, argv);
+            try handleChildProcessTerm(s, term, opt_cwd, argv);
             return error.MakeFailed;
         }
 
@@ -412,8 +413,8 @@ pub fn evalZigProcess(
     const arena = b.allocator;
     const gpa = arena;
 
-    try handleChildProcUnsupported(s, null, argv);
-    try handleVerbose(s.owner, null, argv);
+    try handleChildProcUnsupported(s, opt_cwd, argv);
+    try handleVerbose(s.owner, opt_cwd, argv);
 
     var child = std.process.Child.init(argv, arena);
     child.env_map = &b.graph.env_map;
@@ -422,6 +423,7 @@ pub fn evalZigProcess(
     child.stderr_behavior = .Pipe;
     child.request_resource_usage_statistics = true;
     child.progress_node = prog_node;
+    child.cwd = opt_cwd;
 
     child.spawn() catch |err| return s.fail("failed to spawn zig compiler {s}: {s}", .{
         argv[0], @errorName(err),
@@ -463,7 +465,7 @@ pub fn evalZigProcess(
             else => {},
         };
 
-        try handleChildProcessTerm(s, term, null, argv);
+        try handleChildProcessTerm(s, term, opt_cwd, argv);
     }
 
     // This is intentionally printed for failure on the first build but not for
@@ -471,7 +473,7 @@ pub fn evalZigProcess(
     if (s.result_error_bundle.errorMessageCount() > 0) {
         return s.fail("the following command failed with {d} compilation errors:\n{s}", .{
             s.result_error_bundle.errorMessageCount(),
-            try allocPrintCmd(arena, null, argv),
+            try allocPrintCmd(arena, opt_cwd, argv),
         });
     }
 

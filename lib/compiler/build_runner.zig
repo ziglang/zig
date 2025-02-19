@@ -1496,7 +1496,10 @@ fn createModuleDependenciesForStep(step: *Step) Allocator.Error!void {
 
             .config_header_step => |other| step.dependOn(&other.step),
         };
-        for (mod.lib_paths.items) |lp| lp.addStepDependencies(step);
+        for (mod.lib_paths.items) |lib_path| switch (lib_path) {
+            .lazy_path => |lp| lp.addStepDependencies(step),
+            .special => {},
+        };
         for (mod.rpaths.items) |rpath| switch (rpath) {
             .lazy_path => |lp| lp.addStepDependencies(step),
             .special => {},
