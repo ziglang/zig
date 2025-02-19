@@ -1740,7 +1740,7 @@ pub fn openatWasi(
             .NOMEM => return error.SystemResources,
             .NOSPC => return error.NoSpaceLeft,
             .NOTDIR => return error.NotDir,
-            .PERM => return error.AccessDenied,
+            .PERM => return error.PermissionDenied,
             .EXIST => return error.PathAlreadyExists,
             .BUSY => return error.DeviceBusy,
             .NOTCAPABLE => return error.AccessDenied,
@@ -2178,7 +2178,7 @@ pub fn symlinkatWasi(target_path: []const u8, newdirfd: fd_t, sym_link_path: []c
         .INVAL => unreachable,
         .BADF => unreachable,
         .ACCES => return error.AccessDenied,
-        .PERM => return error.AccessDenied,
+        .PERM => return error.PermissionDenied,
         .DQUOT => return error.DiskQuota,
         .EXIST => return error.PathAlreadyExists,
         .IO => return error.FileSystem,
@@ -2502,7 +2502,7 @@ pub fn unlinkatWasi(dirfd: fd_t, file_path: []const u8, flags: u32) UnlinkatErro
     switch (res) {
         .SUCCESS => return,
         .ACCES => return error.AccessDenied,
-        .PERM => return error.AccessDenied,
+        .PERM => return error.PermissionDenied,
         .BUSY => return error.FileBusy,
         .FAULT => unreachable,
         .IO => return error.FileSystem,
@@ -2698,7 +2698,7 @@ fn renameatWasi(old: RelativePathWasi, new: RelativePathWasi) RenameError!void {
     switch (wasi.path_rename(old.dir_fd, old.relative_path.ptr, old.relative_path.len, new.dir_fd, new.relative_path.ptr, new.relative_path.len)) {
         .SUCCESS => return,
         .ACCES => return error.AccessDenied,
-        .PERM => return error.AccessDenied,
+        .PERM => return error.PermissionDenied,
         .BUSY => return error.FileBusy,
         .DQUOT => return error.DiskQuota,
         .FAULT => unreachable,
@@ -2903,7 +2903,7 @@ pub fn mkdiratWasi(dir_fd: fd_t, sub_dir_path: []const u8, mode: mode_t) MakeDir
         .SUCCESS => return,
         .ACCES => return error.AccessDenied,
         .BADF => unreachable,
-        .PERM => return error.AccessDenied,
+        .PERM => return error.PermissionDenied,
         .DQUOT => return error.DiskQuota,
         .EXIST => return error.PathAlreadyExists,
         .FAULT => unreachable,
@@ -4952,19 +4952,14 @@ pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessErr
     } else if (native_os == .wasi and !builtin.link_libc) {
         const resolved: RelativePathWasi = .{ .dir_fd = dirfd, .relative_path = path };
 
-        const st = blk: {
-            break :blk std.os.fstatat_wasi(dirfd, path, .{
-                .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
-            });
-        } catch |err| switch (err) {
-            error.AccessDenied => return error.PermissionDenied,
-            else => |e| return e,
-        };
+        const st = try std.os.fstatat_wasi(dirfd, path, .{
+            .SYMLINK_FOLLOW = (flags & AT.SYMLINK_NOFOLLOW) == 0,
+        });
 
         if (mode != F_OK) {
             var directory: wasi.fdstat_t = undefined;
             if (wasi.fd_fdstat_get(resolved.dir_fd, &directory) != .SUCCESS) {
-                return error.PermissionDenied;
+                return error.AccessDenied;
             }
 
             var rights: wasi.rights_t = .{};
@@ -4984,7 +4979,7 @@ pub fn faccessat(dirfd: fd_t, path: []const u8, mode: u32, flags: u32) AccessErr
             const rights_int: u64 = @bitCast(rights);
             const inheriting_int: u64 = @bitCast(directory.fs_rights_inheriting);
             if ((rights_int & inheriting_int) != rights_int) {
-                return error.PermissionDenied;
+                return error.AccessDenied;
             }
         }
         return;
