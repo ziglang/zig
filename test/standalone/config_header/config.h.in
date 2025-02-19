@@ -1,0 +1,12 @@
+/* Some Comment */
+
+int foo();
+
+#undef SOME_NO
+#undef SOME_TRUE
+#undef SOME_FALSE
+#undef SOME_ZERO
+#undef SOME_ONE
+#undef SOME_TEN
+#undef SOME_ENUM_LITERAL
+#undef SOME_STRING
