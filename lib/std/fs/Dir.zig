@@ -247,7 +247,7 @@ pub const Iterator = switch (native_os) {
                             .NOTDIR => unreachable,
                             .INVAL => unreachable,
                             .ACCES => return error.AccessDenied,
-                            .PERM => return error.AccessDenied,
+                            .PERM => return error.PermissionDenied,
                             else => |err| return posix.unexpectedErrno(err),
                         }
                         self.first_iter = false;
@@ -267,7 +267,7 @@ pub const Iterator = switch (native_os) {
                             .INVAL => unreachable,
                             .OVERFLOW => unreachable,
                             .ACCES => return error.AccessDenied,
-                            .PERM => return error.AccessDenied,
+                            .PERM => return error.PermissionDenied,
                             else => |err| return posix.unexpectedErrno(err),
                         }
                     }
@@ -294,7 +294,7 @@ pub const Iterator = switch (native_os) {
                     .BADF => unreachable, // Dir is invalid
                     .NOMEM => return error.SystemResources,
                     .ACCES => return error.AccessDenied,
-                    .PERM => return error.AccessDenied,
+                    .PERM => return error.PermissionDenied,
                     .FAULT => unreachable,
                     .NAMETOOLONG => unreachable,
                     .LOOP => unreachable,
@@ -768,6 +768,7 @@ pub const OpenError = error{
     FileNotFound,
     NotDir,
     AccessDenied,
+    PermissionDenied,
     SymLinkLoop,
     ProcessFdQuotaExceeded,
     NameTooLong,
@@ -1503,7 +1504,7 @@ pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenOptions) OpenErr
                 .NOENT => return error.FileNotFound,
                 .NOMEM => return error.SystemResources,
                 .NOTDIR => return error.NotDir,
-                .PERM => return error.AccessDenied,
+                .PERM => return error.PermissionDenied,
                 .BUSY => return error.DeviceBusy,
                 else => |err| return posix.unexpectedErrno(err),
             }
@@ -1652,9 +1653,9 @@ pub fn deleteFile(self: Dir, sub_path: []const u8) DeleteFileError!void {
 pub fn deleteFileZ(self: Dir, sub_path_c: [*:0]const u8) DeleteFileError!void {
     posix.unlinkatZ(self.fd, sub_path_c, 0) catch |err| switch (err) {
         error.DirNotEmpty => unreachable, // not passing AT.REMOVEDIR
-        error.AccessDenied => |e| switch (native_os) {
-            // non-Linux POSIX systems return EPERM when trying to delete a directory, so
-            // we need to handle that case specifically and translate the error
+        error.AccessDenied, error.PermissionDenied => |e| switch (native_os) {
+            // non-Linux POSIX systems return permission errors when trying to delete a
+            // directory, so we need to handle that case specifically and translate the error
             .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos => {
                 // Don't follow symlinks to match unlinkat (which acts on symlinks rather than follows them)
                 const fstat = posix.fstatatZ(self.fd, sub_path_c, posix.AT.SYMLINK_NOFOLLOW) catch return e;
@@ -1679,6 +1680,7 @@ pub const DeleteDirError = error{
     DirNotEmpty,
     FileNotFound,
     AccessDenied,
+    PermissionDenied,
     FileBusy,
     FileSystem,
     SymLinkLoop,
@@ -1991,6 +1993,7 @@ pub fn readFileAllocOptions(
 
 pub const DeleteTreeError = error{
     AccessDenied,
+    PermissionDenied,
     FileTooBig,
     SymLinkLoop,
     ProcessFdQuotaExceeded,
@@ -2073,6 +2076,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.SymLinkLoop,
                             error.ProcessFdQuotaExceeded,
                             error.NameTooLong,
@@ -2112,6 +2116,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                         },
 
                         error.AccessDenied,
+                        error.PermissionDenied,
                         error.InvalidUtf8,
                         error.InvalidWtf8,
                         error.SymLinkLoop,
@@ -2168,6 +2173,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.SymLinkLoop,
                             error.ProcessFdQuotaExceeded,
                             error.NameTooLong,
@@ -2197,6 +2203,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.InvalidUtf8,
                             error.InvalidWtf8,
                             error.SymLinkLoop,
@@ -2273,6 +2280,7 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.SymLinkLoop,
                             error.ProcessFdQuotaExceeded,
                             error.NameTooLong,
@@ -2309,6 +2317,7 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.InvalidUtf8,
                             error.InvalidWtf8,
                             error.SymLinkLoop,
@@ -2371,6 +2380,7 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
                     },
 
                     error.AccessDenied,
+                    error.PermissionDenied,
                     error.SymLinkLoop,
                     error.ProcessFdQuotaExceeded,
                     error.NameTooLong,
@@ -2397,6 +2407,7 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
                     },
 
                     error.AccessDenied,
+                    error.PermissionDenied,
                     error.InvalidUtf8,
                     error.InvalidWtf8,
                     error.SymLinkLoop,
