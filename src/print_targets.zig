@@ -40,121 +40,111 @@ pub fn cmdTargets(
 
     var bw = io.bufferedWriter(stdout);
     const w = bw.writer();
-    var jws = std.json.writeStream(w, .{ .whitespace = .indent_1 });
+    var sz = std.zon.stringify.serializer(w, .{});
 
-    try jws.beginObject();
-
-    try jws.objectField("arch");
-    try jws.beginArray();
-    for (meta.fieldNames(Target.Cpu.Arch)) |field| {
-        try jws.write(field);
-    }
-    try jws.endArray();
-
-    try jws.objectField("os");
-    try jws.beginArray();
-    for (meta.fieldNames(Target.Os.Tag)) |field| {
-        try jws.write(field);
-    }
-    try jws.endArray();
-
-    try jws.objectField("abi");
-    try jws.beginArray();
-    for (meta.fieldNames(Target.Abi)) |field| {
-        try jws.write(field);
-    }
-    try jws.endArray();
-
-    try jws.objectField("libc");
-    try jws.beginArray();
-    for (std.zig.target.available_libcs) |libc| {
-        const tmp = try std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{
-            @tagName(libc.arch), @tagName(libc.os), @tagName(libc.abi),
-        });
-        defer allocator.free(tmp);
-        try jws.write(tmp);
-    }
-    try jws.endArray();
-
-    try jws.objectField("glibc");
-    try jws.beginArray();
-    for (glibc_abi.all_versions) |ver| {
-        const tmp = try std.fmt.allocPrint(allocator, "{}", .{ver});
-        defer allocator.free(tmp);
-        try jws.write(tmp);
-    }
-    try jws.endArray();
-
-    try jws.objectField("cpus");
-    try jws.beginObject();
-    for (meta.tags(Target.Cpu.Arch)) |arch| {
-        try jws.objectField(@tagName(arch));
-        try jws.beginObject();
-        for (arch.allCpuModels()) |model| {
-            try jws.objectField(model.name);
-            try jws.beginArray();
-            for (arch.allFeaturesList(), 0..) |feature, i_usize| {
-                const index = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
-                if (model.features.isEnabled(index)) {
-                    try jws.write(feature.name);
-                }
-            }
-            try jws.endArray();
-        }
-        try jws.endObject();
-    }
-    try jws.endObject();
-
-    try jws.objectField("cpuFeatures");
-    try jws.beginObject();
-    for (meta.tags(Target.Cpu.Arch)) |arch| {
-        try jws.objectField(@tagName(arch));
-        try jws.beginArray();
-        for (arch.allFeaturesList()) |feature| {
-            try jws.write(feature.name);
-        }
-        try jws.endArray();
-    }
-    try jws.endObject();
-
-    try jws.objectField("native");
-    try jws.beginObject();
     {
-        const triple = try native_target.zigTriple(allocator);
-        defer allocator.free(triple);
-        try jws.objectField("triple");
-        try jws.write(triple);
-    }
-    {
-        try jws.objectField("cpu");
-        try jws.beginObject();
-        try jws.objectField("arch");
-        try jws.write(@tagName(native_target.cpu.arch));
+        var root_obj = try sz.startStruct(.{});
 
-        try jws.objectField("name");
-        const cpu = native_target.cpu;
-        try jws.write(cpu.model.name);
+        try root_obj.field("arch", meta.fieldNames(Target.Cpu.Arch), .{});
+        try root_obj.field("os", meta.fieldNames(Target.Os.Tag), .{});
+        try root_obj.field("abi", meta.fieldNames(Target.Abi), .{});
 
         {
-            try jws.objectField("features");
-            try jws.beginArray();
-            for (native_target.cpu.arch.allFeaturesList(), 0..) |feature, i_usize| {
-                const index = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
-                if (cpu.features.isEnabled(index)) {
-                    try jws.write(feature.name);
-                }
+            try root_obj.fieldPrefix("libc");
+            var libc_obj = try sz.startTuple(.{});
+            for (std.zig.target.available_libcs) |libc| {
+                const tmp = try std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{
+                    @tagName(libc.arch), @tagName(libc.os), @tagName(libc.abi),
+                });
+                defer allocator.free(tmp);
+                try libc_obj.field(tmp, .{});
             }
-            try jws.endArray();
+            try libc_obj.finish();
         }
-        try jws.endObject();
-    }
-    try jws.objectField("os");
-    try jws.write(@tagName(native_target.os.tag));
-    try jws.objectField("abi");
-    try jws.write(@tagName(native_target.abi));
-    try jws.endObject();
 
-    try jws.endObject();
+        {
+            try root_obj.fieldPrefix("glibc");
+            var glibc_obj = try sz.startTuple(.{});
+            for (glibc_abi.all_versions) |ver| {
+                const tmp = try std.fmt.allocPrint(allocator, "{}", .{ver});
+                defer allocator.free(tmp);
+                try glibc_obj.field(tmp, .{});
+            }
+            try glibc_obj.finish();
+        }
+
+        {
+            try root_obj.fieldPrefix("cpus");
+            var cpus_obj = try sz.startStruct(.{});
+            for (meta.tags(Target.Cpu.Arch)) |arch| {
+                try cpus_obj.fieldPrefix(@tagName(arch));
+                var arch_obj = try sz.startStruct(.{});
+                for (arch.allCpuModels()) |model| {
+                    try arch_obj.fieldPrefix(model.name);
+                    var features = try sz.startTuple(.{});
+                    for (arch.allFeaturesList(), 0..) |feature, i_usize| {
+                        const index = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
+                        if (model.features.isEnabled(index)) {
+                            try features.field(feature.name, .{});
+                        }
+                    }
+                    try features.finish();
+                }
+                try arch_obj.finish();
+            }
+            try cpus_obj.finish();
+        }
+
+        {
+            try root_obj.fieldPrefix("cpuFeatures");
+            var cpu_features_obj = try sz.startStruct(.{});
+            for (meta.tags(Target.Cpu.Arch)) |arch| {
+                try cpu_features_obj.fieldPrefix(@tagName(arch));
+                var arch_features = try sz.startTuple(.{});
+                for (arch.allFeaturesList()) |feature| {
+                    try arch_features.field(feature.name, .{});
+                }
+                try arch_features.finish();
+            }
+            try cpu_features_obj.finish();
+        }
+
+        {
+            try root_obj.fieldPrefix("native");
+            var native_obj = try sz.startStruct(.{});
+            {
+                const triple = try native_target.zigTriple(allocator);
+                defer allocator.free(triple);
+                try native_obj.field("triple", triple, .{});
+            }
+            {
+                try native_obj.fieldPrefix("cpu");
+                var cpu_obj = try sz.startStruct(.{});
+                try cpu_obj.field("arch", native_target.cpu.arch, .{});
+
+                try cpu_obj.field("name", native_target.cpu.model.name, .{});
+
+                {
+                    try native_obj.fieldPrefix("features");
+                    var features = try sz.startTuple(.{});
+                    for (native_target.cpu.arch.allFeaturesList(), 0..) |feature, i_usize| {
+                        const index = @as(Target.Cpu.Feature.Set.Index, @intCast(i_usize));
+                        if (native_target.cpu.features.isEnabled(index)) {
+                            try features.field(feature.name, .{});
+                        }
+                    }
+                    try features.finish();
+                }
+                try cpu_obj.finish();
+            }
+
+            try native_obj.field("os", native_target.os.tag, .{});
+            try native_obj.field("abi", native_target.abi, .{});
+            try native_obj.finish();
+        }
+
+        try root_obj.finish();
+    }
 
     try w.writeByte('\n');
     return bw.flush();
