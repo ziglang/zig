@@ -135,7 +135,8 @@ test "HTTP server handles a chunked transfer coding request" {
     const gpa = std.testing.allocator;
     const stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
     defer stream.close();
-    try stream.writeAll(request_bytes);
+    var writer = stream.writer().unbuffered();
+    try writer.writeAll(request_bytes);
 
     const expected_response =
         "HTTP/1.1 200 OK\r\n" ++
@@ -276,7 +277,8 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
     const gpa = std.testing.allocator;
     const stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
     defer stream.close();
-    try stream.writeAll(request_bytes);
+    var writer = stream.writer().unbuffered();
+    try writer.writeAll(request_bytes);
 
     const response = try stream.reader().readAllAlloc(gpa, 8192);
     defer gpa.free(response);
@@ -339,7 +341,8 @@ test "receiving arbitrary http headers from the client" {
     const gpa = std.testing.allocator;
     const stream = try std.net.tcpConnectToHost(gpa, "127.0.0.1", test_server.port());
     defer stream.close();
-    try stream.writeAll(request_bytes);
+    var writer = stream.writer().unbuffered();
+    try writer.writeAll(request_bytes);
 
     const response = try stream.reader().readAllAlloc(gpa, 8192);
     defer gpa.free(response);
@@ -960,8 +963,9 @@ test "Server streams both reading and writing" {
     try req.send();
     try req.wait();
 
-    try req.writeAll("one ");
-    try req.writeAll("fish");
+    var w = req.writer().unbuffered();
+    try w.writeAll("one ");
+    try w.writeAll("fish");
 
     try req.finish();
 
@@ -992,8 +996,9 @@ fn echoTests(client: *http.Client, port: u16) !void {
         req.transfer_encoding = .{ .content_length = 14 };
 
         try req.send();
-        try req.writeAll("Hello, ");
-        try req.writeAll("World!\n");
+        var w = req.writer().unbuffered();
+        try w.writeAll("Hello, ");
+        try w.writeAll("World!\n");
         try req.finish();
 
         try req.wait();
@@ -1026,8 +1031,9 @@ fn echoTests(client: *http.Client, port: u16) !void {
         req.transfer_encoding = .chunked;
 
         try req.send();
-        try req.writeAll("Hello, ");
-        try req.writeAll("World!\n");
+        var w = req.writer().unbuffered();
+        try w.writeAll("Hello, ");
+        try w.writeAll("World!\n");
         try req.finish();
 
         try req.wait();
@@ -1080,8 +1086,9 @@ fn echoTests(client: *http.Client, port: u16) !void {
         req.transfer_encoding = .chunked;
 
         try req.send();
-        try req.writeAll("Hello, ");
-        try req.writeAll("World!\n");
+        var w = req.writer().unbuffered();
+        try w.writeAll("Hello, ");
+        try w.writeAll("World!\n");
         try req.finish();
 
         try req.wait();

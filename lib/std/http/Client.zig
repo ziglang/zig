@@ -187,6 +187,9 @@ pub const ConnectionPool = struct {
 /// An interface to either a plain or TLS connection.
 pub const Connection = struct {
     stream: net.Stream,
+    /// Populated when protocol is TLS; this is the writer given to the TLS
+    /// client, which writes directly to `stream`, unbuffered.
+    stream_writer: std.io.BufferedWriter,
     /// undefined unless protocol is tls.
     tls_client: if (!disable_tls) *std.crypto.tls.Client else void,
 
@@ -210,9 +213,10 @@ pub const Connection = struct {
 
     read_start: BufferSize = 0,
     read_end: BufferSize = 0,
-    write_end: BufferSize = 0,
-    read_buf: [buffer_size]u8 = undefined,
-    write_buf: [buffer_size]u8 = undefined,
+    read_buf: [buffer_size]u8,
+
+    write_buffer: [buffer_size]u8,
+    writer: std.io.BufferedWriter,
 
     pub const buffer_size = std.crypto.tls.max_ciphertext_record_len;
     const BufferSize = std.math.IntFittingRange(0, buffer_size);
@@ -314,59 +318,7 @@ pub const Connection = struct {
     pub const Reader = std.io.Reader(*Connection, ReadError, read);
 
     pub fn reader(conn: *Connection) Reader {
-        return Reader{ .context = conn };
-    }
-
-    pub fn writeAllDirectTls(conn: *Connection, buffer: []const u8) WriteError!void {
-        return conn.tls_client.writeAll(conn.stream, buffer) catch |err| switch (err) {
-            error.BrokenPipe, error.ConnectionResetByPeer => return error.ConnectionResetByPeer,
-            else => return error.UnexpectedWriteFailure,
-        };
-    }
-
-    pub fn writeAllDirect(conn: *Connection, buffer: []const u8) WriteError!void {
-        if (conn.protocol == .tls) {
-            if (disable_tls) unreachable;
-
-            return conn.writeAllDirectTls(buffer);
-        }
-
-        return conn.stream.writeAll(buffer) catch |err| switch (err) {
-            error.BrokenPipe, error.ConnectionResetByPeer => return error.ConnectionResetByPeer,
-            else => return error.UnexpectedWriteFailure,
-        };
-    }
-
-    /// Writes the given buffer to the connection.
-    pub fn write(conn: *Connection, buffer: []const u8) WriteError!usize {
-        if (conn.write_buf.len - conn.write_end < buffer.len) {
-            try conn.flush();
-
-            if (buffer.len > conn.write_buf.len) {
-                try conn.writeAllDirect(buffer);
-                return buffer.len;
-            }
-        }
-
-        @memcpy(conn.write_buf[conn.write_end..][0..buffer.len], buffer);
-        conn.write_end += @intCast(buffer.len);
-
-        return buffer.len;
-    }
-
-    /// Returns a buffer to be filled with exactly len bytes to write to the connection.
-    pub fn allocWriteBuffer(conn: *Connection, len: BufferSize) WriteError![]u8 {
-        if (conn.write_buf.len - conn.write_end < len) try conn.flush();
-        defer conn.write_end += len;
-        return conn.write_buf[conn.write_end..][0..len];
-    }
-
-    /// Flushes the write buffer to the connection.
-    pub fn flush(conn: *Connection) WriteError!void {
-        if (conn.write_end == 0) return;
-
-        try conn.writeAllDirect(conn.write_buf[0..conn.write_end]);
-        conn.write_end = 0;
+        return .{ .context = conn };
     }
 
     pub const WriteError = error{
@@ -374,19 +326,12 @@ pub const Connection = struct {
         UnexpectedWriteFailure,
     };
 
-    pub const Writer = std.io.Writer(*Connection, WriteError, write);
-
-    pub fn writer(conn: *Connection) Writer {
-        return Writer{ .context = conn };
-    }
-
-    /// Closes the connection.
     pub fn close(conn: *Connection, allocator: Allocator) void {
         if (conn.protocol == .tls) {
             if (disable_tls) unreachable;
 
             // try to cleanly close the TLS connection, for any server that cares.
-            _ = conn.tls_client.writeEnd(conn.stream, "", true) catch {};
+            _ = conn.tls_client.writeEnd("", true) catch {};
             if (conn.tls_client.ssl_key_log) |key_log| key_log.file.close();
             allocator.destroy(conn.tls_client);
         }
@@ -815,15 +760,12 @@ pub const Request = struct {
         };
     }
 
-    pub const SendError = Connection.WriteError || error{ InvalidContentLength, UnsupportedTransferEncoding };
-
     /// Send the HTTP request headers to the server.
-    pub fn send(req: *Request) SendError!void {
-        if (!req.method.requestHasBody() and req.transfer_encoding != .none)
-            return error.UnsupportedTransferEncoding;
+    pub fn send(req: *Request) anyerror!void {
+        assert(req.transfer_encoding == .none or req.method.requestHasBody());
 
         const connection = req.connection.?;
-        const w = connection.writer();
+        const w = &connection.writer;
 
         try req.method.write(w);
         try w.writeByte(' ');
@@ -852,10 +794,7 @@ pub const Request = struct {
         if (try emitOverridableHeader("authorization: ", req.headers.authorization, w)) {
             if (req.uri.user != null or req.uri.password != null) {
                 try w.writeAll("authorization: ");
-                const authorization = try connection.allocWriteBuffer(
-                    @intCast(basic_authorization.valueLengthFromUri(req.uri)),
-                );
-                assert(basic_authorization.value(req.uri, authorization).len == authorization.len);
+                try basic_authorization.write(req.uri, w);
                 try w.writeAll("\r\n");
             }
         }
@@ -914,7 +853,7 @@ pub const Request = struct {
 
         try w.writeAll("\r\n");
 
-        try connection.flush();
+        try connection.writer.flush();
     }
 
     /// Returns true if the default behavior is required, otherwise handles
@@ -953,7 +892,9 @@ pub const Request = struct {
         return index;
     }
 
-    pub const WaitError = RequestError || SendError || TransferReadError ||
+    /// TODO collapse each error set into its own meta error code, and store
+    /// the underlying error code as a field on Request
+    pub const WaitError = RequestError || anyerror || TransferReadError ||
         proto.HeadersParser.CheckCompleteHeadError || Response.ParseError ||
         error{
             TooManyHttpRedirects,
@@ -1132,59 +1073,112 @@ pub const Request = struct {
         return index;
     }
 
-    pub const WriteError = Connection.WriteError || error{ NotWriteable, MessageTooLong };
-
-    pub const Writer = std.io.Writer(*Request, WriteError, write);
-
-    pub fn writer(req: *Request) Writer {
-        return .{ .context = req };
-    }
-
-    /// Write `bytes` to the server. The `transfer_encoding` field determines how data will be sent.
-    /// Must be called after `send` and before `finish`.
-    pub fn write(req: *Request, bytes: []const u8) WriteError!usize {
-        switch (req.transfer_encoding) {
-            .chunked => {
-                if (bytes.len > 0) {
-                    try req.connection.?.writer().print("{x}\r\n", .{bytes.len});
-                    try req.connection.?.writer().writeAll(bytes);
-                    try req.connection.?.writer().writeAll("\r\n");
-                }
-
-                return bytes.len;
+    /// Resulting `std.io.Writer` must used after `send` and before `finish`.
+    pub fn writer(req: *Request) std.io.Writer {
+        return .{
+            .context = req,
+            .vtable = switch (req.transfer_encoding) {
+                .chunked => &.{
+                    .writeSplat = chunked_writeSplat,
+                    .writeFile = chunked_writeFile,
+                },
+                .content_length => &.{
+                    .writeSplat = cl_writeSplat,
+                    .writeFile = cl_writeFile,
+                },
+                .none => unreachable,
             },
-            .content_length => |*len| {
-                if (len.* < bytes.len) return error.MessageTooLong;
-
-                const amt = try req.connection.?.write(bytes);
-                len.* -= amt;
-                return amt;
-            },
-            .none => return error.NotWriteable,
-        }
+        };
     }
 
-    /// Write `bytes` to the server. The `transfer_encoding` field determines how data will be sent.
-    /// Must be called after `send` and before `finish`.
-    pub fn writeAll(req: *Request, bytes: []const u8) WriteError!void {
-        var index: usize = 0;
-        while (index < bytes.len) {
-            index += try write(req, bytes[index..]);
-        }
+    fn chunked_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+        const req: *Request = @ptrCast(@alignCast(context));
+        var total: usize = 0;
+        for (data) |bytes| total += bytes.len;
+        if (total == 0) return 0;
+        var iovecs: [max_buffers_len][]const u8 = undefined;
+        var header_buffer: [30]u8 = undefined;
+        var header_buffer_writer: std.io.BufferedWriter = undefined;
+        header_buffer_writer.initFixed(&header_buffer);
+        header_buffer_writer.print("{x}\r\n", .{total}) catch unreachable;
+        iovecs[0] = header_buffer_writer.getWritten();
+        @memcpy(iovecs[1..][0..data.len], data);
+        iovecs[data.len + 1] = "\r\n";
+        // TODO: only 1 underlying write call
+        // TODO: don't rely on max_buffers_len exceeding the caller
+        // TODO: handle splat
+        _ = splat;
+        const w = &req.connection.?.writer;
+        try w.writevAll(iovecs[0 .. data.len + 2]);
+        return total;
     }
 
-    pub const FinishError = WriteError || error{MessageNotCompleted};
+    const max_buffers_len = 16;
+
+    pub fn chunked_writeFile(
+        context: *anyopaque,
+        file: std.fs.File,
+        offset: u64,
+        len: std.io.Writer.VTable.FileLen,
+        headers_and_trailers: []const []const u8,
+        headers_len: usize,
+    ) anyerror!usize {
+        if (len == .entire_file) return error.Unimplemented;
+        const req: *Request = @ptrCast(@alignCast(context));
+        var total: usize = len.int();
+        for (headers_and_trailers) |bytes| total += bytes.len;
+        if (total == 0) return 0;
+        var iovecs: [max_buffers_len][]const u8 = undefined;
+        var header_buffer: [30]u8 = undefined;
+        var header_buffer_writer: std.io.BufferedWriter = undefined;
+        header_buffer_writer.initFixed(&header_buffer);
+        header_buffer_writer.print("{x}\r\n", .{total}) catch unreachable;
+        iovecs[0] = header_buffer_writer.getWritten();
+        @memcpy(iovecs[1..][0..headers_and_trailers.len], headers_and_trailers);
+        iovecs[headers_and_trailers.len + 1] = "\r\n";
+        // TODO: only 1 underlying write call
+        // TODO: don't rely on max_buffers_len exceeding the caller
+        const w = &req.connection.?.writer;
+        try w.writeFileAll(file, .{
+            .offset = offset,
+            .len = len,
+            .headers_and_trailers = iovecs[0 .. headers_and_trailers.len + 2],
+            .headers_len = headers_len + 1,
+        });
+        return total;
+    }
+
+    fn cl_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+        const req: *Request = @ptrCast(@alignCast(context));
+        const n = try req.connection.?.writer.writeSplat(data, splat);
+        req.transfer_encoding.content_length -= n;
+        return n;
+    }
+
+    pub fn cl_writeFile(
+        context: *anyopaque,
+        file: std.fs.File,
+        offset: u64,
+        len: std.io.Writer.VTable.FileLen,
+        headers_and_trailers: []const []const u8,
+        headers_len: usize,
+    ) anyerror!usize {
+        const req: *Request = @ptrCast(@alignCast(context));
+        const n = try req.connection.?.writer.writeFile(file, offset, len, headers_and_trailers, headers_len);
+        req.transfer_encoding.content_length -= n;
+        return n;
+    }
 
     /// Finish the body of a request. This notifies the server that you have no more data to send.
     /// Must be called after `send`.
-    pub fn finish(req: *Request) FinishError!void {
+    pub fn finish(req: *Request) anyerror!void {
         switch (req.transfer_encoding) {
-            .chunked => try req.connection.?.writer().writeAll("0\r\n\r\n"),
-            .content_length => |len| if (len != 0) return error.MessageNotCompleted,
+            .chunked => try req.connection.?.writer.writeAll("0\r\n\r\n"),
+            .content_length => |len| assert(len == 0),
             .none => {},
         }
 
-        try req.connection.?.flush();
+        try req.connection.?.writer.flush();
     }
 };
 
@@ -1276,10 +1270,8 @@ pub const basic_authorization = struct {
     pub const max_password_len = 255;
     pub const max_value_len = valueLength(max_user_len, max_password_len);
 
-    const prefix = "Basic ";
-
     pub fn valueLength(user_len: usize, password_len: usize) usize {
-        return prefix.len + std.base64.standard.Encoder.calcSize(user_len + 1 + password_len);
+        return "Basic ".len + std.base64.standard.Encoder.calcSize(user_len + 1 + password_len);
     }
 
     pub fn valueLengthFromUri(uri: Uri) usize {
@@ -1290,6 +1282,13 @@ pub const basic_authorization = struct {
     }
 
     pub fn value(uri: Uri, out: []u8) []u8 {
+        var bw: std.io.BufferedWriter = undefined;
+        bw.initFixed(out);
+        write(uri, &bw) catch unreachable;
+        return bw.getWritten();
+    }
+
+    pub fn write(uri: Uri, out: *std.io.BufferedWriter) anyerror!void {
         var buf: [max_user_len + ":".len + max_password_len]u8 = undefined;
         var bw: std.io.BufferedWriter = undefined;
         bw.initFixed(&buf);
@@ -1297,9 +1296,7 @@ pub const basic_authorization = struct {
             uri.user orelse Uri.Component.empty,
             uri.password orelse Uri.Component.empty,
         }) catch unreachable;
-        @memcpy(out[0..prefix.len], prefix);
-        const base64 = std.base64.standard.Encoder.encode(out[prefix.len..], bw.getWritten());
-        return out[0 .. prefix.len + base64.len];
+        try out.print("Basic {b64}", .{bw.getWritten()});
     }
 };
 
@@ -1313,7 +1310,7 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
         .host = host,
         .port = port,
         .protocol = protocol,
-    })) |node| return node;
+    })) |conn| return conn;
 
     if (disable_tls and protocol == .tls)
         return error.TlsInitializationFailed;
@@ -1336,7 +1333,12 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
 
     conn.* = .{
         .stream = stream,
+        .stream_writer = undefined,
         .tls_client = undefined,
+        .read_buf = undefined,
+
+        .write_buffer = undefined,
+        .writer = undefined, // populated below
 
         .protocol = protocol,
         .host = try client.allocator.dupe(u8, host),
@@ -1346,36 +1348,55 @@ pub fn connectTcp(client: *Client, host: []const u8, port: u16, protocol: Connec
     };
     errdefer client.allocator.free(conn.host);
 
-    if (protocol == .tls) {
-        if (disable_tls) unreachable;
+    switch (protocol) {
+        .tls => {
+            if (disable_tls) unreachable;
 
-        conn.tls_client = try client.allocator.create(std.crypto.tls.Client);
-        errdefer client.allocator.destroy(conn.tls_client);
+            const tls_client = try client.allocator.create(std.crypto.tls.Client);
+            errdefer client.allocator.destroy(tls_client);
 
-        const ssl_key_log_file: ?std.fs.File = if (std.options.http_enable_ssl_key_log_file) ssl_key_log_file: {
-            const ssl_key_log_path = std.process.getEnvVarOwned(client.allocator, "SSLKEYLOGFILE") catch |err| switch (err) {
-                error.EnvironmentVariableNotFound, error.InvalidWtf8 => break :ssl_key_log_file null,
-                error.OutOfMemory => return error.OutOfMemory,
+            const ssl_key_log_file: ?std.fs.File = if (std.options.http_enable_ssl_key_log_file) ssl_key_log_file: {
+                const ssl_key_log_path = std.process.getEnvVarOwned(client.allocator, "SSLKEYLOGFILE") catch |err| switch (err) {
+                    error.EnvironmentVariableNotFound, error.InvalidWtf8 => break :ssl_key_log_file null,
+                    error.OutOfMemory => return error.OutOfMemory,
+                };
+                defer client.allocator.free(ssl_key_log_path);
+                break :ssl_key_log_file std.fs.cwd().createFile(ssl_key_log_path, .{
+                    .truncate = false,
+                    .mode = switch (builtin.os.tag) {
+                        .windows, .wasi => 0,
+                        else => 0o600,
+                    },
+                }) catch null;
+            } else null;
+            errdefer if (ssl_key_log_file) |key_log_file| key_log_file.close();
+
+            conn.stream_writer = .{
+                .unbuffered_writer = stream.writer(),
+                .buffer = &.{},
             };
-            defer client.allocator.free(ssl_key_log_path);
-            break :ssl_key_log_file std.fs.cwd().createFile(ssl_key_log_path, .{
-                .truncate = false,
-                .mode = switch (builtin.os.tag) {
-                    .windows, .wasi => 0,
-                    else => 0o600,
-                },
-            }) catch null;
-        } else null;
-        errdefer if (ssl_key_log_file) |key_log_file| key_log_file.close();
 
-        conn.tls_client.* = std.crypto.tls.Client.init(stream, .{
-            .host = .{ .explicit = host },
-            .ca = .{ .bundle = client.ca_bundle },
-            .ssl_key_log_file = ssl_key_log_file,
-        }) catch return error.TlsInitializationFailed;
-        // This is appropriate for HTTPS because the HTTP headers contain
-        // the content length which is used to detect truncation attacks.
-        conn.tls_client.allow_truncation_attacks = true;
+            tls_client.* = std.crypto.tls.Client.init(stream, &conn.stream_writer, .{
+                .host = .{ .explicit = host },
+                .ca = .{ .bundle = client.ca_bundle },
+                .ssl_key_log_file = ssl_key_log_file,
+            }) catch return error.TlsInitializationFailed;
+            // This is appropriate for HTTPS because the HTTP headers contain
+            // the content length which is used to detect truncation attacks.
+            tls_client.allow_truncation_attacks = true;
+
+            conn.writer = .{
+                .unbuffered_writer = tls_client.writer(),
+                .buffer = &conn.write_buffer,
+            };
+            conn.tls_client = tls_client;
+        },
+        .plain => {
+            conn.writer = .{
+                .unbuffered_writer = stream.writer(),
+                .buffer = &conn.write_buffer,
+            };
+        },
     }
 
     client.connection_pool.addUsed(conn);
@@ -1534,14 +1555,14 @@ pub fn connect(
     return conn;
 }
 
-pub const RequestError = ConnectTcpError || ConnectErrorPartial || Request.SendError ||
+/// TODO collapse each error set into its own meta error code, and store
+/// the underlying error code as a field on Request
+pub const RequestError = ConnectTcpError || ConnectErrorPartial || anyerror ||
     std.fmt.ParseIntError || Connection.WriteError ||
     error{
         UnsupportedUriScheme,
         UriMissingHost,
-
         CertificateBundleLoadFailure,
-        UnsupportedTransferEncoding,
     };
 
 pub const RequestOptions = struct {
@@ -1754,7 +1775,10 @@ pub fn fetch(client: *Client, options: FetchOptions) !FetchResult {
 
     try req.send();
 
-    if (options.payload) |payload| try req.writeAll(payload);
+    if (options.payload) |payload| {
+        var w = req.writer().unbuffered();
+        try w.writeAll(payload);
+    }
 
     try req.finish();
     try req.wait();
