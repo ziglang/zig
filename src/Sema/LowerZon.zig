@@ -139,6 +139,10 @@ fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!Inter
             } });
         },
         .struct_literal => |init| {
+            const elems = try self.sema.arena.alloc(InternPool.Index, init.names.len);
+            for (0..init.names.len) |i| {
+                elems[i] = try self.lowerExprAnonResTy(init.vals.at(@intCast(i)));
+            }
             const struct_ty = switch (try ip.getStructType(
                 gpa,
                 pt.tid,
@@ -181,11 +185,10 @@ fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!Inter
                         struct_type.setFieldComptime(ip, field_idx);
                     }
 
-                    const values = struct_type.field_inits.get(ip);
+                    @memcpy(struct_type.field_inits.get(ip), elems);
                     const types = struct_type.field_types.get(ip);
                     for (0..init.names.len) |i| {
-                        values[i] = try self.lowerExprAnonResTy(init.vals.at(@intCast(i)));
-                        types[i] = Value.fromInterned(values[i]).typeOf(pt.zcu).toIntern();
+                        types[i] = Value.fromInterned(elems[i]).typeOf(pt.zcu).toIntern();
                     }
 
                     const new_namespace_index = try pt.createNamespace(.{
@@ -207,7 +210,6 @@ fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!Inter
             try self.sema.declareDependency(.{ .interned = struct_ty });
             try self.sema.addTypeReferenceEntry(self.nodeSrc(node), struct_ty);
 
-            const elems = ip.loadStructType(struct_ty).field_inits.get(ip);
             return try pt.intern(.{ .aggregate = .{
                 .ty = struct_ty,
                 .storage = .{ .elems = elems },
