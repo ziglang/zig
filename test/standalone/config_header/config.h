@@ -15,3 +15,8 @@ int foo();
 // Used twice
 #define SOME_TRUE 1
 
+/* #undef PREFIX_SPACE */
+/* #undef PREFIX_TAB */
+/* #undef POSTFIX_SPACE */
+/* #undef POSTFIX_TAB */
+

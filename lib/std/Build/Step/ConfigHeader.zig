@@ -286,7 +286,7 @@ fn render_autoconf(
             try output.appendSlice("\n");
             continue;
         }
-        const name = it.rest();
+        const name = it.next().?;
         const index = values.getIndex(name) orelse {
             try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
                 src_path, line_index + 1, name,

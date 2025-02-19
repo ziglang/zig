@@ -12,6 +12,11 @@ pub fn build(b: *std.Build) void {
             .SOME_TEN = 10,
             .SOME_ENUM_LITERAL = .@"test",
             .SOME_STRING = "test",
+
+            .PREFIX_SPACE = null,
+            .PREFIX_TAB = null,
+            .POSTFIX_SPACE = null,
+            .POSTFIX_TAB = null,
         },
     );
 
