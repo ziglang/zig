@@ -1576,7 +1576,7 @@ fn renderBuiltinCall(
             defer r.gpa.free(new_string);
 
             try renderToken(r, builtin_token + 1, .none); // (
-            try ais.print("\"{}\"", .{std.zig.fmtEscapes(new_string)});
+            try ais.print("\"{f}\"", .{std.zig.fmtEscapes(new_string)});
             return renderToken(r, str_lit_token + 1, space); // )
         }
     }
@@ -2888,7 +2888,7 @@ fn renderIdentifierContents(ais: *AutoIndentingStream, bytes: []const u8) !void 
                     .success => |codepoint| {
                         if (codepoint <= 0x7f) {
                             const buf = [1]u8{@as(u8, @intCast(codepoint))};
-                            try ais.print("{}", .{std.zig.fmtEscapes(&buf)});
+                            try ais.print("{f}", .{std.zig.fmtEscapes(&buf)});
                         } else {
                             try ais.writeAll(escape_sequence);
                         }
@@ -2900,7 +2900,7 @@ fn renderIdentifierContents(ais: *AutoIndentingStream, bytes: []const u8) !void 
             },
             0x00...('\\' - 1), ('\\' + 1)...0x7f => {
                 const buf = [1]u8{byte};
-                try ais.print("{}", .{std.zig.fmtEscapes(&buf)});
+                try ais.print("{f}", .{std.zig.fmtEscapes(&buf)});
                 pos += 1;
             },
             0x80...0xff => {
@@ -3305,8 +3305,9 @@ const AutoIndentingStream = struct {
         if (bytes[bytes.len - 1] == '\n') ais.resetLine();
     }
 
+    /// Assumes that if the printed data ends with a newline, it is directly
+    /// contained in the format string.
     pub fn print(ais: *AutoIndentingStream, comptime format: []const u8, args: anytype) anyerror!void {
-        comptime assert(format[format.len - 1] != '}');
         try ais.applyIndent();
         if (ais.disabled_offset == null) try ais.underlying_writer.print(format, args);
         if (format[format.len - 1] == '\n') ais.resetLine();

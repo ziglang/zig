@@ -26,16 +26,13 @@ const Fmt = struct {
     color: Color,
     gpa: Allocator,
     arena: Allocator,
-    out_buffer: std.ArrayList(u8),
+    out_buffer: std.ArrayListUnmanaged(u8),
+    stdout: *std.io.BufferedWriter,
 
     const SeenMap = std.AutoHashMap(fs.File.INode, void);
 };
 
-pub fn run(
-    gpa: Allocator,
-    arena: Allocator,
-    args: []const []const u8,
-) !void {
+pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var color: Color = .auto;
     var stdin_flag = false;
     var check_flag = false;
@@ -52,8 +49,7 @@ pub fn run(
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    const stdout = std.io.getStdOut().writer();
-                    try stdout.writeAll(usage_fmt);
+                    try std.io.getStdOut().writeAll(usage_fmt);
                     return process.cleanExit();
                 } else if (mem.eql(u8, arg, "--color")) {
                     if (i + 1 >= args.len) {
@@ -138,8 +134,11 @@ pub fn run(
             try std.zig.printAstErrorsToStderr(gpa, tree, "<stdin>", color);
             process.exit(2);
         }
-        const formatted = try tree.render(gpa);
-        defer gpa.free(formatted);
+        var aw: std.io.AllocatingWriter = undefined;
+        const bw = aw.init(gpa);
+        defer aw.deinit();
+        try tree.render(gpa, bw, .{});
+        const formatted = aw.getWritten();
 
         if (check_flag) {
             const code: u8 = @intFromBool(mem.eql(u8, formatted, source_code));
@@ -153,6 +152,12 @@ pub fn run(
         fatal("expected at least one source file argument", .{});
     }
 
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout: std.io.BufferedWriter = .{
+        .buffer = &stdout_buffer,
+        .unbuffered_writer = std.io.getStdOut().writer(),
+    };
+
     var fmt: Fmt = .{
         .gpa = gpa,
         .arena = arena,
@@ -161,10 +166,11 @@ pub fn run(
         .check_ast = check_ast_flag,
         .force_zon = force_zon,
         .color = color,
-        .out_buffer = std.ArrayList(u8).init(gpa),
+        .out_buffer = .empty,
+        .stdout = &stdout,
     };
     defer fmt.seen.deinit();
-    defer fmt.out_buffer.deinit();
+    defer fmt.out_buffer.deinit(gpa);
 
     // Mark any excluded files/directories as already seen,
     // so that they are skipped later during actual processing
@@ -322,15 +328,19 @@ fn fmtPathFile(
 
     // As a heuristic, we make enough capacity for the same as the input source.
     fmt.out_buffer.shrinkRetainingCapacity(0);
-    try fmt.out_buffer.ensureTotalCapacity(source_code.len);
+    try fmt.out_buffer.ensureTotalCapacity(gpa, source_code.len);
 
-    try tree.renderToArrayList(&fmt.out_buffer, .{});
+    {
+        var aw: std.io.AllocatingWriter = undefined;
+        const bw = aw.fromArrayList(gpa, &fmt.out_buffer);
+        defer fmt.out_buffer = aw.toArrayList();
+        try tree.render(gpa, bw, .{});
+    }
     if (mem.eql(u8, fmt.out_buffer.items, source_code))
         return;
 
     if (check_mode) {
-        const stdout = std.io.getStdOut().writer();
-        try stdout.print("{s}\n", .{file_path});
+        try fmt.stdout.print("{s}\n", .{file_path});
         fmt.any_error = true;
     } else {
         var af = try dir.atomicFile(sub_path, .{ .mode = stat.mode });
@@ -338,8 +348,7 @@ fn fmtPathFile(
 
         try af.file.writeAll(fmt.out_buffer.items);
         try af.finish();
-        const stdout = std.io.getStdOut().writer();
-        try stdout.print("{s}\n", .{file_path});
+        try fmt.stdout.print("{s}\n", .{file_path});
     }
 }
 
@@ -350,3 +359,12 @@ const process = std.process;
 const Allocator = std.mem.Allocator;
 const Color = std.zig.Color;
 const fatal = std.process.fatal;
+
+/// Provided for debugging/testing purposes; unused by the compiler.
+pub fn main() !void {
+    const gpa = std.heap.smp_allocator;
+    var arena_instance = std.heap.ArenaAllocator.init(gpa);
+    const arena = arena_instance.allocator();
+    const args = try process.argsAlloc(arena);
+    return run(gpa, arena, args[1..]);
+}

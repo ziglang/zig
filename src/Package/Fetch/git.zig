@@ -122,9 +122,9 @@ pub const Oid = union(Format) {
     pub fn format(
         oid: Oid,
         comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
+        options: std.fmt.Options,
+        writer: *std.io.BufferedWriter,
+    ) anyerror!void {
         _ = fmt;
         _ = options;
         try writer.print("{x}", .{oid.slice()});
