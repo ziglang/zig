@@ -308,7 +308,7 @@ fn generateSystemDefines(comp: *Compilation, w: anytype) !void {
         ),
         else => {},
     }
-    if (comp.target.isAndroid()) {
+    if (comp.target.abi.isAndroid()) {
         try w.writeAll("#define __ANDROID__ 1\n");
     }
 
@@ -734,7 +734,7 @@ pub fn float80Type(comp: *const Compilation) ?Type {
 
 /// Smallest integer type with at least N bits
 pub fn intLeastN(comp: *const Compilation, bits: usize, signedness: std.builtin.Signedness) Type {
-    if (bits == 64 and (comp.target.isDarwin() or comp.target.isWasm())) {
+    if (bits == 64 and (comp.target.os.tag.isDarwin() or comp.target.cpu.arch.isWasm())) {
         // WebAssembly and Darwin use `long long` for `int_least64_t` and `int_fast64_t`.
         return .{ .specifier = if (signedness == .signed) .long_long else .ulong_long };
     }

@@ -1647,7 +1647,7 @@ pub fn maxIntAlignment(target: std.Target) u16 {
         .avr => 1,
         .msp430 => 2,
         .xcore => 4,
-        .propeller1, .propeller2 => 4,
+        .propeller => 4,
 
         .arm,
         .armeb,
@@ -1698,7 +1698,6 @@ pub fn maxIntAlignment(target: std.Target) u16 {
 
         // Below this comment are unverified but based on the fact that C requires
         // int128_t to be 16 bytes aligned, it's a safe default.
-        .spu_2,
         .csky,
         .arc,
         .m68k,
@@ -4190,11 +4189,11 @@ pub const @"c_longlong": Type = .{ .ip_index = .c_longlong_type };
 pub const @"c_ulonglong": Type = .{ .ip_index = .c_ulonglong_type };
 pub const @"c_longdouble": Type = .{ .ip_index = .c_longdouble_type };
 
-pub const slice_const_u8: Type = .{ .ip_index = .slice_const_u8_type };
 pub const manyptr_u8: Type = .{ .ip_index = .manyptr_u8_type };
-pub const single_const_pointer_to_comptime_int: Type = .{
-    .ip_index = .single_const_pointer_to_comptime_int_type,
-};
+pub const manyptr_const_u8: Type = .{ .ip_index = .manyptr_const_u8_type };
+pub const manyptr_const_u8_sentinel_0: Type = .{ .ip_index = .manyptr_const_u8_sentinel_0_type };
+pub const single_const_pointer_to_comptime_int: Type = .{ .ip_index = .single_const_pointer_to_comptime_int_type };
+pub const slice_const_u8: Type = .{ .ip_index = .slice_const_u8_type };
 pub const slice_const_u8_sentinel_0: Type = .{ .ip_index = .slice_const_u8_sentinel_0_type };
 
 pub const vector_16_i8: Type = .{ .ip_index = .vector_16_i8_type };

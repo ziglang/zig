@@ -34,8 +34,18 @@ pub const Inst = struct {
         /// ___ 4
         _4,
 
+        /// ___ With NTA Hint
+        _nta,
         /// System Call ___
         sys_,
+        /// ___ With T0 Hint
+        _t0,
+        /// ___ With T1 Hint
+        _t1,
+        /// ___ With T2 Hint
+        _t2,
+        /// ___ With Intent to Write and T1 Hint
+        _wt1,
 
         /// ___ crement Shadow Stack Pointer Doubleword
         _csspd,
@@ -100,6 +110,8 @@ pub const Inst = struct {
         /// ___ Division
         _d,
 
+        /// ___ Without Affecting Flags
+        _x,
         /// ___ Left
         _l,
         /// ___ Left Double
@@ -196,6 +208,7 @@ pub const Inst = struct {
         //_b,
         /// ___ Word
         /// ___ For Writing
+        /// ___ With Intent to Write
         _w,
         /// ___ Doubleword
         //_d,
@@ -483,6 +496,7 @@ pub const Inst = struct {
         /// ASCII adjust al after subtraction
         aa,
         /// Add with carry
+        /// Unsigned integer addition of two operands with carry flag
         adc,
         /// Add
         /// Add packed integers
@@ -753,6 +767,8 @@ pub const Inst = struct {
         /// Swap GS base register
         swapgs,
         /// Test condition
+        /// Logical compare
+        /// Packed bit test
         @"test",
         /// Undefined instruction
         ud,
@@ -970,6 +986,9 @@ pub const Inst = struct {
         /// Move unaligned packed single-precision floating-point values
         /// Move unaligned packed double-precision floating-point values
         movu,
+        /// Prefetch data into caches
+        /// Prefetch data into caches with intent to write
+        prefetch,
         /// Packed interleave shuffle of quadruplets of single-precision floating-point values
         /// Packed interleave shuffle of pairs of double-precision floating-point values
         /// Shuffle packed doublewords
@@ -1050,6 +1069,7 @@ pub const Inst = struct {
         /// Blend scalar single-precision floating-point values
         /// Blend packed double-precision floating-point values
         /// Blend scalar double-precision floating-point values
+        /// Blend packed dwords
         blend,
         /// Variable blend packed single-precision floating-point values
         /// Variable blend scalar single-precision floating-point values
@@ -1124,19 +1144,36 @@ pub const Inst = struct {
         sha256rnds,
 
         // AVX
+        /// Load with broadcast floating-point data
+        /// Load integer and broadcast
+        broadcast,
+        /// Conditional SIMD packed loads and stores
+        /// Condition SIMD integer packed loads and stores
+        maskmov,
+        /// Permute floating-point values
+        /// Permute integer values
+        perm2,
+        /// Permute in-lane pairs of double-precision floating-point values
+        /// Permute in-lane quadruples of single-precision floating-point values
+        permil,
+
+        // BMI
         /// Bit field extract
         bextr,
         /// Extract lowest set isolated bit
         /// Get mask up to lowest set bit
         /// Reset lowest set bit
         bls,
-        /// Load with broadcast floating-point data
-        /// Load integer and broadcast
-        broadcast,
-        /// Zero high bits starting with specified bit position
-        bzhi,
         /// Count the number of trailing zero bits
         tzcnt,
+
+        // BMI2
+        /// Zero high bits starting with specified bit position
+        bzhi,
+        /// Parallel bits deposit
+        pdep,
+        /// Parallel bits extract
+        pext,
 
         // F16C
         /// Convert 16-bit floating-point values to single-precision floating-point values
@@ -1161,11 +1198,22 @@ pub const Inst = struct {
         /// Fused multiply-add of scalar double-precision floating-point values
         fmadd231,
 
+        // AVX2
+        /// Permute packed doubleword elements
+        /// Permute packed qword elements
+        /// Permute double-precision floating-point elements
+        /// Permute single-precision floating-point elements
+        perm,
+        /// Variable bit shift left logical
+        sllv,
+        /// Variable bit shift right arithmetic
+        srav,
+        /// Variable bit shift right logical
+        srlv,
+
         // ADX
-        /// Unsigned integer addition of two operands with carry flag
-        adcx,
         /// Unsigned integer addition of two operands with overflow flag
-        adox,
+        ado,
 
         // AESKLE
         /// Encode 128-bit key with key locker

@@ -16,7 +16,7 @@ export fn entry4() void {
 }
 
 // error
-// backend=llvm
+// backend=stage2
 // target=native
 //
 // :2:15: error: primitive integer type 'u000123' has leading zero

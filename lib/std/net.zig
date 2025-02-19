@@ -923,7 +923,6 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) Get
         const port_c = try std.fmt.allocPrintZ(allocator, "{}", .{port});
         defer allocator.free(port_c);
 
-        const sys = if (native_os == .windows) windows.ws2_32 else posix.system;
         const hints: posix.addrinfo = .{
             .flags = .{ .NUMERICSERV = true },
             .family = posix.AF.UNSPEC,
@@ -935,8 +934,8 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) Get
             .next = null,
         };
         var res: ?*posix.addrinfo = null;
-        switch (sys.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res)) {
-            @as(sys.EAI, @enumFromInt(0)) => {},
+        switch (posix.system.getaddrinfo(name_c.ptr, port_c.ptr, &hints, &res)) {
+            @as(posix.system.EAI, @enumFromInt(0)) => {},
             .ADDRFAMILY => return error.HostLacksNetworkAddresses,
             .AGAIN => return error.TemporaryNameServerFailure,
             .BADFLAGS => unreachable, // Invalid hints
@@ -952,7 +951,7 @@ pub fn getAddressList(allocator: mem.Allocator, name: []const u8, port: u16) Get
             },
             else => unreachable,
         }
-        defer if (res) |some| sys.freeaddrinfo(some);
+        defer if (res) |some| posix.system.freeaddrinfo(some);
 
         const addr_count = blk: {
             var count: usize = 0;

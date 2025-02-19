@@ -656,9 +656,4 @@ pub extern "kernel32" fn SetLastError(
 
 // Everything Else
 
-// TODO:
-//  Wrapper around KUSER_SHARED_DATA.SystemTime.
-//  Much better to use NtQuerySystemTime or NtQuerySystemTimePrecise for guaranteed 0.1ns precision.
-pub extern "kernel32" fn GetSystemTimeAsFileTime(lpSystemTimeAsFileTime: *FILETIME) callconv(.winapi) void;
-
 pub extern "kernel32" fn GetSystemInfo(lpSystemInfo: *SYSTEM_INFO) callconv(.winapi) void;

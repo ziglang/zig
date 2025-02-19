@@ -39,10 +39,7 @@ test {
     _ = Package;
 }
 
-const thread_stack_size = switch (builtin.zig_backend) {
-    else => std.Thread.SpawnConfig.default_stack_size,
-    .stage2_x86_64 => 32 << 20,
-};
+const thread_stack_size = 32 << 20;
 
 pub const std_options: std.Options = .{
     .wasiCwd = wasi_cwd,
@@ -3986,7 +3983,7 @@ fn createModule(
         }
         create_module.lib_dir_args = undefined; // From here we use lib_directories instead.
 
-        if (resolved_target.is_native_os and target.isDarwin()) {
+        if (resolved_target.is_native_os and target.os.tag.isDarwin()) {
             // If we want to link against frameworks, we need system headers.
             if (create_module.frameworks.count() > 0)
                 create_module.want_native_include_dirs = true;
@@ -6956,6 +6953,16 @@ const usage_fetch =
     \\Usage: zig fetch [options] <path>
     \\
     \\    Copy a package into the global cache and print its hash.
+    \\    <url> must point to one of the following:
+    \\      - A git+http / git+https server for the package
+    \\      - A tarball file (with or without compression) containing
+    \\        package source
+    \\      - A git bundle file containing package source
+    \\
+    \\Examples:
+    \\
+    \\  zig fetch --save git+https://example.com/andrewrk/fun-example-tool.git
+    \\  zig fetch --save https://example.com/andrewrk/fun-example-tool/archive/refs/heads/master.tar.gz
     \\
     \\Options:
     \\  -h, --help                    Print this help and exit

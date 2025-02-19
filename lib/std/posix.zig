@@ -3583,7 +3583,7 @@ pub fn socket(domain: u32, socket_type: u32, protocol: u32) SocketError!socket_t
         return rc;
     }
 
-    const have_sock_flags = !builtin.target.isDarwin() and native_os != .haiku;
+    const have_sock_flags = !builtin.target.os.tag.isDarwin() and native_os != .haiku;
     const filtered_sock_type = if (!have_sock_flags)
         socket_type & ~@as(u32, SOCK.NONBLOCK | SOCK.CLOEXEC)
     else
@@ -3879,7 +3879,7 @@ pub fn accept(
     ///   description  of the `CLOEXEC` flag in `open` for reasons why this may be useful.
     flags: u32,
 ) AcceptError!socket_t {
-    const have_accept4 = !(builtin.target.isDarwin() or native_os == .windows or native_os == .haiku);
+    const have_accept4 = !(builtin.target.os.tag.isDarwin() or native_os == .windows or native_os == .haiku);
     assert(0 == (flags & ~@as(u32, SOCK.NONBLOCK | SOCK.CLOEXEC))); // Unsupported flag(s)
 
     const accepted_sock: socket_t = while (true) {
@@ -5693,7 +5693,10 @@ pub const ClockGetTimeError = error{UnsupportedClock} || UnexpectedError;
 
 pub fn clock_gettime(clock_id: clockid_t) ClockGetTimeError!timespec {
     var tp: timespec = undefined;
-    if (native_os == .wasi and !builtin.link_libc) {
+
+    if (native_os == .windows) {
+        @compileError("Windows does not support POSIX; use Windows-specific API or cross-platform std.time API");
+    } else if (native_os == .wasi and !builtin.link_libc) {
         var ts: timestamp_t = undefined;
         switch (system.clock_time_get(clock_id, 1, &ts)) {
             .SUCCESS => {
@@ -5706,23 +5709,6 @@ pub fn clock_gettime(clock_id: clockid_t) ClockGetTimeError!timespec {
             else => |err| return unexpectedErrno(err),
         }
         return tp;
-    }
-    if (native_os == .windows) {
-        if (clock_id == .REALTIME) {
-            var ft: windows.FILETIME = undefined;
-            windows.kernel32.GetSystemTimeAsFileTime(&ft);
-            // FileTime has a granularity of 100 nanoseconds and uses the NTFS/Windows epoch.
-            const ft64 = (@as(u64, ft.dwHighDateTime) << 32) | ft.dwLowDateTime;
-            const ft_per_s = std.time.ns_per_s / 100;
-            tp = .{
-                .sec = @as(i64, @intCast(ft64 / ft_per_s)) + std.time.epoch.windows,
-                .nsec = @as(c_long, @intCast(ft64 % ft_per_s)) * 100,
-            };
-            return tp;
-        } else {
-            // TODO POSIX implementation of CLOCK.MONOTONIC on Windows.
-            return error.UnsupportedClock;
-        }
     }
 
     switch (errno(system.clock_gettime(clock_id, &tp))) {

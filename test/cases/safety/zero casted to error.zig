@@ -15,5 +15,5 @@ fn bar(x: u16) anyerror {
     return @errorFromInt(x);
 }
 // run
-// backend=llvm
+// backend=stage2,llvm
 // target=native

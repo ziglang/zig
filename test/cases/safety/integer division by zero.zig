@@ -16,5 +16,5 @@ fn div0(a: i32, b: i32) i32 {
     return @divTrunc(a, b);
 }
 // run
-// backend=llvm
+// backend=stage2,llvm
 // target=native

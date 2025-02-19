@@ -405,17 +405,27 @@ pub fn MultiArrayList(comptime T: type) type {
 
         /// Modify the array so that it can hold at least `new_capacity` items.
         /// Implements super-linear growth to achieve amortized O(1) append operations.
-        /// Invalidates pointers if additional memory is needed.
-        pub fn ensureTotalCapacity(self: *Self, gpa: Allocator, new_capacity: usize) !void {
-            var better_capacity = self.capacity;
-            if (better_capacity >= new_capacity) return;
+        /// Invalidates element pointers if additional memory is needed.
+        pub fn ensureTotalCapacity(self: *Self, gpa: Allocator, new_capacity: usize) Allocator.Error!void {
+            if (self.capacity >= new_capacity) return;
+            return self.setCapacity(gpa, growCapacity(self.capacity, new_capacity));
+        }
 
+        const init_capacity = init: {
+            var max = 1;
+            for (fields) |field| max = @as(comptime_int, @max(max, @sizeOf(field.type)));
+            break :init @as(comptime_int, @max(1, std.atomic.cache_line / max));
+        };
+
+        /// Called when memory growth is necessary. Returns a capacity larger than
+        /// minimum that grows super-linearly.
+        fn growCapacity(current: usize, minimum: usize) usize {
+            var new = current;
             while (true) {
-                better_capacity += better_capacity / 2 + 8;
-                if (better_capacity >= new_capacity) break;
+                new +|= new / 2 + init_capacity;
+                if (new >= minimum)
+                    return new;
             }
-
-            return self.setCapacity(gpa, better_capacity);
         }
 
         /// Modify the array so that it can hold at least `additional_count` **more** items.
@@ -838,7 +848,7 @@ test "union" {
 
     try testing.expectEqual(@as(usize, 0), list.items(.tags).len);
 
-    try list.ensureTotalCapacity(ally, 2);
+    try list.ensureTotalCapacity(ally, 3);
 
     list.appendAssumeCapacity(.{ .a = 1 });
     list.appendAssumeCapacity(.{ .b = "zigzag" });

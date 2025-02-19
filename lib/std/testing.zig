@@ -147,7 +147,7 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
 
         .@"union" => |union_info| {
             if (union_info.tag_type == null) {
-                @compileError("Unable to compare untagged union values");
+                @compileError("Unable to compare untagged union values for type " ++ @typeName(@TypeOf(actual)));
             }
 
             const Tag = std.meta.Tag(@TypeOf(expected));
@@ -818,7 +818,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
 
         .@"union" => |union_info| {
             if (union_info.tag_type == null) {
-                @compileError("Unable to compare untagged union values");
+                @compileError("Unable to compare untagged union values for type " ++ @typeName(@TypeOf(actual)));
             }
 
             const Tag = std.meta.Tag(@TypeOf(expected));
@@ -932,6 +932,19 @@ test "expectEqualDeep composite type" {
         try expectEqualDeep(a, b);
         try expectEqualDeep(&a, &b);
     }
+
+    // inferred union
+    const TestStruct2 = struct {
+        const A = union(enum) { b: B, c: C };
+        const B = struct {};
+        const C = struct { a: *const A };
+    };
+
+    const union1 = TestStruct2.A{ .b = .{} };
+    try expectEqualDeep(
+        TestStruct2.A{ .c = .{ .a = &union1 } },
+        TestStruct2.A{ .c = .{ .a = &union1 } },
+    );
 }
 
 fn printIndicatorLine(source: []const u8, indicator_index: usize) void {

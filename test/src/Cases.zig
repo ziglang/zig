@@ -472,6 +472,10 @@ fn addFromDirInner(
                     // Rosetta has issues with ZLD
                     continue;
                 }
+                if (backend == .stage2 and target.ofmt == .coff) {
+                    // COFF linker has bitrotted
+                    continue;
+                }
 
                 const next = ctx.cases.items.len;
                 try ctx.cases.append(.{

@@ -19,5 +19,5 @@ pub fn main() u8 {
 }
 
 // run
-// backend=llvm
+// backend=stage2,llvm
 // target=native
