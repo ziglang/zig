@@ -113,6 +113,7 @@ fn finishReceivingHead(s: *Server, head_end: usize) ReceiveHeadError!Request {
         .head = Request.Head.parse(s.read_buffer[0..head_end]) catch
             return error.HttpHeadersInvalid,
         .reader_state = undefined,
+        .write_error = undefined,
     };
 }
 
@@ -125,6 +126,8 @@ pub const Request = struct {
         remaining_content_length: u64,
         chunk_parser: http.ChunkParser,
     },
+    /// Populated when `error.HttpContinueWriteFailed` is received.
+    write_error: anyerror,
 
     pub const Compression = union(enum) {
         pub const DeflateDecompressor = std.compress.zlib.Decompressor(std.io.AnyReader);
@@ -327,6 +330,7 @@ pub const Request = struct {
             .head_end = request_bytes.len,
             .head = undefined,
             .reader_state = undefined,
+            .write_error = undefined,
         };
 
         var it = request.iterateHeaders();
@@ -391,7 +395,7 @@ pub const Request = struct {
         request: *Request,
         content: []const u8,
         options: RespondOptions,
-    ) Response.WriteError!void {
+    ) anyerror!void {
         const max_extra_headers = 25;
         assert(options.status != .@"continue");
         assert(options.extra_headers.len <= max_extra_headers);
@@ -418,7 +422,8 @@ pub const Request = struct {
             h.appendSliceAssumeCapacity("HTTP/1.1 417 Expectation Failed\r\n");
             if (!keep_alive) h.appendSliceAssumeCapacity("connection: close\r\n");
             h.appendSliceAssumeCapacity("content-length: 0\r\n\r\n");
-            try request.server.connection.stream.writeAll(h.items);
+            var w = request.server.connection.stream.writer().unbuffered();
+            try w.writeAll(h.items);
             return;
         }
         h.printAssumeCapacity("{s} {d} {s}\r\n", .{
@@ -438,47 +443,29 @@ pub const Request = struct {
         }
 
         var chunk_header_buffer: [18]u8 = undefined;
-        var iovecs: [max_extra_headers * 4 + 3]std.posix.iovec_const = undefined;
+        var iovecs: [max_extra_headers * 4 + 3][]const u8 = undefined;
         var iovecs_len: usize = 0;
 
-        iovecs[iovecs_len] = .{
-            .base = h.items.ptr,
-            .len = h.items.len,
-        };
+        iovecs[iovecs_len] = h.items;
         iovecs_len += 1;
 
         for (options.extra_headers) |header| {
-            iovecs[iovecs_len] = .{
-                .base = header.name.ptr,
-                .len = header.name.len,
-            };
+            iovecs[iovecs_len] = header.name;
             iovecs_len += 1;
 
-            iovecs[iovecs_len] = .{
-                .base = ": ",
-                .len = 2,
-            };
+            iovecs[iovecs_len] = ": ";
             iovecs_len += 1;
 
             if (header.value.len != 0) {
-                iovecs[iovecs_len] = .{
-                    .base = header.value.ptr,
-                    .len = header.value.len,
-                };
+                iovecs[iovecs_len] = header.value;
                 iovecs_len += 1;
             }
 
-            iovecs[iovecs_len] = .{
-                .base = "\r\n",
-                .len = 2,
-            };
+            iovecs[iovecs_len] = "\r\n";
             iovecs_len += 1;
         }
 
-        iovecs[iovecs_len] = .{
-            .base = "\r\n",
-            .len = 2,
-        };
+        iovecs[iovecs_len] = "\r\n";
         iovecs_len += 1;
 
         if (request.head.method != .HEAD) {
@@ -491,40 +478,26 @@ pub const Request = struct {
                         .{content.len},
                     ) catch unreachable;
 
-                    iovecs[iovecs_len] = .{
-                        .base = chunk_header.ptr,
-                        .len = chunk_header.len,
-                    };
+                    iovecs[iovecs_len] = chunk_header;
                     iovecs_len += 1;
 
-                    iovecs[iovecs_len] = .{
-                        .base = content.ptr,
-                        .len = content.len,
-                    };
+                    iovecs[iovecs_len] = content;
                     iovecs_len += 1;
 
-                    iovecs[iovecs_len] = .{
-                        .base = "\r\n",
-                        .len = 2,
-                    };
+                    iovecs[iovecs_len] = "\r\n";
                     iovecs_len += 1;
                 }
 
-                iovecs[iovecs_len] = .{
-                    .base = "0\r\n\r\n",
-                    .len = 5,
-                };
+                iovecs[iovecs_len] = "0\r\n\r\n";
                 iovecs_len += 1;
             } else if (content.len > 0) {
-                iovecs[iovecs_len] = .{
-                    .base = content.ptr,
-                    .len = content.len,
-                };
+                iovecs[iovecs_len] = content;
                 iovecs_len += 1;
             }
         }
 
-        try request.server.connection.stream.writevAll(iovecs[0..iovecs_len]);
+        var w = request.server.connection.stream.writer().unbuffered();
+        try w.writevAll(iovecs[0..iovecs_len]);
     }
 
     pub const RespondStreamingOptions = struct {
@@ -740,7 +713,10 @@ pub const Request = struct {
         return out_end;
     }
 
-    pub const ReaderError = Response.WriteError || error{
+    pub const ReaderError = error{
+        /// Failed to write "100-continue" to the stream. Error value is
+        /// stored in `Request.write_error`.
+        HttpContinueWriteFailed,
         /// The client sent an expect HTTP header value other than
         /// "100-continue".
         HttpExpectationFailed,
@@ -760,7 +736,11 @@ pub const Request = struct {
 
         if (request.head.expect) |expect| {
             if (mem.eql(u8, expect, "100-continue")) {
-                try request.server.connection.stream.writeAll("HTTP/1.1 100 Continue\r\n\r\n");
+                var w = request.server.connection.stream.writer().unbuffered();
+                w.writeAll("HTTP/1.1 100 Continue\r\n\r\n") catch |err| {
+                    request.write_error = err;
+                    return error.HttpContinueWriteFailed;
+                };
                 request.head.expect = null;
             } else {
                 return error.HttpExpectationFailed;
@@ -845,14 +825,12 @@ pub const Response = struct {
         chunked,
     };
 
-    pub const WriteError = net.Stream.WriteError;
-
     /// When using content-length, asserts that the amount of data sent matches
     /// the value sent in the header, then calls `flush`.
     /// Otherwise, transfer-encoding: chunked is being used, and it writes the
     /// end-of-stream message, then flushes the stream to the system.
     /// Respects the value of `elide_body` to omit all data after the headers.
-    pub fn end(r: *Response) WriteError!void {
+    pub fn end(r: *Response) anyerror!void {
         switch (r.transfer_encoding) {
             .content_length => |len| {
                 assert(len == 0); // Trips when end() called before all bytes written.
@@ -877,7 +855,7 @@ pub const Response = struct {
     /// flushes the stream to the system.
     /// Respects the value of `elide_body` to omit all data after the headers.
     /// Asserts there are at most 25 trailers.
-    pub fn endChunked(r: *Response, options: EndChunkedOptions) WriteError!void {
+    pub fn endChunked(r: *Response, options: EndChunkedOptions) anyerror!void {
         assert(r.transfer_encoding == .chunked);
         try flush_chunked(r, options.trailers);
         r.* = undefined;
@@ -887,7 +865,7 @@ pub const Response = struct {
     /// would not exceed the content-length value sent in the HTTP header.
     /// May return 0, which does not indicate end of stream. The caller decides
     /// when the end of stream occurs by calling `end`.
-    pub fn write(r: *Response, bytes: []const u8) WriteError!usize {
+    pub fn write(r: *Response, bytes: []const u8) anyerror!usize {
         switch (r.transfer_encoding) {
             .content_length, .none => return @errorCast(cl_writeSplat(r, &.{bytes}, 1)),
             .chunked => return @errorCast(chunked_writeSplat(r, &.{bytes}, 1)),
@@ -916,7 +894,7 @@ pub const Response = struct {
         return error.Unimplemented;
     }
 
-    fn cl_write(context: *anyopaque, bytes: []const u8) WriteError!usize {
+    fn cl_write(context: *anyopaque, bytes: []const u8) anyerror!usize {
         const r: *Response = @constCast(@alignCast(@ptrCast(context)));
 
         var trash: u64 = std.math.maxInt(u64);
@@ -932,17 +910,12 @@ pub const Response = struct {
 
         if (bytes.len + r.send_buffer_end > r.send_buffer.len) {
             const send_buffer_len = r.send_buffer_end - r.send_buffer_start;
-            var iovecs: [2]std.posix.iovec_const = .{
-                .{
-                    .base = r.send_buffer.ptr + r.send_buffer_start,
-                    .len = send_buffer_len,
-                },
-                .{
-                    .base = bytes.ptr,
-                    .len = bytes.len,
-                },
+            var iovecs: [2][]const u8 = .{
+                r.send_buffer[r.send_buffer_start..][0..send_buffer_len],
+                bytes,
             };
-            const n = try r.stream.writev(&iovecs);
+            var w = r.stream.writer().unbuffered();
+            const n = try w.writev(&iovecs);
 
             if (n >= send_buffer_len) {
                 // It was enough to reset the buffer.
@@ -985,10 +958,10 @@ pub const Response = struct {
         _ = len;
         _ = headers_and_trailers;
         _ = headers_len;
-        return error.Unimplemented;
+        return error.Unimplemented; // TODO lower to a call to writeFile on the output
     }
 
-    fn chunked_write(context: *anyopaque, bytes: []const u8) WriteError!usize {
+    fn chunked_write(context: *anyopaque, bytes: []const u8) anyerror!usize {
         const r: *Response = @constCast(@alignCast(@ptrCast(context)));
         assert(r.transfer_encoding == .chunked);
 
@@ -1001,31 +974,17 @@ pub const Response = struct {
             var header_buf: [18]u8 = undefined;
             const chunk_header = std.fmt.bufPrint(&header_buf, "{x}\r\n", .{chunk_len}) catch unreachable;
 
-            var iovecs: [5]std.posix.iovec_const = .{
-                .{
-                    .base = r.send_buffer.ptr + r.send_buffer_start,
-                    .len = send_buffer_len - r.chunk_len,
-                },
-                .{
-                    .base = chunk_header.ptr,
-                    .len = chunk_header.len,
-                },
-                .{
-                    .base = r.send_buffer.ptr + r.send_buffer_end - r.chunk_len,
-                    .len = r.chunk_len,
-                },
-                .{
-                    .base = bytes.ptr,
-                    .len = bytes.len,
-                },
-                .{
-                    .base = "\r\n",
-                    .len = 2,
-                },
+            var iovecs: [5][]const u8 = .{
+                r.send_buffer[r.send_buffer_start .. send_buffer_len - r.chunk_len],
+                chunk_header,
+                r.send_buffer[r.send_buffer_end - r.chunk_len ..][0..r.chunk_len],
+                bytes,
+                "\r\n",
             };
             // TODO make this writev instead of writevAll, which involves
             // complicating the logic of this function.
-            try r.stream.writevAll(&iovecs);
+            var w = r.stream.writer().unbuffered();
+            try w.writevAll(&iovecs);
             r.send_buffer_start = 0;
             r.send_buffer_end = 0;
             r.chunk_len = 0;
@@ -1041,7 +1000,7 @@ pub const Response = struct {
 
     /// If using content-length, asserts that writing these bytes to the client
     /// would not exceed the content-length value sent in the HTTP header.
-    pub fn writeAll(r: *Response, bytes: []const u8) WriteError!void {
+    pub fn writeAll(r: *Response, bytes: []const u8) anyerror!void {
         var index: usize = 0;
         while (index < bytes.len) {
             index += try write(r, bytes[index..]);
@@ -1051,20 +1010,21 @@ pub const Response = struct {
     /// Sends all buffered data to the client.
     /// This is redundant after calling `end`.
     /// Respects the value of `elide_body` to omit all data after the headers.
-    pub fn flush(r: *Response) WriteError!void {
+    pub fn flush(r: *Response) anyerror!void {
         switch (r.transfer_encoding) {
             .none, .content_length => return flush_cl(r),
             .chunked => return flush_chunked(r, null),
         }
     }
 
-    fn flush_cl(r: *Response) WriteError!void {
-        try r.stream.writeAll(r.send_buffer[r.send_buffer_start..r.send_buffer_end]);
+    fn flush_cl(r: *Response) anyerror!void {
+        var w = r.stream.writer().unbuffered();
+        try w.writeAll(r.send_buffer[r.send_buffer_start..r.send_buffer_end]);
         r.send_buffer_start = 0;
         r.send_buffer_end = 0;
     }
 
-    fn flush_chunked(r: *Response, end_trailers: ?[]const http.Header) WriteError!void {
+    fn flush_chunked(r: *Response, end_trailers: ?[]const http.Header) anyerror!void {
         const max_trailers = 25;
         if (end_trailers) |trailers| assert(trailers.len <= max_trailers);
         assert(r.transfer_encoding == .chunked);
@@ -1072,7 +1032,8 @@ pub const Response = struct {
         const http_headers = r.send_buffer[r.send_buffer_start .. r.send_buffer_end - r.chunk_len];
 
         if (r.elide_body) {
-            try r.stream.writeAll(http_headers);
+            var w = r.stream.writer().unbuffered();
+            try w.writeAll(http_headers);
             r.send_buffer_start = 0;
             r.send_buffer_end = 0;
             r.chunk_len = 0;
@@ -1082,78 +1043,49 @@ pub const Response = struct {
         var header_buf: [18]u8 = undefined;
         const chunk_header = std.fmt.bufPrint(&header_buf, "{x}\r\n", .{r.chunk_len}) catch unreachable;
 
-        var iovecs: [max_trailers * 4 + 5]std.posix.iovec_const = undefined;
+        var iovecs: [max_trailers * 4 + 5][]const u8 = undefined;
         var iovecs_len: usize = 0;
 
-        iovecs[iovecs_len] = .{
-            .base = http_headers.ptr,
-            .len = http_headers.len,
-        };
+        iovecs[iovecs_len] = http_headers;
         iovecs_len += 1;
 
         if (r.chunk_len > 0) {
-            iovecs[iovecs_len] = .{
-                .base = chunk_header.ptr,
-                .len = chunk_header.len,
-            };
+            iovecs[iovecs_len] = chunk_header;
             iovecs_len += 1;
 
-            iovecs[iovecs_len] = .{
-                .base = r.send_buffer.ptr + r.send_buffer_end - r.chunk_len,
-                .len = r.chunk_len,
-            };
+            iovecs[iovecs_len] = r.send_buffer[r.send_buffer_end - r.chunk_len ..][0..r.chunk_len];
             iovecs_len += 1;
 
-            iovecs[iovecs_len] = .{
-                .base = "\r\n",
-                .len = 2,
-            };
+            iovecs[iovecs_len] = "\r\n";
             iovecs_len += 1;
         }
 
         if (end_trailers) |trailers| {
-            iovecs[iovecs_len] = .{
-                .base = "0\r\n",
-                .len = 3,
-            };
+            iovecs[iovecs_len] = "0\r\n";
             iovecs_len += 1;
 
             for (trailers) |trailer| {
-                iovecs[iovecs_len] = .{
-                    .base = trailer.name.ptr,
-                    .len = trailer.name.len,
-                };
+                iovecs[iovecs_len] = trailer.name;
                 iovecs_len += 1;
 
-                iovecs[iovecs_len] = .{
-                    .base = ": ",
-                    .len = 2,
-                };
+                iovecs[iovecs_len] = ": ";
                 iovecs_len += 1;
 
                 if (trailer.value.len != 0) {
-                    iovecs[iovecs_len] = .{
-                        .base = trailer.value.ptr,
-                        .len = trailer.value.len,
-                    };
+                    iovecs[iovecs_len] = trailer.value;
                     iovecs_len += 1;
                 }
 
-                iovecs[iovecs_len] = .{
-                    .base = "\r\n",
-                    .len = 2,
-                };
+                iovecs[iovecs_len] = "\r\n";
                 iovecs_len += 1;
             }
 
-            iovecs[iovecs_len] = .{
-                .base = "\r\n",
-                .len = 2,
-            };
+            iovecs[iovecs_len] = "\r\n";
             iovecs_len += 1;
         }
 
-        try r.stream.writevAll(iovecs[0..iovecs_len]);
+        var w = r.stream.writer().unbuffered();
+        try w.writevAll(iovecs[0..iovecs_len]);
         r.send_buffer_start = 0;
         r.send_buffer_end = 0;
         r.chunk_len = 0;

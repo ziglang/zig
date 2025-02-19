@@ -849,9 +849,9 @@ pub fn tcpConnectToAddress(address: Address) TcpConnectToAddressError!Stream {
     return Stream{ .handle = sockfd };
 }
 
-const GetAddressListError = std.mem.Allocator.Error || std.fs.File.OpenError || std.fs.File.ReadError || posix.SocketError || posix.BindError || posix.SetSockOptError || error{
-    // TODO: break this up into error sets from the various underlying functions
-
+// TODO: Instead of having a massive error set, make the error set have categories, and then
+// store the sub-error as a diagnostic anyerror value.
+const GetAddressListError = std.mem.Allocator.Error || std.fs.File.OpenError || anyerror || posix.SocketError || posix.BindError || posix.SetSockOptError || error{
     TemporaryNameServerFailure,
     NameServerFailure,
     AddressFamilyNotSupported,
@@ -1358,16 +1358,23 @@ fn linuxLookupNameFromHosts(
 
     var buffered_reader = std.io.bufferedReader(file.reader());
     const reader = buffered_reader.reader();
+    // TODO: rework buffered reader so that we can use its buffer directly when searching for delimiters
     var line_buf: [512]u8 = undefined;
-    while (reader.readUntilDelimiterOrEof(&line_buf, '\n') catch |err| switch (err) {
-        error.StreamTooLong => blk: {
-            // Skip to the delimiter in the reader, to fix parsing
-            try reader.skipUntilDelimiterOrEof('\n');
-            // Use the truncated line. A truncated comment or hostname will be handled correctly.
-            break :blk &line_buf;
-        },
-        else => |e| return e,
-    }) |line| {
+    var line_buf_writer: std.io.BufferedWriter = undefined;
+    line_buf_writer.initFixed(&line_buf);
+    while (true) {
+        const line = if (reader.streamUntilDelimiter(&line_buf_writer, '\n', line_buf.len)) |_| l: {
+            break :l line_buf_writer.getWritten();
+        } else |err| switch (err) {
+            error.EndOfStream => l: {
+                if (line_buf_writer.getWritten().len == 0) break;
+                // Skip to the delimiter in the reader, to fix parsing
+                try reader.skipUntilDelimiterOrEof('\n');
+                // Use the truncated line. A truncated comment or hostname will be handled correctly.
+                break :l &line_buf;
+            },
+            else => |e| return e,
+        };
         var split_it = mem.splitScalar(u8, line, '#');
         const no_comment_line = split_it.first();
 
@@ -1559,16 +1566,23 @@ fn getResolvConf(allocator: mem.Allocator, rc: *ResolvConf) !void {
 
     var buf_reader = std.io.bufferedReader(file.reader());
     const stream = buf_reader.reader();
+    // TODO: rework buffered reader so that we can use its buffer directly when searching for delimiters
     var line_buf: [512]u8 = undefined;
-    while (stream.readUntilDelimiterOrEof(&line_buf, '\n') catch |err| switch (err) {
-        error.StreamTooLong => blk: {
-            // Skip to the delimiter in the stream, to fix parsing
-            try stream.skipUntilDelimiterOrEof('\n');
-            // Give an empty line to the while loop, which will be skipped.
-            break :blk line_buf[0..0];
-        },
-        else => |e| return e,
-    }) |line| {
+    var line_buf_writer: std.io.BufferedWriter = undefined;
+    line_buf_writer.initFixed(&line_buf);
+    while (true) {
+        const line = if (stream.streamUntilDelimiter(&line_buf_writer, '\n', line_buf.len)) |_| l: {
+            break :l line_buf_writer.getWritten();
+        } else |err| switch (err) {
+            error.EndOfStream => l: {
+                if (line_buf_writer.getWritten().len == 0) break;
+                // Skip to the delimiter in the reader, to fix parsing
+                try stream.skipUntilDelimiterOrEof('\n');
+                // Give an empty line to the while loop, which will be skipped.
+                break :l line_buf[0..0];
+            },
+            else => |e| return e,
+        };
         const no_comment_line = no_comment_line: {
             var split = mem.splitScalar(u8, line, '#');
             break :no_comment_line split.first();
@@ -1833,7 +1847,9 @@ fn dnsParseCallback(ctx: dpc_ctx, rr: u8, data: []const u8, packet: []const u8) 
 pub const Stream = struct {
     /// Underlying platform-defined type which may or may not be
     /// interchangeable with a file system file descriptor.
-    handle: posix.socket_t,
+    handle: Handle,
+
+    pub const Handle = if (native_os == .windows) windows.ws2_32.SOCKET else posix.fd_t;
 
     pub fn close(s: Stream) void {
         switch (native_os) {
@@ -1843,17 +1859,36 @@ pub const Stream = struct {
     }
 
     pub const ReadError = posix.ReadError;
-    pub const WriteError = posix.WriteError;
+    pub const WriteError = posix.SendMsgError || error{
+        ConnectionResetByPeer,
+        SocketNotBound,
+        MessageTooBig,
+        NetworkSubsystemFailed,
+        SystemResources,
+        SocketNotConnected,
+        Unexpected,
+    };
 
     pub const Reader = io.Reader(Stream, ReadError, read);
-    pub const Writer = io.Writer(Stream, WriteError, write);
 
     pub fn reader(self: Stream) Reader {
         return .{ .context = self };
     }
 
-    pub fn writer(self: Stream) Writer {
-        return .{ .context = self };
+    pub fn writer(stream: Stream) std.io.Writer {
+        return .{
+            .context = handleToOpaque(stream.handle),
+            .vtable = switch (native_os) {
+                .windows => &.{
+                    .writeSplat = windows_writeSplat,
+                    .writeFile = windows_writeFile,
+                },
+                else => &.{
+                    .writeSplat = posix_writeSplat,
+                    .writeFile = std.fs.File.writer_writeFile,
+                },
+            },
+        };
     }
 
     pub fn read(self: Stream, buffer: []u8) ReadError!usize {
@@ -1898,48 +1933,148 @@ pub const Stream = struct {
         return index;
     }
 
-    /// TODO in evented I/O mode, this implementation incorrectly uses the event loop's
-    /// file system thread instead of non-blocking. It needs to be reworked to properly
-    /// use non-blocking I/O.
-    pub fn write(self: Stream, buffer: []const u8) WriteError!usize {
-        if (native_os == .windows) {
-            return windows.WriteFile(self.handle, buffer, null);
+    fn windows_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+        comptime assert(native_os == .windows);
+        if (data.len == 1 and splat == 0) return 0;
+        var splat_buffer: [256]u8 = undefined;
+        var iovecs: [max_buffers_len]windows.WSABUF = undefined;
+        var len: u32 = @min(iovecs.len, data.len);
+        for (iovecs[0..len], data[0..len]) |*v, d| v.* = .{
+            .buf = if (d.len == 0) "" else d.ptr, // TODO: does Windows allow ptr=undefined len=0 ?
+            .len = d.len,
+        };
+        switch (splat) {
+            0 => len -= 1,
+            1 => {},
+            else => {
+                const pattern = data[data.len - 1];
+                if (pattern.len == 1) {
+                    const memset_len = @min(splat_buffer.len, splat);
+                    const buf = splat_buffer[0..memset_len];
+                    @memset(buf, pattern[0]);
+                    iovecs[len - 1] = .{ .base = buf.ptr, .len = buf.len };
+                    var remaining_splat = splat - buf.len;
+                    while (remaining_splat > splat_buffer.len and len < iovecs.len) {
+                        iovecs[len] = .{ .base = &splat_buffer, .len = splat_buffer.len };
+                        remaining_splat -= splat_buffer.len;
+                        len += 1;
+                    }
+                    if (remaining_splat > 0 and len < iovecs.len) {
+                        iovecs[len] = .{ .base = &splat_buffer, .len = remaining_splat };
+                        len += 1;
+                    }
+                }
+            },
         }
-
-        return posix.write(self.handle, buffer);
+        const handle = opaqueToHandle(context);
+        var n: u32 = undefined;
+        const rc = windows.ws2_32.WSASend(handle, &iovecs, len, &n, 0, null, null);
+        if (rc == windows.ws2_32.SOCKET_ERROR) switch (windows.ws2_32.WSAGetLastError()) {
+            .WSAECONNABORTED => return error.ConnectionResetByPeer,
+            .WSAECONNRESET => return error.ConnectionResetByPeer,
+            .WSAEFAULT => unreachable, // a pointer is not completely contained in user address space.
+            .WSAEINPROGRESS, .WSAEINTR => unreachable, // deprecated and removed in WSA 2.2
+            .WSAEINVAL => return error.SocketNotBound,
+            .WSAEMSGSIZE => return error.MessageTooBig,
+            .WSAENETDOWN => return error.NetworkSubsystemFailed,
+            .WSAENETRESET => return error.ConnectionResetByPeer,
+            .WSAENOBUFS => return error.SystemResources,
+            .WSAENOTCONN => return error.SocketNotConnected,
+            .WSAENOTSOCK => unreachable, // not a socket
+            .WSAEOPNOTSUPP => unreachable, // only for message-oriented sockets
+            .WSAESHUTDOWN => unreachable, // cannot send on a socket after write shutdown
+            .WSAEWOULDBLOCK => return error.WouldBlock,
+            .WSANOTINITIALISED => unreachable, // WSAStartup must be called before this function
+            .WSA_IO_PENDING => unreachable, // not using overlapped I/O
+            .WSA_OPERATION_ABORTED => unreachable, // not using overlapped I/O
+            else => |err| return windows.unexpectedWSAError(err),
+        };
+        return n;
     }
 
-    pub fn writeAll(self: Stream, bytes: []const u8) WriteError!void {
-        var index: usize = 0;
-        while (index < bytes.len) {
-            index += try self.write(bytes[index..]);
+    fn posix_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+        const sock_fd = opaqueToHandle(context);
+        comptime assert(native_os != .windows);
+        var splat_buffer: [256]u8 = undefined;
+        var iovecs: [max_buffers_len]std.posix.iovec_const = undefined;
+        var len: usize = @min(iovecs.len, data.len);
+        for (iovecs[0..len], data[0..len]) |*v, d| v.* = .{
+            .base = if (d.len == 0) "" else d.ptr, // OS sadly checks ptr addr before length.
+            .len = d.len,
+        };
+        var msg: posix.msghdr_const = .{
+            .name = null,
+            .namelen = 0,
+            .iov = &iovecs,
+            .iovlen = len,
+            .control = null,
+            .controllen = 0,
+            .flags = 0,
+        };
+        switch (splat) {
+            0 => msg.iovlen = len - 1,
+            1 => {},
+            else => {
+                const pattern = data[data.len - 1];
+                if (pattern.len == 1) {
+                    const memset_len = @min(splat_buffer.len, splat);
+                    const buf = splat_buffer[0..memset_len];
+                    @memset(buf, pattern[0]);
+                    iovecs[len - 1] = .{ .base = buf.ptr, .len = buf.len };
+                    var remaining_splat = splat - buf.len;
+                    while (remaining_splat > splat_buffer.len and len < iovecs.len) {
+                        iovecs[len] = .{ .base = &splat_buffer, .len = splat_buffer.len };
+                        remaining_splat -= splat_buffer.len;
+                        len += 1;
+                    }
+                    if (remaining_splat > 0 and len < iovecs.len) {
+                        iovecs[len] = .{ .base = &splat_buffer, .len = remaining_splat };
+                        len += 1;
+                    }
+                    msg.iovlen = len;
+                }
+            },
         }
+        const flags = posix.MSG.NOSIGNAL;
+        return std.posix.sendmsg(sock_fd, &msg, flags);
     }
 
-    /// See https://github.com/ziglang/zig/issues/7699
-    /// See equivalent function: `std.fs.File.writev`.
-    pub fn writev(self: Stream, iovecs: []const posix.iovec_const) WriteError!usize {
-        return posix.writev(self.handle, iovecs);
+    fn windows_writeFile(
+        context: *anyopaque,
+        in_file: std.fs.File,
+        in_offset: u64,
+        in_len: std.io.Writer.VTable.FileLen,
+        headers_and_trailers: []const []const u8,
+        headers_len: usize,
+    ) anyerror!usize {
+        const len_int = switch (in_len) {
+            .zero => return windows_writeSplat(context, headers_and_trailers, 1),
+            .entire_file => std.math.maxInt(usize),
+            else => in_len.int(),
+        };
+        if (headers_len > 0) return windows_writeSplat(context, headers_and_trailers[0..headers_len], 1);
+        var file_contents_buffer: [4096]u8 = undefined;
+        const read_buffer = file_contents_buffer[0..@min(file_contents_buffer.len, len_int)];
+        const n = try windows.ReadFile(in_file.handle, read_buffer, in_offset);
+        return windows_writeSplat(context, &.{read_buffer[0..n]}, 1);
     }
 
-    /// The `iovecs` parameter is mutable because this function needs to mutate the fields in
-    /// order to handle partial writes from the underlying OS layer.
-    /// See https://github.com/ziglang/zig/issues/7699
-    /// See equivalent function: `std.fs.File.writevAll`.
-    pub fn writevAll(self: Stream, iovecs: []posix.iovec_const) WriteError!void {
-        if (iovecs.len == 0) return;
+    const max_buffers_len = 8;
 
-        var i: usize = 0;
-        while (true) {
-            var amt = try self.writev(iovecs[i..]);
-            while (amt >= iovecs[i].len) {
-                amt -= iovecs[i].len;
-                i += 1;
-                if (i >= iovecs.len) return;
-            }
-            iovecs[i].base += amt;
-            iovecs[i].len -= amt;
-        }
+    fn handleToOpaque(handle: Handle) *anyopaque {
+        return switch (@typeInfo(Handle)) {
+            .pointer => @ptrCast(handle),
+            .int => @ptrFromInt(@as(u32, @bitCast(handle))),
+            else => @compileError("unhandled"),
+        };
+    }
+
+    fn opaqueToHandle(userdata: *anyopaque) Handle {
+        return switch (@typeInfo(Handle)) {
+            .pointer => @ptrCast(userdata),
+            .int => @intCast(@intFromPtr(userdata)),
+            else => @compileError("unhandled"),
+        };
     }
 };
 

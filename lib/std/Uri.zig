@@ -42,18 +42,19 @@ pub const Component = union(enum) {
 
     pub fn format(
         component: Component,
-        comptime fmt_str: []const u8,
-        _: std.fmt.FormatOptions,
+        comptime fmt: []const u8,
+        options: std.fmt.Options,
         writer: *std.io.BufferedWriter,
     ) anyerror!void {
-        if (fmt_str.len == 0) {
+        _ = options;
+        if (fmt.len == 0) {
             try writer.print("std.Uri.Component{{ .{s} = \"{}\" }}", .{
                 @tagName(component),
                 std.zig.fmtEscapes(switch (component) {
                     .raw, .percent_encoded => |string| string,
                 }),
             });
-        } else if (comptime std.mem.eql(u8, fmt_str, "raw")) switch (component) {
+        } else if (comptime std.mem.eql(u8, fmt, "raw")) switch (component) {
             .raw => |raw| try writer.writeAll(raw),
             .percent_encoded => |percent_encoded| {
                 var start: usize = 0;
@@ -72,28 +73,28 @@ pub const Component = union(enum) {
                 }
                 try writer.writeAll(percent_encoded[start..]);
             },
-        } else if (comptime std.mem.eql(u8, fmt_str, "%")) switch (component) {
+        } else if (comptime std.mem.eql(u8, fmt, "%")) switch (component) {
             .raw => |raw| try percentEncode(writer, raw, isUnreserved),
             .percent_encoded => |percent_encoded| try writer.writeAll(percent_encoded),
-        } else if (comptime std.mem.eql(u8, fmt_str, "user")) switch (component) {
+        } else if (comptime std.mem.eql(u8, fmt, "user")) switch (component) {
             .raw => |raw| try percentEncode(writer, raw, isUserChar),
             .percent_encoded => |percent_encoded| try writer.writeAll(percent_encoded),
-        } else if (comptime std.mem.eql(u8, fmt_str, "password")) switch (component) {
+        } else if (comptime std.mem.eql(u8, fmt, "password")) switch (component) {
             .raw => |raw| try percentEncode(writer, raw, isPasswordChar),
             .percent_encoded => |percent_encoded| try writer.writeAll(percent_encoded),
-        } else if (comptime std.mem.eql(u8, fmt_str, "host")) switch (component) {
+        } else if (comptime std.mem.eql(u8, fmt, "host")) switch (component) {
             .raw => |raw| try percentEncode(writer, raw, isHostChar),
             .percent_encoded => |percent_encoded| try writer.writeAll(percent_encoded),
-        } else if (comptime std.mem.eql(u8, fmt_str, "path")) switch (component) {
+        } else if (comptime std.mem.eql(u8, fmt, "path")) switch (component) {
             .raw => |raw| try percentEncode(writer, raw, isPathChar),
             .percent_encoded => |percent_encoded| try writer.writeAll(percent_encoded),
-        } else if (comptime std.mem.eql(u8, fmt_str, "query")) switch (component) {
+        } else if (comptime std.mem.eql(u8, fmt, "query")) switch (component) {
             .raw => |raw| try percentEncode(writer, raw, isQueryChar),
             .percent_encoded => |percent_encoded| try writer.writeAll(percent_encoded),
-        } else if (comptime std.mem.eql(u8, fmt_str, "fragment")) switch (component) {
+        } else if (comptime std.mem.eql(u8, fmt, "fragment")) switch (component) {
             .raw => |raw| try percentEncode(writer, raw, isFragmentChar),
             .percent_encoded => |percent_encoded| try writer.writeAll(percent_encoded),
-        } else @compileError("invalid format string '" ++ fmt_str ++ "'");
+        } else @compileError("invalid format string '" ++ fmt ++ "'");
     }
 
     pub fn percentEncode(
@@ -227,31 +228,21 @@ pub fn parseAfterScheme(scheme: []const u8, text: []const u8) ParseError!Uri {
 pub const WriteToStreamOptions = struct {
     /// When true, include the scheme part of the URI.
     scheme: bool = false,
-
     /// When true, include the user and password part of the URI. Ignored if `authority` is false.
     authentication: bool = false,
-
     /// When true, include the authority part of the URI.
     authority: bool = false,
-
     /// When true, include the path part of the URI.
     path: bool = false,
-
     /// When true, include the query part of the URI. Ignored when `path` is false.
     query: bool = false,
-
     /// When true, include the fragment part of the URI. Ignored when `path` is false.
     fragment: bool = false,
-
     /// When true, include the port part of the URI. Ignored when `port` is null.
     port: bool = true,
 };
 
-pub fn writeToStream(
-    uri: Uri,
-    options: WriteToStreamOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
+pub fn writeToStream(uri: Uri, options: WriteToStreamOptions, writer: *std.io.BufferedWriter) anyerror!void {
     if (options.scheme) {
         try writer.print("{s}:", .{uri.scheme});
         if (options.authority and uri.host != null) {
@@ -261,45 +252,40 @@ pub fn writeToStream(
     if (options.authority) {
         if (options.authentication and uri.host != null) {
             if (uri.user) |user| {
-                try writer.print("{user}", .{user});
+                try writer.print("{fuser}", .{user});
                 if (uri.password) |password| {
-                    try writer.print(":{password}", .{password});
+                    try writer.print(":{fpassword}", .{password});
                 }
                 try writer.writeByte('@');
             }
         }
         if (uri.host) |host| {
-            try writer.print("{host}", .{host});
+            try writer.print("{fhost}", .{host});
             if (options.port) {
                 if (uri.port) |port| try writer.print(":{d}", .{port});
             }
         }
     }
     if (options.path) {
-        try writer.print("{path}", .{
+        try writer.print("{fpath}", .{
             if (uri.path.isEmpty()) Uri.Component{ .percent_encoded = "/" } else uri.path,
         });
         if (options.query) {
-            if (uri.query) |query| try writer.print("?{query}", .{query});
+            if (uri.query) |query| try writer.print("?{fquery}", .{query});
         }
         if (options.fragment) {
-            if (uri.fragment) |fragment| try writer.print("#{fragment}", .{fragment});
+            if (uri.fragment) |fragment| try writer.print("#{ffragment}", .{fragment});
         }
     }
 }
 
-pub fn format(
-    uri: Uri,
-    comptime fmt_str: []const u8,
-    _: std.fmt.FormatOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
-    const scheme = comptime std.mem.indexOfScalar(u8, fmt_str, ';') != null or fmt_str.len == 0;
-    const authentication = comptime std.mem.indexOfScalar(u8, fmt_str, '@') != null or fmt_str.len == 0;
-    const authority = comptime std.mem.indexOfScalar(u8, fmt_str, '+') != null or fmt_str.len == 0;
-    const path = comptime std.mem.indexOfScalar(u8, fmt_str, '/') != null or fmt_str.len == 0;
-    const query = comptime std.mem.indexOfScalar(u8, fmt_str, '?') != null or fmt_str.len == 0;
-    const fragment = comptime std.mem.indexOfScalar(u8, fmt_str, '#') != null or fmt_str.len == 0;
+pub fn format(uri: Uri, comptime fmt: []const u8, _: std.fmt.Options, writer: *std.io.BufferedWriter) anyerror!void {
+    const scheme = comptime std.mem.indexOfScalar(u8, fmt, ';') != null or fmt.len == 0;
+    const authentication = comptime std.mem.indexOfScalar(u8, fmt, '@') != null or fmt.len == 0;
+    const authority = comptime std.mem.indexOfScalar(u8, fmt, '+') != null or fmt.len == 0;
+    const path = comptime std.mem.indexOfScalar(u8, fmt, '/') != null or fmt.len == 0;
+    const query = comptime std.mem.indexOfScalar(u8, fmt, '?') != null or fmt.len == 0;
+    const fragment = comptime std.mem.indexOfScalar(u8, fmt, '#') != null or fmt.len == 0;
 
     return writeToStream(uri, .{
         .scheme = scheme,
@@ -449,7 +435,7 @@ fn merge_paths(base: Component, new: []u8, aux_buf: *[]u8) error{NoSpaceLeft}!Co
     aux.initFixed(aux_buf.*);
     if (!base.isEmpty()) {
         aux.print("{fpath}", .{base}) catch |err| return @errorCast(err);
-        aux.pos = std.mem.lastIndexOfScalar(u8, aux.getWritten(), '/') orelse
+        aux.end = std.mem.lastIndexOfScalar(u8, aux.getWritten(), '/') orelse
             return remove_dot_segments(new);
     }
     aux.print("/{s}", .{new}) catch |err| return @errorCast(err);

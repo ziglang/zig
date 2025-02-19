@@ -290,7 +290,7 @@ inline fn intShift(comptime T: type, x: anytype) T {
 const MockBufferedConnection = struct {
     pub const buffer_size = 0x2000;
 
-    conn: std.io.FixedBufferStream([]const u8),
+    conn: std.io.FixedBufferStream,
     buf: [buffer_size]u8 = undefined,
     start: u16 = 0,
     end: u16 = 0,
@@ -343,26 +343,11 @@ const MockBufferedConnection = struct {
         return conn.readAtLeast(buffer, 1);
     }
 
-    pub const ReadError = std.io.FixedBufferStream([]const u8).ReadError || error{EndOfStream};
+    pub const ReadError = std.io.FixedBufferStream.ReadError || error{EndOfStream};
     pub const Reader = std.io.Reader(*MockBufferedConnection, ReadError, read);
 
     pub fn reader(conn: *MockBufferedConnection) Reader {
         return Reader{ .context = conn };
-    }
-
-    pub fn writeAll(conn: *MockBufferedConnection, buffer: []const u8) WriteError!void {
-        return conn.conn.writeAll(buffer);
-    }
-
-    pub fn write(conn: *MockBufferedConnection, buffer: []const u8) WriteError!usize {
-        return conn.conn.write(buffer);
-    }
-
-    pub const WriteError = std.io.FixedBufferStream([]const u8).WriteError;
-    pub const Writer = std.io.Writer(*MockBufferedConnection, WriteError, write);
-
-    pub fn writer(conn: *MockBufferedConnection) Writer {
-        return Writer{ .context = conn };
     }
 };
 
@@ -374,7 +359,7 @@ test "HeadersParser.read length" {
     const data = "GET / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\nHello";
 
     var conn: MockBufferedConnection = .{
-        .conn = std.io.fixedBufferStream(data),
+        .conn = .{ .buffer = data },
     };
 
     while (true) { // read headers
@@ -404,7 +389,7 @@ test "HeadersParser.read chunked" {
     const data = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n2\r\nHe\r\n2\r\nll\r\n1\r\no\r\n0\r\n\r\n";
 
     var conn: MockBufferedConnection = .{
-        .conn = std.io.fixedBufferStream(data),
+        .conn = .{ .buffer = data },
     };
 
     while (true) { // read headers
@@ -433,7 +418,7 @@ test "HeadersParser.read chunked trailer" {
     const data = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n2\r\nHe\r\n2\r\nll\r\n1\r\no\r\n0\r\nContent-Type: text/plain\r\n\r\n";
 
     var conn: MockBufferedConnection = .{
-        .conn = std.io.fixedBufferStream(data),
+        .conn = .{ .buffer = data },
     };
 
     while (true) { // read headers
