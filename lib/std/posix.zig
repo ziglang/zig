@@ -4896,10 +4896,7 @@ pub const AccessError = error{
 /// Windows. See `fs` for the cross-platform file system API.
 pub fn access(path: []const u8, mode: u32) AccessError!void {
     if (native_os == .windows) {
-        const path_w = windows.sliceToPrefixedFileW(null, path) catch |err| switch (err) {
-            error.AccessDenied => return error.PermissionDenied,
-            else => |e| return e,
-        };
+        const path_w = try windows.sliceToPrefixedFileW(null, path);
         _ = try windows.GetFileAttributesW(path_w.span().ptr);
         return;
     } else if (native_os == .wasi and !builtin.link_libc) {
@@ -4912,10 +4909,7 @@ pub fn access(path: []const u8, mode: u32) AccessError!void {
 /// Same as `access` except `path` is null-terminated.
 pub fn accessZ(path: [*:0]const u8, mode: u32) AccessError!void {
     if (native_os == .windows) {
-        const path_w = windows.cStrToPrefixedFileW(null, path) catch |err| switch (err) {
-            error.AccessDenied => return error.PermissionDenied,
-            else => |e| return e,
-        };
+        const path_w = try windows.cStrToPrefixedFileW(null, path);
         _ = try windows.GetFileAttributesW(path_w.span().ptr);
         return;
     } else if (native_os == .wasi and !builtin.link_libc) {

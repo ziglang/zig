@@ -2447,10 +2447,7 @@ pub const AccessError = posix.AccessError;
 /// open it and handle the error for file not found.
 pub fn access(self: Dir, sub_path: []const u8, flags: File.OpenFlags) AccessError!void {
     if (native_os == .windows) {
-        const sub_path_w = windows.sliceToPrefixedFileW(self.fd, sub_path) catch |err| switch (err) {
-            error.AccessDenied => return error.PermissionDenied,
-            else => |e| return e,
-        };
+        const sub_path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
         return self.accessW(sub_path_w.span().ptr, flags);
     }
     const path_c = try posix.toPosixPath(sub_path);
@@ -2460,10 +2457,7 @@ pub fn access(self: Dir, sub_path: []const u8, flags: File.OpenFlags) AccessErro
 /// Same as `access` except the path parameter is null-terminated.
 pub fn accessZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) AccessError!void {
     if (native_os == .windows) {
-        const sub_path_w = windows.cStrToPrefixedFileW(self.fd, sub_path) catch |err| switch (err) {
-            error.AccessDenied => return error.PermissionDenied,
-            else => |e| return e,
-        };
+        const sub_path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path);
         return self.accessW(sub_path_w.span().ptr, flags);
     }
     const os_mode = switch (flags.mode) {
