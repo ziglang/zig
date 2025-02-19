@@ -1594,122 +1594,124 @@ pub fn reader(file: File) Reader {
 
 pub fn writer(file: File) std.io.Writer {
     return .{
-        .context = interface.handleToOpaque(file.handle),
+        .context = handleToOpaque(file.handle),
         .vtable = &.{
-            .writeSplat = interface.writeSplat,
-            .writeFile = interface.writeFile,
+            .writeSplat = writer_writeSplat,
+            .writeFile = writer_writeFile,
         },
     };
 }
 
-const interface = struct {
-    /// Number of slices to store on the stack, when trying to send as many byte
-    /// vectors through the underlying write calls as possible.
-    const max_buffers_len = 16;
+/// Number of slices to store on the stack, when trying to send as many byte
+/// vectors through the underlying write calls as possible.
+const max_buffers_len = 16;
 
-    fn writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
-        const file = opaqueToHandle(context);
-        var splat_buffer: [256]u8 = undefined;
-        if (is_windows) {
-            if (data.len == 1 and splat == 0) return 0;
-            return windows.WriteFile(file, data[0], null);
-        }
-        var iovecs: [max_buffers_len]std.posix.iovec_const = undefined;
-        var len: usize = @min(iovecs.len, data.len);
-        for (iovecs[0..len], data[0..len]) |*v, d| v.* = .{
-            .base = if (d.len == 0) "" else d.ptr, // OS sadly checks ptr addr before length.
-            .len = d.len,
-        };
-        switch (splat) {
-            0 => return std.posix.writev(file, iovecs[0 .. len - 1]),
-            1 => return std.posix.writev(file, iovecs[0..len]),
-            else => {
-                const pattern = data[data.len - 1];
-                if (pattern.len == 1) {
-                    const memset_len = @min(splat_buffer.len, splat);
-                    const buf = splat_buffer[0..memset_len];
-                    @memset(buf, pattern[0]);
-                    iovecs[len - 1] = .{ .base = buf.ptr, .len = buf.len };
-                    var remaining_splat = splat - buf.len;
-                    while (remaining_splat > 0 and len < iovecs.len) {
-                        iovecs[len] = .{ .base = &splat_buffer, .len = splat_buffer.len };
-                        remaining_splat -= splat_buffer.len;
-                        len += 1;
-                    }
-                    return std.posix.writev(file, iovecs[0..len]);
+pub fn writer_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
+    const file = opaqueToHandle(context);
+    var splat_buffer: [256]u8 = undefined;
+    if (is_windows) {
+        if (data.len == 1 and splat == 0) return 0;
+        return windows.WriteFile(file, data[0], null);
+    }
+    var iovecs: [max_buffers_len]std.posix.iovec_const = undefined;
+    var len: usize = @min(iovecs.len, data.len);
+    for (iovecs[0..len], data[0..len]) |*v, d| v.* = .{
+        .base = if (d.len == 0) "" else d.ptr, // OS sadly checks ptr addr before length.
+        .len = d.len,
+    };
+    switch (splat) {
+        0 => return std.posix.writev(file, iovecs[0 .. len - 1]),
+        1 => return std.posix.writev(file, iovecs[0..len]),
+        else => {
+            const pattern = data[data.len - 1];
+            if (pattern.len == 1) {
+                const memset_len = @min(splat_buffer.len, splat);
+                const buf = splat_buffer[0..memset_len];
+                @memset(buf, pattern[0]);
+                iovecs[len - 1] = .{ .base = buf.ptr, .len = buf.len };
+                var remaining_splat = splat - buf.len;
+                while (remaining_splat > splat_buffer.len and len < iovecs.len) {
+                    iovecs[len] = .{ .base = &splat_buffer, .len = splat_buffer.len };
+                    remaining_splat -= splat_buffer.len;
+                    len += 1;
                 }
-            },
-        }
-        return std.posix.writev(file, iovecs[0..len]);
+                if (remaining_splat > 0 and len < iovecs.len) {
+                    iovecs[len] = .{ .base = &splat_buffer, .len = remaining_splat };
+                    len += 1;
+                }
+                return std.posix.writev(file, iovecs[0..len]);
+            }
+        },
     }
+    return std.posix.writev(file, iovecs[0..len]);
+}
 
-    fn writeFile(
-        context: *anyopaque,
-        in_file: std.fs.File,
-        in_offset: u64,
-        in_len: std.io.Writer.VTable.FileLen,
-        headers_and_trailers: []const []const u8,
-        headers_len: usize,
-    ) anyerror!usize {
-        const out_fd = opaqueToHandle(context);
-        const in_fd = in_file.handle;
-        const len_int = switch (in_len) {
-            .zero => return interface.writeSplat(context, headers_and_trailers, 1),
-            .entire_file => 0,
-            else => in_len.int(),
-        };
-        var iovecs_buffer: [max_buffers_len]std.posix.iovec_const = undefined;
-        const iovecs = iovecs_buffer[0..@min(iovecs_buffer.len, headers_and_trailers.len)];
-        for (iovecs, headers_and_trailers[0..iovecs.len]) |*v, d| v.* = .{ .base = d.ptr, .len = d.len };
-        const headers = iovecs[0..@min(headers_len, iovecs.len)];
-        const trailers = iovecs[headers.len..];
-        const flags = 0;
-        return posix.sendfile(out_fd, in_fd, in_offset, len_int, headers, trailers, flags) catch |err| switch (err) {
-            error.Unseekable,
-            error.FastOpenAlreadyInProgress,
-            error.MessageTooBig,
-            error.FileDescriptorNotASocket,
-            error.NetworkUnreachable,
-            error.NetworkSubsystemFailed,
-            => return writeFileUnseekable(out_fd, in_fd, in_offset, in_len, headers_and_trailers, headers_len),
+pub fn writer_writeFile(
+    context: *anyopaque,
+    in_file: std.fs.File,
+    in_offset: u64,
+    in_len: std.io.Writer.VTable.FileLen,
+    headers_and_trailers: []const []const u8,
+    headers_len: usize,
+) anyerror!usize {
+    const out_fd = opaqueToHandle(context);
+    const in_fd = in_file.handle;
+    const len_int = switch (in_len) {
+        .zero => return writer_writeSplat(context, headers_and_trailers, 1),
+        .entire_file => 0,
+        else => in_len.int(),
+    };
+    var iovecs_buffer: [max_buffers_len]std.posix.iovec_const = undefined;
+    const iovecs = iovecs_buffer[0..@min(iovecs_buffer.len, headers_and_trailers.len)];
+    for (iovecs, headers_and_trailers[0..iovecs.len]) |*v, d| v.* = .{ .base = d.ptr, .len = d.len };
+    const headers = iovecs[0..@min(headers_len, iovecs.len)];
+    const trailers = iovecs[headers.len..];
+    const flags = 0;
+    return posix.sendfile(out_fd, in_fd, in_offset, len_int, headers, trailers, flags) catch |err| switch (err) {
+        error.Unseekable,
+        error.FastOpenAlreadyInProgress,
+        error.MessageTooBig,
+        error.FileDescriptorNotASocket,
+        error.NetworkUnreachable,
+        error.NetworkSubsystemFailed,
+        => return writeFileUnseekable(out_fd, in_fd, in_offset, in_len, headers_and_trailers, headers_len),
 
-            else => |e| return e,
-        };
-    }
+        else => |e| return e,
+    };
+}
 
-    fn writeFileUnseekable(
-        out_fd: Handle,
-        in_fd: Handle,
-        in_offset: u64,
-        in_len: std.io.Writer.VTable.FileLen,
-        headers_and_trailers: []const []const u8,
-        headers_len: usize,
-    ) anyerror!usize {
-        _ = out_fd;
-        _ = in_fd;
-        _ = in_offset;
-        _ = in_len;
-        _ = headers_and_trailers;
-        _ = headers_len;
-        @panic("TODO writeFileUnseekable");
-    }
+fn writeFileUnseekable(
+    out_fd: Handle,
+    in_fd: Handle,
+    in_offset: u64,
+    in_len: std.io.Writer.VTable.FileLen,
+    headers_and_trailers: []const []const u8,
+    headers_len: usize,
+) anyerror!usize {
+    _ = out_fd;
+    _ = in_fd;
+    _ = in_offset;
+    _ = in_len;
+    _ = headers_and_trailers;
+    _ = headers_len;
+    @panic("TODO writeFileUnseekable");
+}
 
-    fn handleToOpaque(handle: File.Handle) *anyopaque {
-        return switch (@typeInfo(Handle)) {
-            .pointer => @ptrCast(handle),
-            .int => @ptrFromInt(@as(u32, @bitCast(handle))),
-            else => @compileError("unhandled"),
-        };
-    }
+fn handleToOpaque(handle: Handle) *anyopaque {
+    return switch (@typeInfo(Handle)) {
+        .pointer => @ptrCast(handle),
+        .int => @ptrFromInt(@as(u32, @bitCast(handle))),
+        else => @compileError("unhandled"),
+    };
+}
 
-    fn opaqueToHandle(userdata: *anyopaque) Handle {
-        return switch (@typeInfo(Handle)) {
-            .pointer => @ptrCast(userdata),
-            .int => @intCast(@intFromPtr(userdata)),
-            else => @compileError("unhandled"),
-        };
-    }
-};
+fn opaqueToHandle(userdata: *anyopaque) Handle {
+    return switch (@typeInfo(Handle)) {
+        .pointer => @ptrCast(userdata),
+        .int => @intCast(@intFromPtr(userdata)),
+        else => @compileError("unhandled"),
+    };
+}
 
 pub const SeekableStream = io.SeekableStream(
     File,

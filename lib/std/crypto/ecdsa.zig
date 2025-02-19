@@ -135,8 +135,8 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             /// The maximum length of the DER encoding is der_encoded_length_max.
             /// The function returns a slice, that can be shorter than der_encoded_length_max.
             pub fn toDer(sig: Signature, buf: *[der_encoded_length_max]u8) []u8 {
-                var fb = io.fixedBufferStream(buf);
-                const w = fb.writer();
+                var w: std.io.BufferedWriter = undefined;
+                w.initFixed(buf);
                 const r_len = @as(u8, @intCast(sig.r.len + (sig.r[0] >> 7)));
                 const s_len = @as(u8, @intCast(sig.s.len + (sig.s[0] >> 7)));
                 const seq_len = @as(u8, @intCast(2 + r_len + 2 + s_len));
@@ -151,7 +151,7 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
                     w.writeByte(0x00) catch unreachable;
                 }
                 w.writeAll(&sig.s) catch unreachable;
-                return fb.getWritten();
+                return w.getWritten();
             }
 
             // Read a DER-encoded integer.
@@ -176,7 +176,7 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
             /// Returns InvalidEncoding if the DER encoding is invalid.
             pub fn fromDer(der: []const u8) EncodingError!Signature {
                 var sig: Signature = mem.zeroInit(Signature, .{});
-                var fb = io.fixedBufferStream(der);
+                var fb: std.io.FixedBufferStream = .{ .buffer = der };
                 const reader = fb.reader();
                 var buf: [2]u8 = undefined;
                 _ = reader.readNoEof(&buf) catch return error.InvalidEncoding;
