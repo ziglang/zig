@@ -25,6 +25,11 @@ jobs:
           - x86_64-windows-gnu
           - aarch64-macos-none
           - aarch64-linux-musl
+        release_mode:
+          - ReleaseSafe
+        include:
+          - target: aarch64-macos-none
+            release_mode: ReleaseFast
     steps:
       - run: sudo apt-get install -y ninja-build
       - uses: actions/checkout@v4
@@ -36,11 +41,12 @@ jobs:
         with:
           path: zig
       - run: sed -i 's/ZIG_VERSION="0.14.0-dev.2257+e6d2e1641"/ZIG_VERSION="0.14.0-dev.2987+183bb8b08"/' build
+      - run: sed -i 's/Doptimize=ReleaseFast/Doptimize=${{ matrix.release_mode }}/' build
       - run: cat build
       - run: CMAKE_GENERATOR=Ninja ./build ${{ matrix.target }} baseline
       - uses: actions/upload-artifact@v4
         with:
-          name: bootstrap-${{ matrix.target }}
+          name: bootstrap-${{ matrix.target }}${{ matrix.release_mode == 'ReleaseSafe' && '-ReleaseSafe' || '' }}
           path: out/zig-${{ matrix.target }}-baseline
   release:
     needs: build
@@ -59,6 +65,7 @@ jobs:
           chmod +x bootstrap-x86_64-linux-musl/zig
           chmod +x bootstrap-x86_64-windows-gnu/zig.exe
           chmod +x bootstrap-aarch64-macos-none/zig
+          chmod +x bootstrap-aarch64-macos-none-ReleaseSafe/zig
           chmod +x bootstrap-aarch64-linux-musl/zig
       - name: Build ZLS
         run: |
@@ -66,6 +73,7 @@ jobs:
           ./bootstrap-x86_64-linux-musl/zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-linux-musl --prefix . --prefix-exe-dir ./bootstrap-x86_64-linux-musl &
           ./bootstrap-x86_64-linux-musl/zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-windows-gnu --prefix . --prefix-exe-dir ./bootstrap-x86_64-windows-gnu &
           ./bootstrap-x86_64-linux-musl/zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-macos-none --prefix . --prefix-exe-dir ./bootstrap-aarch64-macos-none &
+          ./bootstrap-x86_64-linux-musl/zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-macos-none --prefix . --prefix-exe-dir ./bootstrap-aarch64-macos-none-ReleaseSafe &
           ./bootstrap-x86_64-linux-musl/zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-linux-musl --prefix . --prefix-exe-dir ./bootstrap-aarch64-linux-musl &
           wait
       - name: Compress artifacts
@@ -74,6 +82,7 @@ jobs:
           zip -r bootstrap-x86_64-linux-musl.zip bootstrap-x86_64-linux-musl &
           zip -r bootstrap-x86_64-windows-gnu.zip bootstrap-x86_64-windows-gnu &
           zip -r bootstrap-aarch64-macos-none.zip bootstrap-aarch64-macos-none &
+          zip -r bootstrap-aarch64-macos-none-ReleaseSafe.zip bootstrap-aarch64-macos-none-ReleaseSafe &
           zip -r bootstrap-aarch64-linux-musl.zip bootstrap-aarch64-linux-musl &
           wait
       - name: Release
@@ -87,4 +96,5 @@ jobs:
             bootstrap-x86_64-linux-musl.zip
             bootstrap-x86_64-windows-gnu.zip
             bootstrap-aarch64-macos-none.zip
+            bootstrap-aarch64-macos-none-ReleaseSafe.zip
             bootstrap-aarch64-linux-musl.zip
