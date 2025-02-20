@@ -1273,6 +1273,16 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                                 try zig_args.append(lang.internalIdentifier());
                             }
 
+                            const path = c_source_file.file.getPath3(mod.owner, step);
+                            if (b.compile_commands_database) |database| {
+                                try database.entries.append(.{
+                                    .module = compile.root_module,
+                                    .working_directory = b.pathResolve(&.{path.root_dir.path orelse "."}),
+                                    .relative_path = path.sub_path,
+                                    .flags = c_source_file.flags,
+                                });
+                            }
+
                             try zig_args.append(c_source_file.file.getPath2(mod.owner, step));
 
                             if (c_source_file.language != null) {
@@ -1300,6 +1310,18 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
                             }
 
                             const root_path = c_source_files.root.getPath2(mod.owner, step);
+
+                            if (b.compile_commands_database) |database| {
+                                for (c_source_files.files) |file| {
+                                    try database.entries.append(.{
+                                        .module = compile.root_module,
+                                        .working_directory = root_path,
+                                        .relative_path = file,
+                                        .flags = c_source_files.flags,
+                                    });
+                                }
+                            }
+
                             for (c_source_files.files) |file| {
                                 try zig_args.append(b.pathJoin(&.{ root_path, file }));
                             }
