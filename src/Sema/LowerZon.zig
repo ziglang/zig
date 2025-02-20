@@ -84,7 +84,7 @@ fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!Inter
             } }),
         },
         .float_literal => |val| {
-            const result = try pt.floatValue(.fromInterned(.comptime_float_type), val);
+            const result = try pt.floatValue(.comptime_float, val);
             return result.toIntern();
         },
         .char_literal => |val| return pt.intern(.{ .int = .{
