@@ -26,10 +26,10 @@ jobs:
           - aarch64-macos-none
           - aarch64-linux-musl
         release_mode:
-          - ReleaseSafe
+          - ReleaseFast
         include:
           - target: aarch64-macos-none
-            release_mode: ReleaseFast
+            release_mode: ReleaseSafe
     steps:
       - run: sudo apt-get install -y ninja-build
       - uses: actions/checkout@v4
