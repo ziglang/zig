@@ -127,8 +127,10 @@ fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!Inter
         },
         .struct_literal => |init| {
             const elems = try self.sema.arena.alloc(InternPool.Index, init.names.len);
+            const types = try self.sema.arena.alloc(InternPool.Index, init.names.len);
             for (0..init.names.len) |i| {
                 elems[i] = try self.lowerExprAnonResTy(init.vals.at(@intCast(i)));
+                types[i] = Value.fromInterned(elems[i]).typeOf(pt.zcu).toIntern();
             }
             const struct_ty = switch (try ip.getStructType(
                 gpa,
@@ -144,7 +146,14 @@ fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!Inter
                     .any_aligned_fields = false,
                     .key = .{ .reified = .{
                         .zir_index = self.base_node_inst,
-                        .type_hash = @intFromEnum(node),
+                        .type_hash = hash: {
+                            var hasher: std.hash.Wyhash = .init(0);
+                            hasher.update(std.mem.asBytes(&node));
+                            hasher.update(std.mem.sliceAsBytes(elems));
+                            hasher.update(std.mem.sliceAsBytes(types));
+                            hasher.update(std.mem.sliceAsBytes(init.names));
+                            break :hash hasher.final();
+                        },
                     } },
                 },
                 false,
@@ -173,10 +182,7 @@ fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!Inter
                     }
 
                     @memcpy(struct_type.field_inits.get(ip), elems);
-                    const types = struct_type.field_types.get(ip);
-                    for (0..init.names.len) |i| {
-                        types[i] = Value.fromInterned(elems[i]).typeOf(pt.zcu).toIntern();
-                    }
+                    @memcpy(struct_type.field_types.get(ip), types);
 
                     const new_namespace_index = try pt.createNamespace(.{
                         .parent = self.block.namespace.toOptional(),
