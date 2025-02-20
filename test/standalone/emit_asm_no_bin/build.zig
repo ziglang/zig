@@ -15,7 +15,6 @@ pub fn build(b: *std.Build) void {
         }),
     });
     _ = obj.getEmittedAsm();
-    b.default_step.dependOn(&obj.step);
 
     test_step.dependOn(&obj.step);
 }
