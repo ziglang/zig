@@ -5839,6 +5839,11 @@ pub const IORING_RECV_MULTISHOT = 1 << 1;
 pub const IORING_RECVSEND_FIXED_BUF = 1 << 2;
 /// If set, SEND[MSG]_ZC should report the zerocopy usage in cqe.res for the IORING_CQE_F_NOTIF cqe.
 pub const IORING_SEND_ZC_REPORT_USAGE = 1 << 3;
+/// If set, send or recv will grab as many buffers from the buffer group ID given and send them all.
+/// The completion result will be the number of buffers send, with the starting buffer ID in cqe as per usual.
+/// The buffers be contigious from the starting buffer ID.
+/// Used with IOSQE_BUFFER_SELECT.
+pub const IORING_RECVSEND_BUNDLE = 1 << 4;
 /// CQE.RES FOR IORING_CQE_F_NOTIF if IORING_SEND_ZC_REPORT_USAGE was requested
 pub const IORING_NOTIF_USAGE_ZC_COPIED = 1 << 31;
 
