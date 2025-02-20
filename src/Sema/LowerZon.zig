@@ -72,7 +72,7 @@ fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!Inter
         .null => return .null_value,
         .pos_inf => return self.fail(node, "infinity requires a known result type", .{}),
         .neg_inf => return self.fail(node, "negative infinity requires a known result type", .{}),
-        .nan => return self.fail(node, "nan requires a known result type", .{}),
+        .nan => return self.fail(node, "NaN requires a known result type", .{}),
         .int_literal => |int| switch (int) {
             .small => |val| return pt.intern(.{ .int = .{
                 .ty = .comptime_int_type,
