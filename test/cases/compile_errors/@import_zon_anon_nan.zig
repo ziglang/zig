@@ -5,5 +5,5 @@ export fn entry() void {
 // error
 // imports=zon/nan.zon
 //
-// nan.zon:1:1: error: nan requires a known result type
+// nan.zon:1:1: error: NaN requires a known result type
 // tmp.zig:2:17: note: imported here

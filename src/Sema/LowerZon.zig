@@ -104,7 +104,7 @@ fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!Inter
             const result = try self.sema.addStrLit(ip_str, val.len);
             return result.toInterned().?;
         },
-        .empty_literal => .empty_tuple,
+        .empty_literal => return .empty_tuple,
         .array_literal => |nodes| {
             const types = try self.sema.arena.alloc(InternPool.Index, nodes.len);
             const values = try self.sema.arena.alloc(InternPool.Index, nodes.len);
