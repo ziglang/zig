@@ -482,8 +482,7 @@ pub fn scanRelocs(self: Atom, macho_file: *MachO) !void {
                 const symbol = rel.getTargetSymbol(self, macho_file);
                 if (symbol.flags.import or
                     (symbol.flags.@"export" and symbol.flags.weak) or
-                    symbol.flags.interposable or
-                    macho_file.getTarget().cpu.arch == .aarch64) // TODO relax on arm64
+                    symbol.flags.interposable)
                 {
                     symbol.setSectionFlags(.{ .needs_got = true });
                     if (symbol.flags.weak) {
