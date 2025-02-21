@@ -299,7 +299,9 @@ pub const Ed25519 = struct {
             if (std.debug.runtime_safety) {
                 const pk_p = try Curve.fromBytes(secret_key.publicKeyBytes());
                 const recomputed_kp = try generateDeterministic(secret_key.seed());
-                debug.assert(mem.eql(u8, &recomputed_kp.public_key.toBytes(), &pk_p.toBytes()));
+                if (!mem.eql(u8, &recomputed_kp.public_key.toBytes(), &pk_p.toBytes())) {
+                    return error.NonCanonical;
+                }
             }
             return KeyPair{
                 .public_key = try PublicKey.fromBytes(secret_key.publicKeyBytes()),
