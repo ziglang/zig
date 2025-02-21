@@ -23,7 +23,7 @@ pub const VTable = struct {
     /// Return a pointer to `len` bytes with specified `alignment`, or return
     /// `null` indicating the allocation failed.
     ///
-    /// The `alignment` parameter may not be greater that `Alignment.max_alignment`.
+    /// The `alignment` parameter may not be greater than `Alignment.max_alignment`.
     ///
     /// `ret_addr` is optionally provided as the first return address of the
     /// allocation call stack. If the value is `0` it means no return address
