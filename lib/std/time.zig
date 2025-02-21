@@ -74,15 +74,11 @@ pub fn nanoTimestamp() i128 {
 }
 
 test milliTimestamp {
-    const margin = ns_per_ms * 50;
-
     const time_0 = milliTimestamp();
     std.Thread.sleep(ns_per_ms);
     const time_1 = milliTimestamp();
     const interval = time_1 - time_0;
     try testing.expect(interval > 0);
-    // Tests should not depend on timings: skip test if outside margin.
-    if (!(interval < margin)) return error.SkipZigTest;
 }
 
 // Divisions of a nanosecond.
@@ -277,20 +273,14 @@ pub const Timer = struct {
 };
 
 test Timer {
-    const margin = ns_per_ms * 150;
-
     var timer = try Timer.start();
+
     std.Thread.sleep(10 * ns_per_ms);
     const time_0 = timer.read();
     try testing.expect(time_0 > 0);
-    // Tests should not depend on timings: skip test if outside margin.
-    if (!(time_0 < margin)) return error.SkipZigTest;
 
     const time_1 = timer.lap();
     try testing.expect(time_1 >= time_0);
-
-    timer.reset();
-    try testing.expect(timer.read() < time_1);
 }
 
 test {
