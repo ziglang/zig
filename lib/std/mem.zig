@@ -29,6 +29,8 @@ pub const Alignment = enum(math.Log2Int(usize)) {
     @"64" = 6,
     _,
 
+    pub const max_alignment: Alignment = .fromByteUnits(std.heap.page_size_min);
+
     pub fn toByteUnits(a: Alignment) usize {
         return @as(usize, 1) << @intFromEnum(a);
     }

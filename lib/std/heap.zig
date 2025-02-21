@@ -635,27 +635,24 @@ pub fn testAllocatorLargeAlignment(base_allocator: mem.Allocator) !void {
     var validationAllocator = mem.validationWrap(base_allocator);
     const allocator = validationAllocator.allocator();
 
-    const large_align: usize = page_size_min / 2;
+    const max_align: mem.Alignment = .max_alignment;
 
-    var align_mask: usize = undefined;
-    align_mask = @shlWithOverflow(~@as(usize, 0), @as(Allocator.Log2Align, @ctz(large_align)))[0];
-
-    var slice = try allocator.alignedAlloc(u8, large_align, 500);
-    try testing.expect(@intFromPtr(slice.ptr) & align_mask == @intFromPtr(slice.ptr));
+    var slice = try allocator.alignedAlloc(u8, max_align.toByteUnits(), 500);
+    try testing.expect(max_align.check(@intFromPtr(slice.ptr)));
 
     if (allocator.resize(slice, 100)) {
         slice = slice[0..100];
     }
 
     slice = try allocator.realloc(slice, 5000);
-    try testing.expect(@intFromPtr(slice.ptr) & align_mask == @intFromPtr(slice.ptr));
+    try testing.expect(max_align.check(@intFromPtr(slice.ptr)));
 
     if (allocator.resize(slice, 10)) {
         slice = slice[0..10];
     }
 
     slice = try allocator.realloc(slice, 20000);
-    try testing.expect(@intFromPtr(slice.ptr) & align_mask == @intFromPtr(slice.ptr));
+    try testing.expect(max_align.check(@intFromPtr(slice.ptr)));
 
     allocator.free(slice);
 }
