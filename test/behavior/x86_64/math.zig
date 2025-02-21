@@ -672,6 +672,33 @@ fn unary(comptime op: anytype, comptime opts: struct {
             try testArgs(u257, 1 << 255);
             try testArgs(u257, 1 << 256);
 
+            try testArgs(i383, -1 << 382);
+            try testArgs(i383, -1);
+            try testArgs(i383, 0);
+            try testArgs(u383, 0);
+            try testArgs(u383, 1 << 0);
+            try testArgs(u383, 1 << 1);
+            try testArgs(u383, 1 << 381);
+            try testArgs(u383, 1 << 382);
+
+            try testArgs(i384, -1 << 383);
+            try testArgs(i384, -1);
+            try testArgs(i384, 0);
+            try testArgs(u384, 0);
+            try testArgs(u384, 1 << 0);
+            try testArgs(u384, 1 << 1);
+            try testArgs(u384, 1 << 382);
+            try testArgs(u384, 1 << 383);
+
+            try testArgs(i385, -1 << 384);
+            try testArgs(i385, -1);
+            try testArgs(i385, 0);
+            try testArgs(u385, 0);
+            try testArgs(u385, 1 << 0);
+            try testArgs(u385, 1 << 1);
+            try testArgs(u385, 1 << 383);
+            try testArgs(u385, 1 << 384);
+
             try testArgs(i511, -1 << 510);
             try testArgs(i511, -1);
             try testArgs(i511, 0);
@@ -19295,6 +19322,14 @@ inline fn byteSwap(comptime Type: type, rhs: Type) RoundBitsUp(Type, 8) {
 test byteSwap {
     const test_byte_swap = unary(byteSwap, .{});
     try test_byte_swap.testInts();
+}
+
+inline fn bitReverse(comptime Type: type, rhs: Type) @TypeOf(@bitReverse(rhs)) {
+    return @bitReverse(rhs);
+}
+test bitReverse {
+    const test_bit_reverse = unary(bitReverse, .{});
+    try test_bit_reverse.testInts();
 }
 
 inline fn sqrt(comptime Type: type, rhs: Type) @TypeOf(@sqrt(rhs)) {
