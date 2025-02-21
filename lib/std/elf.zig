@@ -2395,3 +2395,40 @@ pub const STRNAME = genSpecialMemberName("//");
 pub const SYM64NAME = genSpecialMemberName("/SYM64/");
 pub const SYMDEFNAME = genSpecialMemberName("__.SYMDEF");
 pub const SYMDEFSORTEDNAME = genSpecialMemberName("__.SYMDEF SORTED");
+
+pub const gnu_hash = struct {
+
+    // See https://flapenguin.me/elf-dt-gnu-hash
+
+    pub const Header = extern struct {
+        nbuckets: u32,
+        symoffset: u32,
+        bloom_size: u32,
+        bloom_shift: u32,
+    };
+
+    pub const ChainEntry = packed struct(u32) {
+        end_of_chain: bool,
+        /// Contains the top bits of the hash value.
+        hash: u31,
+    };
+
+    /// Calculate the hash value for a name
+    pub fn calculate(name: []const u8) u32 {
+        var hash: u32 = 5381;
+
+        for (name) |char| {
+            hash = (hash << 5) +% hash +% char;
+        }
+
+        return hash;
+    }
+
+    test calculate {
+        try std.testing.expectEqual(0x00001505, calculate(""));
+        try std.testing.expectEqual(0x156b2bb8, calculate("printf"));
+        try std.testing.expectEqual(0x7c967e3f, calculate("exit"));
+        try std.testing.expectEqual(0xbac212a0, calculate("syscall"));
+        try std.testing.expectEqual(0x8ae9f18e, calculate("flapenguin.me"));
+    }
+};
