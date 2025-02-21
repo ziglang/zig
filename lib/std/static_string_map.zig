@@ -62,6 +62,7 @@ pub fn StaticStringMapWithEql(
         const empty_len_indexes = [0]u32{};
         const empty_keys = [0][]const u8{};
         const empty_vals = [0]V{};
+        const size_not_present = @as(u32, std.math.maxInt(u32));
 
         /// Returns a map backed by static, comptime allocated memory.
         ///
@@ -172,10 +173,10 @@ pub fn StaticStringMapWithEql(
 
         fn initLenIndexes(self: Self, len_indexes: []u32) void {
             var i: u32 = 0;
-            @memset(len_indexes, std.math.maxInt(u32));
+            @memset(len_indexes, size_not_present);
             while (i < self.kvs.len) : (i += 1) {
                 const key_len = self.kvs.keys[i].len;
-                if (len_indexes[key_len] == std.math.maxInt(u32))
+                if (len_indexes[key_len] == size_not_present)
                     len_indexes[key_len] = i;
             }
         }
@@ -202,7 +203,7 @@ pub fn StaticStringMapWithEql(
                 return null;
 
             var i = self.len_indexes[str.len];
-            if (i == std.math.maxInt(u32))
+            if (i == size_not_present)
                 return null;
 
             while (true) {
