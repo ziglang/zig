@@ -169,23 +169,22 @@ pub const IncludeDir = union(enum) {
         include_dir: IncludeDir,
         b: *std.Build,
         zig_args: *std.ArrayList([]const u8),
-        asking_step: ?*Step,
     ) !void {
         switch (include_dir) {
             .path => |include_path| {
-                try zig_args.appendSlice(&.{ "-I", include_path.getPath2(b, asking_step) });
+                try zig_args.appendSlice(&.{ "-I", include_path.getPath(b) });
             },
             .path_system => |include_path| {
-                try zig_args.appendSlice(&.{ "-isystem", include_path.getPath2(b, asking_step) });
+                try zig_args.appendSlice(&.{ "-isystem", include_path.getPath(b) });
             },
             .path_after => |include_path| {
-                try zig_args.appendSlice(&.{ "-idirafter", include_path.getPath2(b, asking_step) });
+                try zig_args.appendSlice(&.{ "-idirafter", include_path.getPath(b) });
             },
             .framework_path => |include_path| {
-                try zig_args.appendSlice(&.{ "-F", include_path.getPath2(b, asking_step) });
+                try zig_args.appendSlice(&.{ "-F", include_path.getPath(b) });
             },
             .framework_path_system => |include_path| {
-                try zig_args.appendSlice(&.{ "-iframework", include_path.getPath2(b, asking_step) });
+                try zig_args.appendSlice(&.{ "-iframework", include_path.getPath(b) });
             },
             .other_step => |other| {
                 if (other.generated_h) |header| {
@@ -540,7 +539,6 @@ pub fn addCMacro(m: *Module, name: []const u8, value: []const u8) void {
 pub fn appendZigProcessFlags(
     m: *Module,
     zig_args: *std.ArrayList([]const u8),
-    asking_step: ?*Step,
 ) !void {
     const b = m.owner;
 
@@ -605,7 +603,7 @@ pub fn appendZigProcessFlags(
     }
 
     for (m.include_dirs.items) |include_dir| {
-        try include_dir.appendZigProcessFlags(b, zig_args, asking_step);
+        try include_dir.appendZigProcessFlags(b, zig_args);
     }
 
     try zig_args.appendSlice(m.c_macros.items);
@@ -613,14 +611,14 @@ pub fn appendZigProcessFlags(
     try zig_args.ensureUnusedCapacity(2 * m.lib_paths.items.len);
     for (m.lib_paths.items) |lib_path| {
         zig_args.appendAssumeCapacity("-L");
-        zig_args.appendAssumeCapacity(lib_path.getPath2(b, asking_step));
+        zig_args.appendAssumeCapacity(lib_path.getPath(b));
     }
 
     try zig_args.ensureUnusedCapacity(2 * m.rpaths.items.len);
     for (m.rpaths.items) |rpath| switch (rpath) {
         .lazy_path => |lp| {
             zig_args.appendAssumeCapacity("-rpath");
-            zig_args.appendAssumeCapacity(lp.getPath2(b, asking_step));
+            zig_args.appendAssumeCapacity(lp.getPath(b));
         },
         .special => |bytes| {
             zig_args.appendAssumeCapacity("-rpath");

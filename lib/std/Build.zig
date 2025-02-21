@@ -23,6 +23,11 @@ pub const Module = @import("Build/Module.zig");
 pub const Watch = @import("Build/Watch.zig");
 pub const Fuzz = @import("Build/Fuzz.zig");
 
+const ThreadLocalData = struct {
+    running_step: ?*Step = null,
+};
+pub threadlocal var thread_local: ThreadLocalData = .{};
+
 /// Shared state among all Build instances.
 graph: *Graph,
 install_tls: TopLevelStep,
@@ -2524,7 +2529,7 @@ pub const LazyPath = union(enum) {
             .src_path => |sp| .{ .src_path = .{
                 .owner = sp.owner,
                 .sub_path = dirnameAllowEmpty(sp.sub_path) orelse {
-                    dumpBadDirnameHelp(null, null, "dirname() attempted to traverse outside the build root\n", .{}) catch {};
+                    dumpBadDirnameHelp(null, "dirname() attempted to traverse outside the build root\n", .{}) catch {};
                     @panic("misconfigured build script");
                 },
             } },
@@ -2545,14 +2550,14 @@ pub const LazyPath = union(enum) {
                     // In either case, the build script tried to go too far
                     // and we should panic.
                     if (fs.path.isAbsolute(rel_path)) {
-                        dumpBadDirnameHelp(null, null,
+                        dumpBadDirnameHelp(null,
                             \\dirname() attempted to traverse outside the root.
                             \\No more directories left to go up.
                             \\
                         , .{}) catch {};
                         @panic("misconfigured build script");
                     } else {
-                        dumpBadDirnameHelp(null, null,
+                        dumpBadDirnameHelp(null,
                             \\dirname() attempted to traverse outside the current working directory.
                             \\
                         , .{}) catch {};
@@ -2563,7 +2568,7 @@ pub const LazyPath = union(enum) {
             .dependency => |dep| .{ .dependency = .{
                 .dependency = dep.dependency,
                 .sub_path = dirnameAllowEmpty(dep.sub_path) orelse {
-                    dumpBadDirnameHelp(null, null,
+                    dumpBadDirnameHelp(null,
                         \\dirname() attempted to traverse outside the dependency root.
                         \\
                     , .{}) catch {};
@@ -2619,20 +2624,15 @@ pub const LazyPath = union(enum) {
 
     /// Deprecated, see `getPath3`.
     pub fn getPath(lazy_path: LazyPath, src_builder: *Build) []const u8 {
-        return getPath2(lazy_path, src_builder, null);
-    }
-
-    /// Deprecated, see `getPath3`.
-    pub fn getPath2(lazy_path: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
-        const p = getPath3(lazy_path, src_builder, asking_step);
+        const p = getPath3(lazy_path, src_builder);
         return src_builder.pathResolve(&.{ p.root_dir.path orelse ".", p.sub_path });
     }
 
     /// Intended to be used during the make phase only.
-    ///
-    /// `asking_step` is only used for debugging purposes; it's the step being
-    /// run that is asking for the path.
-    pub fn getPath3(lazy_path: LazyPath, src_builder: *Build, asking_step: ?*Step) Cache.Path {
+    pub fn getPath3(lazy_path: LazyPath, src_builder: *Build) Cache.Path {
+        if (thread_local.running_step == null) @panic(
+            "getPath called on LazyPath outside of any step's make function",
+        );
         switch (lazy_path) {
             .src_path => |sp| return .{
                 .root_dir = sp.owner.build_root,
@@ -2651,7 +2651,7 @@ pub const LazyPath = union(enum) {
                     .sub_path = gen.file.path orelse {
                         std.debug.lockStdErr();
                         const stderr = std.io.getStdErr();
-                        dumpBadGetPathHelp(gen.file.step, stderr, src_builder, asking_step) catch {};
+                        dumpBadGetPathHelp(stderr, src_builder) catch {};
                         std.debug.unlockStdErr();
                         @panic("misconfigured build script");
                     },
@@ -2665,7 +2665,7 @@ pub const LazyPath = union(enum) {
                         if (mem.eql(u8, file_path.sub_path, cache_root_path)) {
                             // If we hit the cache root and there's still more to go,
                             // the script attempted to go too far.
-                            dumpBadDirnameHelp(gen.file.step, asking_step,
+                            dumpBadDirnameHelp(gen.file.step,
                                 \\dirname() attempted to traverse outside the cache root.
                                 \\This is not allowed.
                                 \\
@@ -2677,7 +2677,7 @@ pub const LazyPath = union(enum) {
                         // dirname will return null only if we're at root.
                         // Typically, we'll stop well before that at the cache root.
                         file_path.sub_path = fs.path.dirname(file_path.sub_path) orelse {
-                            dumpBadDirnameHelp(gen.file.step, asking_step,
+                            dumpBadDirnameHelp(gen.file.step,
                                 \\dirname() reached root.
                                 \\No more directories left to go up.
                                 \\
@@ -2723,7 +2723,6 @@ pub const LazyPath = union(enum) {
 
 fn dumpBadDirnameHelp(
     fail_step: ?*Step,
-    asking_step: ?*Step,
     comptime msg: []const u8,
     args: anytype,
 ) anyerror!void {
@@ -2744,12 +2743,12 @@ fn dumpBadDirnameHelp(
         s.dump(stderr);
     }
 
-    if (asking_step) |as| {
+    if (thread_local.running_step) |running_step| {
         tty_config.setColor(w, .red) catch {};
-        try stderr.writer().print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
+        try stderr.writer().print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{running_step.name});
         tty_config.setColor(w, .reset) catch {};
 
-        as.dump(stderr);
+        running_step.dump(stderr);
     }
 
     tty_config.setColor(w, .red) catch {};
@@ -2759,34 +2758,29 @@ fn dumpBadDirnameHelp(
 
 /// In this function the stderr mutex has already been locked.
 pub fn dumpBadGetPathHelp(
-    s: *Step,
     stderr: fs.File,
     src_builder: *Build,
-    asking_step: ?*Step,
 ) anyerror!void {
     const w = stderr.writer();
     try w.print(
         \\getPath() was called on a GeneratedFile that wasn't built yet.
         \\  source package path: {s}
-        \\  Is there a missing Step dependency on step '{s}'?
         \\
     , .{
         src_builder.build_root.path orelse ".",
-        s.name,
     });
 
     const tty_config = std.io.tty.detectConfig(stderr);
-    tty_config.setColor(w, .red) catch {};
-    try stderr.writeAll("    The step was created by this stack trace:\n");
-    tty_config.setColor(w, .reset) catch {};
-
-    s.dump(stderr);
-    if (asking_step) |as| {
+    if (thread_local.running_step) |running_step| {
+        try w.print(
+            "Is there a missing Step dependency on step '{s}'?\n",
+            .{running_step.name},
+        );
         tty_config.setColor(w, .red) catch {};
-        try stderr.writer().print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
+        try stderr.writeAll("    The step was created by this stack trace:\n");
         tty_config.setColor(w, .reset) catch {};
 
-        as.dump(stderr);
+        running_step.dump(stderr);
     }
     tty_config.setColor(w, .red) catch {};
     try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");

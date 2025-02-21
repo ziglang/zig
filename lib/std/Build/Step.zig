@@ -228,6 +228,18 @@ pub fn init(options: StepOptions) Step {
 pub fn make(s: *Step, options: MakeOptions) error{ MakeFailed, MakeSkipped }!void {
     const arena = s.owner.allocator;
 
+    const old_step = Build.thread_local.running_step;
+    const panic_on_nested_makes = true;
+    if (old_step) |old| if (panic_on_nested_makes) std.debug.panic(
+        "make was called on step '{s}' while inside make for step '{s}'",
+        .{ s.name, old.name },
+    );
+    Build.thread_local.running_step = s;
+    defer {
+        std.debug.assert(Build.thread_local.running_step == s);
+        Build.thread_local.running_step = old_step;
+    }
+
     s.makeFn(s, options) catch |err| switch (err) {
         error.MakeFailed => return error.MakeFailed,
         error.MakeSkipped => return error.MakeSkipped,

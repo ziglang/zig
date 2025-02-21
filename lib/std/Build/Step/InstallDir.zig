@@ -62,7 +62,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     step.clearWatchInputs();
     const arena = b.allocator;
     const dest_prefix = b.getInstallPath(install_dir.options.install_dir, install_dir.options.install_subdir);
-    const src_dir_path = install_dir.options.source_dir.getPath3(b, step);
+    const src_dir_path = install_dir.options.source_dir.getPath3(b);
     const need_derived_inputs = try step.addDirectoryWatchInput(install_dir.options.source_dir);
     var src_dir = src_dir_path.root_dir.handle.openDir(src_dir_path.subPathOrDot(), .{ .iterate = true }) catch |err| {
         return step.fail("unable to open source directory '{}': {s}", .{

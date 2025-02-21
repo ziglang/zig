@@ -93,7 +93,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
             .copy => |file_source| {
                 if (!step.inputs.populated()) try step.addWatchInput(file_source);
 
-                const source_path = file_source.getPath2(b, step);
+                const source_path = file_source.getPath(b);
                 const prev_status = fs.Dir.updateFile(
                     fs.cwd(),
                     source_path,

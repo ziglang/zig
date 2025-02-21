@@ -151,7 +151,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     var man = b.graph.cache.obtain();
     defer man.deinit();
 
-    const full_src_path = objcopy.input_file.getPath2(b, step);
+    const full_src_path = objcopy.input_file.getPath(b);
     _ = try man.addFile(full_src_path, null);
     man.hash.addOptionalBytes(objcopy.only_section);
     man.hash.addOptional(objcopy.pad_to);
