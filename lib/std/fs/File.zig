@@ -1586,10 +1586,14 @@ fn writeFileAllSendfile(self: File, in_file: File, args: WriteFileOptions) posix
     }
 }
 
-pub const Reader = io.Reader(File, ReadError, read);
-
-pub fn reader(file: File) Reader {
-    return .{ .context = file };
+pub fn reader(file: File) std.io.Reader {
+    return .{
+        .context = handleToOpaque(file.handle),
+        .vtable = .{
+            .seekRead = reader_seekRead,
+            .streamRead = reader_streamRead,
+        },
+    };
 }
 
 pub fn writer(file: File) std.io.Writer {
@@ -1605,6 +1609,23 @@ pub fn writer(file: File) std.io.Writer {
 /// Number of slices to store on the stack, when trying to send as many byte
 /// vectors through the underlying write calls as possible.
 const max_buffers_len = 16;
+
+pub fn reader_seekRead(
+    context: *anyopaque,
+    bw: *std.io.BufferedWriter,
+    limit: std.io.Reader.Limit,
+    offset: u64,
+) anyerror!usize {
+    const file = opaqueToHandle(context);
+    const len: std.io.Writer.Len = if (limit.unwrap()) |l| .init(l) else .entire_file;
+    return writer.writeFile(bw, file, .init(offset), len, &.{}, 0);
+}
+
+pub fn reader_streamRead(context: *anyopaque, bw: *std.io.BufferedWriter, limit: std.io.Reader.Limit) anyerror!usize {
+    const file = opaqueToHandle(context);
+    const len: std.io.Writer.Len = if (limit.unwrap()) |l| .init(l) else .entire_file;
+    return writer.writeFile(bw, file, .none, len, &.{}, 0);
+}
 
 pub fn writer_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
     const file = opaqueToHandle(context);

@@ -17,7 +17,7 @@ pub const VTable = struct {
     /// Number of bytes returned may be zero, which does not mean
     /// end-of-stream. A subsequent call may return nonzero, or may signal end
     /// of stream via an error.
-    writeSplat: *const fn (context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize,
+    writeSplat: *const fn (ctx: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize,
 
     /// Writes contents from an open file. `headers` are written first, then `len`
     /// bytes of `file` starting from `offset`, then `trailers`.
@@ -29,9 +29,9 @@ pub const VTable = struct {
     /// end-of-stream. A subsequent call may return nonzero, or may signal end
     /// of stream via an error.
     writeFile: *const fn (
-        context: *anyopaque,
+        ctx: *anyopaque,
         file: std.fs.File,
-        offset: u64,
+        offset: Offset,
         /// When zero, it means copy until the end of the file is reached.
         len: FileLen,
         /// Headers and trailers must be passed together so that in case `len` is
@@ -39,22 +39,33 @@ pub const VTable = struct {
         headers_and_trailers: []const []const u8,
         headers_len: usize,
     ) anyerror!usize,
+};
 
-    pub const FileLen = enum(u64) {
-        zero = 0,
-        entire_file = std.math.maxInt(u64),
-        _,
+pub const Offset = enum(u64) {
+    none = std.math.maxInt(u64),
+    _,
 
-        pub fn init(integer: u64) FileLen {
-            const result: FileLen = @enumFromInt(integer);
-            assert(result != .entire_file);
-            return result;
-        }
+    pub fn init(integer: u64) Offset {
+        const result: Offset = @enumFromInt(integer);
+        assert(result != .none);
+        return result;
+    }
+};
 
-        pub fn int(len: FileLen) u64 {
-            return @intFromEnum(len);
-        }
-    };
+pub const FileLen = enum(u64) {
+    zero = 0,
+    entire_file = std.math.maxInt(u64),
+    _,
+
+    pub fn init(integer: u64) FileLen {
+        const result: FileLen = @enumFromInt(integer);
+        assert(result != .entire_file);
+        return result;
+    }
+
+    pub fn int(len: FileLen) u64 {
+        return @intFromEnum(len);
+    }
 };
 
 pub fn writev(w: Writer, data: []const []const u8) anyerror!usize {
@@ -93,34 +104,13 @@ pub fn unimplemented_writeFile(
     return error.Unimplemented;
 }
 
-pub fn write(w: Writer, bytes: []const u8) anyerror!usize {
-    const single: [1][]const u8 = .{bytes};
-    return w.vtable.writeSplat(w.context, &single, 1);
-}
-
-pub fn writeAll(w: Writer, bytes: []const u8) anyerror!void {
-    var index: usize = 0;
-    while (index < bytes.len) index += try w.vtable.writeSplat(w.context, &.{bytes[index..]}, 1);
-}
-
-/// The `data` parameter is mutable because this function needs to mutate the
-/// fields in order to handle partial writes from `VTable.writev`.
-pub fn writevAll(w: Writer, data: [][]const u8) anyerror!void {
-    var i: usize = 0;
-    while (true) {
-        var n = try w.vtable.writeSplat(w.context, data[i..], 1);
-        while (n >= data[i].len) {
-            n -= data[i].len;
-            i += 1;
-            if (i >= data.len) return;
-        }
-        data[i] = data[i][n..];
-    }
+pub fn buffered(w: Writer, buffer: []u8) std.io.BufferedWriter {
+    return .{
+        .buffer = .initBuffer(buffer),
+        .mode = .{ .writer = w },
+    };
 }
 
 pub fn unbuffered(w: Writer) std.io.BufferedWriter {
-    return .{
-        .buffer = &.{},
-        .unbuffered_writer = w,
-    };
+    return buffered(w, &.{});
 }
