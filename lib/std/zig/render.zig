@@ -574,9 +574,13 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             if (full.comptime_token) |comptime_token| {
                 try renderToken(r, comptime_token, .space);
             }
-
+            const multiline = full.ast.variables.len > 1 and !tree.tokensOnSameLine(
+                tree.lastToken(full.ast.variables[0]),
+                tree.firstToken(full.ast.variables[1]),
+            );
             for (full.ast.variables, 0..) |variable_node, i| {
-                const variable_space: Space = if (i == full.ast.variables.len - 1) .space else .comma_space;
+                const last = i == full.ast.variables.len - 1;
+                const variable_space: Space = if (last) .space else if (multiline) .comma else .comma_space;
                 switch (node_tags[variable_node]) {
                     .global_var_decl,
                     .local_var_decl,
@@ -586,6 +590,9 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                         try renderVarDecl(r, tree.fullVarDecl(variable_node).?, true, variable_space);
                     },
                     else => try renderExpression(r, variable_node, variable_space),
+                }
+                if (!last and multiline) {
+                    try renderExtraNewline(r, variable_node);
                 }
             }
             if (tree.tokensOnSameLine(full.ast.equal_token, full.ast.equal_token + 1)) {
