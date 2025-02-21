@@ -186,6 +186,9 @@
         .omit_cfi = .{
             .path = "omit_cfi",
         },
+        .config_header = .{
+            .path = "config_header",
+        },
     },
     .paths = .{
         "build.zig",
