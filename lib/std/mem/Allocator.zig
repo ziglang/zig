@@ -23,6 +23,8 @@ pub const VTable = struct {
     /// Return a pointer to `len` bytes with specified `alignment`, or return
     /// `null` indicating the allocation failed.
     ///
+    /// The `alignment` parameter may not be greater that `Alignment.max_alignment`.
+    ///
     /// `ret_addr` is optionally provided as the first return address of the
     /// allocation call stack. If the value is `0` it means no return address
     /// has been provided.
@@ -261,6 +263,8 @@ fn allocWithSizeAndAlignment(self: Allocator, comptime size: usize, comptime ali
 }
 
 fn allocBytesWithAlignment(self: Allocator, comptime alignment: u29, byte_count: usize, return_address: usize) Error![*]align(alignment) u8 {
+    comptime assert(Alignment.compare(.fromByteUnits(alignment), .lte, .max_alignment));
+
     if (byte_count == 0) {
         const ptr = comptime std.mem.alignBackward(usize, math.maxInt(usize), alignment);
         return @as([*]align(alignment) u8, @ptrFromInt(ptr));
