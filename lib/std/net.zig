@@ -1356,25 +1356,9 @@ fn linuxLookupNameFromHosts(
     };
     defer file.close();
 
-    var buffered_reader = std.io.bufferedReader(file.reader());
-    const reader = buffered_reader.reader();
-    // TODO: rework buffered reader so that we can use its buffer directly when searching for delimiters
     var line_buf: [512]u8 = undefined;
-    var line_buf_writer: std.io.BufferedWriter = undefined;
-    line_buf_writer.initFixed(&line_buf);
-    while (true) {
-        const line = if (reader.streamUntilDelimiter(&line_buf_writer, '\n', line_buf.len)) |_| l: {
-            break :l line_buf_writer.getWritten();
-        } else |err| switch (err) {
-            error.EndOfStream => l: {
-                if (line_buf_writer.getWritten().len == 0) break;
-                // Skip to the delimiter in the reader, to fix parsing
-                try reader.skipUntilDelimiterOrEof('\n');
-                // Use the truncated line. A truncated comment or hostname will be handled correctly.
-                break :l &line_buf;
-            },
-            else => |e| return e,
-        };
+    var br = file.reader().buffered(&line_buf);
+    while (br.takeDelimiterConclusive('\n')) |line| {
         var split_it = mem.splitScalar(u8, line, '#');
         const no_comment_line = split_it.first();
 
@@ -1406,7 +1390,7 @@ fn linuxLookupNameFromHosts(
             canon.items.len = 0;
             try canon.appendSlice(name_text);
         }
-    }
+    } else |err| return err;
 }
 
 pub fn isValidHostName(hostname: []const u8) bool {
@@ -1543,7 +1527,7 @@ const ResolvConf = struct {
     }
 };
 
-/// Ignores lines longer than 512 bytes.
+/// Returns `error.StreamTooLong` if a line is longer than 512 bytes.
 /// TODO: https://github.com/ziglang/zig/issues/2765 and https://github.com/ziglang/zig/issues/2761
 fn getResolvConf(allocator: mem.Allocator, rc: *ResolvConf) !void {
     rc.* = ResolvConf{
@@ -1564,30 +1548,14 @@ fn getResolvConf(allocator: mem.Allocator, rc: *ResolvConf) !void {
     };
     defer file.close();
 
-    var buf_reader = std.io.bufferedReader(file.reader());
-    const stream = buf_reader.reader();
-    // TODO: rework buffered reader so that we can use its buffer directly when searching for delimiters
     var line_buf: [512]u8 = undefined;
-    var line_buf_writer: std.io.BufferedWriter = undefined;
-    line_buf_writer.initFixed(&line_buf);
-    while (true) {
-        const line = if (stream.streamUntilDelimiter(&line_buf_writer, '\n', line_buf.len)) |_| l: {
-            break :l line_buf_writer.getWritten();
-        } else |err| switch (err) {
-            error.EndOfStream => l: {
-                if (line_buf_writer.getWritten().len == 0) break;
-                // Skip to the delimiter in the reader, to fix parsing
-                try stream.skipUntilDelimiterOrEof('\n');
-                // Give an empty line to the while loop, which will be skipped.
-                break :l line_buf[0..0];
-            },
-            else => |e| return e,
+    var br = file.reader().buffered(&line_buf);
+    while (br.takeDelimiterConclusive('\n')) |line_with_comment| {
+        const line = line: {
+            var split = mem.splitScalar(u8, line_with_comment, '#');
+            break :line split.first();
         };
-        const no_comment_line = no_comment_line: {
-            var split = mem.splitScalar(u8, line, '#');
-            break :no_comment_line split.first();
-        };
-        var line_it = mem.tokenizeAny(u8, no_comment_line, " \t");
+        var line_it = mem.tokenizeAny(u8, line, " \t");
 
         const token = line_it.next() orelse continue;
         if (mem.eql(u8, token, "options")) {
@@ -1615,7 +1583,7 @@ fn getResolvConf(allocator: mem.Allocator, rc: *ResolvConf) !void {
             rc.search.items.len = 0;
             try rc.search.appendSlice(line_it.rest());
         }
-    }
+    } else |err| return err;
 
     if (rc.ns.items.len == 0) {
         return linuxLookupNameFromNumericUnspec(&rc.ns, "127.0.0.1", 53);

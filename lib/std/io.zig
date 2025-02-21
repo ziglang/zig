@@ -62,205 +62,20 @@ pub fn getStdIn() File {
     return .{ .handle = getStdInHandle() };
 }
 
-pub fn GenericReader(
-    comptime Context: type,
-    comptime ReadError: type,
-    /// Returns the number of bytes read. It may be less than buffer.len.
-    /// If the number of bytes read is 0, it means end of stream.
-    /// End of stream is not an error condition.
-    comptime readFn: fn (context: Context, buffer: []u8) ReadError!usize,
-) type {
-    return struct {
-        context: Context,
-
-        pub const Error = ReadError;
-        pub const NoEofError = ReadError || error{
-            EndOfStream,
-        };
-
-        pub inline fn read(self: Self, buffer: []u8) Error!usize {
-            return readFn(self.context, buffer);
-        }
-
-        pub inline fn readAll(self: Self, buffer: []u8) Error!usize {
-            return @errorCast(self.any().readAll(buffer));
-        }
-
-        pub inline fn readAtLeast(self: Self, buffer: []u8, len: usize) Error!usize {
-            return @errorCast(self.any().readAtLeast(buffer, len));
-        }
-
-        pub inline fn readNoEof(self: Self, buf: []u8) NoEofError!void {
-            return @errorCast(self.any().readNoEof(buf));
-        }
-
-        pub inline fn readAllArrayList(
-            self: Self,
-            array_list: *std.ArrayList(u8),
-            max_append_size: usize,
-        ) (error{StreamTooLong} || Allocator.Error || Error)!void {
-            return @errorCast(self.any().readAllArrayList(array_list, max_append_size));
-        }
-
-        pub inline fn readAllArrayListAligned(
-            self: Self,
-            comptime alignment: ?Alignment,
-            array_list: *std.ArrayListAligned(u8, alignment),
-            max_append_size: usize,
-        ) (error{StreamTooLong} || Allocator.Error || Error)!void {
-            return @errorCast(self.any().readAllArrayListAligned(
-                alignment,
-                array_list,
-                max_append_size,
-            ));
-        }
-
-        pub inline fn readAllAlloc(
-            self: Self,
-            allocator: Allocator,
-            max_size: usize,
-        ) (Error || Allocator.Error || error{StreamTooLong})![]u8 {
-            return @errorCast(self.any().readAllAlloc(allocator, max_size));
-        }
-
-        pub inline fn streamUntilDelimiter(
-            self: Self,
-            writer: *std.io.BufferedWriter,
-            delimiter: u8,
-            optional_max_size: ?usize,
-        ) anyerror!void {
-            return self.any().streamUntilDelimiter(
-                writer,
-                delimiter,
-                optional_max_size,
-            );
-        }
-
-        pub inline fn skipUntilDelimiterOrEof(self: Self, delimiter: u8) Error!void {
-            return @errorCast(self.any().skipUntilDelimiterOrEof(delimiter));
-        }
-
-        pub inline fn readByte(self: Self) NoEofError!u8 {
-            return @errorCast(self.any().readByte());
-        }
-
-        pub inline fn readByteSigned(self: Self) NoEofError!i8 {
-            return @errorCast(self.any().readByteSigned());
-        }
-
-        pub inline fn readBytesNoEof(
-            self: Self,
-            comptime num_bytes: usize,
-        ) NoEofError![num_bytes]u8 {
-            return @errorCast(self.any().readBytesNoEof(num_bytes));
-        }
-
-        pub inline fn readIntoBoundedBytes(
-            self: Self,
-            comptime num_bytes: usize,
-            bounded: *std.BoundedArray(u8, num_bytes),
-        ) Error!void {
-            return @errorCast(self.any().readIntoBoundedBytes(num_bytes, bounded));
-        }
-
-        pub inline fn readBoundedBytes(
-            self: Self,
-            comptime num_bytes: usize,
-        ) Error!std.BoundedArray(u8, num_bytes) {
-            return @errorCast(self.any().readBoundedBytes(num_bytes));
-        }
-
-        pub inline fn readInt(self: Self, comptime T: type, endian: std.builtin.Endian) NoEofError!T {
-            return @errorCast(self.any().readInt(T, endian));
-        }
-
-        pub inline fn readVarInt(
-            self: Self,
-            comptime ReturnType: type,
-            endian: std.builtin.Endian,
-            size: usize,
-        ) NoEofError!ReturnType {
-            return @errorCast(self.any().readVarInt(ReturnType, endian, size));
-        }
-
-        pub const SkipBytesOptions = AnyReader.SkipBytesOptions;
-
-        pub inline fn skipBytes(
-            self: Self,
-            num_bytes: u64,
-            comptime options: SkipBytesOptions,
-        ) NoEofError!void {
-            return @errorCast(self.any().skipBytes(num_bytes, options));
-        }
-
-        pub inline fn isBytes(self: Self, slice: []const u8) NoEofError!bool {
-            return @errorCast(self.any().isBytes(slice));
-        }
-
-        pub inline fn readStruct(self: Self, comptime T: type) NoEofError!T {
-            return @errorCast(self.any().readStruct(T));
-        }
-
-        pub inline fn readStructEndian(self: Self, comptime T: type, endian: std.builtin.Endian) NoEofError!T {
-            return @errorCast(self.any().readStructEndian(T, endian));
-        }
-
-        pub const ReadEnumError = NoEofError || error{
-            /// An integer was read, but it did not match any of the tags in the supplied enum.
-            InvalidValue,
-        };
-
-        pub inline fn readEnum(
-            self: Self,
-            comptime Enum: type,
-            endian: std.builtin.Endian,
-        ) ReadEnumError!Enum {
-            return @errorCast(self.any().readEnum(Enum, endian));
-        }
-
-        pub inline fn any(self: *const Self) AnyReader {
-            return .{
-                .context = @ptrCast(&self.context),
-                .readFn = typeErasedReadFn,
-            };
-        }
-
-        const Self = @This();
-
-        fn typeErasedReadFn(context: *const anyopaque, buffer: []u8) anyerror!usize {
-            const ptr: *const Context = @alignCast(@ptrCast(context));
-            return readFn(ptr.*, buffer);
-        }
-    };
-}
-
-/// Deprecated; consider switching to `AnyReader` or use `GenericReader`
-/// to use previous API. To be removed after 0.14.0 is tagged.
-pub const Reader = GenericReader;
+pub const Reader = @import("io/Reader.zig");
 pub const Writer = @import("io/Writer.zig");
 
-pub const AnyReader = @import("io/Reader.zig");
-
-pub const SeekableStream = @import("io/seekable_stream.zig").SeekableStream;
-
+pub const BufferedReader = @import("io/BufferedReader.zig");
 pub const BufferedWriter = @import("io/BufferedWriter.zig");
 pub const AllocatingWriter = @import("io/AllocatingWriter.zig");
-
-pub const BufferedReader = @import("io/buffered_reader.zig").BufferedReader;
-pub const bufferedReader = @import("io/buffered_reader.zig").bufferedReader;
-pub const bufferedReaderSize = @import("io/buffered_reader.zig").bufferedReaderSize;
-
-pub const FixedBufferStream = @import("io/FixedBufferStream.zig");
+pub const CountingWriter = @import("io/CountingWriter.zig");
+pub const CountingReader = @import("io/CountingReader.zig");
 
 pub const CWriter = @import("io/c_writer.zig").CWriter;
 pub const cWriter = @import("io/c_writer.zig").cWriter;
 
 pub const LimitedReader = @import("io/limited_reader.zig").LimitedReader;
 pub const limitedReader = @import("io/limited_reader.zig").limitedReader;
-
-pub const CountingWriter = @import("io/CountingWriter.zig");
-pub const CountingReader = @import("io/counting_reader.zig").CountingReader;
-pub const countingReader = @import("io/counting_reader.zig").countingReader;
 
 pub const MultiWriter = @import("io/multi_writer.zig").MultiWriter;
 pub const multiWriter = @import("io/multi_writer.zig").multiWriter;
@@ -278,8 +93,6 @@ pub const FindByteWriter = @import("io/find_byte_writer.zig").FindByteWriter;
 pub const findByteWriter = @import("io/find_byte_writer.zig").findByteWriter;
 
 pub const BufferedAtomicFile = @import("io/buffered_atomic_file.zig").BufferedAtomicFile;
-
-pub const StreamSource = @import("io/stream_source.zig").StreamSource;
 
 pub const tty = @import("io/tty.zig");
 
@@ -725,18 +538,16 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 }
 
 test {
-    _ = AnyReader;
+    _ = BufferedWriter;
+    _ = BufferedReader;
+    _ = Reader;
     _ = Writer;
     _ = CountingWriter;
-    _ = FixedBufferStream;
+    _ = CountingReader;
     _ = AllocatingWriter;
     _ = @import("io/bit_reader.zig");
     _ = @import("io/bit_writer.zig");
     _ = @import("io/buffered_atomic_file.zig");
-    _ = @import("io/buffered_reader.zig");
     _ = @import("io/c_writer.zig");
-    _ = @import("io/counting_reader.zig");
-    _ = @import("io/seekable_stream.zig");
-    _ = @import("io/stream_source.zig");
     _ = @import("io/test.zig");
 }

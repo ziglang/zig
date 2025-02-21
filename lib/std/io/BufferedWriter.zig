@@ -3,24 +3,37 @@ const BufferedWriter = @This();
 const assert = std.debug.assert;
 const native_endian = @import("builtin").target.cpu.arch.endian();
 const Writer = std.io.Writer;
+const Allocator = std.mem.Allocator;
 const testing = std.testing;
 
-/// Underlying stream to send bytes to.
-///
-/// A write will only be sent here if it could not fit into `buffer`, or if it
-/// is a `writeFile`.
-///
-/// `unbuffered_writer` may modify `buffer` if the number of bytes returned
-/// equals number of bytes provided. This property is exploited by
-/// `std.io.AllocatingWriter` for example.
-unbuffered_writer: Writer,
 /// User-provided storage that must outlive this `BufferedWriter`.
 ///
-/// If this has length zero, the writer is unbuffered, and `flush` is a no-op.
-buffer: []u8,
-/// Marks the end of `buffer` - before this are buffered bytes, after this is
-/// undefined.
-end: usize = 0,
+/// If this has capacity zero, the writer is unbuffered, and `flush` is a no-op.
+buffer: std.ArrayListUnmanaged(u8),
+mode: union(enum) {
+    /// Return `error.NoSpaceLeft` if a write could not fit into the buffer.
+    fixed,
+    /// Underlying stream to send bytes to.
+    ///
+    /// A write will only be sent here if it could not fit into `buffer`, or if
+    /// it is a `writeFile`.
+    ///
+    /// `unbuffered_writer` may modify `buffer` if the number of bytes returned
+    /// equals number of bytes provided. This property is exploited by
+    /// `std.io.AllocatingWriter` for example.
+    writer: Writer,
+    /// If this is provided, `buffer` will grow superlinearly rather than
+    /// become full.
+    allocator: Allocator,
+},
+
+pub fn deinit(bw: *BufferedWriter) void {
+    switch (bw.mode) {
+        .allocator => |gpa| bw.buffer.deinit(gpa),
+        .fixed, .writer => {},
+    }
+    bw.* = undefined;
+}
 
 /// Number of slices to store on the stack, when trying to send as many byte
 /// vectors through the underlying write calls as possible.
@@ -281,37 +294,44 @@ pub fn print(bw: *BufferedWriter, comptime format: []const u8, args: anytype) an
 }
 
 pub fn writeByte(bw: *BufferedWriter, byte: u8) anyerror!void {
-    const buffer = bw.buffer;
-    const end = bw.end;
-    if (end == buffer.len) {
-        @branchHint(.unlikely);
-        var buffers: [2][]const u8 = .{ buffer, &.{byte} };
-        while (true) {
-            const n = try bw.unbuffered_writer.writev(&buffers);
-            if (n == 0) {
-                @branchHint(.unlikely);
-                continue;
-            } else if (n >= buffer.len) {
-                @branchHint(.likely);
-                if (n > buffer.len) {
-                    @branchHint(.likely);
-                    bw.end = 0;
-                    return;
-                } else {
-                    buffer[0] = byte;
-                    bw.end = 1;
-                    return;
-                }
-            }
-            const remainder = buffer[n..];
-            std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
-            buffer[remainder.len] = byte;
-            bw.end = remainder.len + 1;
-            return;
-        }
+    const list = &bw.buffer;
+    const buffer = list.items;
+    if (buffer.len < list.capacity) {
+        @branchHint(.likely);
+        buffer.ptr[buffer.len] = byte;
+        list.items.len = buffer.len + 1;
+        return;
     }
-    buffer[end] = byte;
-    bw.end = end + 1;
+    switch (bw.mode) {
+        .fixed => return error.NoSpaceLeft,
+        .writer => |w| {
+            var buffers: [2][]const u8 = .{ buffer, &.{byte} };
+            while (true) {
+                const n = try w.writev(&buffers);
+                if (n == 0) {
+                    @branchHint(.unlikely);
+                    continue;
+                } else if (n >= buffer.len) {
+                    @branchHint(.likely);
+                    if (n > buffer.len) {
+                        @branchHint(.likely);
+                        list.items.len = 0;
+                        return;
+                    } else {
+                        buffer[0] = byte;
+                        list.items.len = 1;
+                        return;
+                    }
+                }
+                const remainder = buffer[n..];
+                std.mem.copyForwards(u8, buffer[0..remainder.len], remainder);
+                buffer[remainder.len] = byte;
+                list.items.len = remainder.len + 1;
+                return;
+            }
+        },
+        .allocator => |gpa| try list.append(gpa, byte),
+    }
 }
 
 /// Writes the same byte many times, performing the underlying write call as
@@ -1552,4 +1572,46 @@ test "bytes.hex" {
     try std.testing.expectFmt("lowercase: babe\n", "lowercase: {x}\n", .{some_bytes[2..]});
     const bytes_with_zeros = "\x00\x0E\xBA\xBE";
     try std.testing.expectFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
+}
+
+test initFixed {
+    {
+        var buf: [255]u8 = undefined;
+        var bw: BufferedWriter = undefined;
+        bw.initFixed(&buf);
+        try bw.print("{s}{s}!", .{ "Hello", "World" });
+        try testing.expectEqualStrings("HelloWorld!", bw.getWritten());
+    }
+
+    comptime {
+        var buf: [255]u8 = undefined;
+        var bw: BufferedWriter = undefined;
+        bw.initFixed(&buf);
+        try bw.print("{s}{s}!", .{ "Hello", "World" });
+        try testing.expectEqualStrings("HelloWorld!", bw.getWritten());
+    }
+}
+
+test "fixed output" {
+    var buffer: [10]u8 = undefined;
+    var bw: BufferedWriter = undefined;
+    bw.initFixed(&buffer);
+
+    try bw.writeAll("Hello");
+    try testing.expect(std.mem.eql(u8, bw.getWritten(), "Hello"));
+
+    try bw.writeAll("world");
+    try testing.expect(std.mem.eql(u8, bw.getWritten(), "Helloworld"));
+
+    try testing.expectError(error.NoSpaceLeft, bw.writeAll("!"));
+    try testing.expect(std.mem.eql(u8, bw.getWritten(), "Helloworld"));
+
+    bw.reset();
+    try testing.expect(bw.getWritten().len == 0);
+
+    try testing.expectError(error.NoSpaceLeft, bw.writeAll("Hello world!"));
+    try testing.expect(std.mem.eql(u8, bw.getWritten(), "Hello worl"));
+
+    try bw.seekTo((try bw.getEndPos()) + 1);
+    try testing.expectError(error.NoSpaceLeft, bw.writeAll("H"));
 }
