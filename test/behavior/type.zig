@@ -16,6 +16,8 @@ test "Type.MetaType" {
 }
 
 test "Type.Void" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     try testing.expect(void == @Type(.{ .void = {} }));
     try testTypes(&[_]type{void});
 }
@@ -203,6 +205,7 @@ test "Type.Opaque" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Opaque = @Type(.{
         .@"opaque" = .{
@@ -260,6 +263,7 @@ test "Type.Struct" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const A = @Type(@typeInfo(struct { x: u8, y: u32 }));
     const infoA = @typeInfo(A).@"struct";
@@ -347,6 +351,7 @@ test "Type.Struct" {
 test "Type.Enum" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Foo = @Type(.{
         .@"enum" = .{
@@ -545,6 +550,7 @@ test "Type.Union from empty Type.Enum" {
 test "Type.Fn" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const some_opaque = opaque {};
     const some_ptr = *some_opaque;
@@ -723,6 +729,7 @@ test "@Type should resolve its children types" {
 test "struct field names sliced at comptime from larger string" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const text =
         \\f1

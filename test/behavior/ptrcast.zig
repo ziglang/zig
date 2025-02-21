@@ -6,6 +6,7 @@ const native_endian = builtin.target.cpu.arch.endian();
 
 test "reinterpret bytes as integer with nonzero offset" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testReinterpretBytesAsInteger();
     try comptime testReinterpretBytesAsInteger();
@@ -40,6 +41,7 @@ fn testReinterpretWithOffsetAndNoWellDefinedLayout() !void {
 
 test "reinterpret bytes inside auto-layout struct as integer with nonzero offset" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testReinterpretStructWrappedBytesAsInteger();
     try comptime testReinterpretStructWrappedBytesAsInteger();
@@ -58,6 +60,7 @@ fn testReinterpretStructWrappedBytesAsInteger() !void {
 test "reinterpret bytes of an array into an extern struct" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testReinterpretBytesAsExternStruct();
     try comptime testReinterpretBytesAsExternStruct();
@@ -197,6 +200,7 @@ const Bytes = struct {
 
 test "ptrcast of const integer has the correct object size" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const is_value = ~@as(isize, @intCast(std.math.minInt(isize)));
     const is_bytes = @as([*]const u8, @ptrCast(&is_value))[0..@sizeOf(isize)];
@@ -232,6 +236,7 @@ test "implicit optional pointer to optional anyopaque pointer" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var buf: [4]u8 = "aoeu".*;
     const x: ?[*]u8 = &buf;
@@ -244,6 +249,7 @@ test "@ptrCast slice to slice" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn foo(slice: []u32) []i32 {

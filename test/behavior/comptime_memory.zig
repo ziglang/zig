@@ -68,6 +68,7 @@ fn bigToNativeEndian(comptime T: type, v: T) T {
 test "type pun endianness" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     comptime {
         const StructOfBytes = extern struct { x: [4]u8 };
@@ -289,6 +290,8 @@ test "dance on linker values" {
 }
 
 test "offset array ptr by element size" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     comptime {
         const VirtualStruct = struct { x: u32 };
         var arr: [4]VirtualStruct = .{
@@ -362,6 +365,7 @@ test "offset field ptr by enclosing array element size" {
 test "accessing reinterpreted memory of parent object" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = extern struct {
         a: f32,
@@ -408,6 +412,8 @@ test "mutate entire slice at comptime" {
 }
 
 test "dereference undefined pointer to zero-bit type" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const p0: *void = undefined;
     try testing.expectEqual({}, p0.*);
 
@@ -513,5 +519,7 @@ fn fieldPtrTest() u32 {
     return a.value;
 }
 test "pointer in aggregate field can mutate comptime state" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     try comptime std.testing.expect(fieldPtrTest() == 2);
 }

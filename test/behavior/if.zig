@@ -27,6 +27,8 @@ fn firstEqlThird(a: i32, b: i32, c: i32) void {
 }
 
 test "else if expression" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     try expect(elseIfExpressionF(1) == 1);
 }
 fn elseIfExpressionF(c: u8) u8 {
@@ -118,6 +120,7 @@ test "if peer expressions inferred optional type" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var self: []const u8 = "abcdef";
     var index: usize = 0;

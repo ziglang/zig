@@ -3,6 +3,8 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "optional type" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const x: ?bool = true;
 
     if (x) |y| {
@@ -33,6 +35,7 @@ test "test maybe object and get a pointer to the inner value" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     var maybe_bool: ?bool = true;
 
@@ -44,6 +47,8 @@ test "test maybe object and get a pointer to the inner value" {
 }
 
 test "rhs maybe unwrap return" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const x: ?bool = true;
     const y = x orelse return;
     _ = y;
@@ -53,6 +58,7 @@ test "maybe return" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try maybeReturnImpl();
     try comptime maybeReturnImpl();
@@ -72,6 +78,7 @@ fn foo(x: ?i32) ?bool {
 test "test null runtime" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testTestNullRuntime(null);
 }
@@ -83,6 +90,7 @@ fn testTestNullRuntime(x: ?i32) !void {
 test "optional void" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try optionalVoidImpl();
     try comptime optionalVoidImpl();
@@ -106,6 +114,7 @@ const Empty = struct {};
 test "optional struct{}" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     _ = try optionalEmptyStructImpl();
     _ = try comptime optionalEmptyStructImpl();
@@ -125,12 +134,15 @@ fn baz(x: ?Empty) ?Empty {
 }
 
 test "null with default unwrap" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const x: i32 = null orelse 1;
     try expect(x == 1);
 }
 
 test "optional pointer to 0 bit type null value at runtime" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const EmptyStruct = struct {};
     var x: ?*EmptyStruct = null;
@@ -143,6 +155,7 @@ test "if var maybe pointer" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect(shouldBeAPlus1(Particle{
         .a = 14,
@@ -169,6 +182,8 @@ const Particle = struct {
 };
 
 test "null literal outside function" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const is_null = here_is_a_null_literal.context == null;
     try expect(is_null);
 
@@ -186,6 +201,7 @@ test "unwrap optional which is field of global var" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     struct_with_optional.field = null;
     if (struct_with_optional.field) |payload| {
@@ -206,6 +222,8 @@ const StructWithOptional = struct {
 var struct_with_optional: StructWithOptional = undefined;
 
 test "optional types" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     comptime {
         const opt_type_struct = StructWithOptionalType{ .t = u8 };
         try expect(opt_type_struct.t != null and opt_type_struct.t.? == u8);

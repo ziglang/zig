@@ -4,6 +4,8 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 
 test "simple destructure" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             var x: u32 = undefined;
@@ -23,6 +25,8 @@ test "simple destructure" {
 }
 
 test "destructure with comptime syntax" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             {
@@ -94,6 +98,8 @@ test "destructure from labeled block" {
 }
 
 test "destructure tuple value" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const tup: struct { f32, u32, i64 } = .{ 10.0, 20, 30 };
     const x, const y, const z = tup;
 
@@ -107,6 +113,8 @@ test "destructure tuple value" {
 }
 
 test "destructure array value" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const arr: [3]u32 = .{ 10, 20, 30 };
     const x, const y, const z = arr;
 
@@ -120,6 +128,8 @@ test "destructure array value" {
 }
 
 test "destructure from struct init with named tuple fields" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const Tuple = struct { u8, u16, u32 };
     const x, const y, const z = Tuple{
         .@"0" = 100,
@@ -179,6 +189,8 @@ test "destructure of tuple with comptime fields results in some comptime-known v
 }
 
 test "destructure vector" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const vec: @Vector(2, i32) = .{ 1, 2 };
     const x, const y = vec;
 

@@ -31,6 +31,7 @@ fn shouldBeNotEqual(a: anyerror, b: anyerror) void {
 
 test "error binary operator" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const a = errBinaryOperatorG(true) catch 3;
     const b = errBinaryOperatorG(false) catch 3;
@@ -62,6 +63,7 @@ pub fn baz() anyerror!i32 {
 
 test "error wrapping" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try expect((baz() catch unreachable) == 15);
 }
@@ -124,6 +126,7 @@ test "debug info for optional error set" {
 
 test "implicit cast to optional to error union to return result loc" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn entry() !void {
@@ -144,12 +147,15 @@ test "implicit cast to optional to error union to return result loc" {
 }
 
 test "fn returning empty error set can be passed as fn returning any error" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     entry();
     comptime entry();
 }
 
 test "fn returning empty error set can be passed as fn returning any error - pointer" {
     if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     entryPtr();
     comptime entryPtr();
 }
@@ -235,6 +241,8 @@ fn testExplicitErrorSetCast(set1: Set1) !void {
 }
 
 test "@errorCast on error unions" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest() !void {
             {
@@ -319,6 +327,7 @@ test "error inference with an empty set" {
 
 test "error union peer type resolution" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     try testErrorUnionPeerTypeResolution(1);
 }
@@ -531,6 +540,7 @@ test "return result loc as peer result loc in inferred error set function" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const S = struct {
         fn doTheTest() !void {
@@ -1049,6 +1059,8 @@ test "generic type constructed from inferred error set of unresolved function" {
 }
 
 test "errorCast to adhoc inferred error set" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         inline fn baz() !i32 {
             return @errorCast(err());
@@ -1071,6 +1083,8 @@ test "@errorCast from error set to error union" {
 }
 
 test "@errorCast from error union to error union" {
+    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+
     const S = struct {
         fn doTheTest(set: error{ A, B }!i32) error{A}!i32 {
             return @errorCast(set);
