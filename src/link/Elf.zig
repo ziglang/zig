@@ -1986,9 +1986,9 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
 
         // Shared libraries.
         if (is_exe_or_dyn_lib) {
-            // Worst-case, we need an --as-needed argument for every lib, as well
+            // Worst-case, we need --as-needed, -l, -L arguments for every lib, as well
             // as one before and one after.
-            try argv.ensureUnusedCapacity(2 * self.base.comp.link_inputs.len + 2);
+            try argv.ensureUnusedCapacity(5 * self.base.comp.link_inputs.len + 2);
             argv.appendAssumeCapacity("--as-needed");
             var as_needed = true;
 
@@ -2010,10 +2010,31 @@ fn linkWithLLD(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: s
                     }
 
                     // By this time, we depend on these libs being dynamically linked
-                    // libraries and not static libraries (the check for that needs to be earlier),
-                    // but they could be full paths to .so files, in which case we
-                    // want to avoid prepending "-l".
-                    argv.appendAssumeCapacity(try dso.path.toString(arena));
+                    // libraries and not static libraries (the check for that needs to be earlier).
+                    if (fs.path.dirname(try dso.path.toString(arena))) |dir| {
+                        argv.appendAssumeCapacity("-L");
+                        argv.appendAssumeCapacity(dir);
+                    }
+
+                    var stem = dso.path.stem();
+
+                    // Remove all extensions until and including the first .so.
+                    // This is need for names like libmathtest.so.1.0.0.
+                    while (true) {
+                        const extension = fs.path.extension(stem);
+                        if (extension.len == 0) {
+                            break;
+                        } else if (mem.eql(u8, extension, ".so")) {
+                            stem = fs.path.stem(stem);
+                            break;
+                        }
+                        stem = fs.path.stem(stem);
+                    }
+
+                    assert(mem.startsWith(u8, stem, "lib"));
+
+                    argv.appendAssumeCapacity("-l");
+                    argv.appendAssumeCapacity(stem[3..]);
                 },
             };
 
