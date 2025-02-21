@@ -1163,14 +1163,20 @@ pub const File = struct {
 
         var object_files: std.ArrayListUnmanaged([*:0]const u8) = .empty;
 
-        try object_files.ensureUnusedCapacity(arena, link_inputs.len);
+        const link_inputs_object_count = blk: {
+            var count: usize = 0;
+            for (link_inputs) |input| {
+                if (input == .object) count += 1;
+            }
+            break :blk count;
+        };
+
+        try object_files.ensureUnusedCapacity(arena, link_inputs_object_count +
+            comp.c_object_table.count() + comp.win32_resource_table.count() + 2);
+
         for (link_inputs) |input| {
-            object_files.appendAssumeCapacity(try input.path().?.toStringZ(arena));
+            if (input == .object) object_files.appendAssumeCapacity(try input.path().?.toStringZ(arena));
         }
-
-        try object_files.ensureUnusedCapacity(arena, comp.c_object_table.count() +
-            comp.win32_resource_table.count() + 2);
-
         for (comp.c_object_table.keys()) |key| {
             object_files.appendAssumeCapacity(try key.status.success.object_path.toStringZ(arena));
         }
