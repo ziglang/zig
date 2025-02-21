@@ -33,6 +33,7 @@ location_tok: std.zig.Ast.TokenIndex,
 hash_tok: std.zig.Ast.TokenIndex,
 name_tok: std.zig.Ast.TokenIndex,
 lazy_status: LazyStatus,
+unpack: bool,
 parent_package_root: Cache.Path,
 parent_manifest_ast: ?*const std.zig.Ast,
 prog_node: std.Progress.Node,
@@ -345,12 +346,12 @@ pub fn run(f: *Fetch) RunError!void {
         .path_or_url => |path_or_url| {
             if (fs.cwd().openDir(path_or_url, .{ .iterate = true })) |dir| {
                 var resource: Resource = .{ .dir = dir };
-                return f.runResource(path_or_url, &resource, null);
+                return f.runResource(path_or_url, &resource, null, f.unpack);
             } else |dir_err| {
                 const file_err = if (dir_err == error.NotDir) e: {
                     if (fs.cwd().openFile(path_or_url, .{})) |file| {
                         var resource: Resource = .{ .file = file };
-                        return f.runResource(path_or_url, &resource, null);
+                        return f.runResource(path_or_url, &resource, null, f.unpack);
                     } else |err| break :e err;
                 } else dir_err;
 
@@ -362,7 +363,7 @@ pub fn run(f: *Fetch) RunError!void {
                 };
                 var server_header_buffer: [header_buffer_size]u8 = undefined;
                 var resource = try f.initResource(uri, &server_header_buffer);
-                return f.runResource(try uri.path.toRawMaybeAlloc(arena), &resource, null);
+                return f.runResource(try uri.path.toRawMaybeAlloc(arena), &resource, null, f.unpack);
             }
         },
     };
@@ -424,7 +425,7 @@ pub fn run(f: *Fetch) RunError!void {
     );
     var server_header_buffer: [header_buffer_size]u8 = undefined;
     var resource = try f.initResource(uri, &server_header_buffer);
-    return f.runResource(try uri.path.toRawMaybeAlloc(arena), &resource, remote.hash);
+    return f.runResource(try uri.path.toRawMaybeAlloc(arena), &resource, remote.hash, f.unpack);
 }
 
 pub fn deinit(f: *Fetch) void {
@@ -438,6 +439,7 @@ fn runResource(
     uri_path: []const u8,
     resource: *Resource,
     remote_hash: ?Manifest.MultiHashHexDigest,
+    unpack: bool,
 ) RunError!void {
     defer resource.deinit();
     const arena = f.arena.allocator();
@@ -468,7 +470,7 @@ fn runResource(
         defer tmp_directory.handle.close();
 
         // Fetch and unpack a resource into a temporary directory.
-        var unpack_result = try unpackResource(f, resource, uri_path, tmp_directory);
+        var unpack_result = try unpackResource(f, resource, uri_path, tmp_directory, unpack);
 
         var pkg_path: Cache.Path = .{ .root_dir = tmp_directory, .sub_path = unpack_result.root_dir };
 
@@ -712,6 +714,7 @@ fn queueJobsForDeps(f: *Fetch) RunError!void {
                 .hash_tok = dep.hash_tok,
                 .name_tok = dep.name_tok,
                 .lazy_status = if (dep.lazy) .available else .eager,
+                .unpack = dep.unpack,
                 .parent_package_root = f.package_root,
                 .parent_manifest_ast = &f.manifest_ast,
                 .prog_node = f.prog_node,
@@ -1051,8 +1054,35 @@ fn unpackResource(
     resource: *Resource,
     uri_path: []const u8,
     tmp_directory: Cache.Directory,
+    unpack: bool,
 ) RunError!UnpackResult {
     const eb = &f.error_bundle;
+
+    if (!unpack) {
+        const basename = std.fs.path.basename(uri_path);
+        var out_file = tmp_directory.handle.createFile(
+            basename,
+            .{},
+        ) catch |err| return f.fail(f.location_tok, try eb.printString(
+            "failed to create temporary file: {s}",
+            .{@errorName(err)},
+        ));
+        defer out_file.close();
+        var buf: [std.mem.page_size]u8 = undefined;
+        while (true) {
+            const len = resource.reader().readAll(&buf) catch |err| return f.fail(f.location_tok, try eb.printString(
+                "read stream failed: {s}",
+                .{@errorName(err)},
+            ));
+            if (len == 0) break;
+            out_file.writer().writeAll(buf[0..len]) catch |err| return f.fail(f.location_tok, try eb.printString(
+                "write temporary file failed: {s}",
+                .{@errorName(err)},
+            ));
+        }
+        return .{};
+    }
+
     const file_type = switch (resource.*) {
         .file => FileType.fromPath(uri_path) orelse
             return f.fail(f.location_tok, try eb.printString("unknown file type: '{s}'", .{uri_path})),
