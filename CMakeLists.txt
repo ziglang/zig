@@ -452,12 +452,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/io.zig
     lib/std/io/Reader.zig
     lib/std/io/Writer.zig
-    lib/std/io/buffered_atomic_file.zig
-    lib/std/io/change_detection_stream.zig
-    lib/std/io/counting_reader.zig
-    lib/std/io/find_byte_writer.zig
-    lib/std/io/limited_reader.zig
-    lib/std/io/seekable_stream.zig
     lib/std/json.zig
     lib/std/leb128.zig
     lib/std/log.zig
