@@ -1722,6 +1722,7 @@ pub fn calcSymtabSize(self: *Object, macho_file: *MachO) void {
         if (file.getIndex() != self.index) continue;
         if (sym.getAtom(macho_file)) |atom| if (!atom.isAlive()) continue;
         if (sym.isSymbolStab(macho_file)) continue;
+        if (macho_file.discard_local_symbols and sym.isLocal()) continue;
         const name = sym.getName(macho_file);
         if (name.len == 0) continue;
         // TODO in -r mode, we actually want to merge symbol names and emit only one
