@@ -1732,7 +1732,11 @@ pub const Object = struct {
             try o.used.append(gpa, counters_variable.toConst(&o.builder));
             counters_variable.setLinkage(.private, &o.builder);
             counters_variable.setAlignment(comptime Builder.Alignment.fromByteUnits(1), &o.builder);
-            counters_variable.setSection(try o.builder.string("__sancov_cntrs"), &o.builder);
+            const name = if (target.os.tag == .macos)
+                "__DATA,__sancov_cntrs"
+            else
+                "__sancov_cntrs";
+            counters_variable.setSection(try o.builder.string(name), &o.builder);
 
             break :f .{
                 .counters_variable = counters_variable,
@@ -1794,7 +1798,11 @@ pub const Object = struct {
             pcs_variable.setLinkage(.private, &o.builder);
             pcs_variable.setMutability(.constant, &o.builder);
             pcs_variable.setAlignment(Type.usize.abiAlignment(zcu).toLlvm(), &o.builder);
-            pcs_variable.setSection(try o.builder.string("__sancov_pcs1"), &o.builder);
+            const name = if (target.os.tag == .macos)
+                "__DATA_CONST,__sancov_pcs1"
+            else
+                "__sancov_pcs1";
+            pcs_variable.setSection(try o.builder.string(name), &o.builder);
             try pcs_variable.setInitializer(init_val, &o.builder);
         }
 

@@ -1313,6 +1313,7 @@ pub fn updateExports(
         }
 
         const exp_name = exp.opts.name.toSlice(&zcu.intern_pool);
+
         const global_nlist_index = if (metadata.@"export"(self, exp_name)) |exp_index|
             exp_index.*
         else blk: {

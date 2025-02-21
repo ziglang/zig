@@ -617,6 +617,9 @@ inline fn callMainWithArgs(argc: usize, argv: [*][*:0]u8, envp: [][*:0]u8) u8 {
 }
 
 fn main(c_argc: c_int, c_argv: [*][*:0]c_char, c_envp: [*:null]?[*:0]c_char) callconv(.c) c_int {
+    // Code coverage instrumentation might try to use thread local variables.
+    @disableInstrumentation();
+
     var env_count: usize = 0;
     while (c_envp[env_count] != null) : (env_count += 1) {}
     const envp = @as([*][*:0]u8, @ptrCast(c_envp))[0..env_count];

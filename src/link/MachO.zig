@@ -416,7 +416,12 @@ pub fn flushModule(
     }
 
     if (comp.config.any_fuzz) {
-        try positionals.append(try link.openObjectInput(diags, comp.fuzzer_lib.?.full_object_path));
+        try positionals.append(try link.openArchiveInput(
+            diags,
+            comp.fuzzer_lib.?.full_object_path,
+            true,
+            false,
+        ));
     }
 
     if (comp.ubsan_rt_lib) |crt_file| {
@@ -1524,6 +1529,7 @@ fn scanRelocs(self: *MachO) !void {
     if (self.getInternalObject()) |obj| {
         try obj.checkUndefs(self);
     }
+
     try self.reportUndefs();
 
     if (self.getZigObject()) |zo| {

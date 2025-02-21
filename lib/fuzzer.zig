@@ -17,12 +17,7 @@ fn logOverride(
     comptime format: []const u8,
     args: anytype,
 ) void {
-    const f = if (log_file) |f| f else f: {
-        const f = fuzzer.cache_dir.createFile("tmp/libfuzzer.log", .{}) catch
-            @panic("failed to open fuzzer log file");
-        log_file = f;
-        break :f f;
-    };
+    const f = if (log_file) |f| f else return;
     const prefix1 = comptime level.asText();
     const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
     f.writer().print(prefix1 ++ prefix2 ++ format ++ "\n", args) catch @panic("failed to write to fuzzer log");
@@ -98,10 +93,11 @@ export fn __sanitizer_cov_pcs_init(start: usize, end: usize) void {
 
 fn handleCmp(pc: usize, arg1: u64, arg2: u64) void {
     fuzzer.traceValue(pc ^ arg1 ^ arg2);
-    //std.log.debug("0x{x}: comparison of {d} and {d}", .{ pc, arg1, arg2 });
+    // std.log.debug("0x{x}: comparison of {d} and {d}", .{ pc, arg1, arg2 });
 }
 
 const Fuzzer = struct {
+    inited: bool = false,
     rng: std.Random.DefaultPrng,
     pcs: []const usize,
     pc_counters: []u8,
@@ -157,6 +153,9 @@ const Fuzzer = struct {
         f.pc_counters = pc_counters;
         f.pcs = pcs;
 
+        log_file = fuzzer.cache_dir.createFile("tmp/libfuzzer.log", .{}) catch
+            @panic("failed to open fuzzer log file");
+
         // Choose a file name for the coverage based on a hash of the PCs that will be stored within.
         const pc_digest = std.hash.Wyhash.hash(0, std.mem.sliceAsBytes(pcs));
         f.coverage_id = pc_digest;
@@ -210,6 +209,8 @@ const Fuzzer = struct {
             f.seen_pcs.appendNTimesAssumeCapacity(0, n_bitset_elems * @sizeOf(usize));
             f.seen_pcs.appendSliceAssumeCapacity(std.mem.sliceAsBytes(pcs));
         }
+
+        f.inited = true;
     }
 
     fn initNextInput(f: *Fuzzer) void {
@@ -296,7 +297,9 @@ const Fuzzer = struct {
     /// where it branches.
     fn traceValue(f: *Fuzzer, x: usize) void {
         errdefer |err| oom(err);
-        try f.traced_comparisons.put(gpa, x, {});
+        if (f.inited) {
+            try f.traced_comparisons.put(gpa, x, {});
+        }
     }
 
     const Mutation = enum {
@@ -310,19 +313,21 @@ const Fuzzer = struct {
         f.input.clearRetainingCapacity();
         const old_input = f.corpus.items[corpus_index].bytes;
         f.input.ensureTotalCapacity(old_input.len + 1) catch @panic("mmap file resize failed");
-        switch (mutation) {
+        sw: switch (mutation) {
             .remove_byte => {
+                if (old_input.len == 0) continue :sw .add_byte;
                 const omitted_index = rng.uintLessThanBiased(usize, old_input.len);
                 f.input.appendSliceAssumeCapacity(old_input[0..omitted_index]);
                 f.input.appendSliceAssumeCapacity(old_input[omitted_index + 1 ..]);
             },
             .modify_byte => {
+                if (old_input.len == 0) continue :sw .add_byte;
                 const modified_index = rng.uintLessThanBiased(usize, old_input.len);
                 f.input.appendSliceAssumeCapacity(old_input);
                 f.input.items[modified_index] = rng.int(u8);
             },
             .add_byte => {
-                const modified_index = rng.uintLessThanBiased(usize, old_input.len);
+                const modified_index = if (old_input.len == 0) 0 else rng.uintLessThanBiased(usize, old_input.len);
                 f.input.appendSliceAssumeCapacity(old_input[0..modified_index]);
                 f.input.appendAssumeCapacity(rng.int(u8));
                 f.input.appendSliceAssumeCapacity(old_input[modified_index..]);
@@ -468,27 +473,55 @@ export fn fuzzer_init(cache_dir_struct: Fuzzer.Slice) void {
     // Linkers are expected to automatically add `__start_<section>` and
     // `__stop_<section>` symbols when section names are valid C identifiers.
 
-    const pc_counters_start = @extern([*]u8, .{
-        .name = "__start___sancov_cntrs",
-        .linkage = .weak,
-    }) orelse fatal("missing __start___sancov_cntrs symbol", .{});
+    const pc_counters_start = switch (builtin.os.tag) {
+        .linux => @extern([*]u8, .{
+            .name = "__start___sancov_cntrs",
+            .linkage = .weak,
+        }) orelse fatal("missing __start___sancov_cntrs symbol", .{}),
+        .macos => @extern([*]u8, .{
+            .name = "\x01section$start$__DATA$__sancov_cntrs",
+            .linkage = .weak,
+        }) orelse fatal("missing section$start$__DATA$__sancov_cntrs symbol", .{}),
+        else => @compileError("TODO: implement fuzzing support for the target platform"),
+    };
 
-    const pc_counters_end = @extern([*]u8, .{
-        .name = "__stop___sancov_cntrs",
-        .linkage = .weak,
-    }) orelse fatal("missing __stop___sancov_cntrs symbol", .{});
+    const pc_counters_end = switch (builtin.os.tag) {
+        .linux => @extern([*]u8, .{
+            .name = "__stop___sancov_cntrs",
+            .linkage = .weak,
+        }) orelse fatal("missing __stop___sancov_cntrs symbol", .{}),
+        .macos => @extern([*]u8, .{
+            .name = "\x01section$end$__DATA$__sancov_cntrs",
+            .linkage = .weak,
+        }) orelse fatal("missing section$end$__DATA$__sancov_cntrs symbol", .{}),
+        else => @compileError("TODO: implement fuzzing support for the target platform"),
+    };
 
     const pc_counters = pc_counters_start[0 .. pc_counters_end - pc_counters_start];
 
-    const pcs_start = @extern([*]usize, .{
-        .name = "__start___sancov_pcs1",
-        .linkage = .weak,
-    }) orelse fatal("missing __start___sancov_pcs1 symbol", .{});
+    const pcs_start = switch (builtin.os.tag) {
+        .linux => @extern([*]usize, .{
+            .name = "__start___sancov_pcs1",
+            .linkage = .weak,
+        }) orelse fatal("missing __start___sancov_pcs1 symbol", .{}),
+        .macos => @extern([*]usize, .{
+            .name = "\x01section$start$__DATA_CONST$__sancov_pcs1",
+            .linkage = .weak,
+        }) orelse fatal("missing section$start$__DATA_CONST$__sancov_pcs1 symbol", .{}),
+        else => @compileError("TODO: implement fuzzing support for the target platform"),
+    };
 
-    const pcs_end = @extern([*]usize, .{
-        .name = "__stop___sancov_pcs1",
-        .linkage = .weak,
-    }) orelse fatal("missing __stop___sancov_pcs1 symbol", .{});
+    const pcs_end = switch (builtin.os.tag) {
+        .linux => @extern([*]usize, .{
+            .name = "__stop___sancov_pcs1",
+            .linkage = .weak,
+        }) orelse fatal("missing __stop___sancov_pcs1 symbol", .{}),
+        .macos => @extern([*]usize, .{
+            .name = "\x01section$end$__DATA_CONST$__sancov_pcs1",
+            .linkage = .weak,
+        }) orelse fatal("missing section$end$__DATA_CONST$__sancov_pcs1 symbol", .{}),
+        else => @compileError("TODO: implement fuzzing support for the target platform"),
+    };
 
     const pcs = pcs_start[0 .. pcs_end - pcs_start];
 
