@@ -16,8 +16,8 @@
 #define TSAN_INTERFACE_H
 
 #include <sanitizer_common/sanitizer_internal_defs.h>
-using __sanitizer::uptr;
 using __sanitizer::tid_t;
+using __sanitizer::uptr;
 
 // This header should NOT include any other headers.
 // All functions in this header are extern "C" and start with __tsan_.
@@ -203,17 +203,18 @@ int __tsan_get_alloc_stack(uptr addr, uptr *trace, uptr size, int *thread_id,
 namespace __tsan {
 
 // These should match declarations from public tsan_interface_atomic.h header.
-typedef unsigned char      a8;
+typedef unsigned char a8;
 typedef unsigned short a16;
-typedef unsigned int       a32;
+typedef unsigned int a32;
 typedef unsigned long long a64;
-#if !SANITIZER_GO && (defined(__SIZEOF_INT128__) \
-    || (__clang_major__ * 100 + __clang_minor__ >= 302)) && \
+#if !SANITIZER_GO &&                                      \
+    (defined(__SIZEOF_INT128__) ||                        \
+     (__clang_major__ * 100 + __clang_minor__ >= 302)) && \
     !defined(__mips64) && !defined(__s390x__)
 __extension__ typedef __int128 a128;
-# define __TSAN_HAS_INT128 1
+#  define __TSAN_HAS_INT128 1
 #else
-# define __TSAN_HAS_INT128 0
+#  define __TSAN_HAS_INT128 0
 #endif
 
 // Part of ABI, do not change.
@@ -231,180 +232,180 @@ struct ThreadState;
 
 extern "C" {
 SANITIZER_INTERFACE_ATTRIBUTE
-a8 __tsan_atomic8_load(const volatile a8 *a, morder mo);
+a8 __tsan_atomic8_load(const volatile a8 *a, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a16 __tsan_atomic16_load(const volatile a16 *a, morder mo);
+a16 __tsan_atomic16_load(const volatile a16 *a, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a32 __tsan_atomic32_load(const volatile a32 *a, morder mo);
+a32 __tsan_atomic32_load(const volatile a32 *a, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a64 __tsan_atomic64_load(const volatile a64 *a, morder mo);
+a64 __tsan_atomic64_load(const volatile a64 *a, int mo);
 #if __TSAN_HAS_INT128
 SANITIZER_INTERFACE_ATTRIBUTE
-a128 __tsan_atomic128_load(const volatile a128 *a, morder mo);
+a128 __tsan_atomic128_load(const volatile a128 *a, int mo);
 #endif
 
 SANITIZER_INTERFACE_ATTRIBUTE
-void __tsan_atomic8_store(volatile a8 *a, a8 v, morder mo);
+void __tsan_atomic8_store(volatile a8 *a, a8 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-void __tsan_atomic16_store(volatile a16 *a, a16 v, morder mo);
+void __tsan_atomic16_store(volatile a16 *a, a16 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-void __tsan_atomic32_store(volatile a32 *a, a32 v, morder mo);
+void __tsan_atomic32_store(volatile a32 *a, a32 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-void __tsan_atomic64_store(volatile a64 *a, a64 v, morder mo);
+void __tsan_atomic64_store(volatile a64 *a, a64 v, int mo);
 #if __TSAN_HAS_INT128
 SANITIZER_INTERFACE_ATTRIBUTE
-void __tsan_atomic128_store(volatile a128 *a, a128 v, morder mo);
+void __tsan_atomic128_store(volatile a128 *a, a128 v, int mo);
 #endif
 
 SANITIZER_INTERFACE_ATTRIBUTE
-a8 __tsan_atomic8_exchange(volatile a8 *a, a8 v, morder mo);
+a8 __tsan_atomic8_exchange(volatile a8 *a, a8 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a16 __tsan_atomic16_exchange(volatile a16 *a, a16 v, morder mo);
+a16 __tsan_atomic16_exchange(volatile a16 *a, a16 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a32 __tsan_atomic32_exchange(volatile a32 *a, a32 v, morder mo);
+a32 __tsan_atomic32_exchange(volatile a32 *a, a32 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a64 __tsan_atomic64_exchange(volatile a64 *a, a64 v, morder mo);
+a64 __tsan_atomic64_exchange(volatile a64 *a, a64 v, int mo);
 #if __TSAN_HAS_INT128
 SANITIZER_INTERFACE_ATTRIBUTE
-a128 __tsan_atomic128_exchange(volatile a128 *a, a128 v, morder mo);
+a128 __tsan_atomic128_exchange(volatile a128 *a, a128 v, int mo);
 #endif
 
 SANITIZER_INTERFACE_ATTRIBUTE
-a8 __tsan_atomic8_fetch_add(volatile a8 *a, a8 v, morder mo);
+a8 __tsan_atomic8_fetch_add(volatile a8 *a, a8 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a16 __tsan_atomic16_fetch_add(volatile a16 *a, a16 v, morder mo);
+a16 __tsan_atomic16_fetch_add(volatile a16 *a, a16 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a32 __tsan_atomic32_fetch_add(volatile a32 *a, a32 v, morder mo);
+a32 __tsan_atomic32_fetch_add(volatile a32 *a, a32 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a64 __tsan_atomic64_fetch_add(volatile a64 *a, a64 v, morder mo);
+a64 __tsan_atomic64_fetch_add(volatile a64 *a, a64 v, int mo);
 #if __TSAN_HAS_INT128
 SANITIZER_INTERFACE_ATTRIBUTE
-a128 __tsan_atomic128_fetch_add(volatile a128 *a, a128 v, morder mo);
+a128 __tsan_atomic128_fetch_add(volatile a128 *a, a128 v, int mo);
 #endif
 
 SANITIZER_INTERFACE_ATTRIBUTE
-a8 __tsan_atomic8_fetch_sub(volatile a8 *a, a8 v, morder mo);
+a8 __tsan_atomic8_fetch_sub(volatile a8 *a, a8 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a16 __tsan_atomic16_fetch_sub(volatile a16 *a, a16 v, morder mo);
+a16 __tsan_atomic16_fetch_sub(volatile a16 *a, a16 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a32 __tsan_atomic32_fetch_sub(volatile a32 *a, a32 v, morder mo);
+a32 __tsan_atomic32_fetch_sub(volatile a32 *a, a32 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a64 __tsan_atomic64_fetch_sub(volatile a64 *a, a64 v, morder mo);
+a64 __tsan_atomic64_fetch_sub(volatile a64 *a, a64 v, int mo);
 #if __TSAN_HAS_INT128
 SANITIZER_INTERFACE_ATTRIBUTE
-a128 __tsan_atomic128_fetch_sub(volatile a128 *a, a128 v, morder mo);
+a128 __tsan_atomic128_fetch_sub(volatile a128 *a, a128 v, int mo);
 #endif
 
 SANITIZER_INTERFACE_ATTRIBUTE
-a8 __tsan_atomic8_fetch_and(volatile a8 *a, a8 v, morder mo);
+a8 __tsan_atomic8_fetch_and(volatile a8 *a, a8 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a16 __tsan_atomic16_fetch_and(volatile a16 *a, a16 v, morder mo);
+a16 __tsan_atomic16_fetch_and(volatile a16 *a, a16 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a32 __tsan_atomic32_fetch_and(volatile a32 *a, a32 v, morder mo);
+a32 __tsan_atomic32_fetch_and(volatile a32 *a, a32 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a64 __tsan_atomic64_fetch_and(volatile a64 *a, a64 v, morder mo);
+a64 __tsan_atomic64_fetch_and(volatile a64 *a, a64 v, int mo);
 #if __TSAN_HAS_INT128
 SANITIZER_INTERFACE_ATTRIBUTE
-a128 __tsan_atomic128_fetch_and(volatile a128 *a, a128 v, morder mo);
+a128 __tsan_atomic128_fetch_and(volatile a128 *a, a128 v, int mo);
 #endif
 
 SANITIZER_INTERFACE_ATTRIBUTE
-a8 __tsan_atomic8_fetch_or(volatile a8 *a, a8 v, morder mo);
+a8 __tsan_atomic8_fetch_or(volatile a8 *a, a8 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a16 __tsan_atomic16_fetch_or(volatile a16 *a, a16 v, morder mo);
+a16 __tsan_atomic16_fetch_or(volatile a16 *a, a16 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a32 __tsan_atomic32_fetch_or(volatile a32 *a, a32 v, morder mo);
+a32 __tsan_atomic32_fetch_or(volatile a32 *a, a32 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a64 __tsan_atomic64_fetch_or(volatile a64 *a, a64 v, morder mo);
+a64 __tsan_atomic64_fetch_or(volatile a64 *a, a64 v, int mo);
 #if __TSAN_HAS_INT128
 SANITIZER_INTERFACE_ATTRIBUTE
-a128 __tsan_atomic128_fetch_or(volatile a128 *a, a128 v, morder mo);
+a128 __tsan_atomic128_fetch_or(volatile a128 *a, a128 v, int mo);
 #endif
 
 SANITIZER_INTERFACE_ATTRIBUTE
-a8 __tsan_atomic8_fetch_xor(volatile a8 *a, a8 v, morder mo);
+a8 __tsan_atomic8_fetch_xor(volatile a8 *a, a8 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a16 __tsan_atomic16_fetch_xor(volatile a16 *a, a16 v, morder mo);
+a16 __tsan_atomic16_fetch_xor(volatile a16 *a, a16 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a32 __tsan_atomic32_fetch_xor(volatile a32 *a, a32 v, morder mo);
+a32 __tsan_atomic32_fetch_xor(volatile a32 *a, a32 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a64 __tsan_atomic64_fetch_xor(volatile a64 *a, a64 v, morder mo);
+a64 __tsan_atomic64_fetch_xor(volatile a64 *a, a64 v, int mo);
 #if __TSAN_HAS_INT128
 SANITIZER_INTERFACE_ATTRIBUTE
-a128 __tsan_atomic128_fetch_xor(volatile a128 *a, a128 v, morder mo);
+a128 __tsan_atomic128_fetch_xor(volatile a128 *a, a128 v, int mo);
 #endif
 
 SANITIZER_INTERFACE_ATTRIBUTE
-a8 __tsan_atomic8_fetch_nand(volatile a8 *a, a8 v, morder mo);
+a8 __tsan_atomic8_fetch_nand(volatile a8 *a, a8 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a16 __tsan_atomic16_fetch_nand(volatile a16 *a, a16 v, morder mo);
+a16 __tsan_atomic16_fetch_nand(volatile a16 *a, a16 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a32 __tsan_atomic32_fetch_nand(volatile a32 *a, a32 v, morder mo);
+a32 __tsan_atomic32_fetch_nand(volatile a32 *a, a32 v, int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a64 __tsan_atomic64_fetch_nand(volatile a64 *a, a64 v, morder mo);
+a64 __tsan_atomic64_fetch_nand(volatile a64 *a, a64 v, int mo);
 #if __TSAN_HAS_INT128
 SANITIZER_INTERFACE_ATTRIBUTE
-a128 __tsan_atomic128_fetch_nand(volatile a128 *a, a128 v, morder mo);
+a128 __tsan_atomic128_fetch_nand(volatile a128 *a, a128 v, int mo);
 #endif
 
 SANITIZER_INTERFACE_ATTRIBUTE
-int __tsan_atomic8_compare_exchange_strong(volatile a8 *a, a8 *c, a8 v,
-                                           morder mo, morder fmo);
+int __tsan_atomic8_compare_exchange_strong(volatile a8 *a, a8 *c, a8 v, int mo,
+                                           int fmo);
 SANITIZER_INTERFACE_ATTRIBUTE
 int __tsan_atomic16_compare_exchange_strong(volatile a16 *a, a16 *c, a16 v,
-                                            morder mo, morder fmo);
+                                            int mo, int fmo);
 SANITIZER_INTERFACE_ATTRIBUTE
 int __tsan_atomic32_compare_exchange_strong(volatile a32 *a, a32 *c, a32 v,
-                                            morder mo, morder fmo);
+                                            int mo, int fmo);
 SANITIZER_INTERFACE_ATTRIBUTE
 int __tsan_atomic64_compare_exchange_strong(volatile a64 *a, a64 *c, a64 v,
-                                            morder mo, morder fmo);
+                                            int mo, int fmo);
 #if __TSAN_HAS_INT128
 SANITIZER_INTERFACE_ATTRIBUTE
 int __tsan_atomic128_compare_exchange_strong(volatile a128 *a, a128 *c, a128 v,
-                                             morder mo, morder fmo);
+                                             int mo, int fmo);
 #endif
 
 SANITIZER_INTERFACE_ATTRIBUTE
-int __tsan_atomic8_compare_exchange_weak(volatile a8 *a, a8 *c, a8 v, morder mo,
-                                         morder fmo);
+int __tsan_atomic8_compare_exchange_weak(volatile a8 *a, a8 *c, a8 v, int mo,
+                                         int fmo);
 SANITIZER_INTERFACE_ATTRIBUTE
 int __tsan_atomic16_compare_exchange_weak(volatile a16 *a, a16 *c, a16 v,
-                                          morder mo, morder fmo);
+                                          int mo, int fmo);
 SANITIZER_INTERFACE_ATTRIBUTE
 int __tsan_atomic32_compare_exchange_weak(volatile a32 *a, a32 *c, a32 v,
-                                          morder mo, morder fmo);
+                                          int mo, int fmo);
 SANITIZER_INTERFACE_ATTRIBUTE
 int __tsan_atomic64_compare_exchange_weak(volatile a64 *a, a64 *c, a64 v,
-                                          morder mo, morder fmo);
+                                          int mo, int fmo);
 #if __TSAN_HAS_INT128
 SANITIZER_INTERFACE_ATTRIBUTE
 int __tsan_atomic128_compare_exchange_weak(volatile a128 *a, a128 *c, a128 v,
-                                           morder mo, morder fmo);
+                                           int mo, int fmo);
 #endif
 
 SANITIZER_INTERFACE_ATTRIBUTE
-a8 __tsan_atomic8_compare_exchange_val(volatile a8 *a, a8 c, a8 v, morder mo,
-                                       morder fmo);
+a8 __tsan_atomic8_compare_exchange_val(volatile a8 *a, a8 c, a8 v, int mo,
+                                       int fmo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a16 __tsan_atomic16_compare_exchange_val(volatile a16 *a, a16 c, a16 v,
-                                         morder mo, morder fmo);
+a16 __tsan_atomic16_compare_exchange_val(volatile a16 *a, a16 c, a16 v, int mo,
+                                         int fmo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a32 __tsan_atomic32_compare_exchange_val(volatile a32 *a, a32 c, a32 v,
-                                         morder mo, morder fmo);
+a32 __tsan_atomic32_compare_exchange_val(volatile a32 *a, a32 c, a32 v, int mo,
+                                         int fmo);
 SANITIZER_INTERFACE_ATTRIBUTE
-a64 __tsan_atomic64_compare_exchange_val(volatile a64 *a, a64 c, a64 v,
-                                         morder mo, morder fmo);
+a64 __tsan_atomic64_compare_exchange_val(volatile a64 *a, a64 c, a64 v, int mo,
+                                         int fmo);
 #if __TSAN_HAS_INT128
 SANITIZER_INTERFACE_ATTRIBUTE
 a128 __tsan_atomic128_compare_exchange_val(volatile a128 *a, a128 c, a128 v,
-                                           morder mo, morder fmo);
+                                           int mo, int fmo);
 #endif
 
 SANITIZER_INTERFACE_ATTRIBUTE
-void __tsan_atomic_thread_fence(morder mo);
+void __tsan_atomic_thread_fence(int mo);
 SANITIZER_INTERFACE_ATTRIBUTE
-void __tsan_atomic_signal_fence(morder mo);
+void __tsan_atomic_signal_fence(int mo);
 
 SANITIZER_INTERFACE_ATTRIBUTE
 void __tsan_go_atomic32_load(ThreadState *thr, uptr cpc, uptr pc, u8 *a);

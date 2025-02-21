@@ -35,8 +35,7 @@ namespace ranges {
 template <class _Ip, class _Op>
 using copy_backward_result = in_out_result<_Ip, _Op>;
 
-namespace __copy_backward {
-struct __fn {
+struct __copy_backward {
   template <bidirectional_iterator _InIter1, sentinel_for<_InIter1> _Sent1, bidirectional_iterator _InIter2>
     requires indirectly_copyable<_InIter1, _InIter2>
   _LIBCPP_HIDE_FROM_ABI constexpr copy_backward_result<_InIter1, _InIter2>
@@ -53,10 +52,9 @@ struct __fn {
     return {std::move(__ret.first), std::move(__ret.second)};
   }
 };
-} // namespace __copy_backward
 
 inline namespace __cpo {
-inline constexpr auto copy_backward = __copy_backward::__fn{};
+inline constexpr auto copy_backward = __copy_backward{};
 } // namespace __cpo
 } // namespace ranges
 

@@ -19,7 +19,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <bool _Const, class _Tp>
-using __maybe_const = __conditional_t<_Const, const _Tp, _Tp>;
+using __maybe_const _LIBCPP_NODEBUG = __conditional_t<_Const, const _Tp, _Tp>;
 
 _LIBCPP_END_NAMESPACE_STD
 

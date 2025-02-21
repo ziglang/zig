@@ -76,9 +76,7 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 void advance(_InputIter& __i
 // [range.iter.op.advance]
 
 namespace ranges {
-namespace __advance {
-
-struct __fn {
+struct __advance {
 private:
   template <class _Ip>
   _LIBCPP_HIDE_FROM_ABI static constexpr void __advance_forward(_Ip& __i, iter_difference_t<_Ip> __n) {
@@ -189,10 +187,8 @@ public:
   }
 };
 
-} // namespace __advance
-
 inline namespace __cpo {
-inline constexpr auto advance = __advance::__fn{};
+inline constexpr auto advance = __advance{};
 } // namespace __cpo
 } // namespace ranges
 

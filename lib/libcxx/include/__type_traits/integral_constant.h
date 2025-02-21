@@ -18,8 +18,8 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp, _Tp __v>
-struct _LIBCPP_TEMPLATE_VIS integral_constant {
-  static _LIBCPP_CONSTEXPR const _Tp value = __v;
+struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS integral_constant {
+  static inline _LIBCPP_CONSTEXPR const _Tp value = __v;
   typedef _Tp value_type;
   typedef integral_constant type;
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR operator value_type() const _NOEXCEPT { return value; }
@@ -27,9 +27,6 @@ struct _LIBCPP_TEMPLATE_VIS integral_constant {
   _LIBCPP_HIDE_FROM_ABI constexpr value_type operator()() const _NOEXCEPT { return value; }
 #endif
 };
-
-template <class _Tp, _Tp __v>
-_LIBCPP_CONSTEXPR const _Tp integral_constant<_Tp, __v>::value;
 
 typedef integral_constant<bool, true> true_type;
 typedef integral_constant<bool, false> false_type;

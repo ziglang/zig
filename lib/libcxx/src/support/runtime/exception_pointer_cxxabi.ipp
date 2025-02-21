@@ -40,7 +40,7 @@ nested_exception::nested_exception() noexcept : __ptr_(current_exception()) {}
 
 nested_exception::~nested_exception() noexcept {}
 
-_LIBCPP_NORETURN void nested_exception::rethrow_nested() const {
+void nested_exception::rethrow_nested() const {
   if (__ptr_ == nullptr)
     terminate();
   rethrow_exception(__ptr_);
@@ -55,7 +55,7 @@ exception_ptr current_exception() noexcept {
   return ptr;
 }
 
-_LIBCPP_NORETURN void rethrow_exception(exception_ptr p) {
+void rethrow_exception(exception_ptr p) {
   __cxa_rethrow_primary_exception(p.__ptr_);
   // if p.__ptr_ is NULL, above returns so we terminate
   terminate();

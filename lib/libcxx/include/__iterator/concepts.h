@@ -26,7 +26,6 @@
 #include <__concepts/semiregular.h>
 #include <__concepts/totally_ordered.h>
 #include <__config>
-#include <__functional/invoke.h>
 #include <__iterator/incrementable_traits.h>
 #include <__iterator/iter_move.h>
 #include <__iterator/iterator_traits.h>
@@ -34,7 +33,10 @@
 #include <__memory/pointer_traits.h>
 #include <__type_traits/add_pointer.h>
 #include <__type_traits/common_reference.h>
+#include <__type_traits/integral_constant.h>
+#include <__type_traits/invoke.h>
 #include <__type_traits/is_pointer.h>
+#include <__type_traits/is_primary_template.h>
 #include <__type_traits/is_reference.h>
 #include <__type_traits/remove_cv.h>
 #include <__type_traits/remove_cvref.h>
@@ -64,8 +66,33 @@ concept __indirectly_readable_impl =
 template <class _In>
 concept indirectly_readable = __indirectly_readable_impl<remove_cvref_t<_In>>;
 
+template <class _Tp>
+using __projected_iterator_t _LIBCPP_NODEBUG = typename _Tp::__projected_iterator;
+
+template <class _Tp>
+using __projected_projection_t _LIBCPP_NODEBUG = typename _Tp::__projected_projection;
+
+template <class _Tp>
+concept __specialization_of_projected = requires {
+  typename __projected_iterator_t<_Tp>;
+  typename __projected_projection_t<_Tp>;
+} && __is_primary_template<_Tp>::value;
+
+template <class _Tp>
+struct __indirect_value_t_impl {
+  using type = iter_value_t<_Tp>&;
+};
+template <__specialization_of_projected _Tp>
+struct __indirect_value_t_impl<_Tp> {
+  using type = invoke_result_t<__projected_projection_t<_Tp>&,
+                               typename __indirect_value_t_impl<__projected_iterator_t<_Tp>>::type>;
+};
+
 template <indirectly_readable _Tp>
-using iter_common_reference_t = common_reference_t<iter_reference_t<_Tp>, iter_value_t<_Tp>&>;
+using __indirect_value_t _LIBCPP_NODEBUG = typename __indirect_value_t_impl<_Tp>::type;
+
+template <indirectly_readable _Tp>
+using iter_common_reference_t = common_reference_t<iter_reference_t<_Tp>, __indirect_value_t<_Tp>>;
 
 // [iterator.concept.writable]
 template <class _Out, class _Tp>
@@ -176,43 +203,45 @@ concept __has_arrow = input_iterator<_Ip> && (is_pointer_v<_Ip> || requires(_Ip 
 // [indirectcallable.indirectinvocable]
 template <class _Fp, class _It>
 concept indirectly_unary_invocable =
-    indirectly_readable<_It> && copy_constructible<_Fp> && invocable<_Fp&, iter_value_t<_It>&> &&
+    indirectly_readable<_It> && copy_constructible<_Fp> && invocable<_Fp&, __indirect_value_t<_It>> &&
     invocable<_Fp&, iter_reference_t<_It>> &&
-    common_reference_with< invoke_result_t<_Fp&, iter_value_t<_It>&>, invoke_result_t<_Fp&, iter_reference_t<_It>>>;
+    common_reference_with< invoke_result_t<_Fp&, __indirect_value_t<_It>>,
+                           invoke_result_t<_Fp&, iter_reference_t<_It>>>;
 
 template <class _Fp, class _It>
 concept indirectly_regular_unary_invocable =
-    indirectly_readable<_It> && copy_constructible<_Fp> && regular_invocable<_Fp&, iter_value_t<_It>&> &&
+    indirectly_readable<_It> && copy_constructible<_Fp> && regular_invocable<_Fp&, __indirect_value_t<_It>> &&
     regular_invocable<_Fp&, iter_reference_t<_It>> &&
-    common_reference_with< invoke_result_t<_Fp&, iter_value_t<_It>&>, invoke_result_t<_Fp&, iter_reference_t<_It>>>;
+    common_reference_with< invoke_result_t<_Fp&, __indirect_value_t<_It>>,
+                           invoke_result_t<_Fp&, iter_reference_t<_It>>>;
 
 template <class _Fp, class _It>
 concept indirect_unary_predicate =
-    indirectly_readable<_It> && copy_constructible<_Fp> && predicate<_Fp&, iter_value_t<_It>&> &&
+    indirectly_readable<_It> && copy_constructible<_Fp> && predicate<_Fp&, __indirect_value_t<_It>> &&
     predicate<_Fp&, iter_reference_t<_It>>;
 
 template <class _Fp, class _It1, class _It2>
 concept indirect_binary_predicate =
     indirectly_readable<_It1> && indirectly_readable<_It2> && copy_constructible<_Fp> &&
-    predicate<_Fp&, iter_value_t<_It1>&, iter_value_t<_It2>&> &&
-    predicate<_Fp&, iter_value_t<_It1>&, iter_reference_t<_It2>> &&
-    predicate<_Fp&, iter_reference_t<_It1>, iter_value_t<_It2>&> &&
+    predicate<_Fp&, __indirect_value_t<_It1>, __indirect_value_t<_It2>> &&
+    predicate<_Fp&, __indirect_value_t<_It1>, iter_reference_t<_It2>> &&
+    predicate<_Fp&, iter_reference_t<_It1>, __indirect_value_t<_It2>> &&
     predicate<_Fp&, iter_reference_t<_It1>, iter_reference_t<_It2>>;
 
 template <class _Fp, class _It1, class _It2 = _It1>
 concept indirect_equivalence_relation =
     indirectly_readable<_It1> && indirectly_readable<_It2> && copy_constructible<_Fp> &&
-    equivalence_relation<_Fp&, iter_value_t<_It1>&, iter_value_t<_It2>&> &&
-    equivalence_relation<_Fp&, iter_value_t<_It1>&, iter_reference_t<_It2>> &&
-    equivalence_relation<_Fp&, iter_reference_t<_It1>, iter_value_t<_It2>&> &&
+    equivalence_relation<_Fp&, __indirect_value_t<_It1>, __indirect_value_t<_It2>> &&
+    equivalence_relation<_Fp&, __indirect_value_t<_It1>, iter_reference_t<_It2>> &&
+    equivalence_relation<_Fp&, iter_reference_t<_It1>, __indirect_value_t<_It2>> &&
     equivalence_relation<_Fp&, iter_reference_t<_It1>, iter_reference_t<_It2>>;
 
 template <class _Fp, class _It1, class _It2 = _It1>
 concept indirect_strict_weak_order =
     indirectly_readable<_It1> && indirectly_readable<_It2> && copy_constructible<_Fp> &&
-    strict_weak_order<_Fp&, iter_value_t<_It1>&, iter_value_t<_It2>&> &&
-    strict_weak_order<_Fp&, iter_value_t<_It1>&, iter_reference_t<_It2>> &&
-    strict_weak_order<_Fp&, iter_reference_t<_It1>, iter_value_t<_It2>&> &&
+    strict_weak_order<_Fp&, __indirect_value_t<_It1>, __indirect_value_t<_It2>> &&
+    strict_weak_order<_Fp&, __indirect_value_t<_It1>, iter_reference_t<_It2>> &&
+    strict_weak_order<_Fp&, iter_reference_t<_It1>, __indirect_value_t<_It2>> &&
     strict_weak_order<_Fp&, iter_reference_t<_It1>, iter_reference_t<_It2>>;
 
 template <class _Fp, class... _Its>
@@ -245,7 +274,7 @@ concept indirectly_copyable_storable =
 #endif // _LIBCPP_STD_VER >= 20
 
 template <class _Tp>
-using __has_random_access_iterator_category_or_concept
+using __has_random_access_iterator_category_or_concept _LIBCPP_NODEBUG
 #if _LIBCPP_STD_VER >= 20
     = integral_constant<bool, random_access_iterator<_Tp>>;
 #else  // _LIBCPP_STD_VER < 20

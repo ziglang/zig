@@ -408,7 +408,7 @@ _LIBUNWIND_EXPORT uintptr_t
 _Unwind_GetLanguageSpecificData(struct _Unwind_Context *context) {
   _Unwind_FunctionContext_t ufc = (_Unwind_FunctionContext_t) context;
   _LIBUNWIND_TRACE_API("_Unwind_GetLanguageSpecificData(context=%p) "
-                       "=> 0x%" PRIuPTR,
+                       "=> 0x%" PRIxPTR,
                        (void *)context, ufc->lsda);
   return ufc->lsda;
 }
