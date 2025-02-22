@@ -294,8 +294,7 @@ pub fn fromSlice(
 /// Like `fromSlice`, but asserts at compile time that the result type doesn't contain pointers. As
 /// such, the result doesn't need to be freed.
 ///
-/// An allocator is still required for temporary allocations made during parsing, and status must
-/// still be freed if it is non-null.
+/// An allocator is still required for temporary allocations made during parsing.
 pub fn fromSliceFlat(
     T: type,
     gpa: Allocator,
