@@ -479,7 +479,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/process/Child.zig
     lib/std/sort.zig
     lib/std/start.zig
-    lib/std/static_array_map.zig
+    lib/std/static_string_map.zig
     lib/std/std.zig
     lib/std/time.zig
     lib/std/treap.zig
