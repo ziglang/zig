@@ -16,6 +16,17 @@ else
 pub const visibility: std.builtin.SymbolVisibility =
     if (builtin.target.cpu.arch.isWasm() and linkage != .internal) .hidden else .default;
 
+pub const PreferredLoadStoreElement = element: {
+    if (std.simd.suggestVectorLength(u8)) |vec_size| {
+        const Vec = @Vector(vec_size, u8);
+
+        if (@sizeOf(Vec) == vec_size and std.math.isPowerOfTwo(vec_size)) {
+            break :element Vec;
+        }
+    }
+    break :element usize;
+};
+
 pub const want_aeabi = switch (builtin.abi) {
     .eabi,
     .eabihf,

@@ -18,16 +18,7 @@ comptime {
     }
 }
 
-const Element = Element: {
-    if (std.simd.suggestVectorLength(u8)) |vec_size| {
-        const Vec = @Vector(vec_size, u8);
-
-        if (@sizeOf(Vec) == vec_size and std.math.isPowerOfTwo(vec_size)) {
-            break :Element Vec;
-        }
-    }
-    break :Element usize;
-};
+const Element = common.PreferredLoadStoreElement;
 
 comptime {
     assert(std.math.isPowerOfTwo(@sizeOf(Element)));
