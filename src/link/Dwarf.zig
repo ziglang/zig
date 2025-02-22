@@ -3248,75 +3248,72 @@ fn updateLazyType(
         },
         .opt_type => |opt_child_type_index| {
             const opt_child_type: Type = .fromInterned(opt_child_type_index);
+            const opt_repr = optRepr(opt_child_type, zcu);
             try wip_nav.abbrevCode(.generated_union_type);
             try wip_nav.strp(name);
             try uleb128(diw, ty.abiSize(zcu));
             try uleb128(diw, ty.abiAlignment(zcu).toByteUnits().?);
-            if (opt_child_type.isNoReturn(zcu)) {
-                try wip_nav.abbrevCode(.generated_field);
-                try wip_nav.strp("null");
-                try wip_nav.refType(.null);
-                try uleb128(diw, 0);
-            } else {
-                try wip_nav.abbrevCode(.tagged_union);
-                try wip_nav.infoSectionOffset(
-                    .debug_info,
-                    wip_nav.unit,
-                    wip_nav.entry,
-                    @intCast(wip_nav.debug_info.items.len + dwarf.sectionOffsetBytes()),
-                );
-                {
+            switch (opt_repr) {
+                .opv_null => {
                     try wip_nav.abbrevCode(.generated_field);
-                    try wip_nav.strp("has_value");
-                    const repr: enum { unpacked, error_set, pointer } = switch (opt_child_type_index) {
-                        .anyerror_type => .error_set,
-                        else => switch (ip.indexToKey(opt_child_type_index)) {
-                            else => .unpacked,
-                            .error_set_type, .inferred_error_set_type => .error_set,
-                            .ptr_type => |ptr_type| if (ptr_type.flags.is_allowzero) .unpacked else .pointer,
-                        },
-                    };
-                    switch (repr) {
-                        .unpacked => {
-                            try wip_nav.refType(.bool);
-                            try uleb128(diw, if (opt_child_type.hasRuntimeBits(zcu))
-                                opt_child_type.abiSize(zcu)
-                            else
-                                0);
-                        },
-                        .error_set => {
-                            try wip_nav.refType(.fromInterned(try pt.intern(.{ .int_type = .{
-                                .signedness = .unsigned,
-                                .bits = zcu.errorSetBits(),
-                            } })));
-                            try uleb128(diw, 0);
-                        },
-                        .pointer => {
-                            try wip_nav.refType(.usize);
-                            try uleb128(diw, 0);
-                        },
-                    }
-
-                    try wip_nav.abbrevCode(.unsigned_tagged_union_field);
+                    try wip_nav.strp("null");
+                    try wip_nav.refType(.null);
                     try uleb128(diw, 0);
+                },
+                .unpacked, .error_set, .pointer => {
+                    try wip_nav.abbrevCode(.tagged_union);
+                    try wip_nav.infoSectionOffset(
+                        .debug_info,
+                        wip_nav.unit,
+                        wip_nav.entry,
+                        @intCast(wip_nav.debug_info.items.len + dwarf.sectionOffsetBytes()),
+                    );
                     {
                         try wip_nav.abbrevCode(.generated_field);
-                        try wip_nav.strp("null");
-                        try wip_nav.refType(.null);
-                        try uleb128(diw, 0);
-                    }
-                    try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                        try wip_nav.strp("has_value");
+                        switch (opt_repr) {
+                            .opv_null => unreachable,
+                            .unpacked => {
+                                try wip_nav.refType(.bool);
+                                try uleb128(diw, if (opt_child_type.hasRuntimeBits(zcu))
+                                    opt_child_type.abiSize(zcu)
+                                else
+                                    0);
+                            },
+                            .error_set => {
+                                try wip_nav.refType(.fromInterned(try pt.intern(.{ .int_type = .{
+                                    .signedness = .unsigned,
+                                    .bits = zcu.errorSetBits(),
+                                } })));
+                                try uleb128(diw, 0);
+                            },
+                            .pointer => {
+                                try wip_nav.refType(.usize);
+                                try uleb128(diw, 0);
+                            },
+                        }
 
-                    try wip_nav.abbrevCode(.tagged_union_default_field);
-                    {
-                        try wip_nav.abbrevCode(.generated_field);
-                        try wip_nav.strp("?");
-                        try wip_nav.refType(opt_child_type);
+                        try wip_nav.abbrevCode(.unsigned_tagged_union_field);
                         try uleb128(diw, 0);
+                        {
+                            try wip_nav.abbrevCode(.generated_field);
+                            try wip_nav.strp("null");
+                            try wip_nav.refType(.null);
+                            try uleb128(diw, 0);
+                        }
+                        try uleb128(diw, @intFromEnum(AbbrevCode.null));
+
+                        try wip_nav.abbrevCode(.tagged_union_default_field);
+                        {
+                            try wip_nav.abbrevCode(.generated_field);
+                            try wip_nav.strp("?");
+                            try wip_nav.refType(opt_child_type);
+                            try uleb128(diw, 0);
+                        }
+                        try uleb128(diw, @intFromEnum(AbbrevCode.null));
                     }
                     try uleb128(diw, @intFromEnum(AbbrevCode.null));
-                }
-                try uleb128(diw, @intFromEnum(AbbrevCode.null));
+                },
             }
             try uleb128(diw, @intFromEnum(AbbrevCode.null));
         },
@@ -3850,22 +3847,31 @@ fn updateLazyValue(
             try uleb128(diw, @intFromEnum(AbbrevCode.null));
         },
         .opt => |opt| {
-            const child_type: Type = .fromInterned(ip.indexToKey(opt.ty).opt_type);
+            const opt_child_type: Type = .fromInterned(ip.indexToKey(opt.ty).opt_type);
             try wip_nav.abbrevCode(.aggregate_comptime_value);
             try wip_nav.refType(.fromInterned(opt.ty));
             {
                 try wip_nav.abbrevCode(.comptime_value_field_runtime_bits);
                 try wip_nav.strp("has_value");
-                if (Type.fromInterned(opt.ty).optionalReprIsPayload(zcu)) {
-                    try wip_nav.blockValue(src_loc, .fromInterned(opt.val));
-                } else {
-                    try uleb128(diw, 1);
-                    try diw.writeByte(@intFromBool(opt.val != .none));
+                switch (optRepr(opt_child_type, zcu)) {
+                    .opv_null => try uleb128(diw, 0),
+                    .unpacked => try wip_nav.blockValue(src_loc, .makeBool(opt.val != .none)),
+                    .error_set => try wip_nav.blockValue(src_loc, .fromInterned(value_index)),
+                    .pointer => if (opt_child_type.comptimeOnly(zcu)) {
+                        var buf: [8]u8 = undefined;
+                        const bytes = buf[0..@divExact(zcu.getTarget().ptrBitWidth(), 8)];
+                        dwarf.writeInt(bytes, switch (opt.val) {
+                            .none => 0,
+                            else => opt_child_type.ptrAlignment(zcu).toByteUnits().?,
+                        });
+                        try uleb128(diw, bytes.len);
+                        try diw.writeAll(bytes);
+                    } else try wip_nav.blockValue(src_loc, .fromInterned(value_index)),
                 }
             }
             if (opt.val != .none) child_field: {
-                const has_runtime_bits = child_type.hasRuntimeBits(zcu);
-                const has_comptime_state = child_type.comptimeOnly(zcu) and try child_type.onePossibleValue(pt) == null;
+                const has_runtime_bits = opt_child_type.hasRuntimeBits(zcu);
+                const has_comptime_state = opt_child_type.comptimeOnly(zcu) and try opt_child_type.onePossibleValue(pt) == null;
                 try wip_nav.abbrevCode(if (has_comptime_state)
                     .comptime_value_field_comptime_state
                 else if (has_runtime_bits)
@@ -3993,6 +3999,23 @@ fn updateLazyValue(
         .memoized_call => unreachable, // not a value
     }
     try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.items);
+}
+
+fn optRepr(opt_child_type: Type, zcu: *const Zcu) enum {
+    unpacked,
+    opv_null,
+    error_set,
+    pointer,
+} {
+    if (opt_child_type.isNoReturn(zcu)) return .opv_null;
+    return switch (opt_child_type.toIntern()) {
+        .anyerror_type => .error_set,
+        else => switch (zcu.intern_pool.indexToKey(opt_child_type.toIntern())) {
+            else => .unpacked,
+            .error_set_type, .inferred_error_set_type => .error_set,
+            .ptr_type => |ptr_type| if (ptr_type.flags.is_allowzero) .unpacked else .pointer,
+        },
+    };
 }
 
 pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternPool.Index) UpdateError!void {

@@ -808,7 +808,7 @@ pub fn isNoReturn(ty: Type, zcu: *const Zcu) bool {
     return zcu.intern_pool.isNoReturn(ty.toIntern());
 }
 
-/// Returns `none` if the pointer is naturally aligned and the element type is 0-bit.
+/// Never returns `none`. Asserts that all necessary type resolution is already done.
 pub fn ptrAlignment(ty: Type, zcu: *Zcu) Alignment {
     return ptrAlignmentInner(ty, .normal, zcu, {}) catch unreachable;
 }
@@ -825,15 +825,9 @@ pub fn ptrAlignmentInner(
 ) !Alignment {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .ptr_type => |ptr_type| {
-            if (ptr_type.flags.alignment != .none)
-                return ptr_type.flags.alignment;
-
-            if (strat == .sema) {
-                const res = try Type.fromInterned(ptr_type.child).abiAlignmentInner(.sema, zcu, tid);
-                return res.scalar;
-            }
-
-            return Type.fromInterned(ptr_type.child).abiAlignment(zcu);
+            if (ptr_type.flags.alignment != .none) return ptr_type.flags.alignment;
+            const res = try Type.fromInterned(ptr_type.child).abiAlignmentInner(strat.toLazy(), zcu, tid);
+            return res.scalar;
         },
         .opt_type => |child| Type.fromInterned(child).ptrAlignmentInner(strat, zcu, tid),
         else => unreachable,
