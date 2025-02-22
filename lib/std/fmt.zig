@@ -792,13 +792,13 @@ fn formatFloatValue(
 ) !void {
     var buf: [format_float.bufferSize(.decimal, f64)]u8 = undefined;
 
-    if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "e")) {
-        const s = formatFloat(&buf, value, .{ .mode = .scientific, .precision = options.precision }) catch |err| switch (err) {
+    if (fmt.len == 0 or comptime std.mem.eql(u8, fmt, "d")) {
+        const s = formatFloat(&buf, value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
             error.BufferTooSmall => "(float)",
         };
         return formatBuf(s, options, writer);
-    } else if (comptime std.mem.eql(u8, fmt, "d")) {
-        const s = formatFloat(&buf, value, .{ .mode = .decimal, .precision = options.precision }) catch |err| switch (err) {
+    } else if (comptime std.mem.eql(u8, fmt, "e")) {
+        const s = formatFloat(&buf, value, .{ .mode = .scientific, .precision = options.precision }) catch |err| switch (err) {
             error.BufferTooSmall => "(float)",
         };
         return formatBuf(s, options, writer);
@@ -2180,7 +2180,7 @@ test "struct" {
     // Tuples
     try expectFmt("{ }", "{}", .{.{}});
     try expectFmt("{ -1 }", "{}", .{.{-1}});
-    try expectFmt("{ -1, 42, 2.5e4 }", "{}", .{.{ -1, 42, 0.25e5 }});
+    try expectFmt("{ -1, 42, 25000 }", "{}", .{.{ -1, 42, 0.25e5 }});
 }
 
 test "enum" {
@@ -2521,10 +2521,10 @@ test "formatFloatValue with comptime_float" {
     var buf: [20]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buf);
     try formatFloatValue(value, "", FormatOptions{}, fbs.writer());
-    try std.testing.expectEqualStrings(fbs.getWritten(), "1e0");
+    try std.testing.expectEqualStrings(fbs.getWritten(), "1");
 
-    try expectFmt("1e0", "{}", .{value});
-    try expectFmt("1e0", "{}", .{1.0});
+    try expectFmt("1", "{}", .{value});
+    try expectFmt("1", "{}", .{1.0});
 }
 
 test "formatType max_depth" {
@@ -2736,8 +2736,8 @@ test "runtime width specifier" {
 test "runtime precision specifier" {
     const number: f32 = 3.1415;
     const precision: usize = 2;
-    try expectFmt("3.14e0", "{:1.[1]}", .{ number, precision });
-    try expectFmt("3.14e0", "{:1.[precision]}", .{ .number = number, .precision = precision });
+    try expectFmt("3.14", "{:1.[1]}", .{ number, precision });
+    try expectFmt("3.14", "{:1.[precision]}", .{ .number = number, .precision = precision });
 }
 
 test "recursive format function" {
