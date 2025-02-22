@@ -25,7 +25,7 @@ pub fn initFixed(br: *BufferedReader, buffer: []const u8) void {
             .context = br,
             .vtable = &.{
                 .streamRead = null,
-                .seekRead = null,
+                .posRead = null,
             },
         },
     };
@@ -44,7 +44,9 @@ pub fn reader(br: *BufferedReader) Reader {
         .context = br,
         .vtable = &.{
             .streamRead = passthru_streamRead,
-            .seekRead = passthru_seekRead,
+            .streamReadVec = passthru_streamReadVec,
+            .posRead = passthru_posRead,
+            .posReadVec = passthru_posReadVec,
         },
     };
 }
@@ -65,14 +67,29 @@ fn passthru_streamRead(ctx: *anyopaque, bw: *BufferedWriter, limit: Reader.Limit
     return br.unbuffered_reader.streamRead(bw, limit);
 }
 
-fn passthru_seekRead(ctx: *anyopaque, bw: *BufferedWriter, limit: Reader.Limit, off: u64) anyerror!Reader.Status {
+fn passthru_streamReadVec(ctx: *anyopaque, data: []const []u8) anyerror!Reader.Status {
+    const br: *BufferedReader = @alignCast(@ptrCast(ctx));
+    _ = br;
+    _ = data;
+    @panic("TODO");
+}
+
+fn passthru_posRead(ctx: *anyopaque, bw: *BufferedWriter, limit: Reader.Limit, off: u64) anyerror!Reader.Status {
     const br: *BufferedReader = @alignCast(@ptrCast(ctx));
     const buffer = br.storage.buffer.items;
     if (off < buffer.len) {
         const send = buffer[off..limit.min(buffer.len)];
         return bw.writeSplat(send, 1);
     }
-    return br.unbuffered_reader.seekRead(bw, limit, off - buffer.len);
+    return br.unbuffered_reader.posRead(bw, limit, off - buffer.len);
+}
+
+fn passthru_posReadVec(ctx: *anyopaque, data: []const []u8, off: u64) anyerror!Reader.Status {
+    const br: *BufferedReader = @alignCast(@ptrCast(ctx));
+    _ = br;
+    _ = data;
+    _ = off;
+    @panic("TODO");
 }
 
 /// Returns the next `n` bytes from `unbuffered_reader`, filling the buffer as

@@ -80,7 +80,7 @@ pub fn writeFile(
     w: Writer,
     file: std.fs.File,
     offset: u64,
-    len: VTable.FileLen,
+    len: FileLen,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) anyerror!usize {
@@ -91,7 +91,7 @@ pub fn unimplemented_writeFile(
     context: *anyopaque,
     file: std.fs.File,
     offset: u64,
-    len: VTable.FileLen,
+    len: FileLen,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) anyerror!usize {
@@ -107,7 +107,7 @@ pub fn unimplemented_writeFile(
 pub fn buffered(w: Writer, buffer: []u8) std.io.BufferedWriter {
     return .{
         .buffer = .initBuffer(buffer),
-        .mode = .{ .writer = w },
+        .unbuffered_writer = w,
     };
 }
 

@@ -153,7 +153,7 @@ fn writeFile(
     context: *anyopaque,
     file: std.fs.File,
     offset: u64,
-    len: std.io.Writer.VTable.FileLen,
+    len: std.io.Writer.FileLen,
     headers_and_trailers_full: []const []const u8,
     headers_len_full: usize,
 ) anyerror!usize {

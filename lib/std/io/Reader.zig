@@ -19,10 +19,11 @@ pub const VTable = struct {
     ///
     /// If this is `null` it is equivalent to always returning
     /// `error.Unseekable`.
-    seekRead: ?*const fn (ctx: *anyopaque, bw: *std.io.BufferedWriter, limit: Limit, offset: u64) anyerror!Status,
+    posRead: ?*const fn (ctx: *anyopaque, bw: *std.io.BufferedWriter, limit: Limit, offset: u64) anyerror!Status,
+    posReadVec: ?*const fn (ctx: *anyopaque, data: []const []u8, offset: u64) anyerror!Status,
 
     /// Writes bytes from the internally tracked stream position to `bw`, or
-    /// returns `error.Unstreamable`, indicating `seekRead` should be used
+    /// returns `error.Unstreamable`, indicating `posRead` should be used
     /// instead.
     ///
     /// Returns the number of bytes written, which will be at minimum `0` and at
@@ -37,9 +38,10 @@ pub const VTable = struct {
     /// If this is `null` it is equivalent to always returning
     /// `error.Unstreamable`.
     streamRead: ?*const fn (ctx: *anyopaque, bw: *std.io.BufferedWriter, limit: Limit) anyerror!Status,
+    streamReadVec: ?*const fn (ctx: *anyopaque, data: []const []u8) anyerror!Status,
 };
 
-pub const Len = @Type(.{ .signedness = .unsigned, .bits = @bitSizeOf(usize) - 1 });
+pub const Len = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(usize) - 1 } });
 
 pub const Status = packed struct(usize) {
     /// Number of bytes that were written to `writer`.
@@ -56,7 +58,7 @@ pub const Limit = enum(usize) {
 /// Returns total number of bytes written to `w`.
 pub fn readAll(r: Reader, w: *std.io.BufferedWriter) anyerror!usize {
     if (r.vtable.pread != null) {
-        return seekReadAll(r, w) catch |err| switch (err) {
+        return posReadAll(r, w) catch |err| switch (err) {
             error.Unseekable => {},
             else => return err,
         };
@@ -68,11 +70,11 @@ pub fn readAll(r: Reader, w: *std.io.BufferedWriter) anyerror!usize {
 ///
 /// May return `error.Unseekable`, indicating this function cannot be used to
 /// read from the reader.
-pub fn seekReadAll(r: Reader, w: *std.io.BufferedWriter, start_offset: u64) anyerror!usize {
-    const vtable_seekRead = r.vtable.seekRead.?;
+pub fn posReadAll(r: Reader, w: *std.io.BufferedWriter, start_offset: u64) anyerror!usize {
+    const vtable_posRead = r.vtable.posRead.?;
     var offset: u64 = start_offset;
     while (true) {
-        const status = try vtable_seekRead(r.context, w, .none, offset);
+        const status = try vtable_posRead(r.context, w, .none, offset);
         offset += status.len;
         if (status.end) return @intCast(offset - start_offset);
     }
@@ -130,6 +132,10 @@ pub fn buffered(r: Reader, buffer: []u8) std.io.BufferedReader {
     };
 }
 
+pub fn unbuffered(r: Reader) std.io.BufferedReader {
+    return buffered(r, &.{});
+}
+
 pub fn allocating(r: Reader, gpa: std.mem.Allocator) std.io.BufferedReader {
     return .{
         .reader = r,
@@ -138,10 +144,6 @@ pub fn allocating(r: Reader, gpa: std.mem.Allocator) std.io.BufferedReader {
             .mode = .{ .allocator = gpa },
         },
     };
-}
-
-pub fn unbuffered(r: Reader) std.io.BufferedReader {
-    return buffered(r, &.{});
 }
 
 test "when the backing reader provides one byte at a time" {

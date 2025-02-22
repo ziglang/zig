@@ -2011,7 +2011,7 @@ pub const Stream = struct {
         context: *anyopaque,
         in_file: std.fs.File,
         in_offset: u64,
-        in_len: std.io.Writer.VTable.FileLen,
+        in_len: std.io.Writer.FileLen,
         headers_and_trailers: []const []const u8,
         headers_len: usize,
     ) anyerror!usize {
