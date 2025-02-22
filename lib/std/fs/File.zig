@@ -1590,8 +1590,10 @@ pub fn reader(file: File) std.io.Reader {
     return .{
         .context = handleToOpaque(file.handle),
         .vtable = .{
-            .seekRead = reader_seekRead,
+            .posRead = reader_posRead,
+            .posReadVec = reader_posReadVec,
             .streamRead = reader_streamRead,
+            .streamReadVec = reader_streamReadVec,
         },
     };
 }
@@ -1610,7 +1612,7 @@ pub fn writer(file: File) std.io.Writer {
 /// vectors through the underlying write calls as possible.
 const max_buffers_len = 16;
 
-pub fn reader_seekRead(
+pub fn reader_posRead(
     context: *anyopaque,
     bw: *std.io.BufferedWriter,
     limit: std.io.Reader.Limit,
@@ -1621,10 +1623,36 @@ pub fn reader_seekRead(
     return writer.writeFile(bw, file, .init(offset), len, &.{}, 0);
 }
 
-pub fn reader_streamRead(context: *anyopaque, bw: *std.io.BufferedWriter, limit: std.io.Reader.Limit) anyerror!usize {
+pub fn reader_posReadVec(context: *anyopaque, data: []const []u8, offset: u64) anyerror!std.io.Reader.Status {
+    const file = opaqueToHandle(context);
+    const n = try file.preadv(data, offset);
+    return .{
+        .len = n,
+        .end = n == 0,
+    };
+}
+
+pub fn reader_streamRead(
+    context: *anyopaque,
+    bw: *std.io.BufferedWriter,
+    limit: std.io.Reader.Limit,
+) anyerror!std.io.Reader.Status {
     const file = opaqueToHandle(context);
     const len: std.io.Writer.Len = if (limit.unwrap()) |l| .init(l) else .entire_file;
-    return writer.writeFile(bw, file, .none, len, &.{}, 0);
+    const n = try writer.writeFile(bw, file, .none, len, &.{}, 0);
+    return .{
+        .len = n,
+        .end = n == 0,
+    };
+}
+
+pub fn reader_streamReadVec(context: *anyopaque, data: []const []u8) anyerror!std.io.Reader.Status {
+    const file = opaqueToHandle(context);
+    const n = try file.readv(data);
+    return .{
+        .len = n,
+        .end = n == 0,
+    };
 }
 
 pub fn writer_writeSplat(context: *anyopaque, data: []const []const u8, splat: usize) anyerror!usize {
@@ -1671,7 +1699,7 @@ pub fn writer_writeFile(
     context: *anyopaque,
     in_file: std.fs.File,
     in_offset: u64,
-    in_len: std.io.Writer.VTable.FileLen,
+    in_len: std.io.Writer.FileLen,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) anyerror!usize {
@@ -1705,7 +1733,7 @@ fn writeFileUnseekable(
     out_fd: Handle,
     in_fd: Handle,
     in_offset: u64,
-    in_len: std.io.Writer.VTable.FileLen,
+    in_len: std.io.Writer.FileLen,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) anyerror!usize {
