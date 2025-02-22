@@ -50,8 +50,7 @@ pub const Error = union(enum) {
                 switch (self.err) {
                     .zoir => |err| {
                         if (self.index >= err.note_count) return null;
-                        const zoir = self.diag.zoir.?;
-                        const note = err.getNotes(zoir)[self.index];
+                        const note = err.getNotes(self.diag.zoir)[self.index];
                         self.index += 1;
                         return .{ .zoir = note };
                     },
@@ -82,16 +81,15 @@ pub const Error = union(enum) {
 
         pub fn fmtMessage(self: Note, diag: *const Diagnostics) std.fmt.Formatter(Note.formatMessage) {
             return .{ .data = switch (self) {
-                .zoir => |note| note.msg.get(diag.zoir.?),
+                .zoir => |note| note.msg.get(diag.zoir),
                 .type_check => |note| note.msg,
             } };
         }
 
         pub fn getLocation(self: Note, diag: *const Diagnostics) Ast.Location {
-            const ast = diag.ast.?;
             switch (self) {
-                .zoir => |note| return zoirErrorLocation(ast, note.token, note.node_or_offset),
-                .type_check => |note| return ast.tokenLocation(note.offset, note.token),
+                .zoir => |note| return zoirErrorLocation(diag.ast, note.token, note.node_or_offset),
+                .type_check => |note| return diag.ast.tokenLocation(note.offset, note.token),
             }
         }
     };
@@ -101,16 +99,14 @@ pub const Error = union(enum) {
         diag: *const Diagnostics,
 
         pub fn next(self: *@This()) ?Error {
-            const zoir = self.diag.zoir orelse return null;
-
-            if (self.index < zoir.compile_errors.len) {
-                const result: Error = .{ .zoir = zoir.compile_errors[self.index] };
+            if (self.index < self.diag.zoir.compile_errors.len) {
+                const result: Error = .{ .zoir = self.diag.zoir.compile_errors[self.index] };
                 self.index += 1;
                 return result;
             }
 
             if (self.diag.type_check) |err| {
-                if (self.index == zoir.compile_errors.len) {
+                if (self.index == self.diag.zoir.compile_errors.len) {
                     const result: Error = .{ .type_check = err };
                     self.index += 1;
                     return result;
@@ -168,7 +164,7 @@ pub const Error = union(enum) {
         _ = f;
         _ = options;
         switch (self.err) {
-            .zoir => |err| try writer.writeAll(err.msg.get(self.diag.zoir.?)),
+            .zoir => |err| try writer.writeAll(err.msg.get(self.diag.zoir)),
             .type_check => |tc| try writer.writeAll(tc.message),
         }
     }
@@ -181,14 +177,13 @@ pub const Error = union(enum) {
     }
 
     pub fn getLocation(self: @This(), diag: *const Diagnostics) Ast.Location {
-        const ast = diag.ast.?;
         return switch (self) {
             .zoir => |err| return zoirErrorLocation(
-                diag.ast.?,
+                diag.ast,
                 err.token,
                 err.node_or_offset,
             ),
-            .type_check => |err| return ast.tokenLocation(err.offset, err.token),
+            .type_check => |err| return diag.ast.tokenLocation(err.offset, err.token),
         };
     }
 
@@ -211,19 +206,33 @@ pub const Error = union(enum) {
 
 /// Information about the success or failure of a parse.
 pub const Diagnostics = struct {
-    ast: ?Ast = null,
-    zoir: ?Zoir = null,
+    ast: Ast = .{
+        .source = "",
+        .tokens = .empty,
+        .nodes = .empty,
+        .extra_data = &.{},
+        .mode = .zon,
+        .errors = &.{},
+    },
+    zoir: Zoir = .{
+        .nodes = .empty,
+        .extra = &.{},
+        .limbs = &.{},
+        .string_bytes = &.{},
+        .compile_errors = &.{},
+        .error_notes = &.{},
+    },
     type_check: ?Error.TypeCheckFailure = null,
 
     fn assertEmpty(self: Diagnostics) void {
-        assert(self.ast == null);
-        assert(self.zoir == null);
+        assert(self.ast.tokens.len == 0);
+        assert(self.zoir.nodes.len == 0);
         assert(self.type_check == null);
     }
 
     pub fn deinit(self: *Diagnostics, gpa: Allocator) void {
-        if (self.ast) |*ast| ast.deinit(gpa);
-        if (self.zoir) |*zoir| zoir.deinit(gpa);
+        self.ast.deinit(gpa);
+        self.zoir.deinit(gpa);
         if (self.type_check) |tc| tc.deinit(gpa);
         self.* = undefined;
     }
@@ -3459,13 +3468,13 @@ test "std.zon stop on node" {
         defer diag.deinit(gpa);
         const result = try fromSlice(Vec2, gpa, ".{ .x = 1.5, .y = 2.5 }", &diag, .{});
         try std.testing.expectEqual(result.y, 2.5);
-        try std.testing.expectEqual(Zoir.Node{ .float_literal = 1.5 }, result.x.get(diag.zoir.?));
+        try std.testing.expectEqual(Zoir.Node{ .float_literal = 1.5 }, result.x.get(diag.zoir));
     }
 
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
         const result = try fromSlice(Zoir.Node.Index, gpa, "1.23", &diag, .{});
-        try std.testing.expectEqual(Zoir.Node{ .float_literal = 1.23 }, result.get(diag.zoir.?));
+        try std.testing.expectEqual(Zoir.Node{ .float_literal = 1.23 }, result.get(diag.zoir));
     }
 }
