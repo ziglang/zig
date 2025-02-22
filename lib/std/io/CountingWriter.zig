@@ -33,7 +33,7 @@ fn passthru_writeFile(
     context: *anyopaque,
     file: std.fs.File,
     offset: u64,
-    len: Writer.VTable.FileLen,
+    len: Writer.FileLen,
     headers_and_trailers: []const []const u8,
     headers_len: usize,
 ) anyerror!usize {

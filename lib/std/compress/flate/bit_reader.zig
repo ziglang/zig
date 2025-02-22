@@ -2,17 +2,14 @@ const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
 
-pub fn bitReader(comptime T: type, reader: anytype) BitReader(T, @TypeOf(reader)) {
-    return BitReader(T, @TypeOf(reader)).init(reader);
-}
-
-pub fn BitReader64(comptime ReaderType: type) type {
-    return BitReader(u64, ReaderType);
-}
-
-pub fn BitReader32(comptime ReaderType: type) type {
-    return BitReader(u32, ReaderType);
-}
+pub const Flags = packed struct(u3) {
+    /// dont advance internal buffer, just get bits, leave them in buffer
+    peek: bool = false,
+    /// assume that there is no need to fill, fill should be called before
+    buffered: bool = false,
+    /// bit reverse read bits
+    reverse: bool = false,
+};
 
 /// Bit reader used during inflate (decompression). Has internal buffer of 64
 /// bits which shifts right after bits are consumed. Uses forward_reader to fill
@@ -23,14 +20,14 @@ pub fn BitReader32(comptime ReaderType: type) type {
 /// fill buffer from forward_reader by calling fill in advance and readF with
 /// buffered flag set.
 ///
-pub fn BitReader(comptime T: type, comptime ReaderType: type) type {
+pub fn BitReader(comptime T: type) type {
     assert(T == u32 or T == u64);
     const t_bytes: usize = @sizeOf(T);
     const Tshift = if (T == u64) u6 else u5;
 
     return struct {
         // Underlying reader used for filling internal bits buffer
-        forward_reader: ReaderType = undefined,
+        forward_reader: *std.io.BufferedReader,
         // Internal buffer of 64 bits
         bits: T = 0,
         // Number of bits in the buffer
@@ -38,10 +35,8 @@ pub fn BitReader(comptime T: type, comptime ReaderType: type) type {
 
         const Self = @This();
 
-        pub const Error = ReaderType.Error || error{EndOfStream};
-
-        pub fn init(rdr: ReaderType) Self {
-            var self = Self{ .forward_reader = rdr };
+        pub fn init(forward_reader: *std.io.BufferedReader) Self {
+            var self = Self{ .forward_reader = forward_reader };
             self.fill(1) catch {};
             return self;
         }
@@ -55,7 +50,7 @@ pub fn BitReader(comptime T: type, comptime ReaderType: type) type {
         /// bits to decode. So `nice` is not hard limit, it will just try to have
         /// that number of bits available. If end of forward stream is reached
         /// it may be some extra zero bits in buffer.
-        pub inline fn fill(self: *Self, nice: u6) !void {
+        pub fn fill(self: *Self, nice: u6) !void {
             if (self.nbits >= nice and nice != 0) {
                 return; // We have enough bits
             }
@@ -86,18 +81,12 @@ pub fn BitReader(comptime T: type, comptime ReaderType: type) type {
             // First read from internal bits buffer.
             var n: usize = 0;
             while (self.nbits > 0 and n < buf.len) {
-                buf[n] = try self.readF(u8, flag.buffered);
+                buf[n] = try self.readF(u8, .{ .buffered = true });
                 n += 1;
             }
             // Then use forward reader for all other bytes.
             try self.forward_reader.readNoEof(buf[n..]);
         }
-
-        pub const flag = struct {
-            pub const peek: u3 = 0b001; // dont advance internal buffer, just get bits, leave them in buffer
-            pub const buffered: u3 = 0b010; // assume that there is no need to fill, fill should be called before
-            pub const reverse: u3 = 0b100; // bit reverse read bits
-        };
 
         /// Alias for readF(U, 0).
         pub fn read(self: *Self, comptime U: type) !U {
@@ -105,12 +94,16 @@ pub fn BitReader(comptime T: type, comptime ReaderType: type) type {
         }
 
         /// Alias for readF with flag.peak set.
-        pub inline fn peekF(self: *Self, comptime U: type, comptime how: u3) !U {
-            return self.readF(U, how | flag.peek);
+        pub inline fn peekF(self: *Self, comptime U: type, comptime how: Flags) !U {
+            return self.readF(U, .{
+                .peek = true,
+                .buffered = how.buffered,
+                .reverse = how.reverse,
+            });
         }
 
         /// Read with flags provided.
-        pub fn readF(self: *Self, comptime U: type, comptime how: u3) !U {
+        pub fn readF(self: *Self, comptime U: type, comptime how: Flags) !U {
             if (U == T) {
                 assert(how == 0);
                 assert(self.alignBits() == 0);
@@ -129,34 +122,35 @@ pub fn BitReader(comptime T: type, comptime ReaderType: type) type {
                     try self.shift(n); // advance buffer for n
                     return u;
                 },
-                (flag.peek) => { // no shift, leave bits in the buffer
+                .{ .peek = true } => { // no shift, leave bits in the buffer
                     try self.fill(n);
                     return @truncate(self.bits);
                 },
-                flag.buffered => { // no fill, assume that buffer has enough bits
+                .{ .buffered = true } => { // no fill, assume that buffer has enough bits
                     const u: U = @truncate(self.bits);
                     try self.shift(n);
                     return u;
                 },
-                (flag.reverse) => { // same as 0 with bit reverse
+                .{ .reverse = true } => { // same as 0 with bit reverse
                     try self.fill(n);
                     const u: U = @truncate(self.bits);
                     try self.shift(n);
                     return @bitReverse(u);
                 },
-                (flag.peek | flag.reverse) => {
+                .{ .peek = true, .reverse = true } => {
                     try self.fill(n);
                     return @bitReverse(@as(U, @truncate(self.bits)));
                 },
-                (flag.buffered | flag.reverse) => {
+                .{ .buffered = true, .reverse = true } => {
                     const u: U = @truncate(self.bits);
                     try self.shift(n);
                     return @bitReverse(u);
                 },
-                (flag.peek | flag.buffered) => {
+                .{ .peek = true, .buffered = true },
+                => {
                     return @truncate(self.bits);
                 },
-                (flag.peek | flag.buffered | flag.reverse) => {
+                .{ .peek = true, .buffered = true, .reverse = true } => {
                     return @bitReverse(@as(U, @truncate(self.bits)));
                 },
             }
@@ -169,7 +163,7 @@ pub fn BitReader(comptime T: type, comptime ReaderType: type) type {
                 0 => {
                     try self.fill(n);
                 },
-                flag.buffered => {},
+                .{ .buffered = true } => {},
                 else => unreachable,
             }
             const mask: u16 = (@as(u16, 1) << n) - 1;
@@ -226,24 +220,24 @@ pub fn BitReader(comptime T: type, comptime ReaderType: type) type {
         ///                                   11000111
         pub fn readFixedCode(self: *Self) !u16 {
             try self.fill(7 + 2);
-            const code7 = try self.readF(u7, flag.buffered | flag.reverse);
+            const code7 = try self.readF(u7, .{ .buffered = true, .reverse = true });
             if (code7 <= 0b0010_111) { // 7 bits, 256-279, codes 0000_000 - 0010_111
                 return @as(u16, code7) + 256;
             } else if (code7 <= 0b1011_111) { // 8 bits, 0-143, codes 0011_0000 through 1011_1111
-                return (@as(u16, code7) << 1) + @as(u16, try self.readF(u1, flag.buffered)) - 0b0011_0000;
+                return (@as(u16, code7) << 1) + @as(u16, try self.readF(u1, .{ .buffered = true })) - 0b0011_0000;
             } else if (code7 <= 0b1100_011) { // 8 bit, 280-287, codes 1100_0000 - 1100_0111
-                return (@as(u16, code7 - 0b1100000) << 1) + try self.readF(u1, flag.buffered) + 280;
+                return (@as(u16, code7 - 0b1100000) << 1) + try self.readF(u1, .{ .buffered = true }) + 280;
             } else { // 9 bit, 144-255, codes 1_1001_0000 - 1_1111_1111
-                return (@as(u16, code7 - 0b1100_100) << 2) + @as(u16, try self.readF(u2, flag.buffered | flag.reverse)) + 144;
+                return (@as(u16, code7 - 0b1100_100) << 2) + @as(u16, try self.readF(u2, .{ .buffered = true, .reverse = true })) + 144;
             }
         }
     };
 }
 
 test "readF" {
-    var fbs = std.io.fixedBufferStream(&[_]u8{ 0xf3, 0x48, 0xcd, 0xc9, 0x00, 0x00 });
-    var br = bitReader(u64, fbs.reader());
-    const F = BitReader64(@TypeOf(fbs.reader())).flag;
+    var input: std.io.BufferedReader = undefined;
+    input.initFixed(&[_]u8{ 0xf3, 0x48, 0xcd, 0xc9, 0x00, 0x00 });
+    var br: BitReader(u64) = .init(&input);
 
     try testing.expectEqual(@as(u8, 48), br.nbits);
     try testing.expectEqual(@as(u64, 0xc9cd48f3), br.bits);
@@ -253,8 +247,8 @@ test "readF" {
     try testing.expectEqual(@as(u8, 48 - 3), br.nbits);
     try testing.expectEqual(@as(u3, 5), br.alignBits());
 
-    try testing.expect(try br.readF(u8, F.peek) == 0b0001_1110);
-    try testing.expect(try br.readF(u9, F.peek) == 0b1_0001_1110);
+    try testing.expect(try br.readF(u8, .{ .peek = true }) == 0b0001_1110);
+    try testing.expect(try br.readF(u9, .{ .peek = true }) == 0b1_0001_1110);
     try br.shift(9);
     try testing.expectEqual(@as(u8, 36), br.nbits);
     try testing.expectEqual(@as(u3, 4), br.alignBits());
@@ -283,15 +277,15 @@ test "read block type 1 data" {
             0x0c, 0x01, 0x02, 0x03, //
             0xaa, 0xbb, 0xcc, 0xdd,
         };
-        var fbs = std.io.fixedBufferStream(&data);
-        var br = bitReader(T, fbs.reader());
-        const F = BitReader(T, @TypeOf(fbs.reader())).flag;
+        var fbs: std.io.BufferedReader = undefined;
+        fbs.initFixed(&data);
+        var br: BitReader(T) = .init(&fbs);
 
         try testing.expectEqual(@as(u1, 1), try br.readF(u1, 0)); // bfinal
         try testing.expectEqual(@as(u2, 1), try br.readF(u2, 0)); // block_type
 
         for ("Hello world\n") |c| {
-            try testing.expectEqual(@as(u8, c), try br.readF(u8, F.reverse) - 0x30);
+            try testing.expectEqual(@as(u8, c), try br.readF(u8, .{ .reverse = true }) - 0x30);
         }
         try testing.expectEqual(@as(u7, 0), try br.readF(u7, 0)); // end of block
         br.alignToByte();
@@ -306,8 +300,9 @@ test "shift/fill" {
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
     };
-    var fbs = std.io.fixedBufferStream(&data);
-    var br = bitReader(u64, fbs.reader());
+    var fbs: std.io.BufferedReader = undefined;
+    fbs.initFixed(&data);
+    var br: BitReader(u64) = .init(&fbs);
 
     try testing.expectEqual(@as(u64, 0x08_07_06_05_04_03_02_01), br.bits);
     try br.shift(8);
@@ -332,8 +327,9 @@ test "readAll" {
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
             0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
         };
-        var fbs = std.io.fixedBufferStream(&data);
-        var br = bitReader(T, fbs.reader());
+        var fbs: std.io.BufferedReader = undefined;
+        fbs.initFixed(&data);
+        var br: BitReader(T) = .init(&fbs);
 
         switch (T) {
             u64 => try testing.expectEqual(@as(u64, 0x08_07_06_05_04_03_02_01), br.bits),
@@ -354,8 +350,9 @@ test "readFixedCode" {
     inline for ([_]type{ u64, u32 }) |T| {
         const fixed_codes = @import("huffman_encoder.zig").fixed_codes;
 
-        var fbs = std.io.fixedBufferStream(&fixed_codes);
-        var rdr = bitReader(T, fbs.reader());
+        var fbs: std.io.BufferedReader = undefined;
+        fbs.initFixed(&fixed_codes);
+        var rdr: BitReader(T) = .init(&fbs);
 
         for (0..286) |c| {
             try testing.expectEqual(c, try rdr.readFixedCode());
@@ -369,8 +366,9 @@ test "u32 leaves no bits on u32 reads" {
         0xff, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
         0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
     };
-    var fbs = std.io.fixedBufferStream(&data);
-    var br = bitReader(u32, fbs.reader());
+    var fbs: std.io.BufferedReader = undefined;
+    fbs.initFixed(&data);
+    var br: BitReader(u32) = .init(&fbs);
 
     _ = try br.read(u3);
     try testing.expectEqual(29, br.nbits);
@@ -396,8 +394,9 @@ test "u64 need fill after alignToByte" {
     };
 
     // without fill
-    var fbs = std.io.fixedBufferStream(&data);
-    var br = bitReader(u64, fbs.reader());
+    var fbs: std.io.BufferedReader = undefined;
+    fbs.initFixed(&data);
+    var br: BitReader(u64) = .init(&fbs);
     _ = try br.read(u23);
     try testing.expectEqual(41, br.nbits);
     br.alignToByte();
@@ -409,7 +408,7 @@ test "u64 need fill after alignToByte" {
 
     // fill after align ensures all bits filled
     fbs.reset();
-    br = bitReader(u64, fbs.reader());
+    br = .init(&fbs);
     _ = try br.read(u23);
     try testing.expectEqual(41, br.nbits);
     br.alignToByte();
