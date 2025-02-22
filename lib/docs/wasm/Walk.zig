@@ -406,14 +406,10 @@ pub const ModuleIndex = enum(u32) {
 };
 
 pub fn add_file(file_name: []const u8, bytes: []u8) !File.Index {
-    const ast = try parse(bytes);
+    const ast = try parse(file_name, bytes);
+    assert(ast.errors.len == 0);
     const file_index: File.Index = @enumFromInt(files.entries.len);
     try files.put(gpa, file_name, .{ .ast = ast });
-
-    if (ast.errors.len > 0) {
-        log.err("can't index '{s}' because it has syntax errors", .{file_index.path()});
-        return file_index;
-    }
 
     var w: Walk = .{
         .file = file_index,
@@ -434,20 +430,41 @@ pub fn add_file(file_name: []const u8, bytes: []u8) !File.Index {
     return file_index;
 }
 
-fn parse(source: []u8) Oom!Ast {
+/// Parses a file and returns its `Ast`. If the file cannot be parsed, returns
+/// the `Ast` of an empty file, so that the rest of the Autodoc logic does not
+/// need to handle parse errors.
+fn parse(file_name: []const u8, source: []u8) Oom!Ast {
     // Require every source file to end with a newline so that Zig's tokenizer
     // can continue to require null termination and Autodoc implementation can
     // avoid copying source bytes from the decompressed tar file buffer.
     const adjusted_source: [:0]const u8 = s: {
         if (source.len == 0)
             break :s "";
-
-        assert(source[source.len - 1] == '\n');
+        if (source[source.len - 1] != '\n') {
+            log.err("{s}: expected newline at end of file", .{file_name});
+            break :s "";
+        }
         source[source.len - 1] = 0;
         break :s source[0 .. source.len - 1 :0];
     };
 
-    return Ast.parse(gpa, adjusted_source, .zig);
+    var ast = try Ast.parse(gpa, adjusted_source, .zig);
+    if (ast.errors.len > 0) {
+        defer ast.deinit(gpa);
+
+        const token_offsets = ast.tokens.items(.start);
+        var rendered_err: std.ArrayListUnmanaged(u8) = .{};
+        defer rendered_err.deinit(gpa);
+        for (ast.errors) |err| {
+            const err_offset = token_offsets[err.token] + ast.errorOffset(err);
+            const err_loc = std.zig.findLineColumn(ast.source, err_offset);
+            rendered_err.clearRetainingCapacity();
+            try ast.renderError(err, rendered_err.writer(gpa));
+            log.err("{s}:{}:{}: {s}", .{ file_name, err_loc.line + 1, err_loc.column + 1, rendered_err.items });
+        }
+        return Ast.parse(gpa, "", .zig);
+    }
+    return ast;
 }
 
 pub const Scope = struct {
