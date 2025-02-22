@@ -5771,6 +5771,7 @@ pub const FuncGen = struct {
                     try o.builder.intValue(.i8, 0xaa),
                     len,
                     if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
+                    self.ng.ownerModule().no_builtin,
                 );
                 const owner_mod = self.ng.ownerModule();
                 if (owner_mod.valgrind) {
@@ -5821,6 +5822,7 @@ pub const FuncGen = struct {
                 try o.builder.intValue(.i8, 0xaa),
                 len,
                 .normal,
+                self.ng.ownerModule().no_builtin,
             );
             const owner_mod = self.ng.ownerModule();
             if (owner_mod.valgrind) {
@@ -5902,7 +5904,7 @@ pub const FuncGen = struct {
         const result_alignment = va_list_ty.abiAlignment(pt.zcu).toLlvm();
         const dest_list = try self.buildAllocaWorkaround(va_list_ty, result_alignment);
 
-        _ = try self.wip.callIntrinsic(.normal, .none, .va_copy, &.{}, &.{ dest_list, src_list }, "");
+        _ = try self.wip.callIntrinsic(.normal, .none, .va_copy, &.{dest_list.typeOfWip(&self.wip)}, &.{ dest_list, src_list }, "");
         return if (isByRef(va_list_ty, zcu))
             dest_list
         else
@@ -5913,7 +5915,7 @@ pub const FuncGen = struct {
         const un_op = self.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
         const src_list = try self.resolveInst(un_op);
 
-        _ = try self.wip.callIntrinsic(.normal, .none, .va_end, &.{}, &.{src_list}, "");
+        _ = try self.wip.callIntrinsic(.normal, .none, .va_end, &.{src_list.typeOfWip(&self.wip)}, &.{src_list}, "");
         return .none;
     }
 
@@ -5927,7 +5929,7 @@ pub const FuncGen = struct {
         const result_alignment = va_list_ty.abiAlignment(pt.zcu).toLlvm();
         const dest_list = try self.buildAllocaWorkaround(va_list_ty, result_alignment);
 
-        _ = try self.wip.callIntrinsic(.normal, .none, .va_start, &.{}, &.{dest_list}, "");
+        _ = try self.wip.callIntrinsic(.normal, .none, .va_start, &.{dest_list.typeOfWip(&self.wip)}, &.{dest_list}, "");
         return if (isByRef(va_list_ty, zcu))
             dest_list
         else
@@ -9734,6 +9736,7 @@ pub const FuncGen = struct {
                 if (safety) try o.builder.intValue(.i8, 0xaa) else try o.builder.undefValue(.i8),
                 len,
                 if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal,
+                self.ng.ownerModule().no_builtin,
             );
             if (safety and owner_mod.valgrind) {
                 try self.valgrindMarkUndef(dest_ptr, len);
@@ -10041,9 +10044,22 @@ pub const FuncGen = struct {
                     try o.builder.undefValue(.i8);
                 const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
                 if (intrinsic_len0_traps) {
-                    try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, access_kind);
+                    try self.safeWasmMemset(
+                        dest_ptr,
+                        fill_byte,
+                        len,
+                        dest_ptr_align,
+                        access_kind,
+                    );
                 } else {
-                    _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+                    _ = try self.wip.callMemSet(
+                        dest_ptr,
+                        dest_ptr_align,
+                        fill_byte,
+                        len,
+                        access_kind,
+                        self.ng.ownerModule().no_builtin,
+                    );
                 }
                 const owner_mod = self.ng.ownerModule();
                 if (safety and owner_mod.valgrind) {
@@ -10060,9 +10076,22 @@ pub const FuncGen = struct {
                 const fill_byte = try o.builder.intValue(.i8, byte_val);
                 const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
                 if (intrinsic_len0_traps) {
-                    try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, access_kind);
+                    try self.safeWasmMemset(
+                        dest_ptr,
+                        fill_byte,
+                        len,
+                        dest_ptr_align,
+                        access_kind,
+                    );
                 } else {
-                    _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+                    _ = try self.wip.callMemSet(
+                        dest_ptr,
+                        dest_ptr_align,
+                        fill_byte,
+                        len,
+                        access_kind,
+                        self.ng.ownerModule().no_builtin,
+                    );
                 }
                 return .none;
             }
@@ -10077,9 +10106,22 @@ pub const FuncGen = struct {
             const len = try self.sliceOrArrayLenInBytes(dest_slice, ptr_ty);
 
             if (intrinsic_len0_traps) {
-                try self.safeWasmMemset(dest_ptr, fill_byte, len, dest_ptr_align, access_kind);
+                try self.safeWasmMemset(
+                    dest_ptr,
+                    fill_byte,
+                    len,
+                    dest_ptr_align,
+                    access_kind,
+                );
             } else {
-                _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+                _ = try self.wip.callMemSet(
+                    dest_ptr,
+                    dest_ptr_align,
+                    fill_byte,
+                    len,
+                    access_kind,
+                    self.ng.ownerModule().no_builtin,
+                );
             }
             return .none;
         }
@@ -10131,6 +10173,7 @@ pub const FuncGen = struct {
                 elem_abi_align.toLlvm(),
                 try o.builder.intValue(llvm_usize_ty, elem_abi_size),
                 access_kind,
+                self.ng.ownerModule().no_builtin,
             );
         } else _ = try self.wip.store(access_kind, value, it_ptr.toValue(), it_ptr_align);
         const next_ptr = try self.wip.gep(.inbounds, elem_llvm_ty, it_ptr.toValue(), &.{
@@ -10158,7 +10201,14 @@ pub const FuncGen = struct {
         const end_block = try self.wip.block(2, "MemsetTrapEnd");
         _ = try self.wip.brCond(cond, memset_block, end_block, .none);
         self.wip.cursor = .{ .block = memset_block };
-        _ = try self.wip.callMemSet(dest_ptr, dest_ptr_align, fill_byte, len, access_kind);
+        _ = try self.wip.callMemSet(
+            dest_ptr,
+            dest_ptr_align,
+            fill_byte,
+            len,
+            access_kind,
+            self.ng.ownerModule().no_builtin,
+        );
         _ = try self.wip.br(end_block);
         self.wip.cursor = .{ .block = end_block };
     }
@@ -10200,6 +10250,7 @@ pub const FuncGen = struct {
                 src_ptr_ty.ptrAlignment(zcu).toLlvm(),
                 len,
                 access_kind,
+                self.ng.ownerModule().no_builtin,
             );
             _ = try self.wip.br(end_block);
             self.wip.cursor = .{ .block = end_block };
@@ -10213,6 +10264,7 @@ pub const FuncGen = struct {
             src_ptr_ty.ptrAlignment(zcu).toLlvm(),
             len,
             access_kind,
+            self.ng.ownerModule().no_builtin,
         );
         return .none;
     }
@@ -11346,6 +11398,7 @@ pub const FuncGen = struct {
             ptr_alignment,
             try o.builder.intValue(try o.lowerType(Type.usize), size_bytes),
             access_kind,
+            fg.ng.ownerModule().no_builtin,
         );
         return result_ptr;
     }
@@ -11513,6 +11566,7 @@ pub const FuncGen = struct {
             elem_ty.abiAlignment(zcu).toLlvm(),
             try o.builder.intValue(try o.lowerType(Type.usize), elem_ty.abiSize(zcu)),
             access_kind,
+            self.ng.ownerModule().no_builtin,
         );
     }
 
