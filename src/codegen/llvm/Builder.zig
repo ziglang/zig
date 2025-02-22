@@ -2634,6 +2634,7 @@ pub const Intrinsic = enum {
     cos,
     pow,
     exp,
+    exp10,
     exp2,
     ldexp,
     frexp,
@@ -2801,22 +2802,22 @@ pub const Intrinsic = enum {
         .va_start = .{
             .ret_len = 0,
             .params = &.{
-                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .overloaded },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
         },
         .va_end = .{
             .ret_len = 0,
             .params = &.{
-                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .overloaded },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
         },
         .va_copy = .{
             .ret_len = 0,
             .params = &.{
-                .{ .kind = .{ .type = .ptr } },
-                .{ .kind = .{ .type = .ptr } },
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .willreturn },
         },
@@ -2929,7 +2930,7 @@ pub const Intrinsic = enum {
             .params = &.{
                 .{ .kind = .overloaded, .attrs = &.{ .@"noalias", .nocapture, .writeonly } },
                 .{ .kind = .overloaded, .attrs = &.{ .@"noalias", .nocapture, .readonly } },
-                .{ .kind = .overloaded, .attrs = &.{.immarg} },
+                .{ .kind = .overloaded },
                 .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
             },
             .attrs = &.{ .nocallback, .nofree, .nounwind, .willreturn, .{ .memory = .{ .argmem = .readwrite } } },
@@ -2959,7 +2960,7 @@ pub const Intrinsic = enum {
             .params = &.{
                 .{ .kind = .overloaded, .attrs = &.{ .nocapture, .writeonly } },
                 .{ .kind = .{ .type = .i8 } },
-                .{ .kind = .overloaded, .attrs = &.{.immarg} },
+                .{ .kind = .overloaded },
                 .{ .kind = .{ .type = .i1 }, .attrs = &.{.immarg} },
             },
             .attrs = &.{ .nocallback, .nofree, .nounwind, .willreturn, .{ .memory = .{ .argmem = .write } } },
@@ -3015,6 +3016,14 @@ pub const Intrinsic = enum {
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
         .exp2 = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .overloaded },
+                .{ .kind = .{ .matches = 0 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .exp10 = .{
             .ret_len = 1,
             .params = &.{
                 .{ .kind = .overloaded },
