@@ -1351,7 +1351,7 @@ pub fn ArrayHashMapUnmanaged(
         pub fn setKeyContext(self: *Self, gpa: Allocator, index: usize, new_key: K, ctx: Context) Oom!void {
             const key_ptr = &self.entries.items(.key)[index];
             key_ptr.* = new_key;
-            if (store_hash) self.entries.items(.hash)[index].* = checkedHash(ctx, key_ptr.*);
+            if (store_hash) self.entries.items(.hash)[index] = checkedHash(ctx, key_ptr.*);
             try rebuildIndex(self, gpa, undefined);
         }
 
@@ -2550,10 +2550,26 @@ test "0 sized key and 0 sized value" {
     try testing.expectEqual(map.get(0), null);
 }
 
-test "setKey" {
+test "setKey storehash true" {
     const gpa = std.testing.allocator;
 
-    var map: AutoArrayHashMapUnmanaged(i32, i32) = .empty;
+    var map: ArrayHashMapUnmanaged(i32, i32, AutoContext(i32), true) = .empty;
+    defer map.deinit(gpa);
+
+    try map.put(gpa, 12, 34);
+    try map.put(gpa, 56, 78);
+
+    try map.setKey(gpa, 0, 42);
+    try testing.expectEqual(2, map.count());
+    try testing.expectEqual(false, map.contains(12));
+    try testing.expectEqual(34, map.get(42));
+    try testing.expectEqual(78, map.get(56));
+}
+
+test "setKey storehash false" {
+    const gpa = std.testing.allocator;
+
+    var map: ArrayHashMapUnmanaged(i32, i32, AutoContext(i32), false) = .empty;
     defer map.deinit(gpa);
 
     try map.put(gpa, 12, 34);
