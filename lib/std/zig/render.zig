@@ -372,7 +372,7 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             if (!ais.indentStackEmpty() and
                 token_tags[i] != .colon and
                 ((token_tags[i] != .semicolon and token_tags[i] != .comma) or
-                    ais.lastSpaceModeIndent() < ais.currentIndent()))
+                ais.lastSpaceModeIndent() < ais.currentIndent()))
             {
                 ais.popIndent();
                 try ais.pushIndent(.normal);
@@ -3509,7 +3509,7 @@ fn AutoIndentingStream(comptime UnderlyingWriter: type) type {
         }
 
         pub fn popIndent(self: *Self) void {
-            if (self.indent_stack.pop().realized) {
+            if (self.indent_stack.pop().?.realized) {
                 assert(self.indent_count > 0);
                 self.indent_count -= 1;
             }
