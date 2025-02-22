@@ -386,16 +386,43 @@ export fn decl_params(decl_index: Decl.Index) Slice(Ast.Node.Index) {
 }
 
 fn decl_fields_fallible(decl_index: Decl.Index) ![]Ast.Node.Index {
+    const decl = decl_index.get();
+    const ast = decl.file.get_ast();
+
+    switch (decl.categorize()) {
+        .type_function => {
+            const node_tags = ast.nodes.items(.tag);
+
+            // If the type function returns a reference to another type function, get the fields from there
+            if (decl.get_type_fn_return_type_fn()) |function_decl| {
+                return decl_fields_fallible(function_decl);
+            }
+            // If the type function returns a container, such as a `struct`, read that container's fields
+            if (decl.get_type_fn_return_expr()) |return_expr| {
+                switch (node_tags[return_expr]) {
+                    .container_decl, .container_decl_trailing, .container_decl_two, .container_decl_two_trailing, .container_decl_arg, .container_decl_arg_trailing => {
+                        return ast_decl_fields_fallible(ast, return_expr);
+                    },
+                    else => {},
+                }
+            }
+            return &.{};
+        },
+        else => {
+            const value_node = decl.value_node() orelse return &.{};
+            return ast_decl_fields_fallible(ast, value_node);
+        },
+    }
+}
+
+fn ast_decl_fields_fallible(ast: *Ast, ast_index: Ast.Node.Index) ![]Ast.Node.Index {
     const g = struct {
         var result: std.ArrayListUnmanaged(Ast.Node.Index) = .empty;
     };
     g.result.clearRetainingCapacity();
-    const decl = decl_index.get();
-    const ast = decl.file.get_ast();
     const node_tags = ast.nodes.items(.tag);
-    const value_node = decl.value_node() orelse return &.{};
     var buf: [2]Ast.Node.Index = undefined;
-    const container_decl = ast.fullContainerDecl(&buf, value_node) orelse return &.{};
+    const container_decl = ast.fullContainerDecl(&buf, ast_index) orelse return &.{};
     for (container_decl.ast.members) |member_node| switch (node_tags[member_node]) {
         .container_field_init,
         .container_field_align,
@@ -880,6 +907,13 @@ export fn categorize_decl(decl_index: Decl.Index, resolve_alias_count: usize) Wa
 }
 
 export fn type_fn_members(parent: Decl.Index, include_private: bool) Slice(Decl.Index) {
+    const decl = parent.get();
+
+    // If the type function returns another type function, get the members of that function
+    if (decl.get_type_fn_return_type_fn()) |function_decl| {
+        return namespace_members(function_decl, include_private);
+    }
+
     return namespace_members(parent, include_private);
 }
 
