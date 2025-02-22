@@ -436,6 +436,10 @@ const Parser = struct {
         T: type,
         node: Zoir.Node.Index,
     ) error{ ParseZon, OutOfMemory, WrongType }!T {
+        if (T == Zoir.Node.Index) {
+            return node;
+        }
+
         switch (@typeInfo(T)) {
             .optional => |optional| if (node.get(self.zoir) == .null) {
                 return null;
@@ -3439,5 +3443,29 @@ test "std.zon add pointers" {
             fromSlice(*const ?*const enum { foo }, gpa, "true", &status, .{}),
         );
         try std.testing.expectFmt("1:1: error: expected optional enum literal\n", "{}", .{status});
+    }
+}
+
+test "std.zon stop on node" {
+    const gpa = std.testing.allocator;
+
+    {
+        const Vec2 = struct {
+            x: Zoir.Node.Index,
+            y: f32,
+        };
+
+        var status: Status = .{};
+        defer status.deinit(gpa);
+        const result = try fromSlice(Vec2, gpa, ".{ .x = 1.5, .y = 2.5 }", &status, .{});
+        try std.testing.expectEqual(result.y, 2.5);
+        try std.testing.expectEqual(Zoir.Node{ .float_literal = 1.5 }, result.x.get(status.zoir.?));
+    }
+
+    {
+        var status: Status = .{};
+        defer status.deinit(gpa);
+        const result = try fromSlice(Zoir.Node.Index, gpa, "1.23", &status, .{});
+        try std.testing.expectEqual(Zoir.Node{ .float_literal = 1.23 }, result.get(status.zoir.?));
     }
 }
