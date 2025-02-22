@@ -881,7 +881,7 @@ pub const Response = struct {
         context: *anyopaque,
         file: std.fs.File,
         offset: u64,
-        len: std.io.Writer.VTable.FileLen,
+        len: std.io.Writer.FileLen,
         headers_and_trailers: []const []const u8,
         headers_len: usize,
     ) anyerror!usize {
@@ -948,7 +948,7 @@ pub const Response = struct {
         context: *anyopaque,
         file: std.fs.File,
         offset: u64,
-        len: std.io.Writer.VTable.FileLen,
+        len: std.io.Writer.FileLen,
         headers_and_trailers: []const []const u8,
         headers_len: usize,
     ) anyerror!usize {
