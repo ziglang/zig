@@ -4754,6 +4754,9 @@ pub const MMapError = error{
     ProcessFdQuotaExceeded,
     SystemFdQuotaExceeded,
     OutOfMemory,
+
+    /// Using FIXED_NOREPLACE flag and the process has already mapped memory at the given address
+    MappingAlreadyExists,
 } || UnexpectedError;
 
 /// Map files or devices into memory.
@@ -4792,6 +4795,7 @@ pub fn mmap(
         .MFILE => return error.ProcessFdQuotaExceeded,
         .NFILE => return error.SystemFdQuotaExceeded,
         .NOMEM => return error.OutOfMemory,
+        .EXIST => return error.MappingAlreadyExists,
         else => return unexpectedErrno(err),
     }
 }

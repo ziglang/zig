@@ -1420,6 +1420,7 @@ const LinuxThreadImpl = struct {
             error.PermissionDenied => unreachable,
             error.ProcessFdQuotaExceeded => unreachable,
             error.SystemFdQuotaExceeded => unreachable,
+            error.MappingAlreadyExists => unreachable,
             else => |e| return e,
         };
         assert(mapped.len >= map_bytes);
