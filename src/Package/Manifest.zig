@@ -5,15 +5,10 @@ const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const Ast = std.zig.Ast;
 const testing = std.testing;
-const hex_charset = std.fmt.hex_charset;
+const Package = @import("../Package.zig");
 
 pub const max_bytes = 10 * 1024 * 1024;
 pub const basename = "build.zig.zon";
-pub const Hash = std.crypto.hash.sha2.Sha256;
-pub const Digest = [Hash.digest_length]u8;
-pub const multihash_len = 1 + 1 + Hash.digest_length;
-pub const multihash_hex_digest_len = 2 * multihash_len;
-pub const MultiHashHexDigest = [multihash_hex_digest_len]u8;
 
 pub const Dependency = struct {
     location: Location,
@@ -37,35 +32,6 @@ pub const ErrorMessage = struct {
     tok: Ast.TokenIndex,
     off: u32,
 };
-
-pub const MultihashFunction = enum(u16) {
-    identity = 0x00,
-    sha1 = 0x11,
-    @"sha2-256" = 0x12,
-    @"sha2-512" = 0x13,
-    @"sha3-512" = 0x14,
-    @"sha3-384" = 0x15,
-    @"sha3-256" = 0x16,
-    @"sha3-224" = 0x17,
-    @"sha2-384" = 0x20,
-    @"sha2-256-trunc254-padded" = 0x1012,
-    @"sha2-224" = 0x1013,
-    @"sha2-512-224" = 0x1014,
-    @"sha2-512-256" = 0x1015,
-    @"blake2b-256" = 0xb220,
-    _,
-};
-
-pub const multihash_function: MultihashFunction = switch (Hash) {
-    std.crypto.hash.sha2.Sha256 => .@"sha2-256",
-    else => @compileError("unreachable"),
-};
-comptime {
-    // We avoid unnecessary uleb128 code in hexDigest by asserting here the
-    // values are small enough to be contained in the one-byte encoding.
-    assert(@intFromEnum(multihash_function) < 127);
-    assert(Hash.digest_length < 127);
-}
 
 name: []const u8,
 version: std.SemanticVersion,
@@ -162,22 +128,6 @@ pub fn copyErrorsIntoBundle(
             }),
         });
     }
-}
-
-pub fn hexDigest(digest: Digest) MultiHashHexDigest {
-    var result: MultiHashHexDigest = undefined;
-
-    result[0] = hex_charset[@intFromEnum(multihash_function) >> 4];
-    result[1] = hex_charset[@intFromEnum(multihash_function) & 15];
-
-    result[2] = hex_charset[Hash.digest_length >> 4];
-    result[3] = hex_charset[Hash.digest_length & 15];
-
-    for (digest, 0..) |byte, i| {
-        result[4 + i * 2] = hex_charset[byte >> 4];
-        result[5 + i * 2] = hex_charset[byte & 15];
-    }
-    return result;
 }
 
 const Parse = struct {
@@ -421,21 +371,8 @@ const Parse = struct {
         const tok = main_tokens[node];
         const h = try parseString(p, node);
 
-        if (h.len >= 2) {
-            const their_multihash_func = std.fmt.parseInt(u8, h[0..2], 16) catch |err| {
-                return fail(p, tok, "invalid multihash value: unable to parse hash function: {s}", .{
-                    @errorName(err),
-                });
-            };
-            if (@as(MultihashFunction, @enumFromInt(their_multihash_func)) != multihash_function) {
-                return fail(p, tok, "unsupported hash function: only sha2-256 is supported", .{});
-            }
-        }
-
-        if (h.len != multihash_hex_digest_len) {
-            return fail(p, tok, "wrong hash size. expected: {d}, found: {d}", .{
-                multihash_hex_digest_len, h.len,
-            });
+        if (h.len > Package.Hash.max_len) {
+            return fail(p, tok, "hash length exceeds maximum: {d}", .{h.len});
         }
 
         return h;

@@ -5197,7 +5197,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .error_bundle = undefined,
                     .manifest = null,
                     .manifest_ast = undefined,
-                    .actual_hash = undefined,
+                    .computed_hash = undefined,
                     .has_build_zig = true,
                     .oom_flag = false,
                     .latest_commit = null,
@@ -5244,13 +5244,14 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     const hashes = job_queue.table.keys();
                     const fetches = job_queue.table.values();
                     try deps_mod.deps.ensureUnusedCapacity(arena, @intCast(hashes.len));
-                    for (hashes, fetches) |hash, f| {
+                    for (hashes, fetches) |*hash, f| {
                         if (f == &fetch) {
                             // The first one is a dummy package for the current project.
                             continue;
                         }
                         if (!f.has_build_zig)
                             continue;
+                        const hash_slice = hash.toSlice();
                         const m = try Package.Module.create(arena, .{
                             .global_cache_directory = global_cache_directory,
                             .paths = .{
@@ -5260,7 +5261,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                             .fully_qualified_name = try std.fmt.allocPrint(
                                 arena,
                                 "root.@dependencies.{s}",
-                                .{&hash},
+                                .{hash_slice},
                             ),
                             .cc_argv = &.{},
                             .inherited = .{},
@@ -5269,7 +5270,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                             .builtin_mod = builtin_mod,
                             .builtin_modules = null, // `builtin_mod` is specified
                         });
-                        const hash_cloned = try arena.dupe(u8, &hash);
+                        const hash_cloned = try arena.dupe(u8, hash_slice);
                         deps_mod.deps.putAssumeCapacityNoClobber(hash_cloned, m);
                         f.module = m;
                     }
@@ -5385,23 +5386,22 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                         var any_errors = false;
                         while (it.next()) |hash| {
                             if (hash.len == 0) continue;
-                            const digest_len = @typeInfo(Package.Manifest.MultiHashHexDigest).array.len;
-                            if (hash.len != digest_len) {
-                                std.log.err("invalid digest (length {d} instead of {d}): '{s}'", .{
-                                    hash.len, digest_len, hash,
+                            if (hash.len > Package.Hash.max_len) {
+                                std.log.err("invalid digest (length {d} exceeds maximum): '{s}'", .{
+                                    hash.len, hash,
                                 });
                                 any_errors = true;
                                 continue;
                             }
-                            try unlazy_set.put(arena, hash[0..digest_len].*, {});
+                            try unlazy_set.put(arena, .fromSlice(hash), {});
                         }
                         if (any_errors) process.exit(3);
                         if (system_pkg_dir_path) |p| {
                             // In this mode, the system needs to provide these packages; they
                             // cannot be fetched by Zig.
-                            for (unlazy_set.keys()) |hash| {
+                            for (unlazy_set.keys()) |*hash| {
                                 std.log.err("lazy dependency package not found: {s}" ++ s ++ "{s}", .{
-                                    p, hash,
+                                    p, hash.toSlice(),
                                 });
                             }
                             std.log.info("remote package fetching disabled due to --system mode", .{});
@@ -7097,7 +7097,7 @@ fn cmdFetch(
         .error_bundle = undefined,
         .manifest = null,
         .manifest_ast = undefined,
-        .actual_hash = undefined,
+        .computed_hash = undefined,
         .has_build_zig = false,
         .oom_flag = false,
         .latest_commit = null,
@@ -7117,14 +7117,15 @@ fn cmdFetch(
         process.exit(1);
     }
 
-    const hex_digest = Package.Manifest.hexDigest(fetch.actual_hash);
+    const package_hash = fetch.computedPackageHash();
+    const package_hash_slice = package_hash.toSlice();
 
     root_prog_node.end();
     root_prog_node = .{ .index = .none };
 
     const name = switch (save) {
         .no => {
-            try io.getStdOut().writeAll(hex_digest ++ "\n");
+            try io.getStdOut().writer().print("{s}\n", .{package_hash_slice});
             return cleanExit();
         },
         .yes, .exact => |name| name: {
@@ -7194,7 +7195,7 @@ fn cmdFetch(
         \\        }}
     , .{
         std.zig.fmtEscapes(saved_path_or_url),
-        std.zig.fmtEscapes(&hex_digest),
+        std.zig.fmtEscapes(package_hash_slice),
     });
 
     const new_node_text = try std.fmt.allocPrint(arena, ".{p_} = {s},\n", .{
@@ -7213,7 +7214,7 @@ fn cmdFetch(
         if (dep.hash) |h| {
             switch (dep.location) {
                 .url => |u| {
-                    if (mem.eql(u8, h, &hex_digest) and mem.eql(u8, u, saved_path_or_url)) {
+                    if (mem.eql(u8, h, package_hash_slice) and mem.eql(u8, u, saved_path_or_url)) {
                         std.log.info("existing dependency named '{s}' is up-to-date", .{name});
                         process.exit(0);
                     }
@@ -7230,7 +7231,7 @@ fn cmdFetch(
         const hash_replace = try std.fmt.allocPrint(
             arena,
             "\"{}\"",
-            .{std.zig.fmtEscapes(&hex_digest)},
+            .{std.zig.fmtEscapes(package_hash_slice)},
         );
 
         warn("overwriting existing dependency named '{s}'", .{name});
