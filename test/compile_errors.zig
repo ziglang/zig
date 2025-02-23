@@ -250,18 +250,4 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             ":1:5: error: expected expression, found 'invalid token'",
         });
     }
-
-    {
-        const case = ctx.obj("usage of deprecated code", b.graph.host);
-
-        case.addError(
-            \\const bad = @deprecated(42);
-            \\
-            \\pub export fn foo() usize {
-            \\   return bad; 
-            \\}
-        , &[_][]const u8{
-            ":1:13: error: found deprecated code",
-        });
-    }
 }

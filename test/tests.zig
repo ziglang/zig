@@ -1199,13 +1199,13 @@ pub fn addCliTests(b: *std.Build) *Step {
                 \\}
             ;
 
-            var src_dir = std.fs.cwd().makeOpenPath(b.pathJoin(&.{ tmp_path, "src" }), .{}) catch unreachable;
+            var src_dir = std.fs.cwd().makeOpenPath(b.pathJoin(&.{ tmp_path, "src" }), .{}) catch @panic("unable to create tmp path");
             defer src_dir.close();
 
-            var main = src_dir.createFile("main.zig", .{}) catch unreachable;
+            var main = src_dir.createFile("main.zig", .{}) catch @panic("unable to create main.zig");
             defer main.close();
 
-            main.writeAll(new_main_src) catch unreachable;
+            main.writeAll(new_main_src) catch @panic("unable to write to main.zig");
         }
 
         const init_exe = b.addSystemCommand(&.{ b.graph.zig_exe, "init" });

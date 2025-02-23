@@ -4313,7 +4313,6 @@ fn findTrackableInner(
                 .value_placeholder => unreachable,
 
                 // Once again, we start with the boring tags.
-                .deprecated,
                 .this,
                 .ret_addr,
                 .builtin_src,
@@ -4367,6 +4366,7 @@ fn findTrackableInner(
                 .tuple_decl,
                 .dbg_empty_stmt,
                 .astgen_error,
+                .deprecated,
                 => return,
 
                 // `@TypeOf` has a body.

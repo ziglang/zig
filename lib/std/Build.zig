@@ -94,7 +94,7 @@ available_deps: AvailableDeps,
 
 release_mode: ReleaseMode,
 
-// True only for the top-level builder.
+/// `true` only for the root `Build`; `false` for any `Build` belonging to a dependency.
 is_root: bool = false,
 
 pub const ReleaseMode = enum {

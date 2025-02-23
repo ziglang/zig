@@ -25,7 +25,6 @@ stack_check: ?bool,
 sanitize_c: ?bool,
 sanitize_thread: ?bool,
 fuzz: ?bool,
-allow_deprecated: ?bool,
 code_model: std.builtin.CodeModel,
 valgrind: ?bool,
 pic: ?bool,
@@ -285,7 +284,6 @@ pub fn init(
                 .owner = owner,
                 .root_source_file = if (options.root_source_file) |lp| lp.dupe(owner) else null,
                 .import_table = .{},
-                .allow_deprecated = owner.graph.allow_deprecated orelse !owner.is_root,
                 .resolved_target = options.target,
                 .optimize = options.optimize,
                 .link_libc = options.link_libc,
@@ -560,7 +558,8 @@ pub fn appendZigProcessFlags(
     try addFlag(zig_args, m.red_zone, "-mred-zone", "-mno-red-zone");
 
     if (m.root_source_file != null) {
-        try addFlag(zig_args, m.allow_deprecated, "-fallow-deprecated", "-fno-allow-deprecated");
+        const allow_deprecated = m.owner.graph.allow_deprecated orelse !m.owner.is_root;
+        try addFlag(zig_args, allow_deprecated, "-fallow-deprecated", "-fno-allow-deprecated");
     }
 
     if (m.dwarf_format) |dwarf_format| {
